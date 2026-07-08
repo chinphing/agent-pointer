@@ -30,13 +30,19 @@ describe('webhookIngress', () => {
         hasTranscript: true
       })
     ).toBe('webhook:github:20260628')
+    const fallback = resolveWebhookViewSessionId({
+      src: 'github',
+      conversationId: 'webhook:github',
+      hasTranscript: true
+    })
+    expect(fallback).toMatch(/^webhook:github:\d{8}$/)
+    expect(fallback).not.toBe('webhook:github')
     expect(
       resolveWebhookViewSessionId({
         src: 'github',
-        conversationId: 'webhook:github',
-        hasTranscript: true
+        currentSessionId: 'webhook:github'
       })
-    ).toBe('webhook:github')
+    ).toMatch(/^webhook:github:\d{8}$/)
   })
 
   it('generates 32-char token', () => {

@@ -248,14 +248,23 @@ impl ConversationStore {
 
     /// Resolve the active webhook session for `:src` (daily 04:00 rollover).
     pub fn resolve_webhook_ingress_session(&self, src: &str) -> Result<String> {
-        let legacy = crate::webhook_config::webhook_session_key(src);
-        let legacy_has = self.message_count(&legacy)? > 0;
         self.db.execute_write(|conn| {
             webhook_sources::resolve_ingress_session_id(
                 conn,
                 src,
                 &chrono::Local::now(),
-                legacy_has,
+            )
+        })
+    }
+
+    /// Record explicit webhook session id from multipart upload (keeps trigger aligned).
+    pub fn adopt_webhook_upload_session(&self, src: &str, conversation_id: &str) -> Result<()> {
+        self.db.execute_write(|conn| {
+            webhook_sources::adopt_upload_session(
+                conn,
+                src,
+                conversation_id,
+                &chrono::Local::now(),
             )
         })
     }

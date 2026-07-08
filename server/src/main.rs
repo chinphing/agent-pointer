@@ -1615,6 +1615,16 @@ async fn webhook_upload(
             .map_err(ApiError::from)?,
     };
 
+    if let Err(e) = state
+        .core
+        .session_index
+        .adopt_webhook_upload_session(&normalized_src, &conversation_id)
+    {
+        log::warn!(
+            "webhook upload: adopt session failed src={normalized_src} conv={conversation_id}: {e:#}"
+        );
+    }
+
     let saved = match pointer_core::webhook_attachment::save_webhook_upload(
         &conversation_id,
         &file_name,
@@ -1713,6 +1723,11 @@ async fn webhook_ingress(
             .resolve_webhook_ingress_session(&normalized_src)
             .map_err(ApiError::from)?
     };
+    let conversation_id = pointer_core::webhook_ingress::reconcile_webhook_conversation_id(
+        &normalized_src,
+        &conversation_id,
+        parsed.inbound.attachments.as_deref(),
+    );
 
     let messages = match pointer_core::webhook_ingress::build_webhook_dispatch_messages(
         &state.core.session_index,

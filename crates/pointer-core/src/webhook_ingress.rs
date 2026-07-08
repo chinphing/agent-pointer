@@ -13,6 +13,49 @@ use crate::conversation_store::ConversationStore;
 use crate::models::{ChatMessage, MediaAttachment, Role};
 use crate::webhook_attachment::validate_webhook_attachments;
 
+/// Prefer the webhook session encoded in attachment paths when upload/trigger ids diverge.
+pub fn reconcile_webhook_conversation_id(
+    src: &str,
+    resolved_conversation_id: &str,
+    attachments: Option<&[MediaAttachment]>,
+) -> String {
+    let Some(atts) = attachments.filter(|a| !a.is_empty()) else {
+        return resolved_conversation_id.to_string();
+    };
+    let rel = atts.iter().find_map(|a| {
+        a.storage_rel_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    });
+    let Some(rel) = rel else {
+        return resolved_conversation_id.to_string();
+    };
+    let Ok(parsed) = crate::media::layout::parse_storage_rel(rel) else {
+        return resolved_conversation_id.to_string();
+    };
+    let Some(inferred) = crate::webhook_config::webhook_session_id_from_storage_segment(
+        src,
+        &parsed.conversation_segment,
+    ) else {
+        return resolved_conversation_id.to_string();
+    };
+    if !crate::webhook_config::conversation_id_matches_webhook_src(&inferred, src) {
+        return resolved_conversation_id.to_string();
+    }
+    let resolved_seg =
+        crate::storage::sanitize_storage_dir_segment(resolved_conversation_id.trim());
+    if parsed.conversation_segment == resolved_seg {
+        return resolved_conversation_id.to_string();
+    }
+    log::info!(
+        "webhook ingress: reconciled conversation id {} -> {} from storageRelPath (src={src})",
+        resolved_conversation_id,
+        inferred
+    );
+    inferred
+}
+
 /// Max raw body size for webhook ingress (including raw-body fallback).
 pub const MAX_WEBHOOK_BODY_BYTES: usize = 256 * 1024;
 
@@ -378,5 +421,30 @@ mod tests {
         let msgs = build_webhook_dispatch_messages(&s, conv, &parsed.inbound).unwrap();
         assert_eq!(msgs[0].content, "");
         assert!(msgs[0].attachments.as_ref().is_some());
+    }
+
+    #[test]
+    fn reconcile_dated_session_from_storage_rel_path() {
+        let atts = vec![MediaAttachment {
+            id: "wh-1".into(),
+            kind: "image".into(),
+            mime_type: "image/png".into(),
+            file_name: "test.png".into(),
+            size_bytes: 0,
+            storage_rel_path: Some(
+                "1530c681-176d-40ca-84b4-a90a34312628/webhook_test_20260708/test.png".into(),
+            ),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        }];
+        let reconciled = reconcile_webhook_conversation_id(
+            "test",
+            "webhook:test",
+            Some(&atts),
+        );
+        assert_eq!(reconciled, "webhook:test:20260708");
     }
 }

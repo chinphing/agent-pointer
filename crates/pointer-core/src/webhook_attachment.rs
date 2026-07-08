@@ -137,7 +137,10 @@ fn validate_storage_rel_for_conversation(conversation_id: &str, rel: &str) -> Re
     }
     let parsed = parse_storage_rel(rel)?;
     if parsed.conversation_segment != conv {
-        anyhow::bail!("storageRelPath must be under this webhook conversation");
+        anyhow::bail!(
+            "storageRelPath must be under this webhook conversation (expected segment `{conv}`, got `{}`; pass upload response `conversationId` on trigger)",
+            parsed.conversation_segment
+        );
     }
     Ok(())
 }

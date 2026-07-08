@@ -29,6 +29,37 @@ pub fn webhook_conversation_id(src: &str) -> String {
 
 pub use crate::conversation_store::webhook_sources::current_webhook_session_id;
 
+/// True when `conversation_id` is the legacy or dated webhook session for `:src`.
+pub fn conversation_id_matches_webhook_src(conversation_id: &str, src: &str) -> bool {
+    let id = conversation_id.trim();
+    let src = src.trim();
+    if id.is_empty() || src.is_empty() {
+        return false;
+    }
+    if id == webhook_session_key(src) {
+        return true;
+    }
+    let dated_prefix = format!("webhook:{src}:");
+    id.starts_with(&dated_prefix)
+        && id.len() == dated_prefix.len() + 8
+        && id[dated_prefix.len()..].chars().all(|c| c.is_ascii_digit())
+}
+
+/// Reverse-map a media directory segment to a webhook session id for `:src`.
+pub fn webhook_session_id_from_storage_segment(src: &str, segment: &str) -> Option<String> {
+    let legacy_seg = crate::storage::sanitize_storage_dir_segment(&webhook_session_key(src));
+    if segment == legacy_seg {
+        return Some(webhook_session_key(src));
+    }
+    let prefix = format!("{legacy_seg}_");
+    let date = segment.strip_prefix(&prefix)?;
+    if date.len() == 8 && date.chars().all(|c| c.is_ascii_digit()) {
+        Some(format!("webhook:{src}:{date}"))
+    } else {
+        None
+    }
+}
+
 /// Display title for a webhook session row / UI shell.
 pub fn webhook_session_title(src: &str) -> String {
     format!("[Webhook] {src}")
@@ -174,7 +205,7 @@ impl<'a> WebhookTokenStore<'a> {
         let legacy_has = self.store.message_count(&conversation_id)? > 0;
         let record = self.store.webhook_sources_get(&src)?;
         let current_session_id =
-            webhook_sources::resolve_view_session_id(record.as_ref(), &src, legacy_has);
+            webhook_sources::resolve_view_session_id(record.as_ref(), &src);
         let auth_header_name = record
             .as_ref()
             .and_then(|r| r.auth_header_name.clone())
@@ -591,5 +622,20 @@ mod tests {
                 .as_deref(),
             Some("X-Codeup-Token")
         );
+    }
+
+    #[test]
+    fn webhook_session_id_from_storage_segment_dated_and_legacy() {
+        assert_eq!(
+            webhook_session_id_from_storage_segment("test", "webhook_test_20260708"),
+            Some("webhook:test:20260708".into())
+        );
+        assert_eq!(
+            webhook_session_id_from_storage_segment("test", "webhook_test"),
+            Some("webhook:test".into())
+        );
+        assert!(conversation_id_matches_webhook_src("webhook:test:20260708", "test"));
+        assert!(conversation_id_matches_webhook_src("webhook:test", "test"));
+        assert!(!conversation_id_matches_webhook_src("webhook:ci:20260708", "test"));
     }
 }

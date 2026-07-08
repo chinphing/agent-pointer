@@ -11,7 +11,7 @@ use crate::webhook_config::{webhook_session_key, webhook_session_title};
 #[derive(Debug, Clone)]
 pub struct WebhookSourceRecord {
     pub src: String,
-    /// Active session id (`webhook:{src}:{yyyymmdd}` or legacy `webhook:{src}`).
+    /// Active session id (`webhook:{src}:{yyyymmdd}`); null until first ingress.
     pub current_session_id: Option<String>,
     pub last_ingress_at_ms: Option<i64>,
     /// Optional custom auth header (e.g. `X-Codeup-Token`); NULL = default Bearer + X-Pointer-Token.
@@ -115,15 +115,13 @@ pub fn current_webhook_session_id<Z: TimeZone>(src: &str, now: &DateTime<Z>) -> 
     format!("webhook:{}:{}", src, boundary_local.format("%Y%m%d"))
 }
 
-/// Resolve which session id an ingress should write to (daily rollover + legacy adoption).
+/// Resolve which session id an ingress should write to (daily dated sessions only).
 pub fn resolve_ingress_session_id(
     conn: &Connection,
     src: &str,
     now: &DateTime<Local>,
-    legacy_has_messages: bool,
 ) -> Result<String> {
     let expected = current_webhook_session_id(src, now);
-    let legacy = webhook_session_key(src);
     let now_ms = now.timestamp_millis();
     ensure_row(conn, src, now_ms)?;
     let record = get(conn, src)?;
@@ -131,26 +129,16 @@ pub fn resolve_ingress_session_id(
         .as_ref()
         .and_then(|r| r.current_session_id.clone());
 
-    let session_id = match current.as_deref() {
-        None if legacy_has_messages => legacy.clone(),
-        None => expected.clone(),
-        Some(cur) if cur == expected => expected.clone(),
-        Some(cur) if cur == legacy.as_str() => {
-            let last_ms = record
-                .as_ref()
-                .and_then(|r| r.last_ingress_at_ms)
-                .unwrap_or(0);
-            let boundary_ms = daily_reset_at_ms(now, CRON_SESSION_RESET_AT_HOUR);
-            if last_ms > 0 && last_ms < boundary_ms {
-                expected.clone()
-            } else {
-                legacy.clone()
-            }
-        }
-        Some(_) => expected.clone(),
-    };
-
+    let session_id = expected.clone();
     if current.as_deref() != Some(session_id.as_str()) {
+        if current
+            .as_deref()
+            .is_some_and(|cur| cur == webhook_session_key(src))
+        {
+            log::info!(
+                "webhook_sources: migrated legacy session to dated src={src} session={session_id}"
+            );
+        }
         set_current_session_id(conn, src, &session_id)?;
         let title = webhook_session_title(src);
         super::write::ensure_conversation_row_with_title(conn, &session_id, Some(&title))?;
@@ -172,16 +160,39 @@ pub fn resolve_ingress_session_id(
     Ok(session_id)
 }
 
-/// Session id for the automation UI "查看会话" entry.
+/// When upload supplies an explicit webhook session id, keep `webhook_sources` in sync.
+pub fn adopt_upload_session(
+    conn: &Connection,
+    src: &str,
+    conversation_id: &str,
+    now: &DateTime<Local>,
+) -> Result<()> {
+    if !crate::webhook_config::conversation_id_matches_webhook_src(conversation_id, src) {
+        return Ok(());
+    }
+    let now_ms = now.timestamp_millis();
+    ensure_row(conn, src, now_ms)?;
+    set_current_session_id(conn, src, conversation_id)?;
+    let title = crate::webhook_config::webhook_session_title(src);
+    super::write::ensure_conversation_row_with_title(conn, conversation_id, Some(&title))?;
+    touch_ingress(conn, src, now_ms, conversation_id)?;
+    log::info!(
+        "webhook_sources: adopted upload session src={src} session={conversation_id}"
+    );
+    Ok(())
+}
+
+/// Session id for the automation UI "查看会话" entry (never returns legacy `webhook:{src}`).
 pub fn resolve_view_session_id(
     record: Option<&WebhookSourceRecord>,
     src: &str,
-    legacy_has_messages: bool,
 ) -> Option<String> {
+    let legacy = webhook_session_key(src);
     if let Some(r) = record {
         if let Some(ref id) = r.current_session_id {
-            if !id.trim().is_empty() {
-                return Some(id.clone());
+            let id = id.trim();
+            if !id.is_empty() && id != legacy {
+                return Some(id.to_string());
             }
         }
         if let Some(ms) = r.last_ingress_at_ms {
@@ -192,10 +203,7 @@ pub fn resolve_view_session_id(
             return Some(current_webhook_session_id(src, &dt));
         }
     }
-    if legacy_has_messages {
-        return Some(webhook_session_key(src));
-    }
-    None
+    Some(current_webhook_session_id(src, &Local::now()))
 }
 
 #[cfg(test)]
@@ -247,19 +255,20 @@ mod tests {
     fn first_ingress_uses_dated_session() {
         let conn = mem();
         let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
-        let id = resolve_ingress_session_id(&conn, "github", &now, false).unwrap();
+        let id = resolve_ingress_session_id(&conn, "github", &now).unwrap();
         assert_eq!(id, "webhook:github:20260628");
     }
 
     #[test]
-    fn legacy_adoption_then_rollover() {
+    fn legacy_db_state_migrates_to_dated_on_ingress() {
         let conn = mem();
         let day1 = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
-        let id1 = resolve_ingress_session_id(&conn, "github", &day1, true).unwrap();
-        assert_eq!(id1, "webhook:github");
+        set_current_session_id(&conn, "github", "webhook:github").unwrap();
+        let id1 = resolve_ingress_session_id(&conn, "github", &day1).unwrap();
+        assert_eq!(id1, "webhook:github:20260628");
 
         let day2 = Local.with_ymd_and_hms(2026, 6, 29, 10, 0, 0).single().unwrap();
-        let id2 = resolve_ingress_session_id(&conn, "github", &day2, true).unwrap();
+        let id2 = resolve_ingress_session_id(&conn, "github", &day2).unwrap();
         assert_eq!(id2, "webhook:github:20260629");
     }
 

@@ -33,11 +33,9 @@ export function resolveWebhookViewSessionId(source: {
   hasTranscript?: boolean
 }): string | null {
   const persisted = source.currentSessionId?.trim()
-  if (persisted) return persisted
-  if (source.hasTranscript && source.conversationId?.trim()) {
-    return source.conversationId.trim()
-  }
-  return null
+  const legacy = webhookConversationId(source.src)
+  if (persisted && persisted !== legacy) return persisted
+  return currentWebhookSessionId(source.src)
 }
 
 export function webhookIngressUrl(src: string): string {

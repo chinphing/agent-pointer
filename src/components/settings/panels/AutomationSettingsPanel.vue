@@ -35,6 +35,7 @@ const jobsError = ref<string | null>(null)
 const webhook = ref<WebhookConfig | null>(null)
 const loadingWebhook = ref(false)
 const webhookError = ref<string | null>(null)
+const webhookInfo = ref<string | null>(null)
 const webhookSrcInput = ref('')
 const tokenInput = ref('')
 const authHeaderInput = ref('')
@@ -83,7 +84,12 @@ const WEBHOOK_REF_BLOCKING =
 const LEGACY_TOKEN_DESC = '检测到旧版全局 Token，对所有来源生效。建议改为按来源配置。'
 const AUTH_HEADER_HINT =
   '留空则使用 Authorization: Bearer 或 X-Pointer-Token'
-const TOKEN_HINT = '自动生成 Token，添加后可复制。'
+const TOKEN_HINT = isDesktop
+  ? '自动生成 Token，添加后可复制。'
+  : '自动生成 Token，添加时会复制到剪贴板；Web 端无法再次查看完整 Token。'
+const WEBHOOK_TOKEN_COPY_UNAVAILABLE = isDesktop
+  ? 'Token 不可用'
+  : 'Web 端无法再次查看完整 Token。请删除该来源后重新添加，并在点击「添加」前复制保存。'
 
 function fmtMs(ms?: number | null): string {
   if (!ms) return '—'
@@ -234,8 +240,17 @@ async function submitWebhookSource() {
   settingToken.value = true
   webhookFormError.value = null
   webhookError.value = null
+  webhookInfo.value = null
   try {
     webhook.value = await setWebhookSourceToken(src, token, authHeaderName)
+    if (!isDesktop) {
+      webhookInfo.value = 'Token 已复制到剪贴板。Web 端无法再次查看完整 Token，请妥善保存。'
+      navigator.clipboard.writeText(token).catch(e => {
+        console.warn('[automation] copy webhook token after create failed', e)
+        webhookInfo.value =
+          '来源已添加。Web 端无法再次查看完整 Token，请删除后重新添加并在添加前自行复制保存。'
+      })
+    }
     webhookSrcInput.value = ''
     tokenInput.value = ''
     authHeaderInput.value = ''
@@ -296,7 +311,8 @@ function viewWebhookSession(source: WebhookSource) {
 function copyWebhookCurl(source: WebhookSource) {
   const token = source.token?.trim()
   if (!token) {
-    webhookError.value = 'Token 不可用'
+    webhookInfo.value = null
+    webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
     return
   }
   webhookError.value = null
@@ -312,7 +328,8 @@ function copyWebhookCurl(source: WebhookSource) {
 function copyWebhookToken(source: WebhookSource) {
   const token = source.token?.trim()
   if (!token) {
-    webhookError.value = 'Token 不可用'
+    webhookInfo.value = null
+    webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
     return
   }
   webhookError.value = null
@@ -529,6 +546,7 @@ onMounted(() => {
         </div>
       </div>
 
+      <p v-if="webhookInfo" class="text-xs text-emerald-600 mb-2">{{ webhookInfo }}</p>
       <p v-if="webhookError" class="text-xs text-red-500 mb-2">{{ webhookError }}</p>
 
       <div v-if="webhook" class="space-y-3">
@@ -571,8 +589,11 @@ onMounted(() => {
               <span class="text-muted/50 shrink-0">·</span>
               <button
                 type="button"
-                class="font-mono text-muted truncate hover:text-foreground cursor-pointer text-left min-w-0"
-                :title="copiedWebhookTokenSrc === s.src ? '已复制 Token' : '复制 Token'"
+                class="font-mono text-muted truncate text-left min-w-0"
+                :class="s.token?.trim() ? 'hover:text-foreground cursor-pointer' : 'cursor-default'"
+                :title="s.token?.trim()
+                  ? (copiedWebhookTokenSrc === s.src ? '已复制 Token' : '复制 Token')
+                  : WEBHOOK_TOKEN_COPY_UNAVAILABLE"
                 @click="copyWebhookToken(s)"
               >
                 <span v-if="copiedWebhookTokenSrc === s.src" class="text-emerald-500">已复制</span>
@@ -596,8 +617,9 @@ onMounted(() => {
                 <MessagesSquare class="w-3.5 h-3.5" />
               </button>
               <button
-                class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center shrink-0 cursor-pointer text-muted"
-                title="复制 curl"
+                class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center shrink-0 cursor-pointer text-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                :disabled="!s.token?.trim()"
+                :title="s.token?.trim() ? '复制 curl' : WEBHOOK_TOKEN_COPY_UNAVAILABLE"
                 @click="copyWebhookCurl(s)"
               >
                 <Check v-if="copiedWebhookCurlSrc === s.src" class="w-3.5 h-3.5 text-emerald-500" />

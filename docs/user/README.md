@@ -10,6 +10,7 @@
 | [cloud-host.md](cloud-host.md) | 云主机购买、打开与切换 |
 | [subagents.md](subagents.md) | 子 Agent 相关用户设置 |
 | [project-lint.md](project-lint.md) | 工作区 `.pointer/lint.toml` 自定义 lint |
+| [webhook.md](webhook.md) | Webhook 自动化触发 Agent（含 Python 多附件示例） |
 
 **集成部署、Skill 格式、扩展钩子**等见 **[`../developer/`](../developer/README.md)**。
 

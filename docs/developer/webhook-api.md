@@ -171,3 +171,5 @@ curl -X POST "$HOST/api/webhooks/ci" \
 ```
 
 成功时响应 `text` 为 Agent 最终回复正文。
+
+用户侧 Python 多附件示例见 **[`../user/webhook.md`](../user/webhook.md)**。

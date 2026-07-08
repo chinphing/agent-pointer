@@ -303,6 +303,10 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::delete(clear_webhook_legacy_token),
         )
         .route(
+            "/api/webhooks/config/:src/token",
+            get(reveal_webhook_source_token),
+        )
+        .route(
             "/api/webhooks/config/:src",
             axum::routing::delete(clear_webhook_source_token),
         )
@@ -2028,6 +2032,28 @@ async fn set_webhook_source_token(
             }
         }
     }
+}
+
+/// `GET /api/webhooks/config/:src/token` — reveal bearer token for settings copy.
+async fn reveal_webhook_source_token(
+    State(state): State<ServerState>,
+    Path(src): Path<String>,
+) -> Result<Json<pointer_core::webhook_config::WebhookTokenRevealView>, ApiError> {
+    require_platform_access(&state)?;
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    let normalized = pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src)
+        .map_err(ApiError::from)?;
+    let Some(token) = store.reveal_source_token(&normalized).map_err(ApiError::from)? else {
+        return Err(ApiError(anyhow::anyhow!(
+            "webhook token not configured for this source"
+        )));
+    };
+    log::info!("webhook_config: token revealed src={normalized}");
+    Ok(Json(pointer_core::webhook_config::WebhookTokenRevealView {
+        src: normalized,
+        token: token.clone(),
+        preview: pointer_core::webhook_config::mask_token(&token),
+    }))
 }
 
 /// `DELETE /api/webhooks/config/:src` — clear a source token.

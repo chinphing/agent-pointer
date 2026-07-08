@@ -26,7 +26,8 @@ import type {
   CronJob,
   CreateCronJobInput,
   UpdateCronJobInput,
-  WebhookConfig
+  WebhookConfig,
+  WebhookTokenReveal
 } from '../types/automation'
 
 export const STREAM_EVENT = 'chat://stream'
@@ -440,4 +441,10 @@ export async function clearWebhookSourceToken(src: string): Promise<boolean> {
 
 export async function clearWebhookLegacyToken(): Promise<boolean> {
   return await invoke<boolean>('clear_webhook_legacy_token')
+}
+
+export async function revealWebhookSourceToken(
+  src: string
+): Promise<WebhookTokenReveal> {
+  return await invoke<WebhookTokenReveal>('reveal_webhook_source_token', { src })
 }

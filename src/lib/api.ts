@@ -137,6 +137,7 @@ export interface RuntimeApi {
   ): Promise<import('../types/automation').WebhookConfig>
   clearWebhookSourceToken(src: string): Promise<boolean>
   clearWebhookLegacyToken(): Promise<boolean>
+  revealWebhookSourceToken(src: string): Promise<import('../types/automation').WebhookTokenReveal>
 }
 
 export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
@@ -263,3 +264,4 @@ export const getWebhookConfig = api.getWebhookConfig
 export const setWebhookSourceToken = api.setWebhookSourceToken
 export const clearWebhookSourceToken = api.clearWebhookSourceToken
 export const clearWebhookLegacyToken = api.clearWebhookLegacyToken
+export const revealWebhookSourceToken = api.revealWebhookSourceToken

@@ -74,3 +74,10 @@ export interface SetWebhookSourceInput {
   token: string
   authHeaderName?: string | null
 }
+
+/** Full bearer token returned by settings reveal API. */
+export interface WebhookTokenReveal {
+  src: string
+  token: string
+  preview: string
+}

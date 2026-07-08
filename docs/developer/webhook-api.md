@@ -21,6 +21,28 @@
 
 勿在 query string 传 Token。鉴权失败 → **401**。
 
+## 设置 API（管理 Token）
+
+自动化面板通过以下接口管理来源（需 **平台账户登录**，与 Webhook 入站 Bearer 鉴权不同）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/webhooks/config` | 列出已配置来源（仅尾号 preview，不含完整 Token） |
+| POST | `/api/webhooks/config` | 添加来源 Token（仅首次写入） |
+| GET | `/api/webhooks/config/:src/token` | 查看完整 Token（供设置页复制） |
+| DELETE | `/api/webhooks/config/:src` | 删除来源 Token |
+| DELETE | `/api/webhooks/config/legacy` | 清除旧版全局 Token |
+
+**Reveal 响应示例**：
+
+```json
+{
+  "src": "ci",
+  "token": "abc123…",
+  "preview": "****1234"
+}
+```
+
 ## 触发 Agent
 
 ### 请求体

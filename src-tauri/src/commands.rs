@@ -1115,6 +1115,28 @@ pub fn set_webhook_source_token(
 }
 
 #[tauri::command]
+pub fn reveal_webhook_source_token(
+    state: State<'_, Arc<AppState>>,
+    src: String,
+) -> Result<pointer_core::webhook_config::WebhookTokenRevealView, String> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
+    let normalized =
+        pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src).map_err(|e| e.to_string())?;
+    let Some(token) = store
+        .reveal_source_token(&normalized)
+        .map_err(|e| e.to_string())?
+    else {
+        return Err("webhook token not configured for this source".into());
+    };
+    log::info!("webhook_config: token revealed src={normalized}");
+    Ok(pointer_core::webhook_config::WebhookTokenRevealView {
+        src: normalized,
+        token: token.clone(),
+        preview: pointer_core::webhook_config::mask_token(&token),
+    })
+}
+
+#[tauri::command]
 pub fn clear_webhook_source_token(
     state: State<'_, Arc<AppState>>,
     src: String,

@@ -583,3 +583,11 @@ export async function clearWebhookLegacyToken(): Promise<boolean> {
   await request<void>('/api/webhooks/config/legacy', { method: 'DELETE' })
   return true
 }
+
+export async function revealWebhookSourceToken(
+  src: string
+): Promise<import('../types/automation').WebhookTokenReveal> {
+  return await request<import('../types/automation').WebhookTokenReveal>(
+    `/api/webhooks/config/${encodeURIComponent(src)}/token`
+  )
+}

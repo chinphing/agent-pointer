@@ -92,6 +92,15 @@ pub struct WebhookConfigPublicView {
     pub legacy_preview: Option<String>,
 }
 
+/// Full bearer token for one webhook source (settings reveal; requires platform auth).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookTokenRevealView {
+    pub src: String,
+    pub token: String,
+    pub preview: String,
+}
+
 impl From<WebhookSourceView> for WebhookSourcePublicView {
     fn from(source: WebhookSourceView) -> Self {
         Self {
@@ -273,6 +282,12 @@ impl<'a> WebhookTokenStore<'a> {
     pub fn is_source_configured(&self, src: &str) -> Result<bool> {
         let src = Self::normalize_src(src)?;
         self.store.app_secret_has(&Self::token_label(&src))
+    }
+
+    /// Return the per-source token for settings reveal (not legacy/env fallback).
+    pub fn reveal_source_token(&self, src: &str) -> Result<Option<String>> {
+        let src = Self::normalize_src(src)?;
+        self.get_token_for_label(&Self::token_label(&src))
     }
 
     pub fn clear_source_token(&self, src: &str) -> Result<bool> {
@@ -479,6 +494,21 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn reveal_source_token_only_per_source_not_legacy() {
+        let s = store();
+        cleanup_test_secrets(&s);
+        let blob = crate::local_secret::encrypt_local_secret("legacy-global").unwrap();
+        assert!(s.app_secret_try_insert(LEGACY_LABEL, &blob).unwrap());
+        let ts = WebhookTokenStore::new(&s);
+        assert!(ts.set_source_token("github", "per-source", None).unwrap());
+        assert_eq!(
+            ts.reveal_source_token("github").unwrap().as_deref(),
+            Some("per-source")
+        );
+        assert!(ts.reveal_source_token("gitlab").unwrap().is_none());
     }
 
     #[test]

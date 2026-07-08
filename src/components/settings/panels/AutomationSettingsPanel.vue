@@ -11,7 +11,8 @@ import {
   getWebhookConfig,
   setWebhookSourceToken,
   clearWebhookSourceToken,
-  clearWebhookLegacyToken
+  clearWebhookLegacyToken,
+  revealWebhookSourceToken
 } from '../../../lib/api'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { composerAgentLabel, composerAgentLabelById, resolveAgentUi } from '../../../lib/agentUi'
@@ -48,6 +49,7 @@ const clearingWebhookSrc = ref<string | null>(null)
 const pendingDeleteJobId = ref<string | null>(null)
 const copiedWebhookCurlSrc = ref<string | null>(null)
 const copiedWebhookTokenSrc = ref<string | null>(null)
+const revealingWebhookTokenSrc = ref<string | null>(null)
 
 // Agent list for the single "agent" picker (mirrors the composer: enabled
 // user-selectable workers, Chinese label, default 通用助手).
@@ -84,12 +86,8 @@ const WEBHOOK_REF_BLOCKING =
 const LEGACY_TOKEN_DESC = '检测到旧版全局 Token，对所有来源生效。建议改为按来源配置。'
 const AUTH_HEADER_HINT =
   '留空则使用 Authorization: Bearer 或 X-Pointer-Token'
-const TOKEN_HINT = isDesktop
-  ? '自动生成 Token，添加后可复制。'
-  : '自动生成 Token，添加时会复制到剪贴板；Web 端无法再次查看完整 Token。'
-const WEBHOOK_TOKEN_COPY_UNAVAILABLE = isDesktop
-  ? 'Token 不可用'
-  : 'Web 端无法再次查看完整 Token。请删除该来源后重新添加，并在点击「添加」前复制保存。'
+const TOKEN_HINT = '自动生成 Token，添加后可随时点击尾号复制。'
+const WEBHOOK_TOKEN_COPY_UNAVAILABLE = 'Token 不可用'
 
 function fmtMs(ms?: number | null): string {
   if (!ms) return '—'
@@ -244,11 +242,10 @@ async function submitWebhookSource() {
   try {
     webhook.value = await setWebhookSourceToken(src, token, authHeaderName)
     if (!isDesktop) {
-      webhookInfo.value = 'Token 已复制到剪贴板。Web 端无法再次查看完整 Token，请妥善保存。'
+      webhookInfo.value = 'Token 已复制到剪贴板。'
       navigator.clipboard.writeText(token).catch(e => {
         console.warn('[automation] copy webhook token after create failed', e)
-        webhookInfo.value =
-          '来源已添加。Web 端无法再次查看完整 Token，请删除后重新添加并在添加前自行复制保存。'
+        webhookInfo.value = '来源已添加。请点击尾号复制 Token。'
       })
     }
     webhookSrcInput.value = ''
@@ -308,11 +305,28 @@ function viewWebhookSession(source: WebhookSource) {
   emit('view-session')
 }
 
-function copyWebhookCurl(source: WebhookSource) {
-  const token = source.token?.trim()
+async function resolveWebhookToken(source: WebhookSource): Promise<string | null> {
+  const cached = source.token?.trim()
+  if (cached) return cached
+  revealingWebhookTokenSrc.value = source.src
+  webhookError.value = null
+  try {
+    const revealed = await revealWebhookSourceToken(source.src)
+    return revealed.token?.trim() || null
+  } catch (e) {
+    webhookError.value = (e as Error).message || WEBHOOK_TOKEN_COPY_UNAVAILABLE
+    return null
+  } finally {
+    if (revealingWebhookTokenSrc.value === source.src) {
+      revealingWebhookTokenSrc.value = null
+    }
+  }
+}
+
+async function copyWebhookCurl(source: WebhookSource) {
+  const token = await resolveWebhookToken(source)
   if (!token) {
-    webhookInfo.value = null
-    webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
+    if (!webhookError.value) webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
     return
   }
   webhookError.value = null
@@ -325,11 +339,10 @@ function copyWebhookCurl(source: WebhookSource) {
   }).catch(e => console.warn('[automation] copyWebhookCurl failed', e))
 }
 
-function copyWebhookToken(source: WebhookSource) {
-  const token = source.token?.trim()
+async function copyWebhookToken(source: WebhookSource) {
+  const token = await resolveWebhookToken(source)
   if (!token) {
-    webhookInfo.value = null
-    webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
+    if (!webhookError.value) webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
     return
   }
   webhookError.value = null
@@ -589,14 +602,15 @@ onMounted(() => {
               <span class="text-muted/50 shrink-0">·</span>
               <button
                 type="button"
-                class="font-mono text-muted truncate text-left min-w-0"
-                :class="s.token?.trim() ? 'hover:text-foreground cursor-pointer' : 'cursor-default'"
-                :title="s.token?.trim()
-                  ? (copiedWebhookTokenSrc === s.src ? '已复制 Token' : '复制 Token')
-                  : WEBHOOK_TOKEN_COPY_UNAVAILABLE"
+                class="font-mono text-muted truncate hover:text-foreground cursor-pointer text-left min-w-0 disabled:opacity-50"
+                :disabled="revealingWebhookTokenSrc === s.src"
+                :title="revealingWebhookTokenSrc === s.src
+                  ? '获取 Token 中…'
+                  : (copiedWebhookTokenSrc === s.src ? '已复制 Token' : '复制 Token')"
                 @click="copyWebhookToken(s)"
               >
                 <span v-if="copiedWebhookTokenSrc === s.src" class="text-emerald-500">已复制</span>
+                <span v-else-if="revealingWebhookTokenSrc === s.src" class="text-muted">复制中…</span>
                 <span v-else>{{ s.preview }}</span>
               </button>
               <span v-if="s.authHeaderName" class="text-muted/50 shrink-0">·</span>
@@ -618,8 +632,8 @@ onMounted(() => {
               </button>
               <button
                 class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center shrink-0 cursor-pointer text-muted disabled:opacity-40 disabled:cursor-not-allowed"
-                :disabled="!s.token?.trim()"
-                :title="s.token?.trim() ? '复制 curl' : WEBHOOK_TOKEN_COPY_UNAVAILABLE"
+                :disabled="revealingWebhookTokenSrc === s.src"
+                :title="revealingWebhookTokenSrc === s.src ? '获取 Token 中…' : '复制 curl'"
                 @click="copyWebhookCurl(s)"
               >
                 <Check v-if="copiedWebhookCurlSrc === s.src" class="w-3.5 h-3.5 text-emerald-500" />

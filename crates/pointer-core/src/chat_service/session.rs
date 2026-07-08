@@ -1,5 +1,6 @@
 //! Session entry: cancel registration, `run_chat_inner`, `Done` / error streaming.
 
+use crate::dispatcher::TriggerSource;
 use crate::models::{ChatMessage, StreamEvent};
 use anyhow::Result;
 use std::backtrace::Backtrace;
@@ -24,6 +25,7 @@ pub async fn run_chat(
     tool_rounds_used_supervisor_start: u32,
     workspace_root: String,
     workspace_inherit_disabled: Option<bool>,
+    trigger_source: Option<TriggerSource>,
 ) -> Result<()> {
     log::info!(
         "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={}",
@@ -71,6 +73,7 @@ pub async fn run_chat(
         workspace_root,
         workspace_inherit_disabled,
         run_id: run_id.clone(),
+        trigger_source,
     };
     let mut run_ctx = super::context::ChatRunContext {
         stream: stream.clone(),

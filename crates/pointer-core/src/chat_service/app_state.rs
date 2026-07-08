@@ -1,4 +1,4 @@
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -22,6 +22,7 @@ use crate::platform_config::{
 use crate::skills::SkillRegistry;
 use crate::storage;
 use crate::tools::ToolRegistry;
+use crate::web_request_auth::WebSessionAuth;
 
 fn open_conversation_store_with_fallback() -> Arc<crate::conversation_store::ConversationStore> {
     match crate::conversation_store::global_store() {
@@ -80,6 +81,8 @@ pub struct AppState {
     pub last_activity_at: Mutex<Instant>,
     /// Prevents overlapping curator LLM passes.
     pub curator_llm_running: AtomicBool,
+    /// Reused by webhook/cron on pointer-server (browser OAuth LLM credentials).
+    automation_web_session: Arc<RwLock<Option<WebSessionAuth>>>,
 }
 
 impl AppState {
@@ -188,7 +191,17 @@ impl AppState {
             task_board_anchor_by_store_key: Mutex::new(HashMap::new()),
             last_activity_at: Mutex::new(Instant::now()),
             curator_llm_running: AtomicBool::new(false),
+            automation_web_session: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Browser OAuth session reused by webhook/cron (pointer-server).
+    pub fn set_automation_web_session(&self, auth: Option<WebSessionAuth>) {
+        *self.automation_web_session.write() = auth;
+    }
+
+    pub fn automation_web_session_auth(&self) -> Option<WebSessionAuth> {
+        self.automation_web_session.read().clone()
     }
 
     pub fn touch_activity(&self) {

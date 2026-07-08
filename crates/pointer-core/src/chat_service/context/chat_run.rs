@@ -1,5 +1,6 @@
 //! Top-level chat session entry (`run_chat` → `run_chat_inner`).
 
+use crate::dispatcher::TriggerSource;
 use crate::models::ChatMessage;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -16,6 +17,8 @@ pub struct ChatRunRequest {
     /// Frontend override; when `Some(true)` skip inheriting another conversation's workspace.
     pub workspace_inherit_disabled: Option<bool>,
     pub run_id: String,
+    /// Set for dispatcher-driven runs (webhook/cron); `None` for interactive chat.
+    pub trigger_source: Option<TriggerSource>,
 }
 
 /// Mutable session state for one `run_chat_inner` invocation.

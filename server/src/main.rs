@@ -1652,6 +1652,14 @@ async fn webhook_upload(
 /// The token must match the one configured for this `:src` (or the legacy
 /// global token / env fallback when no per-source token exists).
 /// Each source may optionally configure a custom auth header name instead.
+fn sync_automation_web_session(state: &ServerState) {
+    let auth = state.web_sessions.any_session_auth();
+    if auth.is_some() {
+        log::info!("server: automation web session available for webhook/cron");
+    }
+    state.core.set_automation_web_session(auth);
+}
+
 async fn webhook_ingress(
     State(state): State<ServerState>,
     Path(src): Path<String>,
@@ -1758,7 +1766,10 @@ async fn webhook_ingress(
         workspace_root: body.workspace_root,
         workspace_inherit_disabled: None,
         deliver: DeliverTarget::None,
-        web_session_auth: None,
+        web_session_auth: {
+            sync_automation_web_session(&state);
+            state.core.automation_web_session_auth()
+        },
     };
 
     let handle = state.dispatcher.dispatch(req).await.map_err(ApiError::from)?;
@@ -2398,6 +2409,7 @@ async fn platform_oauth_callback(
             }
             auth.set_session(session);
             let session_id = state.web_sessions.insert(auth, creds);
+            sync_automation_web_session(&state);
             log::info!("platform_auth: callback ok state={} web_session={session_id}", q.state);
             let mut resp = Redirect::temporary("/?platform_login=success").into_response();
             web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
@@ -2422,6 +2434,7 @@ async fn platform_logout(
         }
         state.web_sessions.remove(&session_id);
     }
+    sync_automation_web_session(&state);
     let mut platform = state.core.platform_config.write();
     apply_login_media_oss(&mut platform, None);
     log::info!("platform_auth: logout");
@@ -2560,6 +2573,7 @@ async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Resp
             let auth = Arc::new(PlatformAuthManager::new());
             auth.set_partner_session(session);
             let session_id = state.web_sessions.insert(auth, creds);
+            sync_automation_web_session(&state);
             log::info!("cloud oauth: exchange succeeded, redirecting to /");
             let mut resp = Redirect::temporary("/").into_response();
             web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());

@@ -5,7 +5,8 @@ use crate::agents::{
 };
 use crate::llm_token_stats::ChatLlmTokenSession;
 use crate::tools::file::ConversationWorkspaceGuard;
-use crate::models::{effective_reasoning_in_messages, ChatMessage, StreamEvent};
+use crate::dispatcher::TriggerSource;
+use crate::models::{effective_reasoning_in_messages, ChatMessage, ModelSettings, StreamEvent};
 use crate::provider::OpenAIProvider;
 use anyhow::{anyhow, Result};
 use std::time::Instant;
@@ -15,6 +16,14 @@ use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::session_model::prepare_session_llm_settings;
 use std::path::Path;
+
+fn settings_have_llm_key(settings: &ModelSettings) -> bool {
+    settings.has_key
+        || settings
+            .providers
+            .iter()
+            .any(|p| !p.api_key.trim().is_empty())
+}
 
 fn latest_real_user_turn(history: &[ChatMessage]) -> Option<(&str, &str)> {
     history.iter().rev().find_map(|m| {
@@ -110,6 +119,11 @@ pub(super) async fn run_chat_inner(
         }
     }
     let platform_logged_in = state.active_platform_auth().session_view().logged_in;
+    let is_automation = matches!(
+        req.trigger_source,
+        Some(TriggerSource::Webhook) | Some(TriggerSource::Cron)
+    );
+    let has_local_llm = settings_have_llm_key(&state.effective_settings());
     if platform_logged_in || web_session {
         if platform_logged_in {
             if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
@@ -121,6 +135,16 @@ pub(super) async fn run_chat_inner(
                 return Err(anyhow!(msg));
             }
         }
+    } else if is_automation && has_local_llm {
+        log::info!(
+            "automation trigger {:?}: using local LLM credentials without platform login conversation_id={}",
+            req.trigger_source,
+            conversation_id
+        );
+    } else if is_automation {
+        return Err(anyhow!(
+            "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」完成一次登录；自部署请在设置中配置 API Key"
+        ));
     } else {
         return Err(anyhow!("请先登录 Pointer 账户"));
     }

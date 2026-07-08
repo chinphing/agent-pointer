@@ -62,6 +62,16 @@ impl WebSessionStore {
         }
     }
 
+    /// Any active browser session (for webhook/cron on single-tenant cloud hosts).
+    pub fn any_session_auth(&self) -> Option<pointer_core::web_request_auth::WebSessionAuth> {
+        self.purge_expired();
+        let guard = self.inner.read();
+        guard.values().next().map(|entry| pointer_core::web_request_auth::WebSessionAuth {
+            auth: entry.auth.clone(),
+            creds: entry.creds.clone(),
+        })
+    }
+
     pub fn purge_expired(&self) {
         let ttl = Duration::from_secs(WEB_SESSION_MAX_AGE_SEC);
         let now = Instant::now();

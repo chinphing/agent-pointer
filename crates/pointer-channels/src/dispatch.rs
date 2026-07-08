@@ -384,6 +384,7 @@ impl DispatchService {
             0,
             workspace_root,
             None,
+            None,
         );
 
         // Keep collecting until StreamEvent::Done. Tool rounds emit an intermediate

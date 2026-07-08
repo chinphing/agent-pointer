@@ -400,6 +400,7 @@ impl RunDispatcher {
             req.tool_rounds_used_supervisor_start,
             req.workspace_root,
             req.workspace_inherit_disabled,
+            Some(req.trigger_source),
         )
         .await;
 

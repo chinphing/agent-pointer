@@ -37,6 +37,7 @@ pub mod session_sandbox;
 pub mod user_storage;
 pub mod session_user_env;
 pub mod session_work_dir_env;
+pub mod text_util;
 
 /// Deprecated re-export — use [`task_board::history_trim`] instead.
 pub mod task_board_history_trim {

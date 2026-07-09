@@ -475,11 +475,7 @@ pub fn conversation_preview(messages: &[ChatMessage]) -> String {
 }
 
 pub(crate) fn truncate_chars(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let end: String = s.chars().take(max.saturating_sub(1)).collect();
-    format!("{end}…")
+    crate::text_util::truncate_chars_fit(s, max)
 }
 
 pub(crate) fn role_str(role: &Role) -> &'static str {

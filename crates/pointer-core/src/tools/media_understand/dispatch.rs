@@ -426,7 +426,7 @@ pub async fn dispatch_media_understand_async(
     let text = match mode.as_str() {
         "image" => {
             let refs = parse_refs(&ctx.args, "image")?;
-            let goal_preview: String = goal.chars().take(80).collect();
+            let goal_preview = crate::text_util::take_chars(&goal, 80);
             log::info!(
                 "dispatch_media_understand_async mode=image refs={refs:?} goal={goal_preview}"
             );

@@ -14,13 +14,7 @@ use tokio_util::sync::CancellationToken;
 const VIDEO_UNDERSTAND_PROMPT: &str = "Analyze the attached video according to the user's goal. \
 Describe scenes, actions, visible text, and key details relevant to the goal.";
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", s[..max].trim_end())
-    }
-}
+use crate::text_util::truncate_bytes;
 
 fn resolve_provider_api_key(settings: &ModelSettings, api_key_fallback: &str) -> String {
     let pid = settings.active_provider_id.trim();
@@ -133,7 +127,7 @@ async fn understand_video_dashscope_compatible(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("HTTP {}: {}", status, truncate(&text, 400));
+        anyhow::bail!("HTTP {}: {}", status, truncate_bytes(&text, 400));
     }
 
     let parsed: Value = resp.json().await.context("parse dashscope video response")?;

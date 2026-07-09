@@ -9,14 +9,7 @@ use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::media_generation::dashscope_multimodal_image_url;
 use crate::models::ProviderConfig;
 use crate::provider::ChatOnceOutput;
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", s[..max].trim_end())
-    }
-}
+use crate::text_util::truncate_bytes;
 
 /// qwen3.5-flash and similar chat models do not accept audio; use a speech model.
 pub fn dashscope_audio_model_id(configured: &str) -> &str {
@@ -106,7 +99,7 @@ async fn transcribe_audio_dashscope_compatible(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("HTTP {}: {}", status, truncate(&text, 400));
+        anyhow::bail!("HTTP {}: {}", status, truncate_bytes(&text, 400));
     }
 
     let parsed: Value = resp.json().await.context("parse dashscope asr response")?;
@@ -160,7 +153,7 @@ async fn transcribe_audio_dashscope_legacy_multimodal(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("HTTP {}: {}", status, truncate(&text, 400));
+        anyhow::bail!("HTTP {}: {}", status, truncate_bytes(&text, 400));
     }
 
     let parsed: Value = resp.json().await.context("parse dashscope audio response")?;

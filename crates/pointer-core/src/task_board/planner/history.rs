@@ -26,8 +26,8 @@ fn sanitize_assistant(mut m: ChatMessage) -> ChatMessage {
     m.images_base64 = None;
     m.image_slot_labels = None;
     m.computer_round_screen_rel_path = None;
-    if m.content.len() > MAX_ASSISTANT_CHARS {
-        m.content = format!("{}…", &m.content[..MAX_ASSISTANT_CHARS]);
+    if m.content.chars().count() > MAX_ASSISTANT_CHARS {
+        m.content = crate::text_util::truncate_chars(&m.content, MAX_ASSISTANT_CHARS);
     }
     m
 }
@@ -144,6 +144,14 @@ mod tests {
             task_id: None,
             spawn_depth: None,
         }
+    }
+
+    #[test]
+    fn sanitize_assistant_truncates_by_char_not_byte() {
+        let long = "描".repeat(MAX_ASSISTANT_CHARS + 1);
+        let out = sanitize_assistant(assistant(&long, false));
+        assert!(out.content.ends_with('…'));
+        assert_eq!(out.content.chars().count(), MAX_ASSISTANT_CHARS + 1);
     }
 
     #[test]

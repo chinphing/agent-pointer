@@ -17,11 +17,7 @@ pub(crate) fn new_id(prefix: &str) -> String {
 }
 
 pub(crate) fn truncate_str(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_string()
-    } else {
-        format!("{}…", s.chars().take(n).collect::<String>())
-    }
+    crate::text_util::truncate_chars(s, n)
 }
 
 pub(crate) fn tool_display_stream_fields(display: &ToolDisplay) -> (Option<String>, Option<String>) {

@@ -1024,14 +1024,7 @@ fn native_tool_calls_from_states(states: &BTreeMap<u32, NativeToolCallState>) ->
 }
 
 fn truncate(s: &str, n: usize) -> String {
-    if s.len() <= n {
-        return s.to_string();
-    }
-    let mut end = n;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &s[..end])
+    crate::text_util::truncate_bytes(s, n)
 }
 
 fn rand_id() -> String {

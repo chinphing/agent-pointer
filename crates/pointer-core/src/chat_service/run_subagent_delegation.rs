@@ -187,11 +187,7 @@ pub(super) async fn run_subagent_delegation(
                         task.id,
                         child_spawn_depth
                     );
-                    let detail = if task.title.len() > 200 {
-                        format!("{}…", &task.title[..200])
-                    } else {
-                        task.title.clone()
-                    };
+                    let detail = truncate_str(&task.title, 200);
                     let computer_target = (def.id == "computer").then(|| {
                         resolve_computer_operation_target(
                             &task.goal,

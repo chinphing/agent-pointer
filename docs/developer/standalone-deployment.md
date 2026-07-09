@@ -69,7 +69,7 @@ POST /api/auth/local/login  { "token": "..." }
 
 ## License 系统
 
-**文件：** `crates/pointer-core/src/license/mod.rs` + `src/license/verify.rs`
+**文件：** `crates/pointer-core/src/license/mod.rs` + `verify.rs` + `fingerprint.rs`
 
 ### Ed25519 离线签名方案
 
@@ -85,24 +85,28 @@ payload (JSON):
   "expires_at": 1893455999,
   "features": ["chat", "webhook"],
   "max_seats": 50,
-  "machine_id": "5A372B48-..."
+  "machine_id": "fp1:a1b2c3...",
+  "machine_board_fp": "…",
+  "machine_cloud_fp": "…"
 }
 ```
 
 ### 模块结构
 
 ```rust
-pub struct LicenseClaims { pub customer_id, pub expires_at, pub features, pub max_seats, pub machine_id }
-pub enum LicenseStatus { Valid, Expired, NotConfigured, Invalid, MachineMismatch }
-pub struct LicenseVerifier { public_key: VerifyingKey }
+pub struct LicenseClaims {
+    pub customer_id, pub expires_at, pub features, pub max_seats,
+    pub machine_id, pub machine_board_fp, pub machine_cloud_fp,
+}
+pub struct MachineFactors { pub os_id, pub board_uuid, pub cloud_provider, pub cloud_instance_id }
+pub struct MachineFingerprints { pub strict, pub board, pub cloud }  // fp1:… + drift anchors
 
 // 核心函数
-pub fn validate_license_at_startup() -> Result<()>       // main() 启动时调用
-pub fn reload_license_from_env() -> Result<LicenseStatusView>  // 热加载
-pub fn active_license_claims() -> Option<LicenseClaims>
-pub fn active_license_status_view() -> LicenseStatusView
-pub fn feature_enabled(claims: &LicenseClaims, feature: &str) -> bool
-pub fn current_machine_id() -> anyhow::Result<String>     // 读取硬件 ID
+pub fn validate_license_at_startup() -> Result<()>
+pub fn reload_license_from_env() -> Result<LicenseStatusView>
+pub fn current_machine_id() -> anyhow::Result<String>           // fp1:… binding token
+pub fn current_machine_identity() -> Result<MachineIdentityView> // --machine-id-json
+pub fn verify_machine_binding(...) -> Result<()>
 ```
 
 ### 验证流程
@@ -114,24 +118,28 @@ main()
     → base64url 解码 payload 和 signature
     → Ed25519 验签（公钥编译嵌入 license.pub, 可被 POINTER_LICENSE_PUBLIC_KEY 覆盖）
     → 检查 expiry
-    → 如果 claims.machine_id 不为空，校验机器 ID 是否匹配
+    → 如果 claims.machine_id 不为空，校验 v2 指纹或 legacy os id
+    → v2：strict match 或 board/cloud 漂移锚点通过
     → 缓存 claims → 运行
 ```
 
-### 机器绑定
+### 机器绑定（v2 指纹）
 
-利用 [`machine-uid`]((https://crates.io/crates/machine-uid)) crate 读取硬件标识：
+`fingerprint.rs` 收集多信号并生成 salted SHA-256：
 
-| 平台 | 来源 |
-|------|------|
-| macOS | IOPlatformUUID（`ioreg -rd1 -c IOPlatformExpertDevice`） |
-| Linux | `/etc/machine-id` |
-| Windows | `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\MachineGuid` |
+| 信号 | Linux | macOS | Windows | 云 VM |
+|------|-------|-------|---------|-------|
+| os_id | `/etc/machine-id` | IOPlatformUUID | MachineGuid | 同左 |
+| board_uuid | DMI product_uuid | IOPlatformUUID | WMI BIOS UUID | — |
+| cloud | — | — | — | AWS/Azure IMDS |
 
-通过 `--machine-id` 标志获取（无需任何配置）：
+- **strict**（`machine_id`）：`fp1:` + SHA256(salt + os + board + cloud)
+- **漂移锚点**：`machine_board_fp`、`machine_cloud_fp` — OS 重装后 strict 变化仍可验证
+- **Legacy**：裸 os id 字符串 exact match 仍兼容
+
 ```bash
-./pointer-server --machine-id
-# 输出：5A372B48-8721-5807-9645-8E7A560F2518
+./pointer-server --machine-id-json   # 推荐远程签发
+./pointer-server --machine-id        # 仅 fp1:… token
 ```
 
 ### License 生成 CLI
@@ -151,7 +159,15 @@ cargo run -p pointer-license-gen -- sign \
   --expires 2027-12-31 \
   --features chat,webhook,channels
 
-# 签发（绑定当前机器）
+# 签发（绑定指定机器 JSON，推荐）
+cargo run -p pointer-license-gen -- sign \
+  --private-key license.key \
+  --customer-id acme \
+  --expires 2027-12-31 \
+  --features chat,webhook \
+  --machine-id-json ./identity.json
+
+# 签发（绑定当前机器，含漂移锚点）
 cargo run -p pointer-license-gen -- sign \
   --private-key license.key \
   --customer-id acme \
@@ -159,7 +175,7 @@ cargo run -p pointer-license-gen -- sign \
   --features chat,webhook \
   --bind-machine
 
-# 签发（绑定指定机器 ID）
+# 签发（legacy 裸 os id，无漂移）
 cargo run -p pointer-license-gen -- sign \
   --private-key license.key \
   --customer-id acme \

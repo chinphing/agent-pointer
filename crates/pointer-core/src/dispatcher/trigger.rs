@@ -32,6 +32,11 @@ pub enum TriggerSource {
 }
 
 impl TriggerSource {
+    /// Runs that execute without an interactive browser session (webhook, cron, IM).
+    pub fn is_headless_automation(self) -> bool {
+        matches!(self, Self::Webhook | Self::Cron | Self::Im)
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             TriggerSource::Ipc => "ipc",

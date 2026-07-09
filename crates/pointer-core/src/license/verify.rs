@@ -1,5 +1,6 @@
 //! License key parsing, Ed25519 verification, and startup enforcement.
 
+use super::fingerprint;
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -21,6 +22,12 @@ pub struct LicenseClaims {
     pub max_seats: Option<u32>,
     #[serde(default)]
     pub machine_id: Option<String>,
+    /// Drift anchor: board / hardware UUID hash (v2 licenses).
+    #[serde(default)]
+    pub machine_board_fp: Option<String>,
+    /// Drift anchor: cloud provider instance hash (v2 licenses).
+    #[serde(default)]
+    pub machine_cloud_fp: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -46,9 +53,10 @@ pub struct LicenseStatusView {
     pub current_machine_id: Option<String>,
 }
 
-/// Read this machine's stable hardware ID.
+/// Read the primary machine binding token (`fp1:…`) for license issuance.
 pub fn current_machine_id() -> anyhow::Result<String> {
-    machine_uid::get().map_err(|e| anyhow::anyhow!("machine_uid: {e}"))
+    fingerprint::current_binding_token()
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 #[derive(Clone)]
@@ -170,7 +178,7 @@ pub fn active_license_status_view() -> LicenseStatusView {
     match active_license_claims() {
         Some(claims) => {
             let status = license_status(&claims);
-            let current_machine_id = machine_uid::get().ok();
+            let current_machine_id = fingerprint::current_binding_token().ok();
             LicenseStatusView {
                 status,
                 customer_id: Some(claims.customer_id.clone()),
@@ -214,16 +222,12 @@ pub fn validate_license_at_startup() -> Result<()> {
             claims.expires_at
         );
     }
-    if let Some(bound_id) = &claims.machine_id {
-        let current = machine_uid::get()
-            .map_err(|e| anyhow!("failed to read machine id: {e}"))?;
-        if bound_id.trim() != current.trim() {
-            bail!(
-                "license bound to machine_id={} but this machine is {}",
-                bound_id, current
-            );
-        }
-    }
+    fingerprint::verify_machine_binding(
+        claims.machine_id.as_deref(),
+        claims.machine_board_fp.as_deref(),
+        claims.machine_cloud_fp.as_deref(),
+    )
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
     store_claims(Some(claims.clone()));
     log::info!(
         "license: valid customer_id={} expires_at={} machine_bound={}",
@@ -258,16 +262,12 @@ pub fn reload_license_from_env() -> Result<LicenseStatusView> {
             claims.expires_at
         );
     }
-    if let Some(bound_id) = &claims.machine_id {
-        let current = machine_uid::get()
-            .map_err(|e| anyhow!("failed to read machine id: {e}"))?;
-        if bound_id.trim() != current.trim() {
-            bail!(
-                "license bound to machine_id={} but this machine is {}",
-                bound_id, current
-            );
-        }
-    }
+    fingerprint::verify_machine_binding(
+        claims.machine_id.as_deref(),
+        claims.machine_board_fp.as_deref(),
+        claims.machine_cloud_fp.as_deref(),
+    )
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
     store_claims(Some(claims.clone()));
     log::info!("license: reloaded customer_id={}", claims.customer_id);
     Ok(LicenseStatusView {
@@ -277,7 +277,7 @@ pub fn reload_license_from_env() -> Result<LicenseStatusView> {
         features: claims.features,
         max_seats: claims.max_seats,
         machine_bound: claims.machine_id.is_some(),
-        current_machine_id: machine_uid::get().ok(),
+        current_machine_id: fingerprint::current_binding_token().ok(),
     })
 }
 
@@ -309,9 +309,55 @@ mod tests {
             expires_at: i64::MAX / 2,
             features: vec!["chat".into()],
             max_seats: Some(10),
+            machine_id: None,
+            machine_board_fp: None,
+            machine_cloud_fp: None,
         };
         let key = sign_claims(&signing, &claims);
         let parsed = verifier.verify(&key).unwrap();
         assert_eq!(parsed, claims);
+    }
+
+    #[test]
+    fn verify_v2_machine_binding_with_drift() {
+        use super::fingerprint::{verify_machine_binding_with_factors, MachineFactors, MachineFingerprints};
+
+        let mut csprng = OsRng;
+        let signing = SigningKey::generate(&mut csprng);
+        let verifying = signing.verifying_key();
+        let b64 = URL_SAFE_NO_PAD.encode(verifying.to_bytes());
+        let verifier = LicenseVerifier::from_base64_public_key(&b64).unwrap();
+
+        let host = MachineFactors {
+            os_id: "os-original".into(),
+            board_uuid: "board-abc".into(),
+            cloud_provider: "aws".into(),
+            cloud_instance_id: "i-123".into(),
+        };
+        let fps = MachineFingerprints::from_factors(&host);
+        let claims = LicenseClaims {
+            customer_id: "acme".into(),
+            expires_at: i64::MAX / 2,
+            features: vec!["chat".into()],
+            max_seats: None,
+            machine_id: Some(fps.strict.clone()),
+            machine_board_fp: fps.board.clone(),
+            machine_cloud_fp: fps.cloud.clone(),
+        };
+        let key = sign_claims(&signing, &claims);
+        let parsed = verifier.verify(&key).unwrap();
+        assert_eq!(parsed.machine_id, claims.machine_id);
+
+        let reinstalled = MachineFactors {
+            os_id: "os-after-reinstall".into(),
+            ..host
+        };
+        verify_machine_binding_with_factors(
+            parsed.machine_id.as_deref(),
+            parsed.machine_board_fp.as_deref(),
+            parsed.machine_cloud_fp.as_deref(),
+            &reinstalled,
+        )
+        .expect("drift anchors should accept reinstalled os_id");
     }
 }

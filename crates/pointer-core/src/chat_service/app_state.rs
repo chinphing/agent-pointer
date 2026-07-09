@@ -81,8 +81,10 @@ pub struct AppState {
     pub last_activity_at: Mutex<Instant>,
     /// Prevents overlapping curator LLM passes.
     pub curator_llm_running: AtomicBool,
-    /// Reused by webhook/cron on pointer-server (browser OAuth LLM credentials).
+    /// Reused by webhook/cron/IM on pointer-server (browser OAuth LLM credentials).
     automation_web_session: Arc<RwLock<Option<WebSessionAuth>>>,
+    /// Server-global LLM credential snapshot; survives OAuth expiry and browser logout.
+    automation_llm_creds: Arc<RwLock<Option<PlatformLoginCredentials>>>,
 }
 
 impl AppState {
@@ -192,16 +194,47 @@ impl AppState {
             last_activity_at: Mutex::new(Instant::now()),
             curator_llm_running: AtomicBool::new(false),
             automation_web_session: Arc::new(RwLock::new(None)),
+            automation_llm_creds: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Persist LLM keys for headless automation (webhook / cron / IM).
+    pub fn remember_automation_llm_creds(&self, creds: &PlatformLoginCredentials) {
+        if !crate::platform_auth::credentials_have_llm_keys(creds) {
+            return;
+        }
+        *self.automation_llm_creds.write() = Some(creds.clone());
+        log::info!("automation: cached LLM credentials for headless runs");
     }
 
     /// Browser OAuth session reused by webhook/cron (pointer-server).
     pub fn set_automation_web_session(&self, auth: Option<WebSessionAuth>) {
+        if let Some(ref session) = auth {
+            self.remember_automation_llm_creds(&session.creds);
+        }
         *self.automation_web_session.write() = auth;
     }
 
     pub fn automation_web_session_auth(&self) -> Option<WebSessionAuth> {
         self.automation_web_session.read().clone()
+    }
+
+    /// Auth + creds for headless runs: live browser session, else cached LLM keys.
+    pub fn automation_execution_auth(&self) -> Option<WebSessionAuth> {
+        if let Some(live) = self.automation_web_session.read().clone() {
+            if crate::platform_auth::credentials_have_llm_keys(&live.creds) {
+                return Some(live);
+            }
+        }
+        let creds = self.automation_llm_creds.read().clone()?;
+        if !crate::platform_auth::credentials_have_llm_keys(&creds) {
+            return None;
+        }
+        Some(WebSessionAuth {
+            kind: crate::web_request_auth::WebSessionAuthKind::Platform,
+            auth: self.platform_auth.clone(),
+            creds,
+        })
     }
 
     pub fn touch_activity(&self) {
@@ -322,6 +355,7 @@ impl AppState {
     }
 
     pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
+        self.remember_automation_llm_creds(creds);
         let mut platform = self.platform_config.write();
         apply_login_llm_provider_api_keys(&mut platform, &creds.provider_api_keys);
         apply_login_llm_credentials(

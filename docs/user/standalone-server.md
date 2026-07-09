@@ -12,8 +12,10 @@ pointer-server 可以脱离官方平台独立部署，**不需要 Docker**，裸
 # 安装
 sudo dpkg -i pointer-server_0.1.0_amd64.deb
 
-# 获取机器 ID（发给 License 签发方）
-/usr/bin/pointer-server --machine-id
+# 获取机器绑定信息（发给 License 签发方）
+/usr/bin/pointer-server --machine-id-json   # 推荐：含漂移锚点
+# 或
+/usr/bin/pointer-server --machine-id        # 仅主 token（fp1:…）
 
 # 配置
 sudo cp /etc/pointer-server/pointer-server.toml.example /etc/pointer-server/pointer-server.toml
@@ -35,14 +37,15 @@ cargo build -p pointer-server --release
 # 产物：target/release/pointer-server
 ```
 
-### 2. 获取机器 ID（新机器首次部署）
+### 2. 获取机器绑定信息（新机器首次部署）
 
 ```bash
-./pointer-server --machine-id
-# 输出类似：5A372B48-8721-5807-9645-8E7A560F2518
+./pointer-server --machine-id-json   # 推荐：完整 JSON（含漂移锚点）
+# 或
+./pointer-server --machine-id        # 主绑定 token（fp1:…）
 ```
 
-把输出的 ID 发给 License 签发方。
+把 JSON 文件或 token 发给 License 签发方。v2 指纹在 OS 重装后仍可通过 board / cloud 锚点验证；旧版裸 UUID 仍兼容。
 
 ### 3. 编辑配置
 
@@ -102,7 +105,8 @@ License 是 Ed25519 签名的 JSON 字符串，格式为 `base64(payload).base64
 - `expires_at`：过期时间戳
 - `features`：许可的功能（如 `chat`, `webhook`, `channels`）
 - `max_seats`：最大用户数（可选）
-- `machine_id`：绑定的机器 ID（可选，绑了就不能复制到其他机器）
+- `machine_id`：绑定的机器 token（`fp1:…` 或 legacy os id，可选）
+- `machine_board_fp` / `machine_cloud_fp`：漂移锚点（v2，OS 重装后仍可验证）
 
 ### License 验证流程
 
@@ -126,7 +130,7 @@ curl http://localhost:8787/api/license/status
   "expiresAt": 1893455999,
   "features": ["chat", "webhook"],
   "machineBound": true,
-  "currentMachineId": "5A372B48-8721-5807-9645-8E7A560F2518"
+  "currentMachineId": "fp1:a1b2c3..."
 }
 ```
 
@@ -157,17 +161,16 @@ curl -X POST http://localhost:8787/api/license/reload
 客户方                              签发方（管理员）
 ──────                              ─────────────────
 1. 下载 pointer-server 二进制
-2. 运行获取机器 ID：
-   ./pointer-server --machine-id
-   → 5A372B48-...
-    ──── 把 ID 发给签发方 ─────────→
-                                    3. 签发绑定机器 ID 的 License：
-                                       cargo run -p pointer-license-gen -- sign \\
+2. 运行获取绑定信息：
+   ./pointer-server --machine-id-json > identity.json
+    ──── 把 identity.json 发给签发方 ─→
+                                    3. 签发绑定 License：
+                                       license-gen sign \\
                                          --private-key license.key \\
                                          --customer-id acme \\
                                          --expires 2027-12-31 \\
                                          --features chat,webhook \\
-                                         --machine-id "5A372B48-..."
+                                         --machine-id-json identity.json
     ←──── 收到 License Key ─────────
 4. 写入 pointer-server.toml：
    [license]
@@ -257,7 +260,7 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 
 ### Q: 启动报 "license bound to machine_id=... but this machine is ..."
 
-License 绑定了其他机器，需要申请当前机器的 License。运行 `./pointer-server --machine-id` 获取本机 ID。
+License 绑定了其他机器，需要申请当前机器的 License。运行 `./pointer-server --machine-id-json` 获取完整绑定信息。
 
 ### Q: 启动报 "请先登录 Pointer 账户"
 

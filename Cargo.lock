@@ -5124,7 +5124,7 @@ dependencies = [
  "chrono",
  "clap",
  "ed25519-dalek",
- "machine-uid",
+ "pointer-core",
  "rand 0.8.6",
  "serde",
  "serde_json",

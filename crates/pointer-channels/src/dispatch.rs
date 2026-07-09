@@ -3,7 +3,9 @@ use parking_lot::Mutex;
 use pointer_core::agents::{AGENT_MODE_SINGLE, DEFAULT_LEAD_AGENT_ID};
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::conversation_store::im_session::ImSessionState;
+use pointer_core::dispatcher::TriggerSource;
 use pointer_core::models::{ChatMessage, MediaAttachment, Role, StreamEvent};
+use pointer_core::web_request_auth::run_with_optional_web_session;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
@@ -372,20 +374,25 @@ impl DispatchService {
         );
 
         let enabled_skill_ids = state.default_run_enabled_skill_ids();
-        let run = run_chat(
-            tx.clone(),
-            state,
-            desktop_conv_id.clone(),
-            history,
-            enabled_skill_ids,
-            request_agent_mode(&im_session),
-            lead_agent_override(&im_session),
-            0,
-            0,
-            workspace_root,
-            None,
-            None,
-        );
+        let automation_auth = state.automation_execution_auth();
+        let agent_mode = request_agent_mode(&im_session);
+        let lead_agent = lead_agent_override(&im_session);
+        let run = run_with_optional_web_session(automation_auth, || {
+            run_chat(
+                tx.clone(),
+                state.clone(),
+                desktop_conv_id.clone(),
+                history,
+                enabled_skill_ids,
+                agent_mode,
+                lead_agent,
+                0,
+                0,
+                workspace_root,
+                None,
+                Some(TriggerSource::Im),
+            )
+        });
 
         // Keep collecting until StreamEvent::Done. Tool rounds emit an intermediate
         // MessageEnd with empty content; breaking early drops the final answer.

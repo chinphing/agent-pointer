@@ -5,8 +5,11 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{TimeZone, Utc};
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{Signer, SigningKey};
+use pointer_core::license::{
+    binding_for_current_host, binding_from_explicit_machine_id, LicenseClaims,
+    MachineIdentityView,
+};
 use rand::rngs::OsRng;
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
@@ -39,25 +42,16 @@ enum Command {
         features: Vec<String>,
         #[arg(long)]
         max_seats: Option<u32>,
-        /// Bind license to this machine's hardware ID (prevents copying to other nodes)
+        /// Bind license to this machine's v2 fingerprint (AWS/Azure/board drift anchors).
         #[arg(long)]
         bind_machine: bool,
-        /// Override machine ID (for offline signing with a known target machine id)
+        /// Override binding token from `./pointer-server --machine-id` (fp1:…) or legacy os id.
         #[arg(long)]
         machine_id: Option<String>,
+        /// Full identity JSON from `./pointer-server --machine-id-json` (includes drift anchors).
+        #[arg(long)]
+        machine_id_json: Option<PathBuf>,
     },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LicenseClaims {
-    customer_id: String,
-    expires_at: i64,
-    #[serde(default)]
-    features: Vec<String>,
-    #[serde(default)]
-    max_seats: Option<u32>,
-    #[serde(default)]
-    machine_id: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -75,6 +69,7 @@ fn main() -> Result<()> {
             max_seats,
             bind_machine,
             machine_id,
+            machine_id_json,
         } => sign_license(
             &private_key,
             &customer_id,
@@ -83,6 +78,7 @@ fn main() -> Result<()> {
             max_seats,
             bind_machine,
             machine_id,
+            machine_id_json,
         ),
     }
 }
@@ -139,15 +135,33 @@ fn sign_license(
     max_seats: Option<u32>,
     bind_machine: bool,
     machine_id: Option<String>,
+    machine_id_json: Option<PathBuf>,
 ) -> Result<()> {
+    if machine_id.is_some() && machine_id_json.is_some() {
+        return Err(anyhow!("use only one of --machine-id or --machine-id-json"));
+    }
     let signing = load_signing_key(private_key)?;
-    let machine_id = if let Some(provided) = machine_id {
-        Some(provided.trim().to_string())
-    } else if bind_machine {
-        Some(machine_uid::get().map_err(|e| anyhow!("failed to get machine id: {e}"))?)
-    } else {
-        None
-    };
+    let (bound_id, machine_board_fp, machine_cloud_fp) =
+        if let Some(json_path) = machine_id_json {
+            let text = fs::read_to_string(&json_path)
+                .with_context(|| format!("read {}", json_path.display()))?;
+            let view: MachineIdentityView =
+                serde_json::from_str(&text).context("parse machine identity json")?;
+            (
+                Some(view.machine_id),
+                view.machine_board_fp,
+                view.machine_cloud_fp,
+            )
+        } else if let Some(provided) = machine_id {
+            let (mid, board, cloud) = binding_from_explicit_machine_id(&provided)?;
+            (Some(mid), board, cloud)
+        } else if bind_machine {
+            let (mid, board, cloud) = binding_for_current_host()?;
+            (Some(mid), board, cloud)
+        } else {
+            (None, None, None)
+        };
+
     let claims = LicenseClaims {
         customer_id: customer_id.trim().to_string(),
         expires_at: parse_expires(expires)?,
@@ -157,7 +171,9 @@ fn sign_license(
             .filter(|f| !f.is_empty())
             .collect(),
         max_seats,
-        machine_id,
+        machine_id: bound_id,
+        machine_board_fp,
+        machine_cloud_fp,
     };
     if claims.customer_id.is_empty() {
         return Err(anyhow!("customer_id is required"));

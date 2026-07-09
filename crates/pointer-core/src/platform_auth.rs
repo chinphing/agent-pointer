@@ -63,6 +63,15 @@ pub struct PlatformLoginCredentials {
     pub media_oss: Option<PlatformMediaOssCredentials>,
 }
 
+/// Whether credentials carry LLM API keys usable for headless automation runs.
+pub fn credentials_have_llm_keys(creds: &PlatformLoginCredentials) -> bool {
+    creds.api_key.as_ref().is_some_and(|k| !k.trim().is_empty())
+        || creds
+            .provider_api_keys
+            .values()
+            .any(|k| !k.trim().is_empty())
+}
+
 /// OSS credentials from platform login (endpoint + AccessKey only).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlatformMediaOssCredentials {

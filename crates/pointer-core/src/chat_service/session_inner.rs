@@ -124,10 +124,9 @@ pub(super) async fn run_chat_inner(
         }
     }
     let platform_logged_in = state.active_platform_auth().session_view().logged_in;
-    let is_automation = matches!(
-        req.trigger_source,
-        Some(TriggerSource::Webhook) | Some(TriggerSource::Cron)
-    );
+    let is_automation = req
+        .trigger_source
+        .is_some_and(TriggerSource::is_headless_automation);
     let has_local_llm = settings_have_llm_key(&state.effective_settings());
     if platform_logged_in || web_session {
         if platform_logged_in && !is_local_session {
@@ -148,7 +147,7 @@ pub(super) async fn run_chat_inner(
         );
     } else if is_automation {
         return Err(anyhow!(
-            "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」完成一次登录；自部署请在设置中配置 API Key"
+            "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」或 Web 端完成一次登录；自部署请在配置中注入 API Key"
         ));
     } else {
         let msg = if crate::deployment_mode::is_standalone() {

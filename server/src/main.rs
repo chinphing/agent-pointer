@@ -101,8 +101,21 @@ struct PkcePending {
 async fn main() -> anyhow::Result<()> {
     pointer_core::logging::init_backtrace_defaults();
 
-    // --machine-id: print hardware ID and exit (no config/license needed)
-    if std::env::args().any(|a| a == "--machine-id") {
+    // --machine-id / --machine-id-json: print binding material and exit (no config/license needed)
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--machine-id-json") {
+        match pointer_core::license::current_machine_identity() {
+            Ok(view) => {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("error: failed to read machine identity: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    if args.iter().any(|a| a == "--machine-id") {
         match pointer_core::license::current_machine_id() {
             Ok(id) => {
                 println!("{}", id);
@@ -1860,7 +1873,7 @@ async fn webhook_ingress(
         deliver: DeliverTarget::None,
         web_session_auth: {
             sync_automation_web_session(&state);
-            state.core.automation_web_session_auth()
+            state.core.automation_execution_auth()
         },
     };
 

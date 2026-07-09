@@ -22,7 +22,10 @@ pub fn conversation_media_root() -> Result<PathBuf> {
 }
 
 pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
-    verify_storage_rel_access(storage_rel_path)?;
+    if let Err(e) = verify_storage_rel_access(storage_rel_path) {
+        log::info!("media_abs_path verify_storage_rel_access FAILED: {e:#}");
+        return Err(e);
+    }
     let rel = storage_rel_path.trim().trim_start_matches('/');
     if rel.is_empty() || rel.contains("..") {
         anyhow::bail!("invalid media rel path");
@@ -69,6 +72,7 @@ pub fn save_attachment_bytes(
     let rel = conversation_media_abs_to_rel(&file_path).unwrap_or_else(|| {
         build_storage_rel(&session_user_id, conversation_id, &stored_name)
     });
+    log::info!("save_attachment_bytes conv={conversation_id} id={id} -> {} rel={} ({} bytes)", file_path.display(), rel, bytes.len());
     Ok(rel)
 }
 

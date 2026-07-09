@@ -19,7 +19,13 @@ pub fn resolve_media_ref(raw: &str) -> Result<PathBuf> {
         .map(str::trim)
         .unwrap_or(trimmed);
 
-    resolve_local_media_path(rel).with_context(|| format!("resolve media ref {trimmed}"))
+    match resolve_local_media_path(rel) {
+        Ok(path) => Ok(path),
+        Err(e) => {
+            log::warn!("resolve_media_ref FAILED: {trimmed} error: {e:#}");
+            Err(e).with_context(|| format!("resolve media ref {trimmed}"))
+        }
+    }
 }
 
 /// True when `raw` resolves to an existing directory.

@@ -426,6 +426,7 @@ pub async fn dispatch_media_understand_async(
     let text = match mode.as_str() {
         "image" => {
             let refs = parse_refs(&ctx.args, "image")?;
+            log::info!("dispatch_media_understand_async mode=image refs={refs:?} goal={}", &goal[..goal.len().min(80)]);
             if refs.len() == 1 {
                 let path = resolve_media_ref(&refs[0])
                     .with_context(|| format!("resolve media ref {}", refs[0]))?;

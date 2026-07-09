@@ -53,15 +53,20 @@ pub fn parse_storage_rel(storage_rel_path: &str) -> Result<ParsedMediaRel> {
 
 /// When `SESSION_USER_ID` is active, reject cross-user media paths (new layout only).
 pub fn verify_storage_rel_access(storage_rel_path: &str) -> Result<()> {
-    let Some(actor) = crate::session_user_env::current_session_user_id() else {
+    let actor = crate::session_user_env::current_session_user_id();
+    let Some(ref actor) = actor else {
         return Ok(());
     };
     let parsed = parse_storage_rel(storage_rel_path)?;
     if parsed.legacy || parsed.user_segment == ANONYMOUS_SEGMENT {
         return Ok(());
     }
-    let expected = user_storage_segment(&actor);
+    let expected = user_storage_segment(actor);
     if parsed.user_segment != expected {
+        log::warn!(
+            "verify_storage_rel_access DENIED: path={storage_rel_path} parsed_user_segment={} actor={actor} expected={expected}",
+            parsed.user_segment
+        );
         bail!("media access denied for session user");
     }
     Ok(())

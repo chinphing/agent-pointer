@@ -46,11 +46,17 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
     }
 
     if is_storage_rel_path(trimmed) {
-        let path = media_abs_path(trimmed.trim_start_matches('/'))
-            .with_context(|| format!("resolve storage rel path {trimmed}"))?;
+        let path = match media_abs_path(trimmed.trim_start_matches('/')) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("resolve_local_media_path media_abs_path FAILED: trimmed={trimmed} error: {e:#}");
+                return Err(e).with_context(|| format!("resolve storage rel path {trimmed}"));
+            }
+        };
         if path.is_file() || path.is_dir() {
             return Ok(path);
         }
+        log::warn!("resolve_local_media_path file NOT FOUND: trimmed={trimmed} resolved={}", path.display());
         anyhow::bail!("media file not found under app data: {}", path.display());
     }
 

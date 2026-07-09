@@ -2,7 +2,7 @@ use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::AppState;
 use pointer_core::dispatcher::{
-    DeliverTarget, RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource,
+    DeliverTarget, RunDispatcher, RunQueueSnapshot, TriggerMeta, TriggerRequest, TriggerSource,
 };
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
@@ -963,6 +963,13 @@ pub async fn get_experience_detail(slug: String) -> Result<pointer_core::experie
 // ---- Phase 5/6: cron jobs + webhook token config (desktop IPC) ----
 // These mirror the server HTTP endpoints so the frontend Automation panel
 // works identically on desktop (Tauri IPC) and web (HTTP).
+
+#[tauri::command]
+pub fn get_dispatcher_queue_snapshot(
+    dispatcher: State<'_, Arc<RunDispatcher>>,
+) -> RunQueueSnapshot {
+    dispatcher.queue_snapshot()
+}
 
 #[tauri::command]
 pub fn list_cron_jobs(

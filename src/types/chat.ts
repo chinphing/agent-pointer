@@ -217,6 +217,14 @@ export interface MediaAttachment {
   previewUrl?: string
 }
 
+/** User send held in the outbound FIFO until the current session turn finishes. */
+export interface OutboundQueueItem {
+  id: string
+  content: string
+  attachments?: MediaAttachment[]
+  createdAt: number
+}
+
 export type VideoUploadState = 'pending' | 'compressing' | 'uploading' | 'done' | 'error'
 
 export interface MediaModelOverrides {

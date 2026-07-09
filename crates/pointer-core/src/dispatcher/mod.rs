@@ -5,7 +5,7 @@
 //! internal event) normalize into a [`TriggerRequest`] and call
 //! [`RunDispatcher::dispatch`]. The dispatcher owns:
 //!
-//! - a [`RunQueue`] (per-conversation lane + global concurrency cap),
+//! - a [`RunQueue`] (nested `session:*` + `global:main`/`global:cron` lane queues),
 //! - an [`AgentEventBus`] (typed, per-run-sequenced event stream),
 //! - a per-run [`CancellationToken`] registry,
 //! - the `runs` table lifecycle (via [`AppState::session_index`]).
@@ -33,7 +33,11 @@ pub use hooks::{
     RunCancelledContext, RunFailedContext, RunFinishedContext, RunStartedContext,
     TriggerReceivedContext,
 };
-pub use queue::{Permit, QueueError, RunQueue};
+pub use queue::{
+    resolve_global_lane, resolve_session_lane, LaneQueueView, PendingRunView, Permit,
+    QueueError, QueueLanesSnapshot, QueueWaiterView, RunQueue, RunQueueSnapshot, LANE_CRON,
+    LANE_MAIN,
+};
 pub use trigger::{
     DeliverTarget, RunAcceptStatus, RunHandle, RunOutcome, TriggerMeta, TriggerRequest,
     TriggerSource,
@@ -133,6 +137,34 @@ impl RunDispatcher {
 
     pub fn queue(&self) -> &RunQueue {
         &self.inner.queue
+    }
+
+    /// Lane queue + persisted `queued` runs for settings / observability UI.
+    pub fn queue_snapshot(&self) -> RunQueueSnapshot {
+        let lanes = self.inner.queue.snapshot();
+        let pending_runs = self
+            .inner
+            .state
+            .session_index
+            .runs_list_queued(64)
+            .unwrap_or_else(|e| {
+                log::warn!("queue_snapshot: runs_list_queued failed: {e:#}");
+                Vec::new()
+            })
+            .into_iter()
+            .map(|r| PendingRunView {
+                run_id: r.run_id,
+                conversation_id: r.conversation_id,
+                trigger_source: r.trigger_source,
+                created_at_ms: r.created_at_ms,
+            })
+            .collect();
+        RunQueueSnapshot {
+            max_concurrent_main: lanes.max_concurrent_main,
+            max_concurrent_cron: lanes.max_concurrent_cron,
+            lanes: lanes.lanes,
+            pending_runs,
+        }
     }
 
     /// Update global run concurrency cap (see [`RunQueue::set_max_concurrent`]).

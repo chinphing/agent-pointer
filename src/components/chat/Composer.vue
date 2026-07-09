@@ -42,6 +42,7 @@ import {
   releaseComposerAttachment
 } from '../../lib/attachmentPayloadStore'
 import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
+import OutboundQueuePanel from './OutboundQueuePanel.vue'
 import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
@@ -68,7 +69,7 @@ const props = withDefaults(
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
-const { composerPrefill, composerText, composerAttachments, generating } = storeToRefs(chat)
+const { composerPrefill, composerText, composerAttachments, generating, currentOutboundQueue } = storeToRefs(chat)
 
 const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
 const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
@@ -188,13 +189,14 @@ const canSend = computed(() => {
   return (
     ((composerText.value.length > 0 && composerText.value.trim().length > 0) ||
       attachments.length > 0) &&
-    !generating.value &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
     settings.settings.hasKey &&
     !videoBlocked
   )
 })
+
+const outboundQueueList = currentOutboundQueue
 
 async function onPlatformLogin() {
   try {
@@ -877,6 +879,12 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <OutboundQueuePanel
+        v-if="chat.current?.id"
+        :conversation-id="chat.current.id"
+        :items="outboundQueueList"
+      />
+
       <div class="panel-elevated rounded-2xl border border-border overflow-visible px-2 pb-2 pt-[18px]">
         <input
           ref="fileInputRef"
@@ -1008,15 +1016,15 @@ onUnmounted(() => {
             v-if="generating"
             class="h-10 w-10 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition"
             @click="chat.stop()"
-            title="停止"
+            title="停止当前任务"
           ><Square class="w-4 h-4" /></button>
           <button
-            v-else
             class="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center transition"
             :class="canSend
               ? 'bg-accent text-white hover:opacity-90 cursor-pointer'
               : 'bg-hover text-muted cursor-not-allowed'"
             :disabled="!canSend"
+            :title="generating ? '加入发送队列' : '发送'"
             @click="send"
           ><Send class="w-4 h-4" /></button>
         </div>

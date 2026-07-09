@@ -162,6 +162,36 @@ pub fn set_status(
     Ok(())
 }
 
+/// List runs with the given status, oldest first (for queue observability UI).
+pub fn list_by_status(conn: &Connection, status: &str, limit: usize) -> Result<Vec<RunRecord>> {
+    let limit = limit.max(1).min(200) as i64;
+    let mut stmt = conn.prepare(
+        "SELECT run_id, conversation_id, trigger_source, trigger_meta_json,
+                idempotency_key, status, created_at_ms, started_at_ms,
+                finished_at_ms, error, summary_json
+         FROM runs
+         WHERE status = ?1
+         ORDER BY created_at_ms ASC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![status, limit], |r| {
+        Ok(RunRecord {
+            run_id: r.get(0)?,
+            conversation_id: r.get(1)?,
+            trigger_source: r.get(2)?,
+            trigger_meta_json: r.get(3)?,
+            idempotency_key: r.get(4)?,
+            status: r.get(5)?,
+            created_at_ms: r.get(6)?,
+            started_at_ms: r.get(7)?,
+            finished_at_ms: r.get(8)?,
+            error: r.get(9)?,
+            summary_json: r.get(10)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn get(conn: &Connection, run_id: &str) -> Result<Option<RunRecord>> {
     let row = conn
         .query_row(

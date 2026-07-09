@@ -287,6 +287,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/runs/:run_id", get(get_run))
         .route("/api/runs/:run_id/events", get(run_events))
         .route("/api/runs/:run_id/cancel", post(cancel_run))
+        .route("/api/dispatcher/queue", get(get_dispatcher_queue_snapshot))
         .route(
             "/api/webhooks/:src/upload",
             post(webhook_upload).layer(DefaultBodyLimit::max(
@@ -1247,6 +1248,14 @@ async fn create_run(
         handle.status
     );
     Ok((StatusCode::ACCEPTED, Json(handle)))
+}
+
+/// `GET /api/dispatcher/queue` — lane queue snapshot for settings UI.
+async fn get_dispatcher_queue_snapshot(
+    State(state): State<ServerState>,
+) -> Result<Json<pointer_core::dispatcher::RunQueueSnapshot>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(state.dispatcher.queue_snapshot()))
 }
 
 /// Read-only view of a persisted run record (mirrors `RunRecord` minus the

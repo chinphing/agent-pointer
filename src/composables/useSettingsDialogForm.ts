@@ -198,6 +198,7 @@ function createSettingsDialogForm(deps: {
   const contextKeepRecentUserTurns = ref(6)
   const contextSummaryMaxTokens = ref(2048)
   const maxToolRounds = ref(100)
+  const maxSubAgentToolRounds = ref(100)
   const parallelToolExecutionEnabled = ref(true)
   const maxParallelToolCalls = ref<number | ''>('')
   const maxParallelSubAgents = ref<number | ''>('')

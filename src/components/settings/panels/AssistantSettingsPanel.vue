@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { ComputerInitialTier } from '../../../types/chat'
+import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
 import { useSettingsStore } from '../../../stores/settings'
+import { getDispatcherQueueSnapshot } from '../../../lib/api'
+import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
 import { Bot, CircleHelp, Monitor, Sparkles, Wrench } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -44,6 +48,50 @@ const {
   refreshMediaDeps,
   askAssistantInstallFfmpeg
 } = props.form
+
+const queueSnapshot = ref<RunQueueSnapshot | null>(null)
+const queueLoading = ref(false)
+let queuePollTimer: ReturnType<typeof setInterval> | null = null
+
+const activeLanes = computed(() =>
+  (queueSnapshot.value?.lanes ?? []).filter(
+    lane => lane.lane.startsWith('session:')
+      ? lane.active > 0 || lane.waiting > 0
+      : true
+  )
+)
+
+const pendingRunCount = computed(() => queueSnapshot.value?.pendingRuns.length ?? 0)
+
+const totalLaneWaiting = computed(() =>
+  activeLanes.value.reduce((sum, lane) => sum + lane.waiting, 0)
+)
+
+function laneStatusLine(lane: LaneQueueView): string {
+  return `${lane.active}/${lane.maxConcurrent} 执行中 · ${lane.waiting} 排队`
+}
+
+async function refreshQueueSnapshot() {
+  queueLoading.value = true
+  try {
+    queueSnapshot.value = await getDispatcherQueueSnapshot()
+  } catch (e) {
+    console.warn('[settings] getDispatcherQueueSnapshot failed', e)
+  } finally {
+    queueLoading.value = false
+  }
+}
+
+onMounted(() => {
+  void refreshQueueSnapshot()
+  queuePollTimer = setInterval(() => {
+    void refreshQueueSnapshot()
+  }, 2500)
+})
+
+onUnmounted(() => {
+  if (queuePollTimer) clearInterval(queuePollTimer)
+})
 
 const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: string }[] = [
   { value: 'primary', label: '快速', desc: '轻量视觉，响应更快' },
@@ -318,7 +366,7 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <div>
-                <h4 class="text-sm font-medium text-foreground">编码偏好</h4>
+                <h4 class="text-sm font-medium text-foreground">个性化</h4>
                 <p class="mt-1 text-[11px] text-muted">
                   写入每次对话的系统提示（[USER RULES]）。用于约束改动范围、风格等；留空则仅使用产品默认规则。
                 </p>
@@ -358,6 +406,69 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                   step="1"
                   class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
                 />
+              </div>
+
+              <div class="pt-2 border-t border-border space-y-3">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[12px] font-medium text-foreground">队列状态</span>
+                  <span class="text-[11px] text-muted">
+                    <template v-if="queueLoading && !queueSnapshot">加载中…</template>
+                    <template v-else>
+                      {{ pendingRunCount }} 个待执行
+                      <template v-if="totalLaneWaiting > 0"> · {{ totalLaneWaiting }} 个在 lane 排队</template>
+                    </template>
+                  </span>
+                </div>
+
+                <div v-if="queueSnapshot" class="space-y-2">
+                  <div
+                    v-for="lane in activeLanes"
+                    :key="lane.lane"
+                    class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2"
+                  >
+                    <div class="flex items-center justify-between gap-2 text-[12px]">
+                      <span class="font-medium text-foreground">{{ laneQueueLabel(lane.lane) }}</span>
+                      <span class="text-muted shrink-0">{{ laneStatusLine(lane) }}</span>
+                    </div>
+                    <ul v-if="lane.waiters.length" class="mt-2 space-y-1">
+                      <li
+                        v-for="w in lane.waiters"
+                        :key="`${lane.lane}:${w.runId}`"
+                        class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
+                        :title="`${w.runId} · ${w.conversationId}`"
+                      >
+                        <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(w.triggerSource) }}</span>
+                        <span class="truncate">{{ shortId(w.conversationId, 28) }}</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div
+                    v-if="pendingRunCount > 0"
+                    class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2 space-y-1.5"
+                  >
+                    <div class="text-[12px] font-medium text-foreground">待执行任务</div>
+                    <ul class="space-y-1 max-h-36 overflow-y-auto">
+                      <li
+                        v-for="run in queueSnapshot.pendingRuns"
+                        :key="run.runId"
+                        class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
+                        :title="run.runId"
+                      >
+                        <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(run.triggerSource) }}</span>
+                        <span class="truncate flex-1">{{ shortId(run.conversationId, 24) }}</span>
+                        <span class="shrink-0 text-[10px] text-muted/70">{{ new Date(run.createdAtMs).toLocaleTimeString() }}</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <p
+                    v-else-if="!totalLaneWaiting"
+                    class="text-[11px] text-muted text-center py-2"
+                  >
+                    当前无排队任务
+                  </p>
+                </div>
               </div>
             </div>
 

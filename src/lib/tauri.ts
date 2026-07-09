@@ -402,6 +402,12 @@ export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
 
 // ---- Phase 5/6: automation (cron jobs + webhook token) ----
 
+export async function getDispatcherQueueSnapshot(): Promise<
+  import('../types/automation').RunQueueSnapshot
+> {
+  return await invoke('get_dispatcher_queue_snapshot')
+}
+
 export async function listCronJobs(): Promise<CronJob[]> {
   return await invoke<CronJob[]>('list_cron_jobs')
 }

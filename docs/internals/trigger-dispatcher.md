@@ -10,7 +10,7 @@
 |------|------|
 | `crates/pointer-core/src/dispatcher/mod.rs` | `RunDispatcher`：dispatch / run_runner / cancel / wait / subscribe_events / run_status / dispatch_internal |
 | `crates/pointer-core/src/dispatcher/trigger.rs` | `TriggerRequest`、`TriggerSource`、`TriggerMeta`、`DeliverTarget`、`RunHandle`、`RunAcceptStatus`、`RunOutcome` |
-| `crates/pointer-core/src/dispatcher/queue.rs` | `RunQueue`：lane 串行 + 全局并发上限（`Semaphore`） |
+| `crates/pointer-core/src/dispatcher/queue.rs` | `RunQueue`：嵌套 `session:*`（串行）+ `global:main` / `global:cron`（可配置并发） |
 | `crates/pointer-core/src/dispatcher/hooks.rs` | `HookRegistry` + 8 个生命周期钩子 trait + 内置 `LifecycleLogHook` |
 | `crates/pointer-core/src/agent_events.rs` | `AgentEvent` + `AgentEventBus`（`broadcast`）+ `StreamEvent`→`AgentEvent` 桥接 |
 | `crates/pointer-core/src/scheduler.rs` | Cron 调度器：ticker + `cron_jobs` 表轮询 + `dispatch` |
@@ -37,7 +37,33 @@
 5. `pre_dispatch` 钩子（可 reject）
 6. `runs` 表插入 `queued`，emit `AgentEvent::RunQueued`
 7. 注册 `CancellationToken`，spawn `run_runner`
-8. `run_runner`：acquire lane/全局许可 → `running` + emit `RunStarted` + `on_run_started` 钩子 → 桥接 `StreamEvent`→`AgentEvent` → 调 `run_chat` → 终态 `finalize_terminal`（`on_run_finished` / `on_run_failed` / `on_run_cancelled`）
+8. `run_runner`：acquire `session:*` + `global:main`/`global:cron` 许可 → `running` + emit `RunStarted` + `on_run_started` 钩子 → 桥接 `StreamEvent`→`AgentEvent` → 调 `run_chat` → 终态 `finalize_terminal`（`on_run_finished` / `on_run_failed` / `on_run_cancelled`）
+
+## Lane 队列（对齐 openclaw）
+
+`RunQueue` 用嵌套 lane 替代旧的全局 `Semaphore`：
+
+| Lane | Key | 并发上限 | 说明 |
+|------|-----|----------|------|
+| Session | `session:{conversation_id}` | 1 | 同一会话串行，防止并发回合 |
+| Global main | `global:main` | `maxConcurrentRuns`（设置项，默认 4，1–64） | IPC / HTTP / Webhook / IM 等共享池 |
+| Global cron | `global:cron` | 同 main | Cron 独立池，不与 main 互抢 |
+
+- 排队顺序：先等 session slot，再等 global slot；**不会在等 session 时占用 global 名额**（修复旧 Semaphore 模型的饥饿问题）。
+- 队列深度：每 lane 为无界 FIFO；`maxConcurrent` 只限制**同时执行**数，不限制排队长度。
+- 运行时可通过 `RunDispatcher::set_max_concurrent` 热更新 main/cron 上限并唤醒等待者。
+- 可观测：`GET /api/dispatcher/queue`（web）/ Tauri `get_dispatcher_queue_snapshot` 返回各 lane 的 active/waiting 与排队 run 列表；设置 → 智能体 → 任务调度 面板每 2.5s 轮询展示。
+
+### 聊天会话出站队列（对齐 Hermes `busy_input_mode: queue`）
+
+Hermes 在 gateway 层对**已活跃会话**的新入站消息：FIFO 入队、可选 interrupt、任务结束后按序处理（见 hermes `gateway/run.py` + `base.py` 的 `_pending_messages`）。
+
+Pointer 聊天 UI 对齐该语义（前端 FIFO，后端 `session:*` lane 仍串行兜底）：
+
+- 当前会话 **generating** 时，用户仍可点 **发送**；消息进入输入框上方的 **可折叠待发送列表**（per-conversation FIFO），**不**插入对话 transcript。
+- 当前 turn 结束（`done` / `error` / `stop`）后自动写入用户消息并 `dispatch` 下一条。
+- **停止**仅中断当前 run，队列中待发送消息保留；可从列表移出单条。
+- Composer 同时显示 **停止** + **发送**；输入框上方 **待发送** 面板可展开/收起。
 
 ## 事件总线
 

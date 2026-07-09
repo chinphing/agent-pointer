@@ -415,6 +415,7 @@ pub fn run() {
             commands::search_experiences,
             commands::get_experience_detail,
             commands::list_cron_jobs,
+            commands::get_dispatcher_queue_snapshot,
             commands::create_cron_job,
             commands::update_cron_job,
             commands::delete_cron_job,

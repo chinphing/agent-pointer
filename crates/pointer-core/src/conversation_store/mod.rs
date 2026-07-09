@@ -534,6 +534,11 @@ impl ConversationStore {
         runs::get(&conn, run_id)
     }
 
+    pub fn runs_list_queued(&self, limit: usize) -> Result<Vec<runs::RunRecord>> {
+        let conn = self.db.conn.lock();
+        runs::list_by_status(&conn, "queued", limit)
+    }
+
     // ---- cron_jobs (Phase 5 scheduler) ----
 
     pub fn cron_jobs_insert(&self, job: &cron_jobs::NewCronJob<'_>) -> Result<bool> {

@@ -17,6 +17,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  OutboundQueueItem,
   StreamEvent,
   TerminalInputRequest,
   ToolCall,
@@ -28,6 +29,7 @@ import { getTaskBoardSnapshot } from '../lib/api'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
+import { messagesForChatDispatch } from '../lib/chatDispatchHistory'
 import {
   clearReasoningDeltaBuffer,
   flushReasoningDeltaBuffer,
@@ -155,6 +157,65 @@ export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
   const currentId = ref<string | null>(null)
   const runByConversation = ref<Record<string, ConversationRunState>>({})
+
+  /** FIFO outbound sends waiting while the session turn is still running (Hermes-style). */
+  const outboundQueues = ref<Record<string, OutboundQueueItem[]>>({})
+
+  function outboundQueueItems(conversationId: string): OutboundQueueItem[] {
+    const key = conversationId.trim()
+    if (!key) return []
+    return outboundQueues.value[key] ?? []
+  }
+
+  function outboundQueueCount(conversationId: string): number {
+    return outboundQueueItems(conversationId).length
+  }
+
+  function enqueueOutbound(conversationId: string, item: OutboundQueueItem) {
+    const key = conversationId.trim()
+    if (!key) return
+    const prev = outboundQueues.value[key] ?? []
+    outboundQueues.value = { ...outboundQueues.value, [key]: [...prev, item] }
+  }
+
+  function dequeueOutbound(conversationId: string): OutboundQueueItem | null {
+    const key = conversationId.trim()
+    const queue = outboundQueues.value[key]
+    if (!queue?.length) return null
+    const [head, ...rest] = queue
+    if (rest.length) {
+      outboundQueues.value = { ...outboundQueues.value, [key]: rest }
+    } else {
+      const next = { ...outboundQueues.value }
+      delete next[key]
+      outboundQueues.value = next
+    }
+    return head ?? null
+  }
+
+  function removeOutboundQueueItem(conversationId: string, itemId: string) {
+    const key = conversationId.trim()
+    const id = itemId.trim()
+    const queue = outboundQueues.value[key]
+    if (!queue?.length) return
+    const next = queue.filter(item => item.id !== id)
+    if (next.length === queue.length) return
+    if (next.length) {
+      outboundQueues.value = { ...outboundQueues.value, [key]: next }
+    } else {
+      const map = { ...outboundQueues.value }
+      delete map[key]
+      outboundQueues.value = map
+    }
+  }
+
+  function clearOutboundQueue(conversationId: string) {
+    const key = conversationId.trim()
+    if (!key || !outboundQueues.value[key]) return
+    const next = { ...outboundQueues.value }
+    delete next[key]
+    outboundQueues.value = next
+  }
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
   const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
@@ -199,6 +260,12 @@ export const useChatStore = defineStore('chat', () => {
     conversations.value.find(c => c.id === currentId.value) || null
   )
 
+  const currentOutboundQueue = computed(() => {
+    const id = currentId.value?.trim()
+    if (!id) return [] as OutboundQueueItem[]
+    return outboundQueues.value[id] ?? []
+  })
+
   function conversationNeedsMessageHydration(conv: Conversation | null | undefined): boolean {
     if (!conv) return false
     if (messagesLoadingIds.value.has(conv.id)) return true
@@ -229,6 +296,72 @@ export const useChatStore = defineStore('chat', () => {
     if (!key) return
     cancelGeneratingClearTimer(key)
     patchRunState(key, { generating: false, activeMessageId: null })
+    queueMicrotask(() => {
+      void drainOutboundQueue(key)
+    })
+  }
+
+  let drainingOutbound = new Set<string>()
+
+  async function drainOutboundQueue(conversationId: string) {
+    const convId = conversationId.trim()
+    if (!convId || isConversationGenerating(convId) || drainingOutbound.has(convId)) return
+    const item = dequeueOutbound(convId)
+    if (!item) return
+
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv) {
+      await drainOutboundQueue(convId)
+      return
+    }
+
+    drainingOutbound.add(convId)
+    try {
+      const userMsg: ChatMessage = {
+        id: item.id,
+        role: 'user',
+        content: item.content,
+        status: 'done',
+        createdAt: item.createdAt,
+        ...(item.attachments?.length ? { attachments: item.attachments } : {})
+      }
+      conv.messages.push(userMsg)
+      maybeUpdateConversationTitle(conv)
+      conv.updatedAt = Date.now()
+      await dispatchChatTurn(conv)
+    } finally {
+      drainingOutbound.delete(convId)
+    }
+  }
+
+  async function dispatchChatTurn(conv: Conversation) {
+    patchRunState(conv.id, { generating: true, activeMessageId: null })
+    await flushPersistMeta()
+    await refreshTaskBoard(conv.id)
+
+    await sendChat({
+      conversationId: conv.id,
+      messages: messagesForChatDispatch(conv.messages),
+      enabledSkillIds: enabledSkillIdsForRequest(conv),
+      agentMode: effectiveConversationAgentMode(conv),
+      leadAgentId: effectiveConversationLeadAgentId(conv),
+      toolRoundsUsed: 0,
+      toolRoundsUsedSupervisor: 0,
+      workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
+      ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
+    }).catch(err => {
+      clearRunState(conv.id)
+      console.error('sendChat error', err)
+      conv.messages.push({
+        id: uid(),
+        role: 'assistant',
+        content: '',
+        status: 'error',
+        createdAt: Date.now(),
+        errorMessage: String(err)
+      })
+      persistAppend(conv.id)
+    })
   }
 
   const generatingClearTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -856,6 +989,13 @@ export const useChatStore = defineStore('chat', () => {
     const i = conversations.value.findIndex(c => c.id === id)
     if (i >= 0) conversations.value.splice(i, 1)
     hydratedIds.value.delete(id)
+    clearOutboundQueue(id)
+    cancelGeneratingClearTimer(id)
+    const nextRuns = { ...runByConversation.value }
+    delete nextRuns[id]
+    runByConversation.value = nextRuns
+    clearOutboundQueue(id)
+    clearRunState(id)
     // Explicitly delete the row + its messages + sandbox. persistMeta() is a
     // pure upsert now (paginated subset), so it can no longer delete for us.
     await deleteConversationApi(id).catch(err =>
@@ -1139,7 +1279,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) newConversation()
     const conv = current.value!
     const hasAttachments = attachments.length > 0
-    if ((!content.trim() && !hasAttachments) || isConversationGenerating(conv.id)) return
+    if ((!content.trim() && !hasAttachments)) return
     const platformAuth = usePlatformAuthStore()
     let refreshErrorMessage: string | null = null
     try {
@@ -1207,37 +1347,29 @@ export const useChatStore = defineStore('chat', () => {
       status: 'done', createdAt: Date.now(),
       ...(wireAttachments.length ? { attachments: wireAttachments } : {})
     }
+
+    if (isConversationGenerating(conv.id)) {
+      enqueueOutbound(conv.id, {
+        id: userMsg.id,
+        content,
+        createdAt: userMsg.createdAt,
+        ...(wireAttachments.length ? { attachments: wireAttachments } : {})
+      })
+      for (const att of attachments) {
+        releaseComposerAttachment(att.id)
+      }
+      showUiToast(`已加入队列（${outboundQueueCount(conv.id)} 条待发送）`, 'success')
+      return
+    }
+
     conv.messages.push(userMsg)
     maybeUpdateConversationTitle(conv)
     for (const att of attachments) {
       releaseComposerAttachment(att.id)
     }
     conv.updatedAt = Date.now()
-    patchRunState(conv.id, { generating: true, activeMessageId: null })
-    await flushPersistMeta()
 
-    await refreshTaskBoard(conv.id)
-
-    await sendChat({
-      conversationId: conv.id,
-      messages: JSON.parse(JSON.stringify(conv.messages)),
-      enabledSkillIds: enabledSkillIdsForRequest(conv),
-      agentMode: effectiveConversationAgentMode(conv),
-      leadAgentId: effectiveConversationLeadAgentId(conv),
-      toolRoundsUsed: 0,
-      toolRoundsUsedSupervisor: 0,
-      workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
-      ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
-    }).catch(err => {
-      clearRunState(conv.id)
-      console.error('sendChat error', err)
-      conv.messages.push({
-        id: uid(), role: 'assistant', content: '',
-        status: 'error', createdAt: Date.now(),
-        errorMessage: String(err)
-      })
-      persistAppend(conv.id)
-    })
+    await dispatchChatTurn(conv)
   }
 
   async function stop() {
@@ -1334,12 +1466,13 @@ export const useChatStore = defineStore('chat', () => {
     composerDraftByConvId.value = {}
     clearActiveComposer()
     clearAllRunStates()
+    outboundQueues.value = {}
     taskBoards.value = {}
     newConversation()
   }
 
   return {
-    conversations, currentId, current, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, uiToast, taskBoards,
+    conversations, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, uiToast, taskBoards,
     init, resetForPlatformLogout, newConversation, openCronConversation, openWebhookConversation, selectConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

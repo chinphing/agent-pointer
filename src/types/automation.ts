@@ -95,3 +95,35 @@ export interface WebhookTokenReveal {
   token: string
   preview: string
 }
+
+/** Dispatcher per-lane queue waiter (settings UI). */
+export interface QueueWaiterView {
+  runId: string
+  conversationId: string
+  triggerSource: string
+}
+
+/** Per-lane queue depth in the nested lane registry. */
+export interface LaneQueueView {
+  lane: string
+  active: number
+  waiting: number
+  maxConcurrent: number
+  waiters: QueueWaiterView[]
+}
+
+/** Persisted run still waiting for a lane slot (`runs.status = queued`). */
+export interface PendingRunView {
+  runId: string
+  conversationId: string
+  triggerSource: string
+  createdAtMs: number
+}
+
+/** Combined dispatcher queue snapshot for settings / observability. */
+export interface RunQueueSnapshot {
+  maxConcurrentMain: number
+  maxConcurrentCron: number
+  lanes: LaneQueueView[]
+  pendingRuns: PendingRunView[]
+}

@@ -530,6 +530,12 @@ export async function onStream(handler: (e: StreamEvent) => void, conversationId
 
 // ---- Phase 5/6: automation (cron jobs + webhook token) ----
 
+export async function getDispatcherQueueSnapshot(): Promise<
+  import('../types/automation').RunQueueSnapshot
+> {
+  return await request('/api/dispatcher/queue')
+}
+
 export async function listCronJobs(): Promise<CronJob[]> {
   return await request<CronJob[]>('/api/cron-jobs')
 }

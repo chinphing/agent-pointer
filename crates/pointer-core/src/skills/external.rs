@@ -107,10 +107,11 @@ fn migrate_system_skills_layout_if_needed() -> Result<()> {
 }
 
 pub fn is_skill_manifest_path(path: &str) -> bool {
-    Path::new(path.trim())
-        .file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("SKILL.md"))
+    is_manifest_path(path)
+}
+
+fn is_manifest_basename(name: &str) -> bool {
+    name.eq_ignore_ascii_case("SKILL.md") || name.eq_ignore_ascii_case("skill.md")
 }
 
 /// Copy bundled skill directories into `{data_dir}/skills/` with `.bundled_manifest`.
@@ -293,6 +294,7 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         return Err(anyhow!("zip 中未找到 SKILL.md 或 skill.md"));
     }
 
+    let mut loaded = loaded_skill_ids();
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
 
@@ -309,6 +311,12 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
             ));
             continue;
         }
+
+        if loaded.contains(&manifest.name) {
+            skipped.push(format!("{}: 已存在", manifest.name));
+            continue;
+        }
+
         let target = root.join(manifest.name.trim());
         if target.exists() {
             fs::remove_dir_all(&target)?;
@@ -317,7 +325,11 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
 
         extract_skill_dir(&mut archive, &base, &target)?;
         match manifest_to_skill(manifest, &target) {
-            Ok(skill) => imported.push(skill),
+            Ok(skill) => {
+                super::provenance::mark_agent_created(&skill.id, Some("zip"));
+                loaded.insert(skill.id.clone());
+                imported.push(skill);
+            }
             Err(err) => {
                 let _ = fs::remove_dir_all(&target);
                 skipped.push(err.to_string());
@@ -326,6 +338,14 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
     }
 
     Ok(SkillImportResult { imported, skipped })
+}
+
+fn loaded_skill_ids() -> HashSet<String> {
+    load_external_skills()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.id)
+        .collect()
 }
 
 fn import_skill_zip_file(path: &Path) -> Result<SkillImportResult> {
@@ -694,7 +714,7 @@ pub fn manifest_path_in_dir(dir: &Path) -> Option<PathBuf> {
 fn is_manifest_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|file_name| file_name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("SKILL.md"))
+        .is_some_and(is_manifest_basename)
 }
 
 fn collect_resource_files(dir: &Path) -> Result<Vec<String>> {
@@ -722,7 +742,7 @@ fn is_manifest_path(name: &str) -> bool {
     Path::new(name)
         .file_name()
         .and_then(|file_name| file_name.to_str())
-        .is_some_and(|file| file.eq_ignore_ascii_case("SKILL.md"))
+        .is_some_and(is_manifest_basename)
 }
 
 fn safe_join(root: &Path, rel: &Path) -> Result<PathBuf> {

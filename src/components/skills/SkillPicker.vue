@@ -44,10 +44,12 @@ async function onImportFile(e: Event) {
     const result = await skills.importZip(file)
     const names = result.imported.map(s => s.name).join('、')
     importMessage.value = result.imported.length
-      ? `已导入 ${result.imported.length} 个技能：${names}`
+      ? `已导入并启用 ${result.imported.length} 个技能：${names}`
       : '未导入任何技能'
     if (result.skipped.length) {
       importMessage.value += `；跳过 ${result.skipped.length} 项`
+      const detail = result.skipped.slice(0, 3).join('；')
+      if (detail) importMessage.value += `（${detail}${result.skipped.length > 3 ? '…' : ''}）`
     }
   } catch (err: unknown) {
     importMessage.value = err instanceof Error ? err.message : String(err)

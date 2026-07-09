@@ -1,9 +1,8 @@
 //! Machine binding fingerprints for standalone licenses (v1 strict + drift anchors).
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs;
 use std::time::Duration;
 
 const FINGERPRINT_PREFIX: &str = "fp1:";
@@ -245,7 +244,7 @@ fn optional_non_empty(raw: &str) -> Option<String> {
 fn read_board_uuid() -> Result<String> {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(raw) = fs::read_to_string("/sys/class/dmi/id/product_uuid") {
+        if let Ok(raw) = std::fs::read_to_string("/sys/class/dmi/id/product_uuid") {
             let uuid = normalize_factor(&raw);
             if is_valid_board_uuid(&uuid) {
                 return Ok(uuid);

@@ -5,7 +5,6 @@ use crate::platform_auth::{
 };
 use chrono::Utc;
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 
 const ENV_ADMIN_TOKEN: &str = "POINTER_SERVER_ADMIN_TOKEN";
 const LOCAL_USER_ID: &str = "local-admin";

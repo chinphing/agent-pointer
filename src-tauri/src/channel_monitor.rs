@@ -19,10 +19,6 @@ impl ChannelMonitorHandle {
     pub fn start(&self, gateway: Arc<pointer_channels::ChannelGateway>) {
         self.supervisor.start(gateway);
     }
-
-    pub fn restart(&self, gateway: Arc<pointer_channels::ChannelGateway>) {
-        self.supervisor.restart(gateway);
-    }
 }
 
 impl Default for ChannelMonitorHandle {

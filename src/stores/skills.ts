@@ -62,6 +62,20 @@ export const useSkillsStore = defineStore('skills', () => {
   async function importZip(file: File): Promise<SkillImportResult> {
     const result = await importSkillZip(file)
     await load({ rescan: true })
+    if (result.imported.length > 0) {
+      const merged = [...enabledIds.value]
+      let changed = false
+      for (const s of result.imported) {
+        if (!merged.includes(s.id)) {
+          merged.push(s.id)
+          changed = true
+        }
+      }
+      if (changed) {
+        enabledIds.value = merged
+        await persistEnabledIds()
+      }
+    }
     return result
   }
 

@@ -761,7 +761,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         conn,
         "webhook_sources",
         "session_mode",
-        "TEXT NOT NULL DEFAULT 'daily'",
+        "TEXT NOT NULL DEFAULT 'per_delivery'",
     )?;
     add_column_if_missing(conn, "conversations", "last_lead_prompt_tokens", "INTEGER")?;
     add_column_if_missing(

@@ -36,7 +36,8 @@ export function resolveWebhookViewSessionId(source: {
   const persisted = source.currentSessionId?.trim()
   const legacy = webhookConversationId(source.src)
   if (persisted && persisted !== legacy) return persisted
-  if (source.sessionMode === 'per_delivery') return null
+  const mode = source.sessionMode ?? 'per_delivery'
+  if (mode === 'per_delivery') return null
   return currentWebhookSessionId(source.src)
 }
 

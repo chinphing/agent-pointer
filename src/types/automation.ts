@@ -56,7 +56,7 @@ export interface WebhookSource {
   hasTranscript: boolean
   /** Custom auth header; omit for default Bearer + X-Pointer-Token. */
   authHeaderName?: string | null
-  /** `daily` (default) or `per_delivery`. */
+  /** `per_delivery` (default) or `daily`. */
   sessionMode?: WebhookSessionMode
 }
 

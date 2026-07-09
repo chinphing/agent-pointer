@@ -35,12 +35,20 @@ describe('webhookIngress', () => {
       conversationId: 'webhook:github',
       hasTranscript: true
     })
-    expect(fallback).toMatch(/^webhook:github:\d{8}$/)
-    expect(fallback).not.toBe('webhook:github')
+    expect(fallback).toBeNull()
     expect(
       resolveWebhookViewSessionId({
         src: 'github',
-        currentSessionId: 'webhook:github'
+        conversationId: 'webhook:github',
+        hasTranscript: true,
+        sessionMode: 'daily'
+      })
+    ).toMatch(/^webhook:github:\d{8}$/)
+    expect(
+      resolveWebhookViewSessionId({
+        src: 'github',
+        currentSessionId: 'webhook:github',
+        sessionMode: 'daily'
       })
     ).toMatch(/^webhook:github:\d{8}$/)
   })

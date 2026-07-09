@@ -41,7 +41,7 @@ const webhookInfo = ref<string | null>(null)
 const webhookSrcInput = ref('')
 const tokenInput = ref('')
 const authHeaderInput = ref('')
-const sessionModeInput = ref<WebhookSessionMode>('daily')
+const sessionModeInput = ref<WebhookSessionMode>('per_delivery')
 const updatingSessionModeSrc = ref<string | null>(null)
 const settingToken = ref(false)
 const showWebhookForm = ref(false)
@@ -256,7 +256,7 @@ async function submitWebhookSource() {
     webhookSrcInput.value = ''
     tokenInput.value = ''
     authHeaderInput.value = ''
-    sessionModeInput.value = 'daily'
+    sessionModeInput.value = 'per_delivery'
     showWebhookForm.value = false
     await refreshWebhook()
   } catch (e) {
@@ -647,7 +647,7 @@ onMounted(() => {
             <div class="flex items-center gap-1 shrink-0">
               <select
                 class="h-7 max-w-[7.5rem] rounded-md border border-border bg-card px-1.5 text-[10px] text-muted cursor-pointer disabled:opacity-50"
-                :value="s.sessionMode ?? 'daily'"
+                :value="s.sessionMode ?? 'per_delivery'"
                 :disabled="updatingSessionModeSrc === s.src"
                 :title="SESSION_MODE_HINT"
                 @change="updateWebhookSessionMode(s, ($event.target as HTMLSelectElement).value as WebhookSessionMode)"

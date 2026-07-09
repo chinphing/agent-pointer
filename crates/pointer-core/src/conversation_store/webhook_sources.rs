@@ -13,9 +13,9 @@ use crate::webhook_config::{per_delivery_session_id, webhook_session_key, webhoo
 #[serde(rename_all = "snake_case")]
 pub enum WebhookSessionMode {
     /// One session per local calendar day (`webhook:{src}:{yyyymmdd}`), 04:00 rollover.
-    #[default]
     Daily,
     /// One session per delivery id (`webhook:{src}:{delivery_id}`).
+    #[default]
     PerDelivery,
 }
 
@@ -31,7 +31,7 @@ impl WebhookSessionMode {
         match raw.trim().to_lowercase().as_str() {
             "daily" => Ok(Self::Daily),
             "per_delivery" | "per-delivery" | "perdelivery" => Ok(Self::PerDelivery),
-            other if other.is_empty() => Ok(Self::Daily),
+            other if other.is_empty() => Ok(Self::default()),
             _ => anyhow::bail!("invalid webhook session_mode (use daily or per_delivery)"),
         }
     }
@@ -54,7 +54,7 @@ pub struct WebhookSourceRecord {
     pub last_ingress_at_ms: Option<i64>,
     /// Optional custom auth header (e.g. `X-Codeup-Token`); NULL = default Bearer + X-Pointer-Token.
     pub auth_header_name: Option<String>,
-    /// `daily` (default) or `per_delivery`.
+    /// `per_delivery` (default) or `daily`.
     pub session_mode: WebhookSessionMode,
     pub created_at_ms: i64,
 }
@@ -66,7 +66,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
            current_session_id TEXT,
            last_ingress_at_ms INTEGER,
            auth_header_name TEXT,
-           session_mode TEXT NOT NULL DEFAULT 'daily',
+           session_mode TEXT NOT NULL DEFAULT 'per_delivery',
            created_at_ms INTEGER NOT NULL
          );",
     )?;
@@ -87,7 +87,7 @@ pub fn get(conn: &Connection, src: &str) -> Result<Option<WebhookSourceRecord>> 
 pub fn ensure_row(conn: &Connection, src: &str, now_ms: i64) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO webhook_sources (src, current_session_id, last_ingress_at_ms, auth_header_name, session_mode, created_at_ms)
-         VALUES (?1, NULL, NULL, NULL, 'daily', ?2)",
+         VALUES (?1, NULL, NULL, NULL, 'per_delivery', ?2)",
         params![src, now_ms],
     )?;
     Ok(())
@@ -291,7 +291,7 @@ pub fn resolve_view_session_id(
 ) -> Option<String> {
     let mode = record
         .map(|r| r.session_mode)
-        .unwrap_or(WebhookSessionMode::Daily);
+        .unwrap_or(WebhookSessionMode::PerDelivery);
     let legacy = webhook_session_key(src);
     if let Some(r) = record {
         if let Some(ref id) = r.current_session_id {
@@ -363,8 +363,20 @@ mod tests {
     }
 
     #[test]
-    fn first_ingress_uses_dated_session() {
+    fn first_ingress_default_is_per_delivery() {
         let conn = mem();
+        let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let id1 = resolve_ingress_session_id(&conn, "github", &now, Some("del-1")).unwrap();
+        let id2 = resolve_ingress_session_id(&conn, "github", &now, Some("del-2")).unwrap();
+        assert_eq!(id1, "webhook:github:del-1");
+        assert_eq!(id2, "webhook:github:del-2");
+    }
+
+    #[test]
+    fn first_ingress_uses_dated_session_when_daily_mode() {
+        let conn = mem();
+        ensure_row(&conn, "github", 1).unwrap();
+        set_session_mode(&conn, "github", WebhookSessionMode::Daily).unwrap();
         let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
         let id = resolve_ingress_session_id(&conn, "github", &now, None).unwrap();
         assert_eq!(id, "webhook:github:20260628");
@@ -373,6 +385,8 @@ mod tests {
     #[test]
     fn legacy_db_state_migrates_to_dated_on_ingress() {
         let conn = mem();
+        ensure_row(&conn, "github", 1).unwrap();
+        set_session_mode(&conn, "github", WebhookSessionMode::Daily).unwrap();
         let day1 = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
         set_current_session_id(&conn, "github", "webhook:github").unwrap();
         let id1 = resolve_ingress_session_id(&conn, "github", &day1, None).unwrap();

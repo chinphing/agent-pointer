@@ -265,7 +265,7 @@ impl<'a> WebhookTokenStore<'a> {
         let session_mode = record
             .as_ref()
             .map(|r| r.session_mode)
-            .unwrap_or(WebhookSessionMode::Daily);
+            .unwrap_or(WebhookSessionMode::PerDelivery);
         let has_transcript = legacy_has
             || current_session_id
                 .as_ref()
@@ -425,7 +425,7 @@ impl<'a> WebhookTokenStore<'a> {
             .store
             .webhook_sources_get(&src)?
             .map(|r| r.session_mode)
-            .unwrap_or(WebhookSessionMode::Daily))
+            .unwrap_or(WebhookSessionMode::PerDelivery))
     }
 
     /// Resolve expected token for `:src` at request time.

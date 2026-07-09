@@ -117,8 +117,8 @@ Authorization: Bearer <token>
 
 | 模式 | 说明 |
 |------|------|
-| `daily`（默认） | 同一 `:src` 在**本地日历日**（04:00 切换）内共享上下文 |
-| `per_delivery` | 每次投递独立会话；delivery id 取自 `idempotencyKey` → `X-GitHub-Delivery` / `Svix-Id` / `X-Request-ID` → 自动生成 |
+| `per_delivery`（默认） | 每次投递独立会话；delivery id 取自 `idempotencyKey` → `X-GitHub-Delivery` / `Svix-Id` / `X-Request-ID` → 自动生成 |
+| `daily` | 同一 `:src` 在**本地日历日**（04:00 切换）内共享上下文 |
 
 `per_delivery` 下建议将 GitHub `delivery` id 写入 `idempotencyKey`，避免重试开新会话。
 

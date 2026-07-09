@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { handleAssistantJsonPartial, handleDelta, handleMessageStart } from './messageHandlers'
+import {
+  handleAssistantJsonPartial,
+  handleDelta,
+  handleMessageEnd,
+  handleMessageStart
+} from './messageHandlers'
 import { createMockStreamHandlerContext, sampleAssistantMessage, sampleConversation } from './testUtils'
 import { PLANNER_PHASE_THOUGHTS } from '../../../lib/plannerPhase'
 
@@ -69,6 +74,37 @@ describe('messageHandlers', () => {
       thoughts: ''
     })
     expect(conv.messages[0].thoughts).toBeUndefined()
+  })
+
+  it('handleMessageEnd applies reply attachments on lead assistant message', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a1'),
+      content: '这张就是你刚发的那张图片，直接给你：',
+      contentStreaming: true
+    })
+    const ctx = createMockStreamHandlerContext([conv])
+    handleMessageEnd(ctx, {
+      kind: 'message_end',
+      messageId: 'a1',
+      content: '这张就是你刚发的那张图片，直接给你：',
+      rawContent:
+        '这张就是你刚发的那张图片，直接给你：\n\nMEDIA:/tmp/logo2.png',
+      attachments: [
+        {
+          id: 'reply-media-1',
+          kind: 'image',
+          mimeType: 'image/png',
+          fileName: 'logo2.png',
+          sizeBytes: 0,
+          localAbsPath: '/tmp/logo2.png'
+        }
+      ]
+    })
+    expect(conv.messages[0].attachments).toHaveLength(1)
+    expect(conv.messages[0].attachments?.[0]?.fileName).toBe('logo2.png')
+    expect(conv.messages[0].status).toBe('done')
+    expect(conv.messages[0].contentStreaming).toBe(false)
   })
 
   it('handleAssistantJsonPartial preserves real thoughts on empty string', () => {

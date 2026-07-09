@@ -154,16 +154,23 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
       r.conv.updatedAt = Date.now()
     }
     const scopedTarget = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
-    if (scopedTarget) {
+    // Only short-circuit for scoped sub-agent rows. Lead messages also resolve to
+    // `scopedTarget === r.msg`; they must fall through so attachments and run finish
+    // logic apply (MEDIA: delivery depends on `e.attachments`).
+    if (scopedTarget && e.scopedMessageId?.trim()) {
       scopedTarget.contentStreaming = false
       if (e.content != null) scopedTarget.content = stripOutboundMediaMarkers(e.content)
       if (e.rawContent != null) scopedTarget.rawContent = e.rawContent
+      if (e.toolRawOutput != null) scopedTarget.toolRawOutput = e.toolRawOutput
+      if (e.attachments?.length) scopedTarget.attachments = e.attachments
       if (e.thoughts != null && e.thoughts.trim() !== '') scopedTarget.thoughts = e.thoughts
       delete scopedTarget.toolNamePreview
       delete scopedTarget.responseTextDraft
       if (!ctx.isConversationGenerating(r.conv.id)) {
         scopedTarget.status = 'done'
       }
+      r.conv.updatedAt = Date.now()
+      ctx.scheduleMaybeFinishGenerating(r.conv.id, e.messageId)
       return
     }
     if (e.traceId?.trim()) {

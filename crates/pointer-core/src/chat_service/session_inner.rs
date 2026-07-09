@@ -98,24 +98,29 @@ pub(super) async fn run_chat_inner(
 
     // Refresh platform session and gate chat before binding session_user_id or persisting media.
     let web_session = crate::web_request_auth::scoped_login_creds().is_some();
-    match state.active_platform_auth().refresh_if_needed().await {
-        Ok(Some((_session, creds))) => {
-            if !web_session {
-                if creds.api_key.is_some()
-                    || !creds.provider_api_keys.is_empty()
-                    || creds.media_oss.is_some()
-                {
-                    state.apply_login_credentials(&creds);
-                } else if let Ok(Some(fetched)) =
-                    state.active_platform_auth().fetch_llm_credentials().await
-                {
-                    state.apply_login_credentials(&fetched);
+    let is_local_session = crate::web_request_auth::is_local_scoped_session();
+    let skip_platform_refresh =
+        crate::deployment_mode::is_standalone() && is_local_session;
+    if !skip_platform_refresh {
+        match state.active_platform_auth().refresh_if_needed().await {
+            Ok(Some((_session, creds))) => {
+                if !web_session {
+                    if creds.api_key.is_some()
+                        || !creds.provider_api_keys.is_empty()
+                        || creds.media_oss.is_some()
+                    {
+                        state.apply_login_credentials(&creds);
+                    } else if let Ok(Some(fetched)) =
+                        state.active_platform_auth().fetch_llm_credentials().await
+                    {
+                        state.apply_login_credentials(&fetched);
+                    }
                 }
             }
-        }
-        Ok(None) => {}
-        Err(e) => {
-            log::warn!("platform_auth: refresh before chat failed: {e:#}");
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("platform_auth: refresh before chat failed: {e:#}");
+            }
         }
     }
     let platform_logged_in = state.active_platform_auth().session_view().logged_in;
@@ -125,7 +130,7 @@ pub(super) async fn run_chat_inner(
     );
     let has_local_llm = settings_have_llm_key(&state.effective_settings());
     if platform_logged_in || web_session {
-        if platform_logged_in {
+        if platform_logged_in && !is_local_session {
             if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
                 let msg = if e.to_string().contains("token_quota_exhausted") {
                     "套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。".to_string()
@@ -146,15 +151,25 @@ pub(super) async fn run_chat_inner(
             "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」完成一次登录；自部署请在设置中配置 API Key"
         ));
     } else {
-        return Err(anyhow!("请先登录 Pointer 账户"));
+        let msg = if crate::deployment_mode::is_standalone() {
+            "请先使用 admin token 登录"
+        } else {
+            "请先登录 Pointer 账户"
+        };
+        return Err(anyhow!(msg));
     }
 
-    if platform_logged_in {
-        if let Some(uid) = state
-            .active_platform_auth()
-            .platform_user_id()
-            .filter(|s| !s.trim().is_empty())
-        {
+    if platform_logged_in || is_local_session {
+        let uid = if is_local_session {
+            crate::local_auth::local_user_id().to_string()
+        } else {
+            state
+                .active_platform_auth()
+                .platform_user_id()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_default()
+        };
+        if !uid.is_empty() {
             if let Err(e) = state
                 .session_index
                 .ensure_session_user_id(conversation_id, uid.as_str())

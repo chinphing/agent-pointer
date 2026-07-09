@@ -3,6 +3,7 @@ members = [
   "crates/pointer-core",
   "crates/pointer-channels",
   "server",
-  "src-tauri"
+  "src-tauri",
+  "tools/license-gen"
 ]
 resolver = "2"

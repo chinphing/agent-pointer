@@ -8,10 +8,60 @@
 //! Existing OS environment variables always override file values.
 
 use crate::dotenv::parse_dotenv_bytes;
+use crate::models::{PlatformSettings, ProviderConfig};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+#[derive(Debug, Default, Deserialize)]
+struct DeploymentSection {
+    /// `platform` (default) or `standalone`.
+    #[serde(default)]
+    mode: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct AuthLocalSection {
+    #[serde(default)]
+    admin_token: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct LlmProviderToml {
+    #[serde(default)]
+    api_key: String,
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    models: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct LlmSection {
+    #[serde(default)]
+    active_provider: String,
+    #[serde(default)]
+    providers: HashMap<String, LlmProviderToml>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct LicenseSection {
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    license_file: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct UsageSection {
+    /// When false, token usage is recorded locally but not reported to the platform API.
+    #[serde(default)]
+    report_enabled: Option<bool>,
+}
 
 #[derive(Debug, Default, Deserialize)]
 struct ServerSection {
@@ -61,7 +111,17 @@ struct WebhooksSection {
 #[derive(Debug, Default, Deserialize)]
 struct ServerConfigToml {
     #[serde(default)]
+    deployment: DeploymentSection,
+    #[serde(default)]
     server: ServerSection,
+    #[serde(default)]
+    auth: AuthToml,
+    #[serde(default)]
+    llm: LlmSection,
+    #[serde(default)]
+    license: LicenseSection,
+    #[serde(default)]
+    usage: UsageSection,
     #[serde(default)]
     openpointer: OpenpointerSection,
     #[serde(default)]
@@ -69,6 +129,14 @@ struct ServerConfigToml {
     #[serde(default)]
     env: HashMap<String, String>,
 }
+
+#[derive(Debug, Default, Deserialize)]
+struct AuthToml {
+    #[serde(default)]
+    local: AuthLocalSection,
+}
+
+static PARSED_LLM: OnceLock<Option<LlmSection>> = OnceLock::new();
 
 /// Result of loading server config from disk.
 #[derive(Debug, Clone)]
@@ -83,6 +151,7 @@ pub struct ServerConfigLoadResult {
 pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     let Some(path) = resolve_config_path()? else {
         eprintln!("pointer-server: no config file found (checked exe dir and cwd for pointer-server.toml/.env)");
+        crate::deployment_mode::init_from_env();
         return Ok(None);
     };
     let base_dir = path
@@ -100,12 +169,24 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         parse_toml_file(&path, &base_dir)?
     };
     let (applied, skipped_env) = apply_config_pairs(&pairs);
+    if ext == "toml" {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(parsed) = toml::from_str::<ServerConfigToml>(&text) {
+                let _ = PARSED_LLM.set(Some(parsed.llm));
+            }
+        }
+    }
+    crate::deployment_mode::init_from_env();
     eprintln!("pointer-server: config file {}", path.display());
     if applied.is_empty() && skipped_env.is_empty() {
         eprintln!("pointer-server: config file has no recognized keys");
     }
     for (key, value) in &applied {
-        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" || key == "POINTER_WEBHOOK_BEARER_TOKEN" {
+        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET"
+            || key == "POINTER_WEBHOOK_BEARER_TOKEN"
+            || key == "POINTER_SERVER_ADMIN_TOKEN"
+            || key == "POINTER_LICENSE_KEY"
+        {
             eprintln!("pointer-server: applied {key}=<redacted>");
         } else {
             eprintln!("pointer-server: applied {key}={value}");
@@ -113,7 +194,11 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     }
     for key in &skipped_env {
         let current = std::env::var(key).unwrap_or_default();
-        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" || key == "POINTER_WEBHOOK_BEARER_TOKEN" {
+        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET"
+            || key == "POINTER_WEBHOOK_BEARER_TOKEN"
+            || key == "POINTER_SERVER_ADMIN_TOKEN"
+            || key == "POINTER_LICENSE_KEY"
+        {
             eprintln!("pointer-server: skipped {key} (environment already set, value redacted)");
         } else {
             eprintln!("pointer-server: skipped {key} (environment already set to {current})");
@@ -176,6 +261,36 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
     let parsed: ServerConfigToml =
         toml::from_str(&text).with_context(|| format!("parse TOML {}", path.display()))?;
     let mut pairs = Vec::new();
+
+    push_mapped(
+        &mut pairs,
+        "POINTER_DEPLOYMENT_MODE",
+        &parsed.deployment.mode,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_ADMIN_TOKEN",
+        &parsed.auth.local.admin_token,
+        base_dir,
+        false,
+    );
+    if let Some(key) = resolve_license_key(&parsed.license, base_dir) {
+        pairs.push(("POINTER_LICENSE_KEY".to_string(), key));
+    }
+    if let Some(enabled) = parsed.usage.report_enabled {
+        pairs.push((
+            "POINTER_USAGE_REPORT_ENABLED".to_string(),
+            if enabled { "true" } else { "false" }.to_string(),
+        ));
+    }
+    if !parsed.llm.active_provider.trim().is_empty() {
+        pairs.push((
+            "POINTER_LLM_ACTIVE_PROVIDER".to_string(),
+            parsed.llm.active_provider.trim().to_string(),
+        ));
+    }
 
     push_mapped(
         &mut pairs,
@@ -256,6 +371,103 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
     }
 
     Ok(pairs)
+}
+
+fn resolve_license_key(license: &LicenseSection, base_dir: &Path) -> Option<String> {
+    let inline = license.key.trim();
+    if !inline.is_empty() {
+        return Some(inline.to_string());
+    }
+    let file = license.license_file.trim();
+    if file.is_empty() {
+        return None;
+    }
+    let path = if Path::new(file).is_absolute() {
+        PathBuf::from(file)
+    } else {
+        base_dir.join(file)
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                log::warn!(
+                    "server_config: license file {} is empty",
+                    path.display()
+                );
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Err(e) => {
+            log::warn!(
+                "server_config: failed to read license file {}: {e}",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+/// Apply `[llm]` provider keys from pointer-server.toml into in-memory platform settings.
+pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings) {
+    let Some(llm) = PARSED_LLM.get().and_then(|o| o.as_ref()) else {
+        return;
+    };
+    if llm.providers.is_empty() {
+        return;
+    }
+    let active = std::env::var("POINTER_LLM_ACTIVE_PROVIDER")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| llm.active_provider.trim().to_string());
+    if !active.is_empty() {
+        platform.active_provider_id = active;
+    }
+    for (provider_id, cfg) in &llm.providers {
+        let pid = provider_id.trim();
+        if pid.is_empty() {
+            continue;
+        }
+        let api_key = cfg.api_key.trim();
+        if api_key.is_empty() {
+            continue;
+        }
+        if let Some(existing) = platform.providers.iter_mut().find(|p| p.id == pid) {
+            existing.api_key = api_key.to_string();
+            if !cfg.base_url.trim().is_empty() {
+                existing.base_url = cfg.base_url.trim().to_string();
+            }
+            if !cfg.name.trim().is_empty() {
+                existing.name = cfg.name.trim().to_string();
+            }
+            if !cfg.models.is_empty() {
+                existing.models = cfg.models.clone();
+            }
+            log::info!("server_config: injected llm api_key for provider {pid}");
+        } else {
+            platform.providers.push(ProviderConfig {
+                id: pid.to_string(),
+                name: if cfg.name.trim().is_empty() {
+                    pid.to_string()
+                } else {
+                    cfg.name.trim().to_string()
+                },
+                base_url: cfg.base_url.trim().to_string(),
+                api_key: api_key.to_string(),
+                models: cfg.models.clone(),
+                reasoning_in_messages: None,
+                temperature: None,
+                max_tokens: None,
+                model_configs: HashMap::new(),
+                enable_thinking: None,
+                thinking_budget: None,
+                reasoning_effort: None,
+            });
+            log::info!("server_config: added llm provider {pid} from config");
+        }
+    }
 }
 
 fn push_mapped(

@@ -48,6 +48,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", local_cfg.display());
     println!("cargo:rerun-if-changed={}", tauri_conf.display());
     emit_app_version_from_tauri_conf(&tauri_conf);
+    emit_license_public_key(&manifest_dir);
 
     let Some(config_path) = pick_config_path(&workspace_cfg, &local_cfg) else {
         return;
@@ -74,6 +75,28 @@ fn emit_app_version_from_tauri_conf(path: &Path) {
             println!("cargo:rustc-env=POINTER_APP_VERSION={trimmed}");
         }
     }
+}
+
+/// Embed `license.pub` (base64 Ed25519 public key) for standalone license verification.
+fn emit_license_public_key(manifest_dir: &Path) {
+    let key_path = manifest_dir.join("license.pub");
+    println!("cargo:rerun-if-changed={}", key_path.display());
+    let Ok(raw) = fs::read_to_string(&key_path) else {
+        println!(
+            "cargo:warning=pointer-core: {} missing; standalone license verification requires POINTER_LICENSE_PUBLIC_KEY at runtime",
+            key_path.display()
+        );
+        return;
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        println!(
+            "cargo:warning=pointer-core: {} is empty",
+            key_path.display()
+        );
+        return;
+    }
+    println!("cargo:rustc-env=POINTER_LICENSE_PUBLIC_KEY={trimmed}");
 }
 
 fn pick_config_path(workspace_cfg: &Path, local_cfg: &Path) -> Option<PathBuf> {

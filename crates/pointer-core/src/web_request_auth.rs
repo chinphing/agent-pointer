@@ -11,6 +11,15 @@ use tokio::task_local;
 task_local! {
     static SCOPED_AUTH: Arc<PlatformAuthManager>;
     static SCOPED_CREDS: PlatformLoginCredentials;
+    static SCOPED_AUTH_KIND: WebSessionAuthKind;
+}
+
+/// How the browser session was established.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WebSessionAuthKind {
+    #[default]
+    Platform,
+    Local,
 }
 
 /// Resolve the platform auth manager for the current async task.
@@ -23,16 +32,28 @@ pub fn scoped_login_creds() -> Option<PlatformLoginCredentials> {
     SCOPED_CREDS.try_with(Clone::clone).ok()
 }
 
+/// Auth kind for the current request (`platform` OAuth vs standalone admin token).
+pub fn scoped_auth_kind() -> Option<WebSessionAuthKind> {
+    SCOPED_AUTH_KIND.try_with(Clone::clone).ok()
+}
+
+pub fn is_local_scoped_session() -> bool {
+    scoped_auth_kind() == Some(WebSessionAuthKind::Local)
+}
+
 /// Browser OAuth session captured from the current HTTP request (pointer-server).
 #[derive(Clone)]
 pub struct WebSessionAuth {
+    pub kind: WebSessionAuthKind,
     pub auth: Arc<PlatformAuthManager>,
     pub creds: PlatformLoginCredentials,
 }
 
 impl std::fmt::Debug for WebSessionAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WebSessionAuth").finish_non_exhaustive()
+        f.debug_struct("WebSessionAuth")
+            .field("kind", &self.kind)
+            .finish_non_exhaustive()
     }
 }
 
@@ -40,6 +61,7 @@ impl std::fmt::Debug for WebSessionAuth {
 pub fn capture_web_session_auth(default: &Arc<PlatformAuthManager>) -> Option<WebSessionAuth> {
     let creds = scoped_login_creds()?;
     Some(WebSessionAuth {
+        kind: scoped_auth_kind().unwrap_or(WebSessionAuthKind::Platform),
         auth: scoped_auth(default),
         creds,
     })
@@ -49,6 +71,7 @@ pub fn capture_web_session_auth(default: &Arc<PlatformAuthManager>) -> Option<We
 pub async fn run_scoped<F, Fut, T>(
     auth: Arc<PlatformAuthManager>,
     creds: PlatformLoginCredentials,
+    kind: WebSessionAuthKind,
     f: F,
 ) -> T
 where
@@ -56,7 +79,11 @@ where
     Fut: Future<Output = T>,
 {
     SCOPED_AUTH
-        .scope(auth, async { SCOPED_CREDS.scope(creds, f()).await })
+        .scope(auth, async {
+            SCOPED_AUTH_KIND
+                .scope(kind, async { SCOPED_CREDS.scope(creds, f()).await })
+                .await
+        })
         .await
 }
 
@@ -70,7 +97,7 @@ where
     Fut: Future<Output = T>,
 {
     match ctx {
-        Some(WebSessionAuth { auth, creds }) => run_scoped(auth, creds, f).await,
+        Some(WebSessionAuth { auth, creds, kind }) => run_scoped(auth, creds, kind, f).await,
         None => f().await,
     }
 }

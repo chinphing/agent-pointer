@@ -1,6 +1,28 @@
 # Copy to pointer-server.toml beside pointer-server.exe (NOT pointer-server.toml.example).
 # OS environment variables override file values (remove NSSM AppEnvironmentExtra if duplicated).
 
+# --- Standalone self-hosted deployment (no readflowai.com) ---
+# [deployment]
+# mode = "standalone"
+#
+# [auth.local]
+# admin_token = "replace-with-strong-secret"
+#
+# [llm]
+# active_provider = "qwen"
+# [llm.providers.qwen]
+# api_key = "sk-..."
+# base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+# name = "千问"
+# models = ["qwen3.5-plus"]
+#
+# [license]
+# key = "BASE64_PAYLOAD.BASE64_SIGNATURE"
+# # or: license_file = "license.key"
+#
+# [usage]
+# report_enabled = false
+
 [server]
 addr = "0.0.0.0:8787"
 static_dir = "dist"
@@ -28,6 +50,9 @@ static_dir = "dist"
 # Visitors without that cookie see logged-out state. After upgrading, delete
 # any legacy auth.dat under the data dir so old global sessions are not reused
 # by the desktop-style code path on other entrypoints.
+#
+# Standalone mode: use POST /api/auth/local/login with [auth.local].admin_token
+# instead of platform OAuth.
 #
 # Conversation history (GET /api/conversations*) requires a logged-in browser
 # session. Unauthenticated visitors see an empty sidebar until they sign in.

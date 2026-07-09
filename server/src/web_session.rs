@@ -10,6 +10,7 @@ use axum::{
 use axum::response::IntoResponse;
 use parking_lot::RwLock;
 use pointer_core::platform_auth::{PlatformAuthManager, PlatformLoginCredentials};
+use pointer_core::web_request_auth::WebSessionAuthKind;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,6 +22,7 @@ const WEB_SESSION_MAX_AGE_SEC: u64 = 30 * 24 * 3600;
 pub struct WebSessionEntry {
     pub auth: Arc<PlatformAuthManager>,
     pub creds: PlatformLoginCredentials,
+    pub kind: WebSessionAuthKind,
     created_at: Instant,
 }
 
@@ -34,6 +36,7 @@ impl WebSessionStore {
         &self,
         auth: Arc<PlatformAuthManager>,
         creds: PlatformLoginCredentials,
+        kind: WebSessionAuthKind,
     ) -> String {
         let id = random_session_id();
         self.inner.write().insert(
@@ -41,6 +44,7 @@ impl WebSessionStore {
             WebSessionEntry {
                 auth,
                 creds,
+                kind,
                 created_at: Instant::now(),
             },
         );
@@ -67,6 +71,7 @@ impl WebSessionStore {
         self.purge_expired();
         let guard = self.inner.read();
         guard.values().next().map(|entry| pointer_core::web_request_auth::WebSessionAuth {
+            kind: entry.kind,
             auth: entry.auth.clone(),
             creds: entry.creds.clone(),
         })
@@ -126,6 +131,7 @@ pub fn lookup_session_auth(
     let session_id = session_id_from_headers(headers)?;
     let entry = store.get(&session_id)?;
     Some(pointer_core::web_request_auth::WebSessionAuth {
+        kind: entry.kind,
         auth: entry.auth,
         creds: entry.creds,
     })
@@ -144,7 +150,9 @@ pub async fn web_session_middleware(
     let Some(entry) = store.get(&session_id) else {
         return next.run(req).await;
     };
-    if pointer_core::server_access::access_restriction_enabled() {
+    if entry.kind == WebSessionAuthKind::Platform
+        && pointer_core::server_access::access_restriction_enabled()
+    {
         if let Some(uid) = entry.auth.platform_user_id() {
             if !pointer_core::server_access::is_user_allowed(&uid) {
                 log::warn!("server_access: evicting browser session for user_id={uid}");
@@ -155,9 +163,12 @@ pub async fn web_session_middleware(
             }
         }
     }
-    pointer_core::web_request_auth::run_scoped(entry.auth, entry.creds, || async move {
-        next.run(req).await
-    })
+    pointer_core::web_request_auth::run_scoped(
+        entry.auth,
+        entry.creds,
+        entry.kind,
+        || async move { next.run(req).await },
+    )
     .await
 }
 

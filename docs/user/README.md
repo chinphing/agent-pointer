@@ -4,6 +4,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [standalone-server.md](standalone-server.md) | 独立部署 pointer-server（配置、License、部署流程） |
 | [getting-started.md](getting-started.md) | 安装、API Key、桌面端与 Web 端、首次对话 |
 | [skills.md](skills.md) | 导入与启用 Skills、技能库、首次外部探测 |
 | [im-channels.md](im-channels.md) | 飞书 / 钉钉 / 企微 / 微信 IM 通道配置（设置界面） |

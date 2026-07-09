@@ -29,6 +29,9 @@ pub fn openpointer_client_secret() -> String {
 }
 
 pub fn is_cloud_auth_configured() -> bool {
+    if crate::deployment_mode::is_standalone() {
+        return false;
+    }
     !openpointer_api_base().is_empty()
 }
 

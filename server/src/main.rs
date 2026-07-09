@@ -36,6 +36,7 @@ use pointer_core::{
     storage,
 };
 mod channels;
+mod local_auth;
 mod web_session;
 
 use web_session::WebSessionStore;
@@ -98,6 +99,20 @@ struct PkcePending {
 async fn main() -> anyhow::Result<()> {
     pointer_core::logging::init_backtrace_defaults();
 
+    // --machine-id: print hardware ID and exit (no config/license needed)
+    if std::env::args().any(|a| a == "--machine-id") {
+        match pointer_core::license::current_machine_id() {
+            Ok(id) => {
+                println!("{}", id);
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("error: failed to read machine id: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let loaded_config = pointer_core::server_config::load_server_config()?;
 
     const DEFAULT_LOG_FILTER: &str =
@@ -116,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(result) = loaded_config {
         log::info!("pointer-server: config file {}", result.path.display());
     }
+    pointer_core::license::validate_license_at_startup()?;
     pointer_core::tls::ensure_rustls_crypto_provider();
 
     if let Err(err) = pointer_core::skills::external::install_deploy_bundled_skills() {
@@ -123,21 +139,44 @@ async fn main() -> anyhow::Result<()> {
     }
 
     storage::set_platform_auth_persist_enabled(false);
-    log::info!("pointer-server: web mode — auth.dat persistence disabled; per-browser cookie sessions");
+    if pointer_core::deployment_mode::is_standalone() {
+        log::info!("pointer-server: standalone mode — local admin auth + config-injected LLM keys");
+    } else {
+        log::info!("pointer-server: web mode — auth.dat persistence disabled; per-browser cookie sessions");
+    }
 
     let core = Arc::new(AppState::new());
+    if pointer_core::deployment_mode::is_standalone() {
+        let mut platform = core.platform_config.write();
+        pointer_core::server_config::apply_llm_providers_from_config(&mut platform);
+        log::info!(
+            "pointer-server: standalone LLM providers applied (active_provider={})",
+            platform.active_provider_id
+        );
+    }
     core.start_background_tasks();
     let web_sessions = Arc::new(WebSessionStore::default());
     match resolve_server_public_url() {
         Some(url) => log::info!("platform_auth: server public url = {url}"),
-        None => log::warn!(
-            "platform_auth: POINTER_SERVER_PUBLIC_URL not configured; \
-             /api/auth/login/start will return 500 until set in pointer-server.toml [server].public_url"
-        ),
+        None => {
+            if pointer_core::deployment_mode::is_standalone() {
+                log::warn!(
+                    "platform_auth: POINTER_SERVER_PUBLIC_URL not configured (standalone); \
+                     OAuth routes disabled, use POST /api/auth/local/login"
+                );
+            } else {
+                log::warn!(
+                    "platform_auth: POINTER_SERVER_PUBLIC_URL not configured; \
+                     /api/auth/login/start will return 500 until set in pointer-server.toml [server].public_url"
+                );
+            }
+        }
     }
-    pointer_core::server_access::validate_server_access_at_startup(
-        resolve_server_public_url().as_deref(),
-    )?;
+    if !pointer_core::deployment_mode::is_standalone() {
+        pointer_core::server_access::validate_server_access_at_startup(
+            resolve_server_public_url().as_deref(),
+        )?;
+    }
     let (events, _) = broadcast::channel::<StreamEvent>(512);
     // Bridge global stream_broadcast -> server events so the SSE endpoint
     // (`GET /api/chat/:id/stream`) keeps working regardless of who calls
@@ -186,11 +225,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Phase 5: start the cron scheduler. The server (web host) enables it by
-    // default; the desktop client leaves it off. `POINTER_SCHEDULER_ENABLED=0`
-    // explicitly disables it on the server.
+    // default in platform mode; standalone defaults off. `POINTER_SCHEDULER_ENABLED=0`
+    // explicitly disables it; `=1` enables in standalone.
     let scheduler_enabled = env::var("POINTER_SCHEDULER_ENABLED")
         .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
-        .unwrap_or(true);
+        .unwrap_or(!pointer_core::deployment_mode::is_standalone());
     if scheduler_enabled {
         let _scheduler = pointer_core::scheduler::Scheduler::start(
             pointer_core::scheduler::Scheduler::new(state.core.clone(), state.dispatcher.clone()),
@@ -205,9 +244,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
         .route("/api/auth/login/start", post(start_platform_login))
+        .route("/api/auth/local/login", post(local_auth::local_login))
         .route("/api/auth/oauth/callback", get(platform_oauth_callback))
         .route("/api/auth/logout", post(platform_logout))
         .route("/api/auth/refresh", post(refresh_platform_session))
+        .route("/api/license/status", get(local_auth::license_status))
+        .route("/api/license/reload", post(local_auth::license_reload))
         .route("/api/settings", get(get_settings).put(update_settings))
         .route("/api/agent-settings", put(update_agent_settings))
         .route("/api/user-settings", put(update_user_settings))
@@ -1038,10 +1080,18 @@ fn require_platform_login(state: &ServerState) -> Result<(), ApiError> {
     if state.core.active_platform_auth().session_view().logged_in {
         return Ok(());
     }
+    if pointer_core::deployment_mode::is_standalone() {
+        return Err(ApiError(anyhow::anyhow!("local_login_required")));
+    }
     Err(ApiError(anyhow::anyhow!("platform_login_required")))
 }
 
 fn require_allowed_platform_user(state: &ServerState) -> Result<(), ApiError> {
+    if pointer_core::deployment_mode::is_standalone()
+        && pointer_core::web_request_auth::is_local_scoped_session()
+    {
+        return Ok(());
+    }
     if !pointer_core::server_access::access_restriction_enabled() {
         return Ok(());
     }
@@ -1678,7 +1728,7 @@ async fn webhook_upload(
 /// The token must match the one configured for this `:src` (or the legacy
 /// global token / env fallback when no per-source token exists).
 /// Each source may optionally configure a custom auth header name instead.
-fn sync_automation_web_session(state: &ServerState) {
+pub(crate) fn sync_automation_web_session(state: &ServerState) {
     let auth = state.web_sessions.any_session_auth();
     if auth.is_some() {
         log::info!("server: automation web session available for webhook/cron");
@@ -2449,6 +2499,11 @@ struct OAuthCallbackQuery {
 async fn start_platform_login(
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    if pointer_core::deployment_mode::is_standalone() {
+        return Err(ApiError(anyhow::anyhow!(
+            "platform OAuth disabled in standalone mode; use POST /api/auth/local/login"
+        )));
+    }
     let public_url = resolve_server_public_url().ok_or_else(|| {
         ApiError(anyhow::anyhow!(
             "POINTER_SERVER_PUBLIC_URL 未配置；请在 pointer-server.toml [server].public_url 设置外部可达地址"
@@ -2483,6 +2538,9 @@ async fn platform_oauth_callback(
     State(state): State<ServerState>,
     Query(q): Query<OAuthCallbackQuery>,
 ) -> Result<Response, (StatusCode, String)> {
+    if pointer_core::deployment_mode::is_standalone() {
+        return Err((StatusCode::NOT_FOUND, "platform_oauth_disabled".into()));
+    }
     if q.code.trim().is_empty() {
         log::warn!("platform_auth: callback missing code");
         return Err((StatusCode::BAD_REQUEST, "missing_code".into()));
@@ -2517,7 +2575,11 @@ async fn platform_oauth_callback(
                 );
             }
             auth.set_session(session);
-            let session_id = state.web_sessions.insert(auth, creds);
+            let session_id = state.web_sessions.insert(
+                auth,
+                creds,
+                pointer_core::web_request_auth::WebSessionAuthKind::Platform,
+            );
             sync_automation_web_session(&state);
             log::info!("platform_auth: callback ok state={} web_session={session_id}", q.state);
             let mut resp = Redirect::temporary("/?platform_login=success").into_response();
@@ -2558,24 +2620,30 @@ async fn refresh_platform_session(
     headers: HeaderMap,
     State(state): State<ServerState>,
 ) -> Result<Json<PlatformSessionView>, ApiError> {
-    state
-        .core
-        .active_platform_auth()
-        .refresh_if_needed()
-        .await
-        .map_err(ApiError::from)?;
-    if state.core.active_platform_auth().session_view().logged_in {
-        require_allowed_platform_user(&state)?;
-        if let Ok(Some(creds)) = state
+    let is_local = pointer_core::deployment_mode::is_standalone()
+        && pointer_core::web_request_auth::is_local_scoped_session();
+    if !is_local {
+        state
             .core
             .active_platform_auth()
-            .fetch_llm_credentials()
+            .refresh_if_needed()
             .await
-        {
-            if let Some(session_id) = web_session::session_id_from_headers(&headers) {
-                state.web_sessions.update_creds(&session_id, creds);
-            } else {
-                state.core.apply_login_credentials(&creds);
+            .map_err(ApiError::from)?;
+    }
+    if state.core.active_platform_auth().session_view().logged_in {
+        require_allowed_platform_user(&state)?;
+        if !is_local {
+            if let Ok(Some(creds)) = state
+                .core
+                .active_platform_auth()
+                .fetch_llm_credentials()
+                .await
+            {
+                if let Some(session_id) = web_session::session_id_from_headers(&headers) {
+                    state.web_sessions.update_creds(&session_id, creds);
+                } else {
+                    state.core.apply_login_credentials(&creds);
+                }
             }
         }
     }
@@ -2584,7 +2652,7 @@ async fn refresh_platform_session(
     ))
 }
 
-fn cookie_secure() -> bool {
+pub(crate) fn cookie_secure() -> bool {
     resolve_server_public_url()
         .is_some_and(|url| url.to_ascii_lowercase().starts_with("https://"))
 }
@@ -2681,7 +2749,11 @@ async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Resp
             }
             let auth = Arc::new(PlatformAuthManager::new());
             auth.set_partner_session(session);
-            let session_id = state.web_sessions.insert(auth, creds);
+            let session_id = state.web_sessions.insert(
+                auth,
+                creds,
+                pointer_core::web_request_auth::WebSessionAuthKind::Platform,
+            );
             sync_automation_web_session(&state);
             log::info!("cloud oauth: exchange succeeded, redirecting to /");
             let mut resp = Redirect::temporary("/").into_response();

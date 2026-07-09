@@ -954,9 +954,31 @@ async fn send_pending_report(
     }
 }
 
+const ENV_USAGE_REPORT_ENABLED: &str = "POINTER_USAGE_REPORT_ENABLED";
+
+fn parse_bool_env(key: &str) -> Option<bool> {
+    match std::env::var(key) {
+        Ok(v) => {
+            let t = v.trim().to_ascii_lowercase();
+            Some(t == "1" || t == "true" || t == "yes" || t == "on")
+        }
+        Err(_) => None,
+    }
+}
+
+/// Whether unsent token-usage reports should be flushed to the platform API.
+/// Standalone defaults to false; platform mode defaults to true.
+pub fn usage_report_enabled() -> bool {
+    parse_bool_env(ENV_USAGE_REPORT_ENABLED)
+        .unwrap_or_else(|| !crate::deployment_mode::is_standalone())
+}
+
 pub async fn flush_unsent_reports(
     auth: &crate::platform_auth::PlatformAuthManager,
 ) -> Result<usize> {
+    if !usage_report_enabled() {
+        return Ok(0);
+    }
     let pending = {
         let guard = connection()?;
         let conn = guard.lock();

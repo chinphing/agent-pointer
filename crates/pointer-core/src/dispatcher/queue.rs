@@ -120,7 +120,7 @@ impl Drop for LaneGuard {
 struct QueueState {
     lanes: Mutex<LanesState>,
     global: Arc<Semaphore>,
-    max_concurrent: usize,
+    max_concurrent: Mutex<usize>,
 }
 
 struct LanesState {
@@ -145,13 +145,37 @@ impl RunQueue {
                     waiters: HashMap::new(),
                 }),
                 global: Arc::new(Semaphore::new(max_concurrent)),
-                max_concurrent,
+                max_concurrent: Mutex::new(max_concurrent),
             }),
         }
     }
 
     pub fn max_concurrent(&self) -> usize {
-        self.state.max_concurrent
+        *self.state.max_concurrent.lock()
+    }
+
+    /// Adjust the global concurrency cap at runtime (clamped to >= 1).
+    pub fn set_max_concurrent(&self, new_max: usize) {
+        let new_max = new_max.max(1);
+        let mut stored = self.state.max_concurrent.lock();
+        let old = *stored;
+        if new_max == old {
+            return;
+        }
+        if new_max > old {
+            self.state.global.add_permits(new_max - old);
+        } else {
+            let drain = old - new_max;
+            for _ in 0..drain {
+                if let Ok(permit) = self.state.global.clone().try_acquire_owned() {
+                    std::mem::forget(permit);
+                } else {
+                    break;
+                }
+            }
+        }
+        *stored = new_max;
+        log::info!("run_queue: max_concurrent {old} -> {new_max}");
     }
 
     /// Enqueue a run. Resolves once a lane slot + global permit are available.

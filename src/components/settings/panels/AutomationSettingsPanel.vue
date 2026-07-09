@@ -10,6 +10,7 @@ import {
   listAgents,
   getWebhookConfig,
   setWebhookSourceToken,
+  patchWebhookSource,
   clearWebhookSourceToken,
   clearWebhookLegacyToken,
   revealWebhookSourceToken
@@ -22,7 +23,7 @@ import { resolveWebhookViewSessionId } from '../../../lib/webhookIngress'
 import { WEBHOOK_URL_TEMPLATE, generateWebhookToken, webhookIngressCurl, webhookIngressUrl } from '../../../lib/webhookIngress'
 import { DEFAULT_LEAD_AGENT_ID } from '../../../types/chat'
 import type { AgentDef } from '../../../types/chat'
-import type { CronJob, CreateCronJobInput, WebhookConfig, WebhookSource } from '../../../types/automation'
+import type { CronJob, CreateCronJobInput, WebhookConfig, WebhookSource, WebhookSessionMode } from '../../../types/automation'
 import CronSchedulePicker from './CronSchedulePicker.vue'
 
 const emit = defineEmits<{ (e: 'view-session'): void }>()
@@ -40,6 +41,8 @@ const webhookInfo = ref<string | null>(null)
 const webhookSrcInput = ref('')
 const tokenInput = ref('')
 const authHeaderInput = ref('')
+const sessionModeInput = ref<WebhookSessionMode>('daily')
+const updatingSessionModeSrc = ref<string | null>(null)
 const settingToken = ref(false)
 const showWebhookForm = ref(false)
 const webhookFormError = ref<string | null>(null)
@@ -82,7 +85,9 @@ const CRON_SECTION_DESC =
 const WEBHOOK_SECTION_DESC =
   '每个来源独立 Token，须与 URL 路径中的来源标识匹配。POST 请求体支持 text 或 messages。触发后可点「查看会话」阅读 transcript。'
 const WEBHOOK_REF_BLOCKING =
-  'body 传 "blocking": true 时保持连接至 run 结束，返回 { ok, runId, text }；可选 "timeoutSeconds"（默认 120，最大 600）。未传时为 202 异步 ack。'
+  'body 传 "blocking": true 时保持连接至 run 结束，返回 { ok, runId, text }；可选 "timeoutSeconds"（默认 120，最大 600）。未传时为 202 异步 ack，可用 GET /api/webhooks/:src/runs/:runId 轮询结果。'
+const SESSION_MODE_HINT =
+  '按日续接：同一来源在本地日内共享上下文；按投递隔离：每次投递独立会话（可用 X-GitHub-Delivery 或 idempotencyKey 区分）。'
 const LEGACY_TOKEN_DESC = '检测到旧版全局 Token，对所有来源生效。建议改为按来源配置。'
 const AUTH_HEADER_HINT =
   '留空则使用 Authorization: Bearer 或 X-Pointer-Token'
@@ -240,7 +245,7 @@ async function submitWebhookSource() {
   webhookError.value = null
   webhookInfo.value = null
   try {
-    webhook.value = await setWebhookSourceToken(src, token, authHeaderName)
+    webhook.value = await setWebhookSourceToken(src, token, authHeaderName, sessionModeInput.value)
     if (!isDesktop) {
       webhookInfo.value = 'Token 已复制到剪贴板。'
       navigator.clipboard.writeText(token).catch(e => {
@@ -251,6 +256,7 @@ async function submitWebhookSource() {
     webhookSrcInput.value = ''
     tokenInput.value = ''
     authHeaderInput.value = ''
+    sessionModeInput.value = 'daily'
     showWebhookForm.value = false
     await refreshWebhook()
   } catch (e) {
@@ -264,6 +270,7 @@ function openWebhookCreateForm() {
   webhookSrcInput.value = ''
   tokenInput.value = generateWebhookToken()
   authHeaderInput.value = ''
+  sessionModeInput.value = 'daily'
   webhookFormError.value = null
   showWebhookForm.value = true
 }
@@ -288,6 +295,23 @@ async function removeWebhookSource(src: string) {
 
 function cancelDeleteWebhookSource() {
   pendingDeleteWebhookSrc.value = null
+}
+
+async function updateWebhookSessionMode(source: WebhookSource, mode: WebhookSessionMode) {
+  if (source.sessionMode === mode) return
+  updatingSessionModeSrc.value = source.src
+  webhookError.value = null
+  try {
+    webhook.value = await patchWebhookSource(source.src, { sessionMode: mode })
+  } catch (e) {
+    webhookError.value = (e as Error).message
+  } finally {
+    updatingSessionModeSrc.value = null
+  }
+}
+
+function webhookSessionModeLabel(mode?: WebhookSessionMode): string {
+  return mode === 'per_delivery' ? '按投递隔离' : '按日续接'
 }
 
 function webhookViewSessionId(source: WebhookSource): string | null {
@@ -617,8 +641,20 @@ onMounted(() => {
               <span v-if="s.authHeaderName" class="font-mono text-[10px] text-muted/80 truncate">{{ s.authHeaderName }}</span>
               <span class="text-muted/50 shrink-0">·</span>
               <span class="font-mono text-[10px] text-muted/70 truncate">{{ webhookIngressUrl(s.src) }}</span>
+              <span class="text-muted/50 shrink-0">·</span>
+              <span class="text-[10px] text-muted/80 whitespace-nowrap shrink-0">{{ webhookSessionModeLabel(s.sessionMode) }}</span>
             </div>
             <div class="flex items-center gap-1 shrink-0">
+              <select
+                class="h-7 max-w-[7.5rem] rounded-md border border-border bg-card px-1.5 text-[10px] text-muted cursor-pointer disabled:opacity-50"
+                :value="s.sessionMode ?? 'daily'"
+                :disabled="updatingSessionModeSrc === s.src"
+                :title="SESSION_MODE_HINT"
+                @change="updateWebhookSessionMode(s, ($event.target as HTMLSelectElement).value as WebhookSessionMode)"
+              >
+                <option value="daily">按日续接</option>
+                <option value="per_delivery">按投递隔离</option>
+              </select>
               <button
                 class="h-7 w-7 rounded-md inline-flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                 :class="webhookViewSessionId(s)
@@ -723,6 +759,25 @@ onMounted(() => {
                 placeholder="可选"
                 :disabled="settingToken"
               />
+            </label>
+            <label class="block shrink-0 space-y-2">
+              <div class="flex h-[14px] items-center gap-1">
+                <span class="text-[11px] text-muted whitespace-nowrap">会话模式</span>
+                <span
+                  class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help shrink-0"
+                  :title="SESSION_MODE_HINT"
+                >
+                  <AlertCircle class="w-3.5 h-3.5 pointer-events-none" />
+                </span>
+              </div>
+              <select
+                v-model="sessionModeInput"
+                class="input-base w-[9rem] text-[12px] cursor-pointer"
+                :disabled="settingToken"
+              >
+                <option value="daily">按日续接</option>
+                <option value="per_delivery">按投递隔离</option>
+              </select>
             </label>
           </div>
           <p v-if="webhookFormError" class="text-xs text-red-500">{{ webhookFormError }}</p>

@@ -430,9 +430,25 @@ export async function getWebhookConfig(): Promise<WebhookConfig> {
 export async function setWebhookSourceToken(
   src: string,
   token: string,
-  authHeaderName?: string | null
+  authHeaderName?: string | null,
+  sessionMode?: import('../types/automation').WebhookSessionMode
 ): Promise<WebhookConfig> {
-  return await invoke<WebhookConfig>('set_webhook_source_token', { src, token, authHeaderName })
+  return await invoke<WebhookConfig>('set_webhook_source_token', {
+    src,
+    token,
+    authHeaderName,
+    sessionMode
+  })
+}
+
+export async function patchWebhookSource(
+  src: string,
+  patch: { sessionMode?: import('../types/automation').WebhookSessionMode }
+): Promise<WebhookConfig> {
+  return await invoke<WebhookConfig>('patch_webhook_source', {
+    src,
+    sessionMode: patch.sessionMode
+  })
 }
 
 export async function clearWebhookSourceToken(src: string): Promise<boolean> {

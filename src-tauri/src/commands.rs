@@ -136,33 +136,41 @@ pub fn update_user_settings(
 #[tauri::command]
 pub fn update_platform_settings(
     state: State<'_, Arc<AppState>>,
+    dispatcher: State<'_, Arc<RunDispatcher>>,
     platform: PlatformSettings,
 ) -> Result<EffectiveSettingsView, String> {
-    state
+    let view = state
         .update_platform_settings(platform)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    state.sync_dispatcher_concurrency(&dispatcher);
+    Ok(view)
 }
 
 /// Back-compat: session preferences in memory only; agent section uses update_agent_settings.
 #[tauri::command]
 pub fn update_settings(
     state: State<'_, Arc<AppState>>,
+    dispatcher: State<'_, Arc<RunDispatcher>>,
     settings: ModelSettings,
 ) -> Result<EffectiveSettingsView, String> {
     state
         .apply_session_platform_preferences(&settings)
         .map_err(|e| e.to_string())?;
+    state.sync_dispatcher_concurrency(&dispatcher);
     Ok(state.effective_settings_view())
 }
 
 #[tauri::command]
 pub fn update_agent_settings(
     state: State<'_, Arc<AppState>>,
+    dispatcher: State<'_, Arc<RunDispatcher>>,
     settings: ModelSettings,
 ) -> Result<EffectiveSettingsView, String> {
-    state
+    let view = state
         .update_agent_settings(&settings)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    state.sync_dispatcher_concurrency(&dispatcher);
+    Ok(view)
 }
 
 #[tauri::command]
@@ -1100,16 +1108,39 @@ pub fn set_webhook_source_token(
     src: String,
     token: String,
     auth_header_name: Option<String>,
+    session_mode: Option<String>,
 ) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
     if store.is_source_configured(&src).map_err(|e| e.to_string())? {
         return Err("webhook token already configured for this source; clear it first to rotate".into());
     }
+    let parsed_mode = session_mode
+        .as_deref()
+        .map(pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse)
+        .transpose()
+        .map_err(|e| e.to_string())?;
     let inserted = store
-        .set_source_token(&src, &token, auth_header_name.as_deref())
+        .set_source_token(&src, &token, auth_header_name.as_deref(), parsed_mode)
         .map_err(|e| e.to_string())?;
     if !inserted {
         return Err("webhook token already configured for this source".into());
+    }
+    get_webhook_config(state)
+}
+
+#[tauri::command]
+pub fn patch_webhook_source(
+    state: State<'_, Arc<AppState>>,
+    src: String,
+    session_mode: Option<String>,
+) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
+    if let Some(mode_raw) = session_mode {
+        let mode = pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse(
+            &mode_raw,
+        )
+        .map_err(|e| e.to_string())?;
+        store.set_session_mode(&src, mode).map_err(|e| e.to_string())?;
     }
     get_webhook_config(state)
 }

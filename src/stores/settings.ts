@@ -197,7 +197,10 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     parallelToolExecutionEnabled: s.parallelToolExecutionEnabled !== false,
     maxParallelToolCalls: s.maxParallelToolCalls,
     maxParallelSubAgents: s.maxParallelSubAgents,
-    maxParallelMediaJobs: s.maxParallelMediaJobs
+    maxParallelMediaJobs: s.maxParallelMediaJobs,
+    maxConcurrentRuns: Number.isFinite(Number(s.maxConcurrentRuns)) && Number(s.maxConcurrentRuns) >= 1
+      ? Math.floor(Number(s.maxConcurrentRuns))
+      : 4
   }
 }
 

@@ -36,6 +36,7 @@ const {
   maxParallelToolCalls,
   maxParallelSubAgents,
   maxParallelMediaJobs,
+  maxConcurrentRuns,
   mediaDeps,
   ffmpegStatusLabel,
   ffmpegStatusDetail,
@@ -330,6 +331,34 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                 class="w-full min-h-[7rem] px-3 py-2 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors resize-y"
               />
               <p class="text-[10px] text-muted text-right">{{ userCodingRules.length }} / 4000</p>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <h4 class="text-sm font-medium text-foreground">任务调度</h4>
+                <button
+                  type="button"
+                  class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
+                  title="同时执行的 Agent 运行数上限，聊天、Webhook、Cron 等触发源共享此配额。"
+                  aria-label="任务调度说明"
+                >
+                  <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                </button>
+              </div>
+              <div class="max-w-xs">
+                <label
+                  class="block text-[12px] text-muted mb-1.5"
+                  title="不同会话可并行运行，同一会话仍串行"
+                >全局并发任务</label>
+                <input
+                  v-model.number="maxConcurrentRuns"
+                  type="number"
+                  min="1"
+                  max="64"
+                  step="1"
+                  class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">

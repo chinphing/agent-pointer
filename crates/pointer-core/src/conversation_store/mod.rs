@@ -24,7 +24,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 15;
+const SCHEMA_VERSION: i32 = 16;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -246,13 +246,18 @@ impl ConversationStore {
         })
     }
 
-    /// Resolve the active webhook session for `:src` (daily 04:00 rollover).
-    pub fn resolve_webhook_ingress_session(&self, src: &str) -> Result<String> {
+    /// Resolve the active webhook session for `:src` (daily rollover or per-delivery).
+    pub fn resolve_webhook_ingress_session(
+        &self,
+        src: &str,
+        delivery_id: Option<&str>,
+    ) -> Result<String> {
         self.db.execute_write(|conn| {
             webhook_sources::resolve_ingress_session_id(
                 conn,
                 src,
                 &chrono::Local::now(),
+                delivery_id,
             )
         })
     }
@@ -300,6 +305,23 @@ impl ConversationStore {
     pub fn webhook_sources_auth_header_name(&self, src: &str) -> Result<Option<String>> {
         let conn = self.db.conn.lock();
         webhook_sources::auth_header_name(&conn, src)
+    }
+
+    pub fn webhook_sources_set_session_mode(
+        &self,
+        src: &str,
+        mode: webhook_sources::WebhookSessionMode,
+    ) -> Result<()> {
+        let conn = self.db.conn.lock();
+        webhook_sources::set_session_mode(&conn, src, mode)
+    }
+
+    pub fn webhook_sources_session_mode(
+        &self,
+        src: &str,
+    ) -> Result<webhook_sources::WebhookSessionMode> {
+        let conn = self.db.conn.lock();
+        webhook_sources::session_mode(&conn, src)
     }
 
     /// P0: insert or update one message.
@@ -730,6 +752,12 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "cron_jobs", "current_session_id", "TEXT")?;
     webhook_sources::ensure_schema(conn)?;
     add_column_if_missing(conn, "webhook_sources", "auth_header_name", "TEXT")?;
+    add_column_if_missing(
+        conn,
+        "webhook_sources",
+        "session_mode",
+        "TEXT NOT NULL DEFAULT 'daily'",
+    )?;
     add_column_if_missing(conn, "conversations", "last_lead_prompt_tokens", "INTEGER")?;
     add_column_if_missing(
         conn,

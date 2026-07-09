@@ -31,10 +31,12 @@ export function resolveWebhookViewSessionId(source: {
   currentSessionId?: string | null
   conversationId?: string
   hasTranscript?: boolean
+  sessionMode?: 'daily' | 'per_delivery'
 }): string | null {
   const persisted = source.currentSessionId?.trim()
   const legacy = webhookConversationId(source.src)
   if (persisted && persisted !== legacy) return persisted
+  if (source.sessionMode === 'per_delivery') return null
   return currentWebhookSessionId(source.src)
 }
 

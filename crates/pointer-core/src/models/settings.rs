@@ -793,6 +793,9 @@ pub struct ModelSettings {
     /// Max concurrent media tool jobs (`None` → min(CPU cores, 8)).
     #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
     pub max_parallel_media_jobs: Option<u32>,
+    /// Max concurrent dispatcher runs (chat, webhook, cron, …).
+    #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
+    pub max_concurrent_runs: u32,
     /// When false, all tool calls in one assistant turn run serially.
     #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
     pub parallel_tool_execution_enabled: bool,
@@ -993,6 +996,10 @@ fn default_parallel_tool_execution_enabled() -> bool {
     true
 }
 
+fn default_max_concurrent_runs() -> u32 {
+    4
+}
+
 impl Default for ModelSettings {
     fn default() -> Self {
         Self {
@@ -1098,6 +1105,7 @@ impl Default for ModelSettings {
             max_parallel_tool_calls: None,
             max_parallel_sub_agents: None,
             max_parallel_media_jobs: None,
+            max_concurrent_runs: default_max_concurrent_runs(),
             parallel_tool_execution_enabled: true,
             round_enable_thinking: None,
             round_thinking_budget: None,
@@ -1435,6 +1443,8 @@ pub struct PlatformSettings {
     pub max_parallel_sub_agents: Option<u32>,
     #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
     pub max_parallel_media_jobs: Option<u32>,
+    #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
+    pub max_concurrent_runs: u32,
     #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
     pub parallel_tool_execution_enabled: bool,
 }
@@ -1525,6 +1535,8 @@ pub struct PersistedLocalPlatformSettings {
     pub max_parallel_sub_agents: Option<u32>,
     #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
     pub max_parallel_media_jobs: Option<u32>,
+    #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
+    pub max_concurrent_runs: u32,
 }
 
 impl PersistedLocalPlatformSettings {
@@ -1552,6 +1564,7 @@ impl PersistedLocalPlatformSettings {
             max_parallel_tool_calls: platform.max_parallel_tool_calls,
             max_parallel_sub_agents: platform.max_parallel_sub_agents,
             max_parallel_media_jobs: platform.max_parallel_media_jobs,
+            max_concurrent_runs: platform.max_concurrent_runs,
         }
     }
 
@@ -1593,6 +1606,7 @@ impl PersistedLocalPlatformSettings {
         platform.max_parallel_tool_calls = self.max_parallel_tool_calls;
         platform.max_parallel_sub_agents = self.max_parallel_sub_agents;
         platform.max_parallel_media_jobs = self.max_parallel_media_jobs;
+        platform.max_concurrent_runs = self.max_concurrent_runs;
     }
 }
 
@@ -1864,6 +1878,7 @@ impl Default for PlatformSettings {
             max_parallel_tool_calls: None,
             max_parallel_sub_agents: None,
             max_parallel_media_jobs: None,
+            max_concurrent_runs: default_max_concurrent_runs(),
             parallel_tool_execution_enabled: true,
         }
     }
@@ -2096,6 +2111,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         max_parallel_tool_calls: platform.max_parallel_tool_calls,
         max_parallel_sub_agents: platform.max_parallel_sub_agents,
         max_parallel_media_jobs: platform.max_parallel_media_jobs,
+        max_concurrent_runs: platform.max_concurrent_runs,
         parallel_tool_execution_enabled: platform.parallel_tool_execution_enabled,
         round_enable_thinking: None,
         round_thinking_budget: None,

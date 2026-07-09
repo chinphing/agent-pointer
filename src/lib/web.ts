@@ -566,11 +566,22 @@ export async function getWebhookConfig(): Promise<WebhookConfig> {
 export async function setWebhookSourceToken(
   src: string,
   token: string,
-  authHeaderName?: string | null
+  authHeaderName?: string | null,
+  sessionMode?: import('../types/automation').WebhookSessionMode
 ): Promise<WebhookConfig> {
   return await request<WebhookConfig>('/api/webhooks/config', {
     method: 'POST',
-    body: JSON.stringify({ src, token, authHeaderName })
+    body: JSON.stringify({ src, token, authHeaderName, sessionMode })
+  })
+}
+
+export async function patchWebhookSource(
+  src: string,
+  patch: { sessionMode?: import('../types/automation').WebhookSessionMode }
+): Promise<WebhookConfig> {
+  return await request<WebhookConfig>(`/api/webhooks/config/${encodeURIComponent(src)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch)
   })
 }
 

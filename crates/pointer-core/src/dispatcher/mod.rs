@@ -51,9 +51,13 @@ use crate::chat_service::{run_chat, AppState};
 use crate::conversation_store::runs::RunStatus;
 use crate::models::{ChatMessage, StreamEvent};
 
-/// Default global concurrency cap. Configurable in later phases via settings;
-/// Phase 1 ships a constant.
-const DEFAULT_MAX_CONCURRENT: usize = 4;
+/// Default global concurrency cap when settings omit an explicit value.
+pub const DEFAULT_MAX_CONCURRENT: usize = 4;
+
+/// Resolve dispatcher global cap from platform settings (1..=64).
+pub fn resolve_max_concurrent_runs(platform: &crate::models::PlatformSettings) -> usize {
+    platform.max_concurrent_runs.clamp(1, 64) as usize
+}
 
 /// In-process run dispatcher. Constructed once per host process and shared by
 /// all trigger sources. Cheap to clone (one `Arc`).
@@ -129,6 +133,11 @@ impl RunDispatcher {
 
     pub fn queue(&self) -> &RunQueue {
         &self.inner.queue
+    }
+
+    /// Update global run concurrency cap (see [`RunQueue::set_max_concurrent`]).
+    pub fn set_max_concurrent(&self, max_concurrent: usize) {
+        self.inner.queue.set_max_concurrent(max_concurrent);
     }
 
     pub fn hooks(&self) -> &HookRegistry {

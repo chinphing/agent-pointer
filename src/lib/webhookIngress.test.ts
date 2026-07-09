@@ -45,6 +45,16 @@ describe('webhookIngress', () => {
     ).toMatch(/^webhook:github:\d{8}$/)
   })
 
+  it('per_delivery without session returns null', () => {
+    expect(
+      resolveWebhookViewSessionId({
+        src: 'github',
+        sessionMode: 'per_delivery',
+        conversationId: 'webhook:github'
+      })
+    ).toBeNull()
+  })
+
   it('generates 32-char token', () => {
     expect(generateWebhookToken()).toMatch(/^[0-9a-f]{32}$/)
   })

@@ -36,6 +36,8 @@ export interface UpdateCronJobInput {
   enabled?: boolean
 }
 
+export type WebhookSessionMode = 'daily' | 'per_delivery'
+
 /** One configured webhook ingress source (token omitted on web HTTP API). */
 export interface WebhookSource {
   /** URL path segment (`POST /api/webhooks/{src}`). */
@@ -48,12 +50,14 @@ export interface WebhookSource {
   url?: string
   /** Stable source key (`webhook:{src}`). */
   conversationId: string
-  /** Active session id (`webhook:{src}:{yyyymmdd}`); null until first ingress. */
+  /** Active session id; daily = dated, per_delivery = latest delivery. */
   currentSessionId?: string | null
   /** Whether any session for this source has stored messages. */
   hasTranscript: boolean
   /** Custom auth header; omit for default Bearer + X-Pointer-Token. */
   authHeaderName?: string | null
+  /** `daily` (default) or `per_delivery`. */
+  sessionMode?: WebhookSessionMode
 }
 
 /**
@@ -73,6 +77,16 @@ export interface SetWebhookSourceInput {
   src: string
   token: string
   authHeaderName?: string | null
+  sessionMode?: WebhookSessionMode
+}
+
+/** Poll response for `GET /api/webhooks/:src/runs/:runId`. */
+export interface WebhookRunView {
+  runId: string
+  status: string
+  conversationId: string
+  text?: string
+  error?: string
 }
 
 /** Full bearer token returned by settings reveal API. */

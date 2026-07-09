@@ -133,7 +133,12 @@ export interface RuntimeApi {
   setWebhookSourceToken(
     src: string,
     token: string,
-    authHeaderName?: string | null
+    authHeaderName?: string | null,
+    sessionMode?: import('../types/automation').WebhookSessionMode
+  ): Promise<import('../types/automation').WebhookConfig>
+  patchWebhookSource(
+    src: string,
+    patch: { sessionMode?: import('../types/automation').WebhookSessionMode }
   ): Promise<import('../types/automation').WebhookConfig>
   clearWebhookSourceToken(src: string): Promise<boolean>
   clearWebhookLegacyToken(): Promise<boolean>
@@ -262,6 +267,7 @@ export const updateCronJob = api.updateCronJob
 export const deleteCronJob = api.deleteCronJob
 export const getWebhookConfig = api.getWebhookConfig
 export const setWebhookSourceToken = api.setWebhookSourceToken
+export const patchWebhookSource = api.patchWebhookSource
 export const clearWebhookSourceToken = api.clearWebhookSourceToken
 export const clearWebhookLegacyToken = api.clearWebhookLegacyToken
 export const revealWebhookSourceToken = api.revealWebhookSourceToken

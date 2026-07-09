@@ -202,7 +202,7 @@ function createSettingsDialogForm(deps: {
   const maxParallelToolCalls = ref<number | ''>('')
   const maxParallelSubAgents = ref<number | ''>('')
   const maxParallelMediaJobs = ref<number | ''>('')
-  const maxSubAgentToolRounds = ref(100)
+  const maxConcurrentRuns = ref(4)
   const maxSubAgentSpawnDepth = ref(2)
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
@@ -403,6 +403,7 @@ function createSettingsDialogForm(deps: {
   maxParallelToolCalls.value = s.settings.maxParallelToolCalls ?? ''
   maxParallelSubAgents.value = s.settings.maxParallelSubAgents ?? ''
   maxParallelMediaJobs.value = s.settings.maxParallelMediaJobs ?? ''
+  maxConcurrentRuns.value = s.settings.maxConcurrentRuns ?? 4
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
   maxSubAgentSpawnDepth.value = s.settings.maxSubAgentSpawnDepth ?? 2
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
@@ -701,6 +702,7 @@ function createSettingsDialogForm(deps: {
     maxParallelMediaJobs: parallelToolExecutionEnabled.value
       ? optionalParallelLimit(maxParallelMediaJobs.value)
       : null,
+    maxConcurrentRuns: Math.max(1, Math.min(64, Number(maxConcurrentRuns.value) || 4)),
     contextCompressionEnabled: contextCompressionEnabled.value,
     contextBudgetTokens: Number(contextBudgetTokens.value),
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
@@ -760,6 +762,7 @@ function createSettingsDialogForm(deps: {
     maxParallelToolCalls,
     maxParallelSubAgents,
     maxParallelMediaJobs,
+    maxConcurrentRuns,
     maxSubAgentToolRounds,
     maxSubAgentSpawnDepth,
     rawContentViewEnabled,

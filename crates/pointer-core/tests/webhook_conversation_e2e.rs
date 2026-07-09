@@ -62,7 +62,7 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
     let token_store = WebhookTokenStore::new(&store);
     assert!(
         token_store
-            .set_source_token("curltest", "dev-curl-test-token", None)
+            .set_source_token("curltest", "dev-curl-test-token", None, None)
             .unwrap()
     );
 
@@ -89,7 +89,7 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
     let dispatcher = Arc::new(state.build_dispatcher());
     let conv = state
         .session_index
-        .resolve_webhook_ingress_session("curltest")
+        .resolve_webhook_ingress_session("curltest", None)
         .unwrap();
     let req = TriggerRequest {
         run_id: None,

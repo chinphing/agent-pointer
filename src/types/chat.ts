@@ -531,6 +531,8 @@ export interface PlatformSettings {
   maxParallelToolCalls?: number | null
   maxParallelSubAgents?: number | null
   maxParallelMediaJobs?: number | null
+  /** Max concurrent dispatcher runs (chat, webhook, cron, …). Default 4. */
+  maxConcurrentRuns?: number
 }
 
 export interface EffectiveSettingsView {
@@ -604,6 +606,7 @@ export interface ModelSettings {
   maxParallelToolCalls?: number | null
   maxParallelSubAgents?: number | null
   maxParallelMediaJobs?: number | null
+  maxConcurrentRuns?: number
 }
 
 export interface SkillDef {

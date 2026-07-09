@@ -420,6 +420,7 @@ pub fn run() {
             commands::delete_cron_job,
             commands::get_webhook_config,
             commands::set_webhook_source_token,
+            commands::patch_webhook_source,
             commands::reveal_webhook_source_token,
             commands::clear_webhook_source_token,
             commands::clear_webhook_legacy_token,

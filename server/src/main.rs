@@ -295,6 +295,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/webhooks/:src", post(webhook_ingress))
         .route(
+            "/api/webhooks/:src/runs/:run_id",
+            get(get_webhook_run),
+        )
+        .route(
             "/api/webhooks/config",
             get(get_webhook_config).post(set_webhook_source_token),
         )
@@ -308,7 +312,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/webhooks/config/:src",
-            axum::routing::delete(clear_webhook_source_token),
+            axum::routing::patch(patch_webhook_source)
+                .delete(clear_webhook_source_token),
         )
         // Phase 5: cron job management for the scheduler.
         .route(
@@ -422,6 +427,7 @@ async fn update_settings(
     state
         .core
         .apply_session_platform_preferences(&settings)?;
+    state.core.sync_dispatcher_concurrency(&state.dispatcher);
     Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
 }
 
@@ -436,6 +442,7 @@ async fn update_agent_settings(
         .core
         .update_agent_settings(&settings)
         .map_err(ApiError)?;
+    state.core.sync_dispatcher_concurrency(&state.dispatcher);
     Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
 }
 
@@ -1611,7 +1618,7 @@ async fn webhook_upload(
         None => state
             .core
             .session_index
-            .resolve_webhook_ingress_session(&normalized_src)
+            .resolve_webhook_ingress_session(&normalized_src, None)
             .map_err(ApiError::from)?,
     };
 
@@ -1714,13 +1721,20 @@ async fn webhook_ingress(
     }
 
     let body = parsed.body;
+    let delivery_id = pointer_core::webhook_config::extract_delivery_id(
+        &headers,
+        body.idempotency_key.as_deref(),
+    );
     let conversation_id = if let Some(ref explicit) = body.conversation_id {
         explicit.clone()
     } else {
         state
             .core
             .session_index
-            .resolve_webhook_ingress_session(&normalized_src)
+            .resolve_webhook_ingress_session(
+                &normalized_src,
+                Some(delivery_id.as_str()),
+            )
             .map_err(ApiError::from)?
     };
     let conversation_id = pointer_core::webhook_ingress::reconcile_webhook_conversation_id(
@@ -1970,6 +1984,45 @@ struct SetWebhookSourceTokenBody {
     token: String,
     #[serde(default)]
     auth_header_name: Option<String>,
+    #[serde(default)]
+    session_mode: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PatchWebhookSourceBody {
+    #[serde(default)]
+    session_mode: Option<String>,
+}
+
+/// `GET /api/webhooks/:src/runs/:runId` — poll async webhook run status/result.
+async fn get_webhook_run(
+    State(state): State<ServerState>,
+    Path((src, run_id)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
+) -> Result<axum::response::Response, ApiError> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    let normalized_src = match pointer_core::webhook_config::authorize_webhook_ingress(
+        &store,
+        &src,
+        &headers,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            let (status, msg) = webhook_auth_status(e);
+            return Ok(status_text(status, msg));
+        }
+    };
+    let view = pointer_core::webhook_result::webhook_run_view_for_source(
+        &state.core.session_index,
+        &normalized_src,
+        &run_id,
+    )
+    .map_err(ApiError::from)?;
+    match view {
+        Some(v) => Ok(Json(v).into_response()),
+        None => Ok(status_text(StatusCode::NOT_FOUND, "run not found")),
+    }
 }
 
 fn webhook_url_template() -> String {
@@ -2039,6 +2092,11 @@ async fn set_webhook_source_token(
         &body.src,
         &body.token,
         body.auth_header_name.as_deref(),
+        body.session_mode
+            .as_deref()
+            .map(pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse)
+            .transpose()
+            .map_err(ApiError::from)?,
     ) {
         Ok(true) => {
             let view: pointer_core::webhook_config::WebhookConfigPublicView =
@@ -2080,6 +2138,33 @@ async fn reveal_webhook_source_token(
         token: token.clone(),
         preview: pointer_core::webhook_config::mask_token(&token),
     }))
+}
+
+/// `PATCH /api/webhooks/config/:src` — update per-source webhook settings.
+async fn patch_webhook_source(
+    State(state): State<ServerState>,
+    Path(src): Path<String>,
+    Json(body): Json<PatchWebhookSourceBody>,
+) -> Result<Json<pointer_core::webhook_config::WebhookConfigPublicView>, ApiError> {
+    require_platform_access(&state)?;
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    if let Some(mode_raw) = body.session_mode {
+        let mode = pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse(
+            &mode_raw,
+        )
+        .map_err(ApiError::from)?;
+        store.set_session_mode(&src, mode).map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("not configured") {
+                ApiError(anyhow::anyhow!(msg))
+            } else {
+                ApiError(e)
+            }
+        })?;
+    }
+    Ok(Json(
+        build_webhook_config_view(&state.core.session_index)?.into(),
+    ))
 }
 
 /// `DELETE /api/webhooks/config/:src` — clear a source token.

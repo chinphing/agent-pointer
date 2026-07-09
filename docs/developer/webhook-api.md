@@ -28,7 +28,8 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/webhooks/config` | 列出已配置来源（仅尾号 preview，不含完整 Token） |
-| POST | `/api/webhooks/config` | 添加来源 Token（仅首次写入） |
+| POST | `/api/webhooks/config` | 添加来源 Token（仅首次写入）；可选 `sessionMode` |
+| PATCH | `/api/webhooks/config/:src` | 更新来源设置（如 `sessionMode`） |
 | GET | `/api/webhooks/config/:src/token` | 查看完整 Token（供设置页复制） |
 | DELETE | `/api/webhooks/config/:src` | 删除来源 Token |
 | DELETE | `/api/webhooks/config/legacy` | 清除旧版全局 Token |
@@ -86,15 +87,40 @@
 | 模式 | HTTP | 响应体 |
 |------|------|--------|
 | 异步（默认） | **202** | `{ "runId": "…", "status": "accepted" }` |
+| 异步轮询 | **GET** `/api/webhooks/:src/runs/:runId` | `{ "runId", "status", "conversationId", "text?", "error?" }` |
 | 同步 `blocking: true` | **200** | `{ "ok": true, "runId": "…", "conversationId": "…", "text": "…" }` |
 | 同步失败 | **500** | 错误信息 |
 | 同步超时 | **504** | 超过 `timeoutSeconds` |
 
 幂等命中时异步仍返回 **202**，`status` 可能为 `reused`。
 
+### 异步轮询结果
+
+默认 **202** 仅表示 run 已入队。可用同一来源 Token 轮询：
+
+```http
+GET /api/webhooks/:src/runs/:runId
+Authorization: Bearer <token>
+```
+
+| `status` | 说明 |
+|----------|------|
+| `queued` / `running` | 仍在执行；`text` / `error` 为空 |
+| `finished` | 完成；`text` 为 Agent 最终回复 |
+| `failed` / `cancelled` | 终止；`error` 含原因 |
+
+建议间隔 1–3 秒轮询，直至 `status` 为终态。
+
 ### 会话续接
 
-未传 `conversationId` 时，同一 `:src` 在**本地日历日**（04:00 切换）内共享会话上下文，新请求会追加到当日 transcript。跨日自动开新会话。
+未传 `conversationId` 时，会话分组由来源的 **`sessionMode`** 决定（自动化面板可配置）：
+
+| 模式 | 说明 |
+|------|------|
+| `daily`（默认） | 同一 `:src` 在**本地日历日**（04:00 切换）内共享上下文 |
+| `per_delivery` | 每次投递独立会话；delivery id 取自 `idempotencyKey` → `X-GitHub-Delivery` / `Svix-Id` / `X-Request-ID` → 自动生成 |
+
+`per_delivery` 下建议将 GitHub `delivery` id 写入 `idempotencyKey`，避免重试开新会话。
 
 ## 附件
 
@@ -180,6 +206,22 @@ curl -X POST "$HOST/api/webhooks/ci" \
 5. 建议设 `idempotencyKey` 为 GitHub `delivery` id，避免重试重复执行。
 
 ## 同步调用示例
+
+```bash
+# 异步触发 + 轮询
+RESP=$(curl -s -X POST "$HOST/api/webhooks/ci" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"总结本次构建日志"}')
+RUN_ID=$(echo "$RESP" | jq -r .runId)
+until true; do
+  BODY=$(curl -s "$HOST/api/webhooks/ci/runs/$RUN_ID" \
+    -H "Authorization: Bearer $TOKEN")
+  STATUS=$(echo "$BODY" | jq -r .status)
+  case "$STATUS" in finished|failed|cancelled) echo "$BODY" | jq .; break ;; esac
+  sleep 2
+done
+```
 
 ```bash
 curl -X POST "$HOST/api/webhooks/ci" \

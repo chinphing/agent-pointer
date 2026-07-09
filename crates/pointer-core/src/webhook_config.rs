@@ -27,7 +27,53 @@ pub fn webhook_conversation_id(src: &str) -> String {
     webhook_session_key(src)
 }
 
-pub use crate::conversation_store::webhook_sources::current_webhook_session_id;
+pub use crate::conversation_store::webhook_sources::{
+    current_webhook_session_id, WebhookSessionMode,
+};
+
+/// Sanitize a delivery / idempotency id for use in a session key segment.
+pub fn sanitize_delivery_id(raw: &str) -> String {
+    let out: String = raw
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    if out.is_empty() {
+        new_delivery_id()
+    } else {
+        out
+    }
+}
+
+/// Generate a fresh delivery id when none is provided by the caller or headers.
+pub fn new_delivery_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// Session id for per-delivery webhook mode.
+pub fn per_delivery_session_id(src: &str, delivery_id: &str) -> String {
+    format!("webhook:{src}:{}", sanitize_delivery_id(delivery_id))
+}
+
+/// Resolve delivery id from webhook headers and optional idempotency key.
+pub fn extract_delivery_id(headers: &http::HeaderMap, idempotency_key: Option<&str>) -> String {
+    if let Some(key) = idempotency_key.map(str::trim).filter(|s| !s.is_empty()) {
+        return sanitize_delivery_id(key);
+    }
+    const HEADER_CANDIDATES: &[&str] = &["x-github-delivery", "svix-id", "x-request-id"];
+    for name in HEADER_CANDIDATES {
+        if let Some(value) = headers
+            .get(*name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return sanitize_delivery_id(value);
+        }
+    }
+    new_delivery_id()
+}
 
 /// True when `conversation_id` is the legacy or dated webhook session for `:src`.
 pub fn conversation_id_matches_webhook_src(conversation_id: &str, src: &str) -> bool {
@@ -39,10 +85,8 @@ pub fn conversation_id_matches_webhook_src(conversation_id: &str, src: &str) -> 
     if id == webhook_session_key(src) {
         return true;
     }
-    let dated_prefix = format!("webhook:{src}:");
-    id.starts_with(&dated_prefix)
-        && id.len() == dated_prefix.len() + 8
-        && id[dated_prefix.len()..].chars().all(|c| c.is_ascii_digit())
+    let prefix = format!("webhook:{src}:");
+    id.starts_with(&prefix) && id.len() > prefix.len()
 }
 
 /// Reverse-map a media directory segment to a webhook session id for `:src`.
@@ -54,6 +98,8 @@ pub fn webhook_session_id_from_storage_segment(src: &str, segment: &str) -> Opti
     let prefix = format!("{legacy_seg}_");
     let date = segment.strip_prefix(&prefix)?;
     if date.len() == 8 && date.chars().all(|c| c.is_ascii_digit()) {
+        Some(format!("webhook:{src}:{date}"))
+    } else if !date.is_empty() {
         Some(format!("webhook:{src}:{date}"))
     } else {
         None
@@ -76,6 +122,9 @@ pub struct WebhookSourceView {
     /// Optional custom auth header; null = default Bearer + X-Pointer-Token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_header_name: Option<String>,
+    /// `daily` or `per_delivery`.
+    #[serde(default)]
+    pub session_mode: WebhookSessionMode,
     /// Full ingress URL for this source (host fills in; empty on desktop).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub url: String,
@@ -106,6 +155,8 @@ pub struct WebhookSourcePublicView {
     pub preview: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_header_name: Option<String>,
+    #[serde(default)]
+    pub session_mode: WebhookSessionMode,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub url: String,
     pub conversation_id: String,
@@ -138,6 +189,7 @@ impl From<WebhookSourceView> for WebhookSourcePublicView {
             src: source.src,
             preview: source.preview,
             auth_header_name: source.auth_header_name,
+            session_mode: source.session_mode,
             url: source.url,
             conversation_id: source.conversation_id,
             current_session_id: source.current_session_id,
@@ -210,6 +262,10 @@ impl<'a> WebhookTokenStore<'a> {
             .as_ref()
             .and_then(|r| r.auth_header_name.clone())
             .filter(|s| !s.trim().is_empty());
+        let session_mode = record
+            .as_ref()
+            .map(|r| r.session_mode)
+            .unwrap_or(WebhookSessionMode::Daily);
         let has_transcript = legacy_has
             || current_session_id
                 .as_ref()
@@ -222,6 +278,7 @@ impl<'a> WebhookTokenStore<'a> {
             token,
             preview,
             auth_header_name,
+            session_mode,
             url,
             conversation_id,
             current_session_id,
@@ -281,6 +338,7 @@ impl<'a> WebhookTokenStore<'a> {
         src: &str,
         token: &str,
         auth_header_name: Option<&str>,
+        session_mode: Option<WebhookSessionMode>,
     ) -> Result<bool> {
         let src = Self::normalize_src(src)?;
         let trimmed = token.trim();
@@ -302,6 +360,9 @@ impl<'a> WebhookTokenStore<'a> {
             self.store.webhook_sources_ensure_row(&src)?;
             self.store
                 .webhook_sources_set_auth_header_name(&src, auth_header_name.as_deref())?;
+            if let Some(mode) = session_mode {
+                self.store.webhook_sources_set_session_mode(&src, mode)?;
+            }
             log::info!(
                 "webhook_config: source token set src={src} auth_header={:?} (encrypted)",
                 auth_header_name
@@ -346,6 +407,25 @@ impl<'a> WebhookTokenStore<'a> {
             log::info!("webhook_config: legacy global token cleared");
         }
         Ok(deleted)
+    }
+
+    /// Update session grouping mode for a configured source.
+    pub fn set_session_mode(&self, src: &str, mode: WebhookSessionMode) -> Result<()> {
+        let src = Self::normalize_src(src)?;
+        if !self.store.app_secret_has(&Self::token_label(&src))? {
+            anyhow::bail!("webhook token not configured for this source");
+        }
+        self.store.webhook_sources_ensure_row(&src)?;
+        self.store.webhook_sources_set_session_mode(&src, mode)
+    }
+
+    pub fn session_mode_for_source(&self, src: &str) -> Result<WebhookSessionMode> {
+        let src = Self::normalize_src(src)?;
+        Ok(self
+            .store
+            .webhook_sources_get(&src)?
+            .map(|r| r.session_mode)
+            .unwrap_or(WebhookSessionMode::Daily))
     }
 
     /// Resolve expected token for `:src` at request time.
@@ -534,7 +614,7 @@ mod tests {
         let blob = crate::local_secret::encrypt_local_secret("legacy-global").unwrap();
         assert!(s.app_secret_try_insert(LEGACY_LABEL, &blob).unwrap());
         let ts = WebhookTokenStore::new(&s);
-        assert!(ts.set_source_token("github", "per-source", None).unwrap());
+        assert!(ts.set_source_token("github", "per-source", None, None).unwrap());
         assert_eq!(
             ts.reveal_source_token("github").unwrap().as_deref(),
             Some("per-source")
@@ -547,9 +627,9 @@ mod tests {
         let s = store();
         cleanup_test_secrets(&s);
         let ts = WebhookTokenStore::new(&s);
-        assert!(ts.set_source_token("github", "secret-abcd1234", None).unwrap());
-        assert!(!ts.set_source_token("github", "other", None).unwrap());
-        assert!(ts.set_source_token("gitlab", "gitlab-token-9999", None).unwrap());
+        assert!(ts.set_source_token("github", "secret-abcd1234", None, None).unwrap());
+        assert!(!ts.set_source_token("github", "other", None, None).unwrap());
+        assert!(ts.set_source_token("gitlab", "gitlab-token-9999", None, None).unwrap());
         let list = ts.list_sources().unwrap();
         assert_eq!(list.len(), 2);
         assert!(ts.verify_for_source("github", "secret-abcd1234").unwrap());
@@ -584,7 +664,7 @@ mod tests {
         cleanup_test_secrets(&s);
         let ts = WebhookTokenStore::new(&s);
         assert!(
-            ts.set_source_token("codeup", "tok-codeup", Some("X-Codeup-Token"))
+            ts.set_source_token("codeup", "tok-codeup", Some("X-Codeup-Token"), None)
                 .unwrap()
         );
         assert_eq!(
@@ -636,6 +716,28 @@ mod tests {
         );
         assert!(conversation_id_matches_webhook_src("webhook:test:20260708", "test"));
         assert!(conversation_id_matches_webhook_src("webhook:test", "test"));
+        assert!(conversation_id_matches_webhook_src("webhook:test:del-abc", "test"));
         assert!(!conversation_id_matches_webhook_src("webhook:ci:20260708", "test"));
+        assert_eq!(
+            webhook_session_id_from_storage_segment("test", "webhook_test_del_abc"),
+            Some("webhook:test:del_abc".into())
+        );
+    }
+
+    #[test]
+    fn extract_delivery_id_prefers_idempotency_key() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            "x-github-delivery",
+            http::HeaderValue::from_static("gh-del"),
+        );
+        assert_eq!(
+            extract_delivery_id(&headers, Some("idem-key")),
+            "idem-key"
+        );
+        assert_eq!(
+            extract_delivery_id(&headers, None),
+            "gh-del"
+        );
     }
 }

@@ -225,7 +225,24 @@ impl AppState {
     pub fn build_dispatcher(self: &Arc<Self>) -> crate::dispatcher::RunDispatcher {
         let mut hooks = crate::dispatcher::HookRegistry::new();
         crate::dispatcher::hooks::register_builtin_hooks(&mut hooks);
-        crate::dispatcher::RunDispatcher::with_hooks(self.clone(), Arc::new(hooks))
+        let max = self.resolve_max_concurrent_runs();
+        crate::dispatcher::RunDispatcher::with_hooks_and_max_concurrent(
+            self.clone(),
+            Arc::new(hooks),
+            max,
+        )
+    }
+
+    /// Global dispatcher concurrency cap from platform settings.
+    pub fn resolve_max_concurrent_runs(&self) -> usize {
+        crate::dispatcher::resolve_max_concurrent_runs(&self.platform_config.read())
+    }
+
+    pub fn sync_dispatcher_concurrency(
+        &self,
+        dispatcher: &crate::dispatcher::RunDispatcher,
+    ) {
+        dispatcher.set_max_concurrent(self.resolve_max_concurrent_runs());
     }
 
     pub fn load_user_settings(&self) -> UserSettings {

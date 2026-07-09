@@ -1,21 +1,61 @@
-//! `webhook_sources` table: per-ingress-source session state (daily rollover).
+//! `webhook_sources` table: per-ingress-source session state (daily rollover or per-delivery).
 
 use anyhow::Result;
 use chrono::{DateTime, Local, TimeZone};
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
 use super::cron_jobs::{CRON_SESSION_RESET_AT_HOUR, daily_reset_at_ms};
-use crate::webhook_config::{webhook_session_key, webhook_session_title};
+use crate::webhook_config::{per_delivery_session_id, webhook_session_key, webhook_session_title};
+
+/// How inbound webhooks map to conversation sessions for one `:src`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebhookSessionMode {
+    /// One session per local calendar day (`webhook:{src}:{yyyymmdd}`), 04:00 rollover.
+    #[default]
+    Daily,
+    /// One session per delivery id (`webhook:{src}:{delivery_id}`).
+    PerDelivery,
+}
+
+impl WebhookSessionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Daily => "daily",
+            Self::PerDelivery => "per_delivery",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self> {
+        match raw.trim().to_lowercase().as_str() {
+            "daily" => Ok(Self::Daily),
+            "per_delivery" | "per-delivery" | "perdelivery" => Ok(Self::PerDelivery),
+            other if other.is_empty() => Ok(Self::Daily),
+            _ => anyhow::bail!("invalid webhook session_mode (use daily or per_delivery)"),
+        }
+    }
+
+    pub fn from_db(raw: Option<&str>) -> Self {
+        raw.map(Self::parse)
+            .transpose()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+}
 
 /// Row tracking the active webhook session for one `:src`.
 #[derive(Debug, Clone)]
 pub struct WebhookSourceRecord {
     pub src: String,
-    /// Active session id (`webhook:{src}:{yyyymmdd}`); null until first ingress.
+    /// Active session id (`webhook:{src}:{yyyymmdd}` or `webhook:{src}:{delivery_id}`).
     pub current_session_id: Option<String>,
     pub last_ingress_at_ms: Option<i64>,
     /// Optional custom auth header (e.g. `X-Codeup-Token`); NULL = default Bearer + X-Pointer-Token.
     pub auth_header_name: Option<String>,
+    /// `daily` (default) or `per_delivery`.
+    pub session_mode: WebhookSessionMode,
     pub created_at_ms: i64,
 }
 
@@ -26,6 +66,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
            current_session_id TEXT,
            last_ingress_at_ms INTEGER,
            auth_header_name TEXT,
+           session_mode TEXT NOT NULL DEFAULT 'daily',
            created_at_ms INTEGER NOT NULL
          );",
     )?;
@@ -35,7 +76,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
 pub fn get(conn: &Connection, src: &str) -> Result<Option<WebhookSourceRecord>> {
     Ok(conn
         .query_row(
-            "SELECT src, current_session_id, last_ingress_at_ms, auth_header_name, created_at_ms
+            "SELECT src, current_session_id, last_ingress_at_ms, auth_header_name, session_mode, created_at_ms
          FROM webhook_sources WHERE src = ?1",
             params![src],
             map_row,
@@ -45,8 +86,8 @@ pub fn get(conn: &Connection, src: &str) -> Result<Option<WebhookSourceRecord>> 
 
 pub fn ensure_row(conn: &Connection, src: &str, now_ms: i64) -> Result<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO webhook_sources (src, current_session_id, last_ingress_at_ms, auth_header_name, created_at_ms)
-         VALUES (?1, NULL, NULL, NULL, ?2)",
+        "INSERT OR IGNORE INTO webhook_sources (src, current_session_id, last_ingress_at_ms, auth_header_name, session_mode, created_at_ms)
+         VALUES (?1, NULL, NULL, NULL, 'daily', ?2)",
         params![src, now_ms],
     )?;
     Ok(())
@@ -87,6 +128,28 @@ pub fn set_auth_header_name(
     Ok(())
 }
 
+pub fn session_mode(conn: &Connection, src: &str) -> Result<WebhookSessionMode> {
+    Ok(WebhookSessionMode::from_db(
+        conn.query_row(
+            "SELECT session_mode FROM webhook_sources WHERE src = ?1",
+            params![src],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten()
+        .as_deref(),
+    ))
+}
+
+pub fn set_session_mode(conn: &Connection, src: &str, mode: WebhookSessionMode) -> Result<()> {
+    conn.execute(
+        "UPDATE webhook_sources SET session_mode = ?2 WHERE src = ?1",
+        params![src, mode.as_str()],
+    )?;
+    log::info!("webhook_sources: session_mode set src={src} mode={}", mode.as_str());
+    Ok(())
+}
+
 pub fn auth_header_name(conn: &Connection, src: &str) -> Result<Option<String>> {
     Ok(conn
         .query_row(
@@ -104,7 +167,8 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WebhookSourceRecord> {
         current_session_id: row.get(1)?,
         last_ingress_at_ms: row.get(2)?,
         auth_header_name: row.get(3)?,
-        created_at_ms: row.get(4)?,
+        session_mode: WebhookSessionMode::from_db(row.get::<_, Option<String>>(4)?.as_deref()),
+        created_at_ms: row.get(5)?,
     })
 }
 
@@ -115,15 +179,36 @@ pub fn current_webhook_session_id<Z: TimeZone>(src: &str, now: &DateTime<Z>) -> 
     format!("webhook:{}:{}", src, boundary_local.format("%Y%m%d"))
 }
 
-/// Resolve which session id an ingress should write to (daily dated sessions only).
+/// Resolve which session id an ingress should write to.
 pub fn resolve_ingress_session_id(
+    conn: &Connection,
+    src: &str,
+    now: &DateTime<Local>,
+    delivery_id: Option<&str>,
+) -> Result<String> {
+    let now_ms = now.timestamp_millis();
+    ensure_row(conn, src, now_ms)?;
+    let mode = session_mode(conn, src)?;
+    match mode {
+        WebhookSessionMode::Daily => resolve_daily_ingress_session(conn, src, now),
+        WebhookSessionMode::PerDelivery => {
+            let delivery = delivery_id
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| crate::webhook_config::new_delivery_id());
+            resolve_per_delivery_ingress_session(conn, src, &delivery, now)
+        }
+    }
+}
+
+fn resolve_daily_ingress_session(
     conn: &Connection,
     src: &str,
     now: &DateTime<Local>,
 ) -> Result<String> {
     let expected = current_webhook_session_id(src, now);
     let now_ms = now.timestamp_millis();
-    ensure_row(conn, src, now_ms)?;
     let record = get(conn, src)?;
     let current = record
         .as_ref()
@@ -160,6 +245,23 @@ pub fn resolve_ingress_session_id(
     Ok(session_id)
 }
 
+fn resolve_per_delivery_ingress_session(
+    conn: &Connection,
+    src: &str,
+    delivery_id: &str,
+    now: &DateTime<Local>,
+) -> Result<String> {
+    let session_id = per_delivery_session_id(src, delivery_id);
+    let now_ms = now.timestamp_millis();
+    let title = webhook_session_title(src);
+    super::write::ensure_conversation_row_with_title(conn, &session_id, Some(&title))?;
+    touch_ingress(conn, src, now_ms, &session_id)?;
+    log::info!(
+        "webhook_sources: per-delivery ingress src={src} delivery={delivery_id} session={session_id}"
+    );
+    Ok(session_id)
+}
+
 /// When upload supplies an explicit webhook session id, keep `webhook_sources` in sync.
 pub fn adopt_upload_session(
     conn: &Connection,
@@ -187,6 +289,9 @@ pub fn resolve_view_session_id(
     record: Option<&WebhookSourceRecord>,
     src: &str,
 ) -> Option<String> {
+    let mode = record
+        .map(|r| r.session_mode)
+        .unwrap_or(WebhookSessionMode::Daily);
     let legacy = webhook_session_key(src);
     if let Some(r) = record {
         if let Some(ref id) = r.current_session_id {
@@ -194,6 +299,9 @@ pub fn resolve_view_session_id(
             if !id.is_empty() && id != legacy {
                 return Some(id.to_string());
             }
+        }
+        if mode == WebhookSessionMode::PerDelivery {
+            return None;
         }
         if let Some(ms) = r.last_ingress_at_ms {
             let dt = Local
@@ -203,7 +311,10 @@ pub fn resolve_view_session_id(
             return Some(current_webhook_session_id(src, &dt));
         }
     }
-    Some(current_webhook_session_id(src, &Local::now()))
+    match mode {
+        WebhookSessionMode::PerDelivery => None,
+        WebhookSessionMode::Daily => Some(current_webhook_session_id(src, &Local::now())),
+    }
 }
 
 #[cfg(test)]
@@ -255,7 +366,7 @@ mod tests {
     fn first_ingress_uses_dated_session() {
         let conn = mem();
         let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
-        let id = resolve_ingress_session_id(&conn, "github", &now).unwrap();
+        let id = resolve_ingress_session_id(&conn, "github", &now, None).unwrap();
         assert_eq!(id, "webhook:github:20260628");
     }
 
@@ -264,12 +375,28 @@ mod tests {
         let conn = mem();
         let day1 = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
         set_current_session_id(&conn, "github", "webhook:github").unwrap();
-        let id1 = resolve_ingress_session_id(&conn, "github", &day1).unwrap();
+        let id1 = resolve_ingress_session_id(&conn, "github", &day1, None).unwrap();
         assert_eq!(id1, "webhook:github:20260628");
 
         let day2 = Local.with_ymd_and_hms(2026, 6, 29, 10, 0, 0).single().unwrap();
-        let id2 = resolve_ingress_session_id(&conn, "github", &day2).unwrap();
+        let id2 = resolve_ingress_session_id(&conn, "github", &day2, None).unwrap();
         assert_eq!(id2, "webhook:github:20260629");
+    }
+
+    #[test]
+    fn per_delivery_uses_distinct_sessions() {
+        let conn = mem();
+        ensure_row(&conn, "ci", 1).unwrap();
+        set_session_mode(&conn, "ci", WebhookSessionMode::PerDelivery).unwrap();
+        let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let id1 = resolve_ingress_session_id(&conn, "ci", &now, Some("del-1")).unwrap();
+        let id2 = resolve_ingress_session_id(&conn, "ci", &now, Some("del-2")).unwrap();
+        assert_eq!(id1, "webhook:ci:del-1");
+        assert_eq!(id2, "webhook:ci:del-2");
+        assert_eq!(
+            get(&conn, "ci").unwrap().unwrap().current_session_id.as_deref(),
+            Some("webhook:ci:del-2")
+        );
     }
 
     #[test]

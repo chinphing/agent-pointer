@@ -142,6 +142,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         max_parallel_tool_calls: s.max_parallel_tool_calls,
         max_parallel_sub_agents: s.max_parallel_sub_agents,
         max_parallel_media_jobs: s.max_parallel_media_jobs,
+        max_concurrent_runs: s.max_concurrent_runs,
         parallel_tool_execution_enabled: s.parallel_tool_execution_enabled,
     }
 }

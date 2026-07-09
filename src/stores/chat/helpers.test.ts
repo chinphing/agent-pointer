@@ -92,7 +92,7 @@ describe('chat helpers', () => {
         status: 'done',
         createdAt: 0,
         toolCalls: [
-          { id: 't1', name: 'shell', status: 'running', args: {}, createdAt: 0 }
+          { id: 't1', name: 'shell', arguments: '{}', status: 'running' }
         ]
       }
     ])
@@ -139,7 +139,7 @@ describe('chat helpers', () => {
       status: 'done',
       createdAt: 0,
       toolCalls: [
-        { id: 't1', name: 'grep', status: 'pending', args: {}, createdAt: 0 }
+        { id: 't1', name: 'grep', arguments: '{}', status: 'pending' }
       ]
     }
     normalizeStaleEndedAssistantTurn(msg)

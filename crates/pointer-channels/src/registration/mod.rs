@@ -2,8 +2,10 @@
 
 mod dingtalk;
 mod feishu;
+mod persist;
 mod qr;
 mod state;
 mod wecom;
 
-pub use state::{ChannelRegistrationState, RegistrationSession};
+pub use persist::apply_registration_session_to_config;
+pub use state::{ChannelRegistrationState, RegistrationCompletion, RegistrationSession};

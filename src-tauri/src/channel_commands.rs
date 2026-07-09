@@ -58,12 +58,15 @@ pub fn update_channels_config(
     cfg: ChannelsConfig,
     restart_monitors: Option<bool>,
 ) -> Result<(), String> {
-    gateway
-        .update_config(cfg)
-        .map_err(|e| format!("保存通道配置失败: {e:#}"))?;
     if restart_monitors.unwrap_or(false) {
-        monitors.restart();
+        gateway
+            .update_config_and_restart(cfg, monitors.supervisor().as_ref())
+            .map_err(|e| format!("保存通道配置失败: {e:#}"))?;
         log::info!("channel monitors restarted after explicit connect");
+    } else {
+        gateway
+            .update_config(cfg)
+            .map_err(|e| format!("保存通道配置失败: {e:#}"))?;
     }
     Ok(())
 }

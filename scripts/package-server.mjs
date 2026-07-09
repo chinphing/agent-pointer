@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
  * Package pointer-server release binary, dist/, and config example into a zip.
- * Invoked automatically at the end of `npm run server:build`.
+ * Invoked automatically at the end of `npm run server:build` (zip, all platforms).
+ * Linux .deb is separate: `npm run server:deb` or `npm run server:build:linux`.
  */
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { platformTag } from './lib/platform-tag.mjs'
 import { syncServerDeployScripts } from './lib/sync-server-deploy-scripts.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -16,17 +18,6 @@ const BIN_PATH = path.join(ROOT, 'target', 'release', BIN_NAME)
 const DIST_DIR = path.join(ROOT, 'dist')
 const SKILLS_DIR = path.join(ROOT, 'skills')
 const CONFIG_EXAMPLE = path.join(ROOT, 'server', 'pointer-server.toml.example')
-
-function platformTag() {
-  const osName =
-    process.platform === 'darwin'
-      ? 'macos'
-      : process.platform === 'win32'
-        ? 'windows'
-        : process.platform
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  return `${osName}-${arch}`
-}
 
 function ensureInputs() {
   const missing = []

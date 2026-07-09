@@ -321,16 +321,20 @@ app_data_dir = "/var/lib/pointer"
 cargo build -p pointer-server --release
 ```
 
-### zip 包（跨平台）
+### zip 包（跨平台，自动）
 
 ```bash
-npm run server:build     # build Vue + Rust + zip
+npm run server:build
+# macOS / Windows → zip
+# Linux         → zip + .deb（有 dpkg-deb 时）
 ```
 
-### .deb 包（Linux）
+### .deb 包（Linux，已包含在 server:build 中）
+
+单独重打 deb（需已有 release 二进制）：
 
 ```bash
-npm run server:deb
+npm run server:build:deb
 # 产物：target/release/bundle/deb/pointer-server_0.1.0_*.deb
 ```
 
@@ -340,9 +344,15 @@ npm run server:deb
 cargo test -p pointer-core -- license::verify
 ```
 
-### 开发用密钥
+### License 签发 CLI
 
 ```bash
-cargo run -p pointer-license-gen -- gen-keypair \
-  --public-key crates/pointer-core/license.pub
+npm run license-gen:build
+# 产物：target/release/license-gen-bundle/license-gen-{platform}-{arch}.zip
+```
+
+开发调试：
+
+```bash
+npm run license-gen:dev -- sign --help
 ```

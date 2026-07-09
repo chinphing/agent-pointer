@@ -13,11 +13,13 @@ Vue 统一界面
 └─ Web 端：Web Adapter → server(axum HTTP/SSE) → crates/pointer-core
 ```
 
-| 能力 | 桌面端 | Web 端 |
-|------|--------|--------|
-| 启动命令 | `npm run tauri:dev` | `npm run server:dev` + `npm run web:dev` |
-| 打包 | `npm run tauri:build` | 前端 `npm run build`，后端 `cargo build -p pointer-server --release` |
-| 电脑操控 | 完整（需各平台权限/依赖） | 受限（无本地截图/输入） |
+| 能力 | 桌面端 | Web 端 | License 签发 |
+|------|--------|--------|--------------|
+| 开发 | `npm run tauri:dev` | `npm run server:dev` | `npm run license-gen:dev -- …` |
+| 打包 | `npm run tauri:build` | `npm run server:build` | `npm run license-gen:build` |
+| 产物 | 当前平台安装包 | zip（全平台）+ deb（Linux 自动） | zip（全平台） |
+
+各模块统一 **`{模块}:dev` / `{模块}:build`** 命名；build 脚本会根据当前 OS 自动选择产物格式（与 `tauri:build` 相同思路）。
 
 ---
 
@@ -423,13 +425,20 @@ cargo build -p pointer-server --release    # target/release/pointer-server
 **前后端一体化**（推荐：单进程同时提供 API + Web UI）：
 
 ```bash
-npm run server:build    # 同域前端 + release 二进制 + 部署 zip
+npm run server:dev      # 开发
+npm run server:build    # 打包（自动：全平台 zip；Linux 额外 .deb）
 npm run server:start    # 前台运行（开发/调试）
 npm run server:daemon   # 后台守护进程（生产，同步脚本到 target/release）
 npm run server:stop     # 停止守护进程
 npm run server:restart  # 重启守护进程
 npm run server:status   # 查看运行状态
 # 或直接 ./target/release/pointer-server
+```
+
+Web 前端独立开发（连远程或本机 server API）：
+
+```bash
+npm run web:dev
 ```
 
 解压部署包后，也可在二进制同目录使用脚本（无需 Node.js）：
@@ -469,6 +478,26 @@ target/release/pointer-server-bundle/pointer-server-{platform}-{arch}.zip
 
 ```bash
 npm run server:package
+```
+
+**按平台自动产物（一条命令）：**
+
+| 当前平台 | `npm run server:build` 产物 |
+|----------|----------------------------|
+| macOS | `pointer-server-macos-{arch}.zip` |
+| Windows | `pointer-server-windows-{arch}.zip` |
+| Linux | 上述 zip + `pointer-server_0.1.0_*.deb`（需 `dpkg-deb`） |
+
+仅重新打包 zip（不重新编译）：
+
+```bash
+npm run server:package
+```
+
+仅重打 deb（Linux，需已有 release 二进制）：
+
+```bash
+npm run server:build:deb
 ```
 
 浏览器打开 `http://127.0.0.1:8787` 即可（API 与页面同端口）。

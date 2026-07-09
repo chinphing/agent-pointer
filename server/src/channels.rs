@@ -159,18 +159,35 @@ pub async fn list_channels(
     Ok(Json(ChannelsStatusResponse { channels }))
 }
 
+#[derive(Deserialize)]
+pub struct UpdateChannelsQuery {
+    #[serde(default, rename = "restartMonitors")]
+    restart_monitors: bool,
+}
+
 pub async fn update_channels(
     State(state): State<ServerState>,
+    Query(query): Query<UpdateChannelsQuery>,
     Json(cfg): Json<ChannelsConfig>,
 ) -> Result<StatusCode, StatusCode> {
     crate::require_platform_access_status(&state)?;
-    state
-        .channel_gateway
-        .update_config(cfg)
-        .map_err(|e| {
-            log::error!("update channels config failed: {e:#}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    if query.restart_monitors {
+        state
+            .channel_gateway
+            .update_config_and_restart(cfg, state.channel_monitors.as_ref())
+            .map_err(|e| {
+                log::error!("update channels config failed: {e:#}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+    } else {
+        state
+            .channel_gateway
+            .update_config(cfg)
+            .map_err(|e| {
+                log::error!("update channels config failed: {e:#}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -12,8 +12,9 @@ use futures_util::Stream;
 use pointer_channels::{
     adapters::register_builtin_channels,
     adapters::weixin::qr_login::QrLoginState,
-    registration::ChannelRegistrationState,
     gateway::ChannelGateway,
+    monitor_supervisor::MonitorSupervisor,
+    registration::ChannelRegistrationState,
     registry::ChannelRegistry,
 };
 use pointer_core::{
@@ -80,6 +81,7 @@ pub(crate) struct ServerState {
     dispatcher: Arc<RunDispatcher>,
     events: broadcast::Sender<StreamEvent>,
     channel_gateway: Arc<ChannelGateway>,
+    channel_monitors: Arc<MonitorSupervisor>,
     qr_login: Arc<QrLoginState>,
     registration: Arc<ChannelRegistrationState>,
     /// PKCE verifiers keyed by `state` for in-flight browser OAuth logins.
@@ -207,19 +209,21 @@ async fn main() -> anyhow::Result<()> {
         channel_gateway.clone(),
         core.tools.clone(),
     );
-    let cancel = tokio_util::sync::CancellationToken::new();
-    channel_gateway.spawn_weixin_monitors(cancel.clone());
-    channel_gateway.spawn_wecom_monitors(cancel.clone());
-    channel_gateway.spawn_feishu_monitors(cancel.clone());
-    channel_gateway.spawn_dingtalk_monitors(cancel.clone());
+    let channel_monitors = Arc::new(MonitorSupervisor::new());
+    channel_monitors.start(channel_gateway.clone());
+    let registration = Arc::new(ChannelRegistrationState::with_completion(
+        channel_gateway.clone(),
+        channel_monitors.clone(),
+    ));
 
     let state = ServerState {
         core: core.clone(),
         dispatcher: Arc::new(core.build_dispatcher()),
         events,
         channel_gateway,
+        channel_monitors,
         qr_login: Arc::new(QrLoginState::new()),
-        registration: Arc::new(ChannelRegistrationState::new()),
+        registration,
         oauth_pending: Arc::new(RwLock::new(HashMap::new())),
         web_sessions: web_sessions.clone(),
     };

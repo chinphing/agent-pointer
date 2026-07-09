@@ -1,46 +1,32 @@
-use pointer_channels::ChannelGateway;
-use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
+use pointer_channels::MonitorSupervisor;
+use std::sync::Arc;
 
 pub struct ChannelMonitorHandle {
-    pub gateway: Arc<ChannelGateway>,
-    cancel: Mutex<CancellationToken>,
+    supervisor: Arc<MonitorSupervisor>,
 }
 
 impl ChannelMonitorHandle {
-    pub fn new(gateway: Arc<ChannelGateway>) -> Self {
+    pub fn new() -> Self {
         Self {
-            gateway,
-            cancel: Mutex::new(CancellationToken::new()),
+            supervisor: Arc::new(MonitorSupervisor::new()),
         }
     }
 
-    pub fn start(&self) {
-        let cancel = self.cancel.lock().expect("channel monitor cancel lock").clone();
-        let gateway = self.gateway.clone();
-        tauri::async_runtime::spawn(async move {
-            log::info!("channel monitors: spawning im channel background tasks");
-            gateway.spawn_wecom_monitors(cancel.clone());
-            gateway.spawn_feishu_monitors(cancel.clone());
-            gateway.spawn_dingtalk_monitors(cancel.clone());
-            gateway.spawn_weixin_monitors(cancel);
-        });
+    pub fn supervisor(&self) -> Arc<MonitorSupervisor> {
+        self.supervisor.clone()
     }
 
-    pub fn restart(&self) {
-        let new_cancel = {
-            let mut guard = self.cancel.lock().expect("channel monitor cancel lock");
-            guard.cancel();
-            *guard = CancellationToken::new();
-            guard.clone()
-        };
-        let gateway = self.gateway.clone();
-        tauri::async_runtime::spawn(async move {
-            log::info!("channel monitors: restarted after config update");
-            gateway.spawn_wecom_monitors(new_cancel.clone());
-            gateway.spawn_feishu_monitors(new_cancel.clone());
-            gateway.spawn_dingtalk_monitors(new_cancel.clone());
-            gateway.spawn_weixin_monitors(new_cancel);
-        });
+    pub fn start(&self, gateway: Arc<pointer_channels::ChannelGateway>) {
+        self.supervisor.start(gateway);
+    }
+
+    pub fn restart(&self, gateway: Arc<pointer_channels::ChannelGateway>) {
+        self.supervisor.restart(gateway);
+    }
+}
+
+impl Default for ChannelMonitorHandle {
+    fn default() -> Self {
+        Self::new()
     }
 }

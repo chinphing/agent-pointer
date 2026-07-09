@@ -4,10 +4,38 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::gateway::ChannelGateway;
+use crate::monitor_supervisor::MonitorSupervisor;
+
 use super::dingtalk;
 use super::feishu;
 use super::qr::qrcode_png_base64;
 use super::wecom;
+
+#[derive(Clone)]
+pub struct RegistrationCompletion {
+    gateway: Arc<ChannelGateway>,
+    monitors: Arc<MonitorSupervisor>,
+}
+
+impl RegistrationCompletion {
+    pub fn new(gateway: Arc<ChannelGateway>, monitors: Arc<MonitorSupervisor>) -> Self {
+        Self { gateway, monitors }
+    }
+
+    fn on_success(&self, channel: &str, account_id: &str, session: &RegistrationSession) {
+        if let Err(e) = self.gateway.persist_registration_and_restart(
+            channel,
+            account_id,
+            session,
+            self.monitors.as_ref(),
+        ) {
+            log::error!(
+                "channel registration persist/restart failed channel={channel} account={account_id}: {e:#}"
+            );
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,12 +63,21 @@ struct PollContext {
 
 pub struct ChannelRegistrationState {
     sessions: Arc<RwLock<HashMap<String, RegistrationSession>>>,
+    completion: Option<RegistrationCompletion>,
 }
 
 impl ChannelRegistrationState {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            completion: None,
+        }
+    }
+
+    pub fn with_completion(gateway: Arc<ChannelGateway>, monitors: Arc<MonitorSupervisor>) -> Self {
+        Self {
+            sessions: Arc::new(RwLock::new(HashMap::new())),
+            completion: Some(RegistrationCompletion::new(gateway, monitors)),
         }
     }
 
@@ -108,8 +145,9 @@ impl ChannelRegistrationState {
             .insert(key.clone(), session.clone());
 
         let sessions = self.sessions.clone();
+        let completion = self.completion.clone();
         tokio::spawn(async move {
-            if let Err(e) = poll_until_done(sessions, &key, poll_ctx).await {
+            if let Err(e) = poll_until_done(sessions, &key, poll_ctx, completion).await {
                 log::error!("channel registration poll failed key={key}: {e:#}");
             }
         });
@@ -128,7 +166,11 @@ async fn poll_until_done(
     sessions: Arc<RwLock<HashMap<String, RegistrationSession>>>,
     key: &str,
     ctx: PollContext,
+    completion: Option<RegistrationCompletion>,
 ) -> Result<()> {
+    let (channel, account_id) = parse_session_key(key)
+        .ok_or_else(|| anyhow::anyhow!("invalid registration session key {key}"))?;
+
     let poll_result: Result<()> = match ctx.channel.as_str() {
         "feishu" => {
             match feishu::poll_registration(
@@ -139,11 +181,19 @@ async fn poll_until_done(
             .await
             {
                 Ok(Some(creds)) => {
-                    let mut guard = sessions.write().await;
-                    if let Some(session) = guard.get_mut(key) {
-                        session.app_id = Some(creds.app_id);
-                        session.app_secret = Some(creds.app_secret);
-                        session.status = "success".into();
+                    let session_snapshot = {
+                        let mut guard = sessions.write().await;
+                        if let Some(session) = guard.get_mut(key) {
+                            session.app_id = Some(creds.app_id);
+                            session.app_secret = Some(creds.app_secret);
+                            session.status = "success".into();
+                            session.clone()
+                        } else {
+                            return Ok(());
+                        }
+                    };
+                    if let Some(c) = &completion {
+                        c.on_success(channel, account_id, &session_snapshot);
                     }
                     log::info!("feishu registration success key={key}");
                     Ok(())
@@ -161,11 +211,19 @@ async fn poll_until_done(
             .await
             {
                 Ok(Some(creds)) => {
-                    let mut guard = sessions.write().await;
-                    if let Some(session) = guard.get_mut(key) {
-                        session.client_id = Some(creds.client_id);
-                        session.client_secret = Some(creds.client_secret);
-                        session.status = "success".into();
+                    let session_snapshot = {
+                        let mut guard = sessions.write().await;
+                        if let Some(session) = guard.get_mut(key) {
+                            session.client_id = Some(creds.client_id);
+                            session.client_secret = Some(creds.client_secret);
+                            session.status = "success".into();
+                            session.clone()
+                        } else {
+                            return Ok(());
+                        }
+                    };
+                    if let Some(c) = &completion {
+                        c.on_success(channel, account_id, &session_snapshot);
                     }
                     log::info!("dingtalk registration success key={key}");
                     Ok(())
@@ -183,11 +241,19 @@ async fn poll_until_done(
             .await
             {
                 Ok(Some(creds)) => {
-                    let mut guard = sessions.write().await;
-                    if let Some(session) = guard.get_mut(key) {
-                        session.bot_id = Some(creds.bot_id);
-                        session.secret = Some(creds.secret);
-                        session.status = "success".into();
+                    let session_snapshot = {
+                        let mut guard = sessions.write().await;
+                        if let Some(session) = guard.get_mut(key) {
+                            session.bot_id = Some(creds.bot_id);
+                            session.secret = Some(creds.secret);
+                            session.status = "success".into();
+                            session.clone()
+                        } else {
+                            return Ok(());
+                        }
+                    };
+                    if let Some(c) = &completion {
+                        c.on_success(channel, account_id, &session_snapshot);
                     }
                     log::info!("wecom registration success key={key}");
                     Ok(())
@@ -220,4 +286,8 @@ async fn poll_until_done(
 
 fn session_key(channel: &str, account_id: &str) -> String {
     format!("{channel}:{account_id}")
+}
+
+fn parse_session_key(key: &str) -> Option<(&str, &str)> {
+    key.split_once(':')
 }

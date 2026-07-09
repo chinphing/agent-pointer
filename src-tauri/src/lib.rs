@@ -327,15 +327,19 @@ pub fn run() {
                 app_state.tools.clone(),
             );
             let monitor_handle =
-                channel_monitor::ChannelMonitorHandle::new(channel_gateway.clone());
-            monitor_handle.start();
-            app.manage(channel_gateway);
+                channel_monitor::ChannelMonitorHandle::new();
+            let monitor_supervisor = monitor_handle.supervisor();
+            monitor_handle.start(channel_gateway.clone());
+            app.manage(channel_gateway.clone());
             app.manage(Arc::new(monitor_handle));
             app.manage(Arc::new(
                 pointer_channels::adapters::weixin::qr_login::QrLoginState::new(),
             ));
             app.manage(Arc::new(
-                pointer_channels::registration::ChannelRegistrationState::new(),
+                pointer_channels::registration::ChannelRegistrationState::with_completion(
+                    channel_gateway,
+                    monitor_supervisor,
+                ),
             ));
             let handle = app.handle().clone();
             match pointer_core::agents::computer::capture_debug::purge_computer_captures_older_than_days(

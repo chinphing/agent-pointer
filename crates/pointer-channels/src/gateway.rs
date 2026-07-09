@@ -5,7 +5,9 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::adapters::weixin::context_token;
-use crate::config::{load_channels_config, ChannelsConfig};
+use crate::config::{load_channels_config, save_channels_config, ChannelsConfig};
+use crate::monitor_supervisor::MonitorSupervisor;
+use crate::registration::{apply_registration_session_to_config, RegistrationSession};
 use crate::dedup::DedupStore;
 use crate::dispatch::DispatchService;
 use crate::pairing::PairingStore;
@@ -53,8 +55,44 @@ impl ChannelGateway {
         Ok(())
     }
 
+    pub fn update_config_and_restart(
+        self: &Arc<Self>,
+        cfg: ChannelsConfig,
+        supervisor: &MonitorSupervisor,
+    ) -> Result<()> {
+        save_channels_config(&cfg)?;
+        *self.config.write() = cfg;
+        supervisor.restart(Arc::clone(self));
+        log::info!("channel config updated and monitors restarted");
+        Ok(())
+    }
+
     pub fn reload_config(&self) -> Result<()> {
         *self.config.write() = load_channels_config()?;
+        Ok(())
+    }
+
+    /// Persist QR registration credentials, refresh in-memory config, and restart monitors.
+    pub fn persist_registration_and_restart(
+        self: &Arc<Self>,
+        channel: &str,
+        account_id: &str,
+        session: &RegistrationSession,
+        supervisor: &MonitorSupervisor,
+    ) -> Result<()> {
+        let mut cfg = load_channels_config()?;
+        if !apply_registration_session_to_config(&mut cfg, channel, account_id, session)? {
+            log::warn!(
+                "channel registration persist skipped channel={channel} account={account_id}: missing credentials"
+            );
+            return Ok(());
+        }
+        crate::config::save_channels_config(&cfg)?;
+        *self.config.write() = cfg;
+        supervisor.restart(Arc::clone(self));
+        log::info!(
+            "channel registration persisted and monitors restarted channel={channel} account={account_id}"
+        );
         Ok(())
     }
 

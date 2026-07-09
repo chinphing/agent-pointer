@@ -8,7 +8,8 @@
  *   dpkg-deb (included in dpkg package)
  *
  * Usage:
- *   node scripts/build-server-deb.mjs
+ *   npm run server:build:deb   (Linux only)
+ *   npm run server:deb         (build frontend + binary + .deb)
  */
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -61,7 +62,23 @@ function chmod(p, mode) {
   fs.chmodSync(p, mode)
 }
 
+function ensureLinuxDebTooling() {
+  if (process.platform !== 'linux') {
+    console.error('[build-deb] .deb packaging requires Linux (dpkg-deb).')
+    console.error('[build-deb] Current platform:', process.platform)
+    console.error('[build-deb] On macOS/Windows use: npm run server:build  → zip bundle')
+    console.error('[build-deb] On Linux CI/host use:   npm run server:deb    → .deb package')
+    process.exit(1)
+  }
+  const debCheck = spawnSync('dpkg-deb', ['--version'], { stdio: 'ignore' })
+  if (debCheck.status !== 0) {
+    console.error('[build-deb] dpkg-deb not found. Install: sudo apt install dpkg')
+    process.exit(1)
+  }
+}
+
 function main() {
+  ensureLinuxDebTooling()
   ensureInputs()
 
   // Detect architecture from binary

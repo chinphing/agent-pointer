@@ -69,7 +69,10 @@ export async function updateChannelsConfig(
     })
     return
   }
-  await webRequest('/api/channels', { method: 'PUT', body: JSON.stringify(cfg) })
+  await webRequest(
+    `/api/channels${opts?.restartMonitors ? '?restartMonitors=true' : ''}`,
+    { method: 'PUT', body: JSON.stringify(cfg) }
+  )
 }
 
 export async function getChannelWebhookUrl(

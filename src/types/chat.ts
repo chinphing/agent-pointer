@@ -376,6 +376,16 @@ export interface ConversationMetaPage {
   nextCursor: ConversationCursor | null
 }
 
+/** Sidebar FTS search hit (message content and/or title/preview match). */
+export interface ConversationSearchHit {
+  id: string
+  title: string
+  updatedAt: number
+  snippet?: string
+  messageCount?: number
+  preview?: string
+}
+
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
 export interface ModelRuntimeOverrides {
   reasoningInMessages?: boolean

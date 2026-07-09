@@ -20,7 +20,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use crate::models::{ChatMessage, Conversation, ConversationMeta};
+use crate::models::{ChatMessage, Conversation, ConversationMeta, ConversationSearchHit};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
@@ -480,6 +480,15 @@ impl ConversationStore {
 
     pub fn dispatch_search_tool(&self, args: &serde_json::Value) -> Result<String> {
         search::dispatch_tool(&self.db, args)
+    }
+
+    /// Sidebar search: FTS over full message bodies (+ title/preview supplement).
+    pub fn search_conversations(
+        &self,
+        query: &str,
+        limit: i64,
+    ) -> Result<Vec<ConversationSearchHit>> {
+        search::search_conversations_for_ui(&self.db, query, limit)
     }
 
     /// Alias for tool registration / tests.

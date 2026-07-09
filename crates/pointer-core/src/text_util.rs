@@ -47,6 +47,133 @@ pub fn truncate_for_log(s: &str, max_chars: usize) -> String {
     format!("{head}…(+{} chars)", n - max_chars)
 }
 
+/// Collapse runs of whitespace (including newlines) to single spaces for UI snippets.
+pub fn collapse_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether `text` contains `query` as a contiguous substring (case-insensitive),
+/// after whitespace collapse. Used to prefer FTS rows that can show a real hit.
+pub fn text_contains_query(text: &str, query: &str) -> bool {
+    let q = query.trim();
+    if q.is_empty() {
+        return false;
+    }
+    collapse_whitespace(text)
+        .to_lowercase()
+        .contains(&q.to_lowercase())
+}
+
+/// Build a short preview around the first case-insensitive match of `query`.
+///
+/// Prefer this over SQLite FTS5 `snippet()` for CJK / long bodies — FTS token
+/// windows often return the document head instead of the hit.
+///
+/// The match is placed **near the start** of the snippet (small `before`, larger
+/// `after`) so narrow UI with CSS `truncate` still shows the keyword. Optional
+/// `mark_pre` / `mark_post` wrap the matched span (e.g. `<b>`).
+pub fn match_centered_snippet(
+    text: &str,
+    query: &str,
+    radius: usize,
+    mark_pre: &str,
+    mark_post: &str,
+) -> String {
+    // Bias: keep most of the budget after the hit so sidebar truncate shows it.
+    let before = (radius / 4).clamp(4, 10);
+    let after = radius.saturating_mul(2).saturating_sub(before).max(radius);
+    match_window_snippet(text, query, before, after, mark_pre, mark_post)
+}
+
+fn match_window_snippet(
+    text: &str,
+    query: &str,
+    before: usize,
+    after: usize,
+    mark_pre: &str,
+    mark_post: &str,
+) -> String {
+    let flat = collapse_whitespace(text);
+    if flat.is_empty() {
+        return String::new();
+    }
+    let needles = snippet_needles(query);
+    let lower_flat = flat.to_lowercase();
+    let mut best: Option<(usize, usize)> = None; // (char_start, char_len)
+    for needle in &needles {
+        let lower_needle = needle.to_lowercase();
+        if lower_needle.is_empty() {
+            continue;
+        }
+        if let Some(byte_pos) = lower_flat.find(&lower_needle) {
+            let char_start = flat[..byte_pos].chars().count();
+            let char_len = needle.chars().count();
+            // Prefer earlier match; among equal starts, prefer longer needle.
+            best = Some(match best {
+                Some((s, l)) if s < char_start || (s == char_start && l >= char_len) => (s, l),
+                _ => (char_start, char_len),
+            });
+        }
+    }
+    let Some((match_start, match_len)) = best else {
+        return truncate_chars_fit(&flat, before.saturating_add(after).saturating_add(1));
+    };
+    let total = flat.chars().count();
+    let match_end = (match_start + match_len).min(total);
+    let start = match_start.saturating_sub(before);
+    let end = (match_end + after).min(total);
+    let mut out = String::new();
+    if start > 0 {
+        out.push('…');
+    }
+    for (i, ch) in flat.chars().enumerate() {
+        if i < start {
+            continue;
+        }
+        if i >= end {
+            break;
+        }
+        if i == match_start && !mark_pre.is_empty() {
+            out.push_str(mark_pre);
+        }
+        out.push(ch);
+        if i + 1 == match_end && !mark_post.is_empty() {
+            out.push_str(mark_post);
+        }
+    }
+    if end < total {
+        out.push('…');
+    }
+    out
+}
+
+fn snippet_needles(query: &str) -> Vec<String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    // Always try the full query first (contiguous phrase).
+    out.push(trimmed.to_string());
+    for term in trimmed.split_whitespace() {
+        let t = term
+            .trim_matches(|c| c == '"' || c == '*')
+            .trim_start_matches('-')
+            .to_string();
+        if !t.is_empty()
+            && !t.eq_ignore_ascii_case("OR")
+            && !t.eq_ignore_ascii_case("AND")
+            && t != trimmed
+        {
+            out.push(t);
+        }
+    }
+    // Prefer longer needles first so multi-char CJK phrases win over fragments.
+    out.sort_by_key(|s| std::cmp::Reverse(s.chars().count()));
+    out.dedup();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +199,45 @@ mod tests {
         let out = truncate_chars_fit(&s, 5);
         assert_eq!(out.chars().count(), 5);
         assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn match_centered_snippet_includes_cjk_hit_not_doc_head() {
+        let prefix = "=== 第1页 === - 1 - ".repeat(30);
+        let text = format!("{prefix}工作城市「北京」已填写");
+        let snip = match_centered_snippet(&text, "北京", 16, "", "");
+        assert!(snip.contains("北京"), "snippet={snip}");
+        assert!(!snip.starts_with("=== 第1页"), "snippet={snip}");
+    }
+
+    #[test]
+    fn match_centered_snippet_keeps_hit_near_start_for_truncate() {
+        // Long prefix before the hit: old symmetric window put the keyword near
+        // the end, which CSS truncate then clipped away in the sidebar.
+        let prefix = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".repeat(3);
+        let text = format!("{prefix}工作城市「北京」后续说明文字很多");
+        let snip = match_centered_snippet(&text, "北京", 16, "", "");
+        assert!(snip.contains("北京"), "snippet={snip}");
+        // Keyword should appear within the first ~20 visible chars (after …).
+        let body = snip.trim_start_matches('…');
+        let byte_pos = body.find("北京").expect("hit");
+        let char_pos = body[..byte_pos].chars().count();
+        assert!(
+            char_pos <= 8,
+            "hit too far right for narrow truncate: char_pos={char_pos}, snippet={snip}"
+        );
+    }
+
+    #[test]
+    fn match_centered_snippet_marks_hit() {
+        let snip = match_centered_snippet("hello 北京 world", "北京", 8, "<b>", "</b>");
+        assert!(snip.contains("<b>北京</b>"), "snippet={snip}");
+    }
+
+    #[test]
+    fn text_contains_query_collapses_whitespace() {
+        assert!(text_contains_query("工作城市\n「北京」", "北京"));
+        assert!(!text_contains_query("只有北 和 京分开", "北京"));
     }
 
     #[test]

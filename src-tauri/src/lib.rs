@@ -329,6 +329,8 @@ pub fn run() {
             let monitor_handle =
                 channel_monitor::ChannelMonitorHandle::new();
             let monitor_supervisor = monitor_handle.supervisor();
+            // `MonitorSupervisor::start` must not call bare `tokio::spawn` here:
+            // `.setup()` runs on the UI thread with no Tokio runtime (see monitor_supervisor).
             monitor_handle.start(channel_gateway.clone());
             app.manage(channel_gateway.clone());
             app.manage(Arc::new(monitor_handle));
@@ -409,6 +411,7 @@ pub fn run() {
             commands::cancel_computer_monitor_pick,
             commands::load_conversations,
             commands::load_conversation_metas,
+            commands::search_conversations,
             commands::load_conversation_messages,
             commands::delete_conversation,
             commands::save_conversations,

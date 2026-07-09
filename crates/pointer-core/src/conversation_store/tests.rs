@@ -74,6 +74,141 @@ mod tests {
     }
 
     #[test]
+    fn ui_search_uses_fts_and_title() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let convs = vec![
+            sample_conv("c1", "Auth work", "We need to refactor auth middleware"),
+            sample_conv("c2", "Cooking notes", "Unrelated topic about cooking"),
+        ];
+        store.sync_conversations(&convs).unwrap();
+
+        let hits = store.search_conversations("auth refactor", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "c1");
+        assert!(!hits[0].snippet.is_empty());
+
+        let title_hits = store.search_conversations("Cooking", 10).unwrap();
+        assert!(title_hits.iter().any(|h| h.id == "c2"));
+    }
+
+    #[test]
+    fn ui_search_snippet_centers_on_cjk_hit() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let body = format!(
+            "{}工作城市「北京」已填写完成",
+            "=== 第1页 === - 1 - ".repeat(40)
+        );
+        store
+            .sync_conversations(&[sample_conv("c1", "案件ID: 778508", &body)])
+            .unwrap();
+
+        let hits = store.search_conversations("北京", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(
+            hits[0].snippet.contains("北京"),
+            "snippet should include query, got {:?}",
+            hits[0].snippet
+        );
+        assert!(
+            !hits[0].snippet.starts_with("=== 第1页"),
+            "snippet should not be document head, got {:?}",
+            hits[0].snippet
+        );
+        let body = hits[0].snippet.trim_start_matches('…');
+        let byte_pos = body.find("北京").expect("hit in snippet");
+        let char_pos = body[..byte_pos].chars().count();
+        assert!(
+            char_pos <= 8,
+            "hit should stay near start for CSS truncate, char_pos={char_pos} snippet={:?}",
+            hits[0].snippet
+        );
+    }
+
+    #[test]
+    fn ui_search_prefers_message_that_contains_query() {
+        use crate::conversation_store::persist::msg;
+        use crate::models::{Conversation, Role};
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        // Long OCR-like message without the contiguous query, plus a later hit.
+        // FTS may rank either; snippet must still show「北京」.
+        let ocr = format!("{}日期 **2026-06-29** 附件路径", "=== 第1页 === ".repeat(20));
+        let hit_msg = "候选人期望工作城市是北京朝阳区";
+        let conv = Conversation {
+            id: "c1".into(),
+            title: "案件ID: 841648".into(),
+            created_at: 1_700_000_000_000,
+            updated_at: 1_700_000_100_000,
+            messages: vec![
+                msg("m1", Role::Assistant, &ocr, 1_700_000_000_000),
+                msg("m2", Role::User, hit_msg, 1_700_000_001_000),
+            ],
+            skill_ids: vec![],
+            tool_rounds_used: 0,
+            tool_rounds_used_supervisor: 0,
+            computer_monitor_id: None,
+            workspace_root: String::new(),
+            workspace_user_set: false,
+            workspace_inherit_disabled: false,
+            lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
+            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            session_user_id: String::new(),
+        };
+        store.sync_conversations(&[conv]).unwrap();
+
+        let hits = store.search_conversations("北京", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(
+            hits[0].snippet.contains("北京"),
+            "should locate contiguous hit message, got {:?}",
+            hits[0].snippet
+        );
+        assert!(
+            !hits[0].snippet.contains("2026-06-29"),
+            "should not show OCR head, got {:?}",
+            hits[0].snippet
+        );
+    }
+
+    #[test]
+    fn ui_search_title_match_gets_snippet() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .sync_conversations(&[sample_conv(
+                "c1",
+                "北京出差计划",
+                "completely unrelated body text",
+            )])
+            .unwrap();
+
+        let hits = store.search_conversations("北京", 10).unwrap();
+        assert!(hits.iter().any(|h| h.id == "c1"));
+        let hit = hits.iter().find(|h| h.id == "c1").unwrap();
+        assert!(
+            hit.snippet.contains("北京"),
+            "title-only hit needs a snippet, got {:?}",
+            hit.snippet
+        );
+    }
+
+    #[test]
+    fn ui_search_finds_messages_regardless_of_session_user_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "Private chat", "secret keyword in body");
+        conv.session_user_id = "user-a".into();
+        store.sync_conversations(&[conv]).unwrap();
+
+        let hits = store.search_conversations("secret keyword", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "c1");
+    }
+
+    #[test]
     fn discover_cjk_bigram() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

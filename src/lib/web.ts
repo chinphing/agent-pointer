@@ -9,6 +9,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  ConversationSearchHit,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -401,6 +402,16 @@ export async function loadConversationMetas(
       ? { updatedAt: items[items.length - 1]!.updatedAt, id: items[items.length - 1]!.id }
       : null
   return { items, nextCursor }
+}
+
+export async function searchConversations(
+  query: string,
+  limit = 50
+): Promise<ConversationSearchHit[]> {
+  const params = new URLSearchParams()
+  params.set('q', query)
+  params.set('limit', String(limit))
+  return await request<ConversationSearchHit[]>(`/api/conversations/search?${params.toString()}`)
 }
 
 export async function saveConversations(conversations: Conversation[]): Promise<void> {

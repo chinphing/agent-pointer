@@ -6,7 +6,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 use crate::media::manifest::attachment_summaries_json;
-use crate::models::ChatMessage;
+use crate::models::{ChatMessage, ConversationSearchHit};
+use crate::text_util::{match_centered_snippet, text_contains_query};
 
 use super::db::DbHandle;
 
@@ -17,6 +18,208 @@ const MAX_LIMIT: i64 = 10;
 const READ_HEAD: i64 = 20;
 const READ_TAIL: i64 = 10;
 const BOOKEND_COUNT: i64 = 3;
+const UI_SEARCH_MAX_LIMIT: i64 = 100;
+/// Unicode scalars kept on each side of the matched query in sidebar snippets.
+const UI_SNIPPET_RADIUS: usize = 20;
+const TOOL_SNIPPET_RADIUS: usize = 48;
+
+/// Sidebar / UI search: FTS over **full message bodies** (`messages_fts`), with
+/// title/preview substring match as a supplement (same scope as the sidebar list).
+pub fn search_conversations_for_ui(
+    db: &DbHandle,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<ConversationSearchHit>> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = limit.clamp(1, UI_SEARCH_MAX_LIMIT);
+    let conn = db.conn.lock();
+    let mut hits: std::collections::HashMap<String, ConversationSearchHit> =
+        std::collections::HashMap::new();
+
+    let fts_query = build_fts_query(query);
+    if !fts_query.is_empty() {
+        match collect_fts_hits(&conn, query, &fts_query, limit) {
+            Ok(fts_hits) => {
+                for hit in fts_hits {
+                    hits.insert(hit.id.clone(), hit);
+                }
+            }
+            Err(err) => {
+                log::warn!("ui search FTS failed query={query:?}: {err:#}");
+            }
+        }
+    }
+
+    let like = format!("%{}%", query.to_lowercase());
+    let mut stmt = conn.prepare(
+        "SELECT id, title, updated_at_ms, message_count, preview
+         FROM conversations
+         WHERE id NOT LIKE 'cron:%'
+           AND id NOT LIKE 'webhook:%'
+           AND (lower(title) LIKE ?1 OR lower(preview) LIKE ?1)
+         ORDER BY updated_at_ms DESC
+         LIMIT ?2",
+    )?;
+    let title_cap = limit * 2;
+    let mapped = stmt.query_map(params![like, title_cap], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, String>(4)?,
+        ))
+    })?;
+    for row in mapped {
+        let (id, title, updated_at_ms, message_count, preview) = row?;
+        hits.entry(id.clone()).or_insert_with(|| {
+            let snippet = title_or_preview_snippet(query, &title, &preview);
+            ConversationSearchHit {
+                id,
+                title,
+                updated_at: updated_at_ms,
+                snippet,
+                message_count: message_count.max(0) as u32,
+                preview,
+            }
+        });
+    }
+
+    let mut out: Vec<ConversationSearchHit> = hits.into_values().collect();
+    out.sort_by_key(|h| std::cmp::Reverse(h.updated_at));
+    out.truncate(limit as usize);
+    Ok(out)
+}
+
+fn collect_fts_hits(
+    conn: &Connection,
+    raw_query: &str,
+    fts_query: &str,
+    limit: i64,
+) -> Result<Vec<ConversationSearchHit>> {
+    // Join `messages` for body text: FTS5 external-content can leave `mf.content`
+    // awkward to rely on; always read the canonical row.
+    //
+    // Do not keep only the first (best bm25) row per conversation — that message
+    // may match via token overlap without a contiguous query substring, which
+    // made match_centered_snippet fall back to the document head. Prefer a row
+    // that actually contains the query string.
+    let sql = "SELECT mf.conversation_id,
+                      m.content,
+                      c.title, c.updated_at_ms, c.message_count, c.preview
+               FROM messages_fts AS mf
+               INNER JOIN messages AS m ON m.id = mf.rowid
+               INNER JOIN conversations AS c ON c.id = mf.conversation_id
+               WHERE messages_fts MATCH ?1
+                 AND c.id NOT LIKE 'cron:%'
+                 AND c.id NOT LIKE 'webhook:%'
+               ORDER BY bm25(messages_fts)
+               LIMIT ?2";
+    let cap = limit * 24;
+    let mut stmt = conn.prepare(sql)?;
+    let mapped = stmt.query_map(params![fts_query, cap], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, String>(5)?,
+        ))
+    })?;
+
+    // conversation_id -> (has_contiguous_hit, hit)
+    let mut best: std::collections::HashMap<String, (bool, ConversationSearchHit)> =
+        std::collections::HashMap::new();
+    for row in mapped {
+        let (id, content, title, updated_at, message_count, preview) = row?;
+        let contiguous = text_contains_query(&content, raw_query);
+        let snippet = if contiguous {
+            match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "")
+        } else if let Some(snip) =
+            find_contiguous_snippet_in_conversation(conn, &id, raw_query)?
+        {
+            // FTS ranked a weak row first; locate a real substring hit in the same conversation.
+            snip
+        } else {
+            // Last resort: still show something from this row (may be head).
+            match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "")
+        };
+        let hit = ConversationSearchHit {
+            id: id.clone(),
+            snippet,
+            title,
+            updated_at,
+            message_count: message_count.max(0) as u32,
+            preview,
+        };
+        let has_hit = contiguous || text_contains_query(&hit.snippet, raw_query);
+        match best.get(&id) {
+            Some((true, _)) => {}
+            Some((false, _)) if !has_hit => {}
+            _ => {
+                best.insert(id, (has_hit, hit));
+            }
+        }
+    }
+
+    let mut out: Vec<ConversationSearchHit> = best.into_values().map(|(_, h)| h).collect();
+    out.sort_by_key(|h| std::cmp::Reverse(h.updated_at));
+    Ok(out)
+}
+
+/// Scan messages in a conversation for a contiguous query substring and build a snippet.
+fn find_contiguous_snippet_in_conversation(
+    conn: &Connection,
+    conversation_id: &str,
+    raw_query: &str,
+) -> Result<Option<String>> {
+    let q = raw_query.trim();
+    if q.is_empty() {
+        return Ok(None);
+    }
+    let like = format!("%{q}%");
+    let mut stmt = conn.prepare(
+        "SELECT content FROM messages
+         WHERE conversation_id = ?1 AND content LIKE ?2
+         ORDER BY position ASC
+         LIMIT 8",
+    )?;
+    let mapped = stmt.query_map(params![conversation_id, like], |row| {
+        row.get::<_, String>(0)
+    })?;
+    for row in mapped {
+        let content = row?;
+        if text_contains_query(&content, q) {
+            return Ok(Some(match_centered_snippet(
+                &content,
+                q,
+                UI_SNIPPET_RADIUS,
+                "",
+                "",
+            )));
+        }
+    }
+    Ok(None)
+}
+
+fn title_or_preview_snippet(query: &str, title: &str, preview: &str) -> String {
+    let title_l = title.to_lowercase();
+    let q_l = query.to_lowercase();
+    if !q_l.is_empty() && title_l.contains(&q_l) {
+        return match_centered_snippet(title, query, UI_SNIPPET_RADIUS, "", "");
+    }
+    if text_contains_query(preview, query) {
+        return match_centered_snippet(preview, query, UI_SNIPPET_RADIUS, "", "");
+    }
+    if !preview.trim().is_empty() {
+        return match_centered_snippet(preview, query, UI_SNIPPET_RADIUS, "", "");
+    }
+    match_centered_snippet(title, query, UI_SNIPPET_RADIUS, "", "")
+}
 
 pub fn dispatch_tool(db: &DbHandle, args: &Value) -> Result<String> {
     dispatch_tool_inner(db, args)
@@ -168,10 +371,10 @@ fn discover(
 
     let mut hits: Vec<FtsHit> = Vec::new();
     {
-        let sql = "SELECT mf.conversation_id, mf.message_id, mf.role,
-                          snippet(messages_fts, 0, '<b>', '</b>', '...', 48) AS snip,
+        let sql = "SELECT mf.conversation_id, mf.message_id, mf.role, m.content,
                           bm25(messages_fts) AS rank
                    FROM messages_fts AS mf
+                   INNER JOIN messages AS m ON m.id = mf.rowid
                    INNER JOIN conversations AS c ON c.id = mf.conversation_id
                    WHERE messages_fts MATCH ?1
                      AND c.session_user_id = ?2
@@ -180,11 +383,18 @@ fn discover(
         let mut stmt = conn.prepare(sql)?;
         let cap = limit * 12;
         let mapped = stmt.query_map(params![fts_query, session_user_filter, cap], |row| {
+            let content: String = row.get(3)?;
             Ok(FtsHit {
                 conversation_id: row.get(0)?,
                 message_id: row.get(1)?,
                 role: row.get(2)?,
-                snippet: row.get(3)?,
+                snippet: match_centered_snippet(
+                    &content,
+                    query,
+                    TOOL_SNIPPET_RADIUS,
+                    "<b>",
+                    "</b>",
+                ),
                 rank: row.get(4)?,
             })
         })?;

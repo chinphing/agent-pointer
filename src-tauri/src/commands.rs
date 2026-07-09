@@ -6,8 +6,8 @@ use pointer_core::dispatcher::{
 };
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-    EffectiveSettingsView, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
-    SkillImportResult, ToolDef, UserSettings,
+    ConversationSearchHit, EffectiveSettingsView, ModelSettings, PlatformSettings, SendChatPayload,
+    SkillDef, SkillImportResult, ToolDef, UserSettings,
 };
 
 use pointer_core::provider::OpenAIProvider;
@@ -886,6 +886,15 @@ pub fn load_conversation_metas(
     };
     let limit = limit.unwrap_or(50);
     storage::load_conversation_metas(cursor, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn search_conversations(
+    query: String,
+    limit: Option<i64>,
+) -> Result<Vec<ConversationSearchHit>, String> {
+    let limit = limit.unwrap_or(50);
+    storage::search_conversations(&query, limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -11,6 +11,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  ConversationSearchHit,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -300,6 +301,13 @@ export async function loadConversationMetas(
       ? { updatedAt: items[items.length - 1]!.updatedAt, id: items[items.length - 1]!.id }
       : null
   return { items, nextCursor }
+}
+
+export async function searchConversations(
+  query: string,
+  limit = 50
+): Promise<ConversationSearchHit[]> {
+  return await invoke<ConversationSearchHit[]>('search_conversations', { query, limit })
 }
 
 export async function loadConversationMessages(conversationId: string): Promise<ChatMessage[]> {

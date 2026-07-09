@@ -2,6 +2,7 @@ use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
     ensure_provider_model_capability_defaults, filter_openrouter_providers,
     merge_user_platform, AgentModelRef, ChatMessage, Conversation, ConversationMeta,
+    ConversationSearchHit,
     ModelRuntimeOverrides, ModelSettings, PersistedLocalPlatformSettings, PlatformSettings,
     ProviderConfig, UserSettings,
 };
@@ -760,6 +761,14 @@ pub fn load_conversation_metas(
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
     crate::conversation_store::global_store()?.load_metas(cursor, limit)
+}
+
+/// FTS-backed sidebar search (full message bodies + title/preview supplement).
+pub fn search_conversations(
+    query: &str,
+    limit: i64,
+) -> Result<Vec<ConversationSearchHit>> {
+    crate::conversation_store::global_store()?.search_conversations(query, limit)
 }
 
 pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessage>> {

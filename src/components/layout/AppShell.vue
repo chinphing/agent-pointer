@@ -14,6 +14,7 @@ import {
   PanelLeftOpen
 } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
+import { searchConversations } from '../../lib/api'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import WindowControls from './WindowControls.vue'
@@ -76,24 +77,55 @@ const windowControlsOnMainTop = computed(
 )
 
 const searchQuery = ref('')
+const searchLoading = ref(false)
+type SidebarRow = { id: string; title: string; updatedAt: number; snippet?: string }
+const searchResults = ref<SidebarRow[]>([])
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+let searchSeq = 0
 
-const filteredConversations = computed(() => {
-  // Cron / webhook jobs own dedicated isolated sessions that are kept out of
-  // the normal sidebar; they are reachable only via the automation panel.
-  // Exclude them here even when injected into the store by that entry — EXCEPT
-  // the currently active one, so the user can see which transcript they opened.
+function visibleConversations(list: typeof chat.conversations) {
   const activeId = chat.currentId
-  const base = chat.conversations.filter(c => {
+  return list.filter(c => {
     const isolated = c.id.startsWith('cron:') || c.id.startsWith('webhook:')
     return !isolated || c.id === activeId
   })
-  const query = searchQuery.value.trim().toLowerCase()
-  if (!query) return base
-  return base.filter(c =>
-    c.title.toLowerCase().includes(query) ||
-    new Date(c.updatedAt).toLocaleString().includes(query)
-  )
+}
+
+const sidebarRows = computed((): SidebarRow[] => {
+  if (searchQuery.value.trim()) return searchResults.value
+  return visibleConversations(chat.conversations).map(c => ({
+    id: c.id,
+    title: c.title,
+    updatedAt: c.updatedAt
+  }))
 })
+
+async function runSidebarSearch(query: string) {
+  const seq = ++searchSeq
+  searchLoading.value = true
+  try {
+    const hits = await searchConversations(query, 50)
+    if (seq !== searchSeq) return
+    const activeId = chat.currentId
+    searchResults.value = hits
+      .filter(h => {
+        const isolated = h.id.startsWith('cron:') || h.id.startsWith('webhook:')
+        return !isolated || h.id === activeId
+      })
+      .map(h => ({
+        id: h.id,
+        title: h.title,
+        updatedAt: h.updatedAt,
+        // Prefer FTS match-centered snippet; preview is only a last-resort fallback.
+        snippet: h.snippet?.trim() || h.preview?.trim() || undefined
+      }))
+  } catch (err) {
+    console.error('[sidebar] searchConversations failed', err)
+    if (seq === searchSeq) searchResults.value = []
+  } finally {
+    if (seq === searchSeq) searchLoading.value = false
+  }
+}
 
 // --- Sidebar infinite scroll (cursor-paginated conversation metas) ---
 const listScroller = ref<HTMLElement | null>(null)
@@ -102,6 +134,7 @@ let observer: IntersectionObserver | null = null
 
 function maybeLoadMore(entry: IntersectionObserverEntry) {
   if (!entry.isIntersecting) return
+  if (searchQuery.value.trim()) return
   if (!chat.hasMoreConversations || chat.loadingMoreConversations) return
   void chat.loadMoreConversations()
 }
@@ -141,7 +174,21 @@ watch(sidebarCollapsed, collapsed => {
 // Dismiss the inline delete confirmation when the active conversation or
 // search filter changes, so a stale pending state never lingers.
 watch(() => chat.currentId, () => { pendingDeleteId.value = null })
-watch(searchQuery, () => { pendingDeleteId.value = null })
+watch(searchQuery, q => {
+  pendingDeleteId.value = null
+  if (searchTimer) clearTimeout(searchTimer)
+  const trimmed = q.trim()
+  if (!trimmed) {
+    searchSeq++
+    searchResults.value = []
+    searchLoading.value = false
+    return
+  }
+  // Mark loading immediately (before debounce). Otherwise the list switches to
+  // empty searchResults while searchLoading is still false, flashing「没有找到匹配的会话」.
+  searchLoading.value = true
+  searchTimer = setTimeout(() => void runSidebarSearch(trimmed), 300)
+})
 </script>
 
 <template>
@@ -238,6 +285,15 @@ watch(searchQuery, () => { pendingDeleteId.value = null })
                   placeholder="搜索会话"
                   class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs text-foreground placeholder:text-muted"
                 />
+                <button
+                  v-if="searchQuery"
+                  type="button"
+                  class="shrink-0 p-0.5 rounded hover:bg-hover cursor-pointer"
+                  title="清空"
+                  @click="searchQuery = ''"
+                >
+                  <X class="w-3.5 h-3.5 text-muted" />
+                </button>
               </div>
               <button
                 class="h-9 w-9 rounded-lg hover:bg-hover flex items-center justify-center cursor-pointer transition shrink-0"
@@ -255,7 +311,7 @@ watch(searchQuery, () => { pendingDeleteId.value = null })
             class="flex-1 overflow-y-auto px-2 pb-3 space-y-1 min-h-0"
           >
             <div
-              v-for="c in filteredConversations"
+              v-for="c in sidebarRows"
               :key="c.id"
               class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition border"
               :class="c.id === chat.currentId
@@ -275,7 +331,12 @@ watch(searchQuery, () => { pendingDeleteId.value = null })
               />
               <div class="flex-1 min-w-0">
                 <div class="text-[13px] text-foreground truncate">{{ c.title }}</div>
-                <div class="text-[10px] text-muted">{{ new Date(c.updatedAt).toLocaleString() }}</div>
+                <div
+                  v-if="c.snippet"
+                  class="text-[10px] text-muted truncate"
+                  :title="c.snippet"
+                >{{ c.snippet }}</div>
+                <div v-else class="text-[10px] text-muted">{{ new Date(c.updatedAt).toLocaleString() }}</div>
               </div>
               <template v-if="pendingDeleteId === c.id">
                 <button
@@ -303,15 +364,21 @@ watch(searchQuery, () => { pendingDeleteId.value = null })
               </button>
             </div>
             <!-- Sentinel for infinite scroll; observed by IntersectionObserver -->
-            <div ref="sentinel" class="h-1 w-full" />
+            <div ref="sentinel" v-if="!searchQuery.trim()" class="h-1 w-full" />
             <div
-              v-if="chat.loadingMoreConversations"
+              v-if="searchLoading"
+              class="px-3 py-2 text-center text-xs text-muted"
+            >
+              搜索中…
+            </div>
+            <div
+              v-else-if="chat.loadingMoreConversations"
               class="px-3 py-2 text-center text-xs text-muted"
             >
               加载中…
             </div>
-            <div v-if="!filteredConversations.length" class="px-3 py-8 text-center text-xs text-muted">
-              {{ searchQuery ? '没有找到匹配的会话，可向下滚动加载更多历史会话' : '没有会话' }}
+            <div v-if="!searchLoading && !sidebarRows.length" class="px-3 py-8 text-center text-xs text-muted">
+              {{ searchQuery.trim() ? '没有找到匹配的会话' : '没有会话' }}
             </div>
           </div>
 

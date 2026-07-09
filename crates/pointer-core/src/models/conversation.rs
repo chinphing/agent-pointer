@@ -131,6 +131,21 @@ pub struct ConversationMeta {
     pub session_user_id: String,
 }
 
+/// Lightweight sidebar search hit (FTS message match and/or title/preview match).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationSearchHit {
+    pub id: String,
+    pub title: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub snippet: String,
+    #[serde(default, rename = "messageCount")]
+    pub message_count: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub preview: String,
+}
+
 impl From<&Conversation> for ConversationMeta {
     fn from(c: &Conversation) -> Self {
         Self {

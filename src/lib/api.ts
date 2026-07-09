@@ -10,6 +10,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  ConversationSearchHit,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -113,6 +114,7 @@ export interface RuntimeApi {
   loadConversations(): Promise<Conversation[]>
   /** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
   loadConversationMetas(cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
+  searchConversations(query: string, limit?: number): Promise<ConversationSearchHit[]>
   loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
   saveConversations(conversations: Conversation[]): Promise<void>
   revealInFinder(path: string): Promise<void>
@@ -231,6 +233,7 @@ export const dismissMacosPermissionDragGuide = isTauriRuntime()
 
 export const loadConversations = api.loadConversations
 export const loadConversationMetas = api.loadConversationMetas
+export const searchConversations = api.searchConversations
 export const loadConversationMessages = api.loadConversationMessages
 export const saveConversations = api.saveConversations
 export const saveConversationMeta = api.saveConversationMeta

@@ -11,6 +11,7 @@
 | `truncate_chars_fit(s, n)` | 结果总长度（含 `…`）不超过 n 个字符（会话标题等） |
 | `truncate_bytes(s, n)` | 按 UTF-8 **字节**预算截断（HTTP 错误体、provider 日志等） |
 | `truncate_for_log(s, n)` | 日志用，超出时 `…(+N chars)` |
+| `match_centered_snippet(text, query, radius, …)` | 以查询词为中心截取预览（侧边栏搜索等）；勿用 FTS5 `snippet()` 做 CJK UI 预览 |
 
 ## 示例
 

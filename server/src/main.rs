@@ -311,6 +311,7 @@ async fn main() -> anyhow::Result<()> {
             delete(delete_conversation_handler),
         )
         .route("/api/conversations/meta", get(load_conversation_metas).put(save_conversation_meta))
+        .route("/api/conversations/search", get(search_conversations_handler))
         .route(
             "/api/conversations/:conversation_id/messages",
             get(load_conversation_messages_handler),
@@ -1186,6 +1187,29 @@ async fn load_conversation_metas(
         metas.len()
     );
     Ok(Json(metas))
+}
+
+#[derive(serde::Deserialize)]
+struct ConversationSearchQuery {
+    q: String,
+    limit: Option<i64>,
+}
+
+/// `GET /api/conversations/search?q=...` — FTS sidebar search (messages + title/preview).
+async fn search_conversations_handler(
+    State(state): State<ServerState>,
+    Query(q): Query<ConversationSearchQuery>,
+) -> Result<Json<Vec<pointer_core::models::ConversationSearchHit>>, ApiError> {
+    require_platform_access(&state)?;
+    let limit = q.limit.unwrap_or(50);
+    let hits = storage::search_conversations(&q.q, limit)?;
+    log::info!(
+        "server: search_conversations q={:?} limit={} returned {} rows",
+        q.q.trim(),
+        limit,
+        hits.len()
+    );
+    Ok(Json(hits))
 }
 
 /// `GET /api/conversations/:id/messages` — full message list for one

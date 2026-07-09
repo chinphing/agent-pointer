@@ -94,7 +94,7 @@ polkit).
 Either limit can stop the process (**`timedOut`** in the result).
 
 - **`timeoutMs`** — idle timeout: no new stdout/stderr for this long → kill.
-  New output resets the timer. Default **30000**, max **300000**.
+  New output resets the timer. Default **30000**, max **3600000**.
 - **`maxWallMs`** — wall clock from process start. Default **3600000**.
 
 Interactive waits (password, MFA, login) may be silent for minutes — raise both

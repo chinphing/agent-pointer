@@ -182,23 +182,17 @@ function renderableFromMediaPath(path: string, index: number): RenderableAttachm
 export function attachmentsForMessageRender(message: ChatMessage): RenderableAttachment[] {
   const list = message.attachments ?? []
   if (list.length) return list.map(renderableFromMediaAttachment)
-  if (message.role !== 'assistant') return []
-  const paths = extractOutboundMediaPaths(message.rawContent?.trim() || message.content || '')
-  return paths.map((path, i) => renderableFromMediaPath(path, i))
+  return []
 }
 
-/** Assistant bubble: persisted attachments or streaming `MEDIA:` draft paths. */
+/** Assistant bubble: only use persisted attachments. */
 export function assistantReplyMediaForRender(
-  message: ChatMessage | undefined,
-  streamingText?: string
+  message: ChatMessage | undefined
 ): RenderableAttachment[] {
   if (message?.attachments?.length) {
     return message.attachments.map(renderableFromMediaAttachment)
   }
-  // Only parse user-visible / streaming reply text — not wire `rawContent` JSON.
-  const raw = streamingText?.trim() || message?.content?.trim() || ''
-  const paths = extractOutboundMediaPaths(raw)
-  return paths.map((path, i) => renderableFromMediaPath(path, i))
+  return []
 }
 
 export function stripWireAttachmentFields(messages: ChatMessage[]): ChatMessage[] {

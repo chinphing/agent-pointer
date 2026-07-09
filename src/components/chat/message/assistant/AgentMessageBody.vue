@@ -68,10 +68,7 @@ const showMainMarkdownBody = computed(() => {
 })
 
 const replyMediaAttachments = computed(() =>
-  assistantReplyMediaForRender(
-    props.leadMessage,
-    props.body.responseTextDraft ?? props.body.rawContent ?? props.body.content
-  )
+  assistantReplyMediaForRender(props.leadMessage)
 )
 
 const markdownSource = computed(() => {

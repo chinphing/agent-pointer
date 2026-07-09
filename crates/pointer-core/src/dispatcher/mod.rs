@@ -142,6 +142,8 @@ impl RunDispatcher {
     /// Lane queue + persisted `queued` runs for settings / observability UI.
     pub fn queue_snapshot(&self) -> RunQueueSnapshot {
         let lanes = self.inner.queue.snapshot();
+        let active_run_ids: std::collections::HashSet<String> =
+            self.inner.cancels.lock().keys().cloned().collect();
         let pending_runs = self
             .inner
             .state
@@ -152,6 +154,7 @@ impl RunDispatcher {
                 Vec::new()
             })
             .into_iter()
+            .filter(|r| active_run_ids.contains(&r.run_id))
             .map(|r| PendingRunView {
                 run_id: r.run_id,
                 conversation_id: r.conversation_id,

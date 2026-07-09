@@ -162,6 +162,22 @@ pub fn set_status(
     Ok(())
 }
 
+/// Mark runs interrupted by process restart (no in-memory dispatcher task).
+pub fn reconcile_interrupted(conn: &Connection) -> Result<u32> {
+    let ts = now_ms() as i64;
+    let n = conn.execute(
+        "UPDATE runs
+         SET status = 'cancelled', finished_at_ms = ?1,
+             error = COALESCE(error, 'interrupted by server restart')
+         WHERE status IN ('queued', 'running')",
+        params![ts],
+    )?;
+    if n > 0 {
+        log::info!("runs_store: reconciled {n} interrupted run(s) after restart");
+    }
+    Ok(n as u32)
+}
+
 /// List runs with the given status, oldest first (for queue observability UI).
 pub fn list_by_status(conn: &Connection, status: &str, limit: usize) -> Result<Vec<RunRecord>> {
     let limit = limit.max(1).min(200) as i64;
@@ -316,5 +332,16 @@ mod tests {
         assert_eq!(row.status, "failed");
         assert_eq!(row.error.as_deref(), Some("boom"));
         assert!(is_terminal_status_str(&row.status));
+    }
+
+    #[test]
+    fn reconcile_interrupted_cancels_queued_and_running() {
+        let conn = mem();
+        insert_queued(&conn, "q1", "c1", TriggerSource::Webhook, "{}", None).unwrap();
+        insert_queued(&conn, "r1", "c2", TriggerSource::HttpRuns, "{}", None).unwrap();
+        set_status(&conn, "r1", RunStatus::Running, None).unwrap();
+        assert_eq!(reconcile_interrupted(&conn).unwrap(), 2);
+        assert_eq!(get(&conn, "q1").unwrap().unwrap().status, "cancelled");
+        assert_eq!(get(&conn, "r1").unwrap().unwrap().status, "cancelled");
     }
 }

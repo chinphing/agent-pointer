@@ -539,6 +539,12 @@ impl ConversationStore {
         runs::list_by_status(&conn, "queued", limit)
     }
 
+    /// Cancel queued/running rows left over from a prior process (no live task).
+    pub fn runs_reconcile_interrupted(&self) -> Result<u32> {
+        self.db
+            .execute_write(|conn| runs::reconcile_interrupted(conn))
+    }
+
     // ---- cron_jobs (Phase 5 scheduler) ----
 
     pub fn cron_jobs_insert(&self, job: &cron_jobs::NewCronJob<'_>) -> Result<bool> {

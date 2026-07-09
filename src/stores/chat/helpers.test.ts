@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage, Conversation } from '../../types/chat'
 import {
   applyExcludedMessageIds,
+  assistantTurnActivelyRunning,
   insertMessageBeforeAnchor,
   normalizeInterruptedAssistantStatuses,
+  normalizeStaleEndedAssistantTurn,
   removeTrailingDiscardableEmptyAssistant
 } from './helpers'
 
@@ -79,6 +81,70 @@ describe('chat helpers', () => {
     normalizeInterruptedAssistantStatuses([c])
     expect(c.messages[0].status).toBe('done')
     expect(c.messages[0].contentStreaming).toBe(false)
+  })
+
+  it('normalizeInterruptedAssistantStatuses finalizes stuck tool calls', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'done reply',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          { id: 't1', name: 'shell', status: 'running', args: {}, createdAt: 0 }
+        ]
+      }
+    ])
+    normalizeInterruptedAssistantStatuses([c])
+    expect(c.messages[0].toolCalls![0].status).toBe('failed')
+    expect(c.messages[0].toolCalls![0].error).toBe('interrupted')
+  })
+
+  it('normalizeStaleEndedAssistantTurn clears stale streaming without active stream', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'finished reply',
+      status: 'streaming',
+      contentStreaming: false,
+      createdAt: 0,
+      toolCalls: []
+    }
+    normalizeStaleEndedAssistantTurn(msg)
+    expect(msg.status).toBe('done')
+    expect(assistantTurnActivelyRunning(msg)).toBe(false)
+  })
+
+  it('assistantTurnActivelyRunning stays true while content streams', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'partial',
+      status: 'streaming',
+      contentStreaming: true,
+      createdAt: 0,
+      toolCalls: []
+    }
+    expect(assistantTurnActivelyRunning(msg)).toBe(true)
+    normalizeStaleEndedAssistantTurn(msg)
+    expect(assistantTurnActivelyRunning(msg)).toBe(true)
+  })
+
+  it('normalizeStaleEndedAssistantTurn clears stuck tools on done assistant', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'reply',
+      status: 'done',
+      createdAt: 0,
+      toolCalls: [
+        { id: 't1', name: 'grep', status: 'pending', args: {}, createdAt: 0 }
+      ]
+    }
+    normalizeStaleEndedAssistantTurn(msg)
+    expect(msg.toolCalls![0].status).toBe('failed')
+    expect(assistantTurnActivelyRunning(msg)).toBe(false)
   })
 
   it('removeTrailingDiscardableEmptyAssistant removes empty tail', () => {

@@ -74,7 +74,10 @@ import { usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
 import {
+  assistantTurnActivelyRunning,
+  hasInFlightToolCalls,
   normalizeInterruptedAssistantStatuses,
+  normalizeStaleEndedAssistantTurn,
   removeAssistantMessage,
   uid
 } from './chat/helpers'
@@ -376,17 +379,6 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function hasInFlightToolCalls(msg: ChatMessage): boolean {
-    return (
-      msg.toolCalls?.some(
-        t =>
-          t.status === 'running' ||
-          t.status === 'pending' ||
-          t.status === 'pending_approval'
-      ) ?? false
-    )
-  }
-
   function maybeFinishGenerating(conversationId: string, messageId: string) {
     const convId = conversationId.trim()
     const msgId = messageId.trim()
@@ -450,14 +442,12 @@ export const useChatStore = defineStore('chat', () => {
     for (let i = conv.messages.length - 1; i >= 0; i--) {
       const msg = conv.messages[i]
       if (msg.role !== 'assistant') continue
-      if (msg.status === 'streaming' || msg.status === 'pending') {
+      normalizeStaleEndedAssistantTurn(msg)
+      if (assistantTurnActivelyRunning(msg)) {
         patchRunState(convId, { generating: true, activeMessageId: msg.id })
         return
       }
-      if (hasInFlightToolCalls(msg)) {
-        patchRunState(convId, { generating: true, activeMessageId: msg.id })
-        return
-      }
+      break
     }
   }
 
@@ -710,10 +700,13 @@ export const useChatStore = defineStore('chat', () => {
         )
       }
       conv.messages = next
-      normalizeInterruptedAssistantStatuses([conv])
+      if (!isConversationGenerating(convId)) {
+        normalizeInterruptedAssistantStatuses([conv])
+      }
       normalizeSubAgentTraces([conv])
       hydratedIds.value.add(convId)
       console.info('[chat] ensureMessagesLoaded: hydrated', convId, next.length)
+      reconcileRunStateForConversation(convId)
     } catch (err) {
       console.error('[chat] ensureMessagesLoaded: load messages failed', convId, err)
     } finally {

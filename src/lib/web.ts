@@ -101,6 +101,16 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   return await res.blob()
 }
 
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName || 'attachment'
+  anchor.rel = 'noopener'
+  anchor.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 export async function sendChat(payload: SendChatPayload): Promise<void> {
   await request('/api/chat', { method: 'POST', body: JSON.stringify(payload) })
 }
@@ -297,12 +307,30 @@ export async function openPathWithDefaultApp(_path: string): Promise<void> {
 }
 
 export async function openChatMedia(storageRelPath: string, fileName?: string): Promise<void> {
-  const url = chatMediaDownloadUrl(storageRelPath)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = fileName?.trim() || 'attachment'
-  anchor.rel = 'noopener'
-  anchor.click()
+  await downloadChatMedia(storageRelPath, fileName)
+}
+
+/** Authenticated download (includes session cookie; plain `<a href>` does not). */
+export async function downloadChatMedia(
+  storageRelPath: string,
+  fileName?: string
+): Promise<void> {
+  const q = new URLSearchParams({ storageRelPath: storageRelPath.trim() })
+  const blob = await requestBlob(`/api/chat/media-download?${q}`)
+  downloadBlob(blob, fileName?.trim() || 'attachment')
+}
+
+export async function downloadChatMediaRef(mediaRef: string, fileName?: string): Promise<void> {
+  const q = new URLSearchParams({ mediaRef: mediaRef.trim() })
+  const blob = await requestBlob(`/api/chat/media-ref-download?${q}`)
+  downloadBlob(blob, fileName?.trim() || 'attachment')
+}
+
+/** Inline video preview URL with auth (object URL; revoke when the element unmounts). */
+export async function chatMediaStreamObjectUrl(storageRelPath: string): Promise<string> {
+  const q = new URLSearchParams({ storageRelPath: storageRelPath.trim() })
+  const blob = await requestBlob(`/api/chat/media-stream?${q}`)
+  return URL.createObjectURL(blob)
 }
 
 export function chatMediaDownloadUrl(storageRelPath: string): string {

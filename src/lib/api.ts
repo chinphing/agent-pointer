@@ -185,6 +185,16 @@ export const checkMediaDeps = api.checkMediaDeps
 export const revealInFinder = api.revealInFinder
 export const openPathWithDefaultApp = api.openPathWithDefaultApp
 export const openChatMedia = api.openChatMedia
+export const downloadChatMedia = isTauriRuntime()
+  ? async (_path: string, _fileName?: string) => {
+      throw new Error('downloadChatMedia is not supported in desktop runtime')
+    }
+  : webApi.downloadChatMedia
+export const downloadChatMediaRef = isTauriRuntime()
+  ? async (_ref: string, _fileName?: string) => {
+      throw new Error('downloadChatMediaRef is not supported in desktop runtime')
+    }
+  : webApi.downloadChatMediaRef
 export const chatMediaDownloadUrl = isTauriRuntime()
   ? (_path: string) => {
       throw new Error('chatMediaDownloadUrl is not supported in desktop runtime')

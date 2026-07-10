@@ -2,7 +2,7 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { isUsableAttachmentPreviewUrl } from './attachmentSupport'
 import { isTauriRuntime } from './runtime'
 import { getChatMediaLocalPath } from './tauri'
-import { chatMediaStreamUrl } from './web'
+import { chatMediaStreamObjectUrl } from './web'
 
 /** Desktop: streamable file URL for a saved conversation-media video. Web: same-origin stream endpoint. */
 export async function videoPreviewUrlFromStorage(
@@ -10,7 +10,7 @@ export async function videoPreviewUrlFromStorage(
 ): Promise<string | null> {
   if (!storageRelPath.trim()) return null
   if (!isTauriRuntime()) {
-    return chatMediaStreamUrl(storageRelPath.trim())
+    return chatMediaStreamObjectUrl(storageRelPath.trim())
   }
   try {
     const abs = await getChatMediaLocalPath(storageRelPath.trim())

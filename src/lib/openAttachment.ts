@@ -1,6 +1,6 @@
 import type { RenderableAttachment } from './messageNormalizer'
 import { isUserFilesystemPath } from './attachmentLocalPath'
-import { openPathWithDefaultApp, openChatMedia, chatMediaDownloadUrl, chatMediaRefDownloadUrl } from './api'
+import { openPathWithDefaultApp, openChatMedia, downloadChatMedia, downloadChatMediaRef } from './api'
 import { isTauriRuntime } from './runtime'
 
 export function isOpenableFileAttachment(kind: string): boolean {
@@ -47,15 +47,12 @@ export async function openAttachmentWithSystemDefault(
     return
   }
   if (att.storageRelPath?.trim()) {
-    triggerBrowserDownload(
-      chatMediaDownloadUrl(att.storageRelPath.trim()),
-      att.fileName || 'attachment'
-    )
+    await downloadChatMedia(att.storageRelPath.trim(), att.fileName || 'attachment')
     return
   }
   const mediaRef = att.localAbsPath?.trim() || att.mediaRef?.trim()
   if (mediaRef) {
-    triggerBrowserDownload(chatMediaRefDownloadUrl(mediaRef), att.fileName || 'attachment')
+    await downloadChatMediaRef(mediaRef, att.fileName || 'attachment')
     return
   }
   throw new Error('网页端暂不支持打开该附件')

@@ -279,6 +279,13 @@ pub fn run() {
                 if let Err(e) = pointer_core::token_usage_store::flush_pending_reports(&auth).await {
                     log::warn!("token_usage_store: startup flush failed: {e}");
                 }
+                match pointer_core::token_usage_store::count_unsent_reports() {
+                    Ok(n) if n > 0 => log::warn!(
+                        "token_usage_store: {n} pending usage report(s) still waiting to upload — restart after login or use flush when online"
+                    ),
+                    Ok(_) => {}
+                    Err(e) => log::warn!("token_usage_store: count pending failed: {e}"),
+                }
             });
             app.manage(app_state.clone());
             // Build the singleton run dispatcher (unified callable / event

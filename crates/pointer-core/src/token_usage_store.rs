@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::agent_instance_scope::AgentInstanceScope;
@@ -27,6 +28,43 @@ const REPORT_STATUS_PENDING: &str = "pending";
 const REPORT_STATUS_SENT: &str = "sent";
 
 const BILLING_MODE_TOKENS: &str = "tokens";
+const PLATFORM_AGENT_INSTANCE_NAMESPACE: Uuid = Uuid::from_u128(0x6ba7b8109dad11d1_80b4_00c04fd430c8);
+
+/// Partner API accepts request_id up to 128 chars; keep stable hash when longer.
+pub fn platform_request_id(raw: &str) -> String {
+    if raw.len() <= 128 {
+        return raw.to_string();
+    }
+    let digest = Sha256::digest(raw.as_bytes());
+    let hex = digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    format!("run:hash:{}", &hex[..32])
+}
+
+/// Partner API agent_instance_id max 36 (UUID). Hash non-UUID / legacy ids deterministically.
+pub fn platform_agent_instance_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.len() <= 36 && Uuid::parse_str(trimmed).is_ok() {
+        return trimmed.to_string();
+    }
+    Uuid::new_v5(&PLATFORM_AGENT_INSTANCE_NAMESPACE, trimmed.as_bytes()).to_string()
+}
+
+pub fn count_unsent_reports() -> Result<usize> {
+    let guard = connection()?;
+    let conn = guard.lock();
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(1) FROM usage_accum WHERE report_status = ?1",
+        params![REPORT_STATUS_PENDING],
+        |row| row.get(0),
+    )?;
+    Ok(n as usize)
+}
 
 /// Billing unit metadata for platform upload (tokens / per-image / per-sec).
 #[derive(Debug, Clone, Copy)]
@@ -891,9 +929,9 @@ fn mark_report_sent(conn: &Connection, request_id: &str) -> Result<()> {
 
 fn build_report_metadata(row: &ReportRow, platform_agent_id: Option<String>) -> serde_json::Value {
     let mut metadata = json!({
-        "request_id": row.request_id,
+        "request_id": platform_request_id(&row.request_id),
         "conversation_id": row.conversation_id,
-        "agent_instance_id": row.agent_instance_id,
+        "agent_instance_id": platform_agent_instance_id(&row.agent_instance_id),
         "model_name": row.model_name,
         "prompt_tokens": row.prompt_tokens,
         "completion_tokens": row.completion_tokens,
@@ -979,6 +1017,15 @@ pub async fn flush_unsent_reports(
     if !usage_report_enabled() {
         return Ok(0);
     }
+    if !auth.session_view().logged_in {
+        let pending_n = count_unsent_reports().unwrap_or(0);
+        if pending_n > 0 {
+            log::warn!(
+                "token_usage_store: skip flush — not logged in; {pending_n} pending report(s) waiting"
+            );
+        }
+        return Ok(0);
+    }
     let pending = {
         let guard = connection()?;
         let conn = guard.lock();
@@ -990,17 +1037,6 @@ pub async fn flush_unsent_reports(
     let platform_agent_id = auth.platform_agent_id();
     let mut sent = 0usize;
     for row in pending {
-        if row.agent_instance_id.contains(':') {
-            log::warn!(
-                "token_usage_store: abandoning legacy media report with invalid agent_instance_id={} request_id={} (platform requires UUID; tokens were not uploaded)",
-                row.agent_instance_id,
-                row.request_id
-            );
-            let guard = connection()?;
-            let conn = guard.lock();
-            mark_report_sent(&conn, &row.request_id)?;
-            continue;
-        }
         let metadata = build_report_metadata(&row, platform_agent_id.clone());
         let zip_path = row
             .history_archive_path
@@ -1133,6 +1169,56 @@ mod tests {
         assert!(metadata.get("unit_count").is_none());
         assert!(metadata.get("agent_role_id").is_none());
         assert!(metadata.get("model_totals").is_none());
+    }
+
+    #[test]
+    fn platform_request_id_hashes_when_too_long() {
+        let raw = format!(
+            "run:{}:{}:{}",
+            "a".repeat(36),
+            "b".repeat(36),
+            "c".repeat(80)
+        );
+        assert!(raw.len() > 128);
+        let clipped = platform_request_id(&raw);
+        assert!(clipped.len() <= 128);
+        assert_eq!(clipped, platform_request_id(&raw));
+        assert!(clipped.starts_with("run:hash:"));
+    }
+
+    #[test]
+    fn platform_agent_instance_id_hashes_legacy_values() {
+        let legacy = "legacy:conversation-id-with-colons";
+        let out = platform_agent_instance_id(legacy);
+        assert_eq!(out.len(), 36);
+        assert!(Uuid::parse_str(&out).is_ok());
+        assert_eq!(out, platform_agent_instance_id(legacy));
+    }
+
+    #[test]
+    fn report_metadata_clamps_legacy_agent_instance_id() {
+        let row = ReportRow {
+            run_id: "run-1".into(),
+            request_id: "run:run-1:legacy:conv:qwen".into(),
+            conversation_id: "conv1".into(),
+            agent_instance_id: "legacy:conversation-abc".into(),
+            agent_role_id: Some("general".into()),
+            model_name: "qwen".into(),
+            prompt_tokens: 1,
+            completion_tokens: 2,
+            thinking_tokens: 0,
+            total_tokens: 3,
+            llm_rounds: 1,
+            billing_mode: "tokens".into(),
+            unit_count: 0,
+            period_start: None,
+            period_end: None,
+            history_archive_path: None,
+        };
+        let metadata = build_report_metadata(&row, None);
+        let id = metadata["agent_instance_id"].as_str().unwrap();
+        assert_eq!(id.len(), 36);
+        assert!(Uuid::parse_str(id).is_ok());
     }
 
     #[test]

@@ -112,13 +112,8 @@ pub(super) fn build_final_reply_delivery_message(
     agent_instance_id: Option<String>,
     _state: &AppState,
 ) -> ChatMessage {
-    let (visible, _) = crate::media::split_reply_media(tool_output);
+    let content = crate::media::strip_outbound_media_markers(tool_output);
     let attachments = reply_attachments_from_assistant_raw(tool_output);
-    let content = if attachments.is_some() {
-        String::new()
-    } else {
-        visible.trim().to_string()
-    };
     ChatMessage {
         id: assistant_id.to_string(),
         role: Role::Assistant,

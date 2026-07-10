@@ -1,6 +1,7 @@
 //! Parse outbound media markers from agent replies (OpenClaw `MEDIA:` convention).
 
 use super::path_hint::MEDIA_URI_SCHEME;
+use super::resolve::resolve_local_media_path;
 use regex::Regex;
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -14,7 +15,41 @@ fn inline_media_re() -> &'static Regex {
     })
 }
 
-/// Split agent reply into user-visible text and local media path references.
+/// True when a `MEDIA:` path reference resolves to an existing file on disk.
+pub fn reply_media_path_resolves(path: &str) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    resolve_local_media_path(trimmed)
+        .ok()
+        .is_some_and(|p| p.is_file())
+}
+
+fn strip_resolved_inline_media(line: &str, media_paths: &mut Vec<String>) -> String {
+    inline_media_re()
+        .replace_all(line, |caps: &regex::Captures| {
+            let Some(m) = caps.get(1) else {
+                return caps.get(0).map(|x| x.as_str()).unwrap_or("").to_string();
+            };
+            let path = m.as_str().trim();
+            if path.is_empty() {
+                return caps.get(0).map(|x| x.as_str()).unwrap_or("").to_string();
+            }
+            if reply_media_path_resolves(path) {
+                media_paths.push(path.to_string());
+                String::new()
+            } else {
+                caps.get(0).map(|x| x.as_str()).unwrap_or("").to_string()
+            }
+        })
+        .to_string()
+}
+
+/// Split agent reply into user-visible text and resolvable local media path references.
+///
+/// `MEDIA:` markers are removed from visible text **only** when the referenced file exists.
+/// Unresolvable paths stay in the visible body so delivery failures remain visible.
 pub fn split_reply_media(reply: &str) -> (String, Vec<String>) {
     let mut media_paths: Vec<String> = Vec::new();
     let mut text_lines: Vec<String> = Vec::new();
@@ -23,8 +58,14 @@ pub fn split_reply_media(reply: &str) -> (String, Vec<String>) {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix(MEDIA_PREFIX) {
             let path = rest.trim();
-            if !path.is_empty() {
+            if path.is_empty() {
+                text_lines.push(line.to_string());
+                continue;
+            }
+            if reply_media_path_resolves(path) {
                 media_paths.push(path.to_string());
+            } else {
+                text_lines.push(line.to_string());
             }
             continue;
         }
@@ -34,16 +75,7 @@ pub fn split_reply_media(reply: &str) -> (String, Vec<String>) {
             continue;
         }
 
-        let mut line_text = line.to_string();
-        for cap in inline_media_re().captures_iter(line) {
-            if let Some(m) = cap.get(1) {
-                let path = m.as_str().trim();
-                if !path.is_empty() {
-                    media_paths.push(path.to_string());
-                }
-            }
-        }
-        line_text = inline_media_re().replace_all(&line_text, "").to_string();
+        let line_text = strip_resolved_inline_media(line, &mut media_paths);
         if !line_text.trim().is_empty() {
             text_lines.push(line_text);
         }
@@ -53,7 +85,7 @@ pub fn split_reply_media(reply: &str) -> (String, Vec<String>) {
     (text, media_paths)
 }
 
-/// Remove `MEDIA:` / `pointer-media://` markers for App UI display (IM dispatch uses `split_reply_media`).
+/// Remove resolved `MEDIA:` / bare `pointer-media://` markers for App UI display.
 pub fn strip_outbound_media_markers(text: &str) -> String {
     split_reply_media(text).0.trim().to_string()
 }
@@ -76,15 +108,15 @@ pub fn reply_media_source(raw: &str) -> String {
     raw.to_string()
 }
 
-/// Rebuild IM outbound reply text: user-visible body plus `MEDIA:` lines from raw assistant output.
+/// Rebuild IM outbound reply text: user-visible body plus resolved `MEDIA:` lines from raw output.
 pub fn im_outbound_reply_source(raw_content: Option<&str>, visible_content: Option<&str>) -> String {
     let Some(raw) = raw_content.map(str::trim).filter(|s| !s.is_empty()) else {
         return visible_content.unwrap_or("").trim().to_string();
     };
 
     let source = reply_media_source(raw);
-    let (_, media_paths) = split_reply_media(&source);
-    if media_paths.is_empty() {
+    let (_, resolved_paths) = split_reply_media(&source);
+    if resolved_paths.is_empty() {
         return visible_content.unwrap_or(raw).trim().to_string();
     }
 
@@ -95,7 +127,7 @@ pub fn im_outbound_reply_source(raw_content: Option<&str>, visible_content: Opti
         .unwrap_or_else(|| split_reply_media(&source).0.trim().to_string());
 
     let mut out = visible;
-    for path in media_paths {
+    for path in resolved_paths {
         if !out.is_empty() {
             out.push('\n');
         }
@@ -108,29 +140,76 @@ pub fn im_outbound_reply_source(raw_content: Option<&str>, visible_content: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn touch(path: &PathBuf) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        fs::write(path, b"test").unwrap();
+    }
 
     #[test]
-    fn strips_inline_media_token() {
-        let (text, media) = split_reply_media("Hello MEDIA:/tmp/a.png world");
+    fn strips_inline_media_token_when_file_exists() {
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-inline-{}.png",
+            uuid::Uuid::new_v4()
+        ));
+        touch(&file);
+        let path = file.display().to_string();
+        let (text, media) = split_reply_media(&format!("Hello MEDIA:{path} world"));
         assert!(text.contains("Hello"));
         assert!(text.contains("world"));
-        assert_eq!(media, vec!["/tmp/a.png"]);
+        assert!(!text.contains("MEDIA:"));
+        assert_eq!(media, vec![path]);
+        let _ = fs::remove_file(&file);
     }
 
     #[test]
-    fn strips_media_lines() {
-        let (text, media) = split_reply_media("Hello\nMEDIA:/tmp/a.png\nWorld");
+    fn keeps_inline_media_token_when_file_missing() {
+        let path = format!(
+            "/tmp/pointer-outbound-missing-inline-{}.png",
+            uuid::Uuid::new_v4()
+        );
+        let (text, media) = split_reply_media(&format!("Hello MEDIA:{path} world"));
+        assert!(text.contains("MEDIA:"));
+        assert!(text.contains(&path));
+        assert!(media.is_empty());
+    }
+
+    #[test]
+    fn strips_media_lines_when_file_exists() {
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-line-{}.png",
+            uuid::Uuid::new_v4()
+        ));
+        touch(&file);
+        let path = file.display().to_string();
+        let (text, media) = split_reply_media(&format!("Hello\nMEDIA:{path}\nWorld"));
         assert_eq!(text, "Hello\nWorld");
-        assert_eq!(media, vec!["/tmp/a.png"]);
+        assert_eq!(media, vec![path]);
+        let _ = fs::remove_file(&file);
     }
 
     #[test]
-    fn strip_for_app_ui() {
+    fn keeps_media_line_when_file_missing() {
+        let path = format!(
+            "/tmp/pointer-outbound-missing-line-{}.png",
+            uuid::Uuid::new_v4()
+        );
+        let (text, media) = split_reply_media(&format!("Hello\nMEDIA:{path}\nWorld"));
+        assert_eq!(text, format!("Hello\nMEDIA:{path}\nWorld"));
+        assert!(media.is_empty());
+    }
+
+    #[test]
+    fn strip_for_app_ui_keeps_unresolved_media_line() {
         let out = strip_outbound_media_markers(
             "找到了桌面上的 baby_cover.jpg，发给你 👇\n\nMEDIA:/Users/starliu/Desktop/baby_cover.jpg",
         );
-        assert!(!out.contains("MEDIA:"));
-        assert!(!out.contains("/Users/starliu/Desktop"));
+        assert!(out.contains("MEDIA:"));
+        assert!(out.contains("/Users/starliu/Desktop/baby_cover.jpg"));
         assert!(out.contains("发给你"));
         assert!(out.contains("baby_cover.jpg"));
     }
@@ -145,20 +224,33 @@ mod tests {
     }
 
     #[test]
-    fn media_prefix_pointer_uri_is_outbound() {
-        let uri = "pointer-media://conv-id/att.wav";
+    fn media_prefix_pointer_uri_is_outbound_when_file_exists() {
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-uri-{}.wav",
+            uuid::Uuid::new_v4()
+        ));
+        touch(&file);
+        let uri = format!("file://{}", file.display());
         let (text, media) = split_reply_media(&format!("好的\nMEDIA:{uri}"));
         assert_eq!(media, vec![uri]);
-        assert!(!text.contains("pointer-media://"));
+        assert!(!text.contains("MEDIA:"));
+        let _ = fs::remove_file(&file);
     }
 
     #[test]
-    fn im_outbound_reply_source_restores_media_from_raw() {
-        let raw = "文件在这里 👇\n\nMEDIA:/tmp/minesweeper.html";
-        let visible = strip_outbound_media_markers(raw);
-        let outbound = im_outbound_reply_source(Some(raw), Some(&visible));
+    fn im_outbound_reply_source_restores_resolved_media_from_raw() {
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-im-{}.html",
+            uuid::Uuid::new_v4()
+        ));
+        touch(&file);
+        let path = file.display().to_string();
+        let raw = format!("文件在这里 👇\n\nMEDIA:{path}");
+        let visible = strip_outbound_media_markers(&raw);
+        let outbound = im_outbound_reply_source(Some(&raw), Some(&visible));
         let (text, media) = split_reply_media(&outbound);
         assert_eq!(text, visible);
-        assert_eq!(media, vec!["/tmp/minesweeper.html"]);
+        assert_eq!(media, vec![path]);
+        let _ = fs::remove_file(&file);
     }
 }

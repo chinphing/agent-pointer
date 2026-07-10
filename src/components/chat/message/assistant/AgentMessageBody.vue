@@ -11,7 +11,6 @@ import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import ToolMessageSegment from './ToolMessageSegment.vue'
 import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
-import { stripOutboundMediaMarkers } from '../../../../lib/outboundMedia'
 import { assistantReplyMediaForRender } from '../../../../lib/messageNormalizer'
 import ChatMessageMediaGallery from '../ChatMessageMediaGallery.vue'
 
@@ -74,7 +73,7 @@ const replyMediaAttachments = computed(() =>
 const markdownSource = computed(() => {
   if (props.hideResponse) {
     const draft = props.body.responseTextDraft?.trim()
-    if (draft && isContentStreaming.value) return stripOutboundMediaMarkers(draft)
+    if (draft && isContentStreaming.value) return draft
     return ''
   }
   let raw = ''
@@ -82,7 +81,6 @@ const markdownSource = computed(() => {
   else if (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value)
     raw = props.body.responseTextDraft ?? ''
   else raw = props.body.content ?? ''
-  raw = stripOutboundMediaMarkers(raw)
   return raw
 })
 

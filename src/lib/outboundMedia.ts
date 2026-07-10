@@ -22,19 +22,7 @@ export function extractOutboundMediaPaths(text: string): string[] {
   return paths
 }
 
-/** Strip IM-only `MEDIA:` markers from assistant text shown in the App UI. */
+/** @deprecated Resolved-aware stripping runs in pointer-core before content is persisted. */
 export function stripOutboundMediaMarkers(text: string): string {
-  if (!text.trim()) return text
-
-  const kept: string[] = []
-
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (trimmed.toUpperCase().startsWith(MEDIA_PREFIX.toUpperCase())) continue
-    if (trimmed.startsWith(POINTER_SCHEME)) continue
-    const cleaned = line.replace(INLINE_MEDIA_RE, '')
-    if (cleaned.trim()) kept.push(cleaned)
-  }
-
-  return kept.join('\n').trim()
+  return text.trim()
 }

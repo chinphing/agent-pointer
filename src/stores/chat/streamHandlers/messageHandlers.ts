@@ -1,7 +1,6 @@
 import { enqueueReasoningDelta, flushReasoningDeltaBuffer } from '../../../lib/reasoningDeltaBatch'
 import { isPlannerPhaseThoughts } from '../../../lib/plannerPhase'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
-import { stripOutboundMediaMarkers } from '../../../lib/outboundMedia'
 import { toolCallBaseName } from '../../../lib/messageTooling'
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace, ensureSubTraceSession } from '../../../lib/subAgentSession'
@@ -159,7 +158,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     // logic apply (MEDIA: delivery depends on `e.attachments`).
     if (scopedTarget && e.scopedMessageId?.trim()) {
       scopedTarget.contentStreaming = false
-      if (e.content != null) scopedTarget.content = stripOutboundMediaMarkers(e.content)
+      if (e.content != null) scopedTarget.content = e.content
       if (e.rawContent != null) scopedTarget.rawContent = e.rawContent
       if (e.toolRawOutput != null) scopedTarget.toolRawOutput = e.toolRawOutput
       if (e.attachments?.length) scopedTarget.attachments = e.attachments
@@ -189,10 +188,10 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     const preview = r.msg.toolNamePreview?.trim()
     const draft = r.msg.responseTextDraft?.trim()
     if (draft && preview && toolCallBaseName(preview) === 'response') {
-      r.msg.content = stripOutboundMediaMarkers(draft)
+      r.msg.content = draft
     }
     delete r.msg.toolNamePreview
-    if (e.content != null) r.msg.content = stripOutboundMediaMarkers(e.content)
+    if (e.content != null) r.msg.content = e.content
     if (e.attachments?.length) r.msg.attachments = e.attachments
     if (e.rawContent != null) r.msg.rawContent = e.rawContent
     if (e.toolRawOutput != null) r.msg.toolRawOutput = e.toolRawOutput

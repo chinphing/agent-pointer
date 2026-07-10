@@ -29,7 +29,12 @@ pub(crate) fn reply_attachments_from_assistant_raw(raw: &str) -> Option<Vec<Medi
     if paths.is_empty() {
         None
     } else {
-        Some(attachments_from_reply_paths(&paths))
+        let atts = attachments_from_reply_paths(&paths);
+        if atts.is_empty() {
+            None
+        } else {
+            Some(atts)
+        }
     }
 }
 
@@ -106,22 +111,21 @@ mod extract_user_visible_tests {
     }
 
     #[test]
-    fn strips_media_markers_from_prose() {
+    fn strips_media_markers_from_prose_when_file_missing() {
         let raw = "发给你 👇\n\nMEDIA:/Users/me/Desktop/baby_cover.jpg";
         let out = extract_user_visible_content(raw);
-        assert!(!out.contains("MEDIA:"));
+        assert!(out.contains("MEDIA:"));
         assert!(out.contains("发给你"));
     }
 
     #[test]
-    fn plain_text_media_becomes_attachments() {
+    fn plain_text_media_skips_attachment_when_file_missing() {
         use super::reply_attachments_from_assistant_raw;
         let raw = "好的，再发一次 👇\n\nMEDIA:/Users/me/Desktop/baby_cover.jpg";
-        let atts = reply_attachments_from_assistant_raw(raw).expect("attachments");
-        assert_eq!(atts.len(), 1);
+        assert!(reply_attachments_from_assistant_raw(raw).is_none());
         assert_eq!(
-            atts[0].local_abs_path.as_deref(),
-            Some("/Users/me/Desktop/baby_cover.jpg")
+            extract_user_visible_content(raw),
+            "好的，再发一次 👇\nMEDIA:/Users/me/Desktop/baby_cover.jpg"
         );
     }
 }

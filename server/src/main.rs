@@ -328,6 +328,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/chat/media-download", get(download_chat_media))
         .route("/api/chat/media-stream", get(stream_chat_media))
         .route("/api/chat/media-ref-preview", get(preview_media_ref))
+        .route("/api/chat/media-ref-download", get(download_media_ref))
         .route("/api/chat/save-attachment", post(save_chat_attachment))
         .route("/api/chat/upload-video-oss", post(upload_composer_video_oss))
         .route("/api/media/deps", get(check_media_deps))
@@ -817,6 +818,28 @@ async fn preview_media_ref(
     ))
 }
 
+async fn download_media_ref(
+    State(state): State<ServerState>,
+    Query(q): Query<MediaRefQuery>,
+) -> Result<Response, ApiError> {
+    require_platform_access(&state)?;
+    let (path, mime_type, file_name) =
+        pointer_core::media::chat_media_ref_file_meta(&q.media_ref).map_err(ApiError::from)?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
+    let mut response = Response::new(bytes.into());
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&mime_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        attachment_content_disposition(&file_name, false),
+    );
+    Ok(response)
+}
+
 fn attachment_content_disposition(file_name: &str, inline: bool) -> HeaderValue {
     let kind = if inline { "inline" } else { "attachment" };
     let safe: String = file_name
@@ -893,12 +916,18 @@ async fn save_chat_attachment(
     Json(payload): Json<SaveChatAttachmentPayload>,
 ) -> Result<Json<SaveChatAttachmentResponse>, ApiError> {
     require_platform_access(&state)?;
-    let uid = state
-        .core
-        .active_platform_auth()
-        .platform_user_id()
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| ApiError(anyhow::anyhow!("platform_login_required")))?;
+    let uid = if pointer_core::deployment_mode::is_standalone()
+        && pointer_core::web_request_auth::is_local_scoped_session()
+    {
+        pointer_core::local_auth::local_user_id().to_string()
+    } else {
+        state
+            .core
+            .active_platform_auth()
+            .platform_user_id()
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| ApiError(anyhow::anyhow!("platform_login_required")))?
+    };
     state
         .core
         .session_index

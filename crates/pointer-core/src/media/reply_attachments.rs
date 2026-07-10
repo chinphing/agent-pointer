@@ -9,6 +9,7 @@ use crate::models::MediaAttachment;
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::access::{is_user_filesystem_path, strip_file_uri};
 use super::resolve::resolve_local_media_path;
+use super::store::app_data_media_rel_from_abs;
 
 pub fn attachments_from_reply_paths(paths: &[String]) -> Vec<MediaAttachment> {
     paths
@@ -29,15 +30,26 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
         .map(str::trim)
         .unwrap_or(normalized.as_str());
 
-    let (storage_rel_path, local_abs_path) = classify_media_ref(rel);
+    let (mut storage_rel_path, local_abs_path) = classify_media_ref(rel);
 
     // Verify the referenced file actually exists on disk before creating attachment.
-    // Prevents phantom attachments from stale , example text, or non-existent paths.
     let check_path = local_abs_path.as_deref().or(storage_rel_path.as_deref())?;
-    if resolve_local_media_path(check_path).is_err() {
-        log::warn!("attachment_from_media_ref: file not found, skipping {check_path}");
-        return None;
+    let resolved = match resolve_local_media_path(check_path) {
+        Ok(p) if p.is_file() => p,
+        Ok(p) => {
+            log::warn!("attachment_from_media_ref: not a file, skipping {} ({})", check_path, p.display());
+            return None;
+        }
+        Err(e) => {
+            log::warn!("attachment_from_media_ref: file not found, skipping {check_path}: {e:#}");
+            return None;
+        }
+    };
+
+    if storage_rel_path.is_none() {
+        storage_rel_path = app_data_media_rel_from_abs(&resolved);
     }
+    let local_abs_path = Some(resolved.display().to_string());
 
     let file_name = file_name_from_ref(rel, local_abs_path.as_deref());
     let kind = kind_from_file_name(&file_name);

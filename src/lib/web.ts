@@ -315,6 +315,11 @@ export function chatMediaStreamUrl(storageRelPath: string): string {
   return `${WEB_API_BASE}/api/chat/media-stream?storageRelPath=${q}`
 }
 
+export function chatMediaRefDownloadUrl(mediaRef: string): string {
+  const q = new URLSearchParams({ mediaRef: mediaRef.trim() })
+  return `${WEB_API_BASE}/api/chat/media-ref-download?${q}`
+}
+
 export async function captureManualDesktopSnapshot(): Promise<Blob> {
   return await requestBlob('/api/computer/manual-snapshot', { method: 'POST' })
 }

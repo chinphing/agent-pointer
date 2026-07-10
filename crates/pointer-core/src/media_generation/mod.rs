@@ -19,6 +19,8 @@ pub use models::{
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
+use crate::media::path_hint::MEDIA_URI_SCHEME;
+use crate::media::store::app_data_media_rel_from_abs;
 use crate::models::ModelSettings;
 
 pub async fn generate_image(
@@ -64,7 +66,10 @@ pub fn format_generation_tool_result(artifact: &GenerationArtifact, kind: Genera
         artifact.model
     )];
     for path in &artifact.local_paths {
-        lines.push(format!("MEDIA:{path}"));
+        let media_line = app_data_media_rel_from_abs(std::path::Path::new(path))
+            .map(|rel| format!("MEDIA:{MEDIA_URI_SCHEME}{rel}"))
+            .unwrap_or_else(|| format!("MEDIA:{path}"));
+        lines.push(media_line);
     }
     lines.join("\n")
 }

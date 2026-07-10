@@ -26,6 +26,11 @@ pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
         log::info!("media_abs_path verify_storage_rel_access FAILED: {e:#}");
         return Err(e);
     }
+    media_abs_path_unscoped(storage_rel_path)
+}
+
+/// Resolve a storage rel path without session-user scoping (server outbound / allowlisted reads).
+pub fn media_abs_path_unscoped(storage_rel_path: &str) -> Result<PathBuf> {
     let rel = storage_rel_path.trim().trim_start_matches('/');
     if rel.is_empty() || rel.contains("..") {
         anyhow::bail!("invalid media rel path");
@@ -45,7 +50,39 @@ pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
             }
         }
     }
+    // `generated-media/…` and other app-data subtrees (not under conversation-media/).
+    if let Ok(data_dir) = app_data_dir() {
+        let under_data = data_dir.join(rel);
+        if under_data.is_file() {
+            return Ok(under_data);
+        }
+    }
     Ok(primary)
+}
+
+/// True when `path` resolves under the Pointer app data directory.
+pub fn path_under_app_data(path: &Path) -> Result<bool> {
+    let root = app_data_dir()?.canonicalize().context("app data dir")?;
+    let canonical = path
+        .canonicalize()
+        .with_context(|| format!("resolve media path {}", path.display()))?;
+    Ok(canonical.starts_with(&root))
+}
+
+/// Map an on-disk file under app data to a storage rel path for API / IM delivery.
+pub fn app_data_media_rel_from_abs(path: &Path) -> Option<String> {
+    let data_dir = app_data_dir().ok()?;
+    let abs = path.canonicalize().ok()?;
+    let root = data_dir.canonicalize().ok()?;
+    let rel = abs.strip_prefix(&root).ok()?;
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+    if let Some(stripped) = rel_str.strip_prefix("conversation-media/") {
+        return Some(stripped.to_string());
+    }
+    if rel_str.starts_with("generated-media/") {
+        return Some(rel_str);
+    }
+    None
 }
 
 pub fn save_attachment_bytes(
@@ -77,20 +114,50 @@ pub fn save_attachment_bytes(
 }
 
 pub fn read_media_bytes(storage_rel_path: &str) -> Result<Vec<u8>> {
-    let path = media_abs_path(storage_rel_path)?;
+    let path = match media_abs_path(storage_rel_path) {
+        Ok(p) => p,
+        Err(e) if e.to_string().contains("media access denied") => {
+            log::info!(
+                "read_media_bytes: session access denied for {storage_rel_path}, trying unscoped"
+            );
+            media_abs_path_unscoped(storage_rel_path)?
+        }
+        Err(e) => return Err(e),
+    };
     fs::read(&path).with_context(|| format!("read media file {}", path.display()))
 }
 
-/// Absolute path, MIME, and file name for HTTP download/stream handlers.
+/// Absolute path, MIME, and file name for HTTP download/stream handlers (storage rel).
 pub fn chat_media_file_meta(storage_rel_path: &str) -> Result<(PathBuf, String, String)> {
     let path = media_abs_path(storage_rel_path)?;
+    media_file_meta_from_path(&path)
+}
+
+/// Absolute path, MIME, and file name for HTTP handlers resolving arbitrary media refs.
+pub fn chat_media_ref_file_meta(media_ref: &str) -> Result<(PathBuf, String, String)> {
+    let trimmed = media_ref.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("empty media ref");
+    }
+    let rel = trimmed
+        .strip_prefix(MEDIA_URI_SCHEME)
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    let path = resolve_local_media_path(rel)?;
+    if !path.is_file() {
+        anyhow::bail!("media file not found: {}", path.display());
+    }
+    media_file_meta_from_path(&path)
+}
+
+fn media_file_meta_from_path(path: &Path) -> Result<(PathBuf, String, String)> {
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("attachment")
         .to_string();
-    let mime_type = mime_from_path(&path);
-    Ok((path, mime_type, file_name))
+    let mime_type = mime_from_path(path);
+    Ok((path.to_path_buf(), mime_type, file_name))
 }
 
 /// `{conv}/{id}.bin` -> `{conv}/{id}.wav` when the wav file already exists on disk.

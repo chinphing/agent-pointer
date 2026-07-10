@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use crate::storage::app_data_dir;
 
 use super::access::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
-use super::store::{media_abs_path, CONVERSATION_MEDIA_DIR};
+use super::store::{media_abs_path, media_abs_path_unscoped, CONVERSATION_MEDIA_DIR};
 
 /// True for persisted attachment rel paths (not user absolute/`~/` paths).
 pub fn is_storage_rel_path(raw: &str) -> bool {
@@ -46,17 +46,32 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
     }
 
     if is_storage_rel_path(trimmed) {
-        let path = match media_abs_path(trimmed.trim_start_matches('/')) {
-            Ok(p) => p,
+        let rel = trimmed.trim_start_matches('/');
+        let path = match media_abs_path(rel) {
+            Ok(p) if p.is_file() || p.is_dir() => p,
+            Ok(p) => match media_abs_path_unscoped(rel) {
+                Ok(p2) if p2.is_file() || p2.is_dir() => p2,
+                _ => p,
+            },
+            Err(e) if e.to_string().contains("media access denied") => {
+                media_abs_path_unscoped(rel).with_context(|| {
+                    format!("resolve storage rel path {trimmed} (session access denied, unscoped fallback)")
+                })?
+            }
             Err(e) => {
-                log::warn!("resolve_local_media_path media_abs_path FAILED: trimmed={trimmed} error: {e:#}");
+                log::warn!(
+                    "resolve_local_media_path media_abs_path FAILED: trimmed={trimmed} error: {e:#}"
+                );
                 return Err(e).with_context(|| format!("resolve storage rel path {trimmed}"));
             }
         };
         if path.is_file() || path.is_dir() {
             return Ok(path);
         }
-        log::warn!("resolve_local_media_path file NOT FOUND: trimmed={trimmed} resolved={}", path.display());
+        log::warn!(
+            "resolve_local_media_path file NOT FOUND: trimmed={trimmed} resolved={}",
+            path.display()
+        );
         anyhow::bail!("media file not found under app data: {}", path.display());
     }
 

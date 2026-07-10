@@ -3,6 +3,8 @@
 use anyhow::{Context, Result};
 use pointer_core::media::path_hint::MEDIA_URI_SCHEME;
 use pointer_core::media::resolve::resolve_local_media_path;
+use pointer_core::media::store::path_under_app_data;
+use pointer_core::media::is_user_filesystem_path;
 use pointer_core::media::{is_video_file_name, video::remux_video_faststart};
 
 use crate::media::attachment::{enforce_max_bytes_for_kind, guess_mime_from_bytes};
@@ -45,6 +47,14 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
         .with_context(|| format!("resolve outbound media {trimmed}"))?;
     if path.is_dir() {
         anyhow::bail!("outbound media path is a directory: {}", path.display());
+    }
+    if !is_user_filesystem_path(rel)
+        && !path_under_app_data(&path).unwrap_or(false)
+    {
+        anyhow::bail!(
+            "outbound media path outside app data (server cannot deliver): {}",
+            path.display()
+        );
     }
 
     let file_name = path

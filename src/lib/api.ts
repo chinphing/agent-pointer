@@ -190,6 +190,11 @@ export const chatMediaDownloadUrl = isTauriRuntime()
       throw new Error('chatMediaDownloadUrl is not supported in desktop runtime')
     }
   : webApi.chatMediaDownloadUrl
+export const chatMediaRefDownloadUrl = isTauriRuntime()
+  ? (_ref: string) => {
+      throw new Error('chatMediaRefDownloadUrl is not supported in desktop runtime')
+    }
+  : webApi.chatMediaRefDownloadUrl
 export const readLocalFileForAttachment = api.readLocalFileForAttachment
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerCompactChrome = api.setComputerCompactChrome

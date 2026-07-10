@@ -142,7 +142,7 @@ pub(super) fn build_final_reply_delivery_message(
         computer_round_screen_rel_path: None,
         ui_bindings: None,
         context_state: None,
-        attachments: None,
+        attachments,
         anchor_message_id: None,
         trace_id: None,
         task_id: None,

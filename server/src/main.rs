@@ -2906,7 +2906,7 @@ async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Resp
     let code = form_query_param(query, "code")?;
     let oauth_state = form_query_param(query, "state")?;
     if !pointer_core::cloud_agent_auth::is_cloud_auth_configured() {
-        log::warn!("cloud oauth: OPENPOINTER_API_BASE not configured");
+        log::warn!("cloud oauth: POINTER_API_BASE not configured");
         return Some(Redirect::temporary("/?cloud_auth_error=not_configured").into_response());
     }
     match pointer_core::cloud_agent_auth::exchange_agent_oauth_code(&code, &oauth_state).await {

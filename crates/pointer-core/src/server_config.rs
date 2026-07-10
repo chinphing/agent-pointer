@@ -98,7 +98,7 @@ struct ServerSection {
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct OpenpointerSection {
+struct PointerSection {
     #[serde(default)]
     api_base: String,
     #[serde(default)]
@@ -129,8 +129,8 @@ struct ServerConfigToml {
     license: LicenseSection,
     #[serde(default)]
     usage: UsageSection,
-    #[serde(default)]
-    openpointer: OpenpointerSection,
+    #[serde(default, alias = "openpointer")]
+    pointer: PointerSection,
     #[serde(default)]
     webhooks: WebhooksSection,
     #[serde(default)]
@@ -189,7 +189,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         eprintln!("pointer-server: config file has no recognized keys");
     }
     for (key, value) in &applied {
-        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET"
+        if key == "POINTER_OAUTH_CLIENT_SECRET"
             || key == "POINTER_WEBHOOK_BEARER_TOKEN"
             || key == "POINTER_SERVER_ADMIN_TOKEN"
             || key == "POINTER_SERVER_ADMIN_PASSWORD_HMAC"
@@ -203,7 +203,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     }
     for key in &skipped_env {
         let current = std::env::var(key).unwrap_or_default();
-        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET"
+        if key == "POINTER_OAUTH_CLIENT_SECRET"
             || key == "POINTER_WEBHOOK_BEARER_TOKEN"
             || key == "POINTER_SERVER_ADMIN_TOKEN"
             || key == "POINTER_SERVER_ADMIN_PASSWORD_HMAC"
@@ -374,15 +374,15 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
     }
     push_mapped(
         &mut pairs,
-        "OPENPOINTER_API_BASE",
-        &parsed.openpointer.api_base,
+        "POINTER_API_BASE",
+        &parsed.pointer.api_base,
         base_dir,
         false,
     );
     push_mapped(
         &mut pairs,
-        "OPENPOINTER_OAUTH_CLIENT_SECRET",
-        &parsed.openpointer.oauth_client_secret,
+        "POINTER_OAUTH_CLIENT_SECRET",
+        &parsed.pointer.oauth_client_secret,
         base_dir,
         false,
     );
@@ -622,7 +622,7 @@ public_url = "https://pointer.example.com"
 addr = "0.0.0.0:9999"
 static_dir = "dist"
 
-[openpointer]
+[pointer]
 api_base = "https://api.example.com"
 oauth_client_secret = "secret"
 
@@ -639,10 +639,30 @@ POINTER_WEB_SEARCH_MODEL = "gpt-4o-mini"
             Some(dir.path().join("dist").to_str().unwrap())
         );
         assert_eq!(
-            map.get("OPENPOINTER_API_BASE").map(String::as_str),
+            map.get("POINTER_API_BASE").map(String::as_str),
             Some("https://api.example.com")
         );
         assert_eq!(map.get("POINTER_WEB_SEARCH_MODEL").map(String::as_str), Some("gpt-4o-mini"));
+    }
+
+    #[test]
+    fn toml_accepts_legacy_openpointer_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[openpointer]
+api_base = "https://legacy.example.com"
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("POINTER_API_BASE").map(String::as_str),
+            Some("https://legacy.example.com")
+        );
     }
 
     #[test]

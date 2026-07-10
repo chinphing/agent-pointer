@@ -317,9 +317,9 @@ public_url = "https://pointer.acme-corp.com"
 # 数据持久化根目录（deb 默认 /var/lib/pointer-server）
 app_data_dir = "/var/lib/pointer-server"
 
-# standalone 模式下 [openpointer] 段不参与 OAuth，可省略。
+# standalone 模式下 [pointer] 段不参与 OAuth，可省略。
 # 若保留，不影响 standalone 主流程：
-# [openpointer]
+# [pointer]
 # api_base = "https://pointer-api.readflowai.com"
 # oauth_client_secret = "unused-in-standalone"
 ```

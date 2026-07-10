@@ -1,8 +1,8 @@
-//! Openpointer agent OAuth code exchange for cloud-hosted pointer-server instances.
+//! Pointer agent OAuth code exchange for cloud-hosted pointer-server instances.
 //!
 //! Env:
-//! - `OPENPOINTER_API_BASE` — control plane API root (falls back to `POINTER_API_BASE` / default)
-//! - `OPENPOINTER_OAUTH_CLIENT_SECRET` — shared secret for `POST /auth/oauth/exchange-code`
+//! - `POINTER_API_BASE` — control plane API root (legacy `OPENPOINTER_API_BASE` still read)
+//! - `POINTER_OAUTH_CLIENT_SECRET` — shared secret for `POST /auth/oauth/exchange-code`
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
@@ -13,26 +13,33 @@ use crate::platform_auth::{PlatformLoginCredentials, PlatformSession, PlatformUs
 
 const EXCHANGE_TIMEOUT_SEC: u64 = 20;
 
-pub fn openpointer_api_base() -> String {
-    std::env::var("OPENPOINTER_API_BASE")
-        .ok()
-        .map(|s| s.trim().trim_end_matches('/').to_string())
-        .filter(|s| !s.is_empty())
+fn env_with_legacy(primary: &str, legacy: &str) -> Option<String> {
+    for key in [primary, legacy] {
+        if let Ok(value) = std::env::var(key) {
+            let trimmed = value.trim().trim_end_matches('/').to_string();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
+        }
+    }
+    None
+}
+
+pub fn control_plane_api_base() -> String {
+    env_with_legacy("POINTER_API_BASE", "OPENPOINTER_API_BASE")
         .unwrap_or_else(|| crate::platform_endpoints::api_base().trim_end_matches('/').to_string())
 }
 
-pub fn openpointer_client_secret() -> String {
-    std::env::var("OPENPOINTER_OAUTH_CLIENT_SECRET")
+pub fn control_plane_oauth_client_secret() -> String {
+    env_with_legacy("POINTER_OAUTH_CLIENT_SECRET", "OPENPOINTER_OAUTH_CLIENT_SECRET")
         .unwrap_or_default()
-        .trim()
-        .to_string()
 }
 
 pub fn is_cloud_auth_configured() -> bool {
     if crate::deployment_mode::is_standalone() {
         return false;
     }
-    !openpointer_api_base().is_empty()
+    !control_plane_api_base().is_empty()
 }
 
 fn exchange_has_usable_llm_key(parsed: &OAuthCodeExchangeResponse) -> bool {
@@ -55,11 +62,11 @@ pub async fn exchange_agent_oauth_code(code: &str, state: &str) -> Result<(Platf
     if code.is_empty() || state.is_empty() {
         return Err(anyhow!("missing_code_or_state"));
     }
-    let base = openpointer_api_base();
+    let base = control_plane_api_base();
     if base.is_empty() {
-        return Err(anyhow!("openpointer_not_configured"));
+        return Err(anyhow!("pointer_not_configured"));
     }
-    let secret = openpointer_client_secret();
+    let secret = control_plane_oauth_client_secret();
     let url = format!("{base}/auth/oauth/exchange-code");
     let body = serde_json::json!({
         "code": code,
@@ -69,7 +76,7 @@ pub async fn exchange_agent_oauth_code(code: &str, state: &str) -> Result<(Platf
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(EXCHANGE_TIMEOUT_SEC))
         .build()
-        .context("build openpointer http client")?;
+        .context("build pointer http client")?;
     let resp = client
         .post(&url)
         .json(&body)
@@ -82,8 +89,8 @@ pub async fn exchange_agent_oauth_code(code: &str, state: &str) -> Result<(Platf
         let detail = parse_api_detail(&text).unwrap_or_else(|| format!("HTTP {status}"));
         if detail.contains("invalid_client_secret") {
             log::warn!(
-                "cloud_agent_auth: exchange failed: {detail} — set OPENPOINTER_OAUTH_CLIENT_SECRET \
-                 (pointer-server.toml [openpointer] oauth_client_secret) to the same value as \
+                "cloud_agent_auth: exchange failed: {detail} — set POINTER_OAUTH_CLIENT_SECRET \
+                 (pointer-server.toml [pointer] oauth_client_secret) to the same value as \
                  API env THIRD_PARTY_OAUTH_EXCHANGE_SECRET; this is not JWT_SECRET"
             );
         } else {

@@ -22,8 +22,8 @@
 | 健康检查 | `GET /api/health` 返回 2xx；就绪探测另可请求 `GET /api/ready`（需静态 UI 已挂载） |
 | `AGENT_HEALTH_PATH` | 平台 Worker 探活路径，生产设为 `/api/health` |
 | ALB | 与 ECS 同 VPC；Worker 为每 agent 创建 Server Group + Host 规则，`console_url` 为 `https://agent-{id}.readflowai.com/`（泛域名 `*.readflowai.com` → ALB） |
-| `OPENPOINTER_API_BASE` | 平台 API 根地址 |
-| `OPENPOINTER_OAUTH_CLIENT_SECRET` | 与平台一致的换码密钥 |
+| `POINTER_API_BASE` | 平台 API 根地址 |
+| `POINTER_OAUTH_CLIENT_SECRET` | 与平台一致的换码密钥 |
 | `allowed_user_ids` | （推荐生产必填）仅允许 listed 平台 user id 登录/使用 server；对应 env `POINTER_SERVER_ALLOWED_USER_IDS`（逗号分隔） |
 | `require_allowed_users` | 为 `true` 时，若 `allowed_user_ids` 为空则拒绝启动 |
 

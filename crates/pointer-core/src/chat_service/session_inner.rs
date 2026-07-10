@@ -132,7 +132,7 @@ pub(super) async fn run_chat_inner(
         if platform_logged_in && !is_local_session {
             if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
                 let msg = if e.to_string().contains("token_quota_exhausted") {
-                    "套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。".to_string()
+                    "套餐 Token 额度已用尽，请前往 Pointer 官网充值或联系管理员。".to_string()
                 } else {
                     e.to_string()
                 };

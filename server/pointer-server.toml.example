@@ -67,7 +67,7 @@ static_dir = "dist"
 # session. Unauthenticated visitors see an empty sidebar until they sign in.
 # The Tauri desktop app is unchanged (local auth.dat + IPC).
 
-[openpointer]
+[pointer]
 api_base = "https://pointer-api.readflowai.com"
 # Must match pointer-official API env THIRD_PARTY_OAUTH_EXCHANGE_SECRET (NOT JWT_SECRET).
 oauth_client_secret = "replace-me"

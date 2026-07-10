@@ -45,7 +45,7 @@
 
 ### 平台下发（生产默认）
 
-OSS 凭据由 **Openpointer 官网管理后台**（「OSS」页）配置，仅保存 `endpoint`、`accessKeyId`、`accessKeySecret`。客户端登录或刷新 `llm-credentials` 时从服务端拉取，**仅驻内存**，与 API Key 相同，**不写入** `user_settings.json`，客户端无 OSS 设置界面。
+OSS 凭据由 **Pointer 官网管理后台**（「OSS」页）配置，仅保存 `endpoint`、`accessKeyId`、`accessKeySecret`。客户端登录或刷新 `llm-credentials` 时从服务端拉取，**仅驻内存**，与 API Key 相同，**不写入** `user_settings.json`，客户端无 OSS 设置界面。
 
 其余字段使用默认值：
 

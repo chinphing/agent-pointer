@@ -1303,7 +1303,7 @@ export const useChatStore = defineStore('chat', () => {
         status: 'error',
         createdAt: Date.now(),
         errorMessage:
-          '套餐 Token 额度已用尽，请前往 Pointer 官网充值或联系管理员。'
+          '账户余额已用尽，请前往 Pointer 官网账单充值。'
       })
       return
     }

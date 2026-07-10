@@ -11,6 +11,7 @@ pub mod manifest;
 pub mod oss;
 pub mod outbound_reply;
 pub mod media_ref;
+pub mod public_download;
 pub mod reply_attachments;
 pub mod resolve;
 pub mod capabilities;
@@ -76,6 +77,11 @@ pub use filename::{
     RecoveryPathMode,
 };
 pub use reply_attachments::attachments_from_reply_paths;
+pub use public_download::{
+    configured_ttl_secs, issue_download_token, issue_download_url, public_download_base_url,
+    verify_and_resolve_download, VerifiedPublicDownload, DEFAULT_TTL_SECS,
+    PUBLIC_DOWNLOAD_MAX_BYTES,
+};
 pub use store::{
     chat_media_file_meta, chat_media_ref_file_meta, is_app_data_subtree_rel, media_abs_path,
     path_is_under_app_data, read_chat_media_preview, read_media_bytes, read_media_ref_preview,

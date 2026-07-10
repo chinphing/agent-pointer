@@ -329,6 +329,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/chat/media-stream", get(stream_chat_media))
         .route("/api/chat/media-ref-preview", get(preview_media_ref))
         .route("/api/chat/media-ref-download", get(download_media_ref))
+        .route("/api/media/public-download", get(public_media_download))
         .route("/api/chat/save-attachment", post(save_chat_attachment))
         .route("/api/chat/upload-video-oss", post(upload_composer_video_oss))
         .route("/api/media/deps", get(check_media_deps))
@@ -837,6 +838,44 @@ async fn download_media_ref(
         header::CONTENT_DISPOSITION,
         attachment_content_disposition(&file_name, false),
     );
+    Ok(response)
+}
+
+#[derive(Deserialize)]
+struct PublicMediaDownloadQuery {
+    token: String,
+}
+
+/// Unauthenticated time-limited download for IM large-file links (HMAC token).
+async fn public_media_download(
+    Query(q): Query<PublicMediaDownloadQuery>,
+) -> Result<Response, ApiError> {
+    let verified = pointer_core::media::verify_and_resolve_download(&q.token).map_err(|e| {
+        let msg = e.to_string();
+        log::warn!("public media download rejected: {msg}");
+        ApiError(e)
+    })?;
+    let bytes = tokio::fs::read(&verified.path)
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
+    log::info!(
+        "public media download ok file={} bytes={}",
+        verified.file_name,
+        bytes.len()
+    );
+    let mut response = Response::new(bytes.into());
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&verified.mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        attachment_content_disposition(&verified.file_name, false),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
 }
 
@@ -2949,6 +2988,15 @@ impl IntoResponse for ApiError {
         }
         if msg.contains("server_access_denied") {
             return (StatusCode::FORBIDDEN, msg).into_response();
+        }
+        if msg.contains("download link expired")
+            || msg.contains("invalid download token")
+            || msg.contains("malformed download token")
+        {
+            return (StatusCode::UNAUTHORIZED, msg).into_response();
+        }
+        if msg.contains("media file not found") || msg.contains("download path outside") {
+            return (StatusCode::NOT_FOUND, msg).into_response();
         }
         (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
     }

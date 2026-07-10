@@ -1,7 +1,10 @@
 use anyhow::Result;
 
 use crate::gateway::ChannelGateway;
-use crate::outbound_resolve::resolve_outbound_media;
+use crate::outbound_resolve::{
+    format_im_download_link_message, resolve_im_outbound_media, resolve_outbound_media,
+    ImOutboundMediaDelivery,
+};
 
 pub async fn deliver_outbound_explicit(
     gateway: &ChannelGateway,
@@ -17,11 +20,31 @@ pub async fn deliver_outbound_explicit(
         plugin.outbound.send_text(ctx.clone(), t).await?;
     }
     for raw in media_paths {
-        let resolved = resolve_outbound_media(raw)?;
-        plugin
-            .outbound
-            .send_media(ctx.clone(), None, resolved.media)
-            .await?;
+        match resolve_im_outbound_media(raw) {
+            Ok(ImOutboundMediaDelivery::Direct(media)) => {
+                plugin
+                    .outbound
+                    .send_media(ctx.clone(), None, media)
+                    .await?;
+            }
+            Ok(ImOutboundMediaDelivery::DownloadLink {
+                url,
+                file_name,
+                size_bytes,
+            }) => {
+                let line = format_im_download_link_message(&file_name, size_bytes, &url);
+                plugin.outbound.send_text(ctx.clone(), &line).await?;
+            }
+            Err(e) => {
+                // Fall back to legacy resolve for non-IM size paths (e.g. tests).
+                log::warn!("im outbound resolve failed for {raw}: {e:#}; trying direct resolve");
+                let resolved = resolve_outbound_media(raw)?;
+                plugin
+                    .outbound
+                    .send_media(ctx.clone(), None, resolved.media)
+                    .await?;
+            }
+        }
     }
     Ok(())
 }

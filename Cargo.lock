@@ -5073,6 +5073,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "hkdf",
+ "hmac 0.12.1",
  "http",
  "ignore",
  "image",

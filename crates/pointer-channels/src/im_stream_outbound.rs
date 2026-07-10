@@ -7,7 +7,9 @@ use pointer_core::models::StreamEvent;
 
 use crate::config::ImOutboundConfig;
 use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
-use crate::outbound_resolve::resolve_outbound_media;
+use crate::outbound_resolve::{
+    format_im_download_link_message, resolve_im_outbound_media, ImOutboundMediaDelivery,
+};
 use crate::traits::{ChannelPlugin, OutboundContext};
 
 const TOOL_SUMMARY_MAX_CHARS: usize = 200;
@@ -195,16 +197,36 @@ impl<'a> ImStreamOutbound<'a> {
             if !self.sent_media.insert(raw_path.clone()) {
                 continue;
             }
-            match resolve_outbound_media(raw_path) {
-                Ok(resolved) => {
+            match resolve_im_outbound_media(raw_path) {
+                Ok(ImOutboundMediaDelivery::Direct(media)) => {
                     if let Err(e) = self
                         .plugin
                         .outbound
-                        .send_media(self.outbound.clone(), None, resolved.media)
+                        .send_media(self.outbound.clone(), None, media)
                         .await
                     {
                         log::error!(
                             "channel outbound media failed conv={} path={raw_path}: {e:#}",
+                            self.conv_id
+                        );
+                    } else {
+                        sent_any = true;
+                    }
+                }
+                Ok(ImOutboundMediaDelivery::DownloadLink {
+                    url,
+                    file_name,
+                    size_bytes,
+                }) => {
+                    let line = format_im_download_link_message(&file_name, size_bytes, &url);
+                    if let Err(e) = self
+                        .plugin
+                        .outbound
+                        .send_text(self.outbound.clone(), &line)
+                        .await
+                    {
+                        log::error!(
+                            "channel outbound download-link failed conv={} path={raw_path}: {e:#}",
                             self.conv_id
                         );
                     } else {

@@ -369,6 +369,27 @@ pub fn load_channels_config() -> Result<ChannelsConfig> {
     Ok(cfg)
 }
 
+/// Prefer `POINTER_SERVER_PUBLIC_URL`, then channels `publicBaseUrl`.
+pub fn resolve_im_public_base_url() -> Option<String> {
+    if let Some(u) = pointer_core::media::public_download_base_url() {
+        return Some(u);
+    }
+    match load_channels_config() {
+        Ok(cfg) => {
+            let base = cfg.meta.public_base_url.trim().trim_end_matches('/');
+            if base.is_empty() || is_placeholder_url(base) {
+                None
+            } else {
+                Some(base.to_string())
+            }
+        }
+        Err(e) => {
+            log::warn!("resolve_im_public_base_url: load channels config failed: {e:#}");
+            None
+        }
+    }
+}
+
 pub fn save_channels_config(cfg: &ChannelsConfig) -> Result<()> {
     let path = config_path()?;
     let mut cfg = cfg.clone();

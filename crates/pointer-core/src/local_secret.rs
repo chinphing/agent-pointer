@@ -38,13 +38,22 @@ fn fallback_identity() -> Vec<u8> {
     format!("{host}:{user}").into_bytes()
 }
 
-fn derive_key() -> [u8; 32] {
+fn derive_key_with_info(info: &[u8]) -> [u8; 32] {
     let identity = machine_identity();
     let hk = Hkdf::<Sha256>::new(Some(APP_PEPPER), &identity);
     let mut key = [0u8; 32];
-    hk.expand(b"auth-refresh-token", &mut key)
+    hk.expand(info, &mut key)
         .expect("HKDF expand to 32 bytes");
     key
+}
+
+fn derive_key() -> [u8; 32] {
+    derive_key_with_info(b"auth-refresh-token")
+}
+
+/// HMAC key for public media download tokens (separate from auth.dat key).
+pub fn derive_media_download_key() -> Result<[u8; 32]> {
+    Ok(derive_key_with_info(b"media-public-download-v1"))
 }
 
 /// Encrypt plaintext for local storage. Output: `version(1B)` + `nonce(12B)` + ciphertext+tag.

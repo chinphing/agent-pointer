@@ -6,9 +6,12 @@
 |------|--------------|----------------------|
 | 图片/音频预览 | `previewChatMedia` | 同左（JSON base64 API） |
 | 视频预览 | `convertFileSrc` | `GET /api/chat/media-stream?storageRelPath=…` |
-| 文件打开/下载 | OS 默认应用 | `GET /api/chat/media-download?storageRelPath=…` |
+| 文件打开/下载 | OS 默认应用 | `GET /api/chat/media-download?storageRelPath=…`（需登录） |
+| IM 大文件外链 | — | `GET /api/media/public-download?token=…`（HMAC 限时，**无需登录**） |
 
-Web 端点击附件时，`openAttachmentWithSystemDefault` 对 `storageRelPath` 触发浏览器下载。
+Web 端点击附件时，`openAttachmentWithSystemDefault` 对 `storageRelPath` 走带 cookie 的 `fetch` 下载。
+
+IM 出站超过直传上限时，服务端签发 `public-download` 链接写入通道文本（见 [channel-integration.md](../developer/channel-integration.md)）。
 
 ## 桌面截图（Web）
 

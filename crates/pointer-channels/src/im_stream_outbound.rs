@@ -8,7 +8,8 @@ use pointer_core::models::StreamEvent;
 use crate::config::ImOutboundConfig;
 use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
 use crate::outbound_resolve::{
-    format_im_download_link_message, resolve_im_outbound_media, ImOutboundMediaDelivery,
+    format_im_download_link_message, resolve_im_outbound_media,
+    try_im_download_link_for_path, ImOutboundMediaDelivery,
 };
 use crate::traits::{ChannelPlugin, OutboundContext};
 
@@ -209,6 +210,37 @@ impl<'a> ImStreamOutbound<'a> {
                             "channel outbound media failed conv={} path={raw_path}: {e:#}",
                             self.conv_id
                         );
+                        // Platform rejected upload (e.g. WeCom 40006 invalid file size) —
+                        // fall back to signed public download link when possible.
+                        if let Ok(ImOutboundMediaDelivery::DownloadLink {
+                            url,
+                            file_name,
+                            size_bytes,
+                        }) = try_im_download_link_for_path(raw_path)
+                        {
+                            let line =
+                                format_im_download_link_message(&file_name, size_bytes, &url);
+                            match self
+                                .plugin
+                                .outbound
+                                .send_text(self.outbound.clone(), &line)
+                                .await
+                            {
+                                Ok(()) => {
+                                    log::info!(
+                                        "channel outbound media fell back to download link conv={} path={raw_path}",
+                                        self.conv_id
+                                    );
+                                    sent_any = true;
+                                }
+                                Err(link_err) => {
+                                    log::error!(
+                                        "channel outbound download-link fallback failed conv={} path={raw_path}: {link_err:#}",
+                                        self.conv_id
+                                    );
+                                }
+                            }
+                        }
                     } else {
                         sent_any = true;
                     }

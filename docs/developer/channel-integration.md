@@ -184,7 +184,7 @@ MEDIA:/absolute/path/to/report.pdf
 
 单文件上限：非视频 **30 MB**；**视频**与 Composer OSS 一致（**5 GB** 硬上限，**>500 MB** 自动压缩后上传）。若路径无法解析或上传失败，会记录错误日志，文本回复仍会发送。
 
-**IM 大文件出站（全通道）：** 超过 IM 直传上限（约 **30 MB**）时，不再尝试平台附件上传，改为签发 **HMAC 限时下载链接**（`GET /api/media/public-download?token=…`，无需登录），以文本消息发给用户。需配置公网可达的 `POINTER_SERVER_PUBLIC_URL`（或 channels `publicBaseUrl` 同源的 server public URL）。可选：`POINTER_MEDIA_DOWNLOAD_SECRET`、`POINTER_MEDIA_DOWNLOAD_TTL_SECS`（默认 7 天，最长 7 天）。单链接文件上限 **512 MB**。
+**IM 大文件出站（全通道）：** 超过 IM 直传上限（**20 MB**，对齐企微 `40006`）时，不再尝试平台附件上传，改为签发 **HMAC 限时下载链接**（`GET /api/media/public-download?token=…`，无需登录），以文本消息发给用户。直传失败时也会回退到同一链接。需配置公网可达的 `POINTER_SERVER_PUBLIC_URL`（或 channels `publicBaseUrl`）。可选：`POINTER_MEDIA_DOWNLOAD_SECRET`、`POINTER_MEDIA_DOWNLOAD_TTL_SECS`（默认 7 天，最长 7 天）。单链接文件上限 **512 MB**。
 
 ### 入站自消息过滤（避免多跑一轮）
 

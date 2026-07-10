@@ -38,12 +38,17 @@ fn should_remux_for_im_preview(mime_type: &str, file_name: &str) -> bool {
         || lower.ends_with(".mov")
 }
 
+/// WeCom (and most IM bots) reject ordinary file uploads above ~20 MB (`errcode=40006`).
+/// Keep IM direct-send under this ceiling; larger files use a signed public download URL.
+pub const IM_DIRECT_SEND_MAX_BYTES: usize = 20 * 1024 * 1024;
+
 /// Max bytes for IM **direct** media upload (platform attachment). Larger files use a
-/// signed public download URL instead. Videos are capped at the same 30 MB as files
-/// for IM direct send (platforms rarely accept multi-GB attachments).
+/// signed public download URL instead. Capped at [`IM_DIRECT_SEND_MAX_BYTES`] so WeCom
+/// does not accept a 21 MB file into upload_init and then fail with 40006.
 fn im_direct_send_max_bytes(kind: &str, file_name: &str, mime_type: &str) -> usize {
     let full = channel_media_max_bytes(kind, file_name, mime_type);
-    full.min(CHANNEL_MEDIA_MAX_BYTES)
+    full.min(IM_DIRECT_SEND_MAX_BYTES)
+        .min(CHANNEL_MEDIA_MAX_BYTES)
 }
 
 pub struct ResolvedOutboundMedia {
@@ -125,6 +130,44 @@ pub fn resolve_im_outbound_media(raw: &str) -> Result<ImOutboundMediaDelivery> {
     );
     log::info!(
         "im outbound media oversized path={} bytes={} -> public download link",
+        prepared.path.display(),
+        prepared.bytes.len()
+    );
+    Ok(ImOutboundMediaDelivery::DownloadLink {
+        url,
+        file_name: prepared.file_name,
+        size_bytes: prepared.bytes.len() as u64,
+    })
+}
+
+/// Force a public download link for an already-resolved path (upload failure fallback).
+pub fn try_im_download_link_for_path(raw: &str) -> Result<ImOutboundMediaDelivery> {
+    let prepared = prepare_outbound_file(raw)?;
+    if prepared.bytes.len() as u64 > PUBLIC_DOWNLOAD_MAX_BYTES {
+        anyhow::bail!(
+            "outbound media exceeds public download limit ({} MB)",
+            PUBLIC_DOWNLOAD_MAX_BYTES / (1024 * 1024)
+        );
+    }
+    let Some(base) = resolve_im_public_base_url() else {
+        anyhow::bail!(
+            "no public URL configured (set POINTER_SERVER_PUBLIC_URL or channels publicBaseUrl)"
+        );
+    };
+    let path_for_token = app_data_media_rel_from_abs(&prepared.path)
+        .unwrap_or_else(|| prepared.path.display().to_string());
+    let token = issue_download_token(
+        &path_for_token,
+        Some(&prepared.file_name),
+        configured_ttl_secs(),
+    )
+    .with_context(|| format!("issue public download token for {}", prepared.file_name))?;
+    let url = format!(
+        "{base}/api/media/public-download?token={}",
+        urlencoding::encode(&token)
+    );
+    log::info!(
+        "im outbound media upload-fallback path={} bytes={} -> public download link",
         prepared.path.display(),
         prepared.bytes.len()
     );
@@ -355,5 +398,16 @@ mod tests {
         assert!(msg.contains("report.pdf"));
         assert!(msg.contains("40.0 MB"));
         assert!(msg.contains("https://example.com/api/media/public-download?token=abc"));
+    }
+
+    #[test]
+    fn im_direct_send_cap_is_20mb() {
+        assert_eq!(IM_DIRECT_SEND_MAX_BYTES, 20 * 1024 * 1024);
+        assert_eq!(
+            im_direct_send_max_bytes("file", "a.zip", "application/zip"),
+            20 * 1024 * 1024
+        );
+        // 21.12 MB must not go Direct — would hit WeCom 40006.
+        assert!(21_123_393 > IM_DIRECT_SEND_MAX_BYTES);
     }
 }

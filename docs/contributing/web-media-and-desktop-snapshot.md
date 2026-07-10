@@ -11,7 +11,7 @@
 
 Web 端点击附件时，`openAttachmentWithSystemDefault` 对 `storageRelPath` 走带 cookie 的 `fetch` 下载。
 
-IM 出站超过直传上限时，服务端签发 `public-download` 链接写入通道文本（见 [channel-integration.md](../developer/channel-integration.md)）。
+IM 出站超过直传上限时，服务端签发 `public-download` 链接，以 Markdown 形式写入通道文本（见 [channel-integration.md](../developer/channel-integration.md)）。
 
 ## 桌面截图（Web）
 

@@ -265,13 +265,29 @@ fn is_deliverable_outbound_media(rel: &str, path: &std::path::Path) -> bool {
     path_is_under_app_data(path)
 }
 
+/// Escape characters that would break a Markdown inline link label `[text](url)`.
+fn escape_markdown_link_label(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' | '[' | ']' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 pub fn format_im_download_link_message(file_name: &str, size_bytes: u64, url: &str) -> String {
     let size_label = if size_bytes >= 1024 * 1024 {
         format!("{:.1} MB", size_bytes as f64 / (1024.0 * 1024.0))
     } else {
         format!("{} KB", (size_bytes / 1024).max(1))
     };
-    format!("📎 {file_name} ({size_label})\n下载：{url}")
+    let label = escape_markdown_link_label(file_name);
+    format!("📎 [{label}]({url}) ({size_label})")
 }
 
 #[cfg(test)]
@@ -395,9 +411,23 @@ mod tests {
             40 * 1024 * 1024,
             "https://example.com/api/media/public-download?token=abc",
         );
-        assert!(msg.contains("report.pdf"));
-        assert!(msg.contains("40.0 MB"));
-        assert!(msg.contains("https://example.com/api/media/public-download?token=abc"));
+        assert_eq!(
+            msg,
+            "📎 [report.pdf](https://example.com/api/media/public-download?token=abc) (40.0 MB)"
+        );
+    }
+
+    #[test]
+    fn download_link_message_escapes_brackets_in_file_name() {
+        let msg = format_im_download_link_message(
+            "a[b].zip",
+            2048,
+            "https://example.com/api/media/public-download?token=x",
+        );
+        assert_eq!(
+            msg,
+            "📎 [a\\[b\\].zip](https://example.com/api/media/public-download?token=x) (2 KB)"
+        );
     }
 
     #[test]

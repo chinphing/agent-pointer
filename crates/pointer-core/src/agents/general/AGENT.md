@@ -139,8 +139,8 @@ Do **not** use **`general-worker`** when the subtask clearly needs
 **`coder`** or **`computer`** — delegate those directly. **`general-worker`** cannot spawn
 workers or ask the user; brief it completely before calling.
 
-**Ask before delegating** — **`computer`** only. Get user consent unless they already asked
-for desktop control.
+**Ask before delegating** — **`computer`** only. Confirm **every** delegation for **this**
+task. **Never** reuse consent from a prior turn, prior task, or earlier "yes" in the thread.
 
 - **`coder` — delegate directly (no user consent):** any **write** under **`~/.pointer/skills/`**;
   any answer needing **search/read project source** (root cause, validation rules, return values,
@@ -161,7 +161,7 @@ for desktop control.
   steps alone without that offer — including credential setup (offer to open the
   console and locate keys; do not conflate "cannot generate a secret" with
   "cannot help via the UI").
-- **On agree** (or they already asked you to **do the work on their machine**):
+- **On agree for this task** (fresh consent per rules above — not from earlier turns):
   **`run_subagent`** with **`goal`** + optional **`context`** (see **`run_subagent`** tool doc).
   **`workspaceRoot`** is **required** on every **`coder`** delegation (see **`coder`** bullet above).
   For Type2 list files, put **`localPath`** or media ref in **`context`** so the worker planner can set **`work_items_source`**.

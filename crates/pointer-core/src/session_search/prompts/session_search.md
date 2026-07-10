@@ -1,8 +1,12 @@
-Search past conversations stored locally, or scroll inside one.
-FTS5-backed retrieval over the SQLite message index. No LLM calls — every
-shape returns actual messages from the database.
+### `session_search`
 
-FOUR CALLING SHAPES
+Search **past conversations** locally (FTS5 / SQLite; no LLM calls).
+
+**Most turns should not call this tool.** Use the **current thread**, **memory**, and **task board** first.
+
+Call **only** when the user **explicitly** wants historical chats — find/recall another session, search past messages, or scroll/read after a discovery hit. **Do not** browse or search proactively; if unsure, **ask first**.
+
+#### FOUR CALLING SHAPES
 
   1) DISCOVERY — pass `query`:
      session_search(query="auth refactor", limit=3)
@@ -29,9 +33,10 @@ FOUR CALLING SHAPES
   4) BROWSE — no args:
      session_search()
      Returns recent conversations: titles, previews, timestamps.
-     Use when the user asks "what was I working on" without naming a topic.
+     Use **only** when the user explicitly asked for a history overview
+     without naming a search topic.
 
-FTS5 SYNTAX
+#### FTS5 SYNTAX
 
   Plain words are ANDed. Prefix: `auth*`. Phrase: `"exact phrase"`.
   OR: `term1 OR term2`. NOT: `-exclude`.
@@ -40,7 +45,7 @@ FTS5 SYNTAX
 
 Also accepts `session_id` as an alias for `conversation_id`.
 
-MESSAGE FIELDS
+#### MESSAGE FIELDS
 
   Each message in discovery / scroll / read results includes:
   - id, role, content, timestamp

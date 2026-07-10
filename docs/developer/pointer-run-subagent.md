@@ -38,12 +38,12 @@ allowAgents:
 
 ## `general` 委派 `coder` / `computer`
 
-**`coder` 可直接委派；`computer` 委派前需用户同意**（或用户已明确要求代操）。政策见 **`general/AGENT.md`** **Delegation** 段及 **`run_subagent`** 工具文档。
+**`coder` 可直接委派；`computer` 每次委派前都需用户同意**（针对当前任务；先前同意不能沿用）。政策见 **`general/AGENT.md`** **Delegation** 段及 **`run_subagent`** 工具文档。
 
 | Worker | 同意 | 说明 |
 |--------|------|------|
 | **`coder`** | 不需要 | 所有仓库源码工作（分析、修改、测试）；skill 写入。下一轮工具 = **`run_subagent(coder)`**，父线程不摸底；用户事实写入 **`context`**，由 **coder**（必要时 **`explore`**）完成。 |
-| **`computer`** | 需要 | 本机浏览器/桌面操作。先 offer 代操；用户同意或已明确要求后再 **`run_subagent(computer)`**。 |
+| **`computer`** | 需要 | 本机浏览器/桌面操作。**每个**子任务先 offer 代操并取得同意；仅当**当前用户消息**明确授权本次桌面操作时可省略单独追问。 |
 
 **留在 general 主线程**：对话、通识、**`skill_*`**、附件；无需读仓库的简单 Q&A。
 

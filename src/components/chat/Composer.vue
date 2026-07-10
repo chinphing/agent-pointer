@@ -94,6 +94,8 @@ const agentPickerRef = ref<HTMLDivElement | null>(null)
 const workspaceInputRef = ref<HTMLInputElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const attachmentHint = ref<string | null>(null)
+const composerDragDepth = ref(0)
+const isComposerDragOver = computed(() => composerDragDepth.value > 0)
 
 const agents = useAgentsCatalog()
 
@@ -517,6 +519,70 @@ async function onAttachmentFiles(e: Event) {
   }
 }
 
+function canAcceptComposerAttachments(): boolean {
+  return !needsPlatformLogin.value && !tokenQuotaBlocked.value && settings.settings.hasKey
+}
+
+function dragEventHasFiles(dt: DataTransfer | null | undefined): boolean {
+  if (!dt) return false
+  return Array.from(dt.types).includes('Files')
+}
+
+function droppedFileLocalPath(file: File): string | undefined {
+  const path = (file as File & { path?: string }).path?.trim()
+  return path || undefined
+}
+
+async function addDroppedAttachmentFile(file: File) {
+  if (isTauriRuntime()) {
+    const localPath = droppedFileLocalPath(file)
+    if (localPath) {
+      try {
+        await addAttachmentFromLocalPath(localPath)
+        return
+      } catch (err) {
+        console.warn('dropped file path attach failed, falling back to file read', localPath, err)
+      }
+    }
+  }
+  await addAttachmentFile(file)
+}
+
+function onComposerDragEnter(e: DragEvent) {
+  if (!canAcceptComposerAttachments() || !dragEventHasFiles(e.dataTransfer)) return
+  e.preventDefault()
+  composerDragDepth.value += 1
+}
+
+function onComposerDragOver(e: DragEvent) {
+  if (!canAcceptComposerAttachments() || !dragEventHasFiles(e.dataTransfer)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+
+function onComposerDragLeave(e: DragEvent) {
+  if (!dragEventHasFiles(e.dataTransfer)) return
+  e.preventDefault()
+  composerDragDepth.value = Math.max(0, composerDragDepth.value - 1)
+}
+
+async function onComposerDrop(e: DragEvent) {
+  composerDragDepth.value = 0
+  if (!canAcceptComposerAttachments()) return
+  e.preventDefault()
+  e.stopPropagation()
+  const files = e.dataTransfer?.files
+  if (!files?.length) return
+  for (const file of Array.from(files)) {
+    try {
+      await addDroppedAttachmentFile(file)
+    } catch (err) {
+      console.error('drop attachment failed', err)
+    }
+  }
+  nextTick(() => textareaRef.value?.focus())
+}
+
 function removePendingAttachment(id: string) {
   composerAttachments.value = composerAttachments.value.filter(a => a.id !== id)
   releaseComposerAttachment(id)
@@ -890,7 +956,14 @@ onUnmounted(() => {
         :items="outboundQueueList"
       />
 
-      <div class="panel-elevated rounded-2xl border border-border overflow-visible px-2 pb-2 pt-[18px]">
+      <div
+        class="panel-elevated rounded-2xl border overflow-visible px-2 pb-2 pt-[18px] transition-colors"
+        :class="isComposerDragOver ? 'border-accent/50 bg-accent-muted/15' : 'border-border'"
+        @dragenter="onComposerDragEnter"
+        @dragover="onComposerDragOver"
+        @dragleave="onComposerDragLeave"
+        @drop="onComposerDrop"
+      >
         <input
           ref="fileInputRef"
           type="file"

@@ -118,8 +118,13 @@ Unverified assumptions (optional).
 
 **`computer` (general lead only)**
 
-- **User consent required** before **`run_subagent`** — offer first; skip only if the user
-  already asked you to operate their machine.
+- **User consent required** before **every** **`run_subagent(computer)`** call.
+- **Offer first** — ask whether to operate the user's machine for **this** task.
+- **Prior consent does not carry forward.** A yes for an earlier task, an earlier
+  turn, or a prior session does **not** authorize a new delegation.
+- **Only skip the separate ask** when the user's **current message** explicitly
+  authorizes hands-on desktop work for **this same task** (not a vague follow-up
+  like "continue", "do it", or "same as before").
 - Optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
 - **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** (**Facts**) — the worker planner uses it for **`work_items_source`** on init.
 

@@ -14,7 +14,7 @@ Pointer 可通过 **run_subagent** 将子任务委派给专用 worker（如 **ex
 ## 内置行为
 
 - 内置 **coder** 已默认允许 **explore** 子 Agent，用于代码库探索
-- **general** 委派 **coder** / **computer** 时，部分场景需用户确认
+- **general** 委派 **computer** 时，**每次**子任务都需用户确认；先前同意过的任务或轮次**不能**自动沿用
 
 ## 自定义 Agent
 

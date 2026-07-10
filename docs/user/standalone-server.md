@@ -1,58 +1,44 @@
 # 独立部署 standalone-server
 
-pointer-server 可以脱离官方平台独立部署，**不需要 Docker**，裸机编译运行。
+pointer-server 可脱离官方平台独立部署。交付物为**安装包**（如 Linux `.deb`），无需 Docker，也无需源码。
 
 ---
 
 ## 快速开始
 
-### 方式一：下载 .deb 安装（推荐 Linux）
+### 1. 安装
+
+以 Linux `.deb` 为例（包名以实际交付为准）：
 
 ```bash
-# 安装
 sudo dpkg -i pointer-server_0.1.0_amd64.deb
+```
 
-# 获取机器绑定信息（发给 License 签发方）
-/usr/bin/pointer-server --machine-id-json   # 推荐：含漂移锚点
+安装后常用路径：
+
+| 内容 | 路径 |
+|------|------|
+| 可执行文件 | `/usr/bin/pointer-server` |
+| 配置目录 | `/etc/pointer-server/` |
+| 配置示例 | `/etc/pointer-server/pointer-server.toml.example` |
+| 正式配置 | `/etc/pointer-server/pointer-server.toml` |
+| systemd 服务 | `pointer-server` |
+
+### 2. 获取机器绑定信息（首次部署）
+
+```bash
+/usr/bin/pointer-server --machine-id-json   # 推荐：完整 JSON（含漂移锚点）
 # 或
 /usr/bin/pointer-server --machine-id        # 仅主 token（fp1:…）
-
-# 配置
-sudo cp /etc/pointer-server/pointer-server.toml.example /etc/pointer-server/pointer-server.toml
-sudo vi /etc/pointer-server/pointer-server.toml
-
-# 启动
-sudo systemctl enable --now pointer-server
 ```
 
-### 方式二：从源码编译
-
-```bash
-# 构建前端
-npm run build
-
-# 编译服务端
-cargo build -p pointer-server --release
-
-# 产物：target/release/pointer-server
-```
-
-### 2. 获取机器绑定信息（新机器首次部署）
-
-```bash
-./pointer-server --machine-id-json   # 推荐：完整 JSON（含漂移锚点）
-# 或
-./pointer-server --machine-id        # 主绑定 token（fp1:…）
-```
-
-把 JSON 文件或 token 发给 License 签发方。v2 指纹在 OS 重装后仍可通过 board / cloud 锚点验证；旧版裸 UUID 仍兼容。
+把输出发给 License 签发方。v2 指纹在 OS 重装后仍可通过 board / cloud 锚点验证。
 
 ### 3. 编辑配置
 
-复制示例配置并修改：
-
 ```bash
-cp server/pointer-server.toml.example ./pointer-server.toml
+sudo cp /etc/pointer-server/pointer-server.toml.example /etc/pointer-server/pointer-server.toml
+sudo vi /etc/pointer-server/pointer-server.toml
 ```
 
 最小配置示例：
@@ -88,21 +74,21 @@ public_url = "https://pointer.example.com"
 app_data_dir = "/var/lib/pointer"
 ```
 
+生成登录密码摘要（写入 `[auth.local].password_hmac`）：
+
+```bash
+/usr/bin/pointer-server --hash-password --secret 'replace-with-long-random-secret' 'your-password'
+# 输出：password_hmac = "...."
+```
+
 ### 4. 启动
 
 ```bash
-./target/release/pointer-server
+sudo systemctl enable --now pointer-server
+sudo systemctl status pointer-server
 ```
 
-浏览器打开 `http://localhost:8787` → 用配置的账号密码 + 验证码登录 → 开始对话。
-
-生成 `password_hmac`：
-
-```bash
-./pointer-server --hash-password --secret 'replace-with-long-random-secret' 'your-password'
-# 输出：password_hmac = "...."
-# 将输出写入 pointer-server.toml 的 [auth.local].password_hmac
-```
+浏览器打开配置的 `public_url`（本机可先用 `http://localhost:8787`）→ 用账号、密码、验证码登录 → 开始对话。
 
 ---
 
@@ -171,22 +157,16 @@ curl -X POST http://localhost:8787/api/license/reload
 ```
 客户方                              签发方（管理员）
 ──────                              ─────────────────
-1. 下载 pointer-server 二进制
-2. 运行获取绑定信息：
-   ./pointer-server --machine-id-json > identity.json
+1. 安装交付的 pointer-server 安装包
+2. 获取绑定信息：
+   /usr/bin/pointer-server --machine-id-json > identity.json
     ──── 把 identity.json 发给签发方 ─→
-                                    3. 签发绑定 License：
-                                       license-gen sign \\
-                                         --private-key license.key \\
-                                         --customer-id acme \\
-                                         --expires 2027-12-31 \\
-                                         --features chat,webhook \\
-                                         --machine-id-json identity.json
+                                    3. 签发绑定 License
     ←──── 收到 License Key ─────────
-4. 写入 pointer-server.toml：
+4. 写入 /etc/pointer-server/pointer-server.toml：
    [license]
    key = "base64_payload.base64_signature"
-5. 启动 → 成功
+5. systemctl enable --now pointer-server → 成功
 ```
 
 ---
@@ -283,7 +263,7 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 
 ### Q: 启动报 "license bound to machine_id=... but this machine is ..."
 
-License 绑定了其他机器，需要申请当前机器的 License。运行 `./pointer-server --machine-id-json` 获取完整绑定信息。
+License 绑定了其他机器，需要申请当前机器的 License。运行 `/usr/bin/pointer-server --machine-id-json` 获取完整绑定信息。
 
 ### Q: 提示「请先登录」
 

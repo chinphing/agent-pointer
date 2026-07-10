@@ -10,7 +10,9 @@ use anyhow::{Context, Result};
 use crate::storage::app_data_dir;
 
 use super::access::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
-use super::store::{media_abs_path, media_abs_path_unscoped, CONVERSATION_MEDIA_DIR};
+use super::store::{
+    is_app_data_subtree_rel, media_abs_path, media_abs_path_unscoped, CONVERSATION_MEDIA_DIR,
+};
 
 /// True for persisted attachment rel paths (not user absolute/`~/` paths).
 pub fn is_storage_rel_path(raw: &str) -> bool {
@@ -21,6 +23,7 @@ pub fn is_storage_rel_path(raw: &str) -> bool {
     let rel = trimmed.trim_start_matches('/');
     !rel.is_empty()
         && !path_has_traversal(rel)
+        && !is_app_data_subtree_rel(rel)
         && rel.contains('/')
 }
 
@@ -43,6 +46,15 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
             return Ok(path);
         }
         anyhow::bail!("media file not found: {trimmed}");
+    }
+
+    if is_app_data_subtree_rel(trimmed) {
+        let rel = trimmed.trim_start_matches('/');
+        let path = app_data_dir()?.join(rel);
+        if path.is_file() || path.is_dir() {
+            return Ok(path);
+        }
+        anyhow::bail!("media file not found under app data: {}", path.display());
     }
 
     if is_storage_rel_path(trimmed) {
@@ -123,9 +135,39 @@ mod tests {
     }
 
     #[test]
-    fn absolute_path_under_app_support_is_user_path_not_storage_rel() {
-        let raw = "/Users/me/Library/Application Support/PointerAppDev/conversation-media/conv/a.pdf";
-        assert!(is_user_filesystem_path(raw));
+    fn resolve_generated_media_rel_under_app_data() {
+        use super::super::store::GENERATED_MEDIA_PREFIX;
+        use crate::storage::app_data_dir;
+        use std::fs;
+
+        let root = app_data_dir().expect("app data");
+        let rel = format!("{GENERATED_MEDIA_PREFIX}_resolve_test/conv/a.png");
+        let file = root.join(&rel);
+        if let Some(parent) = file.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&file, b"img").unwrap();
+
+        let path = resolve_local_media_path(&rel).expect("resolve generated media");
+        assert_eq!(path, file);
+
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir_all(root.join("generated-media/_resolve_test"));
+    }
+
+    #[test]
+    fn generated_media_prefix_is_app_data_subtree_not_storage_rel() {
+        use super::super::store::is_app_data_subtree_rel;
+        let raw = "generated-media/user/conv/abc.png";
+        assert!(is_app_data_subtree_rel(raw));
+        assert!(!is_storage_rel_path(raw));
+    }
+
+    #[test]
+    fn session_sandbox_prefix_is_app_data_subtree_not_storage_rel() {
+        use super::super::store::is_app_data_subtree_rel;
+        let raw = "session-sandboxes/user/conv/out.png";
+        assert!(is_app_data_subtree_rel(raw));
         assert!(!is_storage_rel_path(raw));
     }
 }

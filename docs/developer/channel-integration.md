@@ -157,14 +157,18 @@ IM 入站触发 `run_chat` 时，流式事件（工具调用、推理、子 Agen
 ```
 这是分析结果。
 MEDIA:pointer-media://{convId}/{attachmentId}.png
+MEDIA:pointer-media://generated-media/{user}/{conv}/{uuid}.png
 MEDIA:/absolute/path/to/report.pdf
 ```
 
 路径解析顺序：
 
 1. `pointer-media://` 或 `conversation-media/` 相对路径 → 应用数据目录下的已保存附件
-2. 绝对路径 → 直接读取
-3. 相对路径 → 依次尝试数据目录、工作区
+2. `generated-media/`、`session-sandboxes/` 前缀 → `{app_data}/` 下对应子目录（AI 生成图/视频、会话沙箱产出）
+3. 绝对路径 → 直接读取
+4. 相对路径 → 依次尝试数据目录、工作区
+
+出站解析（`resolve_outbound_media`）对 app 托管路径（storage rel、`generated-media/`、`session-sandboxes/`）在本地解析成功后即视为可投递；仅工作区相对路径额外要求落在 `app_data` 内，避免 server 模式读到本机 cwd 外文件。
 
 发送行为：
 

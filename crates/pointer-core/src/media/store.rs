@@ -8,7 +8,7 @@ use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
 use crate::user_storage::session_user_id_for_conversation;
 
 use super::access::{
-    assert_app_media_preview_allowed, is_user_filesystem_path, path_has_traversal,
+    assert_app_media_preview_allowed, path_has_traversal,
 };
 use super::filename::{allocate_unique_stored_basename, safe_attachment_basename};
 use super::layout::{build_storage_rel, parse_storage_rel, verify_storage_rel_access};
@@ -16,6 +16,16 @@ use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 
 pub const CONVERSATION_MEDIA_DIR: &str = "conversation-media";
+
+/// App-data subtrees outside `conversation-media/` that use their own rel prefix.
+pub const GENERATED_MEDIA_PREFIX: &str = "generated-media/";
+pub const SESSION_SANDBOXES_PREFIX: &str = "session-sandboxes/";
+
+/// True for rel paths stored directly under `{app_data}/` (not conversation attachment layout).
+pub fn is_app_data_subtree_rel(raw: &str) -> bool {
+    let rel = raw.trim().trim_start_matches('/');
+    rel.starts_with(GENERATED_MEDIA_PREFIX) || rel.starts_with(SESSION_SANDBOXES_PREFIX)
+}
 
 pub fn conversation_media_root() -> Result<PathBuf> {
     Ok(app_data_dir()?.join(CONVERSATION_MEDIA_DIR))
@@ -69,6 +79,22 @@ pub fn path_under_app_data(path: &Path) -> Result<bool> {
     Ok(canonical.starts_with(&root))
 }
 
+/// Best-effort check for outbound / preview guards; falls back to non-canonical prefix match.
+pub fn path_is_under_app_data(path: &Path) -> bool {
+    match path_under_app_data(path) {
+        Ok(under) => under,
+        Err(e) => {
+            log::warn!(
+                "path_is_under_app_data canonicalize failed path={}: {e:#}; trying prefix check",
+                path.display()
+            );
+            app_data_dir()
+                .ok()
+                .is_some_and(|root| path.starts_with(&root))
+        }
+    }
+}
+
 /// Map an on-disk file under app data to a storage rel path for API / IM delivery.
 pub fn app_data_media_rel_from_abs(path: &Path) -> Option<String> {
     let data_dir = app_data_dir().ok()?;
@@ -79,7 +105,7 @@ pub fn app_data_media_rel_from_abs(path: &Path) -> Option<String> {
     if let Some(stripped) = rel_str.strip_prefix("conversation-media/") {
         return Some(stripped.to_string());
     }
-    if rel_str.starts_with("generated-media/") {
+    if rel_str.starts_with(GENERATED_MEDIA_PREFIX) || rel_str.starts_with(SESSION_SANDBOXES_PREFIX) {
         return Some(rel_str);
     }
     None
@@ -238,11 +264,6 @@ pub fn read_media_ref_preview(media_ref: &str) -> Result<ChatMediaPreview> {
         .strip_prefix(MEDIA_URI_SCHEME)
         .map(str::trim)
         .unwrap_or(trimmed);
-
-    if !is_user_filesystem_path(rel) && rel.contains('/') {
-        let path = media_abs_path(rel)?;
-        return read_file_preview(&path);
-    }
 
     if path_has_traversal(rel) {
         anyhow::bail!("media path traversal not allowed: {rel}");

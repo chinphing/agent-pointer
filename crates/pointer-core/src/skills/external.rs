@@ -266,6 +266,47 @@ pub fn import_skill_path(source: &Path) -> Result<SkillImportResult> {
     import_skill_dir(source)
 }
 
+fn normalize_zip_entry_path(name: &str) -> String {
+    let mut s = name.replace('\\', "/");
+    while s.starts_with("./") {
+        s = s[2..].to_string();
+    }
+    while s.starts_with('/') {
+        s = s[1..].to_string();
+    }
+    if s.ends_with('/') && s.len() > 1 {
+        s.pop();
+    }
+    s
+}
+
+fn zip_manifest_base(name: &str) -> PathBuf {
+    let normalized = normalize_zip_entry_path(name);
+    Path::new(&normalized)
+        .parent()
+        .map(|parent| PathBuf::from(normalize_zip_entry_path(&parent.to_string_lossy())))
+        .unwrap_or_default()
+}
+
+fn zip_entry_relative_to_base(entry: &str, base: &Path) -> Option<PathBuf> {
+    let entry_norm = normalize_zip_entry_path(entry);
+    if entry_norm.is_empty() {
+        return None;
+    }
+    let base_norm = normalize_zip_entry_path(&base.to_string_lossy());
+    if base_norm.is_empty() {
+        return Some(PathBuf::from(entry_norm));
+    }
+    if entry_norm == base_norm {
+        return None;
+    }
+    let prefix = format!("{base_norm}/");
+    if !entry_norm.starts_with(&prefix) {
+        return None;
+    }
+    Some(PathBuf::from(&entry_norm[prefix.len()..]))
+}
+
 pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
     if bytes.len() > MAX_ZIP_SIZE {
         return Err(anyhow!("Skills zip 文件过大，最大支持 20MB"));
@@ -280,13 +321,13 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         if file.is_dir() || file.size() > MAX_ENTRY_SIZE {
             continue;
         }
-        let name = file.name().replace('\\', "/");
+        let name = normalize_zip_entry_path(file.name());
         if is_manifest_path(&name) {
             let mut raw = String::new();
             file.read_to_string(&mut raw)?;
             let manifest = parse_skill_md(&raw).with_context(|| format!("解析 {} 失败", name))?;
-            let base = Path::new(&name).parent().unwrap_or_else(|| Path::new(""));
-            manifests.push((manifest, base.to_path_buf()));
+            let base = zip_manifest_base(&name);
+            manifests.push((manifest, base));
         }
     }
 
@@ -532,27 +573,20 @@ fn extract_skill_dir<R: Read + std::io::Seek>(
 ) -> Result<()> {
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let name = file.name().replace('\\', "/");
-        let path = Path::new(&name);
-        if !base.as_os_str().is_empty() && !path.starts_with(base) {
+        let name = file.name();
+        let Some(rel) = zip_entry_relative_to_base(name, base) else {
             continue;
-        }
-
-        let rel = if base.as_os_str().is_empty() {
-            path
-        } else {
-            path.strip_prefix(base)?
         };
         if rel.as_os_str().is_empty() {
             continue;
         }
-        let out_path = safe_join(target, rel)?;
+        let out_path = safe_join(target, &rel)?;
 
         if file.is_dir() {
             fs::create_dir_all(&out_path)?;
         } else {
             if file.size() > MAX_ENTRY_SIZE {
-                return Err(anyhow!("zip 条目过大: {}", name));
+                return Err(anyhow!("zip 条目过大: {}", normalize_zip_entry_path(name)));
             }
             if let Some(parent) = out_path.parent() {
                 fs::create_dir_all(parent)?;
@@ -942,5 +976,95 @@ mod tests {
             .expect("agents-demo from ~/.agents/skills");
         assert_eq!(skill.provenance, "external");
         assert!(!skill.mutable);
+    }
+
+    #[test]
+    fn normalize_zip_entry_path_strips_leading_dot_slash() {
+        assert_eq!(normalize_zip_entry_path("./pdf/SKILL.md"), "pdf/SKILL.md");
+        assert_eq!(normalize_zip_entry_path("pdf/scripts/run.py"), "pdf/scripts/run.py");
+    }
+
+    #[test]
+    fn zip_entry_relative_handles_mixed_prefix() {
+        let base = PathBuf::from("pdf");
+        assert_eq!(
+            zip_entry_relative_to_base("pdf/scripts/run.py", &base)
+                .map(|p| p.to_string_lossy().into_owned()),
+            Some("scripts/run.py".to_string())
+        );
+        assert_eq!(
+            zip_entry_relative_to_base("./pdf/scripts/run.py", &base)
+                .map(|p| p.to_string_lossy().into_owned()),
+            Some("scripts/run.py".to_string())
+        );
+        assert!(zip_entry_relative_to_base("other/scripts/run.py", &base).is_none());
+    }
+
+    #[test]
+    fn copy_dir_all_preserves_scripts_tree() {
+        use std::fs;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src-skill");
+        let dst = tmp.path().join("dst-skill");
+        fs::create_dir_all(src.join("scripts")).unwrap();
+        fs::create_dir_all(src.join("references")).unwrap();
+        fs::write(src.join("SKILL.md"), "manifest").unwrap();
+        fs::write(src.join("scripts/run.sh"), "#!/bin/sh\n").unwrap();
+        fs::write(src.join("references/guide.md"), "guide").unwrap();
+
+        copy_dir_all(&src, &dst).expect("copy_dir_all");
+
+        assert!(dst.join("scripts/run.sh").is_file());
+        assert!(dst.join("references/guide.md").is_file());
+        assert!(dst.join("SKILL.md").is_file());
+    }
+
+    #[test]
+    fn import_skill_zip_extracts_whole_skill_directory() {
+        use std::fs;
+        use std::io::Write;
+        use std::sync::{Mutex, OnceLock};
+        use zip::write::{SimpleFileOptions, ZipWriter};
+        use zip::CompressionMethod;
+
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let manifest = "---\nname: zip-pack\ndescription: Zip import demo.\n---\nBody\n";
+        let mut zip_bytes = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut zip_bytes));
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            for (name, content) in [
+                ("./zip-pack/SKILL.md", manifest.as_bytes()),
+                ("zip-pack/scripts/helper.py", b"print('hi')\n"),
+                ("zip-pack/assets/icon.svg", b"<svg/>"),
+            ] {
+                zip.start_file(name, options).unwrap();
+                zip.write_all(content).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home);
+        let result = import_skill_zip(&zip_bytes).expect("import zip");
+        let target = home.join(".pointer/skills/zip-pack");
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        assert_eq!(result.imported.len(), 1);
+        assert_eq!(result.imported[0].id, "zip-pack");
+        assert!(target.join("scripts/helper.py").is_file());
+        assert!(target.join("assets/icon.svg").is_file());
+        let script = fs::read_to_string(target.join("scripts/helper.py")).unwrap();
+        assert!(script.contains("print('hi')"));
     }
 }

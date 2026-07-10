@@ -93,9 +93,11 @@ const agentBtnRef = ref<HTMLButtonElement | null>(null)
 const agentPickerRef = ref<HTMLDivElement | null>(null)
 const workspaceInputRef = ref<HTMLInputElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const composerDropZoneRef = ref<HTMLDivElement | null>(null)
 const attachmentHint = ref<string | null>(null)
 const composerDragDepth = ref(0)
 const isComposerDragOver = computed(() => composerDragDepth.value > 0)
+let unlistenTauriDragDrop: (() => void) | null = null
 
 const agents = useAgentsCatalog()
 
@@ -523,9 +525,68 @@ function canAcceptComposerAttachments(): boolean {
   return !needsPlatformLogin.value && !tokenQuotaBlocked.value && settings.settings.hasKey
 }
 
-function dragEventHasFiles(dt: DataTransfer | null | undefined): boolean {
+function composerAttachmentBlockedHint(): string {
+  if (needsPlatformLogin.value) {
+    return platformAuth.isStandalone ? '请先登录后再添加附件' : '请先登录 Pointer 账户后再添加附件'
+  }
+  if (tokenQuotaBlocked.value) return '账户余额已用尽，暂无法添加附件'
+  if (!settings.settings.hasKey) return '请先在设置中配置 API Key'
+  return '当前无法添加附件'
+}
+
+function isLikelyFileDrag(dt: DataTransfer | null | undefined): boolean {
   if (!dt) return false
-  return Array.from(dt.types).includes('Files')
+  const types = Array.from(dt.types || [])
+  if (types.includes('Files')) return true
+  if (dt.files?.length) return true
+  return Array.from(dt.items || []).some(item => item.kind === 'file')
+}
+
+function isComposerDropTargetAt(clientX: number, clientY: number): boolean {
+  const zone = composerDropZoneRef.value
+  if (!zone) return false
+  const el = document.elementFromPoint(clientX, clientY)
+  return !!(el && (zone === el || zone.contains(el)))
+}
+
+function logicalPointFromTauriDrag(position: { x: number; y: number }) {
+  const scale = window.devicePixelRatio || 1
+  return { x: position.x / scale, y: position.y / scale }
+}
+
+async function ingestDroppedPaths(paths: string[]) {
+  if (!paths.length) return
+  if (!canAcceptComposerAttachments()) {
+    attachmentHint.value = composerAttachmentBlockedHint()
+    return
+  }
+  attachmentHint.value = null
+  for (const path of paths) {
+    try {
+      await addAttachmentFromLocalPath(path)
+    } catch (err) {
+      console.error('drop attachment from path failed', path, err)
+      attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
+    }
+  }
+  nextTick(() => textareaRef.value?.focus())
+}
+
+async function ingestDroppedFiles(files: File[]) {
+  if (!files.length) return
+  if (!canAcceptComposerAttachments()) {
+    attachmentHint.value = composerAttachmentBlockedHint()
+    return
+  }
+  attachmentHint.value = null
+  for (const file of files) {
+    try {
+      await addDroppedAttachmentFile(file)
+    } catch (err) {
+      console.error('drop attachment failed', err)
+    }
+  }
+  nextTick(() => textareaRef.value?.focus())
 }
 
 function droppedFileLocalPath(file: File): string | undefined {
@@ -549,38 +610,61 @@ async function addDroppedAttachmentFile(file: File) {
 }
 
 function onComposerDragEnter(e: DragEvent) {
-  if (!canAcceptComposerAttachments() || !dragEventHasFiles(e.dataTransfer)) return
+  if (!canAcceptComposerAttachments() || !isLikelyFileDrag(e.dataTransfer)) return
   e.preventDefault()
+  e.stopPropagation()
   composerDragDepth.value += 1
 }
 
 function onComposerDragOver(e: DragEvent) {
-  if (!canAcceptComposerAttachments() || !dragEventHasFiles(e.dataTransfer)) return
+  if (!canAcceptComposerAttachments()) return
+  if (!isLikelyFileDrag(e.dataTransfer)) return
   e.preventDefault()
+  e.stopPropagation()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 }
 
 function onComposerDragLeave(e: DragEvent) {
-  if (!dragEventHasFiles(e.dataTransfer)) return
-  e.preventDefault()
+  const el = e.currentTarget as HTMLElement
+  const related = e.relatedTarget as Node | null
+  if (related && el.contains(related)) return
   composerDragDepth.value = Math.max(0, composerDragDepth.value - 1)
 }
 
 async function onComposerDrop(e: DragEvent) {
   composerDragDepth.value = 0
-  if (!canAcceptComposerAttachments()) return
   e.preventDefault()
   e.stopPropagation()
   const files = e.dataTransfer?.files
   if (!files?.length) return
-  for (const file of Array.from(files)) {
-    try {
-      await addDroppedAttachmentFile(file)
-    } catch (err) {
-      console.error('drop attachment failed', err)
-    }
+  await ingestDroppedFiles(Array.from(files))
+}
+
+async function setupTauriComposerDragDrop() {
+  if (!isTauriRuntime()) return
+  try {
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+    const webview = getCurrentWebview()
+    unlistenTauriDragDrop = await webview.onDragDropEvent(async event => {
+      const payload = event.payload
+      if (payload.type === 'over') {
+        const { x, y } = logicalPointFromTauriDrag(payload.position)
+        composerDragDepth.value =
+          canAcceptComposerAttachments() && isComposerDropTargetAt(x, y) ? 1 : 0
+        return
+      }
+      if (payload.type === 'drop') {
+        composerDragDepth.value = 0
+        const { x, y } = logicalPointFromTauriDrag(payload.position)
+        if (!isComposerDropTargetAt(x, y)) return
+        await ingestDroppedPaths(payload.paths)
+        return
+      }
+      composerDragDepth.value = 0
+    })
+  } catch (err) {
+    console.warn('tauri composer drag-drop listener failed', err)
   }
-  nextTick(() => textareaRef.value?.focus())
 }
 
 function removePendingAttachment(id: string) {
@@ -903,11 +987,14 @@ onMounted(() => {
     chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
   }
   document.addEventListener('click', handleClickOutside)
+  void setupTauriComposerDragDrop()
 })
 
 onUnmounted(() => {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
   document.removeEventListener('click', handleClickOutside)
+  unlistenTauriDragDrop?.()
+  unlistenTauriDragDrop = null
 })
 </script>
 
@@ -957,12 +1044,13 @@ onUnmounted(() => {
       />
 
       <div
+        ref="composerDropZoneRef"
         class="panel-elevated rounded-2xl border overflow-visible px-2 pb-2 pt-[18px] transition-colors"
         :class="isComposerDragOver ? 'border-accent/50 bg-accent-muted/15' : 'border-border'"
-        @dragenter="onComposerDragEnter"
-        @dragover="onComposerDragOver"
-        @dragleave="onComposerDragLeave"
-        @drop="onComposerDrop"
+        @dragenter.capture="onComposerDragEnter"
+        @dragover.capture="onComposerDragOver"
+        @dragleave.capture="onComposerDragLeave"
+        @drop.capture="onComposerDrop"
       >
         <input
           ref="fileInputRef"

@@ -151,7 +151,7 @@ pub(super) async fn run_chat_inner(
         ));
     } else {
         let msg = if crate::deployment_mode::is_standalone() {
-            "请先使用 admin token 登录"
+            "请先登录"
         } else {
             "请先登录 Pointer 账户"
         };

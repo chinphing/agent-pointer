@@ -1291,7 +1291,7 @@ export const useChatStore = defineStore('chat', () => {
         errorMessage:
           refreshErrorMessage ||
           platformAuth.error ||
-          '请先登录 Pointer 账户'
+          (platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户')
       })
       return
     }

@@ -88,6 +88,8 @@ pub(crate) struct ServerState {
     oauth_pending: Arc<RwLock<HashMap<String, PkcePending>>>,
     /// Per-browser platform OAuth sessions (cookie `pointer_web_session`).
     web_sessions: Arc<WebSessionStore>,
+    /// Standalone login captcha challenges (in-memory, one-time).
+    captcha_store: Arc<local_auth::CaptchaStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,8 +103,62 @@ struct PkcePending {
 async fn main() -> anyhow::Result<()> {
     pointer_core::logging::init_backtrace_defaults();
 
-    // --machine-id / --machine-id-json: print binding material and exit (no config/license needed)
     let args: Vec<String> = std::env::args().collect();
+
+    // --hash-password: print password_hmac for [auth.local] (needs hmac_secret).
+    // Usage: pointer-server --hash-password [--secret SECRET] [PASSWORD]
+    // If PASSWORD omitted, read one line from stdin.
+    if let Some(idx) = args.iter().position(|a| a == "--hash-password") {
+        let mut secret = std::env::var("POINTER_SERVER_AUTH_HMAC_SECRET").unwrap_or_default();
+        let mut password = String::new();
+        let mut i = idx + 1;
+        while i < args.len() {
+            if args[i] == "--secret" {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("error: --secret requires a value");
+                    std::process::exit(1);
+                }
+                secret = args[i].clone();
+            } else if password.is_empty() && !args[i].starts_with('-') {
+                password = args[i].clone();
+            } else {
+                eprintln!("error: unexpected argument {}", args[i]);
+                std::process::exit(1);
+            }
+            i += 1;
+        }
+        if secret.trim().is_empty() {
+            // Try loading config so hmac_secret from TOML is available.
+            let _ = pointer_core::server_config::load_server_config();
+            secret = std::env::var("POINTER_SERVER_AUTH_HMAC_SECRET").unwrap_or_default();
+        }
+        if secret.trim().is_empty() {
+            eprintln!(
+                "error: hmac_secret required (pass --secret, set POINTER_SERVER_AUTH_HMAC_SECRET, \
+                 or configure [auth.local].hmac_secret in pointer-server.toml)"
+            );
+            std::process::exit(1);
+        }
+        if password.is_empty() {
+            use std::io::Read;
+            let mut buf = String::new();
+            if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                eprintln!("error: failed to read password from stdin: {e}");
+                std::process::exit(1);
+            }
+            password = buf.trim_end_matches(['\r', '\n']).to_string();
+        }
+        if password.is_empty() {
+            eprintln!("error: empty password");
+            std::process::exit(1);
+        }
+        let digest = pointer_core::local_auth::hmac_sha256_hex(secret.trim(), &password);
+        println!("password_hmac = \"{digest}\"");
+        return Ok(());
+    }
+
+    // --machine-id / --machine-id-json: print binding material and exit (no config/license needed)
     if args.iter().any(|a| a == "--machine-id-json") {
         match pointer_core::license::current_machine_identity() {
             Ok(view) => {
@@ -155,7 +211,14 @@ async fn main() -> anyhow::Result<()> {
 
     storage::set_platform_auth_persist_enabled(false);
     if pointer_core::deployment_mode::is_standalone() {
-        log::info!("pointer-server: standalone mode — local admin auth + config-injected LLM keys");
+        log::info!("pointer-server: standalone mode — local password auth + config-injected LLM keys");
+        pointer_core::local_auth::warn_if_deprecated_admin_token_configured();
+        if !pointer_core::local_auth::local_password_auth_configured() {
+            log::warn!(
+                "pointer-server: standalone auth incomplete — set [auth.local] username, \
+                 password_hmac, and hmac_secret (or matching POINTER_SERVER_ADMIN_* env vars)"
+            );
+        }
     } else {
         log::info!("pointer-server: web mode — auth.dat persistence disabled; per-browser cookie sessions");
     }
@@ -177,7 +240,7 @@ async fn main() -> anyhow::Result<()> {
             if pointer_core::deployment_mode::is_standalone() {
                 log::warn!(
                     "platform_auth: POINTER_SERVER_PUBLIC_URL not configured (standalone); \
-                     OAuth routes disabled, use POST /api/auth/local/login"
+                     OAuth routes disabled, use username/password via POST /api/auth/local/login"
                 );
             } else {
                 log::warn!(
@@ -239,6 +302,7 @@ async fn main() -> anyhow::Result<()> {
         registration,
         oauth_pending: Arc::new(RwLock::new(HashMap::new())),
         web_sessions: web_sessions.clone(),
+        captcha_store: Arc::new(local_auth::CaptchaStore::default()),
     };
 
     // Phase 5: start the cron scheduler. The server (web host) enables it by
@@ -260,7 +324,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
+        .route("/api/auth/mode", get(local_auth::auth_mode))
         .route("/api/auth/login/start", post(start_platform_login))
+        .route("/api/auth/local/captcha", get(local_auth::local_captcha))
         .route("/api/auth/local/login", post(local_auth::local_login))
         .route("/api/auth/oauth/callback", get(platform_oauth_callback))
         .route("/api/auth/logout", post(platform_logout))
@@ -2610,7 +2676,7 @@ async fn start_platform_login(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     if pointer_core::deployment_mode::is_standalone() {
         return Err(ApiError(anyhow::anyhow!(
-            "platform OAuth disabled in standalone mode; use POST /api/auth/local/login"
+            "platform OAuth disabled in standalone mode; use POST /api/auth/local/login with username/password"
         )));
     }
     let public_url = resolve_server_public_url().ok_or_else(|| {

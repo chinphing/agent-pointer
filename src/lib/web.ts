@@ -480,6 +480,39 @@ export interface PlatformSessionView {
   tokenQuotaExhausted?: boolean
 }
 
+export type AuthMode = 'platform' | 'standalone'
+
+export async function getAuthMode(): Promise<AuthMode> {
+  try {
+    const res = await request<{ mode: string }>('/api/auth/mode')
+    return res.mode === 'standalone' ? 'standalone' : 'platform'
+  } catch (e) {
+    console.warn('getAuthMode failed; defaulting to platform', e)
+    return 'platform'
+  }
+}
+
+export interface LocalCaptcha {
+  captchaId: string
+  imageSvg: string
+}
+
+export async function fetchLocalCaptcha(): Promise<LocalCaptcha> {
+  return await request<LocalCaptcha>('/api/auth/local/captcha')
+}
+
+export async function localLogin(body: {
+  username: string
+  password: string
+  captchaId: string
+  captcha: string
+}): Promise<PlatformSessionView> {
+  return await request<PlatformSessionView>('/api/auth/local/login', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
+
 export async function getPlatformSession(): Promise<PlatformSessionView> {
   return await request<PlatformSessionView>('/api/platform/session')
 }

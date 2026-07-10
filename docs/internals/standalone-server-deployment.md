@@ -12,13 +12,13 @@
 |------|------|--------|
 | **Pointer 构建机** | 编译 server / license-gen | zip 或 deb 安装包 |
 | **Pointer 签发方** | 保管 Ed25519 私钥，为客户签 License | `license.key`（离线）、签发的 License 字符串 |
-| **客户运维** | 部署 server、配置 LLM、Admin Token | 可访问的 Web UI + API |
+| **客户运维** | 部署 server、配置 LLM、账号密码 | 可访问的 Web UI + API |
 
 Standalone 模式要点：
 
 - **必须**有效 License（Ed25519 验签，公钥编译在 `crates/pointer-core/license.pub`）
 - **必须**在 TOML 配置 LLM Provider（各供应商 `api_key` 由客户自行填写）
-- **使用 Admin Token 登录**，不走 readflowai.com OAuth
+- **使用账号密码 + 验证码登录**，不走 readflowai.com OAuth
 - 默认**不上报** Token 用量（`report_enabled = false`）
 
 ---
@@ -246,16 +246,17 @@ Environment=POINTER_SERVER_CONFIG=/etc/pointer-server/pointer-server.toml
 ```toml
 # =============================================================================
 # pointer-server standalone 生产配置模板
-# 复制为 pointer-server.toml 后修改 api_key、admin_token、license.key、public_url
+# 复制为 pointer-server.toml 后修改 api_key、auth.local、license.key、public_url
 # =============================================================================
 
 [deployment]
 mode = "standalone"
 
 [auth.local]
-# 管理员登录令牌（Web UI / POST /api/auth/local/login）
-# 建议使用 32+ 字符随机串，勿与 LLM api_key 混用
-admin_token = "REPLACE-WITH-STRONG-RANDOM-SECRET"
+username = "admin"
+hmac_secret = "REPLACE-WITH-LONG-RANDOM-SECRET"
+# Generate: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
+password_hmac = "REPLACE-WITH-HMAC-HEX"
 
 [license]
 # Pointer 签发的 License Key（单行，payload.signature）
@@ -355,23 +356,32 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/
 # 期望：200
 ```
 
-### 8.2 Admin Token 登录
+### 8.2 账号密码登录
 
-**浏览器：** 打开 `public_url` → 设置 → 使用 Admin Token 登录（与 `[auth.local].admin_token` 一致）。
+**浏览器：** 打开 `public_url` → 欢迎页或设置 → 填写账号、密码、验证码登录（与 `[auth.local]` 一致）。
+
+**生成 password_hmac：**
+
+```bash
+pointer-server --hash-password --secret 'REPLACE-WITH-LONG-RANDOM-SECRET' 'your-password'
+```
 
 **API：**
 
 ```bash
+# captcha
+curl -s http://127.0.0.1:8787/api/auth/local/captcha
+# login
 curl -X POST http://127.0.0.1:8787/api/auth/local/login \
   -H "Content-Type: application/json" \
-  -d '{"token": "REPLACE-WITH-STRONG-RANDOM-SECRET"}' \
+  -d '{"username":"admin","password":"your-password","captchaId":"...","captcha":"ABCD"}' \
   -c /tmp/pointer-cookies.txt
 ```
 
 ### 8.3 功能验收清单
 
 - [ ] License `valid`，`customerId` 正确
-- [ ] Admin Token 登录成功
+- [ ] 账号密码 + 验证码登录成功
 - [ ] 发送对话，LLM 正常回复（验证 `active_provider` 的 `api_key`）
 - [ ] 对话历史写入 `{app_data_dir}/conversations.db`
 - [ ] （可选）Webhook 自动化触发
@@ -406,7 +416,9 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 |------|------|-------------------|
 | `POINTER_DEPLOYMENT_MODE` | `platform` / `standalone` | `standalone` |
 | `POINTER_SERVER_CONFIG` | 配置文件绝对路径 | `/etc/pointer-server/pointer-server.toml` |
-| `POINTER_SERVER_ADMIN_TOKEN` | Admin Token | 与 TOML `[auth.local]` 一致 |
+| `POINTER_SERVER_ADMIN_USERNAME` | 管理员账号 | 与 TOML `[auth.local].username` 一致 |
+| `POINTER_SERVER_ADMIN_PASSWORD_HMAC` | 密码 HMAC hex | 与 TOML `password_hmac` 一致 |
+| `POINTER_SERVER_AUTH_HMAC_SECRET` | HMAC 密钥 | 与 TOML `hmac_secret` 一致 |
 | `POINTER_LICENSE_KEY` | License 字符串 | 与 TOML `[license].key` 一致 |
 | `POINTER_LICENSE_PUBLIC_KEY` | 覆盖编译嵌入公钥 | 通常不设置 |
 | `POINTER_SERVER_ADDR` | 监听地址 | `0.0.0.0:8787` |
@@ -495,9 +507,9 @@ npm run server:build
                                               ←──── 机器 ID ────────────
 npm run license-gen:build
 ./license-gen sign … ──→ License Key ────────────────────────────────→ 写入 pointer-server.toml
-                                                                        配置 LLM api_key + admin_token
+                                                                        配置 LLM api_key + auth.local
                                                                         systemctl start / ./start.sh
-                                                                        Admin Token 登录 → 验收
+                                                                        账号密码登录 → 验收
 ```
 
 ---
@@ -509,7 +521,9 @@ npm run license-gen:build
 | `standalone mode requires a license key` | 未配置 License | 填写 `[license].key` 或 `POINTER_LICENSE_KEY` |
 | `license bound to machine_id=…` | License 绑错机器 | 用当前 `--machine-id` 重新签发 |
 | `license expired` | 过期 | 续签并 reload |
-| `请先使用 admin token 登录` | 未登录 | Web UI 或 POST `/api/auth/local/login` |
+| `请先登录` / `local_login_required` | 未登录 | Web UI 账号密码 + 验证码，或 POST `/api/auth/local/login` |
+| `invalid_credentials` | 账号/密码或 hmac 不匹配 | 用 `--hash-password` 重新生成 `password_hmac` |
+| `invalid_captcha` | 验证码错误或过期 | 刷新验证码后重试 |
 | 对话报 LLM 错误 | `api_key` 无效或未配置 | 检查对应 Provider 控制台 Key |
 | IM 扫码成功但 WSS 不通 | 旧版本未 persist 配置 | 升级到含 registration persist 的版本；或手动保存通道配置并 `?restartMonitors=true` |
 | macOS 上 `dpkg-deb failed` | deb 仅 Linux | 使用 `npm run server:build` 产出的 zip |

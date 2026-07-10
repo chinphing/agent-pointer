@@ -257,6 +257,23 @@ export const appendConversationMessages = api.appendConversationMessages
 export const onStream = api.onStream
 
 export type PlatformSessionView = import('./tauri').PlatformSessionView
+export type AuthMode = import('./web').AuthMode
+export type LocalCaptcha = import('./web').LocalCaptcha
+
+export const getAuthMode = isTauriRuntime()
+  ? (async (): Promise<AuthMode> => 'platform')
+  : webApi.getAuthMode
+export const fetchLocalCaptcha = isTauriRuntime()
+  ? (async (): Promise<LocalCaptcha> => {
+      throw new Error('local captcha is only available on pointer-server web')
+    })
+  : webApi.fetchLocalCaptcha
+export const localLogin = isTauriRuntime()
+  ? (async (): Promise<PlatformSessionView> => {
+      throw new Error('local login is only available on pointer-server web')
+    })
+  : webApi.localLogin
+
 export const getPlatformSession = isTauriRuntime()
   ? tauriApi.getPlatformSession
   : webApi.getPlatformSession

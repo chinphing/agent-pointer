@@ -78,7 +78,7 @@ const showLoginBanner = computed(
 )
 const composerPlaceholder = computed(() => {
   if (needsPlatformLogin.value) {
-    return '请先登录 Pointer 账户'
+    return platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户'
   }
   if (tokenQuotaBlocked.value) {
     return '套餐 Token 额度已用尽，请前往官网充值'
@@ -205,6 +205,10 @@ async function onPlatformLogin() {
   } catch {
     /* error in store */
   }
+}
+
+function onLocalLoginSuccess() {
+  chat.clearPlatformLoginErrorMessages()
 }
 
 function onPlatformLoginCancel() {
@@ -875,6 +879,7 @@ onUnmounted(() => {
             :error="null"
             @login="onPlatformLogin"
             @cancel="onPlatformLoginCancel"
+            @local-success="onLocalLoginSuccess"
           />
         </div>
       </div>

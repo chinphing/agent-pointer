@@ -32,7 +32,7 @@ pub fn scoped_login_creds() -> Option<PlatformLoginCredentials> {
     SCOPED_CREDS.try_with(Clone::clone).ok()
 }
 
-/// Auth kind for the current request (`platform` OAuth vs standalone admin token).
+/// Auth kind for the current request (`platform` OAuth vs standalone local password).
 pub fn scoped_auth_kind() -> Option<WebSessionAuthKind> {
     SCOPED_AUTH_KIND.try_with(Clone::clone).ok()
 }

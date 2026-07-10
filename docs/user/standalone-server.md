@@ -62,7 +62,10 @@ cp server/pointer-server.toml.example ./pointer-server.toml
 mode = "standalone"
 
 [auth.local]
-admin_token = "your-strong-secret"
+username = "admin"
+hmac_secret = "replace-with-long-random-secret"
+# Generate with: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
+password_hmac = "..."
 
 [llm]
 active_provider = "qwen"
@@ -91,7 +94,15 @@ app_data_dir = "/var/lib/pointer"
 ./target/release/pointer-server
 ```
 
-浏览器打开 `http://localhost:8787` → 用 Admin Token 登录 → 开始对话。
+浏览器打开 `http://localhost:8787` → 用配置的账号密码 + 验证码登录 → 开始对话。
+
+生成 `password_hmac`：
+
+```bash
+./pointer-server --hash-password --secret 'replace-with-long-random-secret' 'your-password'
+# 输出：password_hmac = "...."
+# 将输出写入 pointer-server.toml 的 [auth.local].password_hmac
+```
 
 ---
 
@@ -182,17 +193,27 @@ curl -X POST http://localhost:8787/api/license/reload
 
 ## 管理员登录
 
-Standalone 模式下使用 **Admin Token** 代替官方 OAuth 登录：
+Standalone 模式下使用 **账号密码 + 图形验证码** 代替官方 OAuth：
+
+1. 浏览器打开 Web UI，在登录表单填写账号、密码、验证码。
+2. 或先取验证码再调 API：
 
 ```bash
+# 1) 取验证码
+curl -s http://localhost:8787/api/auth/local/captcha
+# → {"captchaId":"...","imageSvg":"<svg>...</svg>"}
+
+# 2) 登录（验证码看 SVG 或临时关掉校验仅用于脚本调试时需人工读图）
 curl -X POST http://localhost:8787/api/auth/local/login \
   -H "Content-Type: application/json" \
-  -d '{"token": "your-strong-secret"}'
+  -c /tmp/pointer-cookies.txt \
+  -d '{"username":"admin","password":"your-password","captchaId":"...","captcha":"ABCD"}'
 ```
 
-成功后服务端返回 `Set-Cookie` 头，后续请求自动带 Session。
+成功后服务端返回 `Set-Cookie`（`pointer_web_session`），后续请求自动带 Session。
 
-`admin_token` 在 `pointer-server.toml` 的 `[auth.local]` 段配置。
+配置项在 `pointer-server.toml` 的 `[auth.local]`：`username`、`password_hmac`、`hmac_secret`。
+旧版 `admin_token` 已废弃并忽略。
 
 ---
 
@@ -242,7 +263,9 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `POINTER_DEPLOYMENT_MODE` | `platform` / `standalone` | `platform` |
-| `POINTER_SERVER_ADMIN_TOKEN` | Admin Token | 无 |
+| `POINTER_SERVER_ADMIN_USERNAME` | 管理员账号 | 无 |
+| `POINTER_SERVER_ADMIN_PASSWORD_HMAC` | 密码 HMAC-SHA256 hex | 无 |
+| `POINTER_SERVER_AUTH_HMAC_SECRET` | 计算 password_hmac 的密钥 | 无 |
 | `POINTER_LICENSE_KEY` | License key 字符串 | 无 |
 | `POINTER_LICENSE_PUBLIC_KEY` | 覆盖编译嵌入的公钥 | 无 |
 | `POINTER_USAGE_REPORT_ENABLED` | 是否上报用量 | `false`（standalone） |
@@ -262,6 +285,6 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 
 License 绑定了其他机器，需要申请当前机器的 License。运行 `./pointer-server --machine-id-json` 获取完整绑定信息。
 
-### Q: 启动报 "请先登录 Pointer 账户"
+### Q: 提示「请先登录」
 
-Standalone 模式未配置 LLM Provider。检查 `[llm]` 配置段是否正确。
+Standalone 下未登录 Web 会话。打开页面用账号密码 + 验证码登录；确认 `[auth.local]` 已配置且 `password_hmac` 与 `hmac_secret` 匹配。

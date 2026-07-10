@@ -9,6 +9,7 @@
 | 文档 | 说明 |
 |------|------|
 | [standalone-deployment.md](standalone-deployment.md) | pointer-server 独立部署、Ed25519 License 系统、机器绑定、本地认证 |
+| [standalone-local-login.md](standalone-local-login.md) | Standalone 账号密码 + HMAC + 验证码登录约定 |
 | [channel-integration.md](channel-integration.md) | IM 通道完整对接（长连接 / Webhook、各平台步骤与排查） |
 | [webhook-api.md](webhook-api.md) | 通用 Webhook API（触发 Agent、鉴权、附件、同步/异步） |
 | [cloud-host-integration.md](cloud-host-integration.md) | 云实例自部署、环境变量、认证链路 |

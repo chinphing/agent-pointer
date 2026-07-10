@@ -21,7 +21,7 @@ pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构�
 | 模式 | 说明 |
 |------|------|
 | `platform`（默认） | 连接 [readflowai.com](https://pointer-api.readflowai.com)，使用官方 OAuth + 云端 LLM Key 下发 |
-| `standalone` | 脱离官方平台，使用本地 Admin Token 登录 + TOML 注入 LLM Key + Ed25519 License 校验 |
+| `standalone` | 脱离官方平台，使用本地账号密码登录 + TOML 注入 LLM Key + Ed25519 License 校验 |
 
 ```rust
 pub fn deployment_mode() -> Mode;
@@ -36,28 +36,36 @@ pub fn is_standalone() -> bool;
 
 ## 本地认证
 
-**文件：** `crates/pointer-core/src/local_auth.rs`
+**文件：** `crates/pointer-core/src/local_auth.rs`、`server/src/local_auth.rs`
 
-Standalone 模式下替代官方 OAuth 的认证机制。提供 Admin Token 校验和本地 Session 创建。
+Standalone 模式下替代官方 OAuth。配置存 `username` + `password_hmac`（HMAC-SHA256 hex）+ `hmac_secret`，不存明文密码。
 
 ```rust
-pub struct LocalAuthConfig {
-    pub admin_token: String,
-    pub enabled: bool,
-}
-pub fn load_local_auth_config() -> LocalAuthConfig;
-pub fn verify_admin_token(token: &str) -> bool;
+pub fn hmac_sha256_hex(secret: &str, password: &str) -> String;
+pub fn verify_local_password(username: &str, password: &str) -> bool;
+pub fn local_password_auth_configured() -> bool;
+```
+
+运维生成摘要：
+
+```bash
+pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 ```
 
 **流程：**
 ```
-POST /api/auth/local/login  { "token": "..." }
-  → verify_admin_token(token)
-  → 成功：创建 WebSession（auth_kind = "local"）
-  → 失败：401
+GET  /api/auth/mode              → { "mode": "standalone" | "platform" }
+GET  /api/auth/local/captcha     → { captchaId, imageSvg }  （内存一次性，TTL 5min）
+POST /api/auth/local/login
+  { username, password, captchaId, captcha }
+  → 校验验证码 → verify_local_password
+  → 成功：创建 WebSession（auth_kind = Local）+ Set-Cookie
+  → 失败：401 invalid_captcha | invalid_credentials
 ```
 
-**Session 扩展：** `WebSessionEntry` 增加 `auth_kind: String` 字段（`"platform"` / `"local"`），所有需要登录的 API 根据部署模式检查对应的 session 类型。
+**Session：** `WebSessionAuthKind::Local`；所有需登录 API 在 standalone 下要求本地会话。
+
+旧版 `admin_token` / `POINTER_SERVER_ADMIN_TOKEN` 已废弃（启动 warn 并忽略）。
 
 ### Standalone 模式下 LLM 凭证路径
 
@@ -239,7 +247,9 @@ models = ["glm-5", "glm-5-flash"]
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/auth/local/login` | POST | body `{"token": "..."}`，返回 Set-Cookie |
+| `/api/auth/mode` | GET | `{ "mode": "standalone" \| "platform" }` |
+| `/api/auth/local/captcha` | GET | `{ captchaId, imageSvg }`，standalone only |
+| `/api/auth/local/login` | POST | `{ username, password, captchaId, captcha }`，返回 Set-Cookie |
 | `/api/license/status` | GET | 返回 license claims、状态、机器绑定信息 |
 | `/api/license/reload` | POST | 从 `POINTER_LICENSE_KEY` 热加载新 license |
 
@@ -268,7 +278,10 @@ models = ["glm-5", "glm-5-flash"]
 mode = "standalone"                    # platform（默认）| standalone
 
 [auth.local]
-admin_token = "your-strong-secret"     # standalone 管理员登录令牌
+username = "admin"
+hmac_secret = "replace-with-long-random-secret"
+# pointer-server --hash-password --secret '<hmac_secret>' '<password>'
+password_hmac = "...."
 
 [license]
 key = "base64_payload.base64_sig"      # license key 字符串
@@ -301,7 +314,7 @@ app_data_dir = "/var/lib/pointer"
 | 文件 | 说明 |
 |------|------|
 | `crates/pointer-core/src/deployment_mode.rs` | 部署模式检测：`platform` / `standalone` |
-| `crates/pointer-core/src/local_auth.rs` | Admin Token 本地认证 |
+| `crates/pointer-core/src/local_auth.rs` | 账号密码 HMAC 本地认证 |
 | `crates/pointer-core/src/license/mod.rs` | License 模块入口 |
 | `crates/pointer-core/src/license/verify.rs` | Ed25519 验签、启动校验、热加载、机器绑定 |
 | `crates/pointer-core/license.pub` | 编译嵌入的公钥文件 |

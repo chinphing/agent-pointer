@@ -25,6 +25,13 @@ struct DeploymentSection {
 #[derive(Debug, Default, Deserialize)]
 struct AuthLocalSection {
     #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password_hmac: String,
+    #[serde(default)]
+    hmac_secret: String,
+    /// Deprecated: ignored when present (use username + password_hmac).
+    #[serde(default)]
     admin_token: String,
 }
 
@@ -185,6 +192,8 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         if key == "OPENPOINTER_OAUTH_CLIENT_SECRET"
             || key == "POINTER_WEBHOOK_BEARER_TOKEN"
             || key == "POINTER_SERVER_ADMIN_TOKEN"
+            || key == "POINTER_SERVER_ADMIN_PASSWORD_HMAC"
+            || key == "POINTER_SERVER_AUTH_HMAC_SECRET"
             || key == "POINTER_LICENSE_KEY"
         {
             eprintln!("pointer-server: applied {key}=<redacted>");
@@ -197,6 +206,8 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         if key == "OPENPOINTER_OAUTH_CLIENT_SECRET"
             || key == "POINTER_WEBHOOK_BEARER_TOKEN"
             || key == "POINTER_SERVER_ADMIN_TOKEN"
+            || key == "POINTER_SERVER_ADMIN_PASSWORD_HMAC"
+            || key == "POINTER_SERVER_AUTH_HMAC_SECRET"
             || key == "POINTER_LICENSE_KEY"
         {
             eprintln!("pointer-server: skipped {key} (environment already set, value redacted)");
@@ -269,6 +280,28 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         base_dir,
         false,
     );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_ADMIN_USERNAME",
+        &parsed.auth.local.username,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_ADMIN_PASSWORD_HMAC",
+        &parsed.auth.local.password_hmac,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_AUTH_HMAC_SECRET",
+        &parsed.auth.local.hmac_secret,
+        base_dir,
+        false,
+    );
+    // Deprecated: still map so warn_if_deprecated_admin_token_configured can see it.
     push_mapped(
         &mut pairs,
         "POINTER_SERVER_ADMIN_TOKEN",

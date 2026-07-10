@@ -4,6 +4,7 @@ import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gaug
 import { isTauriRuntime } from '../../lib/runtime'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { provideSettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
 import ChannelSettingsPanel from './ChannelSettingsPanel.vue'
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 
 const s = useSettingsStore()
 const chat = useChatStore()
+const platformAuth = usePlatformAuthStore()
 
 const activeSection = ref('assistant')
 const saving = ref(false)
@@ -69,11 +71,19 @@ const sections = computed(() => {
   const merged = showDebugMenus.value
     ? [...alwaysSections, ...debugSections]
     : [...alwaysSections]
-  // 侧栏顺序：平台账户 → 自动化 → IM 通道 → 智能体 → （调试菜单）→ 云主机。
-  // "平台账户" (account/login) 两端可用（web 有 PKCE 登录流）；"云主机"
-  // (cloud) 仅桌面端（驱动 Tauri 窗口操作），且始终排在最后。
-  const account = { id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle }
+  // 侧栏顺序：账户 → 自动化 → IM 通道 → 智能体 → （调试菜单）→ 云主机。
+  // 账户：platform 走 OAuth；standalone 走账号密码。云主机仅桌面端。
+  const account = {
+    id: 'account',
+    label: platformAuth.isStandalone ? '管理员账户' : '平台账户',
+    desc: '登录与凭据',
+    icon: UserCircle
+  }
   if (!isTauriRuntime()) {
+    return [account, ...merged]
+  }
+  // Standalone web/server has no cloud shop; desktop platform mode keeps cloud.
+  if (platformAuth.isStandalone) {
     return [account, ...merged]
   }
   return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }]

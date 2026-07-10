@@ -61,6 +61,10 @@ async function onPlatformLogin() {
   }
 }
 
+function onLocalLoginSuccess() {
+  chat.clearPlatformLoginErrorMessages()
+}
+
 function onPlatformLoginCancel() {
   void platformAuth.cancelLogin()
 }
@@ -150,6 +154,7 @@ const toastClass = computed(() => {
                 :error="platformAuth.error"
                 @login="onPlatformLogin"
                 @cancel="onPlatformLoginCancel"
+                @local-success="onLocalLoginSuccess"
               />
             </div>
           </div>

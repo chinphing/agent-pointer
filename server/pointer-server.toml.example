@@ -6,7 +6,10 @@
 # mode = "standalone"
 #
 # [auth.local]
-# admin_token = "replace-with-strong-secret"
+# username = "admin"
+# hmac_secret = "replace-with-long-random-secret"
+# # Generate: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
+# password_hmac = "...."
 #
 # [llm]
 # active_provider = "qwen"
@@ -55,8 +58,10 @@ static_dir = "dist"
 # any legacy auth.dat under the data dir so old global sessions are not reused
 # by the desktop-style code path on other entrypoints.
 #
-# Standalone mode: use POST /api/auth/local/login with [auth.local].admin_token
-# instead of platform OAuth.
+# Standalone mode: Web UI shows username/password + captcha login.
+# POST /api/auth/local/login with [auth.local] username / password_hmac / hmac_secret.
+# Generate password_hmac: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
+# Deprecated: admin_token is ignored.
 #
 # Conversation history (GET /api/conversations*) requires a logged-in browser
 # session. Unauthenticated visitors see an empty sidebar until they sign in.

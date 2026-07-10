@@ -19,6 +19,26 @@ fn base_info() -> Value {
     json!({ "channel_version": CHANNEL_VERSION })
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum GetConfigContextToken<'a> {
+    /// Do not include `context_token` in the request body.
+    Omit,
+    /// Include `"context_token": ""` (some sessions only refresh with an explicit empty field).
+    Empty,
+    /// Include `"context_token": "<value>"`.
+    Value(&'a str),
+}
+
+impl GetConfigContextToken<'_> {
+    pub fn log_label(self) -> &'static str {
+        match self {
+            Self::Omit => "omit",
+            Self::Empty => "empty",
+            Self::Value(_) => "value",
+        }
+    }
+}
+
 fn check_ilink_ret(resp: &Value, op: &str) -> Result<()> {
     if let Some(ret) = resp.get("ret").and_then(|v| v.as_i64()) {
         if ret != 0 {
@@ -144,16 +164,22 @@ impl ILinkClient {
     pub async fn get_config(
         &self,
         ilink_user_id: &str,
-        context_token: Option<&str>,
+        context_token: GetConfigContextToken<'_>,
     ) -> Result<Value> {
         let url = format!("{}/ilink/bot/getconfig", self.base());
         let mut body = json!({
             "ilink_user_id": ilink_user_id,
             "base_info": base_info(),
         });
-        if let Some(token) = context_token.filter(|s| !s.trim().is_empty()) {
-            if let Some(obj) = body.as_object_mut() {
-                obj.insert("context_token".into(), json!(token));
+        if let Some(obj) = body.as_object_mut() {
+            match context_token {
+                GetConfigContextToken::Omit => {}
+                GetConfigContextToken::Empty => {
+                    obj.insert("context_token".into(), json!(""));
+                }
+                GetConfigContextToken::Value(token) => {
+                    obj.insert("context_token".into(), json!(token));
+                }
             }
         }
         let auth = self.auth_headers();

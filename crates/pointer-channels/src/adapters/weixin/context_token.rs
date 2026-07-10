@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
 
-use super::ilink_client::ILinkClient;
+use super::ilink_client::{GetConfigContextToken, ILinkClient};
 
 /// Proactively refresh via `getconfig` when the cached token is older than this.
 pub const CONTEXT_TOKEN_MAX_AGE_MS: i64 = 45_000;
@@ -64,35 +64,81 @@ pub fn is_stale_session_send_error(err: &anyhow::Error) -> bool {
     msg.contains("sendmessage ret=-2") && msg.contains("errmsg=unknown")
 }
 
-fn token_from_getconfig_response(resp: &serde_json::Value) -> Option<String> {
-    resp.get("context_token")
-        .and_then(|v| v.as_str())
+fn touch(account_id: &str, user_id: &str) {
+    let mut guard = store().lock();
+    if let Some(entry) = guard
+        .get_mut(account_id)
+        .and_then(|users| users.get_mut(user_id))
+    {
+        entry.cached_at_ms = now_ms();
+    }
+}
+
+fn token_string_from_value(v: &serde_json::Value) -> Option<String> {
+    v.as_str()
         .filter(|s| !s.trim().is_empty())
         .map(String::from)
+}
+
+fn token_from_object(obj: &serde_json::Value) -> Option<String> {
+    for key in ["context_token", "contextToken"] {
+        if let Some(token) = obj.get(key).and_then(token_string_from_value) {
+            return Some(token);
+        }
+    }
+    None
+}
+
+fn token_from_getconfig_response(resp: &serde_json::Value) -> Option<String> {
+    if let Some(token) = token_from_object(resp) {
+        return Some(token);
+    }
+    for wrapper in ["data", "config", "result"] {
+        if let Some(nested) = resp.get(wrapper) {
+            if let Some(token) = token_from_object(nested) {
+                return Some(token);
+            }
+        }
+    }
+    None
 }
 
 async fn fetch_config_token(
     client: &ILinkClient,
     user_id: &str,
-    current_token: Option<&str>,
+    token_arg: GetConfigContextToken<'_>,
 ) -> Result<Option<String>> {
-    let resp = client.get_config(user_id, current_token).await?;
-    Ok(token_from_getconfig_response(&resp))
+    let resp = client.get_config(user_id, token_arg).await?;
+    if let Some(token) = token_from_getconfig_response(&resp) {
+        return Ok(Some(token));
+    }
+    log::info!(
+        "weixin getconfig response missing context_token user={user_id} token_param={} body={resp}",
+        token_arg.log_label()
+    );
+    Ok(None)
 }
 
 /// Refresh `context_token` via iLink `getconfig`.
 ///
-/// Tries with the current token first, then without one — some sessions only
-/// recover when `getconfig` is called with no stale token attached.
+/// Tries with the current token first, then an explicit empty `context_token`,
+/// then without the field — some sessions only recover with one of these shapes.
 pub async fn refresh_via_getconfig(
     client: &ILinkClient,
     user_id: &str,
     current_token: &str,
 ) -> Result<Option<String>> {
-    if let Some(token) = fetch_config_token(client, user_id, Some(current_token)).await? {
+    if let Some(token) =
+        fetch_config_token(client, user_id, GetConfigContextToken::Value(current_token)).await?
+    {
         return Ok(Some(token));
     }
-    fetch_config_token(client, user_id, None).await
+    if let Some(token) =
+        fetch_config_token(client, user_id, GetConfigContextToken::Empty).await?
+    {
+        return Ok(Some(token));
+    }
+    fetch_config_token(client, user_id, GetConfigContextToken::Omit).await
 }
 
 async fn maybe_refresh_stale_token(
@@ -131,7 +177,13 @@ async fn apply_refresh(
             set(account_id, user_id, &new_token);
             Ok(new_token)
         }
-        Ok(None) => Ok(token.to_string()),
+        Ok(None) => {
+            log::info!(
+                "weixin context_token getconfig returned no token account={account_id} user={user_id}"
+            );
+            touch(account_id, user_id);
+            Ok(token.to_string())
+        }
         Err(e) => {
             log::warn!(
                 "weixin getconfig refresh failed account={account_id} user={user_id}: {e:#}"
@@ -267,5 +319,33 @@ mod tests {
         let got = resolve_token("acct2", "u@im.wechat", Some("from-reply")).unwrap();
         assert_eq!(got, "from-reply");
         assert_eq!(get("acct2", "u@im.wechat"), Some("from-reply".into()));
+    }
+
+    #[test]
+    fn token_from_getconfig_response_reads_alternate_shapes() {
+        use serde_json::json;
+
+        assert_eq!(
+            token_from_getconfig_response(&json!({ "context_token": "tok-a" })),
+            Some("tok-a".into())
+        );
+        assert_eq!(
+            token_from_getconfig_response(&json!({ "contextToken": "tok-b" })),
+            Some("tok-b".into())
+        );
+        assert_eq!(
+            token_from_getconfig_response(&json!({
+                "data": { "context_token": "tok-c" }
+            })),
+            Some("tok-c".into())
+        );
+        assert_eq!(
+            token_from_getconfig_response(&json!({
+                "config": { "contextToken": "tok-d" }
+            })),
+            Some("tok-d".into())
+        );
+        assert!(token_from_getconfig_response(&json!({ "ret": 0 })).is_none());
+        assert!(token_from_getconfig_response(&json!({ "context_token": "" })).is_none());
     }
 }

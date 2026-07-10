@@ -202,7 +202,7 @@ export function canOpenCloudAgent(agent: CloudAgent): boolean {
 
 export function formatApiError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
-  if (msg.includes('token_quota_exhausted')) return '账户余额已用尽，请前往官网账单充值'
+  if (msg.includes('token_quota_exhausted')) return '账户余额已用尽，请前往官网余额页充值'
   if (msg.includes('insufficient_balance')) return '账户余额不足'
   if (msg.includes('platform_login_required') || msg.includes('请先登录')) {
     return '请先登录 Pointer 平台账户'

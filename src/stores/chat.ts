@@ -1303,7 +1303,7 @@ export const useChatStore = defineStore('chat', () => {
         status: 'error',
         createdAt: Date.now(),
         errorMessage:
-          '账户余额已用尽，请前往 Pointer 官网账单充值。'
+          '账户余额已用尽，请前往 Pointer 官网余额页充值。'
       })
       return
     }

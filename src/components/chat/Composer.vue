@@ -81,7 +81,7 @@ const composerPlaceholder = computed(() => {
     return platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户'
   }
   if (tokenQuotaBlocked.value) {
-    return '账户余额已用尽，请前往官网账单充值'
+    return '账户余额已用尽，请前往官网余额页充值'
   }
   return settings.settings.hasKey ? '告诉我你想做什么' : '请先在设置中配置 API Key'
 })

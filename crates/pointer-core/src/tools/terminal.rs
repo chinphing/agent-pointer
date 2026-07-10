@@ -1,7 +1,5 @@
 #[cfg(unix)]
 use super::terminal_askpass::{deliver_askpass_password, try_setup_ssh_askpass};
-#[cfg(not(unix))]
-use super::terminal_askpass::try_setup_ssh_askpass;
 use super::terminal_pty::{
     command_wants_pty, try_spawn_terminal_pty, ActiveChild, TerminalInputSink,
 };

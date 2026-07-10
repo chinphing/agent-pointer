@@ -1,23 +1,27 @@
 //! OpenSSH `SSH_ASKPASS` bridge for password prompts when there is no TTY
-//! (packaged Tauri app, or piped terminal). The helper connects back to a
-//! Unix socket; we show the input modal and write the password once.
+//! (packaged Tauri app, or piped terminal). Unix only — the helper connects
+//! back to a Unix socket; we show the input modal and write the password once.
 
+#[cfg(unix)]
 use anyhow::{anyhow, Result};
+#[cfg(unix)]
 use log::{info, warn};
+#[cfg(unix)]
 use std::io::Write;
+#[cfg(unix)]
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::Command;
-
 #[cfg(unix)]
 use std::sync::mpsc;
 #[cfg(unix)]
 use std::thread;
-
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 
+#[cfg(unix)]
 const ASKPASS_HELPER: &str = r#"#!/bin/sh
 exec python3 -c '
 import os, socket, sys
@@ -99,13 +103,13 @@ impl AskpassBridge {
     }
 }
 
+#[cfg(unix)]
 pub fn ensure_askpass_helper_script() -> Result<PathBuf> {
     let path = std::env::temp_dir().join(format!(
         "pointer-ssh-askpass-{}.sh",
         std::process::id()
     ));
     std::fs::write(&path, ASKPASS_HELPER)?;
-    #[cfg(unix)]
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
     Ok(path)
 }
@@ -121,6 +125,7 @@ pub fn deliver_askpass_password(mut stream: UnixStream, password: &str) -> Resul
     Ok(())
 }
 
+#[cfg(unix)]
 pub fn try_setup_ssh_askpass(
     command: &str,
     input_hooks_active: bool,
@@ -129,36 +134,19 @@ pub fn try_setup_ssh_askpass(
     if !input_hooks_active || !command_wants_ssh_askpass(command) {
         return None;
     }
-    #[cfg(unix)]
-    {
-        match ensure_askpass_helper_script().and_then(|helper| {
-            AskpassBridge::start().map(|bridge| (helper, bridge))
-        }) {
-            Ok((helper, bridge)) => {
-                bridge.apply_to_command(cmd, &helper);
-                info!("terminal askpass: enabled for OpenSSH command");
-                Some(bridge)
-            }
-            Err(e) => {
-                warn!("terminal askpass: setup failed: {e:#}");
-                None
-            }
+    match ensure_askpass_helper_script().and_then(|helper| {
+        AskpassBridge::start().map(|bridge| (helper, bridge))
+    }) {
+        Ok((helper, bridge)) => {
+            bridge.apply_to_command(cmd, &helper);
+            info!("terminal askpass: enabled for OpenSSH command");
+            Some(bridge)
+        }
+        Err(e) => {
+            warn!("terminal askpass: setup failed: {e:#}");
+            None
         }
     }
-    #[cfg(not(unix))]
-    {
-        let _ = cmd;
-        None
-    }
-}
-
-#[cfg(not(unix))]
-pub fn try_setup_ssh_askpass(
-    _command: &str,
-    _input_hooks_active: bool,
-    _cmd: &mut Command,
-) -> Option<()> {
-    None
 }
 
 #[cfg(test)]

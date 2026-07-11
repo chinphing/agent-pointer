@@ -15,6 +15,11 @@ use super::agent_round_lifecycle;
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
 };
+use super::computer_pipeline_loop::{
+    apply_pipeline_verify_to_tool_card, batch_has_desktop_root_tool, ensure_verify_before_capture,
+    pipeline_give_up_error, run_pipeline_post_execute_verify, verify_host_active,
+    PipelineLlmUsageRecorder,
+};
 use crate::task_board::TaskBoardTrimHook;
 use crate::task_board::planner::PlannerRunOutcome;
 use super::emit::{agent_trace_step_id, emit, trace_id_opt};
@@ -442,6 +447,15 @@ pub(crate) async fn run_sub_agent(
             PostAssistantTurnAction::ExecuteTools => {}
         }
 
+        let mut pipeline_before_capture = None;
+        if verify_host_active(state, &def.profile)
+            && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
+        {
+            pipeline_before_capture = Some(
+                ensure_verify_before_capture(state, conversation_id).await?,
+            );
+        }
+
         let sub_cfg = SubToolPassConfig {
             def: &def,
             task,
@@ -519,6 +533,46 @@ pub(crate) async fn run_sub_agent(
                 ));
             }
             ToolPassResult::RanTools => {}
+        }
+
+        if verify_host_active(state, &def.profile)
+            && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
+        {
+            let mut pipeline_usage = PipelineLlmUsageRecorder {
+                stats: ctx.llm_stats,
+                scope: &instance_scope,
+            };
+            run_pipeline_post_execute_verify(
+                state,
+                stream,
+                conversation_id,
+                &sub_provider,
+                &sub_provider.settings,
+                pipeline_before_capture.as_ref(),
+                &round_message_id,
+                &local_history,
+                &buf.final_tool_calls,
+                cancel.clone(),
+                Some(&mut pipeline_usage),
+            )
+            .await?;
+            let (_last_op, last_verify) =
+                state.computer_state.pipeline_context_fields(conversation_id);
+            if let Some(verify) = last_verify {
+                apply_pipeline_verify_to_tool_card(
+                    stream,
+                    &mut local_history,
+                    &round_message_id,
+                    &buf.final_tool_calls,
+                    state.tools.as_ref(),
+                    conversation_id,
+                    &verify,
+                    false,
+                );
+            }
+            if let Some(err) = pipeline_give_up_error(state, conversation_id) {
+                return Err(err);
+            }
         }
 
         {

@@ -36,7 +36,6 @@ function desktopToolFamily(base: string): 'mouse' | 'input' | 'other' | null {
     base === 'list_apps' ||
     base === 'hotkey' ||
     base === 'wait' ||
-    base === 'action_verify' ||
     base.startsWith('clipboard_') ||
     base.startsWith('modified_click_') ||
     base.startsWith('captcha_verify_')

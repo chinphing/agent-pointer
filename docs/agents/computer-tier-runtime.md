@@ -10,7 +10,9 @@
 |------|---------|---------|-----------------|---------|------|
 | Primary | index + coordinate | `qwen3.5-flash` | 2048 | ✅ 允许 | 2–3 张 |
 | Intermediate | index + coordinate | `qwen3.5-plus` | 2048 | ✅ 允许 | 2–3 张 |
-| Advanced | coordinate only | `qwen3.6-plus` | 8192 | ❌ 禁止 | 5–7 张 |
+| Advanced | index + coordinate | `qwen3.6-plus` | 8192 | ✅ 允许 | 2–3 张 |
+
+**提示词**：三档共用 Primary 的 `communication.md` + `loop.md`（`agents/mod.rs`）；仅 LLM 模型与 thinking budget 按 tier 切换。
 
 代码：`crates/pointer-core/src/agents/computer/tier/mod.rs:50-54`
 
@@ -286,45 +288,43 @@ pub fn for_tier(tier: ComputerTier, config: &ComputerTierConfig) -> Self {
 
 ### 8.1 内建 agent：compile-time `include_str!`
 
-代码：`agents/mod.rs:42-50`，编译时嵌入所有 tier 提示词：
+代码：`agents/mod.rs`，编译时嵌入 Primary 提示词（**所有 tier 共用**）：
 
 ```rust
-const COMPUTER_VISION_SLOTS: &str     = include_str!("computer/prompts/tiers/advanced/vision_slots.md");
-const COMPUTER_COMMUNICATION_ADVANCED = include_str!("computer/prompts/tiers/advanced/communication.md");
 const COMPUTER_COMMUNICATION_PRIMARY  = include_str!("computer/prompts/tiers/primary/communication.md");
 const COMPUTER_AGENT_PRIMARY          = include_str!("computer/prompts/tiers/primary/loop.md");
-const COMPUTER_AGENT_ADVANCED         = include_str!("computer/prompts/tiers/advanced/loop.md");
 const COMPUTER_OS_PROMPT_MACOS        = include_str!("computer/prompts/os/macos.md");
 ```
 
+`tiers/advanced/` 与 `tiers/intermediate/` 下的文件**不参与**运行时加载（仅保留作历史/撰写参考）。
+
 ### 8.2 外部 agent 目录：文件系统加载
 
-`load_external_computer_communication()` (`agents/mod.rs:727-745`)，优先级：
+`load_external_computer_communication()` (`agents/mod.rs`)，优先级：
 
-1. `prompts/tiers/advanced/communication.md`
-2. `COMMUNICATION_ADVANCED.md`（旧版兼容）
-3. `COMMUNICATION.md`（兜底）
+1. `prompts/tiers/primary/communication.md`
+2. `COMMUNICATION.md`（兜底）
 
 ### 8.3 按 tier 选择
 
-代码：`agents/mod.rs:112-135`
+代码：`agents/mod.rs`
 
 | 函数 | Primary | Intermediate | Advanced |
 |------|---------|-------------|----------|
-| `computer_communication_for_tier()` | `primary/communication.md` + OS prompt | `primary/communication.md` + OS prompt | `vision_slots.md` + `advanced/communication.md` + OS prompt |
-| `computer_agent_body_for_tier()` | `primary/loop.md` | `primary/loop.md` | `advanced/loop.md` |
+| `computer_communication_for_tier()` | `primary/communication.md` + OS + disabled controls | 同 Primary | 同 Primary |
+| `computer_agent_body_for_tier()` | `primary/loop.md` | 同 Primary | 同 Primary |
 
-Primary 和 Intermediate 共享同一套提示词（短版），仅 Advanced 升级为完整版（vision_slots + 长 communication + 长 loop）。
+**Tier 仅影响模型**：`ComputerRoundLlmOverrides::for_tier()` 选择 `computerModelPrimary/Intermediate/Advanced` 与 thinking budget；提示词与 `[CUR_SCREEN]` 截图布局（2–3 张）三档一致。
 
 ### 8.4 每轮 System Prompt 组装
 
-代码：`single_agent_prompt.rs:76-87`
+代码：`chat_service/prompts.rs`（`push_agent_role_cacheable_prompts`）
 
 ```rust
-if lead_profile == AgentProfile::Computer {
-    let tier = state.computer_state.tier_for_conversation(conversation_id);  // ★ 读当前 tier
-    let comm = computer_communication_for_tier(tier);   // ★ 按 tier 选 communication
-    let body = computer_agent_body_for_tier(tier);      // ★ 按 tier 选 loop body
+if profile == AgentProfile::Computer {
+    let tier = computer_state.tier_for_conversation(conversation_id);  // ★ 读当前 tier（仅用于模型）
+    let comm = computer_communication_for_tier(tier);   // ★ 恒为 Primary communication
+    let body = computer_agent_body_for_tier(tier);      // ★ 恒为 Primary loop
     let merged = format!("{comm}\n\n---\n\n{body}");
     cacheable.push(expand_agent_prompt_placeholders(&merged, &session_vars));
 }
@@ -337,15 +337,14 @@ if lead_profile == AgentProfile::Computer {
 │ 1. COMMUNICATION_PUBLIC.md（共享规则）        │
 ├─────────────────────────────────────────────┤
 │ 2. computer_communication_for_tier(tier)     │
-│    ├── vision_slots (仅 Advanced)            │
-│    ├── communication.md (短/长版)            │
+│    ├── communication.md（Primary，全 tier）   │
+│    ├── ui_disabled_controls.md               │
 │    └── OS prompt (macOS/Windows/Linux)       │
 ├─────────────────────────────────────────────┤
 │ 3. computer_agent_body_for_tier(tier)        │
-│    └── loop.md (短/长版)                      │
+│    └── loop.md（Primary，全 tier）             │
 ├─────────────────────────────────────────────┤
-│ 4. tools_system_appendix (按 positioning mode)│
-│    └── Index 版 / Coordinate 版              │
+│ 4. tools_system_appendix                     │
 ├─────────────────────────────────────────────┤
 │ 5. [Environment] (OS + 日期 + 工具列表)       │
 ├─────────────────────────────────────────────┤
@@ -414,8 +413,8 @@ if lead_profile == AgentProfile::Computer {
 run_single_agent_loop()  [每一轮]
     ↓
 ┌─ 1. tier_for_conversation(conv_id)              ← 读取 current_tier
-├─ 2. positioning_mode_for_tier(tier)             ← Index/Coordinate 工具文档
-├─ 3. prepare_single_agent_round_prompts()        ← 按 tier 选 prompt 文件 + 动态注入
+├─ 2. positioning_mode_for_tier(tier)             ← 工具文档（全 tier 相同）
+├─ 3. prepare_single_agent_round_prompts()        ← Primary prompt + 动态注入
 ├─ 4. apply_round_settings(conv_id, settings)     ← 按 tier 选模型 + thinking budget
 ├─ 5. run_provider_stream_round(...)              ← 发送 LLM 请求
 │      ↓ LLM 返回 assistant message + tool_calls
@@ -430,7 +429,7 @@ run_single_agent_loop()  [每一轮]
 │      │    ├── repetition>=5 → should_give_up = true
 │      │    └── pass → 全部重置，current_tier = initial_tier
 │      └── if should_give_up → 退出循环
-└─ 回到步骤 1（下一轮用新 tier 的模型+提示词）
+└─ 回到步骤 1（下一轮用新 tier 的模型；提示词不变）
 ```
 
 ---
@@ -448,8 +447,8 @@ run_single_agent_loop()  [每一轮]
 | `crates/pointer-core/src/agents/computer/tools/tool_tier_signal.rs` | Sidecar 工具：验证 verify:report 信号参数 |
 | `crates/pointer-core/src/agents/computer/extension_hooks/tier_dynamic.rs` | 扩展钩子：注入 [LOCKED GOAL] 到 system prompt |
 | `crates/pointer-core/src/chat_service/sub_agent.rs` | 子 agent 循环：give_up 检测 |
-| `crates/pointer-core/src/agents/computer/prompts/tiers/primary/` | Primary/Intermediate 共用 prompt（communication.md + loop.md） |
-| `crates/pointer-core/src/agents/computer/prompts/tiers/advanced/` | Advanced 专用 prompt（vision_slots.md + communication.md + loop.md） |
+| `crates/pointer-core/src/agents/computer/prompts/tiers/primary/` | **全 tier 运行时 prompt**（communication.md + loop.md） |
+| `crates/pointer-core/src/agents/computer/prompts/tiers/advanced/` | 遗留/撰写参考（运行时未加载） |
 | `crates/pointer-core/src/agents/computer/prompts/os/` | OS 特定 prompt（macOS/Windows/Linux） |
 
 ---
@@ -470,5 +469,4 @@ run_single_agent_loop()  [每一轮]
 - Thinking budget 配置
 - `apply_app_settings` 覆盖初始 tier
 - Locked goal label 隔离
-- Advanced 禁止 index 工具
 - Sidecar 信号解析（取最后一个 signal）

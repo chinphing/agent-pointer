@@ -17,6 +17,6 @@ Run **Index parameters** chain per overlay arg before calling.
 
 Slider: crop via `index_captcha_area`; optional `index_slider_arrow` = real handle (often `→` lower-left of slide, same row as prompt).
 
-**Two-phase:** (1) `captcha_verify_*` once — solve inside the image. (2) If a separate **Confirm / Verify / Submit** button exists, click with **`mouse_*`**, not captcha again. Panel may look unchanged until (2). **`action_verify`** after (2), or after (1) if no submit button (e.g. release-to-validate slider). Repeat captcha only on **new puzzle** or **failed retry**. In-challenge targets stay on captcha tools; submit button uses `mouse_*`.
+**Two-phase:** (1) `captcha_verify_*` once — solve inside the image. (2) If a separate **Confirm / Verify / Submit** button exists, click with **`mouse_*`**, not captcha again. Panel may look unchanged until (2). Host **Verify** runs after each step. Repeat captcha only on **new puzzle** or **failed retry**. In-challenge targets stay on captcha tools; submit button uses `mouse_*`.
 
 If CAPTCHA hidden, reveal with mouse first, then captcha on next turn.

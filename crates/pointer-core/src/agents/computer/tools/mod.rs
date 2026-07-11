@@ -11,11 +11,14 @@ mod tool_input;
 mod tool_hotkey;
 mod tool_modified_click;
 mod tool_mouse;
-mod tool_action_verify;
 pub(crate) mod tool_app_access;
 mod tool_wait;
 
-use crate::agents::computer::tool_names::ACTION_VERIFY;
+pub use tool_clipboard::{clipboard_host_verify_kind, ClipboardHostVerifyKind};
+pub use tool_app_access::{
+    app_access_host_pass_summary, parse_app_access_host_outcome, AppAccessHostOutcome,
+};
+
 use crate::agents::computer::ComputerState;
 use crate::agents::computer::tier::ComputerTierGuard;
 use args_util::{clamp_scroll_lines, effective_human_like_default};
@@ -400,19 +403,5 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             )
             .with_schema(launch_schema),
         );
-    }
-
-    // ── action_verify (sidecar flat) ─────────────────────────────────────
-    {
-        const ACTION_VERIFY_DOC_SOURCE: &str = "agents/computer/tools/prompts/action_verify.md";
-        let doc = include_str!("prompts/action_verify.md").trim();
-        reg.register(ToolEntry::new_sidecar(
-            ACTION_VERIFY,
-            ACTION_VERIFY_DOC_SOURCE,
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| tool_action_verify::execute_action_verify(&args)),
-        ));
     }
 }

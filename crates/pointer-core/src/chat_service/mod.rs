@@ -8,6 +8,7 @@
 mod context;
 mod computer_monitor_pick;
 mod computer_monitor_follow;
+mod computer_pipeline_loop;
 mod conversation_persist;
 mod agent_post_stream;
 mod agent_round_lifecycle;

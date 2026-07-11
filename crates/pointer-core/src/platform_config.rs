@@ -136,6 +136,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         agent_performance_modes: s.agent_performance_modes.clone(),
         media_understanding_modes: s.media_understanding_modes.clone(),
         computer_tier_llm: PlatformSettings::default().computer_tier_llm,
+        computer_pipeline_llm: PlatformSettings::default().computer_pipeline_llm,
         agent_mode_llm: s.agent_mode_llm.clone(),
         media_mode_llm: s.media_mode_llm.clone(),
         media_oss: s.media_oss.clone(),
@@ -151,6 +152,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
 pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformSettings) -> PlatformSettings {
     let mut next = platform_settings_from_model_settings(incoming);
     next.computer_tier_llm = existing.computer_tier_llm.clone();
+    next.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
     // Per-agent/per-mode LLM config: start with existing then overlay incoming
     // on top so that incoming values always take priority.
     {

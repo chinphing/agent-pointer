@@ -20,7 +20,6 @@ pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplay
 
 pub use tool_doc::{doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema};
 
-use crate::agents::computer::tool_names::{ACTION_VERIFY, ACTION_VERIFY_LEGACY_UNDERSCORE};
 use crate::models::ToolDef;
 use anyhow::Result;
 use parking_lot::RwLock;
@@ -195,7 +194,6 @@ pub fn expand_family_allow_names(
 /// Map retired split computer tool ids to unified family names for allow lists.
 pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
     const TO_FAMILY: &[(&str, &str)] = &[
-        (ACTION_VERIFY_LEGACY_UNDERSCORE, ACTION_VERIFY),
         ("mouse_index", "mouse"),
         ("mouse_at", "mouse"),
         ("mouse_current", "mouse"),
@@ -218,7 +216,7 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
         let base = registry_tool_base_name(n);
         !matches!(
             base,
-            ACTION_VERIFY_LEGACY_UNDERSCORE
+            "verify_report"
                 | "mouse_index"
                 | "mouse_at"
                 | "mouse_current"
@@ -943,7 +941,6 @@ mod openai_tools_schema_tests {
             "clipboard_write",
             "hotkey",
             "wait",
-            "action_verify",
             "task_board_patch",
         ]
         .into_iter()
@@ -957,7 +954,6 @@ mod openai_tools_schema_tests {
             "modified_click".into(),
             "wait".into(),
             "clipboard".into(),
-            "action_verify".into(),
             "task_board".into(),
             "captcha_verify".into(),
         ];
@@ -974,7 +970,6 @@ mod openai_tools_schema_tests {
             "captcha_verify_click",
             "hotkey",
             "wait",
-            "action_verify",
             "task_board_patch",
         ] {
             assert!(

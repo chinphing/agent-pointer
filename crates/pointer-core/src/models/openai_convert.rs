@@ -494,7 +494,7 @@ mod make_openai_messages_tests {
         a.content = String::new();
         a.tool_calls = Some(vec![ToolCall {
             id: "call_empty".into(),
-            name: "action_verify".into(),
+            name: "terminal".into(),
             arguments: String::new(),
             status: "success".into(),
             result: Some("ok".into()),

@@ -4,10 +4,12 @@ use crate::agents::computer::input::actions::{self, ActionExecutor};
 use crate::agents::computer::input::enigo::EnigoBackend;
 use crate::agents::computer::input::mouse_move::MouseMoveProfile;
 use crate::agents::computer::input::timing::is_desktop_vision_log_tool;
+use crate::agents::computer::pipeline::types::{AdvancedPipelineSession, VerifyConclusion};
+use crate::agents::computer::pipeline::{verify_outcome_for_tier, verify_outcome_struct};
 use crate::agents::computer::tier::{
     format_tier_history_block, format_tier_runtime_block, normalize_tool_record,
-    ComputerRoundLlmOverrides, ComputerTier,
-    ComputerTierConfig, ComputerTierRuntime,
+    ComputerRoundLlmOverrides, ComputerTier, ComputerTierConfig, ComputerTierRuntime,
+    PipelineLlmPhase,
 };
 use crate::agents::computer::vision::annotate::AnnotateClient;
 use crate::agents::computer::vision::coord::CoordinateSystem;
@@ -49,7 +51,7 @@ pub struct ScreenCaptureResult {
     pub zoom_task_bar_png: Vec<u8>,
     /// Zoom: 200×200 crop, 4× magnified (800×800) around pointer on marked annotated.
     pub zoom_pointer_png: Vec<u8>,
-    /// Optional prose under **`[CUR_SCREEN]`**: **Pointer position** + overlay bbox rows (`reference_anchors`; Primary/Intermediate: 10 nearest pointer; Advanced: all indices).
+    /// Optional prose under **`[CUR_SCREEN]`**: **Pointer position** + overlay bbox rows (`reference_anchors`; 10 nearest pointer).
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
@@ -94,6 +96,7 @@ pub struct ComputerSession {
     pub status: SessionStatus,
     pub desktop_log: Vec<DesktopToolEntry>,
     pub tier_runtime: ComputerTierRuntime,
+    pub pipeline: AdvancedPipelineSession,
 }
 
 impl ComputerSession {
@@ -116,6 +119,7 @@ impl ComputerSession {
             status: SessionStatus::Active,
             desktop_log: Vec::new(),
             tier_runtime: ComputerTierRuntime::new(initial_tier),
+            pipeline: AdvancedPipelineSession::default(),
         }
     }
 }
@@ -145,6 +149,7 @@ impl ComputerState {
             let settings = crate::models::merge_user_platform(&user, &platform);
             cfg.apply_app_settings(&settings);
             cfg.apply_platform_tier_llm(&platform.computer_tier_llm);
+            cfg.apply_platform_pipeline_llm(&platform.computer_pipeline_llm);
         }
         cfg
     }
@@ -315,6 +320,48 @@ impl ComputerState {
         s
     }
 
+    /// Per-phase model for host verify pipeline (Verify phase).
+    pub fn apply_pipeline_phase_settings(
+        &self,
+        conversation_id: &str,
+        phase: PipelineLlmPhase,
+        settings: &crate::models::ModelSettings,
+    ) -> crate::models::ModelSettings {
+        let tier = self.tier_for_conversation(conversation_id);
+        let cfg = self.effective_tier_config();
+        let model = cfg.pipeline_llm.model_for_phase(phase).to_string();
+        let mut s = settings.clone();
+        s.model = model;
+        match phase {
+            PipelineLlmPhase::Decision => {
+                let o = ComputerRoundLlmOverrides::for_tier(tier, &cfg);
+                s.round_enable_thinking = Some(o.enable_thinking);
+                s.round_thinking_budget = o.thinking_budget;
+            }
+            PipelineLlmPhase::Position | PipelineLlmPhase::Verify => {
+                let (enable, budget) = cfg.pipeline_llm.thinking_for_phase(phase);
+                s.round_enable_thinking = Some(enable);
+                s.round_thinking_budget = Some(budget);
+            }
+        }
+        if crate::logging::internal_runtime_log_enabled() {
+            log::debug!(
+                "computer_pipeline_llm: conversation_id={conversation_id} phase={} model={} \
+                 enable_thinking={:?} thinking_budget={:?}",
+                phase.label(),
+                s.model,
+                s.round_enable_thinking,
+                s.round_thinking_budget
+            );
+        }
+        s
+    }
+
+    /// Whether host post-execute verify is enabled (all tiers when true).
+    pub fn verify_host_enabled(&self) -> bool {
+        self.effective_tier_config().verify_host_enabled
+    }
+
     /// Retrieve or create the session for a conversation, updating last_active_at and evicting if needed.
     /// Eviction priority: ended → cancelled → least recently active among active sessions.
     fn get_or_create_session(&self, conversation_id: &str) -> Arc<Mutex<ComputerSession>> {
@@ -483,24 +530,14 @@ impl ComputerState {
         }
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        let mouse_neighbor_reference_text = match tier {
-            ComputerTier::Advanced => reference_anchors::format_mouse_neighbor_reference_bboxes(
+        let mouse_neighbor_reference_text =
+            reference_anchors::format_mouse_nearby_reference_bboxes(
                 &boxes,
                 &monitor,
                 capture_px,
                 global_pointer,
                 CoordinateSystem::Qwen,
-            ),
-            ComputerTier::Primary | ComputerTier::Intermediate => {
-                reference_anchors::format_mouse_nearby_reference_bboxes(
-                    &boxes,
-                    &monitor,
-                    capture_px,
-                    global_pointer,
-                    CoordinateSystem::Qwen,
-                )
-            }
-        };
+            );
 
         let t = Instant::now();
         let pack = build_vision_overlay_pack(
@@ -713,30 +750,77 @@ impl ComputerState {
         )
     }
 
+    /// Legacy hook after assistant round — verify is applied by host pipeline post-execute.
     pub fn on_assistant_round_complete(
         &self,
-        conversation_id: &str,
-        thoughts: Option<&str>,
-        tool_calls: Option<&[ToolCall]>,
+        _conversation_id: &str,
+        _thoughts: Option<&str>,
+        _tool_calls: Option<&[ToolCall]>,
     ) {
-        let parsed_signal = tool_calls
-            .and_then(crate::agents::computer::tier::parse_action_verify_from_sidecar_tool_calls);
-        let parsed_verify = parsed_signal.as_ref().map(|s| crate::agents::computer::tier::ParsedVerify {
-            step_result: s.action_result.clone(),
-            cause: s.failure_cause.clone(),
-        });
+    }
+
+    /// Reuse the latest pipeline capture, or capture once when no cache exists.
+    pub async fn ensure_pipeline_capture(
+        &self,
+        conversation_id: &str,
+    ) -> anyhow::Result<ScreenCaptureResult> {
+        {
+            let session = self.get_or_create_session(conversation_id);
+            let s = session.lock().unwrap();
+            if let Some(cap) = s.pipeline.cached_capture.clone() {
+                log::info!(
+                    "pipeline capture: reuse cached frame conversation_id={conversation_id}"
+                );
+                return Ok(cap);
+            }
+        }
+        log::info!(
+            "pipeline capture: fresh OS screenshot conversation_id={conversation_id}"
+        );
+        let (cap, _) = self.capture_and_annotate(conversation_id).await?;
+        {
+            let session = self.get_or_create_session(conversation_id);
+            let mut s = session.lock().unwrap();
+            s.pipeline.cached_capture = Some(cap.clone());
+        }
+        Ok(cap)
+    }
+
+    pub fn store_pipeline_after_capture(
+        &self,
+        conversation_id: &str,
+        cap: ScreenCaptureResult,
+    ) {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
+        s.pipeline.cached_capture = Some(cap);
+    }
+
+    pub fn pipeline_context_fields(
+        &self,
+        conversation_id: &str,
+    ) -> (Option<String>, Option<VerifyConclusion>) {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        (
+            s.pipeline.last_operation_summary.clone(),
+            s.pipeline.last_verify.clone(),
+        )
+    }
+
+    pub fn apply_pipeline_verify_result(
+        &self,
+        conversation_id: &str,
+        conclusion: &VerifyConclusion,
+    ) {
+        let parsed = verify_outcome_for_tier(conclusion);
+        let outcome = verify_outcome_struct(conclusion);
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        s.pipeline.last_verify = Some(conclusion.clone());
         let last_goal = s.tier_runtime.last_executed_goal.clone();
         let tier = s.tier_runtime.current_tier;
-        let mut backfilled = false;
-        if let Some(ref pv) = parsed_verify {
-            let outcome = crate::agents::computer::tier::VerifyOutcome {
-                step_result: pv.step_result.clone(),
-                cause: pv.cause.clone(),
-            };
-            backfilled = s.tier_runtime.backfill_newest_open_verify(tier, outcome);
-        }
+        let backfilled = s.tier_runtime.backfill_newest_open_verify(tier, outcome);
         let host_repetition_count =
             crate::agents::computer::tier::same_goal_repetition_count_in_history(
                 s.tier_runtime.history_for(tier),
@@ -745,37 +829,71 @@ impl ComputerState {
         if backfilled {
             s.tier_runtime.on_round_complete(
                 &config,
-                parsed_verify.as_ref(),
+                Some(&parsed),
                 last_goal.as_deref(),
-                parsed_signal.as_ref().map(|s| s.repetition_count),
+                None,
                 host_repetition_count,
             );
-        } else if parsed_verify.is_some() {
-            let step = parsed_verify
-                .as_ref()
-                .map(|p| p.step_result.as_str())
-                .unwrap_or("");
-            if step != "pending" {
-                log::warn!(
-                    "computer tier runtime: {} ignored — newest row not open verifying (duplicate or no row)",
-                    crate::agents::computer::tool_names::ACTION_VERIFY
-                );
-            }
+            log::info!(
+                "computer pipeline: verify applied conversation_id={conversation_id} result={}",
+                conclusion.action_result.as_history_str()
+            );
+        } else {
+            log::warn!(
+                "computer pipeline: verify not backfilled conversation_id={conversation_id} result={}",
+                conclusion.action_result.as_history_str()
+            );
         }
-        if parsed_signal.is_none() {
-            let has_thoughts_step = thoughts
-                .and_then(crate::agents::computer::tier::parse_verify_from_thoughts)
-                .is_some();
-            if has_thoughts_step {
-                log::warn!(
-                    "computer tier runtime: sidecar verify signal missing; thoughts contains Step result but sidecar is authoritative"
-                );
-            } else {
-                log::warn!(
-                    "computer tier runtime: sidecar verify signal missing; cannot update action_result history or sidecar-driven upgrade signal"
-                );
-            }
-        }
+    }
+
+    pub fn set_pipeline_last_operation(
+        &self,
+        conversation_id: &str,
+        summary: String,
+    ) {
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        s.pipeline.last_operation_summary = Some(summary);
+    }
+
+    pub fn next_pipeline_round_seq(&self, conversation_id: &str) -> u32 {
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        s.pipeline.pipeline_round_seq += 1;
+        s.pipeline.pipeline_round_seq
+    }
+
+    pub fn current_pipeline_round_seq(&self, conversation_id: &str) -> u32 {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        s.pipeline.pipeline_round_seq
+    }
+
+    pub fn tier_history_has_verify_pass(&self, conversation_id: &str) -> bool {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        let tier = s.tier_runtime.current_tier;
+        s.tier_runtime
+            .history_for(tier)
+            .iter()
+            .rev()
+            .any(|r| {
+                r.verify_result
+                    .as_ref()
+                    .is_some_and(|v| v.step_result.eq_ignore_ascii_case("pass"))
+            })
+    }
+
+    pub fn tier_history_has_verify_report(&self, conversation_id: &str) -> bool {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        let tier = s.tier_runtime.current_tier;
+        s.tier_runtime.history_for(tier).iter().rev().any(|r| {
+            r.verify_result.as_ref().is_some_and(|v| {
+                let step = v.step_result.as_str();
+                step != "skipped" && step != "pending"
+            })
+        })
     }
 
     pub fn locked_goal_dynamic_block(&self, conversation_id: &str) -> Option<String> {

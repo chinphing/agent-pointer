@@ -51,11 +51,9 @@ export function isSidecarToolCall(fullName: string, baseName?: string): boolean 
   const name = fullName.trim()
   const base = (baseName ?? toolCallBaseName(name)).trim()
   if (
-    name === 'action_verify' ||
     name.startsWith('verify:') ||
     name === 'verify_report' ||
     base === 'verify' ||
-    base === 'action_verify' ||
     base.startsWith('verify_')
   ) {
     return true

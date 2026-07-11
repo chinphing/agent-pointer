@@ -28,7 +28,7 @@ export function isScreenInjectUserMessage(message: ChatMessage): boolean {
   return message.content.trimStart().startsWith('[CUR_SCREEN]')
 }
 
-/** Sidecar-only assistant round (action_verify, task_board, …) — no user-visible tool card. */
+/** Sidecar-only assistant round (task_board, …) — no user-visible tool card. */
 export function isSidecarOnlyAssistantMessage(message: ChatMessage): boolean {
   if (message.role !== 'assistant') return false
   const tcs = message.toolCalls ?? []

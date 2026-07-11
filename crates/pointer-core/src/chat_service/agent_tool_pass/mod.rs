@@ -164,6 +164,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 .unwrap_or_default()
                 .as_str(),
             pass.ctx.transcript.history,
+            Some(pass.ctx.session.state),
             pass.ctx.task_board_work_items_enabled,
             pass.ctx.task_board_b42_enforced,
         );

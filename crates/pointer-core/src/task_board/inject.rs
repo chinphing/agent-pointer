@@ -1,5 +1,6 @@
 //! Host-injected session binding for `task_board` and computer tools.
 
+use crate::chat_service::AppState;
 use crate::models::ChatMessage;
 use crate::task_board::checkpoint::is_task_board_tool_name;
 use crate::task_board::evidence::{
@@ -17,6 +18,7 @@ pub fn inject_host_task_board_conversation_id(
     task_board_store_key: &str,
     session_user_id: &str,
     history: &[ChatMessage],
+    app_state: Option<&AppState>,
     work_items_enabled: bool,
     b42_enforced: bool,
 ) -> Value {
@@ -55,11 +57,19 @@ pub fn inject_host_task_board_conversation_id(
         );
         map.insert(
             "_recent_verify_pass".to_string(),
-            Value::Bool(history_has_recent_verify_pass(history)),
+            Value::Bool(
+                app_state
+                    .map(|s| history_has_recent_verify_pass(s, conversation_id))
+                    .unwrap_or(false),
+            ),
         );
         map.insert(
             "_recent_verify_report".to_string(),
-            Value::Bool(history_has_recent_verify_report(history)),
+            Value::Bool(
+                app_state
+                    .map(|s| history_has_recent_verify_report(s, conversation_id))
+                    .unwrap_or(false),
+            ),
         );
         map.insert(
             "_task_board_work_items_enabled".to_string(),
@@ -115,6 +125,7 @@ mod tests {
             "conv-abc::tb",
             "user-1",
             &[],
+            None,
             false,
             false,
         );
@@ -133,6 +144,7 @@ mod tests {
             "conv-abc::tb",
             "user-1",
             &[],
+            None,
             false,
             false,
         );
@@ -151,6 +163,7 @@ mod tests {
             "conv-abc",
             "user-1",
             &[],
+            None,
             true,
             true,
         );
@@ -169,6 +182,7 @@ mod tests {
             "conv-abc::tb",
             "im-user-a",
             &[],
+            None,
             false,
             false,
         );
@@ -192,6 +206,7 @@ mod tests {
             "conv-abc::tb",
             "user-1",
             &[],
+            None,
             false,
             false,
         );

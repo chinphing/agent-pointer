@@ -11,209 +11,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-const LLM_HTTP_MAX_ATTEMPTS: u32 = 6;
-/// OpenAI / Anthropic 429 responses may include Retry-After (seconds) or retry-after-ms.
-const LLM_RATE_LIMIT_HEADER_MAX_SECS: f64 = 120.0;
-/// DashScope 百炼官方示例: base_delay=1, max_delay=60, wait_random_exponential(min=1, max=60).
-const LLM_RATE_LIMIT_BACKOFF_INITIAL_SECS: f64 = 1.0;
-const LLM_RATE_LIMIT_BACKOFF_MAX_SECS: f64 = 60.0;
-const LLM_TRANSIENT_BACKOFF_INITIAL_MS: u64 = 500;
-const LLM_TRANSIENT_BACKOFF_MAX_MS: u64 = 8_000;
-const LLM_CHAT_BASE_TIMEOUT_SECS: u64 = 180;
-/// DashScope burst throttling: server-side queue (3–120s per 百炼文档).
-const DASHSCOPE_WAIT_TIMEOUT_SECS: u64 = 30;
-
-fn is_dashscope_url(url: &str) -> bool {
-    let lower = url.to_ascii_lowercase();
-    lower.contains("dashscope.aliyuncs.com") || lower.contains("dashscope-intl.aliyuncs.com")
-}
-
-fn llm_http_timeout_secs(url: &str, stream: bool, base_secs: u64) -> u64 {
-    if !is_dashscope_url(url) {
-        return base_secs;
-    }
-    if stream {
-        // 流式：客户端超时需大于 Wait-Timeout（首个 chunk 前可能排队）。
-        base_secs.max(DASHSCOPE_WAIT_TIMEOUT_SECS.saturating_add(1))
-    } else {
-        // 非流式：超时 = 基础超时 + Wait-Timeout。
-        base_secs.saturating_add(DASHSCOPE_WAIT_TIMEOUT_SECS)
-    }
-}
-
-fn build_llm_http_client(url: &str, stream: bool, base_timeout_secs: u64) -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder()
-        .timeout(Duration::from_secs(llm_http_timeout_secs(
-            url,
-            stream,
-            base_timeout_secs,
-        )))
-        .build()?)
-}
-
-fn is_retryable_llm_http_status(status: reqwest::StatusCode) -> bool {
-    status == reqwest::StatusCode::TOO_MANY_REQUESTS
-        || status == reqwest::StatusCode::REQUEST_TIMEOUT
-        || status.is_server_error()
-}
-
-fn is_rate_limit_status(status: reqwest::StatusCode) -> bool {
-    status == reqwest::StatusCode::TOO_MANY_REQUESTS
-}
-
-fn is_retryable_llm_transport_error(err: &reqwest::Error) -> bool {
-    err.is_timeout() || err.is_connect() || err.is_request() || err.is_body()
-}
-
-/// Parse `Retry-After` / `retry-after-ms` per OpenAI & Anthropic rate-limit guidance.
-fn parse_retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<f64> {
-    if let Some(raw) = headers.get("retry-after-ms").and_then(|v| v.to_str().ok()) {
-        if let Ok(ms) = raw.trim().parse::<f64>() {
-            if ms > 0.0 {
-                return Some(ms / 1000.0);
-            }
-        }
-    }
-    let raw = headers.get("retry-after").and_then(|v| v.to_str().ok())?;
-    let trimmed = raw.trim();
-    if let Ok(secs) = trimmed.parse::<f64>() {
-        if secs > 0.0 {
-            return Some(secs);
-        }
-    }
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc2822(trimmed) {
-        let wait = dt.timestamp() as f64 - chrono::Utc::now().timestamp() as f64;
-        if wait > 0.0 {
-            return Some(wait);
-        }
-    }
-    None
-}
-
-fn retry_jitter_ms(base_ms: u64) -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0) as u64;
-    // 75%–100% of base (OpenAI cookbook: add random jitter to backoff).
-    let jitter_num = 750 + (n % 251);
-    base_ms.saturating_mul(jitter_num) / 1000
-}
-
-fn llm_rate_limit_additive_jitter_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0) as u64;
-    // 百炼原生示例: sleep_time = backoff + random.uniform(0, 1)
-    n % 1001
-}
-
-fn llm_rate_limit_backoff_ms(attempt: u32, headers: &reqwest::header::HeaderMap) -> u64 {
-    if let Some(secs) = parse_retry_after_secs(headers) {
-        let capped = secs.min(LLM_RATE_LIMIT_HEADER_MAX_SECS);
-        return (capped * 1000.0).ceil() as u64;
-    }
-    let exp = LLM_RATE_LIMIT_BACKOFF_INITIAL_SECS
-        * 2f64.powi(attempt.saturating_sub(1) as i32);
-    let secs = exp.min(LLM_RATE_LIMIT_BACKOFF_MAX_SECS);
-    (secs * 1000.0).ceil() as u64 + llm_rate_limit_additive_jitter_ms()
-}
-
-fn llm_transient_backoff_ms(attempt: u32) -> u64 {
-    let exp = LLM_TRANSIENT_BACKOFF_INITIAL_MS
-        .saturating_mul(1u64 << attempt.saturating_sub(1).min(4));
-    let base = exp.min(LLM_TRANSIENT_BACKOFF_MAX_MS);
-    retry_jitter_ms(base)
-}
-
-fn llm_retry_delay_ms(
-    attempt: u32,
-    status: reqwest::StatusCode,
-    headers: &reqwest::header::HeaderMap,
-) -> u64 {
-    if is_rate_limit_status(status) {
-        llm_rate_limit_backoff_ms(attempt, headers)
-    } else {
-        llm_transient_backoff_ms(attempt)
-    }
-}
-
-async fn llm_http_sleep(delay_ms: u64, cancel: &CancellationToken) -> Result<()> {
-    tokio::select! {
-        _ = cancel.cancelled() => Err(anyhow!("cancelled")),
-        _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => Ok(()),
-    }
-}
-
-async fn post_chat_with_retry(
-    client: &reqwest::Client,
-    url: &str,
-    api_key: &str,
-    wire_body: &Value,
-    cancel: &CancellationToken,
-    operation: &str,
-) -> Result<reqwest::Response> {
-    for attempt in 1..=LLM_HTTP_MAX_ATTEMPTS {
-        let mut req = client.post(url).bearer_auth(api_key).json(wire_body);
-        if is_dashscope_url(url) {
-            req = req.header(
-                "X-DashScope-Wait-Timeout",
-                DASHSCOPE_WAIT_TIMEOUT_SECS.to_string(),
-            );
-        }
-        let send_result = tokio::select! {
-            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
-            r = req.send() => r,
-        };
-        match send_result {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    return Ok(resp);
-                }
-                let status = resp.status();
-                let retryable = is_retryable_llm_http_status(status);
-                let headers = resp.headers().clone();
-                let body_preview = resp.text().await.unwrap_or_default();
-                if !retryable || attempt >= LLM_HTTP_MAX_ATTEMPTS {
-                    return Err(anyhow!(
-                        "HTTP {}: {}",
-                        status,
-                        truncate(&body_preview, 400)
-                    ));
-                }
-                let delay_ms = llm_retry_delay_ms(attempt, status, &headers);
-                log::warn!(
-                    "{operation}: HTTP {status} attempt {attempt}/{LLM_HTTP_MAX_ATTEMPTS}, \
-                     retrying after {delay_ms}ms{}",
-                    if is_rate_limit_status(status) {
-                        parse_retry_after_secs(&headers)
-                            .map(|s| format!(" (Retry-After={s:.3}s)"))
-                            .unwrap_or_default()
-                    } else {
-                        String::new()
-                    }
-                );
-                llm_http_sleep(delay_ms, cancel).await?;
-            }
-            Err(err)
-                if attempt < LLM_HTTP_MAX_ATTEMPTS && is_retryable_llm_transport_error(&err) =>
-            {
-                let delay_ms = llm_transient_backoff_ms(attempt);
-                log::warn!(
-                    "{operation}: transport error attempt {attempt}/{LLM_HTTP_MAX_ATTEMPTS}: {err:#}, \
-                     retrying after {delay_ms}ms"
-                );
-                llm_http_sleep(delay_ms, cancel).await?;
-            }
-            Err(err) => return Err(err.into()),
-        }
-    }
-    Err(anyhow!("LLM HTTP request failed after {LLM_HTTP_MAX_ATTEMPTS} attempts"))
-}
-
 #[derive(Debug, Clone)]
 pub enum ProviderEvent {
     ContentDelta(String),
@@ -294,9 +91,9 @@ fn chat_request_wire_json(req: &ChatRequest<'_>, settings: &ModelSettings) -> Va
 
 #[derive(Deserialize, Debug, Clone)]
 struct StreamUsage {
-    #[serde(default, alias = "input_tokens")]
+    #[serde(default)]
     prompt_tokens: Option<u32>,
-    #[serde(default, alias = "output_tokens")]
+    #[serde(default)]
     completion_tokens: Option<u32>,
     #[serde(default)]
     total_tokens: Option<u32>,
@@ -416,6 +213,8 @@ pub struct ChatOnceOutput {
     pub model: String,
     /// Native tool calls when the request included `tools`.
     pub tool_calls: Vec<ToolCall>,
+    /// Reasoning / thinking channel when returned separately from `content`.
+    pub reasoning_content: Option<String>,
 }
 
 fn parse_chat_once_tool_calls(raw: Option<&[ChatApiToolCall]>) -> Vec<ToolCall> {
@@ -440,9 +239,7 @@ fn parse_chat_once_tool_calls(raw: Option<&[ChatApiToolCall]>) -> Vec<ToolCall> 
             Some(ToolCall {
                 id,
                 name: name.to_string(),
-                arguments: crate::tools::normalize_tool_call_arguments_for_api(
-                    func.arguments.as_deref().unwrap_or(""),
-                ),
+                arguments: func.arguments.clone().unwrap_or_else(|| "{}".into()),
                 status: "done".into(),
                 result: None,
                 error: None,
@@ -484,9 +281,20 @@ impl OpenAIProvider {
             "stream": false,
             "max_tokens": 4
         });
-        let client = build_llm_http_client(&url, false, 20)?;
-        let cancel = CancellationToken::new();
-        let _resp = post_chat_with_retry(&client, &url, &self.api_key, &body, &cancel, "test").await?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()?;
+        let resp = client
+            .post(&url)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let s = resp.status();
+            let t = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", s, truncate(&t, 200)));
+        }
         Ok(start.elapsed().as_millis())
     }
 
@@ -562,16 +370,22 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = build_llm_http_client(&url, false, LLM_CHAT_BASE_TIMEOUT_SECS)?;
-        let resp = post_chat_with_retry(
-            &client,
-            &url,
-            &self.api_key,
-            &wire_body,
-            &cancel,
-            "chat_once",
-        )
-        .await?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&wire_body)
+                .send() => r?,
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
+        }
         let parsed: ChatOnceApiResponse = resp.json().await?;
         let message = parsed
             .choices
@@ -591,6 +405,7 @@ impl OpenAIProvider {
             usage,
             model: self.settings.model.clone(),
             tool_calls,
+            reasoning_content: None,
         })
     }
 
@@ -638,16 +453,22 @@ impl OpenAIProvider {
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let wire_body = chat_request_wire_json(&req, &self.settings);
-        let client = build_llm_http_client(&url, false, LLM_CHAT_BASE_TIMEOUT_SECS)?;
-        let resp = post_chat_with_retry(
-            &client,
-            &url,
-            &self.api_key,
-            &wire_body,
-            &cancel,
-            "chat_once_wire",
-        )
-        .await?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&wire_body)
+                .send() => r?,
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
+        }
         let parsed: ChatOnceApiResponse = resp.json().await?;
         let message = parsed
             .choices
@@ -667,6 +488,541 @@ impl OpenAIProvider {
             usage,
             model: self.settings.model.clone(),
             tool_calls,
+            reasoning_content: None,
+        })
+    }
+
+    /// Position / Verify pipeline modules — stream + thinking + virtual submit tools.
+    /// Structured result comes from `tool_calls[].arguments`, not `content` or `response_format`.
+    pub async fn stream_pipeline_module_with_tools(
+        &self,
+        messages: Vec<Value>,
+        system_text: Option<&str>,
+        tools: Vec<Value>,
+        cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
+    ) -> Result<ChatOnceOutput> {
+        let max_tok =
+            max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
+        let mut wire_messages = Vec::new();
+        if let Some(sys) = system_text.filter(|s| !s.trim().is_empty()) {
+            wire_messages.push(json!({ "role": "system", "content": sys }));
+        }
+        wire_messages.extend(messages);
+        let extra_body = crate::models::effective_chat_extra_body(&self.settings);
+        log::info!(
+            "stream_pipeline_module_tools: stream+thinking+tools={} dump_label={dump_label:?} \
+             enable_thinking={:?}",
+            tools.len(),
+            extra_body
+                .as_ref()
+                .and_then(|eb| eb.get("enable_thinking"))
+                .and_then(|v| v.as_bool())
+        );
+        self.stream_wire_messages_collect_with_tools(
+            wire_messages,
+            max_tok,
+            extra_body,
+            tools,
+            cancel,
+            dump_label,
+            "pipeline_module_tools",
+        )
+        .await
+    }
+
+    /// Non-streaming completion with explicit wire messages and optional system + response_format.
+    pub async fn chat_once_wire_messages_with_response_format(
+        &self,
+        messages: Vec<Value>,
+        system_text: Option<&str>,
+        response_format: Option<Value>,
+        cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
+    ) -> Result<ChatOnceOutput> {
+        let base_url = self
+            .settings
+            .providers
+            .iter()
+            .find(|p| p.id == self.settings.active_provider_id)
+            .map(|p| p.base_url.clone())
+            .unwrap_or_else(|| {
+                self.settings
+                    .providers
+                    .first()
+                    .map(|p| p.base_url.clone())
+                    .unwrap_or_default()
+            });
+        let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
+        let mut extra_body = crate::models::effective_chat_extra_body(&self.settings)
+            .unwrap_or_else(|| json!({}));
+        let has_response_format = response_format.is_some();
+        if let Some(rf) = response_format {
+            if let Some(obj) = extra_body.as_object_mut() {
+                obj.insert("response_format".into(), rf);
+            } else {
+                extra_body = json!({ "response_format": rf });
+            }
+        }
+        let mut wire_messages = Vec::new();
+        if let Some(sys) = system_text.filter(|s| !s.trim().is_empty()) {
+            wire_messages.push(json!({ "role": "system", "content": sys }));
+        }
+        wire_messages.extend(messages);
+        crate::llm_prompt_dump::try_dump_round(
+            &self.settings,
+            dump_label,
+            "chat_once_wire_schema",
+            false,
+            max_tok,
+            &wire_messages,
+        );
+        if thinking_enabled_for_wire_request(&self.settings) && !has_response_format {
+            log::info!(
+                "chat_once_wire_schema: enable_thinking=true, stream without response_format dump_label={dump_label:?}"
+            );
+            let thinking_extra = crate::models::effective_chat_extra_body(&self.settings);
+            return self
+                .stream_wire_messages_collect(
+                    wire_messages,
+                    max_tok,
+                    thinking_extra,
+                    cancel,
+                    dump_label,
+                    "chat_once_wire_schema",
+                    false,
+                )
+                .await;
+        }
+        if thinking_enabled_for_wire_request(&self.settings) && has_response_format {
+            log::warn!(
+                "chat_once_wire_schema: response_format present — disabling thinking for structured output dump_label={dump_label:?}"
+            );
+            if let Some(obj) = extra_body.as_object_mut() {
+                obj.insert("enable_thinking".into(), Value::Bool(false));
+            }
+        }
+        let req = ChatRequest {
+            model: &self.settings.model,
+            messages: wire_messages,
+            stream: false,
+            temperature: crate::models::effective_temperature(&self.settings),
+            max_tokens: Some(max_tok),
+            stream_options: None,
+            tools: None,
+            tool_choice: None,
+            extra_body: if skip_extra_body(&Some(extra_body.clone())) {
+                None
+            } else {
+                Some(extra_body)
+            },
+        };
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let wire_body = chat_request_wire_json(&req, &self.settings);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&wire_body)
+                .send() => r?,
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
+        }
+        let parsed: ChatOnceApiResponse = resp.json().await?;
+        let message = parsed
+            .choices
+            .into_iter()
+            .next()
+            .map(|choice| choice.message)
+            .ok_or_else(|| anyhow!("模型未返回候选结果"))?;
+        let content = message.content.clone().unwrap_or_default();
+        let reasoning_content = message
+            .reasoning_content
+            .clone()
+            .filter(|s| !s.trim().is_empty());
+        let text = if content.trim().is_empty() {
+            reasoning_content.clone().unwrap_or_default()
+        } else {
+            content
+        };
+        let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
+        let tool_calls = parse_chat_once_tool_calls(message.tool_calls.as_deref());
+        Ok(ChatOnceOutput {
+            text,
+            usage,
+            model: self.settings.model.clone(),
+            tool_calls,
+            reasoning_content,
+        })
+    }
+
+    /// Streaming collect for wire messages (Decision-style SSE deltas).
+    async fn stream_wire_messages_collect(
+        &self,
+        wire_messages: Vec<Value>,
+        max_tok: u32,
+        extra_body: Option<Value>,
+        cancel: CancellationToken,
+        dump_label: Option<&str>,
+        dump_phase: &str,
+        // When true, use `content` or fall back to `reasoning` for `text` (legacy non-pipeline).
+        allow_reasoning_text_fallback: bool,
+    ) -> Result<ChatOnceOutput> {
+        let base_url = self
+            .settings
+            .providers
+            .iter()
+            .find(|p| p.id == self.settings.active_provider_id)
+            .map(|p| p.base_url.clone())
+            .unwrap_or_else(|| {
+                self.settings
+                    .providers
+                    .first()
+                    .map(|p| p.base_url.clone())
+                    .unwrap_or_default()
+            });
+        crate::llm_prompt_dump::try_dump_round(
+            &self.settings,
+            dump_label,
+            dump_phase,
+            true,
+            max_tok,
+            &wire_messages,
+        );
+        let stream_options = if stream_include_usage_enabled() {
+            Some(json!({"include_usage": true}))
+        } else {
+            None
+        };
+        let req = ChatRequest {
+            model: &self.settings.model,
+            messages: wire_messages,
+            stream: true,
+            temperature: crate::models::effective_temperature(&self.settings),
+            max_tokens: Some(max_tok),
+            stream_options,
+            tools: None,
+            tool_choice: None,
+            extra_body,
+        };
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let wire_body = chat_request_wire_json(&req, &self.settings);
+        crate::llm_prompt_dump::try_log_openai_chat_request_json(
+            &self.settings,
+            dump_phase,
+            dump_label,
+            &url,
+            &wire_body,
+        );
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&wire_body)
+                .send() => r?,
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
+        }
+        let mut reasoning_buf = String::new();
+        let mut content_buf = String::new();
+        let mut last_usage: Option<LlmUsageSnapshot> = None;
+        let stream_raw_to_console = raw_llm_stream_to_console_enabled();
+        let mut last_console_lane: Option<ConsoleStreamLane> = None;
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        loop {
+            let item = tokio::select! {
+                _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+                v = stream.next() => v,
+            };
+            let chunk = match item {
+                Some(c) => c?,
+                None => break,
+            };
+            buf.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(pos) = buf.find('\n') {
+                let line = buf[..pos].trim().to_string();
+                buf.drain(..=pos);
+                if line.is_empty() {
+                    continue;
+                }
+                let data = match line.strip_prefix("data:") {
+                    Some(rest) => rest.trim(),
+                    None => continue,
+                };
+                if data == "[DONE]" {
+                    break;
+                }
+                let parsed: StreamChunk = match serde_json::from_str(data) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                for ch in parsed.choices.iter() {
+                    if let Some(ref c) = ch.delta.content {
+                        if !c.is_empty() {
+                            if stream_raw_to_console {
+                                write_llm_stream_chunk_to_stderr(
+                                    c,
+                                    ConsoleStreamLane::Output,
+                                    &mut last_console_lane,
+                                );
+                            }
+                            content_buf.push_str(c);
+                        }
+                    }
+                    if let Some(ref r) = ch.delta.reasoning_content {
+                        if !r.is_empty() {
+                            if stream_raw_to_console {
+                                write_llm_stream_chunk_to_stderr(
+                                    r,
+                                    ConsoleStreamLane::Reasoning,
+                                    &mut last_console_lane,
+                                );
+                            }
+                            reasoning_buf.push_str(r);
+                        }
+                    }
+                }
+                if let Some(ref u) = parsed.usage {
+                    last_usage = Some(snapshot_from_stream_usage(u));
+                }
+            }
+        }
+        let reasoning_content = if reasoning_buf.trim().is_empty() {
+            None
+        } else {
+            Some(reasoning_buf)
+        };
+        let text = if !content_buf.trim().is_empty() {
+            content_buf
+        } else if allow_reasoning_text_fallback {
+            reasoning_content.clone().unwrap_or_default()
+        } else {
+            String::new()
+        };
+        log::info!(
+            "stream_wire_collect phase={dump_phase} dump_label={dump_label:?} \
+             reasoning_chars={} content_chars={} reasoning_tokens={:?}",
+            reasoning_content.as_ref().map(|s| s.chars().count()).unwrap_or(0),
+            text.chars().count(),
+            last_usage.as_ref().map(|u| u.reasoning_tokens),
+        );
+        Ok(ChatOnceOutput {
+            text,
+            usage: last_usage,
+            model: self.settings.model.clone(),
+            tool_calls: vec![],
+            reasoning_content,
+        })
+    }
+
+    /// Streaming collect with virtual pipeline tools (reasoning + tool_calls).
+    async fn stream_wire_messages_collect_with_tools(
+        &self,
+        wire_messages: Vec<Value>,
+        max_tok: u32,
+        extra_body: Option<Value>,
+        tools: Vec<Value>,
+        cancel: CancellationToken,
+        dump_label: Option<&str>,
+        dump_phase: &str,
+    ) -> Result<ChatOnceOutput> {
+        let base_url = self
+            .settings
+            .providers
+            .iter()
+            .find(|p| p.id == self.settings.active_provider_id)
+            .map(|p| p.base_url.clone())
+            .unwrap_or_else(|| {
+                self.settings
+                    .providers
+                    .first()
+                    .map(|p| p.base_url.clone())
+                    .unwrap_or_default()
+            });
+        crate::llm_prompt_dump::try_dump_round(
+            &self.settings,
+            dump_label,
+            dump_phase,
+            true,
+            max_tok,
+            &wire_messages,
+        );
+        let stream_options = if stream_include_usage_enabled() {
+            Some(json!({"include_usage": true}))
+        } else {
+            None
+        };
+        let tools_empty = tools.is_empty();
+        let req = ChatRequest {
+            model: &self.settings.model,
+            messages: wire_messages,
+            stream: true,
+            temperature: crate::models::effective_temperature(&self.settings),
+            max_tokens: Some(max_tok),
+            stream_options,
+            tools: if tools_empty { None } else { Some(tools) },
+            tool_choice: if tools_empty {
+                None
+            } else {
+                Some("auto")
+            },
+            extra_body,
+        };
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let wire_body = chat_request_wire_json(&req, &self.settings);
+        crate::llm_prompt_dump::try_log_openai_chat_request_json(
+            &self.settings,
+            dump_phase,
+            dump_label,
+            &url,
+            &wire_body,
+        );
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&wire_body)
+                .send() => r?,
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
+        }
+        let mut reasoning_buf = String::new();
+        let mut content_buf = String::new();
+        let stream_tool_session_id = rand_id();
+        let mut tool_states: BTreeMap<u32, NativeToolCallState> = BTreeMap::new();
+        let mut last_usage: Option<LlmUsageSnapshot> = None;
+        let stream_raw_to_console = raw_llm_stream_to_console_enabled();
+        let mut last_console_lane: Option<ConsoleStreamLane> = None;
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        loop {
+            let item = tokio::select! {
+                _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+                v = stream.next() => v,
+            };
+            let chunk = match item {
+                Some(c) => c?,
+                None => break,
+            };
+            buf.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(pos) = buf.find('\n') {
+                let line = buf[..pos].trim().to_string();
+                buf.drain(..=pos);
+                if line.is_empty() {
+                    continue;
+                }
+                let data = match line.strip_prefix("data:") {
+                    Some(rest) => rest.trim(),
+                    None => continue,
+                };
+                if data == "[DONE]" {
+                    break;
+                }
+                let parsed: StreamChunk = match serde_json::from_str(data) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                for ch in parsed.choices.iter() {
+                    if let Some(ref c) = ch.delta.content {
+                        if !c.is_empty() {
+                            if stream_raw_to_console {
+                                write_llm_stream_chunk_to_stderr(
+                                    c,
+                                    ConsoleStreamLane::Output,
+                                    &mut last_console_lane,
+                                );
+                            }
+                            content_buf.push_str(c);
+                        }
+                    }
+                    if let Some(ref r) = ch.delta.reasoning_content {
+                        if !r.is_empty() {
+                            if stream_raw_to_console {
+                                write_llm_stream_chunk_to_stderr(
+                                    r,
+                                    ConsoleStreamLane::Reasoning,
+                                    &mut last_console_lane,
+                                );
+                            }
+                            reasoning_buf.push_str(r);
+                        }
+                    }
+                    if let Some(ref calls) = ch.delta.tool_calls {
+                        for call in calls {
+                            let idx = call.index;
+                            let state = tool_states.entry(idx).or_default();
+                            if state.id.is_empty() {
+                                if let Some(id) = call.id.as_ref().filter(|s| !s.trim().is_empty()) {
+                                    state.id = id.clone();
+                                }
+                            }
+                            if let Some(function) = &call.function {
+                                if let Some(name_part) =
+                                    function.name.as_ref().filter(|s| !s.is_empty())
+                                {
+                                    state.name.push_str(name_part);
+                                }
+                                if let Some(args_part) =
+                                    function.arguments.as_ref().filter(|s| !s.is_empty())
+                                {
+                                    state.arguments.push_str(args_part);
+                                }
+                            }
+                            if state.id.is_empty() {
+                                state.id = format!("pipeline_tool_{stream_tool_session_id}_{idx}");
+                            }
+                        }
+                    }
+                }
+                if let Some(ref u) = parsed.usage {
+                    last_usage = Some(snapshot_from_stream_usage(u));
+                }
+            }
+        }
+        let tool_calls = native_tool_calls_from_states(&tool_states);
+        let reasoning_content = if reasoning_buf.trim().is_empty() {
+            None
+        } else {
+            Some(reasoning_buf)
+        };
+        log::info!(
+            "stream_wire_collect_tools phase={dump_phase} dump_label={dump_label:?} \
+             reasoning_chars={} content_chars={} tool_calls={} reasoning_tokens={:?}",
+            reasoning_content.as_ref().map(|s| s.chars().count()).unwrap_or(0),
+            content_buf.chars().count(),
+            tool_calls.len(),
+            last_usage.as_ref().map(|u| u.reasoning_tokens),
+        );
+        Ok(ChatOnceOutput {
+            text: content_buf,
+            usage: last_usage,
+            model: self.settings.model.clone(),
+            tool_calls,
+            reasoning_content,
         })
     }
 
@@ -752,17 +1108,19 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = build_llm_http_client(&url, true, LLM_CHAT_BASE_TIMEOUT_SECS)?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+
         let t_http = Instant::now();
-        let resp = post_chat_with_retry(
-            &client,
-            &url,
-            &self.api_key,
-            &wire_body,
-            &cancel,
-            "stream_chat",
-        )
-        .await?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&wire_body)
+                .send() => r?,
+        };
         let http_until_headers_ms = t_http.elapsed().as_millis();
         if crate::logging::internal_runtime_log_enabled() {
             log::debug!(
@@ -774,6 +1132,12 @@ impl OpenAIProvider {
                 dump_label,
                 stream_t0.elapsed().as_millis()
             );
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
         }
 
         let mut content_buf = String::new();
@@ -942,6 +1306,12 @@ fn stream_include_usage_enabled() -> bool {
     }
 }
 
+fn thinking_enabled_for_wire_request(settings: &ModelSettings) -> bool {
+    crate::models::effective_chat_extra_body(settings)
+        .and_then(|eb| eb.get("enable_thinking").and_then(|v| v.as_bool()))
+        .unwrap_or(false)
+}
+
 fn snapshot_from_stream_usage(u: &StreamUsage) -> LlmUsageSnapshot {
     let reasoning = u
         .completion_tokens_details
@@ -964,13 +1334,7 @@ fn snapshot_from_stream_usage(u: &StreamUsage) -> LlmUsageSnapshot {
 
 /// 流式：将模型增量原文连续写到 **stderr**（无换行、无序号前缀）。需调试模式；关闭：`POINTER_STREAM_RAW_LLM_TO_STDOUT=0`。
 fn raw_llm_stream_to_console_enabled() -> bool {
-    if !crate::logging::internal_runtime_log_enabled() {
-        return false;
-    }
-    match std::env::var("POINTER_STREAM_RAW_LLM_TO_STDOUT") {
-        Ok(v) if v == "0" || v.eq_ignore_ascii_case("false") => false,
-        _ => true,
-    }
+    crate::logging::raw_llm_console_segments_enabled()
 }
 
 fn write_llm_stream_chunk_to_stderr(
@@ -1010,7 +1374,7 @@ fn native_tool_calls_from_states(states: &BTreeMap<u32, NativeToolCallState>) ->
             Some(ToolCall {
                 id,
                 name: name.to_string(),
-                arguments: crate::tools::normalize_tool_call_arguments_for_api(&state.arguments),
+                arguments: state.arguments.clone(),
                 status: "pending".into(),
                 result: None,
                 error: None,
@@ -1024,7 +1388,14 @@ fn native_tool_calls_from_states(states: &BTreeMap<u32, NativeToolCallState>) ->
 }
 
 fn truncate(s: &str, n: usize) -> String {
-    crate::text_util::truncate_bytes(s, n)
+    if s.len() <= n {
+        return s.to_string();
+    }
+    let mut end = n;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
 }
 
 fn rand_id() -> String {
@@ -1034,104 +1405,6 @@ fn rand_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{:x}", n)
-}
-
-#[cfg(test)]
-mod llm_http_retry_tests {
-    use super::*;
-    use reqwest::header::{HeaderMap, HeaderValue};
-
-    #[test]
-    fn retryable_http_statuses_include_rate_limit_and_server_errors() {
-        assert!(is_retryable_llm_http_status(
-            reqwest::StatusCode::TOO_MANY_REQUESTS
-        ));
-        assert!(is_retryable_llm_http_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
-        assert!(is_retryable_llm_http_status(reqwest::StatusCode::BAD_GATEWAY));
-        assert!(!is_retryable_llm_http_status(reqwest::StatusCode::BAD_REQUEST));
-        assert!(!is_retryable_llm_http_status(reqwest::StatusCode::UNAUTHORIZED));
-    }
-
-    #[test]
-    fn parse_retry_after_ms_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert("retry-after-ms", HeaderValue::from_static("2500"));
-        let secs = parse_retry_after_secs(&headers).expect("retry-after-ms");
-        assert!((secs - 2.5).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn parse_retry_after_seconds_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert("retry-after", HeaderValue::from_static("30"));
-        let secs = parse_retry_after_secs(&headers).expect("retry-after");
-        assert!((secs - 30.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn rate_limit_backoff_honors_retry_after_header() {
-        let mut headers = HeaderMap::new();
-        headers.insert("retry-after", HeaderValue::from_static("45"));
-        let delay = llm_rate_limit_backoff_ms(1, &headers);
-        assert_eq!(delay, 45_000, "Retry-After should be honored exactly");
-    }
-
-    #[test]
-    fn rate_limit_backoff_without_header_matches_dashscope_example() {
-        let headers = HeaderMap::new();
-        let first = llm_rate_limit_backoff_ms(1, &headers);
-        let second = llm_rate_limit_backoff_ms(2, &headers);
-        assert!(first >= 1_000 && first <= 2_000, "first backoff ~1s+jitter, got {first}");
-        assert!(second >= 2_000 && second <= 3_000, "second backoff ~2s+jitter, got {second}");
-    }
-
-    #[test]
-    fn dashscope_url_detection_and_timeout() {
-        assert!(is_dashscope_url(
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-        ));
-        assert!(is_dashscope_url(
-            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
-        ));
-        assert!(!is_dashscope_url("https://api.openai.com/v1/chat/completions"));
-        assert_eq!(
-            llm_http_timeout_secs(
-                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-                false,
-                LLM_CHAT_BASE_TIMEOUT_SECS
-            ),
-            LLM_CHAT_BASE_TIMEOUT_SECS + DASHSCOPE_WAIT_TIMEOUT_SECS
-        );
-        assert_eq!(
-            llm_http_timeout_secs(
-                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-                true,
-                LLM_CHAT_BASE_TIMEOUT_SECS
-            ),
-            LLM_CHAT_BASE_TIMEOUT_SECS
-        );
-    }
-
-    #[test]
-    fn transient_backoff_stays_shorter_than_rate_limit_default() {
-        let headers = HeaderMap::new();
-        let rate = llm_rate_limit_backoff_ms(1, &headers);
-        let transient = llm_transient_backoff_ms(1);
-        assert!(transient < rate, "transient={transient} rate={rate}");
-    }
-
-    #[test]
-    fn snapshot_from_dashscope_input_output_tokens() {
-        let u: StreamUsage = serde_json::from_value(serde_json::json!({
-            "input_tokens": 1200,
-            "output_tokens": 340
-        }))
-        .expect("deserialize");
-        let snap = snapshot_from_stream_usage(&u);
-        assert_eq!(snap.prompt_tokens, 1200);
-        assert_eq!(snap.completion_tokens, 340);
-        assert_eq!(snap.total_tokens, 1540);
-    }
 }
 
 #[cfg(test)]

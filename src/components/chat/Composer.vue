@@ -98,6 +98,8 @@ const attachmentHint = ref<string | null>(null)
 const composerDragDepth = ref(0)
 const isComposerDragOver = computed(() => composerDragDepth.value > 0)
 let unlistenTauriDragDrop: (() => void) | null = null
+/** Cached from `webview.scaleFactor()` — used to convert Tauri drag physical coords. */
+let tauriDragScaleFactor = window.devicePixelRatio || 1
 
 const agents = useAgentsCatalog()
 
@@ -542,15 +544,37 @@ function isLikelyFileDrag(dt: DataTransfer | null | undefined): boolean {
   return Array.from(dt.items || []).some(item => item.kind === 'file')
 }
 
-function isComposerDropTargetAt(clientX: number, clientY: number): boolean {
+function composerDropHitTest(clientX: number, clientY: number): boolean {
   const zone = composerDropZoneRef.value
   if (!zone) return false
-  const el = document.elementFromPoint(clientX, clientY)
-  return !!(el && (zone === el || zone.contains(el)))
+
+  const hit = (x: number, y: number): boolean => {
+    const rect = zone.getBoundingClientRect()
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return true
+    }
+    const el = document.elementFromPoint(x, y)
+    return !!(el && (zone === el || zone.contains(el)))
+  }
+
+  if (hit(clientX, clientY)) return true
+
+  if (!isTauriRuntime()) return false
+
+  // Tauri drag position is window-relative; viewport getBoundingClientRect is webview-relative.
+  // Frameless windows (macOS overlay title bar) often need a Y nudge — see tauri-apps/tauri#10744.
+  for (const dy of [28, 32, 24, 40, 52, 16]) {
+    if (hit(clientX, clientY + dy)) return true
+  }
+  return false
 }
 
 function logicalPointFromTauriDrag(position: { x: number; y: number }) {
-  const scale = window.devicePixelRatio || 1
+  const pos = position as { x: number; y: number; toLogical?: (scale: number) => { x: number; y: number } }
+  if (typeof pos.toLogical === 'function') {
+    return pos.toLogical(tauriDragScaleFactor)
+  }
+  const scale = tauriDragScaleFactor || window.devicePixelRatio || 1
   return { x: position.x / scale, y: position.y / scale }
 }
 
@@ -617,10 +641,13 @@ function onComposerDragEnter(e: DragEvent) {
 }
 
 function onComposerDragOver(e: DragEvent) {
-  if (!canAcceptComposerAttachments()) return
   if (!isLikelyFileDrag(e.dataTransfer)) return
   e.preventDefault()
   e.stopPropagation()
+  if (!canAcceptComposerAttachments()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    return
+  }
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 }
 
@@ -637,6 +664,10 @@ async function onComposerDrop(e: DragEvent) {
   e.stopPropagation()
   const files = e.dataTransfer?.files
   if (!files?.length) return
+  if (!canAcceptComposerAttachments()) {
+    attachmentHint.value = composerAttachmentBlockedHint()
+    return
+  }
   await ingestDroppedFiles(Array.from(files))
 }
 
@@ -645,18 +676,24 @@ async function setupTauriComposerDragDrop() {
   try {
     const { getCurrentWebview } = await import('@tauri-apps/api/webview')
     const webview = getCurrentWebview()
+    try {
+      tauriDragScaleFactor = await webview.scaleFactor()
+    } catch (err) {
+      console.warn('tauri composer drag-drop: scaleFactor unavailable, using devicePixelRatio', err)
+      tauriDragScaleFactor = window.devicePixelRatio || 1
+    }
     unlistenTauriDragDrop = await webview.onDragDropEvent(async event => {
       const payload = event.payload
       if (payload.type === 'over') {
         const { x, y } = logicalPointFromTauriDrag(payload.position)
         composerDragDepth.value =
-          canAcceptComposerAttachments() && isComposerDropTargetAt(x, y) ? 1 : 0
+          canAcceptComposerAttachments() && composerDropHitTest(x, y) ? 1 : 0
         return
       }
       if (payload.type === 'drop') {
         composerDragDepth.value = 0
         const { x, y } = logicalPointFromTauriDrag(payload.position)
-        if (!isComposerDropTargetAt(x, y)) return
+        if (!composerDropHitTest(x, y)) return
         await ingestDroppedPaths(payload.paths)
         return
       }

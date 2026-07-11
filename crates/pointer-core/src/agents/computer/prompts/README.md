@@ -13,10 +13,9 @@ Slot labels (`[Screen after action]`, …) are defined in `vision/screen_overlay
 prompts/
   tiers/
     primary/       communication.md + loop.md   ← runtime source for all tiers
-    intermediate/  legacy / authoring only
-    advanced/      legacy / authoring only
   os/              macos.md | windows.md | linux.md
   ui_disabled_controls.md   shared — gray/disabled controls (all tiers)
+  modules/verify/  host post-execute verify LLM prompts (not in main system merge)
 author/            not loaded (authoring reference only)
 AGENT.md           manifest + config (repo root of `computer/`)
 ```
@@ -29,5 +28,3 @@ AGENT.md           manifest + config (repo root of `computer/`)
 | OS-specific hints | `os/*.md` |
 | Disabled UI controls | `ui_disabled_controls.md` |
 | Host verify LLM (internal) | `modules/verify/*.md` |
-
-`tiers/intermediate/` and `tiers/advanced/` are **not loaded** at runtime unless you change `agents/mod.rs`.

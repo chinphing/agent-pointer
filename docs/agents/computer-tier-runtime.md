@@ -296,7 +296,7 @@ const COMPUTER_AGENT_PRIMARY          = include_str!("computer/prompts/tiers/pri
 const COMPUTER_OS_PROMPT_MACOS        = include_str!("computer/prompts/os/macos.md");
 ```
 
-`tiers/advanced/` 与 `tiers/intermediate/` 下的文件**不参与**运行时加载（仅保留作历史/撰写参考）。
+`tiers/primary/` 为全 tier 运行时 prompt 唯一来源。
 
 ### 8.2 外部 agent 目录：文件系统加载
 
@@ -448,7 +448,6 @@ run_single_agent_loop()  [每一轮]
 | `crates/pointer-core/src/agents/computer/extension_hooks/tier_dynamic.rs` | 扩展钩子：注入 [LOCKED GOAL] 到 system prompt |
 | `crates/pointer-core/src/chat_service/sub_agent.rs` | 子 agent 循环：give_up 检测 |
 | `crates/pointer-core/src/agents/computer/prompts/tiers/primary/` | **全 tier 运行时 prompt**（communication.md + loop.md） |
-| `crates/pointer-core/src/agents/computer/prompts/tiers/advanced/` | 遗留/撰写参考（运行时未加载） |
 | `crates/pointer-core/src/agents/computer/prompts/os/` | OS 特定 prompt（macOS/Windows/Linux） |
 
 ---

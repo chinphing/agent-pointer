@@ -200,7 +200,8 @@ pub fn save_pipeline_phase_captures(
     last_rel
 }
 
-/// Writes tier-selected files under `{data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`.
+/// Writes capture files under `{data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`.
+/// All tiers use the same Primary slot layout (optional before + after + annotated).
 ///
 /// Returns the **path relative to `computer-captures/`** of the annotated JPEG (for lazy UI load).
 pub fn save_computer_capture_debug(
@@ -232,30 +233,11 @@ pub fn save_computer_capture_debug(
 
     let pfx = sanitize_path_segment(file_prefix);
 
-    match tier {
-        ComputerTier::Primary | ComputerTier::Intermediate => {
-            write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
-        }
-        ComputerTier::Advanced => {
-            if let Some(prev) = &cap.inject_before_action {
-                write_bytes(&dir, &pfx, "screen_before_action", "jpg", ts, &prev.screen_jpeg);
-                write_bytes(
-                    &dir,
-                    &pfx,
-                    "zoom_pointer_before_action",
-                    "png",
-                    ts,
-                    &prev.zoom_pointer_png,
-                );
-            }
-            write_bytes(&dir, &pfx, "screen_raw_unmarked", "jpg", ts, &cap.raw_unmarked_jpeg);
-            write_bytes(&dir, &pfx, "screen_after_action", "jpg", ts, &cap.raw_marked_jpeg);
-            write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
-            write_bytes(&dir, &pfx, "zoom_top", "png", ts, &cap.zoom_menu_bar_png);
-            write_bytes(&dir, &pfx, "zoom_bottom", "png", ts, &cap.zoom_task_bar_png);
-            write_bytes(&dir, &pfx, "zoom_pointer", "png", ts, &cap.zoom_pointer_png);
-        }
+    if let Some(prev) = &cap.inject_before_action {
+        write_bytes(&dir, &pfx, "screen_before_action", "jpg", ts, &prev.screen_jpeg);
     }
+    write_bytes(&dir, &pfx, "screen_after_action", "jpg", ts, &cap.raw_marked_jpeg);
+    write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
 
     let annotated_name = format!("{pfx}_{ts}_annotated.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");

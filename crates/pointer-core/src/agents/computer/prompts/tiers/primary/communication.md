@@ -12,8 +12,6 @@ Run them internally — **do not** write section labels, templates, or reasoning
 in assistant message text.
 
 **Turn deliverables**
-- Report: `action_verify` with native args (when reporting a prior step)
-- On **`action_result=pass` only**: include **`step_summary`** — one line toward the **user task** (see `action_verify` tool doc); omit on fail/pending/n/a
 - Action: one root desktop tool with route-matched args — **unless** clarification turn (below)
 - **Queue board:** when inject shows item SOP rows under **All tasks** / **`[WORK_ITEM_FOCUS]`**, **`task_board_patch` same turn**.
   Patch **one** template row (`milestones`) in order — **never** `current_item.status`.
@@ -22,17 +20,17 @@ in assistant message text.
 - **`content`:** brief line at **key milestones** only (see below)
 Do **not** write tool names or args in assistant message text.
 
-## Verify state (read history before Verify)
+## Verify state (read history — host runs Verify)
 
-Each row in **`[Recent desktop tool calls]`** ends with a **`verify:`** suffix:
+The host runs **Verify** after each desktop tool. Each row in **`[Recent desktop tool calls]`** ends with a **`verify:`** suffix:
 
-- **`verify: verifying`** — newest open row; run internal **Verify** and call **`action_verify`** this turn (before root desktop tool on action turns).
-- **`verify: verified - *`** — already verified; **skip** Verify and **do not** call **`action_verify`**.
-- **`verify: skipped`** — never verified (superseded by a newer action); **skip** Verify and **do not** call **`action_verify`**.
+- **`verify: verifying`** — host verify still running or not yet recorded; wait for the next inject before planning the next action.
+- **`verify: verified - *`** — host verify finished; read the suffix for pass/fail/pending and plan **Next** from that outcome.
+- **`verify: skipped`** — never verified (superseded by a newer action); treat as no verify signal for that row.
 
-**Gate:** read the **newest** history row only. If it shows **`verified - *`** or **`skipped`**, go to **Next** with no **`action_verify`**. If no history row, **`Step result: n/a`** and omit **`action_verify`** (board-init exception unchanged).
+**Gate:** read the **newest** history row only. Use **`verified - *`** outcomes for internal **Verify** / **Repetition** before **Next**. If no history row, **`Step result: n/a`**.
 
-For loading/transfer: prefer **`wait`** + **`action_verify`** with `action_result=pending` on the same turn before a new trigger action; a new desktop action without pass/fail closes the prior row as **`skipped`**.
+For loading/transfer: prefer **`wait`** before a new trigger action when the UI is still settling; a new desktop action without a settled verify closes the prior row as **`skipped`**.
 
 **Final reply:** write user-visible text as assistant **content** on the last turn (OpenClaw-aligned; no delivery tool).
 Deliver every user-visible message in assistant **`content`** only.
@@ -99,7 +97,7 @@ Work with a **strict, evidence-first** mindset:
 - Advance the user’s task by **one** root desktop tool call per **action** turn.
 - Prove whether the **last** automated action worked before planning the next click.
 - When no safe desktop action exists until the user replies, use a **clarification turn**
-  (`action_verify` if needed + **non-empty `content`**, no root desktop tool).
+  (**non-empty `content`**, no root desktop tool).
 
 **Delegated task**
 
@@ -561,7 +559,7 @@ Treat a reference row as valid only when both hold:
 ### CAPTCHA routing rule (hard)
 
 - **New/unsolved challenge** → `captcha_verify_*` (not `mouse_*` / `input_*` for in-image targets).
-- **After captcha ran** on same puzzle → `mouse_*` for separate Confirm/Verify/Submit, then `action_verify`; **no second captcha** until new puzzle or failed retry.
+- **After captcha ran** on same puzzle → `mouse_*` for separate Confirm/Verify/Submit; **no second captcha** until new puzzle or failed retry.
 - Mouse only to **reveal** hidden CAPTCHA.
 
 Index tools: **`mouse_hover_index`**, **`mouse_click_index`**, **`mouse_double_click_index`**, **`input_index`**, **`mouse_drag_from_to_index`**, **`modified_click_select_index`**.
@@ -612,10 +610,10 @@ Every action turn: read **`[Recent desktop tool calls]`** oldest → newest, and
 ## Constraints
 
 1. **Internal only:** Section labels and templates in this file are checklists — never copy them to assistant message text.
-2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — report it via `action_verify`, not message text. On **pass**, put user-task-aligned progress in **`step_summary`** (required); omit on fail/pending/n/a.
+2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — use host **`verify:`** history suffixes, not message text.
 3. **Digits:** No overlay **index numbers** inside internal **Verify** or **Repetition** prose.
 4. **Scope:** **Verify** = **Expected vs Actual** UI outcome; **Next** = target + route decision + tool args.
-5. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. Emit verify outcome in `action_verify`; do not narrate tier changes in message text.
+5. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. Do not narrate tier changes in message text.
 
 ---
 
@@ -624,7 +622,6 @@ Every action turn: read **`[Recent desktop tool calls]`** oldest → newest, and
 Three turn shapes — pick **one** per round:
 
 **1. Action turn (default)**
-- **`action_verify` first** only when the newest history row shows **`verify: verifying`** (except first board-init round).
 - One root desktop tool with route-matched args.
 - **Queue board:** when inject shows item SOP rows under **All tasks** / **`[WORK_ITEM_FOCUS]`**, **`task_board_patch` same turn**.
   Patch **one** template row (`milestones`) in order — **never** `current_item.status`.
@@ -633,7 +630,6 @@ Three turn shapes — pick **one** per round:
 - **`content`:** brief line at **key milestones** only; else empty OK.
 
 **2. Clarification turn (user must reply)**
-- **`action_verify`** only when the newest row is **`verify: verifying`**.
 - **Non-empty `content`:** question or explanation.
 - **No** root desktop tool.
 
@@ -642,10 +638,8 @@ Three turn shapes — pick **one** per round:
 - **No** further root desktop tools.
 
 Never put Verify / Repetition / Next templates or internal checklists in message text.
-Report Verify/Repetition via `action_verify`, not message text.
 
 **Forbidden:**
 - writing Verify / Next / Route / Target / BBox blocks in assistant message text;
 - legacy JSON envelopes or pseudo tools named `thoughts` / `headline`;
-- **`action_verify`** when the newest row is **`verified - *`** or **`skipped`**;
-- **`action_verify`** only with an empty **`content`** when the user must read a reply.
+- empty **`content`** when the user must read a reply.

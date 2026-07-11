@@ -20,6 +20,15 @@ pub fn should_dump(settings: &ModelSettings) -> bool {
         .unwrap_or(false)
 }
 
+/// Advanced pipeline Position/Verify debug tool cards in chat (调试模式 Bug 按钮).
+/// Separate from [`should_dump`] so UI works without LLM prompt file dumps.
+pub fn pipeline_debug_ui_enabled(settings: &ModelSettings) -> bool {
+    if settings.debug_menus_enabled || should_dump(settings) {
+        return true;
+    }
+    crate::platform_config::effective_settings_global().debug_menus_enabled
+}
+
 fn request_body_log_enabled(settings: &ModelSettings) -> bool {
     should_dump(settings)
         || std::env::var(ENV_REQUEST_BODY_LOG)
@@ -28,6 +37,74 @@ fn request_body_log_enabled(settings: &ModelSettings) -> bool {
 }
 
 const OPENAI_REQUEST_LOG_MAX_CHARS: usize = 32_768;
+
+/// Decision Advanced pipeline system slice marker (`decision/communication.md`).
+const DECISION_SYSTEM_PROMPT_MARKER: &str = "Modular decision role";
+
+fn system_prompt_char_len(content: &Value) -> usize {
+    match content {
+        Value::String(s) => s.chars().count(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+            .map(|t| t.chars().count())
+            .sum(),
+        _ => 0,
+    }
+}
+
+fn system_prompt_has_decision_marker(content: &Value) -> bool {
+    match content {
+        Value::String(s) => s.contains(DECISION_SYSTEM_PROMPT_MARKER),
+        Value::Array(parts) => parts.iter().any(|p| {
+            p.get("text")
+                .and_then(|t| t.as_str())
+                .is_some_and(|t| t.contains(DECISION_SYSTEM_PROMPT_MARKER))
+        }),
+        _ => false,
+    }
+}
+
+fn system_prompt_log_placeholder(content: &Value) -> String {
+    let len = system_prompt_char_len(content);
+    let part_count = match content {
+        Value::Array(parts) => parts.len(),
+        Value::String(_) => 1,
+        _ => 0,
+    };
+    let label = if system_prompt_has_decision_marker(content) {
+        "decision system prompt"
+    } else {
+        "system prompt"
+    };
+    if part_count > 1 {
+        format!("[omitted {label}, {len} chars, {part_count} parts]")
+    } else {
+        format!("[omitted {label}, {len} chars]")
+    }
+}
+
+/// Replace long `role: system` bodies with placeholders so request logs stay readable.
+fn redact_system_prompts_for_log(v: &mut Value) {
+    let Some(messages) = v.get_mut("messages").and_then(|m| m.as_array_mut()) else {
+        return;
+    };
+    for msg in messages.iter_mut() {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("system") {
+            continue;
+        }
+        let Some(content) = msg.get("content").cloned() else {
+            continue;
+        };
+        if system_prompt_char_len(&content) == 0 {
+            continue;
+        }
+        let placeholder = system_prompt_log_placeholder(&content);
+        if let Some(obj) = msg.as_object_mut() {
+            obj.insert("content".into(), Value::String(placeholder));
+        }
+    }
+}
 
 /// Log the JSON body sent to OpenAI-compatible `POST …/chat/completions` (images redacted; long bodies truncated).
 /// Enable with [`should_dump`] / `POINTER_DEBUG_LLM_PROMPTS` or **`POINTER_DEBUG_OPENAI_REQUEST=1`**.
@@ -46,6 +123,7 @@ pub fn try_log_openai_chat_request_json<T: serde::Serialize>(
         return;
     };
     redact_large_images(&mut body);
+    redact_system_prompts_for_log(&mut body);
     let pretty = match serde_json::to_string_pretty(&body) {
         Ok(s) => s,
         Err(e) => {
@@ -149,6 +227,9 @@ pub fn try_dump_round(
     for m in msgs.iter_mut() {
         redact_large_images(m);
     }
+    let mut messages_value = Value::Array(msgs);
+    redact_system_prompts_for_log(&mut messages_value);
+    let msgs = messages_value.as_array().cloned().unwrap_or_default();
 
     let extra_body = crate::models::effective_chat_extra_body(settings);
     let mut body = serde_json::json!({
@@ -176,5 +257,49 @@ pub fn try_dump_round(
             Err(e) => log::warn!("llm_prompt_dump: write {}: {e}", path.display()),
         },
         Err(e) => log::warn!("llm_prompt_dump: serialize: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn redact_system_prompts_replaces_decision_slice_with_placeholder() {
+        let mut body = json!({
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "prefix\nModular decision role\nsuffix with lots of text"
+                },
+                { "role": "user", "content": "hello" }
+            ]
+        });
+        redact_system_prompts_for_log(&mut body);
+        let sys = &body["messages"][0]["content"];
+        assert_eq!(
+            sys.as_str().unwrap(),
+            "[omitted decision system prompt, 53 chars]"
+        );
+        assert_eq!(body["messages"][1]["content"], "hello");
+    }
+
+    #[test]
+    fn redact_system_prompts_handles_multipart_system_content() {
+        let mut body = json!({
+            "messages": [{
+                "role": "system",
+                "content": [
+                    { "type": "text", "text": "Modular decision role\nblock A" },
+                    { "type": "text", "text": "block B" }
+                ]
+            }]
+        });
+        redact_system_prompts_for_log(&mut body);
+        assert_eq!(
+            body["messages"][0]["content"].as_str().unwrap(),
+            "[omitted decision system prompt, 36 chars, 2 parts]"
+        );
     }
 }

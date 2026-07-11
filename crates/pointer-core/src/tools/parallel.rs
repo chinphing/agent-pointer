@@ -48,7 +48,6 @@ pub fn infer_parallel_metadata(name: &str, is_sidecar: bool) -> (bool, ToolConfl
             "hotkey"
                 | "wait"
                 | "launch_app"
-                | "action_verify"
                 | "clipboard_read"
                 | "clipboard_write"
         )

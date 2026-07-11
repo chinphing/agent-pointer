@@ -120,6 +120,50 @@ pub fn internal_runtime_log_enabled() -> bool {
     }
 }
 
+/// Same gate as decision stream raw output (`provider.rs` `raw_llm_stream_to_console_enabled`).
+pub fn raw_llm_console_segments_enabled() -> bool {
+    if !internal_runtime_log_enabled() {
+        return false;
+    }
+    match std::env::var("POINTER_STREAM_RAW_LLM_TO_STDOUT") {
+        Ok(v) if v == "0" || v.eq_ignore_ascii_case("false") => false,
+        _ => true,
+    }
+}
+
+/// Non-streaming pipeline LLM (Position / Verify): print reasoning + output to stderr
+/// with the same lane markers as decision streaming.
+pub fn write_pipeline_llm_segments_to_stderr(
+    scope: &str,
+    reasoning: Option<&str>,
+    output: &str,
+) {
+    if !raw_llm_console_segments_enabled() {
+        return;
+    }
+    let reasoning_text = reasoning
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let output_text = output.trim();
+    if reasoning_text.is_empty() && output_text.is_empty() {
+        return;
+    }
+    let mut err = std::io::stderr().lock();
+    let _ = std::io::Write::write_all(&mut err, format!("\n[pipeline_llm scope={scope}]\n").as_bytes());
+    if !reasoning_text.is_empty() {
+        let _ = std::io::Write::write_all(&mut err, "[推理|reasoning]\n".as_bytes());
+        let _ = std::io::Write::write_all(&mut err, reasoning_text.as_bytes());
+        let _ = std::io::Write::write_all(&mut err, b"\n");
+    }
+    if !output_text.is_empty() {
+        let _ = std::io::Write::write_all(&mut err, "[输出|output]\n".as_bytes());
+        let _ = std::io::Write::write_all(&mut err, output_text.as_bytes());
+        let _ = std::io::Write::write_all(&mut err, b"\n");
+    }
+    let _ = err.flush();
+}
+
 /// Default `RUST_LOG` filter for desktop / dev when the env var is unset.
 pub fn default_runtime_log_filter() -> &'static str {
     if internal_runtime_log_enabled() {
@@ -129,20 +173,11 @@ pub fn default_runtime_log_filter() -> &'static str {
     }
 }
 
-/// 桌面端与 pointer-server：与 [`crate::storage::app_data_dir`] 一致的数据目录下的 `logs`。
+/// 桌面端：与 [`crate::storage::app_data_dir`] 一致的数据目录下的 `logs`。
 pub fn desktop_log_dir() -> PathBuf {
-    use crate::storage::{APP_DATA_SUBDIR, APP_DATA_SUBDIR_DEV};
-
     crate::storage::app_data_dir()
         .map(|d| d.join("logs"))
-        .unwrap_or_else(|_| {
-            let sub = if cfg!(debug_assertions) {
-                APP_DATA_SUBDIR_DEV
-            } else {
-                APP_DATA_SUBDIR
-            };
-            std::env::temp_dir().join(sub).join("logs")
-        })
+        .unwrap_or_else(|_| std::env::temp_dir().join("PointerApp").join("logs"))
 }
 
 /// 在 `log_dir` 下写入 `pointer_*.log`（按日轮转，保留 7 个文件），并 **`duplicate` 到 stderr**。

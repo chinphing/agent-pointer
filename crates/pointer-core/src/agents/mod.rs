@@ -42,20 +42,31 @@ const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
 /// Authoritative rules for assistant `MEDIA:` delivery (App, IM, final-reply tools, terminal output).
 const MEDIA_DELIVERY: &str = include_str!("_shared/MEDIA_DELIVERY.md");
-/// Advanced tier: `[CUR_SCREEN]` image slots, frame registry, overlay digit rules.
-const COMPUTER_VISION_SLOTS: &str =
-    include_str!("computer/prompts/tiers/advanced/vision_slots.md");
-const COMPUTER_COMMUNICATION_ADVANCED: &str =
-    include_str!("computer/prompts/tiers/advanced/communication.md");
 const COMPUTER_COMMUNICATION_PRIMARY: &str =
     include_str!("computer/prompts/tiers/primary/communication.md");
 const COMPUTER_UI_DISABLED_CONTROLS: &str =
     include_str!("computer/prompts/ui_disabled_controls.md");
 const COMPUTER_AGENT_PRIMARY: &str = include_str!("computer/prompts/tiers/primary/loop.md");
-const COMPUTER_AGENT_ADVANCED: &str = include_str!("computer/prompts/tiers/advanced/loop.md");
 const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/prompts/os/macos.md");
 const COMPUTER_OS_PROMPT_WINDOWS: &str = include_str!("computer/prompts/os/windows.md");
 const COMPUTER_OS_PROMPT_LINUX: &str = include_str!("computer/prompts/os/linux.md");
+const COMPUTER_VERIFY_POINTER_CLICK: &str =
+    include_str!("computer/prompts/modules/verify/pointer_click.md");
+const COMPUTER_VERIFY_POINTER_HOVER: &str =
+    include_str!("computer/prompts/modules/verify/pointer_hover.md");
+const COMPUTER_VERIFY_SCROLL: &str = include_str!("computer/prompts/modules/verify/scroll.md");
+const COMPUTER_VERIFY_DRAG: &str = include_str!("computer/prompts/modules/verify/drag.md");
+const COMPUTER_VERIFY_INPUT: &str = include_str!("computer/prompts/modules/verify/input.md");
+const COMPUTER_VERIFY_MODIFIED_CLICK: &str =
+    include_str!("computer/prompts/modules/verify/modified_click.md");
+const COMPUTER_VERIFY_CAPTCHA: &str = include_str!("computer/prompts/modules/verify/captcha.md");
+const COMPUTER_VERIFY_HOTKEY: &str = include_str!("computer/prompts/modules/verify/hotkey.md");
+const COMPUTER_VERIFY_WAIT: &str = include_str!("computer/prompts/modules/verify/wait.md");
+const COMPUTER_VERIFY_CLIPBOARD: &str =
+    include_str!("computer/prompts/modules/verify/clipboard.md");
+const COMPUTER_VERIFY_APP_ACCESS: &str =
+    include_str!("computer/prompts/modules/verify/app_access.md");
+const COMPUTER_VERIFY_GENERIC: &str = include_str!("computer/prompts/modules/verify/generic.md");
 
 /// Injected on **every** main-LLM and sub-agent round (see `chat_service`).
 pub fn communication_public_md() -> &'static str {
@@ -139,24 +150,15 @@ fn computer_os_prompt_md_for_platform() -> &'static str {
 }
 
 fn builtin_computer_communication() -> String {
-    computer_communication_for_tier(computer::tier::ComputerTier::Advanced)
+    computer_communication_for_tier(computer::tier::ComputerTier::Primary)
 }
 
 /// Merged communication + OS slice for a computer tier (cacheable system prefix).
+/// All tiers share Primary prompts; only per-tier LLM model differs at runtime.
 pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> String {
+    let _ = tier;
     let mut parts: Vec<&str> = Vec::new();
-    match tier {
-        computer::tier::ComputerTier::Primary => {
-            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_PRIMARY);
-        }
-        computer::tier::ComputerTier::Intermediate => {
-            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_PRIMARY);
-        }
-        computer::tier::ComputerTier::Advanced => {
-            push_trimmed(&mut parts, COMPUTER_VISION_SLOTS);
-            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_ADVANCED);
-        }
-    }
+    push_trimmed(&mut parts, COMPUTER_COMMUNICATION_PRIMARY);
     push_trimmed(&mut parts, COMPUTER_UI_DISABLED_CONTROLS);
     push_trimmed(&mut parts, computer_os_prompt_md_for_platform());
     parts.join("\n\n---\n\n")
@@ -164,10 +166,31 @@ pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> St
 
 /// Agent loop body for a computer tier (merged into system prompt with communication).
 pub fn computer_agent_body_for_tier(tier: computer::tier::ComputerTier) -> String {
-    match tier {
-        computer::tier::ComputerTier::Primary => COMPUTER_AGENT_PRIMARY.trim().to_string(),
-        computer::tier::ComputerTier::Intermediate => COMPUTER_AGENT_PRIMARY.trim().to_string(),
-        computer::tier::ComputerTier::Advanced => COMPUTER_AGENT_ADVANCED.trim().to_string(),
+    let _ = tier;
+    COMPUTER_AGENT_PRIMARY.trim().to_string()
+}
+
+/// Verify module prompt for an operation family (host post-execute pipeline).
+pub fn computer_verify_prompt(family: computer::pipeline::operation::OperationFamily) -> &'static str {
+    match family {
+        computer::pipeline::operation::OperationFamily::PointerClick => {
+            COMPUTER_VERIFY_POINTER_CLICK
+        }
+        computer::pipeline::operation::OperationFamily::PointerHover => {
+            COMPUTER_VERIFY_POINTER_HOVER
+        }
+        computer::pipeline::operation::OperationFamily::Scroll => COMPUTER_VERIFY_SCROLL,
+        computer::pipeline::operation::OperationFamily::Drag => COMPUTER_VERIFY_DRAG,
+        computer::pipeline::operation::OperationFamily::Input => COMPUTER_VERIFY_INPUT,
+        computer::pipeline::operation::OperationFamily::ModifiedClick => {
+            COMPUTER_VERIFY_MODIFIED_CLICK
+        }
+        computer::pipeline::operation::OperationFamily::Captcha => COMPUTER_VERIFY_CAPTCHA,
+        computer::pipeline::operation::OperationFamily::Hotkey => COMPUTER_VERIFY_HOTKEY,
+        computer::pipeline::operation::OperationFamily::Wait => COMPUTER_VERIFY_WAIT,
+        computer::pipeline::operation::OperationFamily::Clipboard => COMPUTER_VERIFY_CLIPBOARD,
+        computer::pipeline::operation::OperationFamily::AppAccess => COMPUTER_VERIFY_APP_ACCESS,
+        _ => COMPUTER_VERIFY_GENERIC,
     }
 }
 
@@ -756,29 +779,17 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
     manifest_to_agent(manifest, Some(dir), &communication)
 }
 
-/// External `computer` agent dir: prefer `prompts/tiers/advanced/`, fall back to legacy root filenames.
+/// External `computer` agent dir: prefer `prompts/tiers/primary/`, fall back to legacy root filenames.
 fn load_external_computer_communication(dir: &Path) -> Result<String> {
     let comm_candidates = [
-        dir.join("prompts/tiers/advanced/communication.md"),
-        dir.join("COMMUNICATION_ADVANCED.md"),
+        dir.join("prompts/tiers/primary/communication.md"),
+        dir.join("COMMUNICATION.md"),
         dir.join(AGENT_COMMUNICATION),
     ];
     let mut communication = String::new();
     for path in comm_candidates {
         if path.exists() {
             communication = fs::read_to_string(&path)?;
-            break;
-        }
-    }
-    let shared_candidates = [
-        dir.join("prompts/tiers/advanced/vision_slots.md"),
-        dir.join("prompts/tiers/advanced/shared.md"),
-        dir.join("COMMUNICATION_SHARED.md"),
-    ];
-    for path in shared_candidates {
-        if path.exists() {
-            let shared = fs::read_to_string(&path)?;
-            communication = compose_system_prompt(shared.trim(), communication.trim());
             break;
         }
     }
@@ -1224,32 +1235,28 @@ mod builtin_agent_tests {
             "computer communication should merge Verify stage"
         );
         assert!(
-            agent.system_prompt.contains("Pointer:"),
-            "computer communication should merge Pointer stage"
+            agent.system_prompt.contains("host runs **Verify**"),
+            "computer communication should describe host verify"
         );
         assert!(
-            agent.system_prompt.contains("[Zoom pointer after action]"),
-            "shared vision legend should be merged"
+            agent.system_prompt.contains("[Annotated after action]"),
+            "primary communication should reference annotated slot"
         );
         assert!(
-            agent.system_prompt.contains("Recheck coordinates:"),
-            "communication should require Recheck stage"
+            agent.system_prompt.contains("N–target relation"),
+            "communication should require route decision"
         );
         assert!(
-            agent.system_prompt.contains("1 → 7"),
-            "communication should require seven stages"
+            agent.system_prompt.contains("Step 1 — Verify"),
+            "communication should include Verify step"
         );
         assert!(
-            agent.system_prompt.contains("Visual facts"),
-            "communication should include B2 visual fact discipline"
+            agent.system_prompt.contains("Nearby overlay reference bboxes"),
+            "communication should reference nearby bboxes"
         );
         assert!(
-            agent.system_prompt.contains("band="),
-            "communication should use band|text|fill|size fields"
-        );
-        assert!(
-            agent.system_prompt.contains("Diff:"),
-            "communication should require Recheck R2 diff line"
+            agent.system_prompt.contains("Locate (Primary"),
+            "communication should include Locate section"
         );
     }
 

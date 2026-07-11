@@ -14,8 +14,6 @@ toolNames:
   - clipboard
   - list_apps
   - launch_app
-  - action_verify
-  - task_board
   - captcha_verify
 accessPolicy:
   allowTools:
@@ -27,7 +25,6 @@ accessPolicy:
     - clipboard
     - list_apps
     - launch_app
-    - action_verify
     - task_board
     - work_items_export
     - captcha_verify
@@ -42,7 +39,6 @@ ui:
   showTaskBoardPanel: true
   hideToolNames:
     - task_board_patch
-    - action_verify
   avatar: computer
 defaultSkillIds: []
 config:

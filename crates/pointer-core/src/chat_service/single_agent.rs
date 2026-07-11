@@ -4,6 +4,11 @@ use crate::agents::AgentProfile;
 use crate::models::{ChatMessage, StreamEvent};
 use anyhow::{anyhow, Result};
 
+use super::computer_pipeline_loop::{
+    apply_pipeline_verify_to_tool_card, batch_has_desktop_root_tool, ensure_verify_before_capture,
+    pipeline_give_up_error, run_pipeline_post_execute_verify, verify_host_active,
+    PipelineLlmUsageRecorder,
+};
 use super::emit::emit;
 use super::util::new_id;
 
@@ -241,6 +246,15 @@ pub(super) async fn run_single_agent_loop(
             super::single_agent_post_stream::PostAssistantTurnAction::ExecuteTools => {}
         }
 
+        let mut pipeline_before_capture = None;
+        if verify_host_active(state.as_ref(), &lead_profile)
+            && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
+        {
+            pipeline_before_capture = Some(
+                ensure_verify_before_capture(state.as_ref(), conversation_id).await?,
+            );
+        }
+
         match super::single_agent_tools::run_single_agent_tool_pass(
             super::agent_tool_pass::LeadSingleToolPassRequest {
                 session: super::context::SessionRefs {
@@ -300,6 +314,52 @@ pub(super) async fn run_single_agent_loop(
             }
             super::single_agent_tools::ToolPassResult::RanTools => {}
         }
+
+        if verify_host_active(state.as_ref(), &lead_profile)
+            && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
+        {
+            let mut pipeline_usage = PipelineLlmUsageRecorder {
+                stats: &mut ctx.token_session.stats,
+                scope: &ctx.token_session.lead_scope,
+            };
+            if let Err(err) = run_pipeline_post_execute_verify(
+                state.as_ref(),
+                &stream,
+                conversation_id,
+                provider,
+                settings,
+                pipeline_before_capture.as_ref(),
+                &assistant_id,
+                ctx.history,
+                &buf.final_tool_calls,
+                cancel.clone(),
+                Some(&mut pipeline_usage),
+            )
+            .await
+            {
+                ctx.tool_budget.sync_out(ctx.consumed_single);
+                return Err(err);
+            }
+            let (_last_op, last_verify) =
+                state.computer_state.pipeline_context_fields(conversation_id);
+            if let Some(verify) = last_verify {
+                apply_pipeline_verify_to_tool_card(
+                    &stream,
+                    ctx.history,
+                    &assistant_id,
+                    &buf.final_tool_calls,
+                    state.tools.as_ref(),
+                    conversation_id,
+                    &verify,
+                    true,
+                );
+            }
+            if let Some(err) = pipeline_give_up_error(state.as_ref(), conversation_id) {
+                ctx.tool_budget.sync_out(ctx.consumed_single);
+                return Err(err);
+            }
+        }
+
         {
             let mut post_ctx = super::context::PostAssistantContext::new(
                 &stream,

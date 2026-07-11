@@ -14,6 +14,10 @@ use imageproc::point::Point;
 use std::io::Cursor;
 use std::sync::OnceLock;
 
+/// Position-phase: full desktop at capture time (pipeline verify-host before-action slot).
+pub const SLOT_SCREEN_CURRENT: &str = "[Current screen]";
+/// Position-phase: numbered overlay on the current desktop (pipeline).
+pub const SLOT_SCREEN_ANNOTATED_CURRENT: &str = "[Annotated current screen]";
 /// Full screenshot from the **prior** observation: **unmarked** capture from the previous turn with the **current** synthetic pointer drawn on it (pre-action desktop layout; pointer shows where the cursor is **now**).
 pub const SLOT_SCREEN_BEFORE_ACTION: &str = "[Screen before action]";
 /// Full screenshot from **this** observation (unmarked capture; no synthetic pointer overlay).
@@ -72,18 +76,10 @@ impl VisionOverlayWork {
         zoom_crops: true,
     };
 
-    pub fn for_tier(tier: ComputerTier) -> Self {
-        match tier {
-            ComputerTier::Primary => Self {
-                // Primary 3.1 needs `[Screen after action]` (raw marked) + annotated.
-                raw_marked_jpeg: true,
-                zoom_crops: false,
-            },
-            ComputerTier::Intermediate => Self {
-                raw_marked_jpeg: true,
-                zoom_crops: false,
-            },
-            ComputerTier::Advanced => Self::FULL,
+    pub fn for_tier(_tier: ComputerTier) -> Self {
+        Self {
+            raw_marked_jpeg: true,
+            zoom_crops: false,
         }
     }
 }

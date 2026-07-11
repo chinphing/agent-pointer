@@ -1,20 +1,22 @@
 # Computer agent prompts (maintainer index)
 
 Runtime slices are merged in code (`computer_communication_for_tier`, `computer_agent_body_for_tier`).
+**All tiers (Primary / Intermediate / Advanced) use the same Primary prompt text**; only the per-tier LLM model differs at runtime.
+
 The model only sees the merged system text — not these paths.
 
-Slot labels (`[Screen after action]`, …) are defined in `vision/screen_overlay.rs` and injected **immediately before each image** in the `[CUR_SCREEN]` user message (see `extension_hooks/screen_inject.rs`).
+Slot labels (`[Screen after action]`, …) are defined in `vision/screen_overlay.rs` and injected **immediately before each image** in the `[CUR_SCREEN]` user message (see `extension_hooks/screen_inject.rs`). All tiers use the Primary 2–3 image layout.
 
 ## Layout
 
 ```
 prompts/
   tiers/
-    primary/       communication.md + loop.md
-    intermediate/  communication.md + loop.md
-    advanced/      vision_slots.md + communication.md + loop.md
+    primary/       communication.md + loop.md   ← runtime source for all tiers
+    intermediate/  legacy / authoring only
+    advanced/      legacy / authoring only
   os/              macos.md | windows.md | linux.md
-  ui_disabled_controls.md   shared — gray/disabled controls (all types; all tiers)
+  ui_disabled_controls.md   shared — gray/disabled controls (all tiers)
 author/            not loaded (authoring reference only)
 AGENT.md           manifest + config (repo root of `computer/`)
 ```
@@ -23,15 +25,9 @@ AGENT.md           manifest + config (repo root of `computer/`)
 
 | Change | File |
 |--------|------|
-| Primary — role / 3-step framework / one annotated image | `tiers/primary/communication.md` |
-| Primary loop (start checklist) | `tiers/primary/loop.md` |
-| Intermediate Part 1–2 (from advanced) + simple Next | `tiers/intermediate/communication.md` |
-| Intermediate loop | `tiers/intermediate/loop.md` |
-| Advanced **Part 1 Verify** / **Part 2 Repetition** / **Part 3 action** | `tiers/advanced/communication.md` |
-| Advanced image order only | `tiers/advanced/vision_slots.md` |
-| Advanced loop | `tiers/advanced/loop.md` |
-| OS shortcuts | `prompts/os/*.md` |
-| Disabled / gray controls | `prompts/ui_disabled_controls.md` (all control types) |
-| Tool JSON / handlers | `tools/` (Rust); unified bodies `tools/prompts/mouse.md`, `composite.md`, `modified_click.md` (flat tool names with `*_index` / `*_at` / `*_focused` suffixes) |
+| Role / turn loop / queue board (all tiers) | `tiers/primary/communication.md`, `tiers/primary/loop.md` |
+| OS-specific hints | `os/*.md` |
+| Disabled UI controls | `ui_disabled_controls.md` |
+| Host verify LLM (internal) | `modules/verify/*.md` |
 
-Full product doc: `docs/agents/computer-agent-prompts.md`.
+`tiers/intermediate/` and `tiers/advanced/` are **not loaded** at runtime unless you change `agents/mod.rs`.

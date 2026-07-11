@@ -1,6 +1,6 @@
 //! Session evidence hints for soft task_board validation (host-injected, not model-authored).
 
-use crate::agents::computer::tool_names::is_action_verify_tool_name;
+use crate::chat_service::AppState;
 use crate::models::{ChatMessage, Role};
 use crate::task_board::checkpoint::is_task_board_tool_name;
 
@@ -25,55 +25,24 @@ pub fn history_has_recent_action_tools(history: &[ChatMessage]) -> bool {
     false
 }
 
-/// Whether recent chat history includes an `action_verify` sidecar with `action_result=pass`.
-pub fn history_has_recent_verify_pass(history: &[ChatMessage]) -> bool {
-    for msg in history.iter().rev().take(RECENT_MESSAGE_SCAN) {
-        if !matches!(msg.role, Role::Assistant) {
-            continue;
-        }
-        let Some(calls) = msg.tool_calls.as_ref() else {
-            continue;
-        };
-        for tc in calls {
-            if !is_action_verify_tool_name(tc.name.trim()) {
-                continue;
-            }
-            let parsed = serde_json::from_str::<serde_json::Value>(&tc.arguments);
-            let Ok(v) = parsed else {
-                continue;
-            };
-            if v.get("action_result")
-                .and_then(|x| x.as_str())
-                .map(|s| s.eq_ignore_ascii_case("pass"))
-                .unwrap_or(false)
-            {
-                return true;
-            }
-        }
-    }
-    false
+/// Whether tier runtime history includes a recent host verify pass.
+pub fn history_has_recent_verify_pass(state: &AppState, conversation_id: &str) -> bool {
+    state
+        .computer_state
+        .tier_history_has_verify_pass(conversation_id)
 }
 
-/// Whether recent history includes any `action_verify` sidecar call.
-pub fn history_has_recent_verify_report(history: &[ChatMessage]) -> bool {
-    for msg in history.iter().rev().take(RECENT_MESSAGE_SCAN) {
-        if !matches!(msg.role, Role::Assistant) {
-            continue;
-        }
-        let Some(calls) = msg.tool_calls.as_ref() else {
-            continue;
-        };
-        if calls.iter().any(|tc| is_action_verify_tool_name(tc.name.trim())) {
-            return true;
-        }
-    }
-    false
+/// Whether tier runtime history includes any closed host verify report.
+pub fn history_has_recent_verify_report(state: &AppState, conversation_id: &str) -> bool {
+    state
+        .computer_state
+        .tier_history_has_verify_report(conversation_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::computer::tool_names::ACTION_VERIFY;
+    use crate::agents::computer::ComputerState;
     use crate::models::{ChatMessage, Role, ToolCall};
 
     fn assistant_with_tools(names: &[&str]) -> ChatMessage {
@@ -114,15 +83,15 @@ mod tests {
             image_slot_labels: None,
             images_base64: None,
             computer_round_screen_rel_path: None,
-        ui_bindings: None,
+            ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
             tool_raw_output: None,
-            }
+        }
     }
 
     #[test]
@@ -138,27 +107,23 @@ mod tests {
     }
 
     #[test]
-    fn detects_recent_verify_pass() {
-        let mut msg = assistant_with_tools(&[ACTION_VERIFY]);
-        if let Some(calls) = msg.tool_calls.as_mut() {
-            calls[0].arguments = r#"{"action_result":"pass","repetition_count":0}"#.into();
-        }
-        assert!(history_has_recent_verify_pass(&[msg]));
-    }
-
-    #[test]
-    fn verify_fail_does_not_count_as_pass() {
-        let mut msg = assistant_with_tools(&[ACTION_VERIFY]);
-        if let Some(calls) = msg.tool_calls.as_mut() {
-            calls[0].arguments =
-                r#"{"action_result":"fail","repetition_count":2,"failure_cause":"precision_miss"}"#.into();
-        }
-        assert!(!history_has_recent_verify_pass(&[msg]));
-    }
-
-    #[test]
-    fn detects_recent_verify_report() {
-        let msg = assistant_with_tools(&[ACTION_VERIFY]);
-        assert!(history_has_recent_verify_report(&[msg]));
+    fn tier_history_detects_verify_pass() {
+        let state = ComputerState::with_annotate_url("http://127.0.0.1:9999");
+        let conv = "evidence-pass";
+        state.record_desktop_tool_if_applicable(
+            conv,
+            "mouse_click_index",
+            &serde_json::json!({"goal": "g", "index": 1}),
+            None,
+        );
+        state.apply_pipeline_verify_result(
+            conv,
+            &crate::agents::computer::pipeline::types::VerifyConclusion {
+                action_result: crate::agents::computer::pipeline::types::ActionResult::Pass,
+                failure_cause: None,
+                step_summary: Some("ok".into()),
+            },
+        );
+        assert!(state.tier_history_has_verify_pass(conv));
     }
 }

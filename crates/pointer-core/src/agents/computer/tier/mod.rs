@@ -3,7 +3,6 @@
 use crate::agents::computer::vision::coord::{screen_to_normalized, CoordinateSystem};
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::models::ComputerTierLlmConfig;
-use crate::models::ToolCall;
 use crate::agents::AgentRegistry;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -13,10 +12,24 @@ pub const CONFIG_KEY_INITIAL_TIER: &str = "computerInitialTier";
 pub const CONFIG_KEY_MODEL_PRIMARY: &str = "computerModelPrimary";
 pub const CONFIG_KEY_MODEL_INTERMEDIATE: &str = "computerModelIntermediate";
 pub const CONFIG_KEY_MODEL_ADVANCED: &str = "computerModelAdvanced";
+pub const CONFIG_KEY_ADVANCED_PIPELINE: &str = "computerAdvancedPipeline";
+pub const CONFIG_KEY_PIPELINE_MODEL_DECISION: &str = "computerPipelineModelDecision";
+pub const CONFIG_KEY_PIPELINE_MODEL_POSITION: &str = "computerPipelineModelPosition";
+pub const CONFIG_KEY_PIPELINE_MODEL_VERIFY: &str = "computerPipelineModelVerify";
+pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str = "computerPipelineThinkingBudgetPosition";
+pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
+pub const CONFIG_KEY_PIPELINE_VERIFY_HOST: &str = "computerPipelineVerifyHost";
 
 pub const DEFAULT_MODEL_PRIMARY: &str = "qwen3.5-flash";
 pub const DEFAULT_MODEL_INTERMEDIATE: &str = "qwen3.5-plus";
 pub const DEFAULT_MODEL_ADVANCED: &str = "qwen3.7-plus";
+pub const DEFAULT_MODEL_PIPELINE_DECISION: &str = "qwen3.5-flash";
+pub const DEFAULT_MODEL_PIPELINE_POSITION: &str = "qwen3.5-plus";
+pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "qwen3.5-flash";
+/// Qwen `thinking_budget` for Advanced pipeline Position phase (`qwen3.5-plus`).
+pub const DEFAULT_PIPELINE_POSITION_THINKING_BUDGET: u32 = 1024;
+/// Qwen `thinking_budget` for Advanced pipeline Verify phase (`qwen3.5-flash`).
+pub const DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET: u32 = 1024;
 /// Qwen `thinking_budget` for Primary / Intermediate (`qwen3.5-plus`).
 pub const PRIMARY_INTERMEDIATE_THINKING_BUDGET: u32 = 2048;
 pub const ADVANCED_THINKING_BUDGET: u32 = 8192;
@@ -83,6 +96,64 @@ impl ComputerTier {
     }
 }
 
+/// Per-phase LLM model ids and thinking budgets for Advanced modular pipeline.
+#[derive(Debug, Clone)]
+pub struct ComputerPipelineLlmConfig {
+    pub model_decision: String,
+    pub model_position: String,
+    pub model_verify: String,
+    pub thinking_budget_position: u32,
+    pub thinking_budget_verify: u32,
+}
+
+impl Default for ComputerPipelineLlmConfig {
+    fn default() -> Self {
+        Self {
+            model_decision: DEFAULT_MODEL_PIPELINE_DECISION.into(),
+            model_position: DEFAULT_MODEL_PIPELINE_POSITION.into(),
+            model_verify: DEFAULT_MODEL_PIPELINE_VERIFY.into(),
+            thinking_budget_position: DEFAULT_PIPELINE_POSITION_THINKING_BUDGET,
+            thinking_budget_verify: DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
+        }
+    }
+}
+
+/// Advanced pipeline LLM phase for per-stage model overrides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PipelineLlmPhase {
+    Decision,
+    Position,
+    Verify,
+}
+
+impl PipelineLlmPhase {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Decision => "decision",
+            Self::Position => "position",
+            Self::Verify => "verify",
+        }
+    }
+}
+
+impl ComputerPipelineLlmConfig {
+    pub fn model_for_phase(&self, phase: PipelineLlmPhase) -> &str {
+        match phase {
+            PipelineLlmPhase::Decision => &self.model_decision,
+            PipelineLlmPhase::Position => &self.model_position,
+            PipelineLlmPhase::Verify => &self.model_verify,
+        }
+    }
+
+    pub fn thinking_for_phase(&self, phase: PipelineLlmPhase) -> (bool, u32) {
+        match phase {
+            PipelineLlmPhase::Decision => (true, PRIMARY_INTERMEDIATE_THINKING_BUDGET),
+            PipelineLlmPhase::Position => (true, self.thinking_budget_position),
+            PipelineLlmPhase::Verify => (true, self.thinking_budget_verify),
+        }
+    }
+}
+
 /// Static tier options from agent manifest + platform overrides.
 #[derive(Debug, Clone)]
 pub struct ComputerTierConfig {
@@ -91,6 +162,9 @@ pub struct ComputerTierConfig {
     pub model_primary: String,
     pub model_intermediate: String,
     pub model_advanced: String,
+    pub advanced_pipeline: bool,
+    pub verify_host_enabled: bool,
+    pub pipeline_llm: ComputerPipelineLlmConfig,
     pub tier_llm: HashMap<String, ComputerTierLlmConfig>,
 }
 
@@ -102,6 +176,9 @@ impl Default for ComputerTierConfig {
             model_primary: DEFAULT_MODEL_PRIMARY.into(),
             model_intermediate: DEFAULT_MODEL_INTERMEDIATE.into(),
             model_advanced: DEFAULT_MODEL_ADVANCED.into(),
+            advanced_pipeline: true,
+            verify_host_enabled: true,
+            pipeline_llm: ComputerPipelineLlmConfig::default(),
             tier_llm: HashMap::new(),
         }
     }
@@ -129,6 +206,35 @@ impl ComputerTierConfig {
                 }
                 CONFIG_KEY_MODEL_ADVANCED if !v.trim().is_empty() => {
                     cfg.model_advanced = v.trim().to_string();
+                }
+                CONFIG_KEY_ADVANCED_PIPELINE => {
+                    cfg.advanced_pipeline = v.eq_ignore_ascii_case("true") || v == "1";
+                }
+                CONFIG_KEY_PIPELINE_VERIFY_HOST => {
+                    cfg.verify_host_enabled = v.eq_ignore_ascii_case("true") || v == "1";
+                }
+                CONFIG_KEY_PIPELINE_MODEL_DECISION if !v.trim().is_empty() => {
+                    cfg.pipeline_llm.model_decision = v.trim().to_string();
+                }
+                CONFIG_KEY_PIPELINE_MODEL_POSITION if !v.trim().is_empty() => {
+                    cfg.pipeline_llm.model_position = v.trim().to_string();
+                }
+                CONFIG_KEY_PIPELINE_MODEL_VERIFY if !v.trim().is_empty() => {
+                    cfg.pipeline_llm.model_verify = v.trim().to_string();
+                }
+                CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION => {
+                    if let Ok(n) = v.trim().parse::<u32>() {
+                        if n > 0 {
+                            cfg.pipeline_llm.thinking_budget_position = n;
+                        }
+                    }
+                }
+                CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY => {
+                    if let Ok(n) = v.trim().parse::<u32>() {
+                        if n > 0 {
+                            cfg.pipeline_llm.thinking_budget_verify = n;
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -169,6 +275,28 @@ impl ComputerTierConfig {
             }
         }
     }
+
+    /// Override Advanced pipeline phase models from platform `computerPipelineLlm`.
+    pub fn apply_platform_pipeline_llm(
+        &mut self,
+        p: &crate::models::ComputerPipelineLlmSettings,
+    ) {
+        if !p.decision.trim().is_empty() {
+            self.pipeline_llm.model_decision = p.decision.trim().to_string();
+        }
+        if !p.position.trim().is_empty() {
+            self.pipeline_llm.model_position = p.position.trim().to_string();
+        }
+        if !p.verify.trim().is_empty() {
+            self.pipeline_llm.model_verify = p.verify.trim().to_string();
+        }
+        if p.position_thinking_budget > 0 {
+            self.pipeline_llm.thinking_budget_position = p.position_thinking_budget;
+        }
+        if p.verify_thinking_budget > 0 {
+            self.pipeline_llm.thinking_budget_verify = p.verify_thinking_budget;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -178,10 +306,9 @@ pub struct VerifyOutcome {
 }
 
 #[derive(Debug, Clone)]
-pub struct ParsedTierSignal {
-    pub action_result: String,
-    pub repetition_count: u32,
-    pub failure_cause: Option<String>,
+pub struct ParsedVerify {
+    pub step_result: String,
+    pub cause: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -290,8 +417,7 @@ impl ComputerTierRuntime {
         };
         let Some(idx) = v.iter().rposition(|r| r.verify_result.is_none()) else {
             log::warn!(
-                "computer tier: {} ignored — no open verifying row to close",
-                ACTION_VERIFY
+                "computer tier: host verify ignored — no open verifying row to close"
             );
             return false;
         };
@@ -764,13 +890,6 @@ fn format_verify_suffix(_tier: ComputerTier, v: Option<&VerifyOutcome>) -> Strin
     }
 }
 
-/// Parsed verify block from assistant `thoughts`.
-#[derive(Debug, Clone)]
-pub struct ParsedVerify {
-    pub step_result: String,
-    pub cause: Option<String>,
-}
-
 /// Extract `Step result:` and optional `Cause:` from thoughts text.
 pub fn parse_verify_from_thoughts(thoughts: &str) -> Option<ParsedVerify> {
     let step = extract_field_line(thoughts, "Step result:")?;
@@ -790,84 +909,6 @@ pub fn parse_verify_from_thoughts(thoughts: &str) -> Option<ParsedVerify> {
         step_result,
         cause,
     })
-}
-
-pub use crate::agents::computer::tool_names::{is_action_verify_tool_name, ACTION_VERIFY};
-
-/// Back-compat alias — prefer [`ACTION_VERIFY`].
-pub const ACTION_VERIFY_TOOL_NAME: &str = ACTION_VERIFY;
-
-fn is_action_verify_sidecar_tool(name: &str) -> bool {
-    is_action_verify_tool_name(name)
-}
-
-/// Extract repetition signal from sidecar tool calls in one assistant round.
-///
-/// Expected sidecar payload:
-/// `{ "action_result": "pass|fail|pending|n/a", "repetition_count": <u32>, "failure_cause"?: "wrong_operation|precision_miss" }`.
-pub fn parse_action_verify_from_sidecar_tool_calls(
-    tool_calls: &[ToolCall],
-) -> Option<ParsedTierSignal> {
-    let mut parsed: Option<ParsedTierSignal> = None;
-    for tc in tool_calls {
-        if !is_action_verify_sidecar_tool(tc.name.as_str()) {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<Value>(&tc.arguments) else {
-            continue;
-        };
-        let Some(obj) = v.as_object() else {
-            continue;
-        };
-        let Some(action_result) = obj
-            .get("action_result")
-            .and_then(|x| x.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_ascii_lowercase())
-        else {
-            continue;
-        };
-        if !matches!(action_result.as_str(), "pass" | "fail" | "pending" | "n/a") {
-            continue;
-        }
-        let Some(repetition_count) = obj
-            .get("repetition_count")
-            .and_then(|x| x.as_u64())
-            .and_then(|n| u32::try_from(n).ok())
-        else {
-            continue;
-        };
-        let failure_cause = obj
-            .get("failure_cause")
-            .and_then(|x| x.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_ascii_lowercase());
-        let failure_cause = match action_result.as_str() {
-            "fail" => {
-                let Some(cause) = failure_cause else {
-                    continue;
-                };
-                if !matches!(cause.as_str(), "wrong_operation" | "precision_miss") {
-                    continue;
-                }
-                Some(cause)
-            }
-            _ => {
-                if failure_cause.is_some() {
-                    continue;
-                }
-                None
-            }
-        };
-        parsed = Some(ParsedTierSignal {
-            action_result,
-            repetition_count,
-            failure_cause,
-        });
-    }
-    parsed
 }
 
 fn extract_field_line(text: &str, key: &str) -> Option<String> {
@@ -1581,6 +1622,41 @@ mod tests {
     }
 
     #[test]
+    fn pipeline_llm_default_models() {
+        let cfg = ComputerTierConfig::default();
+        assert_eq!(
+            cfg.pipeline_llm.model_decision,
+            DEFAULT_MODEL_PIPELINE_DECISION
+        );
+        assert_eq!(
+            cfg.pipeline_llm.model_position,
+            DEFAULT_MODEL_PIPELINE_POSITION
+        );
+        assert_eq!(cfg.pipeline_llm.model_verify, DEFAULT_MODEL_PIPELINE_VERIFY);
+        assert_eq!(
+            cfg.pipeline_llm.thinking_budget_position,
+            DEFAULT_PIPELINE_POSITION_THINKING_BUDGET
+        );
+        assert_eq!(
+            cfg.pipeline_llm.thinking_budget_verify,
+            DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET
+        );
+    }
+
+    #[test]
+    fn pipeline_llm_thinking_for_phase() {
+        let cfg = ComputerTierConfig::default();
+        assert_eq!(
+            cfg.pipeline_llm.thinking_for_phase(PipelineLlmPhase::Position),
+            (true, DEFAULT_PIPELINE_POSITION_THINKING_BUDGET)
+        );
+        assert_eq!(
+            cfg.pipeline_llm.thinking_for_phase(PipelineLlmPhase::Verify),
+            (true, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET)
+        );
+    }
+
+    #[test]
     fn locked_goal_label_returns_goal_text_not_footer() {
         let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
         rt.locked_goal = Some(LockedGoal {
@@ -1598,51 +1674,5 @@ mod tests {
         assert!(tier_allows_index_tools(ComputerTier::Primary));
         assert!(tier_allows_index_tools(ComputerTier::Intermediate));
         assert!(tier_allows_index_tools(ComputerTier::Advanced));
-    }
-
-    #[test]
-    fn parse_action_verify_from_sidecar_tool_calls_prefers_latest_signal() {
-        let calls = vec![
-            ToolCall {
-                id: "a".into(),
-                name: "task_board_patch".into(),
-                arguments: "{}".into(),
-                status: "pending".into(),
-                result: None,
-                error: None,
-                duration_ms: None,
-                risk_level: None,
-                display_label: None,
-                display_summary: None,
-            },
-            ToolCall {
-                id: "b".into(),
-                name: ACTION_VERIFY.into(),
-                arguments: r#"{"action_result":"fail","repetition_count":2,"failure_cause":"precision_miss"}"#.into(),
-                status: "pending".into(),
-                result: None,
-                error: None,
-                duration_ms: None,
-                risk_level: None,
-                display_label: None,
-                display_summary: None,
-            },
-            ToolCall {
-                id: "c".into(),
-                name: ACTION_VERIFY.into(),
-                arguments: r#"{"action_result":"pass","repetition_count":4}"#.into(),
-                status: "pending".into(),
-                result: None,
-                error: None,
-                duration_ms: None,
-                risk_level: None,
-                display_label: None,
-                display_summary: None,
-            },
-        ];
-        let p = parse_action_verify_from_sidecar_tool_calls(&calls).unwrap();
-        assert_eq!(p.action_result, "pass");
-        assert_eq!(p.repetition_count, 4);
-        assert!(p.failure_cause.is_none());
     }
 }

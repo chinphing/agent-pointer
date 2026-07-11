@@ -36,13 +36,7 @@ Escalate to init if retries or branching make the flow multi-step.",
 fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
     let gate = main_agent_complexity_gate(profile)?;
     let verify_order = if matches!(profile, AgentProfile::Computer) {
-        let av = crate::agents::computer::tool_names::ACTION_VERIFY;
-        format!(
-            "For turns that also emit **{av}** (step check, not milestone):
-- first board-init round may omit report;
-- after init, run `{av}` first, then `task_board_patch`.
-"
-        )
+        "Host runs verify after each desktop tool; patch the task board after verified steps.\n".to_string()
     } else {
         String::new()
     };

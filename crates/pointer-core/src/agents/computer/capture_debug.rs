@@ -4,7 +4,6 @@
 use crate::agents::computer::state::ScreenCaptureResult;
 use crate::agents::computer::tier::ComputerTier;
 use crate::agents::computer::vision::screen;
-use crate::agents::computer::vision::screen_overlay;
 use crate::models::ComputerAnnotatedPreview;
 use anyhow::Context;
 use std::fs;
@@ -98,14 +97,107 @@ pub fn purge_computer_captures_older_than_days(days: i64) -> std::io::Result<usi
     Ok(removed)
 }
 
-fn write_bytes(dir: &PathBuf, pfx: &str, name: &str, ext: &str, ts: i64, bytes: &[u8]) {
+fn write_bytes(dir: &PathBuf, pfx: &str, name: &str, ext: &str, ts: i64, bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() {
-        return;
+        return None;
     }
-    let path = dir.join(format!("{pfx}_{name}_{ts}.{ext}"));
-    if let Err(e) = fs::write(&path, bytes) {
-        log::warn!("computer capture dump: write {:?}: {e}", path);
+    let path = dir.join(format!("{pfx}_{ts}_{name}.{ext}"));
+    match fs::write(&path, bytes) {
+        Ok(()) => Some(path.file_name()?.to_string_lossy().into_owned()),
+        Err(e) => {
+            log::warn!("computer capture dump: write {:?}: {e}", path);
+            None
+        }
     }
+}
+
+/// Map a vision slot label to an on-disk stem, e.g. `[Current screen]` → `current_screen`.
+pub fn slot_label_to_disk_stem(slot_label: &str) -> String {
+    let inner = slot_label
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
+    sanitize_path_segment(&inner.to_ascii_lowercase().replace(' ', "_"))
+}
+
+fn capture_dump_dir(conversation_id: &str) -> Option<(String, PathBuf, i64)> {
+    if !computer_capture_dump_enabled() {
+        return None;
+    }
+    let root = capture_root_dir()?;
+    let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let ts = chrono::Local::now().timestamp_millis();
+    let conv_seg = sanitize_path_segment(conversation_id);
+    let dir = root.join(&date).join(&conv_seg);
+    if let Err(e) = fs::create_dir_all(&dir) {
+        log::warn!("computer capture dump: create_dir_all {:?}: {e}", dir);
+        return None;
+    }
+    Some((date, dir, ts))
+}
+
+/// Save one pipeline-phase image; on-disk stem matches the vision slot label.
+/// `file_prefix` is `{conversationId}_{roundSeq}` (no phase; `phase_label` passed separately).
+///
+/// Returns path relative to `computer-captures/` (for UI lazy load).
+pub fn save_pipeline_slot_image(
+    conversation_id: &str,
+    file_prefix: &str,
+    phase_label: &str,
+    slot_label: &str,
+    ext: &str,
+    bytes: &[u8],
+) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let (date, dir, ts) = capture_dump_dir(conversation_id)?;
+    let pfx = sanitize_path_segment(file_prefix);
+    let stem = slot_label_to_disk_stem(slot_label);
+    let fname = format!("{pfx}_{ts}_{phase_label}_{stem}.{ext}");
+    let path = dir.join(&fname);
+    fs::write(&path, bytes).ok()?;
+    let conv_seg = sanitize_path_segment(conversation_id);
+    let rel = format!("{date}/{conv_seg}/{fname}");
+    log::info!(
+        "computer pipeline capture dump: slot={slot_label} rel={rel} ({} bytes)",
+        bytes.len()
+    );
+    Some(rel)
+}
+
+/// Save multiple slot-labeled images for one pipeline phase (same timestamp).
+pub fn save_pipeline_phase_captures(
+    conversation_id: &str,
+    file_prefix: &str,
+    phase_label: &str,
+    slots: &[(&str, &str, &[u8])],
+) -> Option<String> {
+    if slots.is_empty() {
+        return None;
+    }
+    let (date, dir, ts) = capture_dump_dir(conversation_id)?;
+    let pfx = sanitize_path_segment(file_prefix);
+    let conv_seg = sanitize_path_segment(conversation_id);
+    let mut last_rel = None;
+    for (slot_label, ext, bytes) in slots {
+        if bytes.is_empty() {
+            log::warn!("computer pipeline capture dump: skip empty slot={slot_label}");
+            continue;
+        }
+        let stem = slot_label_to_disk_stem(slot_label);
+        let fname = format!("{pfx}_{ts}_{phase_label}_{stem}.{ext}");
+        let path = dir.join(&fname);
+        fs::write(&path, bytes).ok()?;
+        last_rel = Some(format!("{date}/{conv_seg}/{fname}"));
+        log::info!(
+            "computer pipeline capture dump: slot={slot_label} rel={} ({} bytes)",
+            last_rel.as_deref().unwrap_or(""),
+            bytes.len()
+        );
+    }
+    last_rel
 }
 
 /// Writes tier-selected files under `{data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`.
@@ -165,7 +257,7 @@ pub fn save_computer_capture_debug(
         }
     }
 
-    let annotated_name = format!("{pfx}_annotated_{ts}.jpg");
+    let annotated_name = format!("{pfx}_{ts}_annotated.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");
     log::info!(
         "computer capture dump: tier={} wrote under {:?}, annotated rel={rel}",
@@ -175,29 +267,27 @@ pub fn save_computer_capture_debug(
     Some(rel)
 }
 
-/// On-demand desktop JPEG bytes for web/API (no SOM annotation).
-pub fn capture_manual_desktop_snapshot_jpeg() -> anyhow::Result<Vec<u8>> {
-    let packet = screen::screenshot_current_monitor()
-        .context("manual desktop snapshot capture failed")?;
-    let raw_len = packet.jpeg.len();
-    let marked_jpeg = screen_overlay::mark_raw_jpeg_with_pointer_and_caret(
-        &packet.jpeg,
-        &packet.monitor,
-        packet.global_pointer,
-        packet.global_caret,
-    )
-    .context("manual desktop snapshot overlay failed")?;
-    let jpeg = crate::media::jpeg_vision::prepare_jpeg_for_manual_preview(&marked_jpeg)
-        .context("manual desktop snapshot compress failed")?;
-    log::info!(
-        "manual desktop snapshot: {}x{} px, jpeg {} -> {} (marked {} bytes, preview limits: long_edge<={}, max={})",
-        packet.capture_px.0,
-        packet.capture_px.1,
-        screen::format_data_size_bytes(raw_len),
-        screen::format_data_size_bytes(jpeg.len()),
-        marked_jpeg.len(),
-        crate::media::jpeg_vision::MANUAL_PREVIEW_MAX_LONG_EDGE,
-        screen::format_data_size_bytes(crate::media::jpeg_vision::MANUAL_PREVIEW_JPEG_MAX_BYTES),
-    );
-    Ok(jpeg)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_label_to_disk_stem_matches_pipeline_slots() {
+        assert_eq!(
+            slot_label_to_disk_stem("[Current screen]"),
+            "current_screen"
+        );
+        assert_eq!(
+            slot_label_to_disk_stem("[Annotated current screen]"),
+            "annotated_current_screen"
+        );
+        assert_eq!(
+            slot_label_to_disk_stem("[Screen before action]"),
+            "screen_before_action"
+        );
+        assert_eq!(
+            slot_label_to_disk_stem("[Screen after action]"),
+            "screen_after_action"
+        );
+    }
 }

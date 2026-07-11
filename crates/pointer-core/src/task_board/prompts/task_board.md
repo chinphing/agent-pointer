@@ -91,15 +91,14 @@ Each row in `global_milestones[]` or `item_milestones[]`:
 
 User-facing delivery belongs in **assistant `content`**, not board row fields.
 
-## `action_verify` vs `done_when`
+## Host verify vs `done_when`
 
-- **`action_verify`** (sidecar): validates a **single UI step**.
-  On **`action_result=pass`**, set **`step_summary`** (one line).
+- **Host verify** (after each desktop tool): validates a **single UI step**; read **`verify:`** suffix on **`[Recent desktop tool calls]`** rows.
 - **`done_when` / `remark`**: validates the **milestone outcome**.
 - Injected **`[TASK_BOARD]`** shows `done_when` on the current row;
   completed rows may show `remark` under **All tasks (with status)**.
 
-Do not paste `action_verify` JSON into `remark`.
+Do not paste verify JSON into `remark`.
 
 ## Patch
 
@@ -228,7 +227,7 @@ When writing the **final summary** in assistant **`content`**:
 
 ## Profile guidance
 
-Computer (with `action_verify`):
+Computer (with host verify):
 
 - **Without planner:** init when expected operation steps >3, or **>5** similar repetitive operations.
 - Type2 queue: see **Type 2 queue exec** under Patch.

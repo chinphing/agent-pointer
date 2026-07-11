@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 use crate::agents::computer::tier::{
     ADVANCED_THINKING_BUDGET, DEFAULT_MODEL_ADVANCED, DEFAULT_MODEL_INTERMEDIATE,
-    DEFAULT_MODEL_PRIMARY, PRIMARY_INTERMEDIATE_THINKING_BUDGET,
+    DEFAULT_MODEL_PIPELINE_DECISION, DEFAULT_MODEL_PIPELINE_POSITION,
+    DEFAULT_MODEL_PIPELINE_VERIFY, DEFAULT_MODEL_PRIMARY,
+    DEFAULT_PIPELINE_POSITION_THINKING_BUDGET, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
+    PRIMARY_INTERMEDIATE_THINKING_BUDGET,
 };
 
 /// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.
@@ -1339,6 +1342,59 @@ pub struct ComputerTierLlmConfig {
     pub thinking_budget: Option<u32>,
 }
 
+/// Per-phase model ids and thinking budgets for host verify pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputerPipelineLlmSettings {
+    #[serde(default = "default_pipeline_model_decision")]
+    pub decision: String,
+    #[serde(default = "default_pipeline_model_position")]
+    pub position: String,
+    #[serde(default = "default_pipeline_model_verify")]
+    pub verify: String,
+    #[serde(
+        default = "default_pipeline_thinking_budget_position",
+        rename = "positionThinkingBudget"
+    )]
+    pub position_thinking_budget: u32,
+    #[serde(
+        default = "default_pipeline_thinking_budget_verify",
+        rename = "verifyThinkingBudget"
+    )]
+    pub verify_thinking_budget: u32,
+}
+
+impl Default for ComputerPipelineLlmSettings {
+    fn default() -> Self {
+        Self {
+            decision: default_pipeline_model_decision(),
+            position: default_pipeline_model_position(),
+            verify: default_pipeline_model_verify(),
+            position_thinking_budget: default_pipeline_thinking_budget_position(),
+            verify_thinking_budget: default_pipeline_thinking_budget_verify(),
+        }
+    }
+}
+
+fn default_pipeline_model_decision() -> String {
+    DEFAULT_MODEL_PIPELINE_DECISION.into()
+}
+
+fn default_pipeline_model_position() -> String {
+    DEFAULT_MODEL_PIPELINE_POSITION.into()
+}
+
+fn default_pipeline_model_verify() -> String {
+    DEFAULT_MODEL_PIPELINE_VERIFY.into()
+}
+
+fn default_pipeline_thinking_budget_position() -> u32 {
+    DEFAULT_PIPELINE_POSITION_THINKING_BUDGET
+}
+
+fn default_pipeline_thinking_budget_verify() -> u32 {
+    DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET
+}
+
 /// In-memory platform configuration (not persisted across restarts).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformSettings {
@@ -1430,6 +1486,8 @@ pub struct PlatformSettings {
     pub media_understanding_modes: MediaUnderstandingModes,
     #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
     pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+    #[serde(default, rename = "computerPipelineLlm")]
+    pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
@@ -1872,6 +1930,7 @@ impl Default for PlatformSettings {
             agent_performance_modes: HashMap::new(),
             media_understanding_modes: MediaUnderstandingModes::default(),
             computer_tier_llm: default_computer_tier_llm(),
+            computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
             media_oss: MediaOssConfig::default(),

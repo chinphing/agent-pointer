@@ -138,6 +138,7 @@ async fn understand_video_dashscope_compatible(
         usage,
         model: model_id.to_string(),
         tool_calls: vec![],
+        reasoning_content: None,
     })
 }
 

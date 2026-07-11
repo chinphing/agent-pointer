@@ -6,13 +6,9 @@
 //! (`crate::env_prompt::format_local_wall_clock_full`).
 
 use crate::agents::computer::capture_debug;
-use crate::agents::computer::tool_names::ACTION_VERIFY;
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
-    BEFORE_POINTER_ZOOM_CROP_SIDE, BEFORE_POINTER_ZOOM_FACTOR, BEFORE_POINTER_ZOOM_RADIUS_PX,
     SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
-    SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER,
-    SLOT_SCREEN_ZOOMED_POINTER_BEFORE, SLOT_SCREEN_ZOOMED_TOP,
 };
 use crate::agents::computer::tier::ComputerTier;
 use crate::agents::computer::ScreenCaptureResult;
@@ -66,112 +62,34 @@ pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
 }
 
 /// Labels in wire order — must match `assemble_cur_screen_base64` image sequence.
-fn slot_labels_for_tier(tier: ComputerTier, has_previous_raw: bool) -> Vec<&'static str> {
-    match tier {
-        ComputerTier::Primary => {
-            let mut labels = Vec::with_capacity(3);
-            if has_previous_raw {
-                labels.push(SLOT_SCREEN_BEFORE_ACTION);
-            }
-            labels.push(SLOT_SCREEN_AFTER_ACTION);
-            labels.push(SLOT_SCREEN_ANNOTATED);
-            labels
-        }
-        ComputerTier::Intermediate => {
-            let mut labels = Vec::with_capacity(3);
-            if has_previous_raw {
-                labels.push(SLOT_SCREEN_BEFORE_ACTION);
-            }
-            labels.push(SLOT_SCREEN_AFTER_ACTION);
-            labels.push(SLOT_SCREEN_ANNOTATED);
-            labels
-        }
-        ComputerTier::Advanced => {
-            let mut labels = Vec::with_capacity(7);
-            if has_previous_raw {
-                labels.push(SLOT_SCREEN_BEFORE_ACTION);
-                labels.push(SLOT_SCREEN_ZOOMED_POINTER_BEFORE);
-            }
-            labels.push(SLOT_SCREEN_AFTER_ACTION);
-            labels.push(SLOT_SCREEN_ANNOTATED);
-            labels.push(SLOT_SCREEN_ZOOMED_TOP);
-            labels.push(SLOT_SCREEN_ZOOMED_BOTTOM);
-            labels.push(SLOT_SCREEN_ZOOMED_POINTER);
-            labels
-        }
+/// All tiers use the Primary slot layout (2–3 images).
+fn slot_labels_for_tier(_tier: ComputerTier, has_previous_raw: bool) -> Vec<&'static str> {
+    let mut labels = Vec::with_capacity(3);
+    if has_previous_raw {
+        labels.push(SLOT_SCREEN_BEFORE_ACTION);
     }
+    labels.push(SLOT_SCREEN_AFTER_ACTION);
+    labels.push(SLOT_SCREEN_ANNOTATED);
+    labels
 }
 
-fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> String {
+fn build_cur_screen_preamble(_tier: ComputerTier, _has_previous_raw: bool) -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — when reasoning internally, cite **On [slot name]:**; do not invent UI from task text or prior turns. Do not write internal checklists in assistant message text. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
-    match tier {
-        ComputerTier::Primary => format!(
-            "{CUR_SCREEN_TAG} Primary uses two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
-             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; session 0–1000 rects). \
-             **Verify:** compare before/after first; if first capture, before is n/a. \
-             **Next:** judge **N–target relation** (inner-center-wrap / inner-edge-wrap / unwrapped), then choose index or coordinate route.\n"
-        ),
-        ComputerTier::Intermediate => format!(
-            "{CUR_SCREEN_TAG} Primary uses two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
-             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; session 0–1000 rects). \
-             **Verify:** compare before/after first; if first capture, before is n/a. \
-             **Next:** judge **N–target relation** (inner-center-wrap / inner-edge-wrap / unwrapped), then choose index or coordinate route.\n"
-        ),
-        ComputerTier::Advanced => {
-            let zoom_before = if has_previous_raw {
-                format!(
-                    " **{SLOT_SCREEN_ZOOMED_POINTER_BEFORE}** is a **{factor}×** magnified **{crop}×{crop} px** crop (±{radius} px around the pointer) from **{SLOT_SCREEN_BEFORE_ACTION}** — use it for **Pointer:** hotspot-vs-center geometry.",
-                    factor = BEFORE_POINTER_ZOOM_FACTOR,
-                    crop = BEFORE_POINTER_ZOOM_CROP_SIDE,
-                    radius = BEFORE_POINTER_ZOOM_RADIUS_PX,
-                )
-            } else {
-                String::new()
-            };
-            let count = if has_previous_raw { 7 } else { 5 };
-            format!(
-                "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} \
-                 Run Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route — all internally; report via `{ACTION_VERIFY}`.\n"
-            )
-        }
-    }
+    format!(
+        "{CUR_SCREEN_TAG} Two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
+         Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; session 0–1000 rects). \
+         **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`. \
+         **Next:** judge **N–target relation** (inner-center-wrap / inner-edge-wrap / unwrapped), then choose index or coordinate route.\n"
+    )
 }
 
-fn assemble_cur_screen_base64(tier: ComputerTier, cap: &ScreenCaptureResult) -> Vec<String> {
-    match tier {
-        ComputerTier::Primary => {
-            let mut out = Vec::with_capacity(3);
-            if let Some(before) = &cap.inject_before_action {
-                out.push(screen::encode_image_to_base64(&before.screen_jpeg));
-            }
-            out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
-            out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
-            out
-        }
-        ComputerTier::Intermediate => {
-            let mut out = Vec::with_capacity(3);
-            if let Some(before) = &cap.inject_before_action {
-                out.push(screen::encode_image_to_base64(&before.screen_jpeg));
-            }
-            out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
-            out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
-            out
-        }
-        ComputerTier::Advanced => assemble_cur_screen_base64_advanced(cap),
-    }
-}
-
-fn assemble_cur_screen_base64_advanced(cap: &ScreenCaptureResult) -> Vec<String> {
-    let mut out = Vec::with_capacity(7);
+fn assemble_cur_screen_base64(_tier: ComputerTier, cap: &ScreenCaptureResult) -> Vec<String> {
+    let mut out = Vec::with_capacity(3);
     if let Some(before) = &cap.inject_before_action {
         out.push(screen::encode_image_to_base64(&before.screen_jpeg));
-        out.push(screen::encode_image_to_base64(&before.zoom_pointer_png));
     }
     out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
     out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
-    out.push(screen::encode_image_to_base64(&cap.zoom_menu_bar_png));
-    out.push(screen::encode_image_to_base64(&cap.zoom_task_bar_png));
-    out.push(screen::encode_image_to_base64(&cap.zoom_pointer_png));
     out
 }
 
@@ -484,25 +402,36 @@ mod tests {
     }
 
     #[test]
-    fn slot_labels_match_image_count_advanced_without_before() {
+    fn all_tiers_use_primary_slot_layout_without_before() {
         let cap = dummy_cap(false);
-        let (labels, images) =
-            assemble_cur_screen_payload(ComputerTier::Advanced, &cap);
-        assert_eq!(labels.len(), 5);
-        assert_eq!(labels.len(), images.len());
-        assert_eq!(labels[0], SLOT_SCREEN_AFTER_ACTION);
-        assert_eq!(labels[4], SLOT_SCREEN_ZOOMED_POINTER);
+        for tier in [
+            ComputerTier::Primary,
+            ComputerTier::Intermediate,
+            ComputerTier::Advanced,
+        ] {
+            let (labels, images) = assemble_cur_screen_payload(tier, &cap);
+            assert_eq!(labels.len(), 2, "tier={tier:?}");
+            assert_eq!(labels, vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]);
+            assert_eq!(labels.len(), images.len());
+        }
     }
 
     #[test]
-    fn slot_labels_match_image_count_advanced_with_before() {
+    fn all_tiers_use_primary_slot_layout_with_before() {
         let cap = dummy_cap(true);
-        let (labels, images) =
-            assemble_cur_screen_payload(ComputerTier::Advanced, &cap);
-        assert_eq!(labels.len(), 7);
-        assert_eq!(labels.len(), images.len());
-        assert!(labels.contains(&SLOT_SCREEN_BEFORE_ACTION.to_string()));
-        assert!(labels.contains(&SLOT_SCREEN_ZOOMED_POINTER_BEFORE.to_string()));
+        for tier in [
+            ComputerTier::Primary,
+            ComputerTier::Intermediate,
+            ComputerTier::Advanced,
+        ] {
+            let (labels, images) = assemble_cur_screen_payload(tier, &cap);
+            assert_eq!(labels.len(), 3, "tier={tier:?}");
+            assert_eq!(
+                labels,
+                vec![SLOT_SCREEN_BEFORE_ACTION, SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
+            );
+            assert_eq!(labels.len(), images.len());
+        }
     }
 
     #[test]
@@ -510,5 +439,6 @@ mod tests {
         let t = build_cur_screen_preamble(ComputerTier::Advanced, false);
         assert!(t.contains("labeled images"));
         assert!(t.contains("On [slot name]:"));
+        assert!(t.contains("verify:"));
     }
 }

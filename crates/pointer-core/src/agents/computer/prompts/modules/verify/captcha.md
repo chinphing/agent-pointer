@@ -1,13 +1,21 @@
-## Verify module — captcha family
+### Scenario: captcha
 
 Judge whether captcha interaction progressed.
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+| Outcome | `action_result` | `failure_cause` |
+| --- | --- | --- |
+| Challenge cleared or next step shown | `pass` | — |
+| Error message visible | `fail` | `wrong_operation` |
+| Same challenge, no change | `fail` | `precision_miss` |
 
-- Challenge cleared / next step → **pass**.
-- Error visible → **fail** (`wrong_operation`).
-- Same challenge, no change → **fail** (`precision_miss`).
+### Reasoning (hard rule)
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+Max **3 sentences**, plain prose.
+
+1. Before/after captcha state — cleared, next step, error, or unchanged.
+2. Pass or fail + `failure_cause`.
+3. Optional: loading if challenge still animating.
+
+**Forbidden:** numbered CoT templates; JSON.

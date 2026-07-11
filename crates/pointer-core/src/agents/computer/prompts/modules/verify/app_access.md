@@ -1,17 +1,26 @@
-## Verify module — app access family
+### Scenario: app access
 
-Judge app list/launch outcomes from the tool reply and before vs after screenshots.
+Judge `list_apps` / `launch_app` from tool reply and before/after screenshots.
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Primary evidence:** **[Tool result]**; **[Screen after action]** for window focus.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+| Tool | Pass when |
+| --- | --- |
+| `list_apps` | Result includes app lines matching goal |
+| `launch_app` | Target window frontmost **or** tool reports success with **`Verified:`** in reply |
 
-**list_apps:** Pass when result includes app lines matching the goal.
+| Fail when |
+| --- |
+| `FAILED` tool text, host verification failed, wrong app focused, no window after load |
 
-**launch_app:** Pass when target window is frontmost OR tool reports success with **`Verified:`** in reply.
+**`loading_detected`:** splash or launch animation still visible.
 
-Fail: FAILED tool text, host verification failed, wrong app focused, no window after load.
+### Reasoning (hard rule)
 
-**loading_detected:** splash/launch animation still visible — host may re-run Verify.
+Max **3 sentences**, plain prose.
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+1. [Tool result] vs `goal` — list match or launch success/failure text.
+2. After screenshot — correct app frontmost when launch; or explain mismatch.
+3. Pass, fail, or loading splash.
+
+**Forbidden:** pointer analysis; numbered CoT templates; JSON.

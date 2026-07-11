@@ -367,28 +367,10 @@ fn migrate_planner_settings_json(value: &mut serde_json::Value) {
         Some(o) => o,
         None => return,
     };
-    if !obj.contains_key("computerStandalonePlannerEnabled") {
-        let p = obj
-            .get("taskBoardPlannerEnabled")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        let w = obj
-            .get("taskBoardWorkItemsEnabled")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        let n = obj
-            .get("taskBoardComputerNoExecInit")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        let any_legacy = obj.contains_key("taskBoardPlannerEnabled")
-            || obj.contains_key("taskBoardWorkItemsEnabled")
-            || obj.contains_key("taskBoardComputerNoExecInit");
-        let enabled = if any_legacy { p && w && n } else { false };
-        obj.insert("computerStandalonePlannerEnabled".into(), json!(enabled));
-    }
     obj.remove("taskBoardPlannerEnabled");
     obj.remove("taskBoardWorkItemsEnabled");
     obj.remove("taskBoardComputerNoExecInit");
+    obj.remove("computerStandalonePlannerEnabled");
 }
 
 /// Desktop-only persisted agent preferences (智能体 section).

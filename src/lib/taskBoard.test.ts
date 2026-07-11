@@ -3,40 +3,28 @@ import type { TaskBoardDocument } from '../types/chat'
 import {
   hasTaskBoardContent,
   taskBoardGlobalMilestones,
-  taskBoardHasWorkItems,
-  taskBoardItemMilestones,
   taskBoardMilestoneViewMode,
-  taskBoardShouldShowWorkItemsPanel,
+  taskBoardIsLoopMilestoneBoard,
+  taskBoardVisibleMilestoneProgress,
   taskBoardVisibleMilestones,
   taskBoardWorkItemsProgress
 } from './taskBoard'
 
-function v4Doc(): TaskBoardDocument {
-  return {
-    version: 4,
-    task_id: 'tb_test',
-    meta: {
-      goal: '批量添加地址',
-      status: 'running',
-      work_item_mode: 'dynamic',
-      expected_total: 127
-    },
-    global_milestones: [
-      { id: 'g_plan', title: '计划', status: 'done' },
-      { id: 'g_exec', title: '执行', status: 'ready' },
-      { id: 'g_deliver', title: '交付', status: 'ready' }
-    ],
-    item_milestones: [
-      { id: 'm1', title: '添加工作地址', status: 'pending' }
-    ]
-  }
-}
-
 describe('taskBoard helpers', () => {
   it('reads v4 global_milestones', () => {
-    const rows = taskBoardGlobalMilestones(v4Doc())
-    expect(rows).toHaveLength(3)
-    expect(rows[0]?.id).toBe('g_plan')
+    const doc: TaskBoardDocument = {
+      version: 4,
+      task_id: 'tb_test',
+      meta: { goal: 'Ship', status: 'running' },
+      global_milestones: [
+        { id: 'm1', title: 'Explore', status: 'pending' },
+        { id: 'm2', title: 'Implement', status: 'pending' }
+      ]
+    }
+    const rows = taskBoardGlobalMilestones(doc)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.id).toBe('m1')
+    expect(hasTaskBoardContent(doc)).toBe(true)
   })
 
   it('falls back to legacy board', () => {
@@ -49,56 +37,81 @@ describe('taskBoard helpers', () => {
     expect(taskBoardGlobalMilestones(doc)).toHaveLength(1)
   })
 
-  it('prefers global_milestones over legacy board', () => {
+  it('linear board uses step mode', () => {
     const doc: TaskBoardDocument = {
       version: 4,
-      task_id: 'tb_mix',
+      task_id: 'tb_linear',
       meta: { goal: 'g', status: 'running' },
-      global_milestones: [{ id: 'g1', title: 'v4', status: 'pending' }],
-      board: [{ id: 'b1', title: 'v3', status: 'done' }]
+      global_milestones: [
+        { id: 'm1', title: 'One', status: 'done' },
+        { id: 'm2', title: 'Two', status: 'in_progress' }
+      ]
     }
-    expect(taskBoardGlobalMilestones(doc)[0]?.id).toBe('g1')
+    expect(taskBoardMilestoneViewMode(doc)).toBe('step')
+    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['m1', 'm2'])
   })
 
-  it('detects work items from meta', () => {
-    expect(taskBoardHasWorkItems(v4Doc())).toBe(true)
-    expect(taskBoardItemMilestones(v4Doc())).toHaveLength(1)
-    expect(hasTaskBoardContent(v4Doc())).toBe(true)
+  it('taskBoardWorkItemsProgress reads loop meta snapshot', () => {
+    const doc: TaskBoardDocument = {
+      version: 4,
+      task_id: 'tb_loop',
+      meta: {
+        goal: 'Batch',
+        status: 'running',
+        work_items_done: 4,
+        work_items_failed: 0,
+        work_items_total: 10
+      },
+      global_milestones: [
+        { id: 'g_plan', title: 'Plan', status: 'done' },
+        { id: 'wi_1', title: '#1', status: 'done' },
+        { id: 'g_deliver', title: 'Deliver', status: 'pending' }
+      ]
+    }
+    expect(taskBoardWorkItemsProgress(doc)).toBe('4/10')
   })
 
-  it('shows work items panel when board has queue and conversation id', () => {
-    expect(taskBoardShouldShowWorkItemsPanel(v4Doc(), 'conv_1')).toBe(true)
-    expect(taskBoardShouldShowWorkItemsPanel(v4Doc(), '')).toBe(false)
-    expect(taskBoardShouldShowWorkItemsPanel(null, 'conv_1')).toBe(false)
-  })
-
-  it('queue exec projects item milestones only', () => {
-    const doc = v4Doc()
-    doc.global_milestones = [
-      { id: 'g_plan', title: '计划', status: 'done' },
-      { id: 'g_exec', title: '执行', status: 'in_progress' },
-      { id: 'g_deliver', title: '交付', status: 'ready' }
-    ]
+  it('loop board shows wi rows only and meta progress', () => {
+    const doc: TaskBoardDocument = {
+      version: 4,
+      task_id: 'tb_loop',
+      meta: {
+        goal: 'Batch',
+        status: 'running',
+        work_items_done: 2,
+        work_items_failed: 0,
+        work_items_total: 10
+      },
+      global_milestones: [
+        { id: 'g_plan', title: 'Plan', status: 'done' },
+        { id: 'wi_1', title: '#1', status: 'done' },
+        { id: 'wi_2', title: '#2', status: 'done' },
+        { id: 'wi_3', title: '#3', status: 'in_progress' },
+        { id: 'g_deliver', title: 'Deliver', status: 'pending' }
+      ]
+    }
+    expect(taskBoardIsLoopMilestoneBoard(doc)).toBe(true)
     expect(taskBoardMilestoneViewMode(doc)).toBe('queue_exec')
-    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['m1'])
+    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual([
+      'wi_1',
+      'wi_2',
+      'wi_3'
+    ])
+    expect(taskBoardVisibleMilestoneProgress(doc)).toBe('2/10')
   })
 
   it('deliver phase projects g_deliver only', () => {
-    const doc = v4Doc()
-    doc.global_milestones = [
-      { id: 'g_plan', title: '计划', status: 'done' },
-      { id: 'g_exec', title: '执行', status: 'done' },
-      { id: 'g_deliver', title: '交付', status: 'in_progress' }
-    ]
+    const doc: TaskBoardDocument = {
+      version: 4,
+      task_id: 'tb_deliver',
+      meta: { goal: 'Batch', status: 'running' },
+      global_milestones: [
+        { id: 'g_plan', title: 'Plan', status: 'done' },
+        { id: 'wi_1', title: '#1', status: 'done' },
+        { id: 'g_deliver', title: 'Deliver', status: 'in_progress' }
+      ]
+    }
     expect(taskBoardMilestoneViewMode(doc)).toBe('queue_deliver')
     expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['g_deliver'])
-  })
-
-  it('taskBoardWorkItemsProgress reads meta snapshot', () => {
-    const doc = v4Doc()
-    doc.meta.work_items_done = 4
-    doc.meta.work_items_failed = 0
-    doc.meta.work_items_total = 10
-    expect(taskBoardWorkItemsProgress(doc)).toBe('4/10')
   })
 })

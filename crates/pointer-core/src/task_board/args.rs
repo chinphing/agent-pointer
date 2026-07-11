@@ -80,12 +80,11 @@ pub fn patch_work_item_id_from_args(args: &Value) -> Option<String> {
         .and_then(trim_id)
 }
 
-/// Direct work_item status transition on patch (without closing the last item milestone).
-pub fn patch_work_item_direct_from_args(args: &Value) -> Option<crate::task_board::work_item::WorkItemDelta> {
-    use crate::task_board::work_item::delta_from_value;
+/// Legacy `current_item` with status on patch (removed Type2 work queue).
+pub fn patch_work_item_direct_from_args(args: &Value) -> Option<Value> {
     let scope = patch_work_item_scope(args)?;
     if scope.get("status").is_some() {
-        return delta_from_value(&scope);
+        return Some(scope);
     }
     None
 }
@@ -188,6 +187,85 @@ pub fn unified_patch_rows_from_args(args: &Value) -> Result<Option<Vec<Value>>> 
         return Ok(Some(rows));
     }
     Ok(items_array_from_args(args))
+}
+
+/// Reject removed work-item patch fields.
+pub fn reject_patch_foreign_work_item_fields(args: &Value) -> Result<()> {
+    reject_removed_patch_fields(args)?;
+    if args.get("work_item_claim").is_some() {
+        return Err(anyhow!(
+            "task_board: work_item_claim removed; use task_board_patch with milestones[]"
+        ));
+    }
+    if patch_work_item_direct_from_args(args).is_some() {
+        return Err(anyhow!(
+            "task_board: current_item removed; use task_board_patch with milestones[]"
+        ));
+    }
+    Ok(())
+}
+
+/// Reject work-item fields on `patch_milestones`.
+pub fn reject_patch_milestones_foreign_fields(args: &Value) -> Result<()> {
+    reject_patch_foreign_work_item_fields(args)
+}
+
+/// Reject milestone fields on `patch_items`.
+pub fn reject_patch_items_foreign_fields(args: &Value) -> Result<()> {
+    if let Some(rows) = array_from_key(args, "milestones") {
+        if !rows.is_empty() {
+            return Err(anyhow!(
+                "task_board: patch_items cannot use milestones; use task_board_patch_milestones"
+            ));
+        }
+    }
+    if args.get("item_id").is_some() {
+        return Err(anyhow!(
+            "task_board: patch_items cannot use item_id; use task_board_patch_milestones"
+        ));
+    }
+    if items_array_from_args(args).is_some() {
+        return Err(anyhow!(
+            "task_board: patch_items cannot use legacy items[]; use task_board_patch_milestones"
+        ));
+    }
+    Ok(())
+}
+
+pub fn patch_items_has_work(args: &Value) -> bool {
+    args.get("work_item_claim").is_some() || patch_work_item_direct_from_args(args).is_some()
+}
+
+/// Strip work-item fields for `patch_milestones` when legacy `patch` combined both surfaces.
+pub fn args_for_patch_milestones(args: &Value) -> Value {
+    let Some(map) = args.as_object() else {
+        return args.clone();
+    };
+    let mut out = map.clone();
+    out.remove("work_item_claim");
+    if let Some(ci) = out.get("current_item").and_then(|v| v.as_object()) {
+        if ci.get("status").is_some() {
+            let mut id_only = serde_json::Map::new();
+            if let Some(id) = ci.get("id") {
+                id_only.insert("id".into(), id.clone());
+            }
+            out.insert("current_item".into(), Value::Object(id_only));
+        }
+    }
+    Value::Object(out)
+}
+
+/// Strip milestone fields for `patch_items` when legacy `patch` combined both surfaces.
+pub fn args_for_patch_items(args: &Value) -> Value {
+    let Some(map) = args.as_object() else {
+        return args.clone();
+    };
+    let mut out = map.clone();
+    out.remove("milestones");
+    out.remove("items");
+    out.remove("item_id");
+    out.remove("global_context");
+    Value::Object(out)
 }
 
 /// Patch item SOP rows (`milestones` len=1).
@@ -391,9 +469,7 @@ pub fn replace_has_forbidden_scope(args: &Value) -> bool {
         "dynamic_quota",
         "work_items",
         "work_items_source",
-        "global_milestones",
-        "items",
-        "board",
+        "item_milestones",
     ];
     FORBIDDEN.iter().any(|k| args.get(k).is_some())
 }
@@ -459,10 +535,10 @@ mod tests {
                 "error_message": "timeout"
             }
         });
-        let delta = super::patch_work_item_direct_from_args(&args).expect("delta");
-        assert_eq!(delta.id, "2");
-        assert_eq!(delta.status.as_str(), "failed");
-        assert_eq!(delta.error_message.as_deref(), Some("timeout"));
+        let scope = super::patch_work_item_direct_from_args(&args).expect("scope");
+        assert_eq!(scope["id"], "2");
+        assert_eq!(scope["status"], "failed");
+        assert_eq!(scope["error_message"], "timeout");
     }
 
     #[test]

@@ -59,6 +59,22 @@ Continuation rule (model-driven):
 - **New multi-step scope:** planner/execution calls **`task_board_init`** — host opens a fresh board bound to the **current** user turn.
 - Do not use user-message keyword heuristics for reuse vs new board.
 
+## Work items vs standalone planner (2026-07)
+
+`computerStandalonePlannerEnabled` controls **only**:
+
+- Whether a **pre-execution planner LLM** runs before Computer's first turn.
+- Whether Computer is **blocked** from calling `task_board_init` / `task_board_replace` during execution (`computer_no_exec_init`).
+
+**Work item queue** (`_task_board_work_items_enabled`) is **always on for Computer**, independent of the planner switch:
+
+- Seed / validate / `work_item_claim` work when planner is off; Computer self-inits on the first turn.
+- Host always rejects Type2 init without seed (`enumerated`) or `dynamic_quota` (`dynamic`), regardless of planner.
+
+When planner is off, execution prompts include the same Type2 `enumerated` vs `dynamic` decision tree as the planner (`task_board.md`, `sub_agent_hint.rs`).
+
+**Dynamic init (2026-07):** when `work_item_mode=dynamic` and `dynamic_quota=N`, host seeds **N pending placeholder rows** (`#1`…`#N`) on init so the UI list is populated immediately. Execution **`work_item_claim`** fills the next unassigned slot when the runtime target is known.
+
 ## UI behavior rules
 
 - Inline panels mount only on the bound user message (`parentBindings`).

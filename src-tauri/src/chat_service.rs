@@ -29,14 +29,7 @@ impl AppState {
         let tools = Arc::new(ToolRegistry::new());
         let task_board_store = match pointer_core::task_board::open_default_persistence() {
             Some(db) => {
-                let wi_store = Arc::new(pointer_core::task_board::WorkItemStore::new());
-                if let Some(wi_db) = pointer_core::task_board::open_default_work_item_persistence() {
-                    wi_store.set_persistence(Some(wi_db));
-                }
-                Arc::new(pointer_core::task_board::TaskBoardStore::with_persistence_and_work_items(
-                    db,
-                    wi_store,
-                ))
+                Arc::new(pointer_core::task_board::TaskBoardStore::with_persistence(db))
             }
             None => Arc::new(pointer_core::task_board::TaskBoardStore::new()),
         };

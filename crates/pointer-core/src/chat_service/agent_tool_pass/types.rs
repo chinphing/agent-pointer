@@ -79,8 +79,6 @@ pub struct ToolPassContext<'a> {
     pub lead: Option<LeadToolPassConfig<'a>>,
     pub sub: Option<SubToolPassConfig<'a>>,
     pub task_board_work_items_enabled: bool,
-    pub task_board_b42_enforced: bool,
-    pub task_board_computer_no_exec_init: bool,
     pub workspace_root: &'a str,
 }
 

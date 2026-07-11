@@ -14,6 +14,7 @@ import type {
   AgentModelRef,
   AgentUiConfig,
   ComputerInitialTier,
+  ComputerPipelineLlmSettings,
   ComputerTierLlmConfig,
   EffectiveSettingsView,
   MediaModelOverrides,
@@ -97,7 +98,6 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   debugDumpLlmPrompts: false,
   debugMenusEnabled: false,
   taskBoardShowChildBoards: false,
-  computerStandalonePlannerEnabled: false,
   agentDefaultModels: {},
   agentTaskBoardHistoryTrim: {},
   computerHumanLike: true,
@@ -123,6 +123,13 @@ const defaultPlatformSettings = (): PlatformSettings => ({
     intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
     advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
   },
+  computerPipelineLlm: {
+    decision: 'qwen3.5-flash',
+    position: 'qwen3.5-plus',
+    verify: 'qwen3.5-flash',
+    positionThinkingBudget: 1024,
+    verifyThinkingBudget: 256
+  },
   agentModeLlm: defaultAgentModeLlm(),
   mediaModeLlm: defaultMediaModeLlm(),
   agentPerformanceModes: { general: 'fast', coder: 'fast' },
@@ -135,28 +142,18 @@ function migratePlannerSettingsFields(
     taskBoardPlannerEnabled?: boolean
     taskBoardWorkItemsEnabled?: boolean
     taskBoardComputerNoExecInit?: boolean
+    computerStandalonePlannerEnabled?: boolean
   }
 ): ModelSettings {
   const raw = s as unknown as Record<string, unknown>
-  if (raw.computerStandalonePlannerEnabled !== undefined) {
-    const { taskBoardPlannerEnabled: _p, taskBoardWorkItemsEnabled: _w, taskBoardComputerNoExecInit: _n, ...rest } =
-      raw
-    return {
-      ...(rest as unknown as ModelSettings),
-      computerStandalonePlannerEnabled: raw.computerStandalonePlannerEnabled === true
-    }
-  }
-  const hasLegacy =
-    'taskBoardPlannerEnabled' in raw ||
-    'taskBoardWorkItemsEnabled' in raw ||
-    'taskBoardComputerNoExecInit' in raw
-  const enabled = hasLegacy
-    ? raw.taskBoardPlannerEnabled !== false &&
-      raw.taskBoardWorkItemsEnabled !== false &&
-      raw.taskBoardComputerNoExecInit !== false
-    : false
-  const { taskBoardPlannerEnabled: _p, taskBoardWorkItemsEnabled: _w, taskBoardComputerNoExecInit: _n, ...rest } = raw
-  return { ...(rest as unknown as ModelSettings), computerStandalonePlannerEnabled: enabled }
+  const {
+    taskBoardPlannerEnabled: _p,
+    taskBoardWorkItemsEnabled: _w,
+    taskBoardComputerNoExecInit: _n,
+    computerStandalonePlannerEnabled: _csp,
+    ...rest
+  } = raw
+  return rest as unknown as ModelSettings
 }
 
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
@@ -179,7 +176,6 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
     debugMenusEnabled: s.debugMenusEnabled === true,
     taskBoardShowChildBoards: migrated.taskBoardShowChildBoards === true,
-    computerStandalonePlannerEnabled: migrated.computerStandalonePlannerEnabled === true,
     agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
     agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
     computerHumanLike: s.computerHumanLike === true,
@@ -344,6 +340,10 @@ export const useSettingsStore = defineStore('settings', () => {
       ...view.platform,
       providers: normalizeProviders(view.platform.providers, undefined, globalGenFallbackFrom(view.merged)),
       computerTierLlm: { ...defaultPlatformSettings().computerTierLlm, ...view.platform.computerTierLlm },
+      computerPipelineLlm: {
+        ...defaultPlatformSettings().computerPipelineLlm,
+        ...view.platform.computerPipelineLlm
+      },
       agentModeLlm: { ...defaultAgentModeLlm(), ...view.platform.agentModeLlm },
       mediaModeLlm: { ...defaultMediaModeLlm(), ...view.platform.mediaModeLlm }
     }
@@ -522,11 +522,14 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm' | 'agentModeLlm' | 'mediaModeLlm'>) {
-    const { computerTierLlm, agentModeLlm, mediaModeLlm, ...sessionPatch } = patch
+  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm' | 'computerPipelineLlm' | 'agentModeLlm' | 'mediaModeLlm'>) {
+    const { computerTierLlm, computerPipelineLlm, agentModeLlm, mediaModeLlm, ...sessionPatch } = patch
     const platformPatch: Partial<PlatformSettings> = {}
     if (computerTierLlm !== undefined && canEditPlatform.value) {
       platformPatch.computerTierLlm = computerTierLlm
+    }
+    if (computerPipelineLlm !== undefined && canEditPlatform.value) {
+      platformPatch.computerPipelineLlm = computerPipelineLlm
     }
     if (agentModeLlm !== undefined && canEditPlatform.value) {
       platformPatch.agentModeLlm = agentModeLlm
@@ -537,6 +540,7 @@ export const useSettingsStore = defineStore('settings', () => {
     // Per-mode models always go through sessionPatch too, so they are
     // preserved even when savePlatform fails (e.g. web runtime where
     // platform settings are read-only) or when canEditPlatform is false.
+    if (computerPipelineLlm !== undefined) (sessionPatch as any).computerPipelineLlm = computerPipelineLlm
     if (agentModeLlm !== undefined) (sessionPatch as any).agentModeLlm = agentModeLlm
     if (mediaModeLlm !== undefined) (sessionPatch as any).mediaModeLlm = mediaModeLlm
     if (Object.keys(platformPatch).length > 0) {

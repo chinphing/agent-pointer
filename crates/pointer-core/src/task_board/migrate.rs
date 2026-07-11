@@ -1,7 +1,7 @@
 //! Load persisted task board JSON as v4 [`BoardDocument`].
 
 use super::model::{
-    BoardDocument, BoardItem, WorkItemMode, BOARD_VERSION, meta_from_value,
+    BoardDocument, BoardItem, BOARD_VERSION, meta_from_value,
 };
 use serde_json::Value;
 
@@ -75,13 +75,6 @@ pub fn migrate_v3_value(store_key: &str, raw: &Value) -> BoardDocument {
     if let Some(arr) = rows {
         for v in arr {
             if let Some(mut item) = BoardItem::from_value(v) {
-                if let Some(mode_s) = v.get("work_item_mode").and_then(|x| x.as_str()) {
-                    doc.meta.work_item_mode = match mode_s.trim().to_ascii_lowercase().as_str() {
-                        "enumerated" => Some(WorkItemMode::Enumerated),
-                        "dynamic" => Some(WorkItemMode::Dynamic),
-                        _ => doc.meta.work_item_mode,
-                    };
-                }
                 if let Some(q) = v.get("dynamic_quota").and_then(|x| x.as_u64()) {
                     doc.meta.dynamic_quota = Some(q as u32);
                 }
@@ -97,13 +90,6 @@ pub fn migrate_v3_value(store_key: &str, raw: &Value) -> BoardDocument {
             }
         }
     }
-    if let Some(arr) = raw.get("item_milestones").and_then(|v| v.as_array()) {
-        for v in arr {
-            if let Some(item) = BoardItem::from_value(v) {
-                doc.item_milestones.push(item);
-            }
-        }
-    }
     log::info!(
         "task_board: migrated v3→v4 store_key={store_key} global_rows={}",
         doc.global_milestones.len()
@@ -113,7 +99,6 @@ pub fn migrate_v3_value(store_key: &str, raw: &Value) -> BoardDocument {
 
 fn coalesce_milestone_constraints(doc: &mut BoardDocument, raw: &Value) {
     coalesce_slice_constraints(&mut doc.global_milestones, raw.get("global_milestones"));
-    coalesce_slice_constraints(&mut doc.item_milestones, raw.get("item_milestones"));
     if doc.global_milestones.is_empty() {
         coalesce_slice_constraints(&mut doc.global_milestones, raw.get("board"));
     }

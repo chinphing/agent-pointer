@@ -72,11 +72,6 @@ pub(super) fn init_sub_agent_session(
     if !spawn_can_delegate {
         allowed_tools.retain(|t| t != "run_subagent");
     }
-    if def.profile == AgentProfile::Computer
-        && provider.settings.computer_standalone_planner_enabled
-    {
-        allowed_tools.retain(|t| t != "task_board_init");
-    }
     let sub_task_board_key =
         sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim());
     let session_vars = SessionInjectVars {
@@ -124,19 +119,18 @@ pub(super) fn init_sub_agent_session(
         }
     }
     session_extras.extend(skill_prompts);
-    let planner_handles_init = def.profile == AgentProfile::Computer
-        && provider.settings.computer_standalone_planner_enabled;
-    if !planner_handles_init {
-        if let Some(hint) =
-            sub_agent_task_board_init_hint(&state.task_board_store, &sub_task_board_key, &allowed_tools)
-        {
-            crate::task_board::observability::log_sub_agent_init_hint(
-                conversation_id,
-                task.id.trim(),
-                &def.id,
-            );
-            session_extras.push(hint);
-        }
+    if let Some(hint) = sub_agent_task_board_init_hint(
+        &state.task_board_store,
+        &sub_task_board_key,
+        &allowed_tools,
+        &def.profile,
+    ) {
+        crate::task_board::observability::log_sub_agent_init_hint(
+            conversation_id,
+            task.id.trim(),
+            &def.id,
+        );
+        session_extras.push(hint);
     }
 
     let mut task_dynamic_blocks = build_subagent_task_system_blocks(
@@ -253,7 +247,6 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: sub_task_board_key,
         user_dynamic_inject_enabled,
-        planner_outcome: ctx.planner_outcome.clone(),
     };
     let t = Instant::now();
     state

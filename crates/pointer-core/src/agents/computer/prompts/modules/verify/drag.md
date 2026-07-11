@@ -1,17 +1,26 @@
-## Verify module — drag family
+### Scenario: drag
 
 Judge whether drag-and-drop produced the expected outcome.
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+**Order:** goal first → pointer/end position **only on fail**.
 
-**Expected change:** Item moved, reordered, transfer started, or selection extended.
+| Outcome | `action_result` | Fail detail | `failure_cause` |
+| --- | --- | --- | --- |
+| Item moved, reordered, or transfer started | `pass` | — | — |
+| No move | `fail` | miss drop zone | `precision_miss` |
+| Wrong item affected | `fail` | wrong target | `wrong_operation` |
 
-**Special rules:**
-- Item at new position → **pass**.
-- No move → **fail** (`precision_miss`).
-- Wrong item affected → **fail** (`wrong_operation`).
-- File transfer: set `loading_detected` when progress/spinner visible.
+**`loading_detected`:** file transfer progress or spinner visible.
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+### Reasoning (hard rule)
+
+Max **4 sentences**, plain prose.
+
+1. Before/after — item moved/reordered/transfer started or not.
+2. Pass → stop; fail → wrong item vs miss drop zone for `failure_cause`.
+3. On fail only: brief pointer/drop-zone note if needed.
+4. Optional: loading.
+
+**Forbidden:** numbered CoT templates; JSON; repeating tool args.

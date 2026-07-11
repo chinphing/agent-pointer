@@ -16,7 +16,6 @@ pub struct SingleAgentPromptContext<'a> {
     pub lead_profile: AgentProfile,
     pub tools_system_appendix: String,
     pub tools_appendix_enabled: bool,
-    pub planner_outcome: crate::task_board::PlannerRunOutcome,
 }
 
 /// Sub-agent round prompt assembly.
@@ -34,5 +33,4 @@ pub struct SubAgentPromptContext<'a> {
     pub user_dynamic_inject_enabled: bool,
     pub task_dynamic_blocks: &'a [String],
     pub spawn_depth: u32,
-    pub planner_outcome: crate::task_board::PlannerRunOutcome,
 }

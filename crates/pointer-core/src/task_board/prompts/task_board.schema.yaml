@@ -15,7 +15,8 @@ task_board_init:
       type: string
     global_milestones:
       type: array
-      description: Task-level milestone rows (Type1 flow, or Type2 g_plan/g_exec/g_deliver).
+      description: >
+        Milestone rows. Linear: 3–8 steps (m1…). Loop: g_plan, wi_* (host-seeded), g_deliver.
       items:
         type: object
         properties:
@@ -27,7 +28,7 @@ task_board_init:
             type: string
           rules:
             type: string
-            description: User/session normative rules for this milestone (overrides Skill defaults).
+            description: User/session normative rules for this milestone.
           constraints:
             type: string
             description: Short binding bullets (one or more lines).
@@ -39,33 +40,9 @@ task_board_init:
             type: string
         required: [id, title, status]
         additionalProperties: true
-    item_milestones:
-      type: array
-      description: Per-work-item SOP template rows (Type2 only).
-      items:
-        type: object
-        properties:
-          id:
-            type: string
-          title:
-            type: string
-          status:
-            type: string
-          rules:
-            type: string
-            description: User/session normative rules for this SOP step.
-          constraints:
-            type: string
-            description: Short binding bullets (one or more lines).
-          done_when:
-            type: string
-          plan:
-            type: string
-        required: [id, title, status]
-        additionalProperties: true
     work_items:
       type: array
-      description: Inline work item drafts for enumerated Type2 init.
+      description: Inline loop targets on init (host expands to wi_* rows between g_plan and g_deliver).
       items:
         type: object
         properties:
@@ -78,27 +55,20 @@ task_board_init:
             type: string
         required: [title]
         additionalProperties: true
-    work_items_source:
-      type: string
-      description: >
-        Path or media ref to seed work_items from CSV/JSONL/XLSX (Type2).
-        Accepts localPath, pointer-media://…, or storage rel (same as general agent media).
-    work_item_mode:
-      type: string
-      enum: [enumerated, dynamic]
-    expected_total:
-      type: integer
-      minimum: 1
     dynamic_quota:
       type: integer
       minimum: 1
+      description: Loop init — host seeds wi_1…wi_N between g_plan and g_deliver.
+    loop_item_plan:
+      type: string
+      description: Shared multi-step procedure for each loop item row.
+    loop_item_done_when:
+      type: string
+      description: Shared done_when for each loop item row (optional).
+    loop_item_rules:
+      type: string
+      description: Shared rules for each loop item row (optional).
     global_context: {}
-    items:
-      type: array
-      description: Legacy alias for global_milestones.
-      items:
-        type: object
-        additionalProperties: true
     _conversation_id:
       type: string
   required: [goal]
@@ -107,9 +77,9 @@ task_board_init:
 task_board_replace:
   type: object
   properties:
-    item_milestones:
+    global_milestones:
       type: array
-      description: Full item SOP template rows (execution only).
+      description: Full global_milestones table (linear or loop rows).
       items:
         type: object
         properties:
@@ -123,26 +93,27 @@ task_board_replace:
             type: string
           constraints:
             type: string
-            description: Short binding bullets (one or more lines).
           done_when:
             type: string
           plan:
+            type: string
+          delivery_format:
             type: string
         required: [id, title, status]
         additionalProperties: true
     _conversation_id:
       type: string
-  required: [item_milestones]
+  required: [global_milestones]
   additionalProperties: false
 
 task_board_patch:
   type: object
+  description: Update one visible milestone row from inject via milestones[].
   properties:
     milestones:
       type: array
       description: >
-        One visible milestone row from inject (step, queue SOP, or g_deliver).
-        Host routes by inject mode and row id — do not use global_milestones on patch.
+        One milestone row from inject (linear step, loop item wi_*, or g_deliver).
       items:
         type: object
         properties:
@@ -152,55 +123,17 @@ task_board_patch:
             type: string
           remark:
             type: string
+          title:
+            type: string
+          plan:
+            type: string
         required: [id, status]
         additionalProperties: true
-    current_item:
-      type: object
-      description: >
-        Active work_item focus for queue exec patches. id must match [WORK_ITEM_FOCUS].
-        During g_exec: id only — never status/result_summary/error_message.
-        Close the work_item by patching the last item_milestones row done/failed instead.
-      properties:
-        id:
-          type: string
-        status:
-          type: string
-          enum: [pending, ready, in_progress, done, failed, cancelled]
-        result_summary:
-          type: string
-        result_ref:
-          type: string
-        error_message:
-          type: string
-      required: [id]
-      additionalProperties: true
-    work_item_claim:
-      type: object
-      description: Dynamic mode — claim one runtime target (object, not a string).
-      properties:
-        target_key:
-          type: string
-        title:
-          type: string
-        payload:
-          type: object
-          description: Optional key-value fields for the claimed target.
-          additionalProperties: true
-        status:
-          type: string
-      required: [target_key]
-      additionalProperties: true
-    items:
-      description: Legacy flat row (id + status); prefer global_milestones or milestones.
-    item_id:
-      type: string
-      description: >
-        Type1 flat patch — global milestone row id (no work_items).
-        Queue exec uses current_item.id instead.
+    global_context: {}
     _conversation_id:
       type: string
-  required: []
-  additionalProperties: true
+  required: [milestones]
+  additionalProperties: false
 
 task_board_prune:
   type: object

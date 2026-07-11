@@ -1,17 +1,21 @@
-## Verify module — generic family
+### Scenario: generic
 
-Fallback verifier when no specific family matches.
+Fallback when no specific family matches. Compare before/after for any UI change implied by `goal` and `action`.
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+**Order:** goal first → pointer **only on fail** (same as pointer click).
 
-Follow pointer click verify process (concise):
-1. Compare Before vs After.
-2. Classify evidence.
-3. Pointer rule (pointer at ≠ pass).
-4. Derive `action_result`.
-5. `step_summary` on pass only — in **tool call**, one sentence.
-6. `loading_detected` when applicable.
+| Goal evidence | `action_result` | Pointer (fail only) | `failure_cause` |
+| --- | --- | --- | --- |
+| Supporting UI change | `pass` | skip | — |
+| No clear or contradicting change | `fail` | center-hit | `wrong_operation` |
+| No clear or contradicting change | `fail` | center-miss | `precision_miss` |
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+### Reasoning (hard rule)
+
+Max **4 sentences**, plain prose — follow pointer click reasoning pattern.
+
+**Pointer rule:** cursor on target alone ≠ pass; visible UI outcome required.
+
+**Forbidden:** numbered CoT templates; JSON; repeating tool args.

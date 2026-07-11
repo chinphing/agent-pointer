@@ -407,94 +407,6 @@ pub(super) async fn run_chat_inner(
         .map(|a| a.def().profile.clone())
         .unwrap_or(crate::agents::AgentProfile::General);
 
-    let mut initial_assistant_id: Option<String> = None;
-    if lead_profile == crate::agents::AgentProfile::Computer
-        && settings.computer_standalone_planner_enabled
-    {
-        let aid = super::util::new_id("msg");
-        ctx.history.push(ChatMessage {
-            id: aid.clone(),
-            role: crate::models::Role::Assistant,
-            content: String::new(),
-            status: "streaming".into(),
-            created_at: super::util::now_ms(),
-            tool_calls: None,
-            tool_call_id: None,
-            error_message: None,
-            reasoning: None,
-            thoughts: Some(crate::task_board::planner::PLANNER_PHASE_THOUGHTS.into()),
-            headline: None,
-            raw_content: None,
-            tool_raw_output: None,
-            agent_id: Some(agent_plan.lead_agent_id.clone()),
-            agent_instance_id: None,
-            agent_name: None,
-            agent_trace: None,
-            image_slot_labels: None,
-            images_base64: None,
-            computer_round_screen_rel_path: None,
-            ui_bindings: None,
-            context_state: None,
-            attachments: None,
-            anchor_message_id: None,
-            trace_id: None,
-            task_id: None,
-            spawn_depth: None,
-        });
-        emit(
-            &stream,
-            StreamEvent::MessageStart {
-                message_id: aid.clone(),
-                conversation_id: conversation_id.to_string(),
-            },
-        );
-        initial_assistant_id = Some(aid);
-    }
-
-    let planner_ui = if let Some(aid) = initial_assistant_id.as_ref() {
-        Some(crate::task_board::planner::PlannerUiTarget {
-            stream: &stream,
-            state: state.as_ref(),
-            message_id: aid,
-            trace_id: None,
-            scoped_message_id: None,
-        })
-    } else {
-        None
-    };
-
-    let planner_outcome = crate::task_board::planner::run_planner_loop(
-        crate::task_board::planner::PlannerRunInput {
-            state: state.as_ref(),
-            provider: &provider,
-            settings: &settings,
-            main_history: ctx.history,
-            conversation_id,
-            store_key: &main_task_board_store_key,
-            lead_agent_id: &agent_plan.lead_agent_id,
-            lead_profile: lead_profile.clone(),
-            cancel: &cancel,
-            llm_stats: &mut llm_token_session.stats,
-            run_id,
-            stream: &stream,
-            context: crate::task_board::planner::PlannerContext::MainTurn,
-            system_dynamic: &[],
-            ui: planner_ui,
-        },
-    )
-    .await;
-
-    if let Some(aid) = initial_assistant_id.as_ref() {
-        crate::task_board::planner::exclude_ui_shell_from_lead_context(ctx.history, aid);
-    }
-
-    if let Some(active) = state.get_active_main_task_board_key(conversation_id) {
-        main_task_board_store_key = active;
-    } else if let Some((last_user_id, _)) = latest_real_user_turn(ctx.history) {
-        main_task_board_store_key =
-            crate::task_board::main_turn_task_board_store_key(conversation_id, last_user_id);
-    }
-
     let memory_due = crate::memory::memory_review_due_for(
         &settings,
         &agent_plan.allowed_tool_names,
@@ -520,8 +432,6 @@ pub(super) async fn run_chat_inner(
         max_cap,
         token_session: &mut llm_token_session,
         reasoning_in_messages,
-        planner_outcome,
-        initial_assistant_id,
     };
     super::single_agent::run_single_agent_loop(&mut lead_ctx).await?;
 

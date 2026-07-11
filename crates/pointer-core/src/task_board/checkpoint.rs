@@ -45,7 +45,8 @@ pub fn task_board_call_is_checkpoint(tool_id: &str, args: &Value) -> bool {
     }
     match resolve_method_for_call(tool_id, args).as_str() {
         "init" | "replace" | "finalize" => true,
-        "patch" | "" => patch_has_substantive_progress(args),
+        "patch_milestones" | "patch" | "" => patch_has_substantive_progress(args),
+        "patch_items" => false,
         _ => false,
     }
 }

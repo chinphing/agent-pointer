@@ -24,7 +24,6 @@ const {
   computerAutoCompact,
   userCodingRules,
   computerHumanLike,
-  computerStandalonePlannerEnabled,
   captchaSliderOffsetPx,
   computerAutoSwitchMonitor,
   mediaImageGenerationModel,
@@ -265,22 +264,6 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                       class="sr-only peer"
                       :checked="computerAutoSwitchMonitor"
                       @change="computerAutoSwitchMonitor = ($event.target as HTMLInputElement).checked"
-                    />
-                    <div class="settings-toggle-track" />
-                  </label>
-                </div>
-
-                <div class="flex items-start justify-between gap-4 py-3">
-                  <div class="min-w-0">
-                    <p class="text-[12px] font-medium text-foreground">独立任务规划</p>
-                    <p class="text-[11px] text-muted mt-0.5">工作项队列、每轮先规划再执行，执行层不初始化任务板</p>
-                  </div>
-                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
-                    <input
-                      type="checkbox"
-                      class="sr-only peer"
-                      :checked="computerStandalonePlannerEnabled"
-                      @change="computerStandalonePlannerEnabled = ($event.target as HTMLInputElement).checked"
                     />
                     <div class="settings-toggle-track" />
                   </label>

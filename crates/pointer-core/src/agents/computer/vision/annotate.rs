@@ -11,6 +11,10 @@ use super::screen;
 use crate::platform_endpoints;
 /// Default timeout for annotation requests in seconds.
 const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
+/// Max attempts when the annotate HTTP call fails with a retryable network error.
+const MAX_ANNOTATE_NETWORK_ATTEMPTS: u32 = 4;
+/// Delay before each annotate network retry (ms): after attempts 1, 2, 3.
+const ANNOTATE_NETWORK_RETRY_DELAYS_MS: [u64; 3] = [1000, 5000, 10000];
 /// Default detection threshold.
 const DEFAULT_THRESHOLD: f32 = 0.1;
 /// Default overlap threshold.
@@ -225,8 +229,81 @@ impl AnnotateClient {
         let upload_png_len = png_bytes.len();
         let prepare_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        let t = Instant::now();
-        let file_part = multipart::Part::bytes(png_bytes)
+        let url = format!("{}/api/v1/annotate/all", self.base_url);
+        let mut last_network_err: Option<AnnotateError> = None;
+        for attempt in 1..=MAX_ANNOTATE_NETWORK_ATTEMPTS {
+            let t = Instant::now();
+            match self
+                .post_annotate_all(
+                    &url,
+                    &png_bytes,
+                    threshold,
+                    overlap_threshold,
+                    padding,
+                )
+                .await
+            {
+                Ok(annotate_response) => {
+                    let http_ms = t.elapsed().as_secs_f64() * 1000.0;
+                    let t = Instant::now();
+                    let boxes_api = boxes_xyxy_to_box_infos(&annotate_response.boxes)?;
+                    let out_image = decode_base64_image(strip_data_url_prefix(
+                        &annotate_response.image_base64,
+                    ))?;
+                    let boxes = scale_boxes_to_capture_space(boxes_api, scale_x, scale_y);
+                    let decode_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+                    log::info!(
+                        "annotate_image: prepare_downscale {:.1}ms, post+parse_json {:.1}ms, decode_boxes_png {:.1}ms, total {:.1}ms ({} boxes, max_edge={}, input={}, upload_png={}, output_png={}, attempts={})",
+                        prepare_ms,
+                        http_ms,
+                        decode_ms,
+                        t_total.elapsed().as_secs_f64() * 1000.0,
+                        boxes.len(),
+                        max_edge,
+                        screen::format_data_size_bytes(image_bytes.len()),
+                        screen::format_data_size_bytes(upload_png_len),
+                        screen::format_data_size_bytes(out_image.len()),
+                        attempt
+                    );
+
+                    return Ok(AnnotateResponse {
+                        image: out_image,
+                        boxes,
+                    });
+                }
+                Err(e) if is_retryable_annotate_network_error(&e)
+                    && attempt < MAX_ANNOTATE_NETWORK_ATTEMPTS =>
+                {
+                    let delay = annotate_network_retry_delay(attempt);
+                    log::warn!(
+                        "annotate_image: network error attempt {}/{} url={}: {}; retrying in {}ms",
+                        attempt,
+                        MAX_ANNOTATE_NETWORK_ATTEMPTS,
+                        url,
+                        e,
+                        delay.as_millis()
+                    );
+                    last_network_err = Some(e);
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last_network_err.unwrap_or_else(|| {
+            AnnotateError::Network("annotate request failed without error detail".into())
+        }))
+    }
+
+    async fn post_annotate_all(
+        &self,
+        url: &str,
+        png_bytes: &[u8],
+        threshold: f32,
+        overlap_threshold: f32,
+        padding: i32,
+    ) -> Result<AnnotateAllResponse, AnnotateError> {
+        let file_part = multipart::Part::bytes(png_bytes.to_vec())
             .file_name("screen.png")
             .mime_str("image/png")
             .map_err(|e| AnnotateError::InvalidResponse(e.to_string()))?;
@@ -235,11 +312,8 @@ impl AnnotateClient {
             .text("threshold", format!("{threshold}"))
             .text("overlap_threshold", format!("{overlap_threshold}"))
             .text("padding", format!("{padding}"));
-        let form_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        let url = format!("{}/api/v1/annotate/all", self.base_url);
-        let t = Instant::now();
-        let mut req = self.client.post(&url).multipart(form);
+        let mut req = self.client.post(url).multipart(form);
         if let Some(auth) = &self.platform_auth {
             match auth.ensure_access_token().await {
                 Ok(token) => {
@@ -266,38 +340,24 @@ impl AnnotateClient {
             return Err(AnnotateError::ServiceError { status, body: text });
         }
 
-        let annotate_response: AnnotateAllResponse = response
+        response
             .json()
             .await
-            .map_err(|e| AnnotateError::InvalidResponse(e.to_string()))?;
-        let http_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-        let t = Instant::now();
-        let boxes_api = boxes_xyxy_to_box_infos(&annotate_response.boxes)?;
-        let out_image =
-            decode_base64_image(strip_data_url_prefix(&annotate_response.image_base64))?;
-        let boxes = scale_boxes_to_capture_space(boxes_api, scale_x, scale_y);
-        let decode_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-        log::info!(
-            "annotate_image: prepare_downscale {:.1}ms, build_multipart {:.1}ms, post+parse_json {:.1}ms, decode_boxes_png {:.1}ms, total {:.1}ms ({} boxes, max_edge={}, input={}, upload_png={}, output_png={})",
-            prepare_ms,
-            form_ms,
-            http_ms,
-            decode_ms,
-            t_total.elapsed().as_secs_f64() * 1000.0,
-            boxes.len(),
-            max_edge,
-            screen::format_data_size_bytes(image_bytes.len()),
-            screen::format_data_size_bytes(upload_png_len),
-            screen::format_data_size_bytes(out_image.len())
-        );
-
-        Ok(AnnotateResponse {
-            image: out_image,
-            boxes,
-        })
+            .map_err(|e| AnnotateError::InvalidResponse(e.to_string()))
     }
+}
+
+fn is_retryable_annotate_network_error(err: &AnnotateError) -> bool {
+    matches!(err, AnnotateError::Network(_))
+}
+
+fn annotate_network_retry_delay(attempt: u32) -> Duration {
+    let idx = attempt.saturating_sub(1) as usize;
+    let ms = ANNOTATE_NETWORK_RETRY_DELAYS_MS
+        .get(idx)
+        .copied()
+        .unwrap_or(*ANNOTATE_NETWORK_RETRY_DELAYS_MS.last().unwrap());
+    Duration::from_millis(ms)
 }
 
 impl Default for AnnotateClient {
@@ -416,6 +476,24 @@ fn decode_base64_image(encoded: &str) -> Result<Vec<u8>, AnnotateError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retryable_network_error_only_for_network_variant() {
+        assert!(is_retryable_annotate_network_error(&AnnotateError::Network(
+            "connection refused".into()
+        )));
+        assert!(!is_retryable_annotate_network_error(&AnnotateError::ServiceError {
+            status: 503,
+            body: "busy".into(),
+        }));
+    }
+
+    #[test]
+    fn annotate_network_retry_delay_uses_fixed_backoff_schedule() {
+        assert_eq!(annotate_network_retry_delay(1).as_millis(), 1000);
+        assert_eq!(annotate_network_retry_delay(2).as_millis(), 5000);
+        assert_eq!(annotate_network_retry_delay(3).as_millis(), 10000);
+    }
 
     #[test]
     fn test_box_info_center() {

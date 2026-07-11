@@ -125,9 +125,9 @@ impl VerifyWireFormat {
 }
 
 const VERIFY_SCREENSHOT_INSTRUCTION: &str = "\
-Judge whether the last operation succeeded by comparing before vs after screenshots.\n\
+Judge whether the last operation succeeded using evidence described in the Scenario section.\n\
 Both images include synthetic pointer overlay at capture time.\n\
-Run judgment in reasoning_content only (concise); then call `submit_verify` (structured fields).\n\
+Run judgment in reasoning_content only; then call `submit_verify`.\n\
 Leave message content empty.\n";
 
 const VERIFY_CLIPBOARD_INSTRUCTION: &str = "\

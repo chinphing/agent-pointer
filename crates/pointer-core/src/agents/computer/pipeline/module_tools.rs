@@ -16,7 +16,7 @@ pub fn verify_submit_tool() -> Value {
         "type": "function",
         "function": {
             "name": TOOL_SUBMIT_VERIFY,
-            "description": "Submit verification judgment after comparing before/after screenshots (Steps 1-6 in thinking).",
+            "description": "Submit verify output after reasoning in reasoning_content per Scenario.",
             "parameters": verify_response_schema()
         }
     })

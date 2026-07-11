@@ -247,36 +247,6 @@ pub fn list_agents(state: State<'_, Arc<AppState>>) -> Result<Vec<AgentDef>, Str
     Ok(state.agents.list())
 }
 
-fn resolve_work_items_store_key(
-    state: &AppState,
-    conversation_id: &str,
-    task_id: Option<&str>,
-    rehydrate: bool,
-) -> String {
-    use pointer_core::task_board::resolve_store_key_for_read;
-    use pointer_core::task_board::work_item::try_rehydrate_work_items_if_empty;
-    let parent_key = state
-        .get_active_main_task_board_key(conversation_id)
-        .unwrap_or_else(|| conversation_id.to_string());
-    let store_key = resolve_store_key_for_read(
-        state.task_board_store.as_ref(),
-        state.task_board_store.work_items.as_ref(),
-        conversation_id,
-        task_id,
-        &parent_key,
-    );
-    if rehydrate {
-        if let Err(e) = try_rehydrate_work_items_if_empty(
-            state.task_board_store.as_ref(),
-            state.task_board_store.work_items.as_ref(),
-            &store_key,
-        ) {
-            log::warn!("work_items: rehydrate failed store_key={store_key}: {e}");
-        }
-    }
-    store_key
-}
-
 #[tauri::command]
 pub fn get_task_board_snapshot(
     state: State<'_, Arc<AppState>>,
@@ -289,60 +259,11 @@ pub fn get_task_board_snapshot(
         .unwrap_or_else(|| conversation_id.clone());
     let store_key = resolve_store_key_for_read(
         state.task_board_store.as_ref(),
-        state.task_board_store.work_items.as_ref(),
         &conversation_id,
         task_id.as_deref(),
         &parent_key,
     );
     Ok(state.task_board_store.document(&store_key).to_value())
-}
-
-#[tauri::command]
-pub fn list_work_items(
-    state: State<'_, Arc<AppState>>,
-    conversation_id: String,
-    task_id: Option<String>,
-    batch_id: Option<String>,
-    offset: Option<u32>,
-    limit: Option<u32>,
-) -> Result<serde_json::Value, String> {
-    use pointer_core::task_board::work_item::list_work_items_json;
-    let store_key = resolve_work_items_store_key(
-        state.inner(),
-        &conversation_id,
-        task_id.as_deref(),
-        true,
-    );
-    let batch = batch_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    Ok(list_work_items_json(
-        state.task_board_store.work_items.as_ref(),
-        &store_key,
-        batch,
-        offset.unwrap_or(0),
-        limit.unwrap_or(50),
-    ))
-}
-
-#[tauri::command]
-pub fn work_item_stats(
-    state: State<'_, Arc<AppState>>,
-    conversation_id: String,
-    task_id: Option<String>,
-    batch_id: Option<String>,
-) -> Result<serde_json::Value, String> {
-    use pointer_core::task_board::work_item::work_item_stats_json;
-    let store_key = resolve_work_items_store_key(
-        state.inner(),
-        &conversation_id,
-        task_id.as_deref(),
-        true,
-    );
-    let batch = batch_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    Ok(work_item_stats_json(
-        state.task_board_store.work_items.as_ref(),
-        &store_key,
-        batch,
-    ))
 }
 
 /// Returns the last annotated PNG from [`capture_and_annotate`] for a conversation.

@@ -1,16 +1,23 @@
-## Verify module — pointer hover family
+### Scenario: pointer hover
 
-Judge whether hover revealed the expected UI state (tooltip, popup preview, menu, highlight).
+Judge whether hover revealed the expected UI (tooltip, popup preview, menu, highlight).
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+**Order:** hover UI first → pointer **only when hover UI did not appear**.
 
-**Special rules:**
-- Success: tooltip/popup/highlight visible.
-- **"Pointer at ≠ pass":** cursor on target with no UI change → fail (`wrong_operation`).
-- Tooltip/menu appeared → **pass**; no visible change → **fail**.
+| Goal evidence | `action_result` | Pointer (fail only) | `failure_cause` |
+| --- | --- | --- | --- |
+| Tooltip / popup / highlight visible | `pass` | skip | — |
+| No hover UI change | `fail` | on target | `wrong_operation` |
+| Wrong element reacted | `fail` | any | `wrong_operation` |
 
-Same evidence classification as pointer click verify (Steps 1–6).
+### Reasoning (hard rule)
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+Max **3 sentences**, plain prose — no numbered lists or section headers.
+
+1. Before/after hover UI → pass if expected reveal; else fail.
+2. On fail only: pointer on intended target or not → `failure_cause`.
+3. Optional: loading if applicable.
+
+**Forbidden:** numbered CoT templates; JSON; repeating tool args.

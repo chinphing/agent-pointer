@@ -19,6 +19,7 @@ import type {
   AgentDef,
   AgentUiConfig,
   ComputerInitialTier,
+  ComputerPipelineLlmSettings,
   ComputerTierKey,
   ComputerTierLlmConfig,
   MediaModelOverrides,
@@ -190,6 +191,21 @@ function createSettingsDialogForm(deps: {
   s.platformSettings.computerTierLlm = next
   }
 
+  function computerPipelineLlm(): ComputerPipelineLlmSettings {
+  const defaults = {
+    decision: 'qwen3.5-flash',
+    position: 'qwen3.5-plus',
+    verify: 'qwen3.5-flash',
+    positionThinkingBudget: 1024,
+    verifyThinkingBudget: 256
+  }
+  return { ...defaults, ...s.platformSettings.computerPipelineLlm }
+  }
+
+  function patchComputerPipelineLlm(patch: Partial<ComputerPipelineLlmSettings>) {
+  s.platformSettings.computerPipelineLlm = { ...computerPipelineLlm(), ...patch }
+  }
+
   const toolApprovalMode = ref<'auto' | 'manual'>('auto')
   const agentMode = ref<'single' | 'supervisor'>('single')
   const leadAgentId = ref('')
@@ -208,7 +224,6 @@ function createSettingsDialogForm(deps: {
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const taskBoardShowChildBoards = ref(false)
-  const computerStandalonePlannerEnabled = ref(false)
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
@@ -410,7 +425,6 @@ function createSettingsDialogForm(deps: {
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
-  computerStandalonePlannerEnabled.value = s.settings.computerStandalonePlannerEnabled === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
@@ -689,7 +703,6 @@ function createSettingsDialogForm(deps: {
     userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
-    computerStandalonePlannerEnabled: computerStandalonePlannerEnabled.value,
     computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
     computerInitialTier: computerInitialTier.value,
     captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
@@ -731,6 +744,7 @@ function createSettingsDialogForm(deps: {
       [activeUiAgentId.value]: { ...agentUiLocal.value }
     },
     computerTierLlm: { ...s.platformSettings.computerTierLlm },
+    computerPipelineLlm: { ...computerPipelineLlm() },
     agentModeLlm: { ...s.platformSettings.agentModeLlm },
     mediaModeLlm: { ...s.platformSettings.mediaModeLlm },
   }
@@ -769,7 +783,6 @@ function createSettingsDialogForm(deps: {
     rawContentViewEnabled,
     debugDumpLlmPrompts,
     taskBoardShowChildBoards,
-    computerStandalonePlannerEnabled,
     agentTaskBoardHistoryTrim,
     computerHumanLike,
     computerAutoSwitchMonitor,
@@ -824,6 +837,8 @@ function createSettingsDialogForm(deps: {
     patchMediaModeLlm,
     computerTierLlm,
     patchComputerTierLlm,
+    computerPipelineLlm,
+    patchComputerPipelineLlm,
     qwenModelOptions,
     isModeAgent,
     toggleDebugMenus,

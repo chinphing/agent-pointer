@@ -26,7 +26,6 @@ accessPolicy:
     - list_apps
     - launch_app
     - task_board
-    - work_items_export
     - captcha_verify
   denyTools: []
   allowSkills: []

@@ -21,11 +21,9 @@ use super::computer_pipeline_loop::{
     PipelineLlmUsageRecorder,
 };
 use crate::task_board::TaskBoardTrimHook;
-use crate::task_board::planner::PlannerRunOutcome;
 use super::emit::{agent_trace_step_id, emit, trace_id_opt};
 use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
-use super::sub_agent_task_prompt::push_sub_agent_task_system_dynamic;
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
 use super::sub_message::SubMessageLinkage;
 use super::util::new_id;
@@ -98,118 +96,13 @@ pub(crate) async fn run_sub_agent(
             .reset_for_new_user_guidance(conversation_id);
     }
 
-    let mut planner_outcome = PlannerRunOutcome::NotApplicable;
-    let mut planner_system_dynamic = Vec::new();
-    if def.profile == AgentProfile::Computer {
-        push_sub_agent_task_system_dynamic(
-            &mut planner_system_dynamic,
-            &task_dynamic_blocks,
-            state.task_board_store.as_ref(),
-            &sub_task_board_key,
-            task.id.trim(),
-        );
-    }
-
-    if def.profile == AgentProfile::Computer && sub_provider.settings.computer_standalone_planner_enabled {
-        let planner_scoped_id = new_id("planner_msg");
-        let planner_placeholder = ChatMessage {
-            id: planner_scoped_id.clone(),
-            role: Role::Assistant,
-            content: String::new(),
-            status: "streaming".into(),
-            created_at: super::util::now_ms(),
-            tool_calls: None,
-            tool_call_id: None,
-            error_message: None,
-            reasoning: None,
-            thoughts: Some(crate::task_board::planner::PLANNER_PHASE_THOUGHTS.into()),
-            headline: None,
-            raw_content: None,
-            tool_raw_output: None,
-            agent_id: Some(def.id.clone()),
-            agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
-            agent_name: None,
-            agent_trace: None,
-            image_slot_labels: None,
-            images_base64: None,
-            computer_round_screen_rel_path: None,
-            ui_bindings: None,
-            context_state: None,
-            attachments: None,
-            anchor_message_id: Some(sub_linkage.anchor_message_id.clone()),
-            trace_id: Some(sub_linkage.trace_id.clone()),
-            task_id: Some(sub_linkage.task_id.clone()),
-            spawn_depth: Some(sub_linkage.spawn_depth),
-        };
-        super::sub_message::persist_sub_message(conversation_id, &sub_linkage, &planner_placeholder);
-        emit(
-            stream,
-            StreamEvent::SubMessageStart {
-                conversation_id: conversation_id.to_string(),
-                anchor_message_id: sub_linkage.anchor_message_id.clone(),
-                scoped_message_id: planner_scoped_id.clone(),
-                trace_id: sub_linkage.trace_id.clone(),
-                task_id: sub_linkage.task_id.clone(),
-                spawn_depth: sub_linkage.spawn_depth,
-            },
-        );
-        let planner_ui = crate::task_board::planner::PlannerUiTarget {
-            stream,
-            state,
-            message_id,
-            trace_id: Some(sub_linkage.trace_id.as_str()),
-            scoped_message_id: Some(planner_scoped_id.as_str()),
-        };
-        planner_outcome = crate::task_board::planner::run_planner_loop(
-            crate::task_board::planner::PlannerRunInput {
-                state,
-                provider: &sub_provider,
-                settings: &sub_provider.settings,
-                main_history: &mut local_history,
-                conversation_id,
-                store_key: &sub_task_board_key,
-                lead_agent_id: &def.id,
-                lead_profile: def.profile.clone(),
-                cancel: &cancel,
-                llm_stats: ctx.llm_stats,
-                run_id,
-                stream,
-                context: crate::task_board::planner::PlannerContext::SubAgent {
-                    anchor_message_id: message_id.to_string(),
-                    trace_id: sub_linkage.trace_id.clone(),
-                },
-                system_dynamic: &planner_system_dynamic,
-                ui: Some(planner_ui),
-            },
-        )
-        .await;
-        if matches!(
-            planner_outcome,
-            PlannerRunOutcome::Planned { .. }
-        ) {
-            let doc = state.task_board_store.document(&sub_task_board_key);
-            if !doc.board_is_empty() {
-                super::emit::emit_task_board_updated(
-                    stream,
-                    conversation_id,
-                    &sub_task_board_key,
-                    Some(sub_linkage.trace_id.clone()),
-                    doc.to_value(),
-                );
-            }
-        }
-    }
-
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
     let _agent_guard = crate::tools::file::AgentWorkspaceGuard::enter(
         &sub_provider.settings.workspace_root,
     );
 
-    let planner_bundle =
-        def.profile == AgentProfile::Computer && sub_provider.settings.computer_standalone_planner_enabled;
-    let work_items_enabled = planner_bundle;
-    let b42_enforced = planner_bundle;
-    let computer_no_exec_init = planner_bundle;
+    let is_computer = def.profile == AgentProfile::Computer;
+    let work_items_enabled = is_computer;
 
     loop {
         match agent_round_lifecycle::check_loop_guards(&cancel, ctx.sub_tool_budget) {
@@ -302,7 +195,6 @@ pub(crate) async fn run_sub_agent(
             workspace_root: sub_provider.settings.workspace_root.as_str(),
             user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
             spawn_depth,
-            planner_outcome: planner_outcome.clone(),
         })
         .await?;
 
@@ -503,8 +395,6 @@ pub(crate) async fn run_sub_agent(
                 lead: None,
                 sub: Some(sub_cfg),
                 task_board_work_items_enabled: work_items_enabled,
-                task_board_b42_enforced: b42_enforced,
-                task_board_computer_no_exec_init: computer_no_exec_init,
                 workspace_root: &sub_provider.settings.workspace_root,
             },
             final_tool_calls: &buf.final_tool_calls,

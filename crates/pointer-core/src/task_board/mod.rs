@@ -1,4 +1,4 @@
-//! Session task board (v3): working memory, persistence, multi-agent coordination.
+//! Session task board (v4): working memory, persistence, multi-agent coordination.
 
 pub mod apply;
 pub mod args;
@@ -9,8 +9,8 @@ pub mod finalize;
 pub mod gateway;
 pub mod history_trim;
 pub mod inject;
-pub mod planner;
 pub mod observability;
+pub mod loop_milestones;
 pub mod migrate;
 pub mod model;
 pub mod results_append;
@@ -21,8 +21,6 @@ pub mod state_machine;
 pub mod store;
 pub mod sub_agent_hint;
 pub mod tool;
-pub mod work_item;
-pub mod work_items_apply;
 
 pub use checkpoint::{is_task_board_tool_name, task_board_call_is_checkpoint};
 pub use coordination::{
@@ -44,13 +42,11 @@ pub use history_trim::{
 };
 pub use evidence::history_has_recent_action_tools;
 pub use finalize::maybe_auto_finalize_if_complete;
-pub use inject::{inject_host_task_board_conversation_id, inject_work_items_tool_host};
-pub use model::{BoardDocument, BoardItem, DeliveryFormat, ItemStatus, MetaStatus, WorkItemMode};
+pub use inject::inject_host_task_board_conversation_id;
+pub use model::{BoardDocument, BoardItem, DeliveryFormat, ItemStatus, MetaStatus};
 pub use persistence::TaskBoardSqlite;
-pub use planner::{PlannerRunOutcome, PlannedMethod};
 pub use store::TaskBoardStore;
 pub use tool::register as register_task_board_tool;
-pub use work_item::WorkItemStore;
 
 #[cfg(test)]
 mod tests;
@@ -60,9 +56,4 @@ pub fn open_default_persistence() -> Option<std::sync::Arc<TaskBoardSqlite>> {
     let dir = crate::storage::app_data_dir().ok()?;
     let path = dir.join("task_boards.db");
     TaskBoardSqlite::open(path).ok()
-}
-
-/// Open SQLite persistence for work items when app data dir is available.
-pub fn open_default_work_item_persistence() -> Option<std::sync::Arc<work_item::WorkItemSqlite>> {
-    work_item::open_default_persistence()
 }

@@ -6,8 +6,9 @@ use crate::extensions::{
 };
 use crate::models::{ChatMessage, Role};
 use crate::task_board::snapshot::markdown_runtime_block_for_inject;
-use crate::task_board::sub_agent_hint::main_agent_task_board_init_hint;
-use crate::task_board::PlannerRunOutcome;
+use crate::task_board::sub_agent_hint::{
+    main_agent_task_board_init_hint, should_inject_main_agent_task_board_init_hint,
+};
 use crate::task_board::MetaStatus;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -37,7 +38,6 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             Some(markdown_runtime_block_for_inject(
                 &doc,
                 ctx.task_board_store_key,
-                Some(ctx.task_board_store.work_items.as_ref()),
             ))
         } else if should_show_init_hint(ctx) {
             main_agent_task_board_init_hint(
@@ -112,13 +112,8 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
 }
 
 fn should_show_init_hint(ctx: &MessageLoopPromptsAfterContext<'_>) -> bool {
-    match ctx.lead_agent_profile {
-        AgentProfile::Coder => true,
-        AgentProfile::Computer => match &ctx.planner_outcome {
-            PlannerRunOutcome::Failed { .. } => true,
-            PlannerRunOutcome::NotApplicable => true,
-            PlannerRunOutcome::Skipped { .. } | PlannerRunOutcome::Planned { .. } => false,
-        },
-        _ => false,
-    }
+    should_inject_main_agent_task_board_init_hint(
+        &ctx.lead_agent_profile,
+        ctx.messages,
+    )
 }

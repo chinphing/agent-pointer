@@ -7,7 +7,6 @@ use super::migrate::normalize_stored_value;
 use super::model::BoardDocument;
 use super::persistence::TaskBoardSqlite;
 use super::snapshot::snapshot_for_prompt;
-use super::work_item::WorkItemStore;
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use serde_json::Value;
@@ -17,7 +16,6 @@ use std::sync::Arc;
 pub struct TaskBoardStore {
     inner: RwLock<HashMap<String, BoardDocument>>,
     persistence: RwLock<Option<Arc<TaskBoardSqlite>>>,
-    pub work_items: Arc<WorkItemStore>,
 }
 
 impl Default for TaskBoardStore {
@@ -25,7 +23,6 @@ impl Default for TaskBoardStore {
         Self {
             inner: RwLock::new(HashMap::new()),
             persistence: RwLock::new(None),
-            work_items: Arc::new(WorkItemStore::new()),
         }
     }
 }
@@ -39,27 +36,11 @@ impl TaskBoardStore {
         Self {
             inner: RwLock::new(HashMap::new()),
             persistence: RwLock::new(Some(db)),
-            work_items: Arc::new(WorkItemStore::new()),
-        }
-    }
-
-    pub fn with_persistence_and_work_items(
-        db: Arc<TaskBoardSqlite>,
-        work_items: Arc<WorkItemStore>,
-    ) -> Self {
-        Self {
-            inner: RwLock::new(HashMap::new()),
-            persistence: RwLock::new(Some(db)),
-            work_items,
         }
     }
 
     pub fn set_persistence(&self, db: Option<Arc<TaskBoardSqlite>>) {
         *self.persistence.write() = db;
-    }
-
-    pub fn set_work_item_persistence(&self, db: Option<Arc<super::work_item::WorkItemSqlite>>) {
-        self.work_items.set_persistence(db);
     }
 
     pub fn ensure_loaded(&self, store_key: &str) {
@@ -96,13 +77,7 @@ impl TaskBoardStore {
             return self.apply_sync_finding_route(store_key, args);
         }
         let mut doc = self.get_or_default(store_key);
-        let outcome = apply_method(
-            store_key,
-            &mut doc,
-            &method,
-            args,
-            self.work_items.as_ref(),
-        )?;
+        let outcome = apply_method(store_key, &mut doc, &method, args)?;
         self.inner.write().insert(store_key.to_string(), doc.clone());
         self.persist(store_key, &doc);
         crate::task_board::observability::log_store_apply(

@@ -242,28 +242,6 @@ export async function getTaskBoardSnapshot(
   return await request(`/api/task-board/snapshot?${q}`)
 }
 
-export async function listWorkItems(
-  conversationId: string,
-  opts?: { taskId?: string; batchId?: string; offset?: number; limit?: number }
-): Promise<Record<string, unknown>> {
-  const q = new URLSearchParams({ conversationId })
-  if (opts?.taskId?.trim()) q.set('taskId', opts.taskId.trim())
-  if (opts?.batchId?.trim()) q.set('batchId', opts.batchId.trim())
-  if (opts?.offset != null) q.set('offset', String(opts.offset))
-  if (opts?.limit != null) q.set('limit', String(opts.limit))
-  return await request(`/api/task-board/work-items?${q}`)
-}
-
-export async function getWorkItemStats(
-  conversationId: string,
-  opts?: { taskId?: string; batchId?: string }
-): Promise<Record<string, unknown>> {
-  const q = new URLSearchParams({ conversationId })
-  if (opts?.taskId?.trim()) q.set('taskId', opts.taskId.trim())
-  if (opts?.batchId?.trim()) q.set('batchId', opts.batchId.trim())
-  return await request(`/api/task-board/work-item-stats?${q}`)
-}
-
 export async function previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview> {
   return await request<ComputerAnnotatedPreview>(`/api/computer/annotated-preview?conversationId=${encodeURIComponent(conversationId)}`)
 }

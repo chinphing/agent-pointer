@@ -1,17 +1,16 @@
 //! Compact and full prompt snapshots (v4 inject).
 
-use super::model::{BoardDocument, BoardItem, ItemStatus, WorkItemMode};
+use super::model::{BoardDocument, BoardItem, ItemStatus};
 use super::state_machine::dependencies_satisfied;
-use super::work_item::model::{WorkItem, WorkItemStatus, RESULT_SUMMARY_INJECT_MAX};
-use super::work_item::WorkItemStore;
-use super::work_items_apply::exec_met;
-use serde_json::Value;
-
 const PLAN_INJECT_MAX: usize = 2000;
 const RULES_INJECT_MAX: usize = 2000;
 const DONE_WHEN_INJECT_MAX: usize = 600;
+const LIST_DONE_WHEN_INJECT_MAX: usize = 120;
 const READY_HINT_COUNT: usize = 2;
 const RESULT_SNIPPET_INJECT_MAX: usize = 120;
+/// Visible rows in `## All tasks` around the current task (3 before + current + 5 after).
+const ALL_TASKS_WINDOW_BEFORE: usize = 3;
+const ALL_TASKS_WINDOW_AFTER: usize = 5;
 
 pub fn snapshot_for_prompt(store_key: &str, doc: &BoardDocument, compact: bool) -> Option<String> {
     if doc.board_is_empty() && doc.meta.goal.is_empty() {
@@ -26,15 +25,10 @@ pub fn snapshot_for_prompt(store_key: &str, doc: &BoardDocument, compact: bool) 
 }
 
 pub fn format_parent_tunnel_block(parent: &BoardDocument, sub_task_id: &str) -> String {
-    format_parent_tunnel_block_full(parent, sub_task_id, None, "")
+    format_parent_tunnel_block_full(parent, sub_task_id)
 }
 
-pub fn format_parent_tunnel_block_full(
-    parent: &BoardDocument,
-    sub_task_id: &str,
-    work_items: Option<&WorkItemStore>,
-    store_key: &str,
-) -> String {
+pub fn format_parent_tunnel_block_full(parent: &BoardDocument, sub_task_id: &str) -> String {
     let mut lines = vec!["[TASK_BOARD_PARENT]".to_string(), "read_only: true".to_string()];
     if !parent.meta.goal.is_empty() {
         lines.push(format!("goal: {}", parent.meta.goal));
@@ -57,35 +51,13 @@ pub fn format_parent_tunnel_block_full(
             .collect::<Vec<_>>()
             .join(" · ")
     ));
-    if parent.has_work_items() {
-        if let Some(store) = work_items {
-            let stats = store.store_stats(store_key);
-            lines.push(format!(
-                "exec_progress: {} done · {} failed · {} in_progress · {} pending",
-                stats.done, stats.failed, stats.in_progress, stats.pending
-            ));
-            lines.push(format!("exec_met: {}", exec_met(parent, store, store_key)));
-            if let Some(focus) = store
-                .inject_window(store_key)
-                .into_iter()
-                .find(|wi| wi.status == WorkItemStatus::InProgress)
-            {
-                lines.push(format!(
-                    "work_item_focus: {} · {} · {}",
-                    focus.id,
-                    focus.title,
-                    focus.status.as_str()
-                ));
-            }
-            if let Some(item) = current_task_in_slice(&parent.item_milestones) {
-                lines.push(format!(
-                    "current_task: {} · {} · {}",
-                    item.id,
-                    item.title,
-                    item.status.as_str()
-                ));
-            }
-        }
+    if let Some(item) = current_task_in_slice(&parent.global_milestones) {
+        lines.push(format!(
+            "current_task: {} · {} · {}",
+            item.id,
+            item.title,
+            item.status.as_str()
+        ));
     }
     for f in parent.global_context.key_findings.iter().rev().take(8) {
         lines.push(format!("finding: {f}"));
@@ -101,48 +73,28 @@ pub fn format_parent_tunnel_block_full(
     lines.join("\n")
 }
 
-pub fn markdown_runtime_block_for_inject(
-    doc: &BoardDocument,
-    store_key: &str,
-    work_items: Option<&WorkItemStore>,
-) -> String {
+pub fn markdown_runtime_block_for_inject(doc: &BoardDocument, _store_key: &str) -> String {
     let mut lines: Vec<String> = Vec::new();
     lines.push("[TASK_BOARD]".to_string());
     lines.push(String::new());
-    let mode = milestone_inject_mode(doc, store_key, work_items);
+    let mode = milestone_inject_mode(doc);
     append_task_section(&mut lines, doc);
 
     match mode {
         MilestoneInjectMode::Step => {
             append_all_tasks_list(&mut lines, &doc.global_milestones);
             if let Some(current) = current_task_in_slice(&doc.global_milestones) {
-                append_current_task_section(
-                    &mut lines,
-                    current,
-                    doc,
-                    store_key,
-                    work_items,
-                    false,
-                );
+                append_current_task_section(&mut lines, current, doc);
             }
         }
         MilestoneInjectMode::QueueExec => {
-            append_all_tasks_list(&mut lines, &doc.item_milestones);
-            if let Some(current) = current_task_in_slice(&doc.item_milestones) {
-                append_current_task_section(
-                    &mut lines,
-                    current,
-                    doc,
-                    store_key,
-                    work_items,
-                    true,
-                );
-            }
-            if doc.has_work_items() {
-                if let Some(store) = work_items {
-                    append_work_items_mismatch_note(&mut lines, doc, store_key, store);
-                    append_work_items_section(&mut lines, store_key, store);
-                }
+            let items: Vec<BoardItem> = super::loop_milestones::loop_item_rows(doc)
+                .into_iter()
+                .cloned()
+                .collect();
+            append_all_tasks_list(&mut lines, &items);
+            if let Some(current) = current_task_in_slice(&items) {
+                append_current_task_section(&mut lines, current, doc);
             }
         }
         MilestoneInjectMode::QueueDeliver => {
@@ -158,20 +110,7 @@ pub fn markdown_runtime_block_for_inject(
                 lines.push("- none".to_string());
             } else {
                 append_all_tasks_list(&mut lines, &deliver);
-                append_current_task_section(
-                    &mut lines,
-                    &deliver[0],
-                    doc,
-                    store_key,
-                    work_items,
-                    false,
-                );
-            }
-            if doc.has_work_items() {
-                if let Some(store) = work_items {
-                    append_work_items_mismatch_note(&mut lines, doc, store_key, store);
-                    append_work_items_section(&mut lines, store_key, store);
-                }
+                append_current_task_section(&mut lines, &deliver[0], doc);
             }
         }
     }
@@ -186,47 +125,34 @@ pub enum MilestoneInjectMode {
     QueueDeliver,
 }
 
-pub fn milestone_inject_mode(
-    doc: &BoardDocument,
-    store_key: &str,
-    work_items: Option<&WorkItemStore>,
-) -> MilestoneInjectMode {
-    if !doc.has_work_items() {
-        return MilestoneInjectMode::Step;
-    }
-    if let Some(store) = work_items {
-        if exec_met(doc, store, store_key) {
+pub fn milestone_inject_mode(doc: &BoardDocument) -> MilestoneInjectMode {
+    if super::loop_milestones::is_loop_milestone_board(doc) {
+        if super::loop_milestones::loop_exec_met(doc) {
             return MilestoneInjectMode::QueueDeliver;
         }
+        return MilestoneInjectMode::QueueExec;
     }
-    MilestoneInjectMode::QueueExec
+    MilestoneInjectMode::Step
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnifiedPatchTarget {
     GlobalMilestones,
-    ItemMilestones,
 }
 
 /// Route a unified `milestones` patch row to the document slice matching inject projection.
-pub fn unified_patch_target(
-    doc: &BoardDocument,
-    store_key: &str,
-    work_items: Option<&WorkItemStore>,
-    row_id: &str,
-) -> anyhow::Result<UnifiedPatchTarget> {
+pub fn unified_patch_target(doc: &BoardDocument, row_id: &str) -> anyhow::Result<UnifiedPatchTarget> {
     use anyhow::anyhow;
     let id = row_id.trim();
     if id.is_empty() {
         return Err(anyhow!("task_board: patch row requires id"));
     }
-    let mode = milestone_inject_mode(doc, store_key, work_items);
+    let mode = milestone_inject_mode(doc);
     match mode {
         MilestoneInjectMode::Step => {
             if doc.global_milestones.iter().any(|r| r.id == id) {
                 return Ok(UnifiedPatchTarget::GlobalMilestones);
             }
-            // Type1: allow appending new step rows via patch (legacy items[] upsert).
             if !id.starts_with("g_") {
                 return Ok(UnifiedPatchTarget::GlobalMilestones);
             }
@@ -235,16 +161,16 @@ pub fn unified_patch_target(
             ))
         }
         MilestoneInjectMode::QueueExec => {
-            if doc.item_milestones.iter().any(|r| r.id == id) {
-                return Ok(UnifiedPatchTarget::ItemMilestones);
+            if super::loop_milestones::is_loop_item_id(doc, id) {
+                return Ok(UnifiedPatchTarget::GlobalMilestones);
             }
             if id.starts_with("g_") {
                 return Err(anyhow!(
-                    "task_board: do not patch {id} during queue exec — patch item SOP rows only"
+                    "task_board: during loop exec patch item rows (wi_*) only — not {id}"
                 ));
             }
             Err(anyhow!(
-                "task_board: patch id {id} not in visible queue SOP ladder (item_milestones)"
+                "task_board: patch id {id} not in visible loop item ladder"
             ))
         }
         MilestoneInjectMode::QueueDeliver => {
@@ -263,28 +189,83 @@ fn append_all_tasks_list(lines: &mut Vec<String>, items: &[BoardItem]) {
     lines.push("## All tasks (with status)".to_string());
     if items.is_empty() {
         lines.push("- none".to_string());
+        return;
+    }
+    let cur = current_task_index(items);
+    let start = cur.saturating_sub(ALL_TASKS_WINDOW_BEFORE);
+    let end = (cur + 1 + ALL_TASKS_WINDOW_AFTER).min(items.len());
+    if start > 0 {
+        lines.push(format_omitted_tasks_line(&items[..start], "earlier"));
+    }
+    for item in &items[start..end] {
+        lines.push(format_item_list_line(item));
+    }
+    if end < items.len() {
+        lines.push(format_omitted_tasks_line(&items[end..], "later"));
+    }
+}
+
+fn current_task_index(items: &[BoardItem]) -> usize {
+    items
+        .iter()
+        .position(|i| i.status == ItemStatus::InProgress)
+        .or_else(|| items.iter().position(|i| i.status == ItemStatus::Ready))
+        .or_else(|| items.iter().position(|i| i.status == ItemStatus::Pending))
+        .unwrap_or(0)
+}
+
+fn format_omitted_tasks_line(items: &[BoardItem], position: &str) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let first = items[0].id.trim();
+    let last = items[items.len() - 1].id.trim();
+    let range = if items.len() == 1 || first == last {
+        first.to_string()
     } else {
-        for item in items {
-            lines.push(format_item_list_line(item));
+        format!("{first}…{last}")
+    };
+    let mut done = 0u32;
+    let mut failed = 0u32;
+    let mut pending = 0u32;
+    let mut other = 0u32;
+    for item in items {
+        match item.status {
+            ItemStatus::Done => done += 1,
+            ItemStatus::Failed | ItemStatus::Cancelled => failed += 1,
+            ItemStatus::Pending | ItemStatus::Ready => pending += 1,
+            _ => other += 1,
         }
     }
+    let mut parts: Vec<String> = Vec::new();
+    if done > 0 {
+        parts.push(format!("{done} done"));
+    }
+    if failed > 0 {
+        parts.push(format!("{failed} failed"));
+    }
+    if pending > 0 {
+        parts.push(format!("{pending} pending"));
+    }
+    if other > 0 {
+        parts.push(format!("{other} active"));
+    }
+    let summary = if parts.is_empty() {
+        format!("{} tasks", items.len())
+    } else {
+        format!("{} tasks: {}", items.len(), parts.join(", "))
+    };
+    format!("- … {range} omitted ({position}; {summary}) …")
 }
 
 fn append_current_task_section(
     lines: &mut Vec<String>,
     item: &BoardItem,
     doc: &BoardDocument,
-    store_key: &str,
-    work_items: Option<&WorkItemStore>,
-    resolve_work_item: bool,
 ) {
     lines.push(String::new());
     lines.push("## Current task".to_string());
-    if resolve_work_item {
-        append_item_current(lines, item, work_items, store_key);
-    } else {
-        append_current_row_bullets(lines, item, doc, work_items, store_key);
-    }
+    append_current_row_bullets(lines, item, doc);
     let plan = item.plan.as_deref().filter(|s| !s.trim().is_empty());
     if plan.is_some() {
         lines.push(String::new());
@@ -306,38 +287,6 @@ fn current_task_in_slice(items: &[BoardItem]) -> Option<&BoardItem> {
         .or_else(|| items.iter().find(|i| i.status == ItemStatus::Ready))
         .or_else(|| items.iter().find(|i| i.status == ItemStatus::Pending))
         .or_else(|| items.first())
-}
-
-fn work_items_store_mismatch(
-    doc: &BoardDocument,
-    store: &WorkItemStore,
-    store_key: &str,
-) -> bool {
-    if !doc.has_work_items() {
-        return false;
-    }
-    let meta_rows = doc.meta.work_items_seeded_rows.unwrap_or(0);
-    meta_rows > 0 && store.store_total(store_key) == 0
-}
-
-fn append_work_items_mismatch_note(
-    lines: &mut Vec<String>,
-    doc: &BoardDocument,
-    store_key: &str,
-    store: &WorkItemStore,
-) {
-    if !work_items_store_mismatch(doc, store, store_key) {
-        return;
-    }
-    let meta_rows = doc.meta.work_items_seeded_rows.unwrap_or(0);
-    lines.push(String::new());
-    lines.push("## Work items host note".to_string());
-    lines.push(format!(
-        "- WARNING: meta reports {meta_rows} seeded row(s) but work_items DB has 0 loaded."
-    ));
-    lines.push(
-        "- Do NOT call task_board_init to re-seed. Host restores rows on read; use task_board_patch.".to_string(),
-    );
 }
 
 fn append_task_section(lines: &mut Vec<String>, doc: &BoardDocument) {
@@ -371,43 +320,12 @@ fn append_task_section(lines: &mut Vec<String>, doc: &BoardDocument) {
         "- done_when: {}",
         meta_or_na(doc.meta.done_when.as_deref())
     ));
-    if let Some(mode) = doc.meta.work_item_mode {
-        lines.push(format!(
-            "- work_item_mode: {}",
-            match mode {
-                WorkItemMode::Enumerated => "enumerated",
-                WorkItemMode::Dynamic => "dynamic",
-            }
-        ));
-    }
     if let Some(n) = doc.meta.expected_total {
         lines.push(format!("- expected_total: {n}"));
     }
-    if let Some(path) = doc
-        .meta
-        .work_items_source_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let rows = doc
-            .meta
-            .work_items_seeded_rows
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| "n/a".into());
-        lines.push(format!("- work_items_source: {path} ({rows} rows seeded)"));
-    } else if let Some(n) = doc.meta.work_items_seeded_rows {
-        lines.push(format!("- work_items_seeded: {n} (inline on init)"));
-    }
 }
 
-fn append_current_row_bullets(
-    lines: &mut Vec<String>,
-    item: &BoardItem,
-    doc: &BoardDocument,
-    work_items: Option<&WorkItemStore>,
-    store_key: &str,
-) {
+fn append_current_row_bullets(lines: &mut Vec<String>, item: &BoardItem, _doc: &BoardDocument) {
     lines.push(format!("- id: {}", item.id));
     lines.push(format!("- title: {}", item.title.trim()));
     lines.push(format!(
@@ -422,95 +340,8 @@ fn append_current_row_bullets(
     if let Some(b) = item.blocked_by.as_deref().filter(|s| !s.trim().is_empty()) {
         lines.push(format!("- blocked_by: {b}"));
     }
-    if doc.has_work_items() {
-        if let Some(store) = work_items {
-            let stats = store.store_stats(store_key);
-            lines.push(format!(
-                "- exec_progress: {} done · {} failed · {} in_progress · {} pending",
-                stats.done, stats.failed, stats.in_progress, stats.pending
-            ));
-            lines.push(format!(
-                "- exec_met: {}",
-                exec_met(doc, store, store_key)
-            ));
-        }
-    }
 }
 
-fn append_item_current(
-    lines: &mut Vec<String>,
-    item: &BoardItem,
-    work_items: Option<&WorkItemStore>,
-    store_key: &str,
-) {
-    lines.push(format!("- id: {}", item.id));
-    lines.push(format!("- title: {}", item.title.trim()));
-    lines.push(format!("- status: {}", item.status.as_str()));
-    append_milestone_rules_and_constraints(lines, item);
-    if let Some(p) = item.plan.as_deref().filter(|s| !s.trim().is_empty()) {
-        lines.push(format!("- plan: {}", truncate_field(Some(p), PLAN_INJECT_MAX)));
-    }
-    if let Some(dw) = item.done_when.as_deref().filter(|s| !s.trim().is_empty()) {
-        lines.push(format!(
-            "- done_when: {}",
-            truncate_field(Some(dw), DONE_WHEN_INJECT_MAX)
-        ));
-    }
-    if let (Some(store), Some(focus)) = (work_items, focus_work_item(store_key, work_items)) {
-        let vars = placeholder_vars(&focus);
-        if let Some(p) = item.plan.as_deref() {
-            let resolved = substitute_placeholders(p, &vars);
-            if resolved != p {
-                lines.push(format!("- plan_resolved: {resolved}"));
-            }
-        }
-        if let Some(dw) = item.done_when.as_deref() {
-            let resolved = substitute_placeholders(dw, &vars);
-            if resolved != dw {
-                lines.push(format!("- done_when_resolved: {resolved}"));
-            }
-        }
-        let _ = store;
-    }
-}
-
-fn focus_work_item<'a>(
-    store_key: &str,
-    work_items: Option<&'a WorkItemStore>,
-) -> Option<WorkItem> {
-    let store = work_items?;
-    store
-        .inject_window(store_key)
-        .into_iter()
-        .find(|wi| wi.status == WorkItemStatus::InProgress)
-}
-
-fn append_work_item_focus_lines(lines: &mut Vec<String>, wi: &WorkItem) {
-    let payload_hint = focus_payload_summary(wi);
-    if payload_hint.is_empty() {
-        lines.push(format!("[WORK_ITEM_FOCUS] id={} title={}", wi.id, wi.title));
-    } else {
-        lines.push(format!(
-            "[WORK_ITEM_FOCUS] id={} title={} {}",
-            wi.id, wi.title, payload_hint
-        ));
-    }
-}
-
-fn focus_payload_summary(wi: &WorkItem) -> String {
-    serde_json::from_str::<Value>(&wi.payload_json)
-        .ok()
-        .and_then(|v| {
-            v.as_object().map(|o| {
-                o.iter()
-                    .take(4)
-                    .map(|(k, v)| format!("{k}={}", value_display(v)))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
-        })
-        .unwrap_or_default()
-}
 
 fn append_constraints_block(lines: &mut Vec<String>, label: &str, constraints: &str) {
     let t = constraints.trim();
@@ -536,26 +367,6 @@ fn append_milestone_rules_and_constraints(lines: &mut Vec<String>, item: &BoardI
     }
 }
 
-fn value_display(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
-}
-
-fn placeholder_vars(wi: &WorkItem) -> std::collections::HashMap<String, String> {
-    let mut vars = std::collections::HashMap::new();
-    vars.insert("title".into(), wi.title.clone());
-    if let Ok(v) = serde_json::from_str::<Value>(&wi.payload_json) {
-        if let Some(obj) = v.as_object() {
-            for (k, val) in obj {
-                vars.insert(k.clone(), value_display(val));
-            }
-        }
-    }
-    vars
-}
-
 pub fn substitute_placeholders(template: &str, vars: &std::collections::HashMap<String, String>) -> String {
     let mut out = template.to_string();
     for (key, val) in vars {
@@ -574,65 +385,6 @@ pub fn substitute_placeholders(template: &str, vars: &std::collections::HashMap<
         }
     }
     out
-}
-
-fn append_work_items_section(
-    lines: &mut Vec<String>,
-    store_key: &str,
-    work_items: &WorkItemStore,
-) {
-    let stats = work_items.store_stats(store_key);
-    let total_in_db = work_items.store_total(store_key);
-    lines.push(String::new());
-    lines.push("## Work items".to_string());
-    lines.push(format!(
-        "- exec: {}/{} terminal · {} in_progress · {} pending",
-        stats.done + stats.failed,
-        stats.total.max(1),
-        stats.in_progress,
-        stats.pending
-    ));
-    let window = work_items.inject_window(store_key);
-    for wi in &window {
-        append_work_item_line(lines, wi);
-        if wi.status == WorkItemStatus::InProgress {
-            append_work_item_focus_lines(lines, wi);
-        }
-    }
-    let hidden = total_in_db.saturating_sub(window.len() as u32);
-    if hidden > 0 {
-        lines.push(format!("… {hidden} more in DB, not injected"));
-    }
-}
-
-fn append_work_item_line(lines: &mut Vec<String>, wi: &WorkItem) {
-    let summary = wi
-        .result_json
-        .as_deref()
-        .and_then(|j| super::work_item::model::result_summary_from_json(j))
-        .unwrap_or_default();
-    let summary = if summary.chars().count() > RESULT_SUMMARY_INJECT_MAX {
-        let c: String = summary.chars().take(RESULT_SUMMARY_INJECT_MAX).collect();
-        format!("{c}…")
-    } else {
-        summary
-    };
-    if summary.is_empty() {
-        lines.push(format!(
-            "- {} · {} · {}",
-            wi.id,
-            wi.title,
-            wi.status.as_str()
-        ));
-    } else {
-        lines.push(format!(
-            "- {} · {} · {} · {}",
-            wi.id,
-            wi.title,
-            wi.status.as_str(),
-            summary
-        ));
-    }
 }
 
 fn truncate_field(text: Option<&str>, max: usize) -> String {
@@ -655,27 +407,24 @@ fn format_global_list_line(item: &BoardItem) -> String {
             "- {}: {} | done_when: {} | {}",
             item.id,
             title,
-            done_when_one_line(item),
+            done_when_list_line(item),
             item.status.as_str()
         );
     }
     let base = format!("- {}: {} | {}", item.id, title, item.status.as_str());
     if let Some(r) = item.remark.as_deref().filter(|s| !s.trim().is_empty()) {
-        return format!("{base}\n  remark: {r}");
+        let remark = truncate_field(Some(r), LIST_DONE_WHEN_INJECT_MAX);
+        return format!("{base}\n  remark: {remark}");
     }
     base
 }
 
-fn format_item_list_line(item: &BoardItem) -> String {
-    format_global_list_line(item)
+fn done_when_list_line(item: &BoardItem) -> String {
+    truncate_field(item.done_when.as_deref(), LIST_DONE_WHEN_INJECT_MAX)
 }
 
-fn done_when_one_line(item: &BoardItem) -> &str {
-    item.done_when
-        .as_ref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("n/a")
+fn format_item_list_line(item: &BoardItem) -> String {
+    format_global_list_line(item)
 }
 
 fn meta_or_na(s: Option<&str>) -> &str {
@@ -815,38 +564,8 @@ mod inject_format_tests {
     }
 
     #[test]
-    fn inject_task_shows_work_items_source_meta() {
-        let mut doc = sample_doc();
-        doc.meta.work_item_mode = Some(WorkItemMode::Enumerated);
-        doc.meta.expected_total = Some(10);
-        doc.meta.work_items_source_path = Some("/tmp/campaign.xlsx".into());
-        doc.meta.work_items_seeded_rows = Some(10);
-        let block = markdown_runtime_block_for_inject(&doc, "conv-test", None);
-        assert!(block.contains("- work_items_source: /tmp/campaign.xlsx (10 rows seeded)"));
-    }
-
-    #[test]
-    fn inject_warns_when_meta_seeded_but_db_empty() {
-        use crate::task_board::TaskBoardStore;
-
-        let mut doc = sample_doc();
-        doc.meta.work_item_mode = Some(WorkItemMode::Enumerated);
-        doc.meta.work_items_seeded_rows = Some(127);
-        doc.meta.work_items_source_path = Some("/tmp/cities.xlsx".into());
-        let store = TaskBoardStore::new();
-        let block = markdown_runtime_block_for_inject(
-            &doc,
-            "conv-mismatch",
-            Some(store.work_items.as_ref()),
-        );
-        assert!(block.contains("## Work items host note"));
-        assert!(block.contains("127 seeded row(s) but work_items DB has 0"));
-        assert!(block.contains("Do NOT call task_board_init"));
-    }
-
-    #[test]
     fn inject_has_task_and_task_sections() {
-        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test", None);
+        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test");
         assert!(block.contains("## Task"));
         assert!(block.contains("## All tasks (with status)"));
         assert!(block.contains("## Current task"));
@@ -859,14 +578,69 @@ mod inject_format_tests {
 
     #[test]
     fn inject_current_shows_done_when() {
-        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test", None);
+        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test");
         assert!(block.contains("- done_when: cargo test -p foo"));
         assert!(block.contains("- status: in_progress"));
     }
 
     #[test]
+    fn inject_list_windows_around_current_task() {
+        let mut doc = BoardDocument::empty_for_store_key("conv-window");
+        doc.meta.goal = "Batch".into();
+        let mut rows: Vec<BoardItem> = Vec::new();
+        for i in 1..=12 {
+            rows.push(BoardItem {
+                id: format!("wi_{i}"),
+                title: format!("Item {i}"),
+                status: if i < 6 {
+                    ItemStatus::Done
+                } else if i == 6 {
+                    ItemStatus::InProgress
+                } else {
+                    ItemStatus::Pending
+                },
+                done_when: Some(format!("done {i}")),
+                ..BoardItem::default()
+            });
+        }
+        doc.global_milestones = rows;
+        let block = markdown_runtime_block_for_inject(&doc, "conv-window");
+        assert!(block.contains("… wi_1…wi_2 omitted (earlier; 2 tasks: 2 done) …"));
+        assert!(block.contains("- wi_3:"));
+        assert!(block.contains("- wi_6:"));
+        assert!(block.contains("- wi_11:"));
+        assert!(block.contains("… wi_12 omitted (later; 1 tasks: 1 pending) …"));
+        assert!(!block.contains("- wi_1:"));
+        assert!(!block.contains("- wi_12:"));
+    }
+
+    #[test]
+    fn inject_list_shows_all_when_within_window() {
+        let mut doc = BoardDocument::empty_for_store_key("conv-small");
+        doc.meta.goal = "Small".into();
+        doc.global_milestones = vec![
+            BoardItem {
+                id: "m1".into(),
+                title: "One".into(),
+                status: ItemStatus::Done,
+                ..BoardItem::default()
+            },
+            BoardItem {
+                id: "m2".into(),
+                title: "Two".into(),
+                status: ItemStatus::InProgress,
+                ..BoardItem::default()
+            },
+        ];
+        let block = markdown_runtime_block_for_inject(&doc, "conv-small");
+        assert!(block.contains("- m1:"));
+        assert!(block.contains("- m2:"));
+        assert!(!block.contains("omitted"));
+    }
+
+    #[test]
     fn inject_list_uses_done_when() {
-        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test", None);
+        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test");
         assert!(block.contains("- m1: Explore | done"));
         assert!(block.contains("  remark: grep done"));
         assert!(block.contains(
@@ -884,37 +658,9 @@ mod inject_format_tests {
 
     #[test]
     fn unified_patch_target_step_mode_uses_global() {
-        let mut doc = sample_doc();
-        doc.meta.work_item_mode = None;
-        let target = unified_patch_target(&doc, "conv-test", None, "m1").expect("target");
+        let doc = sample_doc();
+        let target = unified_patch_target(&doc, "m1").expect("target");
         assert_eq!(target, UnifiedPatchTarget::GlobalMilestones);
     }
 
-    #[test]
-    fn unified_patch_target_queue_exec_uses_item_template() {
-        let mut doc = BoardDocument::empty_for_store_key("conv-q");
-        doc.meta.work_item_mode = Some(WorkItemMode::Enumerated);
-        doc.global_milestones = vec![
-            BoardItem {
-                id: "g_exec".into(),
-                title: "Exec".into(),
-                status: ItemStatus::InProgress,
-                ..BoardItem::default()
-            },
-            BoardItem {
-                id: "g_deliver".into(),
-                title: "Deliver".into(),
-                status: ItemStatus::Pending,
-                ..BoardItem::default()
-            },
-        ];
-        doc.item_milestones = vec![BoardItem {
-            id: "m1".into(),
-            title: "Step".into(),
-            status: ItemStatus::InProgress,
-            ..BoardItem::default()
-        }];
-        let target = unified_patch_target(&doc, "conv-q", None, "m1").expect("target");
-        assert_eq!(target, UnifiedPatchTarget::ItemMilestones);
-    }
 }

@@ -12,7 +12,6 @@ pub fn register_all(reg: &ToolRegistry, task_board_store: Arc<crate::task_board:
     crate::tools::media_understand::register_all(reg);
     crate::tools::run_subagent::register_all(reg);
     crate::task_board::register_task_board_tool(reg, task_board_store.clone());
-    crate::task_board::work_item::export_tool::register(reg, task_board_store);
 }
 
 pub fn register_skill_tools(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {

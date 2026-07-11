@@ -157,30 +157,6 @@ export async function getTaskBoardSnapshot(
   return await invoke('get_task_board_snapshot', { conversationId, taskId: taskId ?? null })
 }
 
-export async function listWorkItems(
-  conversationId: string,
-  opts?: { taskId?: string; batchId?: string; offset?: number; limit?: number }
-): Promise<Record<string, unknown>> {
-  return await invoke('list_work_items', {
-    conversationId,
-    taskId: opts?.taskId ?? null,
-    batchId: opts?.batchId ?? null,
-    offset: opts?.offset ?? null,
-    limit: opts?.limit ?? null
-  })
-}
-
-export async function getWorkItemStats(
-  conversationId: string,
-  opts?: { taskId?: string; batchId?: string }
-): Promise<Record<string, unknown>> {
-  return await invoke('work_item_stats', {
-    conversationId,
-    taskId: opts?.taskId ?? null,
-    batchId: opts?.batchId ?? null
-  })
-}
-
 export async function previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview> {
   return await invoke<ComputerAnnotatedPreview>('preview_computer_annotated_screen', { conversationId })
 }

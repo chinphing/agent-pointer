@@ -19,7 +19,7 @@ pub fn inject_host_task_board_conversation_id(
     session_user_id: &str,
     history: &[ChatMessage],
     app_state: Option<&AppState>,
-    work_items_enabled: bool,
+    _work_items_enabled: bool,
     b42_enforced: bool,
 ) -> Value {
     let is_task_board = is_task_board_tool_name(tool_id);
@@ -72,41 +72,8 @@ pub fn inject_host_task_board_conversation_id(
             ),
         );
         map.insert(
-            "_task_board_work_items_enabled".to_string(),
-            Value::Bool(work_items_enabled),
-        );
-        map.insert(
             "_task_board_b42_enforced".to_string(),
             Value::Bool(b42_enforced),
-        );
-    }
-    Value::Object(map)
-}
-
-pub fn inject_work_items_tool_host(
-    tool_id: &str,
-    args: Value,
-    store_key: &str,
-    workspace_root: &str,
-    work_items_enabled: bool,
-) -> Value {
-    if tool_id != "work_items_export" && !is_task_board_tool_name(tool_id) {
-        return args;
-    }
-    let mut map = match args {
-        Value::Object(m) => m,
-        _ => serde_json::Map::new(),
-    };
-    if tool_id == "work_items_export" {
-        map.insert(
-            "_conversation_id".to_string(),
-            Value::String(store_key.to_string()),
-        );
-    }
-    if work_items_enabled {
-        map.insert(
-            "_workspace_root".to_string(),
-            Value::String(workspace_root.trim().to_string()),
         );
     }
     Value::Object(map)
@@ -154,24 +121,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn task_board_inject_sets_work_items_flags() {
-        let out = inject_host_task_board_conversation_id(
-            "task_board_patch",
-            serde_json::json!({"id": "a", "status": "done"}),
-            "conv-abc",
-            "conv-abc",
-            "user-1",
-            &[],
-            None,
-            true,
-            true,
-        );
-        assert_eq!(
-            out.get("_task_board_work_items_enabled").and_then(|v| v.as_bool()),
-            Some(true)
-        );
-    }
 
     #[test]
     fn session_search_gets_conversation_binding() {

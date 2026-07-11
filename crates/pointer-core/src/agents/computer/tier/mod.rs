@@ -29,7 +29,7 @@ pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "qwen3.5-flash";
 /// Qwen `thinking_budget` for Advanced pipeline Position phase (`qwen3.5-plus`).
 pub const DEFAULT_PIPELINE_POSITION_THINKING_BUDGET: u32 = 1024;
 /// Qwen `thinking_budget` for Advanced pipeline Verify phase (`qwen3.5-flash`).
-pub const DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET: u32 = 1024;
+pub const DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET: u32 = 256;
 /// Qwen `thinking_budget` for Primary / Intermediate (`qwen3.5-plus`).
 pub const PRIMARY_INTERMEDIATE_THINKING_BUDGET: u32 = 2048;
 pub const ADVANCED_THINKING_BUDGET: u32 = 8192;

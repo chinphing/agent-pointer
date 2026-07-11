@@ -1,20 +1,25 @@
-## Verify module — input family
+### Scenario: text input
 
-Judge whether text was entered successfully into the target field.
+Judge whether text was entered into the target field.
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]** — field content and focus.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+| Outcome | `action_result` | `failure_cause` |
+| --- | --- | --- |
+| Expected text visible in field | `pass` | — |
+| Empty or wrong text | `fail` | `wrong_operation` or `precision_miss` |
+| Field not focused, no text | `fail` | `wrong_operation` |
 
-**Expected change:** Target field shows typed text; cursor in field.
-**If auto_enter:** form may have submitted (new page, results, dialog closed).
+If `auto_enter`: form may have submitted — pass when navigation, results, or dialog close matches goal.
 
-**Special rules:**
-- Expected text visible → **pass**.
-- Empty/wrong text → **fail** (`wrong_operation` or `precision_miss`).
-- Field not focused, no text → **fail**.
-- Watch loading after auto-submit.
+**`loading_detected`:** post-submit spinner or page load in progress.
 
-Same evidence + pointer rules as pointer click verify.
+### Reasoning (hard rule)
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+Max **3 sentences**, plain prose — no numbered lists or section headers.
+
+1. Before/after field text and focus vs expected input from `goal`.
+2. Pass or fail + `failure_cause` when fail — **do not** analyze pointer.
+3. Optional: loading after auto-submit.
+
+**Forbidden:** pointer-position analysis; numbered CoT templates; JSON; repeating tool args.

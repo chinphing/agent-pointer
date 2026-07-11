@@ -10,13 +10,6 @@ pub const RESULTS_MAX_ENTRIES: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkItemMode {
-    Enumerated,
-    Dynamic,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum DeliveryFormat {
     Xlsx,
     Csv,
@@ -98,8 +91,6 @@ pub struct BoardMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_item_mode: Option<WorkItemMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dynamic_quota: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<BoardScope>,
@@ -109,13 +100,7 @@ pub struct BoardMeta {
     pub parent_sub_task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_store_key: Option<String>,
-    /// Resolved path from `work_items_source` on init (inject + audit).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_items_source_path: Option<String>,
-    /// Rows seeded on init (`work_items_source` or inline `work_items[]`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_items_seeded_rows: Option<u32>,
-    /// Snapshot for UI sync after `task_board_patch` (not persisted semantics).
+    /// Loop progress counters (synced from wi_* rows).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_items_done: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,14 +121,11 @@ impl Default for BoardMeta {
             status: MetaStatus::Running,
             max_depth: 0,
             expected_total: None,
-            work_item_mode: None,
             dynamic_quota: None,
             scope: None,
             root_target: None,
             parent_sub_task_id: None,
             parent_store_key: None,
-            work_items_source_path: None,
-            work_items_seeded_rows: None,
             work_items_done: None,
             work_items_failed: None,
             work_items_total: None,
@@ -177,7 +159,7 @@ pub struct GlobalContext {
     pub artifacts: Value,
 }
 
-/// Milestone row — shared by `global_milestones` and `item_milestones`.
+/// Milestone row in `global_milestones`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BoardItem {
     pub id: String,
@@ -221,8 +203,6 @@ pub struct BoardDocument {
     pub global_context: GlobalContext,
     #[serde(default, rename = "global_milestones", alias = "board")]
     pub global_milestones: Vec<BoardItem>,
-    #[serde(default)]
-    pub item_milestones: Vec<BoardItem>,
 }
 
 impl BoardDocument {
@@ -233,7 +213,6 @@ impl BoardDocument {
             meta: BoardMeta::default(),
             global_context: GlobalContext::default(),
             global_milestones: Vec::new(),
-            item_milestones: Vec::new(),
         }
     }
 
@@ -245,16 +224,8 @@ impl BoardDocument {
         self.global_milestones.is_empty() && self.meta.goal.is_empty()
     }
 
-    pub fn has_work_items(&self) -> bool {
-        self.meta.work_item_mode.is_some()
-    }
-
-    pub fn is_enumerated_work_items(&self) -> bool {
-        self.meta.work_item_mode == Some(WorkItemMode::Enumerated)
-    }
-
-    pub fn is_dynamic_work_items(&self) -> bool {
-        self.meta.work_item_mode == Some(WorkItemMode::Dynamic)
+    pub fn is_loop_board(&self) -> bool {
+        super::loop_milestones::is_loop_milestone_board(self)
     }
 }
 

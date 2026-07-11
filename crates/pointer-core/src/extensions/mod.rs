@@ -42,8 +42,6 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     pub task_board_store_key: &'a str,
     /// Feature flag for common user dynamic inject migration.
     pub user_dynamic_inject_enabled: bool,
-    /// Outcome of the pre-turn task-board planner (Computer only).
-    pub planner_outcome: crate::task_board::PlannerRunOutcome,
 }
 
 /// Context for [`ExtensionPoint::BeforeMainLlmCall`] immediately before [`crate::provider::OpenAIProvider::stream_chat`].
@@ -209,7 +207,6 @@ mod tests {
             task_board_store: Arc::new(crate::task_board::TaskBoardStore::new()),
             task_board_store_key: "test",
             user_dynamic_inject_enabled: true,
-            planner_outcome: crate::task_board::PlannerRunOutcome::NotApplicable,
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(c1.load(Ordering::SeqCst), 0);
@@ -267,7 +264,6 @@ mod tests {
             task_board_store: Arc::new(crate::task_board::TaskBoardStore::new()),
             task_board_store_key: "test",
             user_dynamic_inject_enabled: true,
-            planner_outcome: crate::task_board::PlannerRunOutcome::NotApplicable,
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(*run.lock().unwrap(), "ab");

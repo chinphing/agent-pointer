@@ -1,19 +1,24 @@
-## Verify module — hotkey family
+### Scenario: hotkey
 
 Judge whether the keyboard shortcut produced the expected UI effect.
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+| Outcome | `action_result` | `failure_cause` |
+| --- | --- | --- |
+| Focus change, dialog, navigation, or app-specific effect matches goal | `pass` | — |
+| Copy: no error, shortcut likely ran | `pass` | — |
+| Copy/paste: clipboard outcome uncertain | `pending` | — |
+| Paste: text appeared in target field | `pass` | — |
+| Alt/Cmd+Tab: target app frontmost | `pass` | — |
+| No visible effect | `fail` | `wrong_operation` |
 
-**Expected change:** Focus change, dialog, clipboard op, navigation, or app-specific effect.
+### Reasoning (hard rule)
 
-**Special rules:**
-- Copy: **pass** when no error and shortcut likely ran; uncertain clipboard → **pending**.
-- Paste: pasted text in target field.
-- Alt/Cmd+Tab: target app frontmost.
-- No visible effect → **fail**.
+Max **3 sentences**, plain prose.
 
-Same evidence classification as pointer click verify.
+1. Before/after for the effect class implied by `goal` (focus, dialog, navigation, paste, etc.).
+2. Pass, `pending`, or fail + `failure_cause`.
+3. Optional: loading if applicable.
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+**Forbidden:** pointer analysis; numbered CoT templates; JSON.

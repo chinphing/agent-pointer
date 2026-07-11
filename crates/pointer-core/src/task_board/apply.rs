@@ -1,32 +1,21 @@
 //! Apply task_board methods to a [`BoardDocument`].
 
 use super::args::{
-    constraints_from_args, context_from_args, done_when_from_args,
-    expected_total_from_args, global_rows_from_args, goal_from_args,
-    item_milestones_from_args, normalize_patch_args, patch_work_item_direct_from_args,
-    prune_ids_from_args, replace_has_forbidden_scope, unified_patch_rows_from_args,
+    constraints_from_args, context_from_args, done_when_from_args, expected_total_from_args,
+    global_rows_from_args, goal_from_args, normalize_patch_args, prune_ids_from_args,
+    reject_patch_foreign_work_item_fields, replace_has_forbidden_scope,
+    unified_patch_rows_from_args,
 };
-use super::snapshot::{unified_patch_target, UnifiedPatchTarget};
 use super::coordination::parent_child::{assert_child_may_mutate, parent_store_key_from_child};
+use super::loop_milestones::{self, validate_board_row_count};
 use super::model::{
     BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus,
 };
 use super::row_patch::{compact_row_after_done, merge_row_patch_with_warnings};
+use super::snapshot::{unified_patch_target, UnifiedPatchTarget};
 use super::state_machine::{
     count_incomplete, dependencies_satisfied, dependencies_satisfied_rows, mark_ready_pending_rows,
     validate_item_transition,
-};
-use super::work_item::WorkItemStore;
-use super::work_items_apply::{
-    apply_meta_work_item_mode, apply_work_item_patch_fields, bootstrap_queue_after_init,
-    handle_global_milestone_transition, handle_item_milestone_transition,
-    maybe_apply_direct_work_item_status,
-    milestone_done_has_work_item_evidence, patch_rejects_g_deliver_when_blocked,
-    validate_patch_work_item_binding,
-    patch_rejects_g_exec_done_when_not_met, patch_rejects_v3_delta_fields,
-    seed_work_items_on_init, validate_board_row_count, validate_expected_total_after_seed,
-    validate_work_item_init, work_items_enabled_from_args, work_items_tool_result_json,
-    workspace_root_from_args,
 };
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -46,14 +35,12 @@ pub fn apply_method(
     doc: &mut BoardDocument,
     method: &str,
     args: &Value,
-    work_items: &WorkItemStore,
 ) -> Result<ApplyOutcome> {
     assert_child_may_mutate(store_key, doc, method)?;
     let method = method.trim().to_ascii_lowercase();
-    let work_items_enabled = work_items_enabled_from_args(args);
     let (body, reflection_required) = match method.as_str() {
         "init" => {
-            let seeded = apply_init(store_key, doc, args, work_items, work_items_enabled)?;
+            apply_init(store_key, doc, args)?;
             let mut body = json!({
                 "ok": true,
                 "method": "init",
@@ -62,61 +49,28 @@ pub fn apply_method(
             if !doc.meta.goal.is_empty() {
                 body["goal"] = json!(doc.meta.goal);
             }
-            if seeded > 0 {
-                body["work_items_seeded"] = json!(seeded);
-            }
-            if let Some(wi) = work_items_tool_result_json(store_key, doc, work_items) {
+            if let Some(wi) = loop_milestones::loop_progress_json(doc) {
                 body["work_items"] = wi;
             }
             (body, false)
         }
         "replace" => {
-            let seeded = apply_replace(store_key, doc, args, work_items, work_items_enabled)?;
+            apply_replace(doc, args)?;
             let mut body = json!({
                 "ok": true,
                 "method": "replace",
                 "board_len": doc.global_milestones.len(),
             });
-            if seeded > 0 {
-                body["work_items_seeded"] = json!(seeded);
-            }
-            if let Some(wi) = work_items_tool_result_json(store_key, doc, work_items) {
+            if let Some(wi) = loop_milestones::loop_progress_json(doc) {
                 body["work_items"] = wi;
             }
             (body, false)
         }
-        "patch" | "" => {
-            if doc.board_is_empty() {
-                let body = json!({
-                    "ok": true,
-                    "method": "patch",
-                    "board_len": 0,
-                    "patched": [],
-                    "skipped": true,
-                    "reason": "board_not_initialized",
-                });
-                return Ok(ApplyOutcome {
-                    body,
-                    reflection_required: false,
-                });
-            }
-            let patch_args = normalize_patch_args(args.clone());
-            let (refl, warnings, patched) =
-                apply_patch(store_key, doc, &patch_args, work_items, work_items_enabled)?;
-            let mut body = json!({
-                "ok": true,
-                "method": "patch",
-                "board_len": doc.global_milestones.len(),
-                "patched": patched,
-                "reflection_required": refl,
-            });
-            if !warnings.is_empty() {
-                body["warnings"] = json!(warnings);
-            }
-            if let Some(wi) = work_items_tool_result_json(store_key, doc, work_items) {
-                body["work_items"] = wi;
-            }
-            (body, refl)
+        "patch" | "" | "patch_milestones" => apply_patch(store_key, doc, args, &method)?,
+        "patch_items" => {
+            return Err(anyhow!(
+                "task_board: patch_items removed; use task_board_patch with milestones[]"
+            ));
         }
         "prune" => {
             let cancelled = apply_prune(doc, args)?;
@@ -194,16 +148,14 @@ fn apply_meta_fields(doc: &mut BoardDocument, args: &Value) {
     if let Some(expected_total) = expected_total_from_args(args) {
         doc.meta.expected_total = Some(expected_total);
     }
-    apply_meta_work_item_mode(doc, args);
+    if let Some(quota) = args.get("dynamic_quota").and_then(|v| v.as_u64()) {
+        if quota > 0 {
+            doc.meta.dynamic_quota = Some(quota as u32);
+        }
+    }
 }
 
-fn apply_init(
-    store_key: &str,
-    doc: &mut BoardDocument,
-    args: &Value,
-    work_items: &WorkItemStore,
-    work_items_enabled: bool,
-) -> Result<u32> {
+fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<()> {
     apply_meta_fields(doc, args);
     if let Some(scope) = args.get("scope").and_then(|v| v.as_str()) {
         doc.meta.scope = match scope.trim().to_ascii_lowercase().as_str() {
@@ -240,69 +192,84 @@ fn apply_init(
         }
         validate_board_row_count(doc.global_milestones.len(), "init")?;
     }
-    let item_rows = item_milestones_from_args(args);
-    if !item_rows.is_empty() {
-        doc.item_milestones.clear();
-        for v in &item_rows {
-            if let Some(item) = BoardItem::from_value(v) {
-                doc.item_milestones.push(item);
-            }
-        }
-        validate_board_row_count(doc.item_milestones.len(), "init")?;
+    loop_milestones::expand_loop_milestones_on_init(doc, args)?;
+    validate_board_row_count(doc.global_milestones.len(), "init")?;
+    if loop_milestones::is_loop_milestone_board(doc) {
+        loop_milestones::validate_loop_milestone_init(doc, args)?;
+        loop_milestones::bootstrap_loop_milestone_board(doc);
     }
-    validate_work_item_init(args, doc, work_items_enabled)?;
-    let seeded = seed_work_items_on_init(
-        store_key,
-        doc,
-        args,
-        work_items,
-        work_items_enabled,
-        workspace_root_from_args(args),
-    )?;
-    if work_items_enabled && seeded > 0 && doc.meta.expected_total.is_none() {
-        doc.meta.expected_total = Some(seeded);
-    }
-    validate_expected_total_after_seed(doc, work_items, store_key, "init")?;
-    if seeded > 0 {
-        bootstrap_queue_after_init(store_key, doc, work_items, seeded);
-    }
-    if work_items_enabled && doc.has_work_items() {
-        super::work_items_apply::sync_work_items_meta_to_doc(doc, store_key, work_items);
-    }
-    Ok(seeded)
+    validate_expected_total_on_init(doc, "init")?;
+    Ok(())
 }
 
-fn apply_replace(
-    _store_key: &str,
-    doc: &mut BoardDocument,
-    args: &Value,
-    _work_items: &WorkItemStore,
-    _work_items_enabled: bool,
-) -> Result<u32> {
+
+
+fn validate_expected_total_on_init(doc: &BoardDocument, method: &str) -> Result<()> {
+    let Some(expected_total) = doc.meta.expected_total else {
+        return Ok(());
+    };
+    if loop_milestones::is_loop_milestone_board(doc) {
+        return Ok(());
+    }
+    let rows = doc.global_milestones.len();
+    if rows as u32 != expected_total {
+        return Err(anyhow!(
+            "task_board:{method} expected exactly {expected_total} item(s), got {rows}"
+        ));
+    }
+    Ok(())
+}
+
+fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<()> {
     if replace_has_forbidden_scope(args) {
         return Err(anyhow!("replace_scope_forbidden"));
     }
-    let rows = item_milestones_from_args(args);
-    if rows.is_empty() {
-        return Err(anyhow!("task_board: replace requires item_milestones[]"));
+    if args.get("item_milestones").is_some() {
+        return Err(anyhow!(
+            "task_board: replace uses global_milestones[] only (not item_milestones)"
+        ));
     }
-    doc.item_milestones.clear();
+    let rows = global_rows_from_args(args);
+    if rows.is_empty() {
+        return Err(anyhow!("task_board: replace requires global_milestones[]"));
+    }
+    doc.global_milestones.clear();
     for v in &rows {
         if let Some(item) = BoardItem::from_value(v) {
-            doc.item_milestones.push(item);
+            doc.global_milestones.push(item);
         }
     }
-    validate_board_row_count(doc.item_milestones.len(), "replace")?;
-    Ok(0)
+    validate_board_row_count(doc.global_milestones.len(), "replace")?;
+    Ok(())
 }
 
 fn apply_patch(
-    store_key: &str,
+    _store_key: &str,
     doc: &mut BoardDocument,
     args: &Value,
-    work_items: &WorkItemStore,
-    work_items_enabled: bool,
-) -> Result<(bool, Vec<Value>, Vec<Value>)> {
+    method: &str,
+) -> Result<(Value, bool)> {
+    if doc.board_is_empty() {
+        return Ok((
+            json!({
+                "ok": true,
+                "method": method,
+                "board_len": 0,
+                "patched": [],
+                "skipped": true,
+                "reason": "board_not_initialized",
+            }),
+            false,
+        ));
+    }
+    let patch_args = normalize_patch_args(args.clone());
+    reject_patch_foreign_work_item_fields(&patch_args)?;
+    if args.get("work_item_delta").is_some() {
+        return Err(anyhow!(
+            "task_board: work_item_delta removed; patch milestones (done/failed + remark)"
+        ));
+    }
+
     let recent_action = args
         .get("_recent_action_tools")
         .and_then(|v| v.as_bool())
@@ -316,57 +283,23 @@ fn apply_patch(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let requested_milestone_rows = unified_patch_rows_from_args(args)?;
-    let milestones_requested = requested_milestone_rows
-        .as_ref()
-        .is_some_and(|r| !r.is_empty());
-    let direct_work_item = patch_work_item_direct_from_args(args);
-    // Route 2: `current_item.status` done/failed closes the queue row; ignore milestones.
-    let patch_rows = if direct_work_item.is_some() {
-        None
-    } else {
-        requested_milestone_rows
-    };
+    let patch_rows = unified_patch_rows_from_args(&patch_args)?;
     let has_milestone_patch = patch_rows.as_ref().is_some_and(|r| !r.is_empty());
-    let requires_work_item_binding = has_milestone_patch || direct_work_item.is_some();
-    validate_patch_work_item_binding(
-        store_key,
-        doc,
-        args,
-        work_items,
-        requires_work_item_binding,
-    )?;
+    if !has_milestone_patch && patch_args.get("global_context").is_none() {
+        return Err(anyhow!("task_board: patch requires milestones[]"));
+    }
 
     let mut reflection = false;
     let mut warnings: Vec<Value> = Vec::new();
     let mut patched: Vec<Value> = Vec::new();
-    if direct_work_item.is_some() && milestones_requested {
-        warnings.push(json!({
-            "code": "milestones_ignored",
-            "message": "current_item.status is done or failed; milestone patch ignored"
-        }));
-    }
-    if let Some(gc) = args.get("global_context") {
+    if let Some(gc) = patch_args.get("global_context") {
         merge_global_context(&mut doc.global_context, gc);
     }
 
-    let wi_note = apply_work_item_patch_fields(
-        store_key,
-        doc,
-        args,
-        work_items,
-        work_items_enabled,
-    )?;
-    if let Some(note) = wi_note {
-        log::info!("task_board: work_items {note}");
-    }
-
     let global_snapshot = doc.global_milestones.clone();
-    let has_work_items = doc.has_work_items();
     let global_len = doc.global_milestones.len();
 
-    let mut patching_item_template = false;
-    let transitions = if let Some(rows) = patch_rows {
+    let transitions = if let Some(rows) = patch_rows.filter(|r| !r.is_empty()) {
         let row_id = rows
             .first()
             .and_then(|v| v.get("id"))
@@ -374,32 +307,24 @@ fn apply_patch(
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .ok_or_else(|| anyhow!("task_board: patch requires one milestone row with id"))?;
-        let target = unified_patch_target(doc, store_key, Some(work_items), row_id)?;
-        patching_item_template = target == UnifiedPatchTarget::ItemMilestones;
+        let target = unified_patch_target(doc, row_id)?;
+        if let Some(status_s) = rows
+            .first()
+            .and_then(|v| v.get("status"))
+            .and_then(|v| v.as_str())
+        {
+            if let Some(status) = ItemStatus::from_str_loose(status_s) {
+                loop_milestones::patch_rejects_g_deliver_when_loop_blocked(
+                    doc, row_id, status,
+                )?;
+            }
+        }
         match target {
-            UnifiedPatchTarget::ItemMilestones => patch_rows_on_slice(
-                &mut doc.item_milestones,
-                &rows,
-                &global_snapshot,
-                has_work_items,
-                global_len,
-                store_key,
-                work_items,
-                recent_action,
-                recent_verify_report,
-                recent_verify_pass,
-                &mut reflection,
-                &mut warnings,
-                &mut patched,
-            )?,
             UnifiedPatchTarget::GlobalMilestones => patch_rows_on_slice(
                 &mut doc.global_milestones,
                 &rows,
                 &global_snapshot,
-                has_work_items,
                 global_len,
-                store_key,
-                work_items,
                 recent_action,
                 recent_verify_report,
                 recent_verify_pass,
@@ -411,37 +336,37 @@ fn apply_patch(
     } else {
         Vec::new()
     };
-    if patching_item_template {
-        for (prev, incoming) in transitions {
-            handle_item_milestone_transition(store_key, doc, work_items, &prev, &incoming);
-        }
-    } else if !has_work_items {
-        for (prev, incoming) in transitions {
-            handle_global_milestone_transition(doc, &prev, &incoming);
-        }
-    }
 
-    if work_items_enabled {
-        if let Some(delta) = direct_work_item {
-            maybe_apply_direct_work_item_status(store_key, doc, args, work_items, delta)?;
+    if loop_milestones::is_loop_milestone_board(doc) {
+        for (prev, incoming) in &transitions {
+            loop_milestones::handle_loop_milestone_transition(doc, prev, incoming);
         }
+        loop_milestones::sync_loop_progress_meta(doc);
     }
 
     enforce_interim_drafts_budget(doc, &mut reflection, &mut warnings);
-    if work_items_enabled && doc.has_work_items() {
-        super::work_items_apply::sync_work_items_meta_to_doc(doc, store_key, work_items);
+
+    let mut body = json!({
+        "ok": true,
+        "method": method,
+        "board_len": doc.global_milestones.len(),
+        "patched": patched,
+        "reflection_required": reflection,
+    });
+    if !warnings.is_empty() {
+        body["warnings"] = json!(warnings);
     }
-    Ok((reflection, warnings, patched))
+    if let Some(wi) = loop_milestones::loop_progress_json(doc) {
+        body["work_items"] = wi;
+    }
+    Ok((body, reflection))
 }
 
 fn patch_rows_on_slice(
     target: &mut Vec<BoardItem>,
     rows: &[Value],
     global_rows: &[BoardItem],
-    has_work_items: bool,
     global_len: usize,
-    store_key: &str,
-    work_items: &WorkItemStore,
     recent_action: bool,
     recent_verify_report: bool,
     recent_verify_pass: bool,
@@ -460,28 +385,11 @@ fn patch_rows_on_slice(
         let Some(id) = id else {
             continue;
         };
-        patch_rejects_v3_delta_fields(v, &BoardItem::default(), false)?;
         if let Some(idx) = target.iter().position(|e| e.id == id) {
             let prev = target[idx].clone();
             let merged = merge_row_patch_with_warnings(&prev, v);
             let mut incoming = merged.row;
             warnings.extend(merged.warnings);
-            patch_rejects_g_exec_done_when_not_met(
-                global_rows,
-                &id,
-                incoming.status,
-                has_work_items,
-                work_items,
-                store_key,
-            )?;
-            patch_rejects_g_deliver_when_blocked(
-                global_rows,
-                &id,
-                incoming.status,
-                has_work_items,
-                work_items,
-                store_key,
-            )?;
             validate_item_transition(prev.status, incoming.status)?;
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
                 if !dependencies_satisfied_rows(global_rows, &incoming) {
@@ -500,11 +408,9 @@ fn patch_rows_on_slice(
                 *reflection = true;
             }
             maybe_warn_done_without_evidence(
-                store_key,
                 &prev,
                 &incoming,
                 recent_action,
-                work_items,
                 reflection,
                 warnings,
             );
@@ -543,11 +449,9 @@ fn patch_rows_on_slice(
                 }
             }
             maybe_warn_done_without_evidence(
-                store_key,
                 &empty_prev,
                 &incoming,
                 recent_action,
-                work_items,
                 reflection,
                 warnings,
             );
@@ -570,22 +474,16 @@ fn patch_rows_on_slice(
 }
 
 fn maybe_warn_done_without_evidence(
-    store_key: &str,
     prev: &BoardItem,
     incoming: &BoardItem,
     recent_action: bool,
-    work_items: &WorkItemStore,
     reflection: &mut bool,
     warnings: &mut Vec<Value>,
 ) {
     if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
         return;
     }
-    if incoming.has_validate_evidence()
-        || prev.has_validate_evidence()
-        || recent_action
-        || milestone_done_has_work_item_evidence(store_key, incoming, work_items)
-    {
+    if incoming.has_validate_evidence() || prev.has_validate_evidence() || recent_action {
         return;
     }
     *reflection = true;
@@ -616,9 +514,7 @@ fn maybe_warn_done_without_verify_pass(
         return;
     }
     *reflection = true;
-    let reason = format!(
-        "done_without_verify_pass: host verify should be pass before marking done"
-    );
+    let reason = "done_without_verify_pass: host verify should be pass before marking done";
     warnings.push(serde_json::json!({
         "code": "done_without_verify_pass",
         "requires_verify_pass": true,
@@ -753,7 +649,6 @@ fn apply_finalize(doc: &mut BoardDocument) -> Result<()> {
     Ok(())
 }
 
-/// Mark an unfinished board as failed when scope ends early (planner or execution).
 fn apply_abandon(doc: &mut BoardDocument) -> Result<()> {
     if doc.board_is_empty() && doc.meta.goal.trim().is_empty() {
         return Err(anyhow!("task_board: nothing to abandon"));
@@ -768,10 +663,7 @@ fn apply_abandon(doc: &mut BoardDocument) -> Result<()> {
     Ok(())
 }
 
-fn apply_sync_finding(_store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<Value> {
-    // Fast-path route should be handled in TaskBoardStore::apply.
-    // Keep this as a non-failing fallback so UI cards do not show failed when a caller
-    // reaches apply_method directly.
+fn apply_sync_finding(__store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<Value> {
     if let Some(finding) = super::args::finding_from_args(args) {
         return apply_sync_finding_to_doc(doc, &finding);
     }
@@ -852,14 +744,24 @@ fn merge_global_context(gc: &mut GlobalContext, patch: &Value) {
                 let mut tmp = BoardDocument::empty_for_store_key("_merge");
                 tmp.global_context = gc.clone();
                 if apply_sync_finding_to_doc(&mut tmp, s).is_ok() {
-                    gc.key_findings = tmp.global_context.key_findings;
+                    *gc = tmp.global_context;
                 }
             }
         }
     }
-    if let Some(art) = patch.get("artifacts") {
-        if art.is_object() {
-            gc.artifacts = art.clone();
+    if let Some(artifacts) = patch.get("artifacts") {
+        if artifacts.is_object() {
+            if gc.artifacts.is_object() {
+                if let (Some(dst), Some(src)) =
+                    (gc.artifacts.as_object_mut(), artifacts.as_object())
+                {
+                    for (k, v) in src {
+                        dst.insert(k.clone(), v.clone());
+                    }
+                }
+            } else {
+                gc.artifacts = artifacts.clone();
+            }
         }
     }
 }

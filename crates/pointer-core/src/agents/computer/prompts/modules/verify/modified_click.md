@@ -1,15 +1,25 @@
-## Verify module — modified click family
+### Scenario: modified click
 
-Judge whether modified click (Ctrl/Cmd/Shift+click) produced expected multi-selection or special action.
+Judge whether Ctrl/Cmd/Shift+click produced expected multi-selection or special action.
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+**Order:** same as pointer click — goal first → pointer **only on fail**.
 
-**Expected change:** Multiple items selected or modified-click effect (e.g. open in new tab).
+| Outcome | `action_result` | Pointer (fail only) | `failure_cause` |
+| --- | --- | --- | --- |
+| Multiple items selected / modified-click effect | `pass` | skip | — |
+| Single or unchanged selection | `fail` | center-hit | `wrong_operation` |
+| Single or unchanged selection | `fail` | center-miss | `precision_miss` |
 
-Same evidence + pointer rules as pointer click verify.
+**`loading_detected`:** UI still settling.
 
-**Special:** Items highlighted/checked → **pass**; single/unchanged selection → **fail** (`wrong_operation`).
+### Reasoning (hard rule)
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+Max **4 sentences**, plain prose — same structure as pointer click.
+
+1. Before/after selection or modified-click effect vs `goal`.
+2. Pass → stop; fail → center-hit vs center-miss.
+3. Optional: loading.
+
+**Forbidden:** numbered CoT templates; JSON; repeating tool args.

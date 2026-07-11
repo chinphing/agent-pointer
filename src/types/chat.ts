@@ -496,6 +496,15 @@ export interface ComputerTierLlmConfig {
   thinkingBudget?: number
 }
 
+/** Per-phase model ids and thinking budgets for host verify pipeline (debug). */
+export interface ComputerPipelineLlmSettings {
+  decision?: string
+  position?: string
+  verify?: string
+  positionThinkingBudget?: number
+  verifyThinkingBudget?: number
+}
+
 export type ComputerTierKey = 'primary' | 'intermediate' | 'advanced'
 
 /** Platform/runtime fields (in-memory; admin-editable in desktop app). */
@@ -523,8 +532,6 @@ export interface PlatformSettings {
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
-  /** Computer: independent planner (work_items queue + planner loop + exec cannot init board). */
-  computerStandalonePlannerEnabled?: boolean
   agentDefaultModels: Record<string, AgentModelRef>
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
@@ -537,6 +544,8 @@ export interface PlatformSettings {
   captchaSliderOffsetPx?: number
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+  /** Debug: per-phase LLM for computer host verify pipeline. */
+  computerPipelineLlm?: ComputerPipelineLlmSettings
   /** Debug: per-mode LLM for general / coder agents. */
   agentModeLlm?: AgentModeLlmMap
   /** Debug: per-mode LLM for image / audio / video understanding. */
@@ -595,8 +604,6 @@ export interface ModelSettings {
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
-  /** Computer: independent planner (work_items queue + planner loop + exec cannot init board). */
-  computerStandalonePlannerEnabled?: boolean
   /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */
   agentDefaultModels: Record<string, AgentModelRef>
   /** agentId → task_board 更新后是否硬截断较早对话（无 LLM 摘要） */

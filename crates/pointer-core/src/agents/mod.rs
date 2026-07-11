@@ -50,6 +50,7 @@ const COMPUTER_AGENT_PRIMARY: &str = include_str!("computer/prompts/tiers/primar
 const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/prompts/os/macos.md");
 const COMPUTER_OS_PROMPT_WINDOWS: &str = include_str!("computer/prompts/os/windows.md");
 const COMPUTER_OS_PROMPT_LINUX: &str = include_str!("computer/prompts/os/linux.md");
+const COMPUTER_VERIFY_CORE: &str = include_str!("computer/prompts/modules/verify/core.md");
 const COMPUTER_VERIFY_POINTER_CLICK: &str =
     include_str!("computer/prompts/modules/verify/pointer_click.md");
 const COMPUTER_VERIFY_POINTER_HOVER: &str =
@@ -171,8 +172,10 @@ pub fn computer_agent_body_for_tier(tier: computer::tier::ComputerTier) -> Strin
 }
 
 /// Verify module prompt for an operation family (host post-execute pipeline).
-pub fn computer_verify_prompt(family: computer::pipeline::operation::OperationFamily) -> &'static str {
-    match family {
+pub fn computer_verify_prompt(
+    family: computer::pipeline::operation::OperationFamily,
+) -> String {
+    let family_md = match family {
         computer::pipeline::operation::OperationFamily::PointerClick => {
             COMPUTER_VERIFY_POINTER_CLICK
         }
@@ -191,7 +194,8 @@ pub fn computer_verify_prompt(family: computer::pipeline::operation::OperationFa
         computer::pipeline::operation::OperationFamily::Clipboard => COMPUTER_VERIFY_CLIPBOARD,
         computer::pipeline::operation::OperationFamily::AppAccess => COMPUTER_VERIFY_APP_ACCESS,
         _ => COMPUTER_VERIFY_GENERIC,
-    }
+    };
+    join_agent_prompt_sections(&[COMPUTER_VERIFY_CORE, family_md])
 }
 
 fn push_trimmed(parts: &mut Vec<&str>, s: &'static str) {

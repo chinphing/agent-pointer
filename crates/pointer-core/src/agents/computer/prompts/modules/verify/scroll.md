@@ -1,18 +1,22 @@
-## Verify module — scroll family
+### Scenario: scroll
 
-Judge whether the scroll action moved the viewport content.
+Judge whether the viewport content moved (runtime does not detect scroll — use screenshots).
 
-Submit the result by calling **`submit_verify`** once after proof in **reasoning_content**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Channels:** analysis → `reasoning_content` (4–8 sentences); result → `submit_verify` only; `content` empty.
+| Outcome | `action_result` | `failure_cause` |
+| --- | --- | --- |
+| New rows visible, scrollbar shifted, or content offset changed | `pass` | — |
+| Unchanged, loading in progress | `pass` with `loading_detected: true` | — |
+| Unchanged, no loading | `fail` | `wrong_operation` |
+| Wrong area scrolled | `fail` | `wrong_operation` |
 
-**Expected change:** New rows visible, scrollbar thumb shifted, content offset changed.
+### Reasoning (hard rule)
 
-**Special rules:**
-- Runtime does not detect scroll — compare before vs after screenshots.
-- New content visible → **pass**.
-- Unchanged + loading → `loading_detected: true`.
-- Unchanged, no loading → **fail**.
-- Wrong area scrolled → **fail** (`wrong_operation`).
+Max **3 sentences**, plain prose.
 
-**Forbidden:** other tools; prose in `content`; analysis inside tool args except allowed schema fields.
+1. Before/after viewport or scrollbar delta vs scroll `goal`.
+2. Pass or fail + `failure_cause`; note wrong region if applicable.
+3. Optional: `loading_detected` when unchanged but spinner visible.
+
+**Forbidden:** pointer-position analysis; numbered CoT templates; JSON.

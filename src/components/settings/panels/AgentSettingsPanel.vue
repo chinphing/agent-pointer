@@ -25,6 +25,8 @@ const {
   COMPUTER_TIER_UI,
   computerTierLlm,
   patchComputerTierLlm,
+  computerPipelineLlm,
+  patchComputerPipelineLlm,
   qwenModelOptions,
   MEDIA_DEBUG_KINDS,
   mediaModeLlm,
@@ -192,6 +194,31 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
                           :disabled="computerTierLlm(tier.key).enableThinking === false"
                           @change="patchComputerTierLlm(tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
                         />
+                      </div>
+                      <div class="border-t border-border pt-3 space-y-2">
+                        <div class="flex items-center justify-between gap-2 px-2">
+                          <h5 class="text-[11px] font-medium text-foreground">Verify 模块（调试）</h5>
+                          <span class="text-[10px] text-muted">宿主执行后校验 LLM 模型与思考预算</span>
+                        </div>
+                        <div class="grid grid-cols-[4.5rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5">
+                          <span class="text-[11px] text-muted font-medium">Verify</span>
+                          <select
+                            :value="computerPipelineLlm().verify"
+                            class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                            @change="patchComputerPipelineLlm({ verify: ($event.target as HTMLSelectElement).value })"
+                          >
+                            <option v-for="m in qwenModelOptions" :key="'verify-' + m" :value="m">{{ m }}</option>
+                          </select>
+                          <span class="text-[11px] text-muted whitespace-nowrap">推理预算</span>
+                          <input
+                            type="number"
+                            min="256"
+                            step="256"
+                            class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                            :value="computerPipelineLlm().verifyThinkingBudget ?? 256"
+                            @change="patchComputerPipelineLlm({ verifyThinkingBudget: Number(($event.target as HTMLInputElement).value) })"
+                          />
+                        </div>
                       </div>
                     </div>
 

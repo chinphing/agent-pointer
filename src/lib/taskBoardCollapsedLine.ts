@@ -1,6 +1,6 @@
 import type { TaskBoardDocument } from '../types/chat'
 import {
-  taskBoardHasWorkItems,
+  taskBoardIsLoopMilestoneBoard,
   taskBoardVisibleMilestones,
   taskBoardVisibleMilestoneProgress,
   taskBoardWorkItemsProgress
@@ -29,7 +29,7 @@ export function taskBoardCompactSummary(
 
   const goal = document?.meta?.goal?.trim() || '任务板'
   const wiProgress =
-    taskBoardHasWorkItems(document) ? taskBoardWorkItemsProgress(document) : null
+    taskBoardIsLoopMilestoneBoard(document) ? taskBoardWorkItemsProgress(document) : null
   const progress = wiProgress ?? taskBoardVisibleMilestoneProgress(document)
   let doneCount: number
   let total: number

@@ -97,9 +97,8 @@ const composerDropZoneRef = ref<HTMLDivElement | null>(null)
 const attachmentHint = ref<string | null>(null)
 const composerDragDepth = ref(0)
 const isComposerDragOver = computed(() => composerDragDepth.value > 0)
+/** Desktop: `onUnmounted` must call this — each Composer instance registers its own listener. */
 let unlistenTauriDragDrop: (() => void) | null = null
-/** Cached from `webview.scaleFactor()` — used to convert Tauri drag physical coords. */
-let tauriDragScaleFactor = window.devicePixelRatio || 1
 
 const agents = useAgentsCatalog()
 
@@ -536,49 +535,40 @@ function composerAttachmentBlockedHint(): string {
   return '当前无法添加附件'
 }
 
+/*
+ * Composer file drag-and-drop (Web + Tauri)
+ *
+ * Two mutually exclusive paths — do not merge into one handler:
+ *
+ * - Web: HTML5 `@drop` on `composerDropZoneRef` (below in template). Uses `File` API.
+ * - Desktop (Tauri): `webview.onDragDropEvent` in `setupTauriComposerDragDrop`.
+ *   Tauri intercepts OS file drags; HTML5 `drop` does NOT fire for Finder/Explorer files.
+ *   Payload gives filesystem paths (`ingestDroppedPaths`), not bytes.
+ *
+ * Common regressions (see docs/contributing/web-media-and-desktop-snapshot.md):
+ * - Setting `dragDropEnabled: false` in tauri.conf.json — breaks native drops on macOS;
+ *   HTML5 fallback is unreliable in Tauri WebView. Keep default `true`.
+ * - DOMRect / `getBoundingClientRect` hit tests on `event.payload.position` — coords are
+ *   window-outer relative; frameless + macOS overlay title bar ≠ viewport (tauri#10744).
+ *   Accept window-level drops instead of coordinate targeting.
+ * - Removing `if (isTauriRuntime()) return` from HTML5 handlers — dead on desktop but documents
+ *   intent; do not wire desktop file intake only through `@drop`.
+ * - Calling `webview.scaleFactor()` — not on Webview type; use `getCurrentWindow().scaleFactor()`
+ *   if physical→logical conversion is ever needed again.
+ * - Changing `canAcceptComposerAttachments` without UI hint — blocked drops look like "no response".
+ */
+
 function isLikelyFileDrag(dt: DataTransfer | null | undefined): boolean {
   if (!dt) return false
+  if (dt.files?.length) return true
   const types = Array.from(dt.types || [])
   if (types.includes('Files')) return true
-  if (dt.files?.length) return true
+  if (types.some(t => /file|url|uri-list/i.test(t))) return true
   return Array.from(dt.items || []).some(item => item.kind === 'file')
 }
 
-function composerDropHitTest(clientX: number, clientY: number): boolean {
-  const zone = composerDropZoneRef.value
-  if (!zone) return false
-
-  const hit = (x: number, y: number): boolean => {
-    const rect = zone.getBoundingClientRect()
-    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-      return true
-    }
-    const el = document.elementFromPoint(x, y)
-    return !!(el && (zone === el || zone.contains(el)))
-  }
-
-  if (hit(clientX, clientY)) return true
-
-  if (!isTauriRuntime()) return false
-
-  // Tauri drag position is window-relative; viewport getBoundingClientRect is webview-relative.
-  // Frameless windows (macOS overlay title bar) often need a Y nudge — see tauri-apps/tauri#10744.
-  for (const dy of [28, 32, 24, 40, 52, 16]) {
-    if (hit(clientX, clientY + dy)) return true
-  }
-  return false
-}
-
-function logicalPointFromTauriDrag(position: { x: number; y: number }) {
-  const pos = position as { x: number; y: number; toLogical?: (scale: number) => { x: number; y: number } }
-  if (typeof pos.toLogical === 'function') {
-    return pos.toLogical(tauriDragScaleFactor)
-  }
-  const scale = tauriDragScaleFactor || window.devicePixelRatio || 1
-  return { x: position.x / scale, y: position.y / scale }
-}
-
 async function ingestDroppedPaths(paths: string[]) {
+  // Desktop native drop only — paths from Tauri, not from HTML5 `dataTransfer`.
   if (!paths.length) return
   if (!canAcceptComposerAttachments()) {
     attachmentHint.value = composerAttachmentBlockedHint()
@@ -634,13 +624,18 @@ async function addDroppedAttachmentFile(file: File) {
 }
 
 function onComposerDragEnter(e: DragEvent) {
-  if (!canAcceptComposerAttachments() || !isLikelyFileDrag(e.dataTransfer)) return
+  // Web only — see block comment above; Tauri uses `onDragDropEvent`.
+  if (isTauriRuntime()) return
+  if (!isLikelyFileDrag(e.dataTransfer)) return
   e.preventDefault()
   e.stopPropagation()
-  composerDragDepth.value += 1
+  if (canAcceptComposerAttachments()) {
+    composerDragDepth.value += 1
+  }
 }
 
 function onComposerDragOver(e: DragEvent) {
+  if (isTauriRuntime()) return
   if (!isLikelyFileDrag(e.dataTransfer)) return
   e.preventDefault()
   e.stopPropagation()
@@ -652,6 +647,7 @@ function onComposerDragOver(e: DragEvent) {
 }
 
 function onComposerDragLeave(e: DragEvent) {
+  if (isTauriRuntime()) return
   const el = e.currentTarget as HTMLElement
   const related = e.relatedTarget as Node | null
   if (related && el.contains(related)) return
@@ -659,6 +655,7 @@ function onComposerDragLeave(e: DragEvent) {
 }
 
 async function onComposerDrop(e: DragEvent) {
+  if (isTauriRuntime()) return
   composerDragDepth.value = 0
   e.preventDefault()
   e.stopPropagation()
@@ -676,29 +673,29 @@ async function setupTauriComposerDragDrop() {
   try {
     const { getCurrentWebview } = await import('@tauri-apps/api/webview')
     const webview = getCurrentWebview()
-    try {
-      tauriDragScaleFactor = await webview.scaleFactor()
-    } catch (err) {
-      console.warn('tauri composer drag-drop: scaleFactor unavailable, using devicePixelRatio', err)
-      tauriDragScaleFactor = window.devicePixelRatio || 1
-    }
+    // Window-level listener: do NOT filter by pointer position (unreliable on overlay chrome).
+    // Accept any drop with paths while this Composer is mounted.
     unlistenTauriDragDrop = await webview.onDragDropEvent(async event => {
       const payload = event.payload
-      if (payload.type === 'over') {
-        const { x, y } = logicalPointFromTauriDrag(payload.position)
-        composerDragDepth.value =
-          canAcceptComposerAttachments() && composerDropHitTest(x, y) ? 1 : 0
+      if (payload.type === 'enter' || payload.type === 'over') {
+        composerDragDepth.value = canAcceptComposerAttachments() ? 1 : 0
         return
       }
       if (payload.type === 'drop') {
         composerDragDepth.value = 0
-        const { x, y } = logicalPointFromTauriDrag(payload.position)
-        if (!composerDropHitTest(x, y)) return
+        if (!payload.paths?.length) return
+        if (!canAcceptComposerAttachments()) {
+          attachmentHint.value = composerAttachmentBlockedHint()
+          console.warn('[composer-drag-drop] drop blocked:', composerAttachmentBlockedHint())
+          return
+        }
+        console.info('[composer-drag-drop] native drop', payload.paths)
         await ingestDroppedPaths(payload.paths)
         return
       }
       composerDragDepth.value = 0
     })
+    console.info('[composer-drag-drop] native listener ready')
   } catch (err) {
     console.warn('tauri composer drag-drop listener failed', err)
   }
@@ -1024,7 +1021,7 @@ onMounted(() => {
     chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
   }
   document.addEventListener('click', handleClickOutside)
-  void setupTauriComposerDragDrop()
+  void setupTauriComposerDragDrop() // no-op on Web; required on desktop — see drag-and-drop comment block
 })
 
 onUnmounted(() => {
@@ -1080,6 +1077,7 @@ onUnmounted(() => {
         :items="outboundQueueList"
       />
 
+      <!-- Web: HTML5 file drop on this zone. Desktop: drag highlight only; file intake is setupTauriComposerDragDrop. -->
       <div
         ref="composerDropZoneRef"
         class="panel-elevated rounded-2xl border overflow-visible px-2 pb-2 pt-[18px] transition-colors"

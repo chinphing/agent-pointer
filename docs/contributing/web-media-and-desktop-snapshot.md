@@ -6,10 +6,25 @@ Composer 支持三种添加方式：回形针选择、粘贴图片、拖入文�
 
 | 端 | 拖入实现 |
 |----|----------|
-| **Web** | 标准 HTML5 `drop`（`capture` 监听，覆盖 textarea） |
-| **桌面 (Tauri)** | `webview.onDragDropEvent` 取本地路径（Tauri 默认会拦截 HTML5 文件拖放） |
+| **Web** | 标准 HTML5 `drop`（`capture` 监听，覆盖输入框面板） |
+| **桌面 (Tauri)** | `webview.onDragDropEvent` 取本地路径。Tauri 拦截 OS 文件拖放，事件为**整窗**级别；不做坐标命中（frameless/overlay 窗口坐标不可靠，见 [tauri#10744](https://github.com/tauri-apps/tauri/issues/10744)），窗口内任意位置放下文件即添加到 Composer |
 
-桌面端拖入时走本地路径读取（视频等大文件与文件选择器行为一致）。macOS / Windows / Linux 三端桌面行为一致；Web 端通过浏览器 `File` API 读取内容。
+桌面端走本地路径读取（视频等大文件与文件选择器一致）。macOS / Windows / Linux 三端行为一致；Web 端通过浏览器 `File` API 读取内容。
+
+### 维护易错点（Composer 拖入附件）
+
+修改 `Composer.vue` 或 `tauri.conf.json` 前请读 `Composer.vue` 内 **Composer file drag-and-drop** 注释块。以下为曾反复踩坑、勿再改错的约定：
+
+| 勿做 | 原因 |
+|------|------|
+| 主窗口设置 `dragDropEnabled: false` | 与 Tauri 原生 OS 拖放互斥；macOS 上 HTML5 `@drop` 对 Finder 文件常不触发 |
+| 用 `onDragDropEvent` 的 `position` + `getBoundingClientRect` 做落点命中 | 坐标相对窗口外框，与 viewport 不一致（overlay 标题栏约 28px 量级偏差） |
+| 桌面端仅依赖模板 `@drop` 收文件 | OS 文件拖入时 WebView 不派发 HTML5 drop，必须用 `onDragDropEvent` |
+| 去掉 HTML5 处理器里的 `if (isTauriRuntime()) return` | 标明 Web/Tauri 双路径；避免误以为桌面走 DOM drop |
+| 调用 `webview.scaleFactor()` | Tauri 2 上在 `Window` 上，不在 `Webview` |
+| 改 `tauri.conf` 后只热更新前端 | `dragDropEnabled` 等在窗口创建时生效，需完整重启 `tauri dev` / 重装包 |
+
+实现位置：`src/components/chat/Composer.vue`（`setupTauriComposerDragDrop` + Web `@drop`）；主窗口 `drag_drop_enabled` 见 `src-tauri/tauri.conf.json`（默认 `true`，勿随意改 false）。
 
 | 能力 | 桌面 (Tauri) | Web (pointer-server) |
 |------|--------------|----------------------|

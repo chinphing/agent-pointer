@@ -55,6 +55,12 @@ pub fn create_main_window(app: &App) -> Result<(), String> {
         .clone();
 
     let app_handle = app.handle().clone();
+    // Composer OS file drop needs drag_drop_enabled=true (tauri.conf default).
+    // false disables native handler; HTML5 drop is unreliable for Finder/Explorer in WebView.
+    log::info!(
+        "main window drag_drop_enabled={}",
+        main_config.drag_drop_enabled
+    );
     WebviewWindowBuilder::from_config(app, &main_config)
         .map_err(|e| format!("main window builder: {e}"))?
         .on_new_window(move |url, features| handle_new_window(&app_handle, url, features))

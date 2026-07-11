@@ -173,7 +173,7 @@ async fn run_single_connection(
             "bot_id": cfg.bot_id,
             "secret": cfg.secret,
             "scene": SCENE_POINTER,
-            "plug_version": "pointer-channels/0.1.0"
+            "plug_version": "pointer-channels/0.1.1"
         }
     });
     write

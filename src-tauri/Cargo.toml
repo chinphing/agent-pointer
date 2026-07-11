@@ -1,6 +1,6 @@
 [package]
 name = "pointer-app"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pointer AI desktop chat client"
 authors = ["pointer"]
 edition = "2021"

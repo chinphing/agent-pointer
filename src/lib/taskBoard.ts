@@ -40,7 +40,7 @@ export function taskBoardIsLoopMilestoneBoard(
   return taskBoardLoopItemRows(doc).some(r => r.id.startsWith('wi_'))
 }
 
-function loopExecMet(doc: TaskBoardDocument): boolean {
+function loopExecMet(doc: TaskBoardDocument | null | undefined): boolean {
   const rows = taskBoardLoopItemRows(doc)
   if (!rows.length) return false
   return rows.every(

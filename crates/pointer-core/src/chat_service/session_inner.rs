@@ -395,17 +395,11 @@ pub(super) async fn run_chat_inner(
 
     let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_single_start);
     let reasoning_in_messages = effective_reasoning_in_messages(&provider.settings);
-    let mut main_task_board_store_key = choose_main_task_board_store_key(
+    let main_task_board_store_key = choose_main_task_board_store_key(
         state.as_ref(),
         conversation_id,
         ctx.history,
     );
-
-    let lead_profile = state
-        .agents
-        .get(&agent_plan.lead_agent_id)
-        .map(|a| a.def().profile.clone())
-        .unwrap_or(crate::agents::AgentProfile::General);
 
     let memory_due = crate::memory::memory_review_due_for(
         &settings,

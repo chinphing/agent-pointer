@@ -84,7 +84,7 @@ pub(super) async fn run_single_agent_loop(
             id
         };
 
-        let mut effective_allowed = agent_plan.allowed_tool_names.clone();
+        let effective_allowed = agent_plan.allowed_tool_names.clone();
         let tools_system_appendix =
             crate::tools_system_appendix::generate_tools_system_appendix(
                 &state.tools,

@@ -929,7 +929,7 @@ mod tests {
     }
 
     #[test]
-    fn payload_tokens_include_vision_slots() {
+    fn payload_tokens_include_image_slots() {
         let mut m = u("screen");
         m.images_base64 = Some(vec!["aaa".into(), "bbb".into()]);
         let t = estimate_message_payload_tokens(&[m]);

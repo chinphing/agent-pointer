@@ -43,7 +43,7 @@
 - 各工具的详细说明来自其 **`doc_markdown`**（通常 `include_str!("prompts/…")`），与授权列表一起在 **`generate_tools_system_appendix`** 中拼入系统提示（**`## Tools`** 等）。
 - **`task_board/prompts/task_board.md`**（英文，经 **`## Tools`** 附录）：多步计划的 **字段、patch 节奏、示例** 以 tool doc 为准。
 - **`COMMUNICATION_PUBLIC`**（英文）：native tool calling、web 引用、skills、语言等跨 profile 规则；**不含** task board 操作细节。
-- **桌面** **`tool_args.wait`** 见 **`computer/prompts/tiers/advanced/communication.md`**（**Post-action `wait` in `tool_args`**）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
+- **桌面** **`tool_args.wait`** 见各 desktop 工具 `prompts/*.md` 与 **`computer/prompts/tiers/primary/communication.md`**（加载/转场时优先 `wait`）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
 
 ## Agent 白名单
 

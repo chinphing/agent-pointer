@@ -78,7 +78,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg0QUUxNDYwMDEwMTkyMUQKUldRZGtnRUJZQlN1aEpQbUFFVzFKY0c5YXdnM0wwQ0tvUVkzS1lCcnMyNkxwS2ZLTWhzdS9XZXoK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3REM2NkFDNTU2RTk4M0EKUldRNm1HNVZyR2JjbDBReG9RQU42QjBQeHJKOXBFZ0FIZDB4WVJQbDFXUWZCWjhpbTEwVGZ1V1cK",
       "endpoints": [
         "https://pointer-api.readflowai.com/api/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
       ],

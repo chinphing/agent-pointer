@@ -1,12 +1,25 @@
 #!/usr/bin/env node
 /**
  * Cross-platform wrapper for `tauri build`.
+ * Reads TAURI_SIGNING_PRIVATE_KEY from TAURI_SIGNING_PRIVATE_KEY_PATH.
  * Linux AppImage: set NO_STRIP=true (linuxdeploy strip / .relr.dyn incompatibility).
  * Windows / macOS: unchanged env.
  */
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const env = { ...process.env };
+
+// Read signing key from file path instead of inline env var
+const keyPath = env.TAURI_SIGNING_PRIVATE_KEY_PATH;
+if (keyPath) {
+  try {
+    env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(keyPath, 'utf8').trim();
+    console.log('[tauri-build] signing key loaded from', keyPath);
+  } catch (e) {
+    console.error('[tauri-build] WARNING: failed to read signing key:', e.message);
+  }
+}
 if (process.platform === 'linux') {
   env.NO_STRIP = 'true';
   env.APPIMAGE_EXTRACT_AND_RUN = '1';

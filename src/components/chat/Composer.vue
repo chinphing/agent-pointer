@@ -77,7 +77,7 @@ const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const showLoginBanner = computed(
   () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
 )
-const { updateReady, updateVersion, relaunch, dismiss, skipVersion } = useAppUpdater()
+const { updateReady, updateVersion, updateNotes, relaunch, dismiss, skipVersion } = useAppUpdater()
 const composerPlaceholder = computed(() => {
   if (needsPlatformLogin.value) {
     return platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户'
@@ -1081,10 +1081,18 @@ onUnmounted(() => {
           class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5"
         >
           <RefreshCw class="w-4 h-4 text-accent shrink-0" />
-          <p class="text-xs leading-snug text-foreground">
-            新版本 {{ updateVersion }} 已就绪
-          </p>
-          <button
+          <div class="flex flex-col gap-1">
+            <p class="text-xs leading-snug text-foreground">
+              新版本 {{ updateVersion }} 已就绪
+            </p>
+            <p
+              v-if="updateNotes"
+              class="text-xs text-muted leading-relaxed whitespace-pre-wrap max-w-[320px]"
+            >
+              {{ updateNotes }}
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
             class="h-7 px-3 rounded-lg bg-accent text-white text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
             @click="relaunch"
           >

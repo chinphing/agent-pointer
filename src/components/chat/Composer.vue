@@ -78,7 +78,7 @@ const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const showLoginBanner = computed(
   () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
 )
-const { updateReady, updateVersion, updateNotes, relaunch, dismiss, skipVersion } = useAppUpdater()
+const { updateReady, updateVersion, updateNotes, relaunch, dismiss, skipVersion, checking, error, statusMessage } = useAppUpdater()
 
 function markdownToHtml(text: string | null): string {
   if (!text) return ''
@@ -1083,8 +1083,31 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div v-if="updateReady" class="mb-2 flex w-fit max-w-full flex-col gap-1.5">
-        <div class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5">
+      <!-- Updater: checking -->
+      <div v-if="checking" class="mb-2 flex items-center gap-2 rounded-xl border border-accent/10 bg-accent-muted/20 px-3.5 py-2 w-fit">
+        <RefreshCw class="w-3.5 h-3.5 text-accent animate-spin shrink-0" />
+        <p class="text-xs text-muted">检查更新中…</p>
+      </div>
+
+      <!-- Updater: error -->
+      <div
+        v-if="error"
+        class="mb-2 flex items-center gap-2 rounded-xl border border-warning/20 bg-warning/10 px-3.5 py-2 w-fit max-w-[420px]"
+      >
+        <p class="text-xs text-muted">检查更新失败：{{ error }}</p>
+      </div>
+
+      <!-- Updater: status message (no update / skipped) -->
+      <div
+        v-if="statusMessage"
+        class="mb-2 rounded-xl border border-accent/10 bg-accent-muted/15 px-3.5 py-2 w-fit"
+      >
+        <p class="text-xs text-muted">{{ statusMessage }}</p>
+      </div>
+
+      <!-- Updater: ready -->
+      <div v-if="updateReady" class="mb-2 w-fit max-w-full rounded-xl border border-accent/20 bg-accent-muted/40">
+        <div class="inline-flex max-w-full flex-wrap items-center gap-3 px-3.5 py-2.5">
           <RefreshCw class="w-4 h-4 text-accent shrink-0" />
           <p class="text-xs leading-snug text-foreground">
             新版本 {{ updateVersion }} 已就绪
@@ -1110,11 +1133,11 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
-        <p
+        <div
           v-if="updateNotes"
-          class="text-xs text-muted leading-relaxed max-w-[480px] px-3.5 prose prose-sm prose-gray max-w-none"
-          v-html="markdownToHtml(updateNotes)"
-        </p>
+          class="border-t border-accent/10 px-3.5 py-2.5 text-xs text-muted leading-relaxed prose prose-sm prose-gray max-w-none"
+          v-html="markdownToHtml(updateNotes)">
+        </div>
       </div>
 
       <OutboundQueuePanel

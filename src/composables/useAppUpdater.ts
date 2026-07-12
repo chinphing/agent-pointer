@@ -16,6 +16,18 @@ const checking = ref(false)
 const downloading = ref(false)
 const error = ref<string | null>(null)
 
+/** Non-error status messages for transient UI feedback (auto-dismiss). */
+const statusMessage = ref<string | null>(null)
+let statusMessageTimer: ReturnType<typeof setTimeout> | null = null
+
+function showStatusMessage(msg: string, durationMs = 5000) {
+  if (statusMessageTimer) clearTimeout(statusMessageTimer)
+  statusMessage.value = msg
+  statusMessageTimer = setTimeout(() => {
+    statusMessage.value = null
+  }, durationMs)
+}
+
 async function checkAndDownload() {
   if (!isTauriRuntime()) return
   // Only check on platform mode — standalone has no official update server
@@ -31,8 +43,16 @@ async function checkAndDownload() {
       version?: string
       notes?: string
     }>('check_for_update')
-    if (!result.available || !result.version) return
-    if (skipped === result.version) return
+
+    if (!result.available || !result.version) {
+      showStatusMessage('已是最新版本')
+      return
+    }
+    if (skipped === result.version) {
+      showStatusMessage(`已跳过版本 ${result.version}，有新版本时会通知你`)
+      return
+    }
+
     updateVersion.value = result.version
     updateNotes.value = result.notes ?? null
     downloading.value = true
@@ -96,6 +116,7 @@ export function useAppUpdater() {
     checking,
     downloading,
     error,
+    statusMessage,
     checkAndDownload,
     relaunch,
     dismiss,

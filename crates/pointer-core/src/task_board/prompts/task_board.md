@@ -45,9 +45,38 @@ Host inject shows the full step ladder under **All tasks**; patch one row per ve
 - Put the **full per-item procedure** in each item row's **`plan`** (numbered steps).
 - Patch **one item row** to `done` / `failed` when that target is complete — not per GUI micro-step.
 - Host auto-advances the next `wi_*` to `in_progress`.
-- Dynamic quota: `g_plan` / `g_deliver` + **`dynamic_quota`** + **`loop_item_plan`**; host seeds `wi_1…wi_N`.
-- Known list: inline **`work_items[]`** (titles) or explicit **`wi_*`** rows in `global_milestones` on init.
 - Max ~17 items inline (board row budget).
+
+### Loop seeding: enumerated vs dynamic
+
+Two ways to create **`wi_*`** rows between **`g_plan`** and **`g_deliver`**.
+Choose from **what you know at init time** — not from convenience.
+
+| | **Enumerated (static list)** | **Dynamic (runtime quota)** |
+| --- | --- | --- |
+| **Use when** | Every target identity is already known | Only **how many** is known; identities appear later |
+| **Init fields** | Explicit **`wi_*`** rows in **`global_milestones`** (between **`g_plan`** and **`g_deliver`**) | **`dynamic_quota`** + shared **`loop_item_plan`** (host seeds **`wi_*`**) |
+| **Row titles at init** | Real target id in each **`wi_*` `title`** | Host placeholders **`#1`…`#N`** |
+| **Before exec** | Titles already set — start the item **`plan`** | Patch active row **`title`** when the target id is known, then run **`plan`** |
+| **Shared procedure** | Same **`plan`** / **`done_when`** on each **`wi_*`** row (repeat when identical) | **`loop_item_plan`** + optional **`loop_item_done_when`** (host copies to seeded rows) |
+
+**Prefer enumerated when**
+
+- User, goal, or **Assigned task** lists numbered targets (phones, names, ids, …).
+- **Context** spells out the full set — add one **`wi_*`** row per target in **`global_milestones`** now.
+- Each target needs its own row **`title`**; put the per-item procedure in that row's **`plan`**.
+
+**Prefer dynamic when**
+
+- User gives a **quota only** ("process 10 samples") without naming them.
+- Targets will be **discovered during the run** (next lead on screen, scroll queue, …).
+- Identities are genuinely unknown at init — host seeds **`wi_1`…`wi_N`** with **`#N`** titles via **`dynamic_quota`**.
+
+**Inject / UI during loop exec**
+
+- Host shows **`wi_*` item rows only** (not **`g_plan`** / **`g_deliver`**).
+- Board total = **`g_plan`** + N items + **`g_deliver`**; progress **`k/N`** counts **items**, not bookends.
+- Mark **`g_plan`** **`done`** on init when setup is already described there or complete.
 
 ## Field reference
 
@@ -169,13 +198,13 @@ After user-visible delivery (summary in **`content`**, attach file if `delivery_
 { "milestones": [{ "id": "m1", "status": "done", "remark": "handler located" }] }
 ```
 
-### Patch tool result (`work_items`)
+### Patch tool result (loop progress)
 
-Loop boards return compact progress:
+Loop boards return compact progress in the tool result (field **`loop_progress`**):
 
 ```json
 {
-  "work_items": {
+  "loop_progress": {
     "progress": "2/10",
     "done": 2,
     "failed": 0,
@@ -249,28 +278,41 @@ When writing the **final summary** in assistant **`content`**:
 
 **Loop (enumerated) — `task_board_init`**
 
+Targets already in user context — one **`wi_*`** milestone row per target in **`global_milestones`**:
+
 ```json
 {
-  "goal": "Process every account in the attached source list",
+  "goal": "Search each phone in WeChat add-contact and record whether an account exists",
   "global_milestones": [
-    { "id": "g_plan", "title": "Prepare", "status": "done", "done_when": "list ready" },
+    { "id": "g_plan", "title": "Open WeChat add-contact", "status": "done", "done_when": "Search box ready" },
     {
       "id": "wi_1",
-      "title": "ACC-1001",
+      "title": "13043841179",
       "status": "pending",
-      "plan": "1. Open CRM\n2. Search account ID\n3. Update status field\n4. Save and return to list",
-      "done_when": "Status saved or already correct"
+      "plan": "1. Enter phone in search box\n2. Press Enter\n3. Observe result — nickname/avatar = exists; not found = absent\n4. Note outcome",
+      "done_when": "Result observed and recorded"
     },
-    { "id": "g_deliver", "title": "Summarize", "status": "pending", "done_when": "User summary sent" }
+    {
+      "id": "wi_2",
+      "title": "13121928007",
+      "status": "pending",
+      "plan": "1. Enter phone in search box\n2. Press Enter\n3. Observe result\n4. Note outcome",
+      "done_when": "Result observed and recorded"
+    },
+    { "id": "g_deliver", "title": "Summarize all results", "status": "pending", "done_when": "User summary sent" }
   ]
 }
 ```
 
+Repeat **`wi_*`** rows for every known target (≤ ~17). Use the same **`plan`** text on each row when the GUI steps are identical.
+
 **Loop (dynamic quota) — `task_board_init`**
+
+Count known, identities not — only **`g_plan`** / **`g_deliver`** in **`global_milestones`**; host inserts **`wi_1`…`wi_N`** from **`dynamic_quota`**:
 
 ```json
 {
-  "goal": "Process 10 sample account IDs from the runtime quota",
+  "goal": "Process 10 CRM account IDs discovered during the session",
   "dynamic_quota": 10,
   "loop_item_plan": "1. Open CRM\n2. Search account ID\n3. Update status field\n4. Save and return to list",
   "loop_item_done_when": "Status saved or already correct",

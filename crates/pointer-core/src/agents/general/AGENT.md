@@ -164,7 +164,7 @@ task. **Never** reuse consent from a prior turn, prior task, or earlier "yes" in
 - **On agree for this task** (fresh consent per rules above — not from earlier turns):
   **`run_subagent`** with **`goal`** + optional **`context`** (see **`run_subagent`** tool doc).
   **`workspaceRoot`** is **required** on every **`coder`** delegation (see **`coder`** bullet above).
-  For Type2 list files, put **`localPath`** or media ref in **`context`** so the worker planner can set **`work_items_source`**.
+  For list files, put **`localPath`** or media ref in **`context`** so the worker can add **`wi_*`** rows in **`global_milestones`** on init.
   For **`computer`**: short **outcome + done check** in **`goal`** — do **not** prescribe clicks,
   navigation, hotkeys, or tools unless the **user** required them; then put that under
   **`User-required approach:`** in **`context`**. Set

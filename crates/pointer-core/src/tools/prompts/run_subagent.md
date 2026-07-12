@@ -126,7 +126,7 @@ Unverified assumptions (optional).
   authorizes hands-on desktop work for **this same task** (not a vague follow-up
   like "continue", "do it", or "same as before").
 - Optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
-- **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** (**Facts**) — the worker planner uses it for **`work_items_source`** on init.
+- **List files:** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** (**Facts**) — the worker expands targets into **`wi_*`** rows in **`global_milestones`** on **`task_board_init`**.
 
 **Per-worker goal notes** (all follow **`goal` template** above)
 

@@ -11,7 +11,7 @@ use super::path_hint::MEDIA_URI_SCHEME;
 
 const DELEGATION_ATTACHMENTS_HEADER: &str = "## User attachments (delegated)";
 const DELEGATION_ATTACHMENTS_NOTE: &str =
-    "For task-board `work_items_source` on init only — not for on-screen file UI.";
+    "For task-board init context (list files) — expand targets into wi_* rows in global_milestones; not for on-screen file UI.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentRefSpec {
@@ -352,7 +352,7 @@ mod tests {
         let merged = merge_attachments_into_context("do the task", std::slice::from_ref(&att));
         assert!(merged.contains("do the task"));
         assert!(merged.contains(DELEGATION_ATTACHMENTS_HEADER));
-        assert!(merged.contains("work_items_source"));
+        assert!(merged.contains("global_milestones"));
         assert!(merged.contains("book.xlsx"));
         assert!(merged.contains("/tmp/book.xlsx"));
     }

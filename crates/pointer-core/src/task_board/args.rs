@@ -20,8 +20,6 @@ const PATCH_HOST_KEYS: &[&str] = &[
     "expectedTotal",
     "work_item_mode",
     "dynamic_quota",
-    "work_items",
-    "work_items_source",
     "_conversation_id",
     "_recent_action_tools",
     "_recent_verify_pass",
@@ -170,14 +168,22 @@ pub fn global_rows_from_args(args: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// Replace-only: `item_milestones` whole table.
+/// Replace-only: `item_milestones` whole table (removed — use global_milestones wi_* rows).
 pub fn item_milestones_from_args(args: &Value) -> Vec<Value> {
     array_from_key(args, "item_milestones").unwrap_or_default()
 }
 
-/// Init enumerated seed: inline `work_items[]` (array or stringified JSON array).
-pub fn inline_work_items_from_args(args: &Value) -> Option<Vec<Value>> {
-    array_from_key(args, "work_items")
+/// Reject removed init fields (legacy work queue / inline seed).
+pub fn reject_init_removed_fields(args: &Value) -> Result<()> {
+    const REMOVED: &[&str] = &["work_items", "work_items_source", "item_milestones"];
+    for key in REMOVED {
+        if args.get(key).is_some() {
+            return Err(anyhow!(
+                "task_board: init field `{key}` removed; put wi_* rows in global_milestones (known list) or dynamic_quota (quota only)"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Unified patch rows — always use **`milestones`** at the tool surface.
@@ -192,6 +198,13 @@ pub fn unified_patch_rows_from_args(args: &Value) -> Result<Option<Vec<Value>>> 
 /// Reject removed work-item patch fields.
 pub fn reject_patch_foreign_work_item_fields(args: &Value) -> Result<()> {
     reject_removed_patch_fields(args)?;
+    for key in ["work_items", "work_items_source", "item_milestones"] {
+        if args.get(key).is_some() {
+            return Err(anyhow!(
+                "task_board: `{key}` removed; use task_board_patch with milestones[] (wi_* row ids)"
+            ));
+        }
+    }
     if args.get("work_item_claim").is_some() {
         return Err(anyhow!(
             "task_board: work_item_claim removed; use task_board_patch with milestones[]"
@@ -517,13 +530,17 @@ mod tests {
     }
 
     #[test]
-    fn inline_work_items_from_stringified_array() {
-        let args = serde_json::json!({
-            "work_items": "[{\"title\":\"北京\",\"payload\":{\"city\":\"北京\"}}]"
-        });
-        let rows = inline_work_items_from_args(&args).expect("work_items");
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["title"], "北京");
+    fn reject_init_work_items_field() {
+        let args = serde_json::json!({ "goal": "g", "work_items": [{ "title": "a" }] });
+        let err = super::reject_init_removed_fields(&args).unwrap_err();
+        assert!(err.to_string().contains("work_items"));
+    }
+
+    #[test]
+    fn reject_init_work_items_source_field() {
+        let args = serde_json::json!({ "goal": "g", "work_items_source": "/tmp/list.json" });
+        let err = super::reject_init_removed_fields(&args).unwrap_err();
+        assert!(err.to_string().contains("work_items_source"));
     }
 
     #[test]

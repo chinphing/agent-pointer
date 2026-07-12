@@ -190,13 +190,6 @@ fn loop_item_rules_from_args(args: &Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-fn work_items_from_args(args: &Value) -> Vec<Value> {
-    args.get("work_items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
-}
-
 fn dynamic_quota_from_args(args: &Value) -> Option<u32> {
     args.get("dynamic_quota")
         .and_then(|v| v.as_u64())
@@ -249,7 +242,7 @@ fn insert_loop_items(doc: &mut BoardDocument, items: Vec<BoardItem>) -> Result<(
     Ok(())
 }
 
-/// Expand loop item rows on init from inline `work_items[]` or `dynamic_quota`.
+/// Expand loop item rows on init from `dynamic_quota` when wi_* rows are not already present.
 pub fn expand_loop_milestones_on_init(doc: &mut BoardDocument, args: &Value) -> Result<()> {
     if loop_item_count(doc) > 0 {
         return Ok(());
@@ -266,32 +259,6 @@ pub fn expand_loop_milestones_on_init(doc: &mut BoardDocument, args: &Value) -> 
     let plan = loop_item_plan_from_args(args);
     let done_when = loop_item_done_when_from_args(args);
     let rules = loop_item_rules_from_args(args);
-
-    let inline = work_items_from_args(args);
-    if !inline.is_empty() {
-        let rows: Vec<BoardItem> = inline
-            .iter()
-            .enumerate()
-            .map(|(i, v)| {
-                let title_owned = v
-                    .get("title")
-                    .and_then(|x| x.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("#{}", i + 1));
-                make_loop_item_row(
-                    i + 1,
-                    &title_owned,
-                    plan.as_deref(),
-                    done_when.as_deref(),
-                    rules.as_deref(),
-                )
-            })
-            .collect();
-        insert_loop_items(doc, rows)?;
-        return Ok(());
-    }
 
     if let Some(quota) = dynamic_quota_from_args(args) {
         let rows: Vec<BoardItem> = (1..=quota)
@@ -312,14 +279,9 @@ pub fn expand_loop_milestones_on_init(doc: &mut BoardDocument, args: &Value) -> 
     Ok(())
 }
 
-pub fn validate_loop_milestone_init(doc: &BoardDocument, args: &Value) -> Result<()> {
+pub fn validate_loop_milestone_init(doc: &BoardDocument, _args: &Value) -> Result<()> {
     if !is_loop_milestone_board(doc) {
         return Ok(());
-    }
-    if args.get("work_items_source").is_some() {
-        return Err(anyhow!(
-            "task_board: loop milestone init uses inline work_items[] or dynamic_quota, not work_items_source"
-        ));
     }
     if legacy_exec_index(doc).is_some() {
         return Err(anyhow!(

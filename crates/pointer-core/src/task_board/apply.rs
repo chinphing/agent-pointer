@@ -3,8 +3,8 @@
 use super::args::{
     constraints_from_args, context_from_args, done_when_from_args, expected_total_from_args,
     global_rows_from_args, goal_from_args, normalize_patch_args, prune_ids_from_args,
-    reject_patch_foreign_work_item_fields, replace_has_forbidden_scope,
-    unified_patch_rows_from_args,
+    reject_init_removed_fields, reject_patch_foreign_work_item_fields,
+    replace_has_forbidden_scope, unified_patch_rows_from_args,
 };
 use super::coordination::parent_child::{assert_child_may_mutate, parent_store_key_from_child};
 use super::loop_milestones::{self, validate_board_row_count};
@@ -50,7 +50,7 @@ pub fn apply_method(
                 body["goal"] = json!(doc.meta.goal);
             }
             if let Some(wi) = loop_milestones::loop_progress_json(doc) {
-                body["work_items"] = wi;
+                body["loop_progress"] = wi;
             }
             (body, false)
         }
@@ -62,7 +62,7 @@ pub fn apply_method(
                 "board_len": doc.global_milestones.len(),
             });
             if let Some(wi) = loop_milestones::loop_progress_json(doc) {
-                body["work_items"] = wi;
+                body["loop_progress"] = wi;
             }
             (body, false)
         }
@@ -156,6 +156,7 @@ fn apply_meta_fields(doc: &mut BoardDocument, args: &Value) {
 }
 
 fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<()> {
+    reject_init_removed_fields(args)?;
     apply_meta_fields(doc, args);
     if let Some(scope) = args.get("scope").and_then(|v| v.as_str()) {
         doc.meta.scope = match scope.trim().to_ascii_lowercase().as_str() {
@@ -357,7 +358,7 @@ fn apply_patch(
         body["warnings"] = json!(warnings);
     }
     if let Some(wi) = loop_milestones::loop_progress_json(doc) {
-        body["work_items"] = wi;
+        body["loop_progress"] = wi;
     }
     Ok((body, reflection))
 }

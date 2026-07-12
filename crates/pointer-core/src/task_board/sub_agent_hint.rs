@@ -9,14 +9,21 @@ pub const TASK_BOARD_HINT_TAG: &str = "[TASK_BOARD_HINT";
 const COMPUTER_LOOP_INIT_ROWS: &str = "\
 Use **3–8** milestones for normal GUI work (linear).
 For batch / loop work (>5 similar items), use loop shape: `g_plan` / one `wi_*` row per target / `g_deliver`.
-Put the full per-item GUI procedure in each item row's **`plan`**.
+Put the full per-item GUI procedure in shared **`loop_item_plan`** or each row's **`plan`**.
 
-**Loop init:**
-- Known list → inline `work_items[]` or explicit `wi_*` rows in `global_milestones`
-- Runtime quota → **`dynamic_quota`** + shared **`loop_item_plan`**; host seeds `wi_1…wi_N` between `g_plan` and `g_deliver`
+**Loop seeding — pick from what you know at init:**
 
-During exec: patch **`task_board_patch`** on the active **`wi_*`** when that item is terminal (`done` / `failed` + `remark`).
-Host auto-advances the next item. Dynamic: set `title` on the active row before executing its `plan`.
+| | Enumerated (static) | Dynamic (quota) |
+| --- | --- | --- |
+| When | Every target id is already in user goal/context/list | Only count/quota known; ids appear during the run |
+| Init | **`wi_*`** rows in **`global_milestones`** — real **`title`** per target | **`dynamic_quota`** + **`loop_item_plan`**; host seeds **`wi_*`** with `#1…#N` |
+| Titles | Set on each **`wi_*`** row at init | Patch **`title`** on the active row before exec when id is known |
+
+Prefer **enumerated** when **Assigned task** or **context** lists targets — add one **`wi_*`** row per target in **`global_milestones`**.
+Prefer **dynamic** when targets are discovered on screen or user gave quota without a fixed list.
+
+During exec: patch **`wi_*`** when that item is terminal (`done` / `failed` + `remark`).
+Host auto-advances the next item. Inject/UI show **wi_* only** during exec (not g_plan / g_deliver).
 When all items are terminal, patch **`g_deliver`** then finalize after user summary.
 User switched tasks: **`task_board_abandon`**, then **`task_board_init`** if still multi-step.
 ";
@@ -243,7 +250,8 @@ mod tests {
             &AgentProfile::Computer,
         );
         let text = hint.expect("sub computer hint");
-        assert!(text.contains("loop_item_plan"));
+        assert!(text.contains("wi_*"));
+        assert!(text.contains("dynamic_quota") || text.contains("Dynamic"));
     }
 
     #[test]

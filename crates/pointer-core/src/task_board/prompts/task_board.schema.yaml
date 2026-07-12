@@ -16,7 +16,8 @@ task_board_init:
     global_milestones:
       type: array
       description: >
-        Milestone rows. Linear: 3–8 steps (m1…). Loop: g_plan, wi_* (host-seeded), g_deliver.
+        Milestone rows. Linear: 3–8 steps (m1…). Loop: g_plan, wi_* item rows, g_deliver.
+        Enumerated loop: include every wi_* row here. Dynamic loop: g_plan + g_deliver only; host seeds wi_* from dynamic_quota.
       items:
         type: object
         properties:
@@ -40,25 +41,13 @@ task_board_init:
             type: string
         required: [id, title, status]
         additionalProperties: true
-    work_items:
-      type: array
-      description: Inline loop targets on init (host expands to wi_* rows between g_plan and g_deliver).
-      items:
-        type: object
-        properties:
-          title:
-            type: string
-          payload:
-            type: object
-            additionalProperties: true
-          target_key:
-            type: string
-        required: [title]
-        additionalProperties: true
     dynamic_quota:
       type: integer
       minimum: 1
-      description: Loop init — host seeds wi_1…wi_N between g_plan and g_deliver.
+      description: >
+        Dynamic loop — host seeds wi_1…wi_N between g_plan and g_deliver with placeholder titles (#1…#N).
+        Use when only the count is known at init; patch each row title before exec when the target id appears.
+        When targets are already known, put explicit wi_* rows in global_milestones instead.
     loop_item_plan:
       type: string
       description: Shared multi-step procedure for each loop item row.

@@ -62,14 +62,19 @@ impl SessionSandbox {
     }
 
     /// Whether `path` is under `{app_data}/session-sandboxes/`.
+    ///
+    /// Directories need not exist yet — used before first sandbox creation on a new install.
     pub fn is_sandbox(path: &Path) -> Result<bool> {
-        let base = Self::sandboxes_base()?.canonicalize();
-        match base {
-            Ok(base) => {
-                let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-                Ok(path.starts_with(&base))
-            }
-            Err(_) => Ok(false),
+        let base = Self::sandboxes_base()?;
+        if !path.is_absolute() {
+            return Ok(false);
+        }
+        if path.starts_with(&base) {
+            return Ok(true);
+        }
+        match (base.canonicalize(), path.canonicalize()) {
+            (Ok(base_c), Ok(path_c)) => Ok(path_c.starts_with(&base_c)),
+            _ => Ok(false),
         }
     }
 
@@ -143,6 +148,14 @@ mod tests {
             path.file_name().and_then(|n| n.to_str()),
             Some(safe.as_str())
         );
+    }
+
+    #[test]
+    fn is_sandbox_true_for_nonexistent_default_path() {
+        let user_id = format!("test-user-{}", uuid::Uuid::new_v4());
+        let path = SessionSandbox::default_path("conv_new", &user_id).unwrap();
+        assert!(!path.exists());
+        assert!(SessionSandbox::is_sandbox(&path).unwrap());
     }
 
     #[test]

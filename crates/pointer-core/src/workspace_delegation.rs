@@ -1,7 +1,7 @@
 //! Workspace resolution when a lead agent delegates to a sub-agent (especially **coder**).
 
 use anyhow::{anyhow, Context, Result};
-use log::info;
+use log::{info, warn};
 use std::path::{Path, PathBuf};
 
 use crate::models::ModelSettings;
@@ -40,12 +40,26 @@ fn resolve_subagent_workspace(
 
     let session_ws = session_workspace.trim();
     if !session_ws.is_empty() {
-        let path = validate_existing_workspace_dir(session_ws)?;
-        let ephemeral = SessionSandbox::is_sandbox(Path::new(&path)).unwrap_or(false);
-        info!(
-            "workspace_delegation: using session workspace for conversation_id={conversation_id}: {path} ephemeral={ephemeral}"
-        );
-        return Ok((path, ephemeral));
+        return match validate_existing_workspace_dir(session_ws) {
+            Ok(path) => {
+                let ephemeral = SessionSandbox::is_sandbox(Path::new(&path)).unwrap_or(false);
+                info!(
+                    "workspace_delegation: using session workspace for conversation_id={conversation_id}: {path} ephemeral={ephemeral}"
+                );
+                Ok((path, ephemeral))
+            }
+            Err(e) if SessionSandbox::is_sandbox(Path::new(session_ws)).unwrap_or(false) => {
+                std::fs::create_dir_all(session_ws).with_context(|| {
+                    format!("workspace_delegation: create session sandbox failed: {session_ws}")
+                })?;
+                let path = validate_existing_workspace_dir(session_ws)?;
+                warn!(
+                    "workspace_delegation: created missing session sandbox conversation_id={conversation_id}: {path}"
+                );
+                Ok((path, true))
+            }
+            Err(e) => Err(e),
+        };
     }
 
     let uid = session_user_id_for_conversation(conversation_id);
@@ -138,6 +152,43 @@ mod tests {
         assert!(settings.workspace_root.contains("_anonymous"));
         assert!(settings.workspace_root.contains("conv_fallback_test"));
         assert!(Path::new(&settings.workspace_root).is_dir());
+        assert!(ephemeral);
+    }
+
+    #[test]
+    fn ensure_recreates_missing_user_session_sandbox() {
+        let user_id = format!("test-user-{}", uuid::Uuid::new_v4());
+        let stale = SessionSandbox::default_path("conv_new_chat", &user_id)
+            .unwrap()
+            .display()
+            .to_string();
+        assert!(!Path::new(&stale).exists());
+        let mut settings = settings_with_workspace(&stale);
+        let ephemeral =
+            ensure_subagent_workspace("conv_new_chat", None, &mut settings).unwrap();
+        assert!(Path::new(&settings.workspace_root).is_dir());
+        assert_eq!(
+            settings.workspace_root,
+            Path::new(&stale).canonicalize().unwrap().display().to_string()
+        );
+        assert!(ephemeral);
+    }
+
+    #[test]
+    fn ensure_recreates_missing_legacy_session_sandbox() {
+        let conv_id = format!("conv_stale_{}", uuid::Uuid::new_v4());
+        let stale = SessionSandbox::legacy_conversation_path(&conv_id)
+            .unwrap()
+            .display()
+            .to_string();
+        assert!(!Path::new(&stale).exists());
+        let mut settings = settings_with_workspace(&stale);
+        let ephemeral = ensure_subagent_workspace(&conv_id, None, &mut settings).unwrap();
+        assert!(Path::new(&settings.workspace_root).is_dir());
+        assert_eq!(
+            settings.workspace_root,
+            Path::new(&stale).canonicalize().unwrap().display().to_string()
+        );
         assert!(ephemeral);
     }
 }

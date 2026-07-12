@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { ChevronDown, FolderOpen, Paperclip, Send, Square, X } from 'lucide-vue-next'
+import { ChevronDown, FolderOpen, Paperclip, RefreshCw, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
@@ -21,6 +21,7 @@ import {
 } from '../../lib/api'
 import { getLocalFileSize } from '../../lib/tauri'
 import { detectDesktopOs } from '../../lib/desktopOs'
+import { useAppUpdater } from '../../composables/useAppUpdater'
 import {
   clearMacosComputerPermissionsUserAck,
   hasMacosComputerPermissionsUserAck
@@ -76,6 +77,7 @@ const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const showLoginBanner = computed(
   () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
 )
+const { updateReady, updateVersion, relaunch, dismiss, skipVersion } = useAppUpdater()
 const composerPlaceholder = computed(() => {
   if (needsPlatformLogin.value) {
     return platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户'
@@ -1068,6 +1070,38 @@ onUnmounted(() => {
             @cancel="onPlatformLoginCancel"
             @local-success="onLocalLoginSuccess"
           />
+        </div>
+      </div>
+
+      <div
+        v-if="updateReady"
+        class="mb-2 flex w-fit max-w-full flex-col gap-1.5"
+      >
+        <div
+          class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5"
+        >
+          <RefreshCw class="w-4 h-4 text-accent shrink-0" />
+          <p class="text-xs leading-snug text-foreground">
+            新版本 {{ updateVersion }} 已就绪
+          </p>
+          <button
+            class="h-7 px-3 rounded-lg bg-accent text-white text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
+            @click="relaunch"
+          >
+            立即重启
+          </button>
+          <button
+            class="h-7 px-2 rounded-lg text-xs text-muted hover:text-foreground cursor-pointer"
+            @click="dismiss"
+          >
+            稍后
+          </button>
+          <button
+            class="h-7 px-2 rounded-lg text-xs text-muted hover:text-foreground cursor-pointer"
+            @click="skipVersion"
+          >
+            跳过此版本
+          </button>
         </div>
       </div>
 

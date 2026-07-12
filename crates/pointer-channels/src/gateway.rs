@@ -14,6 +14,7 @@ use crate::pairing::PairingStore;
 use crate::registry::ChannelRegistry;
 use crate::session::conversation_id;
 use crate::session_abort::{is_abort_command, ABORT_ACK};
+use crate::session_about::{is_about_command, about_text};
 use crate::traits::{InboundMessage, OutboundContext};
 
 pub struct ChannelGateway {
@@ -208,6 +209,22 @@ impl ChannelGateway {
 
         let mut msg = msg;
         self.enrich_weixin_reply_context(&mut msg);
+
+        if is_about_command(&msg.text) {
+            let outbound = OutboundContext {
+                channel: msg.channel.clone(),
+                account_id: msg.account_id.clone(),
+                conversation_key: msg.conversation_key.clone(),
+                recipient_id: msg.sender_id.clone(),
+                reply_context: msg.reply_context.clone(),
+            };
+            plugin
+                .outbound
+                .send_text(outbound, &about_text())
+                .await?;
+            self.dedup.mark_seen(&namespace, &msg.dedup_key());
+            return Ok(());
+        }
 
         let conv_id = conversation_id(&msg, Some(&account.dynamic_agents));
         if is_abort_command(&msg.text) {

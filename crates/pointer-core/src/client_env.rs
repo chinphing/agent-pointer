@@ -41,7 +41,7 @@ pub fn collect_login_client_env() -> LoginClientEnv {
     }
 }
 
-fn app_version() -> String {
+pub fn app_version() -> String {
     option_env!("POINTER_APP_VERSION")
         .map(str::trim)
         .filter(|v| !v.is_empty())

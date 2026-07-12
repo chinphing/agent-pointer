@@ -7,7 +7,6 @@ import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
 import ChannelPairingModal from './components/channels/ChannelPairingModal.vue'
 import SettingsDialog from './components/settings/SettingsDialog.vue'
 import TerminalInputModal from './components/chat/TerminalInputModal.vue'
-import UpdateReadyBanner from './components/updater/UpdateReadyBanner.vue'
 import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
@@ -63,11 +62,7 @@ const {
 
 const {
   updateReady,
-  updateVersion,
-  updateNotes,
-  relaunch,
-  dismiss,
-  skipVersion
+  updateVersion
 } = useAppUpdater()
 
 onMounted(() => {
@@ -160,14 +155,5 @@ watch(showSkills, open => {
     v-if="terminalInputRequest"
     :request="terminalInputRequest"
     @close="chat.dismissTerminalInputModal()"
-  />
-
-  <UpdateReadyBanner
-    v-if="updateReady && updateVersion"
-    :version="updateVersion"
-    :notes="updateNotes"
-    @relaunch="relaunch"
-    @dismiss="dismiss"
-    @skip-version="skipVersion"
   />
 </template>

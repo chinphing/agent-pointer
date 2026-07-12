@@ -80,19 +80,19 @@ const sections = computed(() => {
     desc: '登录与凭据',
     icon: UserCircle
   }
-  if (!isTauriRuntime()) {
-    return [account, ...merged]
-  }
-  // Standalone web/server has no cloud shop; desktop platform mode keeps cloud.
-  if (platformAuth.isStandalone) {
-    return [account, ...merged]
-  }
-  // About section: desktop, non-standalone (platform mode with official API)
+  // About section: all modes
   const about = {
     id: 'about',
     label: '关于',
     desc: '版本与更新',
     icon: Info
+  }
+  if (!isTauriRuntime()) {
+    return [account, ...merged, about]
+  }
+  // Standalone web/server has no cloud shop; desktop platform mode keeps cloud.
+  if (platformAuth.isStandalone) {
+    return [account, ...merged]
   }
   return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }, about]
 })

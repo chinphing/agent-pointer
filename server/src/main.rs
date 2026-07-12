@@ -322,6 +322,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
+        .route("/api/version", get(api_version))
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
         .route("/api/auth/mode", get(local_auth::auth_mode))
@@ -762,6 +763,11 @@ async fn api_ready() -> Result<&'static str, StatusCode> {
     } else {
         Err(StatusCode::SERVICE_UNAVAILABLE)
     }
+}
+
+async fn api_version() -> Json<serde_json::Value> {
+    let version = pointer_core::client_env::app_version();
+    Json(serde_json::json!({"version": version}))
 }
 
 #[derive(Deserialize)]

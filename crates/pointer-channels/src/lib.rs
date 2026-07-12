@@ -24,6 +24,7 @@ pub mod registry;
 pub mod session;
 pub mod session_fork;
 pub mod session_abort;
+pub mod session_about;
 pub mod session_agent;
 pub mod session_reset;
 pub mod token_cache;

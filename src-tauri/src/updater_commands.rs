@@ -1,6 +1,11 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
+#[tauri::command]
+pub fn updater_log(msg: String) {
+    log::info!("[updater-fe] {}", msg);
+}
+
 #[derive(Serialize)]
 pub struct UpdateCheckResult {
     pub available: bool,
@@ -65,6 +70,8 @@ pub async fn download_update(app: AppHandle) -> Result<(), String> {
 
     let version = update.version.clone();
     log::info!("[updater] downloading version {}", version);
+
+    log::info!("[updater] calling download_and_install");
 
     let mut downloaded = 0;
     update

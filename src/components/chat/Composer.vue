@@ -78,7 +78,7 @@ const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const showLoginBanner = computed(
   () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
 )
-const { updateReady, updateVersion, updateNotes, relaunch, dismiss, skipVersion, checking, error, statusMessage } = useAppUpdater()
+const { updateReady, updateVersion, updateNotes, relaunch, dismiss, skipVersion } = useAppUpdater()
 
 function markdownToHtml(text: string | null): string {
   if (!text) return ''
@@ -1081,28 +1081,6 @@ onUnmounted(() => {
             @local-success="onLocalLoginSuccess"
           />
         </div>
-      </div>
-
-      <!-- Updater: checking -->
-      <div v-if="checking" class="mb-2 flex items-center gap-2 rounded-xl border border-accent/10 bg-accent-muted/20 px-3.5 py-2 w-fit">
-        <RefreshCw class="w-3.5 h-3.5 text-accent animate-spin shrink-0" />
-        <p class="text-xs text-muted">检查更新中…</p>
-      </div>
-
-      <!-- Updater: error -->
-      <div
-        v-if="error"
-        class="mb-2 flex items-center gap-2 rounded-xl border border-warning/20 bg-warning/10 px-3.5 py-2 w-fit max-w-[420px]"
-      >
-        <p class="text-xs text-muted">检查更新失败：{{ error }}</p>
-      </div>
-
-      <!-- Updater: status message (no update / skipped) -->
-      <div
-        v-if="statusMessage"
-        class="mb-2 rounded-xl border border-accent/10 bg-accent-muted/15 px-3.5 py-2 w-fit"
-      >
-        <p class="text-xs text-muted">{{ statusMessage }}</p>
       </div>
 
       <!-- Updater: ready -->

@@ -4,7 +4,7 @@ import { Info, ArrowUpRight, Loader2, RotateCw } from 'lucide-vue-next'
 import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 
-const { updateReady, updateVersion, checking, downloading, error, checkAndDownload, relaunch } = useAppUpdater()
+const { updateReady, updateVersion, checking, downloading, error, statusMessage, checkAndDownload, relaunch, skipVersion } = useAppUpdater()
 
 const currentVersion = ref('...')
 
@@ -61,6 +61,13 @@ function handleCheckUpdate() {
           <span>立即重启 {{ updateVersion }}</span>
         </button>
         <button
+          v-else-if="statusMessage && !checking"
+          class="h-7 px-3 rounded-lg border border-border/60 text-xs text-muted cursor-pointer hover:bg-hover hover:text-foreground transition-colors inline-flex items-center gap-1.5 shrink-0"
+          @click="handleCheckUpdate"
+        >
+          <span>重新检查</span>
+        </button>
+        <button
           v-else
           class="h-7 px-3 rounded-lg border border-border/60 text-xs text-muted cursor-pointer hover:bg-hover hover:text-foreground transition-colors inline-flex items-center gap-1.5 shrink-0 disabled:opacity-40"
           :disabled="checking || downloading"
@@ -71,6 +78,18 @@ function handleCheckUpdate() {
           <span v-else-if="downloading">下载中 {{ updateVersion }}…</span>
           <span v-else>检查更新</span>
         </button>
+      </div>
+
+      <div
+        v-if="statusMessage && !error"
+        class="mt-3 flex items-center justify-between rounded-lg bg-accent-muted/15 px-3 py-2 text-xs text-muted"
+      >
+        <span>{{ statusMessage }}</span>
+        <button
+          class="ml-2 text-xs underline underline-offset-2 hover:text-foreground"
+          @click="skipVersion"
+          v-if="updateVersion"
+        >跳过此版本</button>
       </div>
 
       <div

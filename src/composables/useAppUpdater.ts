@@ -16,21 +16,20 @@ const checking = ref(false)
 const downloading = ref(false)
 const error = ref<string | null>(null)
 
-/** Non-error status messages for transient UI feedback (auto-dismiss). */
+/** Status messages that auto-dismiss after 5s. */
 const statusMessage = ref<string | null>(null)
 let statusMessageTimer: ReturnType<typeof setTimeout> | null = null
 
-function showStatusMessage(msg: string, durationMs = 5000) {
+function showStatusMessage(msg: string) {
   if (statusMessageTimer) clearTimeout(statusMessageTimer)
   statusMessage.value = msg
   statusMessageTimer = setTimeout(() => {
     statusMessage.value = null
-  }, durationMs)
+  }, 5000)
 }
 
 async function checkAndDownload() {
   if (!isTauriRuntime()) return
-  // Only check on platform mode — standalone has no official update server
   const platformAuth = usePlatformAuthStore()
   if (platformAuth.isStandalone) return
 
@@ -44,6 +43,8 @@ async function checkAndDownload() {
       notes?: string
     }>('check_for_update')
 
+    invoke('updater_log', { msg: `check result: available=${result.available} version=${result.version} skipped=${skipped}` })
+
     if (!result.available || !result.version) {
       showStatusMessage('已是最新版本')
       return
@@ -56,11 +57,14 @@ async function checkAndDownload() {
     updateVersion.value = result.version
     updateNotes.value = result.notes ?? null
     downloading.value = true
+    invoke('updater_log', { msg: 'calling download_update' })
     await invoke('download_update')
+    invoke('updater_log', { msg: 'download_update succeeded' })
     updateReady.value = true
   } catch (e) {
-    error.value = String(e)
-    console.warn('[updater] check/download failed', e)
+    const errMsg = typeof e === 'string' ? e : String(e)
+    invoke('updater_log', { msg: `check/download failed: ${errMsg}` })
+    error.value = errMsg
   } finally {
     checking.value = false
     downloading.value = false

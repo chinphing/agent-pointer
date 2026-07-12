@@ -490,6 +490,7 @@ pub fn run() {
             updater_commands::check_for_update,
             updater_commands::download_update,
             updater_commands::restart_app,
+            updater_commands::updater_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

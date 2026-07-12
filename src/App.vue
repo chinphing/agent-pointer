@@ -7,9 +7,11 @@ import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
 import ChannelPairingModal from './components/channels/ChannelPairingModal.vue'
 import SettingsDialog from './components/settings/SettingsDialog.vue'
 import TerminalInputModal from './components/chat/TerminalInputModal.vue'
+import UpdateReadyBanner from './components/updater/UpdateReadyBanner.vue'
 import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
+import { useAppUpdater } from './composables/useAppUpdater'
 import { useChatStore } from './stores/chat'
 import { usePlatformAuthStore } from './stores/platformAuth'
 import { useSettingsStore } from './stores/settings'
@@ -58,6 +60,15 @@ const {
   expand: expandComputerCompact,
   stop: stopComputerCompact
 } = useComputerCompactMode()
+
+const {
+  updateReady,
+  updateVersion,
+  updateNotes,
+  relaunch,
+  dismiss,
+  skipVersion
+} = useAppUpdater()
 
 onMounted(() => {
   void Promise.all([platformAuth.load(), settings.load()])
@@ -149,5 +160,14 @@ watch(showSkills, open => {
     v-if="terminalInputRequest"
     :request="terminalInputRequest"
     @close="chat.dismissTerminalInputModal()"
+  />
+
+  <UpdateReadyBanner
+    v-if="updateReady && updateVersion"
+    :version="updateVersion"
+    :notes="updateNotes"
+    @relaunch="relaunch"
+    @dismiss="dismiss"
+    @skip-version="skipVersion"
   />
 </template>

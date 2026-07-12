@@ -4,10 +4,8 @@ import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-
 import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
 import {
   hasTaskBoardContent,
-  taskBoardMilestoneViewMode,
   taskBoardVisibleMilestones,
-  taskBoardVisibleMilestoneProgress,
-  taskBoardWorkItemsProgress
+  taskBoardVisibleMilestoneProgress
 } from '../../lib/taskBoard'
 import { milestoneRowLabel } from '../../lib/taskBoardDisplay'
 
@@ -21,14 +19,9 @@ const props = defineProps<{
 
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
 const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
-const viewMode = computed(() => taskBoardMilestoneViewMode(props.document))
 const visibleMilestones = computed(() => taskBoardVisibleMilestones(props.document))
 
-const milestoneProgress = computed(() => {
-  const fromDoc = taskBoardWorkItemsProgress(props.document)
-  if (viewMode.value !== 'step' && fromDoc) return fromDoc
-  return taskBoardVisibleMilestoneProgress(props.document)
-})
+const milestoneProgress = computed(() => taskBoardVisibleMilestoneProgress(props.document))
 
 const childBoardsWithContent = computed(() => {
   if (!props.isActive) return {}

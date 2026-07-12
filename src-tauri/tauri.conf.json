@@ -41,7 +41,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "deb", "appimage", "dmg"],
+    "createUpdaterArtifacts": true,
+    "targets": ["msi", "nsis", "deb", "appimage", "dmg"],
     "category": "Productivity",
     "shortDescription": "Pointer AI desktop chat client",
     "longDescription": "Pointer is a cross-platform desktop AI chat client built with Tauri 2 and Vue 3.",
@@ -72,6 +73,17 @@
       },
       "appimage": {
         "bundleMediaFramework": true
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_PUBLIC_KEY",
+      "endpoints": [
+        "https://pointer-api.readflowai.com/api/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

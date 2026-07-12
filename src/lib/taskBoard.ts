@@ -60,19 +60,10 @@ export function taskBoardMilestoneViewMode(
   return 'step'
 }
 
-/** Milestone rows shown in UI — same ladder as model inject. */
+/** Milestone rows shown in UI — full `global_milestones` ladder (no phase filtering). */
 export function taskBoardVisibleMilestones(
   doc: TaskBoardDocument | null | undefined
 ): TaskBoardItem[] {
-  if (!doc) return []
-  const mode = taskBoardMilestoneViewMode(doc)
-  if (mode === 'queue_exec') {
-    return taskBoardLoopItemRows(doc)
-  }
-  if (mode === 'queue_deliver') {
-    const deliver = taskBoardGlobalMilestones(doc).find(r => r.id === 'g_deliver')
-    return deliver ? [deliver] : []
-  }
   return taskBoardGlobalMilestones(doc)
 }
 
@@ -80,16 +71,6 @@ export function taskBoardVisibleMilestones(
 export function taskBoardVisibleMilestoneProgress(
   doc: TaskBoardDocument | null | undefined
 ): string {
-  if (taskBoardIsLoopMilestoneBoard(doc)) {
-    const fromMeta = taskBoardWorkItemsProgress(doc)
-    if (fromMeta) return fromMeta
-    const rows = taskBoardLoopItemRows(doc)
-    if (!rows.length) return '0/0'
-    const terminal = rows.filter(
-      i => i.status === 'done' || i.status === 'failed'
-    ).length
-    return `${terminal}/${rows.length}`
-  }
   const rows = taskBoardVisibleMilestones(doc)
   if (!rows.length) return '0/0'
   const terminal = rows.filter(

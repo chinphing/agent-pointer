@@ -71,7 +71,7 @@ describe('taskBoard helpers', () => {
     expect(taskBoardWorkItemsProgress(doc)).toBe('4/10')
   })
 
-  it('loop board shows wi rows only and meta progress', () => {
+  it('loop board shows full global_milestones ladder', () => {
     const doc: TaskBoardDocument = {
       version: 4,
       task_id: 'tb_loop',
@@ -93,14 +93,16 @@ describe('taskBoard helpers', () => {
     expect(taskBoardIsLoopMilestoneBoard(doc)).toBe(true)
     expect(taskBoardMilestoneViewMode(doc)).toBe('queue_exec')
     expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual([
+      'g_plan',
       'wi_1',
       'wi_2',
-      'wi_3'
+      'wi_3',
+      'g_deliver'
     ])
-    expect(taskBoardVisibleMilestoneProgress(doc)).toBe('2/10')
+    expect(taskBoardVisibleMilestoneProgress(doc)).toBe('3/5')
   })
 
-  it('deliver phase projects g_deliver only', () => {
+  it('deliver phase still shows full ladder in UI', () => {
     const doc: TaskBoardDocument = {
       version: 4,
       task_id: 'tb_deliver',
@@ -112,6 +114,11 @@ describe('taskBoard helpers', () => {
       ]
     }
     expect(taskBoardMilestoneViewMode(doc)).toBe('queue_deliver')
-    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['g_deliver'])
+    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual([
+      'g_plan',
+      'wi_1',
+      'g_deliver'
+    ])
+    expect(taskBoardVisibleMilestoneProgress(doc)).toBe('2/3')
   })
 })

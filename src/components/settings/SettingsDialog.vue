@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, Database, MessageSquare, UserCircle, Cloud, Clock } from 'lucide-vue-next'
+import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, Database, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -15,6 +15,7 @@ import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import RuntimeSettingsPanel from './panels/RuntimeSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
+import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -86,12 +87,19 @@ const sections = computed(() => {
   if (platformAuth.isStandalone) {
     return [account, ...merged]
   }
-  return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }]
+  // About section: desktop, non-standalone (platform mode with official API)
+  const about = {
+    id: 'about',
+    label: '关于',
+    desc: '版本与更新',
+    icon: Info
+  }
+  return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }, about]
 })
 
 const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
 const showFooterSave = computed(() => {
-  if (activeSection.value === 'account' || activeSection.value === 'runtime' || activeSection.value === 'cloud' || activeSection.value === 'automation') return false
+  if (activeSection.value === 'account' || activeSection.value === 'runtime' || activeSection.value === 'cloud' || activeSection.value === 'automation' || activeSection.value === 'about') return false
   return (
     activeSection.value === 'assistant' ||
     activeSection.value === 'channels' ||
@@ -272,6 +280,11 @@ async function saveFromFooter() {
 
           <section v-else-if="activeSection === 'cloud'" class="p-6 space-y-5">
             <CloudSettingsPanel :form="form" />
+          </section>
+
+          <!-- About Settings -->
+          <section v-else-if="activeSection === 'about'" class="p-6 space-y-5">
+            <AboutSettingsPanel />
           </section>
 
           <!-- ==================== Runtime Section ==================== -->

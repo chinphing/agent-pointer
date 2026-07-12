@@ -41,11 +41,11 @@ describe('taskBoardCollapsedLine', () => {
       ]
     })
     expect(summary?.taskLine).toBe('北京')
-    expect(summary?.progress).toBe('1/2')
+    expect(summary?.progress).toBe('2/4')
     expect(summary?.fullLine).toBe('北京')
   })
 
-  it('uses loop meta progress when available', () => {
+  it('counts all milestones in compact progress', () => {
     const summary = taskBoardCompactSummary({
       version: 4,
       task_id: 'tb_wi',
@@ -63,9 +63,9 @@ describe('taskBoardCollapsedLine', () => {
         { id: 'g_deliver', title: '交付', status: 'pending' }
       ]
     })
-    expect(summary?.progress).toBe('4/10')
-    expect(summary?.doneCount).toBe(4)
-    expect(summary?.total).toBe(10)
+    expect(summary?.progress).toBe('2/4')
+    expect(summary?.doneCount).toBe(2)
+    expect(summary?.total).toBe(4)
     expect(summary?.taskLine).toBe('B')
   })
 
@@ -81,6 +81,6 @@ describe('taskBoardCollapsedLine', () => {
       ]
     })
     expect(summary?.taskLine).toBe('交付')
-    expect(summary?.progress).toBe('0/1')
+    expect(summary?.progress).toBe('2/3')
   })
 })

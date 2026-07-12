@@ -12,6 +12,7 @@ mod popup_windows;
 mod cloud_webview;
 mod cloud_commands;
 mod window_chrome_commands;
+mod updater_commands;
 
 use pointer_channels::adapters::register_builtin_channels;
 use pointer_channels::{ChannelGateway, ChannelRegistry};
@@ -243,6 +244,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             popup_windows::create_main_window(app)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
@@ -485,6 +487,9 @@ pub fn run() {
             window_chrome_commands::restore_computer_compact_window,
             window_chrome_commands::reapply_window_chrome,
             window_chrome_commands::place_computer_compact_window,
+            updater_commands::check_for_update,
+            updater_commands::download_update,
+            updater_commands::restart_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

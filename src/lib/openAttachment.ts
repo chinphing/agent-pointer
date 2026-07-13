@@ -15,6 +15,14 @@ function triggerBrowserDownload(url: string, fileName: string) {
   anchor.click()
 }
 
+/** Download (web) or open with the OS default app (desktop). */
+export async function downloadAttachment(
+  att: RenderableAttachment,
+  loadedPreviewUrl?: string | null
+): Promise<void> {
+  return openAttachmentWithSystemDefault(att, loadedPreviewUrl)
+}
+
 /** Open a file attachment with the OS default app (desktop) or download/open preview (web). */
 export async function openAttachmentWithSystemDefault(
   att: RenderableAttachment,

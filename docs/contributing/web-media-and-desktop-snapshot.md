@@ -28,9 +28,9 @@ Composer 支持三种添加方式：回形针选择、粘贴图片、拖入文�
 
 | 能力 | 桌面 (Tauri) | Web (pointer-server) |
 |------|--------------|----------------------|
-| 图片/音频预览 | `previewChatMedia` | 同左（JSON base64 API） |
-| 视频预览 | `convertFileSrc` | `GET /api/chat/media-stream?storageRelPath=…` |
-| 文件打开/下载 | OS 默认应用 | `GET /api/chat/media-download?storageRelPath=…`（需登录） |
+| 图片预览 | `previewChatMedia` / 本地路径 | 同左（JSON base64 API） |
+| 视频 / 音频预览 | 本地 `convertFileSrc` 内联播放 | **不预览**，仅显示文件名 + 「下载」 |
+| 文档 / 其他文件 | OS 默认应用打开 | `GET /api/chat/media-download` 或 `media-ref-download`（需登录） |
 | IM 大文件外链 | — | `GET /api/media/public-download?token=…`（HMAC 限时，**无需登录**） |
 
 Web 端点击附件时，`openAttachmentWithSystemDefault` 对 `storageRelPath` 走带 cookie 的 `fetch` 下载。

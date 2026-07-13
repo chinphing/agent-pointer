@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { parseMarkdown } from '../../../lib/markdownConfig'
-import { Clipboard, FileText, FolderOpen, User } from 'lucide-vue-next'
+import { Clipboard, Download, FileText, FolderOpen, User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
@@ -10,11 +10,9 @@ import { userMessageDisplayContent } from '../../../lib/messageNormalizer'
 import MessageFooterActions from './MessageFooterActions.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
-import { isUsableAttachmentPreviewUrl } from '../../../lib/attachmentSupport'
 import { attachmentsForMessageRender } from '../../../lib/messageNormalizer'
-import { previewChatMedia, revealInFinder } from '../../../lib/api'
-import { prefetchAttachmentAbsPaths, resolveAttachmentAbsPath } from '../../../lib/attachmentLocalPath'
-import { resolveVideoPreviewUrl } from '../../../lib/chatMediaPreview'
+import { showsWebDownloadOnly } from '../../../lib/chatAttachmentLoad'
+import { useChatAttachmentDisplay } from '../../../composables/useChatAttachmentDisplay'
 import {
   isOpenableFileAttachment,
   openAttachmentWithSystemDefault
@@ -24,9 +22,6 @@ import { isTauriRuntime } from '../../../lib/runtime'
 const props = defineProps<{ message: ChatMessage }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
-const loadedPreviews = ref<Record<string, string>>({})
-const resolvedAbsPaths = ref<Record<string, string>>({})
-const previewInflight = new Set<string>()
 
 const displayContent = computed(() => userMessageDisplayContent(props.message))
 
@@ -34,83 +29,24 @@ const html = computed(() => parseMarkdown(displayContent.value))
 
 const attachments = computed(() => attachmentsForMessageRender(props.message))
 
+const {
+  mediaSrc,
+  filePath,
+  onDownloadAttachment,
+  copyFilePath,
+  onRevealInFinder
+} = useChatAttachmentDisplay(attachments)
+
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
 useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
-async function ensureMediaPreview(att: RenderableAttachment) {
-  if (loadedPreviews.value[att.id] || previewInflight.has(att.id)) return
-  previewInflight.add(att.id)
-  try {
-    if (att.kind === 'video') {
-      const streamUrl = await resolveVideoPreviewUrl(att)
-      if (streamUrl) {
-        loadedPreviews.value = { ...loadedPreviews.value, [att.id]: streamUrl }
-        return
-      }
-    }
-    if (!att.storageRelPath) return
-    const preview = await previewChatMedia(att.storageRelPath)
-    const mime = preview.mimeType || 'application/octet-stream'
-    loadedPreviews.value = {
-      ...loadedPreviews.value,
-      [att.id]: `data:${mime};base64,${preview.dataBase64}`
-    }
-  } catch (e) {
-    console.warn('previewChatMedia failed', e)
-  } finally {
-    previewInflight.delete(att.id)
-  }
-}
-
-function mediaSrc(att: { id: string; previewUrl?: string }): string | null {
-  if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
-  return loadedPreviews.value[att.id] ?? null
-}
-
-function filePath(att: RenderableAttachment): string | undefined {
-  return resolvedAbsPaths.value[att.id] ?? att.localAbsPath
-}
-
-async function copyFilePath(att: RenderableAttachment) {
-  const path = filePath(att) ?? (await resolveAttachmentAbsPath(att))
-  if (!path) return
-  try {
-    await navigator.clipboard.writeText(path)
-  } catch (e) {
-    console.warn('copy file path failed', e)
-  }
-}
-
-async function onRevealInFinder(att: RenderableAttachment) {
-  const path = filePath(att) ?? (await resolveAttachmentAbsPath(att))
-  if (!path) return
-  try {
-    await revealInFinder(path)
-  } catch (e) {
-    console.warn('reveal in finder failed', e)
-  }
-}
-
 async function onOpenAttachment(att: RenderableAttachment) {
   try {
-    await openAttachmentWithSystemDefault(att)
+    await openAttachmentWithSystemDefault(att, mediaSrc(att))
   } catch (e) {
     console.warn('open attachment failed', e)
   }
 }
-
-watch(
-  attachments,
-  list => {
-    for (const att of list) {
-      void ensureMediaPreview(att)
-    }
-    void prefetchAttachmentAbsPaths(list).then(map => {
-      resolvedAbsPaths.value = map
-    })
-  },
-  { immediate: true }
-)
 </script>
 
 <template>
@@ -136,6 +72,18 @@ watch(
               :alt="att.fileName"
               class="max-h-64 max-w-full rounded-xl border border-border object-contain"
             />
+            <button
+              v-else-if="showsWebDownloadOnly(att)"
+              type="button"
+              class="inline-flex max-w-full items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50"
+              :title="`下载 ${att.fileName}`"
+              @click="onDownloadAttachment(att)"
+            >
+              <FileText class="h-4 w-4 shrink-0 text-muted" />
+              <span class="truncate max-w-[200px]">{{ att.fileName }}</span>
+              <Download class="h-3.5 w-3.5 shrink-0 text-muted" />
+              <span class="shrink-0 text-muted">下载</span>
+            </button>
             <div
               v-else-if="att.kind === 'audio'"
               class="flex flex-col gap-1 items-end max-w-sm"
@@ -180,7 +128,6 @@ watch(
               <FileText class="h-4 w-4 shrink-0 text-muted" />
               <span class="truncate max-w-[240px]" :title="att.fileName">{{ att.fileName }}</span>
             </div>
-            <!-- 操作按钮悬浮层 -->
             <div
               v-if="(filePath(att) || att.storageRelPath) && (att.kind === 'image' || att.kind === 'video')"
               class="absolute top-2 right-2 hidden group-hover/media-attachment:flex gap-1 bg-background/80 backdrop-blur-sm rounded-lg p-1 shadow border border-border"

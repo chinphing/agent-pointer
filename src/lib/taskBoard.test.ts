@@ -3,11 +3,8 @@ import type { TaskBoardDocument } from '../types/chat'
 import {
   hasTaskBoardContent,
   taskBoardGlobalMilestones,
-  taskBoardMilestoneViewMode,
-  taskBoardIsLoopMilestoneBoard,
   taskBoardVisibleMilestoneProgress,
-  taskBoardVisibleMilestones,
-  taskBoardLoopItemsProgress
+  taskBoardVisibleMilestones
 } from './taskBoard'
 
 describe('taskBoard helpers', () => {
@@ -37,7 +34,7 @@ describe('taskBoard helpers', () => {
     expect(taskBoardGlobalMilestones(doc)).toHaveLength(1)
   })
 
-  it('linear board uses step mode', () => {
+  it('linear board progress counts all milestones', () => {
     const doc: TaskBoardDocument = {
       version: 4,
       task_id: 'tb_linear',
@@ -47,37 +44,15 @@ describe('taskBoard helpers', () => {
         { id: 'm2', title: 'Two', status: 'in_progress' }
       ]
     }
-    expect(taskBoardMilestoneViewMode(doc)).toBe('step')
     expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['m1', 'm2'])
+    expect(taskBoardVisibleMilestoneProgress(doc)).toBe('1/2')
   })
 
-  it('taskBoardLoopItemsProgress counts terminal wi_* rows', () => {
+  it('loop board progress counts full ladder including bookends', () => {
     const doc: TaskBoardDocument = {
       version: 4,
       task_id: 'tb_loop',
-      meta: {
-        goal: 'Batch',
-        status: 'running'
-      },
-      global_milestones: [
-        { id: 'g_plan', title: 'Plan', status: 'done' },
-        { id: 'wi_1', title: '#1', status: 'done' },
-        { id: 'wi_2', title: '#2', status: 'failed' },
-        { id: 'wi_3', title: '#3', status: 'in_progress' },
-        { id: 'g_deliver', title: 'Deliver', status: 'pending' }
-      ]
-    }
-    expect(taskBoardLoopItemsProgress(doc)).toBe('2/3')
-  })
-
-  it('loop board shows full global_milestones ladder', () => {
-    const doc: TaskBoardDocument = {
-      version: 4,
-      task_id: 'tb_loop',
-      meta: {
-        goal: 'Batch',
-        status: 'running'
-      },
+      meta: { goal: 'Batch', status: 'running' },
       global_milestones: [
         { id: 'g_plan', title: 'Plan', status: 'done' },
         { id: 'wi_1', title: '#1', status: 'done' },
@@ -86,8 +61,6 @@ describe('taskBoard helpers', () => {
         { id: 'g_deliver', title: 'Deliver', status: 'pending' }
       ]
     }
-    expect(taskBoardIsLoopMilestoneBoard(doc)).toBe(true)
-    expect(taskBoardMilestoneViewMode(doc)).toBe('queue_exec')
     expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual([
       'g_plan',
       'wi_1',
@@ -96,25 +69,5 @@ describe('taskBoard helpers', () => {
       'g_deliver'
     ])
     expect(taskBoardVisibleMilestoneProgress(doc)).toBe('3/5')
-  })
-
-  it('deliver phase still shows full ladder in UI', () => {
-    const doc: TaskBoardDocument = {
-      version: 4,
-      task_id: 'tb_deliver',
-      meta: { goal: 'Batch', status: 'running' },
-      global_milestones: [
-        { id: 'g_plan', title: 'Plan', status: 'done' },
-        { id: 'wi_1', title: '#1', status: 'done' },
-        { id: 'g_deliver', title: 'Deliver', status: 'in_progress' }
-      ]
-    }
-    expect(taskBoardMilestoneViewMode(doc)).toBe('queue_deliver')
-    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual([
-      'g_plan',
-      'wi_1',
-      'g_deliver'
-    ])
-    expect(taskBoardVisibleMilestoneProgress(doc)).toBe('2/3')
   })
 })

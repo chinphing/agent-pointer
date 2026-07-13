@@ -7,7 +7,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'relaunch'): void
+  (e: 'apply'): void
   (e: 'dismiss'): void
   (e: 'skipVersion'): void
 }>()
@@ -34,6 +34,10 @@ const emit = defineEmits<{
       </button>
     </div>
 
+    <p class="text-xs text-muted leading-relaxed">
+      安装完成后将自动重新打开应用
+    </p>
+
     <p v-if="notes" class="text-xs text-muted leading-relaxed line-clamp-2">
       {{ notes }}
     </p>
@@ -41,9 +45,9 @@ const emit = defineEmits<{
     <div class="flex items-center gap-2">
       <button
         class="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
-        @click="emit('relaunch')"
+        @click="emit('apply')"
       >
-        立即重启
+        立即更新
       </button>
       <button
         class="h-8 px-3 rounded-lg bg-hover text-foreground text-xs cursor-pointer hover:bg-hover/80 transition-colors"

@@ -11,6 +11,7 @@ import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
 import { useAppUpdater } from './composables/useAppUpdater'
+import UpdateReadyBanner from './components/updater/UpdateReadyBanner.vue'
 import { useChatStore } from './stores/chat'
 import { usePlatformAuthStore } from './stores/platformAuth'
 import { useSettingsStore } from './stores/settings'
@@ -62,7 +63,11 @@ const {
 
 const {
   updateReady,
-  updateVersion
+  updateVersion,
+  updateNotes,
+  applyUpdateNow,
+  dismissReady,
+  skipVersion,
 } = useAppUpdater()
 
 onMounted(() => {
@@ -155,5 +160,14 @@ watch(showSkills, open => {
     v-if="terminalInputRequest"
     :request="terminalInputRequest"
     @close="chat.dismissTerminalInputModal()"
+  />
+
+  <UpdateReadyBanner
+    v-if="updateReady"
+    :version="updateVersion"
+    :notes="updateNotes"
+    @apply="applyUpdateNow"
+    @dismiss="dismissReady"
+    @skip-version="skipVersion"
   />
 </template>

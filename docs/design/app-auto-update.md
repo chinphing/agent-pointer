@@ -305,8 +305,9 @@ macOS Universal Binary：同一 `.app.tar.gz` 同时写入 `darwin-aarch64` 与 
 - `src-tauri/src/lib.rs` 注册插件
 - 新增 `src-tauri/src/updater_commands.rs`：
   - `check_for_update()` → 返回 `{ available, version, notes, currentVersion }`
-  - `download_and_install_update()` → 触发下载+安装，emit 进度事件
-  - `relaunch_app()` → 调用 `app.restart()`
+  - `download_update()` → 仅下载并校验，缓存待安装包（不安装）
+  - `install_and_restart()` → 用户确认后安装并重启
+  - `restart_app()` → 调用 `app.restart()`（兼容兜底）
 
 进度事件（Tauri emit）：
 
@@ -335,30 +336,44 @@ Updater endpoint 与 OAuth 共用 `api_base()`，保证联调/生产域名一致
 
 ### 7.3 用户体验流程
 
-```
-App 启动
-  └─ 30s 后 → check_for_update()（静默）
-       ├─ 无更新 → 结束
-       └─ 有更新 → download_and_install_update()（后台）
-            ├─ 下载中 → 可选：状态栏小图标/不打扰
-            └─ 下载完成 → UpdateReadyBanner
-                 ├─ 「立即重启」→ relaunch_app()
-                 ├─ 「稍后」→  dismiss（下次启动再提示）
-                 └─ 「跳过此版本」→ localStorage 记录 skippedVersion
+**后台检查**（启动 30s / 每 6h，静默）：
 
-每 6 小时 → 重复检查（若未 ready 且未 skip）
-
-设置 → 关于 → 「检查更新」→ 同步 check，有更新则同上
 ```
+check_for_update()
+  ├─ 无更新 → 结束
+  └─ 有更新 → download_update()（仅下载+校验，不安装）
+       └─ UpdateReadyBanner / Composer 提示
+            ├─ 「立即更新」→ install_and_restart()
+            ├─ 「稍后」→ dismiss（已下载包保留，可再次提示）
+            └─ 「跳过此版本」→ localStorage skippedVersion
+```
+
+Banner 辅助说明：**「安装完成后将自动重新打开应用」**
+
+**主动检查**（设置 → 关于 →「检查更新」）：
+
+```
+check_for_update()（仅探测）
+  ├─ 已是最新 / 已跳过 → 提示 → 结束
+  └─ 发现新版本 → 关于页确认块
+       辅助说明：「将下载并安装，完成后自动重新打开应用」
+       ├─ 「稍后」→ 结束（不下载）
+       ├─ 「跳过此版本」→ skip
+       └─ 「立即更新」→ download_update() + install_and_restart()（一次确认，自动进新版）
+            进行中：「请勿关闭应用，完成后将自动重新打开」
+```
+
+**Windows 注意：** `install()` 会启动 MSI/NSIS 并 `process::exit(0)`。主动检查在用户确认后才下载+安装；后台路径在用户点「立即更新」后才安装。
 
 **文案原则（界面规范）：** 简洁、面向用户，不出现「manifest / sig / updater artifact」等开发术语。
 
 示例：
 
-- 检查中：「正在检查更新…」
-- 下载中：「正在下载新版本 {{version}}…」
-- 就绪：「新版本 {{version}} 已就绪，重启后生效」
-- 失败：「更新失败，请稍后重试或前往官网下载」（打开 `platform_endpoints::web_base()/download`）
+- 检查中：「检查中…」
+- 发现新版本：「发现新版本 vX」+ 辅助说明 +「立即更新」
+- 后台已就绪：「新版本 vX 已就绪」+「安装完成后将自动重新打开应用」
+- 更新中：「正在更新 vX…」+「请勿关闭应用，完成后将自动重新打开」
+- 失败：「更新失败，请稍后重试或前往官网下载」
 
 ### 7.4 错误处理
 

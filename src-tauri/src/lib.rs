@@ -290,6 +290,7 @@ pub fn run() {
                 }
             });
             app.manage(app_state.clone());
+            app.manage(updater_commands::PendingUpdateState::default());
             // Build the singleton run dispatcher (unified callable / event
             // trigger entry) backed by this AppState. All trigger sources
             // (IPC `send_chat`, HTTP Runs API, webhooks, cron, IM, internal)
@@ -489,6 +490,8 @@ pub fn run() {
             window_chrome_commands::place_computer_compact_window,
             updater_commands::check_for_update,
             updater_commands::download_update,
+            updater_commands::pending_update_version,
+            updater_commands::install_and_restart,
             updater_commands::restart_app,
             updater_commands::updater_log,
         ])

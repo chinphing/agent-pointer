@@ -7,7 +7,8 @@ import {
   saveConversationMeta,
   deleteConversation as deleteConversationApi,
   appendConversationMessages,
-  saveChatAttachment
+  saveChatAttachment,
+  getDispatcherQueueSnapshot
 } from '../lib/api'
 import type {
   AgentMode,
@@ -81,6 +82,7 @@ import {
   removeAssistantMessage,
   uid
 } from './chat/helpers'
+import { activeConversationIdsFromQueueSnapshot } from './chat/dispatcherRunSync'
 
 function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
   return conversations.map(c => ({
@@ -433,6 +435,25 @@ export const useChatStore = defineStore('chat', () => {
     return runStateFor(id).generating
   }
 
+  /** Restore generating UI from server dispatcher queue after page refresh. */
+  async function syncRunStateFromDispatcherQueue() {
+    try {
+      const snapshot = await getDispatcherQueueSnapshot()
+      const activeIds = activeConversationIdsFromQueueSnapshot(snapshot)
+      if (activeIds.size === 0) return
+      for (const convId of activeIds) {
+        if (isConversationGenerating(convId)) continue
+        patchRunState(convId, {
+          generating: true,
+          activeMessageId: runStateFor(convId).activeMessageId,
+        })
+        console.info('[chat] syncRunStateFromDispatcherQueue: active', convId)
+      }
+    } catch (err) {
+      console.warn('[chat] syncRunStateFromDispatcherQueue failed', err)
+    }
+  }
+
   /** Restore run UI when switching back to a conversation still streaming in the background. */
   function reconcileRunStateForConversation(conversationId: string) {
     const convId = conversationId.trim()
@@ -616,6 +637,7 @@ export const useChatStore = defineStore('chat', () => {
       newConversation()
     } else {
       currentId.value = shells[0]!.id
+      await syncRunStateFromDispatcherQueue()
       await ensureMessagesLoaded(shells[0]!.id)
       loadActiveComposerDraft(currentId.value)
     }

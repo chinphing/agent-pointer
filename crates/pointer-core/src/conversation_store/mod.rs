@@ -548,6 +548,15 @@ impl ConversationStore {
         runs::list_by_status(&conn, "queued", limit)
     }
 
+    pub fn runs_list_non_terminal_for_conversation(
+        &self,
+        conversation_id: &str,
+        limit: usize,
+    ) -> Result<Vec<runs::RunRecord>> {
+        let conn = self.db.conn.lock();
+        runs::list_non_terminal_by_conversation(&conn, conversation_id, limit)
+    }
+
     /// Cancel queued/running rows left over from a prior process (no live task).
     pub fn runs_reconcile_interrupted(&self) -> Result<u32> {
         self.db

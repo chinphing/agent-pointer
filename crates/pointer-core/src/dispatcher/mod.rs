@@ -283,6 +283,7 @@ impl RunDispatcher {
                 reused_run_id: Some(run_id),
             });
         }
+
         self.inner.events.emit(AgentEvent::RunQueued {
             run_id: run_id.clone(),
             seq: 0,
@@ -566,6 +567,34 @@ impl RunDispatcher {
         };
         log::info!("dispatch: cancelling run_id={run_id}");
         token.cancel();
+    }
+
+    /// Cancel all queued/running dispatcher runs for a conversation, plus the
+    /// legacy in-flight `run_chat` token registered on `AppState`.
+    pub fn cancel_conversation(&self, conversation_id: &str) {
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            return;
+        }
+        self.inner.state.cancel(conversation_id);
+        let runs = self
+            .inner
+            .state
+            .session_index
+            .runs_list_non_terminal_for_conversation(conversation_id, 32)
+            .unwrap_or_else(|e| {
+                log::warn!(
+                    "dispatch: cancel_conversation list runs failed conversation_id={conversation_id}: {e:#}"
+                );
+                Vec::new()
+            });
+        let run_count = runs.len();
+        for run in runs {
+            self.cancel(&run.run_id);
+        }
+        log::info!(
+            "dispatch: cancel_conversation conversation_id={conversation_id} runs={run_count}"
+        );
     }
 
     /// Block until the run reaches a terminal state, returning the outcome.

@@ -4,17 +4,9 @@ Multi-step work is tracked with **`task_board`**, not by pasting the full plan o
 
 **User-visible replies** go in assistant **`content`**. **`task_board`** holds milestones in **`global_milestones`**.
 
-### Complexity gate (align with Scenario)
+### Init gate
 
-| Scenario | Default `task_board_init` |
-|----------|---------------------------|
-| `narrow_confirm` | **Skip** |
-| `production_debug` (single root cause + single file fix) | **Skip**; multi-step or ≥2 files → init |
-| `single_module_fix` | Optional; ≥2 files or test+impl steps → init |
-| `cross_module_change` / `spec_map` | **Init** (3–6 rows) |
-| `design_only` | Optional; multi-phase → init |
-
-Initialize when expected scope is **≥2 files** or **cross-module**. If scope expands mid-task, init before heavy **Change**.
+Follow injected **`[TASK_BOARD_HINT]`** when present — **default skip `task_board_init`**. Same gate for lead and sub-agents.
 
 ### Recommended rows (3–6)
 

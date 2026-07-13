@@ -29,7 +29,7 @@
   子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
 - **可信会话键**：宿主在 `invoke` 前写入 **`_conversation_id`**，覆盖模型可能传入的同名字段，防止伪造；子 Agent 路径下写入的是上述 **子任务键**，不是裸 `conversation_id`。
 - 侧车标记：注册为 **`ToolEntry::new_sidecar`**（宿主侧 **`validate_envelope_tool_batch`** 等约束）；用法与 **`response` / `<sidecar_tools>`** 约定见 **`COMMUNICATION_PUBLIC`** 及各工具 **`doc_markdown`**（经 **`generate_tools_system_appendix`** 进入系统提示中的 **`## Tools`**）。未授权该工具时不会出现在上述附录中。
-- 当主会话 board 为空时，公共注入路径会复用 **`[TASK_BOARD_HINT]`**（当前仅 `computer` lead），推动多步任务尽早 `task_board:init`。
+- 当 board 为空时，公共注入路径按 **`init_policy.rs`** 注入 **`[TASK_BOARD_HINT]`**：首回合、**`task_board_abandon`** 后或 scope 升级（如 explore handoff）；Computer / Coder 主 agent 与子 agent 共用同一 gate。
 
 ## XML：`<sidecar_tools>` + 根级主工具
 

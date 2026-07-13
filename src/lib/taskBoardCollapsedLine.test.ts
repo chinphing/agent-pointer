@@ -51,10 +51,7 @@ describe('taskBoardCollapsedLine', () => {
       task_id: 'tb_wi',
       meta: {
         goal: 'BOSS 批量',
-        status: 'running',
-        work_items_done: 4,
-        work_items_failed: 0,
-        work_items_total: 10
+        status: 'running'
       },
       global_milestones: [
         { id: 'g_plan', title: '计划', status: 'done' },

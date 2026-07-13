@@ -79,29 +79,29 @@ export function taskBoardVisibleMilestoneProgress(
   return `${terminal}/${rows.length}`
 }
 
-/** Loop progress from document meta (synced from wi_* rows). */
-export function taskBoardWorkItemsProgress(
+/** Loop progress from wi_* rows (done+failed / total). */
+export function taskBoardLoopItemsProgress(
   doc: TaskBoardDocument | null | undefined
 ): string | null {
-  if (!doc?.meta) return null
-  const done = doc.meta.work_items_done
-  const failed = doc.meta.work_items_failed ?? 0
-  const total = doc.meta.work_items_total
-  if (typeof done !== 'number' || typeof total !== 'number' || total <= 0) return null
-  return `${done + failed}/${total}`
+  const rows = taskBoardLoopItemRows(doc)
+  if (!rows.length) return null
+  const terminal = rows.filter(
+    r => r.status === 'done' || r.status === 'failed'
+  ).length
+  return `${terminal}/${rows.length}`
 }
+
+/** @deprecated Use taskBoardLoopItemsProgress */
+export const taskBoardWorkItemsProgress = taskBoardLoopItemsProgress
 
 /** Stable key for UI refresh after board patches. */
 export function taskBoardDocumentSyncKey(
   doc: TaskBoardDocument | null | undefined
 ): string {
   if (!doc) return ''
-  const wi = [
-    doc.meta?.work_items_done ?? '',
-    doc.meta?.work_items_failed ?? '',
-    doc.meta?.work_items_total ?? '',
-    doc.meta?.work_items_in_progress ?? ''
-  ].join(':')
+  const wi = taskBoardLoopItemRows(doc)
+    .map(r => `${r.id}:${r.status}`)
+    .join('|')
   const globals = taskBoardGlobalMilestones(doc)
     .map(i => `${i.id}:${i.status}`)
     .join('|')

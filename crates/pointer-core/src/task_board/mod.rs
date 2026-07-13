@@ -9,6 +9,7 @@ pub mod finalize;
 pub mod gateway;
 pub mod history_trim;
 pub mod inject;
+pub mod init_policy;
 pub mod observability;
 pub mod loop_milestones;
 pub mod migrate;

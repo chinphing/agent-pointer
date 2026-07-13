@@ -1,9 +1,9 @@
 //! Prompt assembly context for lead and sub-agent rounds.
 
 use crate::agents::{AgentDef, AgentPlan, AgentProfile};
+use crate::models::{ChatMessage, ModelSettings};
 
 use super::session::{SessionRefs, SessionRefsArc};
-use crate::models::{ChatMessage, ModelSettings};
 
 /// Lead single-agent round prompt assembly.
 pub struct SingleAgentPromptContext<'a> {

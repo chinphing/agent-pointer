@@ -342,7 +342,7 @@ fn apply_patch(
         for (prev, incoming) in &transitions {
             loop_milestones::handle_loop_milestone_transition(doc, prev, incoming);
         }
-        loop_milestones::sync_loop_progress_meta(doc);
+        loop_milestones::sync_loop_meta(doc);
     }
 
     enforce_interim_drafts_budget(doc, &mut reflection, &mut warnings);

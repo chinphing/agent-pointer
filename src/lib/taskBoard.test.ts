@@ -7,7 +7,7 @@ import {
   taskBoardIsLoopMilestoneBoard,
   taskBoardVisibleMilestoneProgress,
   taskBoardVisibleMilestones,
-  taskBoardWorkItemsProgress
+  taskBoardLoopItemsProgress
 } from './taskBoard'
 
 describe('taskBoard helpers', () => {
@@ -51,24 +51,23 @@ describe('taskBoard helpers', () => {
     expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['m1', 'm2'])
   })
 
-  it('taskBoardWorkItemsProgress reads loop meta snapshot', () => {
+  it('taskBoardLoopItemsProgress counts terminal wi_* rows', () => {
     const doc: TaskBoardDocument = {
       version: 4,
       task_id: 'tb_loop',
       meta: {
         goal: 'Batch',
-        status: 'running',
-        work_items_done: 4,
-        work_items_failed: 0,
-        work_items_total: 10
+        status: 'running'
       },
       global_milestones: [
         { id: 'g_plan', title: 'Plan', status: 'done' },
         { id: 'wi_1', title: '#1', status: 'done' },
+        { id: 'wi_2', title: '#2', status: 'failed' },
+        { id: 'wi_3', title: '#3', status: 'in_progress' },
         { id: 'g_deliver', title: 'Deliver', status: 'pending' }
       ]
     }
-    expect(taskBoardWorkItemsProgress(doc)).toBe('4/10')
+    expect(taskBoardLoopItemsProgress(doc)).toBe('2/3')
   })
 
   it('loop board shows full global_milestones ladder', () => {
@@ -77,10 +76,7 @@ describe('taskBoard helpers', () => {
       task_id: 'tb_loop',
       meta: {
         goal: 'Batch',
-        status: 'running',
-        work_items_done: 2,
-        work_items_failed: 0,
-        work_items_total: 10
+        status: 'running'
       },
       global_milestones: [
         { id: 'g_plan', title: 'Plan', status: 'done' },

@@ -88,6 +88,7 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument, _store_key: &str) 
             }
         }
         MilestoneInjectMode::QueueExec => {
+            append_loop_shared_plan_section(&mut lines, doc);
             let items: Vec<BoardItem> = super::loop_milestones::loop_item_rows(doc)
                 .into_iter()
                 .cloned()
@@ -256,6 +257,15 @@ fn format_omitted_tasks_line(items: &[BoardItem], position: &str) -> String {
         format!("{} tasks: {}", items.len(), parts.join(", "))
     };
     format!("- … {range} omitted ({position}; {summary}) …")
+}
+
+fn append_loop_shared_plan_section(lines: &mut Vec<String>, doc: &BoardDocument) {
+    let Some(plan) = super::loop_milestones::loop_shared_plan(doc) else {
+        return;
+    };
+    lines.push(String::new());
+    lines.push("## Loop procedure (shared)".to_string());
+    lines.push(truncate_field(Some(plan.as_str()), PLAN_INJECT_MAX));
 }
 
 fn append_current_task_section(

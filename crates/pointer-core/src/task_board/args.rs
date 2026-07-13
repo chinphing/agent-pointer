@@ -175,11 +175,20 @@ pub fn item_milestones_from_args(args: &Value) -> Vec<Value> {
 
 /// Reject removed init fields (legacy work queue / inline seed).
 pub fn reject_init_removed_fields(args: &Value) -> Result<()> {
-    const REMOVED: &[&str] = &["work_items", "work_items_source", "item_milestones"];
+    const REMOVED: &[&str] = &[
+        "work_items",
+        "work_items_source",
+        "item_milestones",
+        "loop_item_plan",
+        "loop_item_done_when",
+        "loop_item_rules",
+        "item_plan",
+        "item_done_when",
+    ];
     for key in REMOVED {
         if args.get(key).is_some() {
             return Err(anyhow!(
-                "task_board: init field `{key}` removed; put wi_* rows in global_milestones (known list) or dynamic_quota (quota only)"
+                "task_board: init field `{key}` removed; use global_milestones (g_plan / wi_* / g_deliver) and dynamic_quota only"
             ));
         }
     }
@@ -527,6 +536,13 @@ mod tests {
         let norm = normalize_patch_args(args);
         assert!(norm.get("work_item_claim").unwrap().is_object());
         assert_eq!(norm["work_item_claim"]["target_key"], "t1");
+    }
+
+    #[test]
+    fn reject_init_loop_item_plan_field() {
+        let args = serde_json::json!({ "goal": "g", "loop_item_plan": "steps" });
+        let err = super::reject_init_removed_fields(&args).unwrap_err();
+        assert!(err.to_string().contains("loop_item_plan"));
     }
 
     #[test]

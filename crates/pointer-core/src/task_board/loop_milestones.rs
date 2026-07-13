@@ -6,6 +6,18 @@ use serde_json::{json, Value};
 
 const LOOP_ITEM_ID_PREFIX: &str = "wi_";
 
+/// Shared per-item procedure on loop boards: read from `g_plan.plan` when present.
+pub fn loop_shared_plan(doc: &BoardDocument) -> Option<String> {
+    plan_index(doc).and_then(|i| {
+        doc.global_milestones[i]
+            .plan
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    })
+}
+
 fn deliver_index(doc: &BoardDocument) -> Option<usize> {
     doc.global_milestones
         .iter()
@@ -139,55 +151,11 @@ pub fn loop_progress_json(doc: &BoardDocument) -> Option<Value> {
     Some(body)
 }
 
-pub fn sync_loop_progress_meta(doc: &mut BoardDocument) {
+pub fn sync_loop_meta(doc: &mut BoardDocument) {
     if !is_loop_milestone_board(doc) {
         return;
     }
-    let items: Vec<&BoardItem> = loop_item_rows(doc);
-    let done = items
-        .iter()
-        .filter(|r| r.status == ItemStatus::Done)
-        .count() as u32;
-    let failed = items
-        .iter()
-        .filter(|r| r.status == ItemStatus::Failed)
-        .count() as u32;
-    let total = items.len() as u32;
-    let in_progress = items
-        .iter()
-        .filter(|r| r.status == ItemStatus::InProgress)
-        .count() as u32;
-    doc.meta.work_items_done = Some(done);
-    doc.meta.work_items_failed = Some(failed);
-    doc.meta.work_items_total = Some(total);
-    doc.meta.work_items_in_progress = Some(in_progress);
-    doc.meta.expected_total = Some(total);
-}
-
-fn loop_item_plan_from_args(args: &Value) -> Option<String> {
-    args.get("loop_item_plan")
-        .or_else(|| args.get("item_plan"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-}
-
-fn loop_item_done_when_from_args(args: &Value) -> Option<String> {
-    args.get("loop_item_done_when")
-        .or_else(|| args.get("item_done_when"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-}
-
-fn loop_item_rules_from_args(args: &Value) -> Option<String> {
-    args.get("loop_item_rules")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+    doc.meta.expected_total = Some(loop_item_count(doc) as u32);
 }
 
 fn dynamic_quota_from_args(args: &Value) -> Option<u32> {
@@ -197,20 +165,11 @@ fn dynamic_quota_from_args(args: &Value) -> Option<u32> {
         .filter(|n| *n > 0)
 }
 
-fn make_loop_item_row(
-    index: usize,
-    title: &str,
-    plan: Option<&str>,
-    done_when: Option<&str>,
-    rules: Option<&str>,
-) -> BoardItem {
+fn make_loop_item_row(index: usize, title: &str) -> BoardItem {
     BoardItem {
         id: format!("{LOOP_ITEM_ID_PREFIX}{index}"),
         title: title.to_string(),
         status: ItemStatus::Pending,
-        plan: plan.map(|s| s.to_string()),
-        done_when: done_when.map(|s| s.to_string()),
-        rules: rules.map(|s| s.to_string()),
         ..BoardItem::default()
     }
 }
@@ -256,21 +215,9 @@ pub fn expand_loop_milestones_on_init(doc: &mut BoardDocument, args: &Value) -> 
         ));
     }
 
-    let plan = loop_item_plan_from_args(args);
-    let done_when = loop_item_done_when_from_args(args);
-    let rules = loop_item_rules_from_args(args);
-
     if let Some(quota) = dynamic_quota_from_args(args) {
         let rows: Vec<BoardItem> = (1..=quota)
-            .map(|i| {
-                make_loop_item_row(
-                    i as usize,
-                    &format!("#{i}"),
-                    plan.as_deref(),
-                    done_when.as_deref(),
-                    rules.as_deref(),
-                )
-            })
+            .map(|i| make_loop_item_row(i as usize, &format!("#{i}")))
             .collect();
         insert_loop_items(doc, rows)?;
         doc.meta.dynamic_quota = Some(quota);
@@ -305,15 +252,14 @@ pub fn validate_loop_milestone_init(doc: &BoardDocument, _args: &Value) -> Resul
                 "task_board: loop init must not include g_exec in the item ladder"
             ));
         }
-        if row
+        let row_plan = row
             .plan
             .as_deref()
             .map(str::trim)
-            .unwrap_or("")
-            .is_empty()
-        {
+            .filter(|s| !s.is_empty());
+        if row_plan.is_none() && loop_shared_plan(doc).is_none() {
             return Err(anyhow!(
-                "task_board: loop item {} requires plan (multi-step procedure)",
+                "task_board: loop item {} requires plan or g_plan.plan (shared procedure)",
                 row.id
             ));
         }
@@ -332,7 +278,7 @@ pub fn bootstrap_loop_milestone_board(doc: &mut BoardDocument) {
         }
     }
     ensure_single_loop_item_in_progress(doc);
-    sync_loop_progress_meta(doc);
+    sync_loop_meta(doc);
 }
 
 fn ensure_single_loop_item_in_progress(doc: &mut BoardDocument) {
@@ -410,7 +356,7 @@ pub fn handle_loop_milestone_transition(
     ) {
         advance_loop_item_after(doc, &incoming.id);
         maybe_auto_complete_loop_batch(doc);
-        sync_loop_progress_meta(doc);
+        sync_loop_meta(doc);
     }
 }
 
@@ -461,14 +407,7 @@ mod tests {
     #[test]
     fn expand_dynamic_quota_inserts_loop_rows_without_g_exec() {
         let mut doc = loop_shell();
-        expand_loop_milestones_on_init(
-            &mut doc,
-            &json!({
-                "dynamic_quota": 2,
-                "loop_item_plan": "1. open\n2. act",
-                "loop_item_done_when": "verified"
-            }),
-        )
+        expand_loop_milestones_on_init(&mut doc, &json!({ "dynamic_quota": 2 }))
         .expect("expand");
         assert!(is_loop_milestone_board(&doc));
         assert_eq!(loop_item_count(&doc), 2);
@@ -477,7 +416,15 @@ mod tests {
         assert_eq!(doc.global_milestones[1].id, "wi_1");
         assert_eq!(doc.global_milestones[2].id, "wi_2");
         assert_eq!(doc.global_milestones[3].id, "g_deliver");
-        assert!(doc.global_milestones[1].plan.is_some());
+        assert!(doc.global_milestones[1].plan.is_none());
+    }
+
+    #[test]
+    fn rejects_dynamic_quota_over_max_board_rows() {
+        let mut doc = loop_shell();
+        let err = expand_loop_milestones_on_init(&mut doc, &json!({ "dynamic_quota": 99 }))
+            .expect_err("expand");
+        assert!(err.to_string().contains("MAX_BOARD_ROWS"));
     }
 
     #[test]
@@ -492,13 +439,7 @@ mod tests {
                 ..BoardItem::default()
             },
         );
-        let err = expand_loop_milestones_on_init(
-            &mut doc,
-            &json!({
-                "dynamic_quota": 2,
-                "loop_item_plan": "steps"
-            }),
-        )
+        let err = expand_loop_milestones_on_init(&mut doc, &json!({ "dynamic_quota": 2 }))
         .expect_err("expand");
         assert!(err.to_string().contains("omit g_exec"));
     }

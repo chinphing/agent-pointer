@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub const BOARD_VERSION: u32 = 4;
-pub const MAX_BOARD_ROWS: usize = 20;
+pub const MAX_BOARD_ROWS: usize = 100;
 pub const RESULT_SNIPPET_MAX_CHARS: usize = 800;
 pub const RESULTS_MAX_ENTRIES: usize = 48;
 
@@ -100,15 +100,6 @@ pub struct BoardMeta {
     pub parent_sub_task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_store_key: Option<String>,
-    /// Loop progress counters (synced from wi_* rows).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_items_done: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_items_failed: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_items_total: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_items_in_progress: Option<u32>,
 }
 
 impl Default for BoardMeta {
@@ -126,10 +117,6 @@ impl Default for BoardMeta {
             root_target: None,
             parent_sub_task_id: None,
             parent_store_key: None,
-            work_items_done: None,
-            work_items_failed: None,
-            work_items_total: None,
-            work_items_in_progress: None,
         }
     }
 }

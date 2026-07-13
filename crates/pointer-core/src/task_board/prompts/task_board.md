@@ -36,16 +36,16 @@ Host inject shows the full step ladder under **All tasks**; patch one row per ve
 
 | Row | Role |
 | --- | --- |
-| `g_plan` | Planning / setup (usually `done` on init) |
-| `wi_1` … `wi_n` | One row per target — **multi-step GUI procedure in `plan`** |
+| `g_plan` | Setup + **shared per-item procedure** in `plan` when steps repeat across all `wi_*` |
+| `wi_1` … `wi_n` | One row per target — **title** (+ optional per-target `plan` / `done_when` overrides) |
 | `g_deliver` | Final delivery (`delivery_format` when exporting a file) |
 
 **Loop rules**
 
-- Put the **full per-item procedure** in each item row's **`plan`** (numbered steps).
+- Put the **shared per-item procedure** in **`g_plan.plan`** once; do not repeat on every `wi_*` unless one target differs.
 - Patch **one item row** to `done` / `failed` when that target is complete — not per GUI micro-step.
 - Host auto-advances the next `wi_*` to `in_progress`.
-- Max ~17 items inline (board row budget).
+- Max **100** rows in **`global_milestones`** (loop: up to **~98** **`wi_*`** plus **`g_plan`** and **`g_deliver`**).
 
 ### Loop seeding: enumerated vs dynamic
 
@@ -55,16 +55,16 @@ Choose from **what you know at init time** — not from convenience.
 | | **Enumerated (static list)** | **Dynamic (runtime quota)** |
 | --- | --- | --- |
 | **Use when** | Every target identity is already known | Only **how many** is known; identities appear later |
-| **Init fields** | Explicit **`wi_*`** rows in **`global_milestones`** (between **`g_plan`** and **`g_deliver`**) | **`dynamic_quota`** + shared **`loop_item_plan`** (host seeds **`wi_*`**) |
+| **Init fields** | Explicit **`wi_*`** rows in **`global_milestones`** | **`dynamic_quota`** only (host seeds **`wi_*`** placeholders) |
 | **Row titles at init** | Real target id in each **`wi_*` `title`** | Host placeholders **`#1`…`#N`** |
-| **Before exec** | Titles already set — start the item **`plan`** | Patch active row **`title`** when the target id is known, then run **`plan`** |
-| **Shared procedure** | Same **`plan`** / **`done_when`** on each **`wi_*`** row (repeat when identical) | **`loop_item_plan`** + optional **`loop_item_done_when`** (host copies to seeded rows) |
+| **Before exec** | Titles set — follow **`g_plan.plan`** | Patch active row **`title`** when target id is known |
+| **Shared procedure** | **`g_plan.plan`** (+ optional **`g_plan.done_when`** for item exit) | Same — write on **`g_plan`** at init, not on each **`wi_*`** |
 
 **Prefer enumerated when**
 
 - User, goal, or **Assigned task** lists numbered targets (phones, names, ids, …).
 - **Context** spells out the full set — add one **`wi_*`** row per target in **`global_milestones`** now.
-- Each target needs its own row **`title`**; put the per-item procedure in that row's **`plan`**.
+- Each target needs its own row **`title`**. Shared GUI steps belong in **`g_plan.plan`**, not copied to every row.
 
 **Prefer dynamic when**
 
@@ -220,9 +220,9 @@ Confirm **`in_progress_id`** matches **Current task** before patching.
 
 ## Core rules
 
-- **Init:** follow your agent profile complexity gate and any injected **`[TASK_BOARD_HINT]`** — do not init by default on every multi-step task.
+- **Init:** follow injected **`[TASK_BOARD_HINT]`** (first turn, after abandon, or scope upgrade) — default skip.
 - During execution, **`task_board_patch` every row transition** — do not rely on inject alone; finalize or prune when appropriate.
-- **Linear:** 3–8 milestones; **loop:** one milestone per item, procedure in `plan`.
+- **Linear:** 3–8 milestones; **loop:** only when batch signals (N≥8 enumerated targets or goal asks 汇总/逐条/批量/每个).
 - User switched tasks on a running board: **`task_board_abandon`**, then **`task_board_init`** when the new scope meets your profile gate.
 - Cancel obsolete rows with **`task_board_prune`**.
 - Finalize in the same turn as final user delivery.
@@ -284,19 +284,18 @@ Targets already in user context — one **`wi_*`** milestone row per target in *
 {
   "goal": "Search each phone in WeChat add-contact and record whether an account exists",
   "global_milestones": [
-    { "id": "g_plan", "title": "Open WeChat add-contact", "status": "done", "done_when": "Search box ready" },
+    { "id": "g_plan", "title": "Open WeChat add-contact", "status": "done", "done_when": "Search box ready",
+      "plan": "1. Enter phone in search box\n2. Press Enter\n3. Observe result — nickname/avatar = exists; not found = absent\n4. Note outcome" },
     {
       "id": "wi_1",
       "title": "13043841179",
       "status": "pending",
-      "plan": "1. Enter phone in search box\n2. Press Enter\n3. Observe result — nickname/avatar = exists; not found = absent\n4. Note outcome",
       "done_when": "Result observed and recorded"
     },
     {
       "id": "wi_2",
       "title": "13121928007",
       "status": "pending",
-      "plan": "1. Enter phone in search box\n2. Press Enter\n3. Observe result\n4. Note outcome",
       "done_when": "Result observed and recorded"
     },
     { "id": "g_deliver", "title": "Summarize all results", "status": "pending", "done_when": "User summary sent" }
@@ -304,7 +303,7 @@ Targets already in user context — one **`wi_*`** milestone row per target in *
 }
 ```
 
-Repeat **`wi_*`** rows for every known target (≤ ~17). Use the same **`plan`** text on each row when the GUI steps are identical.
+Repeat **`wi_*`** rows for every known target (≤ ~98). Put shared steps on **`g_plan.plan`** once.
 
 **Loop (dynamic quota) — `task_board_init`**
 
@@ -314,10 +313,14 @@ Count known, identities not — only **`g_plan`** / **`g_deliver`** in **`global
 {
   "goal": "Process 10 CRM account IDs discovered during the session",
   "dynamic_quota": 10,
-  "loop_item_plan": "1. Open CRM\n2. Search account ID\n3. Update status field\n4. Save and return to list",
-  "loop_item_done_when": "Status saved or already correct",
   "global_milestones": [
-    { "id": "g_plan", "title": "Prepare", "status": "done" },
+    {
+      "id": "g_plan",
+      "title": "Prepare",
+      "status": "done",
+      "plan": "1. Open CRM\n2. Search account ID\n3. Update status field\n4. Save and return to list",
+      "done_when": "Status saved or already correct"
+    },
     { "id": "g_deliver", "title": "Summarize", "status": "pending", "delivery_format": "xlsx" }
   ]
 }

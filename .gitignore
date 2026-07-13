@@ -9,9 +9,7 @@ target
 .codebuddy
 src-tauri/gen
 
-# macOS signing secrets (local only)
-signing/macos/signing.env
-signing/macos/*.p12
-signing/macos/AuthKey_*.p8
+# signing secrets (local only)
+signing
 
 **/*/__pycache__

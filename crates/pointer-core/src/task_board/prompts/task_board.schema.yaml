@@ -48,15 +48,6 @@ task_board_init:
         Dynamic loop — host seeds wi_1…wi_N between g_plan and g_deliver with placeholder titles (#1…#N).
         Use when only the count is known at init; patch each row title before exec when the target id appears.
         When targets are already known, put explicit wi_* rows in global_milestones instead.
-    loop_item_plan:
-      type: string
-      description: Shared multi-step procedure for each loop item row.
-    loop_item_done_when:
-      type: string
-      description: Shared done_when for each loop item row (optional).
-    loop_item_rules:
-      type: string
-      description: Shared rules for each loop item row (optional).
     global_context: {}
     _conversation_id:
       type: string

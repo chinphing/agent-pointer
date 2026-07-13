@@ -18,7 +18,6 @@ use super::sub_agent_task_prompt::{
     build_subagent_initial_user_message, build_subagent_spawn_depth_block,
     build_subagent_task_system_blocks, push_sub_agent_task_system_dynamic,
 };
-use crate::task_board::sub_agent_hint::sub_agent_task_board_init_hint;
 use crate::task_board::sub_agent_task_board_store_key;
 use super::emit::agent_trace_step_id;
 use super::sub_message::{load_scoped_transcript, persist_sub_message, SubMessageLinkage};
@@ -119,20 +118,6 @@ pub(super) fn init_sub_agent_session(
         }
     }
     session_extras.extend(skill_prompts);
-    if let Some(hint) = sub_agent_task_board_init_hint(
-        &state.task_board_store,
-        &sub_task_board_key,
-        &allowed_tools,
-        &def.profile,
-    ) {
-        crate::task_board::observability::log_sub_agent_init_hint(
-            conversation_id,
-            task.id.trim(),
-            &def.id,
-        );
-        session_extras.push(hint);
-    }
-
     let mut task_dynamic_blocks = build_subagent_task_system_blocks(
         &task.goal,
         &task.context,

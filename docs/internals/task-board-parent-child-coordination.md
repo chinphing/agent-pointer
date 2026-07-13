@@ -26,8 +26,7 @@ Details stay on the **child** board (`local_*`). Results are **reported** to the
 ## Prompt injection
 
 - Child rounds: `[TASK_BOARD]` (local) + `[TASK_BOARD_PARENT]` (read-only), see `sub_agent_prompt.rs`.
-- Sub-agent session start: `[TASK_BOARD_HINT]` when `task_board` is allowed and the child board is empty (`task_board/sub_agent_hint.rs`).
-- Main computer session start: `[TASK_BOARD_HINT]` can also be injected when board is empty (proactive init nudge).
+- Lead / sub-agent rounds: `[TASK_BOARD_HINT]` via **`CommonUserDynamicInjectHook`** when board empty (see `task_board/init_policy.rs`). Sub-agents use the same gate as lead; no per-session system hint duplication.
 - Compact snapshots: `task_board/snapshot.rs`.
 
 ## Observability

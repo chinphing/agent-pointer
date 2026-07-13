@@ -3,9 +3,10 @@
 
 use crate::agents::computer::state::ScreenCaptureResult;
 use crate::agents::computer::tier::ComputerTier;
-use crate::agents::computer::vision::screen;
+use crate::agents::computer::vision::{screen, screen_overlay};
+use crate::media::jpeg_vision;
 use crate::models::ComputerAnnotatedPreview;
-use anyhow::Context;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
 
@@ -53,6 +54,19 @@ pub fn safe_capture_file_path(rel: &str) -> Option<PathBuf> {
         return None;
     }
     Some(full)
+}
+
+/// Capture the host desktop for web manual preview: synthetic pointer + caret overlay, then
+/// bandwidth-friendly JPEG (long edge ≤1280px, ≤100KB).
+pub fn capture_manual_desktop_snapshot_jpeg() -> Result<Vec<u8>> {
+    let packet = screen::screenshot_current_monitor()?;
+    let marked = screen_overlay::mark_raw_jpeg_with_pointer_and_caret(
+        &packet.jpeg,
+        &packet.monitor,
+        packet.global_pointer,
+        packet.global_caret,
+    )?;
+    jpeg_vision::prepare_jpeg_for_manual_preview(&marked)
 }
 
 /// Read a saved annotated JPEG/PNG (legacy) and return the same shape as live preview.

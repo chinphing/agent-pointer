@@ -1,8 +1,9 @@
 import { isDiscardableEmptyAssistant } from '../../lib/assistantMessageKind'
 import type { ChatMessage, Conversation, ExcludedReason } from '../../types/chat'
 
+/** Conversation / message client ids — UUID v4 (stable opaque segment for media paths). */
 export function uid() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36)
+  return crypto.randomUUID()
 }
 
 function excludedContextState(reason: ExcludedReason): ChatMessage['contextState'] {

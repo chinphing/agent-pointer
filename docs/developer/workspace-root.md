@@ -18,6 +18,10 @@ When a chat run starts, the backend resolves the effective workspace in this ord
 
 Implementation: `chat_service/session_inner.rs` (`resolve_run_workspace`, `ensure_workspace_at_run_start`).
 
+## Desktop conversation ids
+
+Frontend `newConversation` / message client ids use **UUID v4** (`crypto.randomUUID()` in `src/stores/chat/helpers.ts`). Media dirs under `conversation-media/` use the same id after `sanitize_storage_dir_segment` (hyphens kept). Do not use `Math.random().toString(36)` for new session ids — opaque base36 strings are easy for models to mistype in tool args.
+
 ## Session sandbox layout
 
 | Case | Path |

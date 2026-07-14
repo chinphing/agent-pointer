@@ -12,7 +12,8 @@
 ## 「原始输出」（代码图标）
 
 - 入口：助手消息完成后，复制按钮旁的 **代码图标**（受设置 `rawContentViewEnabled` 控制）。
-- 面板：`RawWirePanel`，合并展示 **推理（若有）** 与 **`rawContent`**。
+- 面板：`RawWirePanel`，合并展示 **推理（若有）** 与 **正文通道**（优先 `rawContent`，否则回退 `content`）。
+- 正文通道**即使与主气泡相同也要显示**（勿因 `rawContent === content` 隐藏），否则无 `MEDIA:` 剥离时面板会只剩推理、看起来像“没有输出”。
 - **`reasoning` 只应出现在此面板内**；子 Agent 边框展开后标题栏右侧也有独立 **代码图标**（同一设置开关）。
 
 ## 无 `headline` 时的竖线进度（`|`）

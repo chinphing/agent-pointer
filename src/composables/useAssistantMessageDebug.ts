@@ -54,12 +54,16 @@ export function useAssistantMessageDebug(
 
   const rawWireReasoning = computed(() => message.value?.reasoning?.trim() || undefined)
 
+  /** Always surface the content-channel wire (even when it equals the bubble).
+   *  Hiding on `raw === content` made failed MEDIA / plain replies look like
+   *  “raw panel has only reasoning”. Prefer `rawContent`, fall back to `content`. */
   const rawWireContent = computed(() => {
     const msg = message.value
     if (!msg) return undefined
     const raw = msg.rawContent?.trim() ?? ''
-    if (raw && raw !== (msg.content?.trim() ?? '')) return raw
-    return undefined
+    if (raw) return raw
+    const content = msg.content?.trim() ?? ''
+    return content || undefined
   })
 
   const hasRawWire = computed(() => {

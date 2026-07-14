@@ -6,16 +6,24 @@ The `MEDIA:` marker works for **any local file** (images, video, audio, HTML, PD
 
 ### Format
 
-- Optional short caption, then **one line per file at the end**: `MEDIA:<absolute-path>` or `MEDIA:pointer-media://…`
-- Use a normal filesystem path (e.g. `C:\Users\…\minesweeper.html`, `/Users/…/out.pdf`) — **not** a `file://` URL in the marker.
-- **One file per line** (multiple files = multiple `MEDIA:` lines).
-- **Never** paste bare paths or `file://` links in prose (e.g. `C:\…\out.html`, `file:///C:/…/game.html`). Without `MEDIA:`, users may see path text instead of an attachment chip or player.
+- Optional short caption, then **one line per file at the end**:
+  - `MEDIA:<absolute-path>`
+  - `MEDIA:pointer-media://…`
+  - or a bare `pointer-media://…` line (host treats a resolvable URI as delivery)
+- Prefer a normal filesystem path (e.g. `C:\Users\…\minesweeper.html`, `/Users/…/out.pdf`) —
+  **not** a `file://` URL in the marker.
+- **One file per line** (multiple files = multiple `MEDIA:` / `pointer-media://` lines).
+- Prefer `MEDIA:` alone on its line (caption above). Paths may contain spaces
+  (e.g. macOS `…/Application Support/…`); do not wrap unless needed.
+- Do not leave only a bare absolute path in prose when you intend delivery —
+  use `MEDIA:` or `pointer-media://` so the host attaches the file.
 - The UI renders previews **below** the caption: images/video/audio inline; other files as a **named attachment** the user can open with the default app.
 - Use real paths from tool output, terminal stdout, or context **Local path** — do not invent paths.
 
 ### App chat
 
-Use `MEDIA:` + absolute path or `pointer-media://…`. The host attaches the file under your message.
+Use `MEDIA:` + absolute path, `MEDIA:pointer-media://…`, or a bare
+`pointer-media://…` line. The host attaches the file under your message.
 
 ### IM sessions (Feishu / DingTalk / WeCom / WeChat only)
 

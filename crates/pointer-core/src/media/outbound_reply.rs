@@ -1,49 +1,140 @@
 //! Parse outbound media markers from agent replies (OpenClaw `MEDIA:` convention).
 
+use super::media_ref::resolve_media_ref;
 use super::path_hint::MEDIA_URI_SCHEME;
-use super::resolve::resolve_local_media_path;
 use regex::Regex;
 use serde_json::Value;
 use std::sync::OnceLock;
 
 const MEDIA_PREFIX: &str = "MEDIA:";
 
-fn inline_media_re() -> &'static Regex {
+fn media_prefix_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?i)MEDIA:\s*`?([^\s`\n]+)`?").expect("inline media re")
+    RE.get_or_init(|| Regex::new(r"(?i)MEDIA:").expect("media prefix re"))
+}
+
+fn trim_trailing_path_punct(s: &str) -> &str {
+    s.trim_end_matches(|c: char| matches!(c, ',' | ';' | ')' | ']' | '}' | '.' | '。' | '、'))
+        .trim()
+}
+
+/// If `trimmed` begins with `MEDIA:` (ASCII, case-insensitive), return the suffix after it.
+///
+/// Uses [`str::get`] so non-ASCII line starts (e.g. Chinese bullets) never panic on a byte slice.
+fn media_line_suffix(trimmed: &str) -> Option<&str> {
+    let prefix = trimmed.get(..MEDIA_PREFIX.len())?;
+    if prefix.eq_ignore_ascii_case(MEDIA_PREFIX) {
+        Some(&trimmed[MEDIA_PREFIX.len()..])
+    } else {
+        None
+    }
+}
+
+/// Path + how many bytes of `after_marker` (not including a leading match of `MEDIA:`)
+/// were consumed to extract it.
+struct ParsedMediaPath<'a> {
+    path: &'a str,
+    consumed: usize,
+}
+
+/// Parse the path that follows a `MEDIA:` marker.
+///
+/// Supports spaced absolute paths (e.g. macOS `…/Application Support/…`) and
+/// optional `` ` `` / `"` / `'` quoting.
+///
+/// Unquoted: prefer the remainder of the line when that file exists; otherwise
+/// fall back to the first whitespace-delimited token so
+/// `Hello MEDIA:/tmp/a.png world` still works.
+fn parse_media_path_after_marker(after_marker: &str) -> Option<ParsedMediaPath<'_>> {
+    let trim_leading = after_marker.len() - after_marker.trim_start().len();
+    let rest = after_marker.trim_start();
+    if rest.is_empty() {
+        return None;
+    }
+    let bytes = rest.as_bytes();
+    let quote = bytes[0];
+    if matches!(quote, b'`' | b'"' | b'\'') {
+        let q = quote as char;
+        let end = rest[1..].find(q)?;
+        let inner = rest[1..1 + end].trim();
+        if inner.is_empty() {
+            return None;
+        }
+        return Some(ParsedMediaPath {
+            path: inner,
+            consumed: trim_leading + 1 + end + 1,
+        });
+    }
+
+    let full = trim_trailing_path_punct(rest);
+    if full.is_empty() {
+        return None;
+    }
+    if reply_media_path_resolves(full) {
+        return Some(ParsedMediaPath {
+            path: full,
+            consumed: trim_leading + full.len(),
+        });
+    }
+
+    // Mid-sentence form: `Hello MEDIA:/tmp/a.png world` — try the first token.
+    if let Some(token) = rest
+        .split_whitespace()
+        .next()
+        .map(trim_trailing_path_punct)
+        .filter(|t| !t.is_empty() && *t != full)
+    {
+        if reply_media_path_resolves(token) {
+            return Some(ParsedMediaPath {
+                path: token,
+                consumed: trim_leading + token.len(),
+            });
+        }
+    }
+
+    // Neither candidate exists — keep the full remainder so spaced paths stay intact in UI.
+    Some(ParsedMediaPath {
+        path: full,
+        consumed: trim_leading + full.len(),
     })
 }
 
-/// True when a `MEDIA:` path reference resolves to an existing file on disk.
+/// True when a reply media path / URI resolves to an existing file on disk.
+///
+/// Accepts absolute paths, `file://`, and `pointer-media://` (scheme stripped like
+/// [`resolve_media_ref`]).
 pub fn reply_media_path_resolves(path: &str) -> bool {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return false;
     }
-    resolve_local_media_path(trimmed)
+    resolve_media_ref(trimmed)
         .ok()
         .is_some_and(|p| p.is_file())
 }
 
 fn strip_resolved_inline_media(line: &str, media_paths: &mut Vec<String>) -> String {
-    inline_media_re()
-        .replace_all(line, |caps: &regex::Captures| {
-            let Some(m) = caps.get(1) else {
-                return caps.get(0).map(|x| x.as_str()).unwrap_or("").to_string();
-            };
-            let path = m.as_str().trim();
-            if path.is_empty() {
-                return caps.get(0).map(|x| x.as_str()).unwrap_or("").to_string();
-            }
-            if reply_media_path_resolves(path) {
-                media_paths.push(path.to_string());
-                String::new()
-            } else {
-                caps.get(0).map(|x| x.as_str()).unwrap_or("").to_string()
-            }
-        })
-        .to_string()
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(m) = media_prefix_re().find(rest) {
+        out.push_str(&rest[..m.start()]);
+        let after = &rest[m.end()..];
+        let Some(parsed) = parse_media_path_after_marker(after) else {
+            out.push_str(m.as_str());
+            rest = after;
+            continue;
+        };
+        let consumed = parsed.consumed.min(after.len());
+        if reply_media_path_resolves(parsed.path) {
+            media_paths.push(parsed.path.to_string());
+        } else {
+            // Keep the original marker + path text for failed delivery.
+            out.push_str(&rest[m.start()..m.end() + consumed]);
+        }
+        rest = &after[consumed..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Split agent reply into user-visible text and resolvable local media path references.
@@ -56,22 +147,26 @@ pub fn split_reply_media(reply: &str) -> (String, Vec<String>) {
 
     for line in reply.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix(MEDIA_PREFIX) {
-            let path = rest.trim();
-            if path.is_empty() {
+        if let Some(rest) = media_line_suffix(trimmed) {
+            let Some(parsed) = parse_media_path_after_marker(rest) else {
                 text_lines.push(line.to_string());
                 continue;
-            }
-            if reply_media_path_resolves(path) {
-                media_paths.push(path.to_string());
+            };
+            if reply_media_path_resolves(parsed.path) {
+                media_paths.push(parsed.path.to_string());
             } else {
                 text_lines.push(line.to_string());
             }
             continue;
         }
-        // Bare `pointer-media://` lines are inbound attachment hints — hide from text but
-        // do not inline them as assistant outbound media (only explicit `MEDIA:` counts).
+        // Bare `pointer-media://…` line: treat as outbound when the file resolves
+        // (same as `MEDIA:pointer-media://…`). Unresolved URIs stay visible.
         if trimmed.starts_with(MEDIA_URI_SCHEME) {
+            if reply_media_path_resolves(trimmed) {
+                media_paths.push(trimmed.to_string());
+            } else {
+                text_lines.push(line.to_string());
+            }
             continue;
         }
 
@@ -85,7 +180,7 @@ pub fn split_reply_media(reply: &str) -> (String, Vec<String>) {
     (text, media_paths)
 }
 
-/// Remove resolved `MEDIA:` / bare `pointer-media://` markers for App UI display.
+/// Remove resolved `MEDIA:` and resolvable bare `pointer-media://` lines for App UI display.
 pub fn strip_outbound_media_markers(text: &str) -> String {
     split_reply_media(text).0.trim().to_string()
 }
@@ -215,12 +310,31 @@ mod tests {
     }
 
     #[test]
-    fn bare_pointer_media_line_is_not_outbound_media() {
+    fn bare_pointer_media_unresolved_stays_in_text() {
         let uri = "pointer-media://conv-id/27582151-a370-4170-873b-bc12b9bff2c5.wav";
         let (text, media) = split_reply_media(&format!("{uri}\n当然可以！我能帮你写代码。"));
         assert!(media.is_empty());
         assert!(text.contains("当然可以"));
+        assert!(text.contains("pointer-media://"));
+    }
+
+    #[test]
+    fn bare_pointer_media_resolved_is_outbound() {
+        let root = crate::storage::app_data_dir().expect("app data dir");
+        let rel = format!(
+            "_anonymous/outbound-bare-{}/out.md",
+            uuid::Uuid::new_v4()
+        );
+        let file = root.join("conversation-media").join(&rel);
+        touch(&file);
+        let uri = format!("pointer-media://{rel}");
+        let (text, media) = split_reply_media(&format!("文档在这\n{uri}\n谢谢"));
+        assert_eq!(media, vec![uri.clone()]);
         assert!(!text.contains("pointer-media://"));
+        assert!(text.contains("文档在这"));
+        assert!(text.contains("谢谢"));
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(file.parent().unwrap());
     }
 
     #[test]
@@ -235,6 +349,72 @@ mod tests {
         assert_eq!(media, vec![uri]);
         assert!(!text.contains("MEDIA:"));
         let _ = fs::remove_file(&file);
+    }
+
+    #[test]
+    fn spaced_path_on_own_line_resolves() {
+        let dir = std::env::temp_dir().join(format!(
+            "pointer app support {}",
+            uuid::Uuid::new_v4()
+        ));
+        let file = dir.join("report v4.md");
+        touch(&file);
+        let path = file.display().to_string();
+        let (text, media) = split_reply_media(&format!("MEDIA:{path}"));
+        assert_eq!(media, vec![path]);
+        assert!(!text.contains("MEDIA:"));
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn spaced_path_inline_after_label_resolves() {
+        let dir = std::env::temp_dir().join(format!(
+            "pointer app support {}",
+            uuid::Uuid::new_v4()
+        ));
+        let file = dir.join("report v4.md");
+        touch(&file);
+        let path = file.display().to_string();
+        // Model-style delivery: label + MEDIA on the same bullet line (spaces in path).
+        let reply = format!("- MD 文档 V4.0：MEDIA:{path}");
+        let (text, media) = split_reply_media(&reply);
+        assert_eq!(media, vec![path]);
+        assert!(!text.contains("MEDIA:"));
+        assert!(text.contains("MD 文档 V4.0"));
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn spaced_path_missing_keeps_media_marker_in_text() {
+        // Contract (5df5847): unresolved MEDIA must stay visible — never strip without attach.
+        let path = format!(
+            "/tmp/pointer app support {}/missing report.md",
+            uuid::Uuid::new_v4()
+        );
+        let reply = format!("- MD 文档 V4.0：MEDIA:{path}");
+        let (text, media) = split_reply_media(&reply);
+        assert!(media.is_empty());
+        assert!(text.contains("MEDIA:"));
+        assert!(text.contains(&path));
+        assert!(text.contains("MD 文档 V4.0"));
+    }
+
+    #[test]
+    fn spaced_path_backtick_quoted_inline_resolves() {
+        let dir = std::env::temp_dir().join(format!(
+            "pointer app support {}",
+            uuid::Uuid::new_v4()
+        ));
+        let file = dir.join("report v4.md");
+        touch(&file);
+        let path = file.display().to_string();
+        let (text, media) = split_reply_media(&format!("文件：MEDIA:`{path}`"));
+        assert_eq!(media, vec![path]);
+        assert!(!text.contains("MEDIA:"));
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir(&dir);
     }
 
     #[test]

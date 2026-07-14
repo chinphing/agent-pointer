@@ -159,7 +159,12 @@ IM 入站触发 `run_chat` 时，流式事件（工具调用、推理、子 Agen
 MEDIA:pointer-media://{convId}/{attachmentId}.png
 MEDIA:pointer-media://generated-media/{user}/{conv}/{uuid}.png
 MEDIA:/absolute/path/to/report.pdf
+pointer-media://{user}/{convId}/{file}.md
 ```
+
+裸 `pointer-media://…` 整行（无 `MEDIA:` 前缀）在**文件可解析**时同样作出站附件；解析失败则保留在可见正文，便于排查。
+
+绝对路径可含空格（如 macOS `…/Library/Application Support/…`）。主机对同行写法（如 `- 文档：MEDIA:/…/Application Support/…/x.md`）按**整段路径**解析；旧逻辑用 `[^\s]+` 会在第一个空格处截断，文件不存在则**不入附件**，且按约定**不得剔除正文中的 `MEDIA:`**（`5df5847` / `split_reply_media`：仅文件真实存在时才抽出）。实现见 `media/outbound_reply.rs`。
 
 路径解析顺序：
 

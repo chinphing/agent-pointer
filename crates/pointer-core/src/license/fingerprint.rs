@@ -128,6 +128,10 @@ pub fn verify_machine_binding(
     machine_board_fp: Option<&str>,
     machine_cloud_fp: Option<&str>,
 ) -> Result<()> {
+    // Unbound licenses must not probe cloud metadata (blocking HTTP inside async startup).
+    if machine_id.map(str::trim).filter(|s| !s.is_empty()).is_none() {
+        return Ok(());
+    }
     let factors = collect_machine_factors()?;
     verify_machine_binding_with_factors(
         machine_id,

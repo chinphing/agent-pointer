@@ -6,6 +6,7 @@ pub mod client_env;
 pub mod dotenv;
 pub mod deployment_mode;
 pub mod local_auth;
+pub mod local_sso;
 pub mod license;
 pub mod server_config;
 pub mod server_access;

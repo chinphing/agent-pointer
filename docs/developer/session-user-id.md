@@ -7,6 +7,8 @@ Each conversation row stores `session_user_id` (API field `sessionUserId`).
 | Source | Value |
 | --- | --- |
 | Desktop / web chat | Platform OAuth user id on first `save_conversation_meta` (new session), `save_chat_attachment`, or `run_chat` when empty |
+| Standalone password login | Fixed `local-admin` |
+| Standalone SSO (`?sso=`) | Ticket claim `sub` (third-party user id) |
 | IM direct message | Channel `sender_id` (e.g. WeCom `userid`, Feishu `open_id`) |
 | IM shared group session | Fixed `conversation_key` (e.g. `wecom:group:{chatId}`) |
 
@@ -29,7 +31,7 @@ Values are normalized on write (`trim`); discovery joins `conversations` on `id`
 When the stored id is non-empty, Pointer injects `SESSION_USER_ID` into **`terminal`** child processes.
 See [terminal-environment-variables.md](terminal-environment-variables.md) for injection rules, thread-local guards, and script usage.
 
-**Requires a non-empty stored id:** desktop/Web need **平台账户** OAuth login so the first `run_chat` can persist `platform_user_id`; IM sessions use channel sender / group key. API-key-only chats without platform login leave `session_user_id` empty and the variable unset.
+**Requires a non-empty stored id:** desktop/Web platform OAuth, standalone SSO `sub`, or IM sender/group key. Standalone password-only sessions use `local-admin`. API-key-only chats without login leave `session_user_id` empty and the variable unset.
 
 ## On-disk layout (user-scoped)
 

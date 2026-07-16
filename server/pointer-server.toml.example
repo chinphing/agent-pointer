@@ -11,6 +11,12 @@
 # # Generate: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 # password_hmac = "...."
 #
+# # Third-party SSO (standalone only): open https://{audience}/?sso=<jwt>
+# [auth.local.sso]
+# enabled = true
+# secret = "replace-with-shared-hmac-secret"
+# audience = "https://pointer.example.com"
+#
 # [llm]
 # active_provider = "qwen"
 # [llm.providers.qwen]
@@ -58,9 +64,11 @@ static_dir = "dist"
 # any legacy auth.dat under the data dir so old global sessions are not reused
 # by the desktop-style code path on other entrypoints.
 #
-# Standalone mode: Web UI shows username/password + captcha login.
+# Standalone mode: Web UI shows username/password + captcha login, and optional
+# third-party SSO via ?sso=<jwt> (local HMAC verify; no official exchange-code).
 # POST /api/auth/local/login with [auth.local] username / password_hmac / hmac_secret.
 # Generate password_hmac: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
+# SSO: [auth.local.sso] secret + audience; mint with --mint-sso-ticket --sub USER_ID
 # Deprecated: admin_token is ignored.
 #
 # Conversation history (GET /api/conversations*) requires a logged-in browser

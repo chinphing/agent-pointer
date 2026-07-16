@@ -45,10 +45,8 @@ async function resolvePlatformSession(): Promise<PlatformSessionView> {
 }
 
 /**
- * Web only: after the OAuth provider redirects back to `/?platform_login=...`
- * or `?platform_login_error=...`, surface the result to the store and strip
- * the query so a refresh does not re-trigger the toast. Tauri runtime has no
- * browser redirect hop and is a no-op.
+ * Web only: after OAuth / SSO redirects, surface errors and strip query so a
+ * refresh does not re-trigger the toast. Tauri runtime is a no-op.
  */
 function consumeOAuthRedirectQuery(): string | null {
   if (isTauriRuntime()) return null
@@ -56,12 +54,20 @@ function consumeOAuthRedirectQuery(): string | null {
   const url = new URL(window.location.href)
   const successFlag = url.searchParams.get('platform_login')
   const errorMsg = url.searchParams.get('platform_login_error')
-  if (successFlag !== 'success' && !errorMsg) return null
+  const ssoError = url.searchParams.get('sso_error')
+  if (successFlag !== 'success' && !errorMsg && !ssoError) return null
   url.searchParams.delete('platform_login')
   url.searchParams.delete('platform_login_error')
+  url.searchParams.delete('sso_error')
   window.history.replaceState({}, '', url.toString())
   if (errorMsg === 'server_access_denied') {
     return '此 Server 未授权您的账户，请联系管理员'
+  }
+  if (ssoError) {
+    if (ssoError === 'not_configured') return 'SSO 未配置，请联系管理员'
+    if (ssoError === 'not_standalone') return '当前实例不支持 SSO 登录'
+    if (ssoError === 'missing') return '缺少 SSO 票据'
+    return 'SSO 登录失败，请重新从门户打开'
   }
   return errorMsg ? decodeURIComponent(errorMsg) : null
 }

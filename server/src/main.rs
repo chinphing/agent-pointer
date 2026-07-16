@@ -90,6 +90,8 @@ pub(crate) struct ServerState {
     web_sessions: Arc<WebSessionStore>,
     /// Standalone login captcha challenges (in-memory, one-time).
     captcha_store: Arc<local_auth::CaptchaStore>,
+    /// Standalone SSO ticket `jti` one-time store.
+    sso_nonces: Arc<pointer_core::local_sso::SsoNonceStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +160,93 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // --mint-sso-ticket: print a short-lived SSO ticket for standalone ?sso= login.
+    // Usage: pointer-server --mint-sso-ticket --sub USER_ID [--name NICK] [--ttl SECS]
+    //        [--secret SECRET] [--audience AUD]
+    if let Some(idx) = args.iter().position(|a| a == "--mint-sso-ticket") {
+        let _ = pointer_core::server_config::load_server_config();
+        let mut secret = std::env::var("POINTER_SERVER_SSO_SECRET").unwrap_or_default();
+        let mut audience = std::env::var("POINTER_SERVER_SSO_AUDIENCE").unwrap_or_default();
+        let mut sub = String::new();
+        let mut name: Option<String> = None;
+        let mut ttl: i64 = 120;
+        let mut i = idx + 1;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--secret" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("error: --secret requires a value");
+                        std::process::exit(1);
+                    }
+                    secret = args[i].clone();
+                }
+                "--audience" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("error: --audience requires a value");
+                        std::process::exit(1);
+                    }
+                    audience = args[i].clone();
+                }
+                "--sub" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("error: --sub requires a value");
+                        std::process::exit(1);
+                    }
+                    sub = args[i].clone();
+                }
+                "--name" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("error: --name requires a value");
+                        std::process::exit(1);
+                    }
+                    name = Some(args[i].clone());
+                }
+                "--ttl" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("error: --ttl requires a value");
+                        std::process::exit(1);
+                    }
+                    ttl = args[i].parse().unwrap_or(120);
+                }
+                other => {
+                    eprintln!("error: unexpected argument {other}");
+                    std::process::exit(1);
+                }
+            }
+            i += 1;
+        }
+        if secret.trim().is_empty() || audience.trim().is_empty() || sub.trim().is_empty() {
+            eprintln!(
+                "error: --mint-sso-ticket requires --sub and SSO secret/audience \
+                 (--secret/--audience or [auth.local.sso] / POINTER_SERVER_SSO_*)"
+            );
+            std::process::exit(1);
+        }
+        let now = chrono::Utc::now().timestamp();
+        match pointer_core::local_sso::mint_sso_ticket(
+            secret.trim(),
+            audience.trim(),
+            sub.trim(),
+            name.as_deref(),
+            ttl,
+            now,
+        ) {
+            Ok(ticket) => {
+                println!("{ticket}");
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     // --machine-id / --machine-id-json: print binding material and exit (no config/license needed)
     if args.iter().any(|a| a == "--machine-id-json") {
         match pointer_core::license::current_machine_identity() {
@@ -211,12 +300,23 @@ async fn main() -> anyhow::Result<()> {
 
     storage::set_platform_auth_persist_enabled(false);
     if pointer_core::deployment_mode::is_standalone() {
-        log::info!("pointer-server: standalone mode — local password auth + config-injected LLM keys");
+        log::info!("pointer-server: standalone mode — local password/SSO auth + config-injected LLM keys");
         pointer_core::local_auth::warn_if_deprecated_admin_token_configured();
         if !pointer_core::local_auth::local_password_auth_configured() {
             log::warn!(
-                "pointer-server: standalone auth incomplete — set [auth.local] username, \
+                "pointer-server: standalone password auth incomplete — set [auth.local] username, \
                  password_hmac, and hmac_secret (or matching POINTER_SERVER_ADMIN_* env vars)"
+            );
+        }
+        if pointer_core::local_sso::local_sso_configured() {
+            log::info!(
+                "pointer-server: standalone SSO enabled (audience={})",
+                pointer_core::local_sso::configured_sso_audience()
+            );
+        } else {
+            log::info!(
+                "pointer-server: standalone SSO not configured — set [auth.local.sso] secret + audience \
+                 for third-party ?sso= login"
             );
         }
     } else {
@@ -303,6 +403,7 @@ async fn main() -> anyhow::Result<()> {
         oauth_pending: Arc::new(RwLock::new(HashMap::new())),
         web_sessions: web_sessions.clone(),
         captcha_store: Arc::new(local_auth::CaptchaStore::default()),
+        sso_nonces: Arc::new(pointer_core::local_sso::SsoNonceStore::new()),
     };
 
     // Phase 5: start the cron scheduler. The server (web host) enables it by
@@ -329,6 +430,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/auth/login/start", post(start_platform_login))
         .route("/api/auth/local/captcha", get(local_auth::local_captcha))
         .route("/api/auth/local/login", post(local_auth::local_login))
+        .route("/api/auth/local/sso", get(standalone_sso_login))
         .route("/api/auth/oauth/callback", get(platform_oauth_callback))
         .route("/api/auth/logout", post(platform_logout))
         .route("/api/auth/refresh", post(refresh_platform_session))
@@ -2802,6 +2904,9 @@ async fn spa_fallback(
     State(state): State<ServerState>,
     uri: Uri,
 ) -> Result<Response, StatusCode> {
+    if let Some(resp) = try_standalone_sso(&state, &uri) {
+        return Ok(resp);
+    }
     if let Some(resp) = try_cloud_oauth_exchange(&state, &uri).await {
         return Ok(resp);
     }
@@ -2816,6 +2921,62 @@ async fn spa_fallback(
         return serve_static_file(&candidate).await;
     }
     serve_static_file(&root.join("index.html")).await
+}
+
+#[derive(Debug, Deserialize)]
+struct SsoQuery {
+    sso: Option<String>,
+}
+
+/// `GET /api/auth/local/sso?sso=` — standalone third-party SSO ticket login.
+async fn standalone_sso_login(
+    State(state): State<ServerState>,
+    Query(q): Query<SsoQuery>,
+) -> Response {
+    complete_standalone_sso(&state, q.sso.as_deref().unwrap_or(""))
+}
+
+fn try_standalone_sso(state: &ServerState, uri: &Uri) -> Option<Response> {
+    let query = uri.query()?;
+    let ticket = form_query_param(query, "sso")?;
+    Some(complete_standalone_sso(state, &ticket))
+}
+
+fn complete_standalone_sso(state: &ServerState, ticket: &str) -> Response {
+    use axum::response::Redirect;
+    if !pointer_core::deployment_mode::is_standalone() {
+        log::warn!("local_sso: rejected — not in standalone mode");
+        return Redirect::temporary("/?sso_error=not_standalone").into_response();
+    }
+    if ticket.trim().is_empty() {
+        return Redirect::temporary("/?sso_error=missing").into_response();
+    }
+    if !pointer_core::local_sso::local_sso_configured() {
+        log::warn!("local_sso: rejected — SSO not configured");
+        return Redirect::temporary("/?sso_error=not_configured").into_response();
+    }
+    match pointer_core::local_sso::verify_sso_ticket_now(ticket, &state.sso_nonces) {
+        Ok(identity) => {
+            let user_id = identity.user_id.clone();
+            let auth = pointer_core::local_auth::create_local_auth_manager_for_user(
+                &user_id,
+                identity.nickname,
+                false,
+            );
+            let creds = pointer_core::local_auth::empty_local_credentials();
+            let session_id = state.web_sessions.insert(
+                auth,
+                creds,
+                pointer_core::web_request_auth::WebSessionAuthKind::Local,
+            );
+            sync_automation_web_session(state);
+            log::info!("local_sso: login ok user_id={user_id} web_session={session_id}");
+            let mut resp = Redirect::temporary("/").into_response();
+            web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
+            resp
+        }
+        Err(_) => Redirect::temporary("/?sso_error=invalid").into_response(),
+    }
 }
 
 async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Response> {

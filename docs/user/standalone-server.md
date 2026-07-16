@@ -173,17 +173,17 @@ curl -X POST http://localhost:8787/api/license/reload
 
 ## 管理员登录
 
-Standalone 模式下使用 **账号密码 + 图形验证码** 代替官方 OAuth：
+Standalone **不走**官网云电脑 `code/state` 换码。支持：
 
-1. 浏览器打开 Web UI，在登录表单填写账号、密码、验证码。
-2. 或先取验证码再调 API：
+1. **第三方 SSO**：门户签发短时票后打开 `https://{public_url}/?sso=<ticket>`（配置见开发者文档 [standalone-local-login.md](../developer/standalone-local-login.md)）。
+2. **账号密码 + 图形验证码**（运维备用）：
 
 ```bash
 # 1) 取验证码
 curl -s http://localhost:8787/api/auth/local/captcha
 # → {"captchaId":"...","imageSvg":"<svg>...</svg>"}
 
-# 2) 登录（验证码看 SVG 或临时关掉校验仅用于脚本调试时需人工读图）
+# 2) 登录（验证码看 SVG）
 curl -X POST http://localhost:8787/api/auth/local/login \
   -H "Content-Type: application/json" \
   -c /tmp/pointer-cookies.txt \
@@ -192,7 +192,7 @@ curl -X POST http://localhost:8787/api/auth/local/login \
 
 成功后服务端返回 `Set-Cookie`（`pointer_web_session`），后续请求自动带 Session。
 
-配置项在 `pointer-server.toml` 的 `[auth.local]`：`username`、`password_hmac`、`hmac_secret`。
+配置：`[auth.local]`（密码）与可选 `[auth.local.sso]`（第三方跳转）。
 旧版 `admin_token` 已废弃并忽略。
 
 ---

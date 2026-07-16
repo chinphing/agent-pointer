@@ -23,6 +23,23 @@ struct DeploymentSection {
 }
 
 #[derive(Debug, Default, Deserialize)]
+struct AuthLocalSsoSection {
+    /// When false, SSO is off even if secret/audience are set.
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    secret: String,
+    /// Previous secret for rotation window.
+    #[serde(default)]
+    secret_prev: String,
+    /// Must match ticket `aud` (usually this instance public URL).
+    #[serde(default)]
+    audience: String,
+    #[serde(default)]
+    max_skew_secs: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 struct AuthLocalSection {
     #[serde(default)]
     username: String,
@@ -33,6 +50,8 @@ struct AuthLocalSection {
     /// Deprecated: ignored when present (use username + password_hmac).
     #[serde(default)]
     admin_token: String,
+    #[serde(default)]
+    sso: AuthLocalSsoSection,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -309,6 +328,39 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         base_dir,
         false,
     );
+    if let Some(enabled) = parsed.auth.local.sso.enabled {
+        pairs.push((
+            "POINTER_SERVER_SSO_ENABLED".to_string(),
+            if enabled { "true" } else { "false" }.to_string(),
+        ));
+    }
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_SSO_SECRET",
+        &parsed.auth.local.sso.secret,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_SSO_SECRET_PREV",
+        &parsed.auth.local.sso.secret_prev,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_SSO_AUDIENCE",
+        &parsed.auth.local.sso.audience,
+        base_dir,
+        false,
+    );
+    if let Some(skew) = parsed.auth.local.sso.max_skew_secs {
+        pairs.push((
+            "POINTER_SERVER_SSO_MAX_SKEW_SECS".to_string(),
+            skew.to_string(),
+        ));
+    }
     if let Some(key) = resolve_license_key(&parsed.license, base_dir) {
         pairs.push(("POINTER_LICENSE_KEY".to_string(), key));
     }

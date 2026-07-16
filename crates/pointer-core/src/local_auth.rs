@@ -120,8 +120,6 @@ pub fn warn_if_deprecated_admin_token_configured() {
 
 /// Build an in-memory platform session for standalone admin login (no OAuth refresh).
 pub fn create_local_auth_manager() -> Arc<PlatformAuthManager> {
-    let auth = Arc::new(PlatformAuthManager::new());
-    let expires_at = Utc::now().timestamp() + 365 * 24 * 3600;
     let nickname = {
         let u = configured_admin_username();
         if u.is_empty() {
@@ -130,15 +128,36 @@ pub fn create_local_auth_manager() -> Arc<PlatformAuthManager> {
             u
         }
     };
+    create_local_auth_manager_for_user(LOCAL_USER_ID, Some(nickname), true)
+}
+
+/// Standalone session for SSO (`user_id` becomes `session_user_id` / `SESSION_USER_ID`).
+pub fn create_local_auth_manager_for_user(
+    user_id: &str,
+    nickname: Option<String>,
+    is_platform_admin: bool,
+) -> Arc<PlatformAuthManager> {
+    let auth = Arc::new(PlatformAuthManager::new());
+    let expires_at = Utc::now().timestamp() + 365 * 24 * 3600;
+    let user_id = user_id.trim();
+    let id = if user_id.is_empty() {
+        LOCAL_USER_ID.to_string()
+    } else {
+        user_id.to_string()
+    };
+    let nickname = nickname
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(id.clone()));
     auth.set_partner_session(PlatformSession {
         access_token: "local-session".into(),
         refresh_token: String::new(),
         expires_at,
         agent_id: String::new(),
         user: PlatformUserSummary {
-            id: LOCAL_USER_ID.into(),
-            nickname: Some(nickname),
-            is_platform_admin: true,
+            id,
+            nickname,
+            is_platform_admin,
             included_tokens: 0,
             consumed_tokens: 0,
             token_quota_exhausted: false,

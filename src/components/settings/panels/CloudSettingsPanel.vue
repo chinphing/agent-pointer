@@ -29,6 +29,7 @@ import {
   type ShopPricing,
   type ShopRegion
 } from '../../../lib/cloudAgents'
+import { isBalanceExhaustedMessage, openPlatformBillingPage } from '../../../lib/platformUrls'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -459,14 +460,31 @@ onMounted(() => {
         class="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger"
         role="alert"
       >
-        {{ error }}
+        <div>{{ error }}</div>
+        <button
+          v-if="isBalanceExhaustedMessage(error)"
+          type="button"
+          class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+          @click="openPlatformBillingPage"
+        >
+          去充值
+        </button>
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div v-if="me" class="text-sm">
-          <span class="text-muted">余额 </span>
-          <span class="font-semibold tabular-nums text-accent">{{ me.balance_yuan }}</span>
-          <span class="text-muted text-xs"> 元</span>
+        <div v-if="me" class="text-sm flex flex-wrap items-center gap-2">
+          <span>
+            <span class="text-muted">余额 </span>
+            <span class="font-semibold tabular-nums text-accent">{{ me.balance_yuan }}</span>
+            <span class="text-muted text-xs"> 元</span>
+          </span>
+          <button
+            type="button"
+            class="h-7 px-2 rounded-lg border border-border text-[11px] hover:bg-hover cursor-pointer"
+            @click="openPlatformBillingPage"
+          >
+            充值
+          </button>
         </div>
         <div class="flex flex-wrap gap-2">
           <button

@@ -49,6 +49,8 @@ LLM usage is **post-paid soft overdraft** on the server (`charge_llm_yuan` alway
 | Mid-turn tool / multi-model rounds | No re-check (same turn may still soft-overdraft) |
 | Cloud agent open / oauth code | Same balance check |
 
+When exhausted, the desktop UI shows a composer banner and error card with a **去充值** button that opens `{POINTER_WEB_BASE}/profile/billing` (default `https://pointer.readflowai.com/profile/billing`).
+
 Login / token exchange / `GET /auth/partner/llm-credentials` are unchanged and do **not** perform this gate.
 
 Fail-closed: balance API failure blocks starting the turn (does **not** skip charging for already-completed rounds).

@@ -26,6 +26,7 @@ import {
   hasMacosComputerPermissionsUserAck
 } from '../../lib/macosPermissionsSession'
 import { isTauriRuntime } from '../../lib/runtime'
+import { openPlatformBillingPage } from '../../lib/platformUrls'
 import {
   CHAT_ATTACHMENT_ACCEPT,
   composerVideoCompressConfirmMessage,
@@ -81,7 +82,7 @@ const composerPlaceholder = computed(() => {
     return platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户'
   }
   if (tokenQuotaBlocked.value) {
-    return '账户余额已用尽，请前往官网余额页充值'
+    return '账户余额已用尽'
   }
   return settings.settings.hasKey ? '告诉我你想做什么' : '请先在设置中配置 API Key'
 })
@@ -218,6 +219,14 @@ function onLocalLoginSuccess() {
 
 function onPlatformLoginCancel() {
   void platformAuth.cancelLogin()
+}
+
+async function onOpenBilling() {
+  try {
+    await openPlatformBillingPage()
+  } catch (e) {
+    console.warn('[composer] open billing page failed', e)
+  }
 }
 
 
@@ -1068,6 +1077,26 @@ onUnmounted(() => {
             @cancel="onPlatformLoginCancel"
             @local-success="onLocalLoginSuccess"
           />
+        </div>
+      </div>
+
+      <div
+        v-else-if="tokenQuotaBlocked && !platformAuth.isStandalone"
+        class="mb-2 flex w-fit max-w-full flex-col gap-1.5"
+      >
+        <div
+          class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5"
+        >
+          <p class="shrink-0 text-xs leading-snug text-foreground">
+            账户余额已用尽，充值后可继续对话
+          </p>
+          <button
+            type="button"
+            class="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+            @click="onOpenBilling"
+          >
+            去充值
+          </button>
         </div>
       </div>
 

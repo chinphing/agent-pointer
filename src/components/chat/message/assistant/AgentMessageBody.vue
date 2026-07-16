@@ -13,6 +13,8 @@ import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
 import { assistantReplyMediaForRender } from '../../../../lib/messageNormalizer'
 import ChatMessageMediaGallery from '../ChatMessageMediaGallery.vue'
+import { isBalanceExhaustedMessage, openPlatformBillingPage } from '../../../../lib/platformUrls'
+import { usePlatformAuthStore } from '../../../../stores/platformAuth'
 
 export interface AgentMessageBodyModel {
   thoughts?: string
@@ -42,6 +44,22 @@ const props = defineProps<{
 }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
+const platformAuth = usePlatformAuthStore()
+
+const showBalanceRecharge = computed(
+  () =>
+    props.body.status === 'error' &&
+    !platformAuth.isStandalone &&
+    isBalanceExhaustedMessage(props.body.errorMessage)
+)
+
+async function onOpenBilling() {
+  try {
+    await openPlatformBillingPage()
+  } catch (e) {
+    console.warn('[chat] open billing page failed', e)
+  }
+}
 
 const isStreaming = computed(() => isMessageStreaming(props.body.status))
 
@@ -372,8 +390,22 @@ onUnmounted(() => clearReasoningCollapseTimer())
             <span class="typing-dot" style="animation-delay: 0.4s" />
           </div>
 
-          <div v-if="body.status === 'error'" class="mt-2 flex items-center gap-2 text-xs text-danger px-3">
-            {{ body.errorMessage || '生成失败' }}
+          <div v-if="body.status === 'error'" class="mt-2 px-3 text-xs text-danger">
+            <div class="flex items-center gap-2">
+              {{
+                showBalanceRecharge
+                  ? '账户余额已用尽，充值后可继续对话'
+                  : body.errorMessage || '生成失败'
+              }}
+            </div>
+            <button
+              v-if="showBalanceRecharge"
+              type="button"
+              class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+              @click="onOpenBilling"
+            >
+              去充值
+            </button>
           </div>
         </div>
 

@@ -357,13 +357,23 @@ export const useChatStore = defineStore('chat', () => {
     }).catch(err => {
       clearRunState(conv.id)
       console.error('sendChat error', err)
+      const errText = String(err)
+      if (
+        errText.includes('token_quota_exhausted') ||
+        errText.includes('账户余额已用尽') ||
+        errText.includes('账户余额不足')
+      ) {
+        usePlatformAuthStore().markTokenQuotaExhausted()
+      }
       conv.messages.push({
         id: uid(),
         role: 'assistant',
         content: '',
         status: 'error',
         createdAt: Date.now(),
-        errorMessage: String(err)
+        errorMessage: errText.includes('token_quota_exhausted') || errText.includes('账户余额已用尽')
+          ? '账户余额已用尽'
+          : errText
       })
       persistAppend(conv.id)
     })
@@ -1318,14 +1328,14 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     if (platformAuth.tokenQuotaExhausted) {
+      platformAuth.markTokenQuotaExhausted()
       conv.messages.push({
         id: uid(),
         role: 'assistant',
         content: '',
         status: 'error',
         createdAt: Date.now(),
-        errorMessage:
-          '账户余额已用尽，请前往 Pointer 官网余额页充值。'
+        errorMessage: '账户余额已用尽'
       })
       return
     }

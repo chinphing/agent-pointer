@@ -196,6 +196,12 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     session.value = { logged_in: false }
   }
 
+  /** Mark quota exhausted in UI after a live balance gate failure (run_chat). */
+  function markTokenQuotaExhausted() {
+    if (!session.value.logged_in) return
+    session.value = { ...session.value, tokenQuotaExhausted: true }
+  }
+
   return {
     session,
     loading,
@@ -210,6 +216,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     login,
     loginLocal,
     cancelLogin,
-    logout
+    logout,
+    markTokenQuotaExhausted
   }
 })

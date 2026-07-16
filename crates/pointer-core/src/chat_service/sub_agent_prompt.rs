@@ -291,7 +291,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         );
     }
     let before_main_llm_tail_ms = t.elapsed().as_millis();
-    log::info!(
+    log::debug!(
         "run_chat supervisor_sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} spawn_depth={} local_history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
         conversation_id,
         task_id,

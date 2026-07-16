@@ -84,7 +84,7 @@ impl ConversationTranscriptSession {
         }
 
         global_registry().register(conversation_id, session.clone());
-        log::info!(
+        log::debug!(
             "conversation_transcript: begin conversation_id={conversation_id} messages={message_count}"
         );
         Ok(session)

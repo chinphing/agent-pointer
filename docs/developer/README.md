@@ -47,6 +47,7 @@
 | [workspace-root.md](workspace-root.md) | 会话工作区根路径解析与沙箱目录布局 |
 | [session-user-id.md](session-user-id.md) | 会话 `session_user_id` 持久化与解析 |
 | [rust-text-truncation.md](rust-text-truncation.md) | UTF-8 安全字符串截断（`text_util`） |
+| [logging.md](logging.md) | `run_chat` 相关 info / debug 选用约定 |
 
 工作区 lint 配置（用户向）见 [`../user/project-lint.md`](../user/project-lint.md)。
 

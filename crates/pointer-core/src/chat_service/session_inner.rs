@@ -61,7 +61,7 @@ fn choose_main_task_board_store_key(
             && is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key)
         {
             state.set_active_main_task_board_key(conversation_id, &active_key);
-            log::info!(
+            log::debug!(
                 "task_board_main_key: reuse_active conversation_id={} store_key={}",
                 conversation_id,
                 active_key
@@ -360,7 +360,7 @@ pub(super) async fn run_chat_inner(
         last_api_prompt,
     )
     .await;
-    log::info!(
+    log::debug!(
         "run_chat_inner: maybe_compress_history finished conversation_id={} wall_ms={} history_messages={}",
         conversation_id,
         t_compress.elapsed().as_millis(),
@@ -592,7 +592,7 @@ fn ensure_workspace_at_run_start(
             &path.display().to_string(),
         );
     } else {
-        log::info!(
+        log::debug!(
             "ensure_workspace_at_run_start: reusing sandbox conversation_id={conversation_id}: {}",
             path.display()
         );

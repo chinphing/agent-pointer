@@ -108,7 +108,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         );
     }
     let before_main_llm_tail_ms = t.elapsed().as_millis();
-    log::info!(
+    log::debug!(
         "run_chat single_agent pre_stream_chat conversation_id={} assistant_id={} history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
         conversation_id,
         assistant_id,

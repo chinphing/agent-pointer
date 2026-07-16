@@ -485,7 +485,7 @@ async fn compress_history_inner(
     let (gate_tokens, payload_est, api_prompt, gate_source) =
         compression_gate_tokens(history, reported_prompt_tokens);
     if !force_ignore_char_budget && gate_tokens <= budget_tokens {
-        log::info!(
+        log::debug!(
             "context_compress: skip_under_budget conversation_id={} messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} wall_ms={}",
             conversation_id,
             messages_before,

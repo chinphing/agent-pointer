@@ -261,7 +261,7 @@ pub fn apply_login_llm_credentials(
     for p in &mut platform.providers {
         if p.id == pid {
             p.api_key = key.to_string();
-            log::info!("platform_config: injected api_key for provider {pid}");
+            log::debug!("platform_config: injected api_key for provider {pid}");
             return;
         }
     }
@@ -287,7 +287,7 @@ pub fn apply_login_llm_provider_api_keys(
         };
         if let Some(p) = platform.providers.iter_mut().find(|p| p.id == pid) {
             p.api_key = key.to_string();
-            log::info!("platform_config: injected api_key for provider {pid}");
+            log::debug!("platform_config: injected api_key for provider {pid}");
         } else {
             log::warn!("platform_config: provider id {pid} not found in platform config");
         }
@@ -360,7 +360,7 @@ pub fn apply_login_media_oss(
         access_key_secret: access_key_secret.to_string(),
         ..MediaOssConfig::default()
     };
-    log::info!("platform_config: injected media_oss from platform login");
+    log::debug!("platform_config: injected media_oss from platform login");
 }
 
 fn resolve_llm_provider_id(llm_provider: Option<&str>, providers: &[ProviderConfig]) -> Option<String> {

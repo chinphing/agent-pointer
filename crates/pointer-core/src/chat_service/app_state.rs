@@ -195,7 +195,7 @@ impl AppState {
             return;
         }
         *self.automation_llm_creds.write() = Some(creds.clone());
-        log::info!("automation: cached LLM credentials for headless runs");
+        log::debug!("automation: cached LLM credentials for headless runs");
     }
 
     /// Browser OAuth session reused by webhook/cron (pointer-server).

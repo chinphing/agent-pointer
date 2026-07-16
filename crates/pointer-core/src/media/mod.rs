@@ -62,9 +62,10 @@ pub use outbound_reply::{
     im_outbound_reply_source, reply_media_source, split_reply_media, strip_outbound_media_markers,
 };
 pub use manifest::{
-    append_user_attachments_api_context, attachment_summaries_json, attachment_summary_json,
+    append_delivered_attachments_api_context, append_user_attachments_api_context,
+    attachment_summaries_json, attachment_summary_json, format_delivered_attachments_api_manifest,
     format_user_attachments_api_manifest, ATTACHMENT_NEEDS_INTENT_MARKER,
-    USER_ATTACHMENTS_MARKER,
+    DELIVERED_ATTACHMENTS_MARKER, USER_ATTACHMENTS_MARKER,
 };
 pub use media_ref::{read_media_ref_bytes, resolve_media_ref};
 pub use resolve::{is_storage_rel_path, resolve_local_media_path};

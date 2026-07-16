@@ -306,11 +306,15 @@ pub fn make_openai_messages(
                 }));
             }
             Role::Assistant => {
+                let api_content = crate::media::append_delivered_attachments_api_context(
+                    &m.content,
+                    m.attachments.as_deref().unwrap_or(&[]),
+                );
                 let mut obj = serde_json::Map::new();
                 obj.insert("role".into(), "assistant".into());
                 obj.insert(
                     "content".into(),
-                    serde_json::Value::String(m.content.clone()),
+                    serde_json::Value::String(api_content),
                 );
                 // DeepSeek 等「思考模式」在流式里下发 `reasoning_content`；下一轮请求必须原样带回，
                 // 否则 400 — 可由设置 `reasoningInMessages` 关闭（关闭后勿对该类模型开思考）。
@@ -477,6 +481,38 @@ mod make_openai_messages_tests {
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "answer");
         assert_eq!(out[0]["reasoning_content"], "step 1…");
+    }
+
+    #[test]
+    fn assistant_attachments_inject_delivered_manifest_on_wire() {
+        use crate::media::{
+            ATTACHMENT_NEEDS_INTENT_MARKER, DELIVERED_ATTACHMENTS_MARKER, USER_ATTACHMENTS_MARKER,
+        };
+        use crate::models::MediaAttachment;
+
+        let mut a = msg(Role::Assistant);
+        a.content = "here is the file".into();
+        a.attachments = Some(vec![MediaAttachment {
+            id: "att1".into(),
+            kind: "image".into(),
+            mime_type: "image/png".into(),
+            file_name: "out.png".into(),
+            size_bytes: 10,
+            storage_rel_path: Some("conv/out.png".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        }]);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
+        let content = out[0]["content"].as_str().expect("text content");
+        assert!(content.starts_with("here is the file"));
+        assert!(content.contains(DELIVERED_ATTACHMENTS_MARKER));
+        assert!(content.contains("**out.png**"));
+        assert!(content.contains("pointer-media://conv/out.png"));
+        assert!(!content.contains(USER_ATTACHMENTS_MARKER));
+        assert!(!content.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
     }
 
     #[test]

@@ -9,7 +9,7 @@
 - Composer 支持图片、文档、音频、视频附件（**视频** OSS 上限 **5 GB**；**>500 MB** 需用户确认后压缩；IM 入站视频同策略但 **>500 MB 自动压缩**；非视频 IM 媒体 **30 MB**）
 - 主模型保持用户所选 agent 模型不变
 - **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`
-- **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）
+- **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）；用户附件用 `<!-- pointer-user-attachments -->`，助手 `MEDIA:` 交付附件用 `<!-- pointer-delivered-attachments -->`（均为 API-only，不写回 `content`）
 - **按需理解**：`media_understand`（image/video/audio/pdf 扫描件回退）
 - Office / PDF：**docx** / **xlsx** / **pptx** / **pdf** Skill + terminal（`localPath`）；PDF 阅读优先 skill，扫描件才 `media_understand`
 - App（Tauri）与 Web 端行为一致

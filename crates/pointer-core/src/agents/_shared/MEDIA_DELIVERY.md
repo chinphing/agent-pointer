@@ -19,6 +19,8 @@ The `MEDIA:` marker works for **any local file** (images, video, audio, HTML, PD
   use `MEDIA:` or `pointer-media://` so the host attaches the file.
 - The UI renders previews **below** the caption: images/video/audio inline; other files as a **named attachment** the user can open with the default app.
 - Use real paths from tool output, terminal stdout, or context **Local path** — do not invent paths.
+- After delivery, later turns may include `<!-- pointer-delivered-attachments -->` with the same
+  **ref** / **localPath** fields — reuse those for follow-up; they are not a new user upload.
 
 ### App chat
 

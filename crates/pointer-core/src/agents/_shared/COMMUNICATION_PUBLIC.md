@@ -68,6 +68,13 @@ keep internal stage templates out of **`content`**.
   Page/index ranges: follow **`media_understand`** tool schema. Non-image modes: **`refs`** must have exactly one element.
   Video: put segment focus in **goal** (default **1 fps** sampling).
 
+- **Delivered attachments:** When you see `<!-- pointer-delivered-attachments -->`,
+  those files were **already sent to the user** in a prior assistant turn
+  (same fields: **fileName**, **ref**, **localPath**).
+  Reuse those paths for follow-up (re-deliver with `MEDIA:`, edit, understand).
+  Do **not** treat them as a new user upload, and do **not** ask intent solely
+  because this block is present.
+
 - **User-visible language (mandatory):** Match the language of the user's **latest**
   real message for all user-facing text: assistant **`content`**, clarify questions,
   and human-readable tool summaries.

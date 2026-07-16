@@ -65,6 +65,12 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
 `<!-- pointer-user-attachments -->`, the user sent file(s). Each entry lists **fileName**,
 **ref** (`pointer-media://…`), and **localPath** (absolute path).
 
+**Delivered attachments (`pointer-delivered-attachments`):** When context includes
+`<!-- pointer-delivered-attachments -->`, those files were **already delivered** to the
+user in a prior assistant turn (same **fileName** / **ref** / **localPath** fields).
+Reuse paths for follow-up; do **not** treat as a new user upload; do **not** ask intent
+solely because this block is present.
+
 - **Intent unclear** (only files, or vague "take a look" / "analyze this") → **ask first** what to do
   (transcribe, describe, OCR, summarize, edit Office, etc.). Do **not** guess and call
   `media_understand` or run Skills without consent.

@@ -7,6 +7,7 @@ use super::path_hint::MEDIA_URI_SCHEME;
 use super::store::media_abs_path;
 
 pub const USER_ATTACHMENTS_MARKER: &str = "<!-- pointer-user-attachments -->";
+pub const DELIVERED_ATTACHMENTS_MARKER: &str = "<!-- pointer-delivered-attachments -->";
 pub const ATTACHMENT_NEEDS_INTENT_MARKER: &str = "<!-- pointer-attachment-needs-intent -->";
 
 pub fn attachment_ref_uri(storage_rel_path: &str) -> String {
@@ -209,6 +210,37 @@ pub fn append_user_attachments_api_context(content: &str, attachments: &[MediaAt
     out
 }
 
+/// Markdown block listing assistant-delivered attachments for the model (API request only).
+pub fn format_delivered_attachments_api_manifest(attachments: &[MediaAttachment]) -> String {
+    if attachments.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec![DELIVERED_ATTACHMENTS_MARKER.to_string()];
+    for (i, att) in attachments.iter().enumerate() {
+        lines.push(format_attachment_entry(i + 1, att));
+    }
+    lines.join("\n")
+}
+
+/// Append delivered-attachment manifest to assistant text for the OpenAI API payload.
+///
+/// Unlike [`append_user_attachments_api_context`], never adds
+/// [`ATTACHMENT_NEEDS_INTENT_MARKER`] — these files were already sent to the user.
+pub fn append_delivered_attachments_api_context(
+    content: &str,
+    attachments: &[MediaAttachment],
+) -> String {
+    let manifest = format_delivered_attachments_api_manifest(attachments);
+    if manifest.is_empty() {
+        return content.to_string();
+    }
+    if content.trim().is_empty() {
+        manifest
+    } else {
+        format!("{}\n\n{manifest}", content.trim_end())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +329,55 @@ mod tests {
             .unwrap()
             .starts_with("pointer-media://"));
         assert!(j.get("localPath").is_some());
+    }
+
+    #[test]
+    fn delivered_manifest_uses_distinct_marker_and_fields() {
+        let att = MediaAttachment {
+            id: "id1".into(),
+            kind: "image".into(),
+            mime_type: "image/png".into(),
+            file_name: "out.png".into(),
+            size_bytes: 50,
+            storage_rel_path: Some("conv/out.png".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        };
+        let m = format_delivered_attachments_api_manifest(&[att]);
+        assert!(m.contains(DELIVERED_ATTACHMENTS_MARKER));
+        assert!(!m.contains(USER_ATTACHMENTS_MARKER));
+        assert!(!m.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
+        assert!(m.contains("**out.png**"));
+        assert!(m.contains("pointer-media://conv/out.png"));
+        assert!(m.contains("localPath:"));
+    }
+
+    #[test]
+    fn append_delivered_empty_attachments_unchanged() {
+        let out = append_delivered_attachments_api_context("caption", &[]);
+        assert_eq!(out, "caption");
+    }
+
+    #[test]
+    fn append_delivered_no_needs_intent_when_caption_empty() {
+        let att = MediaAttachment {
+            id: "id1".into(),
+            kind: "file".into(),
+            mime_type: "application/pdf".into(),
+            file_name: "a.pdf".into(),
+            size_bytes: 1,
+            storage_rel_path: Some("c/a.pdf".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        };
+        let out = append_delivered_attachments_api_context("", &[att]);
+        assert!(out.contains(DELIVERED_ATTACHMENTS_MARKER));
+        assert!(!out.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
     }
 }

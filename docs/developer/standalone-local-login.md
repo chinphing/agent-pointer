@@ -98,3 +98,59 @@ pointer-server --mint-sso-ticket --sub 'user-42' --name 'Alice' --ttl 120
 | Standalone | 仅 `?sso=` + 密码登录 |
 
 详见 [standalone-deployment.md](standalone-deployment.md)、[../user/standalone-server.md](../user/standalone-server.md)、[session-user-id.md](session-user-id.md)。
+
+## 签发 ticket 示例（最短）
+
+Header 固定为 `{"alg":"HS256","typ":"SSO"}`（与服务端一致）。
+
+### Python
+
+```python
+import base64, hashlib, hmac, json, time, uuid
+
+def b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+def mint_sso(secret: str, aud: str, sub: str, name: str | None = None, ttl: int = 120) -> str:
+    now = int(time.time())
+    header = b64url(b'{"alg":"HS256","typ":"SSO"}')
+    payload = {
+        "sub": sub, "aud": aud, "iat": now, "exp": now + ttl,
+        "jti": str(uuid.uuid4()),
+    }
+    if name:
+        payload["name"] = name
+    body = b64url(json.dumps(payload, separators=(",", ":")).encode())
+    sig = b64url(hmac.new(secret.encode(), f"{header}.{body}".encode(), hashlib.sha256).digest())
+    return f"{header}.{body}.{sig}"
+
+# ticket = mint_sso("shared-secret", "https://agent.example.com", "user-42", "Alice")
+# redirect: https://agent.example.com/?sso={ticket}
+```
+
+### Java
+
+```java
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.UUID;
+
+static String b64url(byte[] data) {
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(data);
+}
+
+static String mintSso(String secret, String aud, String sub, String name, int ttlSecs) throws Exception {
+    long now = System.currentTimeMillis() / 1000;
+    String header = b64url("{\"alg\":\"HS256\",\"typ\":\"SSO\"}".getBytes(StandardCharsets.UTF_8));
+    String json = "{\"sub\":\"" + sub + "\",\"aud\":\"" + aud + "\",\"iat\":" + now
+            + ",\"exp\":" + (now + ttlSecs) + ",\"jti\":\"" + UUID.randomUUID() + "\""
+            + (name == null ? "" : ",\"name\":\"" + name + "\"") + "}";
+    String body = b64url(json.getBytes(StandardCharsets.UTF_8));
+    Mac mac = Mac.getInstance("HmacSHA256");
+    mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+    String sig = b64url(mac.doFinal((header + "." + body).getBytes(StandardCharsets.UTF_8)));
+    return header + "." + body + "." + sig;
+}
+```

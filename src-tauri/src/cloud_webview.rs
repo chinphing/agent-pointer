@@ -70,9 +70,11 @@ pub async fn open_cloud_agent_window(
         .refresh_if_needed()
         .await
         .map_err(|e| e.to_string())?;
-    if state.platform_auth.token_quota_exhausted() {
-        return Err("token_quota_exhausted".into());
-    }
+    state
+        .platform_auth
+        .ensure_llm_allowed()
+        .await
+        .map_err(|e| e.to_string())?;
 
     let oauth = create_agent_oauth_code(state.platform_auth.as_ref(), &agent_id)
         .await

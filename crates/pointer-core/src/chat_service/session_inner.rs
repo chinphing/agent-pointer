@@ -129,7 +129,9 @@ pub(super) async fn run_chat_inner(
         .is_some_and(TriggerSource::is_headless_automation);
     let has_local_llm = settings_have_llm_key(&state.effective_settings());
     if platform_logged_in || web_session {
-        if platform_logged_in && !is_local_session {
+        // Platform balance gate once per user turn (GET /auth/partner/balance).
+        // Standalone never applies. Login / llm-credentials unchanged.
+        if !crate::deployment_mode::is_standalone() && platform_logged_in {
             if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
                 let msg = if e.to_string().contains("token_quota_exhausted") {
                     "账户余额已用尽，请前往 Pointer 官网余额页充值。".to_string()

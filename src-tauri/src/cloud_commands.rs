@@ -134,8 +134,8 @@ pub async fn create_cloud_agent_oauth_code(
     agent_id: String,
 ) -> Result<AgentOauthCodeResult, String> {
     ensure_platform(state.platform_auth.as_ref()).await?;
-    if state.platform_auth.token_quota_exhausted() {
-        return Err("token_quota_exhausted".into());
+    if let Err(e) = state.platform_auth.ensure_llm_allowed().await {
+        return Err(e.to_string());
     }
     create_agent_oauth_code(state.platform_auth.as_ref(), &agent_id)
         .await

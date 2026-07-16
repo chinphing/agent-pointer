@@ -484,7 +484,20 @@ impl PlatformAuthManager {
     pub async fn load_persisted_session(&self) -> Result<Option<PlatformLoginCredentials>> {
         match self.refresh_if_needed().await {
             Ok(Some((_session, token_creds))) => {
-                let fetched = self.fetch_llm_credentials().await?;
+                let fetched = match self.fetch_llm_credentials().await {
+                    Ok(creds) => creds,
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("token_quota_exhausted") {
+                            log::warn!(
+                                "platform_auth: startup llm-credentials blocked (quota exhausted)"
+                            );
+                        } else {
+                            log::warn!("platform_auth: startup llm-credentials fetch failed: {e:#}");
+                        }
+                        None
+                    }
+                };
                 let merged = Self::merge_login_credentials(token_creds, fetched);
                 if Self::credentials_have_payload(&merged) {
                     Ok(Some(merged))
@@ -562,6 +575,19 @@ impl PlatformAuthManager {
             .as_ref()
             .map(|s| s.user.token_quota_exhausted)
             .unwrap_or(false)
+    }
+
+    fn set_token_quota_exhausted(&self, exhausted: bool) {
+        let mut guard = self.inner.write();
+        if let Some(session) = guard.as_mut() {
+            if session.user.token_quota_exhausted != exhausted {
+                session.user.token_quota_exhausted = exhausted;
+                log::info!(
+                    "platform_auth: token_quota_exhausted set to {exhausted} user_id={}",
+                    session.user.id
+                );
+            }
+        }
     }
 
     pub async fn report_token_usage_multipart(
@@ -646,20 +672,31 @@ impl PlatformAuthManager {
             .get(&url)
             .header("Authorization", format!("Bearer {token}"))
             .send()
-            .await?;
+            .await
+            .context("llm-credentials request failed")?;
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             self.clear_session_async().await;
             return Err(anyhow!("platform_token_expired"));
         }
         if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            log::warn!("platform_auth: llm-credentials HTTP {status}: {text}");
+            // Fail closed for callers that treat Ok(None) as "no keys"; gate uses Err path via ensure_llm_allowed.
             return Ok(None);
         }
         let parsed: PartnerLlmCredentialResponse = resp.json().await?;
         if parsed.error_code.as_deref() == Some("token_quota_exhausted") {
+            self.set_token_quota_exhausted(true);
             return Err(anyhow!("token_quota_exhausted"));
         }
         if !parsed.ok {
-            return Ok(Self::credentials_from_partner_response(parsed));
+            let code = parsed
+                .error_code
+                .as_deref()
+                .unwrap_or("llm_unavailable");
+            log::warn!("platform_auth: llm-credentials unavailable error_code={code}");
+            return Err(anyhow!("{code}"));
         }
         if parsed.included_tokens.is_some() || parsed.consumed_tokens.is_some() {
             let mut guard = self.inner.write();
@@ -677,22 +714,71 @@ impl PlatformAuthManager {
                 parsed.consumed_tokens
             );
         }
+        self.set_token_quota_exhausted(false);
         Ok(Self::credentials_from_partner_response(parsed))
     }
 
-    /// Refresh partner LLM credentials; block when platform reports quota exhausted.
+    /// Live balance check for chat-start gate. **No-op in standalone mode.**
+    ///
+    /// Uses `GET /auth/partner/balance` (not llm-credentials). Login / key refresh unchanged.
+    /// Fail-closed on network errors. Soft overdraft on charge remains server-side.
     pub async fn ensure_llm_allowed(&self) -> Result<()> {
+        if crate::deployment_mode::is_standalone() {
+            return Ok(());
+        }
         if !self.session_view().logged_in {
             return Ok(());
         }
-        if self.token_quota_exhausted() {
-            return Err(anyhow!("token_quota_exhausted"));
+        match self.fetch_partner_balance().await {
+            Ok(bal) => {
+                self.set_token_quota_exhausted(bal.token_quota_exhausted);
+                if bal.token_quota_exhausted {
+                    return Err(anyhow!("token_quota_exhausted"));
+                }
+                Ok(())
+            }
+            Err(e) => {
+                if e.to_string().contains("token_quota_exhausted") {
+                    self.set_token_quota_exhausted(true);
+                }
+                log::warn!("platform_auth: partner balance check failed: {e:#}");
+                Err(e)
+            }
         }
-        match self.fetch_llm_credentials().await {
-            Ok(Some(_)) => Ok(()),
-            Ok(None) => Ok(()),
-            Err(e) => Err(e),
+    }
+
+    /// Query official account balance for run_chat gate.
+    pub async fn fetch_partner_balance(&self) -> Result<PartnerBalanceResponse> {
+        let token = self.ensure_access_token().await?;
+        let url = format!(
+            "{}/auth/partner/balance",
+            Self::api_base().trim_end_matches('/')
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .context("partner balance request failed")?;
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            self.clear_session_async().await;
+            return Err(anyhow!("platform_token_expired"));
         }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "partner balance request failed: HTTP {status}: {text}"
+            ));
+        }
+        let parsed: PartnerBalanceResponse = resp.json().await.context("parse partner balance")?;
+        log::info!(
+            "platform_auth: partner balance_yuan={} exhausted={}",
+            parsed.balance_yuan,
+            parsed.token_quota_exhausted
+        );
+        Ok(parsed)
     }
 
     pub async fn fetch_llm_api_key(&self) -> Result<Option<String>> {
@@ -773,6 +859,15 @@ struct PartnerLlmCredentialResponse {
     consumed_tokens: Option<u64>,
     #[serde(default, rename = "mediaOss", alias = "media_oss")]
     media_oss: Option<PlatformMediaOssCredentials>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PartnerBalanceResponse {
+    pub balance_yuan: String,
+    #[serde(default, rename = "token_quota_exhausted")]
+    pub token_quota_exhausted: bool,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 /// 从首选端口起扫描，绑定第一个可用的 127.0.0.1 端口。

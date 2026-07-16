@@ -23,6 +23,8 @@ pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构�
 | `platform`（默认） | 连接 [readflowai.com](https://pointer-api.readflowai.com)，使用官方 OAuth + 云端 LLM Key 下发 |
 | `standalone` | 脱离官方平台，使用本地账号密码登录 + TOML 注入 LLM Key + Ed25519 License 校验 |
 
+**余额 / LLM 门禁：** 官方账户余额校验（`ensure_llm_allowed`、`GET /auth/partner/llm-credentials`）仅在 `platform` 模式生效；`standalone` 下为 no-op，不访问官方余额 API。
+
 ```rust
 pub fn deployment_mode() -> Mode;
 pub fn is_standalone() -> bool;

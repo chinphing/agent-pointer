@@ -39,9 +39,20 @@ On app startup or exit, `finalize_all_stale_accum` promotes interrupted `accumul
 
 Snapshots exclude `system` messages, redact images to `[image:n]` / `[computer_screen]`, and include only messages tagged with the reporting `agent_instance_id` plus the preceding user turn.
 
-## Server
+## Client gate (platform mode)
 
-- Token rows in DB; conversation text only on disk under `TOKEN_USAGE_HISTORY_DIR` (see API `.env.example`).
-- Archive store failure does **not** block billing (multipart still returns success; check API logs for `history archive store failed`).
-- Billing: `billed_tokens = ceil(raw_total × ratio)` from `llm_model_token_ratios` (Qwen 3.5 baseline = 1.0).
-- Quota: `token_quota_exhausted` blocks all users (including those with their own API keys).
+LLM usage is **post-paid soft overdraft** on the server (`charge_llm_yuan` always deducts, may go negative). The client stops **new user turns** when balance is exhausted:
+
+| When | Check |
+|------|--------|
+| User sends a message (`run_chat` start) | Live `GET /auth/partner/balance` via `ensure_llm_allowed` |
+| Mid-turn tool / multi-model rounds | No re-check (same turn may still soft-overdraft) |
+| Cloud agent open / oauth code | Same balance check |
+
+Login / token exchange / `GET /auth/partner/llm-credentials` are unchanged and do **not** perform this gate.
+
+Fail-closed: balance API failure blocks starting the turn (does **not** skip charging for already-completed rounds).
+
+**Standalone deployment:** these gates are no-ops. Self-hosted servers use local API keys / license and do not call the official balance API.
+
+Quota: `token_quota_exhausted` (`balance <= 0`) blocks new turns.

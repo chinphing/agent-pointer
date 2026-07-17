@@ -35,17 +35,6 @@ const FILE_DOC_SOURCE: &str = "tools/prompts/file.md";
 const FILE_SCHEMA_YAML: &str = include_str!("../prompts/file.schema.yaml");
 
 pub(crate) const MAX_FILE_READ_BYTES: usize = 256 * 1024;
-/// Max files per `file` read batch (`paths`). **Keep in sync** with `prompts/file.md` Parameters section.
-pub(crate) const MAX_FILE_READ_BATCH: usize = 32;
-/// Max entries per `file:edit` batch (`edits`). **Keep in sync** with `prompts/file.md` Parameters section.
-pub(crate) const MAX_FILE_EDIT_BATCH: usize = 32;
-/// Default cap on combined UTF-8 length of all `content` fields in one `paths` batch (assistant context).
-/// **Keep in sync** with `prompts/file.md` (`maxTotalBytes`).
-pub(crate) const MAX_FILE_READ_BATCH_TOTAL_BYTES_DEFAULT: usize = 1024 * 1024;
-/// Hard upper bound for caller-supplied `maxTotalBytes`.
-pub(crate) const MAX_FILE_READ_BATCH_TOTAL_BYTES_CLAMP: usize = 4 * 1024 * 1024;
-/// Do not emit a tiny truncated slice; skip with an error instead.
-pub(crate) const MIN_BATCH_TRUNCATE_REMAINING: usize = 256;
 pub(crate) const MAX_GREP_RESULTS: usize = 200;
 pub(crate) const MAX_GREP_FILE_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const MAX_GLOB_RESULTS: usize = 500;
@@ -137,203 +126,122 @@ mod tests {
         resolve_accessible_path, resolve_within_workspace_root, resolve_writable_path,
     };
     use super::edit::try_unique_text_replace;
+    use super::path::writable_path_roots;
     use serde_json::json;
     use std::fs;
     use std::io::Write;
 
     #[test]
-    fn file_read_batch_paths_returns_files_array() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("a.txt"), "alpha\n").unwrap();
-        fs::write(root.join("b.txt"), "beta\n").unwrap();
-
-        let args = json!({
-            "paths": [{ "path": "a.txt" }, { "path": "b.txt" }],
-            "lineStart": 1
-        });
-        let out = execute_file_read(&args, root).expect("batch read");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        let files = v["files"].as_array().expect("files array");
-        assert_eq!(files.len(), 2);
-        assert!(files[0]["content"].as_str().unwrap().contains("alpha"));
-        assert!(files[1]["content"].as_str().unwrap().contains("beta"));
-        assert!(files[0].get("error").is_none());
-        assert!(files[1].get("error").is_none());
-        assert_eq!(v["batchCapped"], false);
-        assert!(v["contentBytes"].as_u64().unwrap() > 0);
-    }
-
-    #[test]
-    fn file_read_batch_partial_error_preserves_ok_entries() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("ok.txt"), "fine\n").unwrap();
-
-        let args = json!({
-            "paths": [{ "path": "ok.txt" }, { "path": "missing.txt" }],
-        });
-        let out = execute_file_read(&args, root).expect("batch partial");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        let files = v["files"].as_array().unwrap();
-        assert_eq!(files.len(), 2);
-        assert!(files[0]["content"].as_str().unwrap().contains("fine"));
-        assert!(files[1]["error"].as_str().unwrap().len() > 0);
-    }
-
-    #[test]
-    fn file_read_batch_truncates_when_max_total_bytes_exceeded() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("a.txt"), "a".repeat(800)).unwrap();
-        fs::write(root.join("b.txt"), "b".repeat(800)).unwrap();
-
-        let args = json!({
-            "paths": [{ "path": "a.txt" }, { "path": "b.txt" }],
-            "maxTotalBytes": 1200,
-            "maxBytes": 10_000,
-        });
-        let out = execute_file_read(&args, root).expect("batch read");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["batchCapped"], true);
-        assert!(v["contentBytes"].as_u64().unwrap() <= 1200);
-        assert!(v["contentBytes"].as_u64().unwrap() > 800);
-        let files = v["files"].as_array().unwrap();
-        assert_eq!(files[0]["content"].as_str().unwrap().len(), 800);
-        assert!(files[1]["content"].as_str().unwrap().contains("已截断"));
-    }
-
-    #[test]
-    fn file_read_batch_skips_when_remaining_budget_too_small_for_next_file() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("a.txt"), "a".repeat(800)).unwrap();
-        fs::write(root.join("b.txt"), "b".repeat(800)).unwrap();
-
-        let args = json!({
-            "paths": [{ "path": "a.txt" }, { "path": "b.txt" }],
-            "maxTotalBytes": 1000,
-            "maxBytes": 10_000,
-        });
-        let out = execute_file_read(&args, root).expect("batch read");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["batchCapped"], true);
-        assert_eq!(v["contentBytes"], 800);
-        let files = v["files"].as_array().unwrap();
-        assert_eq!(files[0]["content"].as_str().unwrap().len(), 800);
-        assert!(files[1]["error"].as_str().unwrap().contains("剩余空间"));
-    }
-
-    #[test]
-    fn file_read_paths_must_be_json_array() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        let args = json!({ "paths": "not-an-array" });
-        let err = execute_file_read(&args, root).unwrap_err();
-        assert!(err.to_string().contains("paths"));
-    }
-
-    #[test]
-    fn file_read_batch_paths_rejects_string_entries() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("a.txt"), "x\n").unwrap();
-        let args = json!({ "paths": ["a.txt"] });
-        let err = execute_file_read(&args, root).unwrap_err();
-        assert!(err.to_string().contains("对象"));
-    }
-
-    #[test]
-    fn file_read_batch_per_path_line_ranges() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("a.txt"), "l1\nl2\nl3\nl4\n").unwrap();
-        fs::write(root.join("b.txt"), "a\nb\nc\nd\ne\n").unwrap();
-
-        let args = json!({
-            "paths": [
-                { "path": "a.txt", "lineStart": 2, "lineEnd": 4 },
-                { "path": "b.txt", "lineStart": 1, "lineEnd": 3 }
-            ]
-        });
-        let out = execute_file_read(&args, root).expect("batch read");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        let files = v["files"].as_array().unwrap();
-        assert_eq!(files.len(), 2);
-        assert_eq!(files[0]["content"].as_str().unwrap(), "l2\nl3");
-        assert_eq!(files[1]["content"].as_str().unwrap(), "a\nb");
-    }
-
-    #[test]
-    fn file_read_batch_objects_inherit_root_line_end() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
-        fs::write(root.join("y.txt"), "q1\nq2\nq3\n").unwrap();
-
-        let args = json!({
-            "lineStart": 1,
-            "lineEnd": 4,
-            "paths": [
-                { "path": "x.txt" },
-                { "path": "y.txt", "lineStart": 2 }
-            ]
-        });
-        let out = execute_file_read(&args, root).expect("batch read");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        let files = v["files"].as_array().unwrap();
-        assert_eq!(files[0]["content"].as_str().unwrap(), "p1\np2\np3");
-        assert_eq!(files[1]["content"].as_str().unwrap(), "q2\nq3");
-    }
-
-    #[test]
-    fn file_read_empty_paths_array_requires_paths() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        let args = json!({ "paths": [] });
-        let err = execute_file_read(&args, root).unwrap_err();
-        assert!(err.to_string().contains("paths"));
-    }
-
-    #[test]
-    fn file_read_missing_paths_errors() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        let args = json!({});
-        let err = execute_file_read(&args, root).unwrap_err();
-        assert!(err.to_string().contains("paths"));
-    }
-
-    #[test]
-    fn file_read_single_file_via_paths_object() {
+    fn file_read_single_path_returns_content_object() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("solo.txt"), "only\n").unwrap();
-        let args = json!({ "paths": [{ "path": "solo.txt" }] });
-        let out = execute_file_read(&args, root).expect("read");
+        let out = execute_file_read(&json!({ "path": "solo.txt" }), root).expect("read");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        let files = v["files"].as_array().expect("files");
-        assert_eq!(files.len(), 1);
-        assert!(files[0]["content"].as_str().unwrap().contains("only"));
+        assert!(v["content"].as_str().unwrap().contains("only"));
+        assert!(v.get("files").is_none());
     }
 
     #[test]
-    fn file_edit_single_entry_edits_ok() {
+    fn file_read_accepts_file_alias_and_line_range() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
+        let out = execute_file_read(
+            &json!({ "file": "x.txt", "lineStart": 2, "lineEnd": 4 }),
+            root,
+        )
+        .expect("read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["content"].as_str().unwrap(), "p2\np3");
+    }
+
+    #[test]
+    fn file_read_rejects_paths_array() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let err = execute_file_read(
+            &json!({ "paths": [{ "path": "a.txt" }] }),
+            tmp.path(),
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("path") && msg.contains("paths"), "{msg}");
+    }
+
+    #[test]
+    fn file_read_missing_path_errors() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let err = execute_file_read(&json!({}), tmp.path()).unwrap_err();
+        assert!(err.to_string().contains("path"));
+    }
+
+    #[test]
+    fn repro_file_read_windows_unescaped_backslash_args_invalid_json_message() {
+        use crate::tools::parse_tool_call_arguments;
+
+        let raw = r#"{"path":"C:\project\pointer-app\src\tools\file\path.rs"}"#;
+        assert!(serde_json::from_str::<serde_json::Value>(raw).is_err());
+        let args = parse_tool_call_arguments(raw);
+        assert!(args.is_null());
+        let err = execute_file_read(&args, tempfile::tempdir().unwrap().path()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("不是合法 JSON") || msg.contains("正斜杠"), "{msg}");
+    }
+
+    #[test]
+    fn file_edit_flat_args_ok() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("z.txt"), "foo\n").unwrap();
-        let args = json!({
-            "edits": [
-                { "path": "z.txt", "oldString": "foo", "newString": "bar" }
-            ]
-        });
-        let out = execute_file_edit_payload(&args, root).expect("edit");
+        let out = execute_file_edit_payload(
+            &json!({
+                "path": "z.txt",
+                "oldString": "foo",
+                "newString": "bar"
+            }),
+            root,
+        )
+        .expect("edit");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["batchPartialFailure"], false);
-        assert_eq!(v["successCount"], 1);
-        let files = v["files"].as_array().unwrap();
-        assert!(files[0]["path"].as_str().unwrap().contains("z.txt"));
+        assert_eq!(v["success"], true);
+        assert_eq!(v["replaced"], 1);
+        assert!(v["path"].as_str().unwrap().contains("z.txt"));
         assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
+    }
+
+    /// Relative write/edit paths must stay under the conversation workspace even when that
+    /// workspace is a nested tempfile (broader `temp_dir` is also a writable root).
+    #[test]
+    fn writable_relative_path_stays_under_workspace_not_home() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let got = resolve_writable_path(root, "z.txt").expect("relative");
+        let want = root
+            .canonicalize()
+            .expect("canon ws")
+            .join("z.txt");
+        assert_eq!(got, want);
+        let home = dirs::home_dir().expect("home");
+        assert!(
+            !got.starts_with(&home) || want.starts_with(&home),
+            "must not redirect relative path to home: got={}",
+            got.display()
+        );
+    }
+
+    #[test]
+    fn writable_path_roots_keeps_nested_temp_workspace_first() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let ws = tmp.path().canonicalize().expect("canon");
+        let roots = writable_path_roots(tmp.path()).expect("roots");
+        assert_eq!(roots.first(), Some(&ws));
+        let temp_root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir());
+        assert!(
+            roots.iter().any(|r| r == &temp_root),
+            "broader temp_dir should still be listed"
+        );
     }
 
     #[test]
@@ -349,88 +257,34 @@ mod tests {
             .expect("utf8")
             .to_string();
         abs.push('/');
-        let args = json!({
-            "edits": [
-                { "path": abs, "oldString": "foo", "newString": "bar" }
-            ]
-        });
-        let out = execute_file_edit_payload(&args, root).expect("edit");
+        let out = execute_file_edit_payload(
+            &json!({
+                "path": abs,
+                "oldString": "foo",
+                "newString": "bar"
+            }),
+            root,
+        )
+        .expect("edit");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["successCount"], 1);
+        assert_eq!(v["success"], true);
         assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
     }
 
     #[test]
-    fn file_edit_rejects_flat_only_without_edits() {
+    fn file_edit_rejects_edits_array() {
         let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("z.txt"), "foo\n").unwrap();
-        let args = json!({
-            "path": "z.txt",
-            "oldString": "foo",
-            "newString": "bar"
-        });
-        let err = execute_file_edit_payload(&args, root).unwrap_err();
-        assert!(err.to_string().contains("edits"));
-    }
-
-    #[test]
-    fn file_edit_batch_two_files() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("a.txt"), "A\n").unwrap();
-        fs::write(root.join("b.txt"), "B\n").unwrap();
-        let args = json!({
-            "edits": [
-                { "path": "a.txt", "oldString": "A", "newString": "AA" },
-                { "path": "b.txt", "oldString": "B", "newString": "BB" }
-            ]
-        });
-        let out = execute_file_edit_payload(&args, root).expect("batch edit");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["batchPartialFailure"], false);
-        assert_eq!(v["successCount"], 2);
-        assert_eq!(v["failureCount"], 0);
-        let files = v["files"].as_array().unwrap();
-        assert!(files[0]["success"].as_bool().unwrap());
-        assert!(files[1]["success"].as_bool().unwrap());
-        assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap().trim(), "AA");
-        assert_eq!(fs::read_to_string(root.join("b.txt")).unwrap().trim(), "BB");
-    }
-
-    #[test]
-    fn file_edit_batch_partial_failure() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("ok.txt"), "x\n").unwrap();
-        let args = json!({
-            "edits": [
-                { "path": "ok.txt", "oldString": "x", "newString": "y" },
-                { "path": "missing.txt", "oldString": "a", "newString": "b" }
-            ]
-        });
-        let out = execute_file_edit_payload(&args, root).expect("batch edit");
-        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["batchPartialFailure"], true);
-        assert_eq!(v["successCount"], 1);
-        assert_eq!(v["failureCount"], 1);
-        let files = v["files"].as_array().unwrap();
-        assert!(files[0]["success"].as_bool().unwrap());
-        assert_eq!(files[1]["success"], false);
-        assert!(files[1]["error"].as_str().unwrap().len() > 0);
-        assert_eq!(fs::read_to_string(root.join("ok.txt")).unwrap().trim(), "y");
-    }
-
-    #[test]
-    fn file_edit_batch_rejects_edits_with_top_level_path() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        let args = json!({
-            "path": "x.txt",
-            "edits": [{ "path": "x.txt", "oldString": "a", "newString": "b" }]
-        });
-        let err = execute_file_edit_payload(&args, root).unwrap_err();
-        assert!(err.to_string().contains("同时"));
+        let err = execute_file_edit_payload(
+            &json!({
+                "edits": [
+                    { "path": "z.txt", "oldString": "foo", "newString": "bar" }
+                ]
+            }),
+            tmp.path(),
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("path") && msg.contains("edits"), "{msg}");
     }
 
     #[test]

@@ -105,7 +105,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
 2. **Explore** — Build a **mental map** of where the behavior lives **before** editing or answering technical questions. **First check:** if you **cannot** yet name every file/function you will change **with line-level confidence**, delegate to the **`explore` worker** (see **Delegating to the `explore` worker**) **before** a long local **`file`** loop. **Local explore** (your own **`file`** turns below) is for **narrow** cases only: one known neighborhood, one symbol, or confirming a path the user already gave. Use **`terminal`** later for tests/commands once you know where to work. Use tools in a deliberate order; don’t open huge files at random.
 
-   **Typical sequence:** (1) Orient from project roots—`README`, top-level configs (`Cargo.toml`, npm/pnpm workspace manifests, etc.), and obvious entry dirs. (2) **`file_list`** when you need the shape of a tree before reading (set `recursive` / `maxDepth` / `entryType` as needed). (3) **`file_grep`** for distinctive strings (error text, feature flag, symbol, route, type name). (4) **`file_glob`** for naming patterns when you know shape (`**/*Service*`, `**/commands/*.rs`). (5) **`file_read`** the **minimal** set: implementation, its immediate callers/callees, and tests or types beside the change. **Rule:** as soon as you have **two or more** concrete paths to open, you **must** use one **`file_read`** with a JSON **`paths`** array in **`tool_args`** (each entry an object with **`path`**, optional **`lineStart`** / **`lineEnd`** / **`maxBytes`**); use top-level **`path`** only for a single file. Do not issue many separate reads when one batched **`paths`** read would work (see **`file`** tool docs).
+   **Typical sequence:** (1) Orient from project roots—`README`, top-level configs (`Cargo.toml`, npm/pnpm workspace manifests, etc.), and obvious entry dirs. (2) **`file_list`** when you need the shape of a tree before reading (set `recursive` / `maxDepth` / `entryType` as needed). (3) **`file_grep`** for distinctive strings (error text, feature flag, symbol, route, type name). (4) **`file_glob`** for naming patterns when you know shape (`**/*Service*`, `**/commands/*.rs`). (5) **`file_read`** the **minimal** set: implementation, its immediate callers/callees, and tests or types beside the change. **Rule:** **`file_read`** / **`file_edit`** are **one file per call**; for two or more paths, issue **parallel** tool calls in the same turn (see **`file`** tool docs).
 
    **Depth rule:** Read enough to know **data flow** and **failure modes** for the code you will touch. If you still can’t name the exact file/function you’ll change, you’re not done exploring.
 
@@ -113,19 +113,19 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
    - **Locate before full reads:** use **`file_grep`**, **`file_glob`**, or **`file_list`** until you know **which paths** and **which neighborhoods** matter; avoid opening very large files “just to browse.”
    - **Narrow windows on big files:** use **`lineStart`** / **`lineEnd`** and/or a **smaller `maxBytes`** when a slice (definition, call site, error path, test) is enough; read **imports / wiring** at the top only when that is the actual question.
-   - **High-signal batches:** put only files you must **reason about in one step** into a single **`paths`** batch; defer other paths to a **later** turn once you have a **new** concrete question.
+   - **High-signal parallel reads:** issue only the files you must **reason about in one step** as parallel **`file_read`** calls; defer other paths to a **later** turn once you have a **new** concrete question.
    - **Prefer grep + one targeted read** over pasting long bodies you will not use for the next edit or test command.
-   - **Honesty:** if output was capped, truncated, or skipped, say so—**do not** imply you fully absorbed files you only saw in part.
+   - **Honesty:** if a read failed or was truncated by **`maxBytes`**, say so—**do not** imply you fully absorbed files you only saw in part.
 
    **Anti-patterns:** editing on the first file that “looks related”; pasting or summarizing large unrelated regions; skipping tests/fixtures that already document expected behavior; answering “what methods does tool X have?” from memory or error message alone; guessing API contracts instead of reading the definition; recommending alternatives when the user’s approach was valid but had a trivial syntax issue.
 
-   **`file_read` size limits (per file and batch):** Replies may show **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on paths that were not read, or a message that a file exceeds **`maxBytes`**. Treat that as **budget pressure**, not a hard stop.
+   **`file_read` size limits:** A call may fail when a file exceeds **`maxBytes`**. Treat that as **budget pressure**, not a hard stop.
 
-   **When limits fire:** Apply the habits above more strictly: **smaller `paths` lists** across turns (**highest-signal first**), **tighter `grep`**, and **line-bounded** reads. Raise **`maxTotalBytes`** in **`tool_args`** only when **one** reply must carry more text than the default cap allows.
+   **When limits fire:** Apply the habits above more strictly: **tighter `grep`**, **line-bounded** reads, and **smaller `maxBytes`**.
 
    **Cumulative context:** Tool outputs you keep in the conversation **still count toward the overall window** on later turns—splitting only spreads load over time and avoids **one** giant reply. It does **not** remove the need for **narrow** reads. When the product has **context compression** enabled, older turns may be summarized or dropped under a budget; do **not** rely on that as a substitute for disciplined exploration.
 
-   **Anti-patterns (limits):** Re-sending the **same oversized** **`paths`** batch expecting a different outcome; claiming you fully inspected a file that was **skipped** or **severely truncated**; finishing **Deliver** without noting when conclusions rest on **partial** reads.
+   **Anti-patterns (limits):** Re-sending the **same oversized** read expecting a different outcome; claiming you fully inspected a file that failed or was truncated; finishing **Deliver** without noting when conclusions rest on **partial** reads.
 
    **Finding references:** For a focused playbook on combining **`file_grep`** with **`file_read`** (and when to use **`file_glob`** / **`file_list`**), see **Finding references and usages** below.
 
@@ -333,7 +333,7 @@ Use this when you need **call sites**, **imports**, **symbol definitions**, or *
 **Anti-patterns**
 
 - Reading large files **before** a grep pass to “see what’s inside.”
-- Many serial **`file_read`** calls when one **batched** `paths` read would do.
+- Many **serial** **`file_read`** calls when the same turn could issue **parallel** one-file reads.
 - Stopping at grep **hit lines** without reading definitions when you must reason about **behavior** or **side effects**.
 - Grepping an **ambiguous** symbol without scoping directory or adding a second token (e.g. module path).
 - Grepping only the **symbol** and not the **wire string**; grepping only one naming convention for a cross-layer key.

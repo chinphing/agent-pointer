@@ -427,7 +427,7 @@ mod tests {
         let state = AppState::new();
         let tool_calls = vec![sample_tool_call(
             "file_read",
-            r#"{"paths":[{"path":"src/components/App.vue"}]}"#,
+            r#"{"path":"src/components/App.vue"}"#,
         )];
         let plan = AgentPlan {
             mode: "single".into(),

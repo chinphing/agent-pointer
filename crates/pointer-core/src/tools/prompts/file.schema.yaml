@@ -5,29 +5,17 @@
 file_read:
   type: object
   properties:
-    paths:
-      type: array
-      items:
-        type: object
-        properties:
-          path:
-            type: string
-          lineStart:
-            type: integer
-          lineEnd:
-            type: integer
-          maxBytes:
-            type: integer
-        required: [path]
+    path:
+      type: string
+    file:
+      type: string
     lineStart:
       type: integer
     lineEnd:
       type: integer
     maxBytes:
       type: integer
-    maxTotalBytes:
-      type: integer
-  required: [paths]
+  required: [path]
   additionalProperties: true
 
 file_write:
@@ -42,20 +30,16 @@ file_write:
 file_edit:
   type: object
   properties:
-    edits:
-      type: array
-      items:
-        type: object
-        properties:
-          path:
-            type: string
-          oldString:
-            type: string
-          newString:
-            type: string
-        required: [path, oldString, newString]
-  required: [edits]
-  additionalProperties: false
+    path:
+      type: string
+    file:
+      type: string
+    oldString:
+      type: string
+    newString:
+      type: string
+  required: [path, oldString, newString]
+  additionalProperties: true
 
 file_glob:
   type: object

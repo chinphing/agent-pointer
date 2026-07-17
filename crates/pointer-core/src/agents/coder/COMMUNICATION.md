@@ -20,18 +20,18 @@ exhausted and the gap is **external** and needs **live** web evidence.
 
 **Primary edits** target the configured workspace; how relative paths map to disk is in **Session context (runtime)** and **Workspace paths and gathering (coder)** above.
 
-**Returned paths:** Successful **`file`** tool JSON that names a location on disk (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses **absolute** paths (OS-canonical when available). Reuse them as **`path`** on later **`file`** calls; **`file_write`** / **`file_edit`** accept absolute **`path`** only when it still lies under the workspace root.
+**Returned paths:** Successful **`file`** tool JSON that names a location on disk (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses **absolute** paths (OS-canonical when available). Reuse them as **`path`** on later **`file`** calls. **`file_write`** / **`file_edit`** accept workspace-relative paths or absolute / **`~`** paths under an allowed write root (workspace, home, temp, standard user data dirs, Pointer app data).
 
-**Reading discipline:** locate with **`file_grep`** (always pass **`path`** — a file or directory under the workspace root; never **`pattern`** alone) / **`file_glob`** / **`file_list`** before wide **`file_read`**; use **line ranges** and **small `paths` batches**; treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply. **Parallelize** independent **`file_*`** calls in one turn when the host allows.
+**Reading discipline:** locate with **`file_grep`** (always pass **`path`** — a file or directory under the workspace root; never **`pattern`** alone) / **`file_glob`** / **`file_list`** before wide **`file_read`**; use **line ranges** and **one file per `file_read`**; treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply. **Parallelize** independent **`file_*`** calls in one turn when the host allows.
 
 For **read-only** exploration (`file_read`, `file_glob`, `file_grep`, `file_list`), you may use **absolute paths** when the user explicitly asks to reference another project or tree outside the workspace—do not refuse solely because paths are outside the workspace.
 
-**`file_write`** and **`file_edit`** stay **confined to the workspace** (relative paths, **or** absolute paths under the workspace after the runtime prefix check). These calls may require user approval—do not bypass controls.
+**`file_write`** and **`file_edit`** stay under **allowed write roots** (relative under the workspace, or absolute / **`~`** under those roots). These calls may require user approval—do not bypass controls.
 
 ### `file_edit` and large diffs (success rate)
 
 **Prefer several small, independent patches** over one giant diff.
-Each **`file_edit`** entry (each object in **`edits`**) should change **one logical slice** when possible.
+Each **`file_edit`** call is **one file** and should change **one logical slice** when possible.
 Always carry **enough unique context** in **`oldString`**
 (lines before and after the change) so the match is unambiguous.
 
@@ -45,7 +45,8 @@ Use **`file_read`** (with line ranges) to confirm **current text**,
 - If a **single** replacement is **uniquely matchable**, one wider
   **`file_edit`** can be OK.
 - If uniqueness is fragile, **split** into **two or three** regional
-  edits (by function, section, or file area)—either **separate** tool calls or one batch **`edits`** with multiple objects.
+  edits (by function, section, or file area) as **separate parallel**
+  **`file_edit`** calls—do **not** batch multiple files in one call.
 - **Avoid whole-file `file_write`** unless the scope truly requires it
   and the user accepts a large diff—it hides merge conflicts and is
   harder to review.
@@ -57,7 +58,7 @@ Do **not** retry the same failing patch blindly.
 
 ### When `file_read` hits caps or errors
 
-If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on a path, or **file too large** for **`maxBytes`**: **do not** repeat the **same** wide **`paths`** batch. **Split** reads across turns, use **`lineStart`** / **`lineEnd`** (root defaults, or **per path** when that entry is an **object** with its own range), or a **smaller `maxBytes`**, **`file_grep`** to locate the right region first, and only then widen reads. If your conclusion depends on truncated or skipped content, say so in the user-facing summary.
+**`file_read`** is **one file per call**. If the result says **file too large** for **`maxBytes`**, or the call fails: use **`lineStart`** / **`lineEnd`**, a **smaller `maxBytes`**, or **`file_grep`** to locate the region first—then re-read. For multiple files, issue **parallel** **`file_read`** calls (do not batch paths in one call). If your conclusion depends on truncated content, say so in the user-facing summary.
 
 ---
 
@@ -77,63 +78,39 @@ Call **`read_lints`** in a **separate** tool turn **after** you complete a **log
 
 Each example is one JSON object with **`function.name`** and **`function.arguments`**. Do not include call **`id`** or **`type`**.
 
-### `file_read` example (single file via `paths`)
+### `file_read` example (one file per call)
 
 ```json
 {
   "function": {
     "name": "file_read",
     "arguments": {
-      "paths": [{ "path": "src/App.vue", "lineStart": 1, "lineEnd": 120 }]
+      "path": "src/App.vue",
+      "lineStart": 1,
+      "lineEnd": 120
     }
   }
 }
 ```
 
-### `file_edit` example (`edits` array; one object = single file)
+### `file_edit` example (one file per call)
 
 ```json
 {
   "function": {
     "name": "file_edit",
     "arguments": {
-      "edits": [
-        {
-          "path": "src/App.vue",
-          "oldString": "  <div v-if=\"x\">before</div>  ",
-          "newString": "  <div v-if=\"x\">after</div>  "
-        }
-      ]
+      "path": "src/App.vue",
+      "oldString": "  <div v-if=\"x\">before</div>  ",
+      "newString": "  <div v-if=\"x\">after</div>  "
     }
   }
 }
 ```
 
-### `file_edit` example (multiple `edits` entries)
+### Multiple files: parallel tool calls
 
-Use **`edits`** with **two or more** objects when multiple files (or two disjoint regions in one approval step) need changes. Entries apply **in order**; if **`batchPartialFailure`** is true, inspect **`files`** for **`error`** and fix—successful entries are **not** rolled back.
-
-```json
-{
-  "function": {
-    "name": "file_edit",
-    "arguments": {
-      "edits": [
-        {
-          "path": "src/a.ts",
-          "oldString": "export const OLD = 1",
-          "newString": "export const NEW = 1"
-        },
-        {
-          "path": "src/b.ts",
-          "oldString": "import { OLD } from './a'",
-          "newString": "import { NEW } from './a'"
-        }
-      ]
-    }
-  }
-}
-```
+Issue **separate** **`file_read`** / **`file_edit`** calls in the **same** turn (host runs them concurrently). Do **not** batch multiple paths in one call.
 
 ### `file_write` example
 

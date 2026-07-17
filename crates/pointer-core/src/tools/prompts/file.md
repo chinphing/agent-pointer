@@ -2,13 +2,13 @@
 schema:
   type: object
   properties:
-    paths:
-      type: array
     path:
       type: string
     content: {}
-    edits:
-      type: array
+    oldString:
+      type: string
+    newString:
+      type: string
     pattern:
       type: string
   additionalProperties: true
@@ -18,9 +18,9 @@ schema:
 
 Independent file tools. Call them directly by their flat names:
 
-- **`file_read`** — read UTF-8 text files.
+- **`file_read`** — read one UTF-8 text file per call.
 - **`file_write`** — create or overwrite a file.
-- **`file_edit`** — replace unique substrings in files.
+- **`file_edit`** — replace one unique substring in one file per call.
 - **`file_glob`** — list paths matching a glob pattern.
 - **`file_grep`** — search file contents with a regex.
 - **`file_list`** — list directory entries.
@@ -29,17 +29,23 @@ Independent file tools. Call them directly by their flat names:
 
 **Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
 
-**Reading:** Always use **`read`** with **`paths`** — a JSON array of objects, **even for a single file**. Do **not** pass a top-level **`path`** on **`read`**. **Each array element must be an object** with required **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** (aliases **`line_start`**, **`line_end`**, **`max_bytes`**). Omitting a field on the object uses the root-level default for that field. Do **not** use bare string paths as **`paths`** elements — the runtime rejects them.
+**Single-file read / edit:** **`file_read`** and **`file_edit`** each take one **`path`** per call.
+To touch multiple files, issue **multiple parallel tool calls** in the same turn (host runs them
+concurrently).
+On Windows prefer forward slashes in JSON (`C:/project/foo.rs`) or escape each `\` as `\\` —
+unescaped `\` makes arguments invalid JSON.
 
-**Context discipline:** Each read returns **full file bodies** (after per-path or root **`lineStart`** / **`lineEnd`** / **`maxBytes`**). Filling **`paths`** with many large files can **overflow the model context** even when under the hard file count. Prefer **narrow batches** (only files you must see together), use **`grep`** first, use **`lineStart`** / **`lineEnd`** on huge files, lower **`maxBytes`** when a snippet is enough, or **split across multiple** **`read`** turns. The runtime also enforces a **combined `content` budget** per batch (see **`maxTotalBytes`**).
+**Context discipline:** Each read returns the file body (after **`lineStart`** / **`lineEnd`** /
+**`maxBytes`**). Prefer **`grep`** first, use line ranges on huge files, lower **`maxBytes`** when
+a snippet is enough, and split across parallel **`file_read`** calls when you need several files.
 
 #### Methods
 
 | Method | Purpose |
 |--------|---------|
-| **`read`** | Read UTF-8 text via **`paths`** array. Response includes a **`files`** array. |
+| **`read`** | Read one UTF-8 text file. Response is a single object (`path`, `content`, …). |
 | **`write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute/`~` under allowed write roots (see above). |
-| **`edit`** | Replace one unique substring per file via **`edits`** only: a non-empty array (max **32**) of objects, each with **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Single-file edits use **`edits`** with **one** object. Response includes **`files`**, **`successCount`**, **`failureCount`**, **`batchPartialFailure`**. |
+| **`edit`** | Replace one unique substring in one file via **`path`**, **`oldString`**, **`newString`**. |
 | **`glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
 | **`grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
 | **`list`** | List directory entries; **recursive by default** (depth 2); optional maxResults cap and file/directory filter. |
@@ -48,46 +54,39 @@ Independent file tools. Call them directly by their flat names:
 
 **`read`**
 
-- **`paths`** — **Required.** Array (max **32** entries per call). **Each entry is an object** with **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`**. Single file: **`paths: [{ "path": "src/foo.rs" }]`**. Response groups results under **`files`**, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`**.
-  **Windows paths:** escape backslashes in JSON — `\\` for each `\`. Example: `"D:\\workspace\\src\\foo.rs"`, not `"D:\workspace\src\foo.rs"`.
-- **`lineStart`** — Optional root default for batch entries; 1-based first line to include. Default: start of file. Alias **`line_start`**.
-- **`lineEnd`** — Optional root default; 1-based **exclusive** end line. Alias **`line_end`**.
-- **`maxBytes`** — Optional root default; max bytes read per file (default **262144**, 256 KiB). Alias **`max_bytes`**.
-- **`maxTotalBytes`** — Cap on combined UTF-8 length of all returned **`content`** strings. Default **1048576** (1 MiB); hard maximum **4194304** (4 MiB).
+- **`path`** — **Required** (alias **`file`**). One file per call.
+  **Windows paths:** prefer `"D:/workspace/src/foo.rs"`, or escape backslashes — `\\` for each `\`.
+- **`lineStart`** — Optional; 1-based first line to include. Default: start of file. Alias **`line_start`**.
+- **`lineEnd`** — Optional; 1-based **exclusive** end line. Alias **`line_end`**.
+- **`maxBytes`** — Optional; max bytes read (default **262144**, 256 KiB). Alias **`max_bytes`**.
 
-Example — single file:
+Example:
 
 ```json
 {
   "function": {
     "name": "file_read",
     "arguments": {
-      "paths": [{ "path": "src/foo.rs" }]
+      "path": "src/foo.rs",
+      "lineStart": 10,
+      "lineEnd": 80
     }
   }
 }
 ```
 
-Example — batch with line ranges (Windows):
+Example — two files in parallel (separate tool calls in one turn):
 
 ```json
-{
-  "function": {
-    "name": "file_read",
-    "arguments": {
-      "paths": [
-        { "path": "D:\\workspace\\src\\a.rs", "lineStart": 10, "lineEnd": 80 },
-        { "path": "D:\\workspace\\src\\b.rs" }
-      ],
-      "maxTotalBytes": 524288
-    }
-  }
-}
+[
+  { "function": { "name": "file_read", "arguments": { "path": "src/a.rs" } } },
+  { "function": { "name": "file_read", "arguments": { "path": "src/b.rs" } } }
+]
 ```
 
 **`write`**
 
-- **`path`** — Workspace-relative **or** absolute path under the workspace. Windows: escape `\\` in JSON (same rule as `paths` above).
+- **`path`** — Workspace-relative **or** absolute path under the workspace. Windows: escape `\\` in JSON or use `/`.
 - **`content`** — Entire file body. Prefer a JSON **string** (use `\"`, `\\`, `\n` as needed). You may also pass a JSON **object** or **array**; the runtime pretty-prints it as UTF-8 text.
 
 Example:
@@ -106,7 +105,10 @@ Example:
 
 **`edit`**
 
-- **`edits`** — **Required.** Non-empty array (max **32**) of objects. Each object requires **`path`**, **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. For a **single-file** edit, pass **one** element. Do **not** pass top-level **`path`** / **`oldString`** / **`newString`** alongside **`edits`**.
+- **`path`** — **Required** (alias **`file`**). One file per call.
+- **`oldString`** / **`old_string`** — Unique substring to replace (copy from **`file_read`** / **`file_grep`**).
+- **`newString`** / **`new_string`** — Replacement text.
+- Multi-file changes: parallel **`file_edit`** calls (one file per call).
 
 Example:
 
@@ -115,13 +117,9 @@ Example:
   "function": {
     "name": "file_edit",
     "arguments": {
-      "edits": [
-        {
-          "path": "src/App.vue",
-          "oldString": "  <div v-if=\"x\">before</div>",
-          "newString": "  <div v-if=\"x\">after</div>"
-        }
-      ]
+      "path": "src/App.vue",
+      "oldString": "  <div v-if=\"x\">before</div>",
+      "newString": "  <div v-if=\"x\">after</div>"
     }
   }
 }

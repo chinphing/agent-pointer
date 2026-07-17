@@ -227,7 +227,9 @@ Below: an earlier **`grep`** (file tool) turn, then the **final** Markdown hando
   "function": {
     "name": "file_read",
     "arguments": {
-      "paths": [{ "path": "crates/<api>/src/handler.rs", "lineStart": 40, "lineEnd": 88 }]
+      "path": "crates/<api>/src/handler.rs",
+      "lineStart": 40,
+      "lineEnd": 88
     }
   }
 }

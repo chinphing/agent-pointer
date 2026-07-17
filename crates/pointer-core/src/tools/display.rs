@@ -202,66 +202,12 @@ fn path_basename(p: &str) -> String {
     p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()
 }
 
-fn path_from_value(v: &Value) -> Option<String> {
-    if let Some(s) = v.as_str() {
-        let t = s.trim();
-        if !t.is_empty() {
-            return Some(t.to_string());
-        }
-    }
-    if let Some(obj) = v.as_object() {
-        for key in ["path", "file"] {
-            if let Some(s) = obj.get(key).and_then(|x| x.as_str()) {
-                let t = s.trim();
-                if !t.is_empty() {
-                    return Some(t.to_string());
-                }
-            }
-        }
-    }
-    None
-}
-
-fn join_display_names(names: Vec<String>, max_items: usize) -> String {
-    if names.is_empty() {
-        return String::new();
-    }
-    let joined = names.into_iter().take(max_items).collect::<Vec<_>>().join(", ");
-    truncate(&joined, SUMMARY_MAX)
-}
-
 fn file_summary(args: &Value, method: &str) -> String {
     // grep / glob: always show search pattern only (never base/path/directory basename).
     if method == "grep" || method == "glob" {
         return str_field(args, &["pattern"])
             .map(|p| truncate(&p, SUMMARY_MAX))
             .unwrap_or_default();
-    }
-
-    if let Some(paths) = args.get("paths").and_then(|v| v.as_array()) {
-        let names: Vec<String> = paths
-            .iter()
-            .filter_map(path_from_value)
-            .map(|p| path_basename(&p))
-            .filter(|s| !s.is_empty())
-            .collect();
-        if !names.is_empty() {
-            return join_display_names(names, 8);
-        }
-    }
-
-    if method == "edit" {
-        if let Some(edits) = args.get("edits").and_then(|v| v.as_array()) {
-            let names: Vec<String> = edits
-                .iter()
-                .filter_map(path_from_value)
-                .map(|p| path_basename(&p))
-                .filter(|s| !s.is_empty())
-                .collect();
-            if !names.is_empty() {
-                return join_display_names(names, 8);
-            }
-        }
     }
 
     if let Some(p) = str_field(args, &["path", "file", "directory"]) {
@@ -499,24 +445,24 @@ mod tests {
 
     #[test]
     fn file_read_label_and_basename_only() {
-        let d = default_display("file_read", &json!({"paths": [{"path": "src/App.vue"}]}));
+        let d = default_display("file_read", &json!({"path": "src/App.vue"}));
         assert_eq!(d.label, "读取文件");
         assert_eq!(d.summary, "App.vue");
         assert!(!d.summary.contains('/'));
     }
 
     #[test]
-    fn file_batch_read_basenames_comma_separated() {
+    fn file_edit_label_uses_top_level_path() {
         let d = default_display(
-            "file_read",
+            "file_edit",
             &json!({
-                "paths": [
-                    {"path": "/workspace/src/App.vue"},
-                    {"path": "/workspace/src/main.ts"}
-                ]
+                "path": "src/App.vue",
+                "oldString": "a",
+                "newString": "b"
             }),
         );
-        assert_eq!(d.summary, "App.vue, main.ts");
+        assert_eq!(d.label, "编辑文件");
+        assert_eq!(d.summary, "App.vue");
     }
 
     #[test]

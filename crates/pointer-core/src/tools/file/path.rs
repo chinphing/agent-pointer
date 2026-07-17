@@ -239,7 +239,7 @@ pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
     std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))
 }
 
-fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf) {
+fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf, pinned: Option<&Path>) {
     if path.as_os_str().is_empty() {
         return;
     }
@@ -247,22 +247,32 @@ fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf) {
     if roots.iter().any(|r| canon.starts_with(r)) {
         return;
     }
-    roots.retain(|r| !r.starts_with(&canon));
+    // Never demote the conversation workspace when a broader root (home / temp_dir) is merged.
+    roots.retain(|r| pinned.is_some_and(|p| r == p) || !r.starts_with(&canon));
+    if roots.iter().any(|r| r == &canon) {
+        return;
+    }
     roots.push(canon);
 }
 
 /// Allowed write roots for `file_write` / `file_edit`: workspace, home, temp, and common user data dirs.
+///
+/// The conversation workspace is always kept as the first entry and is never removed when
+/// broader roots (home, `temp_dir`, …) are merged — nested temp workspaces would otherwise
+/// disappear from the list and break any consumer that assumes `roots[0]` is the workspace.
 pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
     let ws = workspace_root
         .canonicalize()
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
-    push_writable_root(&mut roots, ws);
+    push_writable_root(&mut roots, ws.clone(), None);
+    let pinned = roots.first().cloned();
+    let pinned_ref = pinned.as_deref();
 
     if let Some(home) = dirs::home_dir() {
-        push_writable_root(&mut roots, home);
+        push_writable_root(&mut roots, home, pinned_ref);
     }
-    push_writable_root(&mut roots, std::env::temp_dir());
+    push_writable_root(&mut roots, std::env::temp_dir(), pinned_ref);
 
     for dir in [
         dirs::data_dir(),
@@ -275,11 +285,11 @@ pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
     .into_iter()
     .flatten()
     {
-        push_writable_root(&mut roots, dir);
+        push_writable_root(&mut roots, dir, pinned_ref);
     }
 
     if let Ok(app) = crate::storage::app_data_dir() {
-        push_writable_root(&mut roots, app);
+        push_writable_root(&mut roots, app, pinned_ref);
     }
 
     if roots.is_empty() {
@@ -373,14 +383,17 @@ fn resolve_relative_under_workspace(root: &Path, user_path: &str) -> Result<Path
 
 /// Resolve `user_path` for `file_write` / `file_edit`.
 ///
-/// Relative paths stay workspace-relative. Absolute paths (including expanded `~`) may target
-/// workspace, user home, system temp, standard user data dirs, or Pointer app data.
+/// Relative paths stay under the **conversation workspace** (`workspace_root` canonicalized).
+/// Do not derive the relative base from other writable roots; [`writable_path_roots`] keeps
+/// the workspace pinned at index 0, but callers should still pass `workspace_root` explicitly.
+///
+/// Absolute paths (including expanded `~`) may target workspace, user home, system temp,
+/// standard user data dirs, or Pointer app data.
 pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
     let roots = writable_path_roots(workspace_root)?;
-    let workspace = roots
-        .first()
-        .ok_or_else(|| anyhow!("无法解析工作区根"))?
-        .clone();
+    let workspace = workspace_root
+        .canonicalize()
+        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
     let expanded = expand_user_path_for_file(user_path)?;
     if expanded.is_empty() {
         return Err(anyhow!("路径不能为空"));
@@ -393,7 +406,7 @@ pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<P
     let out = if path.is_absolute() {
         resolve_absolute_under_roots(&roots, path)?
     } else {
-        resolve_relative_under_workspace(&workspace, user_path)?
+        resolve_relative_under_workspace(&workspace, &expanded)?
     };
 
     if !path_under_any_root(&out, &roots) {

@@ -251,7 +251,7 @@ mod tests {
             tc("2", "file_write"),
         ];
         let parsed = vec![
-            serde_json::json!({"paths": [{"path": "a.txt"}]}),
+            serde_json::json!({"path": "a.txt"}),
             serde_json::json!({"path": "b.txt", "content": "z"}),
         ];
         let ids = vec!["file_read".into(), "file_write".into()];
@@ -278,7 +278,11 @@ mod tests {
         let batch = vec![tc("1", "file_write"), tc("2", "file_edit")];
         let parsed = vec![
             serde_json::json!({"path": "a.txt", "content": "x"}),
-            serde_json::json!({"path": "a.txt", "edits": []}),
+            serde_json::json!({
+                "path": "a.txt",
+                "oldString": "a",
+                "newString": "b"
+            }),
         ];
         let ids = vec!["file_write".into(), "file_edit".into()];
         let plan = plan_tool_batch(PlanToolBatchInput {
@@ -303,8 +307,8 @@ mod tests {
         let reg = reg_with_file_tools();
         let batch = vec![tc("1", "file_read"), tc("2", "file_read")];
         let parsed = vec![
-            serde_json::json!({"paths": [{"path": "a.txt"}]}),
-            serde_json::json!({"paths": [{"path": "b.txt"}]}),
+            serde_json::json!({"path": "a.txt"}),
+            serde_json::json!({"path": "b.txt"}),
         ];
         let ids = vec!["file_read".into(), "file_read".into()];
         let plan = plan_tool_batch(PlanToolBatchInput {

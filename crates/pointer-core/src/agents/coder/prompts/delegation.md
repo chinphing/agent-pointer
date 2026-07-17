@@ -41,7 +41,7 @@ That work belongs in **`explore`** — isolated context, structured handoff, les
 
 **Default bias:** for read-only mapping, **`explore` early** beats a local **`file`** loop.
 
-**Breadth threshold (lower than legacy one-grep paths):** if **any** high-breadth trigger applies (persist, stream timing, Platform API, reload-after-restart), treat as cross-layer — parallel **`file_grep`**, batched reads, or **`explore`** before the first edit. Direct edit only when **all** are true: one file, one function, no persist/stream/API surface, line-confident target.
+**Breadth threshold (lower than legacy one-grep paths):** if **any** high-breadth trigger applies (persist, stream timing, Platform API, reload-after-restart), treat as cross-layer — parallel **`file_grep`**, parallel one-file **`file_read`** calls, or **`explore`** before the first edit. Direct edit only when **all** are true: one file, one function, no persist/stream/API surface, line-confident target.
 
 ### Goal / context template
 

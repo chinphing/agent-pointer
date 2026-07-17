@@ -1,7 +1,7 @@
-use super::{json_str, MAX_FILE_EDIT_BATCH};
+use super::json_str;
 use super::path::{path_display_abs, resolve_writable_path};
 use anyhow::{anyhow, Result};
-use log::{info, warn};
+use log::info;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -84,29 +84,7 @@ pub(crate) fn try_unique_text_replace(text: &str, old_s: &str, new_s: &str) -> R
     ))
 }
 
-fn parse_file_edit_batch_entries(arr: &[serde_json::Value]) -> Result<Vec<(String, String, String)>> {
-    let mut out = Vec::with_capacity(arr.len());
-    for (i, elem) in arr.iter().enumerate() {
-        if !elem.is_object() {
-            return Err(anyhow!(
-                "edits[{}] 须为 JSON 对象（含 path、oldString、newString）",
-                i
-            ));
-        }
-        let path = json_str(elem, "path", "file")
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| anyhow!("edits[{}] 缺少非空 path（可使用别名 file）", i))?;
-        let old_s = json_str(elem, "oldString", "old_string")
-            .ok_or_else(|| anyhow!("edits[{}] 缺少 oldString（或 old_string）", i))?;
-        let new_s = json_str(elem, "newString", "new_string")
-            .ok_or_else(|| anyhow!("edits[{}] 缺少 newString（或 new_string）", i))?;
-        out.push((path.to_string(), old_s.to_string(), new_s.to_string()));
-    }
-    Ok(out)
-}
-
-/// One `file:edit` replace. `path` is workspace-relative or absolute under allowed write roots.
+/// One `file_edit` replace. `path` is workspace-relative or absolute under allowed write roots.
 fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Result<PathBuf> {
     if old_s.is_empty() {
         return Err(anyhow!("oldString 不能为空"));
@@ -128,89 +106,40 @@ fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Res
     Ok(full)
 }
 
-pub(crate) fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
-    let has_flat = args
+/// Resolve a single edit: `path` + `oldString` + `newString` (one file per call).
+fn resolve_single_edit(
+    args: &serde_json::Value,
+) -> Result<(String, String, String)> {
+    if args.get("edits").is_some() {
+        return Err(anyhow!(
+            "file_edit 为单文件工具：请传 path、oldString、newString。多文件请并发多次 file_edit，不要传 edits"
+        ));
+    }
+    let path = args
         .get("path")
+        .or_else(|| args.get("file"))
         .and_then(|v| v.as_str())
         .map(str::trim)
-        .is_some_and(|s| !s.is_empty())
-        || json_str(args, "oldString", "old_string").is_some()
-        || json_str(args, "newString", "new_string").is_some();
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow!("缺少 path"))?;
+    let old_s = json_str(args, "oldString", "old_string")
+        .ok_or_else(|| anyhow!("缺少 oldString（或 old_string）"))?
+        .to_string();
+    let new_s = json_str(args, "newString", "new_string")
+        .ok_or_else(|| anyhow!("缺少 newString（或 new_string）"))?
+        .to_string();
+    Ok((path, old_s, new_s))
+}
 
-    let edits_val = args.get("edits").ok_or_else(|| {
-        anyhow!(
-            "file:edit 仅支持 edits 数组（每项含 path、oldString、newString）；单文件请传仅含一项的 edits 数组"
-        )
-    })?;
-
-    if !edits_val.is_array() {
-        return Err(anyhow!("edits 须为对象数组，每项含 path、oldString、newString"));
-    }
-    let arr = edits_val.as_array().expect("is_array checked");
-
-    if has_flat {
-        return Err(anyhow!(
-            "file:edit 不要同时使用顶层 path、oldString、newString 与 edits；请只使用 edits 数组"
-        ));
-    }
-
-    if arr.is_empty() {
-        return Err(anyhow!(
-            "edits 至少包含一项；单文件编辑请传仅一项的 edits 数组"
-        ));
-    }
-
-    if arr.len() > MAX_FILE_EDIT_BATCH {
-        return Err(anyhow!(
-            "一次最多应用 {} 处编辑（当前 {}）",
-            MAX_FILE_EDIT_BATCH,
-            arr.len()
-        ));
-    }
-
-    let entries = parse_file_edit_batch_entries(arr)?;
-    info!(
-        "file:edit: {} replacement(s) under workspace",
-        entries.len()
-    );
-    let mut files: Vec<serde_json::Value> = Vec::with_capacity(entries.len());
-    let mut failures: usize = 0;
-    for (path, old_s, new_s) in entries {
-        match file_edit_apply_one(root, &path, &old_s, &new_s) {
-            Ok(full) => {
-                files.push(serde_json::json!({
-                    "path": path_display_abs(&full),
-                    "success": true,
-                    "replaced": 1,
-                }));
-            }
-            Err(e) => {
-                failures += 1;
-                warn!("file:edit entry failed for {}: {}", path, e);
-                let disp = resolve_writable_path(root, &path)
-                    .map(|p| path_display_abs(&p))
-                    .unwrap_or_else(|_| path.clone());
-                files.push(serde_json::json!({
-                    "path": disp,
-                    "success": false,
-                    "error": e.to_string(),
-                }));
-            }
-        }
-    }
-    let batch_partial_failure = failures > 0;
-    if batch_partial_failure {
-        warn!(
-            "file:edit completed with {} failure(s) out of {}",
-            failures,
-            files.len()
-        );
-    }
+pub(crate) fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
+    let (path, old_s, new_s) = resolve_single_edit(args)?;
+    info!("file_edit: single replace under workspace path={path}");
+    let full = file_edit_apply_one(root, &path, &old_s, &new_s)?;
     Ok(serde_json::json!({
-        "files": files,
-        "successCount": files.len() - failures,
-        "failureCount": failures,
-        "batchPartialFailure": batch_partial_failure,
+        "path": path_display_abs(&full),
+        "success": true,
+        "replaced": 1,
     })
     .to_string())
 }

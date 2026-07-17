@@ -48,7 +48,7 @@ fn resolve_subagent_workspace(
                 );
                 Ok((path, ephemeral))
             }
-            Err(e) if SessionSandbox::is_sandbox(Path::new(session_ws)).unwrap_or(false) => {
+            Err(_) if SessionSandbox::is_sandbox(Path::new(session_ws)).unwrap_or(false) => {
                 std::fs::create_dir_all(session_ws).with_context(|| {
                     format!("workspace_delegation: create session sandbox failed: {session_ws}")
                 })?;

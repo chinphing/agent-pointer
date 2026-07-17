@@ -19,6 +19,9 @@ function formatPlatformAuthError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
   if (msg.includes('oauth callback timeout')) return '登录超时，请重试'
   if (msg.includes('platform_login_cancelled')) return '已取消登录'
+  if (msg.includes('本机回环')) {
+    return '本机回环不可用：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost，然后重试'
+  }
   if (msg.includes('invalid_refresh_token')) return '登录已失效，请重新登录 Pointer 账户'
   if (msg.includes('server_access_denied')) return '此 Server 未授权您的账户，请联系管理员'
   if (msg.includes('invalid_captcha')) return '验证码错误，请重试'
@@ -152,14 +155,22 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     loading.value = true
     error.value = null
     try {
-      await api.openPlatformLogin()
+      const view = await api.openPlatformLogin()
       if (isTauriRuntime()) {
-        // Desktop: openPlatformLogin resolves after the loopback callback;
-        // refresh the session and reload settings in-process.
-        session.value = await api.refreshPlatformSession()
+        // Unblock UI as soon as oauth exchange finished; refresh credentials in background.
+        session.value = view ?? { logged_in: true }
         error.value = null
+        loading.value = false
         const settings = useSettingsStore()
-        await settings.load()
+        void (async () => {
+          try {
+            session.value = await api.refreshPlatformSession()
+            await settings.load()
+          } catch (e) {
+            console.warn('platformAuth: post-login refresh failed', e)
+          }
+        })()
+        return
       }
       // Web: openPlatformLogin redirected the browser away. The remaining
       // lines never run; the SPA reloads at /?platform_login=success and

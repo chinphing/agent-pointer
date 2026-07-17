@@ -20,8 +20,13 @@
 ## 流程
 
 ```text
-用户（桌面）→ 浏览器授权页 → 官网带 code 重定向到 127.0.0.1/callback
-→ 桌面 loopback 收 code、302 → 首页 ?desktop_oauth=success → 官网 Toast → 去掉 query
+用户（桌面）→ bind 127.0.0.1 + 本机回环自检 → 打开浏览器授权页
+→ 官网带 code 重定向到 127.0.0.1/callback
+→ 桌面 accept 循环直到合法 code（非法/空连接快速忽略）→ 302 到首页 ?desktop_oauth=success
+→ 换票期间 listener 保持：再次访问同样 302 到首页（避免停在 127.0.0.1）
+→ 换票结束关闭 listener；客户端在 exchange 成功后立即结束「等待授权」
 ```
 
-桌面端换票在 loopback 收到请求后异步进行，与浏览器跳转并行，用户无需停留在 `127.0.0.1`。
+每次登录会轮换 `127.0.0.1` 端口（19427 起扫描），避免浏览器 keep-alive 复用导致「第一次成功、退出后再登卡住」。
+
+关键日志前缀：`platform_auth: bound port` / `loopback probe` / `accepted oauth callback` / `exchange start|done` / `listener closed`。

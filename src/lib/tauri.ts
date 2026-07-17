@@ -360,8 +360,8 @@ export async function getPlatformSession(): Promise<PlatformSessionView> {
   return await invoke<PlatformSessionView>('get_platform_session')
 }
 
-export async function openPlatformLogin(): Promise<void> {
-  await invoke('open_platform_login')
+export async function openPlatformLogin(): Promise<PlatformSessionView> {
+  return await invoke<PlatformSessionView>('open_platform_login')
 }
 
 export async function cancelPlatformLogin(): Promise<void> {

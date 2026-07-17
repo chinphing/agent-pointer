@@ -11,14 +11,16 @@ pub fn get_platform_session(state: State<'_, Arc<AppState>>) -> PlatformSessionV
 }
 
 #[tauri::command]
-pub async fn open_platform_login(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub async fn open_platform_login(
+    state: State<'_, Arc<AppState>>,
+) -> Result<PlatformSessionView, String> {
     let auth = state.platform_auth.clone();
     let app = state.inner().clone();
     let (_session, creds) = run_platform_login_flow(auth)
         .await
         .map_err(|e| e.to_string())?;
     app.apply_login_credentials(&creds);
-    Ok(())
+    Ok(app.platform_auth.session_view())
 }
 
 #[tauri::command]
@@ -33,9 +35,23 @@ pub async fn refresh_platform_session(state: State<'_, Arc<AppState>>) -> Result
         .refresh_if_needed()
         .await
         .map_err(|e| e.to_string())?;
+    // Fetch LLM creds with a short bound so the UI is not stuck on "等待授权"
+    // after oauth exchange already succeeded.
     if state.platform_auth.session_view().logged_in {
-        if let Ok(Some(creds)) = state.platform_auth.fetch_llm_credentials().await {
-            state.apply_login_credentials(&creds);
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            state.platform_auth.fetch_llm_credentials(),
+        )
+        .await
+        {
+            Ok(Ok(Some(creds))) => state.apply_login_credentials(&creds),
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => {
+                log::warn!("platform_auth: refresh llm-credentials failed: {e:#}");
+            }
+            Err(_) => {
+                log::warn!("platform_auth: refresh llm-credentials timed out");
+            }
         }
     }
     Ok(state.platform_auth.session_view())

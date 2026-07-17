@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -24,6 +24,14 @@ const LOOPBACK_PORT_SCAN_COUNT: u16 = 32;
 const EXPIRY_BUFFER_SEC: i64 = 300;
 /// 等待浏览器 OAuth 回调的最长时间（秒）。
 pub const OAUTH_CALLBACK_TIMEOUT_SEC: u64 = 300;
+/// bind 后本机回环自检超时。
+const LOOPBACK_PROBE_TIMEOUT_SEC: u64 = 2;
+/// 连接建立后等待首字节；超时则视为 Chrome 预连接并关掉（避免占住 keep-alive）。
+const LOOPBACK_FIRST_BYTE_TIMEOUT_MS: u64 = 2_500;
+/// 已有首字节后，读完 HTTP 头的最长时间。
+const LOOPBACK_HEADERS_TIMEOUT_SEC: u64 = 30;
+/// 上次成功绑定的 loopback 端口；下次从下一个端口起绑，避免浏览器复用旧 keep-alive。
+static LAST_LOOPBACK_PORT: AtomicU16 = AtomicU16::new(0);
 /// 桌面 OAuth 成功后跳转官网首页时携带的 query 名；官网据此展示一次性提示（见 `docs/developer/desktop-oauth-web-integration.md`）。
 pub const DESKTOP_OAUTH_SUCCESS_QUERY: &str = "desktop_oauth";
 /// 与 [`DESKTOP_OAUTH_SUCCESS_QUERY`] 搭配的值。
@@ -871,20 +879,30 @@ pub struct PartnerBalanceResponse {
 }
 
 /// 从首选端口起扫描，绑定第一个可用的 127.0.0.1 端口。
+///
+/// 每次登录尽量换端口：浏览器会对 `127.0.0.1:port` 做 TCP/HTTP keep-alive，
+/// 第二次仍绑同一端口时，回调 GET 可能打到已失效的旧连接上，表现为
+/// 「第一次登录成功、退出后再登卡住」（仅空 TCP、无 HTTP）。
 pub async fn bind_loopback_listener() -> Result<(tokio::net::TcpListener, u16)> {
-    let start = PlatformAuthManager::preferred_loopback_port();
+    let preferred = PlatformAuthManager::preferred_loopback_port();
+    let last = LAST_LOOPBACK_PORT.load(Ordering::SeqCst);
+    let start_offset = if last >= preferred
+        && last < preferred.saturating_add(LOOPBACK_PORT_SCAN_COUNT)
+    {
+        // Prefer the port after the last successful bind.
+        ((last - preferred) as u32 + 1) % (LOOPBACK_PORT_SCAN_COUNT as u32)
+    } else {
+        0
+    };
+
     let mut last_err: Option<std::io::Error> = None;
-    for offset in 0..LOOPBACK_PORT_SCAN_COUNT {
-        let port = start.saturating_add(offset);
+    for i in 0..LOOPBACK_PORT_SCAN_COUNT {
+        let offset = ((start_offset + i as u32) % (LOOPBACK_PORT_SCAN_COUNT as u32)) as u16;
+        let port = preferred.saturating_add(offset);
         match tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await {
             Ok(listener) => {
-                if offset > 0 {
-                    log::info!(
-                        "platform_auth: preferred port {start} busy, using 127.0.0.1:{port} for oauth callback"
-                    );
-                } else {
-                    log::info!("platform_auth: loopback oauth callback on 127.0.0.1:{port}");
-                }
+                LAST_LOOPBACK_PORT.store(port, Ordering::SeqCst);
+                log::info!("platform_auth: bound port={port}");
                 return Ok((listener, port));
             }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
@@ -894,44 +912,289 @@ pub async fn bind_loopback_listener() -> Result<(tokio::net::TcpListener, u16)> 
             Err(e) => return Err(e).context("bind loopback oauth listener"),
         }
     }
-    let end = start.saturating_add(LOOPBACK_PORT_SCAN_COUNT.saturating_sub(1));
+    let end = preferred.saturating_add(LOOPBACK_PORT_SCAN_COUNT.saturating_sub(1));
     if let Some(e) = last_err {
         Err(anyhow!(
-            "no free loopback port in range {start}..{end} (last error: {e})"
+            "no free loopback port in range {preferred}..{end} (last error: {e})"
         ))
     } else {
-        Err(anyhow!("no free loopback port in range {start}..{end}"))
+        Err(anyhow!("no free loopback port in range {preferred}..{end}"))
     }
 }
 
-/// 在已绑定的 listener 上等待单次 OAuth 回调 GET。
-pub async fn wait_loopback_on_listener(
-    listener: tokio::net::TcpListener,
-    expected_state: &str,
-    timeout_sec: u64,
-) -> Result<(String, String)> {
-    let accept = tokio::time::timeout(Duration::from_secs(timeout_sec), listener.accept())
-        .await
-        .context("oauth callback timeout")?
-        .context("accept failed")?;
-    let (mut stream, _) = accept;
+/// After bind: connect to self to verify localhost is not blocked.
+pub async fn probe_loopback(listener: &tokio::net::TcpListener, port: u16) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut buf = vec![0u8; 8192];
-    let n = stream.read(&mut buf).await.context("read callback")?;
-    let req = String::from_utf8_lossy(&buf[..n]);
+
+    log::info!("platform_auth: loopback probe start port={port}");
+    let addr = format!("127.0.0.1:{port}");
+    let probe = async {
+        let accept_fut = listener.accept();
+        let connect_fut = tokio::net::TcpStream::connect(&addr);
+        let ((mut inbound, _), mut outbound) = tokio::try_join!(accept_fut, connect_fut)
+            .context("loopback probe connect/accept")?;
+        outbound
+            .write_all(b"GET /probe HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            .await
+            .context("loopback probe write request")?;
+        let mut buf = [0u8; 512];
+        let n = inbound
+            .read(&mut buf)
+            .await
+            .context("loopback probe read request")?;
+        if n == 0 {
+            anyhow::bail!("loopback probe empty read");
+        }
+        inbound
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .await
+            .context("loopback probe write response")?;
+        let _ = outbound.read(&mut buf).await;
+        let _ = inbound.shutdown().await;
+        let _ = outbound.shutdown().await;
+        Ok::<(), anyhow::Error>(())
+    };
+
+    match tokio::time::timeout(Duration::from_secs(LOOPBACK_PROBE_TIMEOUT_SEC), probe).await {
+        Ok(Ok(())) => {
+            log::info!("platform_auth: loopback probe ok port={port}");
+            Ok(())
+        }
+        Ok(Err(e)) => Err(e).context(format!(
+            "本机回环不可用（127.0.0.1:{port}）：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost"
+        )),
+        Err(_) => Err(anyhow!(
+            "本机回环自检超时（127.0.0.1:{port}）：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost"
+        )),
+    }
+}
+
+fn http_response(status: &str, content_type: &str, body: &str) -> String {
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+async fn write_http(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &str,
+) {
+    use tokio::io::AsyncWriteExt;
+    let response = http_response(status, content_type, body);
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
+}
+
+/// Read until `\r\n\r\n` (HTTP headers complete) or timeout / EOF.
+/// Short first-byte wait drops Chrome idle preconnects; longer window finishes a real request.
+async fn read_http_headers(
+    stream: &mut tokio::net::TcpStream,
+    first_byte_timeout: Duration,
+    headers_timeout: Duration,
+) -> Result<String> {
+    use tokio::io::AsyncReadExt;
+
+    let mut tmp = [0u8; 1024];
+    let mut buf: Vec<u8> = Vec::with_capacity(2048);
+
+    match tokio::time::timeout(first_byte_timeout, stream.read(&mut tmp)).await {
+        Ok(Ok(0)) => anyhow::bail!("empty connection"),
+        Ok(Ok(n)) => buf.extend_from_slice(&tmp[..n]),
+        Ok(Err(e)) => return Err(e).context("read first byte"),
+        Err(_) => anyhow::bail!("idle preconnect"),
+    }
+
+    let deadline = tokio::time::Instant::now() + headers_timeout;
+    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+        if buf.len() > 64 * 1024 {
+            anyhow::bail!("http request too large");
+        }
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            anyhow::bail!("headers timeout");
+        }
+        match tokio::time::timeout(deadline - now, stream.read(&mut tmp)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => buf.extend_from_slice(&tmp[..n]),
+            Ok(Err(e)) => return Err(e).context("read http headers"),
+            Err(_) => anyhow::bail!("headers timeout"),
+        }
+    }
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+fn oauth_redirect_response(location: &str) -> String {
+    format!(
+        "HTTP/1.1 302 Found\r\n\
+         Location: {location}\r\n\
+         Cache-Control: no-store, no-cache, must-revalidate\r\n\
+         Connection: close\r\n\
+         Content-Length: 0\r\n\
+         \r\n"
+    )
+}
+
+/// Handle one accepted connection. Returns `Some(code)` on valid OAuth callback.
+async fn handle_loopback_connection(
+    mut stream: tokio::net::TcpStream,
+    peer: std::net::SocketAddr,
+    expected_state: &str,
+    first_byte_timeout: Duration,
+    headers_timeout: Duration,
+) -> Option<String> {
+    use tokio::io::AsyncWriteExt;
+
+    let req = match read_http_headers(&mut stream, first_byte_timeout, headers_timeout).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::debug!("platform_auth: drop peer={peer}: {e:#}");
+            let _ = stream.shutdown().await;
+            return None;
+        }
+    };
     let first_line = req.lines().next().unwrap_or("");
     let path = first_line
         .split_whitespace()
         .nth(1)
         .unwrap_or("/callback");
-    let (code, state) = parse_callback_query(path, expected_state)?;
-    let location = desktop_oauth_success_redirect_url();
-    let response = format!(
-        "HTTP/1.1 302 Found\r\nLocation: {location}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
-    );
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.shutdown().await;
-    Ok((code, state))
+
+    match parse_callback_query(path, expected_state) {
+        Ok((code, _state)) => {
+            log::info!("platform_auth: accepted oauth callback peer={peer}");
+            let location = desktop_oauth_success_redirect_url();
+            let response = oauth_redirect_response(&location);
+            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.shutdown().await;
+            Some(code)
+        }
+        Err(e) => {
+            log::warn!("platform_auth: ignored callback peer={peer}: {e:#}");
+            write_http(
+                &mut stream,
+                "400 Bad Request",
+                "text/plain; charset=utf-8",
+                "invalid oauth callback",
+            )
+            .await;
+            None
+        }
+    }
+}
+
+/// Accept until a valid `code`, timeout, or cancel. Connections are handled
+/// concurrently so idle browser preconnects cannot block the real callback.
+/// Returns `(code, listener)` so the caller can keep serving during token exchange.
+pub async fn wait_loopback_on_listener(
+    listener: tokio::net::TcpListener,
+    expected_state: &str,
+    timeout_sec: u64,
+    cancel: CancellationToken,
+) -> Result<(String, tokio::net::TcpListener)> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_sec);
+    let expected = expected_state.to_string();
+    let (code_tx, mut code_rx) = tokio::sync::mpsc::channel::<String>(1);
+    let handlers_cancel = CancellationToken::new();
+
+    let result = loop {
+        if cancel.is_cancelled() {
+            log::info!("platform_auth: listener closed (cancelled)");
+            break Err(anyhow!("platform_login_cancelled"));
+        }
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            log::info!("platform_auth: listener closed (oauth callback timeout)");
+            break Err(anyhow!("oauth callback timeout"));
+        }
+        let left = deadline - now;
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                log::info!("platform_auth: listener closed (cancelled)");
+                break Err(anyhow!("platform_login_cancelled"));
+            }
+            maybe_code = code_rx.recv() => {
+                match maybe_code {
+                    Some(code) => break Ok(code),
+                    None => break Err(anyhow!("oauth callback channel closed")),
+                }
+            }
+            accept = tokio::time::timeout(left, listener.accept()) => {
+                match accept {
+                    Err(_) => {
+                        log::info!("platform_auth: listener closed (oauth callback timeout)");
+                        break Err(anyhow!("oauth callback timeout"));
+                    }
+                    Ok(Err(e)) => break Err(anyhow!("accept failed: {e}")),
+                    Ok(Ok((stream, peer))) => {
+                        let tx = code_tx.clone();
+                        let expected = expected.clone();
+                        let handler_cancel = handlers_cancel.clone();
+                        let first_byte_timeout = std::cmp::min(
+                            left,
+                            Duration::from_millis(LOOPBACK_FIRST_BYTE_TIMEOUT_MS),
+                        );
+                        let headers_timeout = std::cmp::min(
+                            left,
+                            Duration::from_secs(LOOPBACK_HEADERS_TIMEOUT_SEC),
+                        );
+                        tokio::spawn(async move {
+                            let outcome = tokio::select! {
+                                _ = handler_cancel.cancelled() => None,
+                                code = handle_loopback_connection(
+                                    stream,
+                                    peer,
+                                    &expected,
+                                    first_byte_timeout,
+                                    headers_timeout,
+                                ) => code,
+                            };
+                            if let Some(code) = outcome {
+                                let _ = tx.try_send(code);
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    };
+
+    handlers_cancel.cancel();
+    drop(code_tx);
+    while code_rx.try_recv().is_ok() {}
+
+    Ok((result?, listener))
+}
+
+/// After code is captured: 302 further hits to the success page until exchange finishes.
+async fn serve_oauth_keepalive(
+    listener: tokio::net::TcpListener,
+    cancel: CancellationToken,
+) {
+    let response = oauth_redirect_response(&desktop_oauth_success_redirect_url());
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                log::info!("platform_auth: listener closed");
+                break;
+            }
+            accept = listener.accept() => {
+                match accept {
+                    Ok((mut stream, _peer)) => {
+                        use tokio::io::AsyncWriteExt;
+                        let _ = stream.write_all(response.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                    }
+                    Err(e) => {
+                        log::warn!("platform_auth: keepalive accept error: {e}");
+                        log::info!("platform_auth: listener closed");
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// 桌面 OAuth 回调成功后跳转官网首页（带一次性提示用的 query）。
@@ -1040,24 +1303,46 @@ async fn run_platform_login_flow_inner(
     let state = "pointer-app";
 
     let (listener, port) = bind_loopback_listener().await?;
+    probe_loopback(&listener, port).await?;
     let redirect_uri = PlatformAuthManager::redirect_uri_for_port(port);
 
+    let wait_cancel = cancel.clone();
     let callback_task = tokio::spawn(async move {
-        tokio::select! {
-            _ = cancel.cancelled() => Err(anyhow!("platform_login_cancelled")),
-            r = wait_loopback_on_listener(listener, state, OAUTH_CALLBACK_TIMEOUT_SEC) => r,
-        }
+        wait_loopback_on_listener(listener, state, OAUTH_CALLBACK_TIMEOUT_SEC, wait_cancel).await
     });
 
     let url = PlatformAuthManager::build_authorize_url_for_port(port, &challenge, state);
-    open_url_in_browser(&url)?;
+    if let Err(e) = open_url_in_browser(&url) {
+        cancel.cancel();
+        let _ = callback_task.await;
+        return Err(e);
+    }
 
-    let (code, _) = callback_task
+    let (code, listener) = callback_task
         .await
         .context("oauth callback task join")??;
 
-    auth.exchange_authorization_code(&code, &verifier, state, &redirect_uri)
-        .await
+    let keepalive_cancel = CancellationToken::new();
+    let kc = keepalive_cancel.clone();
+    let keepalive_task = tokio::spawn(async move {
+        serve_oauth_keepalive(listener, kc).await;
+    });
+
+    log::info!("platform_auth: exchange start");
+    let result = auth
+        .exchange_authorization_code(&code, &verifier, state, &redirect_uri)
+        .await;
+    match &result {
+        Ok(_) => log::info!("platform_auth: exchange done ok"),
+        Err(e) => log::warn!("platform_auth: exchange done err={e:#}"),
+    }
+
+    keepalive_cancel.cancel();
+    if let Err(e) = keepalive_task.await {
+        log::warn!("platform_auth: keepalive task join: {e}");
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -1112,6 +1397,209 @@ mod tests {
         let url = super::desktop_oauth_success_redirect_url();
         assert!(url.starts_with("https://pointer.readflowai.com/"));
         assert!(url.contains("desktop_oauth=success"));
+    }
+
+    #[test]
+    fn parse_callback_query_accepts_valid_code() {
+        let (code, state) =
+            parse_callback_query("/callback?code=abc%201&state=pointer-app", "pointer-app")
+                .expect("valid callback");
+        assert_eq!(code, "abc 1");
+        assert_eq!(state, "pointer-app");
+    }
+
+    #[test]
+    fn parse_callback_query_rejects_missing_code_or_bad_state() {
+        assert!(parse_callback_query("/callback?state=pointer-app", "pointer-app").is_err());
+        assert!(parse_callback_query("/callback?code=x&state=other", "pointer-app").is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_loopback_succeeds_after_bind() {
+        let (listener, port) = bind_loopback_listener().await.expect("bind");
+        probe_loopback(&listener, port).await.expect("probe");
+    }
+
+    #[tokio::test]
+    async fn wait_loopback_ignores_invalid_then_accepts_code() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral");
+        let port = listener.local_addr().expect("addr").port();
+        let cancel = CancellationToken::new();
+        let wait = tokio::spawn({
+            let cancel = cancel.clone();
+            async move {
+                wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await
+            }
+        });
+
+        // Invalid first hit must not steal the accept slot permanently.
+        {
+            let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+                .await
+                .expect("connect invalid");
+            stream
+                .write_all(b"GET /callback?foo=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+                .await
+                .expect("write invalid");
+            let mut buf = [0u8; 256];
+            let _ = stream.read(&mut buf).await;
+        }
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .expect("connect valid");
+        stream
+            .write_all(
+                b"GET /callback?code=test-code&state=pointer-app HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+            )
+            .await
+            .expect("write valid");
+        let mut buf = vec![0u8; 1024];
+        let n = stream.read(&mut buf).await.expect("read 302");
+        let resp = String::from_utf8_lossy(&buf[..n]);
+        assert!(resp.contains("302"), "expected 302, got {resp}");
+        assert!(resp.contains("desktop_oauth=success"));
+
+        let (code, listener) = wait.await.expect("join").expect("wait ok");
+        assert_eq!(code, "test-code");
+
+        let keepalive_cancel = CancellationToken::new();
+        let kc = keepalive_cancel.clone();
+        let keepalive = tokio::spawn(async move {
+            serve_oauth_keepalive(listener, kc).await;
+        });
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .expect("keepalive connect");
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .await
+            .expect("keepalive write");
+        let n = stream.read(&mut buf).await.expect("keepalive read");
+        let resp = String::from_utf8_lossy(&buf[..n]);
+        assert!(resp.contains("302"), "expected keepalive 302, got {resp}");
+        assert!(resp.contains("desktop_oauth=success"));
+
+        keepalive_cancel.cancel();
+        keepalive.await.expect("keepalive join");
+    }
+
+    #[tokio::test]
+    async fn wait_loopback_cancelled_before_code() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral");
+        let cancel = CancellationToken::new();
+        let wait = tokio::spawn({
+            let cancel = cancel.clone();
+            async move {
+                wait_loopback_on_listener(listener, "pointer-app", 30, cancel).await
+            }
+        });
+        cancel.cancel();
+        let err = wait.await.expect("join").expect_err("should cancel");
+        assert!(
+            err.to_string().contains("platform_login_cancelled"),
+            "got {err:#}"
+        );
+    }
+
+    /// Browser often TCP-preconnects before sending GET. Closing that socket early
+    /// drops the later callback; we must keep reading and still accept other conns.
+    #[tokio::test]
+    async fn wait_loopback_preconnect_then_get_on_same_connection() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral");
+        let port = listener.local_addr().expect("addr").port();
+        let cancel = CancellationToken::new();
+        let wait = tokio::spawn({
+            let cancel = cancel.clone();
+            async move {
+                wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await
+            }
+        });
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .expect("preconnect");
+        // Hold the connection idle briefly (simulates browser preconnect).
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        stream
+            .write_all(
+                b"GET /callback?code=late-code&state=pointer-app HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+            )
+            .await
+            .expect("delayed GET");
+        let mut buf = vec![0u8; 1024];
+        let n = stream.read(&mut buf).await.expect("read 302");
+        assert!(
+            String::from_utf8_lossy(&buf[..n]).contains("302"),
+            "expected 302"
+        );
+
+        let (code, _listener) = wait.await.expect("join").expect("wait ok");
+        assert_eq!(code, "late-code");
+    }
+
+    #[tokio::test]
+    async fn wait_loopback_preconnect_does_not_block_other_callback() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ephemeral");
+        let port = listener.local_addr().expect("addr").port();
+        let cancel = CancellationToken::new();
+        let wait = tokio::spawn({
+            let cancel = cancel.clone();
+            async move {
+                wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await
+            }
+        });
+
+        let _preconnect = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .expect("preconnect idle");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .expect("real callback");
+        stream
+            .write_all(
+                b"GET /callback?code=other-conn&state=pointer-app HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+            )
+            .await
+            .expect("write");
+        let mut buf = vec![0u8; 1024];
+        let n = stream.read(&mut buf).await.expect("read");
+        assert!(String::from_utf8_lossy(&buf[..n]).contains("302"));
+
+        let (code, _) = wait.await.expect("join").expect("wait ok");
+        assert_eq!(code, "other-conn");
+    }
+
+    #[tokio::test]
+    async fn bind_loopback_rotates_port_across_calls() {
+        // Reset so this test is deterministic regardless of prior tests.
+        LAST_LOOPBACK_PORT.store(0, Ordering::SeqCst);
+        let (l1, p1) = bind_loopback_listener().await.expect("bind1");
+        let (l2, p2) = bind_loopback_listener().await.expect("bind2");
+        assert_ne!(
+            p1, p2,
+            "second bind should rotate away from first port to avoid browser keep-alive reuse"
+        );
+        drop(l1);
+        drop(l2);
+        LAST_LOOPBACK_PORT.store(0, Ordering::SeqCst);
     }
 }
 

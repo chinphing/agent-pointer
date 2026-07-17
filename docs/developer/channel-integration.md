@@ -164,7 +164,7 @@ pointer-media://{user}/{convId}/{file}.md
 
 裸 `pointer-media://…` 整行（无 `MEDIA:` 前缀）在**文件可解析**时同样作出站附件；解析失败则保留在可见正文，便于排查。
 
-绝对路径可含空格（如 macOS `…/Library/Application Support/…`）。主机对同行写法（如 `- 文档：MEDIA:/…/Application Support/…/x.md`）按**整段路径**解析；旧逻辑用 `[^\s]+` 会在第一个空格处截断，文件不存在则**不入附件**，且按约定**不得剔除正文中的 `MEDIA:`**（`5df5847` / `split_reply_media`：仅文件真实存在时才抽出）。实现见 `media/outbound_reply.rs`。
+绝对路径可含空格（如 macOS `…/Library/Application Support/…`）。主机对同行写法（如 `- 文档：MEDIA:/…/Application Support/…/x.md`）按**整段路径**解析；旧逻辑用 `[^\s]+` 会在第一个空格处截断，文件不存在则**不入附件**，且按约定**不得剔除正文中的 `MEDIA:`**（`5df5847` / `split_reply_media`：仅文件真实存在时才抽出）。**0 字节空文件也算有效文件**（`Path::is_file()`），不会因 size 为 0 拒绝。可选 `` ` `` / `"` / `'` 包裹路径；缺少闭合引号时回退为无引号路径解析。实现见 `media/outbound_reply.rs`。
 
 路径解析顺序：
 

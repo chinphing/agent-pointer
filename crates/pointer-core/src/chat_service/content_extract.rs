@@ -128,4 +128,49 @@ mod extract_user_visible_tests {
             "好的，再发一次 👇\nMEDIA:/Users/me/Desktop/baby_cover.jpg"
         );
     }
+
+    /// Repro: customer sandbox empty.txt via `response` tool JSON + backtick MEDIA.
+    #[test]
+    fn repro_response_tool_sandbox_empty_txt_attaches() {
+        use super::reply_attachments_from_assistant_raw;
+        use std::fs;
+
+        let sandbox = std::env::temp_dir()
+            .join(format!("PointerApp-repro-{}", uuid::Uuid::new_v4()))
+            .join("session-sandboxes")
+            .join("1530c681-176d-40ca-84b4-a90a34312628");
+        let file = sandbox.join("empty.txt");
+        fs::create_dir_all(&sandbox).unwrap();
+        fs::write(&file, b"").unwrap();
+        let path = file.display().to_string();
+
+        let text = format!(
+            "已创建空文件，内容为 0 字节：\nMEDIA:`{path}`\n如果你想换个文件名或目录，随时告诉我！"
+        );
+        let raw = serde_json::json!({
+            "tool_name": "response",
+            "tool_args": { "text": text },
+        })
+        .to_string();
+
+        let atts = reply_attachments_from_assistant_raw(&raw)
+            .expect("should build attachments when sandbox empty.txt exists");
+        assert_eq!(atts.len(), 1);
+        assert_eq!(atts[0].file_name, "empty.txt");
+
+        let visible = extract_user_visible_content(&raw);
+        assert!(
+            !visible.contains("MEDIA:"),
+            "visible bubble should strip resolved MEDIA; got:\n{visible}"
+        );
+        assert!(visible.contains("已创建空文件"));
+
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir_all(
+            sandbox
+                .parent()
+                .and_then(|p| p.parent())
+                .unwrap_or(&sandbox),
+        );
+    }
 }

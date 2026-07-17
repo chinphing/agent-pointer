@@ -13,11 +13,18 @@ function parseMediaPathAfterMarker(afterMarker: string): string | null {
   const quote = rest[0]
   if (quote === '`' || quote === '"' || quote === "'") {
     const end = rest.indexOf(quote, 1)
-    if (end <= 1) return null
-    const inner = rest.slice(1, end).trim()
-    return inner || null
+    if (end > 0) {
+      const inner = rest.slice(1, end).trim()
+      if (inner) return inner
+    }
+    // Unclosed quote: treat remainder after the opening quote as an unquoted path.
+    return parseUnquotedMediaPath(rest.slice(1))
   }
 
+  return parseUnquotedMediaPath(rest)
+}
+
+function parseUnquotedMediaPath(rest: string): string | null {
   // Prefer remainder of line (macOS `Application Support`, etc.).
   const full = trimTrailingPathPunct(rest)
   if (full) return full

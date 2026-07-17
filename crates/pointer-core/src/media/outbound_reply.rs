@@ -55,17 +55,23 @@ fn parse_media_path_after_marker(after_marker: &str) -> Option<ParsedMediaPath<'
     let quote = bytes[0];
     if matches!(quote, b'`' | b'"' | b'\'') {
         let q = quote as char;
-        let end = rest[1..].find(q)?;
-        let inner = rest[1..1 + end].trim();
-        if inner.is_empty() {
-            return None;
+        if let Some(end) = rest[1..].find(q) {
+            let inner = rest[1..1 + end].trim();
+            if !inner.is_empty() {
+                return Some(ParsedMediaPath {
+                    path: inner,
+                    consumed: trim_leading + 1 + end + 1,
+                });
+            }
         }
-        return Some(ParsedMediaPath {
-            path: inner,
-            consumed: trim_leading + 1 + end + 1,
-        });
+        // Unclosed quote: parse the remainder after the opening quote as unquoted.
+        return parse_unquoted_media_path(&rest[1..], trim_leading + 1);
     }
 
+    parse_unquoted_media_path(rest, trim_leading)
+}
+
+fn parse_unquoted_media_path(rest: &str, leading_skip: usize) -> Option<ParsedMediaPath<'_>> {
     let full = trim_trailing_path_punct(rest);
     if full.is_empty() {
         return None;
@@ -73,7 +79,7 @@ fn parse_media_path_after_marker(after_marker: &str) -> Option<ParsedMediaPath<'
     if reply_media_path_resolves(full) {
         return Some(ParsedMediaPath {
             path: full,
-            consumed: trim_leading + full.len(),
+            consumed: leading_skip + full.len(),
         });
     }
 
@@ -87,7 +93,7 @@ fn parse_media_path_after_marker(after_marker: &str) -> Option<ParsedMediaPath<'
         if reply_media_path_resolves(token) {
             return Some(ParsedMediaPath {
                 path: token,
-                consumed: trim_leading + token.len(),
+                consumed: leading_skip + token.len(),
             });
         }
     }
@@ -95,7 +101,7 @@ fn parse_media_path_after_marker(after_marker: &str) -> Option<ParsedMediaPath<'
     // Neither candidate exists — keep the full remainder so spaced paths stay intact in UI.
     Some(ParsedMediaPath {
         path: full,
-        consumed: trim_leading + full.len(),
+        consumed: leading_skip + full.len(),
     })
 }
 
@@ -415,6 +421,123 @@ mod tests {
         assert!(!text.contains("MEDIA:"));
         let _ = fs::remove_file(&file);
         let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn zero_byte_file_is_attached() {
+        // Empty files are still files — size must not block MEDIA delivery.
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-empty-{}.txt",
+            uuid::Uuid::new_v4()
+        ));
+        if let Some(parent) = file.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        fs::write(&file, b"").unwrap();
+        assert_eq!(fs::metadata(&file).unwrap().len(), 0);
+        let path = file.display().to_string();
+        let (text, media) = split_reply_media(&format!(
+            "已创建空文件，内容为 0 字节：\nMEDIA:`{path}`\n如果你想换个文件名或目录，随时告诉我！"
+        ));
+        assert_eq!(media, vec![path]);
+        assert!(!text.contains("MEDIA:"));
+        assert!(text.contains("已创建空文件"));
+        let _ = fs::remove_file(&file);
+    }
+
+    #[test]
+    fn unclosed_backtick_still_attaches_when_file_exists() {
+        // Models sometimes omit the closing backtick around Windows paths.
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-unclosed-{}.txt",
+            uuid::Uuid::new_v4()
+        ));
+        touch(&file);
+        let path = file.display().to_string();
+        let (text, media) = split_reply_media(&format!("MEDIA:`{path}"));
+        assert_eq!(media, vec![path]);
+        assert!(!text.contains("MEDIA:"));
+        let _ = fs::remove_file(&file);
+    }
+
+    /// Repro: sandbox empty.txt delivered with backticks (customer Windows path shape).
+    ///
+    /// Customer sample (file confirmed present on disk):
+    /// `MEDIA:`C:\Users\…\PointerApp\session-sandboxes\1530c681-…\empty.txt``
+    #[test]
+    fn repro_pointerapp_sandbox_empty_txt_backtick_media() {
+        let sandbox = std::env::temp_dir()
+            .join(format!("PointerApp-repro-{}", uuid::Uuid::new_v4()))
+            .join("session-sandboxes")
+            .join("1530c681-176d-40ca-84b4-a90a34312628");
+        let file = sandbox.join("empty.txt");
+        fs::create_dir_all(&sandbox).unwrap();
+        fs::write(&file, b"").unwrap();
+        assert!(file.is_file());
+        assert_eq!(fs::metadata(&file).unwrap().len(), 0);
+
+        let path = file.display().to_string();
+        let reply = format!(
+            "已创建空文件，内容为 0 字节：\nMEDIA:`{path}`\n如果你想换个文件名或目录，随时告诉我！"
+        );
+        let (text, media) = split_reply_media(&reply);
+        assert_eq!(
+            media,
+            vec![path.clone()],
+            "expected MEDIA attach when file exists; visible text was:\n{text}"
+        );
+        assert!(
+            !text.contains("MEDIA:"),
+            "MEDIA marker should be stripped when file exists; text:\n{text}"
+        );
+        assert!(text.contains("已创建空文件"));
+        assert!(text.contains("换个文件名"));
+
+        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir_all(sandbox.parent().and_then(|p| p.parent()).unwrap_or(&sandbox));
+    }
+
+    /// Same prose as the customer report, but with a literal Windows-style absolute path
+    /// string. On Windows the file is created at that location; on other OSes the path
+    /// cannot exist, so MEDIA must stay visible (documents host-local resolve contract).
+    #[test]
+    fn repro_windows_absolute_sandbox_media_path_string() {
+        let win_path = r"C:\Users\Administrator\AppData\Roaming\PointerApp\session-sandboxes\1530c681-176d-40ca-84b4-a90a34312628\empty.txt";
+        let reply = format!(
+            "已创建空文件，内容为 0 字节：\nMEDIA:`{win_path}`\n如果你想换个文件名或目录，随时告诉我！"
+        );
+
+        #[cfg(windows)]
+        {
+            let file = PathBuf::from(win_path);
+            if let Some(parent) = file.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&file, b"").unwrap();
+            assert!(file.is_file());
+            let (text, media) = split_reply_media(&reply);
+            assert_eq!(
+                media,
+                vec![win_path.to_string()],
+                "Windows host should attach existing sandbox empty.txt; text:\n{text}"
+            );
+            assert!(!text.contains("MEDIA:"));
+            let _ = fs::remove_file(&file);
+        }
+
+        #[cfg(not(windows))]
+        {
+            let (text, media) = split_reply_media(&reply);
+            assert!(
+                media.is_empty(),
+                "non-Windows host cannot see C:\\… paths; got media={media:?}"
+            );
+            assert!(
+                text.contains("MEDIA:"),
+                "unresolved Windows MEDIA must stay visible; text:\n{text}"
+            );
+            assert!(text.contains(win_path));
+        }
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { Info, ArrowUpRight, Loader2 } from 'lucide-vue-next'
 import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
+import { APP_VERSION } from '../../../lib/appVersion'
 
 const {
   updateAvailable,
@@ -20,7 +21,7 @@ const {
   skipVersion,
 } = useAppUpdater()
 
-const currentVersion = ref('...')
+const currentVersion = ref(APP_VERSION)
 
 if (isTauriRuntime()) {
   import('@tauri-apps/api/app')
@@ -29,16 +30,16 @@ if (isTauriRuntime()) {
       currentVersion.value = v
     })
     .catch(() => {
-      currentVersion.value = '0.1.1'
+      currentVersion.value = APP_VERSION
     })
 } else {
   fetch('/api/version')
     .then((res) => res.json())
     .then((data) => {
-      currentVersion.value = data.version ?? '0.1.1'
+      currentVersion.value = data.version ?? APP_VERSION
     })
     .catch(() => {
-      currentVersion.value = '0.1.1'
+      currentVersion.value = APP_VERSION
     })
 }
 

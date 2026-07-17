@@ -1,0 +1,15 @@
+---
+description: App version bumps must use VERSION + npm run version:sync
+alwaysApply: true
+---
+
+# Version bumps
+
+When the user asks to upgrade / bump the app version:
+
+1. Edit **only** the root `VERSION` file (semver, e.g. `0.1.3`).
+2. Immediately run `npm run version:sync`.
+3. Run `npm run version:check` and confirm it passes.
+4. Do **not** hand-edit `package.json`, `tauri.conf.json`, Cargo crate versions, or `src/lib/appVersion.ts` for version bumps.
+
+Details: `docs/contributing/versioning.md`.

@@ -5011,7 +5011,7 @@ dependencies = [
 
 [[package]]
 name = "pointer-app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "core-foundation 0.10.1",
@@ -5035,7 +5035,7 @@ dependencies = [
 
 [[package]]
 name = "pointer-channels"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes",
  "anyhow",
@@ -5079,7 +5079,7 @@ dependencies = [
 
 [[package]]
 name = "pointer-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5151,7 +5151,7 @@ dependencies = [
 
 [[package]]
 name = "pointer-license-gen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5166,7 +5166,7 @@ dependencies = [
 
 [[package]]
 name = "pointer-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-stream",

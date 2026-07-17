@@ -24,7 +24,9 @@ const DIST_DIR = path.join(ROOT, 'dist')
 const SKILLS_DIR = path.join(ROOT, 'skills')
 const CONFIG_EXAMPLE = path.join(ROOT, 'server', 'pointer-server.toml.example')
 const DEB_STAGING = path.join(ROOT, 'target', 'pointer-server-deb-staging')
-const PACKAGE_VERSION = '0.1.1'
+const PACKAGE_VERSION = JSON.parse(
+  fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')
+).version
 const PACKAGE_ARCH = 'amd64'
 
 function ensureInputs() {

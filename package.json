@@ -1,7 +1,7 @@
 {
   "name": "pointer-app",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -35,7 +35,9 @@
     "build:macos:universal": "npm run tauri:build -- --target universal-apple-darwin",
     "signing:macos:setup": "node scripts/macos-signing-setup.mjs",
     "build:linux": "npm run tauri:build",
-    "build:linux:appimage": "npm run tauri:build -- --bundles appimage"
+    "build:linux:appimage": "npm run tauri:build -- --bundles appimage",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:check": "node scripts/sync-version.mjs --check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

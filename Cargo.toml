@@ -7,3 +7,6 @@ members = [
   "tools/license-gen"
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.2"

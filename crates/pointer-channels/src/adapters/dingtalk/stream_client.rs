@@ -164,7 +164,7 @@ async fn open_stream_ticket(http: &HttpClient, cfg: &DingTalkStreamConfig) -> Re
             { "topic": "*", "type": "EVENT" },
             { "topic": BOT_MSG_TOPIC, "type": "CALLBACK" }
         ],
-        "ua": "pointer-channels-rust/0.1.1"
+        "ua": format!("pointer-channels-rust/{}", env!("CARGO_PKG_VERSION"))
     });
     let resp = http.post_json(OPEN_URL, &[], &body).await?;
     let endpoint = resp

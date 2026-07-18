@@ -84,8 +84,8 @@ pub(crate) fn try_unique_text_replace(text: &str, old_s: &str, new_s: &str) -> R
     ))
 }
 
-/// One `file_edit` replace. `path` is workspace-relative or absolute under allowed write roots.
-fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Result<PathBuf> {
+/// One `file_edit` replace. Returns (canonical_path, old_content, new_content).
+fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Result<(PathBuf, String, String)> {
     if old_s.is_empty() {
         return Err(anyhow!("oldString 不能为空"));
     }
@@ -103,7 +103,7 @@ fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Res
     let text = fs::read_to_string(&full).map_err(|e| anyhow!("读取失败: {e}"))?;
     let updated = try_unique_text_replace(&text, old_s, new_s)?;
     fs::write(&full, updated.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
-    Ok(full)
+    Ok((full, text, updated))
 }
 
 /// Resolve a single edit: `path` + `oldString` + `newString` (one file per call).
@@ -135,11 +135,13 @@ fn resolve_single_edit(
 pub(crate) fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
     let (path, old_s, new_s) = resolve_single_edit(args)?;
     info!("file_edit: single replace under workspace path={path}");
-    let full = file_edit_apply_one(root, &path, &old_s, &new_s)?;
+    let (full, old_content, new_content) = file_edit_apply_one(root, &path, &old_s, &new_s)?;
     Ok(serde_json::json!({
         "path": path_display_abs(&full),
         "success": true,
         "replaced": 1,
+        "old_content": old_content,
+        "new_content": new_content,
     })
     .to_string())
 }

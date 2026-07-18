@@ -9,7 +9,8 @@ import {
   Loader2,
   ShieldAlert,
   Check,
-  X
+  X,
+  FileEdit
 } from 'lucide-vue-next'
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
@@ -17,6 +18,7 @@ import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs } from '../../lib/m
 import { truncateToolSummary, effectiveToolDisplayLabel, effectiveToolDisplaySummary } from '../../lib/toolCallDisplay'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
+import DiffView from './DiffView.vue'
 
 
 
@@ -29,6 +31,7 @@ const open = ref(false)
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
 const isWebSearch = computed(() => props.toolCall.name === 'web_search')
+const isFileEdit = computed(() => props.toolCall.name === 'file_edit')
 const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
@@ -186,6 +189,32 @@ const webSearchSourcesView = computed(() =>
     siteLabel: sourceSiteLabel(source)
   }))
 )
+
+type FileEditResult = {
+  path?: string
+  success?: boolean
+  replaced?: number
+  old_content?: string
+  new_content?: string
+}
+
+const fileEditResult = computed<FileEditResult | null>(() => {
+  if (!isFileEdit.value || !props.toolCall.result) return null
+  try {
+    return JSON.parse(props.toolCall.result) as FileEditResult
+  } catch {
+    return null
+  }
+})
+
+const fileEditFileName = computed(() => {
+  const r = fileEditResult.value
+  if (r?.path) {
+    const parts = r.path.replace(/\\/g, '/').split('/')
+    return parts[parts.length - 1] || r.path
+  }
+  return ''
+})
 
 const terminalMeta = computed(() => {
   const result = terminalResult.value
@@ -359,6 +388,18 @@ function openSourceUrl(url: string) {
             class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64 whitespace-pre-wrap"
           >{{ webSearchOutput || (effectiveStatus === 'running' ? '…' : '—') }}</pre>
         </div>
+      </template>
+
+      <template v-else-if="isFileEdit && fileEditResult?.old_content != null && fileEditResult?.new_content != null">
+        <div v-if="fileEditResult.path" class="text-[11px] text-muted px-3 pt-0.5 truncate">
+          <FileEdit class="w-3 h-3 inline align-text-top mr-1" />
+          <span class="font-medium text-foreground/70">{{ fileEditFileName }}</span>
+          <span class="ml-1 text-muted/60">{{ fileEditResult.path }}</span>
+        </div>
+        <DiffView
+          :old-content="fileEditResult.old_content"
+          :new-content="fileEditResult.new_content"
+        />
       </template>
 
       <template v-else>

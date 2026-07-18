@@ -112,7 +112,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         class="relative"
         :style="{
           transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
-          cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'zoom-out'
+          cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'grab',
         }"
         @click.stop
         @dblclick="onDblClick"

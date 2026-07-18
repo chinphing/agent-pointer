@@ -43,6 +43,7 @@ const editingTitle = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
 
 function startEdit(conv: { id: string; title: string }) {
+  saveEdit()
   editingId.value = conv.id
   editingTitle.value = conv.title
   pendingDeleteId.value = null
@@ -82,6 +83,7 @@ function confirmDeleteConversation(c: { id: string }) {
 
 /** Row click selects the conversation and dismisses any pending delete. */
 function onRowClick(c: { id: string }) {
+  saveEdit()
   pendingDeleteId.value = null
   chat.selectConversation(c.id)
 }
@@ -351,6 +353,7 @@ watch(searchQuery, q => {
           <div
             ref="listScroller"
             class="flex-1 overflow-y-auto px-2 pb-3 space-y-1 min-h-0"
+            @mousedown.self="saveEdit"
           >
             <div
               v-for="c in sidebarRows"

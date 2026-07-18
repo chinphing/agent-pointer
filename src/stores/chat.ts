@@ -263,7 +263,7 @@ export const useChatStore = defineStore('chat', () => {
 
   // ── Idle conversation eviction ──
   /** Minutes of inactivity before a conversation's messages are evicted from memory. Set to 0 to disable. */
-  const IDLE_EVICTION_MINUTES = 0
+  const IDLE_EVICTION_MINUTES = 120
   /** Timestamp (Date.now()) of the last time each conversation was selected. */
   const lastAccessed = new Map<string, number>()
 

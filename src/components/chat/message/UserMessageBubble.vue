@@ -6,6 +6,7 @@ import type { ChatMessage } from '../../../types/chat'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
 import ChatAudioTranscript from './ChatAudioTranscript.vue'
+import ZoomableImage from './ZoomableImage.vue'
 import { userMessageDisplayContent } from '../../../lib/messageNormalizer'
 import MessageFooterActions from './MessageFooterActions.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
@@ -66,11 +67,10 @@ async function onOpenAttachment(att: RenderableAttachment) {
       >
         <template v-for="att in attachments" :key="att.id">
           <div class="relative group/media-attachment">
-            <img
+            <ZoomableImage
               v-if="att.kind === 'image' && mediaSrc(att)"
               :src="mediaSrc(att)!"
               :alt="att.fileName"
-              class="max-h-64 max-w-full rounded-xl border border-border object-contain"
             />
             <button
               v-else-if="showsWebDownloadOnly(att)"

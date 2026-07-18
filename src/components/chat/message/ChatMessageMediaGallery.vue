@@ -4,6 +4,7 @@ import { Clipboard, Download, FileText, FolderOpen } from 'lucide-vue-next'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
 import ChatAudioTranscript from './ChatAudioTranscript.vue'
+import ZoomableImage from './ZoomableImage.vue'
 import { showsWebDownloadOnly } from '../../../lib/chatAttachmentLoad'
 import { useChatAttachmentDisplay } from '../../../composables/useChatAttachmentDisplay'
 import {
@@ -46,11 +47,10 @@ const alignClass = computed(() =>
   >
     <template v-for="att in attachments" :key="att.id">
       <div class="relative group/media-attachment">
-        <img
+        <ZoomableImage
           v-if="att.kind === 'image' && mediaSrc(att)"
           :src="mediaSrc(att)!"
-          alt=""
-          class="max-h-64 max-w-full rounded-xl border border-border object-contain"
+          :alt="att.fileName"
         />
         <button
           v-else-if="showsWebDownloadOnly(att)"

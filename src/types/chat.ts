@@ -466,6 +466,8 @@ export interface UserSettings {
   userNickname?: string
   /** Globally enabled skill ids (persisted in user_settings.json). */
   enabledSkillIds?: string[]
+  /** Per-agent skill overrides (agentId -> skill ids). Overrides global enabledSkillIds per agent. */
+  agentSkillOverrides?: Record<string, string[]>
   /** Shrink app window to dock bar while computer agent is executing (default true). */
   computerAutoCompact?: boolean
   /** Global coding preferences injected as [USER RULES] in agent system prompt. */

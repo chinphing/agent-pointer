@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { importSkillZip, listSkills, reloadSkillMeta } from '../lib/api'
 import type { SkillDef, SkillImportResult } from '../types/chat'
 import { DEFAULT_ENABLED_SKILL_IDS } from '../types/chat'
+import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { useSettingsStore } from './settings'
 
 
@@ -18,10 +19,14 @@ export const useSkillsStore = defineStore('skills', () => {
 
   function initEnabledFromUserSettings() {
     const user = useSettingsStore().userSettings
-    enabledIds.value =
-      user.enabledSkillIds !== undefined
-        ? [...user.enabledSkillIds]
-        : [...DEFAULT_ENABLED_SKILL_IDS]
+    const generalOverrides = user.agentSkillOverrides?.[GENERAL_AGENT_ID]
+    if (generalOverrides) {
+      enabledIds.value = [...generalOverrides]
+    } else if (user.enabledSkillIds !== undefined) {
+      enabledIds.value = [...user.enabledSkillIds]
+    } else {
+      enabledIds.value = [...DEFAULT_ENABLED_SKILL_IDS]
+    }
   }
 
   /** Ensure every system-bundled skill is enabled (e.g. after app adds new built-ins). */
@@ -44,7 +49,13 @@ export const useSkillsStore = defineStore('skills', () => {
   }
 
   async function persistEnabledIds() {
-    await useSettingsStore().saveUser({ enabledSkillIds: [...enabledIds.value] })
+    const settings = useSettingsStore()
+    const overrides = { ...settings.userSettings.agentSkillOverrides }
+    overrides[GENERAL_AGENT_ID] = [...enabledIds.value]
+    await settings.saveUser({
+      enabledSkillIds: [...enabledIds.value],
+      agentSkillOverrides: overrides
+    })
   }
 
   async function load(options?: { rescan?: boolean }) {

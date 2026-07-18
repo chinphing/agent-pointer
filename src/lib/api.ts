@@ -44,6 +44,7 @@ export interface SendChatPayload {
   conversationId: string
   messages: ChatMessage[]
   enabledSkillIds: string[]
+  agentSkillOverrides?: Record<string, string[]>
   agentMode?: AgentMode
   /** Cumulative single-agent tool rounds before this send. */
   toolRoundsUsed?: number

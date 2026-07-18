@@ -20,7 +20,7 @@ exhausted and the gap is **external** and needs **live** web evidence.
 
 **Primary edits** target the configured workspace; how relative paths map to disk is in **Session context (runtime)** and **Workspace paths and gathering (coder)** above.
 
-**Returned paths:** Successful **`file`** tool JSON that names a location on disk (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses **absolute** paths (OS-canonical when available). Reuse them as **`path`** on later **`file`** calls. **`file_write`** / **`file_edit`** accept workspace-relative paths or absolute / **`~`** paths under an allowed write root (workspace, home, temp, standard user data dirs, Pointer app data).
+**Returned paths:** Successful **`file`** tool JSON that names a location on disk (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses **absolute** paths (OS-canonical when available). Reuse them as **`path`** on later **`file`** calls — on Windows, convert canonical paths to forward-slash form first (e.g. `\\?\C:\project\src` → `C:/project/src`). **`file_write`** / **`file_edit`** accept workspace-relative paths or absolute / **`~`** paths under an allowed write root (workspace, home, temp, standard user data dirs, Pointer app data).
 
 **Reading discipline:** locate with **`file_grep`** (always pass **`path`** — a file or directory under the workspace root; never **`pattern`** alone) / **`file_glob`** / **`file_list`** before wide **`file_read`**; use **line ranges** and **one file per `file_read`**; treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply. **Parallelize** independent **`file_*`** calls in one turn when the host allows.
 

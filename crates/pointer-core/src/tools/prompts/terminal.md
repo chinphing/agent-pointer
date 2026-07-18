@@ -28,6 +28,8 @@ schema:
             type: string
     elevated:
       type: boolean
+    label:
+      type: string
   required:
     - command
   additionalProperties: true
@@ -128,3 +130,4 @@ limits.
 | **`waitForInputMs`** | no | Max wait for in-app input after prompt detect |
 | **`envFiles`** | no | `.env` path or array |
 | **`elevated`** | no | Admin/root; see **Elevation** |
+| **`label`** | no | Human-readable short name shown in UI (e.g. "运行单元测试"); defaults to first line of `command` |

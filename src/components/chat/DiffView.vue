@@ -55,7 +55,7 @@ function hiddenLineNum(ci: number, hi: number): number {
 
 <template>
   <div class="diff-view">
-    <div class="overflow-x-auto max-h-96">
+    <div class="overflow-x-hidden max-h-96">
       <div class="diff-table">
         <template v-for="(line, idx) in diffLines" :key="idx">
           <!-- Collapse marker -->
@@ -149,9 +149,9 @@ function hiddenLineNum(ci: number, hi: number): number {
 .diff-text {
   flex: 1;
   padding: 0 12px;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   tab-size: 2;
-  overflow-x: auto;
 }
 
 /* ── Unchanged ── */

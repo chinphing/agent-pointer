@@ -312,8 +312,12 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             };
             (
                 label,
-                str_field(args, &["command"])
-                    .map(|c| truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX))
+                str_field(args, &["label"])
+                    .or_else(|| {
+                        str_field(args, &["command"]).map(|c| {
+                            truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX)
+                        })
+                    })
                     .unwrap_or_default(),
             )
         }
@@ -608,5 +612,25 @@ mod tests {
         );
         assert_eq!(d.label, "删除定时任务");
         assert_eq!(d.summary, "每分钟提醒");
+    }
+
+    #[test]
+    fn terminal_label_takes_priority_over_command() {
+        let d = default_display(
+            "terminal",
+            &json!({"command": "cargo test -p pointer-core task_board::", "label": "运行 task_board 单元测试"}),
+        );
+        assert_eq!(d.label, "终端命令");
+        assert_eq!(d.summary, "运行 task_board 单元测试");
+    }
+
+    #[test]
+    fn terminal_falls_back_to_command_when_label_absent() {
+        let d = default_display(
+            "terminal",
+            &json!({"command": "cargo build --release"}),
+        );
+        assert_eq!(d.label, "终端命令");
+        assert_eq!(d.summary, "cargo build --release");
     }
 }

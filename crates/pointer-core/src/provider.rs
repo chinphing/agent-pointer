@@ -362,7 +362,11 @@ impl OpenAIProvider {
             } else {
                 Some(native_tools)
             },
-            tool_choice: Some("auto"),
+            tool_choice: if native_tools.is_empty() {
+                None
+            } else {
+                Some("auto")
+            },
             extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
@@ -1124,7 +1128,11 @@ impl OpenAIProvider {
             } else {
                 Some(native_tools)
             },
-            tool_choice: Some("auto"),
+            tool_choice: if native_tools.is_empty() {
+                None
+            } else {
+                Some("auto")
+            },
             extra_body,
         };
 

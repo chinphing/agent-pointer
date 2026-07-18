@@ -194,9 +194,15 @@ const webSearchSourcesView = computed(() =>
 type FileEditResult = {
   path?: string
   success?: boolean
-  replaced?: number
-  old_content?: string
-  new_content?: string
+  diff_lines?: {
+    type: string
+    text: string
+    hidden?: string[]
+  }[]
+  diff_stats?: {
+    adds: number
+    dels: number
+  }
 }
 
 const fileEditResult = computed<FileEditResult | null>(() => {
@@ -392,18 +398,10 @@ function openSourceUrl(url: string) {
         </div>
       </template>
 
-      <template v-else-if="isFileEdit && fileEditResult?.success && fileEditResult?.old_content != null && fileEditResult?.new_content != null">
+      <template v-else-if="(isFileEdit || isFileWrite) && fileEditResult?.success && fileEditResult?.diff_lines">
         <DiffView
-          :old-content="fileEditResult.old_content"
-          :new-content="fileEditResult.new_content"
-        />
-      </template>
-
-      <!-- file_write: same diff view -->
-      <template v-else-if="isFileWrite && fileEditResult?.success && fileEditResult?.old_content != null && fileEditResult?.new_content != null">
-        <DiffView
-          :old-content="fileEditResult.old_content"
-          :new-content="fileEditResult.new_content"
+          :diff-lines="fileEditResult.diff_lines as any"
+          :diff-stats="fileEditResult.diff_stats"
         />
       </template>
 

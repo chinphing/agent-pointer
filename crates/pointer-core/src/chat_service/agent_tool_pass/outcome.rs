@@ -49,6 +49,9 @@ pub(super) async fn record_tool_exec_outcome(
             }
             let preview = if tool_id == "list_apps" {
                 truncate_str(&out, 12_000)
+            } else if tool_id == "file_edit" || tool_id == "file_write" {
+                // diff_lines JSON can be large — don't truncate
+                out.to_string()
             } else {
                 truncate_str(&out, 800)
             };

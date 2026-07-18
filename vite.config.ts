@@ -24,7 +24,7 @@ export default defineConfig({
     hmr: host
       ? { protocol: 'ws', host, port: 1421 }
       : undefined,
-    watch: { ignored: ['**/src-tauri/**'] },
+    watch: { ignored: ['**/src-tauri/**', '**/target/**'] },
     /** Pre-transform entry + shell so first browser request returns faster in dev. */
     warmup: {
       clientFiles: [

@@ -1004,6 +1004,16 @@ export const useChatStore = defineStore('chat', () => {
     void refreshSubAgentTaskBoards(id)
   }
 
+  function renameConversation(id: string, newTitle: string): void {
+    const conv = conversations.value.find(c => c.id === id)
+    if (!conv) return
+    const trimmed = newTitle.trim()
+    if (!trimmed || trimmed === conv.title) return
+    conv.title = trimmed
+    conv.updatedAt = Date.now()
+    markMetaDirty(id)
+  }
+
   async function deleteConversation(id: string) {
     const conv = conversations.value.find(c => c.id === id)
     if (conv) {
@@ -1498,7 +1508,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, uiToast, taskBoards,
-    init, resetForPlatformLogout, newConversation, openCronConversation, openWebhookConversation, selectConversation, deleteConversation,
+    init, resetForPlatformLogout, newConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     sendUserMessage, stop, abortTerminalOnly, approve,

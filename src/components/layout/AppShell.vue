@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import {
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -35,6 +36,36 @@ const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollaps
  * making a naive guard a no-op on desktop.
  */
 const pendingDeleteId = ref<string | null>(null)
+
+/** Inline edit (rename) state for a sidebar conversation title. */
+const editingId = ref<string | null>(null)
+const editingTitle = ref('')
+const editInputRef = ref<HTMLInputElement | null>(null)
+
+function startEdit(conv: { id: string; title: string }) {
+  editingId.value = conv.id
+  editingTitle.value = conv.title
+  pendingDeleteId.value = null
+  nextTick(() => {
+    editInputRef.value?.focus()
+    editInputRef.value?.select()
+  })
+}
+
+function saveEdit() {
+  if (!editingId.value) return
+  const newTitle = editingTitle.value.trim()
+  if (newTitle) {
+    chat.renameConversation(editingId.value, newTitle)
+  }
+  editingId.value = null
+  editingTitle.value = ''
+}
+
+function cancelEdit() {
+  editingId.value = null
+  editingTitle.value = ''
+}
 
 function askDeleteConversation(c: { id: string }) {
   pendingDeleteId.value = c.id
@@ -171,9 +202,20 @@ watch(sidebarCollapsed, collapsed => {
   }
 })
 
-// Dismiss the inline delete confirmation when the active conversation or
-// search filter changes, so a stale pending state never lingers.
-watch(() => chat.currentId, () => { pendingDeleteId.value = null })
+// Dismiss the inline delete confirmation and editing state when the active
+// conversation or search filter changes, so a stale pending state never lingers.
+watch(() => chat.currentId, () => {
+  pendingDeleteId.value = null
+  editingId.value = null
+  editingTitle.value = ''
+})
+// Dismiss editing when sidebar collapses.
+watch(sidebarCollapsed, (collapsed) => {
+  if (collapsed) {
+    editingId.value = null
+    editingTitle.value = ''
+  }
+})
 watch(searchQuery, q => {
   pendingDeleteId.value = null
   if (searchTimer) clearTimeout(searchTimer)
@@ -330,7 +372,25 @@ watch(searchQuery, q => {
                 :class="c.id === chat.currentId ? 'text-accent' : 'text-muted'"
               />
               <div class="flex-1 min-w-0">
-                <div class="text-[13px] text-foreground truncate">{{ c.title }}</div>
+                <template v-if="editingId === c.id">
+                  <input
+                    ref="editInputRef"
+                    v-model="editingTitle"
+                    type="text"
+                    class="w-full bg-transparent border border-accent rounded px-1 text-[13px] text-foreground outline-none"
+                    @click.stop
+                    @keydown.enter.prevent="saveEdit"
+                    @keydown.escape.prevent="cancelEdit"
+                    @blur="saveEdit"
+                  />
+                </template>
+                <template v-else>
+                  <div
+                    class="text-[13px] text-foreground truncate cursor-text"
+                    :title="c.title"
+                    @dblclick.stop="startEdit(c)"
+                  >{{ c.title }}</div>
+                </template>
                 <div
                   v-if="c.snippet"
                   class="text-[10px] text-muted truncate"
@@ -354,14 +414,22 @@ watch(searchQuery, q => {
                   <Check class="w-3.5 h-3.5 text-danger" />
                 </button>
               </template>
-              <button
-                v-else
-                class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                @click.stop="askDeleteConversation(c)"
-                title="删除"
-              >
-                <Trash2 class="w-3.5 h-3.5 text-muted" />
-              </button>
+              <template v-else-if="editingId !== c.id">
+                <button
+                  class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
+                  @click.stop="startEdit(c)"
+                  title="重命名"
+                >
+                  <Pencil class="w-3.5 h-3.5 text-muted" />
+                </button>
+                <button
+                  class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
+                  @click.stop="askDeleteConversation(c)"
+                  title="删除"
+                >
+                  <Trash2 class="w-3.5 h-3.5 text-muted" />
+                </button>
+              </template>
             </div>
             <!-- Sentinel for infinite scroll; observed by IntersectionObserver -->
             <div ref="sentinel" v-if="!searchQuery.trim()" class="h-1 w-full" />

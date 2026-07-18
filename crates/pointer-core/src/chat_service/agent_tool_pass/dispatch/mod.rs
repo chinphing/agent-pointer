@@ -7,6 +7,7 @@ pub(super) mod subagent;
 pub(super) mod terminal;
 pub(super) mod web_search;
 
+use self::registry::resolve_workspace_root;
 use crate::agents::AgentProfile;
 use crate::models::ToolCall;
 use crate::provider::OpenAIProvider;
@@ -219,8 +220,15 @@ pub(super) async fn invoke_prepared_parallel(
                 .unwrap_or(AgentProfile::General);
             let _file_guard =
                 crate::agents::FileToolLeadProfileGuard::enter(file_profile.clone());
+
+            let session_user_id = state
+                .session_index
+                .session_user_id(conversation_id)
+                .unwrap_or_default();
+            let resolved_ws = resolve_workspace_root(conversation_id, &session_user_id, workspace_root);
             let _ws =
-                crate::tools::file::ConversationWorkspaceGuard::enter(workspace_root.to_string());
+                crate::tools::file::ConversationWorkspaceGuard::enter(resolved_ws);
+
             if file_profile == AgentProfile::Computer {
                 let _tier = crate::agents::computer::ComputerTierGuard::enter(
                     state.computer_state.tier_for_conversation(conversation_id),

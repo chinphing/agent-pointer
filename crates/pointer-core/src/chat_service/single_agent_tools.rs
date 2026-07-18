@@ -64,6 +64,7 @@ pub(super) async fn run_single_agent_tool_pass(
                 run_id: &run_id,
                 allow_agents: req.allow_agents,
                 enabled_skill_ids: req.enabled_skill_ids,
+                agent_skill_overrides: req.agent_skill_overrides,
                 agent_trace: req.agent_trace,
                 file_tool_lead_for_invoke: req.file_tool_lead_for_invoke,
                 lead_agent_id: req.lead_agent_id,

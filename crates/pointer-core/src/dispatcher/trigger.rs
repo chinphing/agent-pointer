@@ -7,6 +7,7 @@
 //! `MessageEvent` normalization pattern.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::models::ChatMessage;
 use crate::web_request_auth::WebSessionAuth;
@@ -141,6 +142,8 @@ pub struct TriggerRequest {
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
     pub enabled_skill_ids: Vec<String>,
+    #[serde(default, rename = "agentSkillOverrides")]
+    pub agent_skill_overrides: HashMap<String, Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

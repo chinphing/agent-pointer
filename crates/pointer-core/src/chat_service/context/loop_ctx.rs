@@ -4,6 +4,7 @@ use crate::agents::{AgentPlan, AgentTask};
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, ModelSettings};
 use crate::provider::OpenAIProvider;
+use std::collections::HashMap;
 
 use super::session::{SessionRefs, SessionRefsArc};
 use super::super::session_budget::SessionToolBudget;
@@ -13,6 +14,7 @@ pub struct LeadAgentLoopContext<'a> {
     pub session: SessionRefsArc<'a>,
     pub history: &'a mut Vec<ChatMessage>,
     pub enabled_skill_ids: &'a mut Vec<String>,
+    pub agent_skill_overrides: &'a HashMap<String, Vec<String>>,
     pub agent_plan: &'a AgentPlan,
     pub provider: &'a OpenAIProvider,
     pub settings: &'a ModelSettings,
@@ -33,6 +35,7 @@ pub struct SubAgentLoopContext<'a> {
     pub message_id: &'a str,
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub enabled_skill_ids: &'a [String],
+    pub agent_skill_overrides: &'a HashMap<String, Vec<String>>,
     pub task: &'a AgentTask,
     pub sub_tool_budget: &'a mut SessionToolBudget,
     pub llm_stats: &'a mut ConversationLlmStats,
@@ -47,6 +50,7 @@ pub struct SupervisorLoopContext<'a> {
     pub session: SessionRefsArc<'a>,
     pub history: &'a mut Vec<ChatMessage>,
     pub enabled_skill_ids: &'a [String],
+    pub agent_skill_overrides: &'a HashMap<String, Vec<String>>,
     pub provider: OpenAIProvider,
     pub tool_budget: &'a mut SessionToolBudget,
     pub llm_stats: &'a mut ConversationLlmStats,
@@ -62,6 +66,7 @@ pub struct SubagentDelegationContext<'a> {
     pub run_id: &'a str,
     pub allow_agents: &'a [String],
     pub enabled_skill_ids: &'a [String],
+    pub agent_skill_overrides: &'a HashMap<String, Vec<String>>,
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub llm_stats: &'a mut ConversationLlmStats,
     pub tool_call_id: &'a str,

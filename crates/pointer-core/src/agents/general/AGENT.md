@@ -14,6 +14,7 @@ defaultSkillIds:
   - xlsx
   - pptx
   - pdf
+skillsPolicy: userConfigurable
 allowAgents:
   - general-worker
   - coder

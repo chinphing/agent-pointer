@@ -2,6 +2,7 @@
 
 use crate::dispatcher::TriggerSource;
 use crate::models::ChatMessage;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -12,6 +13,7 @@ use super::super::StreamTx;
 pub struct ChatRunRequest {
     pub agent_mode: Option<String>,
     pub lead_agent_id_override: Option<String>,
+    pub agent_skill_overrides: HashMap<String, Vec<String>>,
     pub tool_rounds_used_single_start: u32,
     pub workspace_root: String,
     /// Frontend override; when `Some(true)` skip inheriting another conversation's workspace.

@@ -18,6 +18,7 @@ defaultSkillIds:
   - xlsx
   - pptx
   - pdf
+skillsPolicy: inheritsFromParent
 allowAgents: []
 accessPolicy:
   allowTools:

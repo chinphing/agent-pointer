@@ -264,6 +264,33 @@ pub struct AccessPolicy {
     pub deny_skills: Vec<String>,
 }
 
+/// How an agent resolves its skill set.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SkillsPolicy {
+    /// Agent does not load any skills.
+    #[serde(rename = "disabled")]
+    Disabled,
+    /// Agent only uses its `default_skill_ids` — user/conv cannot add.
+    #[serde(rename = "defaultsOnly")]
+    DefaultsOnly,
+    /// Agent lets user configure skills (via `agentSkillOverrides`); falls back to defaults.
+    #[serde(rename = "userConfigurable")]
+    UserConfigurable,
+    /// Sub-agent inherits its parent's resolved skill list.
+    #[serde(rename = "inheritsFromParent")]
+    InheritsFromParent,
+}
+
+impl Default for SkillsPolicy {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+fn is_default_skills_policy(p: &SkillsPolicy) -> bool {
+    *p == SkillsPolicy::Disabled
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDef {
     pub id: String,
@@ -273,6 +300,9 @@ pub struct AgentDef {
     pub profile: AgentProfile,
     #[serde(default, rename = "defaultSkillIds")]
     pub default_skill_ids: Vec<String>,
+    /// Rules for how this agent resolves its skills.
+    #[serde(default, skip_serializing_if = "is_default_skills_policy")]
+    pub skills_policy: SkillsPolicy,
     #[serde(default, rename = "accessPolicy")]
     pub access_policy: AccessPolicy,
     #[serde(default)]
@@ -368,6 +398,8 @@ struct AgentManifest {
     profile: Option<AgentProfile>,
     #[serde(default, rename = "defaultSkillIds")]
     default_skill_ids: Vec<String>,
+    #[serde(default, rename = "skillsPolicy")]
+    skills_policy: SkillsPolicy,
     #[serde(default, rename = "accessPolicy")]
     access_policy: AccessPolicy,
     #[serde(default = "default_enabled")]
@@ -528,6 +560,7 @@ impl AgentOrchestrator {
         skills: &SkillRegistry,
         tools: &ToolRegistry,
         enabled_skill_ids: &[String],
+        agent_skill_overrides: &HashMap<String, Vec<String>>,
         mode: &str,
         lead_worker_id: Option<&str>,
     ) -> AgentPlan {
@@ -561,7 +594,8 @@ impl AgentOrchestrator {
                     }
                 }
             }
-            let session_skill_ids = resolve_skill_ids(&agent, enabled_skill_ids);
+            let session_skill_ids =
+                resolve_skill_ids(&agent, enabled_skill_ids, agent_skill_overrides);
             let (skill_prompts, session_tools) = skills.progressive_context(&session_skill_ids);
             let allowed_tool_names = resolve_tools(&agent.access_policy, &session_tools, tools);
             let lead_prompt = agents
@@ -658,6 +692,7 @@ fn default_agent_def() -> AgentDef {
             role: "worker".into(),
             profile: AgentProfile::General,
             default_skill_ids: Vec::new(),
+            skills_policy: SkillsPolicy::UserConfigurable,
             access_policy: AccessPolicy::default(),
             builtin: true,
             enabled: true,
@@ -686,6 +721,7 @@ fn supervisor_agent_def() -> AgentDef {
             role: "supervisor".into(),
             profile: AgentProfile::Supervisor,
             default_skill_ids: Vec::new(),
+            skills_policy: SkillsPolicy::Disabled,
             access_policy: AccessPolicy::default(),
             builtin: true,
             enabled: true,
@@ -848,6 +884,7 @@ fn manifest_to_agent(
             .profile
             .unwrap_or_else(|| AgentProfile::Custom("external".into())),
         default_skill_ids: manifest.default_skill_ids,
+        skills_policy: manifest.skills_policy,
         access_policy,
         builtin: false,
         enabled: manifest.enabled,
@@ -1025,9 +1062,9 @@ fn static_agent(def: AgentDef) -> Arc<dyn AgentExecutor> {
     })
 }
 
-/// Only the **general** and **coder** lead agents may load session skills.
+/// Whether this agent can load any skills (including from overrides or defaults).
 pub fn agent_supports_skills(agent: &AgentDef) -> bool {
-    agent.id == DEFAULT_AGENT_ID || agent.id == "coder"
+    !matches!(agent.skills_policy, SkillsPolicy::Disabled)
 }
 
 /// Sub-agents that load session skills (`general-worker` inherits lead list; **coder** uses its defaults).
@@ -1035,32 +1072,59 @@ pub fn sub_agent_inherits_session_skills(agent_id: &str) -> bool {
     matches!(agent_id, "general-worker" | "coder")
 }
 
-/// Skill ids for a delegated sub-agent session.
-pub fn sub_agent_skill_ids(agent: &AgentDef, lead_enabled_skill_ids: &[String]) -> Vec<String> {
-    match agent.id.as_str() {
-        "general-worker" => filter_skill_ids(agent, lead_enabled_skill_ids.to_vec()),
-        "coder" => filter_skill_ids(agent, Vec::new()),
-        _ => Vec::new(),
-    }
+/// Skill ids for a delegated sub-agent session. Uses `agent.skills_policy` to determine strategy.
+pub fn sub_agent_skill_ids(
+    agent: &AgentDef,
+    lead_enabled_skill_ids: &[String],
+    lead_agent_skill_overrides: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut ids = match agent.skills_policy {
+        SkillsPolicy::Disabled => return Vec::new(),
+        SkillsPolicy::DefaultsOnly => agent.default_skill_ids.clone(),
+        SkillsPolicy::UserConfigurable => lead_agent_skill_overrides
+            .get(&agent.id)
+            .cloned()
+            .unwrap_or_else(|| agent.default_skill_ids.clone()),
+        SkillsPolicy::InheritsFromParent => lead_enabled_skill_ids.to_vec(),
+    };
+    filter_skill_ids(agent, &mut ids);
+    ids
 }
 
-/// Session skills come from the caller's `enabled_skill_ids` when the lead agent supports
-/// skills. The **coder** lead always merges manifest `defaultSkillIds` (skill-creator).
-fn resolve_skill_ids(agent: &AgentDef, enabled_skill_ids: &[String]) -> Vec<String> {
-    if !agent_supports_skills(agent) {
-        return Vec::new();
-    }
-    filter_skill_ids(agent, enabled_skill_ids.to_vec())
-}
-
-fn filter_skill_ids(agent: &AgentDef, mut ids: Vec<String>) -> Vec<String> {
-    if agent.id == "coder" {
-        for id in &agent.default_skill_ids {
-            if !ids.contains(id) {
-                ids.push(id.clone());
+/// Resolve the effective skill IDs for an agent based on its `SkillsPolicy`.
+fn resolve_skill_ids(
+    agent: &AgentDef,
+    enabled_skill_ids: &[String],
+    agent_skill_overrides: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut ids = match agent.skills_policy {
+        SkillsPolicy::Disabled => return Vec::new(),
+        SkillsPolicy::DefaultsOnly => agent.default_skill_ids.clone(),
+        SkillsPolicy::UserConfigurable => agent_skill_overrides
+            .get(&agent.id)
+            .or_else(|| agent_skill_overrides.get("_global"))
+            .cloned()
+            .unwrap_or_else(|| {
+                if enabled_skill_ids.is_empty() {
+                    agent.default_skill_ids.clone()
+                } else {
+                    enabled_skill_ids.to_vec()
+                }
+            }),
+        SkillsPolicy::InheritsFromParent => {
+            if enabled_skill_ids.is_empty() {
+                agent.default_skill_ids.clone()
+            } else {
+                enabled_skill_ids.to_vec()
             }
         }
-    }
+    };
+    filter_skill_ids(agent, &mut ids);
+    ids
+}
+
+fn filter_skill_ids(agent: &AgentDef, ids: &mut Vec<String>) {
+    // Apply access policy allow/deny. Defaults are selected by the caller from SkillsPolicy.
     if !agent.access_policy.allow_skills.is_empty() {
         let allow: HashSet<_> = agent.access_policy.allow_skills.iter().cloned().collect();
         ids.retain(|id| allow.contains(id));
@@ -1069,7 +1133,6 @@ fn filter_skill_ids(agent: &AgentDef, mut ids: Vec<String>) -> Vec<String> {
     ids.retain(|id| !deny.contains(id));
     ids.sort();
     ids.dedup();
-    ids
 }
 
 fn resolve_tools(
@@ -1146,18 +1209,19 @@ mod builtin_agent_tests {
     use super::*;
 
     #[test]
-    fn resolve_skill_ids_only_for_general_agent() {
+    fn resolve_skill_ids_uses_enabled_ids_and_agent_overrides() {
         let general = default_agent_def();
-        let coder = AgentDef {
-            id: "coder".into(),
-            ..default_agent_def()
-        };
         let enabled = vec!["my-skill".into()];
         assert_eq!(
-            resolve_skill_ids(&general, &enabled),
+            resolve_skill_ids(&general, &enabled, &HashMap::new()),
             vec!["my-skill".to_string()]
         );
-        assert!(resolve_skill_ids(&coder, &enabled).is_empty());
+
+        let overrides = HashMap::from([("general".to_string(), vec!["pdf".to_string()])]);
+        assert_eq!(
+            resolve_skill_ids(&general, &enabled, &overrides),
+            vec!["pdf".to_string()]
+        );
     }
 
     #[test]
@@ -1572,8 +1636,29 @@ mod builtin_agent_tests {
         )
         .expect("load coder")
         .def;
-        let ids = sub_agent_skill_ids(&coder, &["docx".into(), "pdf".into()]);
+        let ids = sub_agent_skill_ids(
+            &coder,
+            &["docx".into(), "pdf".into()],
+            &HashMap::new(),
+        );
         assert_eq!(ids, vec!["skill-creator".to_string()]);
+    }
+
+    #[test]
+    fn sub_agent_skill_ids_for_general_worker_inherits_parent() {
+        let worker = load_builtin_agent(
+            "general-worker",
+            include_str!("general-worker/AGENT.md"),
+            include_str!("general-worker/COMMUNICATION.md"),
+        )
+        .expect("load general-worker")
+        .def;
+        let ids = sub_agent_skill_ids(
+            &worker,
+            &["pdf".into(), "docx".into(), "pdf".into()],
+            &HashMap::new(),
+        );
+        assert_eq!(ids, vec!["docx".to_string(), "pdf".to_string()]);
     }
 
     #[test]
@@ -1629,7 +1714,7 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn resolve_skill_ids_merges_coder_defaults() {
+    fn resolve_skill_ids_uses_coder_defaults_only() {
         let coder = load_builtin_agent(
             "coder",
             include_str!("coder/AGENT.md"),
@@ -1638,9 +1723,9 @@ mod builtin_agent_tests {
         .expect("load coder")
         .def;
         assert!(agent_supports_skills(&coder));
-        let ids = resolve_skill_ids(&coder, &[]);
+        let ids = resolve_skill_ids(&coder, &[], &HashMap::new());
         assert_eq!(ids, vec!["skill-creator".to_string()]);
-        let ids = resolve_skill_ids(&coder, &["docx".into()]);
+        let ids = resolve_skill_ids(&coder, &["docx".into()], &HashMap::new());
         assert_eq!(ids, vec!["skill-creator".to_string()]);
     }
 

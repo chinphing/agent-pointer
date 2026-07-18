@@ -384,6 +384,7 @@ impl DispatchService {
                 desktop_conv_id.clone(),
                 history,
                 enabled_skill_ids,
+                std::collections::HashMap::new(),
                 agent_mode,
                 lead_agent,
                 0,

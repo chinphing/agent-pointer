@@ -64,6 +64,7 @@ pub(crate) async fn run_sub_agent(
             parent_task_board_store_key,
             task,
             ctx.enabled_skill_ids,
+            ctx.agent_skill_overrides,
             ctx.spawn_depth,
             ctx.max_spawn_depth,
         )?;
@@ -353,6 +354,7 @@ pub(crate) async fn run_sub_agent(
             task,
             allowed_tools: &allowed_tools,
             allow_agents: &allow_agents,
+            agent_skill_overrides: ctx.agent_skill_overrides,
             instance_scope: &instance_scope,
             agent_trace: ctx.agent_trace,
             accumulated_content: content.clone(),

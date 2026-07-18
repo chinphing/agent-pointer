@@ -32,6 +32,7 @@ pub(crate) fn trigger_request_from_payload(payload: SendChatPayload) -> TriggerR
         lane: None,
         messages: payload.messages,
         enabled_skill_ids: payload.enabled_skill_ids,
+        agent_skill_overrides: payload.agent_skill_overrides,
         agent_mode: payload.agent_mode,
         lead_agent_id: payload.lead_agent_id,
         tool_rounds_used_single_start: payload.tool_rounds_used,

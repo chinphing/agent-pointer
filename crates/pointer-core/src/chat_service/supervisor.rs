@@ -272,6 +272,7 @@ pub(crate) async fn run_supervisor_chat(
             message_id: &assistant_id,
             agent_trace: &mut agent_trace,
             enabled_skill_ids: ctx.enabled_skill_ids,
+            agent_skill_overrides: ctx.agent_skill_overrides,
             task: &task_run,
             sub_tool_budget: &mut sub_budget,
             llm_stats: ctx.llm_stats,

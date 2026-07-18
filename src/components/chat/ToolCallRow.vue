@@ -200,7 +200,8 @@ type FileEditResult = {
 }
 
 const fileEditResult = computed<FileEditResult | null>(() => {
-  if (!isFileEdit.value || !props.toolCall.result) return null
+  if (!isFileEdit.value && !isFileWrite.value) return null
+  if (!props.toolCall.result) return null
   try {
     return JSON.parse(props.toolCall.result) as FileEditResult
   } catch {

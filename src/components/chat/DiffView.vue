@@ -46,7 +46,7 @@ function buildLineNums(lines: DiffLine[]) {
 
 const lineInfo = computed(() => buildLineNums(props.diffLines))
 
-/** CSS width in ch units for the line-number gutter, based on max line number. */
+/** Gutter width including number digits and horizontal padding. */
 const numWidth = computed(() => {
   let max = 0
   for (const n of lineInfo.value.nums) {
@@ -62,7 +62,7 @@ const numWidth = computed(() => {
     }
   }
   const digits = max === 0 ? 1 : String(max).length
-  return `${Math.max(digits, 3)}ch`
+  return `calc(${Math.max(digits, 3)}ch + 8px)`
 })
 
 /** Line number to render for a hidden line at collapse index ci, offset hi. */
@@ -139,11 +139,12 @@ function hiddenLineNum(ci: number, hi: number): number {
   min-height: 1.6em;
 }
 .diff-num {
+  box-sizing: border-box;
   flex: 0 0 auto;
-  width: 3ch;
-  min-width: 3ch;
+  width: calc(3ch + 8px);
+  min-width: calc(3ch + 8px);
   text-align: right;
-  padding: 0 6px 0 4px;
+  padding: 0 5px 0 3px;
   user-select: none;
   @apply text-neutral-500 text-[12px];
   border-right: 1px solid;
@@ -151,7 +152,7 @@ function hiddenLineNum(ci: number, hi: number): number {
 .diff-bar { flex: 0 0 auto; width: 3px; min-width: 3px; }
 .diff-text {
   flex: 1;
-  padding: 0 12px;
+  padding: 0 8px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   tab-size: 2;

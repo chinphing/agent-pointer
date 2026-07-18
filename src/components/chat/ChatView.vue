@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
+import ChangeSummary from './ChangeSummary.vue'
 import ExperienceHomePanel from './ExperienceHomePanel.vue'
 import ExperienceHotPreview from './ExperienceHotPreview.vue'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
@@ -43,6 +44,9 @@ const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const isHydratingMessages = computed(() => chat.isCurrentConversationHydrating)
+const conversationToolCalls = computed(() =>
+  (chat.current?.messages ?? []).flatMap(message => message.toolCalls ?? [])
+)
 const showWelcomeHome = computed(() => {
   if (isHydratingMessages.value) return false
   const cur = chat.current
@@ -165,6 +169,11 @@ const toastClass = computed(() => {
         <div class="flex-1 min-h-0 overflow-hidden">
           <MessageList />
         </div>
+      </div>
+    </div>
+    <div v-if="!showWelcomeHome && !isHydratingMessages" class="chat-shell shrink-0 bg-background">
+      <div class="chat-column">
+        <ChangeSummary :tool-calls="conversationToolCalls" />
       </div>
     </div>
     <Composer v-if="!showWelcomeHome && !isHydratingMessages" />

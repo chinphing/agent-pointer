@@ -15,7 +15,7 @@ import {
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs } from '../../lib/messageTooling'
-import { truncateToolSummary, effectiveToolDisplayLabel, effectiveToolDisplaySummary } from '../../lib/toolCallDisplay'
+import { fileToolDisplayPath, truncateToolSummary, effectiveToolDisplayLabel, effectiveToolDisplaySummary } from '../../lib/toolCallDisplay'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 import DiffView from './DiffView.vue'
@@ -37,6 +37,8 @@ const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
 const displaySummary = computed(() => {
+  const filePath = fileToolDisplayPath(props.toolCall, chat.current?.workspaceRoot)
+  if (filePath) return truncateToolSummary(filePath)
   const s = effectiveToolDisplaySummary(props.toolCall)
   if (s) return s
   if (showResults.value) {

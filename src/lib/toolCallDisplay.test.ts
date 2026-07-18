@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, latestToolCallForCompactStatus, resolveToolDisplayForCall } from './toolCallDisplay'
+import { buildFileChangeSummaries, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, latestToolCallForCompactStatus, resolveToolDisplayForCall, workspaceRelativeDisplayPath } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -101,5 +101,135 @@ describe('compactToolCallStatusLine', () => {
         })
       )
     ).toBe('')
+  })
+})
+
+describe('workspace-relative file tool paths', () => {
+  it('normalizes Windows paths and strips a case-insensitive workspace prefix', () => {
+    expect(
+      workspaceRelativeDisplayPath(
+        '\\\\?\\C:\\Project\\Pointer-App\\src\\components\\App.vue',
+        'c:\\project\\pointer-app'
+      )
+    ).toBe('src/components/App.vue')
+  })
+
+  it('keeps relative and outside-workspace paths without inventing containment', () => {
+    expect(workspaceRelativeDisplayPath('src\\App.vue', 'C:\\project\\pointer-app')).toBe('src/App.vue')
+    expect(
+      workspaceRelativeDisplayPath('C:\\other\\App.vue', 'C:\\project\\pointer-app')
+    ).toBe('C:/other/App.vue')
+  })
+
+  it('extracts the path from file tool arguments only', () => {
+    expect(
+      fileToolDisplayPath(
+        tc({
+          id: 'path-1',
+          name: 'file_edit',
+          status: 'success',
+          arguments: JSON.stringify({ path: 'C:\\project\\pointer-app\\src\\App.vue' })
+        }),
+        'C:\\project\\pointer-app'
+      )
+    ).toBe('src/App.vue')
+    expect(
+      fileToolDisplayPath(
+        tc({
+          id: 'path-2',
+          name: 'terminal',
+          status: 'success',
+          arguments: JSON.stringify({ path: 'C:\\project\\pointer-app\\src\\App.vue' })
+        }),
+        'C:\\project\\pointer-app'
+      )
+    ).toBe('')
+  })
+})
+
+describe('buildFileChangeSummaries', () => {
+  function fileResult(path: string, adds: number, dels: number): string {
+    return JSON.stringify({
+      path,
+      success: true,
+      diff_lines: [
+        { type: 'del', text: 'before' },
+        { type: 'ins', text: 'after' }
+      ],
+      diff_stats: { adds, dels }
+    })
+  }
+
+  it('aggregates successful changes by normalized path', () => {
+    const summaries = buildFileChangeSummaries([
+      tc({
+        id: 'edit-1',
+        name: 'file_edit',
+        status: 'success',
+        arguments: JSON.stringify({ path: 'src\\App.vue' }),
+        result: fileResult('src\\App.vue', 2, 1)
+      }),
+      tc({
+        id: 'edit-2',
+        name: 'file_edit',
+        status: 'success',
+        arguments: JSON.stringify({ path: 'src/App.vue' }),
+        result: fileResult('src/App.vue', 3, 4)
+      }),
+      tc({
+        id: 'write-1',
+        name: 'file_write',
+        status: 'success',
+        arguments: JSON.stringify({ path: 'src/New.vue' }),
+        result: fileResult('src/New.vue', 8, 0)
+      })
+    ])
+
+    expect(summaries).toHaveLength(2)
+    expect(summaries[0]).toMatchObject({
+      path: 'src\\App.vue',
+      fileName: 'App.vue',
+      adds: 5,
+      dels: 5
+    })
+    expect(summaries[0].diffs).toHaveLength(2)
+    expect(summaries[1]).toMatchObject({
+      path: 'src/New.vue',
+      fileName: 'New.vue',
+      kind: 'write',
+      adds: 8,
+      dels: 0
+    })
+  })
+
+  it('ignores failed, running, and malformed file changes', () => {
+    const summaries = buildFileChangeSummaries([
+      tc({
+        id: 'failed',
+        name: 'file_edit',
+        status: 'failed',
+        result: fileResult('failed.ts', 1, 1)
+      }),
+      tc({
+        id: 'running',
+        name: 'file_write',
+        status: 'running',
+        result: fileResult('running.ts', 1, 0)
+      }),
+      tc({
+        id: 'malformed',
+        name: 'file_edit',
+        status: 'success',
+        result: '{bad json'
+      }),
+      tc({
+        id: 'terminal',
+        name: 'terminal',
+        status: 'success',
+        result: fileResult('not-a-file-tool.ts', 1, 1)
+      })
+    ])
+
+    expect(summaries).toEqual([])
   })
 })

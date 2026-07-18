@@ -21,6 +21,32 @@ function parseToolArgs(argumentsJson: string | undefined): Record<string, unknow
   }
 }
 
+function normalizeDisplayPath(path: string): string {
+  return path.trim().replace(/^\\\\\?\\/, '').replace(/\\/g, '/').replace(/\/$/, '')
+}
+
+/** Format a path relative to the active workspace when it is contained by that workspace. */
+export function workspaceRelativeDisplayPath(path: string, workspaceRoot?: string): string {
+  const normalized = normalizeDisplayPath(path)
+  const workspace = normalizeDisplayPath(workspaceRoot ?? '')
+  if (!workspace) return normalized
+
+  const normalizedLower = normalized.toLocaleLowerCase()
+  const workspaceLower = workspace.toLocaleLowerCase()
+  if (normalizedLower.startsWith(`${workspaceLower}/`)) {
+    return normalized.slice(workspace.length + 1)
+  }
+  return normalized
+}
+
+/** Extract the primary path shown beside a file-family tool call. */
+export function fileToolDisplayPath(tc: ToolCall, workspaceRoot?: string): string {
+  if (!isFileTool(toolCallBaseName(tc.name))) return ''
+  const args = parseToolArgs(tc.arguments)
+  const path = strField(args, ['path', 'file', 'base'])
+  return path ? workspaceRelativeDisplayPath(path, workspaceRoot) : ''
+}
+
 /** True when backend `displayLabel` is just the raw tool slug (pre-localization). */
 function isSlugToolDisplayLabel(tc: ToolCall, backendLabel: string): boolean {
   const base = toolCallBaseName(tc.name)
@@ -232,6 +258,93 @@ function collectReadFileBasenames(argumentsJson: string, into: Set<string>): voi
   } catch {
     /* ignore */
   }
+}
+
+export interface FileChangeDiff {
+  toolCallId: string
+  diffLines: {
+    type: 'unchanged' | 'del' | 'ins' | 'collapse'
+    text: string
+    hidden?: string[]
+  }[]
+  diffStats: { adds: number; dels: number }
+}
+
+export interface FileChangeSummary {
+  path: string
+  fileName: string
+  kind: 'edit' | 'write'
+  adds: number
+  dels: number
+  diffs: FileChangeDiff[]
+}
+
+type RawFileChangeResult = {
+  path?: unknown
+  success?: unknown
+  diff_lines?: unknown
+  diff_stats?: unknown
+}
+
+function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
+  const base = toolCallBaseName(tc.name)
+  const method = resolveMethod(tc.name, tc.arguments)
+  if (!isFileTool(base) || (method !== 'edit' && method !== 'write')) return null
+  if (tc.status !== 'success' || !tc.result) return null
+
+  try {
+    const result = JSON.parse(tc.result) as RawFileChangeResult
+    if (result.success !== true || typeof result.path !== 'string' || !result.path.trim()) return null
+    if (!Array.isArray(result.diff_lines)) return null
+
+    const diffLines = result.diff_lines.filter((line): line is FileChangeDiff['diffLines'][number] => {
+      if (!line || typeof line !== 'object') return false
+      const row = line as Record<string, unknown>
+      return (
+        (row.type === 'unchanged' || row.type === 'del' || row.type === 'ins' || row.type === 'collapse')
+        && typeof row.text === 'string'
+        && (typeof row.hidden === 'undefined' || Array.isArray(row.hidden))
+      )
+    })
+    if (!diffLines.length) return null
+
+    const rawStats = result.diff_stats && typeof result.diff_stats === 'object'
+      ? result.diff_stats as Record<string, unknown>
+      : {}
+    const adds = typeof rawStats.adds === 'number' ? rawStats.adds : 0
+    const dels = typeof rawStats.dels === 'number' ? rawStats.dels : 0
+    const path = result.path.trim()
+    return {
+      path,
+      fileName: pathBasename(path),
+      kind: method,
+      adds,
+      dels,
+      diffs: [{ toolCallId: tc.id, diffLines, diffStats: { adds, dels } }]
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Aggregate successful file edits/writes in one tool run for change review UI. */
+export function buildFileChangeSummaries(tools: ToolCall[]): FileChangeSummary[] {
+  const byPath = new Map<string, FileChangeSummary>()
+  for (const tc of tools) {
+    const change = parseFileChangeResult(tc)
+    if (!change) continue
+    const key = change.path.replace(/\\/g, '/').toLocaleLowerCase()
+    const existing = byPath.get(key)
+    if (!existing) {
+      byPath.set(key, change)
+      continue
+    }
+    existing.adds += change.adds
+    existing.dels += change.dels
+    existing.diffs.push(...change.diffs)
+    if (change.kind === 'write') existing.kind = 'write'
+  }
+  return [...byPath.values()]
 }
 
 export interface ToolGroupStats {

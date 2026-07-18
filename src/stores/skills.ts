@@ -16,7 +16,8 @@ export const useSkillsStore = defineStore('skills', () => {
   /** One-time migration: move legacy enabledSkillIds into agentSkillOverrides['general']. */
   function initEnabledFromUserSettings() {
     const user = useSettingsStore().userSettings
-    const legacy = user.enabledSkillIds
+    // Legacy field removed from type; migration completed in prior versions
+    const legacy = (user as any).enabledSkillIds as string[] | undefined
     if (!legacy || legacy.length === 0) return
     // Only migrate when general doesn't already have an override
     if (user.agentSkillOverrides?.[GENERAL_AGENT_ID]) return

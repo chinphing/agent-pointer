@@ -348,6 +348,7 @@ export const useChatStore = defineStore('chat', () => {
       conversationId: conv.id,
       messages: messagesForChatDispatch(conv.messages),
       enabledSkillIds: enabledSkillIdsForRequest(conv),
+      agentSkillOverrides: { ...(useSettingsStore().userSettings.agentSkillOverrides ?? {}) },
       agentMode: effectiveConversationAgentMode(conv),
       leadAgentId: effectiveConversationLeadAgentId(conv),
       toolRoundsUsed: 0,
@@ -516,6 +517,9 @@ export const useChatStore = defineStore('chat', () => {
   function enabledSkillIdsForRequest(conv: Conversation): string[] {
     if (effectiveConversationAgentMode(conv) === 'supervisor') return []
     const lead = effectiveConversationLeadAgentId(conv)
+    const settings = useSettingsStore().userSettings
+    const overrides = settings.agentSkillOverrides?.[lead]
+    if (overrides && overrides.length > 0) return [...overrides]
     if (lead === GENERAL_AGENT_ID) return [...useSkillsStore().enabledIds]
     if (lead === CODER_AGENT_ID) return [...CODER_DEFAULT_SKILL_IDS]
     return []

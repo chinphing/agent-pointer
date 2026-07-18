@@ -319,7 +319,8 @@ function normalizeAgentDefaultModels(
 export const useSettingsStore = defineStore('settings', () => {
   const userSettings = ref<UserSettings>({
     theme: 'system',
-    enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS]
+    enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS],
+    agentSkillOverrides: {}
   })
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
   const settings = ref<ModelSettings>({

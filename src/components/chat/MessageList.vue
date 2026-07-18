@@ -25,8 +25,8 @@ const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
 
 // ── Virtual rendering: only render a window of recent entries ──
-const RENDER_WINDOW_INITIAL = 200
-const RENDER_WINDOW_CHUNK = 100
+const RENDER_WINDOW_INITIAL = 50
+const RENDER_WINDOW_CHUNK = 25
 const maxRender = ref(RENDER_WINDOW_INITIAL)
 
 const hasMoreAbove = computed(() => flatMessages.value.length > maxRender.value)

@@ -32,6 +32,7 @@ const open = ref(false)
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
 const isWebSearch = computed(() => props.toolCall.name === 'web_search')
 const isFileEdit = computed(() => props.toolCall.name === 'file_edit')
+const isFileWrite = computed(() => props.toolCall.name === 'file_write')
 const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
@@ -391,6 +392,14 @@ function openSourceUrl(url: string) {
       </template>
 
       <template v-else-if="isFileEdit && fileEditResult?.success && fileEditResult?.old_content != null && fileEditResult?.new_content != null">
+        <DiffView
+          :old-content="fileEditResult.old_content"
+          :new-content="fileEditResult.new_content"
+        />
+      </template>
+
+      <!-- file_write: same diff view -->
+      <template v-else-if="isFileWrite && fileEditResult?.success && fileEditResult?.old_content != null && fileEditResult?.new_content != null">
         <DiffView
           :old-content="fileEditResult.old_content"
           :new-content="fileEditResult.new_content"

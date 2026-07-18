@@ -27,6 +27,8 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
     let content = resolve_file_write_content(args.get("content"))?;
 
     let full = resolve_writable_path(root, path)?;
+    // Read old content if file already existed
+    let old_content = fs::read_to_string(&full).unwrap_or_default();
     if let Some(parent) = full.parent() {
         fs::create_dir_all(parent).map_err(|e| anyhow!("创建目录失败: {e}"))?;
     }
@@ -34,7 +36,9 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
     Ok(serde_json::json!({
         "path": path_display_abs(&full),
         "bytesWritten": content.as_bytes().len(),
-        "success": true
+        "success": true,
+        "old_content": old_content,
+        "new_content": content
     })
     .to_string())
 }

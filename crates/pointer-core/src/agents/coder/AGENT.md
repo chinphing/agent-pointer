@@ -29,6 +29,7 @@ accessPolicy:
     - run_subagent
     - web_search
     - skill_read
+    - media_understand
   denyTools: []
   allowSkills:
     - skill-creator

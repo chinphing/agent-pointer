@@ -30,7 +30,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
     :src="src"
     :alt="alt"
     class="max-h-64 max-w-full rounded-xl border border-border object-contain cursor-zoom-in"
-    @dblclick="openPreview"
+    @click="openPreview"
   />
 
   <!-- full-screen overlay -->

@@ -7,6 +7,7 @@ profile: coder
 enabled: true
 defaultSkillIds:
   - skill-creator
+skillsPolicy: defaultsOnly
 allowAgents:
   - explore
 accessPolicy:

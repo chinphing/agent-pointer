@@ -543,6 +543,7 @@ mod tests {
             lane: Some(lane.to_string()),
             messages: Vec::<ChatMessage>::new(),
             enabled_skill_ids: vec![],
+            agent_skill_overrides: std::collections::HashMap::new(),
             agent_mode: None,
             lead_agent_id: None,
             tool_rounds_used_single_start: 0,

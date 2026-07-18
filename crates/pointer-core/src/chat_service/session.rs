@@ -4,6 +4,7 @@ use crate::dispatcher::TriggerSource;
 use crate::models::{ChatMessage, StreamEvent};
 use anyhow::Result;
 use std::backtrace::Backtrace;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -19,6 +20,7 @@ pub async fn run_chat(
     conversation_id: String,
     mut history: Vec<ChatMessage>,
     mut enabled_skill_ids: Vec<String>,
+    agent_skill_overrides: HashMap<String, Vec<String>>,
     agent_mode: Option<String>,
     lead_agent_id_override: Option<String>,
     tool_rounds_used_single_start: u32,
@@ -69,6 +71,7 @@ pub async fn run_chat(
     let run_req = super::context::ChatRunRequest {
         agent_mode,
         lead_agent_id_override,
+        agent_skill_overrides,
         tool_rounds_used_single_start,
         workspace_root,
         workspace_inherit_disabled,

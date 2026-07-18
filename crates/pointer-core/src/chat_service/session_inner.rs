@@ -314,6 +314,7 @@ pub(super) async fn run_chat_inner(
         &state.skills,
         &state.tools,
         ctx.enabled_skill_ids,
+        &req.agent_skill_overrides,
         &effective_agent_mode,
         lead_worker_id.as_deref(),
     );
@@ -385,6 +386,7 @@ pub(super) async fn run_chat_inner(
             },
             history: ctx.history,
             enabled_skill_ids: ctx.enabled_skill_ids,
+            agent_skill_overrides: &req.agent_skill_overrides,
             provider,
             tool_budget: &mut tool_budget,
             llm_stats: &mut llm_token_session.stats,
@@ -418,6 +420,7 @@ pub(super) async fn run_chat_inner(
         },
         history: ctx.history,
         enabled_skill_ids: ctx.enabled_skill_ids,
+        agent_skill_overrides: &req.agent_skill_overrides,
         agent_plan: &agent_plan,
         provider: &provider,
         settings: &settings,

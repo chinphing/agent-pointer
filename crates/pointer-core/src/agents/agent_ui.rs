@@ -197,7 +197,7 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{AccessPolicy, AgentDef, AgentProfile};
+    use crate::agents::{AccessPolicy, AgentDef, AgentProfile, SkillsPolicy};
 
     fn sample_def(id: &str, name: &str, profile: AgentProfile) -> AgentDef {
         AgentDef {
@@ -207,6 +207,7 @@ mod tests {
             role: "worker".into(),
             profile,
             default_skill_ids: vec![],
+            skills_policy: SkillsPolicy::Disabled,
             access_policy: AccessPolicy::default(),
             builtin: true,
             enabled: true,

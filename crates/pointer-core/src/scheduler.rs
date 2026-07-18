@@ -231,6 +231,7 @@ impl Scheduler {
             lane: None,
             messages,
             enabled_skill_ids: self.state.default_run_enabled_skill_ids(),
+            agent_skill_overrides: std::collections::HashMap::new(),
             agent_mode: job.agent_mode.clone(),
             lead_agent_id: job.lead_agent_id.clone(),
             tool_rounds_used_single_start: 0,

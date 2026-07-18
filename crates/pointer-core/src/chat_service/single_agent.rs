@@ -257,6 +257,7 @@ pub(super) async fn run_single_agent_loop(
                 history: ctx.history,
                 allow_agents: &agent_plan.allow_agents,
                 enabled_skill_ids: ctx.enabled_skill_ids,
+                agent_skill_overrides: ctx.agent_skill_overrides,
                 provider,
                 tool_approval_mode,
                 tool_budget: ctx.tool_budget,

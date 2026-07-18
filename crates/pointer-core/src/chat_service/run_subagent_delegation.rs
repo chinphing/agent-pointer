@@ -241,6 +241,7 @@ pub(super) async fn run_subagent_delegation(
                         message_id,
                         agent_trace: ctx.agent_trace,
                         enabled_skill_ids,
+                        agent_skill_overrides: ctx.agent_skill_overrides,
                         task: &task,
                         sub_tool_budget: &mut sub_budget,
                         llm_stats: ctx.llm_stats,

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use super::message::ChatMessage;
 
@@ -200,6 +201,8 @@ pub struct SendChatPayload {
     pub messages: Vec<ChatMessage>,
     #[serde(default, rename = "enabledSkillIds")]
     pub enabled_skill_ids: Vec<String>,
+    #[serde(default, rename = "agentSkillOverrides")]
+    pub agent_skill_overrides: HashMap<String, Vec<String>>,
     #[serde(default, rename = "agentMode")]
     pub agent_mode: Option<String>,
     /// Session cumulative tool rounds (single-agent mode) before this user message.

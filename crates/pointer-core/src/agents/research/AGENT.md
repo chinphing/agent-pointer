@@ -9,6 +9,7 @@ role: worker
 profile: analyst
 enabled: true
 defaultSkillIds: []
+skillsPolicy: disabled
 accessPolicy:
   allowTools:
     - web_search

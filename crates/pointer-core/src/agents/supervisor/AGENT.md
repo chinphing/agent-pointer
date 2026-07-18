@@ -6,6 +6,7 @@ role: supervisor
 profile: supervisor
 enabled: true
 defaultSkillIds: []
+skillsPolicy: disabled
 accessPolicy:
   allowTools: []
   denyTools: []

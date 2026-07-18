@@ -40,6 +40,7 @@ ui:
     - task_board_patch
   avatar: computer
 defaultSkillIds: []
+skillsPolicy: disabled
 config:
   annotateApiBase: "http://116.62.86.190"
   computerAutoUpgrade: "true"

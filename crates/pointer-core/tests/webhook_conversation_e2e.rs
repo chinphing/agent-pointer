@@ -103,6 +103,7 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
         lane: None,
         messages: vec![ChatMessage::user_text("hello from webhook e2e")],
         enabled_skill_ids: vec![],
+        agent_skill_overrides: std::collections::HashMap::new(),
         agent_mode: None,
         lead_agent_id: None,
         tool_rounds_used_single_start: 0,

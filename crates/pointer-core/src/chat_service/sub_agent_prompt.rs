@@ -52,6 +52,7 @@ pub(super) fn init_sub_agent_session(
     parent_task_board_store_key: &str,
     task: &AgentTask,
     enabled_skill_ids: &[String],
+    agent_skill_overrides: &std::collections::HashMap<String, Vec<String>>,
     spawn_depth: u32,
     max_spawn_depth: u32,
 ) -> Result<SubAgentSession> {
@@ -61,7 +62,11 @@ pub(super) fn init_sub_agent_session(
         .or_else(|| state.agents.get(DEFAULT_AGENT_ID))
         .ok_or_else(|| anyhow!("未找到 Agent: {}", task.agent_id))?;
     let def = agent.def().clone();
-    let skill_ids = crate::agents::sub_agent_skill_ids(&def, enabled_skill_ids);
+    let skill_ids = crate::agents::sub_agent_skill_ids(
+        &def,
+        enabled_skill_ids,
+        agent_skill_overrides,
+    );
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
     let mut allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     let allow_agents = normalize_allow_agents(&def.allow_agents);

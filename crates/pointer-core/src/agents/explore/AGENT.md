@@ -12,6 +12,7 @@ role: worker
 profile: explore
 enabled: true
 defaultSkillIds: []
+skillsPolicy: disabled
 accessPolicy:
   allowTools:
     - file_read

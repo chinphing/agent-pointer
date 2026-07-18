@@ -29,6 +29,47 @@ export const useSkillsStore = defineStore('skills', () => {
     }
   }
 
+  function agentOverrideIds(agentId: string): string[] | undefined {
+    const override = useSettingsStore().userSettings.agentSkillOverrides?.[agentId]
+    return override ? [...override] : undefined
+  }
+
+  function enabledIdsForAgent(agentId: string): string[] {
+    return agentOverrideIds(agentId) ?? [...enabledIds.value]
+  }
+
+  function hasAgentOverride(agentId: string): boolean {
+    return Object.prototype.hasOwnProperty.call(
+      useSettingsStore().userSettings.agentSkillOverrides ?? {},
+      agentId
+    )
+  }
+
+  async function setAgentEnabledIds(agentId: string, ids: string[]) {
+    const settings = useSettingsStore()
+    await settings.saveUser({
+      agentSkillOverrides: {
+        ...(settings.userSettings.agentSkillOverrides ?? {}),
+        [agentId]: [...new Set(ids)]
+      }
+    })
+  }
+
+  async function toggleForAgent(agentId: string, skillId: string) {
+    const ids = enabledIdsForAgent(agentId)
+    const index = ids.indexOf(skillId)
+    if (index >= 0) ids.splice(index, 1)
+    else ids.push(skillId)
+    await setAgentEnabledIds(agentId, ids)
+  }
+
+  async function resetAgentOverride(agentId: string) {
+    const settings = useSettingsStore()
+    const overrides = { ...(settings.userSettings.agentSkillOverrides ?? {}) }
+    delete overrides[agentId]
+    await settings.saveUser({ agentSkillOverrides: overrides })
+  }
+
   /** Ensure every system-bundled skill is enabled (e.g. after app adds new built-ins). */
   async function ensureSystemSkillsEnabled() {
     const systemIds = skills.value
@@ -116,6 +157,12 @@ export const useSkillsStore = defineStore('skills', () => {
     toggle,
     isEnabled,
     setEnabledIds,
+    agentOverrideIds,
+    enabledIdsForAgent,
+    hasAgentOverride,
+    setAgentEnabledIds,
+    toggleForAgent,
+    resetAgentOverride,
     initEnabledFromUserSettings,
     ensureSystemSkillsEnabled,
     persistEnabledIds

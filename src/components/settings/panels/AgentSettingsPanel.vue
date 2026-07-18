@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
+import type { AgentDef } from '../../../types/chat'
+import AgentSkillPicker from '../../skills/AgentSkillPicker.vue'
 import { useSettingsStore } from '../../../stores/settings'
-import { Bot, Sparkles, Users } from 'lucide-vue-next'
+import { useSkillsStore } from '../../../stores/skills'
+import { Bot, RotateCcw, Sparkles, Users } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 
 const props = defineProps<{
@@ -9,6 +13,11 @@ const props = defineProps<{
 }>()
 
 const s = useSettingsStore()
+const skillsStore = useSkillsStore()
+const skillPickerAgent = ref<AgentDef | null>(null)
+const skillPickerAgentName = computed(() =>
+  skillPickerAgent.value ? composerAgentLabel(skillPickerAgent.value, s.settings) : ''
+)
 const {
   enabledWorkers,
   isModeAgent,
@@ -45,6 +54,22 @@ const {
 function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
   if (kind === 'audio') return s.audioModels
   return s.visionModels
+}
+
+function supportsSkills(agent: AgentDef): boolean {
+  return agent.defaultSkillIds.length > 0 || agent.accessPolicy.allowSkills.length > 0
+}
+
+function configuredSkillIds(agent: AgentDef): string[] {
+  const allowed = new Set(agent.accessPolicy.allowSkills)
+  const denied = new Set(agent.accessPolicy.denySkills)
+  return skillsStore.enabledIdsForAgent(agent.id).filter(id =>
+    (allowed.size === 0 || allowed.has(id)) && !denied.has(id)
+  )
+}
+
+function skillLabel(skillId: string): string {
+  return skillsStore.skills.find(skill => skill.id === skillId)?.name ?? skillId
 }
 </script>
 
@@ -111,6 +136,40 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
                         <span class="text-[11px] text-muted">任务板后精简历史</span>
                       </label>
 
+                    </div>
+
+                    <div v-if="supportsSkills(w)" class="mt-2.5 flex flex-wrap items-center gap-2" @click.stop>
+                      <Sparkles class="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span class="text-[11px] text-muted shrink-0">技能</span>
+                      <span
+                        v-if="!skillsStore.hasAgentOverride(w.id)"
+                        class="text-[11px] text-muted"
+                      >继承全局设置</span>
+                      <template v-else-if="configuredSkillIds(w).length">
+                        <span
+                          v-for="skillId in configuredSkillIds(w).slice(0, 4)"
+                          :key="skillId"
+                          class="max-w-32 truncate rounded border border-border bg-[hsl(var(--code-bg))] px-1.5 py-0.5 text-[10px] text-foreground/80"
+                        >{{ skillLabel(skillId) }}</span>
+                        <span v-if="configuredSkillIds(w).length > 4" class="text-[10px] text-muted">
+                          +{{ configuredSkillIds(w).length - 4 }}
+                        </span>
+                      </template>
+                      <span v-else class="text-[11px] text-muted">未启用技能</span>
+                      <button
+                        type="button"
+                        class="h-7 px-2 rounded border border-border bg-card hover:bg-hover text-[11px] text-foreground transition-colors"
+                        @click.stop="skillPickerAgent = w"
+                      >配置</button>
+                      <button
+                        v-if="skillsStore.hasAgentOverride(w.id)"
+                        type="button"
+                        class="h-7 px-2 rounded hover:bg-hover text-[11px] text-muted flex items-center gap-1 transition-colors"
+                        @click.stop="skillsStore.resetAgentOverride(w.id)"
+                      >
+                        <RotateCcw class="w-3 h-3" />
+                        重置
+                      </button>
                     </div>
 
                     <div
@@ -341,6 +400,13 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
                 />
               </div>
             </div>
+
+            <AgentSkillPicker
+              v-if="skillPickerAgent"
+              :agent="skillPickerAgent"
+              :agent-name="skillPickerAgentName"
+              @close="skillPickerAgent = null"
+            />
 
 
 </template>

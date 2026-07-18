@@ -1267,6 +1267,9 @@ pub struct UserSettings {
     /// Globally enabled skill ids (UI + runtime when lead agent is `general`).
     #[serde(default = "default_enabled_skill_ids", rename = "enabledSkillIds")]
     pub enabled_skill_ids: Vec<String>,
+    /// Optional agent-specific skill ids; absent entries inherit `enabled_skill_ids`.
+    #[serde(default, rename = "agentSkillOverrides")]
+    pub agent_skill_overrides: HashMap<String, Vec<String>>,
     #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]
     pub memory_enabled: bool,
     #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
@@ -1302,6 +1305,7 @@ impl Default for UserSettings {
             theme: default_theme(),
             user_nickname: None,
             enabled_skill_ids: default_enabled_skill_ids(),
+            agent_skill_overrides: HashMap::new(),
             memory_enabled: default_memory_enabled(),
             user_profile_enabled: default_user_profile_enabled(),
             user_coding_rules: String::new(),
@@ -2485,6 +2489,28 @@ mod effective_extra_body_tests {
         assert!(incoming.raw_content_view_enabled);
         assert!(incoming.debug_menus_enabled);
         assert_eq!(incoming.max_sub_agent_tool_rounds, 42);
+    }
+
+    #[test]
+    fn agent_skill_overrides_round_trip_and_default_empty() {
+        let default_user = UserSettings::default();
+        assert!(default_user.agent_skill_overrides.is_empty());
+
+        let user: UserSettings = serde_json::from_value(serde_json::json!({
+            "agentSkillOverrides": {
+                "coder": ["skill-creator"]
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            user.agent_skill_overrides.get("coder"),
+            Some(&vec!["skill-creator".to_string()])
+        );
+        let json = serde_json::to_value(user).unwrap();
+        assert_eq!(
+            json["agentSkillOverrides"]["coder"],
+            serde_json::json!(["skill-creator"])
+        );
     }
 
     #[test]

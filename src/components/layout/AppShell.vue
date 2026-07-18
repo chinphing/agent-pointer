@@ -68,6 +68,13 @@ function cancelEdit() {
   editingTitle.value = ''
 }
 
+/** ESC exits edit without saving. */
+function onEditKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    cancelEdit()
+  }
+}
+
 function askDeleteConversation(c: { id: string }) {
   pendingDeleteId.value = c.id
 }
@@ -383,7 +390,7 @@ watch(searchQuery, q => {
                     class="w-full bg-transparent border border-accent rounded px-1 text-[13px] text-foreground outline-none"
                     @click.stop
                     @keydown.enter.prevent="saveEdit"
-                    @keydown.escape.prevent="cancelEdit"
+                    @keydown="onEditKeydown"
                     @blur="saveEdit"
                   />
                 </template>

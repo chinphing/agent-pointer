@@ -1645,10 +1645,12 @@ mod builtin_agent_tests {
             ids,
             vec![
                 "agent-browser".to_string(),
+                "dev-env-setup".to_string(),
+                "docx".to_string(),
+                "find-skills".to_string(),
                 "pdf".to_string(),
                 "pptx".to_string(),
                 "skill-creator".to_string(),
-                "docx".to_string(),
                 "xlsx".to_string()
             ]
         );
@@ -1725,8 +1727,7 @@ mod builtin_agent_tests {
                     .def
                     .access_policy
                     .allow_tools
-                    .binary_search(&tool.to_string())
-                    .is_ok(),
+                    .contains(&tool.to_string()),
                 "coder allowTools should include {tool}"
             );
         }
@@ -1755,24 +1756,19 @@ mod builtin_agent_tests {
             ids,
             vec![
                 "agent-browser".to_string(),
+                "dev-env-setup".to_string(),
+                "docx".to_string(),
+                "find-skills".to_string(),
                 "pdf".to_string(),
                 "pptx".to_string(),
                 "skill-creator".to_string(),
-                "docx".to_string(),
                 "xlsx".to_string()
             ]
         );
         let ids = resolve_skill_ids(&coder, &["docx".into()], &HashMap::new());
         assert_eq!(
             ids,
-            vec![
-                "agent-browser".to_string(),
-                "pdf".to_string(),
-                "pptx".to_string(),
-                "skill-creator".to_string(),
-                "docx".to_string(),
-                "xlsx".to_string()
-            ]
+            vec!["docx".to_string()]
         );
     }
 

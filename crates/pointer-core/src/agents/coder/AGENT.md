@@ -6,6 +6,7 @@ role: worker
 profile: coder
 enabled: true
 defaultSkillIds:
+  - find-skills
   - skill-creator
   - xlsx
   - pdf
@@ -39,6 +40,7 @@ accessPolicy:
     - media_understand
   denyTools: []
   allowSkills:
+    - find-skills
     - skill-creator
     - xlsx
     - pdf

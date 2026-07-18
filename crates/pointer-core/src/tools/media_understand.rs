@@ -25,7 +25,13 @@ pub fn parse_mode(args: &Value) -> Result<String> {
     }
 }
 
-pub fn parse_refs(args: &Value, mode: &str) -> Result<Vec<String>> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MediaRefInput {
+    Ref(String),
+    AttachmentId(String),
+}
+
+pub fn parse_ref_inputs(args: &Value, mode: &str) -> Result<Vec<MediaRefInput>> {
     use crate::media::image_dir::MAX_IMAGES_PER_CALL;
 
     if args.get("ref").is_some() {
@@ -34,43 +40,57 @@ pub fn parse_refs(args: &Value, mode: &str) -> Result<Vec<String>> {
         ));
     }
 
-    let refs: Vec<String> = match args.get("refs").and_then(|v| v.as_array()) {
-        Some(arr) => arr
-            .iter()
-            .filter_map(|v| {
-                v.as_str()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-            })
-            .collect(),
-        None => Vec::new(),
-    };
-    if refs.is_empty() {
+    let refs = args
+        .get("refs")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("missing or empty refs"))?;
+    let mut parsed = Vec::with_capacity(refs.len());
+    for entry in refs {
+        if let Some(raw) = entry.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+            parsed.push(MediaRefInput::Ref(raw.to_string()));
+            continue;
+        }
+        if let Some(obj) = entry.as_object() {
+            let attachment_id = obj
+                .get("attachmentId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| anyhow!("refs object must contain a non-empty attachmentId"))?;
+            parsed.push(MediaRefInput::AttachmentId(attachment_id.to_string()));
+            continue;
+        }
+        anyhow::bail!("refs entries must be strings or objects with attachmentId");
+    }
+    if parsed.is_empty() {
         anyhow::bail!("missing or empty refs");
     }
 
     match mode {
-        "image" => {
-            if refs.len() > MAX_IMAGES_PER_CALL {
-                anyhow::bail!(
-                    "requested {} images via refs; max {MAX_IMAGES_PER_CALL} per call — split into multiple media_understand calls",
-                    refs.len()
-                );
-            }
-            Ok(refs)
-        }
-        "audio" | "video" | "pdf" => {
-            if refs.len() > 1 {
-                anyhow::bail!(
-                    "mode={mode} accepts only one ref; pass refs with exactly one element (got {})",
-                    refs.len()
-                );
-            }
-            Ok(refs)
-        }
+        "image" if parsed.len() > MAX_IMAGES_PER_CALL => anyhow::bail!(
+            "requested {} images via refs; max {MAX_IMAGES_PER_CALL} per call — split into multiple media_understand calls",
+            parsed.len()
+        ),
+        "image" => Ok(parsed),
+        "audio" | "video" | "pdf" if parsed.len() > 1 => anyhow::bail!(
+            "mode={mode} accepts only one ref; pass refs with exactly one element (got {})",
+            parsed.len()
+        ),
+        "audio" | "video" | "pdf" => Ok(parsed),
         other => Err(anyhow!("unsupported media_understand mode: {other}")),
     }
+}
+
+pub fn parse_refs(args: &Value, mode: &str) -> Result<Vec<String>> {
+    parse_ref_inputs(args, mode)?
+        .into_iter()
+        .map(|entry| match entry {
+            MediaRefInput::Ref(raw) => Ok(raw),
+            MediaRefInput::AttachmentId(_) => {
+                Err(anyhow!("attachmentId refs require conversation context"))
+            }
+        })
+        .collect()
 }
 
 pub fn parse_single_media_ref(args: &Value, mode: &str) -> Result<String> {
@@ -106,7 +126,10 @@ pub fn format_goal_block(goal: &str, context: Option<&str>) -> String {
 }
 
 /// Parse optional 1-based PDF page range. Default: pages 1–10 when user did not specify.
-pub fn parse_pdf_page_range(args: &Value, total_pages: usize) -> Result<crate::media::PdfPageRange> {
+pub fn parse_pdf_page_range(
+    args: &Value,
+    total_pages: usize,
+) -> Result<crate::media::PdfPageRange> {
     use crate::media::pdf::{PdfPageRange, DEFAULT_PDF_PAGE_END};
 
     let start = args
@@ -120,7 +143,11 @@ pub fn parse_pdf_page_range(args: &Value, total_pages: usize) -> Result<crate::m
 
     let range = match (start, end) {
         (None, None) => PdfPageRange::default_first_window(total_pages)?,
-        (Some(s), None) => PdfPageRange::normalize(total_pages, s, total_pages.min(s + DEFAULT_PDF_PAGE_END - 1))?,
+        (Some(s), None) => PdfPageRange::normalize(
+            total_pages,
+            s,
+            total_pages.min(s + DEFAULT_PDF_PAGE_END - 1),
+        )?,
         (None, Some(e)) => PdfPageRange::normalize(total_pages, 1, e)?,
         (Some(s), Some(e)) => PdfPageRange::normalize(total_pages, s, e)?,
     };
@@ -129,17 +156,24 @@ pub fn parse_pdf_page_range(args: &Value, total_pages: usize) -> Result<crate::m
 }
 
 /// Default video window: first segment at 1 frame/second (max 200 frames).
-pub fn parse_video_time_range(_args: &Value, duration_sec: f64) -> Result<crate::media::VideoTimeRange> {
+pub fn parse_video_time_range(
+    _args: &Value,
+    duration_sec: f64,
+) -> Result<crate::media::VideoTimeRange> {
     use crate::media::video::{VideoTimeRange, DEFAULT_FRAMES_PER_SECOND};
 
-    let range = VideoTimeRange::default_first_window(duration_sec.max(0.0), DEFAULT_FRAMES_PER_SECOND)?;
+    let range =
+        VideoTimeRange::default_first_window(duration_sec.max(0.0), DEFAULT_FRAMES_PER_SECOND)?;
     range.ensure_within_per_call_limit()?;
     Ok(range)
 }
 
 /// Parse 1-based image index range for directory refs via **pageStart** / **pageEnd**.
 /// Default: images 1–200 when unspecified.
-pub fn parse_image_dir_range(args: &Value, total_images: usize) -> Result<crate::media::ImageDirRange> {
+pub fn parse_image_dir_range(
+    args: &Value,
+    total_images: usize,
+) -> Result<crate::media::ImageDirRange> {
     use crate::media::image_dir::{ImageDirRange, DEFAULT_IMAGE_BATCH};
 
     let start = args
@@ -153,9 +187,11 @@ pub fn parse_image_dir_range(args: &Value, total_images: usize) -> Result<crate:
 
     let range = match (start, end) {
         (None, None) => ImageDirRange::default_first_batch(total_images)?,
-        (Some(s), None) => {
-            ImageDirRange::normalize(total_images, s, total_images.min(s + DEFAULT_IMAGE_BATCH - 1))?
-        }
+        (Some(s), None) => ImageDirRange::normalize(
+            total_images,
+            s,
+            total_images.min(s + DEFAULT_IMAGE_BATCH - 1),
+        )?,
         (None, Some(e)) => ImageDirRange::normalize(total_images, 1, e)?,
         (Some(s), Some(e)) => ImageDirRange::normalize(total_images, s, e)?,
     };
@@ -203,9 +239,18 @@ mod tests {
         assert!(schema["properties"]["refs"].is_object());
         assert!(schema["properties"]["mode"].is_object());
         assert!(schema["properties"]["goal"].is_object());
-        assert!(!schema["properties"].as_object().unwrap().contains_key("ref"));
-        assert!(!schema["properties"].as_object().unwrap().contains_key("imageStart"));
-        assert!(!schema["properties"].as_object().unwrap().contains_key("timeStartSec"));
+        assert!(!schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("ref"));
+        assert!(!schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("imageStart"));
+        assert!(!schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("timeStartSec"));
         let required = schema["required"].as_array().unwrap();
         assert!(required.contains(&json!("goal")));
         assert!(required.contains(&json!("mode")));
@@ -221,6 +266,25 @@ mod tests {
         });
         let refs = parse_refs(&args, "image").unwrap();
         assert_eq!(refs, vec!["pointer-media://c/a.png"]);
+    }
+
+    #[test]
+    fn parse_ref_inputs_accepts_attachment_id_object() {
+        let args = json!({
+            "refs": [{"attachmentId": "att-123"}],
+            "mode": "image",
+            "goal": "Describe"
+        });
+        assert_eq!(
+            parse_ref_inputs(&args, "image").unwrap(),
+            vec![MediaRefInput::AttachmentId("att-123".into())]
+        );
+    }
+
+    #[test]
+    fn parse_ref_inputs_rejects_object_without_attachment_id() {
+        let args = json!({"refs": [{"ref": "x"}], "mode": "image", "goal": "Describe"});
+        assert!(parse_ref_inputs(&args, "image").is_err());
     }
 
     #[test]
@@ -265,7 +329,9 @@ mod tests {
 
     #[test]
     fn parse_refs_image_rejects_too_many() {
-        let refs: Vec<String> = (0..201).map(|i| format!("pointer-media://c/{i}.png")).collect();
+        let refs: Vec<String> = (0..201)
+            .map(|i| format!("pointer-media://c/{i}.png"))
+            .collect();
         let args = json!({
             "refs": refs,
             "mode": "image",

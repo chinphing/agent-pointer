@@ -63,8 +63,10 @@ keep internal stage templates out of **`content`**.
   attached files. If they did not say what to do with them, **ask briefly** before
   calling `media_understand` or Office Skills. When calling `media_understand`, always
   pass **`goal`** (and optional **`context`**) describing what they want — not only
-  **`refs`** and **`mode`**. **refs**: manifest **ref**/**localPath**, or user's full path —
-  never `pointer-media://` + filename only. Match **fileName** when they refer to a specific file.
+  **`refs`** and **`mode`**. For **refs**, prefer `{ "attachmentId": "..." }` when the
+  current manifest provides **attachmentId**; otherwise use manifest **ref**, then
+  **localPath**, or the user's explicitly typed full path. Never invent
+  `pointer-media://` + filename. Match **fileName** when they refer to a specific file.
   Page/index ranges: follow **`media_understand`** tool schema. Non-image modes: **`refs`** must have exactly one element.
   Video: put segment focus in **goal** (default **1 fps** sampling).
 

@@ -14,12 +14,12 @@ pub(super) use types::{
 use crate::agents::AgentProfile;
 use crate::models::{StreamEvent, ToolCall};
 use crate::task_board::{
-    inject_host_task_board_conversation_id, is_task_board_tool_name,
-    maybe_trim_after_tool_pass, task_board_call_is_checkpoint,
+    inject_host_task_board_conversation_id, is_task_board_tool_name, maybe_trim_after_tool_pass,
+    task_board_call_is_checkpoint,
 };
 use crate::tools::normalize_tool_invoke_name;
 use crate::tools::parallel::{ParallelLimits, ToolConflictClass};
-use crate::tools::parse_tool_call_arguments;
+use crate::tools::parse_tool_call_arguments_strict;
 use crate::tools::registry_tool_in_allow_list;
 use anyhow::{anyhow, Result};
 use batch::{batch_needs_serial_for_approval, plan_tool_batch, PlanToolBatchInput, ToolWave};
@@ -28,8 +28,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
 
-use super::emit::{emit, emit_task_board_updated, trace_id_opt};
 use super::context::TranscriptPersist;
+use super::emit::{emit, emit_task_board_updated, trace_id_opt};
 use super::util::{
     patch_assistant_tool_call_display, patch_assistant_tool_call_outcome,
     tool_display_stream_fields,
@@ -65,11 +65,7 @@ struct PreparedTool {
 
 pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result<ToolPassResult> {
     let sub_trace_id = pass.ctx.sub.as_ref().map(|s| s.trace_id.clone());
-    let sub_scoped_id = pass
-        .ctx
-        .sub
-        .as_ref()
-        .map(|s| s.scoped_message_id.clone());
+    let sub_scoped_id = pass.ctx.sub.as_ref().map(|s| s.scoped_message_id.clone());
     let _persist_transcript = pass.ctx.persist_transcript();
     let mut any_executed = false;
     let mut task_board_succeeded = false;
@@ -77,9 +73,12 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
 
     let settings = &pass.ctx.provider.settings;
     let parallel_limits = ParallelLimits::from_settings(settings);
-    let force_serial = pass.ctx.lead.as_ref().is_some_and(|l| {
-        l.file_tool_lead_for_invoke == AgentProfile::Computer
-    }) || !settings.parallel_tool_execution_enabled;
+    let force_serial = pass
+        .ctx
+        .lead
+        .as_ref()
+        .is_some_and(|l| l.file_tool_lead_for_invoke == AgentProfile::Computer)
+        || !settings.parallel_tool_execution_enabled;
 
     let mut prepared: Vec<PreparedTool> = Vec::with_capacity(pass.final_tool_calls.len());
     let mut parsed_args: Vec<serde_json::Value> = Vec::new();
@@ -98,7 +97,32 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             return Err(anyhow!("已停止生成"));
         }
 
-        let args_value = parse_tool_call_arguments(&tc.arguments);
+        let args_value = match parse_tool_call_arguments_strict(&tc.arguments) {
+            Ok(value) => value,
+            Err(e) => {
+                let err = format!(
+                    "工具参数解析失败：{e}. 请检查参数是否为有效 JSON；Windows 路径请使用 / 或转义后的 \\\\。"
+                );
+                emit_tool_failed(
+                    pass.ctx.session.stream,
+                    &pass.ctx.message_id,
+                    tc,
+                    sub_trace_id.as_deref(),
+                    sub_scoped_id.as_deref(),
+                    &err,
+                );
+                super::util::push_tool_result(
+                    pass.ctx.transcript.history,
+                    pass.ctx.session.conversation_id,
+                    &pass.ctx.message_id,
+                    &tc.id,
+                    &format!("ERROR: {err}"),
+                    &pass.ctx.persist,
+                );
+                any_executed = true;
+                continue;
+            }
+        };
         let (tool_id, args_value) = normalize_tool_invoke_name(&tc.name, args_value);
         let mut task_board_store_key = pass.ctx.task_board_store_key.to_string();
         if tool_id == "task_board_init" {
@@ -116,10 +140,10 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         &fresh,
                         &uid,
                     );
-                    pass.ctx.session.state.set_active_main_task_board_key(
-                        pass.ctx.session.conversation_id,
-                        &fresh,
-                    );
+                    pass.ctx
+                        .session
+                        .state
+                        .set_active_main_task_board_key(pass.ctx.session.conversation_id, &fresh);
                     log::info!(
                         "task_board_exec: init fresh board conversation_id={} store_key={} anchor={uid}",
                         pass.ctx.session.conversation_id,
@@ -254,7 +278,9 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
     );
 
     let tool_sem = Arc::new(Semaphore::new(parallel_limits.max_parallel_tools.max(1)));
-    let media_sem = Arc::new(Semaphore::new(parallel_limits.max_parallel_media_jobs.max(1)));
+    let media_sem = Arc::new(Semaphore::new(
+        parallel_limits.max_parallel_media_jobs.max(1),
+    ));
 
     for wave in plan.waves {
         if pass.cancel.is_cancelled() {
@@ -380,16 +406,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         .lead
                         .as_ref()
                         .map(|l| l.file_tool_lead_for_invoke.clone());
-                    let sub_profile = pass
-                        .ctx
-                        .sub
-                        .as_ref()
-                        .map(|s| s.def.profile.clone());
-                    let lead_run_id = pass
-                        .ctx
-                        .lead
-                        .as_ref()
-                        .map(|l| l.run_id.to_string());
+                    let sub_profile = pass.ctx.sub.as_ref().map(|s| s.def.profile.clone());
+                    let lead_run_id = pass.ctx.lead.as_ref().map(|l| l.run_id.to_string());
                     let sub_run_id = pass
                         .ctx
                         .sub
@@ -466,11 +484,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
 
                 if wave_cancelled {
                     for prep_pos in in_flight_prep {
-                        emit_tool_pass_cancelled(
-                            &mut pass,
-                            &prepared[prep_pos],
-                            &sub_trace_id,
-                        );
+                        emit_tool_pass_cancelled(&mut pass, &prepared[prep_pos], &sub_trace_id);
                     }
                     if let Some(consumed) = pass.ctx.consumed_single.as_mut() {
                         pass.ctx.tool_budget.sync_out(consumed);
@@ -662,11 +676,7 @@ fn emit_tool_pass_cancelled(
     sub_trace_id: &Option<String>,
 ) {
     let err = "已停止生成";
-    let scoped_message_id = pass
-        .ctx
-        .sub
-        .as_ref()
-        .map(|s| s.scoped_message_id.as_str());
+    let scoped_message_id = pass.ctx.sub.as_ref().map(|s| s.scoped_message_id.as_str());
     emit_tool_failed(
         pass.ctx.session.stream,
         pass.ctx.message_id.as_str(),

@@ -38,7 +38,9 @@ pub use image_dir::{
     MAX_IMAGES_PER_CALL,
 };
 pub use apply::apply_media_to_history;
-pub use attachment_lookup::find_attachment_by_media_ref;
+pub use attachment_lookup::{
+    conversation_user_attachments, find_attachment_by_id, find_attachment_by_media_ref,
+};
 pub use delegation::{
     collect_recent_user_attachments, format_delegation_attachments_block,
     merge_attachments_into_context, parse_attachment_specs_from_args, resolve_attachment_specs,

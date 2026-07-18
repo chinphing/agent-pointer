@@ -81,6 +81,18 @@ const terminalCommand = computed(() => {
   return text || ''
 })
 
+const argsParseError = computed(() => {
+  if (isTerminal.value) return ''
+  const text = props.toolCall.arguments?.trim()
+  if (!text) return ''
+  try {
+    JSON.parse(text)
+    return ''
+  } catch (error) {
+    return error instanceof Error ? error.message : '无效 JSON'
+  }
+})
+
 const prettyArgs = computed(() => {
   if (isTerminal.value) return ''
   const text = props.toolCall.arguments?.trim()
@@ -407,7 +419,11 @@ function openSourceUrl(url: string) {
 
       <template v-else>
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">参数</div>
+          <div
+            class="text-[10px] uppercase tracking-wider mb-1"
+            :class="argsParseError ? 'text-danger' : 'text-slate-500'"
+          >{{ argsParseError ? '参数解析失败 · 原始参数' : '参数' }}</div>
+          <div v-if="argsParseError" class="text-[11px] text-danger mb-1 break-words">{{ argsParseError }}</div>
           <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ prettyArgs || '—' }}</pre>
         </div>
         <div v-if="showResults && toolCall.result">

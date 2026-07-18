@@ -21,7 +21,50 @@ pub fn find_attachment_by_media_ref(
     if rel.is_empty() {
         return Ok(None);
     }
-    let tail_id = rel.rsplit('/').next().unwrap_or(rel);
+    find_attachment(conversation_id, |att| {
+        let tail_id = rel.rsplit('/').next().unwrap_or(rel);
+        att.storage_rel_path
+            .as_deref()
+            .is_some_and(|p| p.trim() == rel)
+            || att.id == tail_id
+            || att
+                .storage_rel_path
+                .as_deref()
+                .is_some_and(|p| p.rsplit('/').next() == Some(tail_id))
+            || tail_id
+                .strip_prefix(&format!("{}_", att.id))
+                .is_some_and(|rest| !rest.is_empty())
+    })
+}
+
+pub fn find_attachment_by_id(
+    conversation_id: &str,
+    attachment_id: &str,
+) -> Result<Option<MediaAttachment>> {
+    let id = attachment_id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    find_attachment(conversation_id, |att| att.id == id)
+}
+
+pub fn conversation_user_attachments(conversation_id: &str) -> Result<Vec<MediaAttachment>> {
+    let messages = storage::load_conversation_messages(conversation_id)?;
+    let mut out = Vec::new();
+    for msg in messages.iter().rev() {
+        if matches!(msg.role, Role::User) {
+            if let Some(atts) = &msg.attachments {
+                out.extend(atts.iter().cloned());
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn find_attachment(
+    conversation_id: &str,
+    matches: impl Fn(&MediaAttachment) -> bool,
+) -> Result<Option<MediaAttachment>> {
     let messages = storage::load_conversation_messages(conversation_id)?;
     for msg in messages.iter().rev() {
         if !matches!(msg.role, Role::User) {
@@ -30,26 +73,8 @@ pub fn find_attachment_by_media_ref(
         let Some(atts) = &msg.attachments else {
             continue;
         };
-        for att in atts {
-            if att
-                .storage_rel_path
-                .as_deref()
-                .map(|p| p.trim() == rel)
-                .unwrap_or(false)
-            {
-                return Ok(Some(att.clone()));
-            }
-            if att.id == tail_id
-                || att
-                    .storage_rel_path
-                    .as_deref()
-                    .is_some_and(|p| p.rsplit('/').next() == Some(tail_id))
-                || tail_id
-                    .strip_prefix(&format!("{}_", att.id))
-                    .is_some_and(|rest| !rest.is_empty())
-            {
-                return Ok(Some(att.clone()));
-            }
+        if let Some(att) = atts.iter().find(|att| matches(att)) {
+            return Ok(Some(att.clone()));
         }
     }
     Ok(None)

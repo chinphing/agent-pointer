@@ -1,24 +1,26 @@
 //! Async execution for `media_understand`.
 
 use crate::chat_service::StreamTx;
-use crate::media::jpeg_vision::prepare_jpeg_for_vision;
-use crate::media::token::{MediaTokenContext};
-use crate::media::{
-    describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,
-    describe_video_with_model, download_video_from_url,
-    ffmpeg_available, extract_video_frame_base64s_with_range, find_attachment_by_media_ref,
-    format_image_dir_scope_notice, format_multi_refs_scope_notice, format_pdf_scope_notice, format_video_scope_notice,
-    list_image_files_in_dir, prepare_video_bytes_for_range, probe_video_duration,
-    read_media_ref_bytes, resolve_media_ref, transcribe_audio_with_model, is_video_file_name,
-};
 use crate::media::audio::{prepare_audio_bytes_for_asr_cached, AudioStorageContext};
+use crate::media::jpeg_vision::prepare_jpeg_for_vision;
+use crate::media::manifest::{attachment_local_abs_path, attachment_ref_uri};
 use crate::media::store::{conversation_media_abs_to_rel, parse_conversation_media_ids};
+use crate::media::token::MediaTokenContext;
+use crate::media::{
+    conversation_user_attachments, describe_image_with_model, describe_images_with_model,
+    describe_pdf_pages_with_model, describe_video_with_model, download_video_from_url,
+    extract_video_frame_base64s_with_range, ffmpeg_available, find_attachment_by_id,
+    find_attachment_by_media_ref, format_image_dir_scope_notice, format_multi_refs_scope_notice,
+    format_pdf_scope_notice, format_video_scope_notice, is_video_file_name,
+    list_image_files_in_dir, prepare_video_bytes_for_range, probe_video_duration,
+    read_media_ref_bytes, resolve_media_ref, transcribe_audio_with_model,
+};
 use crate::mode_llm::resolve_media_mode_llm;
 use crate::models::ModelSettings;
 use crate::tools::media_understand::{
     format_goal_block, parse_context, parse_goal, parse_image_dir_range, parse_mode,
-    parse_pdf_page_range, parse_refs, parse_single_media_ref, parse_video_time_range,
-    prepend_scope_notice,
+    parse_pdf_page_range, parse_ref_inputs, parse_video_time_range, prepend_scope_notice,
+    MediaRefInput,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
@@ -49,6 +51,88 @@ fn resolve_api_key(settings: &ModelSettings) -> Result<String> {
         anyhow::bail!("no API key configured for media understanding");
     }
     Ok(key.to_string())
+}
+
+fn attachment_media_ref(att: &crate::models::MediaAttachment) -> Option<String> {
+    att.storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(attachment_ref_uri)
+        .or_else(|| attachment_local_abs_path(att))
+}
+
+fn attachment_candidates(conversation_id: &str, raw: &str) -> String {
+    let needle_name = Path::new(raw.trim())
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or(raw.trim())
+        .to_ascii_lowercase();
+    let Ok(mut attachments) = conversation_user_attachments(conversation_id) else {
+        return String::new();
+    };
+    attachments.sort_by_key(|att| {
+        let name = att.file_name.to_ascii_lowercase();
+        if name == needle_name {
+            0
+        } else if raw.contains(&att.id) || name.contains(&needle_name) {
+            1
+        } else {
+            2
+        }
+    });
+    attachments.dedup_by(|a, b| a.id == b.id);
+    let candidates: Vec<String> = attachments
+        .into_iter()
+        .filter_map(|att| {
+            attachment_media_ref(&att).map(|media_ref| {
+                format!(
+                    "attachmentId={} fileName={} ref={media_ref}",
+                    att.id, att.file_name
+                )
+            })
+        })
+        .take(3)
+        .collect();
+    if candidates.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nCurrent-conversation attachment candidates:\n- {}",
+            candidates.join("\n- ")
+        )
+    }
+}
+
+fn resolve_ref_inputs(conversation_id: &str, args: &Value, mode: &str) -> Result<Vec<String>> {
+    parse_ref_inputs(args, mode)?
+        .into_iter()
+        .map(|input| match input {
+            MediaRefInput::AttachmentId(id) => {
+                let attachment = find_attachment_by_id(conversation_id, &id)?.ok_or_else(|| {
+                    anyhow!(
+                        "attachmentId not found in current conversation: {id}{}",
+                        attachment_candidates(conversation_id, &id)
+                    )
+                })?;
+                attachment_media_ref(&attachment).ok_or_else(|| {
+                    anyhow!("attachmentId {id} has no resolvable local attachment ref")
+                })
+            }
+            MediaRefInput::Ref(raw) => {
+                if resolve_media_ref(&raw).is_ok()
+                    || find_attachment_by_media_ref(conversation_id, &raw)?.is_some()
+                {
+                    Ok(raw)
+                } else {
+                    Err(anyhow!(
+                        "media ref not found: {raw}{}",
+                        attachment_candidates(conversation_id, &raw)
+                    ))
+                }
+            }
+        })
+        .collect()
 }
 
 fn mime_from_path(path: &Path) -> String {
@@ -133,14 +217,18 @@ async fn understand_image_directory(
             .and_then(|n| n.to_str())
             .unwrap_or("image")
             .to_string();
-        let bytes = std::fs::read(&path)
-            .with_context(|| format!("read image {}", path.display()))?;
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("read image {}", path.display()))?;
         let (prepared, _mime) = maybe_downscale_image_jpeg(&bytes, &file_name)?;
         images_base64.push(base64::engine::general_purpose::STANDARD.encode(&prepared));
         labels.push(file_name);
     }
     if images_base64.is_empty() {
-        anyhow::bail!("no images loaded for directory range {}-{}", range.start, range.end);
+        anyhow::bail!(
+            "no images loaded for directory range {}-{}",
+            range.start,
+            range.end
+        );
     }
 
     let image_model = resolve_media_mode_llm(settings, "image");
@@ -187,13 +275,7 @@ async fn understand_image_refs(
         let bytes = read_media_ref_bytes(media_ref)
             .with_context(|| format!("read media bytes for {media_ref}"))?;
         return understand_image_file(
-            settings,
-            api_key,
-            &bytes,
-            &file_name,
-            goal,
-            token_ctx,
-            cancel,
+            settings, api_key, &bytes, &file_name, goal, token_ctx, cancel,
         )
         .await;
     }
@@ -249,15 +331,17 @@ async fn understand_audio(
 ) -> Result<String> {
     let mime = mime_from_path(path);
     let storage_ctx = conversation_media_abs_to_rel(path).map(|rel| {
-        let (conv, id) = parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
+        let (conv, id) =
+            parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
         AudioStorageContext {
             storage_rel_path: Some(rel),
             conversation_id: conv,
             attachment_id: id,
         }
     });
-    let prepared = prepare_audio_bytes_for_asr_cached(&bytes, &mime, file_name, storage_ctx.as_ref())
-        .context("prepare audio for ASR")?;
+    let prepared =
+        prepare_audio_bytes_for_asr_cached(&bytes, &mime, file_name, storage_ctx.as_ref())
+            .context("prepare audio for ASR")?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&prepared.bytes);
     let audio_model = resolve_media_mode_llm(settings, "audio");
     transcribe_audio_with_model(
@@ -338,11 +422,13 @@ async fn understand_video(
         anyhow::bail!("video requires remoteUrl or local file bytes");
     };
 
-    let clip_bytes =
-        prepare_video_bytes_for_range(&bytes, file_name, &range, duration).context("prepare video clip")?;
+    let clip_bytes = prepare_video_bytes_for_range(&bytes, file_name, &range, duration)
+        .context("prepare video clip")?;
 
     if !ffmpeg_available() {
-        anyhow::bail!("video understanding requires DashScope-compatible provider with OSS URL or ffmpeg");
+        anyhow::bail!(
+            "video understanding requires DashScope-compatible provider with OSS URL or ffmpeg"
+        );
     }
     let (frames, meta) = extract_video_frame_base64s_with_range(&clip_bytes, file_name, &range)
         .context("extract video frames")?;
@@ -382,8 +468,7 @@ async fn understand_pdf(
         let total_pages = pdf_page_count(&pdf_bytes, &pdf_name)
             .with_context(|| format!("read pdf page count for {pdf_name}"))?;
         let page_range = parse_pdf_page_range(&page_args, total_pages)?;
-        let pages =
-            extract_pdf_page_images_base64_range(&pdf_bytes, &pdf_name, &page_range)?;
+        let pages = extract_pdf_page_images_base64_range(&pdf_bytes, &pdf_name, &page_range)?;
         Ok::<_, anyhow::Error>((pages, page_range, total_pages))
     })
     .await
@@ -423,9 +508,10 @@ pub async fn dispatch_media_understand_async(
         conversation_id: ctx.conversation_id.to_string(),
     };
 
+    let resolved_refs = resolve_ref_inputs(ctx.conversation_id, &ctx.args, mode.as_str())?;
     let text = match mode.as_str() {
         "image" => {
-            let refs = parse_refs(&ctx.args, "image")?;
+            let refs = resolved_refs;
             let goal_preview = crate::text_util::take_chars(&goal, 80);
             log::info!(
                 "dispatch_media_understand_async mode=image refs={refs:?} goal={goal_preview}"
@@ -468,7 +554,10 @@ pub async fn dispatch_media_understand_async(
             }
         }
         "audio" | "video" | "pdf" => {
-            let media_ref = parse_single_media_ref(&ctx.args, mode.as_str())?;
+            let media_ref = resolved_refs
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("missing refs"))?;
             dispatch_single_ref_media(
                 ctx,
                 mode.as_str(),
@@ -527,10 +616,10 @@ async fn dispatch_single_ref_media(
 
     match mode {
         "audio" => {
-            let bytes = bytes.as_deref().ok_or_else(|| anyhow!("audio ref must be a file"))?;
-            if attachment
-                .as_ref()
-                .is_some_and(|a| a.kind == "video")
+            let bytes = bytes
+                .as_deref()
+                .ok_or_else(|| anyhow!("audio ref must be a file"))?;
+            if attachment.as_ref().is_some_and(|a| a.kind == "video")
                 || is_video_file_name(&file_name)
             {
                 log::info!(
@@ -567,7 +656,9 @@ async fn dispatch_single_ref_media(
             .await
         }
         "pdf" => {
-            let bytes = bytes.as_deref().ok_or_else(|| anyhow!("pdf ref must be a file"))?;
+            let bytes = bytes
+                .as_deref()
+                .ok_or_else(|| anyhow!("pdf ref must be a file"))?;
             understand_pdf(
                 ctx.settings,
                 api_key,

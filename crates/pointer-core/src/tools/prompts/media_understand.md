@@ -5,15 +5,20 @@ schema:
     refs:
       type: array
       items:
-        type: string
+        oneOf:
+          - type: string
+          - type: object
+            properties:
+              attachmentId:
+                type: string
+            required:
+              - attachmentId
+            additionalProperties: false
       minItems: 1
       description: >
-        Copy **ref** or **localPath** from the attachment manifest, or the user's full
-        absolute/`~/` path when they typed it (not uploaded). Do **not** invent
-        `pointer-media://` + filename — only manifest **ref** values are valid URIs.
-        **mode=image**: one or more refs (max 200 per call). A single ref may be
-        a directory path — use pageStart/pageEnd for folder batches.
-        **mode=video/audio/pdf**: exactly **one** ref in the array.
+        Prefer {attachmentId: "..."} whenever the current conversation's attachment
+        manifest provides one. Otherwise use the manifest ref, then localPath; a user's
+        explicitly typed full path is also accepted. Do not invent pointer-media:// values.
     mode:
       type: string
       enum:
@@ -59,7 +64,9 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 
 ## Parameters
 
-- **refs** + **mode** — manifest **ref** or **localPath**; or user's full path from their message.
+- **refs** + **mode** — when the current conversation manifest provides
+  **attachmentId**, pass `{attachmentId: "..."}`. Otherwise fall back to manifest **ref**,
+  then **localPath**; a user's explicitly typed full path is also accepted.
   Never construct `pointer-media://` + filename yourself.
   Image mode: one directory path allowed. Other modes: exactly one ref.
 - **goal** (required) — user's analysis goal in their language.

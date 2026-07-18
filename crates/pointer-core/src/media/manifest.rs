@@ -78,6 +78,7 @@ pub fn attachment_local_abs_path(att: &MediaAttachment) -> Option<String> {
 pub fn attachment_summary_json(att: &MediaAttachment) -> Value {
     let mut obj = json!({
         "id": att.id,
+        "attachmentId": att.id,
         "kind": att.kind,
         "fileName": att.file_name,
         "mimeType": att.mime_type,
@@ -149,7 +150,7 @@ fn format_attachment_entry(index: usize, att: &MediaAttachment) -> String {
         String::new()
     };
 
-    let mut lines = vec![header];
+    let mut lines = vec![header, format!("   - attachmentId: {}", att.id)];
     if has_remote && kind == "video" {
         let url = att.remote_url.as_deref().unwrap_or("").trim();
         lines.push(format!("{size_line}   - remoteUrl: {url}"));
@@ -193,7 +194,10 @@ pub fn format_user_attachments_api_manifest(attachments: &[MediaAttachment]) -> 
 }
 
 /// Append attachment manifest to user text for the OpenAI API payload.
-pub fn append_user_attachments_api_context(content: &str, attachments: &[MediaAttachment]) -> String {
+pub fn append_user_attachments_api_context(
+    content: &str,
+    attachments: &[MediaAttachment],
+) -> String {
     let manifest = format_user_attachments_api_manifest(attachments);
     if manifest.is_empty() {
         return content.to_string();
@@ -324,10 +328,7 @@ mod tests {
         };
         let j = attachment_summary_json(&att);
         assert_eq!(j["fileName"], "photo.png");
-        assert!(j["ref"]
-            .as_str()
-            .unwrap()
-            .starts_with("pointer-media://"));
+        assert!(j["ref"].as_str().unwrap().starts_with("pointer-media://"));
         assert!(j.get("localPath").is_some());
     }
 

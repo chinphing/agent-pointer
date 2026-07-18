@@ -4,21 +4,23 @@ pub mod display;
 pub mod file;
 pub mod media_generate;
 pub mod media_understand;
+pub mod parallel;
 pub mod run_subagent;
 pub mod skill;
 pub mod terminal;
 mod terminal_askpass;
 mod terminal_elevated;
-mod terminal_pty;
 pub mod terminal_prompt;
-pub mod web_search;
+mod terminal_pty;
 pub mod tool_doc;
 pub mod tool_md;
-pub mod parallel;
+pub mod web_search;
 
 pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplayFn};
 
-pub use tool_doc::{doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema};
+pub use tool_doc::{
+    doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema,
+};
 
 use crate::models::ToolDef;
 use anyhow::Result;
@@ -33,26 +35,24 @@ pub type ToolHandler = Arc<dyn Fn(serde_json::Value) -> Result<String> + Send + 
 ///
 /// Some APIs return arguments as a JSON-encoded string (double encoding), or wrap the
 /// payload in `arguments` / `params`. Markdown code fences around JSON also appear in the wild.
-pub fn parse_tool_call_arguments(raw: &str) -> serde_json::Value {
+pub fn parse_tool_call_arguments_strict(raw: &str) -> Result<serde_json::Value> {
     use serde_json::Value;
 
     let cleaned = strip_optional_code_fence(raw);
     let trimmed = cleaned.trim();
     if trimmed.is_empty() {
-        return Value::Null;
+        anyhow::bail!("tool arguments are empty");
     }
 
-    let mut v: Value = match serde_json::from_str(trimmed) {
-        Ok(x) => x,
-        Err(_) => return Value::Null,
-    };
+    let mut v: Value = serde_json::from_str(trimmed)
+        .map_err(|e| anyhow::anyhow!("invalid tool arguments JSON: {e}"))?;
 
     for _ in 0..3 {
         match &v {
             Value::String(s) => {
                 let t = s.trim();
                 if t.is_empty() {
-                    return Value::Null;
+                    anyhow::bail!("tool arguments are empty");
                 }
                 match serde_json::from_str(t) {
                     Ok(next) => v = next,
@@ -67,19 +67,24 @@ pub fn parse_tool_call_arguments(raw: &str) -> serde_json::Value {
         for key in ["arguments", "params", "parameters", "input"] {
             if let Some(inner) = map.get(key) {
                 if inner.is_object() {
-                    return inner.clone();
+                    return Ok(inner.clone());
                 }
                 if let Value::String(s) = inner {
-                    let nested = parse_tool_call_arguments(s);
-                    if nested.is_object() {
-                        return nested;
+                    if let Ok(nested) = parse_tool_call_arguments_strict(s) {
+                        if nested.is_object() {
+                            return Ok(nested);
+                        }
                     }
                 }
             }
         }
     }
 
-    v
+    Ok(v)
+}
+
+pub fn parse_tool_call_arguments(raw: &str) -> serde_json::Value {
+    parse_tool_call_arguments_strict(raw).unwrap_or(serde_json::Value::Null)
 }
 
 /// Normalize `function.arguments` for OpenAI-compatible API requests.
@@ -118,7 +123,10 @@ fn strip_optional_code_fence(s: &str) -> String {
         return s.to_string();
     }
     let mut lines: Vec<&str> = s.lines().collect();
-    if lines.first().is_some_and(|l| l.trim_start().starts_with('`')) {
+    if lines
+        .first()
+        .is_some_and(|l| l.trim_start().starts_with('`'))
+    {
         lines.remove(0);
     }
     while let Some(last) = lines.last() {
@@ -204,9 +212,7 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
         ("modified_click_at", "modified_click"),
     ];
     for &(from, to) in TO_FAMILY {
-        if names
-            .iter()
-            .any(|n| registry_tool_base_name(n) == from)
+        if names.iter().any(|n| registry_tool_base_name(n) == from)
             && !names.iter().any(|n| registry_tool_base_name(n) == to)
         {
             names.push(to.to_string());
@@ -230,7 +236,10 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
 }
 
 /// Keep allow-list entries that exist in the registry; inject exact registry ids when needed.
-pub fn normalize_allowed_tool_names(names: &mut Vec<String>, available: &std::collections::HashSet<String>) {
+pub fn normalize_allowed_tool_names(
+    names: &mut Vec<String>,
+    available: &std::collections::HashSet<String>,
+) {
     remap_split_computer_tool_allow_names(names);
     names.retain(|name| {
         let base = registry_tool_base_name(name);
@@ -409,9 +418,7 @@ impl ToolRegistry {
     }
 
     pub fn register(&self, entry: ToolEntry) {
-        self.inner
-            .write()
-            .insert(entry.def.name.clone(), entry);
+        self.inner.write().insert(entry.def.name.clone(), entry);
     }
 
     pub fn is_parallel_eligible(&self, raw_name: &str) -> bool {
@@ -441,14 +448,15 @@ impl ToolRegistry {
     }
 
     pub fn tool_risk_level(&self, name: &str) -> Option<String> {
-        self.inner
-            .read()
-            .get(name)
-            .map(|e| e.risk_level.clone())
+        self.inner.read().get(name).map(|e| e.risk_level.clone())
     }
 
     /// Risk for a concrete invocation.
-    pub fn tool_risk_level_for_invocation(&self, raw_tool_name: &str, _args: &Value) -> Option<String> {
+    pub fn tool_risk_level_for_invocation(
+        &self,
+        raw_tool_name: &str,
+        _args: &Value,
+    ) -> Option<String> {
         let base = registry_tool_base_name(raw_tool_name);
         self.tool_risk_level(base)
     }
@@ -469,19 +477,13 @@ impl ToolRegistry {
     /// Whether the base registry name is registered as a sidecar-only tool.
     pub fn is_sidecar_tool(&self, raw_name: &str) -> bool {
         let base = registry_tool_base_name(raw_name);
-        self.inner
-            .read()
-            .get(base)
-            .is_some_and(|e| e.is_sidecar)
+        self.inner.read().get(base).is_some_and(|e| e.is_sidecar)
     }
 
     /// Whether the tool is registered with [`ToolEntry::final_reply`].
     pub fn is_final_reply_tool(&self, raw_name: &str) -> bool {
         let base = registry_tool_base_name(raw_name);
-        self.inner
-            .read()
-            .get(base)
-            .is_some_and(|e| e.final_reply)
+        self.inner.read().get(base).is_some_and(|e| e.final_reply)
     }
 
     /// Lone successful `final_reply` tool — host should end the run and deliver output directly.
@@ -601,9 +603,7 @@ pub fn validate_envelope_tool_batch(
 }
 
 fn openai_compact_description(tool_name: &str) -> String {
-    format!(
-        "{tool_name}: parameters in schema; full usage in system Tools appendix."
-    )
+    format!("{tool_name}: parameters in schema; full usage in system Tools appendix.")
 }
 
 /// OpenAI `function.description`: compact when doc is shared or long; appendix holds full docs.
@@ -622,7 +622,11 @@ fn openai_description_for_entry(name: &str, doc: &str, peers_sharing_doc_source:
     openai_compact_description(name)
 }
 
-fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str, schema: Option<&serde_json::Value>) -> serde_json::Value {
+fn openai_parameters_from_doc_or_builtin(
+    name: &str,
+    doc: &str,
+    schema: Option<&serde_json::Value>,
+) -> serde_json::Value {
     // Prefer standalone schema (from .schema.yaml) over YAML frontmatter extraction.
     if let Some(s) = schema {
         if s.is_object() {
@@ -639,8 +643,8 @@ fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str, schema: Option<&
 mod parse_args_tests {
     use super::file_tool_effective_risk_level;
     use super::normalize_tool_invoke_name;
-    use super::parse_tool_call_arguments;
     use super::registry_tool_base_name;
+    use super::{parse_tool_call_arguments, parse_tool_call_arguments_strict};
 
     #[test]
     fn unwraps_json_string_payload() {
@@ -666,6 +670,16 @@ mod parse_args_tests {
     }
 
     #[test]
+    fn strict_parser_preserves_invalid_json_error() {
+        let raw = r#"{"mode":"image","refs":["C:\Users\photo.png"]}"#;
+        let err = parse_tool_call_arguments_strict(raw)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("invalid tool arguments JSON"));
+        assert!(err.contains("escape"));
+    }
+
+    #[test]
     fn normalize_tool_call_arguments_for_api_wire() {
         use super::normalize_tool_call_arguments_for_api;
         assert_eq!(normalize_tool_call_arguments_for_api(""), "{}");
@@ -679,7 +693,10 @@ mod parse_args_tests {
 
     #[test]
     fn registry_tool_base_name_is_trimmed_flat_id() {
-        assert_eq!(registry_tool_base_name("mouse_click_index"), "mouse_click_index");
+        assert_eq!(
+            registry_tool_base_name("mouse_click_index"),
+            "mouse_click_index"
+        );
         assert_eq!(registry_tool_base_name("  file_read  "), "file_read");
     }
 
@@ -792,11 +809,11 @@ mod openai_tools_schema_tests {
                 doc,
                 Arc::new(|_| Ok(String::new())),
             )
-                .with_schema(serde_json::json!({
-                    "type": "object",
-                    "properties": { "path": { "type": "string" }, "content": {} },
-                    "required": ["path", "content"]
-                })),
+            .with_schema(serde_json::json!({
+                "type": "object",
+                "properties": { "path": { "type": "string" }, "content": {} },
+                "required": ["path", "content"]
+            })),
         );
 
         let tools = reg.openai_tools(&[]);
@@ -854,7 +871,9 @@ mod openai_tools_schema_tests {
         use super::normalize_allowed_tool_names;
         use std::collections::HashSet;
 
-        let available: HashSet<String> = ["task_board_patch".into(), "file_read".into()].into_iter().collect();
+        let available: HashSet<String> = ["task_board_patch".into(), "file_read".into()]
+            .into_iter()
+            .collect();
         let mut names = vec!["task_board_patch".into(), "file_read".into()];
         normalize_allowed_tool_names(&mut names, &available);
         assert!(names.contains(&"task_board_patch".to_string()));
@@ -989,10 +1008,17 @@ mod openai_tools_schema_tests {
 
         let yaml = include_str!("../agents/computer/tools/prompts/captcha_verify.schema.yaml");
         let schemas: std::collections::HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(yaml).unwrap().into_iter().collect();
+            load_tools_from_schema_yaml(yaml)
+                .unwrap()
+                .into_iter()
+                .collect();
         let doc = include_str!("../agents/computer/tools/prompts/captcha_verify.md");
         let reg = ToolRegistry::new();
-        for name in ["captcha_verify_type", "captcha_verify_click", "captcha_verify_drag"] {
+        for name in [
+            "captcha_verify_type",
+            "captcha_verify_click",
+            "captcha_verify_drag",
+        ] {
             let schema = schemas.get(name).cloned().unwrap();
             reg.register(
                 ToolEntry::new(
@@ -1033,7 +1059,8 @@ mod openai_tools_schema_tests {
 
         const MOUSE_DOC_SOURCE: &str = "agents/computer/tools/prompts/mouse.md";
         let reg = ToolRegistry::new();
-        let shared = "### mouse family\nShared mouse doc body that would bloat API tools if repeated.";
+        let shared =
+            "### mouse family\nShared mouse doc body that would bloat API tools if repeated.";
         for name in ["mouse_click_index", "mouse_click_at", "mouse_hover_index"] {
             reg.register(
                 ToolEntry::new(
@@ -1065,7 +1092,11 @@ mod openai_tools_schema_tests {
             .iter()
             .filter_map(|t| t["function"]["description"].as_str())
             .collect();
-        assert_eq!(descs.len(), 3, "each flat tool keeps a distinct compact description");
+        assert_eq!(
+            descs.len(),
+            3,
+            "each flat tool keeps a distinct compact description"
+        );
     }
 
     #[test]
@@ -1098,16 +1129,18 @@ mod openai_tools_schema_tests {
         let params = &tools[0]["function"]["parameters"];
         assert_eq!(params["required"][0], "action");
         assert_eq!(params["required"][2], "index_captcha_area");
-        assert_eq!(params["properties"]["index_captcha_area"]["type"], "integer");
+        assert_eq!(
+            params["properties"]["index_captcha_area"]["type"],
+            "integer"
+        );
         assert_eq!(params["properties"]["is_slider"]["type"], "boolean");
     }
-
 }
 
 #[cfg(test)]
 mod parallel_metadata_tests {
-    use super::ToolRegistry;
     use super::parallel::ToolConflictClass;
+    use super::ToolRegistry;
     use std::sync::Arc;
 
     #[test]
@@ -1211,7 +1244,11 @@ mod envelope_validation_tests {
     #[test]
     fn batch_rejects_more_than_one_primary_tool() {
         let tools = reg();
-        let batch = vec![tc("a", "terminal"), tc("b", "file_read"), tc("c", "task_board_patch")];
+        let batch = vec![
+            tc("a", "terminal"),
+            tc("b", "file_read"),
+            tc("c", "task_board_patch"),
+        ];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_err());
     }
 }

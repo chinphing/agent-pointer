@@ -261,6 +261,40 @@ export const useChatStore = defineStore('chat', () => {
   /** Conversation ids currently fetching messages from disk. */
   const messagesLoadingIds = ref<Set<string>>(new Set())
 
+  // ── Idle conversation eviction ──
+  /** Minutes of inactivity before a conversation's messages are evicted from memory. Set to 0 to disable. */
+  const IDLE_EVICTION_MINUTES = 0
+  /** Timestamp (Date.now()) of the last time each conversation was selected. */
+  const lastAccessed = new Map<string, number>()
+
+  function touchConversation(id: string) {
+    lastAccessed.set(id, Date.now())
+  }
+
+  function evictConversation(id: string) {
+    const conv = conversations.value.find(c => c.id === id)
+    if (!conv) return
+    if (isConversationGenerating(id)) return
+    if (currentId.value === id) return
+    if (conv.messages.length === 0) return
+    console.info('[chat] evicting idle conversation', id, conv.title, 'messages', conv.messages.length)
+    conv.messages = []
+    hydratedIds.value.delete(id)
+    lastAccessed.delete(id)
+  }
+
+  /** Evict all conversations idle longer than `IDLE_EVICTION_MINUTES`. Called on each conversation switch. */
+  function evictIdleConversations() {
+    if (IDLE_EVICTION_MINUTES <= 0) return
+    const cutoff = Date.now() - IDLE_EVICTION_MINUTES * 60_000
+    for (const conv of conversations.value) {
+      const last = lastAccessed.get(conv.id)
+      if (last !== undefined && last < cutoff) {
+        evictConversation(conv.id)
+      }
+    }
+  }
+
   const current = computed(() =>
     conversations.value.find(c => c.id === currentId.value) || null
   )
@@ -651,6 +685,7 @@ export const useChatStore = defineStore('chat', () => {
       newConversation()
     } else {
       currentId.value = shells[0]!.id
+      touchConversation(shells[0]!.id)
       await syncRunStateFromDispatcherQueue()
       await ensureMessagesLoaded(shells[0]!.id)
       loadActiveComposerDraft(currentId.value)
@@ -993,9 +1028,14 @@ export const useChatStore = defineStore('chat', () => {
   function selectConversation(id: string) {
     const conv = conversations.value.find(c => c.id === id)
     const needsHydration = conversationNeedsMessageHydration(conv)
-    if (currentId.value === id && !needsHydration) return
+    if (currentId.value === id && !needsHydration) {
+      touchConversation(id)
+      return
+    }
     flushActiveComposerDraft()
     currentId.value = id
+    touchConversation(id)
+    evictIdleConversations()
     reconcileRunStateForConversation(id)
     loadActiveComposerDraft(id)
     void ensureMessagesLoaded(

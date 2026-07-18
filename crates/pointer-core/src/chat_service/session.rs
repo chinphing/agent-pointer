@@ -90,6 +90,12 @@ pub async fn run_chat(
     };
     let result = super::session_inner::run_chat_inner(&mut run_ctx, &run_req).await;
 
+    // Strip images_base64 from all messages after each chat round.
+    // These base64 payloads (screenshots from computer agent) are wire-only and
+    // can be 500 KB–2 MB each. Keeping them in the history Vec across turns
+    // causes unbounded memory growth in long-running sessions.
+    crate::chat_service::util::strip_images_from_history(&mut history);
+
     if let Err(e) = crate::token_usage_store::finalize_run(&run_id, &conversation_id, &history) {
         log::warn!(
             "token_usage_store: finalize_run failed run_id={run_id} conversation_id={conversation_id}: {e}"

@@ -28,8 +28,11 @@ use std::{
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Emitter, Manager, RunEvent};
-#[cfg(target_os = "macos")]
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::WindowEvent;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(target_os = "macos")]
 fn traffic_light_inset_log_level(label: &'static str) -> Option<log::Level> {
@@ -248,6 +251,91 @@ pub fn run() {
         .setup(|app| {
             popup_windows::create_main_window(app)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+            // Close button minimizes to tray instead of quitting.
+            // Left-click the tray icon to restore the window, right-click → "退出" to actually exit.
+            if let Some(win) = app.get_webview_window("main") {
+                let win_close = win.clone();
+                win.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win_close.hide();
+                        log::info!("main window hidden to tray (close intercepted)");
+                    }
+                });
+            }
+
+            {
+                let show_item = match MenuItemBuilder::with_id("show", "显示 Pointer").build(app) {
+                    Ok(item) => item,
+                    Err(e) => {
+                        log::warn!("tray: menu item 'show' failed: {e}");
+                        return Ok(());
+                    }
+                };
+                let quit_item = match MenuItemBuilder::with_id("quit", "退出").build(app) {
+                    Ok(item) => item,
+                    Err(e) => {
+                        log::warn!("tray: menu item 'quit' failed: {e}");
+                        return Ok(());
+                    }
+                };
+                let menu = match MenuBuilder::new(app).item(&show_item).separator().item(&quit_item).build() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        log::warn!("tray: menu build failed: {e}");
+                        return Ok(());
+                    }
+                };
+                let icon = match tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")) {
+                    Ok(icon) => icon,
+                    Err(e) => {
+                        log::warn!("tray: icon load failed: {e}");
+                        return Ok(());
+                    }
+                };
+                match TrayIconBuilder::new()
+                    .icon(icon)
+                    .tooltip("Pointer")
+                    .menu(&menu)
+                    .on_menu_event(|app, event| {
+                        match event.id().as_ref() {
+                            "show" => {
+                                if let Some(win) = app.get_webview_window("main") {
+                                    let _ = win.show();
+                                    let _ = win.set_focus();
+                                }
+                            }
+                            "quit" => {
+                                app.exit(0);
+                            }
+                            _ => {}
+                        }
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event {
+                            let app = tray.app_handle();
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                    })
+                    .build(app)
+                {
+                    Ok(_tray) => {
+                        // keep alive for the lifetime of the app
+                        std::mem::forget(_tray);
+                    }
+                    Err(e) => {
+                        log::warn!("tray: TrayIconBuilder failed: {e}");
+                    }
+                }
+            }
 
             #[cfg(target_os = "macos")]
             configure_macos_window_chrome(app);

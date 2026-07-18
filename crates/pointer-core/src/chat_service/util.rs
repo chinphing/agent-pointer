@@ -4,6 +4,16 @@ use super::context::TranscriptPersist;
 use super::sub_message::{self};
 use crate::tools::ToolDisplay;
 
+/// Strip wire-only image payloads from all messages after a chat round.
+/// Each screenshot can be 500 KB–2 MB in base64; without this, history Vec
+/// grows unbounded across turns in long-running sessions.
+pub(crate) fn strip_images_from_history(history: &mut [ChatMessage]) {
+    for m in history.iter_mut() {
+        m.images_base64 = None;
+        m.image_slot_labels = None;
+    }
+}
+
 pub(crate) fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

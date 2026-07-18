@@ -670,6 +670,21 @@ async fn compress_history_inner(
     }
     let summary_msg = new_summary_user_message(summary_body);
     history.insert(split, summary_msg.clone());
+
+    // Drain excluded prefix to release memory.
+    // After insert, excluded messages are at [..split] and the summary is at [split].
+    // Removing them frees ChatMessage structs, content, reasoning, tool results, etc.
+    // Downstream consumers filter by is_context_included, so this is transparent.
+    history.drain(..split);
+
+    // Strip images from remaining messages (belt-and-suspenders: also done in session.rs).
+    // The keep_users messages may still carry base64 screenshots from computer agent rounds;
+    // those payloads are wire-only and should not persist across turns.
+    for m in history.iter_mut() {
+        m.images_base64 = None;
+        m.image_slot_labels = None;
+    }
+
     let messages_after = history.len();
 
     let compression = build_compression_info(

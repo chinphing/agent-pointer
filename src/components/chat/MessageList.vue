@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowDown } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
@@ -24,11 +24,96 @@ const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
 
-async function toBottom() {
-  await nextTick()
-  const el = scroller.value
-  if (el) el.scrollTop = el.scrollHeight
+// ── Virtual rendering: only render a window of recent entries ──
+const RENDER_WINDOW_INITIAL = 200
+const RENDER_WINDOW_CHUNK = 100
+const maxRender = ref(RENDER_WINDOW_INITIAL)
+
+const hasMoreAbove = computed(() => flatMessages.value.length > maxRender.value)
+
+/** Entries actually rendered in DOM — last `maxRender` entries of flatMessages. */
+const renderedEntries = computed<FlatEntry[]>(() => {
+  const all = flatMessages.value
+  if (all.length <= maxRender.value) return all
+  return all.slice(all.length - maxRender.value)
+})
+
+/** Scroll-to-top sentinel ref for load-more trigger. */
+const topSentinel = ref<HTMLDivElement | null>(null)
+let sentinelObserver: IntersectionObserver | null = null
+
+function toBottom() {
+  void nextTick(() => {
+    const el = scroller.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
 }
+
+function loadMoreAbove() {
+  if (!hasMoreAbove.value) return
+  const wasAtBottom = isNearBottom()
+  // Capture current first visible entry to anchor scroll position after expansion.
+  const el = scroller.value
+  const savedHeight = el?.scrollHeight ?? 0
+  maxRender.value += RENDER_WINDOW_CHUNK
+  void nextTick(() => {
+    if (el) {
+      // Maintain scroll position relative to content bottom so visible area doesn't jump.
+      const newHeight = el.scrollHeight
+      el.scrollTop = newHeight - savedHeight + el.scrollTop
+    }
+    if (wasAtBottom) toBottom()
+  })
+}
+
+function setupSentinel() {
+  if (!topSentinel.value) return
+  sentinelObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries[0]?.isIntersecting && hasMoreAbove.value) {
+        loadMoreAbove()
+      }
+    },
+    { root: scroller.value, threshold: 0.1 }
+  )
+  sentinelObserver.observe(topSentinel.value)
+}
+
+function teardownSentinel() {
+  sentinelObserver?.disconnect()
+  sentinelObserver = null
+}
+
+onMounted(() => {
+  toBottom()
+  void nextTick(setupSentinel)
+})
+
+onBeforeUnmount(() => {
+  teardownSentinel()
+})
+
+// Reset render window when conversation changes.
+watch(() => chat.currentId, () => {
+  maxRender.value = RENDER_WINDOW_INITIAL
+  teardownSentinel()
+  void nextTick(setupSentinel)
+})
+
+// Auto-expand window to include newly arriving messages.
+watch(() => chat.current?.messages.length, (len) => {
+  if (len !== undefined && len > 0 && maxRender.value < len) {
+    // New messages arrived — ensure they're within the render window.
+    maxRender.value = Math.max(maxRender.value, len)
+  }
+  if (isNearBottom()) toBottom()
+})
+watch(
+  () => chat.current?.messages.map(m => m.content + (m.toolCalls?.length || 0)).join('|'),
+  () => {
+    if (isNearBottom()) toBottom()
+  }
+)
 
 function isNearBottom(): boolean {
   const el = scroller.value
@@ -39,18 +124,6 @@ function isNearBottom(): boolean {
 function onScroll() {
   showScrollButton.value = !isNearBottom()
 }
-
-onMounted(toBottom)
-
-watch(() => chat.current?.messages.length, () => {
-  if (isNearBottom()) toBottom()
-})
-watch(
-  () => chat.current?.messages.map(m => m.content + (m.toolCalls?.length || 0)).join('|'),
-  () => {
-    if (isNearBottom()) toBottom()
-  }
-)
 
 type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMessage }
 
@@ -239,8 +312,12 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
 <template>
   <div ref="scroller" class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6" @scroll="onScroll">
     <div class="chat-column pt-6 pb-10">
+      <!-- Sentinel element: when this becomes visible, load more history above -->
+      <div v-if="hasMoreAbove" ref="topSentinel" class="flex items-center justify-center py-3 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors" @click="loadMoreAbove">
+        <span>加载更多历史消息…</span>
+      </div>
       <template
-        v-for="(entry, index) in flatMessages"
+        v-for="(entry, index) in renderedEntries"
         :key="entry.type === 'message'
           ? entry.message.id
           : entry.type === 'tool_run'
@@ -249,7 +326,7 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
       >
         <div
           v-if="entry.type === 'message'"
-          :class="entrySpacing(entry, index, flatMessages)"
+          :class="entrySpacing(entry, index, renderedEntries)"
         >
           <ToolRunGlueRow v-if="entry.compact && shouldShowThreadGlue(entry.message)" :message="entry.message" />
           <MessageRow
@@ -261,7 +338,7 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
         <div
           v-else-if="entry.type === 'tool_run'"
           class="tool-segments chat-column tool-only-message"
-          :class="entrySpacing(entry, index, flatMessages)"
+          :class="entrySpacing(entry, index, renderedEntries)"
         >
           <template v-for="item in entry.items" :key="item.kind === 'tools' ? item.group.id : item.message.id">
             <ToolRunGlueRow
@@ -281,7 +358,7 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
         <div
           v-else
           class="task-board-sticky mb-1 flex justify-end py-1"
-          :class="[entrySpacing(entry, index, flatMessages), isTaskBoardTerminal(entry.document.meta?.status) ? '' : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm']"
+          :class="[entrySpacing(entry, index, renderedEntries), isTaskBoardTerminal(entry.document.meta?.status) ? '' : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm']"
         >
           <TaskBoardPanel
             :document="entry.document"

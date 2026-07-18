@@ -516,6 +516,8 @@ export const useChatStore = defineStore('chat', () => {
   function enabledSkillIdsForRequest(conv: Conversation): string[] {
     if (effectiveConversationAgentMode(conv) === 'supervisor') return []
     const lead = effectiveConversationLeadAgentId(conv)
+    const override = useSettingsStore().userSettings.agentSkillOverrides?.[lead]
+    if (override !== undefined) return [...override]
     if (lead === GENERAL_AGENT_ID) return [...useSkillsStore().enabledIds]
     if (lead === CODER_AGENT_ID) return [...CODER_DEFAULT_SKILL_IDS]
     return []

@@ -105,17 +105,12 @@ function hiddenLineNum(ci: number, hi: number): number {
 </template>
 
 <style scoped>
+/* ── Base layout ── */
 .diff-view {
   @apply rounded-lg overflow-hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: #1e1e1e;
+  border: 1px solid;
 }
-
-.diff-table {
-  min-width: 100%;
-}
-
-/* ── Row ── */
+.diff-table { min-width: 100%; }
 .diff-row {
   display: flex;
   align-items: stretch;
@@ -124,8 +119,6 @@ function hiddenLineNum(ci: number, hi: number): number {
   font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   min-height: 1.6em;
 }
-
-/* ── Line number gutter ── */
 .diff-num {
   flex: 0 0 auto;
   width: 3ch;
@@ -134,18 +127,9 @@ function hiddenLineNum(ci: number, hi: number): number {
   padding: 0 6px 0 4px;
   user-select: none;
   @apply text-neutral-500 text-[12px];
-  background: #252526;
-  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  border-right: 1px solid;
 }
-
-/* ── Left colored bar ── */
-.diff-bar {
-  flex: 0 0 auto;
-  width: 3px;
-  min-width: 3px;
-}
-
-/* ── Code content ── */
+.diff-bar { flex: 0 0 auto; width: 3px; min-width: 3px; }
 .diff-text {
   flex: 1;
   padding: 0 12px;
@@ -153,35 +137,6 @@ function hiddenLineNum(ci: number, hi: number): number {
   overflow-wrap: anywhere;
   tab-size: 2;
 }
-
-/* ── Unchanged ── */
-.diff-row.unchanged .diff-text {
-  @apply text-neutral-400;
-}
-
-/* ── Removed (red) ── */
-.diff-row.del {
-  background: #3c1e1e;
-}
-.diff-row.del .diff-bar {
-  background: #f14c4c;
-}
-.diff-row.del .diff-text {
-  color: #d4bfbf;
-}
-
-/* ── Added (green) ── */
-.diff-row.ins {
-  background: #1e3c1e;
-}
-.diff-row.ins .diff-bar {
-  background: #4ec94e;
-}
-.diff-row.ins .diff-text {
-  color: #bfd4bf;
-}
-
-/* ── Collapse marker ── */
 .diff-collapse {
   display: flex;
   align-items: center;
@@ -190,35 +145,70 @@ function hiddenLineNum(ci: number, hi: number): number {
   cursor: pointer;
   user-select: none;
   @apply text-neutral-500 text-[12px] font-mono;
-  background: #252526;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid;
+  border-bottom: 1px solid;
 }
-.diff-collapse:hover {
-  background: #2d2d2d;
-}
-.diff-collapse-icon {
-  @apply text-neutral-400 text-[10px];
-}
-.diff-collapse-text {
-  letter-spacing: 0.02em;
-}
-
-/* ── Footer ── */
+.diff-collapse-icon { @apply text-neutral-400 text-[10px]; }
+.diff-collapse-text { letter-spacing: 0.02em; }
 .diff-footer {
   display: flex;
   gap: 16px;
   @apply text-[12px] px-3 py-1.5;
+  border-top: 1px solid;
+}
+.diff-stat-diff { @apply text-green-500 font-medium; }
+.diff-stat-del { @apply text-red-500; }
+.num-label { @apply text-neutral-500 font-normal; }
+
+/* ── Dark theme ── */
+html.dark .diff-view {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: #1e1e1e;
+}
+html.dark .diff-num {
   background: #252526;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.04);
 }
-.diff-stat-diff {
-  @apply text-green-400 font-medium;
+html.dark .diff-row.unchanged .diff-text { @apply text-neutral-400; }
+html.dark .diff-row.del { background: #3c1e1e; }
+html.dark .diff-row.del .diff-bar { background: #f14c4c; }
+html.dark .diff-row.del .diff-text { color: #d4bfbf; }
+html.dark .diff-row.ins { background: #1e3c1e; }
+html.dark .diff-row.ins .diff-bar { background: #4ec94e; }
+html.dark .diff-row.ins .diff-text { color: #bfd4bf; }
+html.dark .diff-collapse {
+  background: #252526;
+  border-color: rgba(255, 255, 255, 0.04);
 }
-.diff-stat-del {
-  @apply text-red-400;
+html.dark .diff-collapse:hover { background: #2d2d2d; }
+html.dark .diff-footer {
+  background: #252526;
+  border-color: rgba(255, 255, 255, 0.06);
 }
-.num-label {
-  @apply text-neutral-500 font-normal;
+
+/* ── Light theme ── */
+html.light .diff-view {
+  border-color: rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+}
+html.light .diff-num {
+  background: #f0f0f0;
+  border-color: rgba(0, 0, 0, 0.06);
+}
+html.light .diff-row.unchanged .diff-text { @apply text-neutral-700; }
+html.light .diff-row.del { background: #ffeef0; }
+html.light .diff-row.del .diff-bar { background: #cb2431; }
+html.light .diff-row.del .diff-text { color: #86181d; }
+html.light .diff-row.ins { background: #e6ffed; }
+html.light .diff-row.ins .diff-bar { background: #22863a; }
+html.light .diff-row.ins .diff-text { color: #144620; }
+html.light .diff-collapse {
+  background: #f0f0f0;
+  border-color: rgba(0, 0, 0, 0.06);
+}
+html.light .diff-collapse:hover { background: #e4e4e4; }
+html.light .diff-footer {
+  background: #f0f0f0;
+  border-color: rgba(0, 0, 0, 0.08);
 }
 </style>

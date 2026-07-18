@@ -4,7 +4,6 @@ import { computed } from 'vue'
 const props = defineProps<{
   oldContent: string
   newContent: string
-  fileName?: string
 }>()
 
 interface DiffLine {
@@ -61,42 +60,53 @@ const stats = computed(() => {
   }
   return { adds, dels }
 })
-
-const hasChanges = computed(() => stats.value.adds > 0 || stats.value.dels > 0)
 </script>
 
 <template>
-  <div class="diff-view">
-    <!-- Stats bar -->
-    <div v-if="hasChanges" class="diff-stats text-[11px] text-muted px-3 py-1 border-b border-white/5 flex items-center gap-3">
-      <span class="text-green-400 font-medium">+{{ stats.adds }}</span>
-      <span class="text-red-400 font-medium">-{{ stats.dels }}</span>
+  <div class="diff-view text-[13px] leading-6 font-mono">
+    <div class="overflow-x-auto">
+      <div
+        v-for="(line, idx) in diffLines"
+        :key="idx"
+        class="diff-line"
+        :class="line.type"
+      ><span class="line-text">{{ line.text || '&nbsp;' }}</span></div>
     </div>
-    <!-- Diff lines -->
-    <div class="overflow-x-auto max-h-80">
-      <pre class="text-[12px] font-mono leading-relaxed"><code><template v-for="(line, idx) in diffLines" :key="idx"><span
-  :class="line.type === 'del' ? 'diff-del' : line.type === 'ins' ? 'diff-ins' : 'diff-unchanged'"
-  class="block min-h-[1.4em]"
->{{ line.text || ' ' }}</span>
-</template></code></pre>
+    <div v-if="stats.adds || stats.dels" class="diff-footer">
+      +{{ stats.adds }} -{{ stats.dels }}
     </div>
   </div>
 </template>
 
 <style scoped>
 .diff-view {
-  @apply bg-black/40 rounded-lg border border-white/5 overflow-hidden;
+  @apply bg-neutral-950/50 rounded-lg overflow-hidden border border-white/[0.06];
 }
 
-.diff-del {
-  @apply bg-red-900/30 text-red-200;
+.diff-line {
+  padding: 0 12px;
+  min-height: 1.5em;
+  white-space: pre;
+  tab-size: 2;
 }
 
-.diff-ins {
-  @apply bg-green-900/30 text-green-200;
+.diff-line.unchanged {
+  @apply text-neutral-500;
 }
 
-.diff-unchanged {
-  @apply text-slate-400;
+.diff-line.del {
+  @apply text-red-400;
+  border-left: 3px solid theme('colors.red.600');
+  background: theme('colors.red.950 / 25%');
+}
+
+.diff-line.ins {
+  @apply text-green-400;
+  border-left: 3px solid theme('colors.green.600');
+  background: theme('colors.green.950 / 25%');
+}
+
+.diff-footer {
+  @apply text-[11px] text-neutral-500 px-3 py-1 border-t border-white/[0.06] text-right;
 }
 </style>

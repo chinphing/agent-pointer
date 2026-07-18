@@ -391,10 +391,9 @@ function openSourceUrl(url: string) {
       </template>
 
       <template v-else-if="isFileEdit && fileEditResult?.old_content != null && fileEditResult?.new_content != null">
-        <div v-if="fileEditResult.path" class="text-[11px] text-muted px-3 pt-0.5 truncate">
+        <div v-if="fileEditResult.path" class="text-[11px] text-muted/60 px-3 pt-1.5">
           <FileEdit class="w-3 h-3 inline align-text-top mr-1" />
-          <span class="font-medium text-foreground/70">{{ fileEditFileName }}</span>
-          <span class="ml-1 text-muted/60">{{ fileEditResult.path }}</span>
+          {{ fileEditFileName }}
         </div>
         <DiffView
           :old-content="fileEditResult.old_content"

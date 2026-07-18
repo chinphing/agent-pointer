@@ -46,6 +46,25 @@ function buildLineNums(lines: DiffLine[]) {
 
 const lineInfo = computed(() => buildLineNums(props.diffLines))
 
+/** CSS width in ch units for the line-number gutter, based on max line number. */
+const numWidth = computed(() => {
+  let max = 0
+  for (const n of lineInfo.value.nums) {
+    if (n != null && n > max) max = n
+  }
+  // Also account for hidden lines inside collapsed sections
+  for (const [ci, start] of lineInfo.value.hiddenStarts) {
+    const line = props.diffLines[ci]
+    const count = line?.hidden?.length || 0
+    if (count > 0) {
+      const end = start + count - 1
+      if (end > max) max = end
+    }
+  }
+  const digits = max === 0 ? 1 : String(max).length
+  return `${Math.max(digits, 3)}ch`
+})
+
 /** Line number to render for a hidden line at collapse index ci, offset hi. */
 function hiddenLineNum(ci: number, hi: number): number {
   const start = lineInfo.value.hiddenStarts.get(ci)
@@ -75,7 +94,7 @@ function hiddenLineNum(ci: number, hi: number): number {
               :key="'h-' + hi"
               class="diff-row unchanged"
             >
-              <span class="diff-num">{{ hiddenLineNum(idx, hi) }}</span>
+              <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ hiddenLineNum(idx, hi) }}</span>
               <span class="diff-bar"></span>
               <span class="diff-text">{{ h }}</span>
             </div>
@@ -87,7 +106,7 @@ function hiddenLineNum(ci: number, hi: number): number {
             class="diff-row"
             :class="line.type"
           >
-            <span class="diff-num">{{ lineInfo.nums[idx] ?? '\u00A0' }}</span>
+            <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ lineInfo.nums[idx] ?? '\u00A0' }}</span>
             <span class="diff-bar"></span>
             <span class="diff-text">{{ line.text }}</span>
           </div>
@@ -116,7 +135,7 @@ function hiddenLineNum(ci: number, hi: number): number {
   align-items: stretch;
   font-size: 13px;
   line-height: 1.6;
-  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Consolas', 'DejaVu Sans Mono', 'Noto Sans Mono', 'Source Code Pro', 'Courier New', monospace;
   min-height: 1.6em;
 }
 .diff-num {

@@ -13,7 +13,16 @@ const props = defineProps<{
 const chat = useChatStore()
 const drawerOpen = ref(false)
 const reviewedPath = ref<string | null>(null)
+const activeOperationIndex = ref(0)
 const changes = computed(() => buildFileChangeSummaries(props.toolCalls))
+const reviewedChange = computed(() =>
+  changes.value.find(change => change.path === reviewedPath.value) ?? null
+)
+const activeDiff = computed(() => {
+  const diffs = reviewedChange.value?.diffs
+  if (!diffs?.length) return null
+  return diffs[Math.min(activeOperationIndex.value, diffs.length - 1)]
+})
 const totals = computed(() =>
   changes.value.reduce(
     (sum, change) => ({ adds: sum.adds + change.adds, dels: sum.dels + change.dels }),
@@ -27,11 +36,26 @@ function displayPath(path: string): string {
 
 function toggleDrawer(): void {
   drawerOpen.value = !drawerOpen.value
-  if (!drawerOpen.value) reviewedPath.value = null
+  if (!drawerOpen.value) {
+    reviewedPath.value = null
+    activeOperationIndex.value = 0
+  }
 }
 
 function toggleReview(path: string): void {
-  reviewedPath.value = reviewedPath.value === path ? null : path
+  if (reviewedPath.value === path) {
+    reviewedPath.value = null
+    activeOperationIndex.value = 0
+    return
+  }
+
+  const change = changes.value.find(item => item.path === path)
+  reviewedPath.value = path
+  activeOperationIndex.value = Math.max((change?.diffs.length ?? 1) - 1, 0)
+}
+
+function selectOperation(index: number): void {
+  activeOperationIndex.value = index
 }
 </script>
 
@@ -79,20 +103,41 @@ function toggleReview(path: string): void {
           <span class="shrink-0 text-[10px] text-muted">Review</span>
         </button>
 
-        <div v-if="reviewedPath === change.path" class="change-review-body">
-          <section
-            v-for="(diff, diffIndex) in change.diffs"
-            :key="diff.toolCallId"
-            class="change-operation"
+        <div v-if="reviewedPath === change.path && activeDiff" class="change-review-body">
+          <div
+            v-if="change.diffs.length > 1"
+            class="change-operation-tabs"
+            role="tablist"
+            aria-label="文件修改操作"
           >
-            <div class="change-operation-header">
-              <span>操作 {{ diffIndex + 1 }} / {{ change.diffs.length }}</span>
-            </div>
+            <button
+              v-for="(diff, diffIndex) in change.diffs"
+              :id="`operation-tab-${diff.toolCallId}`"
+              :key="diff.toolCallId"
+              type="button"
+              role="tab"
+              class="change-operation-tab"
+              :class="activeOperationIndex === diffIndex ? 'is-active' : ''"
+              :aria-selected="activeOperationIndex === diffIndex"
+              :aria-controls="`operation-panel-${diff.toolCallId}`"
+              @click="selectOperation(diffIndex)"
+            >
+              操作 {{ diffIndex + 1 }}
+            </button>
+            <span class="change-operation-count">{{ change.diffs.length }} 次操作</span>
+          </div>
+
+          <div
+            :id="`operation-panel-${activeDiff.toolCallId}`"
+            role="tabpanel"
+            :aria-labelledby="change.diffs.length > 1 ? `operation-tab-${activeDiff.toolCallId}` : undefined"
+          >
             <DiffView
-              :diff-lines="diff.diffLines"
-              :diff-stats="diff.diffStats"
+              :key="activeDiff.toolCallId"
+              :diff-lines="activeDiff.diffLines"
+              :diff-stats="activeDiff.diffStats"
             />
-          </section>
+          </div>
         </div>
       </section>
     </div>
@@ -114,12 +159,29 @@ function toggleReview(path: string): void {
 }
 .change-review-body {
   max-height: min(48vh, 28rem);
-  @apply space-y-3 overflow-y-auto border-t border-border/70 bg-background px-2 py-2;
+  @apply space-y-2 overflow-y-auto border-t border-border/70 bg-background px-2 py-2;
 }
-.change-operation {
-  @apply space-y-1.5;
+.change-operation-tabs {
+  min-height: 32px;
+  scrollbar-width: thin;
+  @apply sticky top-0 z-10 flex items-end overflow-x-auto border-b border-border bg-background px-1;
 }
-.change-operation-header {
-  @apply flex items-center gap-2 px-1 text-[10px] font-medium text-muted;
+.change-operation-tab {
+  min-width: max-content;
+  @apply relative shrink-0 cursor-pointer px-3 py-2 text-[11px] text-muted transition-colors hover:text-foreground/85;
+}
+.change-operation-tab::after {
+  content: '';
+  height: 2px;
+  @apply absolute inset-x-2 bottom-0 scale-x-0 bg-accent transition-transform;
+}
+.change-operation-tab.is-active {
+  @apply font-medium text-foreground;
+}
+.change-operation-tab.is-active::after {
+  @apply scale-x-100;
+}
+.change-operation-count {
+  @apply sticky right-0 ml-auto min-w-max shrink-0 bg-background px-2 py-2 text-[10px] text-muted;
 }
 </style>

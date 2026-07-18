@@ -350,6 +350,7 @@ impl OpenAIProvider {
             max_tok,
             &openai_msgs,
         );
+        let tools_empty = native_tools.is_empty();
         let req = ChatRequest {
             model: &self.settings.model,
             messages: openai_msgs,
@@ -357,12 +358,12 @@ impl OpenAIProvider {
             temperature: crate::models::effective_temperature(&self.settings),
             max_tokens: Some(max_tok),
             stream_options: None,
-            tools: if native_tools.is_empty() {
+            tools: if tools_empty {
                 None
             } else {
                 Some(native_tools)
             },
-            tool_choice: if native_tools.is_empty() {
+            tool_choice: if tools_empty {
                 None
             } else {
                 Some("auto")
@@ -1116,6 +1117,7 @@ impl OpenAIProvider {
         } else {
             None
         };
+        let tools_empty = native_tools.is_empty();
         let req = ChatRequest {
             model: &self.settings.model,
             messages: openai_msgs,
@@ -1123,12 +1125,12 @@ impl OpenAIProvider {
             temperature: crate::models::effective_temperature(&self.settings),
             max_tokens: Some(crate::models::effective_max_tokens(&self.settings)),
             stream_options,
-            tools: if native_tools.is_empty() {
+            tools: if tools_empty {
                 None
             } else {
                 Some(native_tools)
             },
-            tool_choice: if native_tools.is_empty() {
+            tool_choice: if tools_empty {
                 None
             } else {
                 Some("auto")

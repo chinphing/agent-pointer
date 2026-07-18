@@ -1,8 +1,6 @@
 //! Allow trusted popup windows (e.g. WeCom bot QR auth) opened via `window.open`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(target_os = "macos")]
-use tauri::WindowEvent;
 
 use tauri::{
     utils::config::WebviewUrl,

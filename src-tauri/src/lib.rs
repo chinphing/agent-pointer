@@ -31,8 +31,6 @@ use tauri::{Emitter, Manager, RunEvent};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::WindowEvent;
-#[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(target_os = "macos")]
 fn traffic_light_inset_log_level(label: &'static str) -> Option<log::Level> {

@@ -25,7 +25,7 @@ import type {
   TaskBoardDocument
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
-import { CODER_AGENT_ID, CODER_DEFAULT_SKILL_IDS, GENERAL_AGENT_ID } from '../lib/agentUi'
+import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
@@ -551,12 +551,7 @@ export const useChatStore = defineStore('chat', () => {
   function enabledSkillIdsForRequest(conv: Conversation): string[] {
     if (effectiveConversationAgentMode(conv) === 'supervisor') return []
     const lead = effectiveConversationLeadAgentId(conv)
-    const settings = useSettingsStore().userSettings
-    const overrides = settings.agentSkillOverrides?.[lead]
-    if (overrides && overrides.length > 0) return [...overrides]
-    if (lead === GENERAL_AGENT_ID) return [...useSkillsStore().enabledIds]
-    if (lead === CODER_AGENT_ID) return [...CODER_DEFAULT_SKILL_IDS]
-    return []
+    return [...useSkillsStore().enabledIdsForAgent(lead)]
   }
 
   async function refreshSubAgentTaskBoards(conversationId: string) {

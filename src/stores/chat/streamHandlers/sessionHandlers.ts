@@ -8,6 +8,7 @@ import {
 } from '../../../lib/assistantMessageKind'
 import { flushReasoningDeltaBuffer } from '../../../lib/reasoningDeltaBatch'
 import { useSkillsStore } from '../../skills'
+import { GENERAL_AGENT_ID } from '../../../lib/agentUi'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
 import {
   normalizeInterruptedAssistantStatuses,
@@ -101,7 +102,7 @@ export function handleSkillsUpdated(_ctx: StreamHandlerContext, e: SkillsUpdated
   const skillsStore = useSkillsStore()
   void skillsStore.load({ rescan: true })
   if (e.enabledIds !== undefined) {
-    void skillsStore.setEnabledIds(e.enabledIds)
+    void skillsStore.setAgentEnabledIds(GENERAL_AGENT_ID, e.enabledIds)
   }
 }
 

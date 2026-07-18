@@ -112,6 +112,7 @@ async fn transcribe_audio_dashscope_compatible(
         model: model_id.to_string(),
         tool_calls: vec![],
         reasoning_content: None,
+        finish_reason: None,
     })
 }
 
@@ -167,6 +168,7 @@ async fn transcribe_audio_dashscope_legacy_multimodal(
         model: model_id.to_string(),
         tool_calls: vec![],
         reasoning_content: None,
+        finish_reason: None,
     })
 }
 

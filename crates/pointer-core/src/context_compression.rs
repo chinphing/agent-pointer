@@ -624,7 +624,11 @@ async fn compress_history_inner(
             if t.is_empty() {
                 summary_failed = true;
                 log::warn!(
-                    "context summary returned empty; using fallback notice (summary_llm_ms={summary_llm_ms})"
+                    "context summary returned empty; using fallback notice (summary_llm_ms={summary_llm_ms} model={model:?} finish_reason={finish_reason:?} completion_tokens={completion_tok} prompt_tokens={prompt_tok})",
+                    model = model,
+                    finish_reason = out.finish_reason,
+                    completion_tok = out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                    prompt_tok = out.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
                 );
                 summary_fallback_notice()
             } else {

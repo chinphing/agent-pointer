@@ -7,7 +7,13 @@ profile: coder
 enabled: true
 defaultSkillIds:
   - skill-creator
-skillsPolicy: defaultsOnly
+  - xlsx
+  - pdf
+  - agent-browser
+  - dev-env-setup
+  - docx
+  - pptx
+skillsPolicy: userConfigurable
 allowAgents:
   - explore
 accessPolicy:
@@ -34,6 +40,12 @@ accessPolicy:
   denyTools: []
   allowSkills:
     - skill-creator
+    - xlsx
+    - pdf
+    - docx
+    - pptx
+    - agent-browser
+    - dev-env-setup
   denySkills: []
 ui:
   userSelectable: true

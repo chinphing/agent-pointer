@@ -1802,7 +1802,7 @@ fn platform_default_context_keep_recent_user_turns() -> u32 {
 }
 
 fn platform_default_context_summary_max_tokens() -> u32 {
-    1024
+    2048
 }
 
 fn platform_default_max_tool_rounds() -> u32 {

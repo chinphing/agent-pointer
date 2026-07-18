@@ -26,7 +26,7 @@ import type {
   ThemePreference,
   UserSettings
 } from '../types/chat'
-import { DEFAULT_ENABLED_SKILL_IDS, DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { applyTheme } from '../lib/theme'
 import {
@@ -319,7 +319,6 @@ function normalizeAgentDefaultModels(
 export const useSettingsStore = defineStore('settings', () => {
   const userSettings = ref<UserSettings>({
     theme: 'system',
-    enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS],
     agentSkillOverrides: {}
   })
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())

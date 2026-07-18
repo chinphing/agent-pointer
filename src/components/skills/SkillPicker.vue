@@ -4,12 +4,22 @@ import { X, Sparkles, Search, Wrench, Upload } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
 
 defineEmits<{ (e: 'close'): void }>()
+
+const AGENT_TABS = [
+  { id: 'general', label: '通用助手' },
+  { id: 'coder', label: '氛围编程' },
+  { id: 'computer', label: '电脑操控' },
+] as const
+
 const skills = useSkillsStore()
 const q = ref('')
 const importing = ref(false)
 const loading = ref(false)
 const importMessage = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const selectedAgentId = ref<string>('general')
+
+const currentAgentId = computed(() => selectedAgentId.value)
 
 onMounted(() => {
   void refreshSkills()
@@ -26,13 +36,26 @@ async function refreshSkills() {
 
 const filtered = computed(() => {
   const k = q.value.trim().toLowerCase()
-  if (!k) return skills.skills
-  return skills.skills.filter(s =>
-    s.name.toLowerCase().includes(k) ||
-    s.description.toLowerCase().includes(k) ||
-    s.tags.join(' ').toLowerCase().includes(k)
-  )
+  const list = skills.skills
+  const filteredList = k
+    ? list.filter(s =>
+        s.name.toLowerCase().includes(k) ||
+        s.description.toLowerCase().includes(k) ||
+        s.tags.join(' ').toLowerCase().includes(k)
+      )
+    : list
+  return filteredList
 })
+
+function skillEnabled(skillId: string): boolean {
+  return skills.enabledIdsForAgent(currentAgentId.value).includes(skillId)
+}
+
+const enabledCount = computed(() => filtered.value.filter(s => skillEnabled(s.id)).length)
+
+function toggleSkill(skillId: string) {
+  skills.toggleForAgent(currentAgentId.value, skillId)
+}
 
 async function onImportFile(e: Event) {
   const input = e.target as HTMLInputElement
@@ -101,6 +124,22 @@ async function onImportFile(e: Event) {
         >
           {{ importMessage }}
         </div>
+        <!-- Agent tabs -->
+        <div class="flex items-center gap-1 mb-3 p-0.5 rounded-xl bg-[hsl(var(--code-bg))]">
+          <button
+            v-for="tab in AGENT_TABS"
+            :key="tab.id"
+            type="button"
+            class="flex-1 h-8 rounded-lg text-xs font-medium transition-colors"
+            :class="selectedAgentId === tab.id
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted hover:text-foreground'"
+            @click="selectedAgentId = tab.id"
+          >{{ tab.label }}</button>
+        </div>
+        <div class="flex items-center gap-2 mb-3 text-[11px] text-muted">
+          <span>已启用 {{ enabledCount }} / {{ filtered.length }}</span>
+        </div>
         <div class="flex items-center gap-2 h-10 px-3 rounded-xl border border-border bg-card">
           <Search class="w-4 h-4 text-muted shrink-0" />
           <input
@@ -121,10 +160,10 @@ async function onImportFile(e: Event) {
             v-for="s in filtered"
             :key="s.id"
             class="rounded-xl p-4 border transition-all cursor-pointer"
-            :class="skills.isEnabled(s.id)
+            :class="skillEnabled(s.id)
               ? 'border-accent/30 bg-accent/5 shadow-sm'
               : 'border-border bg-hover/40 hover:border-border hover:bg-hover/60'"
-            @click="skills.toggle(s.id)"
+            @click="toggleSkill(s.id)"
           >
             <div class="flex items-center gap-2 min-w-0">
               <div class="text-[15px] font-semibold text-foreground truncate">{{ s.name }}</div>
@@ -132,7 +171,7 @@ async function onImportFile(e: Event) {
                 {{ s.builtin ? '内置' : '外部' }}
               </span>
               <span
-                v-if="skills.isEnabled(s.id)"
+                v-if="skillEnabled(s.id)"
                 class="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0"
               >已启用</span>
               <span

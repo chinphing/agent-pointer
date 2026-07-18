@@ -1641,7 +1641,17 @@ mod builtin_agent_tests {
             &["docx".into(), "pdf".into()],
             &HashMap::new(),
         );
-        assert_eq!(ids, vec!["skill-creator".to_string()]);
+        assert_eq!(
+            ids,
+            vec![
+                "agent-browser".to_string(),
+                "pdf".to_string(),
+                "pptx".to_string(),
+                "skill-creator".to_string(),
+                "docx".to_string(),
+                "xlsx".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -1686,11 +1696,28 @@ mod builtin_agent_tests {
         assert!(
             agent
                 .def
+                .default_skill_ids
+                .iter()
+                .any(|id| id == "agent-browser"),
+            "coder defaultSkillIds should include agent-browser"
+        );
+        assert!(
+            agent
+                .def
                 .access_policy
                 .allow_skills
                 .iter()
                 .any(|id| id == "skill-creator"),
             "coder allowSkills should include skill-creator"
+        );
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_skills
+                .iter()
+                .any(|id| id == "agent-browser"),
+            "coder allowSkills should include agent-browser"
         );
         for tool in ["skill_read"] {
             assert!(
@@ -1724,9 +1751,29 @@ mod builtin_agent_tests {
         .def;
         assert!(agent_supports_skills(&coder));
         let ids = resolve_skill_ids(&coder, &[], &HashMap::new());
-        assert_eq!(ids, vec!["skill-creator".to_string()]);
+        assert_eq!(
+            ids,
+            vec![
+                "agent-browser".to_string(),
+                "pdf".to_string(),
+                "pptx".to_string(),
+                "skill-creator".to_string(),
+                "docx".to_string(),
+                "xlsx".to_string()
+            ]
+        );
         let ids = resolve_skill_ids(&coder, &["docx".into()], &HashMap::new());
-        assert_eq!(ids, vec!["skill-creator".to_string()]);
+        assert_eq!(
+            ids,
+            vec![
+                "agent-browser".to_string(),
+                "pdf".to_string(),
+                "pptx".to_string(),
+                "skill-creator".to_string(),
+                "docx".to_string(),
+                "xlsx".to_string()
+            ]
+        );
     }
 
     #[test]

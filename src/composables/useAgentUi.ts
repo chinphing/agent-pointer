@@ -4,7 +4,7 @@ import { resolveAgentUi, resolveLeadAgentUi, type ResolvedAgentUi } from '../lib
 import type { AgentDef } from '../types/chat'
 import { useSettingsStore } from '../stores/settings'
 
-const agentsCache = ref<AgentDef[]>([])
+export const agentsCache = ref<AgentDef[]>([])
 let loaded = false
 let loadPromise: Promise<AgentDef[]> | null = null
 

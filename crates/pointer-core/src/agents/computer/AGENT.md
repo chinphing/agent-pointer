@@ -25,10 +25,12 @@ accessPolicy:
     - clipboard
     - list_apps
     - launch_app
+    - terminal
     - task_board
     - captcha_verify
   denyTools: []
-  allowSkills: []
+  allowSkills:
+    - xlsx
   denySkills: []
 ui:
   userSelectable: true
@@ -39,8 +41,9 @@ ui:
   hideToolNames:
     - task_board_patch
   avatar: computer
-defaultSkillIds: []
-skillsPolicy: disabled
+defaultSkillIds:
+    - xlsx
+skillsPolicy: defaultsOnly
 config:
   annotateApiBase: "http://116.62.86.190"
   computerAutoUpgrade: "true"

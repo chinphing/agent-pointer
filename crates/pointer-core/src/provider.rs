@@ -131,6 +131,8 @@ struct ChatOnceApiResponse {
 #[derive(Deserialize, Debug)]
 struct ChatChoice {
     message: ChatResponseMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 #[derive(Deserialize, Debug, Default)]
 struct ChatResponseMessage {
@@ -215,6 +217,8 @@ pub struct ChatOnceOutput {
     pub tool_calls: Vec<ToolCall>,
     /// Reasoning / thinking channel when returned separately from `content`.
     pub reasoning_content: Option<String>,
+    /// The `finish_reason` from the first choice (e.g. `stop`, `length`, `content_filter`).
+    pub finish_reason: Option<String>,
 }
 
 fn parse_chat_once_tool_calls(raw: Option<&[ChatApiToolCall]>) -> Vec<ToolCall> {
@@ -387,6 +391,10 @@ impl OpenAIProvider {
             return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
         }
         let parsed: ChatOnceApiResponse = resp.json().await?;
+        let finish_reason = parsed
+            .choices
+            .first()
+            .and_then(|ch| ch.finish_reason.clone());
         let message = parsed
             .choices
             .into_iter()
@@ -406,6 +414,7 @@ impl OpenAIProvider {
             model: self.settings.model.clone(),
             tool_calls,
             reasoning_content: None,
+            finish_reason,
         })
     }
 
@@ -470,6 +479,10 @@ impl OpenAIProvider {
             return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
         }
         let parsed: ChatOnceApiResponse = resp.json().await?;
+        let finish_reason = parsed
+            .choices
+            .first()
+            .and_then(|ch| ch.finish_reason.clone());
         let message = parsed
             .choices
             .into_iter()
@@ -489,6 +502,7 @@ impl OpenAIProvider {
             model: self.settings.model.clone(),
             tool_calls,
             reasoning_content: None,
+            finish_reason,
         })
     }
 
@@ -638,6 +652,10 @@ impl OpenAIProvider {
             return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
         }
         let parsed: ChatOnceApiResponse = resp.json().await?;
+        let finish_reason = parsed
+            .choices
+            .first()
+            .and_then(|ch| ch.finish_reason.clone());
         let message = parsed
             .choices
             .into_iter()
@@ -662,6 +680,7 @@ impl OpenAIProvider {
             model: self.settings.model.clone(),
             tool_calls,
             reasoning_content,
+            finish_reason,
         })
     }
 
@@ -742,6 +761,7 @@ impl OpenAIProvider {
         let mut reasoning_buf = String::new();
         let mut content_buf = String::new();
         let mut last_usage: Option<LlmUsageSnapshot> = None;
+        let mut last_finish_reason: Option<String> = None;
         let stream_raw_to_console = raw_llm_stream_to_console_enabled();
         let mut last_console_lane: Option<ConsoleStreamLane> = None;
         let mut stream = resp.bytes_stream();
@@ -798,6 +818,9 @@ impl OpenAIProvider {
                             reasoning_buf.push_str(r);
                         }
                     }
+                    if let Some(ref reason) = ch.finish_reason {
+                        last_finish_reason = Some(reason.clone());
+                    }
                 }
                 if let Some(ref u) = parsed.usage {
                     last_usage = Some(snapshot_from_stream_usage(u));
@@ -818,7 +841,7 @@ impl OpenAIProvider {
         };
         log::info!(
             "stream_wire_collect phase={dump_phase} dump_label={dump_label:?} \
-             reasoning_chars={} content_chars={} reasoning_tokens={:?}",
+             reasoning_chars={} content_chars={} reasoning_tokens={:?} finish_reason={last_finish_reason:?}",
             reasoning_content.as_ref().map(|s| s.chars().count()).unwrap_or(0),
             text.chars().count(),
             last_usage.as_ref().map(|u| u.reasoning_tokens),
@@ -829,6 +852,7 @@ impl OpenAIProvider {
             model: self.settings.model.clone(),
             tool_calls: vec![],
             reasoning_content,
+            finish_reason: last_finish_reason,
         })
     }
 
@@ -915,6 +939,7 @@ impl OpenAIProvider {
         let stream_tool_session_id = rand_id();
         let mut tool_states: BTreeMap<u32, NativeToolCallState> = BTreeMap::new();
         let mut last_usage: Option<LlmUsageSnapshot> = None;
+        let mut last_finish_reason: Option<String> = None;
         let stream_raw_to_console = raw_llm_stream_to_console_enabled();
         let mut last_console_lane: Option<ConsoleStreamLane> = None;
         let mut stream = resp.bytes_stream();
@@ -971,6 +996,9 @@ impl OpenAIProvider {
                             reasoning_buf.push_str(r);
                         }
                     }
+                    if let Some(ref reason) = ch.finish_reason {
+                        last_finish_reason = Some(reason.clone());
+                    }
                     if let Some(ref calls) = ch.delta.tool_calls {
                         for call in calls {
                             let idx = call.index;
@@ -1011,7 +1039,7 @@ impl OpenAIProvider {
         };
         log::info!(
             "stream_wire_collect_tools phase={dump_phase} dump_label={dump_label:?} \
-             reasoning_chars={} content_chars={} tool_calls={} reasoning_tokens={:?}",
+             reasoning_chars={} content_chars={} tool_calls={} reasoning_tokens={:?} finish_reason={last_finish_reason:?}",
             reasoning_content.as_ref().map(|s| s.chars().count()).unwrap_or(0),
             content_buf.chars().count(),
             tool_calls.len(),
@@ -1023,6 +1051,7 @@ impl OpenAIProvider {
             model: self.settings.model.clone(),
             tool_calls,
             reasoning_content,
+            finish_reason: last_finish_reason,
         })
     }
 

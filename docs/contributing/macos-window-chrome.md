@@ -229,7 +229,22 @@ flowchart TB
 
 ---
 
-## 10. 修改决策表
+## 10. 关闭窗口与 Dock 再打开
+
+关闭主窗口（红灯）**不会退出进程**：`CloseRequested` 被拦截后 `hide()`，应用继续在后台运行（菜单栏托盘仍可用）。
+
+| 操作 | 行为 |
+|------|------|
+| 点关闭（红灯） | 隐藏主窗口，不退出 |
+| 点 Dock 图标 | `RunEvent::Reopen` → `show` + `focus`（必须处理，否则 Dock 图标在但点无反应） |
+| 托盘左键 /「显示 Pointer」 | 同上恢复主窗口 |
+| 托盘「退出」 | `app.exit(0)` |
+
+实现：`src-tauri/src/lib.rs` 中 `show_main_window` + `RunEvent::Reopen`。
+
+---
+
+## 11. 修改决策表
 
 | 你想做的事 | 建议改哪里 |
 |------------|------------|
@@ -238,10 +253,11 @@ flowchart TB
 | resize 后又错位 | 保持 `schedule_macos_overlay_chrome_repair` 与 `useWindowChrome` 防抖 |
 | 紧凑模式恢复后无红绿灯 | 检查 `useComputerCompactWindow` 恢复顺序与 250ms 延迟 reapply |
 | 新窗口形态（如全屏/多窗口） | 新形态退出时调用 `reapply_window_chrome` 或挂接同类 repair |
+| 关窗后 Dock 点不开 | 确认 `RunEvent::Reopen` 仍调用 `show_main_window` |
 
 ---
 
-## 11. 跨平台说明
+## 12. 跨平台说明
 
 - **Windows / Linux**：全程 `decorations: false`，顶栏按钮为 `WindowControls`，**无本文档所述红绿灯逻辑**。
 - **Web**：浏览器 chrome，无 Tauri 窗口 API。

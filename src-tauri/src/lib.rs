@@ -251,7 +251,8 @@ pub fn run() {
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
             // Close button minimizes to tray instead of quitting.
-            // Left-click the tray icon to restore the window, right-click → "退出" to actually exit.
+            // Restore: tray left-click / tray menu「显示」; on macOS also Dock icon (`RunEvent::Reopen`).
+            // Quit: tray menu「退出」.
             if let Some(win) = app.get_webview_window("main") {
                 let win_close = win.clone();
                 win.on_window_event(move |event| {
@@ -298,12 +299,7 @@ pub fn run() {
                     .menu(&menu)
                     .on_menu_event(|app, event| {
                         match event.id().as_ref() {
-                            "show" => {
-                                if let Some(win) = app.get_webview_window("main") {
-                                    let _ = win.show();
-                                    let _ = win.set_focus();
-                                }
-                            }
+                            "show" => show_main_window(app),
                             "quit" => {
                                 app.exit(0);
                             }
@@ -316,11 +312,7 @@ pub fn run() {
                             button_state: MouseButtonState::Up,
                             ..
                         } = event {
-                            let app = tray.app_handle();
-                            if let Some(win) = app.get_webview_window("main") {
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
+                            show_main_window(tray.app_handle());
                         }
                     })
                     .build(app)
@@ -584,24 +576,43 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let RunEvent::Exit = event {
-                if let Some(state) = app.try_state::<Arc<AppState>>() {
-                    let auth = state.platform_auth.clone();
-                    tauri::async_runtime::block_on(async {
-                        if let Err(e) =
-                            pointer_core::token_usage_store::finalize_all_stale_accum()
-                        {
-                            log::warn!("token_usage_store: exit finalize stale failed: {e}");
-                        }
-                        if let Err(e) =
-                            pointer_core::token_usage_store::flush_pending_reports(&auth).await
-                        {
-                            log::warn!("token_usage_store: exit flush failed: {e}");
-                        }
-                    });
+            match event {
+                // macOS: closing the red traffic light hides to tray; Dock click must reopen.
+                #[cfg(target_os = "macos")]
+                RunEvent::Reopen { .. } => {
+                    show_main_window(app);
                 }
+                RunEvent::Exit => {
+                    if let Some(state) = app.try_state::<Arc<AppState>>() {
+                        let auth = state.platform_auth.clone();
+                        tauri::async_runtime::block_on(async {
+                            if let Err(e) =
+                                pointer_core::token_usage_store::finalize_all_stale_accum()
+                            {
+                                log::warn!("token_usage_store: exit finalize stale failed: {e}");
+                            }
+                            if let Err(e) =
+                                pointer_core::token_usage_store::flush_pending_reports(&auth).await
+                            {
+                                log::warn!("token_usage_store: exit flush failed: {e}");
+                            }
+                        });
+                    }
+                }
+                _ => {}
             }
         });
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+        log::info!("main window restored (show + focus)");
+    } else {
+        log::warn!("show_main_window: main window not found");
+    }
 }
 
 fn install_bundled_skills(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {

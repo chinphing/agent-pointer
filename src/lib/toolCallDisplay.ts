@@ -58,6 +58,12 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
   const base = toolCallBaseName(tc.name)
   const args = parseToolArgs(tc.arguments)
 
+  if (base === 'ask_user') {
+    return {
+      label: '询问用户',
+      summary: truncateToolSummary(strField(args, ['question']))
+    }
+  }
   if (base === 'launch_app') {
     return {
       label: '启动应用',

@@ -555,6 +555,7 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::patch(update_cron_job).delete(delete_cron_job),
         )
         .route("/api/tools/:tool_call_id/approve", post(approve_tool_call))
+        .route("/api/tools/:tool_call_id/ask-user", post(submit_ask_user))
         .route("/api/terminal-input/:request_id/submit", post(submit_terminal_input))
         .route(
             "/api/terminal-input/:request_id/dismiss",
@@ -2497,6 +2498,24 @@ async fn approve_tool_call(
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError(anyhow::anyhow!("未找到待审批的工具调用")))
+    }
+}
+
+#[derive(Deserialize)]
+struct AskUserPayload {
+    selected: Vec<String>,
+}
+
+async fn submit_ask_user(
+    State(state): State<ServerState>,
+    Path(tool_call_id): Path<String>,
+    Json(payload): Json<AskUserPayload>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    if state.core.submit_ask_user(&tool_call_id, payload.selected) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError(anyhow::anyhow!("未找到待选择的 ask_user 请求")))
     }
 }
 

@@ -269,6 +269,8 @@ pub struct AppState {
     /// When set, the in-flight `terminal` tool for that conversation kills its subprocess (host-only; does not cancel the LLM turn).
     pub terminal_run_abort: Mutex<HashMap<ToolExecutionScope, Arc<AtomicBool>>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// Pending `ask_user` calls keyed by their tool call id.
+    pub ask_user_pending: Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>,
     /// Blocks `run_subagent` → computer until the UI confirms monitor selection.
     pub monitor_picks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
     /// Pending terminal stdin submissions keyed by `request_id`.
@@ -384,6 +386,7 @@ impl AppState {
             cancels: Mutex::new(HashMap::new()),
             terminal_run_abort: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
+            ask_user_pending: Mutex::new(HashMap::new()),
             monitor_picks: Mutex::new(HashMap::new()),
             terminal_input_pending: Mutex::new(HashMap::new()),
             active_main_task_boards: Mutex::new(HashMap::new()),
@@ -581,6 +584,10 @@ impl AppState {
         for (_, tx) in approvals {
             let _ = tx.send(false);
         }
+        let pending_questions: Vec<_> = self.ask_user_pending.lock().drain().collect();
+        for (_, tx) in pending_questions {
+            drop(tx);
+        }
         let monitor_picks: Vec<_> = self.monitor_picks.lock().drain().collect();
         for (_, tx) in monitor_picks {
             let _ = tx.send(Err("已停止生成".into()));
@@ -650,6 +657,15 @@ impl AppState {
     pub fn approve_tool_call(&self, tool_call_id: &str, approved: bool) -> bool {
         if let Some(tx) = self.approvals.lock().remove(tool_call_id) {
             let _ = tx.send(approved);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn submit_ask_user(&self, tool_call_id: &str, selected: Vec<String>) -> bool {
+        if let Some(tx) = self.ask_user_pending.lock().remove(tool_call_id) {
+            let _ = tx.send(selected);
             true
         } else {
             false

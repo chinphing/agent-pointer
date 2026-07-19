@@ -96,6 +96,19 @@ pub fn approve_tool_call(
 }
 
 #[tauri::command]
+pub fn submit_ask_user(
+    state: State<'_, Arc<AppState>>,
+    tool_call_id: String,
+    selected: Vec<String>,
+) -> Result<(), String> {
+    if state.submit_ask_user(&tool_call_id, selected) {
+        Ok(())
+    } else {
+        Err("未找到待选择的 ask_user 请求".into())
+    }
+}
+
+#[tauri::command]
 pub fn submit_terminal_input(
     state: State<'_, Arc<AppState>>,
     request_id: String,

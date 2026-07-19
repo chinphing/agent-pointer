@@ -148,6 +148,7 @@ pub(super) async fn run_provider_stream_round(
             emit(
                 &stream,
                 StreamEvent::Error {
+                    conversation_id: conversation_id.clone(),
                     message_id: Some(assistant_id.clone()),
                     message: e.to_string(),
                 },

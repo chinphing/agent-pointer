@@ -257,6 +257,8 @@ pub enum StreamEvent {
         message_id: String,
     },
     Error {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
         #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
         message_id: Option<String>,
         message: String,

@@ -224,9 +224,11 @@ export function handleAssistantRoundScreen(ctx: StreamHandlerContext, e: Assista
 export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
   flushReasoningDeltaBuffer(e.messageId ?? undefined)
   const cancelled = isGenerationCancelledMessage(e.message)
+  const eventConvId = e.conversationId?.trim() || ''
+  const fallbackConvId = eventConvId || ctx.currentId.value?.trim() || ''
   let affectedId: string | null = null
   if (e.messageId) {
-    const r = ctx.findMessage(e.messageId)
+    const r = ctx.findMessage(e.messageId, eventConvId || undefined)
     if (r) {
       if (cancelled && isDiscardableEmptyAssistant(r.msg)) {
         removeAssistantMessage(r.conv, e.messageId)
@@ -237,24 +239,23 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
       }
       ctx.clearRunState(r.conv.id)
       affectedId = r.conv.id
-    } else {
-      const id = ctx.currentId.value
-      if (id && ctx.isConversationGenerating(id)) {
-        ctx.clearRunState(id)
+    } else if (fallbackConvId) {
+      if (ctx.isConversationGenerating(fallbackConvId)) {
+        ctx.clearRunState(fallbackConvId)
       }
-      affectedId = id
+      affectedId = fallbackConvId
     }
   } else if (cancelled) {
-    const conv = ctx.conversations.value.find(c => c.id === ctx.currentId.value)
+    const conv = ctx.conversations.value.find(c => c.id === fallbackConvId)
     if (conv) {
       removeTrailingDiscardableEmptyAssistant(conv)
       ctx.clearRunState(conv.id)
       affectedId = conv.id
     } else {
-      affectedId = ctx.currentId.value
+      affectedId = fallbackConvId || null
     }
   } else {
-    const conv = ctx.conversations.value.find(c => c.id === ctx.currentId.value)
+    const conv = ctx.conversations.value.find(c => c.id === fallbackConvId)
     if (conv) {
       conv.messages.push({
         id: uid(),
@@ -268,7 +269,8 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
       conv.updatedAt = Date.now()
       affectedId = conv.id
     }
-    ctx.clearAllRunStates()
+    if (fallbackConvId) ctx.clearRunState(fallbackConvId)
+    else ctx.clearAllRunStates()
   }
   if (affectedId) ctx.markMetaDirty(affectedId)
 }

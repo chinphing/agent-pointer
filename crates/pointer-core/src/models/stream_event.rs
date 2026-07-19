@@ -290,6 +290,8 @@ pub enum StreamEvent {
         content: String,
     },
     Error {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
         #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
         message_id: Option<String>,
         message: String,
@@ -423,3 +425,22 @@ pub struct SupervisorPlanTask {
 
 /// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).
 pub type ChatStreamSender = tokio::sync::mpsc::UnboundedSender<StreamEvent>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_event_serializes_conversation_id() {
+        let ev = StreamEvent::Error {
+            conversation_id: "conv-a".into(),
+            message_id: None,
+            message: "boom".into(),
+        };
+        let v = serde_json::to_value(&ev).expect("serialize");
+        assert_eq!(v["kind"], "error");
+        assert_eq!(v["conversationId"], "conv-a");
+        assert_eq!(v["message"], "boom");
+        assert!(v.get("messageId").is_none());
+    }
+}

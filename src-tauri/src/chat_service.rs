@@ -79,6 +79,7 @@ pub async fn run_chat(
         emit(
             &app,
             &StreamEvent::Error {
+                conversation_id: conversation_id.clone(),
                 message_id: None,
                 message: err.to_string(),
             },
@@ -226,6 +227,7 @@ async fn run_chat_inner(
                 emit(
                     &app,
                     &StreamEvent::Error {
+                        conversation_id: conversation_id.to_string(),
                         message_id: Some(assistant_id.clone()),
                         message: e.to_string(),
                     },

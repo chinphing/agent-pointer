@@ -127,8 +127,10 @@ Example:
 
 **`glob`**
 
-- **`pattern`** — Glob pattern (e.g. `**/*.rs`). Matched against paths relative to the search root.
-- **`base`** — Optional; alias **`rootPath`** / **`baseDir`**. Directory to search under. Default: workspace root.
+- **`pattern`** — Glob relative to the search root (e.g. `**/*.rs`).
+  Absolute paths and paths starting with `~/` are also accepted.
+  Dotdirs still need **`includeHidden`** when searching from a parent.
+- **`base`** — Optional; alias **`rootPath`** / **`baseDir`**. Directory to search under. Default: workspace root. Prefer putting the directory here and keeping `pattern` relative.
 - **`maxResults`** — Optional cap (default bounded by runtime, max **500**).
 - **`maxDepth`** — Optional directory walk depth cap (default **64**).
 - **`entryType`** — Optional; alias **`entry_type`**. **`file`** (default), **`dir`**, or **`all`**.

@@ -231,6 +231,21 @@ pub fn message_count_in_conn(conn: &Connection, conversation_id: &str) -> Result
     Ok(count as u32)
 }
 
+pub fn count_duplicate_positions_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<u32> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+           SELECT position FROM messages WHERE conversation_id = ?1
+           GROUP BY position HAVING COUNT(*) > 1
+         )",
+        params![conversation_id],
+        |row| row.get(0),
+    )?;
+    Ok(count as u32)
+}
+
 pub fn stored_preview_in_conn(conn: &Connection, conversation_id: &str) -> Result<String> {
     let preview: Option<String> = conn
         .query_row(
@@ -354,13 +369,159 @@ pub fn sync_messages_ordered_with_meta_in_conn(
     message_count: u32,
     preview: &str,
 ) -> Result<()> {
-    for (pos, msg) in messages.iter().enumerate() {
-        insert_message_at(conn, conversation_id, msg, pos as i64)?;
+    ensure_conversation_row(conn, conversation_id)?;
+    let mut existing = message_positions(conn, conversation_id)?;
+    let hist_ids: std::collections::HashSet<&str> =
+        messages.iter().map(|m| m.id.as_str()).collect();
+    let has_db_only = existing.keys().any(|id| !hist_ids.contains(id.as_str()));
+
+    if has_db_only {
+        // Soft-excluded (or other) rows remain in DB but not in memory history.
+        // Remapping the short list to 0..n-1 would collide with those rows.
+        sync_preserving_existing_positions(conn, conversation_id, messages, &mut existing)?;
+    } else {
+        for (pos, msg) in messages.iter().enumerate() {
+            insert_message_at(conn, conversation_id, msg, pos as i64)?;
+        }
     }
-    flush_conversation_meta_in_conn(conn, conversation_id, message_count, preview)?;
+
+    // Prefer live DB count when the caller passed a drained/short length.
+    let count = message_count_in_conn(conn, conversation_id)?.max(message_count);
+    flush_conversation_meta_in_conn(conn, conversation_id, count, preview)?;
     log::info!(
-        "conversation_store: sync_messages_ordered conversation_id={conversation_id} count={}",
-        messages.len()
+        "conversation_store: sync_messages_ordered conversation_id={conversation_id} list={} db_count={} preserve={}",
+        messages.len(),
+        count,
+        has_db_only
+    );
+    Ok(())
+}
+
+fn message_positions(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<std::collections::HashMap<String, i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT message_id, position FROM messages WHERE conversation_id = ?1",
+    )?;
+    let rows = stmt.query_map(params![conversation_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    let mut out = std::collections::HashMap::new();
+    for row in rows {
+        let (id, pos) = row?;
+        out.insert(id, pos);
+    }
+    Ok(out)
+}
+
+fn shift_positions_from(conn: &Connection, conversation_id: &str, from_pos: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET position = position + 1
+         WHERE conversation_id = ?1 AND position >= ?2",
+        params![conversation_id, from_pos],
+    )?;
+    Ok(())
+}
+
+fn bump_positions_map(
+    existing: &mut std::collections::HashMap<String, i64>,
+    from_pos: i64,
+) {
+    for pos in existing.values_mut() {
+        if *pos >= from_pos {
+            *pos += 1;
+        }
+    }
+}
+
+/// Update payloads for ids already in DB (keep position). Insert brand-new ids
+/// before the next list neighbor that already has a DB position; otherwise append.
+fn sync_preserving_existing_positions(
+    conn: &Connection,
+    conversation_id: &str,
+    messages: &[ChatMessage],
+    existing: &mut std::collections::HashMap<String, i64>,
+) -> Result<()> {
+    let mut max_pos = max_message_position(conn, conversation_id)?;
+
+    for (i, msg) in messages.iter().enumerate() {
+        if let Some(&pos) = existing.get(&msg.id) {
+            insert_message_at(conn, conversation_id, msg, pos)?;
+            continue;
+        }
+
+        let mut insert_pos = None;
+        for later in messages.iter().skip(i + 1) {
+            if let Some(&p) = existing.get(&later.id) {
+                insert_pos = Some(p);
+                break;
+            }
+        }
+
+        let pos = if let Some(p) = insert_pos {
+            shift_positions_from(conn, conversation_id, p)?;
+            bump_positions_map(existing, p);
+            max_pos += 1;
+            p
+        } else {
+            max_pos += 1;
+            max_pos
+        };
+        insert_message_at(conn, conversation_id, msg, pos)?;
+        existing.insert(msg.id.clone(), pos);
+    }
+    Ok(())
+}
+
+/// Persist context compression without remapping the whole transcript:
+/// 1) upsert soft-excluded prefix payloads (positions unchanged)
+/// 2) shift rows at/after the cut point by +1
+/// 3) insert the summary at the cut-point position
+pub fn persist_context_compression_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    excluded_messages: &[ChatMessage],
+    summary: &ChatMessage,
+    insert_before_message_id: &str,
+    preview: &str,
+) -> Result<()> {
+    ensure_conversation_row(conn, conversation_id)?;
+
+    let positions = message_positions(conn, conversation_id)?;
+    for msg in excluded_messages {
+        if let Some(&pos) = positions.get(&msg.id) {
+            insert_message_at(conn, conversation_id, msg, pos)?;
+        } else {
+            log::warn!(
+                "conversation_store: compression exclude skip missing message_id={} conversation_id={}",
+                msg.id,
+                conversation_id
+            );
+        }
+    }
+
+    let insert_before = insert_before_message_id.trim();
+    let insert_pos = if insert_before.is_empty() {
+        max_message_position(conn, conversation_id)? + 1
+    } else if let Some(&p) = positions.get(insert_before) {
+        shift_positions_from(conn, conversation_id, p)?;
+        p
+    } else {
+        log::warn!(
+            "conversation_store: compression insert_before missing id={} conversation_id={}; appending summary",
+            insert_before,
+            conversation_id
+        );
+        max_message_position(conn, conversation_id)? + 1
+    };
+
+    insert_message_at(conn, conversation_id, summary, insert_pos)?;
+    let count = message_count_in_conn(conn, conversation_id)?;
+    flush_conversation_meta_in_conn(conn, conversation_id, count, preview)?;
+    log::info!(
+        "conversation_store: persist_context_compression conversation_id={conversation_id} excluded={} insert_pos={insert_pos} db_count={count}",
+        excluded_messages.len()
     );
     Ok(())
 }
@@ -459,6 +620,91 @@ mod tests {
             loaded[0].messages[0].context_state.as_ref().map(|s| s.included),
             Some(false)
         );
+    }
+
+    #[test]
+    fn persist_compression_shifts_suffix_and_keeps_unique_positions() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "T", "hello");
+        // sample_conv: user + assistant. Add a trailing user as cut-point B.
+        conv.messages.push(super::super::persist::msg(
+            "user_b",
+            Role::User,
+            "continue",
+            3,
+        ));
+        store.save_all(&[conv.clone()]).unwrap();
+
+        let mut excluded = conv.messages[0].clone();
+        excluded.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        let mut excluded_asst = conv.messages[1].clone();
+        excluded_asst.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        let summary = super::super::persist::msg(
+            "ctx_test",
+            Role::User,
+            "[Conversation summary (auto-compression)] x",
+            999,
+        );
+
+        store
+            .persist_context_compression(
+                "c1",
+                &[excluded, excluded_asst],
+                &summary,
+                "user_b",
+                "preview",
+            )
+            .unwrap();
+
+        let loaded = store.load_messages("c1").unwrap();
+        assert_eq!(loaded.len(), 4);
+        assert_eq!(loaded[0].id, conv.messages[0].id);
+        assert_eq!(
+            loaded[0].context_state.as_ref().map(|s| s.included),
+            Some(false)
+        );
+        assert_eq!(loaded[1].id, conv.messages[1].id);
+        assert_eq!(loaded[2].id, "ctx_test");
+        assert_eq!(loaded[3].id, "user_b");
+        assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
+    }
+
+    #[test]
+    fn short_list_sync_with_db_orphans_does_not_collide_positions() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "T", "hello");
+        conv.messages.push(super::super::persist::msg(
+            "user_b",
+            Role::User,
+            "continue",
+            3,
+        ));
+        store.save_all(&[conv.clone()]).unwrap();
+
+        // Simulate post-drain short list that omits the first two rows.
+        let short = vec![
+            super::super::persist::msg(
+                "ctx_new",
+                Role::User,
+                "[Conversation summary (auto-compression)] x",
+                50,
+            ),
+            conv.messages[2].clone(),
+        ];
+        store
+            .sync_messages_ordered_with_meta("c1", &short, short.len() as u32, "p")
+            .unwrap();
+
+        assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
+        assert_eq!(store.message_count("c1").unwrap(), 4);
     }
 
     #[test]

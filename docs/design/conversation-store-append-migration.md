@@ -177,6 +177,8 @@ P2a 压缩 / TaskBoard trim ──sync_ordered_with_meta──► 改 position/c
 - meta-only save 不覆盖 messages
 - append 后 FTS 可检索新内容
 - `sync_messages_ordered_with_meta`：context_state 变更 + 插入 summary，总行数不减
+- **压缩落库**：`persist_context_compression` — 前缀只更新 soft-exclude payload（position 不变）、后缀 `position += 1`、在切点插入 `ctx_*`；**禁止**对 drain 后的短列表做 `0..n-1` remap。内存可随后 drain。
+- 若 `sync_ordered` 时 DB 仍有 history 之外的行（soft-exclude），改为保留已有 position、新行插入邻居前或 `max+1`，避免再次撞号。
 - `conversation_transcript`：tool 插入 anchor 后、reconcile 去掉 user 后 orphan
 - `make_openai_messages_tests`：orphan tool 不上 wire
 - **回归**：长对话多 tool 轮后 wire 顺序正确、无 HTTP 400

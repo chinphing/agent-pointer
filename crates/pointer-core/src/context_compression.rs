@@ -672,8 +672,27 @@ async fn compress_history_inner(
             );
         }
     }
+    let excluded_for_persist: Vec<ChatMessage> = history
+        .iter()
+        .take(split)
+        .filter(|m| excluded_message_ids.iter().any(|id| id == &m.id))
+        .cloned()
+        .collect();
     let summary_msg = new_summary_user_message(summary_body);
     history.insert(split, summary_msg.clone());
+
+    // Persist before drain: soft-exclude payloads + shift suffix + insert summary.
+    // Do not sync_ordered the post-drain short list (that remaps into excluded positions).
+    let preview_for_disk = crate::conversation_store::conversation_preview(history);
+    if matches!(ui.scope, CompressionScope::Main) && emit_compression_ui {
+        crate::conversation_transcript::persist_compression_splice(
+            conversation_id,
+            &excluded_for_persist,
+            &summary_msg,
+            &insert_before_message_id,
+            &preview_for_disk,
+        );
+    }
 
     // Drain excluded prefix to release memory.
     // After insert, excluded messages are at [..split] and the summary is at [split].
@@ -724,7 +743,6 @@ async fn compress_history_inner(
 
     match ui.scope {
         CompressionScope::Main if emit_compression_ui => {
-            crate::conversation_transcript::sync_ordered(conversation_id, history);
             crate::stream_broadcast::publish_stream(
                 stream,
                 StreamEvent::ContextCompressionApplied {

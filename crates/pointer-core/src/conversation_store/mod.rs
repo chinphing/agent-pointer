@@ -356,12 +356,19 @@ impl ConversationStore {
             .execute_write(|conn| write::message_count_in_conn(conn, conversation_id))
     }
 
+    pub fn count_duplicate_positions(&self, conversation_id: &str) -> Result<u32> {
+        self.db
+            .execute_write(|conn| write::count_duplicate_positions_in_conn(conn, conversation_id))
+    }
+
     pub fn stored_conversation_preview(&self, conversation_id: &str) -> Result<String> {
         self.db
             .execute_write(|conn| write::stored_preview_in_conn(conn, conversation_id))
     }
 
     /// P2a: ordered upsert without deleting orphan rows (compression / trim).
+    /// When DB has rows absent from `messages` (soft-exclude), positions of existing
+    /// ids are preserved and new ids are inserted near neighbors (or appended).
     pub fn sync_messages_ordered_with_meta(
         &self,
         conversation_id: &str,
@@ -375,6 +382,27 @@ impl ConversationStore {
                 conversation_id,
                 messages,
                 message_count,
+                preview,
+            )
+        })
+    }
+
+    /// Soft-exclude payloads + shift suffix + insert summary at the cut point.
+    pub fn persist_context_compression(
+        &self,
+        conversation_id: &str,
+        excluded_messages: &[ChatMessage],
+        summary: &ChatMessage,
+        insert_before_message_id: &str,
+        preview: &str,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            write::persist_context_compression_in_conn(
+                conn,
+                conversation_id,
+                excluded_messages,
+                summary,
+                insert_before_message_id,
                 preview,
             )
         })

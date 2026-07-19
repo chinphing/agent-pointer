@@ -298,6 +298,41 @@ pub fn sync_ordered(conversation_id: &str, history: &[ChatMessage]) {
     }
 }
 
+/// Persist compression splice: exclude payloads + suffix position shift + summary insert.
+/// Call with the full in-memory list (prefix already marked, summary already inserted)
+/// *before* draining the excluded prefix.
+pub fn persist_compression_splice(
+    conversation_id: &str,
+    excluded_messages: &[ChatMessage],
+    summary: &ChatMessage,
+    insert_before_message_id: &str,
+    preview: &str,
+) {
+    if let Ok(store) = conversation_store::global_store() {
+        if let Err(e) = store.persist_context_compression(
+            conversation_id,
+            excluded_messages,
+            summary,
+            insert_before_message_id,
+            preview,
+        ) {
+            log::warn!(
+                "conversation_transcript: persist_compression_splice failed conversation_id={conversation_id}: {e:#}"
+            );
+            return;
+        }
+        if let Ok(count) = store.message_count(conversation_id) {
+            if let Some(session) = global_registry().get(conversation_id) {
+                let mut s = session.lock();
+                s.transcript_dirty = false;
+                s.message_count = count;
+                s.preview = preview.to_string();
+                s.known_ids.insert(summary.id.clone());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

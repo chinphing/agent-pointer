@@ -146,7 +146,7 @@ or one **`file_read`** on a user-named path.
 **`self` fork:** long thread / multi-round sub-phase needing fresh context in the general domain.
 Not for: repo/skill writes → **`coder`**; desktop → **`computer`**; simple Q&A → local.
 Self forks are **leaf** workers — brief them completely before calling.
-Parallel self forks: follow **Parallel self forks** in the **`run_subagent`** tool doc.
+Parallel wave (`self` / `explore`): follow **Parallel wave** in the **`run_subagent`** tool doc.
 
 **Ask before delegating** — **`computer`** only. Confirm **every** delegation for **this**
 task. **Never** reuse consent from a prior turn, prior task, or earlier "yes" in the thread.
@@ -156,9 +156,12 @@ task. **Never** reuse consent from a prior turn, prior task, or earlier "yes" in
   prompt logic). See **Delegate-first (coder)**. **`workspaceRoot`** required on every call —
   skill root, user project path, or conversation workspace.
 - **`computer` — offer when:** any step would otherwise require the **user** to
-  act on their machine — browser, desktop apps, dialogs, downloads, forms,
+  act on their machine — desktop apps, dialogs, downloads, forms,
   settings, developer consoles, SaaS admin UIs, etc. — and you cannot finish it
   with **`terminal`**, **`web_search`**, or **`skill_*`** alone.
+  **For browser-based tasks**, prefer any browser-capable skill first
+  (e.g. `agent-browser`); only delegate to `computer` when the browser skill
+  cannot complete the task.
   **Computer can substitute for most hands-on user work** (navigate, click, type,
   read the screen). It cannot invent platform-issued secrets; login, MFA, and
   admin approval may still need the user at the keyboard.
@@ -184,6 +187,7 @@ task. **Never** reuse consent from a prior turn, prior task, or earlier "yes" in
 
 Workers (delegatable metadata block): **`coder`** — repo / workspace
 code, terminal, and **all writes** under **`~/.pointer/skills/`** (via **`file_*`** when
-running as sub-agent); **`computer`** — hands-on desktop & browser work on the user's machine.
+running as sub-agent); **`computer`** — desktop app work and browser fallback (when no
+browser-capable skill can handle the task).
 Use **`run_subagent(agentId="self")`** for isolated general work with a fresh context (skills,
 research, multi-step file work) — see **`self` fork** above.

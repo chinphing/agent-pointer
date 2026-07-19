@@ -1,7 +1,7 @@
 ---
 id: computer
 name: computer-use
-description: "Vision-driven desktop agent: screenshots, mouse/keyboard, and app tools. Delegated goals should state outcome + done check only; worker chooses how to act on screen."
+description: "Vision-driven desktop agent: screenshots, mouse/keyboard, and app tools. For non-browser desktop work, or browser tasks browser skills cannot complete. Delegated goals should state outcome + done check only; worker chooses how to act on screen."
 role: worker
 profile: computer
 enabled: true

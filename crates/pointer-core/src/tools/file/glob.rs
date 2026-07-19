@@ -1,18 +1,103 @@
 use super::list::list_entry_type_allowed;
 use super::path::{
-    path_display_abs, resolve_existing_read_path,
+    expand_user_path_for_file, path_display_abs, resolve_existing_read_path,
 };
 use super::{MAX_GLOB_RESULTS, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
 use log::info;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
 
 fn path_is_inside_git_metadata_tree(p: &Path) -> bool {
     p.to_string_lossy()
         .replace('\\', "/")
         .contains("/.git/")
+}
+
+fn has_glob_meta(s: &str) -> bool {
+    s.chars().any(|c| matches!(c, '*' | '?' | '[' | '{'))
+}
+
+/// `**/*.ext` does not match `file.ext` at the walk root in globset; add a sibling pattern.
+fn build_glob_set(pattern: &str) -> Result<globset::GlobSet> {
+    let mut builder = GlobSetBuilder::new();
+    builder.add(Glob::new(pattern).map_err(|e| anyhow!("glob 模式无效: {e}"))?);
+    if let Some(rest) = pattern.strip_prefix("**/") {
+        builder.add(Glob::new(rest).map_err(|e| anyhow!("glob 模式无效: {e}"))?);
+    } else if let Some(i) = pattern.find("/**/") {
+        let alt = format!("{}{}{}", &pattern[..i], "/", &pattern[i + 4..]);
+        builder.add(Glob::new(&alt).map_err(|e| anyhow!("glob 模式无效: {e}"))?);
+    }
+    builder
+        .build()
+        .map_err(|e| anyhow!("glob 构建失败: {e}"))
+}
+
+/// When `pattern` is absolute / `~/…`, split into (search root, relative glob).
+fn split_absolute_glob_pattern(pattern: &str) -> Result<Option<(PathBuf, String)>> {
+    let trimmed = pattern.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let expanded = expand_user_path_for_file(trimmed)?;
+    let path = PathBuf::from(&expanded);
+    if !path.is_absolute() {
+        return Ok(None);
+    }
+
+    let mut literal = PathBuf::new();
+    let mut glob_parts: Vec<String> = Vec::new();
+    let mut in_glob = false;
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(p) => {
+                if !in_glob {
+                    literal.push(p.as_os_str());
+                }
+            }
+            Component::RootDir => {
+                if !in_glob {
+                    literal.push(comp.as_os_str());
+                }
+            }
+            Component::Normal(c) => {
+                let s = c.to_string_lossy();
+                if !in_glob && !has_glob_meta(&s) {
+                    literal.push(c);
+                } else {
+                    in_glob = true;
+                    glob_parts.push(s.into_owned());
+                }
+            }
+            Component::CurDir | Component::ParentDir => {
+                if !in_glob {
+                    literal.push(comp.as_os_str());
+                } else {
+                    glob_parts.push(comp.as_os_str().to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    let rel = if glob_parts.is_empty() {
+        "*".to_string()
+    } else {
+        glob_parts.join("/")
+    };
+
+    let mut walk = literal;
+    while !walk.as_os_str().is_empty() && !walk.is_dir() {
+        if !walk.pop() {
+            break;
+        }
+    }
+    if !walk.is_dir() {
+        return Err(anyhow!(
+            "glob pattern 绝对路径前缀不存在或不是目录: {expanded}"
+        ));
+    }
+    Ok(Some((walk, rel)))
 }
 
 fn parse_glob_entry_type(args: &serde_json::Value) -> Result<&'static str> {
@@ -33,7 +118,7 @@ fn parse_glob_entry_type(args: &serde_json::Value) -> Result<&'static str> {
 }
 
 pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
-    let pattern = args
+    let pattern_raw = args
         .get("pattern")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("缺少 pattern"))?;
@@ -53,30 +138,33 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let walk_root = if let Some(b) = args
-        .get("base")
-        .or_else(|| args.get("rootPath"))
-        .or_else(|| args.get("baseDir"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    let (walk_root, pattern) = if let Some((abs_root, rel)) = split_absolute_glob_pattern(pattern_raw)?
     {
-        let p = resolve_existing_read_path(root, b, "glob")?;
-        if !p.is_dir() {
-            return Err(anyhow!("glob 搜索根必须是目录: {}", p.display()));
-        }
-        p
+        (abs_root, rel)
     } else {
-        root.to_path_buf()
+        let walk_root = if let Some(b) = args
+            .get("base")
+            .or_else(|| args.get("rootPath"))
+            .or_else(|| args.get("baseDir"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let p = resolve_existing_read_path(root, b, "glob")?;
+            if !p.is_dir() {
+                return Err(anyhow!("glob 搜索根必须是目录: {}", p.display()));
+            }
+            p
+        } else {
+            root.to_path_buf()
+        };
+        (walk_root, pattern_raw.to_string())
     };
     let walk_root = walk_root
         .canonicalize()
         .map_err(|e| anyhow!("glob 搜索根路径无效: {e}"))?;
 
-    let glob = Glob::new(pattern).map_err(|e| anyhow!("glob 模式无效: {e}"))?;
-    let mut builder = GlobSetBuilder::new();
-    builder.add(glob);
-    let set = builder.build().map_err(|e| anyhow!("glob 构建失败: {e}"))?;
+    let set = build_glob_set(&pattern)?;
 
     let mut matches = Vec::new();
     let mut truncated = false;

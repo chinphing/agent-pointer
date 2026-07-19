@@ -58,16 +58,45 @@ describe('sessionHandlers', () => {
     const ctx = createMockStreamHandlerContext([conv], {
       currentId: ref('conv1'),
       markMetaDirty,
-      clearAllRunStates: vi.fn()
+      clearRunState: vi.fn()
     })
 
     handleStreamError(ctx, {
       kind: 'error',
+      conversationId: 'conv1',
       message: 'network failed'
     })
     expect(conv.messages).toHaveLength(1)
     expect(conv.messages[0].status).toBe('error')
     expect(conv.messages[0].errorMessage).toBe('network failed')
     expect(markMetaDirty).toHaveBeenCalledWith('conv1')
+  })
+
+  it('handleStreamError attaches session-level error to event conversation, not current open one', () => {
+    const convA = sampleConversation('convA')
+    const convB = sampleConversation('convB')
+    const clearRunState = vi.fn()
+    const clearAllRunStates = vi.fn()
+    const markMetaDirty = vi.fn()
+    const ctx = createMockStreamHandlerContext([convA, convB], {
+      currentId: ref('convB'),
+      clearRunState,
+      clearAllRunStates,
+      markMetaDirty
+    })
+
+    handleStreamError(ctx, {
+      kind: 'error',
+      conversationId: 'convA',
+      message: 'run failed in background'
+    })
+
+    expect(convA.messages).toHaveLength(1)
+    expect(convA.messages[0].status).toBe('error')
+    expect(convA.messages[0].errorMessage).toBe('run failed in background')
+    expect(convB.messages).toHaveLength(0)
+    expect(clearRunState).toHaveBeenCalledWith('convA')
+    expect(clearAllRunStates).not.toHaveBeenCalled()
+    expect(markMetaDirty).toHaveBeenCalledWith('convA')
   })
 })

@@ -126,6 +126,7 @@ pub async fn run_chat(
         emit(
             &stream,
             StreamEvent::Error {
+                conversation_id: conversation_id.clone(),
                 message_id: None,
                 message: err.to_string(),
             },

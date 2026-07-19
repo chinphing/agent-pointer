@@ -801,6 +801,50 @@ mod tests {
     }
 
     #[test]
+    fn file_glob_dot_pointer_from_parent_needs_include_hidden() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let skill = root.join(".pointer").join("skills").join("demo");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(skill.join("SKILL.md"), "body").unwrap();
+        let args = json!({
+            "pattern": ".pointer/skills/demo/**/*.md",
+            "maxResults": 20
+        });
+        let out = execute_file_glob_payload(&args, root).expect("glob");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["count"], 0);
+
+        let args_inc = json!({
+            "pattern": ".pointer/skills/demo/**/*.md",
+            "includeHidden": true,
+            "maxResults": 20
+        });
+        let out2 = execute_file_glob_payload(&args_inc, root).expect("glob");
+        let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
+        assert_eq!(v2["count"], 1, "matches={}", v2["matches"]);
+    }
+
+    #[test]
+    fn file_glob_absolute_pattern_ignores_wrong_base_and_finds_files() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let skill = root.join(".pointer").join("skills").join("cwpt-reimburse-submit");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(skill.join("SKILL.md"), "body").unwrap();
+        let abs_pattern = format!("{}/**/*.md", skill.display()).replace('\\', "/");
+        let args = json!({
+            "pattern": abs_pattern,
+            "base": root.display().to_string(),
+            "maxResults": 20
+        });
+        let out = execute_file_glob_payload(&args, root).expect("glob");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["count"], 1, "matches={}", v["matches"]);
+        assert_eq!(v["pattern"], "**/*.md");
+    }
+
+    #[test]
     fn file_glob_rejects_invalid_entry_type() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();

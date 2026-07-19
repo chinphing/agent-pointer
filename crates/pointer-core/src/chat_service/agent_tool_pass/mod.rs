@@ -500,6 +500,27 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 .as_ref()
                                 .map(|l| l.instance_scope.agent_instance_id.clone())
                         });
+                    let (web_search_invocation, web_search_history) =
+                        if prep.tool_id == "web_search" {
+                            let lead_scope = match &*pass.ctx.stats {
+                                ToolInvocationStats::TokenSession(session) => {
+                                    Some(&session.lead_scope)
+                                }
+                                ToolInvocationStats::Conversation(_) => None,
+                            };
+                            let invocation =
+                                dispatch::web_search::prepare_web_search_invocation(
+                                    lead_scope,
+                                    pass.ctx.lead.as_ref().map(|l| l.lead_agent_id),
+                                    pass.ctx.sub.as_ref(),
+                                )?;
+                            (
+                                Some(invocation),
+                                Some(Arc::new(pass.ctx.transcript.history.clone())),
+                            )
+                        } else {
+                            (None, None)
+                        };
 
                     exec_futures.push(async move {
                         let _tool_permit = tool_sem.acquire_owned().await;
@@ -523,6 +544,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             lead_run_id.as_deref(),
                             sub_run_id.as_deref(),
                             agent_instance_id.as_deref(),
+                            web_search_invocation,
+                            web_search_history.as_deref().map(|history| history.as_slice()),
                             &cancel,
                         )
                         .await;

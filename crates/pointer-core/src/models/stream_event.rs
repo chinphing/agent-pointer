@@ -292,6 +292,8 @@ pub enum StreamEvent {
         content: String,
     },
     Error {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
         #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
         message_id: Option<String>,
         message: String,
@@ -415,9 +417,20 @@ pub enum StreamEvent {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupervisorPlanTask {
+    pub id: String,
+    pub title: String,
+    #[serde(rename = "agentId")]
+    pub agent_id: String,
+}
+
+/// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).
+pub type ChatStreamSender = tokio::sync::mpsc::UnboundedSender<StreamEvent>;
+
 #[cfg(test)]
 mod tests {
-    use super::StreamEvent;
+    use super::*;
 
     #[test]
     fn sub_message_start_serializes_agent_instance_id() {
@@ -435,15 +448,18 @@ mod tests {
 
         assert_eq!(value["agentInstanceId"], "instance-current");
     }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupervisorPlanTask {
-    pub id: String,
-    pub title: String,
-    #[serde(rename = "agentId")]
-    pub agent_id: String,
+    #[test]
+    fn error_event_serializes_conversation_id() {
+        let ev = StreamEvent::Error {
+            conversation_id: "conv-a".into(),
+            message_id: None,
+            message: "boom".into(),
+        };
+        let v = serde_json::to_value(&ev).expect("serialize");
+        assert_eq!(v["kind"], "error");
+        assert_eq!(v["conversationId"], "conv-a");
+        assert_eq!(v["message"], "boom");
+        assert!(v.get("messageId").is_none());
+    }
 }
-
-/// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).
-pub type ChatStreamSender = tokio::sync::mpsc::UnboundedSender<StreamEvent>;

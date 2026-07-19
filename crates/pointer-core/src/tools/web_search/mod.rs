@@ -32,7 +32,6 @@ pub use sse_drain::{
 pub use stream_ui::WebSearchStreamUi;
 pub(crate) use dispatch::{
     dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
-    WebSearchTokenSink,
 };
 
 use super::{ToolEntry, ToolHandler, ToolRegistry};

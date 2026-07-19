@@ -2,8 +2,26 @@ import { describe, expect, it } from 'vitest'
 import {
   emptySubAgentToolStats,
   formatSubAgentSummaryLine,
-  incrementSubAgentToolStats
+  incrementSubAgentToolStats,
+  subAgentIdFromTraceId,
+  subTaskIdFromTraceId
 } from './subAgentStats'
+
+describe('sub-agent trace identity parsing', () => {
+  it('preserves task and agent ids for instance-scoped self-fork traces', () => {
+    const traceId = 'task-reused:instance-unique:current-agent'
+
+    expect(subTaskIdFromTraceId(traceId)).toBe('task-reused')
+    expect(subAgentIdFromTraceId(traceId)).toBe('current-agent')
+  })
+
+  it('keeps parsing legacy registered-agent traces', () => {
+    const traceId = 'task-legacy:explore'
+
+    expect(subTaskIdFromTraceId(traceId)).toBe('task-legacy')
+    expect(subAgentIdFromTraceId(traceId)).toBe('explore')
+  })
+})
 
 describe('subAgentStats general-worker', () => {
   it('counts skill, terminal, and media tools', () => {

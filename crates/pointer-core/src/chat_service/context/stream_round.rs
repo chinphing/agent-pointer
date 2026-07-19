@@ -58,6 +58,7 @@ pub struct SubStreamRoundRefs<'a> {
     pub task: &'a AgentTask,
     pub def: &'a AgentDef,
     pub instance_scope: &'a AgentInstanceScope,
+    pub trace_id: &'a str,
     pub message_id: &'a str,
     pub round_message_id: &'a str,
     pub session_content: &'a mut String,

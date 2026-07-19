@@ -1,9 +1,10 @@
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
-use tokio::sync::oneshot;
+use std::time::{Duration, Instant};
+use tokio::sync::{oneshot, Mutex as TokioMutex, OwnedMutexGuard};
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::register_builtin_agents;
@@ -23,6 +24,206 @@ use crate::skills::SkillRegistry;
 use crate::storage;
 use crate::tools::ToolRegistry;
 use crate::web_request_auth::WebSessionAuth;
+
+const TERMINAL_SCOPE_SEP: &str = "\u{1f}ptr_tool_scope\u{1f}";
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ToolExecutionScope {
+    pub conversation_id: String,
+    pub agent_instance_id: Option<String>,
+    pub tool_call_id: String,
+}
+
+impl ToolExecutionScope {
+    pub fn new(
+        conversation_id: impl Into<String>,
+        agent_instance_id: Option<&str>,
+        tool_call_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            conversation_id: conversation_id.into(),
+            agent_instance_id: agent_instance_id.map(str::to_string),
+            tool_call_id: tool_call_id.into(),
+        }
+    }
+
+    /// Prefer sub-agent / self-fork instance, then lead; `None` keeps legacy keys.
+    pub fn from_agent_contexts(
+        conversation_id: impl Into<String>,
+        lead_instance_id: Option<&str>,
+        sub_instance_id: Option<&str>,
+        tool_call_id: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            conversation_id,
+            sub_instance_id.or(lead_instance_id),
+            tool_call_id,
+        )
+    }
+
+    fn instance_key(&self) -> &str {
+        self.agent_instance_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("legacy")
+    }
+
+    pub fn abort_key(&self) -> String {
+        format!(
+            "{}{TERMINAL_SCOPE_SEP}{}{TERMINAL_SCOPE_SEP}{}",
+            self.conversation_id,
+            self.instance_key(),
+            self.tool_call_id
+        )
+    }
+
+    pub fn output_trace_key(&self) -> String {
+        self.abort_key()
+    }
+
+    pub fn pending_input_key(&self, request_id: &str) -> String {
+        format!(
+            "{}{TERMINAL_SCOPE_SEP}{}",
+            self.abort_key(),
+            request_id.trim()
+        )
+    }
+
+    pub fn log_fields(&self) -> String {
+        format!(
+            "conversation_id={} agent_instance_id={} tool_call_id={}",
+            self.conversation_id,
+            self.instance_key(),
+            self.tool_call_id
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct TerminalPendingInputKey {
+    scope: ToolExecutionScope,
+    request_id: String,
+}
+
+#[derive(Default)]
+pub struct FileWriteLockManager {
+    locks: TokioMutex<HashMap<PathBuf, Arc<TokioMutex<()>>>>,
+}
+
+impl FileWriteLockManager {
+    fn normalize_existing_or_future_path(path: &Path) -> anyhow::Result<PathBuf> {
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|error| anyhow::anyhow!("无法解析文件锁工作目录: {error}"))?
+                .join(path)
+        };
+        // Callers (file_write/file_edit) must pass already-resolved paths.
+        // Strip `.` and reject `..` before walking parents so missing targets
+        // cannot absorb ParentDir into an existing ancestor and escape the key.
+        let mut cleaned = PathBuf::new();
+        for component in absolute.components() {
+            match component {
+                Component::Prefix(_) | Component::RootDir => {
+                    cleaned.push(component.as_os_str());
+                }
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    return Err(anyhow::anyhow!("文件锁路径含非法组件"));
+                }
+                Component::Normal(part) => cleaned.push(part),
+            }
+        }
+        let mut probe = cleaned.clone();
+        let mut missing_suffix = PathBuf::new();
+        let canonical_base = loop {
+            if probe.exists() {
+                break probe
+                    .canonicalize()
+                    .map_err(|error| anyhow::anyhow!("无法规范化文件锁路径: {error}"))?;
+            }
+            let Some(name) = probe.file_name().map(PathBuf::from) else {
+                return Err(anyhow::anyhow!(
+                    "无法为不存在的目标找到可规范化父目录: {}",
+                    absolute.display()
+                ));
+            };
+            let mut next_suffix = name;
+            next_suffix.push(&missing_suffix);
+            missing_suffix = next_suffix;
+            if !probe.pop() {
+                return Err(anyhow::anyhow!(
+                    "无法为不存在的目标找到可规范化父目录: {}",
+                    absolute.display()
+                ));
+            }
+        };
+        for component in missing_suffix.components() {
+            if !matches!(component, Component::Normal(_)) {
+                return Err(anyhow::anyhow!("文件锁路径含非法组件"));
+            }
+        }
+        let normalized = if missing_suffix.as_os_str().is_empty() {
+            canonical_base
+        } else {
+            canonical_base.join(missing_suffix)
+        };
+        #[cfg(windows)]
+        {
+            Ok(PathBuf::from(
+                normalized.to_string_lossy().to_lowercase(),
+            ))
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(normalized)
+        }
+    }
+
+    pub async fn lock_path(
+        &self,
+        path: &Path,
+    ) -> anyhow::Result<(OwnedMutexGuard<()>, Duration, PathBuf)> {
+        let normalized = Self::normalize_existing_or_future_path(path)?;
+        let lock = {
+            let mut locks = self.locks.lock().await;
+            locks
+                .entry(normalized.clone())
+                .or_insert_with(|| Arc::new(TokioMutex::new(())))
+                .clone()
+        };
+        let wait_started = Instant::now();
+        let guard = lock.lock_owned().await;
+        Ok((guard, wait_started.elapsed(), normalized))
+    }
+}
+
+fn remove_terminal_input_by_request_id(
+    pending: &mut HashMap<
+        TerminalPendingInputKey,
+        std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>,
+    >,
+    request_id: &str,
+) -> Option<std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>> {
+    let matches: Vec<_> = pending
+        .keys()
+        .filter(|key| key.request_id == request_id)
+        .cloned()
+        .collect();
+    match matches.as_slice() {
+        [] => None,
+        [key] => pending.remove(key),
+        _ => {
+            log::warn!(
+                "terminal: ambiguous pending input request_id={} matching_scopes={}",
+                request_id,
+                matches.len()
+            );
+            None
+        }
+    }
+}
 
 fn open_conversation_store_with_fallback() -> Arc<crate::conversation_store::ConversationStore> {
     match crate::conversation_store::global_store() {
@@ -59,20 +260,24 @@ pub struct AppState {
     pub platform_auth: SharedPlatformAuth,
     pub platform_config: SharedPlatformConfig,
     pub task_board_store: Arc<crate::task_board::TaskBoardStore>,
+    pub file_write_locks: Arc<FileWriteLockManager>,
     pub memory_store: Arc<crate::memory::MemoryStore>,
     pub session_index: Arc<crate::session_search::SessionIndex>,
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
     /// When set, the in-flight `terminal` tool for that conversation kills its subprocess (host-only; does not cancel the LLM turn).
-    /// Outer key: conversation_id; inner key: tool_call_id.
-    pub terminal_run_abort: Mutex<HashMap<String, HashMap<String, Arc<AtomicBool>>>>,
+    pub terminal_run_abort: Mutex<HashMap<ToolExecutionScope, Arc<AtomicBool>>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     /// Blocks `run_subagent` → computer until the UI confirms monitor selection.
     pub monitor_picks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
     /// Pending terminal stdin submissions keyed by `request_id`.
-    pub terminal_input_pending:
-        Mutex<HashMap<String, std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>>>,
+    terminal_input_pending: Mutex<
+        HashMap<
+            TerminalPendingInputKey,
+            std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>,
+        >,
+    >,
     /// Active main-agent task board key per conversation.
     pub active_main_task_boards: Mutex<HashMap<String, String>>,
     /// Main task board anchor bindings: conversation -> (store_key -> user_message_id).
@@ -172,6 +377,7 @@ impl AppState {
             platform_auth,
             platform_config,
             task_board_store,
+            file_write_locks: Arc::new(FileWriteLockManager::default()),
             memory_store,
             session_index,
             extensions: Arc::new(extension_registry),
@@ -379,8 +585,18 @@ impl AppState {
         for (_, tx) in monitor_picks {
             let _ = tx.send(Err("已停止生成".into()));
         }
-        let pending_inputs: Vec<_> = self.terminal_input_pending.lock().drain().collect();
-        for (_, tx) in pending_inputs {
+        let pending_inputs = {
+            let mut pending = self.terminal_input_pending.lock();
+            let keys: Vec<_> = pending
+                .keys()
+                .filter(|key| key.scope.conversation_id == conversation_id)
+                .cloned()
+                .collect();
+            keys.into_iter()
+                .filter_map(|key| pending.remove(&key))
+                .collect::<Vec<_>>()
+        };
+        for tx in pending_inputs {
             let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Cancelled);
         }
     }
@@ -389,46 +605,45 @@ impl AppState {
     /// When `tool_call_id` is set, only that invocation is aborted; otherwise all terminals in the conversation.
     /// Does **not** cancel the LLM stream or the rest of the turn. Returns **true** if at least one run was registered.
     pub fn abort_terminal_command(&self, conversation_id: &str, tool_call_id: Option<&str>) -> bool {
-        let mut outer = self.terminal_run_abort.lock();
-        let Some(inner) = outer.get_mut(conversation_id) else {
-            return false;
-        };
-        match tool_call_id {
-            Some(tc_id) => inner.get(tc_id).map(|f| {
-                f.store(true, Ordering::SeqCst);
-                true
-            }).unwrap_or(false),
-            None => {
-                let mut any = false;
-                for f in inner.values() {
-                    f.store(true, Ordering::SeqCst);
-                    any = true;
-                }
-                any
+        let runs = self.terminal_run_abort.lock();
+        let mut any = false;
+        let mut matched = 0usize;
+        for (scope, flag) in runs.iter() {
+            if scope.conversation_id == conversation_id
+                && tool_call_id.is_none_or(|id| scope.tool_call_id == id)
+            {
+                flag.store(true, Ordering::SeqCst);
+                any = true;
+                matched += 1;
+                log::info!("terminal: abort requested {}", scope.log_fields());
             }
         }
+        // Callers can only target a terminal by (conversation, tool_call_id); the
+        // per-instance agent scope is not part of that public contract. Tool call ids
+        // are randomized per stream so concurrent self-forks should never collide.
+        // If they somehow do, aborting one id would kill multiple instances' terminals,
+        // so surface it instead of silently over-aborting.
+        if tool_call_id.is_some() && matched > 1 {
+            log::warn!(
+                "terminal: abort by tool_call_id matched {matched} scopes conversation_id={conversation_id} tool_call_id={:?}; possible cross-instance collision",
+                tool_call_id
+            );
+        }
+        any
     }
 
     pub fn register_terminal_abort_flag(
         &self,
-        conversation_id: &str,
-        tool_call_id: &str,
+        scope: ToolExecutionScope,
         flag: Arc<AtomicBool>,
     ) {
-        let mut outer = self.terminal_run_abort.lock();
-        outer
-            .entry(conversation_id.to_string())
-            .or_default()
-            .insert(tool_call_id.to_string(), flag);
+        log::info!("terminal: registered abort scope {}", scope.log_fields());
+        self.terminal_run_abort.lock().insert(scope, flag);
     }
 
-    pub fn clear_terminal_abort_flag(&self, conversation_id: &str, tool_call_id: &str) {
-        let mut outer = self.terminal_run_abort.lock();
-        if let Some(inner) = outer.get_mut(conversation_id) {
-            inner.remove(tool_call_id);
-            if inner.is_empty() {
-                outer.remove(conversation_id);
-            }
+    pub fn clear_terminal_abort_flag(&self, scope: &ToolExecutionScope) {
+        if self.terminal_run_abort.lock().remove(scope).is_none() {
+            log::warn!("terminal: abort scope missing during cleanup {}", scope.log_fields());
         }
     }
 
@@ -461,14 +676,31 @@ impl AppState {
 
     pub fn register_terminal_input_wait(
         &self,
+        scope: ToolExecutionScope,
         request_id: String,
         tx: std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>,
     ) {
-        self.terminal_input_pending.lock().insert(request_id, tx);
+        let key = TerminalPendingInputKey { scope, request_id };
+        if self.terminal_input_pending.lock().insert(key.clone(), tx).is_some() {
+            log::warn!(
+                "terminal: replaced pending input request_id={} {}",
+                key.request_id,
+                key.scope.log_fields()
+            );
+        }
+    }
+
+    pub fn clear_terminal_input_wait(&self, scope: &ToolExecutionScope, request_id: &str) {
+        let key = TerminalPendingInputKey {
+            scope: scope.clone(),
+            request_id: request_id.to_string(),
+        };
+        self.terminal_input_pending.lock().remove(&key);
     }
 
     pub fn submit_terminal_input(&self, request_id: &str, text: String) -> bool {
-        if let Some(tx) = self.terminal_input_pending.lock().remove(request_id) {
+        let tx = remove_terminal_input_by_request_id(&mut self.terminal_input_pending.lock(), request_id);
+        if let Some(tx) = tx {
             let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Submit(text));
             true
         } else {
@@ -477,7 +709,8 @@ impl AppState {
     }
 
     pub fn dismiss_terminal_input(&self, request_id: &str) -> bool {
-        if let Some(tx) = self.terminal_input_pending.lock().remove(request_id) {
+        let tx = remove_terminal_input_by_request_id(&mut self.terminal_input_pending.lock(), request_id);
+        if let Some(tx) = tx {
             let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Dismiss);
             true
         } else {
@@ -594,11 +827,14 @@ impl AppState {
 
 #[cfg(test)]
 mod active_main_task_board_tests {
-    use super::AppState;
+    use super::{AppState, FileWriteLockManager, ToolExecutionScope};
     use crate::task_board::{
         main_turn_task_board_store_key, sub_agent_task_board_store_key,
     };
     use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
 
     fn seed_running_child_board(
         state: &AppState,
@@ -666,6 +902,193 @@ mod active_main_task_board_tests {
         let child = sub_agent_task_board_store_key(&parent, "sub1");
         state.set_active_main_task_board_key(conv, &child);
         assert_eq!(state.get_active_main_task_board_key(conv), None);
+    }
+
+    #[test]
+    fn terminal_scope_keys_isolate_same_conversation_and_tool_call() {
+        let first = ToolExecutionScope::new(
+            "conv-shared",
+            Some("fork-instance-a"),
+            "tool-call-shared",
+        );
+        let second = ToolExecutionScope::new(
+            "conv-shared",
+            Some("fork-instance-b"),
+            "tool-call-shared",
+        );
+
+        assert_ne!(first.abort_key(), second.abort_key());
+        assert_ne!(first.output_trace_key(), second.output_trace_key());
+        assert_ne!(
+            first.pending_input_key("request-shared"),
+            second.pending_input_key("request-shared")
+        );
+    }
+
+    #[test]
+    fn tool_execution_scope_prefers_sub_then_lead_then_legacy() {
+        let from_sub = ToolExecutionScope::from_agent_contexts(
+            "conv",
+            Some("lead-instance"),
+            Some("sub-instance"),
+            "tc-1",
+        );
+        let from_lead = ToolExecutionScope::from_agent_contexts(
+            "conv",
+            Some("lead-instance"),
+            None,
+            "tc-1",
+        );
+        let legacy = ToolExecutionScope::from_agent_contexts("conv", None, None, "tc-1");
+
+        assert!(from_sub.abort_key().contains("sub-instance"));
+        assert!(!from_sub.abort_key().contains("lead-instance"));
+        assert!(from_lead.abort_key().contains("lead-instance"));
+        assert!(!from_lead.abort_key().contains("legacy"));
+        assert!(legacy.abort_key().contains("legacy"));
+        assert_ne!(from_lead.abort_key(), legacy.abort_key());
+    }
+
+    #[test]
+    fn conversation_cancel_clears_pending_terminal_inputs_for_all_scopes() {
+        let state = AppState::new();
+        let first = ToolExecutionScope::new("conv-inputs", Some("fork-a"), "tc-a");
+        let second = ToolExecutionScope::new("conv-inputs", Some("fork-b"), "tc-b");
+        let other = ToolExecutionScope::new("conv-other", Some("fork-a"), "tc-a");
+        let (tx_a, rx_a) = std::sync::mpsc::channel();
+        let (tx_b, rx_b) = std::sync::mpsc::channel();
+        let (tx_other, rx_other) = std::sync::mpsc::channel();
+
+        state.register_terminal_input_wait(first, "req-a".into(), tx_a);
+        state.register_terminal_input_wait(second, "req-b".into(), tx_b);
+        state.register_terminal_input_wait(other, "req-other".into(), tx_other);
+
+        state.cancel("conv-inputs");
+
+        assert!(matches!(
+            rx_a.try_recv(),
+            Ok(crate::tools::terminal::TerminalInputResolution::Cancelled)
+        ));
+        assert!(matches!(
+            rx_b.try_recv(),
+            Ok(crate::tools::terminal::TerminalInputResolution::Cancelled)
+        ));
+        assert!(rx_other.try_recv().is_err());
+    }
+
+    #[test]
+    fn conversation_cancel_aborts_every_terminal_scope() {
+        let state = AppState::new();
+        let first = ToolExecutionScope::new("conv-cancel", Some("fork-a"), "tool-call");
+        let second = ToolExecutionScope::new("conv-cancel", Some("fork-b"), "tool-call");
+        let unrelated = ToolExecutionScope::new("conv-other", Some("fork-a"), "tool-call");
+        let first_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let second_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let unrelated_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        state.register_terminal_abort_flag(first, first_flag.clone());
+        state.register_terminal_abort_flag(second, second_flag.clone());
+        state.register_terminal_abort_flag(unrelated, unrelated_flag.clone());
+
+        assert!(state.abort_terminal_command("conv-cancel", None));
+        assert!(first_flag.load(Ordering::SeqCst));
+        assert!(second_flag.load(Ordering::SeqCst));
+        assert!(!unrelated_flag.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn file_write_locks_serialize_same_canonical_path() {
+        let manager = Arc::new(FileWriteLockManager::default());
+        let tmp = tempfile::tempdir().expect("tmp");
+        let path = tmp.path().join("same.txt");
+        std::fs::write(&path, "seed").expect("seed");
+        let aliases = [path.clone(), tmp.path().join(".").join("same.txt")];
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+
+        for path in aliases {
+            let manager = manager.clone();
+            let active = active.clone();
+            let peak = peak.clone();
+            tasks.push(tokio::spawn(async move {
+                let (_guard, _, _) = manager.lock_path(&path).await.expect("lock");
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                active.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for task in tasks {
+            task.await.expect("task");
+        }
+
+        assert_eq!(peak.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn file_write_lock_normalizes_missing_target_from_canonical_parent() {
+        let manager = FileWriteLockManager::default();
+        let tmp = tempfile::tempdir().expect("tmp");
+        let direct = tmp.path().join("future.txt");
+        let alias = tmp.path().join(".").join("future.txt");
+
+        let (first_guard, _, first_key) = manager.lock_path(&direct).await.expect("first lock");
+        drop(first_guard);
+        let (_second_guard, _, second_key) = manager.lock_path(&alias).await.expect("second lock");
+
+        assert_eq!(first_key, second_key);
+        assert!(first_key.is_absolute());
+        assert!(first_key.ends_with("future.txt"));
+    }
+
+    #[tokio::test]
+    async fn file_write_lock_rejects_parent_dir_components_for_missing_target() {
+        let manager = FileWriteLockManager::default();
+        let tmp = tempfile::tempdir().expect("tmp");
+        let nested = tmp.path().join("nested");
+        std::fs::create_dir_all(&nested).expect("nested");
+        let sneaky = nested.join("..").join("..").join("outside.txt");
+
+        let err = manager
+            .lock_path(&sneaky)
+            .await
+            .expect_err("parent components must not bypass lock normalization");
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("非法组件") || message.contains("无法"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn file_write_locks_allow_different_canonical_paths_to_overlap() {
+        let manager = Arc::new(FileWriteLockManager::default());
+        let tmp = tempfile::tempdir().expect("tmp");
+        let paths = [tmp.path().join("first.txt"), tmp.path().join("second.txt")];
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let mut tasks = Vec::new();
+
+        for path in paths {
+            let manager = manager.clone();
+            let active = active.clone();
+            let peak = peak.clone();
+            let barrier = barrier.clone();
+            tasks.push(tokio::spawn(async move {
+                let (_guard, _, _) = manager.lock_path(&path).await.expect("lock");
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                barrier.wait().await;
+                active.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for task in tasks {
+            task.await.expect("task");
+        }
+
+        assert_eq!(peak.load(Ordering::SeqCst), 2);
     }
 }
 

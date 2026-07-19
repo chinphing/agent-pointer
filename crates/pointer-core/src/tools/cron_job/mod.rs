@@ -21,8 +21,8 @@ pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
     });
 
     reg.register(
-        ToolEntry::new("cron_job", CRON_JOB_DOC_SOURCE, "low", false, doc, handler).with_schema(
-            json!({
+        ToolEntry::new("cron_job", CRON_JOB_DOC_SOURCE, "low", false, doc, handler)
+            .with_schema(json!({
                 "type": "object",
                 "properties": {
                     "action": {
@@ -47,8 +47,8 @@ pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
                         "description": "Optional short name; defaults to the first line of prompt_text."
                     }
                 }
-            }),
-        ),
+            }))
+            .with_subagent_inheritance(false),
     );
 }
 

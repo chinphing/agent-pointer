@@ -23,7 +23,11 @@ pub(super) async fn dispatch_web_search(
     lead_agent_id: Option<&str>,
     sub: Option<&mut SubToolPassConfig<'_>>,
 ) -> ToolExecResult {
-    let invoke = if sub.as_ref().map(|s| s.def.id.as_str()) == Some("research") {
+    let invoke = if sub
+        .as_ref()
+        .map(|s| s.active.def.id.as_str())
+        == Some("research")
+    {
         WebSearchInvokeContext::ResearchSubAgent {
             history,
             exclude_message_id: message_id,
@@ -41,7 +45,10 @@ pub(super) async fn dispatch_web_search(
                 .instance_scope,
         },
     };
-    let agent_id = sub.as_ref().map(|s| s.def.id.as_str()).or(lead_agent_id);
+    let agent_id = sub
+        .as_ref()
+        .map(|s| s.active.def.id.as_str())
+        .or(lead_agent_id);
     let trace_id = sub.as_ref().map(|s| s.trace_id.clone());
     let scoped_message_id = sub.as_ref().map(|s| s.scoped_message_id.clone());
     dispatch_to_tool_json_async(WebSearchDispatchContext {

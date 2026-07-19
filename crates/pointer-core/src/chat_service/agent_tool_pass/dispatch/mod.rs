@@ -7,13 +7,13 @@ pub(super) mod subagent;
 pub(super) mod terminal;
 pub(super) mod web_search;
 
-use self::registry::resolve_workspace_root;
 use crate::agents::AgentProfile;
 use crate::models::ToolCall;
 use crate::provider::OpenAIProvider;
 use tokio_util::sync::CancellationToken;
 
 use super::super::app_state::AppState;
+use super::super::app_state::ToolExecutionScope;
 use super::super::StreamTx;
 use super::types::{LeadToolPassConfig, SubToolPassConfig, ToolExecResult, ToolInvocationStats};
 
@@ -33,6 +33,14 @@ pub(super) async fn execute_tool_invocation(
     cancel: &CancellationToken,
     stats: &mut ToolInvocationStats<'_>,
 ) -> ToolExecResult {
+    let execution_scope = ToolExecutionScope::from_agent_contexts(
+        conversation_id,
+        lead.as_ref()
+            .map(|config| config.instance_scope.agent_instance_id.as_str()),
+        sub.as_ref()
+            .map(|config| config.instance_scope.agent_instance_id.as_str()),
+        tc.id.as_str(),
+    );
     match tool_id {
         "terminal" => {
             terminal::run_terminal_tool(
@@ -46,6 +54,7 @@ pub(super) async fn execute_tool_invocation(
                 sub.as_ref().map(|s| s.trace_id.clone()),
                 sub.as_ref().map(|s| s.scoped_message_id.clone()),
                 provider.settings.workspace_root.clone(),
+                execution_scope,
             )
             .await
         }
@@ -127,7 +136,9 @@ pub(super) async fn execute_tool_invocation(
             &provider.settings.workspace_root,
             lead.as_deref(),
             sub.as_deref(),
-        ),
+            execution_scope,
+        )
+        .await,
     }
 }
 
@@ -137,7 +148,7 @@ pub(super) async fn invoke_prepared_parallel(
     state: &AppState,
     provider: &OpenAIProvider,
     conversation_id: &str,
-    task_board_store_key: &str,
+    _task_board_store_key: &str,
     message_id: &str,
     tc: &ToolCall,
     tool_id: &str,
@@ -147,8 +158,11 @@ pub(super) async fn invoke_prepared_parallel(
     sub_profile: Option<AgentProfile>,
     lead_run_id: Option<&str>,
     sub_run_id: Option<&str>,
+    agent_instance_id: Option<&str>,
     cancel: &CancellationToken,
 ) -> ToolExecResult {
+    let execution_scope =
+        ToolExecutionScope::new(conversation_id, agent_instance_id, tc.id.as_str());
     match tool_id {
         "terminal" => {
             terminal::run_terminal_tool(
@@ -162,6 +176,7 @@ pub(super) async fn invoke_prepared_parallel(
                 None,
                 None,
                 provider.settings.workspace_root.clone(),
+                execution_scope,
             )
             .await
         }
@@ -214,31 +229,17 @@ pub(super) async fn invoke_prepared_parallel(
         "run_subagent" => Err(anyhow::anyhow!(
             "run_subagent must not run in parallel wave"
         )),
-        _ => {
-            let file_profile = lead_profile
+        _ => registry::dispatch_registry_invoke_with_profile(
+            state,
+            conversation_id,
+            tool_id,
+            args_value,
+            workspace_root,
+            lead_profile
                 .or(sub_profile)
-                .unwrap_or(AgentProfile::General);
-            let _file_guard =
-                crate::agents::FileToolLeadProfileGuard::enter(file_profile.clone());
-
-            let session_user_id = state
-                .session_index
-                .session_user_id(conversation_id)
-                .unwrap_or_default();
-            let resolved_ws = resolve_workspace_root(conversation_id, &session_user_id, workspace_root);
-            let _ws =
-                crate::tools::file::ConversationWorkspaceGuard::enter(resolved_ws);
-
-            if file_profile == AgentProfile::Computer {
-                let _tier = crate::agents::computer::ComputerTierGuard::enter(
-                    state.computer_state.tier_for_conversation(conversation_id),
-                );
-                let _ = task_board_store_key;
-            }
-            state
-                .tools
-                .invoke(tool_id, args_value)
-                .map(|out| (out, true, None))
-        }
+                .unwrap_or(AgentProfile::General),
+            execution_scope,
+        )
+        .await,
     }
 }

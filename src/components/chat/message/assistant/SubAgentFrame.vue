@@ -48,11 +48,21 @@ const traceLabel = computed(() =>
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled === true)
 
 const scopedMessages = computed(() =>
-  scopedAssistantMessagesForTrace(props.messages, props.anchorMessageId, props.trace.id)
+  scopedAssistantMessagesForTrace(
+    props.messages,
+    props.anchorMessageId,
+    props.trace.id,
+    props.trace.agentInstanceId
+  )
 )
 
 const scopedTraceMessages = computed(() =>
-  scopedMessagesForTrace(props.messages, props.anchorMessageId, props.trace.id)
+  scopedMessagesForTrace(
+    props.messages,
+    props.anchorMessageId,
+    props.trace.id,
+    props.trace.agentInstanceId
+  )
 )
 
 const legacySession = computed(() => props.trace.session)
@@ -73,7 +83,8 @@ const latestStreamBody = computed((): AgentMessageBodyModel | null => {
     props.messages,
     props.anchorMessageId,
     props.trace.id,
-    props.trace.status
+    props.trace.status,
+    props.trace.agentInstanceId
   )
   if (scoped) return scoped
   const s = legacySession.value
@@ -141,7 +152,8 @@ const bodyModels = computed((): AgentMessageBodyModel[] => {
     props.messages,
     props.anchorMessageId,
     props.trace.id,
-    props.trace.status
+    props.trace.status,
+    props.trace.agentInstanceId
   )
   if (scoped.length > 0) return scoped
   const s = legacySession.value

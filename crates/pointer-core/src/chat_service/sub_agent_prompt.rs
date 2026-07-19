@@ -4,6 +4,7 @@ use crate::agents::{
     delegatable_sub_agents_system_block, expand_agent_prompt_placeholders, normalize_allow_agents,
     AgentDef, AgentProfile, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
 };
+use crate::agent_instance_scope::AgentInstanceScope;
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, Role, SystemPromptSections};
 use crate::provider::OpenAIProvider;
@@ -11,20 +12,94 @@ use crate::tools::run_subagent::can_spawn_subagents;
 use anyhow::{anyhow, Result};
 use std::time::Instant;
 
-use super::agent_tool_allowlist::resolve_agent_tools;
+use super::agent_tool_allowlist::{resolve_agent_tools, retain_inheritable_subagent_tools};
 use super::app_state::AppState;
 use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
+use super::self_fork::SelfForkSnapshot;
 use super::sub_agent_task_prompt::{
     build_subagent_initial_user_message, build_subagent_spawn_depth_block,
     build_subagent_task_system_blocks, push_sub_agent_task_system_dynamic,
+    SubAgentSpawnCapability,
 };
-use crate::task_board::sub_agent_task_board_store_key;
+use crate::task_board::{
+    sub_agent_task_board_store_key, sub_agent_task_board_store_key_for_instance,
+};
 use super::emit::agent_trace_step_id;
-use super::sub_message::{load_scoped_transcript, persist_sub_message, SubMessageLinkage};
+use super::sub_message::{persist_sub_message, SubMessageLinkage};
 use super::util::{new_id, now_ms};
+
+pub(super) enum SubAgentDefinitionSource<'a> {
+    Registered(&'a AgentTask),
+    Snapshot(&'a SelfForkSnapshot),
+}
+
+impl SubAgentDefinitionSource<'_> {
+    pub(super) fn new_instance_scope(
+        &self,
+        run_id: &str,
+        conversation_id: &str,
+    ) -> AgentInstanceScope {
+        let agent_role_id = match self {
+            Self::Registered(task) => task.agent_id.as_str(),
+            Self::Snapshot(snapshot) => snapshot.def.id.as_str(),
+        };
+        AgentInstanceScope::new(run_id, conversation_id, agent_role_id)
+    }
+}
+
+pub(super) fn resolve_child_task_board_store_key(
+    parent_task_board_store_key: &str,
+    task: &AgentTask,
+    agent_instance_id: &str,
+) -> String {
+    if task.agent_id.trim() == "self" {
+        sub_agent_task_board_store_key_for_instance(
+            parent_task_board_store_key,
+            task.id.trim(),
+            agent_instance_id,
+        )
+    } else {
+        sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim())
+    }
+}
+
+fn resolve_subagent_spawn_capability(
+    allowed_tools: &[String],
+    allow_agents: &[String],
+    spawn_depth: u32,
+    max_spawn_depth: u32,
+) -> SubAgentSpawnCapability {
+    if !allowed_tools.iter().any(|tool| tool == "run_subagent") {
+        return SubAgentSpawnCapability::None;
+    }
+    if can_spawn_subagents(spawn_depth, max_spawn_depth) && !allow_agents.is_empty() {
+        SubAgentSpawnCapability::Registered
+    } else {
+        SubAgentSpawnCapability::SelfOnly
+    }
+}
+
+pub(super) fn sub_agent_trace_id(
+    task: &AgentTask,
+    def: &AgentDef,
+    instance_scope: &AgentInstanceScope,
+) -> String {
+    if task.agent_id.trim() == "self" {
+        let scoped_agent_id =
+            agent_trace_step_id(&instance_scope.agent_instance_id, &def.id);
+        agent_trace_step_id(&task.id, &scoped_agent_id)
+    } else {
+        agent_trace_step_id(&task.id, &def.id)
+    }
+}
 
 pub(super) struct SubAgentSession {
     pub def: AgentDef,
+    pub system_prompt: String,
+    pub skill_ids: Vec<String>,
+    pub skill_prompts: Vec<String>,
+    pub instance_scope: AgentInstanceScope,
+    pub trace_id: String,
     /// Sub-agent-only cacheable slices (handoff header, delegatable agents, skills, task-board hint).
     /// Role/tier prompts are assembled per round via [`push_agent_role_cacheable_prompts`].
     pub session_extras: Vec<String>,
@@ -44,6 +119,54 @@ pub(super) struct SubAgentRoundPrompts {
     pub system_prompts: SystemPromptSections,
 }
 
+fn fresh_sub_agent_local_history() -> Vec<ChatMessage> {
+    vec![ChatMessage {
+        id: new_id("sub_task"),
+        role: Role::User,
+        content: build_subagent_initial_user_message(),
+        status: "done".into(),
+        created_at: now_ms(),
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        thoughts: None,
+        headline: None,
+        raw_content: None,
+        tool_raw_output: None,
+        agent_id: None,
+        agent_instance_id: None,
+        agent_name: None,
+        agent_trace: None,
+        image_slot_labels: None,
+        images_base64: None,
+        computer_round_screen_rel_path: None,
+        ui_bindings: None,
+        context_state: None,
+        attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
+    }]
+}
+
+fn build_sub_agent_linkage(
+    anchor_message_id: &str,
+    task: &AgentTask,
+    def: &AgentDef,
+    instance_scope: &AgentInstanceScope,
+    spawn_depth: u32,
+) -> SubMessageLinkage {
+    SubMessageLinkage {
+        anchor_message_id: anchor_message_id.to_string(),
+        trace_id: sub_agent_trace_id(task, def, instance_scope),
+        task_id: task.id.clone(),
+        spawn_depth,
+        agent_instance_id: instance_scope.agent_instance_id.clone(),
+    }
+}
+
 pub(super) fn init_sub_agent_session(
     state: &AppState,
     provider: &OpenAIProvider,
@@ -51,35 +174,78 @@ pub(super) fn init_sub_agent_session(
     anchor_message_id: &str,
     parent_task_board_store_key: &str,
     task: &AgentTask,
+    definition_source: &SubAgentDefinitionSource<'_>,
+    instance_scope: &AgentInstanceScope,
     enabled_skill_ids: &[String],
     agent_skill_overrides: &std::collections::HashMap<String, Vec<String>>,
     spawn_depth: u32,
     max_spawn_depth: u32,
 ) -> Result<SubAgentSession> {
-    let agent = state
-        .agents
-        .get(&task.agent_id)
-        .or_else(|| state.agents.get(DEFAULT_AGENT_ID))
-        .ok_or_else(|| anyhow!("未找到 Agent: {}", task.agent_id))?;
-    let def = agent.def().clone();
-    let skill_ids = crate::agents::sub_agent_skill_ids(
-        &def,
-        enabled_skill_ids,
-        agent_skill_overrides,
-    );
-    let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
-    let mut allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
-    let allow_agents = normalize_allow_agents(&def.allow_agents);
+    let (
+        def,
+        system_prompt,
+        skill_ids,
+        skill_prompts,
+        allowed_tools,
+        allow_agents,
+        workspace_root,
+    ) =
+        match definition_source {
+            SubAgentDefinitionSource::Registered(source_task) => {
+                let agent = state
+                    .agents
+                    .get(&source_task.agent_id)
+                    .or_else(|| state.agents.get(DEFAULT_AGENT_ID))
+                    .ok_or_else(|| anyhow!("未找到 Agent: {}", source_task.agent_id))?;
+                let def = agent.def().clone();
+                let skill_ids = crate::agents::sub_agent_skill_ids(
+                    &def,
+                    enabled_skill_ids,
+                    agent_skill_overrides,
+                );
+                let (skill_prompts, session_tools) =
+                    state.skills.progressive_context(&skill_ids);
+                let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
+                let allow_agents = normalize_allow_agents(&def.allow_agents);
+                (
+                    def,
+                    agent.system_prompt(),
+                    skill_ids,
+                    skill_prompts,
+                    allowed_tools,
+                    allow_agents,
+                    provider.settings.workspace_root.trim().to_string(),
+                )
+            }
+            SubAgentDefinitionSource::Snapshot(snapshot) => {
+                let mut allowed_tools = snapshot.allowed_tools.clone();
+                retain_inheritable_subagent_tools(&mut allowed_tools, &state.tools);
+                allowed_tools.retain(|name| name != "run_subagent");
+                (
+                    snapshot.def.clone(),
+                    snapshot.system_prompt.clone(),
+                    snapshot.skill_ids.clone(),
+                    snapshot.skill_prompts.clone(),
+                    allowed_tools,
+                    Vec::new(),
+                    snapshot.workspace_root.trim().to_string(),
+                )
+            }
+        };
     let max_spawn_depth = max_spawn_depth.max(1);
-    let spawn_can_delegate =
-        can_spawn_subagents(spawn_depth, max_spawn_depth) && !allow_agents.is_empty();
-    if !spawn_can_delegate {
-        allowed_tools.retain(|t| t != "run_subagent");
-    }
-    let sub_task_board_key =
-        sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim());
+    let spawn_capability = resolve_subagent_spawn_capability(
+        &allowed_tools,
+        &allow_agents,
+        spawn_depth,
+        max_spawn_depth,
+    );
+    let sub_task_board_key = resolve_child_task_board_store_key(
+        parent_task_board_store_key,
+        task,
+        &instance_scope.agent_instance_id,
+    );
     let session_vars = SessionInjectVars {
-        workspace_root: provider.settings.workspace_root.trim(),
+        workspace_root: workspace_root.as_str(),
     };
     let allowed_tools_line = if allowed_tools.is_empty() {
         "none".into()
@@ -102,7 +268,7 @@ pub(super) fn init_sub_agent_session(
             allowed_tools_line,
         )
     } else {
-        let expanded_role = expand_agent_prompt_placeholders(&agent.system_prompt(), &session_vars);
+        let expanded_role = expand_agent_prompt_placeholders(&system_prompt, &session_vars);
         format!(
             "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n\
              Your assigned task is in the system prompt under **Assigned task** (not main chat history). \
@@ -117,21 +283,21 @@ pub(super) fn init_sub_agent_session(
         )
     };
     let mut session_extras = vec![sub_agent_header];
-    if spawn_can_delegate && allowed_tools.iter().any(|t| t == "run_subagent") {
+    if spawn_capability == SubAgentSpawnCapability::Registered {
         if let Some(block) = delegatable_sub_agents_system_block(&state.agents, &allow_agents) {
             session_extras.push(block);
         }
     }
-    session_extras.extend(skill_prompts);
+    session_extras.extend(skill_prompts.clone());
     let mut task_dynamic_blocks = build_subagent_task_system_blocks(
         &task.goal,
         &task.context,
-        provider.settings.workspace_root.as_str(),
+        workspace_root.as_str(),
     );
     task_dynamic_blocks.push(build_subagent_spawn_depth_block(
         spawn_depth,
         max_spawn_depth,
-        spawn_can_delegate && allowed_tools.iter().any(|t| t == "run_subagent"),
+        spawn_capability,
     ));
 
     let tools_system_appendix =
@@ -140,59 +306,25 @@ pub(super) fn init_sub_agent_session(
             &allowed_tools,
         );
     let tool_approval_mode = state.effective_settings().tool_approval_mode;
-    let linkage = SubMessageLinkage {
-        anchor_message_id: anchor_message_id.to_string(),
-        trace_id: agent_trace_step_id(&task.id, &task.agent_id),
-        task_id: task.id.clone(),
-        spawn_depth,
-    };
-    let local_history = match load_scoped_transcript(conversation_id, &linkage) {
-        Ok(rows) if !rows.is_empty() => {
-            log::info!(
-                "sub_agent: resumed scoped transcript conversation_id={} trace_id={} messages={}",
-                conversation_id,
-                linkage.trace_id,
-                rows.len()
-            );
-            rows
-        }
-        _ => {
-            let stub = ChatMessage {
-                id: new_id("sub_task"),
-                role: Role::User,
-                content: build_subagent_initial_user_message(),
-                status: "done".into(),
-                created_at: now_ms(),
-                tool_calls: None,
-                tool_call_id: None,
-                error_message: None,
-                reasoning: None,
-                thoughts: None,
-                headline: None,
-                raw_content: None,
-                tool_raw_output: None,
-                agent_id: None,
-                agent_instance_id: None,
-                agent_name: None,
-                agent_trace: None,
-                image_slot_labels: None,
-                images_base64: None,
-                computer_round_screen_rel_path: None,
-                ui_bindings: None,
-                context_state: None,
-                attachments: None,
-                anchor_message_id: None,
-                trace_id: None,
-                task_id: None,
-                spawn_depth: None,
-            };
-            persist_sub_message(conversation_id, &linkage, &stub);
-            vec![stub]
-        }
-    };
+    let linkage =
+        build_sub_agent_linkage(anchor_message_id, task, &def, &instance_scope, spawn_depth);
+    let local_history = fresh_sub_agent_local_history();
+    let stub = &local_history[0];
+    persist_sub_message(conversation_id, &linkage, stub);
+    log::info!(
+        "sub_agent: initialized fresh local history conversation_id={} trace_id={} message_id={}",
+        conversation_id,
+        linkage.trace_id,
+        stub.id
+    );
 
     Ok(SubAgentSession {
         def,
+        system_prompt,
+        skill_ids,
+        skill_prompts,
+        instance_scope: instance_scope.clone(),
+        trace_id: linkage.trace_id,
         session_extras,
         task_dynamic_blocks,
         tools_system_appendix,
@@ -314,4 +446,191 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         history_for_api,
         system_prompts: SystemPromptSections { cacheable, dynamic },
     })
+}
+
+#[cfg(test)]
+mod definition_source_tests {
+    use super::{
+        build_sub_agent_linkage, fresh_sub_agent_local_history,
+        resolve_child_task_board_store_key, resolve_subagent_spawn_capability,
+        SubAgentDefinitionSource,
+    };
+    use crate::agents::{
+        AccessPolicy, AgentDef, AgentProfile, AgentTask, AgentUiConfig, SkillsPolicy,
+    };
+    use crate::chat_service::self_fork::SelfForkSnapshot;
+    use std::collections::HashMap;
+
+    fn snapshot() -> SelfForkSnapshot {
+        SelfForkSnapshot {
+            def: AgentDef {
+                id: "active-parent".into(),
+                name: "Active Parent".into(),
+                description: "snapshot".into(),
+                role: "worker".into(),
+                profile: AgentProfile::Coder,
+                default_skill_ids: vec![],
+                skills_policy: SkillsPolicy::InheritsFromParent,
+                access_policy: AccessPolicy::default(),
+                builtin: false,
+                enabled: true,
+                tool_names: vec![],
+                source: None,
+                resource_files: vec![],
+                allow_agents: vec![],
+                config: HashMap::new(),
+                ui: AgentUiConfig::default(),
+            },
+            system_prompt: "active prompt".into(),
+            skill_ids: vec!["skill-a".into()],
+            skill_prompts: vec!["Skill A prompt".into()],
+            allowed_tools: vec!["terminal".into()],
+            workspace_root: "/active/workspace".into(),
+        }
+    }
+
+    #[test]
+    fn snapshot_source_creates_unique_instance_scopes_for_active_parent_role() {
+        let snapshot = snapshot();
+        let source = SubAgentDefinitionSource::Snapshot(&snapshot);
+
+        let first = source.new_instance_scope("run", "conversation");
+        let second = source.new_instance_scope("run", "conversation");
+
+        assert_eq!(first.agent_role_id, "active-parent");
+        assert_eq!(second.agent_role_id, "active-parent");
+        assert_ne!(first.agent_instance_id, second.agent_instance_id);
+    }
+
+    #[test]
+    fn every_sub_agent_session_starts_with_fresh_local_history() {
+        let first = fresh_sub_agent_local_history();
+        let second = fresh_sub_agent_local_history();
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert!(matches!(first[0].role, crate::models::Role::User));
+        assert!(matches!(second[0].role, crate::models::Role::User));
+        assert_ne!(first[0].id, second[0].id);
+    }
+
+    #[test]
+    fn snapshot_linkage_uses_unique_instance_scope_id() {
+        let snapshot = snapshot();
+        let task = AgentTask {
+            id: "task-1".into(),
+            agent_id: "self".into(),
+            title: "Fork".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+
+        let source = SubAgentDefinitionSource::Snapshot(&snapshot);
+        let instance_scope = source.new_instance_scope("run", "conversation");
+        let linkage =
+            build_sub_agent_linkage("anchor", &task, &snapshot.def, &instance_scope, 1);
+
+        assert_eq!(
+            linkage.trace_id,
+            format!(
+                "task-1:{}:active-parent",
+                instance_scope.agent_instance_id
+            )
+        );
+        assert_eq!(linkage.agent_instance_id, instance_scope.agent_instance_id);
+    }
+
+    #[test]
+    fn registered_linkage_keeps_legacy_task_and_agent_trace_id() {
+        let task = AgentTask {
+            id: "task-1".into(),
+            agent_id: "explore".into(),
+            title: "Explore".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let def = AgentDef {
+            id: "explore".into(),
+            name: "Explore".into(),
+            description: "registered".into(),
+            role: "worker".into(),
+            profile: AgentProfile::Coder,
+            default_skill_ids: vec![],
+            skills_policy: SkillsPolicy::InheritsFromParent,
+            access_policy: AccessPolicy::default(),
+            builtin: false,
+            enabled: true,
+            tool_names: vec![],
+            source: None,
+            resource_files: vec![],
+            allow_agents: vec![],
+            config: HashMap::new(),
+            ui: AgentUiConfig::default(),
+        };
+        let source = SubAgentDefinitionSource::Registered(&task);
+        let instance_scope = source.new_instance_scope("run", "conversation");
+
+        let linkage = build_sub_agent_linkage("anchor", &task, &def, &instance_scope, 1);
+
+        assert_eq!(
+            linkage.trace_id,
+            crate::chat_service::emit::agent_trace_step_id("task-1", "explore")
+        );
+    }
+
+    #[test]
+    fn registered_agent_at_depth_limit_keeps_self_only_run_subagent() {
+        let mut allowed_tools = vec!["terminal".to_string(), "run_subagent".to_string()];
+        let allow_agents = vec!["explore".to_string()];
+
+        let capability = resolve_subagent_spawn_capability(
+            &mut allowed_tools,
+            &allow_agents,
+            2,
+            2,
+        );
+
+        assert_eq!(
+            capability,
+            crate::chat_service::sub_agent_task_prompt::SubAgentSpawnCapability::SelfOnly
+        );
+        assert!(allowed_tools.iter().any(|tool| tool == "run_subagent"));
+    }
+
+    #[test]
+    fn self_fork_child_board_keys_include_instance_and_do_not_collide() {
+        let task = AgentTask {
+            id: "shared-task".into(),
+            agent_id: "self".into(),
+            title: "Fork".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let first = resolve_child_task_board_store_key("parent", &task, "fork-a");
+        let second = resolve_child_task_board_store_key("parent", &task, "fork-b");
+        assert_ne!(first, second);
+        assert!(first.contains("fork-a"));
+        assert!(second.contains("fork-b"));
+    }
+
+    #[test]
+    fn registered_child_board_key_stays_task_scoped_without_instance() {
+        let task = AgentTask {
+            id: "task-1".into(),
+            agent_id: "explore".into(),
+            title: "Explore".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let key = resolve_child_task_board_store_key("parent", &task, "instance-ignored");
+        assert_eq!(
+            key,
+            crate::task_board::sub_agent_task_board_store_key("parent", "task-1")
+        );
+        assert!(!key.contains("instance-ignored"));
+    }
 }

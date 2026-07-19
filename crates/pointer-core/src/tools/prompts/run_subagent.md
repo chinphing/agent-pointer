@@ -27,7 +27,7 @@ schema:
 
 ### `run_subagent`
 
-Hand off a **self-contained sub-task** to another **worker** agent.
+Hand off one **self-contained task** to a registered worker or a **self fork**.
 
 **What the parent receives**
 
@@ -37,9 +37,22 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 **Rules**
 
 - **`goal`** must stand alone — the worker does **not** see the main chat.
-- Nested delegation is allowed up to **`maxSubAgentSpawnDepth`** (default 2). At max depth, workers are leaves.
+- One tool call represents one task.
+- Use **`agentId: "self"`** to fork the current agent for an independent task.
+- Self forks are leaf workers and cannot call **`run_subagent`**.
+- Registered delegation stops at **`maxSubAgentSpawnDepth`** (default 2).
+- Self leaf forks remain allowed at that depth.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
 - Optional **`taskId`** stays stable across repeated handoffs to the same logical task.
+
+**Parallel self forks**
+
+- Same turn, multiple **`agentId: "self"`** → may run concurrently.
+- Concurrent only when **all** are true:
+  - independent (no wait-on result)
+  - no shared mutable state / overlapping writes
+  - no user-interactive or desktop-control work
+- Otherwise: one self call, or sequential turns.
 
 **Goal vs context (all workers)**
 
@@ -109,12 +122,15 @@ Unverified assumptions (optional).
 - **`workspaceRoot`** required. Before delegate: **`skill_read`** only, or one **`file_read`**
   on a user-named path.
 
-**`general-worker` (general lead only)**
+**`self` fork (general or coder lead)**
 
 - **When:** long main thread, or a sub-phase needs many tool rounds without polluting lead context
-  (multi-skill steps, research, attachment pipelines) — and the work stays in the **general** domain.
-- **When not:** repo/skill-file writes → **`coder`**; desktop/browser → **`computer`**; simple Q&A → stay local.
+  (multi-skill steps, research, attachment pipelines) — and the work stays in the **current agent's**
+  domain.
+- **When not:** repo/skill-file writes → **`coder`**; desktop/browser → **`computer`**; simple Q&A → stay local;
+  broad read-only repo mapping → **`explore`** (coder only).
 - Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.
+- Parallel rules: see **Parallel self forks** above.
 
 **`computer` (general lead only)**
 
@@ -144,10 +160,12 @@ Unverified assumptions (optional).
 - **`workspaceRoot`** (required on **`run_subagent`**) — skill root, user project path, or conversation workspace.
 - Do **not** send patch hunks or **`oldString`/`newString`** — put edit ideas in **Lead suggestion (non-binding)**.
 
-**`general-worker` goals**
+**`self` fork goals**
 
-- **`What:`** + **`Done when:`** (research, skill procedure, attachments).
-- Cannot spawn workers — note in **`context`** (**Constraints**) if the subtask needs **`coder`** / **`computer`** instead.
+- **`What:`** + **`Done when:`** (research, skill procedure, attachments, or implementation slice).
+- Cannot spawn workers — note in **`context`** (**Constraints**) if the subtask needs **`coder`** /
+  **`computer`** / **`explore`** instead.
+- Parallel rules: see **Parallel self forks** above.
 
 **Examples (`computer`)**
 
@@ -182,12 +200,16 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 
 #### Parameters
 
-- **`agentId`** (required) — Worker id from the **delegatable sub-agents** metadata block.
+- **`agentId`** (required) — Worker id from the
+  **delegatable sub-agents** metadata block, or reserved id **`self`**.
+  **`self`** does not require **`allowAgents`**.
 - **`goal`** (required) — **`What:`** + **`Done when:`**; optional **`Out of scope:`** (≤3 lines, **≤25 words per line**; see **Goal vs context**).
 - **`context`** (optional) — One string; Markdown **`##` blocks** (not JSON). See template above.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.
-- **`workspaceRoot`** (**required** when **`agentId`** is **`coder`**) — Absolute directory for the coder worker (skill root, user project, or conversation workspace). Host rejects the call if omitted.
+- **`workspaceRoot`** (**required** when **`agentId`** is **`coder`**) —
+  Absolute directory for the coder worker.
+  A self fork inherits the current workspace and does not require this field.
 - **`computerTarget`** (optional, **general → `computer`**) — `self` | `external`.
 
 **Handoff flow**

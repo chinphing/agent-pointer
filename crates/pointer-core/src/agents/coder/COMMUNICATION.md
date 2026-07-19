@@ -191,6 +191,13 @@ Deliver in handoff: what changed, paths touched, and any follow-up the user shou
 
 For repository mapping, prefer early **`explore`** delegation—see **Delegating to the `explore` worker** in primary instructions and **`run_subagent`** tool doc.
 
+## Self fork (`run_subagent`, `agentId="self"`)
+
+Use **`self`** for **independent substantial slices** (implement + test a module, refactor a
+coherent area) when isolated context helps. Self forks are **leaf** workers — no nested
+**`run_subagent`**. Broad read-only mapping → **`explore`**, not **`self`**.
+Parallel self forks: follow **Parallel self forks** in the **`run_subagent`** tool doc.
+
 ### Example — delegate to `explore`
 
 ```json

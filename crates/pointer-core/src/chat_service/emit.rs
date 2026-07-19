@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use super::StreamTx;
 
-/// Stable trace row id: one row per sub-task (avoids overwriting when the same agent runs twice).
+/// Legacy registered-agent trace row id (`{taskId}:{agentId}`).
 pub(crate) fn agent_trace_step_id(task_id: &str, agent_id: &str) -> String {
     let t = task_id.trim();
     if t.is_empty() {
@@ -30,11 +30,19 @@ pub(crate) fn emit_agent_step(
     trace: &mut Vec<AgentTrace>,
     agent: AgentTrace,
 ) {
+    merge_agent_trace(trace, agent.clone());
+    publish_agent_step(stream, message_id, agent);
+}
+
+pub(crate) fn merge_agent_trace(trace: &mut Vec<AgentTrace>, agent: AgentTrace) {
     if let Some(existing) = trace.iter_mut().find(|item| item.id == agent.id) {
-        *existing = agent.clone();
+        *existing = agent;
     } else {
-        trace.push(agent.clone());
+        trace.push(agent);
     }
+}
+
+pub(crate) fn publish_agent_step(stream: &StreamTx, message_id: &str, agent: AgentTrace) {
     emit(
         stream,
         StreamEvent::AgentStep {

@@ -302,6 +302,8 @@ pub struct ToolEntry {
     pub parallel_eligible: bool,
     /// Conflict class for batch scheduling (path, subagent, media, …).
     pub conflict_class: parallel::ToolConflictClass,
+    /// Explicit subagent inheritance policy. `None` defaults to inheritable.
+    pub inherit_to_subagent: Option<bool>,
 }
 
 impl ToolEntry {
@@ -369,6 +371,7 @@ impl ToolEntry {
             final_reply: false,
             parallel_eligible,
             conflict_class,
+            inherit_to_subagent: None,
         }
     }
 
@@ -398,6 +401,11 @@ impl ToolEntry {
         self.conflict_class = conflict_class;
         self
     }
+
+    pub fn with_subagent_inheritance(mut self, inherit: bool) -> Self {
+        self.inherit_to_subagent = Some(inherit);
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -419,6 +427,14 @@ impl ToolRegistry {
 
     pub fn register(&self, entry: ToolEntry) {
         self.inner.write().insert(entry.def.name.clone(), entry);
+    }
+
+    pub fn is_inheritable_to_subagent(&self, name: &str) -> bool {
+        self.inner
+            .read()
+            .get(name)
+            .map(|entry| entry.inherit_to_subagent.unwrap_or(true))
+            .unwrap_or(false)
     }
 
     pub fn is_parallel_eligible(&self, raw_name: &str) -> bool {
@@ -1170,6 +1186,46 @@ mod parallel_metadata_tests {
         let n = default_parallel_limit();
         assert!(n >= 1);
         assert!(n <= PARALLEL_LIMIT_CAP);
+    }
+}
+
+#[cfg(test)]
+mod subagent_inheritance_tests {
+    use super::{ToolEntry, ToolRegistry};
+    use std::sync::Arc;
+
+    fn test_entry(name: &str) -> ToolEntry {
+        ToolEntry::new(
+            name,
+            "test:subagent_inheritance",
+            "low",
+            false,
+            "test doc",
+            Arc::new(|_| Ok(String::new())),
+        )
+    }
+
+    #[test]
+    fn tools_default_to_subagent_inheritable() {
+        let entry = test_entry("file_read");
+        assert!(entry.inherit_to_subagent.unwrap_or(true));
+    }
+
+    #[test]
+    fn tools_can_disable_subagent_inheritance() {
+        let entry = test_entry("run_subagent").with_subagent_inheritance(false);
+        assert_eq!(entry.inherit_to_subagent, Some(false));
+    }
+
+    #[test]
+    fn registry_reports_only_registered_inheritable_tools() {
+        let registry = ToolRegistry::new();
+        registry.register(test_entry("file_read"));
+        registry.register(test_entry("run_subagent").with_subagent_inheritance(false));
+
+        assert!(registry.is_inheritable_to_subagent("file_read"));
+        assert!(!registry.is_inheritable_to_subagent("run_subagent"));
+        assert!(!registry.is_inheritable_to_subagent("missing"));
     }
 }
 

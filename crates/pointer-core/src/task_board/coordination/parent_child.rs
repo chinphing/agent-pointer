@@ -5,12 +5,25 @@ use crate::task_board::store::TaskBoardStore;
 use anyhow::{anyhow, Result};
 
 pub const SUB_AGENT_KEY_SEP: &str = "\u{1f}ptr_sub_agent\u{1f}";
+pub const SUB_AGENT_INSTANCE_KEY_SEP: &str = "\u{1f}ptr_agent_instance\u{1f}";
 
 pub fn sub_agent_task_board_store_key(parent_store_key: &str, supervisor_task_id: &str) -> String {
     format!(
         "{parent}{SUB_AGENT_KEY_SEP}{task}",
         parent = parent_store_key.trim(),
         task = supervisor_task_id.trim()
+    )
+}
+
+pub fn sub_agent_task_board_store_key_for_instance(
+    parent_store_key: &str,
+    supervisor_task_id: &str,
+    agent_instance_id: &str,
+) -> String {
+    format!(
+        "{}{SUB_AGENT_INSTANCE_KEY_SEP}{}",
+        sub_agent_task_board_store_key(parent_store_key, supervisor_task_id),
+        agent_instance_id.trim()
     )
 }
 
@@ -99,6 +112,25 @@ mod tests {
             parent_store_key_from_child(&k).as_deref(),
             Some("conv-1\u{1f}ptr_main_turn\u{1f}msg-1")
         );
+    }
+
+    #[test]
+    fn same_user_task_id_has_unique_child_key_per_instance() {
+        let parent = "conv-1\u{1f}ptr_main_turn\u{1f}msg-1";
+        let first = sub_agent_task_board_store_key_for_instance(
+            parent,
+            "shared-task",
+            "fork-instance-a",
+        );
+        let second = sub_agent_task_board_store_key_for_instance(
+            parent,
+            "shared-task",
+            "fork-instance-b",
+        );
+
+        assert_ne!(first, second);
+        assert_eq!(parent_store_key_from_child(&first).as_deref(), Some(parent));
+        assert_eq!(parent_store_key_from_child(&second).as_deref(), Some(parent));
     }
 
     #[test]

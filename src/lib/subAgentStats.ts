@@ -16,13 +16,13 @@ export function emptySubAgentToolStats(): SubAgentToolStats {
   }
 }
 
-/** `{taskId}:{agentId}` → agent id suffix. */
+/** Legacy or instance-scoped trace id → agent id suffix. */
 export function subAgentIdFromTraceId(traceId: string): string {
-  const i = traceId.indexOf(':')
+  const i = traceId.lastIndexOf(':')
   return i > 0 ? traceId.slice(i + 1).trim() : ''
 }
 
-/** `{taskId}:{agentId}` → task id prefix. */
+/** Legacy or instance-scoped trace id → task id prefix. */
 export function subTaskIdFromTraceId(traceId: string): string {
   const i = traceId.indexOf(':')
   return i > 0 ? traceId.slice(0, i).trim() : traceId.trim()

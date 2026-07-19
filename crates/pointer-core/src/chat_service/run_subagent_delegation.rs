@@ -2,9 +2,13 @@
 
 use std::path::Path;
 
+use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::agent_ui::agent_display_label;
-use crate::agents::AgentTask;
-use crate::models::{AgentTrace, StreamEvent};
+use crate::agents::{AgentDef, AgentTask};
+use crate::chat_service::self_fork::SelfForkSnapshot;
+use crate::llm_token_stats::ConversationLlmStats;
+use crate::models::ChatMessage;
+use crate::models::{AgentTrace, ComputerOperationTarget, StreamEvent};
 use crate::session_sandbox::SessionSandbox;
 use crate::tools::run_subagent::{
     resolve_computer_operation_target, validate_run_subagent_workspace, validate_spawn_depth,
@@ -12,9 +16,359 @@ use crate::tools::run_subagent::{
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
 
-use super::emit::{agent_trace_step_id, emit, emit_agent_step};
+use super::emit::{
+    emit, emit_agent_step, merge_agent_trace, publish_agent_step,
+};
+use super::app_state::AppState;
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
+use tokio_util::sync::CancellationToken;
+
+pub(super) type ToolExecResult = Result<(String, bool, Option<String>), anyhow::Error>;
+
+pub(super) struct PreparedSubagentOutcome {
+    pub tool_call_id: String,
+    pub task_id: String,
+    pub trace: AgentTrace,
+    pub usage: ConversationLlmStats,
+    pub exec: ToolExecResult,
+}
+
+pub(super) struct SelfForkExecutionInput<'a> {
+    pub stream: &'a super::StreamTx,
+    pub state: &'a AppState,
+    pub conversation_id: &'a str,
+    pub cancel: CancellationToken,
+    pub provider: OpenAIProvider,
+    pub parent_task_board_store_key: String,
+    pub message_id: String,
+    pub tool_call_id: String,
+    pub run_id: String,
+    pub task: AgentTask,
+    pub snapshot: SelfForkSnapshot,
+    pub child_spawn_depth: u32,
+    pub max_spawn_depth: u32,
+}
+
+pub(super) struct SubagentCommitContext<'a> {
+    pub stream: &'a super::StreamTx,
+    pub conversation_id: &'a str,
+    pub message_id: &'a str,
+    pub history: Option<&'a mut Vec<ChatMessage>>,
+    pub agent_trace: &'a mut Vec<AgentTrace>,
+    pub llm_stats: &'a mut ConversationLlmStats,
+}
+
+pub(super) struct PendingSubagentOutcome {
+    tool_call_id: String,
+    task_id: String,
+    trace: AgentTrace,
+    exec: ToolExecResult,
+}
+
+pub(super) struct RecordedSubagentOutcome {
+    tool_call_id: String,
+    task_id: String,
+    trace: AgentTrace,
+}
+
+pub(super) fn failed_self_fork_outcome(
+    run_id: &str,
+    conversation_id: &str,
+    tool_call_id: &str,
+    task: AgentTask,
+    snapshot: SelfForkSnapshot,
+    child_spawn_depth: u32,
+    error: String,
+) -> PreparedSubagentOutcome {
+    let definition_source =
+        super::sub_agent_prompt::SubAgentDefinitionSource::Snapshot(&snapshot);
+    let instance_scope = definition_source.new_instance_scope(run_id, conversation_id);
+    log::warn!(
+        "run_subagent self-fork preparation failed conversation_id={} task_id={} tool_call_id={}: {}",
+        conversation_id,
+        task.id,
+        tool_call_id,
+        error
+    );
+    PreparedSubagentOutcome {
+        tool_call_id: tool_call_id.to_string(),
+        task_id: task.id.clone(),
+        trace: build_subagent_trace(
+            &task,
+            &snapshot.def,
+            &instance_scope,
+            child_spawn_depth,
+            None,
+            "failed",
+            Some(error.clone()),
+        ),
+        usage: ConversationLlmStats::default(),
+        exec: Ok((format!("ERROR: {error}"), false, Some(error))),
+    }
+}
+
+impl PendingSubagentOutcome {
+    pub(super) async fn record_tool_result<F, Fut>(self, recorder: F) -> RecordedSubagentOutcome
+    where
+        F: FnOnce(ToolExecResult) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        recorder(self.exec).await;
+        RecordedSubagentOutcome {
+            tool_call_id: self.tool_call_id,
+            task_id: self.task_id,
+            trace: self.trace,
+        }
+    }
+}
+
+fn merge_usage(parent: &mut ConversationLlmStats, child: ConversationLlmStats) {
+    parent.llm_rounds = parent.llm_rounds.saturating_add(child.llm_rounds);
+    parent.sum_prompt = parent.sum_prompt.saturating_add(child.sum_prompt);
+    parent.sum_completion = parent.sum_completion.saturating_add(child.sum_completion);
+    parent.sum_total = parent.sum_total.saturating_add(child.sum_total);
+    parent.sum_reasoning = parent.sum_reasoning.saturating_add(child.sum_reasoning);
+    parent.tool_invocations = parent
+        .tool_invocations
+        .saturating_add(child.tool_invocations);
+    parent.rounds_missing_usage = parent
+        .rounds_missing_usage
+        .saturating_add(child.rounds_missing_usage);
+    if child.last_round_prompt_tokens.is_some() {
+        parent.last_round_prompt_tokens = child.last_round_prompt_tokens;
+    }
+}
+
+pub(super) fn commit_subagent_outcome(
+    parent: &mut SubagentCommitContext<'_>,
+    outcome: PreparedSubagentOutcome,
+) -> PendingSubagentOutcome {
+    let PreparedSubagentOutcome {
+        tool_call_id,
+        task_id,
+        trace,
+        usage,
+        exec,
+    } = outcome;
+    merge_usage(parent.llm_stats, usage);
+    merge_agent_trace(parent.agent_trace, trace.clone());
+    log::info!(
+        "run_subagent prepared ordered commit conversation_id={} task_id={} tool_call_id={}",
+        parent.conversation_id,
+        task_id,
+        tool_call_id
+    );
+    PendingSubagentOutcome {
+        tool_call_id,
+        task_id,
+        trace,
+        exec,
+    }
+}
+
+pub(super) fn finalize_subagent_outcome(
+    parent: &mut SubagentCommitContext<'_>,
+    outcome: RecordedSubagentOutcome,
+) {
+    if let Some(history) = parent.history.as_deref_mut() {
+        super::sub_message::sync_anchor_agent_trace_index(
+            parent.conversation_id,
+            history,
+            parent.message_id,
+            parent.agent_trace,
+        );
+    }
+    publish_agent_step(parent.stream, parent.message_id, outcome.trace);
+    log::info!(
+        "run_subagent finalized outcome conversation_id={} task_id={} tool_call_id={}",
+        parent.conversation_id,
+        outcome.task_id,
+        outcome.tool_call_id
+    );
+}
+
+fn abandon_child_board(
+    state: &AppState,
+    conversation_id: &str,
+    parent_task_board_store_key: &str,
+    task_id: &str,
+    agent_instance_id: Option<&str>,
+) {
+    let child_board_key = match agent_instance_id.filter(|id| !id.trim().is_empty()) {
+        Some(instance_id) => crate::task_board::sub_agent_task_board_store_key_for_instance(
+            parent_task_board_store_key,
+            task_id.trim(),
+            instance_id,
+        ),
+        None => crate::task_board::sub_agent_task_board_store_key(
+            parent_task_board_store_key,
+            task_id.trim(),
+        ),
+    };
+    match state
+        .task_board_store
+        .apply(&child_board_key, "abandon", &serde_json::json!({}))
+    {
+        Ok(_) => log::info!(
+            "run_subagent: child board abandoned conversation_id={} store_key={}",
+            conversation_id,
+            child_board_key
+        ),
+        Err(err) => log::warn!(
+            "run_subagent: child board abandon skipped conversation_id={} store_key={}: {err:#}",
+            conversation_id,
+            child_board_key
+        ),
+    }
+}
+
+pub(super) async fn execute_self_fork(
+    input: SelfForkExecutionInput<'_>,
+) -> PreparedSubagentOutcome {
+    let SelfForkExecutionInput {
+        stream,
+        state,
+        conversation_id,
+        cancel,
+        provider,
+        parent_task_board_store_key,
+        message_id,
+        tool_call_id,
+        run_id,
+        task,
+        snapshot,
+        child_spawn_depth,
+        max_spawn_depth,
+    } = input;
+    let definition_source =
+        super::sub_agent_prompt::SubAgentDefinitionSource::Snapshot(&snapshot);
+    let instance_scope = definition_source.new_instance_scope(&run_id, conversation_id);
+    log::info!(
+        "run_subagent self-fork start conversation_id={} task_id={} tool_call_id={} agent_instance_id={}",
+        conversation_id,
+        task.id,
+        tool_call_id,
+        instance_scope.agent_instance_id
+    );
+
+    let sub_cap = provider
+        .settings
+        .max_sub_agent_tool_rounds
+        .clamp(1, 10_000);
+    let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
+    let mut child_trace = Vec::new();
+    let mut child_usage = ConversationLlmStats::default();
+    let empty_overrides = std::collections::HashMap::new();
+    let mut sub_ctx = super::context::SubAgentLoopContext {
+        session: super::context::SessionRefs {
+            stream,
+            state,
+            conversation_id,
+            cancel: &cancel,
+        },
+        provider: &provider,
+        parent_task_board_store_key: &parent_task_board_store_key,
+        message_id: &message_id,
+        agent_trace: &mut child_trace,
+        enabled_skill_ids: &snapshot.skill_ids,
+        agent_skill_overrides: &empty_overrides,
+        task: &task,
+        definition_source,
+        instance_scope: instance_scope.clone(),
+        sub_tool_budget: &mut sub_budget,
+        llm_stats: &mut child_usage,
+        spawn_depth: child_spawn_depth,
+        max_spawn_depth,
+    };
+    let run_result = Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await;
+    let (trace, exec) = match run_result {
+        Ok(result) => match serde_json::to_string(&result) {
+            Ok(json) => (
+                build_subagent_trace(
+                    &task,
+                    &snapshot.def,
+                    &instance_scope,
+                    child_spawn_depth,
+                    None,
+                    "completed",
+                    Some(truncate_str(&result.content, 160)),
+                ),
+                Ok((json, true, None)),
+            ),
+            Err(err) => {
+                log::warn!(
+                    "run_subagent self-fork result serialize failed conversation_id={} task_id={}: {err}",
+                    conversation_id,
+                    task.id
+                );
+                let message = format!("sub-agent result serialization failed: {err}");
+                (
+                    build_subagent_trace(
+                        &task,
+                        &snapshot.def,
+                        &instance_scope,
+                        child_spawn_depth,
+                        None,
+                        "failed",
+                        Some(message.clone()),
+                    ),
+                    Ok((format!("ERROR: {message}"), false, Some(message))),
+                )
+            }
+        },
+        Err(err) => {
+            let cancelled = cancel.is_cancelled();
+            let status = if cancelled { "cancelled" } else { "failed" };
+            let error_note = if cancelled {
+                "cancelled".to_string()
+            } else {
+                err.to_string()
+            };
+            log::warn!(
+                "run_subagent self-fork ended conversation_id={} task_id={} status={}: {err:#}",
+                conversation_id,
+                task.id,
+                status
+            );
+            abandon_child_board(
+                state,
+                conversation_id,
+                &parent_task_board_store_key,
+                &task.id,
+                Some(&instance_scope.agent_instance_id),
+            );
+            (
+                build_subagent_trace(
+                    &task,
+                    &snapshot.def,
+                    &instance_scope,
+                    child_spawn_depth,
+                    None,
+                    status,
+                    Some(error_note.clone()),
+                ),
+                Ok((format!("ERROR: {error_note}"), false, Some(error_note))),
+            )
+        }
+    };
+    log::info!(
+        "run_subagent self-fork prepared conversation_id={} task_id={} tool_call_id={} status={} llm_rounds={} total_tokens={}",
+        conversation_id,
+        task.id,
+        tool_call_id,
+        trace.status,
+        child_usage.llm_rounds,
+        child_usage.sum_total
+    );
+    PreparedSubagentOutcome {
+        tool_call_id,
+        task_id: task.id,
+        trace,
+        usage: child_usage,
+        exec,
+    }
+}
 
 /// Emits `WorkspaceUpdated` on drop so the parent workspace is restored in the UI
 /// after sub-agent delegation (thread-local is already restored by `AgentWorkspaceGuard`).
@@ -59,6 +413,31 @@ fn emit_subagent_trace_step(
     }
 }
 
+fn build_subagent_trace(
+    task: &AgentTask,
+    def: &AgentDef,
+    instance_scope: &AgentInstanceScope,
+    child_spawn_depth: u32,
+    computer_target: Option<ComputerOperationTarget>,
+    status: &str,
+    detail: Option<String>,
+) -> AgentTrace {
+    AgentTrace {
+        id: super::sub_agent_prompt::sub_agent_trace_id(task, def, instance_scope),
+        name: agent_display_label(def),
+        role: def.role.clone(),
+        status: status.into(),
+        detail,
+        content: None,
+        depth: Some(child_spawn_depth),
+        session: None,
+        computer_target,
+        collapsed: false,
+        user_expanded: false,
+        agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
+    }
+}
+
 pub(super) async fn run_subagent_delegation(
     ctx: &mut super::context::SubagentDelegationContext<'_>,
 ) -> Result<(String, bool, Option<String>), anyhow::Error> {
@@ -94,7 +473,19 @@ pub(super) async fn run_subagent_delegation(
                 &agent_id,
             ) {
                 Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
-                Ok(def) => {
+                Ok(target) => {
+                    let def = match target {
+                        crate::tools::run_subagent::RunSubagentTarget::Registered(def) => def,
+                        crate::tools::run_subagent::RunSubagentTarget::SelfFork => {
+                            let msg =
+                                "self-fork execution is not available in this implementation stage"
+                                    .to_string();
+                            log::warn!(
+                                "run_subagent self-fork execution unavailable conversation_id={conversation_id}"
+                            );
+                            return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                        }
+                    };
                     let tid = if parsed.task_id.trim().is_empty() {
                         new_id("sub_task")
                     } else {
@@ -204,20 +595,21 @@ pub(super) async fn run_subagent_delegation(
                             computer_target
                         );
                     }
+                    let definition_source =
+                        super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task);
+                    let instance_scope =
+                        definition_source.new_instance_scope(run_id, conversation_id);
                     let make_trace =
-                        |status: &str, detail: Option<String>| AgentTrace {
-                            id: agent_trace_step_id(&task.id, &def.id),
-                            name: agent_display_label(&def),
-                            role: def.role.clone(),
-                            status: status.into(),
-                            detail,
-                            content: None,
-                            depth: Some(child_spawn_depth),
-                            session: None,
-                            computer_target,
-                        collapsed: false,
-                        user_expanded: false,
-
+                        |status: &str, detail: Option<String>| {
+                            build_subagent_trace(
+                                &task,
+                                &def,
+                                &instance_scope,
+                                child_spawn_depth,
+                                computer_target,
+                                status,
+                                detail,
+                            )
                         };
                     emit_subagent_trace_step(
                         stream,
@@ -243,9 +635,10 @@ pub(super) async fn run_subagent_delegation(
                         enabled_skill_ids,
                         agent_skill_overrides: ctx.agent_skill_overrides,
                         task: &task,
+                        definition_source,
+                        instance_scope: instance_scope.clone(),
                         sub_tool_budget: &mut sub_budget,
                         llm_stats: ctx.llm_stats,
-                        run_id,
                         spawn_depth: child_spawn_depth,
                         max_spawn_depth,
                     };
@@ -279,25 +672,13 @@ pub(super) async fn run_subagent_delegation(
                                 "run_subagent failed conversation_id={}: {e:#}",
                                 conversation_id
                             );
-                            let child_board_key = crate::task_board::sub_agent_task_board_store_key(
+                            abandon_child_board(
+                                state,
+                                conversation_id,
                                 parent_task_board_store_key,
-                                task.id.trim(),
+                                &task.id,
+                                None,
                             );
-                            match state
-                                .task_board_store
-                                .apply(&child_board_key, "abandon", &serde_json::json!({}))
-                            {
-                                Ok(_) => log::info!(
-                                    "run_subagent: child board abandoned conversation_id={} store_key={}",
-                                    conversation_id,
-                                    child_board_key
-                                ),
-                                Err(abandon_err) => log::warn!(
-                                    "run_subagent: child board abandon skipped conversation_id={} store_key={}: {abandon_err:#}",
-                                    conversation_id,
-                                    child_board_key
-                                ),
-                            }
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,
@@ -309,5 +690,465 @@ pub(super) async fn run_subagent_delegation(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod trace_tests {
+    use super::{
+        build_subagent_trace, commit_subagent_outcome, execute_self_fork,
+        failed_self_fork_outcome, finalize_subagent_outcome, PreparedSubagentOutcome,
+        SelfForkExecutionInput, SubagentCommitContext,
+    };
+    use crate::agent_instance_scope::AgentInstanceScope;
+    use crate::agents::{
+        AccessPolicy, AgentDef, AgentProfile, AgentTask, AgentUiConfig, SkillsPolicy,
+    };
+    use crate::llm_token_stats::ConversationLlmStats;
+    use crate::models::{ChatMessage, Role};
+    use std::collections::HashMap;
+
+    #[test]
+    fn child_trace_carries_current_agent_instance_id() {
+        let task = AgentTask {
+            id: "task-1".into(),
+            agent_id: "self".into(),
+            title: "Fork".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let def = AgentDef {
+            id: "current-agent".into(),
+            name: "Current Agent".into(),
+            description: "snapshot".into(),
+            role: "worker".into(),
+            profile: AgentProfile::Coder,
+            default_skill_ids: vec![],
+            skills_policy: SkillsPolicy::InheritsFromParent,
+            access_policy: AccessPolicy::default(),
+            builtin: false,
+            enabled: true,
+            tool_names: vec![],
+            source: None,
+            resource_files: vec![],
+            allow_agents: vec![],
+            config: HashMap::new(),
+            ui: AgentUiConfig::default(),
+        };
+        let scope = AgentInstanceScope::with_instance_id(
+            "run",
+            "conversation",
+            "current-agent",
+            "instance-1",
+        );
+
+        let trace = build_subagent_trace(&task, &def, &scope, 1, None, "running", None);
+
+        assert_eq!(trace.agent_instance_id.as_deref(), Some("instance-1"));
+    }
+
+    fn anchor_message() -> ChatMessage {
+        ChatMessage {
+            id: "anchor".into(),
+            role: Role::Assistant,
+            content: String::new(),
+            status: "streaming".into(),
+            created_at: 0,
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            tool_raw_output: None,
+            agent_id: None,
+            agent_instance_id: None,
+            agent_name: None,
+            agent_trace: None,
+            image_slot_labels: None,
+            images_base64: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        }
+    }
+
+    fn completed_trace_def() -> AgentDef {
+        AgentDef {
+            id: "current-agent".into(),
+            name: "Current Agent".into(),
+            description: "snapshot".into(),
+            role: "worker".into(),
+            profile: AgentProfile::Coder,
+            default_skill_ids: vec![],
+            skills_policy: SkillsPolicy::InheritsFromParent,
+            access_policy: AccessPolicy::default(),
+            builtin: false,
+            enabled: true,
+            tool_names: vec![],
+            source: None,
+            resource_files: vec![],
+            allow_agents: vec![],
+            config: HashMap::new(),
+            ui: AgentUiConfig::default(),
+        }
+    }
+
+    fn completed_trace() -> crate::models::AgentTrace {
+        let task = AgentTask {
+            id: "task-1".into(),
+            agent_id: "self".into(),
+            title: "Fork".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let def = completed_trace_def();
+        let scope = AgentInstanceScope::with_instance_id(
+            "run",
+            "conversation",
+            "current-agent",
+            "instance-1",
+        );
+        build_subagent_trace(&task, &def, &scope, 1, None, "completed", Some("done".into()))
+    }
+
+    #[test]
+    fn prepared_outcome_does_not_mutate_parent_before_commit() {
+        let history = vec![anchor_message()];
+        let traces: Vec<crate::models::AgentTrace> = Vec::new();
+        let stats = ConversationLlmStats {
+            llm_rounds: 2,
+            sum_total: 20,
+            ..Default::default()
+        };
+
+        let _outcome = PreparedSubagentOutcome {
+            tool_call_id: "call-1".into(),
+            task_id: "task-1".into(),
+            trace: completed_trace(),
+            usage: ConversationLlmStats {
+                llm_rounds: 1,
+                sum_total: 7,
+                ..Default::default()
+            },
+            exec: Ok((r#"{"content":"done"}"#.into(), true, None)),
+        };
+
+        assert_eq!(history.len(), 1);
+        assert!(history[0].agent_trace.is_none());
+        assert!(traces.is_empty());
+        assert_eq!(stats.llm_rounds, 2);
+        assert_eq!(stats.sum_total, 20);
+    }
+
+    #[test]
+    fn preparation_failure_returns_owned_failed_outcome() {
+        let snapshot = crate::chat_service::self_fork::SelfForkSnapshot {
+            def: completed_trace_def(),
+            system_prompt: "captured".into(),
+            skill_ids: vec![],
+            skill_prompts: vec![],
+            allowed_tools: vec![],
+            workspace_root: "/tmp".into(),
+        };
+        let task = AgentTask {
+            id: "task-failed".into(),
+            agent_id: "self".into(),
+            title: "Failed preparation".into(),
+            goal: "work".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+
+        let outcome = failed_self_fork_outcome(
+            "run",
+            "conversation",
+            "call-failed",
+            task,
+            snapshot,
+            2,
+            "spawn depth limit".into(),
+        );
+
+        assert_eq!(outcome.tool_call_id, "call-failed");
+        assert_eq!(outcome.trace.status, "failed");
+        let (result, ok, error) = outcome.exec.unwrap();
+        assert!(!ok);
+        assert!(result.contains("spawn depth limit"));
+        assert_eq!(error.as_deref(), Some("spawn depth limit"));
+    }
+
+    #[tokio::test]
+    async fn commit_records_result_before_anchor_and_final_status() {
+        let (stream, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let mut history = vec![anchor_message()];
+        history[0].tool_calls = Some(vec![crate::models::ToolCall {
+            id: "call-1".into(),
+            name: "run_subagent".into(),
+            arguments: "{}".into(),
+            status: "running".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }]);
+        let mut traces = Vec::new();
+        let mut stats = ConversationLlmStats {
+            llm_rounds: 2,
+            sum_prompt: 10,
+            sum_completion: 10,
+            sum_total: 20,
+            sum_reasoning: 3,
+            tool_invocations: 4,
+            rounds_missing_usage: 1,
+            last_round_prompt_tokens: Some(5),
+        };
+        let outcome = PreparedSubagentOutcome {
+            tool_call_id: "call-1".into(),
+            task_id: "task-1".into(),
+            trace: completed_trace(),
+            usage: ConversationLlmStats {
+                llm_rounds: 1,
+                sum_prompt: 7,
+                sum_completion: 4,
+                sum_total: 11,
+                sum_reasoning: 2,
+                tool_invocations: 3,
+                rounds_missing_usage: 0,
+                last_round_prompt_tokens: Some(7),
+            },
+            exec: Ok((r#"{"content":"done"}"#.into(), true, None)),
+        };
+
+        let pending = commit_subagent_outcome(
+            &mut SubagentCommitContext {
+                stream: &stream,
+                conversation_id: "conversation",
+                message_id: "anchor",
+                history: Some(&mut history),
+                agent_trace: &mut traces,
+                llm_stats: &mut stats,
+            },
+            outcome,
+        );
+
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].status, "completed");
+        assert!(history[0].agent_trace.is_none());
+        assert_eq!(stats.llm_rounds, 3);
+        assert_eq!(stats.sum_prompt, 17);
+        assert_eq!(stats.sum_completion, 14);
+        assert_eq!(stats.sum_total, 31);
+        assert_eq!(stats.sum_reasoning, 5);
+        assert_eq!(stats.tool_invocations, 7);
+        assert_eq!(stats.rounds_missing_usage, 1);
+        assert_eq!(stats.last_round_prompt_tokens, Some(7));
+        assert!(events.try_recv().is_err(), "commit must not publish final status");
+
+        let recorded = pending
+            .record_tool_result(|exec| async {
+                let (content, ok, _) = exec.unwrap();
+                assert!(ok);
+                crate::conversation_transcript::insert_tool_result_in_history(
+                    &mut history,
+                    "anchor",
+                    "call-1",
+                    &content,
+                );
+            })
+            .await;
+
+        assert!(
+            history
+                .iter()
+                .any(|message| message.tool_call_id.as_deref() == Some("call-1")),
+            "tool result must be recorded before finalization"
+        );
+        assert!(history[0].agent_trace.is_none());
+        assert!(
+            events.try_recv().is_err(),
+            "result recording must happen before AgentStep"
+        );
+
+        finalize_subagent_outcome(
+            &mut SubagentCommitContext {
+                stream: &stream,
+                conversation_id: "conversation",
+                message_id: "anchor",
+                history: Some(&mut history),
+                agent_trace: &mut traces,
+                llm_stats: &mut stats,
+            },
+            recorded,
+        );
+
+        assert_eq!(history[0].agent_trace.as_ref().map(Vec::len), Some(1));
+        assert!(matches!(
+            events.try_recv(),
+            Ok(crate::models::StreamEvent::AgentStep { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancelled_self_fork_returns_owned_cancelled_outcome() {
+        let (stream, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let state = crate::chat_service::AppState::new();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        cancel.cancel();
+        let snapshot = crate::chat_service::self_fork::SelfForkSnapshot {
+            def: AgentDef {
+                id: "current-agent".into(),
+                name: "Current Agent".into(),
+                description: "snapshot".into(),
+                role: "worker".into(),
+                profile: AgentProfile::Coder,
+                default_skill_ids: vec![],
+                skills_policy: SkillsPolicy::InheritsFromParent,
+                access_policy: AccessPolicy::default(),
+                builtin: false,
+                enabled: true,
+                tool_names: vec![],
+                source: None,
+                resource_files: vec![],
+                allow_agents: vec![],
+                config: HashMap::new(),
+                ui: AgentUiConfig::default(),
+            },
+            system_prompt: "active prompt".into(),
+            skill_ids: vec![],
+            skill_prompts: vec![],
+            allowed_tools: vec![],
+            workspace_root: "/tmp".into(),
+        };
+        let provider = crate::provider::OpenAIProvider::new(
+            crate::models::ModelSettings::default(),
+            String::new(),
+        );
+
+        let outcome = execute_self_fork(SelfForkExecutionInput {
+            stream: &stream,
+            state: &state,
+            conversation_id: "conversation",
+            cancel,
+            provider,
+            parent_task_board_store_key: "parent-board".into(),
+            message_id: "anchor".into(),
+            tool_call_id: "call-cancel".into(),
+            run_id: "run".into(),
+            task: AgentTask {
+                id: "task-cancel".into(),
+                agent_id: "self".into(),
+                title: "Cancelled fork".into(),
+                goal: "Inspect".into(),
+                context: String::new(),
+                depends_on: vec![],
+            },
+            snapshot,
+            child_spawn_depth: 1,
+            max_spawn_depth: 2,
+        })
+        .await;
+
+        assert_eq!(outcome.tool_call_id, "call-cancel");
+        assert_eq!(outcome.task_id, "task-cancel");
+        assert_eq!(outcome.trace.status, "cancelled");
+        assert_eq!(outcome.usage.llm_rounds, 0);
+        let (_, success, error) = outcome.exec.unwrap();
+        assert!(!success);
+        assert_eq!(error.as_deref(), Some("cancelled"));
+        assert!(
+            std::iter::from_fn(|| events.try_recv().ok())
+                .all(|event| !matches!(event, crate::models::StreamEvent::AgentStep { .. })),
+            "parent trace events must wait for ordered commit"
+        );
+    }
+
+    #[tokio::test]
+    async fn same_task_self_forks_are_isolated_until_owned_commit() {
+        let (stream, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let state = crate::chat_service::AppState::new();
+        let history = vec![anchor_message()];
+        let traces: Vec<crate::models::AgentTrace> = Vec::new();
+        let stats = ConversationLlmStats::default();
+
+        let execute = |tool_call_id: &str| {
+            let cancel = tokio_util::sync::CancellationToken::new();
+            cancel.cancel();
+            execute_self_fork(SelfForkExecutionInput {
+                stream: &stream,
+                state: &state,
+                conversation_id: "same-task-isolation",
+                cancel,
+                provider: crate::provider::OpenAIProvider::new(
+                    crate::models::ModelSettings::default(),
+                    String::new(),
+                ),
+                parent_task_board_store_key: "parent-board".into(),
+                message_id: "anchor".into(),
+                tool_call_id: tool_call_id.into(),
+                run_id: "run".into(),
+                task: AgentTask {
+                    id: "user-reused-task-id".into(),
+                    agent_id: "self".into(),
+                    title: "Cancelled fork".into(),
+                    goal: "Inspect".into(),
+                    context: String::new(),
+                    depends_on: vec![],
+                },
+                snapshot: crate::chat_service::self_fork::SelfForkSnapshot {
+                    def: AgentDef {
+                        id: "current-agent".into(),
+                        name: "Current Agent".into(),
+                        description: "snapshot".into(),
+                        role: "worker".into(),
+                        profile: AgentProfile::Coder,
+                        default_skill_ids: vec![],
+                        skills_policy: SkillsPolicy::InheritsFromParent,
+                        access_policy: AccessPolicy::default(),
+                        builtin: false,
+                        enabled: true,
+                        tool_names: vec![],
+                        source: None,
+                        resource_files: vec![],
+                        allow_agents: vec![],
+                        config: HashMap::new(),
+                        ui: AgentUiConfig::default(),
+                    },
+                    system_prompt: "active prompt".into(),
+                    skill_ids: vec![],
+                    skill_prompts: vec![],
+                    allowed_tools: vec![],
+                    workspace_root: "/tmp".into(),
+                },
+                child_spawn_depth: 1,
+                max_spawn_depth: 2,
+            })
+        };
+
+        let first = execute("call-1").await;
+        let second = execute("call-2").await;
+
+        assert_ne!(first.trace.id, second.trace.id);
+        assert_ne!(first.trace.agent_instance_id, second.trace.agent_instance_id);
+        assert_eq!(first.task_id, second.task_id);
+        assert_eq!(history.len(), 1);
+        assert!(history[0].agent_trace.is_none());
+        assert!(traces.is_empty());
+        assert_eq!(stats.llm_rounds, 0);
+        assert!(
+            std::iter::from_fn(|| events.try_recv().ok())
+                .all(|event| !matches!(event, crate::models::StreamEvent::AgentStep { .. })),
+            "both outcomes must remain uncommitted"
+        );
     }
 }

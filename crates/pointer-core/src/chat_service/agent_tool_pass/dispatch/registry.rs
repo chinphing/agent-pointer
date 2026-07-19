@@ -2,9 +2,10 @@
 
 use crate::agents::computer::ComputerTierGuard;
 use crate::agents::{AgentProfile, FileToolLeadProfileGuard};
-use crate::tools::file::ConversationWorkspaceGuard;
+use crate::tools::file::{resolve_writable_path, ConversationWorkspaceGuard};
+use std::path::Path;
 
-use super::super::super::app_state::AppState;
+use super::super::super::app_state::{AppState, ToolExecutionScope};
 use super::super::types::{LeadToolPassConfig, SubToolPassConfig, ToolExecResult};
 
 /// Resolve workspace root with session sandbox fallback.
@@ -52,7 +53,7 @@ pub(super) fn resolve_workspace_root(
     }
 }
 
-pub(super) fn dispatch_registry_invoke(
+pub(super) async fn dispatch_registry_invoke(
     state: &AppState,
     conversation_id: &str,
     tool_id: &str,
@@ -60,19 +61,78 @@ pub(super) fn dispatch_registry_invoke(
     workspace_root: &str,
     lead: Option<&LeadToolPassConfig<'_>>,
     sub: Option<&SubToolPassConfig<'_>>,
+    execution_scope: ToolExecutionScope,
 ) -> ToolExecResult {
     let file_profile = lead
         .map(|l| l.file_tool_lead_for_invoke.clone())
-        .or_else(|| sub.map(|s| s.def.profile.clone()))
+        .or_else(|| sub.map(|s| s.active.def.profile.clone()))
         .unwrap_or(AgentProfile::General);
-    let _file_tool_profile_guard = FileToolLeadProfileGuard::enter(file_profile.clone());
+    dispatch_registry_invoke_with_profile(
+        state,
+        conversation_id,
+        tool_id,
+        args_value,
+        workspace_root,
+        file_profile,
+        execution_scope,
+    )
+    .await
+}
 
+pub(super) async fn dispatch_registry_invoke_with_profile(
+    state: &AppState,
+    conversation_id: &str,
+    tool_id: &str,
+    args_value: serde_json::Value,
+    workspace_root: &str,
+    file_profile: AgentProfile,
+    execution_scope: ToolExecutionScope,
+) -> ToolExecResult {
     let session_user_id = state
         .session_index
         .session_user_id(conversation_id)
         .unwrap_or_default();
     let resolved_workspace =
         resolve_workspace_root(conversation_id, &session_user_id, workspace_root);
+    let _write_guard = if matches!(tool_id, "file_write" | "file_edit") {
+        let path = args_value
+            .get("path")
+            .or_else(|| args_value.get("file"))
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow::anyhow!("缺少 path"))?;
+        let target = resolve_writable_path(Path::new(&resolved_workspace), path).map_err(|error| {
+            log::warn!(
+                "file_lock: path resolution failed tool={} path={} {} error={error:#}",
+                tool_id,
+                path,
+                execution_scope.log_fields()
+            );
+            error
+        })?;
+        let (guard, waited, normalized) =
+            state.file_write_locks.lock_path(&target).await.map_err(|error| {
+                log::warn!(
+                    "file_lock: acquisition failed tool={} path={} {} error={error:#}",
+                    tool_id,
+                    target.display(),
+                    execution_scope.log_fields()
+                );
+                error
+            })?;
+        if !waited.is_zero() {
+            log::info!(
+                "file_lock: acquired tool={} path={} wait_us={} {}",
+                tool_id,
+                normalized.display(),
+                waited.as_micros(),
+                execution_scope.log_fields()
+            );
+        }
+        Some(guard)
+    } else {
+        None
+    };
+    let _file_tool_profile_guard = FileToolLeadProfileGuard::enter(file_profile.clone());
 
     // Re-establish thread-local workspace root: tokio may have moved us to a
     // different worker thread since `ConversationWorkspaceGuard::enter` was set

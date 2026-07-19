@@ -139,6 +139,8 @@ export interface AgentTrace {
   /** Collapsed summary header (persisted index UI). */
   collapsed?: boolean
   userExpanded?: boolean
+  /** Runtime child invocation UUID used to isolate reused task traces. */
+  agentInstanceId?: string
   /** `run_subagent` → computer: task goal targets Pointer itself (`self`) or other apps (`external`). */
   computerTarget?: ComputerOperationTarget
 }
@@ -305,7 +307,7 @@ export interface ChatMessage {
   attachments?: MediaAttachment[]
   /** Parent lead assistant message id (scoped sub-agent transcript rows). */
   anchorMessageId?: string
-  /** Stable sub-task trace id (`{taskId}:{agentId}`). */
+  /** Stable sub-task trace id; self-forks include a unique instance segment. */
   traceId?: string
   taskId?: string
   spawnDepth?: number
@@ -749,6 +751,7 @@ export type StreamEvent =
       traceId: string
       taskId: string
       spawnDepth: number
+      agentInstanceId: string
     }
   | { kind: 'delta'; messageId: string; text: string }
   | { kind: 'raw_content_delta'; messageId: string; text: string; traceId?: string; scopedMessageId?: string }

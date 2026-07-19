@@ -109,11 +109,6 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
         communication: include_str!("general/COMMUNICATION.md"),
     },
     BuiltinAgentBundle {
-        id: "general-worker",
-        manifest: include_str!("general-worker/AGENT.md"),
-        communication: include_str!("general-worker/COMMUNICATION.md"),
-    },
-    BuiltinAgentBundle {
         id: "supervisor",
         manifest: include_str!("supervisor/AGENT.md"),
         communication: include_str!("supervisor/COMMUNICATION.md"),
@@ -332,6 +327,10 @@ pub struct AgentPlan {
     pub lead_agent_id: String,
     pub lead_agent_name: String,
     pub system_prompts: Vec<String>,
+    pub active_def: AgentDef,
+    pub active_system_prompt: String,
+    pub resolved_skill_ids: Vec<String>,
+    pub resolved_skill_prompts: Vec<String>,
     pub allowed_tool_names: Vec<String>,
     /// Sorted, deduped worker ids from the lead agent manifest `allowAgents`.
     pub allow_agents: Vec<String>,
@@ -602,13 +601,18 @@ impl AgentOrchestrator {
                 .get(&agent.id)
                 .map(|a| a.system_prompt());
             let mut system_prompts = vec![agent_prompt(&agent, lead_prompt)];
-            system_prompts.extend(skill_prompts);
+            let active_system_prompt = system_prompts[0].clone();
+            system_prompts.extend(skill_prompts.clone());
 
             return AgentPlan {
                 mode: normalized_mode.into(),
                 lead_agent_id: agent.id.clone(),
                 lead_agent_name: agent_ui::agent_display_label(&agent),
                 system_prompts,
+                active_def: agent.clone(),
+                active_system_prompt,
+                resolved_skill_ids: session_skill_ids,
+                resolved_skill_prompts: skill_prompts,
                 allowed_tool_names,
                 allow_agents: normalize_allow_agents(&agent.allow_agents),
             };
@@ -638,13 +642,18 @@ impl AgentOrchestrator {
             supervisor.as_ref().map(|a| a.system_prompt()),
             &worker_agents,
         )];
-        system_prompts.extend(skill_prompts);
+        let active_system_prompt = system_prompts[0].clone();
+        system_prompts.extend(skill_prompts.clone());
 
         AgentPlan {
             mode: normalized_mode.into(),
             lead_agent_id: lead.id.clone(),
             lead_agent_name: agent_ui::agent_display_label(&lead),
             system_prompts,
+            active_def: lead.clone(),
+            active_system_prompt,
+            resolved_skill_ids: Vec::new(),
+            resolved_skill_prompts: skill_prompts,
             allowed_tool_names,
             allow_agents: normalize_allow_agents(&lead.allow_agents),
         }
@@ -1067,9 +1076,9 @@ pub fn agent_supports_skills(agent: &AgentDef) -> bool {
     !matches!(agent.skills_policy, SkillsPolicy::Disabled)
 }
 
-/// Sub-agents that load session skills (`general-worker` inherits lead list; **coder** uses its defaults).
+/// Sub-agents that load session skills (**coder** uses its defaults).
 pub fn sub_agent_inherits_session_skills(agent_id: &str) -> bool {
-    matches!(agent_id, "general-worker" | "coder")
+    matches!(agent_id, "coder")
 }
 
 /// Skill ids for a delegated sub-agent session. Uses `agent.skills_policy` to determine strategy.
@@ -1222,6 +1231,41 @@ mod builtin_agent_tests {
             resolve_skill_ids(&general, &enabled, &overrides),
             vec!["pdf".to_string()]
         );
+    }
+
+    #[test]
+    fn lead_plan_captures_effective_state_before_enabled_ids_mutate() {
+        let agents = AgentRegistry::new();
+        register_builtin_agents(&agents);
+        let skills = SkillRegistry::new();
+        let tools = ToolRegistry::new();
+        let store = std::sync::Arc::new(crate::task_board::TaskBoardStore::new());
+        crate::tools::builtin::register_all(&tools, store);
+        let mut enabled = vec!["captured-skill".to_string()];
+        let plan = AgentOrchestrator::build_plan(
+            &agents,
+            &skills,
+            &tools,
+            &enabled,
+            &HashMap::new(),
+            AGENT_MODE_SINGLE,
+            Some("general"),
+        );
+
+        enabled.clear();
+        enabled.push("changed-after-plan".into());
+
+        assert_eq!(plan.resolved_skill_ids, vec!["captured-skill"]);
+        assert_eq!(
+            plan.active_system_prompt,
+            plan.system_prompts.first().cloned().unwrap()
+        );
+        assert_eq!(
+            plan.resolved_skill_prompts,
+            plan.system_prompts.iter().skip(1).cloned().collect::<Vec<_>>()
+        );
+        assert_eq!(plan.active_def.id, plan.lead_agent_id);
+        assert_eq!(enabled, vec!["changed-after-plan"]);
     }
 
     #[test]
@@ -1529,7 +1573,17 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn general_builtin_allow_agents_includes_coder_and_computer() {
+    fn general_worker_not_registered_in_builtin_registry() {
+        let reg = AgentRegistry::new();
+        register_builtin_agents(&reg);
+        assert!(
+            reg.get("general-worker").is_none(),
+            "general-worker must not be registered"
+        );
+    }
+
+    #[test]
+    fn general_builtin_allow_agents_excludes_general_worker() {
         let raw = include_str!("general/AGENT.md");
         let comm = include_str!("general/COMMUNICATION.md");
         let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
@@ -1538,8 +1592,8 @@ mod builtin_agent_tests {
                 .def
                 .allow_agents
                 .binary_search(&"general-worker".to_string())
-                .is_ok(),
-            "general allowAgents should include general-worker"
+                .is_err(),
+            "general allowAgents must not include general-worker"
         );
         assert!(
             agent.def.allow_agents.binary_search(&"coder".to_string()).is_ok(),
@@ -1553,6 +1607,13 @@ mod builtin_agent_tests {
                 .is_ok(),
             "general allowAgents should include computer"
         );
+    }
+
+    #[test]
+    fn general_builtin_allow_agents_includes_coder_and_computer() {
+        let raw = include_str!("general/AGENT.md");
+        let comm = include_str!("general/COMMUNICATION.md");
+        let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
         for tool in ["file_read", "file_write"] {
             assert!(
                 agent
@@ -1573,58 +1634,10 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn general_worker_builtin_manifest_parses_and_loads() {
-        let raw = include_str!("general-worker/AGENT.md");
-        let comm = include_str!("general-worker/COMMUNICATION.md");
-        let agent = load_builtin_agent("general-worker", raw, comm).expect("load general-worker");
-        assert_eq!(agent.def.id, "general-worker");
-        assert_eq!(agent.def.profile, AgentProfile::General);
-        assert!(agent.def.allow_agents.is_empty());
-        assert_eq!(agent.def.ui.user_selectable, Some(false));
-        assert_eq!(agent.def.ui.show_in_composer, Some(false));
-        assert!(
-            !agent
-                .def
-                .access_policy
-                .allow_tools
-                .contains(&"run_subagent".to_string()),
-            "general-worker must not allow run_subagent"
-        );
-        assert!(
-            agent
-                .def
-                .access_policy
-                .allow_tools
-                .contains(&"skill_read".to_string()),
-            "general-worker should allow skill_read"
-        );
-        assert!(
-            agent
-                .def
-                .access_policy
-                .allow_tools
-                .contains(&"task_board_init".to_string()),
-            "general-worker should allow task_board_init"
-        );
-        assert!(
-            agent
-                .def
-                .access_policy
-                .allow_tools
-                .contains(&"task_board_finalize".to_string()),
-            "general-worker should allow task_board_finalize"
-        );
-        assert!(
-            !agent
-                .def
-                .access_policy
-                .allow_tools
-                .contains(&"run_subagent".to_string()),
-            "general-worker must not allow run_subagent even with task_board"
-        );
-        assert!(crate::agents::sub_agent_inherits_session_skills("general-worker"));
+    fn sub_agent_inherits_session_skills_only_for_coder() {
         assert!(crate::agents::sub_agent_inherits_session_skills("coder"));
         assert!(!crate::agents::sub_agent_inherits_session_skills("explore"));
+        assert!(!crate::agents::sub_agent_inherits_session_skills("general-worker"));
     }
 
     #[test]
@@ -1655,24 +1668,6 @@ mod builtin_agent_tests {
             ]
         );
     }
-
-    #[test]
-    fn sub_agent_skill_ids_for_general_worker_inherits_parent() {
-        let worker = load_builtin_agent(
-            "general-worker",
-            include_str!("general-worker/AGENT.md"),
-            include_str!("general-worker/COMMUNICATION.md"),
-        )
-        .expect("load general-worker")
-        .def;
-        let ids = sub_agent_skill_ids(
-            &worker,
-            &["pdf".into(), "docx".into(), "pdf".into()],
-            &HashMap::new(),
-        );
-        assert_eq!(ids, vec!["docx".to_string(), "pdf".to_string()]);
-    }
-
     #[test]
     fn default_lead_agent_id_is_general() {
         assert_eq!(DEFAULT_LEAD_AGENT_ID, "general");

@@ -36,22 +36,38 @@ impl ToolInvocationStats<'_> {
             ToolInvocationStats::Conversation(s) => s.record_tool_invocation(),
         }
     }
+
+    pub fn conversation_stats_mut(&mut self) -> &mut ConversationLlmStats {
+        match self {
+            ToolInvocationStats::TokenSession(session) => &mut session.stats,
+            ToolInvocationStats::Conversation(stats) => stats,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ActiveAgentExecutionState<'a> {
+    pub def: &'a AgentDef,
+    pub system_prompt: &'a str,
+    pub skill_ids: &'a [String],
+    pub skill_prompts: &'a [String],
+    pub allowed_tools: &'a [String],
 }
 
 pub struct LeadToolPassConfig<'a> {
     pub run_id: &'a str,
+    pub instance_scope: &'a AgentInstanceScope,
     pub allow_agents: &'a [String],
     pub enabled_skill_ids: &'a mut Vec<String>,
     pub agent_skill_overrides: &'a std::collections::HashMap<String, Vec<String>>,
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub file_tool_lead_for_invoke: AgentProfile,
     pub lead_agent_id: &'a str,
+    pub active: ActiveAgentExecutionState<'a>,
 }
 
 pub struct SubToolPassConfig<'a> {
-    pub def: &'a AgentDef,
     pub task: &'a AgentTask,
-    pub allowed_tools: &'a [String],
     pub allow_agents: &'a [String],
     pub agent_skill_overrides: &'a std::collections::HashMap<String, Vec<String>>,
     pub instance_scope: &'a AgentInstanceScope,
@@ -62,6 +78,7 @@ pub struct SubToolPassConfig<'a> {
     pub trace_id: String,
     pub spawn_depth: u32,
     pub scoped_message_id: String,
+    pub active: ActiveAgentExecutionState<'a>,
 }
 
 pub(super) type ToolExecResult = Result<(String, bool, Option<String>), anyhow::Error>;
@@ -105,6 +122,8 @@ pub struct LeadSingleToolPassRequest<'a> {
     pub token_session: &'a mut ChatLlmTokenSession,
     pub settings: &'a ModelSettings,
     pub lead_agent_id: &'a str,
+    pub instance_scope: &'a AgentInstanceScope,
+    pub active: ActiveAgentExecutionState<'a>,
     pub file_tool_lead_for_invoke: AgentProfile,
     pub assistant_id: String,
     pub final_tool_calls: &'a [ToolCall],

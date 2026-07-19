@@ -30,6 +30,7 @@ pub use coordination::{
     latest_real_user_message_id, looks_like_resume_intent, main_turn_task_board_store_key,
     parent_store_key_from_child, resolve_fresh_main_turn_init_store_key,
     resolve_store_key_for_read, sub_agent_task_board_store_key,
+    sub_agent_task_board_store_key_for_instance,
 };
 pub use gateway::{
     check_dependencies, dispatch_to_child, report_child_status, sync_global_finding,

@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::super::super::app_state::AppState;
+use super::super::super::app_state::{AppState, ToolExecutionScope};
 use super::super::super::emit::trace_id_opt;
 use super::super::super::StreamTx;
 use super::super::types::ToolExecResult;
@@ -70,6 +70,7 @@ fn run_terminal_input_bridge(
     stream: &StreamTx,
     msg_id_for_input: &str,
     tc_id_for_input: &str,
+    execution_scope: &ToolExecutionScope,
     trace_id_for_input: &Option<String>,
     scoped_for_input: &Option<String>,
     prompt_rx: std::sync::mpsc::Receiver<TerminalNeedsInputPrompt>,
@@ -77,7 +78,11 @@ fn run_terminal_input_bridge(
 ) {
     while let Ok(prompt) = prompt_rx.recv() {
         let (tx, rx) = std::sync::mpsc::channel();
-        state.register_terminal_input_wait(prompt.request_id.clone(), tx);
+        state.register_terminal_input_wait(
+            execution_scope.clone(),
+            prompt.request_id.clone(),
+            tx,
+        );
         let input_class = input_class_wire(prompt.input_class);
         publish_stream(
             stream,
@@ -94,17 +99,19 @@ fn run_terminal_input_bridge(
             },
         );
         log::info!(
-            "terminal: TerminalNeedsInput published request_id={} tool_call_id={}",
+            "terminal: TerminalNeedsInput published request_id={} {}",
             prompt.request_id,
-            tc_id_for_input
+            execution_scope.log_fields()
         );
         let res = match rx.recv_timeout(Duration::from_millis(prompt.wait_for_input_ms)) {
             Ok(res) => res,
             Err(_) => {
-                state
-                    .terminal_input_pending
-                    .lock()
-                    .remove(&prompt.request_id);
+                state.clear_terminal_input_wait(execution_scope, &prompt.request_id);
+                log::info!(
+                    "terminal: input wait timed out request_id={} {}",
+                    prompt.request_id,
+                    execution_scope.log_fields()
+                );
                 TerminalInputResolution::Dismiss
             }
         };
@@ -125,6 +132,7 @@ pub(super) async fn run_terminal_tool(
     trace_id: Option<String>,
     scoped_message_id: Option<String>,
     session_workspace: String,
+    execution_scope: ToolExecutionScope,
 ) -> ToolExecResult {
     let session_workspace = resolve_terminal_session_workspace(conversation_id, session_workspace);
     if session_workspace.trim().is_empty() {
@@ -134,9 +142,8 @@ pub(super) async fn run_terminal_tool(
     }
     let cancel_terminal = cancel.clone();
     let abort_flag = Arc::new(AtomicBool::new(false));
-    state.register_terminal_abort_flag(conversation_id, &tc.id, abort_flag.clone());
-    let cleanup_conv = conversation_id.to_string();
-    let cleanup_tc = tc.id.clone();
+    state.register_terminal_abort_flag(execution_scope.clone(), abort_flag.clone());
+    let cleanup_scope = execution_scope.clone();
     let msg_id_for_stream = message_id.to_string();
     let tc_id_for_stream = tc.id.clone();
     let stream_for_terminal = stream.clone();
@@ -149,6 +156,7 @@ pub(super) async fn run_terminal_tool(
     let tc_id_for_input = tc.id.clone();
     let trace_id_for_input = trace_id_for_terminal.clone();
     let scoped_for_input = scoped_message_id_for_terminal.clone();
+    let execution_scope_for_input = execution_scope.clone();
 
     let session_user_id = state
         .session_index
@@ -170,6 +178,7 @@ pub(super) async fn run_terminal_tool(
                     stream,
                     &msg_id_for_input,
                     &tc_id_for_input,
+                    &execution_scope_for_input,
                     &trace_id_for_input,
                     &scoped_for_input,
                     prompt_rx,
@@ -234,6 +243,7 @@ pub(super) async fn run_terminal_tool(
         })
     })
     .await;
-    state.clear_terminal_abort_flag(&cleanup_conv, &cleanup_tc);
+    state.clear_terminal_abort_flag(&cleanup_scope);
+    log::info!("terminal: completed {}", execution_scope.log_fields());
     join.map_err(|e| anyhow!("终端执行线程异常: {e}"))?
 }

@@ -58,16 +58,20 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
             _ => panic!("Unknown skill tool: {name}"),
         };
 
-        reg.register(
-            ToolEntry::new(
-                name.clone(),
-                SKILL_DOC_SOURCE,
-                risk,
-                requires_approval,
-                prompt.clone(),
-                handler,
-            )
-            .with_schema(schema),
-        );
+        let entry = ToolEntry::new(
+            name.clone(),
+            SKILL_DOC_SOURCE,
+            risk,
+            requires_approval,
+            prompt.clone(),
+            handler,
+        )
+        .with_schema(schema);
+        let entry = if name == "skill_import" {
+            entry.with_subagent_inheritance(false)
+        } else {
+            entry
+        };
+        reg.register(entry);
     }
 }

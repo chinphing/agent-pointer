@@ -44,7 +44,7 @@ execute eligible tools concurrently subject to conflict detection and platform l
 | File read | `file_read`, `file_grep`, `file_glob`, `file_list` |
 | File write | `file_write`, `file_edit` (different paths only) |
 | Terminal | `terminal` |
-| Sub-agent | `run_subagent` (serial waves; one active delegation mut path) |
+| Sub-agent | `run_subagent` — registered workers serial per wave; multiple **`agentId="self"`** in one turn may run in a parallel self-fork wave (subject to `maxParallelSubAgents`) |
 | Media | `image_generate`, `video_generate`, `media_understand` |
 | Other | `web_search`, `skill_read`, `session_search`, `memory` |
 

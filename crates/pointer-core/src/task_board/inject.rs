@@ -8,7 +8,9 @@ use crate::task_board::evidence::{
 };
 use serde_json::Value;
 
-pub use crate::task_board::coordination::parent_child::sub_agent_task_board_store_key;
+pub use crate::task_board::coordination::parent_child::{
+    sub_agent_task_board_store_key, sub_agent_task_board_store_key_for_instance,
+};
 
 /// Host-only binding for `task_board` and computer tools so models cannot spoof another session id.
 pub fn inject_host_task_board_conversation_id(
@@ -160,5 +162,40 @@ mod tests {
             false,
         );
         assert_eq!(out, args);
+    }
+
+    #[test]
+    fn inherited_task_board_call_is_bound_only_to_its_child_store() {
+        let first_store = sub_agent_task_board_store_key_for_instance(
+            "parent",
+            "shared-task",
+            "fork-a",
+        );
+        let second_store = sub_agent_task_board_store_key_for_instance(
+            "parent",
+            "shared-task",
+            "fork-b",
+        );
+        let supplied = serde_json::json!({
+            "_conversation_id": second_store,
+            "items": [{"id": "local_01", "status": "done"}]
+        });
+
+        let out = inject_host_task_board_conversation_id(
+            "task_board_patch",
+            supplied,
+            "conversation",
+            &first_store,
+            "user-1",
+            &[],
+            None,
+            false,
+            false,
+        );
+
+        assert_eq!(
+            out.get("_conversation_id").and_then(Value::as_str),
+            Some(first_store.as_str())
+        );
     }
 }

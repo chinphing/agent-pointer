@@ -1,6 +1,5 @@
-//! Sub-agent scoped messages: linkage fields, DB load, per-row persist.
+//! Sub-agent scoped messages: linkage fields, filtering, and per-row persistence.
 
-use crate::conversation_store;
 use crate::models::{AgentTrace, ChatMessage, MessageContextState};
 
 use super::conversation_persist;
@@ -11,6 +10,7 @@ pub struct SubMessageLinkage {
     pub trace_id: String,
     pub task_id: String,
     pub spawn_depth: u32,
+    pub agent_instance_id: String,
 }
 
 impl SubMessageLinkage {
@@ -19,6 +19,7 @@ impl SubMessageLinkage {
         msg.trace_id = Some(self.trace_id.clone());
         msg.task_id = Some(self.task_id.clone());
         msg.spawn_depth = Some(self.spawn_depth);
+        msg.agent_instance_id = Some(self.agent_instance_id.clone());
         msg.context_state = Some(MessageContextState {
             included: false,
             excluded_reason: None,
@@ -26,12 +27,18 @@ impl SubMessageLinkage {
     }
 }
 
+pub fn is_scoped_sub_message(msg: &ChatMessage) -> bool {
+    crate::models::is_scoped_sub_message(msg)
+}
+
+#[cfg(test)]
 /// Strip DB-only scoped linkage so sub-agent loop memory matches lead loop (unstamped rows).
-pub fn clear_scoped_linkage_for_loop(msg: &mut ChatMessage) {
+fn clear_scoped_linkage_for_loop(msg: &mut ChatMessage) {
     msg.anchor_message_id = None;
     msg.trace_id = None;
     msg.task_id = None;
     msg.spawn_depth = None;
+    msg.agent_instance_id = None;
     if let Some(state) = msg.context_state.as_ref() {
         if !state.included && state.excluded_reason.is_none() {
             msg.context_state = None;
@@ -39,11 +46,8 @@ pub fn clear_scoped_linkage_for_loop(msg: &mut ChatMessage) {
     }
 }
 
-pub fn is_scoped_sub_message(msg: &ChatMessage) -> bool {
-    crate::models::is_scoped_sub_message(msg)
-}
-
-pub fn filter_scoped_messages(
+#[cfg(test)]
+fn filter_scoped_messages(
     messages: &[ChatMessage],
     linkage: &SubMessageLinkage,
 ) -> Vec<ChatMessage> {
@@ -52,24 +56,11 @@ pub fn filter_scoped_messages(
         .filter(|m| {
             m.anchor_message_id.as_deref() == Some(linkage.anchor_message_id.as_str())
                 && m.trace_id.as_deref() == Some(linkage.trace_id.as_str())
+                && m.agent_instance_id.as_deref()
+                    == Some(linkage.agent_instance_id.as_str())
         })
         .cloned()
         .collect()
-}
-
-pub fn load_scoped_transcript(
-    conversation_id: &str,
-    linkage: &SubMessageLinkage,
-) -> anyhow::Result<Vec<ChatMessage>> {
-    let store = conversation_store::global_store()?;
-    let all = store.load_messages(conversation_id)?;
-    Ok(filter_scoped_messages(&all, linkage)
-        .into_iter()
-        .map(|mut m| {
-            clear_scoped_linkage_for_loop(&mut m);
-            m
-        })
-        .collect())
 }
 
 pub fn persist_sub_message(conversation_id: &str, linkage: &SubMessageLinkage, msg: &ChatMessage) {
@@ -77,9 +68,10 @@ pub fn persist_sub_message(conversation_id: &str, linkage: &SubMessageLinkage, m
     linkage.stamp(&mut stamped);
     conversation_persist::upsert_message(conversation_id, &stamped);
     log::debug!(
-        "sub_message: persisted conversation_id={conversation_id} message_id={} trace_id={}",
+        "sub_message: persisted conversation_id={conversation_id} message_id={} trace_id={} agent_instance_id={}",
         stamped.id,
-        linkage.trace_id
+        linkage.trace_id,
+        linkage.agent_instance_id
     );
 }
 
@@ -216,9 +208,11 @@ mod tests {
             trace_id: "task:explore".into(),
             task_id: "task".into(),
             spawn_depth: 1,
+            agent_instance_id: "instance-a".into(),
         };
         link.stamp(&mut msg);
         assert_eq!(msg.anchor_message_id.as_deref(), Some("anchor"));
+        assert_eq!(msg.agent_instance_id.as_deref(), Some("instance-a"));
         assert_eq!(msg.context_state.as_ref().map(|s| s.included), Some(false));
     }
 
@@ -229,12 +223,17 @@ mod tests {
             trace_id: "task:explore".into(),
             task_id: "task".into(),
             spawn_depth: 1,
+            agent_instance_id: "instance-a".into(),
         };
+        let mut matching = sample_msg("sub1", Some("anchor"), Some("task:explore"));
+        matching.agent_instance_id = Some("instance-a".into());
+        let mut other = sample_msg("other", Some("anchor"), Some("task:coder"));
+        other.agent_instance_id = Some("instance-a".into());
         let loaded = filter_scoped_messages(
             &[
                 sample_msg("lead", None, None),
-                sample_msg("sub1", Some("anchor"), Some("task:explore")),
-                sample_msg("other", Some("anchor"), Some("task:coder")),
+                matching,
+                other,
             ],
             &link,
         );
@@ -243,17 +242,40 @@ mod tests {
     }
 
     #[test]
-    fn clear_scoped_linkage_restores_loop_inclusion() {
-        let mut msg = sample_msg("m1", Some("anchor"), Some("task:explore"));
+    fn filter_scoped_messages_excludes_previous_instance_with_same_task() {
         let link = SubMessageLinkage {
             anchor_message_id: "anchor".into(),
             trace_id: "task:explore".into(),
             task_id: "task".into(),
             spawn_depth: 1,
+            agent_instance_id: "instance-new".into(),
+        };
+        let mut old = sample_msg("old", Some("anchor"), Some("task:explore"));
+        old.agent_instance_id = Some("instance-old".into());
+        let mut current = sample_msg("current", Some("anchor"), Some("task:explore"));
+        current.agent_instance_id = Some("instance-new".into());
+
+        let loaded = filter_scoped_messages(&[old, current], &link);
+
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "current");
+    }
+
+    #[test]
+    fn clear_scoped_linkage_restores_loop_inclusion() {
+        let mut msg = sample_msg("m1", Some("anchor"), Some("task:explore"));
+        msg.agent_instance_id = Some("instance-a".into());
+        let link = SubMessageLinkage {
+            anchor_message_id: "anchor".into(),
+            trace_id: "task:explore".into(),
+            task_id: "task".into(),
+            spawn_depth: 1,
+            agent_instance_id: "instance-a".into(),
         };
         link.stamp(&mut msg);
         assert!(!crate::message_context::is_context_included(&msg));
         clear_scoped_linkage_for_loop(&mut msg);
+        assert!(msg.agent_instance_id.is_none());
         assert!(crate::message_context::is_context_included(&msg));
         assert!(crate::message_context::is_sub_agent_loop_included(&msg));
     }
@@ -312,6 +334,7 @@ mod tests {
             session: None,
             collapsed: true,
             user_expanded: false,
+            agent_instance_id: None,
             computer_target: None,
         }];
         // DB may be unavailable in unit tests; history mutation is still required.

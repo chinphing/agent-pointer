@@ -61,6 +61,8 @@ pub enum StreamEvent {
         task_id: String,
         #[serde(rename = "spawnDepth")]
         spawn_depth: u32,
+        #[serde(rename = "agentInstanceId")]
+        agent_instance_id: String,
     },
     Delta {
         #[serde(rename = "messageId")]
@@ -411,6 +413,28 @@ pub enum StreamEvent {
         #[serde(rename = "monitorId")]
         monitor_id: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StreamEvent;
+
+    #[test]
+    fn sub_message_start_serializes_agent_instance_id() {
+        let event = StreamEvent::SubMessageStart {
+            conversation_id: "conversation".into(),
+            anchor_message_id: "anchor".into(),
+            scoped_message_id: "child".into(),
+            trace_id: "task:explore".into(),
+            task_id: "task".into(),
+            spawn_depth: 1,
+            agent_instance_id: "instance-current".into(),
+        };
+
+        let value = serde_json::to_value(event).expect("serialize");
+
+        assert_eq!(value["agentInstanceId"], "instance-current");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

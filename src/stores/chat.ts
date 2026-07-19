@@ -1128,12 +1128,17 @@ export const useChatStore = defineStore('chat', () => {
       return scopedTarget.toolCalls?.find(t => t.id === toolCallId) ?? null
     }
     if (traceId?.trim()) {
-      const scoped = scopedMessagesForTrace(r.conv.messages, r.msg.id, traceId.trim())
+      const trace = ensureSubTrace(r.msg, traceId.trim())
+      const scoped = scopedMessagesForTrace(
+        r.conv.messages,
+        r.msg.id,
+        traceId.trim(),
+        trace.agentInstanceId
+      )
       for (let i = scoped.length - 1; i >= 0; i--) {
         const tc = scoped[i].toolCalls?.find(t => t.id === toolCallId)
         if (tc) return tc
       }
-      const trace = ensureSubTrace(r.msg, traceId.trim())
       return trace.session?.toolCalls?.find(t => t.id === toolCallId) ?? null
     }
     return r.msg.toolCalls?.find(t => t.id === toolCallId) ?? null

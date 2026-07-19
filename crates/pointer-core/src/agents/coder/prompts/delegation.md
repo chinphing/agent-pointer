@@ -72,3 +72,10 @@ Explore returns **Markdown** in **`run_subagent` → `content`**. Treat it as ev
 ### When to re-delegate
 
 Second **`run_subagent`** when handoff **`## Gaps for parent`** blocks safe edit, Surfaces missing for wire changes, or fix scope expands across layers.
+
+## Self fork (`run_subagent`, `agentId="self"`)
+
+Use **`self`** for **independent substantial slices** when isolated context helps. Self forks
+are **leaf** workers — no nested **`run_subagent`**. Broad read-only mapping → **`explore`**,
+not **`self`**.
+Parallel self forks: follow **Parallel self forks** in the **`run_subagent`** tool doc.

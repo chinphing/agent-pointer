@@ -40,6 +40,7 @@ export function ensureSubTrace(
       status: patch?.status ?? 'running',
       depth: patch?.depth ?? 1,
       detail: patch?.detail,
+      agentInstanceId: patch?.agentInstanceId,
       computerTarget: patch?.computerTarget,
       collapsed: patch?.collapsed ?? false,
       userExpanded: patch?.userExpanded ?? false

@@ -15,14 +15,17 @@ pub fn register_all(reg: &ToolRegistry) {
             "run_subagent is executed by the chat runtime, not synchronous invoke"
         ))
     });
-    reg.register(ToolEntry::new(
-        "run_subagent",
-        DOC_SOURCE,
-        "medium",
-        false,
-        DOC.trim(),
-        handler,
-    ));
+    reg.register(
+        ToolEntry::new(
+            "run_subagent",
+            DOC_SOURCE,
+            "medium",
+            false,
+            DOC.trim(),
+            handler,
+        )
+        .with_subagent_inheritance(false),
+    );
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +37,18 @@ pub struct RunSubagentArgs {
     pub task_id: String,
     pub workspace_root: Option<String>,
     pub computer_target: Option<ComputerOperationTarget>,
+}
+
+impl RunSubagentArgs {
+    pub fn is_self_fork(&self) -> bool {
+        self.agent_id == "self"
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RunSubagentTarget {
+    SelfFork,
+    Registered(AgentDef),
 }
 
 /// Child depth after delegating from `parent_spawn_depth` (lead = 0).
@@ -165,10 +180,13 @@ pub fn validate_run_subagent_target(
     registry: &AgentRegistry,
     allow_agents: &[String],
     agent_id: &str,
-) -> Result<AgentDef, String> {
+) -> Result<RunSubagentTarget, String> {
     let aid = agent_id.trim();
     if aid.is_empty() {
         return Err("agentId is empty".into());
+    }
+    if aid == "self" {
+        return Ok(RunSubagentTarget::SelfFork);
     }
     if allow_agents.is_empty() {
         return Err(
@@ -193,7 +211,7 @@ pub fn validate_run_subagent_target(
             "agent `{aid}` is not a worker; run_subagent targets workers only"
         ));
     }
-    Ok(d)
+    Ok(RunSubagentTarget::Registered(d))
 }
 
 /// **`workspaceRoot`** is required when delegating to **`coder`**.
@@ -258,6 +276,16 @@ mod tests {
     }
 
     #[test]
+    fn self_target_is_a_self_fork() {
+        let args = parse_run_subagent_args(&json!({
+            "agentId": "self",
+            "goal": "What: inspect backend\nDone when: report findings"
+        }))
+        .unwrap();
+        assert!(args.is_self_fork());
+    }
+
+    #[test]
     fn parse_accepts_computer_target() {
         let parsed = parse_run_subagent_args(&json!({
             "agentId": "computer",
@@ -275,6 +303,18 @@ mod tests {
     fn validate_spawn_depth_default_max_two() {
         assert_eq!(validate_spawn_depth(0, 2).unwrap(), 1);
         assert_eq!(validate_spawn_depth(1, 2).unwrap(), 2);
+        assert!(validate_spawn_depth(2, 2).is_err());
+    }
+
+    #[test]
+    fn registered_target_remains_rejected_at_cross_role_depth_limit() {
+        let parsed = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "inspect"
+        }))
+        .unwrap();
+
+        assert!(!parsed.is_self_fork());
         assert!(validate_spawn_depth(2, 2).is_err());
     }
 
@@ -357,6 +397,24 @@ mod tests {
     }
 
     #[test]
+    fn validate_self_does_not_require_workspace_root() {
+        let parsed = parse_run_subagent_args(&json!({
+            "agentId": "self",
+            "goal": "What: inspect backend\nDone when: report findings"
+        }))
+        .unwrap();
+        assert!(validate_run_subagent_workspace(&parsed).is_ok());
+    }
+
+    #[test]
+    fn self_target_does_not_require_allow_agents() {
+        let reg = AgentRegistry::new();
+        register_builtin_agents(&reg);
+        let resolved = validate_run_subagent_target(&reg, &[], "self").unwrap();
+        assert!(matches!(resolved, RunSubagentTarget::SelfFork));
+    }
+
+    #[test]
     fn validate_rejects_missing_allow_list() {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
@@ -368,8 +426,17 @@ mod tests {
     fn validate_rejects_unknown_id() {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
-        let allow = vec!["coder".to_string()];
+        let allow = vec!["not_an_agent".to_string()];
         let r = validate_run_subagent_target(&reg, &allow, "not_an_agent");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn validate_rejects_disallowed_registered_id() {
+        let reg = AgentRegistry::new();
+        register_builtin_agents(&reg);
+        let allow = vec!["explore".to_string()];
+        let r = validate_run_subagent_target(&reg, &allow, "coder");
         assert!(r.is_err());
     }
 
@@ -378,12 +445,16 @@ mod tests {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
         let allow = vec!["coder".to_string()];
-        let d = validate_run_subagent_target(&reg, &allow, "coder").unwrap();
+        let RunSubagentTarget::Registered(d) =
+            validate_run_subagent_target(&reg, &allow, "coder").unwrap()
+        else {
+            panic!("expected registered target");
+        };
         assert_eq!(d.id, "coder");
     }
 
     #[test]
-    fn validate_accepts_general_worker_for_general_lead() {
+    fn validate_rejects_removed_general_worker_even_when_listed() {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
         let allow = vec![
@@ -391,8 +462,8 @@ mod tests {
             "computer".to_string(),
             "general-worker".to_string(),
         ];
-        let d = validate_run_subagent_target(&reg, &allow, "general-worker").unwrap();
-        assert_eq!(d.id, "general-worker");
+        let r = validate_run_subagent_target(&reg, &allow, "general-worker");
+        assert!(r.is_err(), "removed general-worker must not resolve");
     }
 
     #[test]
@@ -400,7 +471,11 @@ mod tests {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
         let allow = vec!["explore".to_string()];
-        let d = validate_run_subagent_target(&reg, &allow, "explore").unwrap();
+        let RunSubagentTarget::Registered(d) =
+            validate_run_subagent_target(&reg, &allow, "explore").unwrap()
+        else {
+            panic!("expected registered target");
+        };
         assert_eq!(d.id, "explore");
         assert_eq!(d.profile, AgentProfile::Explore);
     }

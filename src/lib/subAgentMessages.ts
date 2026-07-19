@@ -13,16 +13,19 @@ export function isScopedSubMessage(msg: ChatMessage): boolean {
 export function scopedMessagesForTrace(
   messages: ChatMessage[],
   anchorMessageId: string,
-  traceId: string
+  traceId: string,
+  agentInstanceId?: string
 ): ChatMessage[] {
   const anchor = anchorMessageId.trim()
   const trace = traceId.trim()
+  const instance = agentInstanceId?.trim()
   if (!anchor || !trace) return []
   return messages.filter(
     m =>
       isScopedSubMessage(m)
       && m.anchorMessageId?.trim() === anchor
       && m.traceId?.trim() === trace
+      && (!instance || m.agentInstanceId?.trim() === instance)
   )
 }
 
@@ -30,9 +33,10 @@ export function scopedMessagesForTrace(
 export function scopedAssistantMessagesForTrace(
   messages: ChatMessage[],
   anchorMessageId: string,
-  traceId: string
+  traceId: string,
+  agentInstanceId?: string
 ): ChatMessage[] {
-  return scopedMessagesForTrace(messages, anchorMessageId, traceId)
+  return scopedMessagesForTrace(messages, anchorMessageId, traceId, agentInstanceId)
     .filter(m => m.role === 'assistant')
     .sort((a, b) => a.createdAt - b.createdAt)
 }
@@ -130,9 +134,15 @@ export function buildSubAgentBodyModelsFromScoped(
   messages: ChatMessage[],
   anchorMessageId: string,
   traceId: string,
-  traceStatus?: string
+  traceStatus?: string,
+  agentInstanceId?: string
 ): AgentMessageBodyModel[] {
-  const scoped = scopedAssistantMessagesForTrace(messages, anchorMessageId, traceId)
+  const scoped = scopedAssistantMessagesForTrace(
+    messages,
+    anchorMessageId,
+    traceId,
+    agentInstanceId
+  )
   const merged = mergeScopedAssistantMessagesForDisplay(scoped, traceStatus)
   return merged ? [merged] : []
 }
@@ -141,13 +151,15 @@ export function latestSubAgentBodyModelFromScoped(
   messages: ChatMessage[],
   anchorMessageId: string,
   traceId: string,
-  traceStatus?: string
+  traceStatus?: string,
+  agentInstanceId?: string
 ): AgentMessageBodyModel | null {
   const models = buildSubAgentBodyModelsFromScoped(
     messages,
     anchorMessageId,
     traceId,
-    traceStatus
+    traceStatus,
+    agentInstanceId
   )
   return models[0] ?? null
 }
@@ -156,7 +168,12 @@ export function ensureScopedChildMessage(
   conv: Conversation,
   anchorMessageId: string,
   scopedMessageId: string,
-  linkage: { traceId: string; taskId: string; spawnDepth: number }
+  linkage: {
+    traceId: string
+    taskId: string
+    spawnDepth: number
+    agentInstanceId?: string
+  }
 ): ChatMessage {
   const existing = conv.messages.find(m => m.id === scopedMessageId)
   if (existing) return existing
@@ -171,7 +188,8 @@ export function ensureScopedChildMessage(
     anchorMessageId: anchorMessageId.trim(),
     traceId: linkage.traceId.trim(),
     taskId: linkage.taskId.trim(),
-    spawnDepth: linkage.spawnDepth
+    spawnDepth: linkage.spawnDepth,
+    agentInstanceId: linkage.agentInstanceId?.trim() || undefined
   }
   conv.messages.push(child)
   return child
@@ -265,9 +283,18 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
     )
     for (const traceId of traceIds) {
       if (lead.agentTrace.some(t => t.id === traceId)) continue
-      const forTrace = children.filter(
+      const allForTrace = children.filter(
         c => c.role === 'assistant' && c.traceId?.trim() === traceId
       )
+      const agentInstanceId = [...allForTrace]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map(message => message.agentInstanceId?.trim())
+        .find((id): id is string => !!id)
+      const forTrace = agentInstanceId
+        ? allForTrace.filter(
+            message => message.agentInstanceId?.trim() === agentInstanceId
+          )
+        : allForTrace
       const first = forTrace[0]
       const status = inferTraceStatus(forTrace)
       const agentId = traceAgentId(traceId)
@@ -281,6 +308,7 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
         role: '',
         status,
         depth: first?.spawnDepth ?? 1,
+        agentInstanceId,
         detail: detail ? detail.slice(0, 160) : undefined,
         collapsed: status === 'completed' || status === 'failed',
         userExpanded: false

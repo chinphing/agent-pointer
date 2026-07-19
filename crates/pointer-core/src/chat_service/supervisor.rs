@@ -64,6 +64,7 @@ pub(crate) async fn run_supervisor_chat(
             computer_target: None,
         collapsed: false,
         user_expanded: false,
+        agent_instance_id: None,
 
         },
     );
@@ -163,6 +164,9 @@ pub(crate) async fn run_supervisor_chat(
                 None,
             )
         });
+        let instance_scope =
+            super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task)
+                .new_instance_scope(run_id, conversation_id);
         emit_agent_step(
             &stream,
             &assistant_id,
@@ -182,6 +186,7 @@ pub(crate) async fn run_supervisor_chat(
                 session: None,
                 collapsed: false,
                 user_expanded: false,
+                agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
                 computer_target,
             },
         );
@@ -274,9 +279,11 @@ pub(crate) async fn run_supervisor_chat(
             enabled_skill_ids: ctx.enabled_skill_ids,
             agent_skill_overrides: ctx.agent_skill_overrides,
             task: &task_run,
+            definition_source:
+                super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task_run),
+            instance_scope: instance_scope.clone(),
             sub_tool_budget: &mut sub_budget,
             llm_stats: ctx.llm_stats,
-            run_id,
             spawn_depth: 1,
             max_spawn_depth,
         };
@@ -321,6 +328,7 @@ pub(crate) async fn run_supervisor_chat(
                         computer_target,
                     collapsed: false,
                     user_expanded: false,
+                    agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
 
                     },
                 );
@@ -364,6 +372,7 @@ pub(crate) async fn run_supervisor_chat(
                         computer_target,
                     collapsed: false,
                     user_expanded: false,
+                    agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
 
                     },
                 );
@@ -387,6 +396,7 @@ pub(crate) async fn run_supervisor_chat(
             computer_target: None,
         collapsed: false,
         user_expanded: false,
+        agent_instance_id: None,
 
         },
     );

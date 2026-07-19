@@ -7,8 +7,8 @@ mod outcome;
 mod types;
 
 pub(super) use types::{
-    LeadSingleToolPassRequest, LeadToolPassConfig, SubToolPassConfig, ToolInvocationStats,
-    ToolPassContext, ToolPassRequest, ToolPassResult,
+    ActiveAgentExecutionState, LeadSingleToolPassRequest, LeadToolPassConfig, SubToolPassConfig,
+    ToolInvocationStats, ToolPassContext, ToolPassRequest, ToolPassResult,
 };
 
 use crate::agents::AgentProfile;
@@ -39,6 +39,11 @@ use approval::run_approval_gate;
 use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
 use outcome::record_tool_exec_outcome;
 use types::ToolExecResult;
+use super::run_subagent_delegation::{
+    commit_subagent_outcome, execute_self_fork, failed_self_fork_outcome,
+    finalize_subagent_outcome, PreparedSubagentOutcome, SelfForkExecutionInput,
+    SubagentCommitContext,
+};
 
 fn task_board_emit_anchor_for_store_key(
     ctx: &ToolPassContext<'_>,
@@ -61,6 +66,66 @@ struct PreparedTool {
     tool_id: String,
     args_value: serde_json::Value,
     task_board_store_key: String,
+}
+
+struct SelfForkWaveItem<I> {
+    index: usize,
+    task_id: String,
+    tool_call_id: String,
+    input: I,
+    /// Deferred `running` notification, published only once the fork actually
+    /// acquires a concurrency permit so queued forks are not shown as running.
+    running_event: Option<(super::StreamTx, StreamEvent)>,
+}
+
+enum SelfForkWaveWork<'a> {
+    Execute(SelfForkExecutionInput<'a>),
+    Prepared(PreparedSubagentOutcome),
+}
+
+async fn collect_self_fork_wave<T, F, Fut>(
+    items: Vec<SelfForkWaveItem<T>>,
+    semaphore: Arc<Semaphore>,
+    limit: usize,
+    execute: F,
+) -> Vec<(usize, Fut::Output)>
+where
+    F: Fn(T) -> Fut + Clone,
+    Fut: std::future::Future,
+{
+    let mut futures = FuturesUnordered::new();
+    for item in items {
+        let semaphore = semaphore.clone();
+        let execute = execute.clone();
+        futures.push(async move {
+            let wait_started = Instant::now();
+            let permit = semaphore
+                .acquire_owned()
+                .await
+                .expect("self-fork semaphore must remain open");
+            log::info!(
+                "run_subagent self-fork permit acquired task_id={} fork_id={} index={} limit={} wait_ms={}",
+                item.task_id,
+                item.tool_call_id,
+                item.index,
+                limit,
+                wait_started.elapsed().as_millis()
+            );
+            if let Some((stream, event)) = item.running_event {
+                emit(&stream, event);
+            }
+            let outcome = execute(item.input).await;
+            drop(permit);
+            (item.index, outcome)
+        });
+    }
+
+    let mut outcomes = Vec::new();
+    while let Some(outcome) = futures.next().await {
+        outcomes.push(outcome);
+    }
+    outcomes.sort_by_key(|(index, _)| *index);
+    outcomes
 }
 
 pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result<ToolPassResult> {
@@ -215,8 +280,11 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
         }
 
         if let Some(sub_cfg) = pass.ctx.sub.as_ref() {
-            if !registry_tool_in_allow_list(sub_cfg.allowed_tools, &tool_id) {
-                let err = format!("Agent {} 不允许调用工具: {}", sub_cfg.def.id, tc.name);
+            if !registry_tool_in_allow_list(sub_cfg.active.allowed_tools, &tool_id) {
+                let err = format!(
+                    "Agent {} 不允许调用工具: {}",
+                    sub_cfg.active.def.id, tc.name
+                );
                 emit_tool_failed(
                     pass.ctx.session.stream,
                     &pass.ctx.message_id,
@@ -281,23 +349,27 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
     let media_sem = Arc::new(Semaphore::new(
         parallel_limits.max_parallel_media_jobs.max(1),
     ));
+    let subagent_sem = Arc::new(Semaphore::new(
+        parallel_limits.max_parallel_sub_agents.max(1),
+    ));
 
     for wave in plan.waves {
-        if pass.cancel.is_cancelled() {
-            if let Some(consumed) = pass.ctx.consumed_single.as_mut() {
-                pass.ctx.tool_budget.sync_out(consumed);
-            }
-            pass.ctx
-                .session
-                .state
-                .computer_state
-                .mark_cancelled(pass.ctx.session.conversation_id);
-            return Err(anyhow!("已停止生成"));
-        }
-
         match wave {
             ToolWave::Serial(indices) => {
                 for idx in indices {
+                    if prepared_is_self_fork(&prepared[idx]) {
+                        run_self_fork_wave(
+                            &mut pass,
+                            &prepared,
+                            vec![idx],
+                            subagent_sem.clone(),
+                            parallel_limits.max_parallel_sub_agents,
+                            &sub_trace_id,
+                            &mut any_executed,
+                        )
+                        .await?;
+                        continue;
+                    }
                     if pass.cancel.is_cancelled() {
                         if let Some(consumed) = pass.ctx.consumed_single.as_mut() {
                             pass.ctx.tool_budget.sync_out(consumed);
@@ -406,13 +478,28 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         .lead
                         .as_ref()
                         .map(|l| l.file_tool_lead_for_invoke.clone());
-                    let sub_profile = pass.ctx.sub.as_ref().map(|s| s.def.profile.clone());
+                    let sub_profile = pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.active.def.profile.clone());
                     let lead_run_id = pass.ctx.lead.as_ref().map(|l| l.run_id.to_string());
                     let sub_run_id = pass
                         .ctx
                         .sub
                         .as_ref()
                         .map(|s| s.instance_scope.run_id.clone());
+                    let agent_instance_id = pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.instance_scope.agent_instance_id.clone())
+                        .or_else(|| {
+                            pass.ctx
+                                .lead
+                                .as_ref()
+                                .map(|l| l.instance_scope.agent_instance_id.clone())
+                        });
 
                     exec_futures.push(async move {
                         let _tool_permit = tool_sem.acquire_owned().await;
@@ -435,6 +522,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             sub_profile,
                             lead_run_id.as_deref(),
                             sub_run_id.as_deref(),
+                            agent_instance_id.as_deref(),
                             &cancel,
                         )
                         .await;
@@ -497,6 +585,32 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     return Err(anyhow!("已停止生成"));
                 }
             }
+            ToolWave::ParallelSelfFork(indices) => {
+                run_self_fork_wave(
+                    &mut pass,
+                    &prepared,
+                    indices,
+                    subagent_sem.clone(),
+                    parallel_limits.max_parallel_sub_agents,
+                    &sub_trace_id,
+                    &mut any_executed,
+                )
+                .await?;
+                // Owned outcomes (including cancelled ones) are already committed above.
+                // Short-circuit the pass on cancellation to match the parallel/serial waves
+                // so the turn stops instead of issuing another LLM round.
+                if pass.cancel.is_cancelled() {
+                    if let Some(consumed) = pass.ctx.consumed_single.as_mut() {
+                        pass.ctx.tool_budget.sync_out(consumed);
+                    }
+                    pass.ctx
+                        .session
+                        .state
+                        .computer_state
+                        .mark_cancelled(pass.ctx.session.conversation_id);
+                    return Err(anyhow!("已停止生成"));
+                }
+            }
         }
     }
 
@@ -520,7 +634,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             return Ok(ToolPassResult::SubFinished(
                 super::agent_post_stream::sub_agent_run_result(
                     &sub_cfg.task.id,
-                    sub_cfg.def,
+                    sub_cfg.active.def,
                     sub_cfg.accumulated_content,
                     sub_cfg.reasoning_in_messages,
                     sub_cfg.accumulated_reasoning,
@@ -540,6 +654,224 @@ struct OneToolOutcome {
     exec: ToolExecResult,
     duration_ms: u64,
     skipped: bool,
+}
+
+fn prepared_is_self_fork(prepared: &PreparedTool) -> bool {
+    prepared.tool_id == "run_subagent"
+        && crate::tools::run_subagent::parse_run_subagent_args(&prepared.args_value)
+            .is_ok_and(|args| args.is_self_fork())
+}
+
+async fn run_self_fork_wave(
+    pass: &mut ToolPassRequest<'_>,
+    prepared: &[PreparedTool],
+    indices: Vec<usize>,
+    semaphore: Arc<Semaphore>,
+    limit: usize,
+    sub_trace_id: &Option<String>,
+    any_executed: &mut bool,
+) -> Result<()> {
+    let mut items = Vec::new();
+    for idx in indices {
+        let prep = &prepared[idx];
+        if !run_approval_gate(
+            &mut pass.ctx,
+            &prep.tc,
+            &prep.tool_id,
+            &prep.args_value,
+            sub_trace_id.as_deref(),
+        )
+        .await?
+        {
+            *any_executed = true;
+            continue;
+        }
+
+        let max_spawn_depth = pass.ctx.provider.settings.max_sub_agent_spawn_depth.max(1);
+        let (active, run_id, parent_spawn_depth) = if let Some(lead) = pass.ctx.lead.as_ref() {
+            (lead.active, lead.run_id.to_string(), 0)
+        } else if let Some(sub) = pass.ctx.sub.as_ref() {
+            (
+                sub.active,
+                sub.instance_scope.run_id.clone(),
+                sub.spawn_depth,
+            )
+        } else {
+            return Err(anyhow!("self-fork execution requires an active parent agent"));
+        };
+        let running_event = build_self_fork_running_event(
+            pass.ctx.session.stream,
+            pass.ctx.session.state,
+            pass.ctx.transcript.history,
+            &pass.ctx.message_id,
+            &prep.tc,
+            &prep.args_value,
+            sub_trace_id.as_deref(),
+            pass.ctx
+                .sub
+                .as_ref()
+                .map(|sub| sub.scoped_message_id.as_str()),
+        );
+        pass.ctx.stats.record_tool_invocation();
+
+        let invocation = dispatch::subagent::prepare_self_fork_invocation(
+            pass.ctx.session.state,
+            &active,
+            &run_id,
+            parent_spawn_depth,
+            max_spawn_depth,
+            pass.ctx.workspace_root,
+            &prep.args_value,
+            &prep.tc.id,
+        );
+        let (task_id, work) = match invocation {
+            Ok(invocation) => {
+                let task_id = invocation.task.id.clone();
+                let input = SelfForkExecutionInput {
+                    stream: pass.ctx.session.stream,
+                    state: pass.ctx.session.state,
+                    conversation_id: pass.ctx.session.conversation_id,
+                    cancel: pass.cancel.clone(),
+                    provider: crate::provider::OpenAIProvider::new(
+                        pass.ctx.provider.settings.clone(),
+                        pass.ctx.provider.api_key.clone(),
+                    ),
+                    parent_task_board_store_key: prep.task_board_store_key.clone(),
+                    message_id: pass.ctx.message_id.clone(),
+                    tool_call_id: prep.tc.id.clone(),
+                    run_id: invocation.run_id,
+                    task: invocation.task,
+                    snapshot: invocation.snapshot,
+                    child_spawn_depth: invocation.trace_depth,
+                    max_spawn_depth: invocation.max_spawn_depth,
+                };
+                (task_id, SelfForkWaveWork::Execute(input))
+            }
+            Err(error) => {
+                let task = dispatch::subagent::prepare_self_fork_task(
+                    &prep.args_value,
+                    &prep.tc.id,
+                )
+                .unwrap_or_else(|parse_error| crate::agents::AgentTask {
+                    id: prep.tc.id.clone(),
+                    agent_id: "self".into(),
+                    title: "Invalid self fork".into(),
+                    goal: "Invalid self-fork invocation".into(),
+                    context: parse_error,
+                    depends_on: vec![],
+                });
+                let task_id = task.id.clone();
+                let snapshot = dispatch::subagent::build_active_self_fork_snapshot(
+                    pass.ctx.session.state,
+                    &active,
+                    pass.ctx.workspace_root,
+                );
+                let outcome = failed_self_fork_outcome(
+                    &run_id,
+                    pass.ctx.session.conversation_id,
+                    &prep.tc.id,
+                    task,
+                    snapshot,
+                    parent_spawn_depth.saturating_add(1),
+                    error,
+                );
+                (task_id, SelfForkWaveWork::Prepared(outcome))
+            }
+        };
+        items.push(SelfForkWaveItem {
+            index: idx,
+            task_id,
+            tool_call_id: prep.tc.id.clone(),
+            input: work,
+            running_event,
+        });
+    }
+
+    log::info!(
+        "run_subagent self-fork wave start conversation_id={} count={} limit={}",
+        pass.ctx.session.conversation_id,
+        items.len(),
+        limit.max(1)
+    );
+    let outcomes = collect_self_fork_wave(items, semaphore, limit.max(1), |work| async move {
+        let started = Instant::now();
+        let outcome = match work {
+            SelfForkWaveWork::Execute(input) => execute_self_fork(input).await,
+            SelfForkWaveWork::Prepared(outcome) => outcome,
+        };
+        (outcome, started.elapsed().as_millis() as u64)
+    })
+    .await;
+
+    for (idx, (outcome, duration_ms)) in outcomes {
+        apply_self_fork_outcome(pass, &prepared[idx], outcome, duration_ms).await;
+        *any_executed = true;
+    }
+    Ok(())
+}
+
+async fn apply_self_fork_outcome(
+    pass: &mut ToolPassRequest<'_>,
+    prep: &PreparedTool,
+    outcome: super::run_subagent_delegation::PreparedSubagentOutcome,
+    duration_ms: u64,
+) {
+    let trace_id = pass.ctx.sub.as_ref().map(|sub| sub.trace_id.clone());
+    let pending = {
+        let agent_trace = active_parent_trace_mut(&mut pass.ctx.lead, &mut pass.ctx.sub);
+        commit_subagent_outcome(
+            &mut SubagentCommitContext {
+                stream: pass.ctx.session.stream,
+                conversation_id: pass.ctx.session.conversation_id,
+                message_id: &pass.ctx.message_id,
+                history: Some(pass.ctx.transcript.history),
+                agent_trace,
+                llm_stats: pass.ctx.stats.conversation_stats_mut(),
+            },
+            outcome,
+        )
+    };
+
+    let recorded = pending
+        .record_tool_result(|exec| async {
+            record_tool_exec_outcome(
+                &mut pass.ctx,
+                &prep.tc,
+                &prep.tool_id,
+                &prep.args_value,
+                exec,
+                duration_ms,
+                trace_id.as_deref(),
+            )
+            .await;
+        })
+        .await;
+
+    let agent_trace = active_parent_trace_mut(&mut pass.ctx.lead, &mut pass.ctx.sub);
+    finalize_subagent_outcome(
+        &mut SubagentCommitContext {
+            stream: pass.ctx.session.stream,
+            conversation_id: pass.ctx.session.conversation_id,
+            message_id: &pass.ctx.message_id,
+            history: Some(pass.ctx.transcript.history),
+            agent_trace,
+            llm_stats: pass.ctx.stats.conversation_stats_mut(),
+        },
+        recorded,
+    );
+}
+
+fn active_parent_trace_mut<'a>(
+    lead: &'a mut Option<LeadToolPassConfig<'_>>,
+    sub: &'a mut Option<SubToolPassConfig<'_>>,
+) -> &'a mut Vec<crate::models::AgentTrace> {
+    if let Some(lead) = lead.as_mut() {
+        return lead.agent_trace;
+    }
+    if let Some(sub) = sub.as_mut() {
+        return sub.agent_trace;
+    }
+    unreachable!("self-fork execution requires an active parent agent")
 }
 
 async fn run_one_prepared(
@@ -723,6 +1055,37 @@ fn emit_tool_failed(
     );
 }
 
+/// Patch the assistant tool-call display up front (serial) and build a deferred
+/// `running` stream event. The event is emitted only once the self-fork acquires
+/// a concurrency permit, so forks queued behind the limit are not shown as running.
+fn build_self_fork_running_event(
+    stream: &super::StreamTx,
+    state: &super::app_state::AppState,
+    history: &mut Vec<crate::models::ChatMessage>,
+    message_id: &str,
+    tc: &ToolCall,
+    args_value: &serde_json::Value,
+    trace_id: Option<&str>,
+    scoped_message_id: Option<&str>,
+) -> Option<(super::StreamTx, StreamEvent)> {
+    let display = state.tools.format_display(&tc.name, args_value);
+    patch_assistant_tool_call_display(history, message_id, &tc.id, &display);
+    let (display_label, display_summary) = tool_display_stream_fields(&display);
+    let event = StreamEvent::ToolCallStatus {
+        message_id: message_id.to_string(),
+        tool_call_id: tc.id.clone(),
+        status: "running".into(),
+        result: None,
+        error: None,
+        duration_ms: None,
+        display_label,
+        display_summary,
+        trace_id: trace_id_opt(trace_id),
+        scoped_message_id: trace_id_opt(scoped_message_id),
+    };
+    Some((stream.clone(), event))
+}
+
 fn emit_tool_running(
     stream: &super::StreamTx,
     state: &super::app_state::AppState,
@@ -768,5 +1131,262 @@ fn emit_tool_running(
                 scoped_message_id: trace_id_opt(scoped_message_id),
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod self_fork_wave_tests {
+    use super::batch::{plan_tool_batch, PlanToolBatchInput, ToolWave};
+    use super::{collect_self_fork_wave, SelfForkWaveItem};
+    use crate::models::ModelSettings;
+    use crate::models::ToolCall;
+    use crate::tools::parallel::ParallelLimits;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Semaphore;
+
+    fn planned_self_fork_indices(count: usize) -> Vec<usize> {
+        let registry = crate::tools::ToolRegistry::new();
+        let store = Arc::new(crate::task_board::TaskBoardStore::new());
+        crate::tools::builtin::register_all(&registry, store);
+        let batch: Vec<_> = (0..count)
+            .map(|index| ToolCall {
+                id: format!("call-{index}"),
+                name: "run_subagent".into(),
+                arguments: r#"{"agentId":"self","goal":"work"}"#.into(),
+                status: "pending".into(),
+                result: None,
+                error: None,
+                duration_ms: None,
+                risk_level: None,
+                display_label: None,
+                display_summary: None,
+            })
+            .collect();
+        let parsed = vec![serde_json::json!({"agentId": "self", "goal": "work"}); count];
+        let tool_ids = vec!["run_subagent".to_string(); count];
+        let plan = plan_tool_batch(PlanToolBatchInput {
+            registry: &registry,
+            batch: &batch,
+            parsed_args: &parsed,
+            tool_ids: &tool_ids,
+            workspace_root: ".",
+            conversation_id: "conversation",
+            force_serial: false,
+            max_parallel_tools: 8,
+        });
+        match plan.waves.as_slice() {
+            [ToolWave::ParallelSelfFork(indices)] => indices.clone(),
+            waves => panic!("expected one self-fork wave, got {waves:?}"),
+        }
+    }
+
+    async fn observed_peak_for_setting(limit: u32) -> usize {
+        let mut settings = ModelSettings::default();
+        settings.max_parallel_sub_agents = Some(limit);
+        let limits = ParallelLimits::from_settings(&settings);
+        let semaphore = Arc::new(Semaphore::new(limits.max_parallel_sub_agents));
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+
+        let active_for_run = active.clone();
+        let peak_for_run = peak.clone();
+        let items = (0..3)
+            .map(|index| SelfForkWaveItem {
+                index,
+                task_id: format!("task-{index}"),
+                tool_call_id: format!("call-{index}"),
+                input: index,
+                running_event: None,
+            })
+            .collect();
+        let outcomes = collect_self_fork_wave(
+            items,
+            semaphore,
+            limits.max_parallel_sub_agents,
+            move |index| {
+                let active = active_for_run.clone();
+                let peak = peak_for_run.clone();
+                async move {
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    index
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(
+            outcomes.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        peak.load(Ordering::SeqCst)
+    }
+
+    #[tokio::test]
+    async fn self_fork_wave_uses_effective_runtime_concurrency_limit() {
+        assert_eq!(observed_peak_for_setting(1).await, 1);
+        assert_eq!(observed_peak_for_setting(2).await, 2);
+    }
+
+    #[tokio::test]
+    async fn self_fork_wave_commits_owned_outcomes_in_tool_call_order() {
+        let completion_order = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let items = (0..2)
+            .map(|index| SelfForkWaveItem {
+                index,
+                task_id: format!("task-{index}"),
+                tool_call_id: format!("call-{index}"),
+                input: index,
+                running_event: None,
+            })
+            .collect();
+        let outcomes = collect_self_fork_wave(
+            items,
+            Arc::new(Semaphore::new(2)),
+            2,
+            {
+                let completion_order = completion_order.clone();
+                move |index| {
+                    let completion_order = completion_order.clone();
+                    async move {
+                        if index == 0 {
+                            tokio::time::sleep(Duration::from_millis(30)).await;
+                        }
+                        completion_order.lock().unwrap().push(index);
+                        format!("outcome-{index}")
+                    }
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(*completion_order.lock().unwrap(), vec![1, 0]);
+        let committed = outcomes;
+        assert_eq!(
+            committed,
+            vec![(0, "outcome-0".to_string()), (1, "outcome-1".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn queued_self_fork_starts_when_any_permit_is_released() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let items = planned_self_fork_indices(3)
+            .into_iter()
+            .map(|prepared_index| SelfForkWaveItem {
+                index: prepared_index,
+                task_id: format!("task-{prepared_index}"),
+                tool_call_id: format!("call-{prepared_index}"),
+                input: prepared_index,
+                running_event: None,
+            })
+            .collect();
+        collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, {
+            let events = events.clone();
+            move |index| {
+                let events = events.clone();
+                async move {
+                    events.lock().unwrap().push(format!("start-{index}"));
+                    let delay = match index {
+                        0 => 10,
+                        1 => 80,
+                        _ => 0,
+                    };
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    events.lock().unwrap().push(format!("finish-{index}"));
+                }
+            }
+        })
+        .await;
+
+        let events = events.lock().unwrap();
+        let finish_first = events.iter().position(|event| event == "finish-0").unwrap();
+        let start_third = events.iter().position(|event| event == "start-2").unwrap();
+        let finish_second = events.iter().position(|event| event == "finish-1").unwrap();
+        assert!(finish_first < start_third);
+        assert!(start_third < finish_second);
+    }
+
+    #[tokio::test]
+    async fn sibling_failure_keeps_every_self_fork_outcome() {
+        let items = (0..3)
+            .map(|index| SelfForkWaveItem {
+                index,
+                task_id: format!("task-{index}"),
+                tool_call_id: format!("call-{index}"),
+                input: index,
+                running_event: None,
+            })
+            .collect();
+        let outcomes = collect_self_fork_wave(
+            items,
+            Arc::new(Semaphore::new(2)),
+            2,
+            |index| async move {
+                if index == 1 {
+                    Err("failed")
+                } else {
+                    Ok(index)
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(outcomes.len(), 3);
+        assert!(outcomes[0].1.is_ok());
+        assert!(outcomes[1].1.is_err());
+        assert!(outcomes[2].1.is_ok());
+    }
+
+    #[tokio::test]
+    async fn cancellation_keeps_running_and_queued_self_fork_outcomes() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let started = Arc::new(AtomicUsize::new(0));
+        let items = (0..3)
+            .map(|index| SelfForkWaveItem {
+                index,
+                task_id: format!("task-{index}"),
+                tool_call_id: format!("call-{index}"),
+                input: index,
+                running_event: None,
+            })
+            .collect();
+        let cancel_when_running = cancel.clone();
+        let started_for_cancel = started.clone();
+        let cancel_task = tokio::spawn(async move {
+            while started_for_cancel.load(Ordering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+            }
+            cancel_when_running.cancel();
+        });
+        let outcomes = collect_self_fork_wave(
+            items,
+            Arc::new(Semaphore::new(2)),
+            2,
+            {
+                let cancel = cancel.clone();
+                let started = started.clone();
+                move |_| {
+                    let cancel = cancel.clone();
+                    let started = started.clone();
+                    async move {
+                        started.fetch_add(1, Ordering::SeqCst);
+                        cancel.cancelled().await;
+                        "cancelled"
+                    }
+                }
+            },
+        )
+        .await;
+        cancel_task.await.unwrap();
+
+        assert_eq!(outcomes.len(), 3);
+        assert!(outcomes
+            .iter()
+            .all(|(_, status)| *status == "cancelled"));
     }
 }

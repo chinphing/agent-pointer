@@ -14,11 +14,15 @@ export function handleSubMessageStart(ctx: StreamHandlerContext, e: SubMessageSt
     console.warn('[stream] sub_message_start: anchor message missing', e.anchorMessageId)
     return
   }
-  ensureSubTrace(anchor, e.traceId, { depth: e.spawnDepth })
+  ensureSubTrace(anchor, e.traceId, {
+    depth: e.spawnDepth,
+    agentInstanceId: e.agentInstanceId
+  })
   ensureScopedChildMessage(conv, e.anchorMessageId, e.scopedMessageId, {
     traceId: e.traceId,
     taskId: e.taskId,
-    spawnDepth: e.spawnDepth
+    spawnDepth: e.spawnDepth,
+    agentInstanceId: e.agentInstanceId
   })
   anchor.status = 'streaming'
   conv.updatedAt = Date.now()

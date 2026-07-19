@@ -2,7 +2,6 @@
 
 use anyhow::{anyhow, Result};
 
-use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{AgentProfile, AgentRunResult};
 use crate::models::{effective_reasoning_in_messages, ChatMessage, Role, StreamEvent};
 
@@ -21,9 +20,11 @@ use super::computer_pipeline_loop::{
     PipelineLlmUsageRecorder,
 };
 use crate::task_board::TaskBoardTrimHook;
-use super::emit::{agent_trace_step_id, emit, trace_id_opt};
+use super::emit::{emit, trace_id_opt};
 use super::session_model::sub_agent_provider;
-use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
+use super::sub_agent_prompt::{
+    init_sub_agent_session, prepare_sub_agent_round_prompts, SubAgentDefinitionSource,
+};
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
 use super::sub_message::SubMessageLinkage;
 use super::util::new_id;
@@ -40,6 +41,20 @@ fn sub_agent_handoff_content(local_history: &[ChatMessage], accumulated: &str) -
         .unwrap_or_else(|| accumulated.trim().to_string())
 }
 
+fn sub_agent_execution_provider(
+    parent: &crate::provider::OpenAIProvider,
+    definition_source: &SubAgentDefinitionSource<'_>,
+) -> crate::provider::OpenAIProvider {
+    match definition_source {
+        SubAgentDefinitionSource::Registered(task) => sub_agent_provider(parent, &task.agent_id),
+        SubAgentDefinitionSource::Snapshot(snapshot) => {
+            let mut settings = parent.settings.clone();
+            settings.workspace_root = snapshot.workspace_root.trim().to_string();
+            crate::provider::OpenAIProvider::new(settings, parent.api_key.clone())
+        }
+    }
+}
+
 pub(crate) async fn run_sub_agent(
     ctx: &mut super::context::SubAgentLoopContext<'_>,
 ) -> Result<AgentRunResult> {
@@ -51,9 +66,7 @@ pub(crate) async fn run_sub_agent(
     let message_id = ctx.message_id;
     let task = ctx.task;
     let cancel = ctx.session.cancel.clone();
-    let run_id = ctx.run_id;
-    let instance_scope = AgentInstanceScope::new(run_id, conversation_id, task.agent_id.clone());
-    let sub_provider = sub_agent_provider(provider, &task.agent_id);
+    let sub_provider = sub_agent_execution_provider(provider, &ctx.definition_source);
     let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
     let session =
         init_sub_agent_session(
@@ -63,12 +76,19 @@ pub(crate) async fn run_sub_agent(
             message_id,
             parent_task_board_store_key,
             task,
+            &ctx.definition_source,
+            &ctx.instance_scope,
             ctx.enabled_skill_ids,
             ctx.agent_skill_overrides,
             ctx.spawn_depth,
             ctx.max_spawn_depth,
         )?;
     let def = session.def;
+    let system_prompt = session.system_prompt;
+    let skill_ids = session.skill_ids;
+    let skill_prompts = session.skill_prompts;
+    let instance_scope = session.instance_scope;
+    let trace_id = session.trace_id;
     let session_extras = session.session_extras;
     let task_dynamic_blocks = session.task_dynamic_blocks;
     let tools_system_appendix = session.tools_system_appendix;
@@ -80,9 +100,10 @@ pub(crate) async fn run_sub_agent(
     let spawn_depth = session.spawn_depth;
     let sub_linkage = SubMessageLinkage {
         anchor_message_id: message_id.to_string(),
-        trace_id: agent_trace_step_id(&task.id, &def.id),
+        trace_id: trace_id.clone(),
         task_id: task.id.clone(),
         spawn_depth,
+        agent_instance_id: instance_scope.agent_instance_id.clone(),
     };
     let max_cap = ctx.sub_tool_budget.cap();
     let tools_appendix_enabled = !tools_system_appendix.is_empty();
@@ -174,6 +195,7 @@ pub(crate) async fn run_sub_agent(
                 trace_id: sub_linkage.trace_id.clone(),
                 task_id: sub_linkage.task_id.clone(),
                 spawn_depth: sub_linkage.spawn_depth,
+                agent_instance_id: sub_linkage.agent_instance_id.clone(),
             },
         );
 
@@ -216,6 +238,7 @@ pub(crate) async fn run_sub_agent(
             task,
             def: &def,
             instance_scope: &instance_scope,
+            trace_id: &trace_id,
             message_id,
             round_message_id: &round_message_id,
             session_content: &mut content,
@@ -350,9 +373,7 @@ pub(crate) async fn run_sub_agent(
         }
 
         let sub_cfg = SubToolPassConfig {
-            def: &def,
             task,
-            allowed_tools: &allowed_tools,
             allow_agents: &allow_agents,
             agent_skill_overrides: ctx.agent_skill_overrides,
             instance_scope: &instance_scope,
@@ -363,6 +384,13 @@ pub(crate) async fn run_sub_agent(
             trace_id: sub_linkage.trace_id.clone(),
             spawn_depth,
             scoped_message_id: round_message_id.clone(),
+            active: super::agent_tool_pass::ActiveAgentExecutionState {
+                def: &def,
+                system_prompt: &system_prompt,
+                skill_ids: &skill_ids,
+                skill_prompts: &skill_prompts,
+                allowed_tools: &allowed_tools,
+            },
         };
         let mut stats = ToolInvocationStats::Conversation(ctx.llm_stats);
         let anchor_message_id =
@@ -539,5 +567,106 @@ mod handoff_tests {
             sub_agent_handoff_content(&history, "  fallback  "),
             "fallback"
         );
+    }
+}
+
+#[cfg(test)]
+mod execution_provider_tests {
+    use super::sub_agent_execution_provider;
+    use crate::agents::{
+        AccessPolicy, AgentDef, AgentProfile, AgentTask, AgentUiConfig, SkillsPolicy,
+    };
+    use crate::chat_service::self_fork::SelfForkSnapshot;
+    use crate::chat_service::sub_agent_prompt::SubAgentDefinitionSource;
+    use crate::models::{AgentModelRef, ModelSettings};
+    use crate::provider::OpenAIProvider;
+    use std::collections::HashMap;
+
+    fn snapshot() -> SelfForkSnapshot {
+        SelfForkSnapshot {
+            def: AgentDef {
+                id: "current-agent".into(),
+                name: "Current Agent".into(),
+                description: "snapshot".into(),
+                role: "worker".into(),
+                profile: AgentProfile::Coder,
+                default_skill_ids: vec![],
+                skills_policy: SkillsPolicy::InheritsFromParent,
+                access_policy: AccessPolicy::default(),
+                builtin: false,
+                enabled: true,
+                tool_names: vec![],
+                source: None,
+                resource_files: vec![],
+                allow_agents: vec![],
+                config: HashMap::new(),
+                ui: AgentUiConfig::default(),
+            },
+            system_prompt: "current prompt".into(),
+            skill_ids: vec![],
+            skill_prompts: vec![],
+            allowed_tools: vec![],
+            workspace_root: "/snapshot/workspace".into(),
+        }
+    }
+
+    fn parent_provider() -> OpenAIProvider {
+        let settings = ModelSettings {
+            active_provider_id: "current-provider".into(),
+            model: "current-model".into(),
+            workspace_root: "/parent/workspace".into(),
+            agent_default_models: [
+                (
+                    "self".into(),
+                    AgentModelRef {
+                        provider_id: "wrong-provider".into(),
+                        model: "wrong-self-model".into(),
+                    },
+                ),
+                (
+                    "explore".into(),
+                    AgentModelRef {
+                        provider_id: "registered-provider".into(),
+                        model: "registered-model".into(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        OpenAIProvider::new(settings, "current-key".into())
+    }
+
+    #[test]
+    fn snapshot_uses_current_provider_and_snapshot_workspace_without_self_override() {
+        let snapshot = snapshot();
+        let source = SubAgentDefinitionSource::Snapshot(&snapshot);
+
+        let provider = sub_agent_execution_provider(&parent_provider(), &source);
+
+        assert_eq!(provider.settings.active_provider_id, "current-provider");
+        assert_eq!(provider.settings.model, "current-model");
+        assert_eq!(provider.settings.workspace_root, "/snapshot/workspace");
+        assert_eq!(provider.api_key, "current-key");
+    }
+
+    #[test]
+    fn registered_source_keeps_agent_model_override_and_parent_workspace() {
+        let task = AgentTask {
+            id: "task".into(),
+            agent_id: "explore".into(),
+            title: "Explore".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let source = SubAgentDefinitionSource::Registered(&task);
+
+        let provider = sub_agent_execution_provider(&parent_provider(), &source);
+
+        assert_eq!(provider.settings.active_provider_id, "registered-provider");
+        assert_eq!(provider.settings.model, "registered-model");
+        assert_eq!(provider.settings.workspace_root, "/parent/workspace");
     }
 }

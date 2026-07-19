@@ -2,6 +2,13 @@
 
 use crate::task_board::TaskBoardStore;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubAgentSpawnCapability {
+    Registered,
+    SelfOnly,
+    None,
+}
+
 /// System dynamic blocks for the delegated task (not repeated in the first user message).
 pub fn build_subagent_task_system_blocks(goal: &str, context: &str, workspace_root: &str) -> Vec<String> {
     let mut blocks = Vec::new();
@@ -30,23 +37,30 @@ pub fn build_subagent_task_system_blocks(goal: &str, context: &str, workspace_ro
 pub fn build_subagent_spawn_depth_block(
     spawn_depth: u32,
     max_spawn_depth: u32,
-    can_spawn: bool,
+    capability: SubAgentSpawnCapability,
 ) -> String {
-    if can_spawn {
-        format!(
+    match capability {
+        SubAgentSpawnCapability::Registered => format!(
             "## Sub-agent spawning (orchestrator)\n\n\
              You are at depth {spawn_depth}/{max_spawn_depth}. \
-             You may call `run_subagent` for workers listed in delegatable sub-agents metadata.\n\n\
+             You may call `run_subagent` for listed workers \
+             or with `agentId: \"self\"`.\n\n\
              Delegate when a subtask needs isolated context; \
              do not pass through your entire goal unchanged.\n\
              Child results return to you as tool output — synthesize before your final handoff."
-        )
-    } else {
-        format!(
+        ),
+        SubAgentSpawnCapability::SelfOnly => format!(
+            "## Sub-agent spawning (self leaf only)\n\n\
+             You are at cross-role depth {spawn_depth}/{max_spawn_depth}.\n\
+             You may call `run_subagent` only with `agentId: \"self\"`.\n\
+             A self fork is a leaf and cannot call `run_subagent`.\n\
+             You cannot delegate to registered agents at this depth."
+        ),
+        SubAgentSpawnCapability::None => format!(
             "## Sub-agent spawning (leaf)\n\n\
              You are at depth {spawn_depth}/{max_spawn_depth}. \
              You cannot call `run_subagent`. Complete your assigned task directly."
-        )
+        ),
     }
 }
 
@@ -97,15 +111,29 @@ mod tests {
 
     #[test]
     fn orchestrator_block_mentions_run_subagent() {
-        let b = build_subagent_spawn_depth_block(1, 2, true);
+        let b = build_subagent_spawn_depth_block(
+            1,
+            2,
+            SubAgentSpawnCapability::Registered,
+        );
         assert!(b.contains("run_subagent"));
         assert!(b.contains("1/2"));
     }
 
     #[test]
     fn leaf_block_denies_spawn() {
-        let b = build_subagent_spawn_depth_block(2, 2, false);
+        let b =
+            build_subagent_spawn_depth_block(2, 2, SubAgentSpawnCapability::None);
         assert!(b.contains("cannot call"));
+    }
+
+    #[test]
+    fn self_only_block_allows_leaf_self_fork_without_registered_catalog() {
+        let b =
+            build_subagent_spawn_depth_block(2, 2, SubAgentSpawnCapability::SelfOnly);
+        assert!(b.contains(r#"agentId: "self""#));
+        assert!(b.contains("leaf"));
+        assert!(b.contains("cannot delegate to registered agents"));
     }
 
     #[test]

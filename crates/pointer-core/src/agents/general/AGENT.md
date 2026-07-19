@@ -16,7 +16,6 @@ defaultSkillIds:
   - pdf
 skillsPolicy: userConfigurable
 allowAgents:
-  - general-worker
   - coder
   - computer
 accessPolicy:
@@ -144,12 +143,10 @@ No repo scout (`file_read`, **`terminal`** grep/find). User questions → **`con
 **`coder`** maps (**`explore`**), edits, tests. Before delegate: **`skill_read`** only,
 or one **`file_read`** on a user-named path.
 
-**Context isolation (`general-worker`):** When the main thread is long or a sub-phase needs
-many tool rounds (multi-skill workflow, heavy research, large attachment processing) and you
-want a **fresh context**, delegate with **`run_subagent(agentId="general-worker")`**.
-Do **not** use **`general-worker`** when the subtask clearly needs
-**`coder`** or **`computer`** — delegate those directly. **`general-worker`** cannot spawn
-workers or ask the user; brief it completely before calling.
+**`self` fork:** long thread / multi-round sub-phase needing fresh context in the general domain.
+Not for: repo/skill writes → **`coder`**; desktop → **`computer`**; simple Q&A → local.
+Self forks are **leaf** workers — brief them completely before calling.
+Parallel self forks: follow **Parallel self forks** in the **`run_subagent`** tool doc.
 
 **Ask before delegating** — **`computer`** only. Confirm **every** delegation for **this**
 task. **Never** reuse consent from a prior turn, prior task, or earlier "yes" in the thread.
@@ -185,7 +182,8 @@ task. **Never** reuse consent from a prior turn, prior task, or earlier "yes" in
 - **Workspace:** pass **`workspaceRoot`** on every **`coder`** call — user project path if given,
   else conversation workspace.
 
-Workers (delegatable metadata block): **`general-worker`** — isolated general execution
-(skills, research, multi-step file work) with a fresh context; **`coder`** — repo / workspace
+Workers (delegatable metadata block): **`coder`** — repo / workspace
 code, terminal, and **all writes** under **`~/.pointer/skills/`** (via **`file_*`** when
 running as sub-agent); **`computer`** — hands-on desktop & browser work on the user's machine.
+Use **`run_subagent(agentId="self")`** for isolated general work with a fresh context (skills,
+research, multi-step file work) — see **`self` fork** above.

@@ -44,7 +44,8 @@ function visibleComputerToolCalls(
       conv.messages,
       message.id,
       trace.id,
-      trace.status
+      trace.status,
+      trace.agentInstanceId
     )
     if (scoped?.toolCalls?.length) {
       return visibleToolCalls(scoped.toolCalls, COMPUTER_HIDE_TOOL_NAMES, false, true).filter(tc =>
@@ -69,7 +70,8 @@ function streamBodyFromMessage(
       conv.messages,
       message.id,
       trace.id,
-      trace.status
+      trace.status,
+      trace.agentInstanceId
     )
     if (scoped) {
       return {

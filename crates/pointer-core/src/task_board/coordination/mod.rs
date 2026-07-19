@@ -10,5 +10,5 @@ pub use main_turn::{
 };
 pub use parent_child::{
     is_child_store_key, parent_store_key_from_child, resolve_store_key_for_read,
-    sub_agent_task_board_store_key,
+    sub_agent_task_board_store_key, sub_agent_task_board_store_key_for_instance,
 };

@@ -84,7 +84,8 @@ pub fn register_all(reg: &ToolRegistry) {
             IMAGE_DOC.trim(),
             stub_handler(),
         )
-        .with_final_reply(true),
+        .with_final_reply(true)
+        .with_subagent_inheritance(false),
     );
     reg.register(
         ToolEntry::new(
@@ -95,7 +96,8 @@ pub fn register_all(reg: &ToolRegistry) {
             VIDEO_DOC.trim(),
             stub_handler(),
         )
-        .with_final_reply(true),
+        .with_final_reply(true)
+        .with_subagent_inheritance(false),
     );
 }
 

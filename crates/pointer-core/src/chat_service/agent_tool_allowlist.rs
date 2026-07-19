@@ -25,3 +25,10 @@ pub(crate) fn resolve_agent_tools(
     normalize_allowed_tool_names(&mut names, &available);
     names
 }
+
+pub(crate) fn retain_inheritable_subagent_tools(
+    allowed_tools: &mut Vec<String>,
+    registry: &ToolRegistry,
+) {
+    allowed_tools.retain(|name| registry.is_inheritable_to_subagent(name));
+}

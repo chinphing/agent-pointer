@@ -11,7 +11,7 @@ const TASK_BOARD_DEBOUNCE_MS = 300
 export interface ConversationTaskBoardState {
   parentByStoreKey: Record<string, TaskBoardDocument>
   parentBindings: Record<string, string>
-  /** Child store key → sub-agent trace id (`{taskId}:{agentId}`). */
+  /** Child store key → stable sub-agent trace id. */
   childBindings: Record<string, string>
   activeParentStoreKey: string | null
   childrenByParentStoreKey: Record<string, Record<string, TaskBoardDocument>>
@@ -291,7 +291,7 @@ export function resolveCompactTaskBoardDocument(
   messageId: string | null | undefined,
   /** Supervisor sub-task id only (not lead trace id `computer`). */
   computerSubTaskId?: string | null,
-  /** Full delegated trace id (`{taskId}:{agentId}`) when known. */
+  /** Full delegated trace id when known. */
   computerTraceId?: string | null
 ): TaskBoardDocument | null {
   if (!entry) return null

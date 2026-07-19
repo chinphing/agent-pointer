@@ -10,7 +10,7 @@ use super::agent_stream_round::{
     drain_provider_events, ContentDeltaMode, LlmRoundRecorder, StreamRoundBuffers,
 };
 use super::context::{cancel_owned, StreamRoundInput, SubStreamRoundContext, SubStreamRoundRefs};
-use super::emit::{agent_trace_step_id, emit};
+use super::emit::emit;
 use super::provider_stream::{is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message};
 use super::util::{new_id, now_ms};
 use crate::provider::ProviderEvent;
@@ -64,7 +64,6 @@ pub(super) async fn run_sub_agent_stream_round(
         .await
     });
 
-    let trace_id = agent_trace_step_id(&sub.task.id, &sub.def.id);
     let mut buffers = StreamRoundBuffers::default();
     let mut llm_recorder = LlmRoundRecorder::Scoped {
         stats: sub.llm_stats,
@@ -76,7 +75,7 @@ pub(super) async fn run_sub_agent_stream_round(
         sub.message_id,
         reasoning_in_messages,
         ContentDeltaMode::SubAgentTrace {
-            trace_id: trace_id.clone(),
+            trace_id: sub.trace_id.to_string(),
             scoped_message_id: sub.round_message_id.to_string(),
         },
         &mut llm_recorder,

@@ -23,8 +23,8 @@ pub fn register(reg: &ToolRegistry, store: Arc<MemoryStore>) {
     });
 
     reg.register(
-        ToolEntry::new("memory", MEMORY_DOC_SOURCE, "low", false, doc, handler).with_schema(
-            json!({
+        ToolEntry::new("memory", MEMORY_DOC_SOURCE, "low", false, doc, handler)
+            .with_schema(json!({
                 "type": "object",
                 "properties": {
                     "action": {
@@ -47,8 +47,8 @@ pub fn register(reg: &ToolRegistry, store: Arc<MemoryStore>) {
                     }
                 },
                 "required": ["action", "target"]
-            }),
-        ),
+            }))
+            .with_subagent_inheritance(false),
     );
 }
 

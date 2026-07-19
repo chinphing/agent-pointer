@@ -12,6 +12,8 @@
 |----|------|------|
 | `allowAgents` | `string[]` | 该 Lead 调用 **`run_subagent`** 时允许的 **worker** `agentId` 列表；加载时排序去重。仅这些 id 的元数据会注入系统提示（见 `delegatable_sub_agents_system_block`）。内置 **coder** 默认包含 **`explore`**。 |
 
+**`agentId="self"`** 不在 `allowAgents` 中配置：任意拥有 **`run_subagent`** 工具的 agent 均可 fork 自身，用于隔离上下文的 leaf 执行（general、coder 等）。详见 **`run_subagent`** 工具文档与 lead **`AGENT.md`**。
+
 示例（`crates/pointer-core/src/agents/coder/AGENT.md`）：
 
 ```yaml
@@ -30,7 +32,7 @@ allowAgents:
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
-| `agentId` | ✓ | worker id（须在 lead 的 `allowAgents` 中） |
+| `agentId` | ✓ | worker id（须在 lead 的 `allowAgents` 中），或保留值 **`self`**（fork 当前 agent；不需 `allowAgents`） |
 | `goal` | ✓ | 子任务目标 + 完成标准 |
 | `context` | ✗ | 已验证事实、路径、依赖摘要等（含列表文件的 `localPath` / media ref） |
 
@@ -63,6 +65,7 @@ general 无 Composer 工作区选择器。委派 **coder** 前应在对话中询
 ## 行为摘要
 
 - **`run_subagent` 返回值**：子 Agent 的侦察交付物为 **Markdown**（在工具结果的 **`content`** 字符串中）。`taskId` / `agentId` 等为元数据。子会话内仍按宿主约定使用 **JSON tool envelope**；**`content` 内不是 JSON 报告**。
+- **`self` fork**：fork 当前 agent 的执行快照（profile、工具、skills、workspace）；独立 `local_history` 与 trace；**leaf**（无 `run_subagent`）；不消耗跨角色 spawn depth。同一 assistant turn 内多个独立 **`self`** 调用可并行 wave 执行；依赖任务、重叠写、需用户交互或桌面控制的任务不得并行 fork。
 - **委派 `computer`**：与 Computer lead 发送前相同，阻塞等待 macOS 权限向导（桌面端）与屏幕选择（`computer_monitor_pick_required` → `Composer.beginSubagentMonitorPickFlow`）；单屏自动选定、多屏弹窗、已选屏幕复用。
 - 嵌套委派：深度由 **`maxSubAgentSpawnDepth`** 控制（默认 2）。达最大深度的子 agent 为 leaf，无 `run_subagent` 工具。
 - Supervisor 模式下，每执行一个子任务消耗外层一轮子任务预算，且该子任务自带内层 `SessionToolBudget`。

@@ -125,7 +125,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
             reg.register(
                 ToolEntry::new(tool_name, MOUSE_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema),
+                    .with_schema(schema)
+                    .with_subagent_inheritance(false),
             );
         }
     }
@@ -135,20 +136,23 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         const HOTKEY_DOC_SOURCE: &str = "agents/computer/tools/prompts/hotkey.md";
         let hotkey_state = state.clone();
         let doc = include_str!("prompts/hotkey.md").trim();
-        reg.register(ToolEntry::new(
-            "hotkey",
-            HOTKEY_DOC_SOURCE,
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| {
-                let hotkey_state = hotkey_state.clone();
-                run_synthetic_input(move || {
-                    let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
-                    tool.execute("hotkey", &args)
-                })
-            }),
-        ));
+        reg.register(
+            ToolEntry::new(
+                "hotkey",
+                HOTKEY_DOC_SOURCE,
+                "low",
+                false,
+                doc,
+                Arc::new(move |args| {
+                    let hotkey_state = hotkey_state.clone();
+                    run_synthetic_input(move || {
+                        let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
+                        tool.execute("hotkey", &args)
+                    })
+                }),
+            )
+            .with_subagent_inheritance(false),
+        );
     }
 
     // ── input (flat tools) ─────────────────────────────────────────────
@@ -191,7 +195,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
             reg.register(
                 ToolEntry::new(tool_name, INPUT_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema),
+                    .with_schema(schema)
+                    .with_subagent_inheritance(false),
             );
         }
     }
@@ -244,7 +249,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
             reg.register(
                 ToolEntry::new(tool_name, MODIFIED_CLICK_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema),
+                    .with_schema(schema)
+                    .with_subagent_inheritance(false),
             );
         }
     }
@@ -295,7 +301,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
             reg.register(
                 ToolEntry::new(tool_name, CAPTCHA_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema),
+                    .with_schema(schema)
+                    .with_subagent_inheritance(false),
             );
         }
     }
@@ -304,17 +311,20 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const WAIT_DOC_SOURCE: &str = "agents/computer/tools/prompts/wait.md";
         let doc = include_str!("prompts/wait.md").trim();
-        reg.register(ToolEntry::new(
-            "wait",
-            WAIT_DOC_SOURCE,
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| {
-                let tool = tool_wait::WaitTool::new();
-                tool.execute("wait", &args)
-            }),
-        ));
+        reg.register(
+            ToolEntry::new(
+                "wait",
+                WAIT_DOC_SOURCE,
+                "low",
+                false,
+                doc,
+                Arc::new(move |args| {
+                    let tool = tool_wait::WaitTool::new();
+                    tool.execute("wait", &args)
+                }),
+            )
+            .with_subagent_inheritance(false),
+        );
     }
 
     // ── clipboard (flat tools) ────────────────────────────────────────────
@@ -350,7 +360,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
             reg.register(
                 ToolEntry::new(tool_name, CLIPBOARD_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema),
+                    .with_schema(schema)
+                    .with_subagent_inheritance(false),
             );
         }
     }
@@ -386,7 +397,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     tool_app_access::AppAccessTool::new().execute_list_apps(&args)
                 }),
             )
-            .with_schema(list_schema),
+            .with_schema(list_schema)
+            .with_subagent_inheritance(false),
         );
 
         let launch_doc = include_str!("prompts/launch_app.md").trim();
@@ -401,7 +413,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     tool_app_access::AppAccessTool::new().execute_launch_app(&args)
                 }),
             )
-            .with_schema(launch_schema),
+            .with_schema(launch_schema)
+            .with_subagent_inheritance(false),
         );
     }
 }

@@ -242,6 +242,7 @@ mod agent_trace_persistence_tests {
             depth: Some(1),
             collapsed: true,
             user_expanded: false,
+            agent_instance_id: Some("instance-1".into()),
             computer_target: Some(ComputerOperationTarget::External),
             session: Some(SubAgentSessionUi {
                 thoughts: Some("done".into()),
@@ -314,5 +315,12 @@ mod agent_trace_persistence_tests {
         assert_eq!(session.stats.mouse_count, 2);
         assert_eq!(session.stats.input_count, 1);
         assert_eq!(session.collapsed, true);
+        assert_eq!(
+            back.messages[0].agent_trace.as_ref().unwrap()[0]
+                .agent_instance_id
+                .as_deref(),
+            Some("instance-1")
+        );
+        assert!(json.contains(r#""agentInstanceId":"instance-1""#));
     }
 }

@@ -40,17 +40,21 @@ pub fn register(reg: &ToolRegistry, store: Arc<TaskBoardStore>) {
             Ok(body.to_string())
         });
 
-        reg.register(
-            ToolEntry::new_sidecar(
-                name.clone(),
-                TASK_BOARD_DOC_SOURCE,
-                "low",
-                false,
-                prompt.clone(),
-                handler,
-            )
-            .with_schema(schema),
-        );
+        let entry = ToolEntry::new_sidecar(
+            name.clone(),
+            TASK_BOARD_DOC_SOURCE,
+            "low",
+            false,
+            prompt.clone(),
+            handler,
+        )
+        .with_schema(schema);
+        let entry = if name == "task_board_abandon" {
+            entry.with_subagent_inheritance(false)
+        } else {
+            entry
+        };
+        reg.register(entry);
     }
 }
 

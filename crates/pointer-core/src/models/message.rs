@@ -117,6 +117,9 @@ pub struct AgentTrace {
     pub collapsed: bool,
     #[serde(default, rename = "userExpanded")]
     pub user_expanded: bool,
+    /// Runtime child invocation UUID used to isolate scoped rows with reused task IDs.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "agentInstanceId")]
+    pub agent_instance_id: Option<String>,
     /// Set on `run_subagent` → `computer` traces; controls dock-bar shrink in the desktop client.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "computerTarget")]
     pub computer_target: Option<ComputerOperationTarget>,
@@ -232,7 +235,7 @@ pub struct ChatMessage {
     /// Parent lead assistant message id (scoped sub-agent transcript rows).
     #[serde(default, rename = "anchorMessageId", skip_serializing_if = "Option::is_none")]
     pub anchor_message_id: Option<String>,
-    /// Stable sub-task trace id (`{taskId}:{agentId}`).
+    /// Stable sub-task trace id; self-forks include a unique instance segment.
     #[serde(default, rename = "traceId", skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
     #[serde(default, rename = "taskId", skip_serializing_if = "Option::is_none")]

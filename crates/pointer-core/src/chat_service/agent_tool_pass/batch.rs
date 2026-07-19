@@ -20,6 +20,8 @@ pub enum ToolWave {
     Serial(Vec<usize>),
     /// Run tools concurrently up to semaphore limits (indices into the prepared batch).
     Parallel(Vec<usize>),
+    /// Run only `run_subagent(agentId="self")` calls concurrently.
+    ParallelSelfFork(Vec<usize>),
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +88,7 @@ pub fn plan_tool_batch(input: PlanToolBatchInput<'_>) -> ToolBatchPlan {
     let mut waves: Vec<ToolWave> = Vec::new();
     let mut current: Vec<usize> = Vec::new();
     let mut current_keys: HashSet<String> = HashSet::new();
+    let mut current_self_forks: Vec<usize> = Vec::new();
 
     let flush = |waves: &mut Vec<ToolWave>, current: &mut Vec<usize>, current_keys: &mut HashSet<String>| {
         if current.is_empty() {
@@ -99,11 +102,33 @@ pub fn plan_tool_batch(input: PlanToolBatchInput<'_>) -> ToolBatchPlan {
         current.clear();
         current_keys.clear();
     };
+    let flush_self_forks = |waves: &mut Vec<ToolWave>, current: &mut Vec<usize>| {
+        if current.is_empty() {
+            return;
+        }
+        if current.len() == 1 {
+            waves.push(ToolWave::Serial(vec![current[0]]));
+        } else {
+            waves.push(ToolWave::ParallelSelfFork(current.clone()));
+        }
+        current.clear();
+    };
 
     for i in 0..n {
         let tool_id = &input.tool_ids[i];
         let class = input.registry.tool_conflict_class(tool_id);
         let eligible = input.registry.is_parallel_eligible(tool_id);
+        let is_self_fork = tool_id == "run_subagent"
+            && crate::tools::run_subagent::parse_run_subagent_args(&input.parsed_args[i])
+                .is_ok_and(|args| args.is_self_fork());
+
+        if is_self_fork {
+            flush(&mut waves, &mut current, &mut current_keys);
+            current_self_forks.push(i);
+            continue;
+        }
+
+        flush_self_forks(&mut waves, &mut current_self_forks);
 
         if !eligible || class == ToolConflictClass::Sidecar || class == ToolConflictClass::Computer {
             flush(&mut waves, &mut current, &mut current_keys);
@@ -137,11 +162,19 @@ pub fn plan_tool_batch(input: PlanToolBatchInput<'_>) -> ToolBatchPlan {
         current.push(i);
         current_keys.extend(keys);
     }
+    flush_self_forks(&mut waves, &mut current_self_forks);
     flush(&mut waves, &mut current, &mut current_keys);
 
-    let mode = if all_eligible && waves.iter().all(|w| matches!(w, ToolWave::Parallel(_))) {
+    let mode = if all_eligible
+        && waves
+            .iter()
+            .all(|w| matches!(w, ToolWave::Parallel(_) | ToolWave::ParallelSelfFork(_)))
+    {
         BatchMode::Parallel
-    } else if waves.iter().any(|w| matches!(w, ToolWave::Parallel(_))) {
+    } else if waves
+        .iter()
+        .any(|w| matches!(w, ToolWave::Parallel(_) | ToolWave::ParallelSelfFork(_)))
+    {
         BatchMode::Mixed
     } else {
         BatchMode::Serial
@@ -173,13 +206,14 @@ fn wave_keys(input: &PlanToolBatchInput<'_>, index: usize) -> HashSet<String> {
 fn log_plan(mode: BatchMode, waves: &[ToolWave], degrade: Option<&str>, started: Instant) {
     let parallel_waves = waves
         .iter()
-        .filter(|w| matches!(w, ToolWave::Parallel(_)))
+        .filter(|w| matches!(w, ToolWave::Parallel(_) | ToolWave::ParallelSelfFork(_)))
         .count();
     let max_fanout = waves
         .iter()
         .map(|w| match w {
             ToolWave::Serial(v) => v.len(),
             ToolWave::Parallel(v) => v.len(),
+            ToolWave::ParallelSelfFork(v) => v.len(),
         })
         .max()
         .unwrap_or(0);
@@ -212,7 +246,6 @@ pub fn batch_needs_serial_for_approval(
 mod tests {
     use super::*;
     use crate::models::ToolCall;
-    use crate::tools::ToolEntry;
     use crate::tools::ToolRegistry;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -346,5 +379,95 @@ mod tests {
         assert!(matches!(plan.mode, BatchMode::Parallel));
         assert_eq!(plan.waves.len(), 1);
         assert!(matches!(plan.waves[0], ToolWave::Parallel(ref idx) if idx.len() == 2));
+    }
+
+    fn plan_subagents(
+        targets: &[&str],
+        force_serial: bool,
+        _runtime_limit: usize,
+    ) -> ToolBatchPlan {
+        let reg = reg_with_file_tools();
+        let batch: Vec<_> = targets
+            .iter()
+            .enumerate()
+            .map(|(index, _)| tc(&format!("call-{index}"), "run_subagent"))
+            .collect();
+        let parsed: Vec<_> = targets
+            .iter()
+            .map(|agent_id| serde_json::json!({"agentId": agent_id, "goal": "work"}))
+            .collect();
+        let ids = vec!["run_subagent".to_string(); targets.len()];
+        plan_tool_batch(PlanToolBatchInput {
+            registry: &reg,
+            batch: &batch,
+            parsed_args: &parsed,
+            tool_ids: &ids,
+            workspace_root: ".",
+            conversation_id: "c1",
+            force_serial,
+            max_parallel_tools: 8,
+        })
+    }
+
+    #[test]
+    fn plan_groups_consecutive_self_forks_in_dedicated_wave() {
+        let plan = plan_subagents(&["self", "self"], false, 8);
+
+        assert!(matches!(
+            plan.waves.as_slice(),
+            [ToolWave::ParallelSelfFork(indices)] if indices == &[0, 1]
+        ));
+    }
+
+    #[test]
+    fn plan_keeps_all_consecutive_self_forks_in_one_wave_above_runtime_limit() {
+        let plan = plan_subagents(&["self", "self", "self"], false, 2);
+
+        assert!(matches!(
+            plan.waves.as_slice(),
+            [ToolWave::ParallelSelfFork(indices)] if indices == &[0, 1, 2]
+        ));
+    }
+
+    #[test]
+    fn plan_keeps_self_and_registered_subagents_on_serial_boundaries() {
+        let plan = plan_subagents(&["self", "explore"], false, 8);
+
+        assert!(matches!(
+            plan.waves.as_slice(),
+            [ToolWave::Serial(first), ToolWave::Serial(second)]
+                if first == &[0] && second == &[1]
+        ));
+    }
+
+    #[test]
+    fn plan_keeps_registered_subagents_serial() {
+        let plan = plan_subagents(&["explore", "coder"], false, 8);
+
+        assert!(plan
+            .waves
+            .iter()
+            .all(|wave| matches!(wave, ToolWave::Serial(_))));
+    }
+
+    #[test]
+    fn plan_keeps_self_and_computer_on_serial_boundaries() {
+        let plan = plan_subagents(&["self", "computer"], false, 8);
+
+        assert!(matches!(
+            plan.waves.as_slice(),
+            [ToolWave::Serial(first), ToolWave::Serial(second)]
+                if first == &[0] && second == &[1]
+        ));
+    }
+
+    #[test]
+    fn plan_force_serial_keeps_self_forks_serial() {
+        let plan = plan_subagents(&["self", "self"], true, 8);
+
+        assert!(plan
+            .waves
+            .iter()
+            .all(|wave| matches!(wave, ToolWave::Serial(_))));
     }
 }

@@ -10,6 +10,18 @@ CSS variables in `src/styles/globals.css`:
 
 `html.dark` and default (`:root`) define light; dark overrides on `html.dark`.
 
+### Accent
+
+Brand accent is intentionally **low-saturation** so it reads as a tool, not a
+consumer-purple product, especially in light mode:
+
+- Light: `--accent: 250 42% 52%`, `--accent-muted: 250 28% 95%`
+- Dark:  `--accent: 250 45% 68%`, `--accent-muted: 250 28% 16%`
+
+Keep saturation ≤ ~50% in light; raise lightness in dark so `text-accent` stays
+readable on `--card`. Do not bump saturation back to 80%+ — that reintroduces
+the neon-purple feel in light chat.
+
 ## UI classes
 
 - `.panel` — flat card (`bg-card` + `border-border`)

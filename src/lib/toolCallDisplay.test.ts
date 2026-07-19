@@ -76,6 +76,21 @@ describe('compactToolCallStatusLine', () => {
     expect(d.summary).toBe('daily@9:30')
   })
 
+  it('ask_user keeps question out of tool header summary', () => {
+    const call = tc({
+      id: '5',
+      name: 'ask_user',
+      status: 'success',
+      arguments: JSON.stringify({
+        question: '是否允许桌面控制？',
+        options: [{ label: '允许' }, { label: '仅步骤' }]
+      }),
+      displaySummary: '是否允许桌面控制？'
+    })
+    expect(resolveToolDisplayForCall(call)).toEqual({ label: '询问用户', summary: '' })
+    expect(effectiveToolDisplaySummary(call)).toBe('')
+  })
+
   it('effectiveToolDisplayLabel ignores slug displayLabel from backend', () => {
     expect(
       effectiveToolDisplayLabel(

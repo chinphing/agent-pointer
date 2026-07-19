@@ -59,9 +59,10 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
   const args = parseToolArgs(tc.arguments)
 
   if (base === 'ask_user') {
+    // Question is rendered once in AskUserOptions; keep the tool header label-only.
     return {
       label: '询问用户',
-      summary: truncateToolSummary(strField(args, ['question']))
+      summary: ''
     }
   }
   if (base === 'launch_app') {
@@ -98,6 +99,8 @@ export function effectiveToolDisplayLabel(tc: ToolCall): string {
 /** Prefer backend summary when present; else derive from args/tool rules. */
 export function effectiveToolDisplaySummary(tc: ToolCall): string {
   const base = toolCallBaseName(tc.name)
+  // Interactive card already shows the question — never mirror it in the header.
+  if (base === 'ask_user') return ''
   const resolved = resolveToolDisplayForCall(tc)
   const backend = tc.displaySummary?.trim()
   if (backend) {

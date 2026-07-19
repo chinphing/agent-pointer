@@ -128,6 +128,12 @@ function onDialogBackdropClick() {
 async function saveFromFooter() {
   saving.value = true
   try {
+    // Persist theme first. Other save* paths call applyEffectiveView, which
+    // reloads UserSettings from disk; if theme is still unsaved there, the UI
+    // choice would be overwritten and a trailing saveUser would write the old value.
+    const themeToSave = theme.value
+    await s.saveUser({ theme: themeToSave })
+
     if (activeSection.value === 'provider') {
       if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
         return
@@ -143,8 +149,9 @@ async function saveFromFooter() {
       await channelPanelRef.value?.save()
     } else if (activeSection.value === 'assistant') {
       const payload = getAssistantSavePayload()
-      await s.saveAgentPreferences({ ...payload, theme: s.settings.theme })
+      await s.saveAgentPreferences(payload)
       await s.saveUser({
+        theme: themeToSave,
         computerAutoCompact: payload.computerAutoCompact,
         userCodingRules: payload.userCodingRules
       })
@@ -153,12 +160,8 @@ async function saveFromFooter() {
         activeSection.value = 'provider'
         return
       }
-      await s.save({
-        ...getDebugSessionSavePayload(),
-        theme: s.settings.theme
-      })
+      await s.save(getDebugSessionSavePayload())
     }
-    await s.saveUser({ theme: s.settings.theme })
     emit('close')
   } finally {
     saving.value = false

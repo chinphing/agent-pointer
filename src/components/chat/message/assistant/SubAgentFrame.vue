@@ -222,12 +222,19 @@ watch(rawContentViewEnabled, on => {
 function toggleExpanded() {
   toggleSubTraceExpanded(props.trace)
 }
+
+/** Frame chrome: neutral by default; failed uses danger tint (theme tokens, light/dark). */
+const frameChromeClass = computed(() =>
+  props.trace.status === 'failed'
+    ? 'border-danger/35 bg-danger/5'
+    : 'border-border bg-card'
+)
 </script>
 
 <template>
   <div
-    class="rounded-xl border-2 border-accent/25 bg-accent-muted/10 my-2 overflow-hidden"
-    :class="collapsed ? 'py-2 px-3' : 'p-3'"
+    class="rounded-xl border my-2 overflow-hidden"
+    :class="[frameChromeClass, collapsed ? 'py-2 px-3' : 'p-3']"
     :style="{ marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px` }"
   >
     <button
@@ -237,7 +244,7 @@ function toggleExpanded() {
       :aria-expanded="false"
       @click="toggleExpanded"
     >
-      <ChevronRight class="w-4 h-4 shrink-0 text-accent" />
+      <ChevronRight class="w-4 h-4 shrink-0 text-muted" />
       <span class="flex-1 min-w-0 text-[13px] text-foreground truncate">{{ summaryLine }}</span>
     </button>
 
@@ -249,7 +256,7 @@ function toggleExpanded() {
           :aria-expanded="true"
           @click="toggleExpanded"
         >
-          <ChevronDown class="w-4 h-4 shrink-0 text-accent" />
+          <ChevronDown class="w-4 h-4 shrink-0 text-muted" />
           <span class="truncate">{{ traceLabel }}</span>
           <span class="text-xs text-muted shrink-0">{{ trace.status }}</span>
         </button>
@@ -257,7 +264,7 @@ function toggleExpanded() {
           v-if="hasRawWire"
           type="button"
           class="message-action-btn shrink-0"
-          :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
+          :class="showRawWire ? 'text-foreground' : 'text-muted hover:text-foreground'"
           :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
           @click.stop="showRawWire = !showRawWire"
         >

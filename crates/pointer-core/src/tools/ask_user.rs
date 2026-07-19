@@ -7,16 +7,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 const DOC_SOURCE: &str = "tools/prompts/ask_user.md";
-const DOC: &str = r#"### `ask_user`
-
-Ask the user to choose when required information cannot be inferred safely.
-The tool pauses the current run until the user submits a choice.
-
-- Keep questions concise and decision-oriented.
-- Provide 2–6 mutually clear options.
-- Use `multi_select` only when several choices may be combined.
-- Do not use this tool for questions answerable from the workspace.
-"#;
+const DOC: &str = include_str!("prompts/ask_user.md");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AskUserOption {

@@ -367,7 +367,11 @@ function createSettingsDialogForm(deps: {
   async function applyThemeChoice(t: ThemePreference) {
   theme.value = t
   applyTheme(t)
+  // Theme persists in UserSettings; keep both mirrors in sync so a later
+  // applyEffectiveView (from unrelated saves) does not resurrect the old value
+  // before saveUser({ theme }) runs.
   s.settings.theme = t
+  s.userSettings.theme = t
   }
 
   function themeLabel(t: ThemePreference): string {

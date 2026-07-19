@@ -423,6 +423,7 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 cron_job_summary(&action, args),
             )
         }
+        "ask_user" => ("询问用户".to_string(), String::new()),
         "response" => ("回复用户".to_string(), String::new()),
         _ => if !method.is_empty() { (format!("{base} · {method}"), String::new()) } else { (raw_name.to_string(), String::new()) }
     };
@@ -632,5 +633,18 @@ mod tests {
         );
         assert_eq!(d.label, "终端命令");
         assert_eq!(d.summary, "cargo build --release");
+    }
+
+    #[test]
+    fn ask_user_label_without_question_summary() {
+        let d = default_display(
+            "ask_user",
+            &json!({
+                "question": "是否允许桌面控制？",
+                "options": [{"label": "允许"}, {"label": "仅步骤"}]
+            }),
+        );
+        assert_eq!(d.label, "询问用户");
+        assert_eq!(d.summary, "");
     }
 }

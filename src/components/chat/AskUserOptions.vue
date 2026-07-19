@@ -70,8 +70,8 @@ function confirmMultiple() {
         type="button"
         class="group w-full min-h-9 px-3 py-2 border rounded-md text-left transition-colors disabled:cursor-default"
         :class="isSelected(option.label)
-          ? 'border-accent/60 bg-accent/10 text-foreground'
-          : 'border-border/80 bg-background/30 hover:bg-muted/35 hover:border-border text-foreground/85'"
+          ? 'border-border bg-hover text-foreground'
+          : 'border-border/70 bg-card hover:bg-hover/80 hover:border-border text-foreground/85'"
         :disabled="submitting || isCompleted"
         @click="choose(option.label)"
       >
@@ -80,14 +80,16 @@ function confirmMultiple() {
             class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border text-[10px]"
             :class="[
               args.multiSelect ? 'rounded-[3px]' : 'rounded-full',
-              isSelected(option.label) ? 'border-accent bg-accent text-accent-foreground' : 'border-muted-foreground/40'
+              isSelected(option.label)
+                ? 'border-foreground/55 bg-foreground/55 text-background'
+                : 'border-border bg-background'
             ]"
           >
-            <Check v-if="isSelected(option.label)" class="h-3 w-3" />
+            <Check v-if="isSelected(option.label)" class="h-3 w-3" stroke-width="3" />
           </span>
           <span class="min-w-0 truncate text-xs leading-4">
             <span class="font-medium">{{ option.label }}</span>
-            <span v-if="option.description" class="ml-1.5 text-[11px] text-muted-foreground">
+            <span v-if="option.description" class="ml-1.5 text-[11px] text-muted">
               · {{ option.description }}
             </span>
           </span>
@@ -98,7 +100,7 @@ function confirmMultiple() {
     <div v-if="args.multiSelect && !isCompleted" class="flex items-center gap-2">
       <button
         type="button"
-        class="h-8 px-3 rounded-md bg-accent text-accent-foreground text-xs font-medium disabled:opacity-45 disabled:cursor-not-allowed"
+        class="h-8 px-3 rounded-md bg-foreground/65 text-background text-xs font-medium hover:bg-foreground/75 disabled:opacity-45 disabled:cursor-not-allowed"
         :disabled="submitting || localSelection.length === 0"
         @click="confirmMultiple"
       >
@@ -107,13 +109,13 @@ function confirmMultiple() {
           确认选择
         </span>
       </button>
-      <span class="text-[11px] text-muted-foreground">已选 {{ localSelection.length }} 项</span>
+      <span class="text-[11px] text-muted">已选 {{ localSelection.length }} 项</span>
     </div>
 
-    <p v-else-if="submitting" class="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+    <p v-else-if="submitting" class="inline-flex items-center gap-1.5 text-[11px] text-muted">
       <Loader2 class="h-3 w-3 animate-spin" />正在提交选择
     </p>
-    <p v-else-if="isCompleted" class="text-[11px] text-muted-foreground truncate" :title="'已选择：' + displaySelected.join('、')">
+    <p v-else-if="isCompleted" class="text-[11px] text-muted truncate" :title="'已选择：' + displaySelected.join('、')">
       已选择：{{ displaySelected.join('、') }}
     </p>
     <p v-if="error" class="text-[11px] leading-4 text-danger">{{ error }}</p>

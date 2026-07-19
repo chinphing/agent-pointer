@@ -16,6 +16,23 @@ export default defineConfig({
     include: ['src/**/*.test.ts']
   },
   clearScreen: false,
+  build: {
+    // Local Tauri + same-origin server UI; gzip matters more than raw 500kB threshold.
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (/[/\\]node_modules[/\\](?:vue|@vue|pinia)[/\\]/.test(id)) {
+            return 'vue-vendor'
+          }
+          if (id.includes(`${path.sep}@tauri-apps${path.sep}`) || id.includes('/@tauri-apps/')) {
+            return 'tauri-vendor'
+          }
+        }
+      }
+    }
+  },
   server: {
     host: host || '0.0.0.0',
     port: 1420,

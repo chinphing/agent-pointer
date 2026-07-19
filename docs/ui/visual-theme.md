@@ -16,6 +16,8 @@ CSS variables in `src/styles/globals.css`:
 - `.panel-elevated` — slightly raised surface
 - `.brand-text` — accent-colored title text
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`
+- Interactive chat controls (e.g. `ask_user`): selected state should derive from `foreground` / `background` (opacity OK) so light and dark both stay readable — avoid fixed gray hex and accent purple fills in light chat
+- Sub-agent frame (`SubAgentFrame`): default `border-border` + `bg-card`; failed → `border-danger/35` + `bg-danger/5`; chevrons `text-muted` — not accent purple
 - `.settings-input`, `.settings-toggle-track`, `.settings-segment*` — shared controls in settings forms
 
 Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `backdrop-blur` in chat UI.
@@ -28,9 +30,11 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 
 ## Theme preference
 
-- Setting: `ModelSettings.theme` — `light` | `dark` | `system`
-- Sidebar cycles: system → light → dark
-- Applied via `src/lib/theme.ts` on load and when settings save
+- Persisted in **`UserSettings.theme`** (`user_settings.json`) — `light` | `dark` | `system`
+- Merged into the effective `ModelSettings.theme` for UI; do not treat session/platform saves as the source of truth for theme
+- Settings dialog: cycle system → light → dark; **save theme via `saveUser` before** other `save*` calls (those reload from disk via `applyEffectiveView`)
+- Applied via `src/lib/theme.ts` on load, when cycling, and when user settings save
+- See also [user-platform-config-split.md](../internals/user-platform-config-split.md)
 
 ## Desktop window chrome (Tauri only)
 

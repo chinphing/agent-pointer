@@ -34,11 +34,19 @@
 
 - 数据：`agent_step`（`depth > 0`）+ 带 `traceId` 的流式事件 → `AgentTrace.session`。
 - 布局：与主 Agent 同构（`AgentMessageBody`：thoughts / headline / 竖线 / 工具卡），包在 **大边框** 内。
+- **边框色**：默认 `border-border` + `bg-card`；`failed` 时用 `border-danger/35` + `bg-danger/5`（主题语义色，随浅/深翻转）。展开箭头用 `text-muted`，**不用** accent 紫边/紫箭头。
 - **嵌套位置**：`AgentTrace.parentToolCallId` 指向父消息里对应的 **`run_subagent`** 工具行；UI 将子 Agent 边框（及子任务板）紧跟在该工具行下方。无该字段或找不到工具行时，回退到消息底部（兼容旧会话）。并行多个 explore / self 时各自挂到自己的委派行下。owned-wave（explore / self）在拿到并发许可后立刻发 `status=running` 的 `agent_step`（已带 `parentToolCallId`），避免只在结束时才关联。
 - **默认收缩**为一行概要（含任务板在内的全部内容一并隐藏），执行中与完成后均如此；点击可展开。流式 `agent_step` 不得覆盖用户手动展开状态。
 - 收缩摘要：**统一按工具分桶计数**，再按子 agent `agentId` 展示不同维度——`explore`：搜索/读文件；`coder`：搜索/读文件/终端/编辑；`computer`：鼠标/输入/其他；`research`：联网搜索。历史 trace 中的 `general-worker` 仍按既有 metadata 渲染（`agentUi` / `subAgentStats`），registry 不再加载该 agent。
 - 子 Agent **任务板**与外层相同组件 `TaskBoardPanel`，绑定在 **lead assistant 消息**（`task_board_updated.anchorMessageId` → `childBindings`），展示在对应 `SubAgentFrame` 内。
 - 设置「显示子 Agent 边框面板」（`showSubAgentTrace`）：Supervisor 默认开；worker lead 默认关。
 - Supervisor 规划列表：`supervisor_plan` → `message.supervisorPlanTasks`，轻量 checklist（无 `<pre>` 时间线）。
+
+## `ask_user` 工具行
+
+- 工具行标题只显示 **「询问用户」**（不加 `displaySummary` / 问题摘要）。
+- 问题正文只出现在交互卡片（`AskUserOptions`）内，避免标题与正文重复。
+- 选中态只用主题语义色：`foreground` / `background` / `border` / `hover` / `muted`（随浅色/深色翻转）。
+  勾选填充为 `bg-foreground/55 text-background`，不要写死灰阶、紫色或未定义的 `muted-foreground`。
 
 修改 `AssistantModelMessage.vue`、`AgentMessageBody.vue`、`SubAgentFrame.vue`、`ModelThoughtPanels.vue` 或 `chat.ts` 中 `traceId` 路由前，请先对照本文。

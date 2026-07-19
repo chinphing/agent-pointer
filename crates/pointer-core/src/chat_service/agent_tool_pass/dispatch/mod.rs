@@ -50,6 +50,15 @@ pub(super) async fn execute_tool_invocation(
             .await
         }
         "web_search" => {
+            let lead_scope = match stats {
+                ToolInvocationStats::TokenSession(session) => Some(&session.lead_scope),
+                ToolInvocationStats::Conversation(_) => None,
+            };
+            let invocation = web_search::prepare_web_search_invocation(
+                lead_scope,
+                lead.as_ref().map(|l| l.lead_agent_id),
+                sub.as_deref(),
+            )?;
             web_search::dispatch_web_search(
                 stream,
                 provider,
@@ -58,9 +67,7 @@ pub(super) async fn execute_tool_invocation(
                 tc,
                 args_value,
                 cancel,
-                stats,
-                lead.as_ref().map(|l| l.lead_agent_id),
-                sub,
+                invocation,
             )
             .await
         }
@@ -147,6 +154,8 @@ pub(super) async fn invoke_prepared_parallel(
     sub_profile: Option<AgentProfile>,
     lead_run_id: Option<&str>,
     sub_run_id: Option<&str>,
+    web_search_invocation: Option<web_search::WebSearchInvocation>,
+    web_search_history: Option<&[crate::models::ChatMessage]>,
     cancel: &CancellationToken,
 ) -> ToolExecResult {
     match tool_id {
@@ -166,19 +175,19 @@ pub(super) async fn invoke_prepared_parallel(
             .await
         }
         "web_search" => {
-            let mut stats =
-                ToolInvocationStats::Conversation(&mut crate::llm_token_stats::ConversationLlmStats::default());
+            let invocation = web_search_invocation
+                .ok_or_else(|| anyhow::anyhow!("web_search invocation context missing"))?;
+            let history = web_search_history
+                .ok_or_else(|| anyhow::anyhow!("web_search history context missing"))?;
             web_search::dispatch_web_search(
                 stream,
                 provider,
                 message_id,
-                &[],
+                history,
                 tc,
                 args_value,
                 cancel,
-                &mut stats,
-                None,
-                None,
+                invocation,
             )
             .await
         }

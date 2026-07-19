@@ -50,11 +50,13 @@ Token accounting follows the same path as normal chat LLM rounds:
 | Path | What is metered | How it is recorded |
 |------|-----------------|-------------------|
 | **Main agent** LLM turns | Chat/completions `usage` on each stream round | `record_llm_round` → SQLite `usage_accum` → `finalize_run` → platform `token-usage` upload |
-| **`web_search` tool** | DashScope native response `usage` (`input_tokens` / `output_tokens` / `total_tokens`) | Same `record_llm_round` on the **lead** `agent_instance_id` |
+| **`web_search` tool** | DashScope native response `usage` (`input_tokens` / `output_tokens` / `total_tokens`) | Direct `token_usage_store::record_round` on the **lead** `agent_instance_id` |
 | **`research` sub-agent** orchestration | Sub-agent chat rounds | `record_llm_round` on the **sub-agent** `agent_instance_id` |
-| **`research` → `web_search` calls** | Each tool’s DashScope `usage` | `record_llm_round` on the **same sub-agent** `agent_instance_id` |
+| **`research` → `web_search` calls** | Each tool’s DashScope `usage` | Direct `token_usage_store::record_round` on the **same sub-agent** `agent_instance_id` |
 
 At end of `run_chat`, `token_usage_store::finalize_run` enqueues one platform report per agent instance (with optional conversation archive zip). Tool results still include **`usage`** / **`searchCount`** in JSON for the model; platform reporting uses the accum path above.
+
+Serial and parallel searches use the same owned `AgentInstanceScope` accounting path. Search usage does not update the agent-loop in-memory `last_round_prompt_tokens`, because that value is reserved for context-compression decisions based on the agent conversation prompt.
 
 **Not included:** DashScope search-plugin surcharges (`usage.plugins.search.count`) are logged locally but not sent as a separate billing field to the platform today.
 

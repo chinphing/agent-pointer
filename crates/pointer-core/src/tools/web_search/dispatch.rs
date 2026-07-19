@@ -2,7 +2,6 @@
 
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::chat_service::StreamTx;
-use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{ChatMessage, ModelSettings};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -26,23 +25,6 @@ pub(crate) enum WebSearchInvokeContext<'a> {
     },
 }
 
-pub(crate) enum WebSearchTokenSink<'a> {
-    Lead(&'a mut ChatLlmTokenSession),
-    Sub {
-        stats: &'a mut ConversationLlmStats,
-        scope: &'a AgentInstanceScope,
-    },
-}
-
-impl<'a> WebSearchTokenSink<'a> {
-    fn into_recorder(self) -> WebSearchTokenRecorder<'a> {
-        match self {
-            WebSearchTokenSink::Lead(s) => WebSearchTokenRecorder::Lead(s),
-            WebSearchTokenSink::Sub { stats, scope } => WebSearchTokenRecorder::Sub { stats, scope },
-        }
-    }
-}
-
 pub(crate) struct WebSearchDispatchContext<'a> {
     pub settings: &'a ModelSettings,
     pub agent_id: Option<&'a str>,
@@ -54,7 +36,7 @@ pub(crate) struct WebSearchDispatchContext<'a> {
     pub history: &'a [ChatMessage],
     pub exclude_message_id: &'a str,
     pub invoke: WebSearchInvokeContext<'a>,
-    pub token_sink: WebSearchTokenSink<'a>,
+    pub usage_scope: AgentInstanceScope,
     pub trace_id: Option<String>,
     pub scoped_message_id: Option<String>,
 }
@@ -63,7 +45,7 @@ pub(crate) struct WebSearchDispatchContext<'a> {
 pub(crate) async fn dispatch(ctx: WebSearchDispatchContext<'_>) -> Result<WebSearchResult> {
     let citation_base_index =
         super::client::compute_citation_base_index(ctx.history, ctx.exclude_message_id);
-    let mut token_recorder = ctx.token_sink.into_recorder();
+    let token_recorder = WebSearchTokenRecorder::new(ctx.usage_scope);
     let ui = WebSearchStreamUi {
         stream: ctx.stream.clone(),
         message_id: ctx.message_id.clone(),

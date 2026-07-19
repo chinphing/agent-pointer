@@ -1,5 +1,6 @@
 //! Route tool invocations to specialized handlers or the default registry.
 
+mod ask_user;
 mod media;
 pub(super) mod registry;
 mod skill_import;
@@ -42,6 +43,7 @@ pub(super) async fn execute_tool_invocation(
         tc.id.as_str(),
     );
     match tool_id {
+        "ask_user" => ask_user::dispatch_ask_user(state, tc, args_value, cancel).await,
         "terminal" => {
             terminal::run_terminal_tool(
                 stream,
@@ -173,6 +175,7 @@ pub(super) async fn invoke_prepared_parallel(
     let execution_scope =
         ToolExecutionScope::new(conversation_id, agent_instance_id, tc.id.as_str());
     match tool_id {
+        "ask_user" => Err(anyhow::anyhow!("ask_user must not run in parallel wave")),
         "terminal" => {
             terminal::run_terminal_tool(
                 stream,

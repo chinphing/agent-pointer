@@ -72,6 +72,10 @@ export async function approveToolCall(
   await invoke('approve_tool_call', { toolCallId, approved })
 }
 
+export async function submitAskUser(toolCallId: string, selected: string[]): Promise<void> {
+  await invoke('submit_ask_user', { toolCallId, selected })
+}
+
 export async function submitTerminalInput(requestId: string, text: string): Promise<void> {
   await invoke('submit_terminal_input', { requestId, text })
 }

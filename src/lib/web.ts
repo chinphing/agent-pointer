@@ -145,6 +145,13 @@ export async function approveToolCall(
   })
 }
 
+export async function submitAskUser(toolCallId: string, selected: string[]): Promise<void> {
+  await request(`/api/tools/${encodeURIComponent(toolCallId)}/ask-user`, {
+    method: 'POST',
+    body: JSON.stringify({ selected })
+  })
+}
+
 export async function submitTerminalInput(requestId: string, text: string): Promise<void> {
   await request(`/api/terminal-input/${encodeURIComponent(requestId)}/submit`, {
     method: 'POST',

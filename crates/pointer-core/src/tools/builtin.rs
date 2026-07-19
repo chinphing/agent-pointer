@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 pub fn register_all(reg: &ToolRegistry, task_board_store: Arc<crate::task_board::TaskBoardStore>) {
     crate::tools::terminal::register_all(reg);
+    crate::tools::ask_user::register_all(reg);
     crate::agents::coder::read_lints::register_all(reg);
     crate::tools::file::register_all(reg);
     crate::tools::web_search::register_all(reg);

@@ -457,6 +457,7 @@ pub fn run() {
             commands::cancel_chat,
             commands::abort_terminal_command,
             commands::approve_tool_call,
+            commands::submit_ask_user,
             commands::submit_terminal_input,
             commands::dismiss_terminal_input,
             commands::get_settings,

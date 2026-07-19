@@ -19,6 +19,7 @@ import { fileToolDisplayPath, truncateToolSummary, effectiveToolDisplayLabel, ef
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 import DiffView from './DiffView.vue'
+import AskUserOptions from './AskUserOptions.vue'
 
 
 
@@ -322,6 +323,11 @@ function openSourceUrl(url: string) {
         class="tool-call-chevron w-3 h-3 shrink-0 ml-[2ch] text-muted hidden"
       />
     </button>
+
+    <AskUserOptions
+      v-if="toolCall.name === 'ask_user'"
+      :tool-call="toolCall"
+    />
 
     <div
       v-if="toolCall.status === 'pending_approval'"

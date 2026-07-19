@@ -64,6 +64,7 @@ export interface RuntimeApi {
   /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
   abortTerminalCommand(conversationId: string, toolCallId?: string): Promise<boolean>
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
+  submitAskUser(toolCallId: string, selected: string[]): Promise<void>
   submitTerminalInput(requestId: string, text: string): Promise<void>
   dismissTerminalInput(requestId: string): Promise<void>
   getSettings(): Promise<EffectiveSettingsView>
@@ -147,6 +148,7 @@ export const sendChat = api.sendChat
 export const cancelChat = api.cancelChat
 export const abortTerminalCommand = api.abortTerminalCommand
 export const approveToolCall = api.approveToolCall
+export const submitAskUser = api.submitAskUser
 export const submitTerminalInput = api.submitTerminalInput
 export const dismissTerminalInput = api.dismissTerminalInput
 export const getSettings = api.getSettings

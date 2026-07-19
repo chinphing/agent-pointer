@@ -143,6 +143,8 @@ export interface AgentTrace {
   agentInstanceId?: string
   /** `run_subagent` → computer: task goal targets Pointer itself (`self`) or other apps (`external`). */
   computerTarget?: ComputerOperationTarget
+  /** Parent assistant `run_subagent` tool-call id; nest the frame under that tool row. */
+  parentToolCallId?: string
 }
 
 export type AgentProfile =

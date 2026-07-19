@@ -40,9 +40,9 @@ use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
 use outcome::record_tool_exec_outcome;
 use types::ToolExecResult;
 use super::run_subagent_delegation::{
-    commit_subagent_outcome, execute_self_fork, failed_self_fork_outcome,
-    finalize_subagent_outcome, PreparedSubagentOutcome, SelfForkExecutionInput,
-    SubagentCommitContext,
+    commit_subagent_outcome, execute_owned_subagent, failed_owned_subagent_outcome,
+    finalize_subagent_outcome, OwnedSubagentExecutionInput, OwnedSubagentSource,
+    PreparedSubagentOutcome, SubagentCommitContext,
 };
 
 fn task_board_emit_anchor_for_store_key(
@@ -79,7 +79,7 @@ struct SelfForkWaveItem<I> {
 }
 
 enum SelfForkWaveWork<'a> {
-    Execute(SelfForkExecutionInput<'a>),
+    Execute(OwnedSubagentExecutionInput<'a>),
     Prepared(PreparedSubagentOutcome),
 }
 
@@ -357,7 +357,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
         match wave {
             ToolWave::Serial(indices) => {
                 for idx in indices {
-                    if prepared_is_self_fork(&prepared[idx]) {
+                    if prepared_is_parallel_subagent(&prepared[idx]) {
                         run_self_fork_wave(
                             &mut pass,
                             &prepared,
@@ -679,10 +679,10 @@ struct OneToolOutcome {
     skipped: bool,
 }
 
-fn prepared_is_self_fork(prepared: &PreparedTool) -> bool {
+fn prepared_is_parallel_subagent(prepared: &PreparedTool) -> bool {
     prepared.tool_id == "run_subagent"
         && crate::tools::run_subagent::parse_run_subagent_args(&prepared.args_value)
-            .is_ok_and(|args| args.is_self_fork())
+            .is_ok_and(|args| args.is_parallel_wave_target())
 }
 
 async fn run_self_fork_wave(
@@ -711,17 +711,30 @@ async fn run_self_fork_wave(
         }
 
         let max_spawn_depth = pass.ctx.provider.settings.max_sub_agent_spawn_depth.max(1);
-        let (active, run_id, parent_spawn_depth) = if let Some(lead) = pass.ctx.lead.as_ref() {
-            (lead.active, lead.run_id.to_string(), 0)
-        } else if let Some(sub) = pass.ctx.sub.as_ref() {
-            (
-                sub.active,
-                sub.instance_scope.run_id.clone(),
-                sub.spawn_depth,
-            )
-        } else {
-            return Err(anyhow!("self-fork execution requires an active parent agent"));
-        };
+        let (active, run_id, parent_spawn_depth, allow_agents, enabled_skill_ids, skill_overrides) =
+            if let Some(lead) = pass.ctx.lead.as_ref() {
+                (
+                    lead.active,
+                    lead.run_id.to_string(),
+                    0u32,
+                    lead.allow_agents.to_vec(),
+                    lead.enabled_skill_ids.clone(),
+                    lead.agent_skill_overrides.clone(),
+                )
+            } else if let Some(sub) = pass.ctx.sub.as_ref() {
+                (
+                    sub.active,
+                    sub.instance_scope.run_id.clone(),
+                    sub.spawn_depth,
+                    sub.allow_agents.to_vec(),
+                    Vec::new(),
+                    (*sub.agent_skill_overrides).clone(),
+                )
+            } else {
+                return Err(anyhow!(
+                    "parallel subagent wave requires an active parent agent"
+                ));
+            };
         let running_event = build_self_fork_running_event(
             pass.ctx.session.stream,
             pass.ctx.session.state,
@@ -737,10 +750,11 @@ async fn run_self_fork_wave(
         );
         pass.ctx.stats.record_tool_invocation();
 
-        let invocation = dispatch::subagent::prepare_self_fork_invocation(
+        let invocation = dispatch::subagent::prepare_owned_subagent_invocation(
             pass.ctx.session.state,
             &active,
             &run_id,
+            &allow_agents,
             parent_spawn_depth,
             max_spawn_depth,
             pass.ctx.workspace_root,
@@ -750,7 +764,7 @@ async fn run_self_fork_wave(
         let (task_id, work) = match invocation {
             Ok(invocation) => {
                 let task_id = invocation.task.id.clone();
-                let input = SelfForkExecutionInput {
+                let input = OwnedSubagentExecutionInput {
                     stream: pass.ctx.session.stream,
                     state: pass.ctx.session.state,
                     conversation_id: pass.ctx.session.conversation_id,
@@ -764,37 +778,73 @@ async fn run_self_fork_wave(
                     tool_call_id: prep.tc.id.clone(),
                     run_id: invocation.run_id,
                     task: invocation.task,
-                    snapshot: invocation.snapshot,
-                    child_spawn_depth: invocation.trace_depth,
+                    source: invocation.source,
+                    enabled_skill_ids: enabled_skill_ids.clone(),
+                    agent_skill_overrides: skill_overrides.clone(),
+                    child_spawn_depth: invocation.child_spawn_depth,
                     max_spawn_depth: invocation.max_spawn_depth,
                 };
                 (task_id, SelfForkWaveWork::Execute(input))
             }
             Err(error) => {
-                let task = dispatch::subagent::prepare_self_fork_task(
-                    &prep.args_value,
-                    &prep.tc.id,
-                )
-                .unwrap_or_else(|parse_error| crate::agents::AgentTask {
-                    id: prep.tc.id.clone(),
-                    agent_id: "self".into(),
-                    title: "Invalid self fork".into(),
-                    goal: "Invalid self-fork invocation".into(),
-                    context: parse_error,
-                    depends_on: vec![],
-                });
+                let parsed =
+                    crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
+                let agent_id = parsed
+                    .as_ref()
+                    .map(|a| a.agent_id.clone())
+                    .unwrap_or_else(|_| "self".into());
+                let task = parsed
+                    .ok()
+                    .map(|a| crate::agents::AgentTask {
+                        id: if a.task_id.trim().is_empty() {
+                            prep.tc.id.clone()
+                        } else {
+                            a.task_id
+                        },
+                        agent_id: a.agent_id.clone(),
+                        title: if a.title.trim().is_empty() {
+                            format!("Delegated: {}", a.agent_id)
+                        } else {
+                            a.title
+                        },
+                        goal: a.goal,
+                        context: a.context,
+                        depends_on: vec![],
+                    })
+                    .unwrap_or_else(|| crate::agents::AgentTask {
+                        id: prep.tc.id.clone(),
+                        agent_id: agent_id.clone(),
+                        title: "Invalid subagent".into(),
+                        goal: "Invalid parallel subagent invocation".into(),
+                        context: error.clone(),
+                        depends_on: vec![],
+                    });
                 let task_id = task.id.clone();
-                let snapshot = dispatch::subagent::build_active_self_fork_snapshot(
-                    pass.ctx.session.state,
-                    &active,
-                    pass.ctx.workspace_root,
-                );
-                let outcome = failed_self_fork_outcome(
+                let source = if agent_id == "self" {
+                    OwnedSubagentSource::SelfFork(
+                        dispatch::subagent::build_active_self_fork_snapshot(
+                            pass.ctx.session.state,
+                            &active,
+                            pass.ctx.workspace_root,
+                        ),
+                    )
+                } else if let Some(exec) = pass.ctx.session.state.agents.get(&agent_id) {
+                    OwnedSubagentSource::Registered(exec.def())
+                } else {
+                    OwnedSubagentSource::SelfFork(
+                        dispatch::subagent::build_active_self_fork_snapshot(
+                            pass.ctx.session.state,
+                            &active,
+                            pass.ctx.workspace_root,
+                        ),
+                    )
+                };
+                let outcome = failed_owned_subagent_outcome(
                     &run_id,
                     pass.ctx.session.conversation_id,
                     &prep.tc.id,
                     task,
-                    snapshot,
+                    &source,
                     parent_spawn_depth.saturating_add(1),
                     error,
                 );
@@ -811,7 +861,7 @@ async fn run_self_fork_wave(
     }
 
     log::info!(
-        "run_subagent self-fork wave start conversation_id={} count={} limit={}",
+        "run_subagent parallel-wave start conversation_id={} count={} limit={}",
         pass.ctx.session.conversation_id,
         items.len(),
         limit.max(1)
@@ -819,7 +869,7 @@ async fn run_self_fork_wave(
     let outcomes = collect_self_fork_wave(items, semaphore, limit.max(1), |work| async move {
         let started = Instant::now();
         let outcome = match work {
-            SelfForkWaveWork::Execute(input) => execute_self_fork(input).await,
+            SelfForkWaveWork::Execute(input) => execute_owned_subagent(input).await,
             SelfForkWaveWork::Prepared(outcome) => outcome,
         };
         (outcome, started.elapsed().as_millis() as u64)

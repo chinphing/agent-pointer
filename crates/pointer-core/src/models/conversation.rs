@@ -244,6 +244,7 @@ mod agent_trace_persistence_tests {
             user_expanded: false,
             agent_instance_id: Some("instance-1".into()),
             computer_target: Some(ComputerOperationTarget::External),
+            parent_tool_call_id: Some("call-run-subagent".into()),
             session: Some(SubAgentSessionUi {
                 thoughts: Some("done".into()),
                 stats: SubAgentToolStats {

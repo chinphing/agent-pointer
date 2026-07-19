@@ -417,7 +417,14 @@ onUnmounted(() => clearReasoningCollapseTimer())
           :compact-top="leadToolsCompactTop"
           hide-footer
           delegated-debug-footer
-        />
+        >
+          <template #after-tool="slotProps">
+            <slot
+              name="after-tool"
+              v-bind="slotProps"
+            />
+          </template>
+        </ToolMessageSegment>
 
         <AssistantMessageDebugChrome
           v-if="footerMessage"
@@ -437,7 +444,14 @@ onUnmounted(() => clearReasoningCollapseTimer())
         :message-ui="messageUi"
         compact-top
         hide-footer
-      />
+      >
+        <template #after-tool="slotProps">
+          <slot
+            name="after-tool"
+            v-bind="slotProps"
+          />
+        </template>
+      </ToolMessageSegment>
     </div>
   </div>
 </template>

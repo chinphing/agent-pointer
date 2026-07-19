@@ -45,3 +45,21 @@ describe('subAgentStats general-worker', () => {
     expect(line).not.toBe('通用执行 · 已完成 · 工具 0 次')
   })
 })
+
+describe('subAgentStats explore / self-fork summary', () => {
+  it('includes terminal commands for explore', () => {
+    const stats = emptySubAgentToolStats()
+    incrementSubAgentToolStats(stats, 'file_read', '{}')
+    incrementSubAgentToolStats(stats, 'terminal', '{}')
+    incrementSubAgentToolStats(stats, 'terminal', '{}')
+    const line = formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore')
+    expect(line).toBe('代码探索 · 已完成 · 读文件 1 次 · 终端 2 次')
+  })
+
+  it('includes terminal for self-fork current-agent traces', () => {
+    const stats = emptySubAgentToolStats()
+    incrementSubAgentToolStats(stats, 'terminal', '{}')
+    const line = formatSubAgentSummaryLine('当前 Agent', 'completed', stats, 'current-agent')
+    expect(line).toContain('终端 1 次')
+  })
+})

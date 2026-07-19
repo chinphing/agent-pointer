@@ -62,10 +62,10 @@ pub(crate) async fn run_supervisor_chat(
             depth: Some(0),
             session: None,
             computer_target: None,
-        collapsed: false,
-        user_expanded: false,
-        agent_instance_id: None,
-
+            collapsed: true,
+            user_expanded: false,
+            agent_instance_id: None,
+            parent_tool_call_id: None,
         },
     );
 
@@ -184,10 +184,11 @@ pub(crate) async fn run_supervisor_chat(
                 content: Some(String::new()),
                 depth: Some(1),
                 session: None,
-                collapsed: false,
+                computer_target,
+                collapsed: true,
                 user_expanded: false,
                 agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
-                computer_target,
+                parent_tool_call_id: None,
             },
         );
 
@@ -326,10 +327,10 @@ pub(crate) async fn run_supervisor_chat(
                         depth: Some(1),
                         session: None,
                         computer_target,
-                    collapsed: false,
-                    user_expanded: false,
-                    agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
-
+                        collapsed: true,
+                        user_expanded: false,
+                        agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
+                        parent_tool_call_id: None,
                     },
                 );
                 results.push(result);
@@ -370,10 +371,10 @@ pub(crate) async fn run_supervisor_chat(
                         depth: Some(1),
                         session: None,
                         computer_target,
-                    collapsed: false,
-                    user_expanded: false,
-                    agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
-
+                        collapsed: true,
+                        user_expanded: false,
+                        agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
+                        parent_tool_call_id: None,
                     },
                 );
             }
@@ -394,10 +395,10 @@ pub(crate) async fn run_supervisor_chat(
             depth: Some(0),
             session: None,
             computer_target: None,
-        collapsed: false,
-        user_expanded: false,
-        agent_instance_id: None,
-
+            collapsed: true,
+            user_expanded: false,
+            agent_instance_id: None,
+            parent_tool_call_id: None,
         },
     );
 

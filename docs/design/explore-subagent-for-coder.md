@@ -15,7 +15,7 @@
 | 自定义子代理 `readonly: true` | 本仓库工具粒度为**工具名**（[`resolve_agent_tools`](../../crates/pointer-core/src/chat_service/agent_tool_allowlist.rs)），`file` 单工具包含读写方法；只读采用 **提示词约束 + 线程上下文内硬拒绝**（见 §3.4）。 |
 | 不可嵌套委派 | 已改为深度门控：默认 `maxSubAgentSpawnDepth=2`；见 [`subagent-goal-context-and-nesting.md`](../design/subagent-goal-context-and-nesting.md)。 |
 
-主循环与子循环对多工具调用均为 **顺序** `for` 执行（非并行），与文档中「并行起多个子代理」相比，当前产品语义更接近 **阻塞式 handoff**；多区域探索可通过 **多次 `run_subagent` 调用**（多轮或多工具批次内顺序执行）达成，每次子上下文仍隔离。
+同一 assistant turn 内多个独立 **`run_subagent(explore)`**（以及 **`self`**）可进入 owned-outcome 并行 wave（受 `maxParallelSubAgents` 限制）；**`coder`** / **`computer`** 仍串行。多区域探索优先在同一轮发出多个独立 explore 调用。
 
 ```mermaid
 flowchart LR

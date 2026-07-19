@@ -196,7 +196,7 @@ For repository mapping, prefer early **`explore`** delegation—see **Delegating
 Use **`self`** for **independent substantial slices** (implement + test a module, refactor a
 coherent area) when isolated context helps. Self forks are **leaf** workers — no nested
 **`run_subagent`**. Broad read-only mapping → **`explore`**, not **`self`**.
-Parallel self forks: follow **Parallel self forks** in the **`run_subagent`** tool doc.
+Parallel wave (`self` / `explore`): follow **Parallel wave** in the **`run_subagent`** tool doc.
 
 ### Example — delegate to `explore`
 

@@ -4,6 +4,7 @@ use super::path::{
 };
 use anyhow::{anyhow, Result};
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 fn file_read_one_json(
@@ -38,7 +39,10 @@ fn file_read_one_json(
             });
         }
     };
-    if meta.len() > max_bytes as u64 {
+    // Whole-file size gate only applies to unbounded reads (no line window).
+    // With lineStart/lineEnd, maxBytes limits the returned window content instead.
+    let has_line_window = line_start > 1 || line_end_exclusive.is_some();
+    if !has_line_window && meta.len() > max_bytes as u64 {
         return serde_json::json!({
             "path": full_display,
             "error": format!(
@@ -48,8 +52,9 @@ fn file_read_one_json(
             ),
         });
     }
-    let bytes = match fs::read(&full) {
-        Ok(b) => b,
+
+    let file = match fs::File::open(&full) {
+        Ok(f) => f,
         Err(e) => {
             return serde_json::json!({
                 "path": full_display,
@@ -57,31 +62,57 @@ fn file_read_one_json(
             });
         }
     };
-    let text = match String::from_utf8(bytes) {
-        Ok(t) => t,
-        Err(_) => {
-            return serde_json::json!({
-                "path": full_display,
-                "error": "非 UTF-8 文本，无法作为文本读取",
-            });
+    let reader = BufReader::new(file);
+    let mut selected: Vec<String> = Vec::new();
+    let mut selected_bytes: usize = 0;
+    let mut truncated = false;
+    let mut total_lines: usize = 0;
+    let start_idx = line_start.saturating_sub(1);
+    let end_idx = line_end_exclusive.map(|le| le.saturating_sub(1));
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(e) => {
+                return serde_json::json!({
+                    "path": full_display,
+                    "error": format!("读取文件失败: {e}"),
+                });
+            }
+        };
+        // Reject non-UTF-8 via lossy check: BufRead::lines requires UTF-8 and errors on invalid.
+        let line_no = total_lines; // 0-based before increment
+        total_lines += 1;
+
+        let in_window = line_no >= start_idx && end_idx.map(|e| line_no < e).unwrap_or(true);
+        if !in_window {
+            continue;
         }
-    };
-    let lines: Vec<&str> = text.lines().collect();
-    let start_idx = line_start.saturating_sub(1).min(lines.len());
-    let end_idx = if let Some(le) = line_end_exclusive {
-        le.saturating_sub(1).min(lines.len()).max(start_idx)
-    } else {
-        lines.len()
-    };
-    let slice = &lines[start_idx..end_idx];
-    let content = slice.join("\n");
+        if truncated {
+            continue;
+        }
+        let add = if selected.is_empty() {
+            line.len()
+        } else {
+            line.len() + 1 // joining newline
+        };
+        if selected_bytes + add > max_bytes {
+            truncated = true;
+            continue;
+        }
+        selected_bytes += add;
+        selected.push(line);
+    }
+
+    let content = selected.join("\n");
+    let line_end_exclusive_out = line_end_exclusive.unwrap_or(total_lines.saturating_add(1));
     serde_json::json!({
         "path": full_display,
         "lineStart": line_start,
-        "lineEndExclusive": line_end_exclusive.unwrap_or(lines.len() + 1),
-        "totalLines": lines.len(),
+        "lineEndExclusive": line_end_exclusive_out,
+        "totalLines": total_lines,
         "content": content,
-        "truncated": false,
+        "truncated": truncated,
     })
 }
 

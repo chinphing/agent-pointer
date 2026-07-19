@@ -10,11 +10,18 @@ defineProps<{
 
 <template>
   <div class="tool-call-list w-full space-y-0.5">
-    <ToolCallRow
+    <template
       v-for="tc in toolCalls"
       :key="tc.id"
-      :tool-call="tc"
-      :show-tool-call-results="showToolCallResults"
-    />
+    >
+      <ToolCallRow
+        :tool-call="tc"
+        :show-tool-call-results="showToolCallResults"
+      />
+      <slot
+        name="after-tool"
+        :tool-call="tc"
+      />
+    </template>
   </div>
 </template>

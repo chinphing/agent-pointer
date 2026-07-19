@@ -43,6 +43,12 @@ impl RunSubagentArgs {
     pub fn is_self_fork(&self) -> bool {
         self.agent_id == "self"
     }
+
+    /// Targets that may share the owned-outcome parallel subagent wave.
+    /// Registered writers / desktop agents stay serial.
+    pub fn is_parallel_wave_target(&self) -> bool {
+        self.is_self_fork() || self.agent_id == "explore"
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +289,26 @@ mod tests {
         }))
         .unwrap();
         assert!(args.is_self_fork());
+        assert!(args.is_parallel_wave_target());
+    }
+
+    #[test]
+    fn explore_is_parallel_wave_target_writers_are_not() {
+        let explore = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "Scenario: spec_map\nWhat: map auth\nDone when: report surfaces"
+        }))
+        .unwrap();
+        assert!(explore.is_parallel_wave_target());
+        assert!(!explore.is_self_fork());
+
+        let coder = parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "goal": "What: patch\nDone when: tests pass",
+            "workspaceRoot": "/tmp/project"
+        }))
+        .unwrap();
+        assert!(!coder.is_parallel_wave_target());
     }
 
     #[test]

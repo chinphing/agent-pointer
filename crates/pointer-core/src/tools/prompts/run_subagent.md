@@ -45,14 +45,16 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
 - Optional **`taskId`** stays stable across repeated handoffs to the same logical task.
 
-**Parallel self forks**
+**Parallel wave (`self` and `explore`)**
 
-- Same turn, multiple **`agentId: "self"`** → may run concurrently.
+- Same turn, multiple **`agentId: "self"`** and/or **`agentId: "explore"`**
+  → may run concurrently in one wave.
+- **`coder`** / **`computer`** stay serial (writers / desktop).
 - Concurrent only when **all** are true:
   - independent (no wait-on result)
   - no shared mutable state / overlapping writes
   - no user-interactive or desktop-control work
-- Otherwise: one self call, or sequential turns.
+- Otherwise: one call, or sequential turns.
 
 **Goal vs context (all workers)**
 
@@ -130,7 +132,7 @@ Unverified assumptions (optional).
 - **When not:** repo/skill-file writes → **`coder`**; desktop/browser → **`computer`**; simple Q&A → stay local;
   broad read-only repo mapping → **`explore`** (coder only).
 - Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.
-- Parallel rules: see **Parallel self forks** above.
+- Parallel rules: see **Parallel wave** above.
 
 **`computer` (general lead only)**
 
@@ -165,7 +167,7 @@ Unverified assumptions (optional).
 - **`What:`** + **`Done when:`** (research, skill procedure, attachments, or implementation slice).
 - Cannot spawn workers — note in **`context`** (**Constraints**) if the subtask needs **`coder`** /
   **`computer`** / **`explore`** instead.
-- Parallel rules: see **Parallel self forks** above.
+- Parallel rules: see **Parallel wave** above.
 
 **Examples (`computer`)**
 

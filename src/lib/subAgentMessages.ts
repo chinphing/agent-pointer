@@ -310,7 +310,7 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
         depth: first?.spawnDepth ?? 1,
         agentInstanceId,
         detail: detail ? detail.slice(0, 160) : undefined,
-        collapsed: status === 'completed' || status === 'failed',
+        collapsed: true,
         userExpanded: false
       }
       lead.agentTrace.push(trace)

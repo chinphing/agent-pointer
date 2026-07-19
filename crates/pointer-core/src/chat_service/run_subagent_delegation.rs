@@ -34,7 +34,13 @@ pub(super) struct PreparedSubagentOutcome {
     pub exec: ToolExecResult,
 }
 
-pub(super) struct SelfForkExecutionInput<'a> {
+/// Owned-outcome child definition for the parallel subagent wave (`self` or `explore`).
+pub(crate) enum OwnedSubagentSource {
+    SelfFork(SelfForkSnapshot),
+    Registered(AgentDef),
+}
+
+pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub stream: &'a super::StreamTx,
     pub state: &'a AppState,
     pub conversation_id: &'a str,
@@ -45,7 +51,10 @@ pub(super) struct SelfForkExecutionInput<'a> {
     pub tool_call_id: String,
     pub run_id: String,
     pub task: AgentTask,
-    pub snapshot: SelfForkSnapshot,
+    pub source: OwnedSubagentSource,
+    /// Lead-enabled skill ids (used by registered explore; ignored for self-fork snapshot).
+    pub enabled_skill_ids: Vec<String>,
+    pub agent_skill_overrides: std::collections::HashMap<String, Vec<String>>,
     pub child_spawn_depth: u32,
     pub max_spawn_depth: u32,
 }
@@ -72,23 +81,26 @@ pub(super) struct RecordedSubagentOutcome {
     trace: AgentTrace,
 }
 
-pub(super) fn failed_self_fork_outcome(
+pub(super) fn failed_owned_subagent_outcome(
     run_id: &str,
     conversation_id: &str,
     tool_call_id: &str,
     task: AgentTask,
-    snapshot: SelfForkSnapshot,
+    source: &OwnedSubagentSource,
     child_spawn_depth: u32,
     error: String,
 ) -> PreparedSubagentOutcome {
-    let definition_source =
-        super::sub_agent_prompt::SubAgentDefinitionSource::Snapshot(&snapshot);
-    let instance_scope = definition_source.new_instance_scope(run_id, conversation_id);
+    let def = match source {
+        OwnedSubagentSource::SelfFork(snapshot) => &snapshot.def,
+        OwnedSubagentSource::Registered(def) => def,
+    };
+    let instance_scope = AgentInstanceScope::new(run_id, conversation_id, def.id.as_str());
     log::warn!(
-        "run_subagent self-fork preparation failed conversation_id={} task_id={} tool_call_id={}: {}",
+        "run_subagent owned-wave preparation failed conversation_id={} task_id={} tool_call_id={} agent_id={}: {}",
         conversation_id,
         task.id,
         tool_call_id,
+        def.id,
         error
     );
     PreparedSubagentOutcome {
@@ -96,10 +108,11 @@ pub(super) fn failed_self_fork_outcome(
         task_id: task.id.clone(),
         trace: build_subagent_trace(
             &task,
-            &snapshot.def,
+            def,
             &instance_scope,
             child_spawn_depth,
             None,
+            Some(tool_call_id),
             "failed",
             Some(error.clone()),
         ),
@@ -223,10 +236,10 @@ fn abandon_child_board(
     }
 }
 
-pub(super) async fn execute_self_fork(
-    input: SelfForkExecutionInput<'_>,
+pub(super) async fn execute_owned_subagent(
+    input: OwnedSubagentExecutionInput<'_>,
 ) -> PreparedSubagentOutcome {
-    let SelfForkExecutionInput {
+    let OwnedSubagentExecutionInput {
         stream,
         state,
         conversation_id,
@@ -237,19 +250,52 @@ pub(super) async fn execute_self_fork(
         tool_call_id,
         run_id,
         task,
-        snapshot,
+        source,
+        enabled_skill_ids,
+        agent_skill_overrides,
         child_spawn_depth,
         max_spawn_depth,
     } = input;
-    let definition_source =
-        super::sub_agent_prompt::SubAgentDefinitionSource::Snapshot(&snapshot);
+    let empty_overrides = std::collections::HashMap::new();
+    let (definition_source, skill_ids, overrides, def_for_trace) = match &source {
+        OwnedSubagentSource::SelfFork(snapshot) => (
+            super::sub_agent_prompt::SubAgentDefinitionSource::Snapshot(snapshot),
+            snapshot.skill_ids.as_slice(),
+            &empty_overrides,
+            &snapshot.def,
+        ),
+        OwnedSubagentSource::Registered(def) => (
+            super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task),
+            enabled_skill_ids.as_slice(),
+            &agent_skill_overrides,
+            def,
+        ),
+    };
     let instance_scope = definition_source.new_instance_scope(&run_id, conversation_id);
     log::info!(
-        "run_subagent self-fork start conversation_id={} task_id={} tool_call_id={} agent_instance_id={}",
+        "run_subagent owned-wave start conversation_id={} task_id={} tool_call_id={} agent_id={} agent_instance_id={}",
         conversation_id,
         task.id,
         tool_call_id,
+        def_for_trace.id,
         instance_scope.agent_instance_id
+    );
+
+    // Emit running before sub_message_start / tool events so the UI can nest the
+    // frame under this run_subagent row for the whole lifetime (not only at commit).
+    publish_agent_step(
+        stream,
+        &message_id,
+        build_subagent_trace(
+            &task,
+            def_for_trace,
+            &instance_scope,
+            child_spawn_depth,
+            None,
+            Some(tool_call_id.as_str()),
+            "running",
+            Some(truncate_str(&task.title, 200)),
+        ),
     );
 
     let sub_cap = provider
@@ -259,7 +305,6 @@ pub(super) async fn execute_self_fork(
     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
     let mut child_trace = Vec::new();
     let mut child_usage = ConversationLlmStats::default();
-    let empty_overrides = std::collections::HashMap::new();
     let mut sub_ctx = super::context::SubAgentLoopContext {
         session: super::context::SessionRefs {
             stream,
@@ -271,8 +316,8 @@ pub(super) async fn execute_self_fork(
         parent_task_board_store_key: &parent_task_board_store_key,
         message_id: &message_id,
         agent_trace: &mut child_trace,
-        enabled_skill_ids: &snapshot.skill_ids,
-        agent_skill_overrides: &empty_overrides,
+        enabled_skill_ids: skill_ids,
+        agent_skill_overrides: overrides,
         task: &task,
         definition_source,
         instance_scope: instance_scope.clone(),
@@ -287,10 +332,11 @@ pub(super) async fn execute_self_fork(
             Ok(json) => (
                 build_subagent_trace(
                     &task,
-                    &snapshot.def,
+                    def_for_trace,
                     &instance_scope,
                     child_spawn_depth,
                     None,
+                    Some(tool_call_id.as_str()),
                     "completed",
                     Some(truncate_str(&result.content, 160)),
                 ),
@@ -298,7 +344,7 @@ pub(super) async fn execute_self_fork(
             ),
             Err(err) => {
                 log::warn!(
-                    "run_subagent self-fork result serialize failed conversation_id={} task_id={}: {err}",
+                    "run_subagent owned-wave result serialize failed conversation_id={} task_id={}: {err}",
                     conversation_id,
                     task.id
                 );
@@ -306,10 +352,11 @@ pub(super) async fn execute_self_fork(
                 (
                     build_subagent_trace(
                         &task,
-                        &snapshot.def,
+                        def_for_trace,
                         &instance_scope,
                         child_spawn_depth,
                         None,
+                        Some(tool_call_id.as_str()),
                         "failed",
                         Some(message.clone()),
                     ),
@@ -326,9 +373,10 @@ pub(super) async fn execute_self_fork(
                 err.to_string()
             };
             log::warn!(
-                "run_subagent self-fork ended conversation_id={} task_id={} status={}: {err:#}",
+                "run_subagent owned-wave ended conversation_id={} task_id={} agent_id={} status={}: {err:#}",
                 conversation_id,
                 task.id,
+                def_for_trace.id,
                 status
             );
             abandon_child_board(
@@ -341,10 +389,11 @@ pub(super) async fn execute_self_fork(
             (
                 build_subagent_trace(
                     &task,
-                    &snapshot.def,
+                    def_for_trace,
                     &instance_scope,
                     child_spawn_depth,
                     None,
+                    Some(tool_call_id.as_str()),
                     status,
                     Some(error_note.clone()),
                 ),
@@ -353,10 +402,11 @@ pub(super) async fn execute_self_fork(
         }
     };
     log::info!(
-        "run_subagent self-fork prepared conversation_id={} task_id={} tool_call_id={} status={} llm_rounds={} total_tokens={}",
+        "run_subagent owned-wave prepared conversation_id={} task_id={} tool_call_id={} agent_id={} status={} llm_rounds={} total_tokens={}",
         conversation_id,
         task.id,
         tool_call_id,
+        def_for_trace.id,
         trace.status,
         child_usage.llm_rounds,
         child_usage.sum_total
@@ -419,6 +469,7 @@ fn build_subagent_trace(
     instance_scope: &AgentInstanceScope,
     child_spawn_depth: u32,
     computer_target: Option<ComputerOperationTarget>,
+    parent_tool_call_id: Option<&str>,
     status: &str,
     detail: Option<String>,
 ) -> AgentTrace {
@@ -432,9 +483,13 @@ fn build_subagent_trace(
         depth: Some(child_spawn_depth),
         session: None,
         computer_target,
-        collapsed: false,
+        collapsed: true,
         user_expanded: false,
         agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
+        parent_tool_call_id: parent_tool_call_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string),
     }
 }
 
@@ -607,6 +662,7 @@ pub(super) async fn run_subagent_delegation(
                                 &instance_scope,
                                 child_spawn_depth,
                                 computer_target,
+                                Some(tool_call_id),
                                 status,
                                 detail,
                             )
@@ -696,9 +752,9 @@ pub(super) async fn run_subagent_delegation(
 #[cfg(test)]
 mod trace_tests {
     use super::{
-        build_subagent_trace, commit_subagent_outcome, execute_self_fork,
-        failed_self_fork_outcome, finalize_subagent_outcome, PreparedSubagentOutcome,
-        SelfForkExecutionInput, SubagentCommitContext,
+        build_subagent_trace, commit_subagent_outcome, execute_owned_subagent,
+        failed_owned_subagent_outcome, finalize_subagent_outcome, OwnedSubagentExecutionInput,
+        OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
     };
     use crate::agent_instance_scope::AgentInstanceScope;
     use crate::agents::{
@@ -743,9 +799,10 @@ mod trace_tests {
             "instance-1",
         );
 
-        let trace = build_subagent_trace(&task, &def, &scope, 1, None, "running", None);
+        let trace = build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), "running", None);
 
         assert_eq!(trace.agent_instance_id.as_deref(), Some("instance-1"));
+        assert_eq!(trace.parent_tool_call_id.as_deref(), Some("call-1"));
     }
 
     fn anchor_message() -> ChatMessage {
@@ -817,7 +874,7 @@ mod trace_tests {
             "current-agent",
             "instance-1",
         );
-        build_subagent_trace(&task, &def, &scope, 1, None, "completed", Some("done".into()))
+        build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), "completed", Some("done".into()))
     }
 
     #[test]
@@ -868,12 +925,12 @@ mod trace_tests {
             depends_on: vec![],
         };
 
-        let outcome = failed_self_fork_outcome(
+        let outcome = failed_owned_subagent_outcome(
             "run",
             "conversation",
             "call-failed",
             task,
-            snapshot,
+            &OwnedSubagentSource::SelfFork(snapshot),
             2,
             "spawn depth limit".into(),
         );
@@ -1035,7 +1092,7 @@ mod trace_tests {
             String::new(),
         );
 
-        let outcome = execute_self_fork(SelfForkExecutionInput {
+        let outcome = execute_owned_subagent(OwnedSubagentExecutionInput {
             stream: &stream,
             state: &state,
             conversation_id: "conversation",
@@ -1053,7 +1110,9 @@ mod trace_tests {
                 context: String::new(),
                 depends_on: vec![],
             },
-            snapshot,
+            source: OwnedSubagentSource::SelfFork(snapshot),
+            enabled_skill_ids: vec![],
+            agent_skill_overrides: HashMap::new(),
             child_spawn_depth: 1,
             max_spawn_depth: 2,
         })
@@ -1066,10 +1125,23 @@ mod trace_tests {
         let (_, success, error) = outcome.exec.unwrap();
         assert!(!success);
         assert_eq!(error.as_deref(), Some("cancelled"));
+        let streamed: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
         assert!(
-            std::iter::from_fn(|| events.try_recv().ok())
-                .all(|event| !matches!(event, crate::models::StreamEvent::AgentStep { .. })),
-            "parent trace events must wait for ordered commit"
+            streamed.iter().any(|event| matches!(
+                event,
+                crate::models::StreamEvent::AgentStep { agent, .. }
+                    if agent.status == "running"
+                        && agent.parent_tool_call_id.as_deref() == Some("call-cancel")
+            )),
+            "owned-wave must emit running AgentStep with parentToolCallId before work starts"
+        );
+        assert!(
+            streamed.iter().all(|event| !matches!(
+                event,
+                crate::models::StreamEvent::AgentStep { agent, .. }
+                    if agent.status != "running"
+            )),
+            "terminal parent AgentStep must wait for ordered commit"
         );
     }
 
@@ -1084,7 +1156,7 @@ mod trace_tests {
         let execute = |tool_call_id: &str| {
             let cancel = tokio_util::sync::CancellationToken::new();
             cancel.cancel();
-            execute_self_fork(SelfForkExecutionInput {
+            execute_owned_subagent(OwnedSubagentExecutionInput {
                 stream: &stream,
                 state: &state,
                 conversation_id: "same-task-isolation",
@@ -1105,31 +1177,35 @@ mod trace_tests {
                     context: String::new(),
                     depends_on: vec![],
                 },
-                snapshot: crate::chat_service::self_fork::SelfForkSnapshot {
-                    def: AgentDef {
-                        id: "current-agent".into(),
-                        name: "Current Agent".into(),
-                        description: "snapshot".into(),
-                        role: "worker".into(),
-                        profile: AgentProfile::Coder,
-                        default_skill_ids: vec![],
-                        skills_policy: SkillsPolicy::InheritsFromParent,
-                        access_policy: AccessPolicy::default(),
-                        builtin: false,
-                        enabled: true,
-                        tool_names: vec![],
-                        source: None,
-                        resource_files: vec![],
-                        allow_agents: vec![],
-                        config: HashMap::new(),
-                        ui: AgentUiConfig::default(),
+                source: OwnedSubagentSource::SelfFork(
+                    crate::chat_service::self_fork::SelfForkSnapshot {
+                        def: AgentDef {
+                            id: "current-agent".into(),
+                            name: "Current Agent".into(),
+                            description: "snapshot".into(),
+                            role: "worker".into(),
+                            profile: AgentProfile::Coder,
+                            default_skill_ids: vec![],
+                            skills_policy: SkillsPolicy::InheritsFromParent,
+                            access_policy: AccessPolicy::default(),
+                            builtin: false,
+                            enabled: true,
+                            tool_names: vec![],
+                            source: None,
+                            resource_files: vec![],
+                            allow_agents: vec![],
+                            config: HashMap::new(),
+                            ui: AgentUiConfig::default(),
+                        },
+                        system_prompt: "active prompt".into(),
+                        skill_ids: vec![],
+                        skill_prompts: vec![],
+                        allowed_tools: vec![],
+                        workspace_root: "/tmp".into(),
                     },
-                    system_prompt: "active prompt".into(),
-                    skill_ids: vec![],
-                    skill_prompts: vec![],
-                    allowed_tools: vec![],
-                    workspace_root: "/tmp".into(),
-                },
+                ),
+                enabled_skill_ids: vec![],
+                agent_skill_overrides: HashMap::new(),
                 child_spawn_depth: 1,
                 max_spawn_depth: 2,
             })
@@ -1145,10 +1221,30 @@ mod trace_tests {
         assert!(history[0].agent_trace.is_none());
         assert!(traces.is_empty());
         assert_eq!(stats.llm_rounds, 0);
+        let streamed: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+        let running_parents: Vec<_> = streamed
+            .iter()
+            .filter_map(|event| match event {
+                crate::models::StreamEvent::AgentStep { agent, .. }
+                    if agent.status == "running" =>
+                {
+                    Some(agent.parent_tool_call_id.as_deref())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            running_parents,
+            vec![Some("call-1"), Some("call-2")],
+            "each owned fork emits a running AgentStep nested under its tool call"
+        );
         assert!(
-            std::iter::from_fn(|| events.try_recv().ok())
-                .all(|event| !matches!(event, crate::models::StreamEvent::AgentStep { .. })),
-            "both outcomes must remain uncommitted"
+            streamed.iter().all(|event| !matches!(
+                event,
+                crate::models::StreamEvent::AgentStep { agent, .. }
+                    if agent.status != "running"
+            )),
+            "terminal parent AgentStep must wait for ordered commit"
         );
     }
 }

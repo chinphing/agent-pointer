@@ -118,11 +118,11 @@ pub fn plan_tool_batch(input: PlanToolBatchInput<'_>) -> ToolBatchPlan {
         let tool_id = &input.tool_ids[i];
         let class = input.registry.tool_conflict_class(tool_id);
         let eligible = input.registry.is_parallel_eligible(tool_id);
-        let is_self_fork = tool_id == "run_subagent"
+        let is_parallel_subagent = tool_id == "run_subagent"
             && crate::tools::run_subagent::parse_run_subagent_args(&input.parsed_args[i])
-                .is_ok_and(|args| args.is_self_fork());
+                .is_ok_and(|args| args.is_parallel_wave_target());
 
-        if is_self_fork {
+        if is_parallel_subagent {
             flush(&mut waves, &mut current, &mut current_keys);
             current_self_forks.push(i);
             continue;
@@ -430,8 +430,28 @@ mod tests {
     }
 
     #[test]
-    fn plan_keeps_self_and_registered_subagents_on_serial_boundaries() {
+    fn plan_groups_self_and_explore_in_one_parallel_wave() {
         let plan = plan_subagents(&["self", "explore"], false, 8);
+
+        assert!(matches!(
+            plan.waves.as_slice(),
+            [ToolWave::ParallelSelfFork(indices)] if indices == &[0, 1]
+        ));
+    }
+
+    #[test]
+    fn plan_groups_consecutive_explore_in_parallel_wave() {
+        let plan = plan_subagents(&["explore", "explore"], false, 8);
+
+        assert!(matches!(
+            plan.waves.as_slice(),
+            [ToolWave::ParallelSelfFork(indices)] if indices == &[0, 1]
+        ));
+    }
+
+    #[test]
+    fn plan_keeps_explore_and_writer_subagents_on_serial_boundaries() {
+        let plan = plan_subagents(&["explore", "coder"], false, 8);
 
         assert!(matches!(
             plan.waves.as_slice(),
@@ -441,8 +461,8 @@ mod tests {
     }
 
     #[test]
-    fn plan_keeps_registered_subagents_serial() {
-        let plan = plan_subagents(&["explore", "coder"], false, 8);
+    fn plan_keeps_writer_registered_subagents_serial() {
+        let plan = plan_subagents(&["coder", "coder"], false, 8);
 
         assert!(plan
             .waves

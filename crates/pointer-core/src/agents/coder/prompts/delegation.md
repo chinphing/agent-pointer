@@ -78,4 +78,4 @@ Second **`run_subagent`** when handoff **`## Gaps for parent`** blocks safe edit
 Use **`self`** for **independent substantial slices** when isolated context helps. Self forks
 are **leaf** workers — no nested **`run_subagent`**. Broad read-only mapping → **`explore`**,
 not **`self`**.
-Parallel self forks: follow **Parallel self forks** in the **`run_subagent`** tool doc.
+Parallel wave (`self` / `explore`): follow **Parallel wave** in the **`run_subagent`** tool doc.

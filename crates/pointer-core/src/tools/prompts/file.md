@@ -58,7 +58,11 @@ a snippet is enough, and split across parallel **`file_read`** calls when you ne
   **Windows paths:** prefer `"D:/workspace/src/foo.rs"`, or escape backslashes — `\\` for each `\`.
 - **`lineStart`** — Optional; 1-based first line to include. Default: start of file. Alias **`line_start`**.
 - **`lineEnd`** — Optional; 1-based **exclusive** end line. Alias **`line_end`**.
-- **`maxBytes`** — Optional; max bytes read (default **262144**, 256 KiB). Alias **`max_bytes`**.
+- **`maxBytes`** — Optional; max bytes for the **returned content** (default **262144**,
+  256 KiB). Alias **`max_bytes`**.
+  With **`lineStart`** / **`lineEnd`**, the whole-file size is **not** a hard reject —
+  only the selected window is returned (and may be truncated to **`maxBytes`**).
+  Without a line window, files larger than **`maxBytes`** are rejected.
 
 Example:
 

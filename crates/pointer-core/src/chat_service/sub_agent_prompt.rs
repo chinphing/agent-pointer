@@ -52,7 +52,9 @@ pub(super) fn resolve_child_task_board_store_key(
     task: &AgentTask,
     agent_instance_id: &str,
 ) -> String {
-    if task.agent_id.trim() == "self" {
+    // Parallel-wave targets (`self`, `explore`) isolate boards per instance so concurrent
+    // same-taskId children do not collide.
+    if task.agent_id.trim() == "self" || task.agent_id.trim() == "explore" {
         sub_agent_task_board_store_key_for_instance(
             parent_task_board_store_key,
             task.id.trim(),
@@ -84,7 +86,7 @@ pub(super) fn sub_agent_trace_id(
     def: &AgentDef,
     instance_scope: &AgentInstanceScope,
 ) -> String {
-    if task.agent_id.trim() == "self" {
+    if task.agent_id.trim() == "self" || task.agent_id.trim() == "explore" {
         let scoped_agent_id =
             agent_trace_step_id(&instance_scope.agent_instance_id, &def.id);
         agent_trace_step_id(&task.id, &scoped_agent_id)
@@ -617,12 +619,30 @@ mod definition_source_tests {
     }
 
     #[test]
-    fn registered_child_board_key_stays_task_scoped_without_instance() {
+    fn explore_child_board_keys_include_instance_like_self_fork() {
         let task = AgentTask {
             id: "task-1".into(),
             agent_id: "explore".into(),
             title: "Explore".into(),
             goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let key = resolve_child_task_board_store_key("parent", &task, "instance-a");
+        assert!(key.contains("instance-a"));
+        assert_ne!(
+            key,
+            crate::task_board::sub_agent_task_board_store_key("parent", "task-1")
+        );
+    }
+
+    #[test]
+    fn writer_registered_child_board_key_stays_task_scoped() {
+        let task = AgentTask {
+            id: "task-1".into(),
+            agent_id: "coder".into(),
+            title: "Coder".into(),
+            goal: "Implement".into(),
             context: String::new(),
             depends_on: vec![],
         };

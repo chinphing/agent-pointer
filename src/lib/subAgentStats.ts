@@ -142,10 +142,12 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
       statSeg('编辑', stats.writeCount)
     ])
   }
-  // explore and unknown file-heavy workers
+  // explore, self-fork (`current-agent`), and other file-heavy workers
   return joinStatSegments([
     statSeg('搜索', stats.searchCount),
-    statSeg('读文件', stats.readCount)
+    statSeg('读文件', stats.readCount),
+    statSeg('终端', stats.terminalCount),
+    statSeg('编辑', stats.writeCount)
   ])
 }
 

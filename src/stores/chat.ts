@@ -127,8 +127,8 @@ function normalizeSubAgentTraces(conversations: Conversation[]) {
       for (const trace of msg.agentTrace ?? []) {
         if ((trace.depth ?? 0) === 0) continue
         migrateLegacyTraceUiState(trace)
-        const terminal = trace.status === 'completed' || trace.status === 'failed'
-        if (terminal && !trace.userExpanded) {
+        // Sub-agent frames default collapsed (running and terminal); keep user expands.
+        if (!trace.userExpanded) {
           trace.collapsed = true
         }
       }

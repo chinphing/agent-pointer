@@ -7,7 +7,11 @@ import { useChatStore } from '../../../../stores/chat'
 import { shouldShowSubAgentTrace, uiForSubAgentFrame } from '../../../../lib/agentUi'
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
-import { subTracesForMessage } from '../../../../lib/subAgentSession'
+import {
+  orphanSubTraces,
+  subTracesForMessage,
+  subTracesForParentToolCall
+} from '../../../../lib/subAgentSession'
 import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
 import { isTaskBoardTerminal } from '../../../../stores/chat/taskBoard'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
@@ -43,7 +47,28 @@ const showSubAgentTrace = computed(() =>
 
 const subTraces = computed(() => subTracesForMessage(props.message))
 
-function subTraceUi(trace: (typeof subTraces.value)[number]) {
+const knownToolCallIds = computed(() => {
+  const ids = new Set<string>()
+  for (const tc of props.message.toolCalls ?? []) {
+    if (tc.id?.trim()) ids.add(tc.id.trim())
+  }
+  for (const group of props.trailingToolGroups ?? []) {
+    for (const tc of group.toolCalls) {
+      if (tc.id?.trim()) ids.add(tc.id.trim())
+    }
+  }
+  return ids
+})
+
+const orphanTraces = computed(() =>
+  orphanSubTraces(subTraces.value, knownToolCallIds.value)
+)
+
+function tracesUnderTool(toolCall: ToolCall): AgentTrace[] {
+  return subTracesForParentToolCall(subTraces.value, toolCall.id)
+}
+
+function subTraceUi(trace: AgentTrace) {
   return uiForSubAgentFrame(
     trace,
     settingsStore.settings,
@@ -139,10 +164,46 @@ const showSupervisorPlan = computed(
       :is-active-generation-message="isActiveGenerationMessage"
       :tool-only="toolOnly"
       :trailing-tool-groups="trailingToolGroups"
-    />
+    >
+      <template #after-tool="{ toolCall }">
+        <template
+          v-for="trace in tracesUnderTool(toolCall)"
+          :key="trace.id"
+        >
+          <div
+            v-if="childBoardByTraceId.get(trace.id)"
+            v-show="showSubAgentTrace"
+            class="task-board-sticky mb-1 mt-1 flex justify-start py-1"
+            :class="childBoardStickyClass(trace)"
+          >
+            <TaskBoardPanel
+              :document="childBoardByTraceId.get(trace.id)!.document"
+              :is-active="childBoardByTraceId.get(trace.id)!.isActive"
+              :conversation-id="chatStore.currentId"
+              :task-id="subTaskIdFromTraceId(trace.id)"
+            />
+          </div>
 
+          <SubAgentFrame
+            v-show="showSubAgentTrace"
+            class="mt-1 mb-1"
+            :trace="trace"
+            :anchor-message-id="message.id"
+            :messages="conversationMessages"
+            :message-ui="subTraceUi(trace)"
+            :created-at="message.createdAt"
+            :thoughts-debug-enabled="thoughtsDebugEnabled"
+            :generating="generating"
+            :is-active-generation-message="isActiveGenerationMessage"
+            :show-message-actions="showMessageActions"
+          />
+        </template>
+      </template>
+    </AgentMessageBody>
+
+    <!-- Legacy / unmatched traces (no parentToolCallId or tool row missing). -->
     <template
-      v-for="trace in subTraces"
+      v-for="trace in orphanTraces"
       :key="trace.id"
     >
       <div
@@ -172,6 +233,5 @@ const showSupervisorPlan = computed(
         :show-message-actions="showMessageActions"
       />
     </template>
-
   </div>
 </template>

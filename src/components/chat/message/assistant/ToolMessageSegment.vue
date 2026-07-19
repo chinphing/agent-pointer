@@ -77,7 +77,14 @@ const showThinkingIndicator = computed(
       <ToolCallList
         :tool-calls="toolCalls"
         :show-tool-call-results="messageUi.showToolCallResults"
-      />
+      >
+        <template #after-tool="slotProps">
+          <slot
+            name="after-tool"
+            v-bind="slotProps"
+          />
+        </template>
+      </ToolCallList>
     </div>
 
     <AssistantMessageDebugChrome

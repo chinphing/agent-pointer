@@ -157,6 +157,43 @@ mod tests {
     }
 
     #[test]
+    fn file_read_line_window_ignores_whole_file_max_bytes_gate() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        // Whole file > maxBytes, but the requested line window is tiny.
+        let mut body = String::from("head\n");
+        body.push_str(&"x".repeat(20_000));
+        body.push_str("\ntail-a\ntail-b\n");
+        fs::write(root.join("big.txt"), &body).unwrap();
+        let out = execute_file_read(
+            &json!({
+                "path": "big.txt",
+                "lineStart": 1,
+                "lineEnd": 2,
+                "maxBytes": 1000
+            }),
+            root,
+        )
+        .expect("line window should not reject on whole-file size");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["content"].as_str().unwrap(), "head");
+        assert_eq!(v["truncated"], false);
+    }
+
+    #[test]
+    fn file_read_unbounded_still_rejects_oversized_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("big.txt"), "x".repeat(2000)).unwrap();
+        let err = execute_file_read(
+            &json!({ "path": "big.txt", "maxBytes": 1000 }),
+            root,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("文件过大"), "{err}");
+    }
+
+    #[test]
     fn file_read_rejects_paths_array() {
         let tmp = tempfile::tempdir().expect("tmp");
         let err = execute_file_read(

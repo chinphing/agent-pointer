@@ -123,6 +123,9 @@ pub struct AgentTrace {
     /// Set on `run_subagent` → `computer` traces; controls dock-bar shrink in the desktop client.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "computerTarget")]
     pub computer_target: Option<ComputerOperationTarget>,
+    /// Parent assistant `run_subagent` tool-call id; UI nests the sub-agent frame under that row.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "parentToolCallId")]
+    pub parent_tool_call_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

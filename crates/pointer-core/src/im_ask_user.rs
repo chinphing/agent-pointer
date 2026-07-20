@@ -6,6 +6,29 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
+/// Hermes-style clarify body: question + numbered options + reply hint.
+pub fn format_im_clarify_message(args: &AskUserArgs) -> String {
+    let mut lines = Vec::new();
+    lines.push(args.question.trim().to_string());
+    lines.push(String::new());
+    for (i, opt) in args.options.iter().enumerate() {
+        let n = i + 1;
+        match opt.description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(desc) => lines.push(format!("{n}. {} — {desc}", opt.label)),
+            None => lines.push(format!("{n}. {}", opt.label)),
+        }
+    }
+    lines.push(String::new());
+    if args.multi_select {
+        lines.push(
+            "请回复编号（可多选，用逗号分隔）、选项原文，或直接说明你的选择。".into(),
+        );
+    } else {
+        lines.push("请回复编号、选项原文，或直接说明你的选择。".into());
+    }
+    lines.join("\n")
+}
+
 /// Default wait for an IM reply (Hermes gateway clarify timeout ≈ 600s).
 pub const IM_ASK_USER_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -221,6 +244,15 @@ mod tests {
     fn rejects_empty() {
         let args = sample(false);
         assert!(parse_im_ask_user_reply(&args, "   ").is_err());
+    }
+
+    #[test]
+    fn format_im_clarify_lists_options() {
+        let text = format_im_clarify_message(&sample(false));
+        assert!(text.contains("Pick"));
+        assert!(text.contains("1. Allow"));
+        assert!(text.contains("2. Deny"));
+        assert!(text.contains("请回复编号"));
     }
 
     #[test]

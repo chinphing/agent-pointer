@@ -50,8 +50,17 @@ pub(super) async fn execute_tool_invocation(
     );
     match tool_id {
         "ask_user" => {
-            ask_user::dispatch_ask_user(state, tc, args_value, cancel, trigger_source, conversation_id)
-                .await
+            ask_user::dispatch_ask_user(
+                stream,
+                state,
+                tc,
+                args_value,
+                cancel,
+                trigger_source,
+                conversation_id,
+                message_id,
+            )
+            .await
         }
         "terminal" => {
             terminal::run_terminal_tool(

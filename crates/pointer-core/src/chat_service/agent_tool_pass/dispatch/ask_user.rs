@@ -1,8 +1,10 @@
 use super::super::super::app_state::AppState;
+use super::super::super::emit::emit;
+use super::super::super::StreamTx;
 use super::super::types::ToolExecResult;
 use crate::dispatcher::TriggerSource;
-use crate::im_ask_user::IM_ASK_USER_TIMEOUT;
-use crate::models::ToolCall;
+use crate::im_ask_user::{format_im_clarify_message, IM_ASK_USER_TIMEOUT};
+use crate::models::{StreamEvent, ToolCall};
 use crate::tools::ask_user::{parse_args, AskUserArgs};
 use serde_json::json;
 use tokio::sync::oneshot;
@@ -55,12 +57,14 @@ fn validate_im_selection(args: &AskUserArgs, selected: Vec<String>) -> anyhow::R
 }
 
 pub(super) async fn dispatch_ask_user(
+    stream: &StreamTx,
     state: &AppState,
     tc: &ToolCall,
     args_value: serde_json::Value,
     cancel: &CancellationToken,
     trigger_source: &Option<TriggerSource>,
     conversation_id: &str,
+    message_id: &str,
 ) -> ToolExecResult {
     let args = parse_args(args_value)?;
     let is_im = matches!(trigger_source, Some(TriggerSource::Im));
@@ -72,8 +76,27 @@ pub(super) async fn dispatch_ask_user(
         state
             .im_ask_user
             .register(conversation_id, &tc.id, args.clone());
+        // Hermes send_clarify: always push question + numbered options to IM
+        // before blocking (do not rely on the model having written them in prose).
+        let clarify = format_im_clarify_message(&args);
+        emit(
+            stream,
+            StreamEvent::MessageEnd {
+                message_id: format!("im-ask-user-{}", tc.id),
+                content: Some(clarify.clone()),
+                raw_content: Some(clarify),
+                tool_raw_output: None,
+                thoughts: None,
+                headline: None,
+                trace_id: None,
+                scoped_message_id: None,
+                attachments: None,
+            },
+        );
+        // Let the IM collect task flush MessageEnd before we block on the reply.
+        tokio::task::yield_now().await;
         log::info!(
-            "ask_user: IM blocking wait conversation_id={conversation_id} tool={}",
+            "ask_user: IM clarify sent conversation_id={conversation_id} tool={} parent_message_id={message_id}",
             tc.id
         );
     }

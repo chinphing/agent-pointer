@@ -114,7 +114,9 @@ impl<'a> ImStreamOutbound<'a> {
         content: Option<&str>,
         raw_content: Option<&str>,
     ) -> Result<()> {
-        if !self.cfg.send_intermediate_text {
+        // Hermes clarify: always deliver ask_user options even if intermediate text is off.
+        let force_ask_user_clarify = message_id.starts_with("im-ask-user-");
+        if !self.cfg.send_intermediate_text && !force_ask_user_clarify {
             return Ok(());
         }
         if self.sent_message_ids.contains(message_id) {

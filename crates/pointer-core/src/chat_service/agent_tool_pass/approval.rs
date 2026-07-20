@@ -17,6 +17,7 @@ pub(super) async fn run_approval_gate(
     let elevated_terminal =
         tool_id == "terminal" && crate::tools::terminal::terminal_requests_elevation(args_value);
     let requires_approval = elevated_terminal
+        || tool_id == "video_generate"
         || (ctx.tool_approval_mode == "manual"
             && ctx
                 .session

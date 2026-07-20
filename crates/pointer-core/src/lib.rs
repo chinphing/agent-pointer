@@ -1,6 +1,7 @@
 pub mod agent_instance_scope;
 pub mod agents;
 pub mod channel_outbound;
+pub mod im_ask_user;
 pub mod chat_service;
 pub mod client_env;
 pub mod dotenv;

@@ -315,6 +315,33 @@ impl ChannelGateway {
             return Ok(());
         }
 
+        // Hermes-style clarify: intercept reply while ask_user is blocking the same turn.
+        match self.core.try_resolve_im_ask_user(&conv_id, &msg.text) {
+            Ok(true) => {
+                if let Err(e) = self.core.session_index.touch_im_interaction(&conv_id) {
+                    log::warn!("im_ask_user touch interaction failed conv={conv_id}: {e:#}");
+                }
+                self.dedup.mark_seen(&namespace, &msg.dedup_key());
+                log::info!("im_ask_user: intercepted reply conv={conv_id}");
+                return Ok(());
+            }
+            Ok(false) => {}
+            Err(hint) => {
+                let outbound = OutboundContext {
+                    channel: msg.channel.clone(),
+                    account_id: msg.account_id.clone(),
+                    conversation_key: msg.conversation_key.clone(),
+                    recipient_id: msg.sender_id.clone(),
+                    reply_context: msg.reply_context.clone(),
+                };
+                if let Err(e) = plugin.outbound.send_text(outbound, &hint).await {
+                    log::warn!("im_ask_user: failed to send parse hint conv={conv_id}: {e:#}");
+                }
+                self.dedup.mark_seen(&namespace, &msg.dedup_key());
+                return Ok(());
+            }
+        }
+
         let dedup_key = msg.dedup_key();
         let idle_minutes = cfg.meta.session_reset.effective_idle_minutes();
         match self

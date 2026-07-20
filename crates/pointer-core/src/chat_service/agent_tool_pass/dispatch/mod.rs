@@ -39,6 +39,7 @@ pub(super) async fn execute_tool_invocation(
     trigger_source: &Option<TriggerSource>,
     ask_user_deferred: &AtomicBool,
 ) -> ToolExecResult {
+    let _ = ask_user_deferred;
     let execution_scope = ToolExecutionScope::from_agent_contexts(
         conversation_id,
         lead.as_ref()
@@ -48,7 +49,10 @@ pub(super) async fn execute_tool_invocation(
         tc.id.as_str(),
     );
     match tool_id {
-        "ask_user" => ask_user::dispatch_ask_user(state, tc, args_value, cancel, trigger_source, ask_user_deferred).await,
+        "ask_user" => {
+            ask_user::dispatch_ask_user(state, tc, args_value, cancel, trigger_source, conversation_id)
+                .await
+        }
         "terminal" => {
             terminal::run_terminal_tool(
                 stream,

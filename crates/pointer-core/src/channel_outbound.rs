@@ -205,24 +205,29 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
             .to_string(),
     );
     lines.push(
-        "In IM mode, `ask_user` returns immediately (non-blocking). The turn ends after the tool call—"
+        "In IM mode, `ask_user` **blocks this turn** until the user replies (or times out)."
             .to_string(),
     );
     lines.push(
-        "you do NOT need to generate another reply. Structure your response like this:"
+        "Their next message is captured as the tool result — not a new conversation turn."
             .to_string(),
     );
-    lines.push("1. Explain the situation to the user.".to_string());
+    lines.push("Structure your response like this:".to_string());
+    lines.push("1. Explain the situation to the user in assistant text.".to_string());
     lines.push(
-        "2. List the numbered options (use the exact labels from your `ask_user` call)."
-            .to_string(),
-    );
-    lines.push(
-        "3. Call `ask_user` with those options. After the tool returns, the conversation stops."
+        "2. List numbered options using the **exact** labels you will pass to `ask_user`."
             .to_string(),
     );
     lines.push(
-        "The user will reply with their choice (e.g., \"1\" or the label text) in the next message."
+        "3. Call `ask_user` with those options. Wait for the tool result (`selected`)."
+            .to_string(),
+    );
+    lines.push(
+        "4. Continue the task in this same turn using their choice."
+            .to_string(),
+    );
+    lines.push(
+        "Users may reply with `1` / `2`, the option label, or free text (Hermes-style)."
             .to_string(),
     );
 
@@ -270,6 +275,8 @@ mod tests {
         assert!(!block.contains("团队模式"));
         assert!(!block.contains("research"));
         assert!(!block.contains("深度研究"));
+        assert!(block.contains("blocks this turn"));
+        assert!(block.contains("ask_user"));
     }
 
     #[test]

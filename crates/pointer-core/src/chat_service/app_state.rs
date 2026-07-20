@@ -271,6 +271,8 @@ pub struct AppState {
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     /// Pending `ask_user` calls keyed by their tool call id.
     pub ask_user_pending: Mutex<HashMap<String, oneshot::Sender<Vec<String>>>>,
+    /// IM Hermes-style `ask_user`: base conversation → pending registration.
+    pub im_ask_user: Arc<crate::im_ask_user::ImAskUserRegistry>,
     /// Blocks `run_subagent` → computer until the UI confirms monitor selection.
     pub monitor_picks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
     /// Pending terminal stdin submissions keyed by `request_id`.
@@ -387,6 +389,7 @@ impl AppState {
             terminal_run_abort: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
             ask_user_pending: Mutex::new(HashMap::new()),
+            im_ask_user: Arc::new(crate::im_ask_user::ImAskUserRegistry::new()),
             monitor_picks: Mutex::new(HashMap::new()),
             terminal_input_pending: Mutex::new(HashMap::new()),
             active_main_task_boards: Mutex::new(HashMap::new()),
@@ -589,22 +592,52 @@ impl AppState {
     }
 
     pub fn cancel(&self, conversation_id: &str) {
-        if let Some(token) = self.cancels.lock().get(conversation_id) {
-            token.cancel();
+        let base = crate::channel_outbound::im_base_conversation_id(conversation_id);
+        let cancel_keys: Vec<String> = {
+            let guard = self.cancels.lock();
+            guard
+                .keys()
+                .filter(|k| {
+                    k.as_str() == conversation_id
+                        || crate::channel_outbound::im_base_conversation_id(k) == base
+                })
+                .cloned()
+                .collect()
+        };
+        for key in &cancel_keys {
+            if let Some(token) = self.cancels.lock().get(key) {
+                token.cancel();
+            }
+            let _ = self.abort_terminal_command(key, None);
         }
-        if self.abort_terminal_command(conversation_id, None) {
-            log::info!(
-                "cancel: aborted in-flight terminal commands conversation_id={conversation_id}"
-            );
+        if cancel_keys.is_empty() {
+            if let Some(token) = self.cancels.lock().get(conversation_id) {
+                token.cancel();
+            }
+            let _ = self.abort_terminal_command(conversation_id, None);
         }
+
         let approvals: Vec<_> = self.approvals.lock().drain().collect();
         for (_, tx) in approvals {
             let _ = tx.send(false);
         }
-        let pending_questions: Vec<_> = self.ask_user_pending.lock().drain().collect();
-        for (_, tx) in pending_questions {
-            drop(tx);
+
+        // Drop IM ask_user waiters for this session, then drain remaining oneshots
+        // (desktop cancel historically clears all pending ask_user).
+        let im_pending = self.im_ask_user.clear_matching(conversation_id);
+        {
+            let mut pending = self.ask_user_pending.lock();
+            for p in &im_pending {
+                if let Some(tx) = pending.remove(&p.tool_call_id) {
+                    drop(tx);
+                }
+            }
+            let rest: Vec<_> = pending.drain().collect();
+            for (_, tx) in rest {
+                drop(tx);
+            }
         }
+
         let monitor_picks: Vec<_> = self.monitor_picks.lock().drain().collect();
         for (_, tx) in monitor_picks {
             let _ = tx.send(Err("已停止生成".into()));
@@ -613,7 +646,12 @@ impl AppState {
             let mut pending = self.terminal_input_pending.lock();
             let keys: Vec<_> = pending
                 .keys()
-                .filter(|key| key.scope.conversation_id == conversation_id)
+                .filter(|key| {
+                    key.scope.conversation_id == conversation_id
+                        || crate::channel_outbound::im_base_conversation_id(
+                            &key.scope.conversation_id,
+                        ) == base
+                })
                 .cloned()
                 .collect();
             keys.into_iter()
@@ -622,6 +660,37 @@ impl AppState {
         };
         for tx in pending_inputs {
             let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Cancelled);
+        }
+    }
+
+    /// Resolve a pending IM `ask_user` from free-text. Returns:
+    /// - `Ok(true)` resolved
+    /// - `Ok(false)` no pending
+    /// - `Err(hint)` pending but text could not be parsed (still waiting)
+    pub fn try_resolve_im_ask_user(
+        &self,
+        base_conversation_id: &str,
+        user_text: &str,
+    ) -> Result<bool, String> {
+        let Some(pending) = self.im_ask_user.peek(base_conversation_id) else {
+            return Ok(false);
+        };
+        let selected = crate::im_ask_user::parse_im_ask_user_reply(&pending.args, user_text)?;
+        let Some(pending) = self.im_ask_user.take(base_conversation_id) else {
+            return Ok(false);
+        };
+        if self.submit_ask_user(&pending.tool_call_id, selected) {
+            log::info!(
+                "im_ask_user: resolved base_conv={base_conversation_id} tool={}",
+                pending.tool_call_id
+            );
+            Ok(true)
+        } else {
+            log::warn!(
+                "im_ask_user: oneshot missing for tool={} base_conv={base_conversation_id}",
+                pending.tool_call_id
+            );
+            Err("选项已过期，请重新发起提问。".into())
         }
     }
 

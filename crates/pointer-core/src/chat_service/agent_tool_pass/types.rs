@@ -24,8 +24,7 @@ pub enum ToolPassResult {
     NoopExit,
     /// At least one tool produced results; caller should record a tool cycle and check budget.
     RanTools,
-    /// ask_user was dispatched to an IM channel (Hermes-style): the lead loop
-    /// must end this turn without another LLM round.
+    /// Deprecated: previously used for non-blocking IM `ask_user`. Kept for match exhaustiveness.
     AskUserDeferred,
 }
 
@@ -104,11 +103,9 @@ pub struct ToolPassContext<'a> {
     pub sub: Option<SubToolPassConfig<'a>>,
     pub task_board_work_items_enabled: bool,
     pub workspace_root: &'a str,
-    /// Origin of the parent run; used to branch tool behavior (e.g. non-blocking
-    /// `ask_user` for IM channels à la Hermes).
+    /// Origin of the parent run; used to branch tool behavior (e.g. IM `ask_user` timeout).
     pub trigger_source: Option<TriggerSource>,
-    /// Set to `true` by `dispatch_ask_user` when the tool defers user input to
-    /// an IM channel; the tool pass must end the turn (no more LLM rounds).
+    /// Legacy flag; IM `ask_user` now blocks same-turn (unused).
     pub ask_user_deferred: AtomicBool,
 }
 

@@ -1,6 +1,6 @@
 ﻿//! Mirror agent stream events to IM customers during a channel dispatch run.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use pointer_core::models::StreamEvent;
@@ -13,6 +13,8 @@ use crate::outbound_resolve::{
 };
 use crate::traits::{ChannelPlugin, OutboundContext};
 
+const TOOL_SUMMARY_MAX_CHARS: usize = 500;
+
 pub struct ImStreamOutbound<'a> {
     plugin: &'a ChannelPlugin,
     outbound: OutboundContext,
@@ -20,6 +22,9 @@ pub struct ImStreamOutbound<'a> {
     conv_id: String,
     sent_message_ids: HashSet<String>,
     sent_media: HashSet<String>,
+    /// Dedup start notifications per tool_call_id.
+    tool_started_notified: HashSet<String>,
+    tool_display_labels: HashMap<String, String>,
     last_sent_visible: String,
 }
 
@@ -37,6 +42,8 @@ impl<'a> ImStreamOutbound<'a> {
             conv_id,
             sent_message_ids: HashSet::new(),
             sent_media: HashSet::new(),
+            tool_started_notified: HashSet::new(),
+            tool_display_labels: HashMap::new(),
             last_sent_visible: String::new(),
         }
     }
@@ -52,8 +59,21 @@ impl<'a> ImStreamOutbound<'a> {
                 self.handle_message_end(message_id, content.as_deref(), raw_content.as_deref())
                     .await
             }
-            // Tool progress stays in the App; IM only gets assistant / clarify text.
-            StreamEvent::ToolCallStatus { .. } => Ok(()),
+            StreamEvent::ToolCallStatus {
+                tool_call_id,
+                status,
+                display_label,
+                display_summary,
+                ..
+            } => {
+                self.handle_tool_status(
+                    tool_call_id,
+                    status,
+                    display_label.as_deref(),
+                    display_summary.as_deref(),
+                )
+                .await
+            }
             _ => Ok(()),
         }
     }
@@ -119,6 +139,43 @@ impl<'a> ImStreamOutbound<'a> {
         if sent {
             self.sent_message_ids.insert(message_id.to_string());
         }
+        Ok(())
+    }
+
+    async fn handle_tool_status(
+        &mut self,
+        tool_call_id: &str,
+        status: &str,
+        display_label: Option<&str>,
+        display_summary: Option<&str>,
+    ) -> Result<()> {
+        if !self.cfg.send_tool_calls {
+            return Ok(());
+        }
+        // ask_user options come from clarify MessageEnd — never mirror as tool status.
+        if display_label.is_some_and(|l| l.trim() == "询问用户") {
+            return Ok(());
+        }
+        // Only announce tool *invocation* (start). Skip success / failure lines —
+        // those duplicate final replies and clutter IM.
+        if !matches!(status, "running" | "pending" | "pending_approval") {
+            return Ok(());
+        }
+        if let Some(label) = display_label.filter(|s| !s.trim().is_empty()) {
+            self.tool_display_labels
+                .insert(tool_call_id.to_string(), label.to_string());
+        }
+        if !self.tool_started_notified.insert(tool_call_id.to_string()) {
+            return Ok(());
+        }
+        let label = resolved_tool_label(tool_call_id, display_label, &self.tool_display_labels);
+        let Some(line) = format_tool_start_line(&label, display_summary) else {
+            return Ok(());
+        };
+        self.plugin
+            .outbound
+            .send_text(self.outbound.clone(), &line)
+            .await?;
         Ok(())
     }
 
@@ -219,5 +276,57 @@ impl<'a> ImStreamOutbound<'a> {
             }
         }
         Ok(sent_any)
+    }
+}
+
+fn resolved_tool_label(
+    tool_call_id: &str,
+    display_label: Option<&str>,
+    cache: &HashMap<String, String>,
+) -> String {
+    display_label
+        .filter(|s| !s.trim().is_empty())
+        .map(String::from)
+        .or_else(|| cache.get(tool_call_id).cloned())
+        .unwrap_or_else(|| "Tool".to_string())
+}
+
+fn format_tool_start_line(label: &str, display_summary: Option<&str>) -> Option<String> {
+    if let Some(summary) = display_summary.filter(|s| !s.trim().is_empty()) {
+        Some(format!(
+            "🔧 {label}: {}",
+            truncate_chars(summary, TOOL_SUMMARY_MAX_CHARS)
+        ))
+    } else {
+        Some(format!("🔧 {label}"))
+    }
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    format!("{}…", text.chars().take(max_chars).collect::<String>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_start_line_formats() {
+        assert_eq!(
+            format_tool_start_line("联网搜索", None).as_deref(),
+            Some("🔧 联网搜索")
+        );
+        assert_eq!(
+            format_tool_start_line("联网搜索", Some("Rust 2024")).as_deref(),
+            Some("🔧 联网搜索: Rust 2024")
+        );
+    }
+
+    #[test]
+    fn truncate_chars_respects_limit() {
+        assert_eq!(truncate_chars("abcdef", 3), "abc…");
     }
 }

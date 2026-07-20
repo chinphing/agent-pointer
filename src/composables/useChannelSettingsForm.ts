@@ -67,7 +67,7 @@ export function useChannelSettingsForm() {
     meta: {
       publicBaseUrl: '',
       sessionReset: { idleMinutes: DEFAULT_CHANNEL_IDLE_MINUTES },
-      imOutbound: { sendIntermediateText: true, sendToolCalls: false }
+      imOutbound: { sendIntermediateText: true, sendToolCalls: true }
     },
     feishu: { default: defaultFeishu() },
     dingtalk: { default: defaultDingtalk() },
@@ -87,7 +87,7 @@ export function useChannelSettingsForm() {
     'IM 中发送 /new、/reset、新对话 或 重新开始 可手动开新会话。下方为空闲自动重置，默认 60 分钟，0 表示关闭。'
 
   const IM_OUTBOUND_HELP =
-    '控制 Agent 运行过程中推送到 IM 的中间文字。最终回复仍会发送；工具进度只在 App 内展示，不再推到 IM。'
+    '控制 Agent 运行过程中推送到 IM 的消息。最终回复仍会发送；工具进度只推送「开始调用」，不推送完成/失败状态。'
 
   const PUBLIC_BASE_URL_HELP =
     '各通道启用 Webhook 模式时需要填写，用于生成平台回调地址。'
@@ -212,9 +212,20 @@ export function useChannelSettingsForm() {
     set: (value: boolean) => {
       if (!config.value.meta) config.value.meta = { publicBaseUrl: '' }
       if (!config.value.meta.imOutbound) {
-        config.value.meta.imOutbound = { sendIntermediateText: true, sendToolCalls: false }
+        config.value.meta.imOutbound = { sendIntermediateText: true, sendToolCalls: true }
       }
       config.value.meta.imOutbound.sendIntermediateText = value
+    }
+  })
+
+  const sendToolCalls = computed({
+    get: () => config.value.meta?.imOutbound?.sendToolCalls ?? true,
+    set: (value: boolean) => {
+      if (!config.value.meta) config.value.meta = { publicBaseUrl: '' }
+      if (!config.value.meta.imOutbound) {
+        config.value.meta.imOutbound = { sendIntermediateText: true, sendToolCalls: true }
+      }
+      config.value.meta.imOutbound.sendToolCalls = value
     }
   })
 
@@ -278,7 +289,7 @@ export function useChannelSettingsForm() {
         },
         imOutbound: {
           sendIntermediateText: loaded.meta?.imOutbound?.sendIntermediateText ?? true,
-          sendToolCalls: false
+          sendToolCalls: loaded.meta?.imOutbound?.sendToolCalls ?? true
         }
       },
       feishu: {
@@ -676,6 +687,7 @@ export function useChannelSettingsForm() {
     idleMinutes,
     setIdleMinutes,
     sendIntermediateText,
+    sendToolCalls,
     urlKey,
     refresh,
     save,

@@ -75,9 +75,9 @@ function confirmMultiple() {
         :disabled="submitting || isCompleted"
         @click="choose(option.label)"
       >
-        <span class="flex items-start gap-2">
+        <span class="flex items-center gap-2">
           <span
-            class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[10px]"
+            class="flex h-4 w-4 shrink-0 items-center justify-center text-[10px]"
             :class="[
               args.multiSelect ? 'rounded-[3px]' : 'rounded-full',
               isSelected(option.label)

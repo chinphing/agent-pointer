@@ -156,6 +156,7 @@ function hiddenLineNum(ci: number, hi: number): number {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   tab-size: 2;
+  font-variant-ligatures: none;
 }
 .diff-collapse {
   display: flex;

@@ -8,7 +8,10 @@ pub(super) mod subagent;
 pub(super) mod terminal;
 pub(super) mod web_search;
 
+use std::sync::atomic::AtomicBool;
+
 use crate::agents::AgentProfile;
+use crate::dispatcher::TriggerSource;
 use crate::models::ToolCall;
 use crate::provider::OpenAIProvider;
 use tokio_util::sync::CancellationToken;
@@ -33,6 +36,8 @@ pub(super) async fn execute_tool_invocation(
     sub: Option<&mut SubToolPassConfig<'_>>,
     cancel: &CancellationToken,
     stats: &mut ToolInvocationStats<'_>,
+    trigger_source: &Option<TriggerSource>,
+    ask_user_deferred: &AtomicBool,
 ) -> ToolExecResult {
     let execution_scope = ToolExecutionScope::from_agent_contexts(
         conversation_id,
@@ -43,7 +48,7 @@ pub(super) async fn execute_tool_invocation(
         tc.id.as_str(),
     );
     match tool_id {
-        "ask_user" => ask_user::dispatch_ask_user(state, tc, args_value, cancel).await,
+        "ask_user" => ask_user::dispatch_ask_user(state, tc, args_value, cancel, trigger_source, ask_user_deferred).await,
         "terminal" => {
             terminal::run_terminal_tool(
                 stream,

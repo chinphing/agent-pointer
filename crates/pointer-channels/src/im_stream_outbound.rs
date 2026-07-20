@@ -1,4 +1,4 @@
-//! Mirror agent stream events to IM customers during a channel dispatch run.
+﻿//! Mirror agent stream events to IM customers during a channel dispatch run.
 
 use std::collections::{HashMap, HashSet};
 
@@ -13,7 +13,7 @@ use crate::outbound_resolve::{
 };
 use crate::traits::{ChannelPlugin, OutboundContext};
 
-const TOOL_SUMMARY_MAX_CHARS: usize = 200;
+const TOOL_SUMMARY_MAX_CHARS: usize = 500;
 
 pub struct ImStreamOutbound<'a> {
     plugin: &'a ChannelPlugin,
@@ -118,8 +118,18 @@ impl<'a> ImStreamOutbound<'a> {
             return Ok(());
         }
         if self.sent_message_ids.contains(message_id) {
+            log::info!(
+                "im_stream_outbound handle_message_end SKIP dup message_id={}",
+                message_id
+            );
             return Ok(());
         }
+        log::info!(
+            "im_stream_outbound handle_message_end message_id={} content_len={} raw_len={}",
+            message_id,
+            content.map(str::len).unwrap_or(0),
+            raw_content.map(str::len).unwrap_or(0),
+        );
         let outbound = im_outbound_reply_source(raw_content, content);
         if outbound.trim().is_empty() {
             return Ok(());

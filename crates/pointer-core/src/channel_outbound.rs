@@ -198,6 +198,34 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
     );
     lines.push("There is no separate delivery tool — do not expect a desktop chat UI.".to_string());
 
+    lines.push(String::new());
+    lines.push("## ask_user tool in IM".to_string());
+    lines.push(
+        "When you need the user to make a choice, call `ask_user` with the options."
+            .to_string(),
+    );
+    lines.push(
+        "In IM mode, `ask_user` returns immediately (non-blocking). The turn ends after the tool call—"
+            .to_string(),
+    );
+    lines.push(
+        "you do NOT need to generate another reply. Structure your response like this:"
+            .to_string(),
+    );
+    lines.push("1. Explain the situation to the user.".to_string());
+    lines.push(
+        "2. List the numbered options (use the exact labels from your `ask_user` call)."
+            .to_string(),
+    );
+    lines.push(
+        "3. Call `ask_user` with those options. After the tool returns, the conversation stops."
+            .to_string(),
+    );
+    lines.push(
+        "The user will reply with their choice (e.g., \"1\" or the label text) in the next message."
+            .to_string(),
+    );
+
     lines.join("\n")
 }
 

@@ -1,4 +1,4 @@
-//! UI display labels and parameter summaries for tool invocations (not sent to the LLM).
+﻿//! UI display labels and parameter summaries for tool invocations (not sent to the LLM).
 
 use super::registry_tool_base_name;
 use serde_json::Value;
@@ -35,6 +35,29 @@ fn str_field(args: &Value, keys: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+fn format_ask_user_summary(args: &Value) -> String {
+    let question = str_field(args, &["question"]).unwrap_or_default();
+    let mut lines: Vec<String> = vec![question];
+    if let Some(options) = args.get("options").and_then(|o| o.as_array()) {
+        for (i, opt) in options.iter().enumerate() {
+            let label = opt
+                .get("label")
+                .and_then(|l| l.as_str())
+                .unwrap_or("?");
+            let desc = opt
+                .get("description")
+                .and_then(|d| d.as_str())
+                .unwrap_or("");
+            if desc.is_empty() {
+                lines.push(format!("{}. {}", i + 1, label));
+            } else {
+                lines.push(format!("{}. {} - {}", i + 1, label, desc));
+            }
+        }
+    }
+    lines.join("\n")
 }
 
 fn resolve_method(raw_name: &str, args: &Value) -> String {
@@ -423,7 +446,10 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 cron_job_summary(&action, args),
             )
         }
-        "ask_user" => ("询问用户".to_string(), String::new()),
+        "ask_user" => (
+            "询问用户".to_string(),
+            format_ask_user_summary(args),
+        ),
         "response" => ("回复用户".to_string(), String::new()),
         _ => if !method.is_empty() { (format!("{base} · {method}"), String::new()) } else { (raw_name.to_string(), String::new()) }
     };
@@ -636,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn ask_user_label_without_question_summary() {
+    fn ask_user_formats_question_and_options_summary() {
         let d = default_display(
             "ask_user",
             &json!({
@@ -645,6 +671,6 @@ mod tests {
             }),
         );
         assert_eq!(d.label, "询问用户");
-        assert_eq!(d.summary, "");
+        assert_eq!(d.summary, "是否允许桌面控制？\n1. 允许\n2. 仅步骤");
     }
 }

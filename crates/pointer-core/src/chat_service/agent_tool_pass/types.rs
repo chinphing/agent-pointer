@@ -2,10 +2,12 @@
 
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{AgentDef, AgentProfile, AgentRunResult, AgentTask};
+use crate::dispatcher::TriggerSource;
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, ModelSettings, ToolCall};
 use crate::provider::OpenAIProvider;
 use crate::task_board::TaskBoardTrimHook;
+use std::sync::atomic::AtomicBool;
 use tokio_util::sync::CancellationToken;
 
 use super::super::context::{SessionRefs, TranscriptPersist, TranscriptRefs};
@@ -22,6 +24,9 @@ pub enum ToolPassResult {
     NoopExit,
     /// At least one tool produced results; caller should record a tool cycle and check budget.
     RanTools,
+    /// ask_user was dispatched to an IM channel (Hermes-style): the lead loop
+    /// must end this turn without another LLM round.
+    AskUserDeferred,
 }
 
 pub enum ToolInvocationStats<'a> {
@@ -99,6 +104,12 @@ pub struct ToolPassContext<'a> {
     pub sub: Option<SubToolPassConfig<'a>>,
     pub task_board_work_items_enabled: bool,
     pub workspace_root: &'a str,
+    /// Origin of the parent run; used to branch tool behavior (e.g. non-blocking
+    /// `ask_user` for IM channels à la Hermes).
+    pub trigger_source: Option<TriggerSource>,
+    /// Set to `true` by `dispatch_ask_user` when the tool defers user input to
+    /// an IM channel; the tool pass must end the turn (no more LLM rounds).
+    pub ask_user_deferred: AtomicBool,
 }
 
 impl<'a> ToolPassContext<'a> {
@@ -129,6 +140,9 @@ pub struct LeadSingleToolPassRequest<'a> {
     pub final_tool_calls: &'a [ToolCall],
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub cancel: CancellationToken,
+    /// Origin of the parent run; used to branch tool behavior per source
+    /// (e.g. non-blocking `ask_user` for IM channels).
+    pub trigger_source: Option<TriggerSource>,
 }
 
 /// One tool-pass invocation: validated tool batch + optional trim hook.

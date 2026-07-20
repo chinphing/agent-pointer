@@ -669,6 +669,9 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
     if let Some(output) = final_reply_output {
         return Ok(ToolPassResult::FinalReplyComplete(output));
     }
+    if pass.ctx.ask_user_deferred.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(ToolPassResult::AskUserDeferred);
+    }
     Ok(ToolPassResult::RanTools)
 }
 
@@ -1003,6 +1006,8 @@ async fn run_one_prepared(
         pass.ctx.sub.as_mut(),
         &pass.cancel,
         pass.ctx.stats,
+        &pass.ctx.trigger_source,
+        &pass.ctx.ask_user_deferred,
     )
     .await;
 

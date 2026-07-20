@@ -80,6 +80,7 @@ pub fn register_all(reg: &ToolRegistry) {
     reg.register(
         ToolEntry::new("ask_user", DOC_SOURCE, "low", false, DOC, handler)
             .with_schema(schema)
+            .with_subagent_inheritance(false)
             .with_parallel_metadata(false, ToolConflictClass::SerialOnly),
     );
 }

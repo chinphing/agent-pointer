@@ -74,6 +74,8 @@ pub(super) async fn run_single_agent_tool_pass(
             sub: None,
             task_board_work_items_enabled: work_items_enabled,
             workspace_root: &req.settings.workspace_root,
+            trigger_source: req.trigger_source,
+            ask_user_deferred: std::sync::atomic::AtomicBool::new(false),
         },
         final_tool_calls: req.final_tool_calls,
         trim_hook: Some(trim_hook),
@@ -85,6 +87,7 @@ pub(super) async fn run_single_agent_tool_pass(
         InnerToolPassResult::FinalReplyComplete(output) => {
             Ok(ToolPassResult::FinalReplyComplete(output))
         }
+        InnerToolPassResult::AskUserDeferred => Ok(ToolPassResult::Finished),
         InnerToolPassResult::RanTools => Ok(ToolPassResult::RanTools),
     }
 }

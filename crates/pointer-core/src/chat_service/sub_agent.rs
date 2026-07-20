@@ -426,6 +426,8 @@ pub(crate) async fn run_sub_agent(
                 sub: Some(sub_cfg),
                 task_board_work_items_enabled: work_items_enabled,
                 workspace_root: &sub_provider.settings.workspace_root,
+                trigger_source: None,
+                ask_user_deferred: std::sync::atomic::AtomicBool::new(false),
             },
             final_tool_calls: &buf.final_tool_calls,
             trim_hook: Some(trim_hook),
@@ -453,6 +455,7 @@ pub(crate) async fn run_sub_agent(
                 ));
             }
             ToolPassResult::RanTools => {}
+            ToolPassResult::AskUserDeferred => {}
         }
 
         if verify_host_active(state, &def.profile)

@@ -1,8 +1,10 @@
 use super::super::super::app_state::AppState;
 use super::super::types::ToolExecResult;
+use crate::dispatcher::TriggerSource;
 use crate::models::ToolCall;
 use crate::tools::ask_user::{parse_args, AskUserArgs};
 use serde_json::json;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -32,8 +34,26 @@ pub(super) async fn dispatch_ask_user(
     tc: &ToolCall,
     args_value: serde_json::Value,
     cancel: &CancellationToken,
+    trigger_source: &Option<TriggerSource>,
+    ask_user_deferred: &AtomicBool,
 ) -> ToolExecResult {
     let args = parse_args(args_value)?;
+
+    // IM channels: non-blocking Hermes-style — signal the tool pass to end
+    // the turn after this round. The LLM's already-emitted text before this
+    // tool call contains the options; the IM dispatch will deliver it.
+    // The next user message from the IM channel starts a fresh turn.
+    if matches!(trigger_source, Some(TriggerSource::Im)) {
+        ask_user_deferred.store(true, Ordering::Relaxed);
+        let labels: Vec<&str> = args.options.iter().map(|o| o.label.as_str()).collect();
+        let result = json!({
+            "selected": null,
+            "note": format!("选项已展示给用户。当前对话轮次结束，等待用户回复。选项：{:?}", labels)
+        });
+        return Ok((result.to_string(), true, None));
+    }
+
+    // Desktop / web: interactive blocking pattern with AskUserOptions UI.
     let (tx, rx) = oneshot::channel();
     state.ask_user_pending.lock().insert(tc.id.clone(), tx);
 

@@ -278,6 +278,7 @@ pub(super) async fn run_single_agent_loop(
                 final_tool_calls: &buf.final_tool_calls,
                 agent_trace: &mut agent_trace,
                 cancel: cancel.clone(),
+                trigger_source: ctx.trigger_source,
             },
         )
         .await?

@@ -440,6 +440,7 @@ pub(super) async fn run_chat_inner(
         max_cap,
         token_session: &mut llm_token_session,
         reasoning_in_messages,
+        trigger_source: req.trigger_source,
     };
     super::single_agent::run_single_agent_loop(&mut lead_ctx).await?;
 

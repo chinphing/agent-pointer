@@ -2,6 +2,7 @@
 
 use crate::agents::{AgentPlan, AgentTask};
 use crate::agent_instance_scope::AgentInstanceScope;
+use crate::dispatcher::TriggerSource;
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, ModelSettings};
 use crate::provider::OpenAIProvider;
@@ -27,6 +28,7 @@ pub struct LeadAgentLoopContext<'a> {
     pub max_cap: u32,
     pub token_session: &'a mut ChatLlmTokenSession,
     pub reasoning_in_messages: bool,
+    pub trigger_source: Option<TriggerSource>,
 }
 
 /// Sub-agent run loop.

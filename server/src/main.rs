@@ -2132,8 +2132,11 @@ async fn list_cron_jobs(
 struct CreateCronJobBody {
     id: String,
     label: String,
-    #[serde(rename = "cronExpr")]
+    #[serde(default, rename = "cronExpr")]
     cron_expr: String,
+    /// Friendly / one-shot schedule; preferred when set.
+    #[serde(default)]
+    schedule: Option<String>,
     /// Ignored: each cron job owns a dedicated `cron:{id}` session. Retained on
     /// the wire for backward compatibility with older frontends.
     #[serde(default, rename = "conversationId")]
@@ -2156,22 +2159,50 @@ fn default_true() -> bool {
     true
 }
 
-/// `POST /api/cron-jobs` — create a new scheduled job. The cron expression is
-/// validated up front (a parse failure rejects the request with 400).
+/// `POST /api/cron-jobs` — create a new scheduled job. Accepts friendly
+/// `schedule` (including one-shot `30m` / ISO) or raw `cronExpr`.
 async fn create_cron_job(
     State(state): State<ServerState>,
     Json(body): Json<CreateCronJobBody>,
 ) -> Result<(StatusCode, Json<pointer_core::conversation_store::cron_jobs::CronJobView>), ApiError> {
     require_platform_access(&state)?;
-    // Validate the cron expression before persisting.
-    if pointer_core::conversation_store::cron_jobs::next_run_ms(&body.cron_expr, &chrono::Local::now())
-        .is_none()
-    {
+    let schedule_input = body
+        .schedule
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(body.cron_expr.trim());
+    if schedule_input.is_empty() {
         return Err(ApiError(anyhow::anyhow!(
-            "invalid cron expression: {}",
-            body.cron_expr
+            "schedule or cronExpr is required"
         )));
     }
+    let parsed = pointer_core::tools::cron_job::schedule::parse_schedule(schedule_input)
+        .map_err(ApiError::from)?;
+    let (cron_expr, schedule_kind, next_override) = match parsed {
+        pointer_core::tools::cron_job::schedule::ParsedSchedule::Recurring { cron_expr } => {
+            if pointer_core::conversation_store::cron_jobs::next_run_ms(
+                &cron_expr,
+                &chrono::Local::now(),
+            )
+            .is_none()
+            {
+                return Err(ApiError(anyhow::anyhow!(
+                    "invalid cron expression: {cron_expr}"
+                )));
+            }
+            (
+                cron_expr,
+                pointer_core::conversation_store::cron_jobs::SCHEDULE_KIND_CRON,
+                None,
+            )
+        }
+        pointer_core::tools::cron_job::schedule::ParsedSchedule::Once { fire_at_ms } => (
+            pointer_core::tools::cron_job::schedule::ONCE_CRON_PLACEHOLDER.to_string(),
+            pointer_core::conversation_store::cron_jobs::SCHEDULE_KIND_ONCE,
+            Some(fire_at_ms),
+        ),
+    };
     let deliver = body
         .deliver
         .as_deref()
@@ -2187,7 +2218,10 @@ async fn create_cron_job(
     let new = pointer_core::conversation_store::cron_jobs::NewCronJob {
         id: &body.id,
         label: &body.label,
-        cron_expr: &body.cron_expr,
+        cron_expr: &cron_expr,
+        schedule_kind,
+        schedule_raw: Some(schedule_input),
+        next_run_at_ms: next_override,
         conversation_id: &body.conversation_id,
         prompt_text: &body.prompt_text,
         agent_mode: body.agent_mode.as_deref(),
@@ -2213,10 +2247,11 @@ async fn create_cron_job(
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError(anyhow::anyhow!("cron job vanished after insert: {}", body.id)))?;
     log::info!(
-        "cron-jobs: created id={} label={} expr={}",
+        "cron-jobs: created id={} label={} kind={} expr={}",
         body.id,
         body.label,
-        body.cron_expr
+        schedule_kind,
+        cron_expr
     );
     Ok((
         StatusCode::CREATED,

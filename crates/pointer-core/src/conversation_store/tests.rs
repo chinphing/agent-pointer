@@ -602,7 +602,7 @@ mod tests {
         let version: i32 = conn
             .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 15);
+        assert_eq!(version, 19);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -620,5 +620,98 @@ mod tests {
             )
             .unwrap();
         assert_eq!(index_count, 1);
+    }
+
+    /// v18 DBs already at SCHEMA_VERSION gate must still pick up v19 cron columns
+    /// when SCHEMA_VERSION is bumped (schedule_kind / schedule_raw).
+    #[test]
+    fn migrates_v18_cron_jobs_adds_schedule_kind() {
+        use rusqlite::Connection;
+
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("conversations.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL);
+                 INSERT INTO schema_version(version) VALUES (18);
+                 CREATE TABLE store_meta (
+                   key TEXT PRIMARY KEY,
+                   value TEXT NOT NULL
+                 );
+                 CREATE TABLE conversations (
+                   id TEXT PRIMARY KEY,
+                   title TEXT NOT NULL,
+                   created_at_ms INTEGER NOT NULL,
+                   updated_at_ms INTEGER NOT NULL,
+                   message_count INTEGER NOT NULL DEFAULT 0,
+                   preview TEXT NOT NULL DEFAULT '',
+                   skill_ids_json TEXT NOT NULL DEFAULT '[]',
+                   tool_rounds_used INTEGER NOT NULL DEFAULT 0,
+                   tool_rounds_used_supervisor INTEGER NOT NULL DEFAULT 0,
+                   computer_monitor_id TEXT,
+                   workspace_root TEXT NOT NULL DEFAULT '',
+                   workspace_user_set INTEGER NOT NULL DEFAULT 0,
+                   workspace_inherit_disabled INTEGER NOT NULL DEFAULT 0,
+                   lead_agent_id TEXT NOT NULL DEFAULT 'general',
+                   agent_mode TEXT NOT NULL DEFAULT 'single',
+                   im_session_epoch INTEGER NOT NULL DEFAULT 0,
+                   im_active_conversation_id TEXT,
+                   im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,
+                   session_user_id TEXT NOT NULL DEFAULT ''
+                 );
+                 CREATE TABLE messages (
+                   id INTEGER PRIMARY KEY,
+                   conversation_id TEXT NOT NULL,
+                   message_id TEXT NOT NULL,
+                   role TEXT NOT NULL,
+                   content TEXT NOT NULL,
+                   payload TEXT NOT NULL,
+                   created_at_ms INTEGER NOT NULL,
+                   position INTEGER NOT NULL,
+                   UNIQUE(conversation_id, message_id)
+                 );
+                 CREATE TABLE cron_jobs (
+                   id TEXT PRIMARY KEY,
+                   label TEXT NOT NULL,
+                   cron_expr TEXT NOT NULL,
+                   conversation_id TEXT NOT NULL,
+                   current_session_id TEXT,
+                   prompt_text TEXT NOT NULL,
+                   agent_mode TEXT,
+                   lead_agent_id TEXT,
+                   enabled INTEGER NOT NULL DEFAULT 1,
+                   last_run_at_ms INTEGER,
+                   next_run_at_ms INTEGER,
+                   created_at_ms INTEGER NOT NULL,
+                   deliver TEXT,
+                   last_delivery_error TEXT
+                 );",
+            )
+            .unwrap();
+        }
+
+        let _store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conn = Connection::open(&db_path).unwrap();
+        let version: i32 = conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 19);
+        let has_kind: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let has_raw: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_raw'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_kind, 1);
+        assert_eq!(has_raw, 1);
     }
 }

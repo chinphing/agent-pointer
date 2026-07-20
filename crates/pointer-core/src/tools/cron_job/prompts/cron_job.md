@@ -3,9 +3,9 @@ your **prompt_text** in a dedicated cron session (separate from this chat).
 
 WHEN TO USE
 
-- The user asks to **remind**, **run something regularly**, **every day at …**,
-  **every N minutes**, or **schedule a recurring task**.
-- Confirm the **prompt** (what the agent should do each time) and the **schedule**
+- The user asks to **remind**, **run once later** (in N minutes / at a time),
+  **run regularly**, **every day at …**, or **schedule a recurring task**.
+- Confirm the **prompt** (what the agent should do) and the **schedule**
   before calling create.
 
 CREATE (minimal)
@@ -14,6 +14,15 @@ CREATE (minimal)
     action="create",
     prompt_text="Check weather and post a one-line summary",
     schedule="daily@9:30"
+  )
+
+One-shot reminder (fires once, then soft-completes — row kept disabled for
+history / session viewing):
+
+  cron_job(
+    action="create",
+    prompt_text="Remind the user to stretch",
+    schedule="30m"
   )
 
 Only **prompt_text** and **schedule** are required. Optional **label** overrides
@@ -38,7 +47,12 @@ If the run reply is just `[SILENT]`, no message is pushed.
 
 SCHEDULE FORMAT
 
-Friendly presets (local timezone):
+One-shot (local timezone; fires once then soft-completes):
+
+- Relative: `30m`, `2h`, `1d`
+- Absolute: `2026-07-22T09:00:00` (no offset = local)
+
+Recurring presets (local timezone):
 
 - `every_minute` or `每分钟`
 - `every_5_minutes` or `每10分钟`
@@ -47,6 +61,8 @@ Friendly presets (local timezone):
 - `weekly@1@9:30` (0=Sunday … 6=Saturday) or `每周一 9:30`
 - `monthly@1@9:00` or `每月1日 9:00`
 - Raw 6-field cron: `0 30 9 * * *` (sec min hour dom mon dow)
+
+Scheduler ticks about every 60 seconds — one-shot times may be up to ~1 minute late.
 
 LIST
 
@@ -57,6 +73,9 @@ ENABLE / DISABLE / DELETE
   cron_job(action="disable", job_id="cron-abc123def456")
   cron_job(action="enable", job_id="cron-abc123def456")
   cron_job(action="delete", job_id="cron-abc123def456")
+
+Completed one-shot jobs cannot be re-enabled — create a new job instead.
+Users can still open the cron session under **Settings → Automation**.
 
 After create, tell the user the **schedule**, **next run time**, and that they
 can also manage jobs under **Settings → Automation**.

@@ -87,7 +87,8 @@ Webhook 对外集成说明见 **[`../developer/webhook-api.md`](../developer/web
 ## Cron 调度器
 
 - `cron_jobs` 表（schema v8）：`id / label / cron_expr / conversation_id / prompt_text / agent_mode / lead_agent_id / enabled / last_run_at_ms / next_run_at_ms / created_at_ms`。
-- ticker 每 60s 轮询 `cron_jobs_list_due`，对每个到期任务 `dispatch` 一个 `TriggerRequest`（`trigger_source = Cron`，幂等键 `cron:{id}:{scheduled_ms}`），再 `mark_ran` 推进 `next_run_at_ms`。`enabledSkillIds` 取 `user_settings.json` 全局启用列表（与 UI 技能库一致）。
+- ticker 每 60s 轮询 `cron_jobs_list_due`，对每个到期任务 `dispatch` 一个 `TriggerRequest`（`trigger_source = Cron`，幂等键 `cron:{id}:{scheduled_ms}`），再 `mark_ran`：周期任务推进 `next_run_at_ms`；**一次性**（`schedule_kind=once`）软完成（`enabled=0`、清空 next，行保留）。`enabledSkillIds` 取 `user_settings.json` 全局启用列表（与 UI 技能库一致）。
+- `schedule` 支持 Hermes 式 one-shot：`30m` / `2h` / `1d`、ISO 本地时间；以及既有 recurring preset / 6 段 cron。列：`schedule_kind`、`schedule_raw`（v19）。
 - cron 表达式用 `cron` crate（`Schedule::from_str`，6 字段含秒）。
 - **时区约定**：cron 字段（时/日/月…）按**用户本地时区**解释——`next_run_ms` / `mark_ran` / `set_enabled` / `next_run_ms_now` 一律传入 `chrono::Local::now()`（`cron::Schedule::after` 用 `after.timezone()` 解释字段，故 "9 点" = 本地 9 点）。所有时间戳列（`next_run_at_ms` / `last_run_at_ms` / `created_at_ms`）存的是**与时区无关的 UTC 毫秒瞬时**；前端用 `new Date(ms).toLocaleString()` 渲染为本地时间。新增任何「按字段解释 cron」的入口都必须传 `Local`，不要传 `Utc`。
 - 启用策略：**server（web）与 desktop（Tauri）均默认开**（`POINTER_SCHEDULER_ENABLED=0` 可关）。
@@ -112,7 +113,7 @@ openclaw 的 cron 会话用 `daily` 重置模式、`atHour = 4`（本地凌晨 4
 - `Scheduler::dispatch_job` 每次触发：计算 `expected = current_cron_session_id(job.id, now_local)`；若 `job.current_session_id != expected`（首次触发或跨过 04:00），UPDATE `current_session_id = expected`、`ensure_cron_session(expected, label)` 建新会话 meta 行，本次提示词成为新 transcript 的首轮；否则 `load_messages(expected)` 续接当日历史。**不再 `clear_messages`**——翻页靠换 id 实现，旧 id 的 messages 原样留在 `messages` 表（对齐 openclaw 的留存）。
 - 任务偏好（agent / prompt / cron 表达式）存在 `cron_jobs` 行上，天然跨翻页保留——对应 openclaw `sanitizeFreshCronSessionEntry` 只继承偏好字段。
 - **侧栏隔离 + 查看入口**：所有 `cron:*` 会话（含历史日期的旧会话）都被 `load_all` / `load_metas` 的 `NOT LIKE 'cron:%'` 排除在侧栏外；前端 `AppShell.filteredConversations` 兜底过滤。「查看会话」按钮打开的是 `job.currentSessionId`（当前活动会话），任务首次触发前该字段为 `NULL`，按钮禁用并提示「尚未触发」。
-- **对话内创建**：`general` agent 可通过 **`cron_job`** 工具在聊天中创建/列出/启停/删除定时任务；最小参数为 `prompt_text` + `schedule`（友好 preset 或 6 段 cron），其余字段（label、agent、job id）由工具自动填充。与设置页 Automation 面板写入同一张 `cron_jobs` 表。
+- **对话内创建**：`general` agent 可通过 **`cron_job`** 工具在聊天中创建/列出/启停/删除定时任务；最小参数为 `prompt_text` + `schedule`（`30m` / ISO / 友好 preset / 6 段 cron），其余字段（label、agent、job id）由工具自动填充。与设置页 Automation 面板写入同一张 `cron_jobs` 表。
 - **与 openclaw 的一致与差异**：一致点——翻页换会话 id、旧 transcript 留存、应用层默认不暴露历史、偏好跨翻页保留。差异点——openclaw 用 uuid + 文件名留存（要靠列目录找回旧记录），我们用 `cron:{job_id}:{yyyymmdd}` 可读 id + `messages` 表留存（按 id 直接可查；后续如需 UI 历史回看，可在 cron 任务详情里列出该 job 的所有 `cron:{job_id}:*` 会话）。重置时刻目前为常量 4 点本地；如需可配置，后续在 `server_config` 增加 `scheduler.cron_session_reset_at_hour` 字段传入 `daily_reset_at_ms`。
 
 ## 钩子（HookRegistry）

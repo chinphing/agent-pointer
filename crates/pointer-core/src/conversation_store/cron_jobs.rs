@@ -12,12 +12,21 @@ use anyhow::Result;
 use chrono::{DateTime, Local, TimeZone};
 use rusqlite::{params, Connection, OptionalExtension};
 
+/// Recurring schedule stored as a 6-field cron expression.
+pub const SCHEDULE_KIND_CRON: &str = "cron";
+/// One-shot delay / absolute time; soft-completes after fire (row kept, disabled).
+pub const SCHEDULE_KIND_ONCE: &str = "once";
+
 /// A row in the `cron_jobs` table.
 #[derive(Debug, Clone)]
 pub struct CronJobRecord {
     pub id: String,
     pub label: String,
     pub cron_expr: String,
+    /// `cron` (recurring) or `once` (one-shot soft-complete).
+    pub schedule_kind: String,
+    /// Original user/model schedule string (for display / audit).
+    pub schedule_raw: Option<String>,
     pub conversation_id: String,
     /// Active cron session id (`cron:{job_id}:{yyyymmdd}`, the reset-day label).
     /// `None` until the scheduler first fires the job; advanced on each daily
@@ -51,6 +60,13 @@ pub struct NewCronJob<'a> {
     pub id: &'a str,
     pub label: &'a str,
     pub cron_expr: &'a str,
+    /// `cron` or `once`. Defaults to recurring when empty.
+    pub schedule_kind: &'a str,
+    /// Original schedule string (e.g. `30m`, `daily@9:30`).
+    pub schedule_raw: Option<&'a str>,
+    /// Absolute next fire for one-shot jobs. Ignored for recurring (computed
+    /// from `cron_expr`).
+    pub next_run_at_ms: Option<i64>,
     pub conversation_id: &'a str,
     pub prompt_text: &'a str,
     pub agent_mode: Option<&'a str>,
@@ -138,15 +154,27 @@ pub fn daily_reset_at_ms<Z: TimeZone>(now: &DateTime<Z>, at_hour: u32) -> i64 {
     }
 }
 
-/// Insert a new cron job. The initial `next_run_at_ms` is computed from the
-/// cron expression relative to now. Returns whether the row was inserted
-/// (false on duplicate id).
+/// Insert a new cron job. Recurring jobs compute `next_run_at_ms` from the
+/// cron expression; one-shot jobs use [`NewCronJob::next_run_at_ms`]. Returns
+/// whether the row was inserted (false on duplicate id).
 pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
-    // Evaluate the cron expression in the local timezone so "9 点" means local
-    // 9 o'clock. `timestamp_millis()` yields the same UTC instant regardless of
-    // tz, so `created_at_ms` stays a tz-agnostic UTC ms.
     let now = Local::now();
-    let next = next_run_ms(job.cron_expr, &now);
+    let kind = if job.schedule_kind.trim() == SCHEDULE_KIND_ONCE {
+        SCHEDULE_KIND_ONCE
+    } else {
+        SCHEDULE_KIND_CRON
+    };
+    let next = if kind == SCHEDULE_KIND_ONCE {
+        job.next_run_at_ms
+    } else {
+        next_run_ms(job.cron_expr, &now)
+    };
+    if next.is_none() {
+        anyhow::bail!(
+            "cron_jobs: cannot insert id={} kind={kind}: missing next_run_at_ms",
+            job.id
+        );
+    }
     // Each cron job owns a dedicated isolated session `cron:{id}`; ignore any
     // caller-supplied conversation_id so the job never binds to a user chat.
     let session_id = cron_session_id(job.id);
@@ -158,15 +186,18 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
             session_id
         );
     }
+    let schedule_raw = job.schedule_raw.map(str::trim).filter(|s| !s.is_empty());
     let affected = conn.execute(
         "INSERT OR IGNORE INTO cron_jobs
-           (id, label, cron_expr, conversation_id, prompt_text,
+           (id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, prompt_text,
             agent_mode, lead_agent_id, enabled, next_run_at_ms, created_at_ms, deliver)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             job.id,
             job.label,
             job.cron_expr,
+            kind,
+            schedule_raw,
             session_id,
             job.prompt_text,
             job.agent_mode,
@@ -182,7 +213,7 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
         return Ok(false);
     }
     log::info!(
-        "cron_jobs: inserted id={} label={} expr={} next_run_at_ms={:?}",
+        "cron_jobs: inserted id={} label={} kind={kind} expr={} next_run_at_ms={:?}",
         job.id,
         job.label,
         job.cron_expr,
@@ -195,7 +226,7 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
 /// The scheduler dispatches one TriggerRequest per due row.
 pub fn list_due(conn: &Connection, now_ms: i64) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
-        "SELECT id, label, cron_expr, conversation_id, current_session_id,
+        "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
                 prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
                 next_run_at_ms, created_at_ms, deliver, last_delivery_error
            FROM cron_jobs
@@ -211,7 +242,7 @@ pub fn list_due(conn: &Connection, now_ms: i64) -> Result<Vec<CronJobRecord>> {
 /// List all cron jobs (enabled and disabled) for management endpoints.
 pub fn list_all(conn: &Connection) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
-        "SELECT id, label, cron_expr, conversation_id, current_session_id,
+        "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
                 prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
                 next_run_at_ms, created_at_ms, deliver, last_delivery_error
            FROM cron_jobs
@@ -226,7 +257,7 @@ pub fn list_all(conn: &Connection) -> Result<Vec<CronJobRecord>> {
 pub fn get(conn: &Connection, id: &str) -> Result<Option<CronJobRecord>> {
     let row = conn
         .query_row(
-            "SELECT id, label, cron_expr, conversation_id, current_session_id,
+            "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
                     prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
                     next_run_at_ms, created_at_ms, deliver, last_delivery_error
                FROM cron_jobs WHERE id = ?1",
@@ -237,15 +268,28 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<CronJobRecord>> {
     Ok(row)
 }
 
-/// After a scheduled run fires, record the run time and recompute the next
-/// firing time from the cron expression. If the expression has no future
-/// firings, disable the job and log a warning.
+/// After a scheduled run fires, record the run time and advance or soft-complete.
+///
+/// - **once**: disable the job, clear `next_run_at_ms` (soft complete — row kept).
+/// - **cron**: recompute next fire; if none, disable.
 pub fn mark_ran<Z: TimeZone>(conn: &Connection, id: &str, ran_at: DateTime<Z>) -> Result<()> {
-    let expr: String = conn.query_row(
-        "SELECT cron_expr FROM cron_jobs WHERE id = ?1",
+    let (kind, expr): (String, String) = conn.query_row(
+        "SELECT COALESCE(schedule_kind, 'cron'), cron_expr FROM cron_jobs WHERE id = ?1",
         params![id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
+    if kind == SCHEDULE_KIND_ONCE {
+        conn.execute(
+            "UPDATE cron_jobs SET last_run_at_ms = ?2, next_run_at_ms = NULL, enabled = 0 WHERE id = ?1",
+            params![id, ran_at.timestamp_millis()],
+        )?;
+        log::info!(
+            "cron_jobs: id={} one-shot soft-completed at={}",
+            id,
+            ran_at.to_rfc3339()
+        );
+        return Ok(());
+    }
     // `ran_at` carries the timezone used to interpret the cron fields; pass it
     // through so the next firing is computed in the same (local) timezone.
     let next = next_run_ms(&expr, &ran_at);
@@ -270,20 +314,23 @@ pub fn mark_ran<Z: TimeZone>(conn: &Connection, id: &str, ran_at: DateTime<Z>) -
     Ok(())
 }
 
-/// Enable / disable a cron job. When enabling, recompute `next_run_at_ms`
-/// from now so a previously-skipped job does not fire immediately for a
-/// long-past due time.
+/// Enable / disable a cron job. When enabling a recurring job, recompute
+/// `next_run_at_ms` from now. One-shot jobs **cannot** be re-enabled (create a
+/// new job instead).
 pub fn set_enabled(conn: &Connection, id: &str, enabled: bool) -> Result<bool> {
-    let expr: Option<String> = conn
+    let row: Option<(String, String)> = conn
         .query_row(
-            "SELECT cron_expr FROM cron_jobs WHERE id = ?1",
+            "SELECT COALESCE(schedule_kind, 'cron'), cron_expr FROM cron_jobs WHERE id = ?1",
             params![id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    let Some(expr) = expr else {
+    let Some((kind, expr)) = row else {
         return Ok(false);
     };
+    if enabled && kind == SCHEDULE_KIND_ONCE {
+        anyhow::bail!("one-shot cron jobs cannot be re-enabled; create a new job");
+    }
     let next = if enabled {
         next_run_ms(&expr, &Local::now())
     } else {
@@ -310,17 +357,22 @@ fn row_to_record(r: &rusqlite::Row<'_>) -> rusqlite::Result<CronJobRecord> {
         id: r.get(0)?,
         label: r.get(1)?,
         cron_expr: r.get(2)?,
-        conversation_id: r.get(3)?,
-        current_session_id: r.get(4)?,
-        prompt_text: r.get(5)?,
-        agent_mode: r.get(6)?,
-        lead_agent_id: r.get(7)?,
-        enabled: r.get::<_, i32>(8)? != 0,
-        last_run_at_ms: r.get(9)?,
-        next_run_at_ms: r.get(10)?,
-        created_at_ms: r.get(11)?,
-        deliver: r.get(12)?,
-        last_delivery_error: r.get(13)?,
+        schedule_kind: r
+            .get::<_, Option<String>>(3)?
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| SCHEDULE_KIND_CRON.to_string()),
+        schedule_raw: r.get(4)?,
+        conversation_id: r.get(5)?,
+        current_session_id: r.get(6)?,
+        prompt_text: r.get(7)?,
+        agent_mode: r.get(8)?,
+        lead_agent_id: r.get(9)?,
+        enabled: r.get::<_, i32>(10)? != 0,
+        last_run_at_ms: r.get(11)?,
+        next_run_at_ms: r.get(12)?,
+        created_at_ms: r.get(13)?,
+        deliver: r.get(14)?,
+        last_delivery_error: r.get(15)?,
     })
 }
 
@@ -333,6 +385,8 @@ pub struct CronJobView {
     pub id: String,
     pub label: String,
     pub cron_expr: String,
+    pub schedule_kind: String,
+    pub schedule_raw: Option<String>,
     pub conversation_id: String,
     /// Active cron session id under which the current transcript lives. `None`
     /// until the scheduler first fires the job. The frontend's "查看会话" entry
@@ -376,6 +430,8 @@ impl CronJobView {
             id: r.id.clone(),
             label: r.label.clone(),
             cron_expr: r.cron_expr.clone(),
+            schedule_kind: r.schedule_kind.clone(),
+            schedule_raw: r.schedule_raw.clone(),
             conversation_id: r.conversation_id.clone(),
             current_session_id: Self::resolve_view_session_id(r),
             prompt_text: r.prompt_text.clone(),
@@ -443,6 +499,8 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
            id TEXT PRIMARY KEY,
            label TEXT NOT NULL,
            cron_expr TEXT NOT NULL,
+           schedule_kind TEXT NOT NULL DEFAULT 'cron',
+           schedule_raw TEXT,
            conversation_id TEXT NOT NULL,
            current_session_id TEXT,
            prompt_text TEXT NOT NULL,
@@ -479,6 +537,9 @@ mod tests {
             id: "j1",
             label: "every-minute",
             cron_expr: "0 * * * * *",
+            schedule_kind: SCHEDULE_KIND_CRON,
+            schedule_raw: Some("every_minute"),
+            next_run_at_ms: None,
             conversation_id: "c1",
             prompt_text: "ping",
             agent_mode: None,
@@ -504,6 +565,9 @@ mod tests {
                 id: "j2",
                 label: "off",
                 cron_expr: "0 * * * * *",
+                schedule_kind: SCHEDULE_KIND_CRON,
+                schedule_raw: None,
+                next_run_at_ms: None,
                 conversation_id: "c2",
                 prompt_text: "x",
                 agent_mode: None,
@@ -528,6 +592,9 @@ mod tests {
                 id: "j3",
                 label: "adv",
                 cron_expr: "0 * * * * *",
+                schedule_kind: SCHEDULE_KIND_CRON,
+                schedule_raw: None,
+                next_run_at_ms: None,
                 conversation_id: "c3",
                 prompt_text: "y",
                 agent_mode: None,
@@ -544,6 +611,44 @@ mod tests {
         mark_ran(&conn, "j3", ran_at).unwrap();
         let after = get(&conn, "j3").unwrap().unwrap().next_run_at_ms;
         assert!(after > before, "next_run must advance after mark_ran");
+    }
+
+    #[test]
+    fn once_insert_due_soft_complete() {
+        let conn = mem();
+        let fire = Utc::now().timestamp_millis() - 1000;
+        assert!(insert(
+            &conn,
+            &NewCronJob {
+                id: "once1",
+                label: "remind",
+                cron_expr: "@once",
+                schedule_kind: SCHEDULE_KIND_ONCE,
+                schedule_raw: Some("30m"),
+                next_run_at_ms: Some(fire),
+                conversation_id: "",
+                prompt_text: "ping me",
+                agent_mode: None,
+                lead_agent_id: None,
+                enabled: true,
+                deliver: None,
+            },
+        )
+        .unwrap());
+        let due = list_due(&conn, Utc::now().timestamp_millis()).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].schedule_kind, SCHEDULE_KIND_ONCE);
+        mark_ran(&conn, "once1", Local::now()).unwrap();
+        let rec = get(&conn, "once1").unwrap().unwrap();
+        assert!(!rec.enabled);
+        assert!(rec.next_run_at_ms.is_none());
+        assert!(rec.last_run_at_ms.is_some());
+        assert!(list_due(&conn, i64::MAX).unwrap().is_empty());
+        let err = set_enabled(&conn, "once1", true).unwrap_err();
+        assert!(
+            err.to_string().contains("cannot be re-enabled"),
+            "got {err}"
+        );
     }
 
     #[test]
@@ -605,6 +710,8 @@ mod tests {
             id: "job1".into(),
             label: "test".into(),
             cron_expr: "0 * * * * *".into(),
+            schedule_kind: SCHEDULE_KIND_CRON.into(),
+            schedule_raw: None,
             conversation_id: "cron:job1".into(),
             current_session_id: None,
             prompt_text: "hi".into(),

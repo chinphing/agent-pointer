@@ -38,6 +38,27 @@ const interval = computed<number>({
   }
 })
 
+const delayAmount = computed<number>({
+  get: () => preset.value.delayAmount ?? 30,
+  set(v: number) {
+    preset.value = { ...preset.value, delayAmount: Number.isFinite(v) ? v : 30 }
+  }
+})
+
+const delayUnit = computed<'m' | 'h' | 'd'>({
+  get: () => preset.value.delayUnit ?? 'm',
+  set(v: 'm' | 'h' | 'd') {
+    preset.value = { ...preset.value, delayUnit: v }
+  }
+})
+
+const atLocal = computed<string>({
+  get: () => preset.value.atLocal ?? '',
+  set(v: string) {
+    preset.value = { ...preset.value, atLocal: v }
+  }
+})
+
 const weekday = computed<number>({
   get: () => preset.value.weekday ?? 1,
   set(v: number) {
@@ -60,6 +81,8 @@ const rawExpr = computed<string>({
 })
 
 const modeOptions: { value: CronMode; label: string }[] = [
+  { value: 'onceIn', label: '延迟一次' },
+  { value: 'onceAt', label: '指定时间一次' },
   { value: 'everyMinute', label: '每分钟' },
   { value: 'everyNMinutes', label: '每隔 N 分钟' },
   { value: 'everyNHours', label: '每隔 N 小时' },
@@ -72,6 +95,15 @@ const modeOptions: { value: CronMode; label: string }[] = [
 function setMode(m: CronMode) {
   // Carry over sensible defaults when switching into a mode that lacks params.
   const next: CronPreset = { ...preset.value, mode: m }
+  if (m === 'onceIn') {
+    if (!next.delayAmount) next.delayAmount = 30
+    if (!next.delayUnit) next.delayUnit = 'm'
+  }
+  if (m === 'onceAt' && !next.atLocal) {
+    const d = new Date(Date.now() + 60 * 60 * 1000)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    next.atLocal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
   if (m === 'everyNMinutes' && !next.interval) next.interval = 5
   if (m === 'everyNHours' && !next.interval) next.interval = 2
   if ((m === 'dailyAt' || m === 'weeklyAt' || m === 'monthlyAt') && next.hour == null) {
@@ -125,7 +157,20 @@ function pad(n: number): string {
         <option v-for="o in modeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
 
-      <template v-if="preset.mode === 'everyNMinutes'">
+      <template v-if="preset.mode === 'onceIn'">
+        <input v-model.number="delayAmount" type="number" min="1" max="9999" class="input-base w-20" />
+        <select v-model="delayUnit" class="input-base w-20">
+          <option value="m">分钟</option>
+          <option value="h">小时</option>
+          <option value="d">天</option>
+        </select>
+      </template>
+
+      <template v-else-if="preset.mode === 'onceAt'">
+        <input v-model="atLocal" type="datetime-local" class="input-base w-48" />
+      </template>
+
+      <template v-else-if="preset.mode === 'everyNMinutes'">
         <span class="text-[11px] text-muted">间隔</span>
         <input v-model.number="interval" type="number" min="1" max="59" class="input-base w-20" />
         <span class="text-[11px] text-muted">分钟</span>

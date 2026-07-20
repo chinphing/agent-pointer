@@ -8,6 +8,10 @@ export interface CronJob {
   id: string
   label: string
   cronExpr: string
+  /** `cron` (recurring) or `once` (one-shot soft-complete). */
+  scheduleKind?: string
+  /** Original schedule string (e.g. `30m`, `daily@9:30`). */
+  scheduleRaw?: string | null
   conversationId: string
   /** Active cron session id (`cron:{jobId}:{yyyymmdd}`); null until first fire. */
   currentSessionId?: string | null
@@ -31,7 +35,10 @@ export interface CronJob {
 export interface CreateCronJobInput {
   id: string
   label: string
-  cronExpr: string
+  /** Recurring 6-field cron; optional when `schedule` is set. */
+  cronExpr?: string
+  /** Friendly / one-shot schedule (`30m`, ISO, `daily@9:30`). Preferred. */
+  schedule?: string
   /** Ignored by the backend: each cron job owns a dedicated `cron:{id}` session. */
   conversationId?: string
   promptText: string

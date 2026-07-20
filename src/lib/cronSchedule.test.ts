@@ -40,6 +40,17 @@ describe('buildCron', () => {
     expect(buildCron({ mode: 'monthlyAt', dayOfMonth: 32, hour: 9, minute: 0 })).toBe('0 0 9 31 * *')
   })
 
+  it('onceIn', () => {
+    expect(buildCron({ mode: 'onceIn', delayAmount: 30, delayUnit: 'm' })).toBe('30m')
+    expect(buildCron({ mode: 'onceIn', delayAmount: 2, delayUnit: 'h' })).toBe('2h')
+  })
+
+  it('onceAt appends seconds', () => {
+    expect(buildCron({ mode: 'onceAt', atLocal: '2026-07-22T09:00' })).toBe(
+      '2026-07-22T09:00:00'
+    )
+  })
+
   it('custom preserves raw', () => {
     expect(buildCron({ mode: 'custom', raw: '0 0 0 1 1 *' })).toBe('0 0 0 1 1 *')
   })
@@ -65,6 +76,10 @@ describe('parseCron round-trips presets', () => {
       expect(parseCron(buildCron(p))).toEqual(p)
     })
   }
+
+  it('parses onceIn', () => {
+    expect(parseCron('30m')).toEqual({ mode: 'onceIn', delayAmount: 30, delayUnit: 'm' })
+  })
 
   it('falls back to custom for non-preset expressions', () => {
     expect(parseCron('0 0 0 1 1 *')).toEqual({ mode: 'custom', raw: '0 0 0 1 1 *' })

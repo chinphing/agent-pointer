@@ -19,7 +19,7 @@ import {
 import { isTauriRuntime } from '../../../lib/runtime'
 import { composerAgentLabel, composerAgentLabelById, resolveAgentUi } from '../../../lib/agentUi'
 import { sortComposerAgents } from '../../../lib/agentIcons'
-import { describeCron, resolveCronViewSessionId } from '../../../lib/cronSchedule'
+import { describeCronJob, resolveCronViewSessionId } from '../../../lib/cronSchedule'
 import { resolveWebhookViewSessionId } from '../../../lib/webhookIngress'
 import { WEBHOOK_URL_TEMPLATE, generateWebhookToken, webhookIngressCurl, webhookIngressUrl } from '../../../lib/webhookIngress'
 import { DEFAULT_LEAD_AGENT_ID } from '../../../types/chat'
@@ -79,7 +79,7 @@ const showForm = ref(false)
 const form = ref({
   id: '',
   label: '',
-  cronExpr: '0 * * * * *',
+  cronExpr: '0 0 9 * * *',
   promptText: '',
   agentId: DEFAULT_LEAD_AGENT_ID,
   enabled: true,
@@ -98,7 +98,7 @@ const savingDeliver = ref(false)
 const isDesktop = isTauriRuntime()
 
 const CRON_SECTION_DESC =
-  '按 Cron 表达式定时触发，每个任务独占一个隔离会话，跨次续接上下文。触发后可点「查看会话」在主界面阅读 transcript。'
+  '定时或延迟一次触发；每个任务独占隔离会话。一次性任务执行后保留为已完成，可点「查看会话」。'
 const WEBHOOK_SECTION_DESC =
   '每个来源独立 Token，须与 URL 路径中的来源标识匹配。POST 请求体支持 text 或 messages。触发后可点「查看会话」阅读 transcript。'
 const DELIVER_HINT =
@@ -249,7 +249,7 @@ function openCreateForm() {
 
 async function submitCreate() {
   if (!form.value.label.trim()) { formError.value = '请填写名称'; return }
-  if (!form.value.cronExpr.trim()) { formError.value = '请填写 Cron 表达式'; return }
+  if (!form.value.cronExpr.trim()) { formError.value = '请填写调度'; return }
   if (!form.value.promptText.trim()) { formError.value = '请填写触发提示词'; return }
   if (form.value.pushIm && form.value.deliverChannels.length === 0) {
     formError.value = '请选择至少一个推送通道'
@@ -258,10 +258,12 @@ async function submitCreate() {
   creating.value = true
   formError.value = null
   try {
+    const schedule = form.value.cronExpr.trim()
     const input: CreateCronJobInput = {
       id: form.value.id,
       label: form.value.label.trim(),
-      cronExpr: form.value.cronExpr.trim(),
+      schedule,
+      cronExpr: schedule,
       promptText: form.value.promptText.trim(),
       // Single agent mode; the picked agent is the lead worker (default 通用助手).
       agentMode: 'single',
@@ -280,6 +282,10 @@ async function submitCreate() {
 }
 
 async function toggleEnabled(job: CronJob, enabled: boolean) {
+  if (enabled && job.scheduleKind === 'once') {
+    jobsError.value = '一次性任务不可重新启用，请新建'
+    return
+  }
   try {
     await updateCronJob(job.id, { enabled })
     await refreshJobs()
@@ -354,7 +360,7 @@ function cronJobTitle(job: CronJob): string {
   const deliver = formatDeliverLabel(job.deliver)
   const deliverPart = deliver ? ` · 投递：${deliver}` : ''
   const err = job.lastDeliveryError ? ` · 投递失败：${job.lastDeliveryError}` : ''
-  return `${job.label} · ${cronAgentLabel(job)} · ${describeCron(job.cronExpr)} · ${job.cronExpr} · 下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}${deliverPart}${err}`
+  return `${job.label} · ${cronAgentLabel(job)} · ${describeCronJob(job)} · 下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}${deliverPart}${err}`
 }
 
 // Open the cron job's active isolated session in the main panel.
@@ -618,7 +624,7 @@ onMounted(() => {
               <span class="text-muted/50 shrink-0">·</span>
               <span class="text-muted truncate">{{ cronAgentLabel(job) }}</span>
               <span class="text-muted/50 shrink-0">·</span>
-              <span class="text-muted truncate">{{ describeCron(job.cronExpr) }}</span>
+              <span class="text-muted truncate">{{ describeCronJob(job) }}</span>
               <template v-if="formatDeliverLabel(job.deliver)">
                 <span class="text-muted/50 shrink-0">·</span>
                 <span class="text-accent/80 truncate text-[11px]" :title="`投递：${formatDeliverLabel(job.deliver)}`">{{ formatDeliverLabel(job.deliver) }}</span>

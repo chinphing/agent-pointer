@@ -24,7 +24,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta, ConversationSea
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 18;
+const SCHEMA_VERSION: i32 = 19;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -829,6 +829,14 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "cron_jobs", "deliver", "TEXT")?;
     // v18: track last IM delivery failure for cron jobs (cleared on success).
     add_column_if_missing(conn, "cron_jobs", "last_delivery_error", "TEXT")?;
+    // v19: one-shot schedules (Hermes-aligned soft-complete).
+    add_column_if_missing(
+        conn,
+        "cron_jobs",
+        "schedule_kind",
+        "TEXT NOT NULL DEFAULT 'cron'",
+    )?;
+    add_column_if_missing(conn, "cron_jobs", "schedule_raw", "TEXT")?;
     webhook_sources::ensure_schema(conn)?;
     add_column_if_missing(conn, "webhook_sources", "auth_header_name", "TEXT")?;
     add_column_if_missing(

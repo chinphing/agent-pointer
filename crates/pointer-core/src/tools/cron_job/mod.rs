@@ -1,6 +1,6 @@
 //! `cron_job` tool — manage scheduled agent runs from chat (general agent only).
 
-mod schedule;
+pub mod schedule;
 
 use crate::conversation_store::cron_jobs::{self, CronJobView, NewCronJob};
 use crate::conversation_store::ConversationStore;
@@ -62,7 +62,7 @@ pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
                     },
                     "schedule": {
                         "type": "string",
-                        "description": "When to run: friendly preset (daily@9:30, every_5_minutes, 每周一9:30) or raw 6-field cron (0 30 9 * * *)."
+                        "description": "When to run: one-shot (30m, 2h, 1d, or ISO 2026-07-22T09:00:00), friendly recurring (daily@9:30, every_5_minutes), or raw 6-field cron (0 30 9 * * *)."
                     },
                     "job_id": {
                         "type": "string",
@@ -140,10 +140,24 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("schedule is required for create"))?;
 
-    let cron_expr = schedule::parse_schedule(schedule_raw)?;
-    if cron_jobs::next_run_ms_now(&cron_expr).is_none() {
-        return Err(anyhow!("invalid cron expression after parse: {cron_expr}"));
-    }
+    let parsed = schedule::parse_schedule(schedule_raw)?;
+    let (cron_expr, schedule_kind, next_override) = match &parsed {
+        schedule::ParsedSchedule::Recurring { cron_expr } => {
+            if cron_jobs::next_run_ms_now(cron_expr).is_none() {
+                return Err(anyhow!("invalid cron expression after parse: {cron_expr}"));
+            }
+            (
+                cron_expr.clone(),
+                cron_jobs::SCHEDULE_KIND_CRON,
+                None,
+            )
+        }
+        schedule::ParsedSchedule::Once { fire_at_ms } => (
+            schedule::ONCE_CRON_PLACEHOLDER.to_string(),
+            cron_jobs::SCHEDULE_KIND_ONCE,
+            Some(*fire_at_ms),
+        ),
+    };
 
     let conv_id = args
         .get("_conversation_id")
@@ -180,6 +194,9 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         id: job_id_ref,
         label: label_ref,
         cron_expr: &cron_expr,
+        schedule_kind,
+        schedule_raw: Some(schedule_raw),
+        next_run_at_ms: next_override,
         conversation_id: "",
         prompt_text: prompt,
         agent_mode: Some(mode_ref),
@@ -197,13 +214,19 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         .cron_jobs_get(job_id_ref)?
         .ok_or_else(|| anyhow!("cron job vanished after insert"))?;
     let view = CronJobView::from_record(&rec);
-    let schedule_desc = schedule::describe_schedule(&cron_expr);
+    let schedule_desc = schedule::describe_job(
+        &rec.schedule_kind,
+        &rec.cron_expr,
+        rec.schedule_raw.as_deref(),
+        rec.next_run_at_ms,
+    );
     let next_run = format_next_run(rec.next_run_at_ms);
 
     log::info!(
-        "cron_job tool: created id={} label={} expr={} from conversation={}",
+        "cron_job tool: created id={} label={} kind={} expr={} from conversation={}",
         job_id,
         label,
+        schedule_kind,
         cron_expr,
         if conv_id.is_empty() { "(none)" } else { conv_id }
     );
@@ -214,7 +237,7 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         "job": view,
         "scheduleDescription": schedule_desc,
         "nextRunAt": next_run,
-        "hint": "The user can manage jobs in Settings → Automation, or ask you to list / enable / disable / delete them."
+        "hint": "The user can manage jobs in Settings → Automation, or ask you to list / enable / disable / delete them. One-shot jobs soft-complete after firing (kept disabled for history)."
     })
     .to_string())
 }
@@ -227,7 +250,12 @@ fn list_jobs(store: &ConversationStore) -> Result<String> {
             let view = CronJobView::from_record(r);
             json!({
                 "job": view,
-                "scheduleDescription": schedule::describe_schedule(&r.cron_expr),
+                "scheduleDescription": schedule::describe_job(
+                    &r.schedule_kind,
+                    &r.cron_expr,
+                    r.schedule_raw.as_deref(),
+                    r.next_run_at_ms,
+                ),
                 "nextRunAt": format_next_run(r.next_run_at_ms),
             })
         })
@@ -256,7 +284,12 @@ fn set_enabled(store: &ConversationStore, args: &Value, enabled: bool) -> Result
         "ok": true,
         "action": if enabled { "enable" } else { "disable" },
         "job": view,
-        "scheduleDescription": schedule::describe_schedule(&rec.cron_expr),
+        "scheduleDescription": schedule::describe_job(
+            &rec.schedule_kind,
+            &rec.cron_expr,
+            rec.schedule_raw.as_deref(),
+            rec.next_run_at_ms,
+        ),
         "nextRunAt": format_next_run(rec.next_run_at_ms),
     })
     .to_string())
@@ -385,5 +418,36 @@ mod tests {
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(true));
         assert!(v.get("job").is_some());
+    }
+
+    #[test]
+    fn create_once_via_tool_then_soft_complete() {
+        let dir = tempdir().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let out = dispatch(
+            &store,
+            &json!({
+                "action": "create",
+                "prompt_text": "Remind me to stretch",
+                "schedule": "30m"
+            }),
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(true));
+        let job = v.get("job").unwrap();
+        assert_eq!(
+            job.get("scheduleKind").and_then(|x| x.as_str()),
+            Some("once")
+        );
+        let id = job.get("id").and_then(|x| x.as_str()).unwrap().to_string();
+        store
+            .cron_jobs_mark_ran(&id, chrono::Local::now())
+            .unwrap();
+        let rec = store.cron_jobs_get(&id).unwrap().unwrap();
+        assert!(!rec.enabled);
+        assert!(rec.next_run_at_ms.is_none());
+        let enable_err = store.cron_jobs_set_enabled(&id, true).unwrap_err();
+        assert!(enable_err.to_string().contains("cannot be re-enabled"));
     }
 }

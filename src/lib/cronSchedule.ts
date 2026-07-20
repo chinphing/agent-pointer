@@ -8,8 +8,10 @@
  * (`cron::Schedule::after(Local::now())`), so "每天 09:30" means local 09:30.
  */
 
-/** Friendly schedule modes backed by generated cron expressions. */
+/** Friendly schedule modes backed by generated cron / one-shot strings. */
 export type CronMode =
+  | 'onceIn'
+  | 'onceAt'
   | 'everyMinute'
   | 'everyNMinutes'
   | 'everyNHours'
@@ -21,6 +23,12 @@ export type CronMode =
 /** Preset parameter shape. Only the fields relevant to `mode` are used. */
 export interface CronPreset {
   mode: CronMode
+  /** For onceIn: delay amount. */
+  delayAmount?: number
+  /** For onceIn: `m` | `h` | `d`. */
+  delayUnit?: 'm' | 'h' | 'd'
+  /** For onceAt: local datetime-local value `YYYY-MM-DDTHH:MM`. */
+  atLocal?: string
   /** For everyNMinutes / everyNHours. */
   interval?: number
   /** For dailyAt / weeklyAt / monthlyAt: hour 0-23. */
@@ -39,9 +47,20 @@ export const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四',
 
 const DEFAULT_PRESET: CronPreset = { mode: 'dailyAt', hour: 9, minute: 0 }
 
-/** Build a 6-field cron expression from a preset. `custom` returns `raw`. */
+/** Build a schedule string for create API (`schedule` field). */
 export function buildCron(p: CronPreset): string {
   switch (p.mode) {
+    case 'onceIn': {
+      const n = clampInt(p.delayAmount, 1, 9999, 30)
+      const u = p.delayUnit === 'h' || p.delayUnit === 'd' ? p.delayUnit : 'm'
+      return `${n}${u}`
+    }
+    case 'onceAt': {
+      const raw = (p.atLocal ?? '').trim()
+      if (!raw) return ''
+      // datetime-local is `YYYY-MM-DDTHH:MM`; append seconds for parser.
+      return raw.length === 16 ? `${raw}:00` : raw
+    }
     case 'everyMinute':
       return '0 * * * * *'
     case 'everyNMinutes': {
@@ -83,6 +102,22 @@ export function buildCron(p: CronPreset): string {
 export function parseCron(expr: string): CronPreset {
   const raw = (expr ?? '').trim()
   if (!raw) return { ...DEFAULT_PRESET }
+
+  const onceRel = /^(\d+)([mhd])$/i.exec(raw)
+  if (onceRel) {
+    return {
+      mode: 'onceIn',
+      delayAmount: parseInt(onceRel[1], 10),
+      delayUnit: onceRel[2].toLowerCase() as 'm' | 'h' | 'd'
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) || /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(raw)) {
+    const atLocal = raw.includes(' ')
+      ? raw.replace(' ', 'T').slice(0, 16)
+      : raw.slice(0, 16)
+    return { mode: 'onceAt', atLocal }
+  }
+
   const parts = raw.split(/\s+/)
   if (parts.length !== 6) return { mode: 'custom', raw }
   const [s, m, h, dom, mon, dow] = parts
@@ -130,10 +165,17 @@ export function parseCron(expr: string): CronPreset {
   return { mode: 'custom', raw }
 }
 
-/** Human-readable Chinese description of a cron expression. */
+/** Human-readable Chinese description of a schedule string or cron expression. */
 export function describeCron(expr: string): string {
   const p = parseCron(expr)
   switch (p.mode) {
+    case 'onceIn': {
+      const n = p.delayAmount ?? 30
+      const u = p.delayUnit === 'h' ? '小时' : p.delayUnit === 'd' ? '天' : '分钟'
+      return `${n} ${u}后执行一次`
+    }
+    case 'onceAt':
+      return `指定时间执行一次：${p.atLocal ?? expr}`
     case 'everyMinute':
       return '每分钟执行'
     case 'everyNMinutes':
@@ -150,6 +192,27 @@ export function describeCron(expr: string): string {
     default:
       return `自定义：${(expr ?? '').trim() || '—'}`
   }
+}
+
+/** Describe a stored cron job row (prefers scheduleKind / scheduleRaw). */
+export function describeCronJob(job: {
+  cronExpr: string
+  scheduleKind?: string | null
+  scheduleRaw?: string | null
+  nextRunAtMs?: number | null
+  enabled?: boolean
+}): string {
+  if (job.scheduleKind === 'once') {
+    if (job.enabled === false && !job.nextRunAtMs) {
+      const raw = job.scheduleRaw?.trim()
+      return raw ? `一次性 · 已完成（${raw}）` : '一次性 · 已完成'
+    }
+    if (job.nextRunAtMs) {
+      return `一次性 · ${new Date(job.nextRunAtMs).toLocaleString()}`
+    }
+    return describeCron(job.scheduleRaw || job.cronExpr)
+  }
+  return describeCron(job.scheduleRaw || job.cronExpr)
 }
 
 function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {

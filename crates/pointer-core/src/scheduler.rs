@@ -299,7 +299,6 @@ fn build_trigger_meta(job_id: &str, deliver: Option<&str>) -> TriggerMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::conversation_store::cron_jobs::NewCronJob;
 
     #[test]
     fn next_run_ms_parses_valid_expr() {

@@ -126,6 +126,10 @@ pub struct AgentTrace {
     /// Parent assistant `run_subagent` tool-call id; UI nests the sub-agent frame under that row.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "parentToolCallId")]
     pub parent_tool_call_id: Option<String>,
+    /// The `ChatMessage.id` that owns this trace's scoped child messages (for nested
+    /// sub-agents this differs from the lead anchor; see [`AgentTrace::parent_tool_call_id`]).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "anchorMessageId")]
+    pub anchor_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

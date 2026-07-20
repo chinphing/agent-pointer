@@ -59,7 +59,9 @@ const scopedMessages = computed(() =>
 const scopedTraceMessages = computed(() =>
   scopedMessagesForTrace(
     props.messages,
-    props.anchorMessageId,
+    props.trace.anchorMessageId
+      ? props.trace.anchorMessageId
+      : props.anchorMessageId,
     props.trace.id,
     props.trace.agentInstanceId
   )

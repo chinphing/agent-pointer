@@ -145,6 +145,8 @@ export interface AgentTrace {
   computerTarget?: ComputerOperationTarget
   /** Parent assistant `run_subagent` tool-call id; nest the frame under that tool row. */
   parentToolCallId?: string
+  /** The `ChatMessage.id` that owns this trace's scoped child messages (for nested sub-agents this differs from the lead anchor). */
+  anchorMessageId?: string
 }
 
 export type AgentProfile =

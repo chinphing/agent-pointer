@@ -337,6 +337,7 @@ mod tests {
             agent_instance_id: None,
             computer_target: None,
             parent_tool_call_id: None,
+            anchor_message_id: None,
         }];
         // DB may be unavailable in unit tests; history mutation is still required.
         sync_anchor_agent_trace_index("conv", &mut history, "lead", &traces);

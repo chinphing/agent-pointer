@@ -66,6 +66,7 @@ pub(crate) async fn run_supervisor_chat(
             user_expanded: false,
             agent_instance_id: None,
             parent_tool_call_id: None,
+            anchor_message_id: None,
         },
     );
 
@@ -189,6 +190,7 @@ pub(crate) async fn run_supervisor_chat(
                 user_expanded: false,
                 agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
                 parent_tool_call_id: None,
+                anchor_message_id: None,
             },
         );
 
@@ -331,6 +333,7 @@ pub(crate) async fn run_supervisor_chat(
                         user_expanded: false,
                         agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
                         parent_tool_call_id: None,
+                        anchor_message_id: None,
                     },
                 );
                 results.push(result);
@@ -375,6 +378,7 @@ pub(crate) async fn run_supervisor_chat(
                         user_expanded: false,
                         agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
                         parent_tool_call_id: None,
+                        anchor_message_id: None,
                     },
                 );
             }
@@ -399,6 +403,7 @@ pub(crate) async fn run_supervisor_chat(
             user_expanded: false,
             agent_instance_id: None,
             parent_tool_call_id: None,
+            anchor_message_id: None,
         },
     );
 

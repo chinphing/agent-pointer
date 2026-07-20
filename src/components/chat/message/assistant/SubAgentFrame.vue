@@ -225,18 +225,17 @@ function toggleExpanded() {
   toggleSubTraceExpanded(props.trace)
 }
 
-/** Frame chrome: neutral by default; failed uses danger tint (theme tokens, light/dark). */
-const frameChromeClass = computed(() =>
+const statusClass = computed(() =>
   props.trace.status === 'failed'
-    ? 'bg-danger/5'
-    : ''
+    ? 'text-danger'
+    : 'text-muted'
 )
 </script>
 
 <template>
   <div
     class="rounded-xl my-2 overflow-hidden"
-    :class="[frameChromeClass, collapsed ? 'py-2 px-3' : 'p-3']"
+    :class="collapsed ? 'py-2 px-3' : 'p-3'"
     :style="{ marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px` }"
   >
     <button
@@ -260,7 +259,7 @@ const frameChromeClass = computed(() =>
         >
           <ChevronDown class="w-4 h-4 shrink-0 text-muted" />
           <span class="truncate">{{ traceLabel }}</span>
-          <span class="text-xs text-muted shrink-0">{{ trace.status }}</span>
+          <span class="text-xs shrink-0" :class="statusClass">{{ trace.status }}</span>
         </button>
         <button
           v-if="hasRawWire"

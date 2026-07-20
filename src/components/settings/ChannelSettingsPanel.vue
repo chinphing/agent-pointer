@@ -30,7 +30,6 @@ const {
   COMMON_SETTINGS_HELP,
   IM_OUTBOUND_HELP,
   sendIntermediateText,
-  sendToolCalls,
   SESSION_RESET_HELP,
   idleMinutes,
   setIdleMinutes,
@@ -331,10 +330,6 @@ defineExpose({ save })
               <label class="common-check">
                 <input v-model="sendIntermediateText" type="checkbox" class="rounded" />
                 <span>中间文字</span>
-              </label>
-              <label class="common-check">
-                <input v-model="sendToolCalls" type="checkbox" class="rounded" />
-                <span>工具进度</span>
               </label>
             </div>
           </div>

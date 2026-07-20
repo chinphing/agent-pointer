@@ -11,7 +11,9 @@ pub struct ImOutboundConfig {
     #[serde(default = "default_true", rename = "sendIntermediateText")]
     pub send_intermediate_text: bool,
     /// Push tool-call progress lines to IM during agent runs.
-    #[serde(default = "default_true", rename = "sendToolCalls")]
+    /// Retained for config compatibility; IM outbound no longer sends tool status
+    /// (too noisy / duplicates assistant text). Prefer App tool UI instead.
+    #[serde(default, rename = "sendToolCalls")]
     pub send_tool_calls: bool,
 }
 
@@ -19,7 +21,7 @@ impl Default for ImOutboundConfig {
     fn default() -> Self {
         Self {
             send_intermediate_text: true,
-            send_tool_calls: true,
+            send_tool_calls: false,
         }
     }
 }
@@ -428,7 +430,7 @@ mod tests {
     fn im_outbound_defaults() {
         let cfg: ImOutboundConfig = serde_json::from_str("{}").unwrap();
         assert!(cfg.send_intermediate_text);
-        assert!(cfg.send_tool_calls);
+        assert!(!cfg.send_tool_calls);
     }
 
     #[test]

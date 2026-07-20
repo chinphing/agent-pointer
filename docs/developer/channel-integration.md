@@ -211,7 +211,9 @@ IM 会话中模型将**最终正文写在 assistant 消息**里，宿主在 `run
 | 选项 | 默认 | 说明 |
 |------|------|------|
 | `sendIntermediateText` | 开启 | 每轮模型输出（`MessageEnd` 有正文）立即推送给 IM 客户 |
-| `sendToolCalls` | 开启 | 推送工具调用进度行，与 App 工具条一致：`displayLabel` + `displaySummary`（如 `🔧 联网搜索: 关键词`） |
+| `sendToolCalls` | 关闭（已停用） | **不再**向 IM 推送工具进度行；工具过程只在 App 内展示，避免与正文/澄清消息重复 |
+
+`ask_user` 澄清选项仍由宿主主动推送（Hermes 风格编号列表），与上述开关无关。
 
 最终回复若与已推送的中间文字相同则不会重复发送；`MEDIA:` 附件按可解析的本地路径发送（`pointer-media://…`、绝对路径、相对路径均可，禁止 `..` 路径穿越）。
 

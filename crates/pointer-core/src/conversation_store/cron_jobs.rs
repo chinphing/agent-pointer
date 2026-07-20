@@ -32,6 +32,13 @@ pub struct CronJobRecord {
     pub last_run_at_ms: Option<i64>,
     pub next_run_at_ms: Option<i64>,
     pub created_at_ms: i64,
+    /// Optional Run → IM delivery spec (e.g. "feishu", "feishu:ou_xxx",
+    /// "feishu:group:chatid", comma-separated, "all"). `None` / empty means no
+    /// IM push after the run. Consumed by `ImDeliverHook` via
+    /// `trigger_meta.extra.deliver`.
+    pub deliver: Option<String>,
+    /// Last IM delivery error for this job (best-effort). Cleared on success.
+    pub last_delivery_error: Option<String>,
 }
 
 /// Input for creating a new cron job.
@@ -49,6 +56,9 @@ pub struct NewCronJob<'a> {
     pub agent_mode: Option<&'a str>,
     pub lead_agent_id: Option<&'a str>,
     pub enabled: bool,
+    /// Optional Run → IM delivery spec. `None` / empty means no IM push.
+    /// See [`CronJobRecord::deliver`] for the format.
+    pub deliver: Option<&'a str>,
 }
 
 /// Derive the stable cron session *key* for a job (`cron:{job_id}`). This is
@@ -151,8 +161,8 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
     let affected = conn.execute(
         "INSERT OR IGNORE INTO cron_jobs
            (id, label, cron_expr, conversation_id, prompt_text,
-            agent_mode, lead_agent_id, enabled, next_run_at_ms, created_at_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            agent_mode, lead_agent_id, enabled, next_run_at_ms, created_at_ms, deliver)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             job.id,
             job.label,
@@ -164,6 +174,7 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
             job.enabled as i32,
             next,
             now.timestamp_millis(),
+            job.deliver,
         ],
     )?;
     if affected == 0 {
@@ -186,7 +197,7 @@ pub fn list_due(conn: &Connection, now_ms: i64) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
         "SELECT id, label, cron_expr, conversation_id, current_session_id,
                 prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
-                next_run_at_ms, created_at_ms
+                next_run_at_ms, created_at_ms, deliver, last_delivery_error
            FROM cron_jobs
           WHERE enabled = 1
             AND (next_run_at_ms IS NULL OR next_run_at_ms <= ?1)",
@@ -202,7 +213,7 @@ pub fn list_all(conn: &Connection) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
         "SELECT id, label, cron_expr, conversation_id, current_session_id,
                 prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
-                next_run_at_ms, created_at_ms
+                next_run_at_ms, created_at_ms, deliver, last_delivery_error
            FROM cron_jobs
           ORDER BY created_at_ms ASC",
     )?;
@@ -217,7 +228,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<CronJobRecord>> {
         .query_row(
             "SELECT id, label, cron_expr, conversation_id, current_session_id,
                     prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
-                    next_run_at_ms, created_at_ms
+                    next_run_at_ms, created_at_ms, deliver, last_delivery_error
                FROM cron_jobs WHERE id = ?1",
             params![id],
             row_to_record,
@@ -308,6 +319,8 @@ fn row_to_record(r: &rusqlite::Row<'_>) -> rusqlite::Result<CronJobRecord> {
         last_run_at_ms: r.get(9)?,
         next_run_at_ms: r.get(10)?,
         created_at_ms: r.get(11)?,
+        deliver: r.get(12)?,
+        last_delivery_error: r.get(13)?,
     })
 }
 
@@ -333,6 +346,10 @@ pub struct CronJobView {
     pub last_run_at_ms: Option<i64>,
     pub next_run_at_ms: Option<i64>,
     pub created_at_ms: i64,
+    /// Optional Run → IM delivery spec. See [`CronJobRecord::deliver`].
+    pub deliver: Option<String>,
+    /// Last IM delivery error. Cleared when delivery succeeds.
+    pub last_delivery_error: Option<String>,
 }
 
 impl CronJobView {
@@ -368,8 +385,44 @@ impl CronJobView {
             last_run_at_ms: r.last_run_at_ms,
             next_run_at_ms: r.next_run_at_ms,
             created_at_ms: r.created_at_ms,
+            deliver: r.deliver.clone(),
+            last_delivery_error: r.last_delivery_error.clone(),
         }
     }
+}
+
+/// Update the job's deliver spec. Pass `None` / empty to clear IM auto-delivery.
+pub fn update_deliver(conn: &Connection, id: &str, deliver: Option<&str>) -> Result<bool> {
+    let deliver = deliver.map(str::trim).filter(|s| !s.is_empty());
+    let affected = conn.execute(
+        "UPDATE cron_jobs SET deliver = ?2 WHERE id = ?1",
+        params![id, deliver],
+    )?;
+    if affected > 0 {
+        log::info!(
+            "cron_jobs: id={} deliver updated to {:?}",
+            id,
+            deliver
+        );
+    }
+    Ok(affected > 0)
+}
+
+/// Persist the last IM delivery error (or clear it with `None` on success).
+pub fn set_last_delivery_error(
+    conn: &Connection,
+    id: &str,
+    err: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE cron_jobs SET last_delivery_error = ?2 WHERE id = ?1",
+        params![id, err],
+    )?;
+    match err {
+        Some(e) => log::warn!("cron_jobs: id={id} last_delivery_error={e}"),
+        None => log::info!("cron_jobs: id={id} last_delivery_error cleared"),
+    }
+    Ok(())
 }
 
 /// Advance the job's active cron session id (on first fire or daily rollover).
@@ -398,7 +451,9 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
            enabled INTEGER NOT NULL DEFAULT 1,
            last_run_at_ms INTEGER,
            next_run_at_ms INTEGER,
-           created_at_ms INTEGER NOT NULL
+           created_at_ms INTEGER NOT NULL,
+           deliver TEXT,
+           last_delivery_error TEXT
          );
          CREATE INDEX IF NOT EXISTS idx_cron_jobs_by_conv
            ON cron_jobs(conversation_id);",
@@ -429,6 +484,7 @@ mod tests {
             agent_mode: None,
             lead_agent_id: None,
             enabled: true,
+            deliver: None,
         };
         assert!(insert(&conn, &job).unwrap());
         // next_run is in the future relative to a far-future now, so list_due
@@ -453,6 +509,7 @@ mod tests {
                 agent_mode: None,
                 lead_agent_id: None,
                 enabled: false,
+                deliver: None,
             },
         )
         .unwrap();
@@ -476,6 +533,7 @@ mod tests {
                 agent_mode: None,
                 lead_agent_id: None,
                 enabled: true,
+                deliver: None,
             },
         )
         .unwrap();
@@ -562,6 +620,8 @@ mod tests {
             ),
             next_run_at_ms: None,
             created_at_ms: 0,
+            deliver: None,
+            last_delivery_error: None,
         };
         let view = CronJobView::from_record(&r);
         assert_eq!(

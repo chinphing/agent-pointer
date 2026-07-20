@@ -13,6 +13,7 @@ skillsPolicy: disabled
 accessPolicy:
   allowTools:
     - web_search
+    - im_send
   denyTools: []
   allowSkills: []
   denySkills: []

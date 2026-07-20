@@ -946,6 +946,10 @@ pub struct CreateCronJobArgs {
     pub lead_agent_id: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Optional Run → IM delivery spec (e.g. "feishu", "feishu:ou_xxx",
+    /// comma-separated, "all"). Empty / None = no IM push after the run.
+    #[serde(default)]
+    pub deliver: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -955,6 +959,7 @@ fn default_true() -> bool {
 #[tauri::command]
 pub fn create_cron_job(
     state: State<'_, Arc<AppState>>,
+    channel_gateway: State<'_, Arc<pointer_channels::ChannelGateway>>,
     args: CreateCronJobArgs,
 ) -> Result<pointer_core::conversation_store::cron_jobs::CronJobView, String> {
     if pointer_core::conversation_store::cron_jobs::next_run_ms_now(&args.cron_expr)
@@ -962,6 +967,16 @@ pub fn create_cron_job(
     {
         return Err(format!("invalid cron expression: {}", args.cron_expr));
     }
+    let deliver = args
+        .deliver
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|s| pointer_channels::im_delivery::normalize_deliver_spec(s));
+    pointer_channels::im_delivery::validate_deliver_spec(
+        deliver.as_deref(),
+        &channel_gateway.config(),
+    )?;
     let new = pointer_core::conversation_store::cron_jobs::NewCronJob {
         id: &args.id,
         label: &args.label,
@@ -971,6 +986,7 @@ pub fn create_cron_job(
         agent_mode: args.agent_mode.as_deref(),
         lead_agent_id: args.lead_agent_id.as_deref(),
         enabled: args.enabled,
+        deliver: deliver.as_deref(),
     };
     let inserted = state.session_index.cron_jobs_insert(&new).map_err(|e| e.to_string())?;
     if !inserted {
@@ -994,11 +1010,14 @@ pub fn create_cron_job(
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCronJobArgs {
     pub enabled: Option<bool>,
+    /// Optional Run → IM deliver spec. Pass empty string to clear.
+    pub deliver: Option<String>,
 }
 
 #[tauri::command]
 pub fn update_cron_job(
     state: State<'_, Arc<AppState>>,
+    channel_gateway: State<'_, Arc<pointer_channels::ChannelGateway>>,
     job_id: String,
     args: UpdateCronJobArgs,
 ) -> Result<pointer_core::conversation_store::cron_jobs::CronJobView, String> {
@@ -1011,12 +1030,38 @@ pub fn update_cron_job(
             return Err(format!("cron job not found: {job_id}"));
         }
     }
+    if let Some(ref deliver) = args.deliver {
+        let deliver = if deliver.trim().is_empty() {
+            None
+        } else {
+            pointer_channels::im_delivery::normalize_deliver_spec(deliver)
+        };
+        pointer_channels::im_delivery::validate_deliver_spec(
+            deliver.as_deref(),
+            &channel_gateway.config(),
+        )?;
+        let ok = state
+            .session_index
+            .cron_jobs_update_deliver(&job_id, deliver.as_deref())
+            .map_err(|e| e.to_string())?;
+        if !ok {
+            return Err(format!("cron job not found: {job_id}"));
+        }
+    }
     state
         .session_index
         .cron_jobs_get(&job_id)
         .map_err(|e| e.to_string())?
         .map(|r| pointer_core::conversation_store::cron_jobs::CronJobView::from_record(&r))
         .ok_or_else(|| format!("cron job not found: {job_id}"))
+}
+
+#[tauri::command]
+pub fn list_cron_delivery_targets(
+    channel_gateway: State<'_, Arc<pointer_channels::ChannelGateway>>,
+) -> Result<Vec<pointer_channels::im_delivery::DeliveryTargetInfo>, String> {
+    let cfg = channel_gateway.config().clone();
+    Ok(pointer_channels::im_delivery::list_home_delivery_targets(&cfg))
 }
 
 #[tauri::command]

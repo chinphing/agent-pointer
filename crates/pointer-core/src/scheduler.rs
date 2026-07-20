@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 use crate::chat_service::AppState;
 use crate::conversation_store::cron_jobs::CronJobRecord;
 use crate::dispatcher::{
-    DeliverTarget, RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource,
+    RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource,
 };
 use crate::models::{ChatMessage, StreamEvent};
 use crate::stream_broadcast;
@@ -202,6 +202,9 @@ impl Scheduler {
         // while the preceding user prompt never appears in the open view,
         // producing an "extra assistant reply with no matching user message"
         // mismatch. Mirrors how IM channels surface inbound user messages.
+        //
+        // Delivery / [SILENT] guidance lives in the cron system prompt
+        // (`cron_system_prompt`), not in the user message.
         let user_msg = ChatMessage::user_text(job.prompt_text.clone());
         let user_msg_id = user_msg.id.clone();
         let user_msg_content = user_msg.content.clone();
@@ -213,21 +216,26 @@ impl Scheduler {
             attachments: None,
         });
         log::info!(
-            "scheduler: dispatching job id={} session={} history_len={} prompt_len={}",
+            "scheduler: dispatching job id={} session={} history_len={} prompt_len={} deliver={:?}",
             job.id,
             expected_session_id,
             messages.len().saturating_sub(1),
-            job.prompt_text.len()
+            job.prompt_text.len(),
+            job.deliver,
         );
+        // Resolve the deliver target marker. The structured `DeliverTarget::Im`
+        // variant is used only as an in-flight marker (channel = first segment
+        // of the deliver spec); the authoritative spec lives in
+        // `trigger_meta.extra.deliver`, which is persisted to `runs.trigger_meta_json`
+        // and read back by `ImDeliverHook` on run finish (survives restarts).
+        let deliver_marker = crate::dispatcher::resolve_deliver_marker(job.deliver.as_deref());
+        let trigger_meta = build_trigger_meta(&job.id, job.deliver.as_deref());
         let req = TriggerRequest {
             run_id: None,
             idempotency_key: Some(idempotency_key),
             conversation_id: Some(expected_session_id),
             trigger_source: TriggerSource::Cron,
-            trigger_meta: TriggerMeta {
-                internal_label: Some(format!("cron:{}", job.id)),
-                ..TriggerMeta::empty()
-            },
+            trigger_meta,
             lane: None,
             messages,
             enabled_skill_ids: self.state.default_run_enabled_skill_ids(),
@@ -238,7 +246,7 @@ impl Scheduler {
             tool_rounds_used_supervisor_start: 0,
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
-            deliver: DeliverTarget::None,
+            deliver: deliver_marker,
             web_session_auth: self.state.automation_execution_auth(),
         };
         match self.dispatcher.dispatch(req).await {
@@ -251,6 +259,41 @@ impl Scheduler {
             Err(e) => log::error!("scheduler: dispatch failed job id={}: {e:#}", job.id),
         }
     }
+}
+
+/// Cron-only system prompt block (injected by `run_chat_inner` when
+/// `TriggerSource::Cron`). Short hermes-style delivery hint when the job has
+/// an IM `deliver` target; otherwise just identifies the run as scheduled.
+pub fn cron_system_prompt(auto_deliver: bool) -> String {
+    if auto_deliver {
+        format!(
+            "You are running as a scheduled cron job.\n{}",
+            AUTO_DELIVER_HINT
+        )
+    } else {
+        "You are running as a scheduled cron job.".to_string()
+    }
+}
+
+/// System prompt for non-cron runs that requested IM auto-delivery
+/// (HTTP Runs / Webhook).
+pub fn auto_deliver_system_prompt() -> String {
+    AUTO_DELIVER_HINT.to_string()
+}
+
+const AUTO_DELIVER_HINT: &str = "Your final reply is auto-delivered to IM — do not call im_send to duplicate it.\n\
+If there is nothing to report, reply with exactly [SILENT] and nothing else.";
+
+/// Build the `TriggerMeta` for a cron tick. `job_id` is always set so the
+/// delivery hook can correlate the run back to its cron job; `extra.deliver`
+/// carries the authoritative delivery spec (persisted to `runs.trigger_meta_json`).
+fn build_trigger_meta(job_id: &str, deliver: Option<&str>) -> TriggerMeta {
+    let mut meta = TriggerMeta {
+        job_id: Some(job_id.to_string()),
+        ..TriggerMeta::empty()
+    };
+    let _ = crate::dispatcher::apply_deliver_string(&mut meta, deliver);
+    meta
 }
 
 #[cfg(test)]
@@ -268,6 +311,23 @@ mod tests {
     #[test]
     fn next_run_ms_rejects_invalid_expr() {
         assert!(next_run_ms("not a cron expr", Utc::now()).is_none());
+    }
+
+    #[test]
+    fn cron_system_prompt_short_without_deliver() {
+        let p = cron_system_prompt(false);
+        assert_eq!(p, "You are running as a scheduled cron job.");
+        assert!(!p.contains("im_send"));
+        assert!(!p.contains("[SILENT]"));
+    }
+
+    #[test]
+    fn cron_system_prompt_includes_delivery_when_auto_deliver() {
+        let p = cron_system_prompt(true);
+        assert!(p.contains("scheduled cron job"));
+        assert!(p.contains("im_send"));
+        assert!(p.contains("[SILENT]"));
+        assert!(!p.contains("[IMPORTANT:"));
     }
 
     // Re-export the free function for the test helpers above.

@@ -24,7 +24,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta, ConversationSea
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 16;
+const SCHEMA_VERSION: i32 = 18;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -637,6 +637,20 @@ impl ConversationStore {
         cron_jobs::delete(&conn, id)
     }
 
+    pub fn cron_jobs_update_deliver(&self, id: &str, deliver: Option<&str>) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        cron_jobs::update_deliver(&conn, id, deliver)
+    }
+
+    pub fn cron_jobs_set_last_delivery_error(
+        &self,
+        id: &str,
+        err: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.db.conn.lock();
+        cron_jobs::set_last_delivery_error(&conn, id, err)
+    }
+
     // ---- app_secrets (encrypted app-level secrets, e.g. webhook token) ----
 
     pub fn app_secret_get(&self, label: &str) -> Result<Option<Vec<u8>>> {
@@ -807,6 +821,14 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     // rollover). Existing rows backfill to NULL — the scheduler lazily sets it
     // on the next fire.
     add_column_if_missing(conn, "cron_jobs", "current_session_id", "TEXT")?;
+    // v17: cron jobs carry an optional `deliver` string (Run → IM 出站总线).
+    // Empty/NULL means no IM push after the run; otherwise the ImDeliverHook
+    // parses it (e.g. "feishu", "feishu:ou_xxx", "feishu:group:chatid",
+    // comma-separated, "all") and routes the final reply to IM. Backfills to
+    // NULL for existing rows (no behavior change).
+    add_column_if_missing(conn, "cron_jobs", "deliver", "TEXT")?;
+    // v18: track last IM delivery failure for cron jobs (cleared on success).
+    add_column_if_missing(conn, "cron_jobs", "last_delivery_error", "TEXT")?;
     webhook_sources::ensure_schema(conn)?;
     add_column_if_missing(conn, "webhook_sources", "auth_header_name", "TEXT")?;
     add_column_if_missing(

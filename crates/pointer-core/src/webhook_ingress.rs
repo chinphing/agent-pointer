@@ -83,6 +83,10 @@ pub struct WebhookIngressBody {
     #[serde(default)]
     pub blocking: bool,
     pub timeout_seconds: Option<u64>,
+    /// Optional hermes-style IM deliver spec (`feishu`, `feishu:ou_xxx`, …).
+    /// Applied into `trigger_meta.extra.deliver` before dispatch.
+    #[serde(default)]
+    pub deliver: Option<String>,
 }
 
 /// Parsed webhook request ready for dispatch.

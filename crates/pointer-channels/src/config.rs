@@ -124,6 +124,25 @@ pub struct ChannelAccountConfig {
     /// Legacy per-account field; migrated to `meta.sessionReset` on load.
     #[serde(default, rename = "sessionReset", skip_serializing)]
     session_reset_legacy: SessionResetConfig,
+    /// Optional "home channel" recipient for Run → IM delivery (cron / HTTP runs
+    /// / webhook). When a deliver spec uses just the channel name (e.g.
+    /// `"feishu"`) or `"all"`, the delivery hook routes the final reply to this
+    /// recipient. Empty = no home channel for this account (callers must use
+    /// an explicit `"<channel>:<recipient>"` spec).
+    ///
+    /// Product: one binding per channel account. DMs auto-update this to the
+    /// last private-chat peer (see `ChannelGateway::set_home_binding_from_dm`).
+    #[serde(default, rename = "homeRecipientId")]
+    pub home_recipient_id: String,
+    /// Whether `home_recipient_id` refers to a group chat (true) or a DM (false).
+    /// Drives `conversation_key` construction (`<channel>:group:<id>` vs
+    /// `<channel>:dm:<id>`) in the delivery resolver.
+    #[serde(default, rename = "homeIsGroup")]
+    pub home_is_group: bool,
+    /// Cached display name for the bound peer (e.g. DingTalk `senderNick`).
+    /// Empty when unknown; used only for UI labels.
+    #[serde(default, rename = "homeDisplayName")]
+    pub home_display_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

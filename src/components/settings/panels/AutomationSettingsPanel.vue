@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Clock, Plus, Trash2, Webhook, ShieldCheck, AlertTriangle, AlertCircle, RefreshCw, MessagesSquare, CircleHelp, X, Copy, Check } from 'lucide-vue-next'
+import { Clock, Plus, Trash2, Webhook, ShieldCheck, AlertTriangle, AlertCircle, RefreshCw, MessagesSquare, CircleHelp, X, Copy, Check, Pencil } from 'lucide-vue-next'
 import { useChatStore } from '../../../stores/chat'
 import {
   listCronJobs,
+  listCronDeliveryTargets,
   createCronJob,
   updateCronJob,
   deleteCronJob,
@@ -23,7 +24,14 @@ import { resolveWebhookViewSessionId } from '../../../lib/webhookIngress'
 import { WEBHOOK_URL_TEMPLATE, generateWebhookToken, webhookIngressCurl, webhookIngressUrl } from '../../../lib/webhookIngress'
 import { DEFAULT_LEAD_AGENT_ID } from '../../../types/chat'
 import type { AgentDef } from '../../../types/chat'
-import type { CronJob, CreateCronJobInput, WebhookConfig, WebhookSource, WebhookSessionMode } from '../../../types/automation'
+import type {
+  CronJob,
+  CreateCronJobInput,
+  CronDeliveryTarget,
+  WebhookConfig,
+  WebhookSource,
+  WebhookSessionMode
+} from '../../../types/automation'
 import CronSchedulePicker from './CronSchedulePicker.vue'
 
 const emit = defineEmits<{ (e: 'view-session'): void }>()
@@ -33,6 +41,7 @@ const chat = useChatStore()
 const jobs = ref<CronJob[]>([])
 const loadingJobs = ref(false)
 const jobsError = ref<string | null>(null)
+const deliveryTargets = ref<CronDeliveryTarget[]>([])
 
 const webhook = ref<WebhookConfig | null>(null)
 const loadingWebhook = ref(false)
@@ -73,10 +82,18 @@ const form = ref({
   cronExpr: '0 * * * * *',
   promptText: '',
   agentId: DEFAULT_LEAD_AGENT_ID,
-  enabled: true
+  enabled: true,
+  pushIm: false,
+  deliverChannels: [] as string[]
 })
 const creating = ref(false)
 const formError = ref<string | null>(null)
+
+/** Inline edit of deliver for an existing job. */
+const editingDeliverJobId = ref<string | null>(null)
+const editPushIm = ref(false)
+const editDeliverChannels = ref<string[]>([])
+const savingDeliver = ref(false)
 
 const isDesktop = isTauriRuntime()
 
@@ -84,6 +101,8 @@ const CRON_SECTION_DESC =
   '按 Cron 表达式定时触发，每个任务独占一个隔离会话，跨次续接上下文。触发后可点「查看会话」在主界面阅读 transcript。'
 const WEBHOOK_SECTION_DESC =
   '每个来源独立 Token，须与 URL 路径中的来源标识匹配。POST 请求体支持 text 或 messages。触发后可点「查看会话」阅读 transcript。'
+const DELIVER_HINT =
+  '开启后，run 结束会把最终回复推到所选通道。每个通道对应最近一次私聊 Pointer 的人；未绑定的通道需先在该通道私聊。回复 [SILENT] 可跳过当次推送。'
 const WEBHOOK_REF_BLOCKING =
   'body 传 "blocking": true 时保持连接至 run 结束，返回 { ok, runId, text }；可选 "timeoutSeconds"（默认 120，最大 600）。未传时为 202 异步 ack，可用 GET /api/webhooks/:src/runs/:runId 轮询结果。'
 const SESSION_MODE_HINT =
@@ -103,6 +122,74 @@ function genId(): string {
   return 'cron-' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4)
 }
 
+const CHANNEL_LABEL: Record<string, string> = {
+  feishu: '飞书',
+  dingtalk: '钉钉',
+  wecom: '企业微信',
+  weixin: '微信'
+}
+
+function channelLabel(channel: string): string {
+  return CHANNEL_LABEL[channel] || channel
+}
+
+/** Bound channels first; used by create/edit multi-select. */
+const boundDeliveryTargets = computed(() =>
+  deliveryTargets.value.filter(t => t.bound)
+)
+
+function defaultDeliverChannels(): string[] {
+  const bound = boundDeliveryTargets.value.map(t => t.channel)
+  if (bound.length === 1) return [...bound]
+  return []
+}
+
+function deliverToChannels(deliver: string | null | undefined): string[] {
+  const d = (deliver ?? '').trim()
+  if (!d) return []
+  if (d === 'all') {
+    return boundDeliveryTargets.value.map(t => t.channel)
+  }
+  return d
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(ch => ['feishu', 'dingtalk', 'wecom', 'weixin'].includes(ch))
+}
+
+function channelsToDeliver(pushIm: boolean, channels: string[]): string | null {
+  if (!pushIm) return null
+  const unique = [...new Set(channels.map(c => c.trim().toLowerCase()).filter(Boolean))]
+  if (unique.length === 0) return null
+  const boundSet = new Set(boundDeliveryTargets.value.map(t => t.channel))
+  if (unique.length === boundSet.size && unique.every(c => boundSet.has(c)) && boundSet.size > 1) {
+    return 'all'
+  }
+  return unique.join(',')
+}
+
+function formatDeliverLabel(deliver: string | null | undefined): string {
+  const channels = deliverToChannels(deliver)
+  if (!channels.length) {
+    const d = (deliver ?? '').trim()
+    return d || ''
+  }
+  return channels.map(channelLabel).join('、')
+}
+
+function toggleFormChannel(channel: string, checked: boolean) {
+  const set = new Set(form.value.deliverChannels)
+  if (checked) set.add(channel)
+  else set.delete(channel)
+  form.value.deliverChannels = [...set]
+}
+
+function toggleEditChannel(channel: string, checked: boolean) {
+  const set = new Set(editDeliverChannels.value)
+  if (checked) set.add(channel)
+  else set.delete(channel)
+  editDeliverChannels.value = [...set]
+}
+
 async function refreshJobs() {
   loadingJobs.value = true
   jobsError.value = null
@@ -112,6 +199,15 @@ async function refreshJobs() {
     jobsError.value = (e as Error).message
   } finally {
     loadingJobs.value = false
+  }
+}
+
+async function refreshDeliveryTargets() {
+  try {
+    deliveryTargets.value = await listCronDeliveryTargets()
+  } catch (e) {
+    console.warn('[automation] listCronDeliveryTargets failed', e)
+    deliveryTargets.value = []
   }
 }
 
@@ -142,16 +238,23 @@ function openCreateForm() {
     cronExpr: '0 * * * * *',
     promptText: '',
     agentId: DEFAULT_LEAD_AGENT_ID,
-    enabled: true
+    enabled: true,
+    pushIm: false,
+    deliverChannels: []
   }
   formError.value = null
   showForm.value = true
+  editingDeliverJobId.value = null
 }
 
 async function submitCreate() {
   if (!form.value.label.trim()) { formError.value = '请填写名称'; return }
   if (!form.value.cronExpr.trim()) { formError.value = '请填写 Cron 表达式'; return }
   if (!form.value.promptText.trim()) { formError.value = '请填写触发提示词'; return }
+  if (form.value.pushIm && form.value.deliverChannels.length === 0) {
+    formError.value = '请选择至少一个推送通道'
+    return
+  }
   creating.value = true
   formError.value = null
   try {
@@ -163,7 +266,8 @@ async function submitCreate() {
       // Single agent mode; the picked agent is the lead worker (default 通用助手).
       agentMode: 'single',
       leadAgentId: form.value.agentId || DEFAULT_LEAD_AGENT_ID,
-      enabled: form.value.enabled
+      enabled: form.value.enabled,
+      deliver: channelsToDeliver(form.value.pushIm, form.value.deliverChannels)
     }
     await createCronJob(input)
     showForm.value = false
@@ -182,6 +286,41 @@ async function toggleEnabled(job: CronJob, enabled: boolean) {
   } catch (e) {
     jobsError.value = (e as Error).message
     await refreshJobs()
+  }
+}
+
+function openEditDeliver(job: CronJob) {
+  showForm.value = false
+  const channels = deliverToChannels(job.deliver)
+  editingDeliverJobId.value = job.id
+  editPushIm.value = channels.length > 0 || !!(job.deliver && job.deliver.trim())
+  editDeliverChannels.value = channels.length
+    ? channels
+    : defaultDeliverChannels()
+}
+
+function cancelEditDeliver() {
+  editingDeliverJobId.value = null
+  editPushIm.value = false
+  editDeliverChannels.value = []
+}
+
+async function saveEditDeliver(job: CronJob) {
+  if (editPushIm.value && editDeliverChannels.value.length === 0) {
+    jobsError.value = '请选择至少一个推送通道'
+    return
+  }
+  savingDeliver.value = true
+  jobsError.value = null
+  try {
+    const deliver = channelsToDeliver(editPushIm.value, editDeliverChannels.value)
+    await updateCronJob(job.id, { deliver: deliver ?? '' })
+    cancelEditDeliver()
+    await refreshJobs()
+  } catch (e) {
+    jobsError.value = (e as Error).message
+  } finally {
+    savingDeliver.value = false
   }
 }
 
@@ -212,7 +351,10 @@ function cronAgentLabel(job: CronJob): string {
 }
 
 function cronJobTitle(job: CronJob): string {
-  return `${job.label} · ${cronAgentLabel(job)} · ${describeCron(job.cronExpr)} · ${job.cronExpr} · 下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}`
+  const deliver = formatDeliverLabel(job.deliver)
+  const deliverPart = deliver ? ` · 投递：${deliver}` : ''
+  const err = job.lastDeliveryError ? ` · 投递失败：${job.lastDeliveryError}` : ''
+  return `${job.label} · ${cronAgentLabel(job)} · ${describeCron(job.cronExpr)} · ${job.cronExpr} · 下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}${deliverPart}${err}`
 }
 
 // Open the cron job's active isolated session in the main panel.
@@ -393,6 +535,7 @@ async function clearLegacyToken() {
 
 onMounted(() => {
   refreshJobs()
+  refreshDeliveryTargets()
   loadAgentsList()
   // Webhook 仅 web/server 端可用；桌面端无 HTTP 入口，跳过状态加载。
   if (!isDesktop) refreshWebhook()
@@ -453,65 +596,138 @@ onMounted(() => {
         <div
           v-for="job in jobs"
           :key="job.id"
-          class="flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2 min-w-0"
+          class="rounded-lg border border-border bg-card/40 px-3 py-2 min-w-0 space-y-1.5"
         >
-          <button
-            class="relative h-5 w-9 rounded-full transition-colors shrink-0 cursor-pointer"
-            :class="job.enabled ? 'bg-accent' : 'bg-hover'"
-            :title="job.enabled ? '已启用（点击停用）' : '已停用（点击启用）'"
-            @click="toggleEnabled(job, !job.enabled)"
-          >
-            <span
-              class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
-              :class="job.enabled ? 'left-[18px]' : 'left-0.5'"
-            />
-          </button>
-          <div
-            class="min-w-0 flex-1 flex items-center gap-1.5 text-[12px] truncate"
-            :title="cronJobTitle(job)"
-          >
-            <span class="font-medium text-foreground truncate">{{ job.label }}</span>
-            <span class="text-muted/50 shrink-0">·</span>
-            <span class="text-muted truncate">{{ cronAgentLabel(job) }}</span>
-            <span class="text-muted/50 shrink-0">·</span>
-            <span class="text-muted truncate">{{ describeCron(job.cronExpr) }}</span>
+          <div class="flex items-center gap-2 min-w-0">
+            <button
+              class="relative h-5 w-9 rounded-full transition-colors shrink-0 cursor-pointer"
+              :class="job.enabled ? 'bg-accent' : 'bg-hover'"
+              :title="job.enabled ? '已启用（点击停用）' : '已停用（点击启用）'"
+              @click="toggleEnabled(job, !job.enabled)"
+            >
+              <span
+                class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
+                :class="job.enabled ? 'left-[18px]' : 'left-0.5'"
+              />
+            </button>
+            <div
+              class="min-w-0 flex-1 flex items-center gap-1.5 text-[12px] truncate"
+              :title="cronJobTitle(job)"
+            >
+              <span class="font-medium text-foreground truncate">{{ job.label }}</span>
+              <span class="text-muted/50 shrink-0">·</span>
+              <span class="text-muted truncate">{{ cronAgentLabel(job) }}</span>
+              <span class="text-muted/50 shrink-0">·</span>
+              <span class="text-muted truncate">{{ describeCron(job.cronExpr) }}</span>
+              <template v-if="formatDeliverLabel(job.deliver)">
+                <span class="text-muted/50 shrink-0">·</span>
+                <span class="text-accent/80 truncate text-[11px]" :title="`投递：${formatDeliverLabel(job.deliver)}`">{{ formatDeliverLabel(job.deliver) }}</span>
+              </template>
+            </div>
+            <div
+              class="text-[11px] text-muted shrink-0 whitespace-nowrap"
+              :title="`下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}`"
+            >
+              下次 {{ fmtMs(job.nextRunAtMs) }}
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button
+                class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center text-muted cursor-pointer shrink-0"
+                :title="job.deliver ? '修改投递目标' : '设置投递目标'"
+                @click="openEditDeliver(job)"
+              >
+                <Pencil class="w-3.5 h-3.5" />
+              </button>
+              <button
+                class="h-7 w-7 rounded-md inline-flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                :class="cronViewSessionId(job)
+                  ? 'border border-accent/40 bg-accent/10 text-accent hover:bg-accent/15 cursor-pointer'
+                  : 'border border-border text-muted cursor-not-allowed'"
+                :title="cronViewSessionId(job) ? '查看会话' : '任务尚未触发，暂无会话可查看'"
+                :disabled="!cronViewSessionId(job)"
+                @click="viewSession(job)"
+              >
+                <MessagesSquare class="w-3.5 h-3.5" />
+              </button>
+              <button
+                class="h-7 w-7 rounded-md border inline-flex items-center justify-center shrink-0 cursor-pointer"
+                :class="pendingDeleteJobId === job.id
+                  ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
+                  : 'border-border hover:bg-hover text-muted'"
+                :title="pendingDeleteJobId === job.id ? '确认删除' : '删除'"
+                @click="removeJob(job)"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+              <button
+                v-if="pendingDeleteJobId === job.id"
+                class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center text-muted cursor-pointer shrink-0"
+                title="取消"
+                @click="cancelDeleteJob"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-          <div
-            class="text-[11px] text-muted shrink-0 whitespace-nowrap"
-            :title="`下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}`"
+          <p
+            v-if="job.lastDeliveryError"
+            class="text-[11px] text-amber-600 dark:text-amber-400 truncate pl-11"
+            :title="job.lastDeliveryError"
           >
-            下次 {{ fmtMs(job.nextRunAtMs) }}
-          </div>
-          <div class="flex items-center gap-1 shrink-0">
-            <button
-              class="h-7 w-7 rounded-md inline-flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              :class="cronViewSessionId(job)
-                ? 'border border-accent/40 bg-accent/10 text-accent hover:bg-accent/15 cursor-pointer'
-                : 'border border-border text-muted cursor-not-allowed'"
-              :title="cronViewSessionId(job) ? '查看会话' : '任务尚未触发，暂无会话可查看'"
-              :disabled="!cronViewSessionId(job)"
-              @click="viewSession(job)"
-            >
-              <MessagesSquare class="w-3.5 h-3.5" />
-            </button>
-            <button
-              class="h-7 w-7 rounded-md border inline-flex items-center justify-center shrink-0 cursor-pointer"
-              :class="pendingDeleteJobId === job.id
-                ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
-                : 'border-border hover:bg-hover text-muted'"
-              :title="pendingDeleteJobId === job.id ? '确认删除' : '删除'"
-              @click="removeJob(job)"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-            </button>
-            <button
-              v-if="pendingDeleteJobId === job.id"
-              class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center text-muted cursor-pointer shrink-0"
-              title="取消"
-              @click="cancelDeleteJob"
-            >
-              <X class="w-3.5 h-3.5" />
-            </button>
+            投递失败：{{ job.lastDeliveryError }}
+          </p>
+          <div
+            v-if="editingDeliverJobId === job.id"
+            class="pl-11 pr-1 pb-1 space-y-2"
+          >
+            <label class="flex items-center gap-2 text-[12px] text-foreground cursor-pointer">
+              <input v-model="editPushIm" type="checkbox" class="rounded border-border" />
+              推送到 IM
+              <span
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help"
+                :title="DELIVER_HINT"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </span>
+            </label>
+            <div v-if="editPushIm" class="space-y-1.5">
+              <label
+                v-for="t in deliveryTargets"
+                :key="t.channel"
+                class="flex items-center gap-2 text-[12px]"
+                :class="t.bound ? 'text-foreground cursor-pointer' : 'text-muted cursor-not-allowed'"
+              >
+                <input
+                  type="checkbox"
+                  class="rounded border-border"
+                  :disabled="!t.bound"
+                  :checked="editDeliverChannels.includes(t.channel)"
+                  @change="toggleEditChannel(t.channel, ($event.target as HTMLInputElement).checked)"
+                />
+                <span>{{ t.label }}</span>
+              </label>
+              <p v-if="deliveryTargets.length === 0" class="text-[11px] text-muted">
+                暂无已启用的 IM 通道。
+              </p>
+              <p v-else-if="boundDeliveryTargets.length === 0" class="text-[11px] text-muted">
+                请先在对应通道私聊 Pointer，完成绑定后再选。
+              </p>
+            </div>
+            <div class="flex items-center justify-end gap-2">
+              <button
+                class="h-7 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
+                @click="cancelEditDeliver"
+              >
+                取消
+              </button>
+              <button
+                class="h-7 px-3 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
+                :disabled="savingDeliver"
+                @click="saveEditDeliver(job)"
+              >
+                {{ savingDeliver ? '保存中…' : '保存' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -535,6 +751,41 @@ onMounted(() => {
           <textarea v-model="form.promptText" rows="3" class="input-base mt-1 resize-y" placeholder="每次触发时发送给智能体的提示词" />
         </label>
         <CronSchedulePicker v-model="form.cronExpr" />
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 text-[12px] text-foreground cursor-pointer">
+            <input v-model="form.pushIm" type="checkbox" class="rounded border-border" />
+            推送到 IM
+            <span
+              class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help"
+              :title="DELIVER_HINT"
+            >
+              <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+            </span>
+          </label>
+          <div v-if="form.pushIm" class="space-y-1.5 pl-0.5">
+            <label
+              v-for="t in deliveryTargets"
+              :key="t.channel"
+              class="flex items-center gap-2 text-[12px]"
+              :class="t.bound ? 'text-foreground cursor-pointer' : 'text-muted cursor-not-allowed'"
+            >
+              <input
+                type="checkbox"
+                class="rounded border-border"
+                :disabled="!t.bound"
+                :checked="form.deliverChannels.includes(t.channel)"
+                @change="toggleFormChannel(t.channel, ($event.target as HTMLInputElement).checked)"
+              />
+              <span>{{ t.label }}</span>
+            </label>
+            <p v-if="deliveryTargets.length === 0" class="text-[11px] text-muted">
+              暂无已启用的 IM 通道。
+            </p>
+            <p v-else-if="boundDeliveryTargets.length === 0" class="text-[11px] text-muted">
+              请先在对应通道私聊 Pointer，完成绑定后再选。
+            </p>
+          </div>
+        </div>
         <p v-if="formError" class="text-xs text-red-500">{{ formError }}</p>
         <div class="flex items-center justify-end gap-2">
           <button class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer" @click="showForm = false">取消</button>

@@ -73,7 +73,7 @@ Pointer 聊天 UI 对齐该语义（前端 FIFO，后端 `session:*` lane 仍串
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/api/runs` | body = `TriggerRequest`（`trigger_source` 强制为 `HttpRuns`）→ 202 + `RunHandle` |
+| `POST` | `/api/runs` | body ≈ `TriggerRequest`（`trigger_source` 强制为 `HttpRuns`）；可选字符串 `deliver` → 202 + `RunHandle` |
 | `GET` | `/api/runs/:id` | run 状态快照（`RunView`），404 if 未知 |
 | `GET` | `/api/runs/:id/events` | SSE，按 `run_id` 过滤的 `AgentEvent` 流；终态前已结束则用 `runs` 表合成终态帧后关闭 |
 | `POST` | `/api/runs/:id/cancel` | 取消排队 / 运行中的 run，204 |
@@ -124,3 +124,18 @@ openclaw 的 cron 会话用 `daily` 重置模式、`atHour = 4`（本地凌晨 4
 - **IM 入站**仍直连 `run_chat`（`pointer-channels/src/dispatch.rs`），未走 dispatcher。IM 已是事件驱动路径，且其 reply 收集依赖直接消费 `StreamEvent` 流；改走 dispatcher 需重写为消费 `AgentEvent`，收益低、回归风险高，暂缓。`enabledSkillIds` 取 `user_settings.json` 全局启用列表。
 - **内部后台任务**（curator LLM pass、memory review）是定制 LLM 调用，不走 `run_chat`，与 dispatcher 的会话回合契约不匹配，故未迁移；`dispatch_internal` 供未来「会话回合型」内部触发使用。
 - `pre/post_tool_call` 发射点未接入。
+
+## Run → IM 出站总线（Phase 1–2 已实现）
+
+`DeliverTarget::Im` 已从"未实现"转为可用。投递总线把 run 的最终回复推送到 IM 通道，覆盖静态与动态两条路径：
+
+- **静态路径**：触发源在 `TriggerRequest.trigger_meta.extra` 里塞 `{"deliver": "<spec>"}`（持久化到 `runs.trigger_meta_json`，跨重启可读）。接入点：
+  - **Cron**：`cron_jobs.deliver` → `scheduler.rs dispatch_job` 注入；失败写回 `cron_jobs.last_delivery_error`。
+  - **HTTP Runs API** / **Webhook ingress**：请求体可选字符串字段 `deliver`，经 `apply_deliver_string` 写入 `trigger_meta.extra.deliver`。
+  - `run_chat_inner`：Cron 用 `cron_system_prompt`；其它带 auto-deliver 的触发源用 `auto_deliver_system_prompt`。
+- **动态路径**：`im_send` 工具（住 `pointer-channels/src/im_send.rs`）让 agent 在 run 中主动推送任意消息到指定 IM 目标。由 `install_channel_outbound_bridge` 注册到 `ToolRegistry`。
+- **消费侧**：`ImDeliverHook`（住 `pointer-channels/src/im_deliver_hook.rs`，`impl OnRunFinishedHook`）在 `on_run_finished` 读取 `trigger_meta.extra.deliver`，加载最后一条 assistant 回复，经 `split_reply_media` 拆媒体、Hermes 风格 `is_silence_narration` 跳过静默叙述 / `[SILENT]`、`truncate_for_platform` 截断到 4000 字，再调 `im_delivery::resolve_delivery_targets` 解析 deliver 字符串为 `Vec<OutboundContext>`，逐目标调 `ChannelGateway::send_outbound_explicit`（每目标独立 try，best-effort，不影响 run 状态）。Cron 任务另写 `last_delivery_error`。
+- **查询目标**：`GET /api/cron-jobs/delivery-targets`（Tauri：`list_cron_delivery_targets`）列出已配置 home channel；`PATCH /api/cron-jobs/:id` 可更新 `deliver`。
+- **装配**：宿主（server / Tauri）先建 `ChannelGateway`，再调 `AppState::build_dispatcher_with_extra_finished_hooks(vec![Arc::new(ImDeliverHook::new(gateway))])` 把 hook 注入 dispatcher。`ChannelAccountConfig` 新增 `homeRecipientId` / `homeIsGroup` 字段（手编 `channels_config.json` 配置 home channel；UI 配置为 Phase 3）。
+
+deliver 字符串格式、各通道主动推送兼容性、`im_send` 工具用法详见 `docs/developer/channel-integration.md` 的「Run → IM 出站总线」小节。

@@ -28,6 +28,7 @@ accessPolicy:
     - terminal
     - task_board
     - captcha_verify
+    - im_send
   denyTools: []
   allowSkills:
     - xlsx

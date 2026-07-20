@@ -122,6 +122,7 @@ export interface RuntimeApi {
 
   // ---- Phase 5/6: automation (cron jobs + webhook token) ----
   listCronJobs(): Promise<import('../types/automation').CronJob[]>
+  listCronDeliveryTargets(): Promise<import('../types/automation').CronDeliveryTarget[]>
   createCronJob(input: import('../types/automation').CreateCronJobInput): Promise<import('../types/automation').CronJob>
   updateCronJob(jobId: string, input: import('../types/automation').UpdateCronJobInput): Promise<import('../types/automation').CronJob>
   deleteCronJob(jobId: string): Promise<boolean>
@@ -291,6 +292,7 @@ export const loadPlatformSessionFromKeyring = isTauriRuntime()
 
 // ---- Phase 5/6: automation (cron jobs + webhook token) ----
 export const listCronJobs = api.listCronJobs
+export const listCronDeliveryTargets = api.listCronDeliveryTargets
 export const createCronJob = api.createCronJob
 export const updateCronJob = api.updateCronJob
 export const deleteCronJob = api.deleteCronJob

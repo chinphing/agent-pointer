@@ -21,6 +21,10 @@ pub struct ChatRunRequest {
     pub run_id: String,
     /// Set for dispatcher-driven runs (webhook/cron); `None` for interactive chat.
     pub trigger_source: Option<TriggerSource>,
+    /// Cron (or future trigger) requested IM auto-delivery of the final reply.
+    /// When true with `TriggerSource::Cron`, the cron system prompt includes
+    /// the no-`im_send` / `[SILENT]` guidance.
+    pub im_auto_deliver: bool,
 }
 
 /// Mutable session state for one `run_chat_inner` invocation.

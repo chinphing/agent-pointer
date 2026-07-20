@@ -274,3 +274,82 @@ IM 通道的模型上下文与 App 内桌面会话可通过聊天指令或空闲
 - 会话历史与 IM 元数据：`{data_dir}/PointerApp/conversations.db`（与桌面会话共用）
 - IM 线程状态（`sessionEpoch`、`activeConversationId`、idle 用的 `updatedAt`）保存在 base 会话行的 `conversations` 表字段中
 - 旧版 `channel_histories/` 首次启动时会改名为 `channel_histories.deprecated/`（仅尝试导入其中的 `activeConversationId` 元数据）
+
+## Run → IM 出站总线
+
+把任意 run 的最终回复（或运行中主动构造的消息）推送到 IM 通道。覆盖**静态**（触发时配置投递目标）与**动态**（agent 运行中决定推送）两条路径。框架住 `pointer-channels`，触发源侧的注入住 `pointer-core`。
+
+### deliver 字符串格式
+
+投递目标用一个字符串描述，存放在 `trigger_meta.extra.deliver`（持久化到 `runs.trigger_meta_json`）。格式：
+
+| 写法 | 含义 |
+|------|------|
+| `feishu` | 飞书账号的 home channel（需在 `channels_config.json` 配 `homeRecipientId`） |
+| `feishu:ou_xxx` | 飞书 DM（按 open_id） |
+| `feishu:group:oc_xxx` | 飞书群（按 chat_id，`oc_` 前缀自动识别） |
+| `dingtalk:userId` | 钉钉 DM（走 `oToMessages/batchSend`） |
+| `dingtalk:group:openConversationId` | 钉钉群（走 `groupMessages/send`，openConversationId 会镜像到 `reply_context.chat_id`） |
+| `wecom:userid` | 企微 DM（Agent HTTP `message/send`） |
+| `wecom:group:chat_id` | 企微群（WSS `send_markdown(chat_id)`） |
+| `weixin:wxid` | 微信 iLink DM（需该用户曾向 bot 发过消息，`context_token` 缓存命中才可推送） |
+| `a,b,c` | 逗号分隔多目标 |
+| `all` | 所有已配置 home channel 的通道 |
+
+解析在 `pointer-channels/src/im_delivery.rs::resolve_delivery_targets`，各通道差异在解析层吸收，hook 与 `im_send` 工具只调 `ChannelGateway::send_outbound_explicit`。
+
+### 静态路径（Cron）
+
+1. `cron_jobs.deliver` 列存 deliver 字符串（`cron_job` 工具 / 设置页 Automation 面板创建时填写）。
+2. `scheduler.rs dispatch_job` 把 `job.deliver` 注入 `TriggerRequest.trigger_meta.extra.deliver`，置 `DeliverTarget::Im` 标记位；`run_chat_inner` 注入 cron 专用 system 提示（含「勿用 im_send」与 `[SILENT]`）。
+3. run 结束 → `ImDeliverHook`（`OnRunFinishedHook`）读取 `trigger_meta.extra.deliver`，加载最后一条 assistant 回复，拆媒体 / 跳过静默叙述 / 截断到 4000 字，逐目标推送；失败写回 `cron_jobs.last_delivery_error`。
+
+> `[SILENT]` / 静默叙述：回复为 `[SILENT]`（大小写不敏感）或匹配宽口径静默正则时跳过当次推送，用于「本次无新内容可报」。
+
+### 动态路径（im_send 工具）
+
+`im_send` 工具让 agent 在 run 中主动推送任意消息到指定 IM 目标。参数：`to`（deliver 字符串，同上表）、`text`（消息正文，支持 markdown）。返回 `{ ok, delivered, total, errors }`。
+
+- 已加入 `general` / `coder` / `computer` / `research` agent 的 `allowTools`。
+- 由 `install_channel_outbound_bridge` 注册到 `ToolRegistry`。
+- cron job 已配 `deliver` 时，平台会自动推送最终回复，agent 不应再调 `im_send` 重复推送（cron system 提示已说明）。
+
+### HTTP / Webhook 注入（Phase 2）
+
+- `POST /api/runs`：JSON body 可带字符串字段 `deliver`（与结构化 `DeliverTarget` 枚举并存时，字符串优先写入 `trigger_meta.extra`）。
+- `POST /api/webhooks/:src`：同样支持可选 `deliver`。
+- Cron：`cron_jobs.last_delivery_error` 记录最近一次 IM 投递失败，成功时清空；设置页列表展示。
+- `GET /api/cron-jobs/delivery-targets`（Tauri：`list_cron_delivery_targets`）：返回已配置 home channel，供 Automation 下拉；`PATCH /api/cron-jobs/:id` 可更新 `deliver`（空字符串清空）。
+
+### home channel 配置（Phase 3a：私聊自动绑定）
+
+`ChannelAccountConfig` 使用 `homeRecipientId` / `homeIsGroup` / `homeDisplayName`。
+
+- **自动**：用户在某通道**私聊** Pointer 时，将该账号绑定更新为当前对方（最后一次私聊获胜）；群消息不改绑定。
+- **定时任务**：`deliver` 主路径只写通道名（`feishu` / `dingtalk` / … / `all`）；设置页为「推送到 IM」+ 通道多选。
+- 未绑定却指定该通道时，创建/更新任务会失败并提示先私聊。
+
+仍可手编 `channels_config.json`；显式 `feishu:ou_xxx` 仍兼容解析，但不作为小白主路径。
+
+### 通道主动推送兼容性
+
+4 个通道都支持主动推送，无需额外平台改造：
+
+| 通道 | 主动推送 | 备注 |
+|------|---------|------|
+| 飞书 | 可用 | `receive_target` 按 `oc_` 前缀自动区分 chat_id / open_id |
+| 钉钉 | 可用 | 群推送需 `openConversationId`，解析层镜像到 `reply_context.chat_id` |
+| 企微 | 可用 | WSS 连接时走 `send_markdown`；否则走 Agent HTTP `message/send` |
+| 微信 iLink | 条件可用 | 需用户曾向 bot 发过消息（`context_token` 缓存命中）；否则 hook 返回清晰错误日志 |
+
+### 装配（宿主）
+
+server / Tauri 启动时：先建 `ChannelGateway` → 调 `install_channel_outbound_bridge(gateway, tools)`（注册 `im_send` 工具）→ 调 `AppState::build_dispatcher_with_extra_finished_hooks(vec![Arc::new(ImDeliverHook::new(gateway))])`（注册投递 hook）。Tauri 端已把 gateway 构建重排到 dispatcher 之前。
+
+### Phase 边界
+
+- **Phase 1（已实现）**：Cron 静态投递 + `im_send` 动态投递 + 4 通道 DM/群解析 + home channel（手编配置）+ `[SILENT]` 跳过 + 4000 字截断。
+- **Phase 2（已实现）**：HTTP Runs API / Webhook ingress 注入 `deliver`；`last_delivery_error` 跟踪；`GET /api/cron-jobs/delivery-targets` + 前端下拉 / 编辑投递；宽口径静默过滤正则。
+- **Phase 3a（已实现）**：每通道一条投递绑定；私聊自动绑「最后一人」；定时任务 / `cron_job` 以通道名指定推送；设置页「推送到 IM」+ 通道多选；未绑定则创建失败并提示先私聊。
+- **Phase 3b（计划）**：通道设置页绑定状态展示；显示名缓存增强（飞书等 API）。
+- **Phase 3c（计划）**：显式绑群、进阶自定义 deliver、会话 UI 设绑定；`DeliverTarget::Webhook`；`"origin"` 投递。

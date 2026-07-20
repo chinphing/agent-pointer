@@ -7,11 +7,37 @@ use crate::conversation_store::ConversationStore;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Local, TimeZone};
+use parking_lot::RwLock;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 const CRON_JOB_MD: &str = include_str!("prompts/cron_job.md");
 const CRON_JOB_DOC_SOURCE: &str = "tools/cron_job/prompts/cron_job.md";
+
+/// Optional deliver-spec validator installed by the IM outbound bridge
+/// (reads live channel bindings). When unset, create skips binding checks.
+type DeliverValidator = Arc<dyn Fn(Option<&str>) -> Result<(), String> + Send + Sync>;
+
+static DELIVER_VALIDATOR: RwLock<Option<DeliverValidator>> = RwLock::new(None);
+
+/// Install (or clear) the deliver validator used by `cron_job` create.
+pub fn set_deliver_validator(validator: Option<DeliverValidator>) {
+    let installed = validator.is_some();
+    *DELIVER_VALIDATOR.write() = validator;
+    if installed {
+        log::info!("cron_job: deliver validator installed");
+    } else {
+        log::info!("cron_job: deliver validator cleared");
+    }
+}
+
+fn validate_deliver_arg(deliver: Option<&str>) -> Result<()> {
+    let guard = DELIVER_VALIDATOR.read();
+    let Some(v) = guard.as_ref() else {
+        return Ok(());
+    };
+    v(deliver).map_err(|e| anyhow!(e))
+}
 
 pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
     let doc = CRON_JOB_MD.trim();
@@ -45,6 +71,10 @@ pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
                     "label": {
                         "type": "string",
                         "description": "Optional short name; defaults to the first line of prompt_text."
+                    },
+                    "deliver": {
+                        "type": "string",
+                        "description": "Optional IM push after each run. Prefer channel names only: feishu, dingtalk, wecom, weixin, comma-separated, or all. The channel must already be bound (user sent a private message to Pointer on that channel). Omit / empty = no push."
                     }
                 }
             }))
@@ -130,11 +160,21 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         .map(|s| s.to_string())
         .unwrap_or_else(|| auto_label(prompt));
 
+    let deliver = args
+        .get("deliver")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    validate_deliver_arg(deliver.as_deref())?;
+    let deliver = deliver.map(|d| normalize_deliver_local(&d));
+
     let job_id = gen_job_id();
     let job_id_ref = job_id.as_str();
     let label_ref = label.as_str();
     let lead_ref = lead_agent_id.as_str();
     let mode_ref = agent_mode.as_str();
+    let deliver_ref = deliver.as_deref();
 
     let new = NewCronJob {
         id: job_id_ref,
@@ -145,6 +185,7 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         agent_mode: Some(mode_ref),
         lead_agent_id: Some(lead_ref),
         enabled: true,
+        deliver: deliver_ref,
     };
 
     let inserted = store.cron_jobs_insert(&new)?;
@@ -280,6 +321,26 @@ fn auto_label(prompt: &str) -> String {
     } else {
         format!("{}…", line.chars().take(MAX).collect::<String>())
     }
+}
+
+/// Lowercase bare channel names / `all`; keep explicit `channel:id` recipient casing.
+fn normalize_deliver_local(deliver: &str) -> String {
+    deliver
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|token| {
+            if token.eq_ignore_ascii_case("all") {
+                return "all".to_string();
+            }
+            if let Some((ch, rest)) = token.split_once(':') {
+                format!("{}:{}", ch.trim().to_ascii_lowercase(), rest.trim())
+            } else {
+                token.to_ascii_lowercase()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn gen_job_id() -> String {

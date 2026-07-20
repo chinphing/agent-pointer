@@ -394,7 +394,11 @@ async fn main() -> anyhow::Result<()> {
 
     let state = ServerState {
         core: core.clone(),
-        dispatcher: Arc::new(core.build_dispatcher()),
+        dispatcher: Arc::new(core.build_dispatcher_with_extra_finished_hooks(vec![
+            std::sync::Arc::new(pointer_channels::im_deliver_hook::ImDeliverHook::new(
+                channel_gateway.clone(),
+            )),
+        ])),
         events,
         channel_gateway,
         channel_monitors,
@@ -549,6 +553,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/cron-jobs",
             get(list_cron_jobs).post(create_cron_job),
+        )
+        .route(
+            "/api/cron-jobs/delivery-targets",
+            get(list_cron_delivery_targets),
         )
         .route(
             "/api/cron-jobs/:job_id",
@@ -1470,28 +1478,48 @@ async fn send_chat(
 /// is forced to `HttpRuns` regardless of the request body. Returns a
 /// `RunHandle` (run id + accept status). Subscribe to
 /// `GET /api/runs/:id/events` for progress.
+///
+/// Optional hermes-style `"deliver": "feishu:ou_xxx"` string in the JSON body
+/// is applied into `trigger_meta.extra.deliver` (structured `DeliverTarget` in
+/// the body is ignored / forced to the string-derived marker).
 async fn create_run(
     State(state): State<ServerState>,
     headers: HeaderMap,
-    Json(mut body): Json<TriggerRequest>,
+    Json(mut raw): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<RunHandle>), ApiError> {
     require_platform_access(&state)?;
+    let deliver_str = match raw.get("deliver") {
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        _ => None,
+    };
+    // TriggerRequest.deliver is a tagged enum; replace string with None so
+    // serde succeeds, then apply the hermes string via apply_deliver_string.
+    if deliver_str.is_some() {
+        raw["deliver"] = serde_json::json!({ "kind": "none" });
+    }
+    let mut body: TriggerRequest = serde_json::from_value(raw).map_err(|e| {
+        ApiError(anyhow::anyhow!("invalid run request body: {e}"))
+    })?;
     body.trigger_source = TriggerSource::HttpRuns;
     body.trigger_meta.webhook_source = None;
-    body.deliver = DeliverTarget::None;
+    body.deliver = pointer_core::dispatcher::apply_deliver_string(
+        &mut body.trigger_meta,
+        deliver_str.as_deref(),
+    );
     body.web_session_auth = web_session::lookup_session_auth(&state.web_sessions, &headers)
         .or_else(|| {
             pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
         });
     let handle = state.dispatcher.dispatch(body).await.map_err(ApiError::from)?;
     log::info!(
-        "runs-api: accepted run_id={} conv={} status={:?}",
+        "runs-api: accepted run_id={} conv={} status={:?} deliver={:?}",
         handle.run_id,
         handle
             .reused_run_id
             .as_deref()
             .unwrap_or("new"),
-        handle.status
+        handle.status,
+        deliver_str,
     );
     Ok((StatusCode::ACCEPTED, Json(handle)))
 }
@@ -2031,15 +2059,20 @@ async fn webhook_ingress(
         });
     }
 
+    let mut trigger_meta = TriggerMeta {
+        webhook_source: Some(normalized_src.clone()),
+        ..TriggerMeta::empty()
+    };
+    let deliver = pointer_core::dispatcher::apply_deliver_string(
+        &mut trigger_meta,
+        body.deliver.as_deref(),
+    );
     let req = TriggerRequest {
         run_id: None,
         idempotency_key: body.idempotency_key,
         conversation_id: Some(conversation_id.clone()),
         trigger_source: TriggerSource::Webhook,
-        trigger_meta: TriggerMeta {
-            webhook_source: Some(normalized_src.clone()),
-            ..TriggerMeta::empty()
-        },
+        trigger_meta,
         lane: None,
         messages,
         enabled_skill_ids: body.enabled_skill_ids,
@@ -2050,7 +2083,7 @@ async fn webhook_ingress(
         tool_rounds_used_supervisor_start: 0,
         workspace_root: body.workspace_root,
         workspace_inherit_disabled: None,
-        deliver: DeliverTarget::None,
+        deliver,
         web_session_auth: {
             sync_automation_web_session(&state);
             state.core.automation_execution_auth()
@@ -2113,6 +2146,10 @@ struct CreateCronJobBody {
     lead_agent_id: Option<String>,
     #[serde(default = "default_true")]
     enabled: bool,
+    /// Optional Run → IM delivery spec (e.g. "feishu", "feishu:ou_xxx",
+    /// comma-separated, "all"). Empty / None = no IM push after the run.
+    #[serde(default)]
+    deliver: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -2135,6 +2172,18 @@ async fn create_cron_job(
             body.cron_expr
         )));
     }
+    let deliver = body
+        .deliver
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|s| pointer_channels::im_delivery::normalize_deliver_spec(s));
+    if let Err(e) = pointer_channels::im_delivery::validate_deliver_spec(
+        deliver.as_deref(),
+        &state.channel_gateway.config(),
+    ) {
+        return Err(ApiError(anyhow::anyhow!(e)));
+    }
     let new = pointer_core::conversation_store::cron_jobs::NewCronJob {
         id: &body.id,
         label: &body.label,
@@ -2144,6 +2193,7 @@ async fn create_cron_job(
         agent_mode: body.agent_mode.as_deref(),
         lead_agent_id: body.lead_agent_id.as_deref(),
         enabled: body.enabled,
+        deliver: deliver.as_deref(),
     };
     let inserted = state
         .core
@@ -2176,12 +2226,24 @@ async fn create_cron_job(
 
 #[derive(Deserialize)]
 struct UpdateCronJobBody {
-    /// Toggles the job enabled flag. Other fields are immutable via this
-    /// endpoint (edit by delete + recreate).
+    /// Toggles the job enabled flag.
     enabled: Option<bool>,
+    /// Optional Run → IM deliver spec. Pass empty string to clear.
+    deliver: Option<String>,
 }
 
-/// `PATCH /api/cron-jobs/:id` — toggle enable/disable.
+/// `GET /api/cron-jobs/delivery-targets` — home-channel targets for the UI dropdown.
+async fn list_cron_delivery_targets(
+    State(state): State<ServerState>,
+) -> Result<Json<Vec<pointer_channels::im_delivery::DeliveryTargetInfo>>, ApiError> {
+    require_platform_access(&state)?;
+    let cfg = state.channel_gateway.config().clone();
+    Ok(Json(
+        pointer_channels::im_delivery::list_home_delivery_targets(&cfg),
+    ))
+}
+
+/// `PATCH /api/cron-jobs/:id` — toggle enable/disable and/or update deliver.
 async fn update_cron_job(
     State(state): State<ServerState>,
     Path(job_id): Path<String>,
@@ -2193,6 +2255,30 @@ async fn update_cron_job(
             .core
             .session_index
             .cron_jobs_set_enabled(&job_id, enabled)
+            .map_err(ApiError::from)?;
+        if !ok {
+            return Ok(status_text(
+                StatusCode::NOT_FOUND,
+                format!("cron job not found: {job_id}"),
+            ));
+        }
+    }
+    if let Some(ref deliver) = body.deliver {
+        let deliver = if deliver.trim().is_empty() {
+            None
+        } else {
+            pointer_channels::im_delivery::normalize_deliver_spec(deliver)
+        };
+        if let Err(e) = pointer_channels::im_delivery::validate_deliver_spec(
+            deliver.as_deref(),
+            &state.channel_gateway.config(),
+        ) {
+            return Err(ApiError(anyhow::anyhow!(e)));
+        }
+        let ok = state
+            .core
+            .session_index
+            .cron_jobs_update_deliver(&job_id, deliver.as_deref())
             .map_err(ApiError::from)?;
         if !ok {
             return Ok(status_text(

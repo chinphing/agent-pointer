@@ -392,6 +392,7 @@ impl DispatchService {
                 workspace_root,
                 None,
                 Some(TriggerSource::Im),
+                false,
             )
         });
 

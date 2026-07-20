@@ -324,6 +324,15 @@ pub(super) async fn run_chat_inner(
             .system_prompts
             .push(crate::channel_outbound::im_session_commands_block(&state.agents));
     }
+    if matches!(req.trigger_source, Some(TriggerSource::Cron)) {
+        agent_plan
+            .system_prompts
+            .push(crate::scheduler::cron_system_prompt(req.im_auto_deliver));
+    } else if req.im_auto_deliver {
+        agent_plan
+            .system_prompts
+            .push(crate::scheduler::auto_deliver_system_prompt());
+    }
     if agent_plan.mode != AGENT_MODE_SUPERVISOR {
         if let Some(block) =
             delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)

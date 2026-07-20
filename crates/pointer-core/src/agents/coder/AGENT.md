@@ -38,6 +38,7 @@ accessPolicy:
     - web_search
     - skill_read
     - media_understand
+    - im_send
     - ask_user
   denyTools: []
   allowSkills:

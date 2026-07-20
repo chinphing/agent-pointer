@@ -24,6 +24,7 @@ import type {
 import type {
   CronJob,
   CreateCronJobInput,
+  CronDeliveryTarget,
   UpdateCronJobInput,
   WebhookConfig
 } from '../types/automation'
@@ -601,6 +602,10 @@ export async function getDispatcherQueueSnapshot(): Promise<
 
 export async function listCronJobs(): Promise<CronJob[]> {
   return await request<CronJob[]>('/api/cron-jobs')
+}
+
+export async function listCronDeliveryTargets(): Promise<CronDeliveryTarget[]> {
+  return await request<CronDeliveryTarget[]>('/api/cron-jobs/delivery-targets')
 }
 
 export async function createCronJob(input: CreateCronJobInput): Promise<CronJob> {

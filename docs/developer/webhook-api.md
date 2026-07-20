@@ -70,6 +70,7 @@
 | `blocking` | `false` | `true` 时同步等待 Agent 结束 |
 | `timeoutSeconds` | `120` | `blocking` 时最长等待秒数，最大 600 |
 | `attachments` | 无 | 附件列表，见 [附件](#附件) |
+| `deliver` | 无 | Run → IM 投递规格（如 `feishu`、`feishu:ou_xxx`、`feishu:group:oc_xxx`、`all`）；run 结束后把最终回复推送到对应通道。格式见 [channel-integration.md](channel-integration.md) |
 
 整包 JSON 上限 **256 KiB**。空 body → **422**；非法 JSON → **400**；超限 → **413**。
 

@@ -110,6 +110,63 @@ impl Default for DeliverTarget {
     }
 }
 
+/// Normalize a hermes-style deliver string. Empty / `"local"` → no IM push.
+pub fn normalize_deliver_spec(deliver: Option<&str>) -> Option<&str> {
+    deliver
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("local"))
+}
+
+/// Write `deliver` into `trigger_meta.extra` (merged) and return the in-flight
+/// [`DeliverTarget`] marker used by `run_chat` (`im_auto_deliver`).
+pub fn apply_deliver_string(meta: &mut TriggerMeta, deliver: Option<&str>) -> DeliverTarget {
+    let Some(d) = normalize_deliver_spec(deliver) else {
+        return DeliverTarget::None;
+    };
+    let mut extra = meta
+        .extra
+        .take()
+        .unwrap_or_else(|| serde_json::json!({}));
+    match extra.as_object_mut() {
+        Some(obj) => {
+            obj.insert(
+                "deliver".to_string(),
+                serde_json::Value::String(d.to_string()),
+            );
+        }
+        None => {
+            extra = serde_json::json!({ "deliver": d });
+        }
+    }
+    meta.extra = Some(extra);
+    resolve_deliver_marker(Some(d))
+}
+
+/// In-flight marker only: channel = first segment of the deliver spec.
+/// The hook re-parses `trigger_meta.extra.deliver` for the real targets.
+pub fn resolve_deliver_marker(deliver: Option<&str>) -> DeliverTarget {
+    let Some(d) = normalize_deliver_spec(deliver) else {
+        return DeliverTarget::None;
+    };
+    let channel = d
+        .split(',')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if channel.is_empty() {
+        return DeliverTarget::None;
+    }
+    DeliverTarget::Im {
+        channel,
+        account: "default".to_string(),
+        conversation_key: String::new(),
+    }
+}
+
 /// Unified run request. All trigger sources construct one of these.
 ///
 /// `messages` follows the existing `run_chat` contract: the caller supplies

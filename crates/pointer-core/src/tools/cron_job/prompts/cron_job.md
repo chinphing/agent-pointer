@@ -19,6 +19,23 @@ CREATE (minimal)
 Only **prompt_text** and **schedule** are required. Optional **label** overrides
 the auto-generated short name.
 
+DELIVER (optional)
+
+Pass **deliver** to push the run's final reply to IM after it finishes.
+Omit / empty = no push (the cron session still records the transcript).
+
+Use **channel names only** (one binding per channel — the last person who
+privately messaged Pointer on that channel):
+
+- `feishu` / `dingtalk` / `wecom` / `weixin`
+- comma-separated for several, e.g. `feishu,dingtalk`
+- `all` — every channel that already has a binding
+
+If a channel is not bound yet, create fails — tell the user to send Pointer
+a private message on that channel first, then retry.
+
+If the run reply is just `[SILENT]`, no message is pushed.
+
 SCHEDULE FORMAT
 
 Friendly presets (local timezone):

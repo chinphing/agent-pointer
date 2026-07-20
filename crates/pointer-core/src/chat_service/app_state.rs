@@ -456,11 +456,28 @@ impl AppState {
     /// existing execution path is unchanged. Built-in lifecycle hooks
     /// (structured logging) are pre-registered.
     pub fn build_dispatcher(self: &Arc<Self>) -> crate::dispatcher::RunDispatcher {
+        self.build_dispatcher_with_extra_finished_hooks(Vec::new())
+    }
+
+    /// Like [`Self::build_dispatcher`], but lets the host register extra
+    /// [`OnRunFinishedHook`]s after the built-in lifecycle hooks. Used by the
+    /// Run → IM outbound bus: the host builds the `ChannelGateway` first,
+    /// wraps `ImDeliverHook` around it, and passes it here so the dispatcher
+    /// fires it on every terminal run. Re-registering the same `override_key`
+    /// replaces the prior hook (registry semantics), so hosts may safely call
+    /// this with a fresh vec on every rebuild.
+    pub fn build_dispatcher_with_extra_finished_hooks(
+        self: &Arc<Self>,
+        extra: Vec<Arc<dyn crate::dispatcher::OnRunFinishedHook>>,
+    ) -> crate::dispatcher::RunDispatcher {
         if let Err(e) = self.session_index.runs_reconcile_interrupted() {
             log::warn!("dispatcher: reconcile interrupted runs failed: {e:#}");
         }
         let mut hooks = crate::dispatcher::HookRegistry::new();
         crate::dispatcher::hooks::register_builtin_hooks(&mut hooks);
+        for hook in extra {
+            hooks.register_on_run_finished(hook);
+        }
         let max = self.resolve_max_concurrent_runs();
         crate::dispatcher::RunDispatcher::with_hooks_and_max_concurrent(
             self.clone(),

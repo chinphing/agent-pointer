@@ -133,7 +133,7 @@ impl InboundMessage {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InboundReplyContext {
     pub session_webhook: Option<String>,

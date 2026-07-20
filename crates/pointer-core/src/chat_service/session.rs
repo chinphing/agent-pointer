@@ -28,9 +28,10 @@ pub async fn run_chat(
     workspace_root: String,
     workspace_inherit_disabled: Option<bool>,
     trigger_source: Option<TriggerSource>,
+    im_auto_deliver: bool,
 ) -> Result<()> {
     log::info!(
-        "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={}",
+        "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={} trigger_source={:?} im_auto_deliver={}",
         conversation_id,
         history.len(),
         enabled_skill_ids.len(),
@@ -38,6 +39,8 @@ pub async fn run_chat(
         lead_agent_id_override,
         tool_rounds_used_single_start,
         tool_rounds_used_supervisor_start,
+        trigger_source,
+        im_auto_deliver,
     );
 
     super::sub_message::strip_scoped_from_lead_history(&mut history);
@@ -77,6 +80,7 @@ pub async fn run_chat(
         workspace_inherit_disabled,
         run_id: run_id.clone(),
         trigger_source,
+        im_auto_deliver,
     };
     let mut run_ctx = super::context::ChatRunContext {
         stream: stream.clone(),

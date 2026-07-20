@@ -56,6 +56,58 @@ impl ChannelGateway {
         Ok(())
     }
 
+    /// Persist the channel account's deliver binding from an inbound **DM**.
+    /// Last DM wins (overwrites prior binding). Group chats must not call this.
+    /// Returns `Ok(true)` when the stored binding changed.
+    pub fn set_home_binding_from_dm(
+        &self,
+        channel: &str,
+        account_id: &str,
+        recipient_id: &str,
+        display_name: Option<&str>,
+    ) -> Result<bool> {
+        let recipient_id = recipient_id.trim();
+        if recipient_id.is_empty() || recipient_id.eq_ignore_ascii_case("unknown") {
+            return Ok(false);
+        }
+        let display_name = display_name
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("");
+
+        let mut cfg = self.config.read().clone();
+        let Some(account) = cfg.account_mut(channel, account_id) else {
+            log::warn!(
+                "im binding: skip unknown account channel={channel} account={account_id}"
+            );
+            return Ok(false);
+        };
+
+        let same_recipient = account.home_recipient_id.trim() == recipient_id
+            && !account.home_is_group;
+        let same_name = display_name.is_empty()
+            || account.home_display_name.trim() == display_name;
+        if same_recipient && same_name {
+            return Ok(false);
+        }
+
+        account.home_recipient_id = recipient_id.to_string();
+        account.home_is_group = false;
+        if !display_name.is_empty() {
+            account.home_display_name = display_name.to_string();
+        }
+        self.update_config(cfg)?;
+        log::info!(
+            "im binding: channel={channel} account={account_id} recipient={recipient_id} display_name={}",
+            if display_name.is_empty() {
+                "(unchanged/empty)"
+            } else {
+                display_name
+            }
+        );
+        Ok(true)
+    }
+
     pub fn update_config_and_restart(
         self: &Arc<Self>,
         cfg: ChannelsConfig,
@@ -200,6 +252,24 @@ impl ChannelGateway {
                 return Ok(());
             }
             crate::pairing::PairingDecision::Allow => {}
+        }
+
+        // Auto-bind last DM peer as this account's deliver home (product: one
+        // binding per channel). Groups never update the binding.
+        if !msg.is_group {
+            if let Err(e) = self.set_home_binding_from_dm(
+                &msg.channel,
+                &msg.account_id,
+                &msg.sender_id,
+                msg.sender_name.as_deref(),
+            ) {
+                log::warn!(
+                    "im binding: failed channel={} account={} sender={}: {e:#}",
+                    msg.channel,
+                    msg.account_id,
+                    msg.sender_id
+                );
+            }
         }
 
         let plugin = self

@@ -39,8 +39,8 @@ pub use queue::{
     LANE_MAIN,
 };
 pub use trigger::{
-    DeliverTarget, RunAcceptStatus, RunHandle, RunOutcome, TriggerMeta, TriggerRequest,
-    TriggerSource,
+    apply_deliver_string, normalize_deliver_spec, resolve_deliver_marker, DeliverTarget,
+    RunAcceptStatus, RunHandle, RunOutcome, TriggerMeta, TriggerRequest, TriggerSource,
 };
 
 use std::collections::HashMap;
@@ -433,6 +433,17 @@ impl RunDispatcher {
             .lock()
             .insert(conversation_id.clone(), cancel.clone());
 
+        let im_auto_deliver = match &req.deliver {
+            DeliverTarget::Im { .. } => true,
+            DeliverTarget::None | DeliverTarget::Webhook { .. } => req
+                .trigger_meta
+                .extra
+                .as_ref()
+                .and_then(|v| v.get("deliver"))
+                .and_then(|v| v.as_str())
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false),
+        };
         let result = run_chat(
             tx,
             self.inner.state.clone(),
@@ -447,6 +458,7 @@ impl RunDispatcher {
             req.workspace_root,
             req.workspace_inherit_disabled,
             Some(req.trigger_source),
+            im_auto_deliver,
         )
         .await;
 

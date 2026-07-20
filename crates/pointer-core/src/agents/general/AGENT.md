@@ -33,6 +33,7 @@ accessPolicy:
     - video_generate
     - media_understand
     - cron_job
+    - im_send
     - ask_user
   denyTools: []
   allowSkills: []

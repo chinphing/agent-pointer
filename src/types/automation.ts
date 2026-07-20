@@ -18,6 +18,14 @@ export interface CronJob {
   lastRunAtMs?: number | null
   nextRunAtMs?: number | null
   createdAtMs: number
+  /**
+   * Optional Run → IM delivery spec (e.g. "feishu", "feishu:ou_xxx",
+   * "feishu:group:oc_xxx", comma-separated, "all"). Empty / null = no IM push
+   * after the run; the cron session still records the transcript.
+   */
+  deliver?: string | null
+  /** Last IM delivery error; cleared when a later delivery succeeds. */
+  lastDeliveryError?: string | null
 }
 
 export interface CreateCronJobInput {
@@ -30,10 +38,28 @@ export interface CreateCronJobInput {
   agentMode?: string | null
   leadAgentId?: string | null
   enabled?: boolean
+  /** Optional Run → IM delivery spec. See `CronJob.deliver`. */
+  deliver?: string | null
 }
 
 export interface UpdateCronJobInput {
   enabled?: boolean
+  /** Optional Run → IM deliver spec. Pass empty string to clear. */
+  deliver?: string | null
+}
+
+/** One channel deliver option from `GET /api/cron-jobs/delivery-targets`. */
+export interface CronDeliveryTarget {
+  deliver: string
+  channel: string
+  accountId: string
+  label: string
+  recipientId: string
+  isGroup: boolean
+  isHome: boolean
+  /** False when the channel is enabled but has no binding yet. */
+  bound: boolean
+  displayName?: string | null
 }
 
 export type WebhookSessionMode = 'daily' | 'per_delivery'

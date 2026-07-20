@@ -369,12 +369,37 @@ pub fn run() {
             });
             app.manage(app_state.clone());
             app.manage(updater_commands::PendingUpdateState::default());
+            // Build the channel gateway BEFORE the dispatcher so the dispatcher
+            // can register the Run → IM delivery hook (`ImDeliverHook`) with a
+            // handle to the gateway. The `im_send` tool is also registered here
+            // (via `install_channel_outbound_bridge`) so agents can push to IM
+            // dynamically during a run.
+            let mut channel_registry = ChannelRegistry::new();
+            register_builtin_channels(&mut channel_registry);
+            let channel_gateway = Arc::new(
+                ChannelGateway::new(app_state.clone(), channel_registry)
+                    .map_err(|e| format!("channel gateway init failed: {e:#}"))?,
+            );
+            pointer_channels::install_channel_outbound_bridge(
+                channel_gateway.clone(),
+                app_state.tools.clone(),
+            );
             // Build the singleton run dispatcher (unified callable / event
             // trigger entry) backed by this AppState. All trigger sources
             // (IPC `send_chat`, HTTP Runs API, webhooks, cron, IM, internal)
             // route through it. Built-in lifecycle hooks are pre-registered
-            // inside `build_dispatcher`.
-            let dispatcher = Arc::new(app_state.build_dispatcher());
+            // inside `build_dispatcher_with_extra_finished_hooks`; the
+            // `ImDeliverHook` is appended so cron / HTTP / webhook runs can
+            // push their final reply to IM.
+            let dispatcher = Arc::new(
+                app_state.build_dispatcher_with_extra_finished_hooks(vec![
+                    std::sync::Arc::new(
+                        pointer_channels::im_deliver_hook::ImDeliverHook::new(
+                            channel_gateway.clone(),
+                        ),
+                    ),
+                ]),
+            );
             app.manage(dispatcher.clone());
             // Phase 5: cron scheduler. Desktop defaults ON (same as the
             // server / web host). Disable via `POINTER_SCHEDULER_ENABLED=0`.
@@ -404,16 +429,6 @@ pub fn run() {
                     log::warn!("stream broadcast emit failed: {e}");
                 }
             }));
-            let mut channel_registry = ChannelRegistry::new();
-            register_builtin_channels(&mut channel_registry);
-            let channel_gateway = Arc::new(
-                ChannelGateway::new(app_state.clone(), channel_registry)
-                    .map_err(|e| format!("channel gateway init failed: {e:#}"))?,
-            );
-            pointer_channels::install_channel_outbound_bridge(
-                channel_gateway.clone(),
-                app_state.tools.clone(),
-            );
             let monitor_handle =
                 channel_monitor::ChannelMonitorHandle::new();
             let monitor_supervisor = monitor_handle.supervisor();
@@ -509,6 +524,7 @@ pub fn run() {
             commands::search_experiences,
             commands::get_experience_detail,
             commands::list_cron_jobs,
+            commands::list_cron_delivery_targets,
             commands::get_dispatcher_queue_snapshot,
             commands::create_cron_job,
             commands::update_cron_job,

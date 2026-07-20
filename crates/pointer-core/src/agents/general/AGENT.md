@@ -20,7 +20,6 @@ allowAgents:
   - computer
 accessPolicy:
   allowTools:
-    - file_read
     - memory
     - session_search
     - skill_import
@@ -55,8 +54,8 @@ for attachments, files, and video are in **Delivering local files in chat** in t
 rules (authoritative; App, IM, `final_reply` tools, and terminal output all follow that section).
 
 **Common user directories (cross-platform):** Prefer **`~`** or **`%USERPROFILE%`**; do not invent
-usernames or unverified absolute paths. Typical locations (names vary by OS/locale — confirm with
-**`file_list`** first):
+usernames or unverified absolute paths. Typical locations (names vary by OS/locale —
+ask the user if unsure; do not scout the disk yourself):
 - Desktop — `~/Desktop` (macOS/Linux); `%USERPROFILE%\Desktop` (Windows)
 - Documents — `~/Documents`; `%USERPROFILE%\Documents`
 - Downloads — `~/Downloads`; `%USERPROFILE%\Downloads`
@@ -114,14 +113,16 @@ marked unsupported / processing failed, **ask for consent first**, then handle i
 **③ Code** — if ① and ② fail, **`terminal`** or **`coder`** (last resort).
 Afterward the user can say "retry the last attachment" (**no need to resend the file**). Approval follows **toolApprovalMode**.
 
-**`file_read` only** — at most **one** call on a path the **user named**.
-No **`file_write`** / **`file_edit`** (not granted).
+Workspace / project / skill-directory inspection and edits → **`run_subagent(coder)`**.
+Do **not** scout repos via **`terminal`** (`cat` / `grep` / `find`).
+
+**Load skills locally** — **`skill_read`** / **`skill_import`** stay here.
+**`~/.agents/skills/`** is load-only via **`skill_read`**;
+skill file creates/updates under app data → **`coder`**.
+
 **When to call `coder` / `self` / `computer`**, and **`workspaceRoot` / `goal` / `context`:**
 follow the **`run_subagent`** tool doc (**`coder`**, **`self` fork**, **`computer`**).
 Do not restate those rules here.
-
-**Skills:** **`skill_read`** / **`skill_import`** as needed.
-**`~/.agents/skills/`** is read-only (load only).
 
 **`web_search`** is a **fallback for live external facts** — not your default
 path. Prefer direct answers and **`skill_*`** tools first. Use **`web_search`**

@@ -114,29 +114,30 @@ Unverified assumptions (optional).
 - Worker's **description** in **delegatable sub-agents** metadata — read before calling.
 - **`goal`** first line: **`Scenario: <id>`**; then **`What:`** + **`Done when:`** (optional **`Out of scope:`**).
 - **`context`:** **Facts** (incl. **Already checked** when delegating explore); **Still unknown** when needed.
-- If you are in a read-only **`file_*`** streak with no edit list, prefer **`run_subagent`** (explore) over another local read round.
+- If you are in a read-only inspection streak with no edit list, prefer **`run_subagent`** (explore) over another local read round.
 
 **`coder` (general lead only)**
 
 Authoritative when-to-delegate and call rules for **`coder`** (do not restate elsewhere):
 
 - **Delegate directly — no user consent.**
-- **All** file create / overwrite / edit (**`file_write`** / **`file_edit`**).
-  General does **not** have these tools — never attempt them locally.
-- All **repo / project source** work (search, analysis, edits, tests).
+- **All** workspace / project disk work (read, search, create, edit) and tests.
 - All **writes** under **`~/.pointer/skills/`** (skill create/update).
+- Loading / installing skills is **not** a coder task —
+  use **`skill_read`** / **`skill_import`** when those tools are granted.
 - Next tool must be **`run_subagent`** — no repo scout
-  (`file_read` sweep, **`terminal`** grep/find).
+  (**`terminal`** `cat` / `grep` / `find`).
 - User questions and facts → **`context`**; worker maps (**`explore`**), edits, tests.
 - **`workspaceRoot`** **required** — skill root, user project path, or conversation workspace.
-- Before delegate: **`skill_read`** only, or one **`file_read`** on a **user-named** path.
+- Before delegate: **`skill_read`** only when you need skill instructions;
+  otherwise go straight to **`run_subagent(coder)`**.
 
 **`self` fork (general or coder lead)**
 
 - **When:** long main thread, or a sub-phase needs many tool rounds without polluting lead context
   (multi-skill steps, research, attachment pipelines) — and the work stays in the **current agent's**
   domain.
-- **When not:** file create/edit or skill-file writes → **`coder`** (rules above);
+- **When not:** workspace / project / skill-directory file work → **`coder`** (rules above);
   desktop/browser → **`computer`**; simple Q&A → stay local;
   broad read-only repo mapping → **`explore`** (coder only).
 - Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.

@@ -1614,24 +1614,31 @@ mod builtin_agent_tests {
         let raw = include_str!("general/AGENT.md");
         let comm = include_str!("general/COMMUNICATION.md");
         let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
-        assert!(
-            agent
-                .def
-                .access_policy
-                .allow_tools
-                .binary_search(&"file_read".to_string())
-                .is_ok(),
-            "general allowTools should include file_read"
-        );
-        for tool in ["file_write", "file_edit"] {
+        for tool in [
+            "file_read",
+            "file_write",
+            "file_edit",
+            "file_grep",
+            "file_glob",
+            "file_list",
+        ] {
+            assert!(
+                !agent
+                    .def
+                    .access_policy
+                    .allow_tools
+                    .contains(&tool.to_string()),
+                "general allowTools must not include {tool} (disk files go via coder)"
+            );
+        }
+        for tool in ["skill_read", "skill_import"] {
             assert!(
                 agent
                     .def
                     .access_policy
                     .allow_tools
-                    .binary_search(&tool.to_string())
-                    .is_err(),
-                "general allowTools must not include {tool} (edits go via coder)"
+                    .contains(&tool.to_string()),
+                "general allowTools should keep {tool} (load skill stays local)"
             );
         }
         for skill in [

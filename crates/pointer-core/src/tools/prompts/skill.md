@@ -13,9 +13,13 @@ schema:
 
 Progressive-disclosure tools for enabled Skills.
 
-Available only when the active agent is **general** and these tools are granted.
-Other agent profiles must not load or invoke skills.
+Available when these tools are granted on the active agent
+(e.g. **general**, **coder**).
 Do not invent skill contents from memory — use the tools below.
+
+**`skill_read` loads a skill** (instructions / skill-relative path via **`skill_id`**
+and optional **`path`**). Use it only for enabled Skills — not for arbitrary
+workspace or project files.
 
 #### When to use
 
@@ -42,8 +46,8 @@ Never read or write skill files under the app data directory directly
 Delegate with **`run_subagent(agentId="coder")`** — when-to / **`workspaceRoot`** /
 **`goal`** / **`context`**: follow the **`run_subagent`** tool doc (**`coder`**).
 Skill root is typically `~/.pointer/skills/{skill-name}/` (or `~/.pointer/skills/`
-when creating). The **coder** worker uses **`file_*`** + **`skill-creator`**
-(prefer small **`file_edit`** patches; avoid whole-file overwrites of **`SKILL.md`**).
+when creating). The **coder** worker applies edits (prefer small patches;
+avoid whole-file overwrites of **`SKILL.md`**) and may use **`skill-creator`**.
 **Install only:** user-supplied zip or directory → **`skill_import`** (general lead).
 
 #### Tools

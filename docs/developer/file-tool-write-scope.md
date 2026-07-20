@@ -37,6 +37,8 @@
 - 其他用户的主目录
 - 未挂载 / 不可 canonical 的路径
 
-**Agent 策略：** `general` 不暴露 `file_write` / `file_edit`。何时委托 `coder`、
-如何填 `workspaceRoot` / `goal` / `context`，以 **`run_subagent` 工具提示词**
+**Agent 策略：** `general` 不暴露任何 `file_*` 磁盘工具（含 `file_read`）。
+加载技能用 **`skill_read` / `skill_import`**（留在 general，不交给 coder）。
+读/改工作区或技能目录文件、搜仓库 → 委托 **`coder`**。
+何时委托、如何填 `workspaceRoot` / `goal` / `context`，以 **`run_subagent` 工具提示词**
 （`coder` 小节）为唯一权威；其他 agent / 公共提示只引用、不复述细则。

@@ -155,6 +155,11 @@ impl<'a> ImStreamOutbound<'a> {
         if !self.cfg.send_tool_calls {
             return Ok(());
         }
+        // ask_user options are pushed via Hermes-style clarify MessageEnd; skip the
+        // "🔧 询问用户: …" tool-status duplicate.
+        if is_ask_user_tool_status_label(display_label) {
+            return Ok(());
+        }
         if let Some(label) = display_label.filter(|s| !s.trim().is_empty()) {
             self.tool_display_labels
                 .insert(tool_call_id.to_string(), label.to_string());
@@ -289,6 +294,10 @@ impl<'a> ImStreamOutbound<'a> {
     }
 }
 
+fn is_ask_user_tool_status_label(display_label: Option<&str>) -> bool {
+    display_label.is_some_and(|l| l.trim() == "询问用户")
+}
+
 fn resolved_tool_label(
     tool_call_id: &str,
     display_label: Option<&str>,
@@ -354,6 +363,14 @@ fn truncate_chars(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ask_user_tool_status_is_skipped_for_im() {
+        assert!(is_ask_user_tool_status_label(Some("询问用户")));
+        assert!(is_ask_user_tool_status_label(Some(" 询问用户 ")));
+        assert!(!is_ask_user_tool_status_label(Some("联网搜索")));
+        assert!(!is_ask_user_tool_status_label(None));
+    }
 
     #[test]
     fn tool_status_running_line() {

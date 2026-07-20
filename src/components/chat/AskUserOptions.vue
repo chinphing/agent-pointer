@@ -63,26 +63,26 @@ function confirmMultiple() {
   <div v-if="args" class="ml-4 mb-2 max-w-xl space-y-2" @click.stop>
     <p class="text-[13px] leading-5 text-foreground/90">{{ args.question }}</p>
 
-    <div class="grid gap-1.5">
+    <div class="grid gap-0">
       <button
         v-for="option in args.options"
         :key="option.label"
         type="button"
-        class="group w-full min-h-9 px-3 py-2 border rounded-md text-left transition-colors disabled:cursor-default"
+        class="group w-full min-h-8 px-3 py-1.5 rounded-md text-left transition-colors disabled:cursor-default"
         :class="isSelected(option.label)
-          ? 'border-border bg-hover text-foreground'
-          : 'border-border/70 bg-card hover:bg-hover/80 hover:border-border text-foreground/85'"
+          ? 'text-foreground'
+          : 'hover:bg-hover/30 text-foreground/85'"
         :disabled="submitting || isCompleted"
         @click="choose(option.label)"
       >
         <span class="flex items-start gap-2">
           <span
-            class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border text-[10px]"
+            class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[10px]"
             :class="[
               args.multiSelect ? 'rounded-[3px]' : 'rounded-full',
               isSelected(option.label)
-                ? 'border-foreground/55 bg-foreground/55 text-background'
-                : 'border-border bg-background'
+                ? 'bg-foreground/55 text-background'
+                : 'ring-1 ring-foreground/25 ring-inset'
             ]"
           >
             <Check v-if="isSelected(option.label)" class="h-3 w-3" stroke-width="3" />

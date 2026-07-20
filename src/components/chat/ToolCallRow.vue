@@ -34,6 +34,17 @@ const isTerminal = computed(() => props.toolCall.name === 'terminal')
 const isWebSearch = computed(() => props.toolCall.name === 'web_search')
 const isFileEdit = computed(() => props.toolCall.name === 'file_edit')
 const isFileWrite = computed(() => props.toolCall.name === 'file_write')
+const isVideoGenerate = computed(() => props.toolCall.name === 'video_generate')
+
+const videoGenerateDuration = computed(() => {
+  if (!isVideoGenerate.value) return null
+  try {
+    const args = JSON.parse(props.toolCall.arguments || '{}')
+    const dur = args.durationSeconds ?? args.duration_seconds
+    if (typeof dur === 'number' && dur > 0) return dur
+  } catch { /* ignore */ }
+  return null
+})
 const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
@@ -338,6 +349,18 @@ function openSourceUrl(url: string) {
         class="text-[11px] text-warning leading-relaxed"
       >
         提权命令：允许后还会在系统中弹出管理员确认（UAC / 密码 / polkit）。
+      </p>
+      <p
+        v-if="isVideoGenerate && videoGenerateDuration"
+        class="text-[11px] text-warning leading-relaxed"
+      >
+        本次视频生成预估花费 {{ videoGenerateDuration }} 元，您确认要生成吗？
+      </p>
+      <p
+        v-else-if="isVideoGenerate"
+        class="text-[11px] text-warning leading-relaxed"
+      >
+        本次视频生成按 1 元/秒计费，您确认要生成吗？
       </p>
       <div class="flex items-center gap-2">
         <button

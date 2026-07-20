@@ -59,7 +59,9 @@ const scopedMessages = computed(() =>
 const scopedTraceMessages = computed(() =>
   scopedMessagesForTrace(
     props.messages,
-    props.anchorMessageId,
+    props.trace.anchorMessageId
+      ? props.trace.anchorMessageId
+      : props.anchorMessageId,
     props.trace.id,
     props.trace.agentInstanceId
   )
@@ -226,14 +228,14 @@ function toggleExpanded() {
 /** Frame chrome: neutral by default; failed uses danger tint (theme tokens, light/dark). */
 const frameChromeClass = computed(() =>
   props.trace.status === 'failed'
-    ? 'border-danger/35 bg-danger/5'
-    : 'border-border bg-card'
+    ? 'bg-danger/5'
+    : ''
 )
 </script>
 
 <template>
   <div
-    class="rounded-xl border my-2 overflow-hidden"
+    class="rounded-xl my-2 overflow-hidden"
     :class="[frameChromeClass, collapsed ? 'py-2 px-3' : 'p-3']"
     :style="{ marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px` }"
   >

@@ -113,6 +113,7 @@ pub(super) fn failed_owned_subagent_outcome(
             child_spawn_depth,
             None,
             Some(tool_call_id),
+            None,
             "failed",
             Some(error.clone()),
         ),
@@ -293,6 +294,7 @@ pub(super) async fn execute_owned_subagent(
             child_spawn_depth,
             None,
             Some(tool_call_id.as_str()),
+            Some(message_id.as_str()),
             "running",
             Some(truncate_str(&task.title, 200)),
         ),
@@ -337,6 +339,7 @@ pub(super) async fn execute_owned_subagent(
                     child_spawn_depth,
                     None,
                     Some(tool_call_id.as_str()),
+                    Some(message_id.as_str()),
                     "completed",
                     Some(truncate_str(&result.content, 160)),
                 ),
@@ -357,6 +360,7 @@ pub(super) async fn execute_owned_subagent(
                         child_spawn_depth,
                         None,
                         Some(tool_call_id.as_str()),
+                        Some(message_id.as_str()),
                         "failed",
                         Some(message.clone()),
                     ),
@@ -394,6 +398,7 @@ pub(super) async fn execute_owned_subagent(
                     child_spawn_depth,
                     None,
                     Some(tool_call_id.as_str()),
+                    Some(message_id.as_str()),
                     status,
                     Some(error_note.clone()),
                 ),
@@ -470,6 +475,7 @@ fn build_subagent_trace(
     child_spawn_depth: u32,
     computer_target: Option<ComputerOperationTarget>,
     parent_tool_call_id: Option<&str>,
+    anchor_message_id: Option<&str>,
     status: &str,
     detail: Option<String>,
 ) -> AgentTrace {
@@ -487,6 +493,10 @@ fn build_subagent_trace(
         user_expanded: false,
         agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
         parent_tool_call_id: parent_tool_call_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string),
+        anchor_message_id: anchor_message_id
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .map(str::to_string),
@@ -663,6 +673,7 @@ pub(super) async fn run_subagent_delegation(
                                 child_spawn_depth,
                                 computer_target,
                                 Some(tool_call_id),
+                                Some(message_id),
                                 status,
                                 detail,
                             )
@@ -799,7 +810,7 @@ mod trace_tests {
             "instance-1",
         );
 
-        let trace = build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), "running", None);
+        let trace = build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), None, "running", None);
 
         assert_eq!(trace.agent_instance_id.as_deref(), Some("instance-1"));
         assert_eq!(trace.parent_tool_call_id.as_deref(), Some("call-1"));
@@ -874,7 +885,7 @@ mod trace_tests {
             "current-agent",
             "instance-1",
         );
-        build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), "completed", Some("done".into()))
+        build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), None, "completed", Some("done".into()))
     }
 
     #[test]

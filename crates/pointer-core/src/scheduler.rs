@@ -193,19 +193,11 @@ impl Scheduler {
                 Vec::new()
             }
         };
-        // Construct the cron tick's user prompt. We keep a handle to the
-        // message so we can broadcast it (see below) — the dispatcher/run_chat
-        // persists it to the cron session via the transcript session's
-        // `append_missing`, but a UI that has the cron conversation open live
-        // only learns about new rows through stream events. Without this
-        // broadcast the assistant reply streams in (message_start/delta/...)
-        // while the preceding user prompt never appears in the open view,
-        // producing an "extra assistant reply with no matching user message"
-        // mismatch. Mirrors how IM channels surface inbound user messages.
-        //
-        // Delivery / [SILENT] guidance lives in the cron system prompt
-        // (`cron_system_prompt`), not in the user message.
-        let user_msg = ChatMessage::user_text(job.prompt_text.clone());
+        // Hermes-aligned: cron execution guidance is prepended to the user
+        // message (`build_cron_user_prompt`), not injected as a system block.
+        // Broadcast so a live-open cron session UI sees the user turn (same
+        // pattern as IM inbound); otherwise only assistant stream events appear.
+        let user_msg = ChatMessage::user_text(build_cron_user_prompt(&job.prompt_text));
         let user_msg_id = user_msg.id.clone();
         let user_msg_content = user_msg.content.clone();
         messages.push(user_msg);
@@ -261,25 +253,31 @@ impl Scheduler {
     }
 }
 
-/// Cron-only system prompt block (injected by `run_chat_inner` when
-/// `TriggerSource::Cron`). Short hermes-style delivery hint when the job has
-/// an IM `deliver` target; otherwise just identifies the run as scheduled.
-pub fn cron_system_prompt(auto_deliver: bool) -> String {
-    if auto_deliver {
-        format!(
-            "You are running as a scheduled cron job.\n{}",
-            AUTO_DELIVER_HINT
-        )
-    } else {
-        "You are running as a scheduled cron job.".to_string()
-    }
+/// Hermes-aligned cron tick user message: prepend execution guidance to the
+/// job's `prompt_text`, then pass the whole string as the user turn
+/// (`run_conversation(user_message=…)`). Not a system prompt block.
+pub fn build_cron_user_prompt(prompt_text: &str) -> String {
+    format!("{CRON_USER_HINT}{}", prompt_text.trim_start())
 }
 
 /// System prompt for non-cron runs that requested IM auto-delivery
-/// (HTTP Runs / Webhook).
+/// (HTTP Runs / Webhook). Cron uses [`build_cron_user_prompt`] instead.
 pub fn auto_deliver_system_prompt() -> String {
     AUTO_DELIVER_HINT.to_string()
 }
+
+/// Mirrors hermes `cron/scheduler.py` `_build_job_prompt` `cron_hint`
+/// (`im_send` instead of `send_message`). Always prepended on every tick.
+const CRON_USER_HINT: &str = "\
+[IMPORTANT: You are running as a scheduled cron job. \
+DELIVERY: Your final response will be automatically delivered \
+to the user — do NOT use im_send or try to deliver \
+the output yourself. Just produce your report/output as your \
+final response and the system handles the rest. \
+SILENT: If there is genuinely nothing new to report, respond \
+with exactly \"[SILENT]\" (nothing else) to suppress delivery. \
+Never combine [SILENT] with content — either report your \
+findings normally, or say [SILENT] and nothing more.]\n\n";
 
 const AUTO_DELIVER_HINT: &str = "Your final reply is auto-delivered to IM — do not call im_send to duplicate it.\n\
 If there is nothing to report, reply with exactly [SILENT] and nothing else.";
@@ -313,20 +311,13 @@ mod tests {
     }
 
     #[test]
-    fn cron_system_prompt_short_without_deliver() {
-        let p = cron_system_prompt(false);
-        assert_eq!(p, "You are running as a scheduled cron job.");
-        assert!(!p.contains("im_send"));
-        assert!(!p.contains("[SILENT]"));
-    }
-
-    #[test]
-    fn cron_system_prompt_includes_delivery_when_auto_deliver() {
-        let p = cron_system_prompt(true);
+    fn build_cron_user_prompt_prepends_hermes_hint() {
+        let p = build_cron_user_prompt("Remind the user to drink water");
+        assert!(p.starts_with("[IMPORTANT:"));
         assert!(p.contains("scheduled cron job"));
         assert!(p.contains("im_send"));
         assert!(p.contains("[SILENT]"));
-        assert!(!p.contains("[IMPORTANT:"));
+        assert!(p.contains("Remind the user to drink water"));
     }
 
     // Re-export the free function for the test helpers above.

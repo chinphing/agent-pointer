@@ -133,9 +133,9 @@ openclaw 的 cron 会话用 `daily` 重置模式、`atHour = 4`（本地凌晨 4
 - **静态路径**：触发源在 `TriggerRequest.trigger_meta.extra` 里塞 `{"deliver": "<spec>"}`（持久化到 `runs.trigger_meta_json`，跨重启可读）。接入点：
   - **Cron**：`cron_jobs.deliver` → `scheduler.rs dispatch_job` 注入；失败写回 `cron_jobs.last_delivery_error`。
   - **HTTP Runs API** / **Webhook ingress**：请求体可选字符串字段 `deliver`，经 `apply_deliver_string` 写入 `trigger_meta.extra.deliver`。
-  - `run_chat_inner`：Cron 用 `cron_system_prompt`；其它带 auto-deliver 的触发源用 `auto_deliver_system_prompt`。
+  - `run_chat_inner`：Cron **不**注入 cron system 块（Hermes：约束前缀拼进用户消息，见 `build_cron_user_prompt`）；其它带 auto-deliver 的触发源用 `auto_deliver_system_prompt`。
 - **动态路径**：`im_send` 工具（住 `pointer-channels/src/im_send.rs`）让 agent 在 run 中主动推送任意消息到指定 IM 目标。由 `install_channel_outbound_bridge` 注册到 `ToolRegistry`。
-- **消费侧**：`ImDeliverHook`（住 `pointer-channels/src/im_deliver_hook.rs`，`impl OnRunFinishedHook`）在 `on_run_finished` 读取 `trigger_meta.extra.deliver`，加载最后一条 assistant 回复，经 `split_reply_media` 拆媒体、Hermes 风格 `is_silence_narration` 跳过静默叙述 / `[SILENT]`、`truncate_for_platform` 截断到 4000 字，再调 `im_delivery::resolve_delivery_targets` 解析 deliver 字符串为 `Vec<OutboundContext>`，逐目标调 `ChannelGateway::send_outbound_explicit`（每目标独立 try，best-effort，不影响 run 状态）。Cron 任务另写 `last_delivery_error`。
+- **消费侧**：`ImDeliverHook`（住 `pointer-channels/src/im_deliver_hook.rs`，`impl OnRunFinishedHook`）在 `on_run_finished` 读取 `trigger_meta.extra.deliver`，加载最后一条 assistant 回复，经 `split_reply_media` 拆媒体、Hermes 风格 `is_silence_narration` 跳过静默叙述 / `[SILENT]`、`truncate_for_platform` 截断到 4000 字，再调 `im_delivery::resolve_delivery_targets` 解析 deliver 字符串为 `Vec<OutboundContext>`，逐目标调 `ChannelGateway::send_outbound_explicit`（每目标独立 try，best-effort，不影响 run 状态）。Cron 任务另写 `last_delivery_error`。DM 推送成功后默认 mirror 进 peer IM 桌面 transcript（`im_mirror.rs`），便于用户在通道里接着聊。
 - **查询目标**：`GET /api/cron-jobs/delivery-targets`（Tauri：`list_cron_delivery_targets`）列出已配置 home channel；`PATCH /api/cron-jobs/:id` 可更新 `deliver`。
 - **装配**：宿主（server / Tauri）先建 `ChannelGateway`，再调 `AppState::build_dispatcher_with_extra_finished_hooks(vec![Arc::new(ImDeliverHook::new(gateway))])` 把 hook 注入 dispatcher。`ChannelAccountConfig` 新增 `homeRecipientId` / `homeIsGroup` 字段（手编 `channels_config.json` 配置 home channel；UI 配置为 Phase 3）。
 

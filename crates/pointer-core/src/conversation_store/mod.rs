@@ -128,6 +128,24 @@ impl ConversationStore {
         })
     }
 
+    /// Find the most recently active IM desktop conversation for a channel peer
+    /// (`session_user_id` = peer). Used to mirror cron/IM deliveries into the
+    /// same transcript the user will reply into (Feishu chat_id ≠ open_id).
+    pub fn find_im_desktop_for_channel_peer(
+        &self,
+        channel: &str,
+        account_id: &str,
+        peer_user_id: &str,
+    ) -> Result<Option<(String, String)>> {
+        let conn = self.db.conn.lock();
+        session_user::find_im_desktop_for_channel_peer_in_conn(
+            &conn,
+            channel,
+            account_id,
+            peer_user_id,
+        )
+    }
+
     pub fn ensure_session_user_id(
         &self,
         conversation_id: &str,

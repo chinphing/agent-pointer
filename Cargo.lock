@@ -5068,6 +5068,7 @@ dependencies = [
  "sha2 0.10.9",
  "silk-v3-sys",
  "subtle",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",

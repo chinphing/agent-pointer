@@ -21,6 +21,7 @@ use crate::gateway::ChannelGateway;
 use crate::im_delivery::{
     is_silence_narration, resolve_delivery_targets, truncate_for_platform, MAX_PLATFORM_OUTPUT,
 };
+use crate::im_mirror::mirror_delivery_to_im_session;
 use crate::outbound_reply::split_reply_media;
 
 /// Hook id / ordering. Sorts after the builtin lifecycle log hook
@@ -149,6 +150,13 @@ impl ImDeliverHook {
                         channel,
                         account,
                         recipient
+                    );
+                    mirror_delivery_to_im_session(
+                        &ctx.state.session_index,
+                        &ctx_out,
+                        &visible,
+                        &ctx.run_id,
+                        meta.job_id.as_deref(),
                     );
                 }
                 Err(e) => {

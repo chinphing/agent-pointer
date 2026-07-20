@@ -13,6 +13,7 @@ pub mod gateway;
 pub mod http_client;
 pub mod im_deliver_hook;
 pub mod im_delivery;
+mod im_mirror;
 pub mod im_send;
 mod im_stream_outbound;
 pub mod monitor_supervisor;

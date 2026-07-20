@@ -58,6 +58,66 @@ pub fn ensure_session_user_id_in_conn(
     Ok(candidate.to_string())
 }
 
+/// Locate an IM desktop conversation for cron/IM delivery mirroring.
+///
+/// Returns `(base_conv_id, desktop_conv_id)` for the most recently touched row
+/// whose `session_user_id` matches `peer_user_id` under `{channel}:{account}:…`.
+/// Feishu/home binding uses open_id while inbound sessions use chat_id in
+/// `conversation_key`, so id reconstruction from outbound alone is unreliable —
+/// peer lookup is the stable join.
+pub fn find_im_desktop_for_channel_peer_in_conn(
+    conn: &Connection,
+    channel: &str,
+    account_id: &str,
+    peer_user_id: &str,
+) -> Result<Option<(String, String)>> {
+    let peer = normalize_session_user_id(peer_user_id);
+    if peer.is_empty() {
+        return Ok(None);
+    }
+    let channel = channel.trim();
+    let account_id = account_id.trim();
+    if channel.is_empty() || account_id.is_empty() {
+        return Ok(None);
+    }
+    let prefix = format!("{channel}:{account_id}:");
+    let like = format!("{prefix}%");
+    let mut stmt = conn.prepare(
+        "SELECT id FROM conversations
+          WHERE session_user_id = ?1
+            AND id LIKE ?2
+          ORDER BY CASE
+                     WHEN im_last_interaction_at_ms > 0 THEN im_last_interaction_at_ms
+                     ELSE updated_at_ms
+                   END DESC,
+                   updated_at_ms DESC
+          LIMIT 30",
+    )?;
+    let ids = stmt
+        .query_map(params![peer, like], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    for id in ids {
+        let Some(parts) = crate::channel_outbound::parse_im_conversation_parts(&id) else {
+            continue;
+        };
+        if parts.is_group {
+            continue;
+        }
+        if !parts.channel.eq_ignore_ascii_case(channel) {
+            continue;
+        }
+        if parts.account_id != account_id {
+            continue;
+        }
+        let base = crate::channel_outbound::im_base_conversation_id(&id);
+        let state = super::im_session::load_im_session_in_conn(conn, &base)?;
+        let desktop = super::im_session::resolve_active_desktop_id(&base, &state);
+        return Ok(Some((base, desktop)));
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

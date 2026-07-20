@@ -315,8 +315,9 @@ App / Web 仍为 UI 选项卡 oneshot，行为不变。
 ### 静态路径（Cron）
 
 1. `cron_jobs.deliver` 列存 deliver 字符串（`cron_job` 工具 / 设置页 Automation 面板创建时填写）。
-2. `scheduler.rs dispatch_job` 把 `job.deliver` 注入 `TriggerRequest.trigger_meta.extra.deliver`，置 `DeliverTarget::Im` 标记位；`run_chat_inner` 注入 cron 专用 system 提示（含「勿用 im_send」与 `[SILENT]`）。
+2. `scheduler.rs dispatch_job` 把 `job.deliver` 注入 `TriggerRequest.trigger_meta.extra.deliver`，置 `DeliverTarget::Im` 标记位；用户消息经 `build_cron_user_prompt` 前缀 Hermes 式 `[IMPORTANT…]`（勿用 `im_send` / `[SILENT]`），**不**再注入 cron system 块。
 3. run 结束 → `ImDeliverHook`（`OnRunFinishedHook`）读取 `trigger_meta.extra.deliver`，加载最后一条 assistant 回复，拆媒体 / 跳过静默叙述 / 截断到 4000 字，逐目标推送；失败写回 `cron_jobs.last_delivery_error`。
+4. **会话连贯（默认）**：每个 DM 目标推送成功后，把可见正文 mirror 进该 peer 的活跃 IM 桌面 transcript（前缀 `【定时投递】`，assistant 消息 + `InjectedAssistantMessage`）。按 `session_user_id` 查找会话（兼容飞书 chat_id ≠ open_id）；群 / 无历史私聊会话则跳过。`im_send` 暂不 mirror。
 
 > `[SILENT]` / 静默叙述：回复为 `[SILENT]`（大小写不敏感）或匹配宽口径静默正则时跳过当次推送，用于「本次无新内容可报」。
 
@@ -326,7 +327,7 @@ App / Web 仍为 UI 选项卡 oneshot，行为不变。
 
 - 已加入 `general` / `coder` / `computer` / `research` agent 的 `allowTools`。
 - 由 `install_channel_outbound_bridge` 注册到 `ToolRegistry`。
-- cron job 已配 `deliver` 时，平台会自动推送最终回复，agent 不应再调 `im_send` 重复推送（cron system 提示已说明）。
+- cron job 已配 `deliver` 时，平台会自动推送最终回复，agent 不应再调 `im_send` 重复推送（cron 用户消息前缀已说明）。
 
 ### HTTP / Webhook 注入（Phase 2）
 

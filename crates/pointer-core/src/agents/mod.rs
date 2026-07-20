@@ -1614,18 +1614,36 @@ mod builtin_agent_tests {
         let raw = include_str!("general/AGENT.md");
         let comm = include_str!("general/COMMUNICATION.md");
         let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
-        for tool in ["file_read", "file_write"] {
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .binary_search(&"file_read".to_string())
+                .is_ok(),
+            "general allowTools should include file_read"
+        );
+        for tool in ["file_write", "file_edit"] {
             assert!(
                 agent
                     .def
                     .access_policy
                     .allow_tools
                     .binary_search(&tool.to_string())
-                    .is_ok(),
-                "general allowTools should include {tool}"
+                    .is_err(),
+                "general allowTools must not include {tool} (edits go via coder)"
             );
         }
-        for skill in crate::skills::DEFAULT_ENABLED_SKILL_IDS {
+        for skill in [
+            "find-skills",
+            "dev-env-setup",
+            "skill-creator",
+            "pointer-manager",
+            "docx",
+            "xlsx",
+            "pptx",
+            "pdf",
+        ] {
             assert!(
                 agent.def.default_skill_ids.iter().any(|id| id == skill),
                 "general defaultSkillIds should include {skill}"

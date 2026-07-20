@@ -94,11 +94,13 @@ keep internal stage templates out of **`content`**.
 
 **Workspace root** (absolute path from app settings): `{{workspace_root}}`
 
-- **Workspace = this chat's scratch dir** (session sandbox if none picked). Write
+- **Workspace = this chat's scratch dir** (session sandbox if none picked). Prefer
   outputs here — not Desktop/Downloads unless the user asked.
+- **General lead** has no **`file_write`** / **`file_edit`**. When to delegate
+  file/repo/skill writes: **`run_subagent`** tool doc (**`coder`** section).
 - **Skills vs workspace files:**
-  - **User Skills** → **`~/.pointer/skills/`** (**general lead:** writes delegate to **`coder`**;
-    **`skill_import`** for install from zip/path only).
+  - **User Skills** → **`~/.pointer/skills/`** (install: **`skill_import`**;
+    edits: **`run_subagent`** → **`coder`**, see that tool doc).
   - **Codex / Agent compatibility** — Pointer also **loads** (read-only) skills from **`~/.agents/skills/`** when present. Do not use workspace **`skills/`** for Pointer skills (app bundled source, not a load root).
 - Deliver files with `MEDIA:<absolute-path>` (see **Delivering local files in chat**).
 

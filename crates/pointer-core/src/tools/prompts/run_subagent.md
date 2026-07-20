@@ -118,18 +118,26 @@ Unverified assumptions (optional).
 
 **`coder` (general lead only)**
 
-- **Delegate directly — no user consent.** All repo source work (analysis, edits, tests); skill
-  **writes** under **`~/.pointer/skills/`**. Next tool = **`run_subagent`** — no repo scout
-  (`file_read`, **`terminal`** grep/find). User facts → **`context`**.
-- **`workspaceRoot`** required. Before delegate: **`skill_read`** only, or one **`file_read`**
-  on a user-named path.
+Authoritative when-to-delegate and call rules for **`coder`** (do not restate elsewhere):
+
+- **Delegate directly — no user consent.**
+- **All** file create / overwrite / edit (**`file_write`** / **`file_edit`**).
+  General does **not** have these tools — never attempt them locally.
+- All **repo / project source** work (search, analysis, edits, tests).
+- All **writes** under **`~/.pointer/skills/`** (skill create/update).
+- Next tool must be **`run_subagent`** — no repo scout
+  (`file_read` sweep, **`terminal`** grep/find).
+- User questions and facts → **`context`**; worker maps (**`explore`**), edits, tests.
+- **`workspaceRoot`** **required** — skill root, user project path, or conversation workspace.
+- Before delegate: **`skill_read`** only, or one **`file_read`** on a **user-named** path.
 
 **`self` fork (general or coder lead)**
 
 - **When:** long main thread, or a sub-phase needs many tool rounds without polluting lead context
   (multi-skill steps, research, attachment pipelines) — and the work stays in the **current agent's**
   domain.
-- **When not:** repo/skill-file writes → **`coder`**; desktop/browser → **`computer`**; simple Q&A → stay local;
+- **When not:** file create/edit or skill-file writes → **`coder`** (rules above);
+  desktop/browser → **`computer`**; simple Q&A → stay local;
   broad read-only repo mapping → **`explore`** (coder only).
 - Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.
 - Parallel rules: see **Parallel wave** above.
@@ -159,7 +167,7 @@ Unverified assumptions (optional).
 
 **`coder` goals**
 
-- **`workspaceRoot`** (required on **`run_subagent`**) — skill root, user project path, or conversation workspace.
+- Follow **`coder` (general lead only)** above for **`workspaceRoot`**.
 - Do **not** send patch hunks or **`oldString`/`newString`** — put edit ideas in **Lead suggestion (non-binding)**.
 
 **`self` fork goals**

@@ -39,11 +39,11 @@ Never read or write skill files under the app data directory directly
 **`skill_read`** / **`skill_import`**.
 
 **Updating user skills:** do **not** edit `~/.pointer/skills/` yourself.
-Delegate immediately with **`run_subagent(agentId="coder")`** — put the change
-spec in **`goal`** / **`context`**, and set **`workspaceRoot`** to the skill
-root (`~/.pointer/skills/{skill-name}/`, or `~/.pointer/skills/` when creating).
-The **coder** sub-agent uses **`file_*`** + **`skill-creator`** (small
-**`file_edit`** patches; avoid whole-file overwrites of **`SKILL.md`**).
+Delegate with **`run_subagent(agentId="coder")`** — when-to / **`workspaceRoot`** /
+**`goal`** / **`context`**: follow the **`run_subagent`** tool doc (**`coder`**).
+Skill root is typically `~/.pointer/skills/{skill-name}/` (or `~/.pointer/skills/`
+when creating). The **coder** worker uses **`file_*`** + **`skill-creator`**
+(prefer small **`file_edit`** patches; avoid whole-file overwrites of **`SKILL.md`**).
 **Install only:** user-supplied zip or directory → **`skill_import`** (general lead).
 
 #### Tools

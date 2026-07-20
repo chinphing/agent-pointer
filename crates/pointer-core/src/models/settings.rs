@@ -2062,8 +2062,6 @@ pub fn preserve_platform_debug_settings_in_model(incoming: &mut ModelSettings, p
     incoming.agent_task_board_history_trim = platform.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_tool_rounds = platform.max_sub_agent_tool_rounds;
     incoming.max_sub_agent_spawn_depth = platform.max_sub_agent_spawn_depth;
-    incoming.agent_mode_llm = platform.agent_mode_llm.clone();
-    incoming.media_mode_llm = platform.media_mode_llm.clone();
 }
 
 /// Strip DaTi fields and redact secrets for pointer-server Web API responses.

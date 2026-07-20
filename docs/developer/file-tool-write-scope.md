@@ -36,3 +36,7 @@
 - 系统目录（如 `/etc`、`C:\Windows`）
 - 其他用户的主目录
 - 未挂载 / 不可 canonical 的路径
+
+**Agent 策略：** `general` 不暴露 `file_write` / `file_edit`。何时委托 `coder`、
+如何填 `workspaceRoot` / `goal` / `context`，以 **`run_subagent` 工具提示词**
+（`coder` 小节）为唯一权威；其他 agent / 公共提示只引用、不复述细则。

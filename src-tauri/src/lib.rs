@@ -242,6 +242,9 @@ pub fn run() {
         pointer_core::logging::install_panic_hook();
     }
 
+    pointer_core::provider::set_llm_user_agent("pointer-app")
+        .expect("static desktop LLM User-Agent must be valid");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -480,6 +483,7 @@ pub fn run() {
             commands::update_agent_settings,
             commands::update_user_settings,
             commands::update_platform_settings,
+            commands::update_debug_session_settings,
             commands::set_api_key,
             commands::clear_api_key,
             commands::test_connection,

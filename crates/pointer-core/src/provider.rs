@@ -7,9 +7,48 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::Write;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
+static LLM_USER_AGENT: OnceLock<String> = OnceLock::new();
+
+/// Configure the host-specific User-Agent used by OpenAI-compatible LLM requests.
+///
+/// Desktop registers `pointer-app` during startup. Server hosts intentionally
+/// leave this unset and retain reqwest's default behavior.
+pub fn set_llm_user_agent(value: &str) -> Result<()> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(anyhow!("LLM User-Agent must not be empty"));
+    }
+    reqwest::header::HeaderValue::from_str(value)
+        .map_err(|error| anyhow!("invalid LLM User-Agent: {error}"))?;
+    if let Some(existing) = LLM_USER_AGENT.get() {
+        if existing == value {
+            return Ok(());
+        }
+        return Err(anyhow!(
+            "LLM User-Agent already configured as '{existing}'"
+        ));
+    }
+    LLM_USER_AGENT
+        .set(value.to_string())
+        .map_err(|_| anyhow!("failed to configure LLM User-Agent"))?;
+    log::info!("provider: configured LLM User-Agent={value}");
+    Ok(())
+}
+
+fn llm_http_client(timeout: Duration) -> Result<reqwest::Client> {
+    let builder = reqwest::Client::builder().timeout(timeout);
+    let builder = if let Some(user_agent) = LLM_USER_AGENT.get() {
+        builder.user_agent(user_agent)
+    } else {
+        builder
+    };
+    Ok(builder.build()?)
+}
 
 #[derive(Debug, Clone)]
 pub enum ProviderEvent {
@@ -285,9 +324,7 @@ impl OpenAIProvider {
             "stream": false,
             "max_tokens": 4
         });
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()?;
+        let client = llm_http_client(Duration::from_secs(20))?;
         let resp = client
             .post(&url)
             .bearer_auth(&self.api_key)
@@ -379,9 +416,7 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = llm_http_client(Duration::from_secs(180))?;
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
@@ -467,9 +502,7 @@ impl OpenAIProvider {
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let wire_body = chat_request_wire_json(&req, &self.settings);
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = llm_http_client(Duration::from_secs(180))?;
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
@@ -640,9 +673,7 @@ impl OpenAIProvider {
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let wire_body = chat_request_wire_json(&req, &self.settings);
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = llm_http_client(Duration::from_secs(180))?;
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
@@ -747,9 +778,7 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = llm_http_client(Duration::from_secs(180))?;
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
@@ -923,9 +952,7 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = llm_http_client(Duration::from_secs(180))?;
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
@@ -1147,9 +1174,7 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
+        let client = llm_http_client(Duration::from_secs(180))?;
 
         let t_http = Instant::now();
         let resp = tokio::select! {

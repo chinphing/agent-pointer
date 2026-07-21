@@ -34,8 +34,12 @@ const NORMAL_PROMPT_MARKERS: &[&str] = &[
     "[y/n]",
     "(yes/no)",
     "[yes/no]",
+    // OpenSSH 8.8+ host-key confirm: (yes/no/[fingerprint]) — no literal "(yes/no)"
+    "(yes/no/",
+    "[yes/no/",
     "y/n?",
     "yes/no?",
+    "continue connecting",
     "continue?",
     "proceed?",
     "enter choice",
@@ -71,11 +75,11 @@ pub fn detect_prompt_state(combined_output: &str, _idle_ms: u64) -> PromptState 
         InputClass::Normal
     };
 
+    let trimmed_end = lower.trim_end();
     let needs_input_likely = input_class == InputClass::Secret
         || NORMAL_PROMPT_MARKERS.iter().any(|m| lower.contains(m))
-        || lower.ends_with('?')
-        || lower.ends_with(": ")
-        || lower.ends_with(':');
+        || trimmed_end.ends_with('?')
+        || trimmed_end.ends_with(':');
 
     let input_hint = if needs_input_likely {
         Some(last_meaningful_line(&tail))
@@ -183,6 +187,36 @@ fn looks_like_progress_or_log(tail: &str) -> bool {
     false
 }
 
+/// Short idle before treating trailing output as an interactive prompt.
+/// Separate from the command `timeoutMs` so yes/no → password can re-prompt quickly.
+pub const PROMPT_DETECT_IDLE_MS: u64 = 800;
+
+/// After the user already answered an interactive prompt (e.g. SSH host-key yes/no),
+/// OpenSSH may wait at a password prompt that does not clearly echo `password:` on
+/// the PTY. Use only after prior input — never on first connect (key auth / hang).
+pub fn post_interactive_ssh_secret_prompt(
+    command: &str,
+    combined_output: &str,
+    idle_ms: u64,
+    user_already_input: bool,
+) -> Option<PromptState> {
+    if !user_already_input || idle_ms < PROMPT_DETECT_IDLE_MS {
+        return None;
+    }
+    if !super::terminal_askpass::command_wants_ssh_askpass(command) {
+        return None;
+    }
+    let state = detect_prompt_state(combined_output, idle_ms);
+    if state.needs_input_likely {
+        return None;
+    }
+    Some(PromptState {
+        needs_input_likely: true,
+        input_hint: Some("SSH password".to_string()),
+        input_class: InputClass::Secret,
+    })
+}
+
 /// Remove ANSI/OSC sequences so PTY output still matches prompt heuristics.
 pub fn strip_ansi_escapes(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -213,26 +247,6 @@ pub fn strip_ansi_escapes(text: &str) -> String {
         out.push(c);
     }
     out
-}
-
-/// SSH on a PTY often waits at a password prompt without printing `password:` clearly.
-pub fn proactive_pty_secret_prompt(command: &str, combined_output: &str, idle_ms: u64) -> Option<PromptState> {
-    if idle_ms < 1_000 {
-        return None;
-    }
-    if !super::terminal_askpass::command_wants_ssh_askpass(command) {
-        return None;
-    }
-    let cleaned = strip_ansi_escapes(combined_output);
-    let state = detect_prompt_state(&cleaned, idle_ms);
-    if state.needs_input_likely {
-        return None;
-    }
-    Some(PromptState {
-        needs_input_likely: true,
-        input_hint: Some("SSH password".to_string()),
-        input_class: InputClass::Secret,
-    })
 }
 
 #[cfg(test)]
@@ -273,6 +287,43 @@ mod tests {
     }
 
     #[test]
+    fn ignores_ssh_connecting_without_password_prompt() {
+        let state = detect_prompt_state("Connecting to host...\n", 5000);
+        assert!(!state.needs_input_likely);
+    }
+
+    #[test]
+    fn detects_ssh_host_key_yes_no() {
+        let text = "The authenticity of host '1.2.3.4' can't be established.\n\
+                    ED25519 key fingerprint is SHA256:abc.\n\
+                    Are you sure you want to continue connecting (yes/no/[fingerprint])? ";
+        let state = detect_prompt_state(text, 800);
+        assert!(state.needs_input_likely);
+        assert_eq!(state.input_class, InputClass::Normal);
+    }
+
+    #[test]
+    fn detects_password_after_host_key_trust() {
+        let text = "Warning: Permanently added '1.2.3.4' (ED25519) to the list of known hosts.\n\
+                    root@1.2.3.4's password: ";
+        let state = detect_prompt_state(text, 800);
+        assert!(state.needs_input_likely);
+        assert_eq!(state.input_class, InputClass::Secret);
+    }
+
+    #[test]
+    fn post_interactive_ssh_secret_only_after_prior_input() {
+        let out = "Warning: Permanently added '1.2.3.4' (ED25519) to the list of known hosts.\n";
+        assert!(post_interactive_ssh_secret_prompt("ssh root@1.2.3.4", out, 800, false).is_none());
+        let p = post_interactive_ssh_secret_prompt("ssh root@1.2.3.4", out, 800, true).unwrap();
+        assert_eq!(p.input_class, InputClass::Secret);
+        assert!(
+            post_interactive_ssh_secret_prompt("ssh root@1.2.3.4", "root@host's password: ", 800, true)
+                .is_none()
+        );
+    }
+
+    #[test]
     fn scrubs_echoed_secret() {
         let out = scrub_secret_echo("Password: \nmy-secret\nDone", "my-secret");
         assert!(out.contains("[redacted]"));
@@ -285,12 +336,5 @@ mod tests {
         let state = detect_prompt_state(&raw, 5000);
         assert!(state.needs_input_likely);
         assert_eq!(state.input_class, InputClass::Secret);
-    }
-
-    #[test]
-    fn proactive_ssh_prompt_on_idle() {
-        let p = proactive_pty_secret_prompt("ssh root@1.2.3.4", "Connecting...\n", 5000);
-        assert!(p.is_some());
-        assert_eq!(p.unwrap().input_class, InputClass::Secret);
     }
 }

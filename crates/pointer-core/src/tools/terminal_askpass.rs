@@ -1,6 +1,13 @@
-//! OpenSSH `SSH_ASKPASS` bridge for password prompts when there is no TTY
-//! (packaged Tauri app, or piped terminal). Unix only — the helper connects
-//! back to a Unix socket; we show the input modal and write the password once.
+//! OpenSSH `SSH_ASKPASS` bridge for password / passphrase prompts.
+//!
+//! Unix only — the helper connects back to a Unix socket; we show the input
+//! modal and write the password once.
+//!
+//! Used for:
+//! - Piped (non-TTY) SSH: no terminal to type into
+//! - PTY SSH with `SSH_ASKPASS_REQUIRE=force`: host-key yes/no still uses the
+//!   PTY; password/passphrase is forced through askpass so the UI modal works
+//!   even when the PTY does not clearly echo `password:`
 
 #[cfg(unix)]
 use anyhow::{anyhow, Result};
@@ -88,18 +95,50 @@ impl AskpassBridge {
     }
 
     pub fn apply_to_command(&self, cmd: &mut Command, helper_path: &Path) {
-        cmd.env("SSH_ASKPASS", helper_path);
-        cmd.env("SSH_ASKPASS_REQUIRE", "force");
-        cmd.env(
-            "POINTER_ASKPASS_SOCKET",
-            self.socket_path.display().to_string(),
-        );
-        // OpenSSH still checks DISPLAY on some builds even with ASKPASS_REQUIRE=force.
-        cmd.env("DISPLAY", ":0");
+        for (key, value) in self.env_pairs(helper_path) {
+            cmd.env(key, value);
+        }
+    }
+
+    /// Env vars for portable-pty `CommandBuilder` (same contract as `apply_to_command`).
+    pub fn env_pairs(&self, helper_path: &Path) -> Vec<(String, String)> {
+        vec![
+            (
+                "SSH_ASKPASS".to_string(),
+                helper_path.display().to_string(),
+            ),
+            ("SSH_ASKPASS_REQUIRE".to_string(), "force".to_string()),
+            (
+                "POINTER_ASKPASS_SOCKET".to_string(),
+                self.socket_path.display().to_string(),
+            ),
+            // OpenSSH still checks DISPLAY on some builds even with ASKPASS_REQUIRE=force.
+            ("DISPLAY".to_string(), ":0".to_string()),
+        ]
     }
 
     pub fn try_accept_connection(&self) -> Option<UnixStream> {
         self.connection_rx.try_recv().ok()
+    }
+}
+
+/// Create askpass helper + listener without attaching to a process yet.
+#[cfg(unix)]
+pub fn try_create_ssh_askpass(
+    command: &str,
+    input_hooks_active: bool,
+) -> Option<(AskpassBridge, PathBuf)> {
+    if !input_hooks_active || !command_wants_ssh_askpass(command) {
+        return None;
+    }
+    match ensure_askpass_helper_script().and_then(|helper| {
+        AskpassBridge::start().map(|bridge| (bridge, helper))
+    }) {
+        Ok(pair) => Some(pair),
+        Err(e) => {
+            warn!("terminal askpass: setup failed: {e:#}");
+            None
+        }
     }
 }
 
@@ -131,22 +170,10 @@ pub fn try_setup_ssh_askpass(
     input_hooks_active: bool,
     cmd: &mut Command,
 ) -> Option<AskpassBridge> {
-    if !input_hooks_active || !command_wants_ssh_askpass(command) {
-        return None;
-    }
-    match ensure_askpass_helper_script().and_then(|helper| {
-        AskpassBridge::start().map(|bridge| (helper, bridge))
-    }) {
-        Ok((helper, bridge)) => {
-            bridge.apply_to_command(cmd, &helper);
-            info!("terminal askpass: enabled for OpenSSH command");
-            Some(bridge)
-        }
-        Err(e) => {
-            warn!("terminal askpass: setup failed: {e:#}");
-            None
-        }
-    }
+    let (bridge, helper) = try_create_ssh_askpass(command, input_hooks_active)?;
+    bridge.apply_to_command(cmd, &helper);
+    info!("terminal askpass: enabled for OpenSSH command");
+    Some(bridge)
 }
 
 #[cfg(test)]

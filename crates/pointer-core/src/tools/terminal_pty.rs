@@ -189,12 +189,24 @@ fn shell_command_builder(command: &str) -> CommandBuilder {
     builder
 }
 
-fn apply_env_to_builder(builder: &mut CommandBuilder, env_files: &[PathBuf]) {
+fn apply_env_to_builder(
+    builder: &mut CommandBuilder,
+    env_files: &[PathBuf],
+    askpass_env: Option<&[(String, String)]>,
+) {
     for (key, value) in build_terminal_child_environment(env_files) {
         builder.env(key, value);
     }
-    builder.env("SSH_ASKPASS", "");
-    builder.env("SSH_ASKPASS_REQUIRE", "");
+    if let Some(pairs) = askpass_env {
+        for (key, value) in pairs {
+            builder.env(key, value);
+        }
+    } else {
+        // Clear inherited askpass so sudo/expect PTY sessions do not steal a
+        // parent SSH_ASKPASS. SSH interactive runs pass askpass_env explicitly.
+        builder.env("SSH_ASKPASS", "");
+        builder.env("SSH_ASKPASS_REQUIRE", "");
+    }
 }
 
 fn spawn_pty_reader<R>(mut reader: R, tx: mpsc::Sender<String>)
@@ -230,6 +242,7 @@ pub fn try_spawn_terminal_pty(
     command: &str,
     cwd: &Path,
     env_files: &[PathBuf],
+    askpass_env: Option<&[(String, String)]>,
 ) -> Result<(
     Box<dyn portable_pty::Child + Send + Sync>,
     TerminalInputSink,
@@ -247,7 +260,7 @@ pub fn try_spawn_terminal_pty(
 
     let mut builder = shell_command_builder(command);
     builder.cwd(cwd);
-    apply_env_to_builder(&mut builder, env_files);
+    apply_env_to_builder(&mut builder, env_files, askpass_env);
     builder.env("TERM", "xterm-256color");
 
     let child = pair

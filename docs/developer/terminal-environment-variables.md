@@ -56,4 +56,5 @@ Prefer `WORKING_DIR` over hard-coded paths when a Skill or script must anchor to
 - [session-user-id.md](session-user-id.md) — `session_user_id` persistence and IM / desktop resolution
 - [workspace-root.md](workspace-root.md) — workspace resolution and sandbox layout
 - [file-tool-write-scope.md](file-tool-write-scope.md) — `file_write` / `file_edit` workspace rules
+- [terminal-interactive-input.md](terminal-interactive-input.md) — SSH/PTY password and yes/no modal
 - [`../internals/terminal-shell-path.md`](../internals/terminal-shell-path.md) — shell, `PATH`, and `.env` for **`terminal`**

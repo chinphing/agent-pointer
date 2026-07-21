@@ -1,12 +1,14 @@
 #[cfg(unix)]
-use super::terminal_askpass::{deliver_askpass_password, try_setup_ssh_askpass};
+use super::terminal_askpass::{
+    deliver_askpass_password, try_create_ssh_askpass, try_setup_ssh_askpass,
+};
 use super::terminal_pty::{
     command_wants_pty, try_spawn_terminal_pty, ActiveChild, TerminalInputSink,
 };
 use super::terminal_elevated::run_terminal_command_elevated;
 use super::terminal_prompt::{
     agent_retry_forbidden, detect_prompt_state, input_context_snippet,
-    proactive_pty_secret_prompt, scrub_secret_echo,
+    post_interactive_ssh_secret_prompt, scrub_secret_echo, PROMPT_DETECT_IDLE_MS,
 };
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 
@@ -294,7 +296,25 @@ pub fn run_terminal_command_streaming(
     let mut using_pty = false;
 
     let pty_spawn = if use_pty {
-        match try_spawn_terminal_pty(command, &cwd, &paths) {
+        #[cfg(unix)]
+        let mut pty_askpass_pairs: Option<Vec<(String, String)>> = None;
+        #[cfg(unix)]
+        {
+            if let Some((bridge, helper)) =
+                try_create_ssh_askpass(command, input_hooks.is_some())
+            {
+                pty_askpass_pairs = Some(bridge.env_pairs(&helper));
+                askpass_bridge = Some(bridge);
+                ssh_askpass_active = true;
+                info!("terminal askpass: enabled for OpenSSH PTY session");
+            }
+        }
+        #[cfg(unix)]
+        let askpass_ref = pty_askpass_pairs.as_deref();
+        #[cfg(not(unix))]
+        let askpass_ref: Option<&[(String, String)]> = None;
+
+        match try_spawn_terminal_pty(command, &cwd, &paths, askpass_ref) {
             Ok((pty_child, sink, pty_rx)) => {
                 let tx_bridge = tx.clone();
                 thread::spawn(move || {
@@ -312,6 +332,11 @@ pub fn run_terminal_command_streaming(
             }
             Err(e) => {
                 warn!("terminal pty: spawn failed, falling back to pipe: {e:#}");
+                #[cfg(unix)]
+                {
+                    askpass_bridge = None;
+                    ssh_askpass_active = false;
+                }
                 None
             }
         }
@@ -383,7 +408,6 @@ pub fn run_terminal_command_streaming(
     let mut input_dismissed = false;
     let mut waited_for_input_ms: u64 = 0;
     let mut last_secret_submitted: Option<String> = None;
-    let mut pty_ssh_modal_opened = false;
 
     let status = 'main: loop {
         while let Ok(chunk) = rx.try_recv() {
@@ -583,30 +607,34 @@ pub fn run_terminal_command_streaming(
             break status;
         }
 
-        if last_output_at.elapsed() >= Duration::from_millis(timeout_ms)
-            || (using_pty
-                && super::terminal_askpass::command_wants_ssh_askpass(command)
-                && started.elapsed() >= Duration::from_millis(1_500)
-                && !pty_ssh_modal_opened)
-        {
+        if last_output_at.elapsed() >= Duration::from_millis(PROMPT_DETECT_IDLE_MS) {
             let combined = format!("{}{}", stdout_buf, stderr_buf);
             let idle_ms = last_output_at.elapsed().as_millis() as u64;
-            let pty_age_ms = started.elapsed().as_millis() as u64;
+            // Heuristic prompts (password:/y/n/…) after a short settle.
+            // Do not proactively force an SSH password modal on first connect —
+            // that path was too eager (key auth / hanging connects).
+            // Unix: password/passphrase also arrives via SSH_ASKPASS (including PTY).
+            // After the user already answered yes/no, fall back to a secret modal
+            // when the PTY does not clearly echo password: (Windows / askpass miss).
             let mut prompt = detect_prompt_state(&combined, idle_ms);
-            if !prompt.needs_input_likely {
-                if let Some(proactive) =
-                    proactive_pty_secret_prompt(command, &combined, idle_ms.max(pty_age_ms))
-                {
-                    if using_pty && !pty_ssh_modal_opened {
-                        info!(
-                            "terminal pty: proactive ssh password modal (pty_age={pty_age_ms}ms idle={idle_ms}ms out_len={})",
-                            combined.len()
-                        );
-                        pty_ssh_modal_opened = true;
-                    }
-                    prompt = proactive;
+            if !prompt.needs_input_likely && !ssh_askpass_active {
+                if let Some(fallback) = post_interactive_ssh_secret_prompt(
+                    command,
+                    &combined,
+                    idle_ms,
+                    user_input_provided,
+                ) {
+                    info!(
+                        "terminal: post-interactive SSH password modal (idle={idle_ms}ms)"
+                    );
+                    prompt = fallback;
                 }
             }
+
+            // With ASKPASS_REQUIRE=force, secret prompts are delivered via askpass.
+            // Skip heuristic Secret modals to avoid a second popup after askpass.
+            let open_heuristic_modal = prompt.needs_input_likely
+                && !(ssh_askpass_active && prompt.input_class == InputClass::Secret);
 
             if prompt.needs_input_likely {
                 needs_input_likely = true;
@@ -614,9 +642,8 @@ pub fn run_terminal_command_streaming(
                 input_class = prompt.input_class;
             }
 
-            if prompt.needs_input_likely {
+            if open_heuristic_modal {
                 if let Some(hooks) = &input_hooks {
-                    pty_ssh_modal_opened = true;
                     info!(
                         "terminal: idle prompt detected; waiting for user input class={:?} stdin_piped={stdin_piped}",
                         prompt.input_class
@@ -771,7 +798,10 @@ pub fn run_terminal_command_streaming(
                         thread::sleep(Duration::from_millis(50));
                     }
                 }
-            } else if !using_pty && !ssh_askpass_active {
+            } else if last_output_at.elapsed() >= Duration::from_millis(timeout_ms)
+                && !using_pty
+                && !ssh_askpass_active
+            {
                 timed_out = true;
                 child.kill_best_effort();
                 let status = child.wait()?;

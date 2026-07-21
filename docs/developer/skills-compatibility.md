@@ -31,7 +31,14 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 与 Codex / OpenClaw / Hermes 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（必填 `path`）按需读取（不自动执行脚本）。读说明时 `path=SKILL.md`；读资源时传 skill 相对路径。
 
-**`skill_read` 实时读磁盘**（Hermes `skill_view(name, file_path)` 同型）：`path` 必填，且必须在 skill 根目录内（禁止 `..` 穿越），不要求事先出现在启动时扫描的 `resource_files` 索引里。Agent 用 `file_*` 新增 reference 后无需重启即可 `skill_read`。
+**`skill_read` 实时读磁盘**（Hermes `skill_view` 同型）：`path` 必填，且必须在 skill 根目录内（禁止 `..` 穿越）。
+
+- **`path=SKILL.md`**：每次从磁盘重读正文，**不**使用注册表里的正文缓存；改文件后无需 `reload_meta` / 重启即可生效。
+- **资源路径**（`references/` 等）：同样每次读盘；不要求事先出现在启动时扫描的 `resource_files` 索引里。
+
+注册表在启动 / `reload_meta` 时只保留目录元数据（name、description、`source` 等）。Agent 用 `file_*` 新增 reference 或改 `SKILL.md` 后无需重启即可 `skill_read`。
+
+**说明**：`<available_skills>` 里的 description 仍来自上次扫描；改 frontmatter 描述后需刷新技能列表才会更新目录摘要。
 
 ## 运行时注入（OpenClaw 对齐）
 

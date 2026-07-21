@@ -133,7 +133,7 @@ impl SkillRegistry {
     }
 
     fn load_instructions(&self, id: &str) -> Result<String> {
-        let (name, body, skill_dir, track_usage) = {
+        let (fallback_name, skill_dir, track_usage, cached_body) = {
             let g = self.inner.read();
             let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;
             let track = !skill.builtin
@@ -142,14 +142,27 @@ impl SkillRegistry {
                 });
             (
                 skill.name.clone(),
-                skill.system_prompt.clone(),
                 skill.source.clone(),
                 track,
+                skill.system_prompt.clone(),
             )
         };
         if track_usage {
             curator::record_skill_usage(id);
         }
+
+        // Hermes-aligned: re-read SKILL.md from disk each call so edits apply immediately.
+        // Registry only keeps catalog metadata; `system_prompt` is intentionally empty.
+        let (name, body) = match skill_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(dir) => external::read_skill_instructions_from_dir(Path::new(dir))
+                .map_err(|e| anyhow!("读取 Skill 失败 ({id}): {e:#}"))?,
+            None => (fallback_name, cached_body),
+        };
+
         let body = skill_dir
             .as_deref()
             .map(|dir| substitute_base_dir_in_skill_body(&body, Path::new(dir)))
@@ -460,24 +473,78 @@ mod tests {
     }
 
     #[test]
+    fn load_instructions_reads_skill_md_from_disk_not_cache() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill_dir = dir.path().join("live-skill");
+        fs::create_dir_all(&skill_dir).expect("mkdir");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: live-skill\ndescription: d\n---\nversion one\n",
+        )
+        .expect("write v1");
+
+        let reg = SkillRegistry::new();
+        reg.register(SkillDef {
+            id: "live-skill".into(),
+            name: "live-skill".into(),
+            description: "d".into(),
+            tags: vec![],
+            system_prompt: "stale cached body".into(),
+            tool_names: vec![],
+            scenario: String::new(),
+            builtin: false,
+            resource_files: vec![],
+            source: Some(skill_dir.to_string_lossy().into_owned()),
+            provenance: "user".into(),
+            mutable: true,
+        });
+
+        let out1 = reg.read("live-skill", "SKILL.md").expect("read v1");
+        assert!(out1.contains("version one"));
+        assert!(!out1.contains("stale cached body"));
+
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: live-skill\ndescription: d\n---\nversion two\n",
+        )
+        .expect("write v2");
+        let out2 = reg.read("live-skill", "SKILL.md").expect("read v2");
+        assert!(out2.contains("version two"));
+        assert!(!out2.contains("version one"));
+    }
+
+    #[test]
     fn load_instructions_substitutes_base_dir_placeholder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill_dir = dir.path().join("vid");
+        fs::create_dir_all(skill_dir.join("scripts")).expect("mkdir");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: vid\ndescription: d\n---\nRun {baseDir}/scripts/frame.sh\n",
+        )
+        .expect("write manifest");
+
         let reg = SkillRegistry::new();
         reg.register(SkillDef {
             id: "vid".into(),
             name: "vid".into(),
             description: "d".into(),
             tags: vec![],
-            system_prompt: "Run {baseDir}/scripts/frame.sh".into(),
+            system_prompt: String::new(),
             tool_names: vec![],
             scenario: String::new(),
             builtin: false,
             resource_files: vec![],
-            source: Some("/opt/skills/vid".into()),
+            source: Some(skill_dir.to_string_lossy().into_owned()),
             provenance: "system".into(),
             mutable: false,
         });
         let out = reg.read("vid", "SKILL.md").expect("read");
-        assert!(out.contains("/opt/skills/vid/scripts/frame.sh"));
+        let expected = format!("{}/scripts/frame.sh", skill_dir.display());
+        assert!(
+            out.contains(&expected),
+            "expected {expected} in {out}"
+        );
     }
 
     #[test]

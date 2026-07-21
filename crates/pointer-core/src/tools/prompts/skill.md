@@ -89,7 +89,7 @@ Example:
 - Call when an enabled skill's `name` / `description` clearly matches the task.
 - Pass only enabled `skill_id` values.
 - Always pass **`path`** (required). Never omit it.
-- **Instructions:** `path` = `SKILL.md`.
+- **Instructions:** `path` = `SKILL.md` (re-read from disk each call; edits apply immediately).
 - **Resource file:** `path` relative to the skill directory (parent of `<location>`),
   e.g. `references/api-guide.md`.
 - **Scripts:** after **`skill_read`**, run bundled scripts via **`terminal`** using absolute paths (`{baseDir}` in the skill body is expanded on load; otherwise use `dirname(<location>)` + relative path).

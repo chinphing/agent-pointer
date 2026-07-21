@@ -555,7 +555,8 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
         name: manifest.name,
         description: manifest.description.clone(),
         tags: merge_tags(&manifest.tags, &manifest.metadata),
-        system_prompt: manifest.body,
+        // Body is not cached (Hermes-aligned): `skill_read` re-reads SKILL.md from disk.
+        system_prompt: String::new(),
         tool_names: manifest.allowed_tools,
         scenario: manifest.description,
         builtin: false,
@@ -564,6 +565,18 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
         provenance: provenance.as_str().to_string(),
         mutable,
     })
+}
+
+/// Read skill name + markdown body from disk (no registry cache).
+/// Used by `skill_read` so edits to `SKILL.md` take effect immediately.
+pub fn read_skill_instructions_from_dir(dir: &Path) -> Result<(String, String)> {
+    let manifest_path = manifest_path_in_dir(dir)
+        .ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
+    let raw = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("无法读取 {}", manifest_path.display()))?;
+    let manifest = parse_skill_md(&raw)?;
+    validate_manifest(&manifest)?;
+    Ok((manifest.name, manifest.body))
 }
 
 fn extract_skill_dir<R: Read + std::io::Seek>(

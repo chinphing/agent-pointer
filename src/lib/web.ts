@@ -10,6 +10,7 @@ import type {
   ConversationMeta,
   ConversationMetaPage,
   ConversationSearchHit,
+  DebugSessionSettings,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -176,6 +177,15 @@ export async function updateSettings(settings: ModelSettings): Promise<Effective
 
 export async function updateAgentSettings(settings: ModelSettings): Promise<EffectiveSettingsView> {
   return await request<EffectiveSettingsView>('/api/agent-settings', { method: 'PUT', body: JSON.stringify(settings) })
+}
+
+export async function updateDebugSessionSettings(
+  settings: DebugSessionSettings
+): Promise<DebugSessionSettings> {
+  return await request<DebugSessionSettings>('/api/debug-session-settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings)
+  })
 }
 
 export async function updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView> {

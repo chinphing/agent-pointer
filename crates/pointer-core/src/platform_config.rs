@@ -461,7 +461,25 @@ mod tests {
             },
         );
 
-        let json = serde_json::to_string(&PersistedLocalPlatformSettings::from_platform(&platform)).unwrap();
+        let persisted = PersistedLocalPlatformSettings::from_platform(&platform);
+        let json = serde_json::to_string(&persisted).unwrap();
+        let value = serde_json::to_value(&persisted).unwrap();
+        for key in [
+            "providers",
+            "activeProviderId",
+            "model",
+            "temperature",
+            "maxTokens",
+            "computerTierLlm",
+            "computerPipelineLlm",
+            "agentModeLlm",
+            "mediaModeLlm",
+        ] {
+            assert!(
+                value.get(key).is_none(),
+                "debug-session field must not be persisted: {key}"
+            );
+        }
         assert!(!json.contains("sk-secret"));
         assert!(!json.contains("apiKey"));
         assert!(!json.contains("openrouter"));

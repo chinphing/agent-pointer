@@ -513,6 +513,19 @@ export interface ComputerPipelineLlmSettings {
 
 export type ComputerTierKey = 'primary' | 'intermediate' | 'advanced'
 
+/** Process-local debug model configuration. Never persist this object. */
+export interface DebugSessionSettings {
+  providers: ProviderConfig[]
+  activeProviderId: string
+  model: string
+  temperature: number
+  maxTokens: number
+  computerTierLlm: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+  computerPipelineLlm: ComputerPipelineLlmSettings
+  agentModeLlm: AgentModeLlmMap
+  mediaModeLlm: MediaModeLlmMap
+}
+
 /** Platform/runtime fields (in-memory; admin-editable in desktop app). */
 export interface PlatformSettings {
   providers: ProviderConfig[]

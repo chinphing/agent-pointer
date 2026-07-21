@@ -27,9 +27,8 @@ use pointer_core::{
     },
     models::{
         ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation,
-        WebEffectiveSettingsView,
-        ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
-        ToolDef, UserSettings,
+        DebugSessionSettings, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
+        SkillImportResult, StreamEvent, ToolDef, UserSettings, WebEffectiveSettingsView,
     },
     platform_auth::{PlatformAuthManager, PlatformSessionView},
     platform_config::apply_login_media_oss,
@@ -442,6 +441,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/license/reload", post(local_auth::license_reload))
         .route("/api/settings", get(get_settings).put(update_settings))
         .route("/api/agent-settings", put(update_agent_settings))
+        .route(
+            "/api/debug-session-settings",
+            put(update_debug_session_settings),
+        )
         .route("/api/user-settings", put(update_user_settings))
         .route("/api/platform-settings", put(update_platform_settings))
         .route("/api/key", post(set_api_key).delete(clear_api_key))
@@ -654,6 +657,23 @@ async fn update_platform_settings(
     Err(ApiError(anyhow::anyhow!(
         "web runtime: platform settings are read-only"
     )))
+}
+
+async fn update_debug_session_settings(
+    State(state): State<ServerState>,
+    Json(settings): Json<DebugSessionSettings>,
+) -> Result<Json<DebugSessionSettings>, ApiError> {
+    require_platform_access(&state)?;
+    let view = state
+        .core
+        .update_debug_session_settings(settings)
+        .map_err(|error| {
+            log::warn!("debug_session_settings: web update failed: {error:#}");
+            ApiError(error)
+        })?;
+    let mut response = DebugSessionSettings::from(view.platform);
+    pointer_core::models::redact_debug_session_settings_for_web(&mut response);
+    Ok(Json(response))
 }
 
 async fn update_settings(

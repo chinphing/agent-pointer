@@ -10,8 +10,8 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
 use crate::models::{
-    ensure_agent_model_refs_have_provider, EffectiveSettingsView, ModelSettings, PlatformSettings,
-    UserSettings,
+    ensure_agent_model_refs_have_provider, DebugSessionSettings, EffectiveSettingsView,
+    ModelSettings, PlatformSettings, UserSettings,
 };
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
@@ -557,6 +557,86 @@ impl AppState {
         Ok(self.effective_settings_view())
     }
 
+    pub fn update_debug_session_settings(
+        &self,
+        mut incoming: DebugSessionSettings,
+    ) -> anyhow::Result<EffectiveSettingsView> {
+        if !self.active_platform_auth().is_platform_admin() {
+            anyhow::bail!("only platform admins may edit debug session settings");
+        }
+        let active_provider_id = incoming.active_provider_id.trim().to_string();
+        if active_provider_id.is_empty() {
+            anyhow::bail!("active provider id is required");
+        }
+        let model = incoming.model.trim().to_string();
+        if model.is_empty() {
+            anyhow::bail!("active model is required");
+        }
+        let active_provider = incoming
+            .providers
+            .iter()
+            .find(|provider| provider.id == active_provider_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "active provider '{}' is not present in debug providers",
+                    active_provider_id
+                )
+            })?;
+        if !active_provider.models.iter().any(|candidate| candidate == &model) {
+            anyhow::bail!(
+                "active model '{}' is not configured for provider '{}'",
+                model,
+                active_provider_id
+            );
+        }
+        incoming.active_provider_id = active_provider_id;
+        incoming.model = model;
+
+        let mut platform = self.platform_config.write();
+        let existing_keys: HashMap<String, String> = platform
+            .providers
+            .iter()
+            .map(|provider| (provider.id.clone(), provider.api_key.clone()))
+            .collect();
+        for provider in &mut incoming.providers {
+            if provider.api_key.trim().is_empty() || provider.api_key == "****" {
+                if let Some(api_key) = existing_keys.get(provider.id.as_str()) {
+                    provider.api_key = api_key.clone();
+                }
+            }
+        }
+        platform.providers = incoming.providers;
+        platform.active_provider_id = incoming.active_provider_id;
+        platform.model = incoming.model;
+        platform.temperature = incoming.temperature;
+        platform.max_tokens = incoming.max_tokens;
+        platform.computer_tier_llm = incoming.computer_tier_llm;
+        platform.computer_pipeline_llm = incoming.computer_pipeline_llm;
+        platform.agent_mode_llm = incoming.agent_mode_llm;
+        platform.media_mode_llm = incoming.media_mode_llm;
+
+        let provider_count = platform.providers.len();
+        let mapping_count = platform.computer_tier_llm.len()
+            + 3
+            + platform
+                .agent_mode_llm
+                .values()
+                .map(HashMap::len)
+                .sum::<usize>()
+            + platform
+                .media_mode_llm
+                .values()
+                .map(HashMap::len)
+                .sum::<usize>();
+        drop(platform);
+        log::info!(
+            "debug_session_settings: updated providers={} mappings={}",
+            provider_count,
+            mapping_count
+        );
+        Ok(self.effective_settings_view())
+    }
+
     pub fn update_agent_settings(
         &self,
         incoming: &ModelSettings,
@@ -930,6 +1010,8 @@ impl AppState {
 #[cfg(test)]
 mod active_main_task_board_tests {
     use super::{AppState, FileWriteLockManager, ToolExecutionScope};
+    use crate::models::DebugSessionSettings;
+    use crate::platform_auth::{PlatformSession, PlatformUserSummary};
     use crate::task_board::{
         main_turn_task_board_store_key, sub_agent_task_board_store_key,
     };
@@ -958,6 +1040,90 @@ mod active_main_task_board_tests {
             )
             .expect("init child");
         child
+    }
+
+    #[test]
+    fn debug_session_settings_replace_runtime_model_configuration() {
+        let state = AppState::new();
+        let mut debug = DebugSessionSettings::from(state.platform_config.read().clone());
+        let mut provider = debug.providers[0].clone();
+        provider.id = "session-provider".into();
+        provider.name = "Session Provider".into();
+        provider.models = vec!["session-chat".into(), "session-worker".into()];
+        provider.api_key = "session-secret".into();
+        debug.providers = vec![provider];
+        debug.active_provider_id = "session-provider".into();
+        debug.model = "session-chat".into();
+        debug.temperature = 0.42;
+        debug.max_tokens = 4321;
+        for config in debug.computer_tier_llm.values_mut() {
+            config.provider_id = "session-provider".into();
+            config.model = "session-worker".into();
+        }
+        for modes in debug.agent_mode_llm.values_mut() {
+            for config in modes.values_mut() {
+                config.provider_id = "session-provider".into();
+                config.model = "session-worker".into();
+            }
+        }
+        for modes in debug.media_mode_llm.values_mut() {
+            for config in modes.values_mut() {
+                config.provider_id = "session-provider".into();
+                config.model = "session-worker".into();
+            }
+        }
+        debug.computer_pipeline_llm.decision = "session-worker".into();
+        debug.computer_pipeline_llm.position = "session-worker".into();
+        debug.computer_pipeline_llm.verify = "session-worker".into();
+
+        let denied = state
+            .update_debug_session_settings(debug.clone())
+            .expect_err("non-admin update must be rejected");
+        assert!(denied.to_string().contains("platform admins"));
+        state.platform_auth.set_session(PlatformSession {
+            access_token: "test-admin".into(),
+            refresh_token: String::new(),
+            expires_at: i64::MAX,
+            agent_id: "test-agent".into(),
+            user: PlatformUserSummary {
+                id: "test-admin".into(),
+                nickname: Some("Test Admin".into()),
+                is_platform_admin: true,
+                included_tokens: 0,
+                consumed_tokens: 0,
+                token_quota_exhausted: false,
+            },
+        });
+        let view = state
+            .update_debug_session_settings(debug.clone())
+            .expect("debug session update");
+
+        assert_eq!(view.platform.active_provider_id, "session-provider");
+        assert_eq!(view.platform.model, "session-chat");
+        assert_eq!(view.merged.model, "session-chat");
+        assert_eq!(state.effective_settings().model, "session-chat");
+        assert_eq!(view.platform.temperature, 0.42);
+        assert_eq!(view.platform.max_tokens, 4321);
+        assert_eq!(
+            view.platform.computer_tier_llm["primary"].model,
+            "session-worker"
+        );
+        assert_eq!(
+            view.platform.computer_pipeline_llm.decision,
+            "session-worker"
+        );
+        assert!(view
+            .platform
+            .agent_mode_llm
+            .values()
+            .flat_map(|modes| modes.values())
+            .all(|config| config.model == "session-worker"));
+        assert!(view
+            .platform
+            .media_mode_llm
+            .values()
+            .flat_map(|modes| modes.values())
+            .all(|config| config.model == "session-worker"));
     }
 
     #[test]

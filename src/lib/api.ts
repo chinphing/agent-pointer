@@ -11,6 +11,7 @@ import type {
   ConversationMeta,
   ConversationMetaPage,
   ConversationSearchHit,
+  DebugSessionSettings,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -70,6 +71,7 @@ export interface RuntimeApi {
   getSettings(): Promise<EffectiveSettingsView>
   updateSettings(settings: ModelSettings): Promise<EffectiveSettingsView>
   updateAgentSettings(settings: ModelSettings): Promise<EffectiveSettingsView>
+  updateDebugSessionSettings(settings: DebugSessionSettings): Promise<DebugSessionSettings>
   updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView>
   updatePlatformSettings(platform: PlatformSettings): Promise<EffectiveSettingsView>
   setApiKey(key: string): Promise<void>
@@ -155,6 +157,7 @@ export const dismissTerminalInput = api.dismissTerminalInput
 export const getSettings = api.getSettings
 export const updateSettings = api.updateSettings
 export const updateAgentSettings = api.updateAgentSettings
+export const updateDebugSessionSettings = api.updateDebugSessionSettings
 export const updateUserSettings = api.updateUserSettings
 export const updatePlatformSettings = api.updatePlatformSettings
 export const setApiKey = api.setApiKey

@@ -1495,6 +1495,58 @@ pub struct PlatformSettings {
     pub parallel_tool_execution_enabled: bool,
 }
 
+/// Process-local debug model configuration. This DTO must never be persisted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugSessionSettings {
+    pub providers: Vec<ProviderConfig>,
+    #[serde(rename = "activeProviderId")]
+    pub active_provider_id: String,
+    pub model: String,
+    pub temperature: f32,
+    #[serde(rename = "maxTokens")]
+    pub max_tokens: u32,
+    #[serde(rename = "computerTierLlm")]
+    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+    #[serde(rename = "computerPipelineLlm")]
+    pub computer_pipeline_llm: ComputerPipelineLlmSettings,
+    #[serde(rename = "agentModeLlm")]
+    pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(rename = "mediaModeLlm")]
+    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+}
+
+impl From<PlatformSettings> for DebugSessionSettings {
+    fn from(platform: PlatformSettings) -> Self {
+        Self {
+            providers: platform.providers,
+            active_provider_id: platform.active_provider_id,
+            model: platform.model,
+            temperature: platform.temperature,
+            max_tokens: platform.max_tokens,
+            computer_tier_llm: platform.computer_tier_llm,
+            computer_pipeline_llm: platform.computer_pipeline_llm,
+            agent_mode_llm: platform.agent_mode_llm,
+            media_mode_llm: platform.media_mode_llm,
+        }
+    }
+}
+
+/// Redact provider credentials while retaining all process-local debug fields.
+///
+/// The dedicated WEB endpoint returns this DTO instead of
+/// [`WebEffectiveSettingsView`], whose serializer intentionally strips debug
+/// fields. A masked key is accepted by the update boundary and resolved back
+/// to the current in-memory credential.
+pub fn redact_debug_session_settings_for_web(settings: &mut DebugSessionSettings) {
+    for provider in &mut settings.providers {
+        provider.api_key = if provider.api_key.trim().is_empty() {
+            String::new()
+        } else {
+            "****".into()
+        };
+    }
+}
+
 /// Provider entries we do not ship or persist (legacy / third-party).
 pub fn is_openrouter_provider(p: &ProviderConfig) -> bool {
     if p.id.eq_ignore_ascii_case("openrouter") {
@@ -2526,6 +2578,22 @@ mod effective_extra_body_tests {
         assert_eq!(
             o.get("thinking_budget"),
             Some(&Value::Number(100.into()))
+        );
+    }
+
+    #[test]
+    fn debug_session_web_redaction_keeps_mappings_and_masks_keys() {
+        let mut debug = DebugSessionSettings::from(PlatformSettings::default());
+        debug.providers[0].api_key = "sk-secret".into();
+        debug.agent_mode_llm.get_mut("general").unwrap().get_mut("fast").unwrap().model =
+            "session-model".into();
+
+        redact_debug_session_settings_for_web(&mut debug);
+
+        assert_eq!(debug.providers[0].api_key, "****");
+        assert_eq!(
+            debug.agent_mode_llm["general"]["fast"].model,
+            "session-model"
         );
     }
 }

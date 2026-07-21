@@ -61,6 +61,7 @@ const {
   toggleDebugMenus,
   getAssistantSavePayload,
   getDebugSessionSavePayload,
+  getDebugRuntimeSavePayload,
   activeUiAgentId,
   initFormFromStore
 } = form
@@ -128,39 +129,50 @@ function onDialogBackdropClick() {
 async function saveFromFooter() {
   saving.value = true
   try {
-    // Persist theme first. Other save* paths call applyEffectiveView, which
-    // reloads UserSettings from disk; if theme is still unsaved there, the UI
-    // choice would be overwritten and a trailing saveUser would write the old value.
-    const themeToSave = theme.value
-    await s.saveUser({ theme: themeToSave })
+    const sectionToSave = activeSection.value
+    if (
+      sectionToSave === 'provider' &&
+      providerPanelRef.value?.hasUnsavedEdits() &&
+      !providerPanelRef.value.flushEditingProviderToStore()
+    ) {
+      return
+    }
 
-    if (activeSection.value === 'provider') {
-      if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
-        return
-      }
-      await s.saveModelService({
-        providers: s.settings.providers,
-        activeProviderId: s.settings.activeProviderId,
-        model: s.settings.model,
-        temperature: s.settings.temperature,
-        maxTokens: s.settings.maxTokens
-      })
-    } else if (activeSection.value === 'channels') {
+    // Capture every request payload before the first await. API responses refresh
+    // the Store and may contain older values than the current form draft.
+    const themeToSave = theme.value
+    const themeSnapshot = s.createUserSnapshot({ theme: themeToSave })
+    const assistantPayload = sectionToSave === 'assistant' ? getAssistantSavePayload() : null
+    const assistantSnapshot = assistantPayload
+      ? s.createSessionSnapshot(assistantPayload)
+      : null
+    const assistantUserSnapshot = assistantPayload
+      ? s.createUserSnapshot({
+          theme: themeToSave,
+          computerAutoCompact: assistantPayload.computerAutoCompact,
+          userCodingRules: assistantPayload.userCodingRules
+        })
+      : null
+    const debugSessionSnapshot = debugSectionIds.has(sectionToSave)
+      ? getDebugSessionSavePayload()
+      : null
+    const debugRuntimeSnapshot =
+      debugSectionIds.has(sectionToSave) && sectionToSave !== 'provider'
+        ? s.createSessionSnapshot(getDebugRuntimeSavePayload())
+        : null
+
+    await s.saveUserSnapshot(themeSnapshot)
+
+    if (sectionToSave === 'provider' && debugSessionSnapshot) {
+      await s.saveDebugSession(debugSessionSnapshot)
+    } else if (sectionToSave === 'channels') {
       await channelPanelRef.value?.save()
-    } else if (activeSection.value === 'assistant') {
-      const payload = getAssistantSavePayload()
-      await s.saveAgentPreferences(payload)
-      await s.saveUser({
-        theme: themeToSave,
-        computerAutoCompact: payload.computerAutoCompact,
-        userCodingRules: payload.userCodingRules
-      })
-    } else {
-      if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
-        activeSection.value = 'provider'
-        return
-      }
-      await s.save(getDebugSessionSavePayload())
+    } else if (sectionToSave === 'assistant' && assistantSnapshot && assistantUserSnapshot) {
+      await s.saveAgentPreferencesSnapshot(assistantSnapshot)
+      await s.saveUserSnapshot(assistantUserSnapshot)
+    } else if (debugRuntimeSnapshot && debugSessionSnapshot) {
+      await s.saveSessionSnapshot(debugRuntimeSnapshot)
+      await s.saveDebugSession(debugSessionSnapshot)
     }
     emit('close')
   } finally {

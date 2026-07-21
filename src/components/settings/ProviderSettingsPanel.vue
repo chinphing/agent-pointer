@@ -353,7 +353,7 @@ async function saveProvider() {
   }
 
   const wasAdd = showAddProvider.value
-  if (!applyProviderSnapshotToStore(snapshot, wasAdd, false)) return
+  if (!applyProviderSnapshotToStore(snapshot, wasAdd, true)) return
 
   try {
     await s.saveModelService({

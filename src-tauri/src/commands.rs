@@ -6,8 +6,8 @@ use pointer_core::dispatcher::{
 };
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-    ConversationSearchHit, EffectiveSettingsView, ModelSettings, PlatformSettings, SendChatPayload,
-    SkillDef, SkillImportResult, ToolDef, UserSettings,
+    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView, ModelSettings,
+    PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, ToolDef, UserSettings,
 };
 
 use pointer_core::provider::OpenAIProvider;
@@ -161,6 +161,20 @@ pub fn update_platform_settings(
         .map_err(|e| e.to_string())?;
     state.sync_dispatcher_concurrency(&dispatcher);
     Ok(view)
+}
+
+#[tauri::command]
+pub fn update_debug_session_settings(
+    state: State<'_, Arc<AppState>>,
+    settings: DebugSessionSettings,
+) -> Result<DebugSessionSettings, String> {
+    let view = state
+        .update_debug_session_settings(settings)
+        .map_err(|error| {
+            log::warn!("debug_session_settings: desktop update failed: {error:#}");
+            error.to_string()
+        })?;
+    Ok(DebugSessionSettings::from(view.platform))
 }
 
 /// Back-compat: session preferences in memory only; agent section uses update_agent_settings.

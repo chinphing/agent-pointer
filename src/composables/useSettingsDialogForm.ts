@@ -732,6 +732,10 @@ function createSettingsDialogForm(deps: {
   }
 
   function getDebugSessionSavePayload() {
+  return s.createDebugSessionSnapshot()
+  }
+
+  function getDebugRuntimeSavePayload() {
   return {
     agentMode: agentMode.value,
     leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
@@ -747,10 +751,6 @@ function createSettingsDialogForm(deps: {
       ...(s.settings.agentUiOverrides ?? {}),
       [activeUiAgentId.value]: { ...agentUiLocal.value }
     },
-    computerTierLlm: { ...s.platformSettings.computerTierLlm },
-    computerPipelineLlm: { ...computerPipelineLlm() },
-    agentModeLlm: { ...s.platformSettings.agentModeLlm },
-    mediaModeLlm: { ...s.platformSettings.mediaModeLlm },
   }
   }
 
@@ -851,5 +851,6 @@ function createSettingsDialogForm(deps: {
     initFormFromStore,
     getAssistantSavePayload,
     getDebugSessionSavePayload,
+    getDebugRuntimeSavePayload,
   }
 }

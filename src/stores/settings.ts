@@ -4,8 +4,8 @@ import {
   getSettings,
   updateSettings,
   updateAgentSettings,
+  updateDebugSessionSettings,
   updateUserSettings,
-  updatePlatformSettings,
   setApiKey,
   clearApiKey,
   testConnection
@@ -16,6 +16,7 @@ import type {
   ComputerInitialTier,
   ComputerPipelineLlmSettings,
   ComputerTierLlmConfig,
+  DebugSessionSettings,
   EffectiveSettingsView,
   MediaModelOverrides,
   MediaUnderstandingModes,
@@ -467,16 +468,71 @@ export const useSettingsStore = defineStore('settings', () => {
     loading.value = false
   }
 
-  async function saveUser(patch: Partial<UserSettings>) {
-    if (patch.theme !== undefined) applyTheme(patch.theme)
-    const next: UserSettings = { ...userSettings.value, ...patch }
-    const view = await updateUserSettings(next)
+  function createUserSnapshot(patch: Partial<UserSettings>): UserSettings {
+    return cloneJson({ ...userSettings.value, ...patch })
+  }
+
+  async function saveUserSnapshot(snapshot: UserSettings) {
+    if (snapshot.theme !== undefined) applyTheme(snapshot.theme)
+    const view = await updateUserSettings(cloneJson(snapshot))
     applyEffectiveView(view)
   }
 
-  async function savePlatform(patch: Partial<PlatformSettings>) {
-    const merged: PlatformSettings = { ...platformSettings.value, ...patch }
-    const view = await updatePlatformSettings(merged)
+  async function saveUser(patch: Partial<UserSettings>) {
+    if (patch.theme !== undefined) applyTheme(patch.theme)
+    await saveUserSnapshot(createUserSnapshot(patch))
+  }
+
+  function cloneJson<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T
+  }
+
+  function createDebugSessionSnapshot(
+    patch: Partial<DebugSessionSettings> = {}
+  ): DebugSessionSettings {
+    return cloneJson({
+      providers: settings.value.providers,
+      activeProviderId: settings.value.activeProviderId,
+      model: settings.value.model,
+      temperature: settings.value.temperature,
+      maxTokens: settings.value.maxTokens,
+      computerTierLlm: platformSettings.value.computerTierLlm ?? {},
+      computerPipelineLlm: platformSettings.value.computerPipelineLlm ?? {},
+      agentModeLlm: platformSettings.value.agentModeLlm ?? {},
+      mediaModeLlm: platformSettings.value.mediaModeLlm ?? {},
+      ...patch
+    })
+  }
+
+  async function saveDebugSession(snapshot: DebugSessionSettings) {
+    const applied = await updateDebugSessionSettings(cloneJson(snapshot))
+    const activeProvider = applied.providers.find(
+      provider => provider.id === applied.activeProviderId
+    )
+    const hasKey = Boolean(activeProvider?.apiKey?.trim())
+    // The dedicated endpoint returns only the memory-scoped debug slice.
+    // Merge it locally so WEB responses can retain debug mappings without
+    // exposing the rest of the platform settings or provider credentials.
+    applyEffectiveView({
+      user: cloneJson(userSettings.value),
+      platform: { ...platformSettings.value, ...cloneJson(applied) },
+      merged: { ...settings.value, ...cloneJson(applied), hasKey },
+      canEditPlatform: canEditPlatform.value,
+      isPlatformAdmin: isPlatformAdmin.value
+    })
+  }
+
+  function createSessionSnapshot(patch: Partial<ModelSettings>): ModelSettings {
+    const snapshot: ModelSettings = cloneJson({ ...settings.value, ...patch })
+    snapshot.agentDefaultModels = normalizeAgentDefaultModels(
+      snapshot.agentDefaultModels as Record<string, unknown>,
+      snapshot.activeProviderId
+    )
+    return snapshot
+  }
+
+  async function saveSessionSnapshot(snapshot: ModelSettings) {
+    const view = await updateSettings(cloneJson(snapshot))
     applyEffectiveView(view)
   }
 
@@ -486,29 +542,20 @@ export const useSettingsStore = defineStore('settings', () => {
       settings.value.theme = patch.theme
     }
     if (Object.keys(patch).length === 0) return
-    const merged: ModelSettings = { ...settings.value, ...patch }
-    console.log('[settings] saveSession patch.agentModeLlm:', JSON.stringify(patch.agentModeLlm))
-    console.log('[settings] saveSession merged.agentModeLlm:', JSON.stringify(merged.agentModeLlm))
-    merged.agentDefaultModels = normalizeAgentDefaultModels(
-      merged.agentDefaultModels as Record<string, unknown>,
-      merged.activeProviderId
-    )
-    const view = await updateSettings(merged)
+    await saveSessionSnapshot(createSessionSnapshot(patch))
+  }
+
+  async function saveAgentPreferencesSnapshot(snapshot: ModelSettings) {
+    const view = await updateAgentSettings(cloneJson(snapshot))
     applyEffectiveView(view)
   }
 
   async function saveAgentPreferences(patch: Partial<ModelSettings>) {
-    const merged: ModelSettings = { ...settings.value, ...patch }
-    merged.agentDefaultModels = normalizeAgentDefaultModels(
-      merged.agentDefaultModels as Record<string, unknown>,
-      merged.activeProviderId
-    )
-    const view = await updateAgentSettings(merged)
-    applyEffectiveView(view)
+    await saveAgentPreferencesSnapshot(createSessionSnapshot(patch))
   }
 
   async function saveModelService(patch: Partial<PlatformSettings>) {
-    await saveSession(patch as Partial<ModelSettings>)
+    await saveDebugSession(createDebugSessionSnapshot(patch))
   }
 
   /** Apply agent UI debug/display overrides in memory (chat reflects immediately; persist via save). */
@@ -522,37 +569,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm' | 'computerPipelineLlm' | 'agentModeLlm' | 'mediaModeLlm'>) {
-    const { computerTierLlm, computerPipelineLlm, agentModeLlm, mediaModeLlm, ...sessionPatch } = patch
-    const platformPatch: Partial<PlatformSettings> = {}
-    if (computerTierLlm !== undefined && canEditPlatform.value) {
-      platformPatch.computerTierLlm = computerTierLlm
-    }
-    if (computerPipelineLlm !== undefined && canEditPlatform.value) {
-      platformPatch.computerPipelineLlm = computerPipelineLlm
-    }
-    if (agentModeLlm !== undefined && canEditPlatform.value) {
-      platformPatch.agentModeLlm = agentModeLlm
-    }
-    if (mediaModeLlm !== undefined && canEditPlatform.value) {
-      platformPatch.mediaModeLlm = mediaModeLlm
-    }
-    // Per-mode models always go through sessionPatch too, so they are
-    // preserved even when savePlatform fails (e.g. web runtime where
-    // platform settings are read-only) or when canEditPlatform is false.
-    if (computerPipelineLlm !== undefined) (sessionPatch as any).computerPipelineLlm = computerPipelineLlm
-    if (agentModeLlm !== undefined) (sessionPatch as any).agentModeLlm = agentModeLlm
-    if (mediaModeLlm !== undefined) (sessionPatch as any).mediaModeLlm = mediaModeLlm
-    if (Object.keys(platformPatch).length > 0) {
-      try {
-        await savePlatform(platformPatch)
-      } catch (e) {
-        console.warn('[settings] savePlatform failed, per-mode models already in session', e)
-      }
-    }
-    if (Object.keys(sessionPatch).length > 0) {
-      await saveSession(sessionPatch)
-    }
+  async function save(patch: Partial<ModelSettings>) {
+    await saveSession(patch)
   }
 
   async function setActiveProvider(id: string) {
@@ -571,7 +589,7 @@ export const useSettingsStore = defineStore('settings', () => {
         await clearApiKey()
         settings.value.hasKey = false
       }
-      await saveSession({
+      await saveModelService({
         providers: settings.value.providers,
         activeProviderId: id,
         model: settings.value.model
@@ -615,10 +633,19 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function removeProvider(id: string) {
-    settings.value.providers = settings.value.providers.filter(p => p.id !== id)
-    if (settings.value.activeProviderId === id && settings.value.providers.length > 0) {
-      settings.value.activeProviderId = settings.value.providers[0].id
+    const remaining = settings.value.providers.filter(p => p.id !== id)
+    if (settings.value.activeProviderId === id) {
+      const replacement = remaining.find(provider => provider.models.length > 0)
+      if (!replacement) {
+        console.warn('[settings] cannot remove the active provider without a replacement model')
+        return
+      }
+      settings.value.activeProviderId = replacement.id
+      if (!replacement.models.includes(settings.value.model)) {
+        settings.value.model = replacement.models[0]
+      }
     }
+    settings.value.providers = remaining
   }
 
   async function saveProviderKey(providerId: string, key: string) {
@@ -758,11 +785,17 @@ export const useSettingsStore = defineStore('settings', () => {
     videoGenerationModels,
     load,
     save,
+    createUserSnapshot,
+    saveUserSnapshot,
+    createSessionSnapshot,
+    saveSessionSnapshot,
     saveSession,
+    saveAgentPreferencesSnapshot,
     saveAgentPreferences,
+    createDebugSessionSnapshot,
+    saveDebugSession,
     saveModelService,
     saveUser,
-    savePlatform,
     setActiveProvider,
     addProvider,
     updateProvider,

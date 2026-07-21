@@ -4,7 +4,27 @@
 
 > **关闭调试**：Bug 按钮再次点击会同步关闭 `rawContentViewEnabled`、`computerAnnotatedScreenViewEnabled`、`debugDumpLlmPrompts`、`taskBoardShowChildBoards`，并清除各智能体 `agentUiOverrides` 中的 `showSidecarToolCalls` / `showToolCallResults` / `showReasoning`（恢复 profile 默认）。
 
-> 配置写入内存，重启后恢复默认；底部「保存(本次会话)」调用 `saveModelService`。
+> 配置写入内存，重启后恢复默认；底部「保存(本次会话)」通过专用的
+> `DebugSessionSettings` 边界更新当前进程配置。
+
+## 调试会话配置边界
+
+- 模型服务商、当前模型、生成参数及电脑/智能体/多媒体模型映射统一通过
+  `DebugSessionSettings` 更新。
+- APP 使用专用 Tauri command，WEB 使用
+  `PUT /api/debug-session-settings`；两端最终调用同一个 Core 更新方法。
+- Core 只原子替换 `AppState.platform_config` 中对应字段，不调用 storage、
+  `PersistedLocalPlatformSettings` 或其他持久化写入路径。
+- `PersistedLocalPlatformSettings` 必须继续排除 providers、当前服务商/模型、
+  temperature、maxTokens 及所有调试模型映射。
+- WEB 接口沿用平台访问鉴权与响应脱敏，不得在日志中记录 API Key。
+
+## 保存快照规则
+
+设置页必须在第一个异步请求之前同步构造所有请求的不可变快照。
+后续主题或用户设置请求可能用服务端旧值刷新 Store，但不得据此重新构造
+调试配置 payload。调试请求完成后再用返回的有效设置刷新 Store，确保新模型
+立即用于后续对话。
 
 ## 模型能力标记
 
@@ -50,7 +70,7 @@
 ## 模型「同上」与 `modelConfigs`
 
 - **同上**：该模型在 `modelConfigs` 中**无条目**（或仅有与服务商默认相同的冗余字段，保存时会被剔除）。
-- **定制**：`hasEffectiveModelOverride` 为 true 的条目才会写入磁盘。
+- **定制**：`hasEffectiveModelOverride` 为 true 的条目才会写入当前进程配置。
 - 加载设置时 Rust **不会**再为每个模型自动填充 `model_configs`（否则 reload 后全部变成定制）。
 - `startEditProvider` 会 `pruneInheritedModelConfigs`；`buildProviderSnapshotFromEditor` 保存前同样按有效覆盖过滤。
 
@@ -59,7 +79,8 @@
 - 模型名写在「模型列表」输入框（`editingModelsText`），须通过 `buildProviderSnapshotFromEditor` 合并进 `snapshot.models` 再 `updateProvider`。
 - 仅点底部「保存配置」时，必须先 `flushEditingProviderToStore()`，否则会保存旧的 `providers`、新模型丢失。
 - 单模型「设置」弹窗点「完成」：只 `closeModelConfigModal()`，**不要** `emit('close')`。
-- 服务商表单「保存/添加」：写入磁盘后退出编辑区（`reopenEdit: false`），回到服务商列表；**不要**关闭整个设置对话框。
+- 服务商表单「保存/添加」：更新内存后保持编辑区（`reopenEdit: true`），
+  并用 Store 中规范化后的条目重新填充，避免页面看起来空白。
 - 底部「保存配置」：合并草稿后 `emit('close')` 关闭整个设置对话框。
 - `applyProviderSnapshotToStore(..., reopenEdit)`：底部保存前用 `reopenEdit: false`；服务商表单保存用 `true`。
 - 新增服务商时若 **服务 ID 与已有重复**，`addProvider` 会拒绝并提示，避免 `find` 命中旧条目导致像没保存上。

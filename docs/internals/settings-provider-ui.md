@@ -28,7 +28,12 @@
 
 ## 模型能力标记
 
-- 各模型在「定制」弹窗中可勾选：**支持视觉理解**、**可生成图片**、**可生成视频**。
+- 各模型在「定制 → 设置」弹窗顶部可勾选：**支持视觉理解**、**可生成图片**、**可生成视频**。
+- 这些能力字段与温度等运行参数一样，属于有效定制覆盖；保存时不得因「仅改能力」被裁掉。
+- 定制弹窗内的能力勾选必须通过父组件替换 `editingProvider.modelConfigs` 引用写入，
+  禁止在子组件里直接改 props（Vue 只读代理下会丢改动）。
+- `hasEffectiveModelOverride` / `pruneInheritedModelConfigs` / `sanitizeProviderModelConfigs`
+  必须保留与默认值不同的 `supportsVision` / `canGenerateImage` / `canGenerateVideo`。
 - 图片/视频生成下拉、vision 能力检测会读取 `modelConfigs` 中对应字段；未设置时对已知模型名自动推断。
 - 千问 / 豆包默认列表已包含 Wan、Seedream、Seedance 等生成模型。
 
@@ -70,9 +75,10 @@
 ## 模型「同上」与 `modelConfigs`
 
 - **同上**：该模型在 `modelConfigs` 中**无条目**（或仅有与服务商默认相同的冗余字段，保存时会被剔除）。
-- **定制**：`hasEffectiveModelOverride` 为 true 的条目才会写入当前进程配置。
+- **定制**：`hasEffectiveModelOverride` 为 true 的条目才会写入当前进程配置
+  （含与默认不同的视觉/生图/生视频能力）。
 - 加载设置时 Rust **不会**再为每个模型自动填充 `model_configs`（否则 reload 后全部变成定制）。
-- `startEditProvider` 会 `pruneInheritedModelConfigs`；`buildProviderSnapshotFromEditor` 保存前同样按有效覆盖过滤。
+- `startEditProvider` 会 `pruneInheritedModelConfigs`；`buildProviderSnapshotFromEditor` 保存前同样按有效覆盖过滤，且必须拷贝能力字段。
 
 ## 新增模型后无法保存
 

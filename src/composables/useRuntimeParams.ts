@@ -1,6 +1,10 @@
 import type { Ref } from 'vue'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
 import {
+  inferModelGenerationCapabilities,
+  providerDefaultSupportsVision
+} from '../lib/modelCapabilities'
+import {
   DEFAULT_THINKING_BUDGET,
   isDeepSeekProvider,
   isQwenProvider,
@@ -278,7 +282,8 @@ export function providerDefaultMaxTokens(
 export function hasEffectiveModelOverride(
   o: ModelRuntimeOverrides,
   p: ProviderConfig,
-  globalFallback: { temperature: () => number; maxTokens: () => number }
+  globalFallback: { temperature: () => number; maxTokens: () => number },
+  modelId = ''
 ): boolean {
   if (isQwenProvider(p) && (o.enableThinking !== undefined || o.thinkingBudget !== undefined)) {
     return true
@@ -302,6 +307,23 @@ export function hasEffectiveModelOverride(
   ) {
     return true
   }
+  const defaultVision = providerDefaultSupportsVision(p.id) ?? false
+  if (o.supportsVision !== undefined && o.supportsVision !== defaultVision) {
+    return true
+  }
+  const inferred = modelId ? inferModelGenerationCapabilities(modelId) : {}
+  if (
+    o.canGenerateImage !== undefined
+    && o.canGenerateImage !== (inferred.canGenerateImage ?? false)
+  ) {
+    return true
+  }
+  if (
+    o.canGenerateVideo !== undefined
+    && o.canGenerateVideo !== (inferred.canGenerateVideo ?? false)
+  ) {
+    return true
+  }
   return false
 }
 
@@ -313,11 +335,61 @@ export function pruneInheritedModelConfigs(
   const src = configs ?? {}
   const out: Record<string, ModelRuntimeOverrides> = {}
   for (const [k, v] of Object.entries(src)) {
-    if (hasEffectiveModelOverride(v, p, globalFallback)) {
+    if (hasEffectiveModelOverride(v, p, globalFallback, k)) {
       out[k] = { ...v }
     }
   }
   return out
+}
+
+/** Keep only explicit, effective per-model overrides for provider save snapshots. */
+export function sanitizeProviderModelConfigs(
+  provider: ProviderConfig,
+  modelIds: string[],
+  configs: ProviderConfig['modelConfigs'] | undefined,
+  globalFallback: { temperature: () => number; maxTokens: () => number }
+): NonNullable<ProviderConfig['modelConfigs']> {
+  const nextMc: Record<string, ModelRuntimeOverrides> = {}
+  const src = configs ?? {}
+  for (const id of modelIds) {
+    const o = src[id]
+    if (!o) continue
+    const clean: ModelRuntimeOverrides = {}
+    if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
+    if (o.temperature !== undefined) clean.temperature = o.temperature
+    if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
+    if (isDeepSeekProvider(provider) && o.reasoningEffort !== undefined) {
+      clean.reasoningEffort = o.reasoningEffort
+    }
+    if (isQwenProvider(provider) && o.enableThinking !== undefined) {
+      clean.enableThinking = o.enableThinking
+    }
+    if (isQwenProvider(provider) && o.enableThinking === true && o.thinkingBudget !== undefined) {
+      clean.thinkingBudget = o.thinkingBudget
+    }
+    if (o.supportsVision !== undefined) clean.supportsVision = o.supportsVision
+    if (o.canGenerateImage !== undefined) clean.canGenerateImage = o.canGenerateImage
+    if (o.canGenerateVideo !== undefined) clean.canGenerateVideo = o.canGenerateVideo
+    if (
+      Object.keys(clean).length
+      && hasEffectiveModelOverride(clean, provider, globalFallback, id)
+    ) {
+      nextMc[id] = clean
+    }
+  }
+  return nextMc
+}
+
+/** Patch one capability flag on a provider draft (replaces modelConfigs reference). */
+export function patchProviderModelCapability(
+  provider: ProviderConfig,
+  modelId: string,
+  flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
+  value: boolean
+): ProviderConfig {
+  const configs = { ...(provider.modelConfigs ?? {}) }
+  configs[modelId] = { ...(configs[modelId] ?? {}), [flag]: value }
+  return { ...provider, modelConfigs: configs }
 }
 
 /** Build per-model custom entry from provider defaults (explicit fields). */

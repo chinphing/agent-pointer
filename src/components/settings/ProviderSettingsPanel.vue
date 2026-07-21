@@ -16,10 +16,12 @@ import {
   buildCustomModelEntryFromProvider,
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
-  hasEffectiveModelOverride,
+  patchProviderModelCapability,
   pruneInheritedModelConfigs,
+  sanitizeProviderModelConfigs,
   useRuntimeParams
 } from '../../composables/useRuntimeParams'
+import { resolvedModelCapabilities } from '../../lib/modelCapabilities'
 import RuntimeParamsForm from './RuntimeParamsForm.vue'
 import ModelCapabilityForm from './ModelCapabilityForm.vue'
 import { useSettingsStore } from '../../stores/settings'
@@ -104,6 +106,28 @@ function modelConfigMode(modelId: string): 'same' | 'custom' {
   const p = editingProvider.value
   if (!p) return 'same'
   return p.modelConfigs?.[modelId] ? 'custom' : 'same'
+}
+
+function modelCapabilitySummary(modelId: string): string {
+  const p = editingProvider.value
+  if (!p) return ''
+  const caps = resolvedModelCapabilities([p], p.id, modelId)
+  const parts: string[] = []
+  if (caps.supportsVision) parts.push('视觉')
+  if (caps.canGenerateImage) parts.push('生图')
+  if (caps.canGenerateVideo) parts.push('生视频')
+  return parts.join(' · ')
+}
+
+function patchEditingModelCapability(
+  flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
+  value: boolean
+) {
+  const p = editingProvider.value
+  const modelId = modelConfigModalId.value
+  if (!p || !modelId) return
+  // Replace the draft object so Vue/Pinia see the modelConfigs change (do not mutate props).
+  editingProvider.value = patchProviderModelCapability(p, modelId, flag, value)
 }
 
 function setModelConfigMode(modelId: string, mode: 'same' | 'custom') {
@@ -266,31 +290,12 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
     delete snapshot.reasoningEffort
   }
 
-  const nextMc: Record<string, ModelRuntimeOverrides> = {}
-  const configs = snapshot.modelConfigs ?? {}
-  for (const id of models) {
-    const o = configs[id]
-    if (!o) continue
-    const clean: ModelRuntimeOverrides = {}
-    if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
-    if (o.temperature !== undefined) clean.temperature = o.temperature
-    if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
-    if (isDeepSeekProvider(snapshot) && o.reasoningEffort !== undefined) {
-      clean.reasoningEffort = o.reasoningEffort
-    }
-    if (isQwenProvider(snapshot) && o.enableThinking !== undefined) {
-      clean.enableThinking = o.enableThinking
-    }
-    if (isQwenProvider(snapshot) && o.enableThinking === true && o.thinkingBudget !== undefined) {
-      clean.thinkingBudget = o.thinkingBudget
-    }
-    if (
-      Object.keys(clean).length
-      && hasEffectiveModelOverride(clean, snapshot, globalGenFallback)
-    ) {
-      nextMc[id] = clean
-    }
-  }
+  const nextMc = sanitizeProviderModelConfigs(
+    snapshot,
+    models,
+    snapshot.modelConfigs,
+    globalGenFallback
+  )
   snapshot.modelConfigs = nextMc
   return snapshot
 }
@@ -517,7 +522,7 @@ defineExpose({
         </div>
         <div class="col-span-2 rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3">
           <h5 class="text-[12px] font-medium text-foreground">模型参数</h5>
-          <p class="text-[11px] text-muted">服务商级默认；各模型可选「同上」或「定制」。</p>
+          <p class="text-[11px] text-muted">服务商级默认；各模型可选「同上」或「定制」。定制后点「设置」可改参数与视觉/生成能力。</p>
           <RuntimeParamsForm :api="providerRuntimeApi" />
           <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-border space-y-1.5">
             <div class="text-[11px] text-muted">各模型</div>
@@ -527,7 +532,13 @@ defineExpose({
                 :key="mid"
                 class="flex items-center gap-2 px-3 py-2 min-h-10"
               >
-                <span class="flex-1 min-w-0 font-mono text-[12px] text-foreground truncate" :title="mid">{{ mid }}</span>
+                <div class="flex-1 min-w-0">
+                  <span class="block font-mono text-[12px] text-foreground truncate" :title="mid">{{ mid }}</span>
+                  <span
+                    v-if="modelConfigMode(mid) === 'custom' && modelCapabilitySummary(mid)"
+                    class="block text-[10px] text-muted truncate mt-0.5"
+                  >{{ modelCapabilitySummary(mid) }}</span>
+                </div>
                 <div class="inline-flex rounded-lg bg-card border border-border p-0.5 shrink-0">
                   <button
                     type="button"
@@ -578,19 +589,20 @@ defineExpose({
       <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-4 space-y-3" @click.stop>
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
-            <h5 class="text-sm font-medium text-foreground">模型参数</h5>
+            <h5 class="text-sm font-medium text-foreground">模型参数与能力</h5>
             <p class="mt-0.5 text-[11px] text-muted font-mono truncate" :title="modelConfigModalId">{{ modelConfigModalId }}</p>
           </div>
           <button type="button" class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0" aria-label="关闭" @click="closeModelConfigModal">
             <X class="w-4 h-4" />
           </button>
         </div>
-        <RuntimeParamsForm v-if="modelConfigModalId" :api="modelRuntimeApi" />
         <ModelCapabilityForm
           v-if="modelConfigModalId && editingProvider"
           :provider="editingProvider"
           :model-id="modelConfigModalId"
+          @patch="patchEditingModelCapability"
         />
+        <RuntimeParamsForm v-if="modelConfigModalId" :api="modelRuntimeApi" />
         <div class="flex items-center justify-end gap-2 pt-1">
           <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>

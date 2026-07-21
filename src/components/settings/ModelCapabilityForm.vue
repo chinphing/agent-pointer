@@ -8,22 +8,27 @@ const props = defineProps<{
   modelId: string
 }>()
 
+const emit = defineEmits<{
+  patch: [
+    flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
+    value: boolean
+  ]
+}>()
+
 const caps = computed(() =>
   resolvedModelCapabilities([props.provider], props.provider.id, props.modelId)
 )
 
 function patch(flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo', value: boolean) {
-  const configs = { ...(props.provider.modelConfigs ?? {}) }
-  const prev = configs[props.modelId] ?? {}
-  configs[props.modelId] = { ...prev, [flag]: value }
-  props.provider.modelConfigs = configs
+  emit('patch', flag, value)
 }
 </script>
 
 <template>
   <div class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-3 space-y-2">
+    <p class="text-[12px] font-medium text-foreground">模型能力</p>
     <p class="text-[11px] text-muted">
-      模型能力（用于下拉过滤与多媒体路由）。千问默认支持视觉；深度求索默认不支持。
+      用于下拉过滤与多媒体路由。千问默认支持视觉；深度求索默认不支持。
     </p>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input

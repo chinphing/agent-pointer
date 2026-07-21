@@ -83,7 +83,7 @@ metadata:
 保持原意，优先使用自然、准确、符合目标语言习惯的表达。
 ```
 
-加载规则采用三层渐进式披露：第一层只把 `name` 和 `description` 作为 Skill 索引注入上下文；当模型判断任务需要某个 Skill 时，通过 **`skill_read`**（仅 `skill_id`）加载第二层 `SKILL.md` 正文；当正文引用 `references/`、`assets/` 或 `scripts/` 下的文件时，可通过 **`skill_read`**（带 `path`）按需读取第三层资源。frontmatter 只支持官方字段：`name`、`description`、`license`、`compatibility`、`metadata`、`allowed-tools`。
+加载规则采用三层渐进式披露：第一层只把 `name` 和 `description` 作为 Skill 索引注入上下文；当模型判断任务需要某个 Skill 时，通过 **`skill_read`**（`skill_id` + 必填 `path=SKILL.md`）加载第二层 `SKILL.md` 正文；当正文引用 `references/`、`assets/` 或 `scripts/` 下的文件时，再通过 **`skill_read`**（同一 `skill_id` + 资源相对 `path`）按需读取第三层资源。frontmatter 只支持官方字段：`name`、`description`、`license`、`compatibility`、`metadata`、`allowed-tools`。
 
 导入后会自动刷新 Skills 列表；启用外部 Skill 后，其说明会参与当前对话。zip 中的脚本或二进制不会被自动执行。
 

@@ -129,7 +129,8 @@ Authoritative when-to-delegate and call rules for **`coder`** (do not restate el
   (**`terminal`** `cat` / `grep` / `find`).
 - User questions and facts → **`context`**; worker maps (**`explore`**), edits, tests.
 - **`workspaceRoot`** **required** — skill root, user project path, or conversation workspace.
-- Before delegate: **`skill_read`** only when you need skill instructions;
+- Before delegate: **`skill_read`** (`path` required; use `SKILL.md` for instructions)
+  only when you need skill instructions;
   otherwise go straight to **`run_subagent(coder)`**.
 
 **`self` fork (general or coder lead)**

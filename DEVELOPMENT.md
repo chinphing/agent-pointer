@@ -227,7 +227,7 @@ metadata:
 当用户要求翻译或润色时使用。保持原意，输出自然准确的目标语言表达。
 ```
 
-说明：`name` 和 `description` 是第一层 frontmatter 索引，且 `name` 必须与 Skill 目录名一致；不支持 `skill.md`、`skill.json`、`manifest.json` 或旧字段 `id`、`systemPrompt`、`toolNames`。启用 Skill 后不会立即注入完整正文，模型会在需要时通过 **`skill_read`**（仅 `skill_id`）读取第二层 `SKILL.md` 正文；`references/`、`assets/`、`scripts/` 下的文件作为第三层资源，可通过 **`skill_read`**（带 `path`）按需读取。不会执行 zip 中的任意代码。
+说明：`name` 和 `description` 是第一层 frontmatter 索引，且 `name` 必须与 Skill 目录名一致；不支持 `skill.md`、`skill.json`、`manifest.json` 或旧字段 `id`、`systemPrompt`、`toolNames`。启用 Skill 后不会立即注入完整正文，模型会在需要时通过 **`skill_read`**（`skill_id` + 必填 `path`，读说明时为 `SKILL.md`）读取第二层 `SKILL.md` 正文；`references/`、`assets/`、`scripts/` 下的文件作为第三层资源，通过 **`skill_read`**（同一 `skill_id` + 资源相对 `path`）按需读取。不会执行 zip 中的任意代码。
 
 
 

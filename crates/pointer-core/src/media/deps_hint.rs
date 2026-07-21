@@ -15,10 +15,10 @@ If the user wants this attachment processed, ask for consent first, then follow 
 (do not skip steps; pick skills/tools from the filename, MIME, and Available Skills index):\n\
 **1. Installed / enabled Skills**\n\
 - Check the Available Skills index for a skill that handles this attachment; if found, skill_read \
-and follow it (use the Saved attachment Local path below)\n\
+with path=SKILL.md and follow it (use the Saved attachment Local path below)\n\
 - When a matching skill exists, do **not** run npx skills find\n\
 **2. Find and install a Skill (when none match)**\n\
-- skill_read(find-skills), search and install a suitable skill as needed\n\
+- skill_read(find-skills, path=SKILL.md), search and install a suitable skill as needed\n\
 **3. Code / one-off script (last resort)**\n\
 - Only if 1 and 2 are unavailable: terminal one-off script or run_subagent(coder)\n\
 The user does not need to resend the file; they can say \"retry last attachment\" or you can \
@@ -142,8 +142,8 @@ pub fn video_ffmpeg_missing(file_name: &str, storage_rel_path: Option<&str>) -> 
             "[Video: {file_name}] Cannot process: ffmpeg/ffprobe not available on this machine.\n\n\
 {MEDIA_DEPS_MARKER}\n\
 If the user wants IM video processed, ask for consent, then:\n\
-1. skill_read with skill_id=dev-env-setup\n\
-2. Read the OS chapter in references/ffmpeg.md\n\
+1. skill_read with skill_id=dev-env-setup and path=SKILL.md\n\
+2. Read the OS chapter via skill_read path=references/ffmpeg.md\n\
 3. Run install commands via terminal and verify: ffmpeg -version && ffprobe -version\n\
 4. After install, the user need not resend the video; ask them to say \"retry last video\" \
 (auto-retry may also run once ffmpeg is ready)\n\

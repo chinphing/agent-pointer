@@ -116,12 +116,19 @@ impl SkillRegistry {
         (prompts, tools)
     }
 
-    /// Read skill content: omit `path` (or pass `SKILL.md`) for instructions; otherwise read a bundled resource.
-    pub fn read(&self, id: &str, path: Option<&str>) -> Result<String> {
-        match path.map(str::trim).filter(|p| !p.is_empty()) {
-            None => self.load_instructions(id),
-            Some(p) if external::is_skill_manifest_path(p) => self.load_instructions(id),
-            Some(p) => self.read_resource(id, p),
+    /// Read skill content.
+    ///
+    /// `path` is required: `SKILL.md` (or equivalent manifest name) for instructions;
+    /// otherwise a skill-relative bundled resource path.
+    pub fn read(&self, id: &str, path: &str) -> Result<String> {
+        let path = path.trim();
+        if path.is_empty() {
+            return Err(anyhow!("缺少 path（读说明传 SKILL.md；读资源传 skill 相对路径）"));
+        }
+        if external::is_skill_manifest_path(path) {
+            self.load_instructions(id)
+        } else {
+            self.read_resource(id, path)
         }
     }
 
@@ -251,11 +258,12 @@ fn build_available_skills_prompt(
     let mut lines = vec![
         "可用 Skills（第一层：frontmatter 索引）。".to_string(),
         "Before replying: scan <available_skills> entries.".to_string(),
-        "If a skill matches, call **`skill_read`** with **`skill_id`** equal to `<name>` (do not guess).".to_string(),
+        "If a skill matches, call **`skill_read`** with **`skill_id`** equal to `<name>` and **`path`** `SKILL.md` (do not guess).".to_string(),
         "When a skill references a relative path or `{baseDir}`, resolve it against the skill directory (parent of `<location>`) and use absolute paths in **`terminal`**.".to_string(),
+        "For bundled resources (`references/`, `assets/`, `scripts/`), call **`skill_read`** again with the same **`skill_id`** and that relative **`path`**.".to_string(),
         String::new(),
         "The following skills provide specialized instructions for specific tasks.".to_string(),
-        "Use **`skill_read`** to load instructions when a task matches `<description>`.".to_string(),
+        "Use **`skill_read`** (`skill_id` + required **`path`**) to load instructions or resources when a task matches `<description>`.".to_string(),
         String::new(),
         "<available_skills>".to_string(),
     ];
@@ -413,7 +421,7 @@ mod tests {
         });
 
         let out = reg
-            .read("demo-skill", Some("references/new.md"))
+            .read("demo-skill", "references/new.md")
             .expect("read resource");
         assert!(out.contains("fresh reference content"));
     }
@@ -446,7 +454,7 @@ mod tests {
         });
 
         let err = reg
-            .read("demo-skill", Some("../outside.md"))
+            .read("demo-skill", "../outside.md")
             .expect_err("traversal");
         assert!(err.to_string().contains("非法"));
     }
@@ -468,8 +476,29 @@ mod tests {
             provenance: "system".into(),
             mutable: false,
         });
-        let out = reg.read("vid", None).expect("read");
+        let out = reg.read("vid", "SKILL.md").expect("read");
         assert!(out.contains("/opt/skills/vid/scripts/frame.sh"));
+    }
+
+    #[test]
+    fn read_requires_non_empty_path() {
+        let reg = SkillRegistry::new();
+        reg.register(SkillDef {
+            id: "vid".into(),
+            name: "vid".into(),
+            description: "d".into(),
+            tags: vec![],
+            system_prompt: "body".into(),
+            tool_names: vec![],
+            scenario: String::new(),
+            builtin: false,
+            resource_files: vec![],
+            source: Some("/opt/skills/vid".into()),
+            provenance: "system".into(),
+            mutable: false,
+        });
+        let err = reg.read("vid", "  ").expect_err("empty path");
+        assert!(err.to_string().contains("缺少 path"));
     }
 
     #[test]

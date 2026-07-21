@@ -9,10 +9,9 @@ skill_read:
     path:
       type: string
       description: >-
-        Optional. Omit to load SKILL.md instructions (layer 2).
-        Provide a resource-relative path (e.g. references/guide.md) for bundled files (layer 3).
-        SKILL.md is accepted as an alias for instructions.
-  required: [skill_id]
+        Required. Use SKILL.md for instructions (layer 2).
+        Use a resource-relative path (e.g. references/guide.md) for bundled files (layer 3).
+  required: [skill_id, path]
   additionalProperties: false
 
 skill_import:

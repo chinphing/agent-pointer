@@ -29,9 +29,9 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 ## 资源目录
 
-与 Codex / OpenClaw / Hermes 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（带 `path`）按需读取（不自动执行脚本）。
+与 Codex / OpenClaw / Hermes 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（必填 `path`）按需读取（不自动执行脚本）。读说明时 `path=SKILL.md`；读资源时传 skill 相对路径。
 
-**`skill_read` 带 `path` 时实时读磁盘**（Hermes `skill_view(name, file_path)` 同型）：路径必须在 skill 根目录内（禁止 `..` 穿越），不要求事先出现在启动时扫描的 `resource_files` 索引里。Agent 用 `file_*` 新增 reference 后无需重启即可 `skill_read`。
+**`skill_read` 实时读磁盘**（Hermes `skill_view(name, file_path)` 同型）：`path` 必填，且必须在 skill 根目录内（禁止 `..` 穿越），不要求事先出现在启动时扫描的 `resource_files` 索引里。Agent 用 `file_*` 新增 reference 后无需重启即可 `skill_read`。
 
 ## 运行时注入（OpenClaw 对齐）
 
@@ -42,6 +42,8 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 | `<name>` | skill id；**`skill_read`** 的 **`skill_id`** |
 | `<description>` | frontmatter 摘要 |
 | `<location>` | `SKILL.md` 路径（home / app data 展示为 `~/…`） |
+
+**`skill_read` 必填 `path`**：读说明传 `SKILL.md`；读资源传相对 skill 根的路径。
 
 技能根目录 = **`dirname(<location>)`**。正文中的 `{baseDir}` 在 **`skill_read`** 加载时替换为绝对路径；`terminal` 跑脚本时使用绝对路径。
 

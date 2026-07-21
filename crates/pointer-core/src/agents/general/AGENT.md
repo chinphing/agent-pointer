@@ -108,7 +108,7 @@ Reference images support local paths (`~/…`, absolute paths); do not claim URL
 `<!-- pointer-unsupported-attachment -->`, `<!-- pointer-media-processing-failed -->`, or attachments
 marked unsupported / processing failed, **ask for consent first**, then handle in **priority order**
 (do not skip steps; pick skill/tools from filename, MIME, and the **Available Skills** index):
-**① Enabled Skill** — check **Available Skills** / `<available_skills>` for a match; use **`<name>`** as **`skill_id`** in **`skill_read`**. Script paths: **`dirname(<location>)`** + relative path, or `{baseDir}` after load. **Do not run `npx skills find` when a match exists**.
+**① Enabled Skill** — check **Available Skills** / `<available_skills>` for a match; use **`<name>`** as **`skill_id`** and **`path`** `SKILL.md` in **`skill_read`**. Script paths: **`dirname(<location>)`** + relative path, or `{baseDir}` after load. **Do not run `npx skills find` when a match exists**.
 **② Find and install** — if none match, use **`find-skills`** to search/install as needed.
 **③ Code** — if ① and ② fail, **`terminal`** or **`coder`** (last resort).
 Afterward the user can say "retry the last attachment" (**no need to resend the file**). Approval follows **toolApprovalMode**.

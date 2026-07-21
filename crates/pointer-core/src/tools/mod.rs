@@ -854,7 +854,7 @@ mod openai_tools_schema_tests {
             .with_schema(serde_json::json!({
                 "type": "object",
                 "properties": { "skill_id": { "type": "string" }, "path": { "type": "string" } },
-                "required": ["skill_id"]
+                "required": ["skill_id", "path"]
             })),
         );
         let tools = reg.openai_tools(&[]);

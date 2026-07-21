@@ -6,6 +6,9 @@ schema:
       type: string
     path:
       type: string
+  required:
+    - skill_id
+    - path
   additionalProperties: true
 ---
 
@@ -17,9 +20,8 @@ Available when these tools are granted on the active agent
 (e.g. **general**, **coder**).
 Do not invent skill contents from memory — use the tools below.
 
-**`skill_read` loads a skill** (instructions / skill-relative path via **`skill_id`**
-and optional **`path`**). Use it only for enabled Skills — not for arbitrary
-workspace or project files.
+**`skill_read` loads a skill** via **`skill_id`** and required **`path`**.
+Use it only for enabled Skills — not for arbitrary workspace or project files.
 
 #### When to use
 
@@ -33,9 +35,10 @@ is the parent of `<location>`. Resolve `scripts/`, `references/`, `{baseDir}`, a
 other relative paths against that directory; pass **absolute paths** to **`terminal`**.
 
 - An enabled skill's `<description>` clearly matches the task → **`skill_read`**
-  with **`skill_id`** = `<name>` (loads `SKILL.md`).
+  with **`skill_id`** = `<name>` and **`path`** = `SKILL.md` (loads instructions).
 - The loaded skill body points at `references/`, `assets/`, or `scripts/` and
-  the task needs that file → call **`skill_read`** with **`skill_id`** and **`path`**.
+  the task needs that file → call **`skill_read`** again with the same **`skill_id`**
+  and **`path`** set to that skill-relative file.
 - The user provides a skill package on disk → call **`skill_import`**.
 
 Never read or write skill files under the app data directory directly
@@ -52,7 +55,8 @@ avoid whole-file overwrites of **`SKILL.md`**) and may use **`skill-creator`**.
 
 #### Tools
 
-- **`skill_read`** — read an enabled Skill: omit **`path`** for **`SKILL.md`** instructions (layer 2); pass **`path`** for a bundled resource file (layer 3).
+- **`skill_read`** — read an enabled Skill. **`path`** is required:
+  `SKILL.md` for instructions (layer 2); a bundled resource path for layer 3.
 - **`skill_import`** — install a Skill from a `.zip` file or directory into the user library (`~/.pointer/skills/`). Does **not** replace **`run_subagent` → coder** for edits.
 
 #### Usage
@@ -84,8 +88,10 @@ Example:
 
 - Call when an enabled skill's `name` / `description` clearly matches the task.
 - Pass only enabled `skill_id` values.
-- **Instructions:** omit `path`, or pass `"SKILL.md"`.
-- **Resource file:** pass `path` relative to the skill directory (parent of `<location>`), e.g. `references/api-guide.md`.
+- Always pass **`path`** (required). Never omit it.
+- **Instructions:** `path` = `SKILL.md`.
+- **Resource file:** `path` relative to the skill directory (parent of `<location>`),
+  e.g. `references/api-guide.md`.
 - **Scripts:** after **`skill_read`**, run bundled scripts via **`terminal`** using absolute paths (`{baseDir}` in the skill body is expanded on load; otherwise use `dirname(<location>)` + relative path).
 - After loading instructions, follow the skill body to complete the work.
 - Do not reload the same skill unless its body is missing from context.
@@ -98,7 +104,8 @@ Example — load instructions:
   "function": {
     "name": "skill_read",
     "arguments": {
-      "skill_id": "my-skill-id"
+      "skill_id": "my-skill-id",
+      "path": "SKILL.md"
     }
   }
 }

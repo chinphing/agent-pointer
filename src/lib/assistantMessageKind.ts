@@ -11,7 +11,7 @@ export function assistantHasDeliverableContent(message: ChatMessage): boolean {
 }
 
 /** How we render an assistant row in the thread (layout + emphasis). */
-export type AssistantDisplayKind = 'model' | 'injected_notice' | 'error'
+export type AssistantDisplayKind = 'model' | 'injected_notice' | 'error' | 'cancelled'
 
 /** 全角 closing bracket `】`，勿写成 ASCII `]`（否则会匹配失败，提示行会走普通助手大气泡）。 */
 const NOTICE_PREFIX_RE = /^【(桌面|提示|压缩)】/
@@ -19,8 +19,39 @@ const NOTICE_PREFIX_RE = /^【(桌面|提示|压缩)】/
 export function assistantDisplayKind(message: ChatMessage): AssistantDisplayKind {
   if (message.role !== 'assistant') return 'model'
   if (NOTICE_PREFIX_RE.test(message.content.trim())) return 'injected_notice'
+
+  const cancelled =
+    message.status === 'cancelled' ||
+    (message.status === 'error' && isGenerationCancelledMessage(message.errorMessage ?? ''))
+
+  if (cancelled) {
+    // Empty cancel → muted notice only. With tools/body → model row + muted footer.
+    if (!assistantHasVisibleProgress(message)) return 'cancelled'
+    return 'model'
+  }
+
   if (message.status === 'error' && !message.content.trim()) return 'error'
   return 'model'
+}
+
+/** True when the assistant already showed tools, text, or reasoning before stop. */
+export function assistantHasVisibleProgress(message: ChatMessage): boolean {
+  if (assistantHasDeliverableContent(message)) return true
+  if (message.thoughts?.trim()) return true
+  if (message.reasoning?.trim()) return true
+  if (message.responseTextDraft?.trim()) return true
+  if (
+    message.rawContent?.trim() &&
+    message.rawContent !== message.content &&
+    extractOutboundMediaPaths(message.rawContent).length === 0
+  ) {
+    return true
+  }
+  if ((message.toolCalls?.length ?? 0) > 0) return true
+  if ((message.agentTrace?.length ?? 0) > 0) return true
+  if ((message.supervisorPlanTasks?.length ?? 0) > 0) return true
+  if (message.computerRoundScreenRelPath) return true
+  return false
 }
 
 /** Sub-styles for injected lines (copy/tones only; layout stays `injected_notice`). */
@@ -41,38 +72,37 @@ export function isMessageStreaming(status: MessageStatus): boolean {
   return status === 'streaming' || status === 'pending'
 }
 
-/** User cancelled before any visible assistant output was produced. */
+/** User cancelled generation (UI stop or host cancel). */
 export function isGenerationCancelledMessage(message: string): boolean {
-  return message.includes('已停止')
+  const t = message.trim().toLowerCase()
+  if (!t) return false
+  if (t.includes('已停止')) return true
+  // Provider / Tokio cancel paths often surface bare English "cancelled".
+  if (/\bcancell?ed\b/.test(t)) return true
+  return false
 }
 
-/** Assistant shell with no user-visible content (e.g. cancelled during `message_start`). */
+/** Empty assistant shell that can be dropped when the user stops generation. */
 export function isDiscardableEmptyAssistant(message: ChatMessage): boolean {
   if (message.role !== 'assistant') return false
-  if (message.status === 'error') return false
+  if (message.status === 'error' || message.status === 'cancelled') return false
   if (isEphemeralDesktopNoticeMessage(message)) return false
   if (NOTICE_PREFIX_RE.test(message.content.trim())) return false
   // Keep the active shell visible while streaming so「思考中…」can render before first delta.
   if (isMessageStreaming(message.status)) return false
 
-  const hasText =
-    assistantHasDeliverableContent(message) ||
-    !!(message.thoughts?.trim()) ||
-    !!(message.reasoning?.trim()) ||
-    !!(message.responseTextDraft?.trim()) ||
-    !!(
-      message.rawContent?.trim() &&
-      message.rawContent !== message.content &&
-      extractOutboundMediaPaths(message.rawContent).length === 0
-    )
+  return !assistantHasVisibleProgress(message)
+}
 
-  const hasStructured =
-    (message.toolCalls?.length ?? 0) > 0 ||
-    (message.agentTrace?.length ?? 0) > 0 ||
-    (message.supervisorPlanTasks?.length ?? 0) > 0 ||
-    !!message.computerRoundScreenRelPath
-
-  return !hasText && !hasStructured
+/**
+ * Like {@link isDiscardableEmptyAssistant}, but for the stop/cancel path:
+ * streaming empty shells should also be removed (no red error card).
+ */
+export function isDiscardableEmptyAssistantOnCancel(message: ChatMessage): boolean {
+  if (message.role !== 'assistant') return false
+  if (isEphemeralDesktopNoticeMessage(message)) return false
+  if (NOTICE_PREFIX_RE.test(message.content.trim())) return false
+  return !assistantHasVisibleProgress(message)
 }
 
 /** Assistant row that only shows tool calls (no user-visible reply body). */

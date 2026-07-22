@@ -13,6 +13,7 @@ import { useSettingsStore } from '../../../stores/settings'
 import AssistantModelMessage from './assistant/AssistantModelMessage.vue'
 import AssistantNoticeMessage from './assistant/AssistantNoticeMessage.vue'
 import AssistantErrorMessage from './assistant/AssistantErrorMessage.vue'
+import AssistantCancelledMessage from './assistant/AssistantCancelledMessage.vue'
 
 const props = defineProps<{
   message: ChatMessage
@@ -30,7 +31,13 @@ const messageUi = computed(() =>
 const avatarIcon = computed(() => iconForAgentAvatar(messageUi.value.avatar))
 const toolOnly = computed(() => isToolOnlyAssistantMessage(props.message))
 const desktopNotice = computed(() => isEphemeralDesktopNoticeMessage(props.message))
-const hideAvatar = computed(() => toolOnly.value || desktopNotice.value || props.compact === true)
+const hideAvatar = computed(
+  () =>
+    toolOnly.value ||
+    desktopNotice.value ||
+    props.compact === true ||
+    kind.value === 'cancelled'
+)
 const compactShell = computed(() => toolOnly.value || desktopNotice.value)
 </script>
 
@@ -57,13 +64,13 @@ const compactShell = computed(() => toolOnly.value || desktopNotice.value)
 
     <div class="w-full min-w-0">
       <AssistantNoticeMessage v-if="kind === 'injected_notice'" :message="message" />
+      <AssistantCancelledMessage v-else-if="kind === 'cancelled'" :message="message" />
       <AssistantErrorMessage v-else-if="kind === 'error'" :message="message" />
       <AssistantModelMessage
         v-else
         :message="message"
         :tool-only="toolOnly"
         :trailing-tool-groups="trailingToolGroups"
-      />
-    </div>
+      />    </div>
   </div>
 </template>

@@ -72,6 +72,59 @@ describe('sessionHandlers', () => {
     expect(markMetaDirty).toHaveBeenCalledWith('conv1')
   })
 
+  it('handleStreamError marks user cancel as cancelled, not error', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: Date.now(),
+      toolCalls: [{ id: 't1', name: 'terminal', status: 'running', arguments: '{}' }]
+    })
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      markMetaDirty: vi.fn(),
+      clearRunState: vi.fn()
+    })
+
+    handleStreamError(ctx, {
+      kind: 'error',
+      conversationId: 'conv1',
+      messageId: 'a1',
+      message: 'cancelled'
+    })
+
+    expect(conv.messages).toHaveLength(1)
+    expect(conv.messages[0].status).toBe('cancelled')
+    expect(conv.messages[0].errorMessage).toBe('已停止生成')
+  })
+
+  it('handleStreamError removes empty streaming shell on cancel', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: Date.now(),
+      toolCalls: []
+    })
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      markMetaDirty: vi.fn(),
+      clearRunState: vi.fn()
+    })
+
+    handleStreamError(ctx, {
+      kind: 'error',
+      conversationId: 'conv1',
+      messageId: 'a1',
+      message: '已停止生成'
+    })
+
+    expect(conv.messages).toHaveLength(0)
+  })
   it('handleStreamError attaches session-level error to event conversation, not current open one', () => {
     const convA = sampleConversation('convA')
     const convB = sampleConversation('convB')

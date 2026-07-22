@@ -1,4 +1,7 @@
-import { isDiscardableEmptyAssistant } from '../../lib/assistantMessageKind'
+import {
+  isDiscardableEmptyAssistant,
+  isDiscardableEmptyAssistantOnCancel
+} from '../../lib/assistantMessageKind'
 import type { ChatMessage, Conversation, ExcludedReason } from '../../types/chat'
 
 /** Conversation / message client ids — UUID v4 (stable opaque segment for media paths). */
@@ -45,6 +48,15 @@ export function removeAssistantMessage(conv: Conversation, messageId: string): b
 export function removeTrailingDiscardableEmptyAssistant(conv: Conversation): boolean {
   const last = conv.messages[conv.messages.length - 1]
   if (!last || !isDiscardableEmptyAssistant(last)) return false
+  conv.messages.pop()
+  conv.updatedAt = Date.now()
+  return true
+}
+
+/** Drop trailing empty assistant shell after user stop (includes still-streaming shells). */
+export function removeTrailingDiscardableEmptyAssistantOnCancel(conv: Conversation): boolean {
+  const last = conv.messages[conv.messages.length - 1]
+  if (!last || !isDiscardableEmptyAssistantOnCancel(last)) return false
   conv.messages.pop()
   conv.updatedAt = Date.now()
   return true

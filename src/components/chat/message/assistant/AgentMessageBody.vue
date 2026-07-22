@@ -6,7 +6,7 @@ import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
 import { visibleToolCalls, toolCallBaseName } from '../../../../lib/messageTooling'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
-import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
+import { isGenerationCancelledMessage, isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import ToolMessageSegment from './ToolMessageSegment.vue'
 import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
@@ -51,6 +51,13 @@ const showBalanceRecharge = computed(
     props.body.status === 'error' &&
     !platformAuth.isStandalone &&
     isBalanceExhaustedMessage(props.body.errorMessage)
+)
+
+const isCancelled = computed(
+  () =>
+    props.body.status === 'cancelled' ||
+    (props.body.status === 'error' &&
+      isGenerationCancelledMessage(props.body.errorMessage ?? ''))
 )
 
 async function onOpenBilling() {
@@ -270,7 +277,8 @@ const hasMainBody = computed(
     showStreamingPlaceholderUnderThoughts.value ||
     showThoughtPanels.value ||
     showThinkingIndicator.value ||
-    props.body.status === 'error'
+    props.body.status === 'error' ||
+    isCancelled.value
 )
 
 const showCopyButton = computed(() => {
@@ -390,7 +398,14 @@ onUnmounted(() => clearReasoningCollapseTimer())
             <span class="typing-dot" style="animation-delay: 0.4s" />
           </div>
 
-          <div v-if="body.status === 'error'" class="mt-2 px-3 text-xs text-danger">
+          <div
+            v-if="isCancelled"
+            class="mt-1 px-3"
+            role="status"
+          >
+            <span class="inline-flex items-center text-[11px] text-muted">已停止生成</span>
+          </div>
+          <div v-else-if="body.status === 'error'" class="mt-2 px-3 text-xs text-danger">
             <div class="flex items-center gap-2">
               {{
                 showBalanceRecharge

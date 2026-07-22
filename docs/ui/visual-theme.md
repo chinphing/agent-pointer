@@ -40,6 +40,16 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 - Panel: `bg-card`, `border-border`, accent glow optional; controls use semantic tokens (`text-foreground`, `text-muted`, `bg-accent`, `text-danger`).
 - Reference: `src/components/auth/PlatformLoginModal.vue`
 
+## Chat assistant status tones
+
+| Status | UI | Notes |
+|--------|-----|--------|
+| Real failure (`error`) | Red alert card / `text-danger` | e.g. network, balance exhausted |
+| User stop (`cancelled`) | Inline muted caption（`text-[11px] text-muted`），**不要**整宽描边横幅 | Empty cancel → compact tool-row line; with tools/body → keep content +「已停止生成」 |
+| Injected notice | Same muted family as cancel | `【桌面】` / `【提示】` / `【压缩】` |
+
+Do not style user-initiated stop like a system exception.
+
 ## Theme preference
 
 - Persisted in **`UserSettings.theme`** (`user_settings.json`) — `light` | `dark` | `system`

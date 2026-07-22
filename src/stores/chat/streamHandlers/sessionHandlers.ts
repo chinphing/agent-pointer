@@ -2,7 +2,7 @@ import { isImConversation } from '../../../lib/channel-labels'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../../../lib/imMessageDedupe'
 import {
-  isDiscardableEmptyAssistant,
+  isDiscardableEmptyAssistantOnCancel,
   isEphemeralDesktopNoticeMessage,
   isGenerationCancelledMessage
 } from '../../../lib/assistantMessageKind'
@@ -14,6 +14,7 @@ import {
   normalizeInterruptedAssistantStatuses,
   removeAssistantMessage,
   removeTrailingDiscardableEmptyAssistant,
+  removeTrailingDiscardableEmptyAssistantOnCancel,
   uid
 } from '../helpers'
 import type { StreamHandlerContext } from './types'
@@ -230,8 +231,12 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
   if (e.messageId) {
     const r = ctx.findMessage(e.messageId, eventConvId || undefined)
     if (r) {
-      if (cancelled && isDiscardableEmptyAssistant(r.msg)) {
+      if (cancelled && isDiscardableEmptyAssistantOnCancel(r.msg)) {
         removeAssistantMessage(r.conv, e.messageId)
+      } else if (cancelled) {
+        r.msg.status = 'cancelled'
+        r.msg.errorMessage = '已停止生成'
+        r.msg.contentStreaming = false
       } else {
         r.msg.status = 'error'
         r.msg.errorMessage = e.message
@@ -248,7 +253,7 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
   } else if (cancelled) {
     const conv = ctx.conversations.value.find(c => c.id === fallbackConvId)
     if (conv) {
-      removeTrailingDiscardableEmptyAssistant(conv)
+      removeTrailingDiscardableEmptyAssistantOnCancel(conv)
       ctx.clearRunState(conv.id)
       affectedId = conv.id
     } else {

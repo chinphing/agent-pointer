@@ -40,9 +40,10 @@ function visibleComputerToolCalls(
   if (!message) return []
   const trace = activeComputerTrace(message)
   if (trace && conv) {
+    const anchor = trace.anchorMessageId?.trim() || message.id
     const scoped = latestSubAgentBodyModelFromScoped(
       conv.messages,
-      message.id,
+      anchor,
       trace.id,
       trace.status,
       trace.agentInstanceId
@@ -66,9 +67,10 @@ function streamBodyFromMessage(
   if (!message) return {}
   const trace = activeComputerTrace(message)
   if (trace && conv) {
+    const anchor = trace.anchorMessageId?.trim() || message.id
     const scoped = latestSubAgentBodyModelFromScoped(
       conv.messages,
-      message.id,
+      anchor,
       trace.id,
       trace.status,
       trace.agentInstanceId

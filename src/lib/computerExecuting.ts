@@ -21,9 +21,12 @@ export function isComputerToolBase(base: string): boolean {
   const b = base.trim()
   if (!b) return false
   if (COMPUTER_TOOL_BASES.has(b)) return true
+  if (b === 'launch_app' || b === 'list_apps') return true
   if (b.startsWith('mouse_')) return true
   if (b.startsWith('input_')) return true
   if (b.startsWith('modified_click_')) return true
+  if (b.startsWith('clipboard_')) return true
+  if (b.startsWith('captcha_verify')) return true
   return false
 }
 

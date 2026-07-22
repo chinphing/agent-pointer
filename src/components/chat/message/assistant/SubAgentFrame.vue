@@ -22,6 +22,10 @@ import {
   isSubTraceUiCollapsed,
   toggleSubTraceExpanded
 } from '../../../../lib/subAgentSession'
+import {
+  compactToolCallStatusLine,
+  latestToolCallForCompactStatus
+} from '../../../../lib/toolCallDisplay'
 import { thinkingLabel, streamedCharCountFromBody } from '../../../../lib/thinkingIndicator'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
@@ -47,10 +51,15 @@ const traceLabel = computed(() =>
 )
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled === true)
 
+/** Prefer nested trace anchor when present; otherwise the lead message id. */
+const effectiveAnchorId = computed(
+  () => props.trace.anchorMessageId?.trim() || props.anchorMessageId
+)
+
 const scopedMessages = computed(() =>
   scopedAssistantMessagesForTrace(
     props.messages,
-    props.anchorMessageId,
+    effectiveAnchorId.value,
     props.trace.id,
     props.trace.agentInstanceId
   )
@@ -59,9 +68,7 @@ const scopedMessages = computed(() =>
 const scopedTraceMessages = computed(() =>
   scopedMessagesForTrace(
     props.messages,
-    props.trace.anchorMessageId
-      ? props.trace.anchorMessageId
-      : props.anchorMessageId,
+    effectiveAnchorId.value,
     props.trace.id,
     props.trace.agentInstanceId
   )
@@ -83,7 +90,7 @@ const hasVisibleActivity = computed(() => {
 const latestStreamBody = computed((): AgentMessageBodyModel | null => {
   const scoped = latestSubAgentBodyModelFromScoped(
     props.messages,
-    props.anchorMessageId,
+    effectiveAnchorId.value,
     props.trace.id,
     props.trace.status,
     props.trace.agentInstanceId
@@ -137,6 +144,18 @@ const summaryLine = computed(() => {
   if (isRunning.value && !hasVisibleActivity.value) {
     return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)}…`
   }
+  // Collapsed frame never mounts tool cards; while running show the live tool
+  // one-liner so mid-turn activity is not mistaken for「工具 0 次」.
+  if (isRunning.value) {
+    const calls =
+      latestStreamBody.value?.toolCalls
+      ?? legacySession.value?.toolCalls
+      ?? []
+    const latest = latestToolCallForCompactStatus(calls)
+    if (latest) {
+      return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)} · ${compactToolCallStatusLine(latest)}`
+    }
+  }
   const stats =
     scopedTraceMessages.value.length > 0
       ? computeSubAgentStatsFromMessages(scopedTraceMessages.value)
@@ -152,7 +171,7 @@ const summaryLine = computed(() => {
 const bodyModels = computed((): AgentMessageBodyModel[] => {
   const scoped = buildSubAgentBodyModelsFromScoped(
     props.messages,
-    props.anchorMessageId,
+    effectiveAnchorId.value,
     props.trace.id,
     props.trace.status,
     props.trace.agentInstanceId

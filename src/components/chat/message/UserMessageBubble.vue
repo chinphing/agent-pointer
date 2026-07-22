@@ -52,15 +52,14 @@ async function onOpenAttachment(att: RenderableAttachment) {
 
 <template>
   <div class="chat-hover-root relative chat-column flex justify-end">
-    <div class="max-w-[85%] min-w-0 flex items-start gap-2 flex-row-reverse">
+    <div class="relative max-w-[85%] min-w-0 w-fit flex flex-col items-end gap-2">
       <div
-        class="message-avatar-slot w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-700"
+        class="message-avatar-slot absolute left-full ml-2 top-0 w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-700"
         title="用户"
       >
         <User class="w-4 h-4 text-white" />
       </div>
 
-      <div class="min-w-0 flex flex-col items-end gap-2 flex-1">
       <div
         v-if="attachments.length"
         class="flex flex-col items-end gap-2 w-full"
@@ -167,7 +166,6 @@ async function onOpenAttachment(att: RenderableAttachment) {
           :copy-text="displayContent"
           :show-copy="true"
         />
-      </div>
       </div>
     </div>
   </div>

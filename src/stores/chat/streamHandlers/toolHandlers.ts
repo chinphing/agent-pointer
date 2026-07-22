@@ -89,8 +89,10 @@ export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart)
   const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
   if (target) {
     target.toolCalls = upsertToolCall(target.toolCalls, e.toolCall)
-    target.contentStreaming = true
-    target.status = 'streaming'
+    if (target.status !== 'cancelled' && target.status !== 'error') {
+      target.contentStreaming = true
+      target.status = 'streaming'
+    }
     return
   }
   if (e.traceId?.trim()) {
@@ -100,7 +102,9 @@ export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart)
     session.contentStreaming = true
     return
   }
-  r.msg.status = 'streaming'
+  if (r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
+    r.msg.status = 'streaming'
+  }
   r.msg.toolCalls = upsertToolCall(r.msg.toolCalls, e.toolCall)
 }
 
@@ -226,7 +230,7 @@ export function handleTerminalNeedsInput(ctx: StreamHandlerContext, e: TerminalN
   }
   syncTerminalInputOutputContext(ctx, e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
   ctx.showUiToast(
-    e.inputClass === 'secret' ? '终端命令需要密码，请在弹窗中输入' : '终端命令等待你的输入',
+    e.inputClass === 'secret' ? '????????????????' : '??????????',
     'warning'
   )
 }

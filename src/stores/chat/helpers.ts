@@ -1,6 +1,5 @@
 import {
-  isDiscardableEmptyAssistant,
-  isDiscardableEmptyAssistantOnCancel
+  isDiscardableEmptyAssistant
 } from '../../lib/assistantMessageKind'
 import type { ChatMessage, Conversation, ExcludedReason } from '../../types/chat'
 
@@ -53,11 +52,17 @@ export function removeTrailingDiscardableEmptyAssistant(conv: Conversation): boo
   return true
 }
 
-/** Drop trailing empty assistant shell after user stop (includes still-streaming shells). */
-export function removeTrailingDiscardableEmptyAssistantOnCancel(conv: Conversation): boolean {
+/**
+ * After user stop without a messageId, keep the trailing assistant row and mark it
+ * cancelled so the muted「已停止生成」caption remains visible.
+ */
+export function markTrailingAssistantCancelled(conv: Conversation): boolean {
   const last = conv.messages[conv.messages.length - 1]
-  if (!last || !isDiscardableEmptyAssistantOnCancel(last)) return false
-  conv.messages.pop()
+  if (!last || last.role !== 'assistant') return false
+  if (last.status === 'done' || last.status === 'error') return false
+  last.status = 'cancelled'
+  last.errorMessage = '已停止生成'
+  last.contentStreaming = false
   conv.updatedAt = Date.now()
   return true
 }

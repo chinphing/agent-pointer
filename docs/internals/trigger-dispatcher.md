@@ -63,6 +63,7 @@ Pointer 聊天 UI 对齐该语义（前端 FIFO，后端 `session:*` lane 仍串
 - 当前会话 **generating** 时，用户仍可点 **发送**；消息进入输入框上方的 **可折叠待发送列表**（per-conversation FIFO），**不**插入对话 transcript。
 - 当前 turn 结束（`done` / `error` / `stop`）后自动写入用户消息并 `dispatch` 下一条。
 - **停止**仅中断当前 run，队列中待发送消息保留；可从列表移出单条。
+- **强制发送**（列表项上的向上箭头）：将该条置顶，先走与 Composer **停止**相同的 `cancelChat`（等宿主取消完成），再立即 `dispatch` 该条（其余队列项仍按序跟在后面）。
 - Composer 同时显示 **停止** + **发送**；输入框上方 **待发送** 面板可展开/收起。
 
 ## 事件总线

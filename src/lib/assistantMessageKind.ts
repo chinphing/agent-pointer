@@ -95,8 +95,9 @@ export function isDiscardableEmptyAssistant(message: ChatMessage): boolean {
 }
 
 /**
- * Like {@link isDiscardableEmptyAssistant}, but for the stop/cancel path:
- * streaming empty shells should also be removed (no red error card).
+ * Empty assistant with no visible progress (including still-streaming shells).
+ * Historically used to drop cancel shells; cancel now keeps a `cancelled` row
+ * so「已停止生成」stays visible — prefer that path over discarding.
  */
 export function isDiscardableEmptyAssistantOnCancel(message: ChatMessage): boolean {
   if (message.role !== 'assistant') return false

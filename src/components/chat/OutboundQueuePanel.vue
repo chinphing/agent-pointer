@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ChevronDown, Clock, Paperclip, X } from 'lucide-vue-next'
+import { ArrowUp, ChevronDown, Clock, Paperclip, X } from 'lucide-vue-next'
 import type { OutboundQueueItem } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 
@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const chat = useChatStore()
 const expanded = ref(false)
+const forcingId = ref<string | null>(null)
 
 const count = computed(() => props.items.length)
 
@@ -33,6 +34,16 @@ function preview(item: OutboundQueueItem): string {
 
 function removeItem(itemId: string) {
   chat.removeOutboundQueueItem(props.conversationId, itemId)
+}
+
+async function forceSend(itemId: string) {
+  if (forcingId.value) return
+  forcingId.value = itemId
+  try {
+    await chat.forceSendOutbound(props.conversationId, itemId)
+  } finally {
+    forcingId.value = null
+  }
 }
 </script>
 
@@ -85,14 +96,28 @@ function removeItem(itemId: string) {
             {{ item.attachments.length }} 个附件
           </p>
         </div>
-        <button
-          type="button"
-          class="shrink-0 p-1 rounded-md text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors"
-          title="移出队列"
-          @click.stop="removeItem(item.id)"
-        >
-          <X class="w-3.5 h-3.5" />
-        </button>
+        <div class="shrink-0 flex items-center gap-0.5 pt-0.5">
+          <button
+            type="button"
+            class="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted hover:text-accent hover:bg-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="强制发送：暂停当前任务并立即发送"
+            aria-label="强制发送"
+            :disabled="forcingId !== null"
+            @click.stop="forceSend(item.id)"
+          >
+            <ArrowUp class="w-4 h-4" stroke-width="2.25" />
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="移出队列"
+            aria-label="移出队列"
+            :disabled="forcingId !== null"
+            @click.stop="removeItem(item.id)"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
+        </div>
       </li>
     </ul>
   </div>

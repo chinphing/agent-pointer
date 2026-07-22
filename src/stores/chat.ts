@@ -26,6 +26,7 @@ import type {
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
+import { promoteOutboundQueueItem } from '../lib/outboundQueue'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
@@ -220,6 +221,86 @@ export const useChatStore = defineStore('chat', () => {
     const next = { ...outboundQueues.value }
     delete next[key]
     outboundQueues.value = next
+  }
+
+  /**
+   * Pause the active turn and send a queued item immediately (Hermes-style interrupt).
+   * Promotes the item to the front, stops the current run (same as composer Stop), then drains.
+   */
+  async function forceSendOutbound(conversationId: string, itemId: string) {
+    const key = conversationId.trim()
+    const id = itemId.trim()
+    if (!key || !id) return
+    const queue = outboundQueues.value[key]
+    if (!queue?.some(item => item.id === id)) return
+
+    const promoted = promoteOutboundQueueItem(queue, id)
+    outboundQueues.value = { ...outboundQueues.value, [key]: promoted }
+
+    const conv = conversations.value.find(c => c.id === key)
+    const hasActiveTurn =
+      isConversationGenerating(key) ||
+      (!!conv &&
+        [...conv.messages]
+          .reverse()
+          .some(m => m.role === 'assistant' && assistantTurnActivelyRunning(m)))
+
+    if (hasActiveTurn) {
+      showUiToast('已暂停当前任务，正在立即发送…', 'warning')
+      await interruptActiveTurn(key)
+      return
+    }
+
+    await drainOutboundQueue(key)
+  }
+
+  /**
+   * End the active turn — same host cancel as the composer Stop button.
+   * Awaits `cancelChat` before draining so a force-send cannot start a new turn
+   * while the previous run is still alive.
+   */
+  async function interruptActiveTurn(conversationId: string) {
+    const key = conversationId.trim()
+    if (!key) return
+    const conv = conversations.value.find(c => c.id === key)
+    const msgId = runStateFor(key).activeMessageId
+    flushReasoningDeltaBuffer(msgId ?? undefined)
+    if (current.value?.id === key) {
+      terminalLive.clear()
+    }
+
+    cancelGeneratingClearTimer(key)
+    // Optimistic UI: hide stop button / show cancelled while host cancel runs.
+    patchRunState(key, { generating: false, activeMessageId: null })
+
+    if (conv && msgId) {
+      const row = conv.messages.find(m => m.id === msgId)
+      if (row?.role === 'assistant') {
+        // Always keep a cancelled row so「已停止生成」stays visible (compact inline).
+        row.status = 'cancelled'
+        row.errorMessage = '已停止生成'
+        row.contentStreaming = false
+        for (const tc of row.toolCalls ?? []) {
+          if (tc.status === 'pending_approval') {
+            tc.status = 'rejected'
+          } else if (tc.status === 'running' || tc.status === 'pending') {
+            tc.status = tc.result?.trim() ? 'success' : 'failed'
+            if (tc.status === 'failed' && !tc.error) tc.error = 'interrupted'
+          }
+        }
+        markMetaDirty(key)
+      }
+    }
+
+    try {
+      await cancelChat(key)
+    } catch (e) {
+      console.error('[chat] cancelChat failed', e)
+    }
+
+    // Host cancel is signaled; keep UI stopped even if a late stream event raced.
+    patchRunState(key, { generating: false, activeMessageId: null })
+    await drainOutboundQueue(key)
   }
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
@@ -1453,20 +1534,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function stop() {
     if (!current.value) return
-    const conv = current.value
-    const msgId = runStateFor(conv.id).activeMessageId
-    flushReasoningDeltaBuffer(msgId ?? undefined)
-    terminalLive.clear()
-    await cancelChat(conv.id).catch(e => console.error(e))
-    clearRunState(conv.id)
-    if (msgId) {
-      const row = conv.messages.find(m => m.id === msgId)
-      if (row?.role === 'assistant' && (row.status === 'streaming' || row.status === 'pending')) {
-        row.status = 'done'
-      }
-    }
-    removeDiscardableAssistant(conv, msgId)
-    markMetaDirty(conv.id)
+    await interruptActiveTurn(current.value.id)
   }
 
   async function abortTerminalOnly(toolCallId?: string) {
@@ -1551,7 +1619,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, uiToast, taskBoards,
+    conversations, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
     init, resetForPlatformLogout, newConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

@@ -14,14 +14,14 @@ type ReasoningDelta = Extract<StreamEvent, { kind: 'reasoning_delta' }>
 type AssistantJsonPartial = Extract<StreamEvent, { kind: 'assistant_json_partial' }>
 type MessageEnd = Extract<StreamEvent, { kind: 'message_end' }>
 
-type TraceScopedEvent = {
-  traceId?: string
-  scopedMessageId?: string
+function markAssistantStreaming(msg: { status: ChatMessage['status']; contentStreaming?: boolean }) {
+  if (msg.status === 'cancelled' || msg.status === 'error') return
+  msg.status = 'streaming'
+  msg.contentStreaming = true
 }
 
 function applyAssistantJsonPartialToMessage(msg: ChatMessage, e: AssistantJsonPartial) {
-  msg.contentStreaming = true
-  msg.status = 'streaming'
+  markAssistantStreaming(msg)
   if (e.thoughts != null) {
     if (e.thoughts.trim() !== '') msg.thoughts = e.thoughts
     else if (isPlannerPhaseThoughts(msg.thoughts)) delete msg.thoughts
@@ -98,8 +98,7 @@ export function handleDelta(ctx: StreamHandlerContext, e: Delta) {
   const r = ctx.findMessage(e.messageId)
   if (r) {
     r.msg.content += e.text
-    r.msg.status = 'streaming'
-    r.msg.contentStreaming = true
+    markAssistantStreaming(r.msg)
   }
 }
 
@@ -109,8 +108,7 @@ export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDe
   const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
   if (target) {
     target.rawContent = (target.rawContent || '') + e.text
-    target.contentStreaming = true
-    target.status = 'streaming'
+    markAssistantStreaming(target)
     return
   }
   if (e.traceId?.trim()) {
@@ -121,8 +119,7 @@ export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDe
     return
   }
   r.msg.rawContent = (r.msg.rawContent || '') + e.text
-  r.msg.status = 'streaming'
-  r.msg.contentStreaming = true
+  markAssistantStreaming(r.msg)
 }
 
 export function handleReasoningDelta(_ctx: StreamHandlerContext, e: ReasoningDelta) {
@@ -165,7 +162,12 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
       if (e.thoughts != null && e.thoughts.trim() !== '') scopedTarget.thoughts = e.thoughts
       delete scopedTarget.toolNamePreview
       delete scopedTarget.responseTextDraft
-      if (!ctx.isConversationGenerating(r.conv.id)) {
+      // Do not clobber user-stop (`cancelled`) or hard errors with `done`.
+      if (
+        !ctx.isConversationGenerating(r.conv.id) &&
+        scopedTarget.status !== 'cancelled' &&
+        scopedTarget.status !== 'error'
+      ) {
         scopedTarget.status = 'done'
       }
       r.conv.updatedAt = Date.now()
@@ -180,10 +182,13 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     }
     const terminalMediaDelivery =
       (e.attachments?.length ?? 0) > 0 && !ctx.hasInFlightToolCalls(r.msg)
-    r.msg.status =
-      ctx.isConversationGenerating(r.conv.id) && !terminalMediaDelivery
-        ? 'streaming'
-        : 'done'
+    // Late message_end after Stop must not wipe `cancelled` (or the inline caption disappears).
+    if (r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
+      r.msg.status =
+        ctx.isConversationGenerating(r.conv.id) && !terminalMediaDelivery
+          ? 'streaming'
+          : 'done'
+    }
     r.msg.contentStreaming = false
     const preview = r.msg.toolNamePreview?.trim()
     const draft = r.msg.responseTextDraft?.trim()

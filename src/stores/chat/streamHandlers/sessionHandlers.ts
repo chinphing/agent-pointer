@@ -2,7 +2,6 @@ import { isImConversation } from '../../../lib/channel-labels'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../../../lib/imMessageDedupe'
 import {
-  isDiscardableEmptyAssistantOnCancel,
   isEphemeralDesktopNoticeMessage,
   isGenerationCancelledMessage
 } from '../../../lib/assistantMessageKind'
@@ -11,10 +10,10 @@ import { useSkillsStore } from '../../skills'
 import { GENERAL_AGENT_ID } from '../../../lib/agentUi'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
 import {
+  markTrailingAssistantCancelled,
   normalizeInterruptedAssistantStatuses,
   removeAssistantMessage,
   removeTrailingDiscardableEmptyAssistant,
-  removeTrailingDiscardableEmptyAssistantOnCancel,
   uid
 } from '../helpers'
 import type { StreamHandlerContext } from './types'
@@ -231,9 +230,8 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
   if (e.messageId) {
     const r = ctx.findMessage(e.messageId, eventConvId || undefined)
     if (r) {
-      if (cancelled && isDiscardableEmptyAssistantOnCancel(r.msg)) {
-        removeAssistantMessage(r.conv, e.messageId)
-      } else if (cancelled) {
+      if (cancelled) {
+        // Keep the row so the muted「已停止生成」caption remains visible.
         r.msg.status = 'cancelled'
         r.msg.errorMessage = '已停止生成'
         r.msg.contentStreaming = false
@@ -253,7 +251,7 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
   } else if (cancelled) {
     const conv = ctx.conversations.value.find(c => c.id === fallbackConvId)
     if (conv) {
-      removeTrailingDiscardableEmptyAssistantOnCancel(conv)
+      markTrailingAssistantCancelled(conv)
       ctx.clearRunState(conv.id)
       affectedId = conv.id
     } else {

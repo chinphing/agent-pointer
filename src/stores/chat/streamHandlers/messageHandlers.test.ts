@@ -107,18 +107,24 @@ describe('messageHandlers', () => {
     expect(conv.messages[0].contentStreaming).toBe(false)
   })
 
-  it('handleAssistantJsonPartial preserves real thoughts on empty string', () => {
+  it('handleMessageEnd does not overwrite cancelled status after user stop', () => {
     const conv = sampleConversation()
     conv.messages.push({
       ...sampleAssistantMessage('a1'),
-      thoughts: 'Step result: pass\nNext: click search box'
+      status: 'cancelled',
+      errorMessage: '已停止生成',
+      contentStreaming: false,
+      toolCalls: [{ id: 't1', name: 'terminal', status: 'failed', arguments: '{}' }]
     })
-    const ctx = createMockStreamHandlerContext([conv])
-    handleAssistantJsonPartial(ctx, {
-      kind: 'assistant_json_partial',
+    const ctx = createMockStreamHandlerContext([conv], {
+      isConversationGenerating: () => false
+    })
+    handleMessageEnd(ctx, {
+      kind: 'message_end',
       messageId: 'a1',
-      thoughts: ''
+      content: ''
     })
-    expect(conv.messages[0].thoughts).toBe('Step result: pass\nNext: click search box')
+    expect(conv.messages[0].status).toBe('cancelled')
+    expect(conv.messages[0].errorMessage).toBe('已停止生成')
   })
 })

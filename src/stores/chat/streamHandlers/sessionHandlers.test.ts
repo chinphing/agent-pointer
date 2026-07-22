@@ -100,7 +100,7 @@ describe('sessionHandlers', () => {
     expect(conv.messages[0].errorMessage).toBe('已停止生成')
   })
 
-  it('handleStreamError removes empty streaming shell on cancel', () => {
+  it('handleStreamError keeps empty streaming shell as cancelled on stop', () => {
     const conv = sampleConversation()
     conv.messages.push({
       id: 'a1',
@@ -123,7 +123,9 @@ describe('sessionHandlers', () => {
       message: '已停止生成'
     })
 
-    expect(conv.messages).toHaveLength(0)
+    expect(conv.messages).toHaveLength(1)
+    expect(conv.messages[0].status).toBe('cancelled')
+    expect(conv.messages[0].errorMessage).toBe('已停止生成')
   })
   it('handleStreamError attaches session-level error to event conversation, not current open one', () => {
     const convA = sampleConversation('convA')

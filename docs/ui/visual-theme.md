@@ -45,7 +45,7 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 | Status | UI | Notes |
 |--------|-----|--------|
 | Real failure (`error`) | Red alert card / `text-danger` | e.g. network, balance exhausted |
-| User stop (`cancelled`) | Inline muted caption（`text-[11px] text-muted`），**不要**整宽描边横幅 | Empty cancel → compact tool-row line; with tools/body → keep content +「已停止生成」 |
+| User stop (`cancelled`) | Inline muted caption（`text-[11px] text-muted`），**不要**整宽描边横幅 | Always keep the assistant row after stop so「已停止生成」stays visible (empty → compact line; with tools/body → content + caption) |
 | Injected notice | Same muted family as cancel | `【桌面】` / `【提示】` / `【压缩】` |
 
 Do not style user-initiated stop like a system exception.

@@ -129,11 +129,38 @@ describe('workspace-relative file tool paths', () => {
     ).toBe('src/components/App.vue')
   })
 
+  it('shortens paths under the user Pointer directory across path styles', () => {
+    expect(
+      workspaceRelativeDisplayPath('/Users/starliu/.pointer/skills/review/SKILL.md')
+    ).toBe('review/SKILL.md')
+    expect(
+      workspaceRelativeDisplayPath('~/.pointer/skills/review/scripts/check.py')
+    ).toBe('review/scripts/check.py')
+    expect(
+      workspaceRelativeDisplayPath('C:\\Users\\starliu\\.pointer\\skills\\review\\SKILL.md')
+    ).toBe('review/SKILL.md')
+    expect(
+      workspaceRelativeDisplayPath('/Users/starliu/.pointer/cache/index.json')
+    ).toBe('/Users/starliu/.pointer/cache/index.json')
+  })
+
+  it('prefers the active workspace when it is inside the Pointer directory', () => {
+    expect(
+      workspaceRelativeDisplayPath(
+        '/Users/starliu/.pointer/skills/review/scripts/check.py',
+        '/Users/starliu/.pointer/skills/review'
+      )
+    ).toBe('scripts/check.py')
+  })
+
   it('keeps relative and outside-workspace paths without inventing containment', () => {
     expect(workspaceRelativeDisplayPath('src\\App.vue', 'C:\\project\\pointer-app')).toBe('src/App.vue')
     expect(
       workspaceRelativeDisplayPath('C:\\other\\App.vue', 'C:\\project\\pointer-app')
     ).toBe('C:/other/App.vue')
+    expect(
+      workspaceRelativeDisplayPath('/tmp/project/.pointer/skills/local/SKILL.md')
+    ).toBe('/tmp/project/.pointer/skills/local/SKILL.md')
   })
 
   it('extracts the path from file tool arguments only', () => {

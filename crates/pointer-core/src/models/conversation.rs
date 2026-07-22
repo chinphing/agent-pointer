@@ -141,6 +141,9 @@ pub struct ConversationSearchHit {
     pub updated_at: i64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub snippet: String,
+    /// Matched message id when the hit came from message body FTS; empty for title-only hits.
+    #[serde(default, rename = "messageId", skip_serializing_if = "String::is_empty")]
+    pub message_id: String,
     #[serde(default, rename = "messageCount")]
     pub message_count: u32,
     #[serde(default, skip_serializing_if = "String::is_empty")]

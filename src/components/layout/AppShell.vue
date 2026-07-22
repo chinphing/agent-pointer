@@ -89,10 +89,24 @@ function confirmDeleteConversation(c: { id: string }) {
 }
 
 /** Row click selects the conversation and dismisses any pending delete. */
-function onRowClick(c: { id: string }) {
+function onRowClick(c: {
+  id: string
+  title?: string
+  updatedAt?: number
+  messageId?: string
+  messageCount?: number
+}) {
   saveEdit()
   pendingDeleteId.value = null
-  chat.selectConversation(c.id)
+  chat.selectConversation(c.id, {
+    focusMessageId: c.messageId?.trim() || undefined,
+    focusQueryTerm: searchQuery.value.trim() || undefined,
+    ensureShell: {
+      title: c.title,
+      updatedAt: c.updatedAt,
+      messageCount: c.messageCount
+    }
+  })
 }
 const {
   enabled: chromeEnabled,
@@ -118,7 +132,14 @@ const windowControlsOnMainTop = computed(
 
 const searchQuery = ref('')
 const searchLoading = ref(false)
-type SidebarRow = { id: string; title: string; updatedAt: number; snippet?: string }
+type SidebarRow = {
+  id: string
+  title: string
+  updatedAt: number
+  snippet?: string
+  messageId?: string
+  messageCount?: number
+}
 const searchResults = ref<SidebarRow[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let searchSeq = 0
@@ -157,7 +178,9 @@ async function runSidebarSearch(query: string) {
         title: h.title,
         updatedAt: h.updatedAt,
         // Prefer FTS match-centered snippet; preview is only a last-resort fallback.
-        snippet: h.snippet?.trim() || h.preview?.trim() || undefined
+        snippet: h.snippet?.trim() || h.preview?.trim() || undefined,
+        messageId: h.messageId?.trim() || undefined,
+        messageCount: h.messageCount
       }))
   } catch (err) {
     console.error('[sidebar] searchConversations failed', err)

@@ -353,6 +353,20 @@
 .md-body th, .md-body td { @apply border border-border px-3 py-1.5 break-words; }
 .md-body .table-wrapper { @apply overflow-x-auto max-w-full; }
 
+.sidebar-search-text-mark {
+  color: inherit;
+  background: hsl(48 96% 53% / 0.65);
+  border-radius: 0.2rem;
+  box-shadow: 0 0 0 1px hsl(48 96% 53% / 0.35);
+  padding: 0 0.08em;
+}
+
+::highlight(sidebar-search-text) {
+  color: inherit;
+  background-color: hsl(48 96% 53% / 0.72);
+  text-decoration: underline hsl(38 92% 45% / 0.9) 1px;
+}
+
 /* Tauri: no webkit drag regions — window move only via startDragging() on .window-drag-region */
 html.tauri-app .window-no-drag-region,
 html.tauri-app .window-no-drag-region *,

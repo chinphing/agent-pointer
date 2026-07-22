@@ -25,16 +25,28 @@ function normalizeDisplayPath(path: string): string {
   return path.trim().replace(/^\\\\\?\\/, '').replace(/\\/g, '/').replace(/\/$/, '')
 }
 
-/** Format a path relative to the active workspace when it is contained by that workspace. */
+/**
+ * Format a display-only path relative to the active workspace, or to the
+ * user-level Pointer skills root when the path is under `~/.pointer/skills`.
+ */
 export function workspaceRelativeDisplayPath(path: string, workspaceRoot?: string): string {
   const normalized = normalizeDisplayPath(path)
   const workspace = normalizeDisplayPath(workspaceRoot ?? '')
-  if (!workspace) return normalized
-
   const normalizedLower = normalized.toLocaleLowerCase()
-  const workspaceLower = workspace.toLocaleLowerCase()
-  if (normalizedLower.startsWith(`${workspaceLower}/`)) {
-    return normalized.slice(workspace.length + 1)
+
+  // Keep the active workspace as the most specific display root.
+  if (workspace) {
+    const workspaceLower = workspace.toLocaleLowerCase()
+    if (normalizedLower.startsWith(`${workspaceLower}/`)) {
+      return normalized.slice(workspace.length + 1)
+    }
+  }
+
+  const pointerSkillsRootMatch = normalized.match(
+    /^(?:~|\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\/Users\/[^/]+)\/\.pointer\/skills\//i
+  )
+  if (pointerSkillsRootMatch) {
+    return normalized.slice(pointerSkillsRootMatch[0].length)
   }
   return normalized
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { parseMarkdown } from '../../lib/markdownConfig'
 import {
   Wrench,
@@ -26,9 +26,19 @@ import AskUserOptions from './AskUserOptions.vue'
 const props = defineProps<{
   toolCall: ToolCall
   showToolCallResults?: boolean
+  isSearchMatch?: boolean
+  isActiveSearchMatch?: boolean
 }>()
 const chat = useChatStore()
 const open = ref(false)
+
+watch(
+  () => props.isActiveSearchMatch,
+  active => {
+    if (active) open.value = true
+  },
+  { immediate: true }
+)
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
 const isWebSearch = computed(() => props.toolCall.name === 'web_search')
@@ -302,7 +312,15 @@ function openSourceUrl(url: string) {
 </script>
 
 <template>
-  <div class="tool-call-row">
+  <div
+    class="tool-call-row transition-colors"
+    :data-tool-call-id="toolCall.id"
+    :class="isActiveSearchMatch
+      ? 'rounded-lg ring-2 ring-accent/60 bg-accent/10'
+      : isSearchMatch
+        ? 'rounded-lg bg-accent/5'
+        : ''"
+  >
     <button
       type="button"
       class="tool-call-trigger w-full py-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"

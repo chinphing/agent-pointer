@@ -82,6 +82,7 @@ pub fn search_conversations_for_ui(
                 title,
                 updated_at: updated_at_ms,
                 snippet,
+                message_id: String::new(),
                 message_count: message_count.max(0) as u32,
                 preview,
             }
@@ -107,12 +108,13 @@ fn collect_fts_hits(
     // may match via token overlap without a contiguous query substring, which
     // made match_centered_snippet fall back to the document head. Prefer a row
     // that actually contains the query string.
-    let sql = "SELECT mf.conversation_id,
+    let sql = "SELECT m.conversation_id,
+                      m.message_id,
                       m.content,
                       c.title, c.updated_at_ms, c.message_count, c.preview
                FROM messages_fts AS mf
                INNER JOIN messages AS m ON m.id = mf.rowid
-               INNER JOIN conversations AS c ON c.id = mf.conversation_id
+               INNER JOIN conversations AS c ON c.id = m.conversation_id
                WHERE messages_fts MATCH ?1
                  AND c.id NOT LIKE 'cron:%'
                  AND c.id NOT LIKE 'webhook:%'
@@ -125,9 +127,10 @@ fn collect_fts_hits(
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
-            row.get::<_, i64>(3)?,
+            row.get::<_, String>(3)?,
             row.get::<_, i64>(4)?,
-            row.get::<_, String>(5)?,
+            row.get::<_, i64>(5)?,
+            row.get::<_, String>(6)?,
         ))
     })?;
 
@@ -135,22 +138,29 @@ fn collect_fts_hits(
     let mut best: std::collections::HashMap<String, (bool, ConversationSearchHit)> =
         std::collections::HashMap::new();
     for row in mapped {
-        let (id, content, title, updated_at, message_count, preview) = row?;
+        let (id, message_id, content, title, updated_at, message_count, preview) = row?;
         let contiguous = text_contains_query(&content, raw_query);
-        let snippet = if contiguous {
-            match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "")
-        } else if let Some(snip) =
+        let (snippet, resolved_message_id) = if contiguous {
+            (
+                match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", ""),
+                message_id,
+            )
+        } else if let Some((mid, snip)) =
             find_contiguous_snippet_in_conversation(conn, &id, raw_query)?
         {
             // FTS ranked a weak row first; locate a real substring hit in the same conversation.
-            snip
+            (snip, mid)
         } else {
             // Last resort: still show something from this row (may be head).
-            match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "")
+            (
+                match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", ""),
+                message_id,
+            )
         };
         let hit = ConversationSearchHit {
             id: id.clone(),
             snippet,
+            message_id: resolved_message_id,
             title,
             updated_at,
             message_count: message_count.max(0) as u32,
@@ -171,35 +181,33 @@ fn collect_fts_hits(
     Ok(out)
 }
 
-/// Scan messages in a conversation for a contiguous query substring and build a snippet.
+/// Scan messages in a conversation for a contiguous query substring.
+/// Returns `(message_id, snippet)` for the first match.
 fn find_contiguous_snippet_in_conversation(
     conn: &Connection,
     conversation_id: &str,
     raw_query: &str,
-) -> Result<Option<String>> {
+) -> Result<Option<(String, String)>> {
     let q = raw_query.trim();
     if q.is_empty() {
         return Ok(None);
     }
     let like = format!("%{q}%");
     let mut stmt = conn.prepare(
-        "SELECT content FROM messages
+        "SELECT message_id, content FROM messages
          WHERE conversation_id = ?1 AND content LIKE ?2
          ORDER BY position ASC
          LIMIT 8",
     )?;
     let mapped = stmt.query_map(params![conversation_id, like], |row| {
-        row.get::<_, String>(0)
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
     for row in mapped {
-        let content = row?;
+        let (message_id, content) = row?;
         if text_contains_query(&content, q) {
-            return Ok(Some(match_centered_snippet(
-                &content,
-                q,
-                UI_SNIPPET_RADIUS,
-                "",
-                "",
+            return Ok(Some((
+                message_id,
+                match_centered_snippet(&content, q, UI_SNIPPET_RADIUS, "", ""),
             )));
         }
     }

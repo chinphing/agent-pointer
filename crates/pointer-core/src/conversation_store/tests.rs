@@ -87,6 +87,10 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c1");
         assert!(!hits[0].snippet.is_empty());
+        assert_eq!(
+            hits[0].message_id, "msg_u1",
+            "body hit should return the matched message id"
+        );
 
         let title_hits = store.search_conversations("Cooking", 10).unwrap();
         assert!(title_hits.iter().any(|h| h.id == "c2"));
@@ -171,6 +175,78 @@ mod tests {
             "should not show OCR head, got {:?}",
             hits[0].snippet
         );
+        assert_eq!(
+            hits[0].message_id, "m2",
+            "should point at the contiguous hit message"
+        );
+    }
+
+    #[test]
+    fn ui_search_uses_canonical_message_id_when_fts_metadata_drifts() {
+        use crate::conversation_store::persist::msg;
+        use crate::models::{Conversation, Role};
+        use rusqlite::params;
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = Conversation {
+            id: "c1".into(),
+            title: "推送记录".into(),
+            created_at: 1_700_000_000_000,
+            updated_at: 1_700_000_100_000,
+            messages: vec![
+                msg(
+                    "assistant-before",
+                    Role::Assistant,
+                    "已完成提交。",
+                    1_700_000_000_000,
+                ),
+                msg("user-hit", Role::User, "推送吧", 1_700_000_001_000),
+            ],
+            skill_ids: vec![],
+            tool_rounds_used: 0,
+            tool_rounds_used_supervisor: 0,
+            computer_monitor_id: None,
+            workspace_root: String::new(),
+            workspace_user_set: false,
+            workspace_inherit_disabled: false,
+            lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
+            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            session_user_id: String::new(),
+        };
+        store.sync_conversations(&[conv]).unwrap();
+
+        // Simulate stale FTS UNINDEXED metadata: the indexed row still belongs to
+        // user-hit, but its redundant message_id points at the preceding assistant.
+        {
+            let conn = store.db.conn.lock();
+            let (rowid, content, conversation_id, message_id, role):
+                (i64, String, String, String, String) = conn
+                .query_row(
+                    "SELECT id, content, conversation_id, message_id, role
+                     FROM messages WHERE conversation_id = 'c1' AND message_id = 'user-hit'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                )
+                .unwrap();
+            conn.execute(
+                "INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, message_id, role)
+                 VALUES ('delete', ?1, ?2, ?3, ?4, ?5)",
+                params![rowid, content, conversation_id, message_id, role],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages_fts(rowid, content, conversation_id, message_id, role)
+                 VALUES (?1, ?2, ?3, 'assistant-before', ?4)",
+                params![rowid, content, conversation_id, role],
+            )
+            .unwrap();
+        }
+
+        let hits = store.search_conversations("推送吧", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].message_id, "user-hit");
+        assert!(hits[0].snippet.contains("推送吧"));
     }
 
     #[test]
@@ -192,6 +268,11 @@ mod tests {
             hit.snippet.contains("北京"),
             "title-only hit needs a snippet, got {:?}",
             hit.snippet
+        );
+        assert!(
+            hit.message_id.is_empty(),
+            "title-only hit should not claim a message id, got {:?}",
+            hit.message_id
         );
     }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue'
+import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
 import ChangeSummary from './ChangeSummary.vue'
@@ -9,8 +9,9 @@ import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
+import { findCurrentConversationMatches } from '../../lib/currentConversationSearch'
 
-import { ChevronDown } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
 const MessageListSkeleton = defineComponent({
@@ -55,6 +56,106 @@ const showWelcomeHome = computed(() => {
 })
 const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const experienceSectionExpanded = ref(false)
+const pageSearchOpen = ref(false)
+const pageSearchQuery = ref('')
+const debouncedPageSearchQuery = ref('')
+const pageSearchIndex = ref(0)
+const pageSearchInput = ref<HTMLInputElement | null>(null)
+let pageSearchDebounceTimer: number | null = null
+const pageSearchMatches = computed(() =>
+  findCurrentConversationMatches(chat.current?.messages ?? [], debouncedPageSearchQuery.value)
+)
+const pageSearchMatchMessageIds = computed(() =>
+  pageSearchMatches.value.filter(match => !match.toolCallId).map(match => match.messageId)
+)
+const pageSearchMatchToolCallIds = computed(() =>
+  pageSearchMatches.value.flatMap(match => match.toolCallId ? [match.toolCallId] : [])
+)
+const activePageSearchMatch = computed(() =>
+  pageSearchMatches.value[pageSearchIndex.value] ?? null
+)
+const activePageSearchMessageId = computed(() =>
+  activePageSearchMatch.value?.messageId ?? null
+)
+const activePageSearchToolCallId = computed(() =>
+  activePageSearchMatch.value?.toolCallId ?? null
+)
+
+function openPageSearch() {
+  pageSearchOpen.value = true
+  void nextTick(() => {
+    pageSearchInput.value?.focus()
+    pageSearchInput.value?.select()
+  })
+}
+
+function closePageSearch() {
+  pageSearchOpen.value = false
+  pageSearchQuery.value = ''
+  debouncedPageSearchQuery.value = ''
+  if (pageSearchDebounceTimer != null) {
+    window.clearTimeout(pageSearchDebounceTimer)
+    pageSearchDebounceTimer = null
+  }
+  pageSearchIndex.value = 0
+}
+
+function flushPageSearchQuery() {
+  if (pageSearchDebounceTimer != null) {
+    window.clearTimeout(pageSearchDebounceTimer)
+    pageSearchDebounceTimer = null
+  }
+  debouncedPageSearchQuery.value = pageSearchQuery.value
+}
+
+function movePageSearch(direction: 1 | -1) {
+  flushPageSearchQuery()
+  const count = pageSearchMatches.value.length
+  if (count === 0) return
+  pageSearchIndex.value = (pageSearchIndex.value + direction + count) % count
+}
+
+function onPageSearchKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closePageSearch()
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    movePageSearch(event.shiftKey ? -1 : 1)
+  }
+}
+
+function onGlobalFindShortcut(event: KeyboardEvent) {
+  if (event.key.toLocaleLowerCase() !== 'f' || (!event.metaKey && !event.ctrlKey)) return
+  event.preventDefault()
+  openPageSearch()
+}
+
+watch(pageSearchQuery, query => {
+  if (pageSearchDebounceTimer != null) window.clearTimeout(pageSearchDebounceTimer)
+  if (!query) {
+    pageSearchDebounceTimer = null
+    debouncedPageSearchQuery.value = ''
+    return
+  }
+  pageSearchDebounceTimer = window.setTimeout(() => {
+    pageSearchDebounceTimer = null
+    debouncedPageSearchQuery.value = query
+  }, 500)
+})
+
+watch(pageSearchMatches, matches => {
+  if (matches.length === 0) pageSearchIndex.value = 0
+  else if (pageSearchIndex.value >= matches.length) pageSearchIndex.value = 0
+})
+
+watch(() => chat.currentId, () => closePageSearch())
+
+onMounted(() => window.addEventListener('keydown', onGlobalFindShortcut))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalFindShortcut)
+  if (pageSearchDebounceTimer != null) window.clearTimeout(pageSearchDebounceTimer)
+})
 
 async function onPlatformLogin() {
   try {
@@ -105,6 +206,51 @@ const toastClass = computed(() => {
       @close="chat.dismissTerminalLivePopup()"
     />
     <div class="flex-1 overflow-hidden relative">
+      <div
+        v-if="pageSearchOpen && !showWelcomeHome && !isHydratingMessages"
+        class="absolute right-5 top-3 z-40 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1.5 shadow-lg backdrop-blur"
+        role="search"
+      >
+        <Search class="ml-1 h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+        <input
+          ref="pageSearchInput"
+          v-model="pageSearchQuery"
+          class="w-56 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted"
+          type="search"
+          placeholder="在当前对话中查找"
+          aria-label="在当前对话中查找"
+          @keydown="onPageSearchKeydown"
+        />
+        <span class="min-w-12 text-center text-xs tabular-nums text-muted">
+          {{ pageSearchMatches.length ? `${pageSearchIndex + 1}/${pageSearchMatches.length}` : '0/0' }}
+        </span>
+        <button
+          type="button"
+          class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
+          title="上一个匹配（Shift+Enter）"
+          :disabled="pageSearchMatches.length === 0"
+          @click="movePageSearch(-1)"
+        >
+          <ChevronUp class="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
+          title="下一个匹配（Enter）"
+          :disabled="pageSearchMatches.length === 0"
+          @click="movePageSearch(1)"
+        >
+          <ChevronDown class="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground"
+          title="关闭（Esc）"
+          @click="closePageSearch"
+        >
+          <X class="h-4 w-4" />
+        </button>
+      </div>
       <div v-if="isHydratingMessages" class="h-full flex flex-col min-h-0">
         <MessageListSkeleton />
       </div>
@@ -167,7 +313,13 @@ const toastClass = computed(() => {
 
       <div v-else class="h-full flex flex-col min-h-0">
         <div class="flex-1 min-h-0 overflow-hidden">
-          <MessageList />
+          <MessageList
+            :search-match-ids="pageSearchMatchMessageIds"
+            :search-match-tool-call-ids="pageSearchMatchToolCallIds"
+            :active-search-message-id="activePageSearchMessageId"
+            :active-search-tool-call-id="activePageSearchToolCallId"
+            :search-query="debouncedPageSearchQuery"
+          />
         </div>
       </div>
     </div>

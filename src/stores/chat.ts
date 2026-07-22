@@ -341,6 +341,16 @@ export const useChatStore = defineStore('chat', () => {
   const hydratedIds = ref<Set<string>>(new Set())
   /** Conversation ids currently fetching messages from disk. */
   const messagesLoadingIds = ref<Set<string>>(new Set())
+  /** Sidebar search (or similar) asks MessageList to scroll to this message after open/hydrate. */
+  const pendingFocusMessage = ref<{
+    conversationId: string
+    messageId: string
+    queryTerm?: string
+  } | null>(null)
+
+  function clearPendingFocusMessage() {
+    pendingFocusMessage.value = null
+  }
 
   // ── Idle conversation eviction ──
   /** Minutes of inactivity before a conversation's messages are evicted from memory. Set to 0 to disable. */
@@ -1101,7 +1111,62 @@ export const useChatStore = defineStore('chat', () => {
     void refreshSubAgentTaskBoards(sessionId)
   }
 
-  function selectConversation(id: string) {
+  /**
+   * Ensure a conversation shell exists in memory before select/hydrate.
+   * Search can return hits outside the paginated sidebar meta list; without a
+   * shell, `current` stays null and ChatView shows the empty welcome home.
+   */
+  function ensureConversationShell(meta: {
+    id: string
+    title?: string
+    updatedAt?: number
+    messageCount?: number
+  }): Conversation {
+    const id = meta.id.trim()
+    const existing = conversations.value.find(c => c.id === id)
+    if (existing) return existing
+    const shell = metaToConversationShell({
+      id,
+      title: meta.title?.trim() || DEFAULT_CONVERSATION_TITLE,
+      createdAt: meta.updatedAt ?? Date.now(),
+      updatedAt: meta.updatedAt ?? Date.now(),
+      skillIds: [],
+      messageCount: meta.messageCount ?? 0
+    })
+    conversations.value = [shell, ...conversations.value]
+    console.info(
+      '[chat] injected conversation shell for out-of-page select',
+      id,
+      shell.title,
+      'messageCount',
+      shell.messageCount
+    )
+    return shell
+  }
+
+  function selectConversation(
+    id: string,
+    options?: {
+      focusMessageId?: string
+      focusQueryTerm?: string
+      /** When opening a search hit (or other out-of-page id), pass meta to inject a shell. */
+      ensureShell?: { title?: string; updatedAt?: number; messageCount?: number }
+    }
+  ) {
+    const focusMessageId = options?.focusMessageId?.trim()
+    if (focusMessageId) {
+      const queryTerm = options?.focusQueryTerm?.trim() || undefined
+      pendingFocusMessage.value = { conversationId: id, messageId: focusMessageId, queryTerm }
+      console.info('[chat] pending focus message', id, focusMessageId)
+    }
+    if (options?.ensureShell || !conversations.value.some(c => c.id === id)) {
+      ensureConversationShell({
+        id,
+        title: options?.ensureShell?.title,
+        updatedAt: options?.ensureShell?.updatedAt,
+        messageCount: options?.ensureShell?.messageCount
+      })
+    }
     const conv = conversations.value.find(c => c.id === id)
     const needsHydration = conversationNeedsMessageHydration(conv)
     if (currentId.value === id && !needsHydration) {
@@ -1109,17 +1174,21 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     flushActiveComposerDraft()
-    currentId.value = id
-    touchConversation(id)
-    evictIdleConversations()
-    reconcileRunStateForConversation(id)
-    loadActiveComposerDraft(id)
+    // Start loading messages BEFORE changing currentId so that
+    // isCurrentConversationHydrating is true when the MessageList
+    // watcher fires synchronously — otherwise tryLocatePendingFocus
+    // clears pendingFocusMessage prematurely (race condition).
     void ensureMessagesLoaded(
       id,
       needsHydration && (conv?.messageCount ?? 0) > 0 && (conv?.messages.length ?? 0) === 0
         ? { force: true }
         : undefined
     )
+    currentId.value = id
+    touchConversation(id)
+    evictIdleConversations()
+    reconcileRunStateForConversation(id)
+    loadActiveComposerDraft(id)
     void refreshTaskBoard(id)
     void refreshSubAgentTaskBoards(id)
   }
@@ -1606,6 +1675,7 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value = new Set()
     messagesLoadingIds.value = new Set()
     dirtyMetaIds.value = new Set()
+    pendingFocusMessage.value = null
     if (composerDraftTimer != null) {
       window.clearTimeout(composerDraftTimer)
       composerDraftTimer = null
@@ -1623,6 +1693,7 @@ export const useChatStore = defineStore('chat', () => {
     init, resetForPlatformLogout, newConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
+    pendingFocusMessage, clearPendingFocusMessage,
     sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,

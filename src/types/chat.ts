@@ -388,6 +388,8 @@ export interface ConversationSearchHit {
   title: string
   updatedAt: number
   snippet?: string
+  /** Matched message id when hit is from message body; omit for title-only matches. */
+  messageId?: string
   messageCount?: number
   preview?: string
 }

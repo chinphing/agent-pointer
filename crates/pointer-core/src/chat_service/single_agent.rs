@@ -3,6 +3,7 @@
 use crate::agents::AgentProfile;
 use crate::models::{ChatMessage, StreamEvent};
 use anyhow::{anyhow, Result};
+use std::time::Duration;
 
 use super::computer_pipeline_loop::{
     apply_pipeline_verify_to_tool_card, batch_has_desktop_root_tool, ensure_verify_before_capture,
@@ -88,11 +89,10 @@ pub(super) async fn run_single_agent_loop(
         };
 
         let effective_allowed = agent_plan.allowed_tool_names.clone();
-        let tools_system_appendix =
-            crate::tools_system_appendix::generate_tools_system_appendix(
-                &state.tools,
-                &effective_allowed,
-            );
+        let tools_system_appendix = crate::tools_system_appendix::generate_tools_system_appendix(
+            &state.tools,
+            &effective_allowed,
+        );
         let tools_appendix_enabled = !tools_system_appendix.is_empty();
         let native_tools = state.tools.openai_tools(&effective_allowed);
         let file_tool_lead_for_invoke = lead_profile.clone();
@@ -124,7 +124,9 @@ pub(super) async fn run_single_agent_loop(
         .await?;
 
         let round_settings = if lead_profile == AgentProfile::Computer {
-            state.computer_state.apply_round_settings(conversation_id, settings)
+            state
+                .computer_state
+                .apply_round_settings(conversation_id, settings)
         } else {
             let s = settings.clone();
             if crate::logging::internal_runtime_log_enabled() {
@@ -201,13 +203,16 @@ pub(super) async fn run_single_agent_loop(
                     state.computer_state.mark_cancelled(conversation_id);
                     return Err(anyhow!("模型服务连续异常，已重试 {MAX_RETRIES} 次"));
                 }
+                let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+                tokio::time::sleep(delay).await;
                 continue;
             }
             super::single_agent_stream::ProviderRoundOutcome::Completed(b) => b,
         };
 
         // ── 空响应检测 ──
-        let is_empty_response = buf.raw_content_buf.trim().is_empty()
+        let is_empty_response = buf.finish_reason != "length"
+            && buf.raw_content_buf.trim().is_empty()
             && buf.final_tool_calls.is_empty();
         if is_empty_response {
             retry_count += 1;
@@ -242,6 +247,8 @@ pub(super) async fn run_single_agent_loop(
                     hint,
                 );
                 ctx.tool_budget.sync_out(ctx.consumed_single);
+                let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+                tokio::time::sleep(delay).await;
                 continue;
             }
             // 重试耗尽：降级为错误提示
@@ -309,23 +316,30 @@ pub(super) async fn run_single_agent_loop(
                 hint,
             );
             ctx.tool_budget.sync_out(ctx.consumed_single);
+            let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+            tokio::time::sleep(delay).await;
             continue;
         }
 
+        // A normal completed round clears transient retry pressure; failures in a later
+        // round must not inherit retries from an earlier, already successful round.
+        retry_count = 0;
+
         let lead_scope = ctx.token_session.lead_scope.clone();
         let lead_instance_id = Some(lead_scope.agent_instance_id.clone());
-        let mut assistant_msg = super::single_agent_post_stream::build_assistant_message_after_stream(
-            &assistant_id,
-            buf.raw_content_buf.as_str(),
-            buf.reasoning_buf,
-            reasoning_in_messages,
-            &buf.final_tool_calls,
-            buf.xml_thoughts,
-            agent_plan,
-            lead_instance_id.clone(),
-            &agent_trace,
-            state.as_ref(),
-        );
+        let mut assistant_msg =
+            super::single_agent_post_stream::build_assistant_message_after_stream(
+                &assistant_id,
+                buf.raw_content_buf.as_str(),
+                buf.reasoning_buf,
+                reasoning_in_messages,
+                &buf.final_tool_calls,
+                buf.xml_thoughts,
+                agent_plan,
+                lead_instance_id.clone(),
+                &agent_trace,
+                state.as_ref(),
+            );
         if assistant_msg.tool_raw_output.is_none() {
             assistant_msg.tool_raw_output = latest_round_tool_raw_output(ctx.history);
         }
@@ -385,9 +399,8 @@ pub(super) async fn run_single_agent_loop(
         if verify_host_active(state.as_ref(), &lead_profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
-            pipeline_before_capture = Some(
-                ensure_verify_before_capture(state.as_ref(), conversation_id).await?,
-            );
+            pipeline_before_capture =
+                Some(ensure_verify_before_capture(state.as_ref(), conversation_id).await?);
         }
 
         match super::single_agent_tools::run_single_agent_tool_pass(
@@ -485,8 +498,9 @@ pub(super) async fn run_single_agent_loop(
                 ctx.tool_budget.sync_out(ctx.consumed_single);
                 return Err(err);
             }
-            let (_last_op, last_verify) =
-                state.computer_state.pipeline_context_fields(conversation_id);
+            let (_last_op, last_verify) = state
+                .computer_state
+                .pipeline_context_fields(conversation_id);
             if let Some(verify) = last_verify {
                 apply_pipeline_verify_to_tool_card(
                     &stream,

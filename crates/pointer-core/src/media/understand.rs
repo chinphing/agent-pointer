@@ -10,7 +10,8 @@ use tokio_util::sync::CancellationToken;
 const DESCRIBE_PROMPT: &str = "Describe this image for an assistant that cannot see it. \
 Focus on visible text, objects, layout, and details relevant to the user's stated goal.";
 
-const MULTI_IMAGE_DESCRIBE_PROMPT: &str = "Describe the attached images for an assistant that cannot see them. \
+const MULTI_IMAGE_DESCRIBE_PROMPT: &str =
+    "Describe the attached images for an assistant that cannot see them. \
 Each image may have a label with its file name. \
 Follow the user's stated goal; compare or summarize across images when relevant.";
 
@@ -80,16 +81,15 @@ pub async fn describe_image_with_model(
         task_id: None,
         spawn_depth: None,
     };
-    let system = crate::models::SystemPromptSections::all_cacheable(vec![
-        DESCRIBE_PROMPT.to_string(),
-    ]);
+    let system =
+        crate::models::SystemPromptSections::all_cacheable(vec![DESCRIBE_PROMPT.to_string()]);
     let out = provider
         .chat_once(
             &[user],
             &system,
             vec![],
             cancel.clone(),
-            Some(1024),
+            Some(4096),
             Some("media_image_understand"),
         )
         .await
@@ -97,6 +97,11 @@ pub async fn describe_image_with_model(
     record_media_understand_usage(token_ctx, MediaUnderstandKind::Image, &out);
     let text = out.text.trim().to_string();
     if text.is_empty() {
+        if out.finish_reason.as_deref() == Some("length") {
+            anyhow::bail!(
+                "image understanding output truncated at max_tokens; retry with a shorter analysis goal"
+            );
+        }
         anyhow::bail!("image understanding returned empty content");
     }
     let _ = mime_type;
@@ -362,9 +367,8 @@ pub async fn describe_pdf_pages_with_model(
         task_id: None,
         spawn_depth: None,
     };
-    let system = crate::models::SystemPromptSections::all_cacheable(vec![
-        PDF_OCR_PROMPT.to_string(),
-    ]);
+    let system =
+        crate::models::SystemPromptSections::all_cacheable(vec![PDF_OCR_PROMPT.to_string()]);
     let out = provider
         .chat_once(
             &[user],
@@ -445,9 +449,8 @@ pub async fn describe_video_with_model(
         task_id: None,
         spawn_depth: None,
     };
-    let system = crate::models::SystemPromptSections::all_cacheable(vec![
-        VIDEO_DESCRIBE_PROMPT.to_string(),
-    ]);
+    let system =
+        crate::models::SystemPromptSections::all_cacheable(vec![VIDEO_DESCRIBE_PROMPT.to_string()]);
     let out = provider
         .chat_once(
             &[user],

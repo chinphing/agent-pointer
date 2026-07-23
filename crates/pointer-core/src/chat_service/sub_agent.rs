@@ -1,6 +1,7 @@
 //! Sub-agent (`run_sub_agent`) tool loop: isolated history, shared stream/post-stream/tool-pass with lead.
 
 use anyhow::{anyhow, Result};
+use std::time::Duration;
 
 use crate::agents::{AgentProfile, AgentRunResult};
 use crate::models::{effective_reasoning_in_messages, ChatMessage, Role, StreamEvent};
@@ -9,7 +10,6 @@ use super::agent_post_stream::{
     build_sub_assistant_message_after_stream, commit_sub_assistant_turn, sub_agent_run_result,
     PostAssistantTurnAction,
 };
-use super::context::{PostAssistantContext, ToolBudgetExhaustionScope, TranscriptPersist};
 use super::agent_round_lifecycle;
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
@@ -19,7 +19,7 @@ use super::computer_pipeline_loop::{
     pipeline_give_up_error, run_pipeline_post_execute_verify, verify_host_active,
     PipelineLlmUsageRecorder,
 };
-use crate::task_board::TaskBoardTrimHook;
+use super::context::{PostAssistantContext, ToolBudgetExhaustionScope, TranscriptPersist};
 use super::emit::{emit, trace_id_opt};
 use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{
@@ -28,6 +28,7 @@ use super::sub_agent_prompt::{
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
 use super::sub_message::SubMessageLinkage;
 use super::util::new_id;
+use crate::task_board::TaskBoardTrimHook;
 
 /// Final handoff for `run_subagent`: prefer the latest assistant turn (final Markdown digest),
 /// fall back to accumulated stream content when that turn is empty.
@@ -68,21 +69,20 @@ pub(crate) async fn run_sub_agent(
     let cancel = ctx.session.cancel.clone();
     let sub_provider = sub_agent_execution_provider(provider, &ctx.definition_source);
     let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
-    let session =
-        init_sub_agent_session(
-            state,
-            &sub_provider,
-            conversation_id,
-            message_id,
-            parent_task_board_store_key,
-            task,
-            &ctx.definition_source,
-            &ctx.instance_scope,
-            ctx.enabled_skill_ids,
-            ctx.agent_skill_overrides,
-            ctx.spawn_depth,
-            ctx.max_spawn_depth,
-        )?;
+    let session = init_sub_agent_session(
+        state,
+        &sub_provider,
+        conversation_id,
+        message_id,
+        parent_task_board_store_key,
+        task,
+        &ctx.definition_source,
+        &ctx.instance_scope,
+        ctx.enabled_skill_ids,
+        ctx.agent_skill_overrides,
+        ctx.spawn_depth,
+        ctx.max_spawn_depth,
+    )?;
     let def = session.def;
     let system_prompt = session.system_prompt;
     let skill_ids = session.skill_ids;
@@ -122,9 +122,8 @@ pub(crate) async fn run_sub_agent(
     let mut retry_count: u32 = 0;
 
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
-    let _agent_guard = crate::tools::file::AgentWorkspaceGuard::enter(
-        &sub_provider.settings.workspace_root,
-    );
+    let _agent_guard =
+        crate::tools::file::AgentWorkspaceGuard::enter(&sub_provider.settings.workspace_root);
 
     let is_computer = def.profile == AgentProfile::Computer;
     let work_items_enabled = is_computer;
@@ -202,27 +201,28 @@ pub(crate) async fn run_sub_agent(
             },
         );
 
-        let round_prompts = prepare_sub_agent_round_prompts(super::context::SubAgentPromptContext {
-            session: super::context::SessionRefs {
-                stream,
-                state,
-                conversation_id,
-                cancel: &cancel,
-            },
-            message_id,
-            task_id: &task.id,
-            round_message_id: &round_message_id,
-            local_history: &local_history,
-            session_extras: &session_extras,
-            task_dynamic_blocks: &task_dynamic_blocks,
-            tools_system_appendix: &tools_system_appendix,
-            sub_task_board_key: &sub_task_board_key,
-            def: &def,
-            workspace_root: sub_provider.settings.workspace_root.as_str(),
-            user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
-            spawn_depth,
-        })
-        .await?;
+        let round_prompts =
+            prepare_sub_agent_round_prompts(super::context::SubAgentPromptContext {
+                session: super::context::SessionRefs {
+                    stream,
+                    state,
+                    conversation_id,
+                    cancel: &cancel,
+                },
+                message_id,
+                task_id: &task.id,
+                round_message_id: &round_message_id,
+                local_history: &local_history,
+                session_extras: &session_extras,
+                task_dynamic_blocks: &task_dynamic_blocks,
+                tools_system_appendix: &tools_system_appendix,
+                sub_task_board_key: &sub_task_board_key,
+                def: &def,
+                workspace_root: sub_provider.settings.workspace_root.as_str(),
+                user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
+                spawn_depth,
+            })
+            .await?;
 
         let mut stream_ctx = super::context::SubStreamRoundContext {
             session: super::context::SessionRefs {
@@ -254,12 +254,8 @@ pub(crate) async fn run_sub_agent(
             native_tools: native_tools.clone(),
             tools_appendix_enabled,
         };
-        let stream_outcome = run_sub_agent_stream_round(
-            &mut stream_ctx,
-            &mut stream_refs,
-            stream_input,
-        )
-        .await?;
+        let stream_outcome =
+            run_sub_agent_stream_round(&mut stream_ctx, &mut stream_refs, stream_input).await?;
 
         let buf = match stream_outcome {
             SubAgentStreamOutcome::RetryAfterRecoveryHint => {
@@ -286,15 +282,63 @@ pub(crate) async fn run_sub_agent(
                         "子 Agent 模型服务连续异常，已重试 {MAX_RETRIES} 次"
                     ));
                 }
+                let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+                tokio::time::sleep(delay).await;
                 continue;
             }
             SubAgentStreamOutcome::Completed(b) => b,
         };
 
+        // 截断优先于空响应：length 可能没有可见 content，但并非真正的空响应。
+        if buf.finish_reason == "length" {
+            retry_count += 1;
+            if retry_count > MAX_RETRIES {
+                return Err(anyhow!(
+                    "子 Agent 输出截断重试次数已达上限（{MAX_RETRIES} 次）"
+                ));
+            }
+            log::warn!(
+                "output truncated sub_agent task_id={} agent={} retry={}/{}",
+                task.id,
+                def.id,
+                retry_count,
+                MAX_RETRIES
+            );
+            emit(
+                stream,
+                StreamEvent::MessageEnd {
+                    message_id: message_id.to_string(),
+                    content: None,
+                    raw_content: None,
+                    tool_raw_output: None,
+                    thoughts: None,
+                    headline: None,
+                    trace_id: trace_id_opt(Some(&sub_linkage.trace_id)),
+                    scoped_message_id: trace_id_opt(Some(&round_message_id)),
+                    attachments: None,
+                },
+            );
+            let hint = super::json_tool_retries::output_length_retry_supplement(
+                crate::models::effective_max_tokens(&sub_provider.settings),
+                &buf.finish_reason,
+            );
+            super::json_tool_retries::push_injected_format_retry_turn(
+                stream,
+                conversation_id,
+                &mut local_history,
+                hint,
+            );
+            let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+            tokio::time::sleep(delay).await;
+            continue;
+        }
+
         if buf.raw_content_buf.trim().is_empty() && buf.final_tool_calls.is_empty() {
             retry_count += 1;
             if retry_count > MAX_RETRIES {
-                return Err(anyhow!("子 Agent 连续返回空响应，重试次数已达上限（{MAX_RETRIES} 次）"));
+                return Err(anyhow!(
+                    "子 Agent 连续返回空响应，重试次数已达上限（{MAX_RETRIES} 次）"
+                ));
             }
             log::warn!(
                 "empty response retry {}/{} sub_agent task_id={} agent={} finish_reason={}",
@@ -327,8 +371,13 @@ pub(crate) async fn run_sub_agent(
                 &mut local_history,
                 hint,
             );
+            let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+            tokio::time::sleep(delay).await;
             continue;
         }
+
+        // A normal completed round clears transient retry pressure.
+        retry_count = 0;
 
         // Align with lead-agent rounds: mark sub session stream ended so thoughts collapse between sub rounds.
         emit(
@@ -434,9 +483,8 @@ pub(crate) async fn run_sub_agent(
         if verify_host_active(state, &def.profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
-            pipeline_before_capture = Some(
-                ensure_verify_before_capture(state, conversation_id).await?,
-            );
+            pipeline_before_capture =
+                Some(ensure_verify_before_capture(state, conversation_id).await?);
         }
 
         let sub_cfg = SubToolPassConfig {
@@ -500,8 +548,7 @@ pub(crate) async fn run_sub_agent(
             trim_hook: Some(trim_hook),
             cancel: cancel.clone(),
         };
-        match Box::pin(run_agent_tool_pass(pass)).await?
-        {
+        match Box::pin(run_agent_tool_pass(pass)).await? {
             ToolPassResult::SubFinished(result) => return Ok(result),
             ToolPassResult::FinalReplyComplete(output) => {
                 return Ok(sub_agent_run_result(
@@ -546,8 +593,9 @@ pub(crate) async fn run_sub_agent(
                 Some(&mut pipeline_usage),
             )
             .await?;
-            let (_last_op, last_verify) =
-                state.computer_state.pipeline_context_fields(conversation_id);
+            let (_last_op, last_verify) = state
+                .computer_state
+                .pipeline_context_fields(conversation_id);
             if let Some(verify) = last_verify {
                 apply_pipeline_verify_to_tool_card(
                     stream,
@@ -613,11 +661,11 @@ mod handoff_tests {
             computer_round_screen_rel_path: None,
             ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
         }
     }
 

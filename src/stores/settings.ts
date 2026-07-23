@@ -630,6 +630,15 @@ export const useSettingsStore = defineStore('settings', () => {
     const list = [...settings.value.providers]
     list[i] = next
     settings.value.providers = list
+    // Renaming/removing models on the active provider must keep settings.model in the list,
+    // or debug-session save is rejected ("active model is not configured for provider").
+    if (
+      settings.value.activeProviderId === id &&
+      next.models.length > 0 &&
+      !next.models.includes(settings.value.model)
+    ) {
+      settings.value.model = next.models[0]
+    }
   }
 
   function removeProvider(id: string) {

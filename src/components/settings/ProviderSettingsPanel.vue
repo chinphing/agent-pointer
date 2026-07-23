@@ -358,7 +358,8 @@ async function saveProvider() {
   }
 
   const wasAdd = showAddProvider.value
-  if (!applyProviderSnapshotToStore(snapshot, wasAdd, true)) return
+  // Add / Save → collapse to the list; reopen via the wrench if more edits are needed.
+  if (!applyProviderSnapshotToStore(snapshot, wasAdd, false)) return
 
   try {
     await s.saveModelService({

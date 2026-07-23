@@ -80,6 +80,26 @@ describe('settings debug-session save', () => {
     expect(active?.models).toContain(store.settings.model)
   })
 
+  it('realigns active model when renaming models on the active provider', () => {
+    const store = useSettingsStore()
+    store.addProvider({
+      id: 'custom-local',
+      name: '本地',
+      apiBase: 'http://127.0.0.1:8080/v1',
+      apiKey: 'test-key',
+      models: ['old-model'],
+      modelConfigs: {}
+    })
+    expect(store.settings.activeProviderId).toBe('custom-local')
+    expect(store.settings.model).toBe('old-model')
+
+    store.updateProvider('custom-local', {
+      models: ['qwen3.6-27b-int8']
+    })
+
+    expect(store.settings.model).toBe('qwen3.6-27b-int8')
+  })
+
   it('keeps the active provider when no replacement model exists', () => {
     const store = useSettingsStore()
     const activeId = store.settings.activeProviderId

@@ -83,10 +83,10 @@
 ## 新增模型后无法保存
 
 - 模型名写在「模型列表」输入框（`editingModelsText`），须通过 `buildProviderSnapshotFromEditor` 合并进 `snapshot.models` 再 `updateProvider`。
+- **改模型名**：`updateProvider` 在更新的是**当前激活**服务商、且 `settings.model` 已不在新列表中时，必须改选 `models[0]`。否则后端校验 `active model is not configured for provider`，前端只显示「应用配置失败，请重试」。
 - 仅点底部「保存配置」时，必须先 `flushEditingProviderToStore()`，否则会保存旧的 `providers`、新模型丢失。
 - 单模型「设置」弹窗点「完成」：只 `closeModelConfigModal()`，**不要** `emit('close')`。
-- 服务商表单「保存/添加」：更新内存后保持编辑区（`reopenEdit: true`），
-  并用 Store 中规范化后的条目重新填充，避免页面看起来空白。
+- 服务商表单「添加」/「保存」：写入成功后**退出**编辑区，回到上方服务商列表；继续改再点扳手。
 - 底部「保存配置」：合并草稿后 `emit('close')` 关闭整个设置对话框。
-- `applyProviderSnapshotToStore(..., reopenEdit)`：底部保存前用 `reopenEdit: false`；服务商表单保存用 `true`。
+- `applyProviderSnapshotToStore(..., reopenEdit)`：服务商表单添加/保存、底部保存前均用 `reopenEdit: false`。
 - 新增服务商时若 **服务 ID 与已有重复**，`addProvider` 会拒绝并提示，避免 `find` 命中旧条目导致像没保存上。

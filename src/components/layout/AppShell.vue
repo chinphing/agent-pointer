@@ -343,9 +343,8 @@ watch(searchQuery, q => {
           </button>
         </WindowDragRegion>
 
-        <WindowDragRegion
+        <div
           v-if="!sidebarCollapsed"
-          region="sidebar-body"
           class="flex flex-1 flex-col min-h-0 min-w-0"
         >
           <!-- B: 搜索区 -->
@@ -383,6 +382,7 @@ watch(searchQuery, q => {
           <div
             ref="listScroller"
             class="flex-1 overflow-y-auto px-2 pb-3 space-y-1 min-h-0"
+            style="overflow-anchor: none"
             @mousedown.self="saveEdit"
           >
             <div
@@ -494,7 +494,7 @@ watch(searchQuery, q => {
               <Settings class="w-4 h-4" />
             </button>
           </div>
-        </WindowDragRegion>
+        </div>
       </aside>
 
       <div class="flex-1 min-w-0 flex flex-col">

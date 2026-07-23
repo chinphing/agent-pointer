@@ -69,11 +69,17 @@ provide('currentConversationActiveToolCallId', computed(() => props.activeSearch
 // stay in the DOM, regardless of where the user or search target is in the thread.
 let wasNearBottomBeforeUpdate = true
 let scrollFrame: number | null = null
+/** Minimum wall-clock gap between two programmatic scroll-to-bottom calls. */
+const SCROLL_MIN_INTERVAL_MS = 80
+let lastScrollTs = 0
 
 function scheduleToBottom() {
   if (scrollFrame != null) return
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = null
+    const now = performance.now()
+    if (now - lastScrollTs < SCROLL_MIN_INTERVAL_MS) return
+    lastScrollTs = now
     toBottom()
   })
 }

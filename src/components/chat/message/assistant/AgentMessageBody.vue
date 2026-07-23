@@ -123,7 +123,8 @@ const markdownSource = computed(() => {
 const html = useThrottledMarkdown(
   () => markdownSource.value,
   () => isContentStreaming.value,
-  parseMarkdown
+  parseMarkdown,
+  { longSourceThreshold: 8000, longStreamingInterval: 250 }
 )
 
 const showMdBody = computed(() => !!html.value)

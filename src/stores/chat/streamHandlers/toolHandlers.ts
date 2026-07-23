@@ -1,3 +1,8 @@
+import {
+  enqueueToolArgsDelta,
+  enqueueToolOutputDelta,
+  enqueueWebSearchOutputDelta
+} from '../../../lib/reasoningDeltaBatch'
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace, ensureSubTraceSession, recordSubToolSuccess } from '../../../lib/subAgentSession'
 import { formatTerminalOutputContext } from '../../../lib/terminalOutputContext'
@@ -111,20 +116,13 @@ export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart)
 export function handleToolCallArgsDelta(ctx: StreamHandlerContext, e: ToolCallArgsDelta) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
-  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
-  if (target) {
-    const tc = findToolCallOnMessage(target, e.toolCallId)
-    if (tc) tc.arguments += e.argsDelta
-    return
-  }
-  if (e.traceId?.trim()) {
-    const trace = ensureSubTrace(r.msg, e.traceId.trim())
-    const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
-    if (tc) tc.arguments += e.argsDelta
-    return
-  }
-  const tc = findToolCallOnMessage(r.msg, e.toolCallId)
-  if (tc) tc.arguments += e.argsDelta
+  enqueueToolArgsDelta(
+    e.messageId,
+    e.toolCallId,
+    e.argsDelta,
+    e.traceId,
+    e.scopedMessageId
+  )
 }
 
 function markToolCallWaitingForInput(
@@ -238,18 +236,13 @@ export function handleTerminalNeedsInput(ctx: StreamHandlerContext, e: TerminalN
 export function handleTerminalOutputDelta(ctx: StreamHandlerContext, e: TerminalOutputDelta) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
-  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
-  if (target) {
-    const tc = findToolCallOnMessage(target, e.toolCallId)
-    if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
-  } else if (e.traceId?.trim()) {
-    const trace = ensureSubTrace(r.msg, e.traceId.trim())
-    const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
-    if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
-  } else {
-    const tc = findToolCallOnMessage(r.msg, e.toolCallId)
-    if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
-  }
+  enqueueToolOutputDelta(
+    e.messageId,
+    e.toolCallId,
+    e.output,
+    e.traceId,
+    e.scopedMessageId
+  )
   ctx.syncTerminalLivePopupOutput(e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
   syncTerminalInputOutputContext(ctx, e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
 }
@@ -257,20 +250,13 @@ export function handleTerminalOutputDelta(ctx: StreamHandlerContext, e: Terminal
 export function handleWebSearchOutputDelta(ctx: StreamHandlerContext, e: WebSearchOutputDelta) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
-  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
-  if (target) {
-    const tc = findToolCallOnMessage(target, e.toolCallId)
-    if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
-    return
-  }
-  if (e.traceId?.trim()) {
-    const trace = ensureSubTrace(r.msg, e.traceId.trim())
-    const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
-    if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
-    return
-  }
-  const tc = findToolCallOnMessage(r.msg, e.toolCallId)
-  if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
+  enqueueWebSearchOutputDelta(
+    e.messageId,
+    e.toolCallId,
+    e.text,
+    e.traceId,
+    e.scopedMessageId
+  )
 }
 
 export function handleWebSearchSourcesReady(ctx: StreamHandlerContext, e: WebSearchSourcesReady) {

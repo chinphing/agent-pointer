@@ -11,6 +11,9 @@ const props = defineProps<{
 
 const thoughtsBoxRef = ref<HTMLElement | null>(null)
 const thoughtsOpen = ref(false)
+/** User scrolled the thoughts box away from the bottom — stop auto-following until reset. */
+const thoughtsUserScrolled = ref(false)
+let thoughtsScrollFrame: number | null = null
 
 const showXmlThoughts = computed(() => {
   const text = props.xmlThoughts?.trim()
@@ -33,6 +36,7 @@ watch(
   (streaming, prev) => {
     if (streaming) {
       thoughtsOpen.value = false
+      thoughtsUserScrolled.value = false
       return
     }
     if (prev) thoughtsOpen.value = false
@@ -40,13 +44,24 @@ watch(
   { immediate: true }
 )
 
+function onThoughtsBoxScroll() {
+  const el = thoughtsBoxRef.value
+  if (!el || !props.isStreaming) return
+  // If user scrolled more than 20px away from the bottom, stop auto-following.
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  thoughtsUserScrolled.value = distanceFromBottom > 20
+}
+
 watch(
   () => props.xmlThoughts,
   () => {
-    if (!props.isStreaming || thoughtsOpen.value) return
+    if (!props.isStreaming || thoughtsOpen.value || thoughtsUserScrolled.value) return
     const el = thoughtsBoxRef.value
     if (!el) return
-    requestAnimationFrame(() => {
+    if (thoughtsScrollFrame != null) return
+    thoughtsScrollFrame = requestAnimationFrame(() => {
+      thoughtsScrollFrame = null
+      if (thoughtsUserScrolled.value) return
       el.scrollTop = el.scrollHeight
     })
   }
@@ -88,6 +103,7 @@ const hasContent = computed(() => showXmlThoughts.value || showPlan.value)
             ? 'max-h-[3rem] overflow-y-auto overflow-x-hidden mt-1'
             : 'mt-2 border-t border-border/30 pt-2'
         "
+        @scroll="onThoughtsBoxScroll"
       >{{ xmlThoughts }}</div>
     </div>
     <ul

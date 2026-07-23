@@ -37,7 +37,10 @@ import {
   clearStreamDeltaBuffers,
   flushStreamDeltaBuffers,
   setContentDeltaApplyHandler,
-  setReasoningDeltaApplyHandler
+  setReasoningDeltaApplyHandler,
+  setToolArgsDeltaApplyHandler,
+  setToolOutputDeltaApplyHandler,
+  setWebSearchOutputDeltaApplyHandler
 } from '../lib/reasoningDeltaBatch'
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
 import {
@@ -1349,6 +1352,85 @@ export const useChatStore = defineStore('chat', () => {
 
   setContentDeltaApplyHandler(applyContentDeltaBatch)
   setReasoningDeltaApplyHandler(applyReasoningDeltaBatch)
+
+  function applyToolArgsDeltaBatch(
+    messageId: string,
+    toolCallId: string,
+    traceId: string | undefined,
+    scopedMessageId: string | undefined,
+    text: string
+  ) {
+    const r = findMessage(messageId)
+    if (!r) return
+    const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
+    if (target) {
+      const tc = target.toolCalls?.find(t => t.id === toolCallId)
+      if (tc) tc.arguments += text
+      return
+    }
+    if (traceId?.trim()) {
+      const trace = ensureSubTrace(r.msg, traceId.trim())
+      const tc = trace.session?.toolCalls?.find(t => t.id === toolCallId)
+      if (tc) tc.arguments += text
+      return
+    }
+    const tc = r.msg.toolCalls?.find(t => t.id === toolCallId)
+    if (tc) tc.arguments += text
+  }
+
+  function applyToolOutputDeltaBatch(
+    messageId: string,
+    toolCallId: string,
+    traceId: string | undefined,
+    scopedMessageId: string | undefined,
+    text: string
+  ) {
+    const r = findMessage(messageId)
+    if (!r) return
+    const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
+    if (target) {
+      const tc = target.toolCalls?.find(t => t.id === toolCallId)
+      if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
+      return
+    }
+    if (traceId?.trim()) {
+      const trace = ensureSubTrace(r.msg, traceId.trim())
+      const tc = trace.session?.toolCalls?.find(t => t.id === toolCallId)
+      if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
+      return
+    }
+    const tc = r.msg.toolCalls?.find(t => t.id === toolCallId)
+    if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
+  }
+
+  function applyWebSearchOutputDeltaBatch(
+    messageId: string,
+    toolCallId: string,
+    traceId: string | undefined,
+    scopedMessageId: string | undefined,
+    text: string
+  ) {
+    const r = findMessage(messageId)
+    if (!r) return
+    const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
+    if (target) {
+      const tc = target.toolCalls?.find(t => t.id === toolCallId)
+      if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + text
+      return
+    }
+    if (traceId?.trim()) {
+      const trace = ensureSubTrace(r.msg, traceId.trim())
+      const tc = trace.session?.toolCalls?.find(t => t.id === toolCallId)
+      if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + text
+      return
+    }
+    const tc = r.msg.toolCalls?.find(t => t.id === toolCallId)
+    if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + text
+  }
+
+  setToolArgsDeltaApplyHandler(applyToolArgsDeltaBatch)
+  setToolOutputDeltaApplyHandler(applyToolOutputDeltaBatch)
+  setWebSearchOutputDeltaApplyHandler(applyWebSearchOutputDeltaBatch)
 
   function scheduleDesktopNoticeRemoval(conversationId: string, messageId: string) {
     desktopNotice.scheduleRemoval(conversationId, messageId)

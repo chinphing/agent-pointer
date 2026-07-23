@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { parseMarkdown } from '../../../../lib/markdownConfig'
+import { useThrottledMarkdown } from '../../../../composables/useThrottledMarkdown'
 import type { MessageStatus, ToolCall, ChatMessage } from '../../../../types/chat'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
@@ -95,6 +96,16 @@ const replyMediaAttachments = computed(() =>
   assistantReplyMediaForRender(props.leadMessage)
 )
 
+const isContentStreaming = computed(() => {
+  if (props.body.contentStreaming === false) return false
+  if (props.body.contentStreaming === true) return true
+  return (
+    props.generating &&
+    props.isActiveGenerationMessage &&
+    isMessageStreaming(props.body.status)
+  )
+})
+
 const markdownSource = computed(() => {
   if (props.hideResponse) {
     const draft = props.body.responseTextDraft?.trim()
@@ -109,7 +120,11 @@ const markdownSource = computed(() => {
   return raw
 })
 
-const html = computed(() => parseMarkdown(markdownSource.value))
+const html = useThrottledMarkdown(
+  () => markdownSource.value,
+  () => isContentStreaming.value,
+  parseMarkdown
+)
 
 const showMdBody = computed(() => !!html.value)
 
@@ -121,16 +136,6 @@ const showStreamingPlaceholderUnderThoughts = computed(
     !props.body.thoughts?.trim() &&
     !(props.body.responseTextDraft?.trim())
 )
-
-const isContentStreaming = computed(() => {
-  if (props.body.contentStreaming === false) return false
-  if (props.body.contentStreaming === true) return true
-  return (
-    props.generating &&
-    props.isActiveGenerationMessage &&
-    isMessageStreaming(props.body.status)
-  )
-})
 
 /** JSON `thoughts`, or API `reasoning` in debug when Computer has no thoughts field. */
 const thoughtsPanelText = computed(() => {

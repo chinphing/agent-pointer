@@ -364,6 +364,12 @@ cargo check
 npm run icons
 ```
 
+### 7. `vue-tsc`：`number` is not assignable to `Timeout`
+
+项目同时引入 DOM 与 `@types/node` 时，`ReturnType<typeof setTimeout>` 会变成 Node 的 `Timeout`，而 `window.setTimeout` / `window.setInterval` 返回的是 `number`。
+
+前端浏览器定时器句柄请存为 `number`（或 `ReturnType<typeof window.setTimeout>`），与现有 `saveTimer` / `composerDraftTimer` 写法一致。
+
 ## 文档目录约定
 
 | 路径 | 读者 | 内容 |

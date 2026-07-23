@@ -13,7 +13,7 @@ export function createDesktopNoticeScheduler(deps: {
   conversations: Ref<Conversation[]>
   hideMs?: number
 }): DesktopNoticeScheduler {
-  const hideTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const hideTimers = new Map<string, number>()
   const hideMs = deps.hideMs ?? DESKTOP_NOTICE_HIDE_MS
 
   function clearSchedule(messageId: string) {

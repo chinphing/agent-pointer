@@ -78,7 +78,7 @@ export function useChannelSettingsForm() {
   const webhookUrls = ref<Record<string, string>>({})
   const connectionByTab = ref<Partial<Record<ChannelTab, boolean>>>({})
   const tauriMode = isTauriRuntime()
-  let connectionPollId: ReturnType<typeof setInterval> | undefined
+  let connectionPollId: number | undefined
 
   const COMMON_SETTINGS_HELP =
     '以下配置对所有 IM 通道（微信、飞书、企微、钉钉）生效。'

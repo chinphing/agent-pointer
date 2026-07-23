@@ -1,5 +1,5 @@
 import { buildCompressionNoticeContent } from '../../../lib/compressionMessage'
-import { clearReasoningDeltaBuffer } from '../../../lib/reasoningDeltaBatch'
+import { clearStreamDeltaBuffers } from '../../../lib/reasoningDeltaBatch'
 import type { StreamEvent } from '../../../types/chat'
 import { applyExcludedMessageIds, insertMessageBeforeAnchor } from '../helpers'
 import type { StreamHandlerContext } from './types'
@@ -21,7 +21,7 @@ export function handleContextCompressionApplied(
   ctx: StreamHandlerContext,
   e: ContextCompressionApplied
 ) {
-  clearReasoningDeltaBuffer()
+  clearStreamDeltaBuffers()
   ctx.ensureImConversation(e.conversationId)
   const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
   if (!conv) return

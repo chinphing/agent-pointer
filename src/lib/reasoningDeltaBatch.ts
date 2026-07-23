@@ -1,18 +1,32 @@
-/** Batch UI writes for `reasoning_delta` to reduce Vue re-render churn during long thinking streams. */
+/** Batch reactive UI writes for streamed text to reduce Vue re-render churn. */
 
 export const REASONING_DELTA_BATCH_MS = 200
+export const CONTENT_DELTA_BATCH_MS = 50
 
-export type ReasoningDeltaApply = (
+export type StreamDeltaApply = (
   messageId: string,
   traceId: string | undefined,
   scopedMessageId: string | undefined,
   text: string
 ) => void
 
-const pending = new Map<string, string>()
-const timers = new Map<string, ReturnType<typeof setTimeout>>()
+export type ReasoningDeltaApply = StreamDeltaApply
+export type ContentDeltaApply = StreamDeltaApply
 
-let applyHandler: ReasoningDeltaApply | null = null
+type DeltaBuffer = {
+  pending: Map<string, string>
+  timers: Map<string, ReturnType<typeof setTimeout>>
+  getApplyHandler: () => StreamDeltaApply | null
+  label: string
+}
+
+const reasoningPending = new Map<string, string>()
+const reasoningTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const contentPending = new Map<string, string>()
+const contentTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+let reasoningApplyHandler: ReasoningDeltaApply | null = null
+let contentApplyHandler: ContentDeltaApply | null = null
 
 function bufferKey(messageId: string, traceId?: string, scopedMessageId?: string): string {
   const tid = traceId?.trim()
@@ -23,7 +37,71 @@ function bufferKey(messageId: string, traceId?: string, scopedMessageId?: string
 }
 
 export function setReasoningDeltaApplyHandler(handler: ReasoningDeltaApply | null): void {
-  applyHandler = handler
+  reasoningApplyHandler = handler
+}
+
+export function setContentDeltaApplyHandler(handler: ContentDeltaApply | null): void {
+  contentApplyHandler = handler
+}
+
+function enqueueDelta(
+  buffer: DeltaBuffer,
+  messageId: string,
+  text: string,
+  traceId: string | undefined,
+  scopedMessageId: string | undefined,
+  batchMs: number
+): void {
+  if (!text) return
+  const key = bufferKey(messageId, traceId, scopedMessageId)
+  buffer.pending.set(key, (buffer.pending.get(key) ?? '') + text)
+  if (buffer.timers.has(key)) return
+  buffer.timers.set(key, setTimeout(() => flushDeltaKey(buffer, key), batchMs))
+}
+
+function flushDeltaKey(buffer: DeltaBuffer, key: string): void {
+  const timer = buffer.timers.get(key)
+  if (timer != null) {
+    clearTimeout(timer)
+    buffer.timers.delete(key)
+  }
+  const batch = buffer.pending.get(key)
+  if (!batch) return
+  buffer.pending.delete(key)
+  const applyHandler = buffer.getApplyHandler()
+  if (!applyHandler) {
+    console.warn(`[${buffer.label}] flush skipped: no apply handler registered`)
+    return
+  }
+  const parts = key.split('\0')
+  applyHandler(parts[0], parts[1] || undefined, parts[2] || undefined, batch)
+}
+
+function flushDeltaBuffer(buffer: DeltaBuffer, messageId?: string): void {
+  const keys = new Set([...buffer.pending.keys(), ...buffer.timers.keys()])
+  for (const key of keys) {
+    if (messageId != null && key.split('\0')[0] !== messageId) continue
+    flushDeltaKey(buffer, key)
+  }
+}
+
+function clearDeltaBuffer(buffer: DeltaBuffer): void {
+  for (const timer of buffer.timers.values()) clearTimeout(timer)
+  buffer.timers.clear()
+  buffer.pending.clear()
+}
+
+const reasoningBuffer: DeltaBuffer = {
+  pending: reasoningPending,
+  timers: reasoningTimers,
+  getApplyHandler: () => reasoningApplyHandler,
+  label: 'reasoningDeltaBatch'
+}
+const contentBuffer: DeltaBuffer = {
+  pending: contentPending,
+  timers: contentTimers,
+  getApplyHandler: () => contentApplyHandler,
+  label: 'contentDeltaBatch'
 }
 
 export function enqueueReasoningDelta(
@@ -33,52 +111,41 @@ export function enqueueReasoningDelta(
   scopedMessageId?: string,
   batchMs: number = REASONING_DELTA_BATCH_MS
 ): void {
-  if (!text) return
-  const key = bufferKey(messageId, traceId, scopedMessageId)
-  pending.set(key, (pending.get(key) ?? '') + text)
-  if (timers.has(key)) return
-  timers.set(
-    key,
-    setTimeout(() => {
-      flushReasoningDeltaKey(key)
-    }, batchMs)
-  )
+  enqueueDelta(reasoningBuffer, messageId, text, traceId, scopedMessageId, batchMs)
 }
 
-function flushReasoningDeltaKey(key: string): void {
-  const timer = timers.get(key)
-  if (timer != null) {
-    clearTimeout(timer)
-    timers.delete(key)
-  }
-  const batch = pending.get(key)
-  if (!batch) return
-  pending.delete(key)
-  if (!applyHandler) {
-    console.warn('[reasoningDeltaBatch] flush skipped: no apply handler registered')
-    return
-  }
-  const parts = key.split('\0')
-  const messageId = parts[0]
-  const traceId = parts[1] || undefined
-  const scopedMessageId = parts[2] || undefined
-  applyHandler(messageId, traceId, scopedMessageId, batch)
+export function enqueueContentDelta(
+  messageId: string,
+  text: string,
+  batchMs: number = CONTENT_DELTA_BATCH_MS
+): void {
+  enqueueDelta(contentBuffer, messageId, text, undefined, undefined, batchMs)
 }
 
-/** Flush pending reasoning for one message (all traces) or entire buffer. */
+/** Flush pending reasoning for one message (all traces) or the entire buffer. */
 export function flushReasoningDeltaBuffer(messageId?: string): void {
-  const keys = [...pending.keys(), ...timers.keys()]
-  for (const key of keys) {
-    if (messageId != null) {
-      const mid = key.split('\0')[0]
-      if (mid !== messageId) continue
-    }
-    flushReasoningDeltaKey(key)
-  }
+  flushDeltaBuffer(reasoningBuffer, messageId)
+}
+
+/** Flush pending assistant body text for one message or the entire buffer. */
+export function flushContentDeltaBuffer(messageId?: string): void {
+  flushDeltaBuffer(contentBuffer, messageId)
+}
+
+export function flushStreamDeltaBuffers(messageId?: string): void {
+  flushReasoningDeltaBuffer(messageId)
+  flushContentDeltaBuffer(messageId)
 }
 
 export function clearReasoningDeltaBuffer(): void {
-  for (const timer of timers.values()) clearTimeout(timer)
-  timers.clear()
-  pending.clear()
+  clearDeltaBuffer(reasoningBuffer)
+}
+
+export function clearContentDeltaBuffer(): void {
+  clearDeltaBuffer(contentBuffer)
+}
+
+export function clearStreamDeltaBuffers(): void {
+  clearReasoningDeltaBuffer()
+  clearContentDeltaBuffer()
 }

@@ -1,4 +1,8 @@
-import { enqueueReasoningDelta, flushReasoningDeltaBuffer } from '../../../lib/reasoningDeltaBatch'
+import {
+  enqueueContentDelta,
+  enqueueReasoningDelta,
+  flushStreamDeltaBuffers
+} from '../../../lib/reasoningDeltaBatch'
 import { isPlannerPhaseThoughts } from '../../../lib/plannerPhase'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { toolCallBaseName } from '../../../lib/messageTooling'
@@ -13,6 +17,11 @@ type RawContentDelta = Extract<StreamEvent, { kind: 'raw_content_delta' }>
 type ReasoningDelta = Extract<StreamEvent, { kind: 'reasoning_delta' }>
 type AssistantJsonPartial = Extract<StreamEvent, { kind: 'assistant_json_partial' }>
 type MessageEnd = Extract<StreamEvent, { kind: 'message_end' }>
+
+type TraceScopedEvent = {
+  traceId?: string
+  scopedMessageId?: string
+}
 
 function markAssistantStreaming(msg: { status: ChatMessage['status']; contentStreaming?: boolean }) {
   if (msg.status === 'cancelled' || msg.status === 'error') return
@@ -94,12 +103,8 @@ export function handleMessageStart(ctx: StreamHandlerContext, e: MessageStart) {
   }
 }
 
-export function handleDelta(ctx: StreamHandlerContext, e: Delta) {
-  const r = ctx.findMessage(e.messageId)
-  if (r) {
-    r.msg.content += e.text
-    markAssistantStreaming(r.msg)
-  }
+export function handleDelta(_ctx: StreamHandlerContext, e: Delta) {
+  enqueueContentDelta(e.messageId, e.text)
 }
 
 export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDelta) {
@@ -143,7 +148,7 @@ export function handleAssistantJsonPartial(ctx: StreamHandlerContext, e: Assista
 }
 
 export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
-  flushReasoningDeltaBuffer(e.messageId)
+  flushStreamDeltaBuffers(e.messageId)
   const r = ctx.findMessage(e.messageId)
   if (r) {
     if (maybeUpdateConversationTitle(r.conv)) {

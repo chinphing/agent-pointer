@@ -60,11 +60,13 @@ fn choose_main_task_board_store_key(
         if !crate::task_board::is_child_store_key(&active_key)
             && is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key)
         {
+            state.set_main_task_board_binding(conversation_id, &active_key, last_user_id);
             state.set_active_main_task_board_key(conversation_id, &active_key);
             log::debug!(
-                "task_board_main_key: reuse_active conversation_id={} store_key={}",
+                "task_board_main_key: reuse_active conversation_id={} store_key={} anchor_message_id={}",
                 conversation_id,
-                active_key
+                active_key,
+                last_user_id
             );
             return active_key;
         }
@@ -382,6 +384,12 @@ pub(super) async fn run_chat_inner(
     let tool_budget_single_start = 0;
     let tool_budget_supervisor_start = 0;
 
+    let main_task_board_store_key = choose_main_task_board_store_key(
+        state.as_ref(),
+        conversation_id,
+        ctx.history,
+    );
+
     if agent_plan.mode == AGENT_MODE_SUPERVISOR {
         let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_supervisor_start);
         let mut sup_ctx = super::context::SupervisorLoopContext {
@@ -395,6 +403,7 @@ pub(super) async fn run_chat_inner(
             enabled_skill_ids: ctx.enabled_skill_ids,
             agent_skill_overrides: &req.agent_skill_overrides,
             provider,
+            main_task_board_store_key: &main_task_board_store_key,
             tool_budget: &mut tool_budget,
             llm_stats: &mut llm_token_session.stats,
             run_id,
@@ -406,11 +415,6 @@ pub(super) async fn run_chat_inner(
 
     let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_single_start);
     let reasoning_in_messages = effective_reasoning_in_messages(&provider.settings);
-    let main_task_board_store_key = choose_main_task_board_store_key(
-        state.as_ref(),
-        conversation_id,
-        ctx.history,
-    );
 
     let memory_due = crate::memory::memory_review_due_for(
         &settings,
@@ -613,7 +617,51 @@ fn ensure_workspace_at_run_start(
 
 #[cfg(test)]
 mod workspace_tests {
-    use super::workspace_baseline_for_ui;
+    use super::{choose_main_task_board_store_key, workspace_baseline_for_ui};
+    use crate::chat_service::app_state::AppState;
+    use crate::models::ChatMessage;
+
+    fn user_message(id: &str, content: &str) -> ChatMessage {
+        let mut message = ChatMessage::user_text(content);
+        message.id = id.to_string();
+        message
+    }
+
+    #[test]
+    fn main_task_board_key_binds_triggering_user_message() {
+        let state = AppState::new();
+        let history = vec![user_message("u-trigger", "start")];
+
+        let key = choose_main_task_board_store_key(&state, "conv-bind", &history);
+
+        assert_eq!(
+            key,
+            crate::task_board::main_turn_task_board_store_key("conv-bind", "u-trigger")
+        );
+        assert_eq!(
+            state.get_main_task_board_anchor("conv-bind", &key).as_deref(),
+            Some("u-trigger")
+        );
+    }
+
+    #[test]
+    fn reused_parent_board_rebinds_to_current_triggering_user_message() {
+        let state = AppState::new();
+        let original = vec![user_message("u-original", "start")];
+        let key = choose_main_task_board_store_key(&state, "conv-resume", &original);
+        let resumed = vec![
+            user_message("u-original", "start"),
+            user_message("u-resume", "continue"),
+        ];
+
+        let reused = choose_main_task_board_store_key(&state, "conv-resume", &resumed);
+
+        assert_eq!(reused, key);
+        assert_eq!(
+            state.get_main_task_board_anchor("conv-resume", &key).as_deref(),
+            Some("u-resume")
+        );
+    }
 
     #[test]
     fn workspace_baseline_uses_stored_when_inherit_disabled() {

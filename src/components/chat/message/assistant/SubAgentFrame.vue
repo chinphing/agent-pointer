@@ -254,8 +254,11 @@ const statusClass = computed(() =>
 <template>
   <div
     class="rounded-xl my-2 overflow-hidden"
-    :class="collapsed ? 'py-2 px-3' : 'p-3'"
-    :style="{ marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px` }"
+    :class="collapsed ? 'pt-2 pb-0 px-3' : 'p-3'"
+    :style="{
+      marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`,
+      marginBottom: collapsed ? '0' : undefined
+    }"
   >
     <button
       v-if="collapsed"

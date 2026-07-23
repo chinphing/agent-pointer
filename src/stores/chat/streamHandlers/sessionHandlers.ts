@@ -5,7 +5,8 @@ import {
   isEphemeralDesktopNoticeMessage,
   isGenerationCancelledMessage
 } from '../../../lib/assistantMessageKind'
-import { flushReasoningDeltaBuffer } from '../../../lib/reasoningDeltaBatch'
+import { flushStreamDeltaBuffers } from '../../../lib/reasoningDeltaBatch'
+import { recordTurnDone } from '../../../lib/turnElapsed'
 import { useSkillsStore } from '../../skills'
 import { GENERAL_AGENT_ID } from '../../../lib/agentUi'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
@@ -222,7 +223,7 @@ export function handleAssistantRoundScreen(ctx: StreamHandlerContext, e: Assista
 }
 
 export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
-  flushReasoningDeltaBuffer(e.messageId ?? undefined)
+  flushStreamDeltaBuffers(e.messageId ?? undefined)
   const cancelled = isGenerationCancelledMessage(e.message)
   const eventConvId = e.conversationId?.trim() || ''
   const fallbackConvId = eventConvId || ctx.currentId.value?.trim() || ''
@@ -280,8 +281,9 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
 
 export function handleDone(ctx: StreamHandlerContext, e: Done) {
   const convId = e.conversationId?.trim() || ctx.currentId.value?.trim() || ''
+  if (convId) recordTurnDone(convId)
   if (convId) ctx.clearRunState(convId)
-  flushReasoningDeltaBuffer()
+  flushStreamDeltaBuffers()
   if (convId) ctx.ensureImConversation(convId)
   const conv = convId ? ctx.conversations.value.find(c => c.id === convId) : undefined
   if (conv) {

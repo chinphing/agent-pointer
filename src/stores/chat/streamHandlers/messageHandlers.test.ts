@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  clearContentDeltaBuffer,
+  setContentDeltaApplyHandler
+} from '../../../lib/reasoningDeltaBatch'
 import {
   handleAssistantJsonPartial,
   handleDelta,
@@ -7,6 +11,11 @@ import {
 } from './messageHandlers'
 import { createMockStreamHandlerContext, sampleAssistantMessage, sampleConversation } from './testUtils'
 import { PLANNER_PHASE_THOUGHTS } from '../../../lib/plannerPhase'
+
+afterEach(() => {
+  clearContentDeltaBuffer()
+  setContentDeltaApplyHandler(null)
+})
 
 describe('messageHandlers', () => {
   it('handleMessageStart appends streaming assistant row', () => {
@@ -26,13 +35,16 @@ describe('messageHandlers', () => {
     })
   })
 
-  it('handleDelta appends streamed text', () => {
-    const conv = sampleConversation()
-    conv.messages.push(sampleAssistantMessage('a1'))
-    const ctx = createMockStreamHandlerContext([conv])
-    handleDelta(ctx, { kind: 'delta', messageId: 'a1', text: 'hello' })
-    expect(conv.messages[0].content).toBe('hello')
-    expect(conv.messages[0].contentStreaming).toBe(true)
+  it('handleDelta queues streamed text for the content batch', () => {
+    const apply = vi.fn()
+    setContentDeltaApplyHandler(apply)
+    handleDelta(createMockStreamHandlerContext([]), {
+      kind: 'delta',
+      messageId: 'a1',
+      text: 'hello'
+    })
+    clearContentDeltaBuffer()
+    expect(apply).not.toHaveBeenCalled()
   })
 
   it('handleMessageStart patches run state when shell exists', () => {

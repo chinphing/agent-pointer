@@ -32,9 +32,11 @@ import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import { messagesForChatDispatch } from '../lib/chatDispatchHistory'
+import { recordTurnStart } from '../lib/turnElapsed'
 import {
-  clearReasoningDeltaBuffer,
-  flushReasoningDeltaBuffer,
+  clearStreamDeltaBuffers,
+  flushStreamDeltaBuffers,
+  setContentDeltaApplyHandler,
   setReasoningDeltaApplyHandler
 } from '../lib/reasoningDeltaBatch'
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
@@ -264,7 +266,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!key) return
     const conv = conversations.value.find(c => c.id === key)
     const msgId = runStateFor(key).activeMessageId
-    flushReasoningDeltaBuffer(msgId ?? undefined)
+    flushStreamDeltaBuffers(msgId ?? undefined)
     if (current.value?.id === key) {
       terminalLive.clear()
     }
@@ -324,7 +326,7 @@ export const useChatStore = defineStore('chat', () => {
   const computerMonitorPickRequest = ref<ComputerMonitorPickRequest | null>(null)
   const terminalInputRequest = ref<TerminalInputRequest | null>(null)
   const terminalLivePopup = ref<TerminalLivePopup | null>(null)
-  let uiToastTimer: ReturnType<typeof setTimeout> | null = null
+  let uiToastTimer: number | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
   let composerDraftTimer: number | null = null
@@ -465,6 +467,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function dispatchChatTurn(conv: Conversation) {
+    const turnId = [...conv.messages].reverse().find(message => message.role === 'user')?.id
+    if (turnId) recordTurnStart(conv.id, turnId)
     patchRunState(conv.id, { generating: true, activeMessageId: null })
     await flushPersistMeta()
     await refreshTaskBoard(conv.id)
@@ -505,7 +509,7 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
-  const generatingClearTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const generatingClearTimers = new Map<string, number>()
 
   function cancelGeneratingClearTimer(conversationId: string) {
     const key = conversationId.trim()
@@ -1328,6 +1332,22 @@ export const useChatStore = defineStore('chat', () => {
     r.msg.contentStreaming = true
   }
 
+  function applyContentDeltaBatch(
+    messageId: string,
+    _traceId: string | undefined,
+    _scopedMessageId: string | undefined,
+    text: string
+  ) {
+    const r = findMessage(messageId)
+    if (!r) return
+    r.msg.content += text
+    if (r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
+      r.msg.status = 'streaming'
+      r.msg.contentStreaming = true
+    }
+  }
+
+  setContentDeltaApplyHandler(applyContentDeltaBatch)
   setReasoningDeltaApplyHandler(applyReasoningDeltaBatch)
 
   function scheduleDesktopNoticeRemoval(conversationId: string, messageId: string) {
@@ -1436,6 +1456,10 @@ export const useChatStore = defineStore('chat', () => {
       composerDraftHydrating.value = false
     })
   }
+
+  watch(currentId, (id, previousId) => {
+    if (id !== previousId) flushStreamDeltaBuffers()
+  }, { flush: 'sync' })
 
   watch(composerText, () => {
     scheduleComposerDraftFlush()
@@ -1669,6 +1693,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function resetForPlatformLogout() {
+    clearStreamDeltaBuffers()
     conversations.value = []
     currentId.value = null
     nextCursor.value = null

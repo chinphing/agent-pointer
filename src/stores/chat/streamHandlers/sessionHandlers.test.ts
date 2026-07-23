@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import { handleDone, handleStreamError } from './sessionHandlers'
+import { recordTurnStart, turnElapsedMs } from '../../../lib/turnElapsed'
 import { createMockStreamHandlerContext, sampleConversation } from './testUtils'
 
 describe('sessionHandlers', () => {
@@ -26,6 +27,22 @@ describe('sessionHandlers', () => {
     expect(conv.toolRoundsUsed).toBe(5)
     expect(persistAppend).toHaveBeenCalledWith('conv1')
     expect(markMetaDirty).toHaveBeenCalledWith('conv1')
+  })
+
+  it('handleDone closes the active turn timing at the done event', () => {
+    const conv = sampleConversation()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn()
+    })
+    recordTurnStart('conv1', 'user-1', 10_000)
+
+    vi.spyOn(Date, 'now').mockReturnValueOnce(75_500)
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+
+    expect(turnElapsedMs('conv1', 'user-1')).toBe(65_500)
+    vi.restoreAllMocks()
   })
 
   it('handleDone clears only the finished conversation when another is still generating', () => {

@@ -424,6 +424,20 @@ fn summary_fallback_notice() -> String {
     )
 }
 
+fn mark_compressed_prefix_excluded(history: &mut [ChatMessage]) -> Vec<String> {
+    let mut excluded_message_ids = Vec::new();
+    for m in history {
+        if crate::message_context::is_context_included(m) {
+            excluded_message_ids.push(m.id.clone());
+            crate::message_context::mark_excluded(
+                m,
+                crate::models::ExcludedReason::ContextCompression,
+            );
+        }
+    }
+    excluded_message_ids
+}
+
 fn new_summary_user_message(body: String) -> ChatMessage {
     ChatMessage {
         id: format!("ctx_{}", uuid::Uuid::new_v4().simple()),
@@ -659,19 +673,7 @@ async fn compress_history_inner(
         .get(split)
         .map(|m| m.id.clone())
         .unwrap_or_default();
-    let mut excluded_message_ids = Vec::new();
-    for m in history.iter_mut().take(split) {
-        if crate::message_context::is_synthetic_user_content(&m.content) {
-            continue;
-        }
-        if crate::message_context::is_context_included(m) {
-            excluded_message_ids.push(m.id.clone());
-            crate::message_context::mark_excluded(
-                m,
-                crate::models::ExcludedReason::ContextCompression,
-            );
-        }
-    }
+    let excluded_message_ids = mark_compressed_prefix_excluded(&mut history[..split]);
     let excluded_for_persist: Vec<ChatMessage> = history
         .iter()
         .take(split)
@@ -894,6 +896,21 @@ mod tests {
     fn split_fewer_users_than_keep_returns_zero() {
         let msgs = vec![u("only")];
         assert_eq!(find_split_at_user_boundary(&msgs, 2), 0);
+    }
+
+    #[test]
+    fn compressed_prefix_excludes_old_summaries_and_regular_messages() {
+        let mut old_summary = u(&format!("{SUMMARY_PREFIX_BUDGET}\nold summary"));
+        old_summary.id = "old-summary".into();
+        let mut regular = u("regular history");
+        regular.id = "regular".into();
+        let ids = mark_compressed_prefix_excluded(std::slice::from_mut(&mut old_summary));
+        assert_eq!(ids, vec!["old-summary"]);
+        assert!(!crate::message_context::is_context_included(&old_summary));
+
+        let ids = mark_compressed_prefix_excluded(std::slice::from_mut(&mut regular));
+        assert_eq!(ids, vec!["regular"]);
+        assert!(!crate::message_context::is_context_included(&regular));
     }
 
     #[test]

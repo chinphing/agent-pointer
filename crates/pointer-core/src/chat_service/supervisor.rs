@@ -25,6 +25,9 @@ pub(crate) async fn run_supervisor_chat(
     let stream = ctx.session.stream.clone();
     let state = ctx.session.state.clone();
     let conversation_id = ctx.session.conversation_id;
+    let parent_board_key = ctx.main_task_board_store_key;
+    let parent_anchor_message_id = state
+        .get_main_task_board_anchor(conversation_id, parent_board_key);
     let provider = &ctx.provider;
     let cancel = ctx.session.cancel.clone();
     let run_id = ctx.run_id;
@@ -103,11 +106,11 @@ pub(crate) async fn run_supervisor_chat(
         .unwrap_or_else(|| "Supervisor sub-agent plan".to_string());
     let plan_sync_stats = sync_parent_board_from_supervisor_plan(
         &state.task_board_store,
-        conversation_id,
+        parent_board_key,
         &tasks,
         &plan_goal,
     );
-    observability::log_supervisor_plan_sync(conversation_id, &plan_sync_stats, tasks.len());
+    observability::log_supervisor_plan_sync(parent_board_key, &plan_sync_stats, tasks.len());
 
     let plan_tasks: Vec<SupervisorPlanTask> = tasks
         .iter()
@@ -129,12 +132,12 @@ pub(crate) async fn run_supervisor_chat(
             tasks: plan_tasks,
         },
     );
-    let parent_doc = state.task_board_store.document(conversation_id);
+    let parent_doc = state.task_board_store.document(parent_board_key);
     emit_task_board_updated(
         &stream,
         conversation_id,
-        conversation_id,
-        None,
+        parent_board_key,
+        parent_anchor_message_id.clone(),
         parent_doc.to_value(),
     );
 
@@ -194,8 +197,7 @@ pub(crate) async fn run_supervisor_chat(
             },
         );
 
-        let parent_board_key = conversation_id;
-        let child_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
+        let child_board_key = sub_agent_task_board_store_key(parent_board_key, task.id.trim());
         let parent_doc = state.task_board_store.document(parent_board_key);
         if let DependencyCheck::Blocked { reason } = check_dependencies(&parent_doc, &task.id) {
             log::warn!(
@@ -309,7 +311,7 @@ pub(crate) async fn run_supervisor_chat(
                             &stream,
                             conversation_id,
                             parent_board_key,
-                            None,
+                            parent_anchor_message_id.clone(),
                             parent.to_value(),
                         );
                     }
@@ -355,7 +357,7 @@ pub(crate) async fn run_supervisor_chat(
                             &stream,
                             conversation_id,
                             parent_board_key,
-                            None,
+                            parent_anchor_message_id.clone(),
                             parent.to_value(),
                         );
                     }

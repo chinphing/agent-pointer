@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
-import { ArrowDown } from 'lucide-vue-next'
+import type { ComponentPublicInstance } from 'vue'
+import { useVirtualizer } from '@tanstack/vue-virtual'
+import { ArrowDown, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
 import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
@@ -12,11 +14,17 @@ import { visibleToolCalls } from '../../lib/messageTooling'
 import type { ChatMessage, TaskBoardDocument, ToolCall } from '../../types/chat'
 import {
   assistantDisplayKind,
+  assistantHasDeliverableContent,
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
 import { isToolRunContinuityGlue, shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { isScopedSubMessage } from '../../lib/subAgentMessages'
+import { isCompressionSummaryMessage } from '../../lib/compressionMessage'
+import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
+import { buildConversationTurns, shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
+import { elapsedBetweenTimestamps, formatTurnElapsed, turnElapsedMs } from '../../lib/turnElapsed'
+import { shouldStickActiveTaskBoard } from '../../lib/taskBoardSticky'
 import {
   PAGE_SEARCH_MARK_CLASS,
   clearSearchTextMarks,
@@ -44,6 +52,8 @@ const settings = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
+const activeBoardInlineScrollTop = ref<number | null>(null)
+const activeBoardIsSticky = ref(false)
 /** Temporary highlight after sidebar search locate. */
 const focusHighlightMessageId = ref<string | null>(null)
 let focusHighlightTimer: ReturnType<typeof setTimeout> | null = null
@@ -54,74 +64,45 @@ const locatingFocus = ref(false)
 provide('currentConversationSearchToolCallIds', computed(() => props.searchMatchToolCallIds))
 provide('currentConversationActiveToolCallId', computed(() => props.activeSearchToolCallId))
 
-// ── Virtual rendering: only render a window of recent entries ──
-const RENDER_WINDOW_INITIAL = 50
-const RENDER_WINDOW_CHUNK = 25
-const maxRender = ref(RENDER_WINDOW_INITIAL)
+// ── Bidirectional virtual rendering ──
+// Rows are variable-height and measured after mount. Only visible rows plus overscan
+// stay in the DOM, regardless of where the user or search target is in the thread.
+let wasNearBottomBeforeUpdate = true
+let scrollFrame: number | null = null
 
-const hasMoreAbove = computed(() => flatMessages.value.length > maxRender.value)
-
-/** Entries actually rendered in DOM — last `maxRender` entries of flatMessages. */
-const renderedEntries = computed<FlatEntry[]>(() => {
-  const all = flatMessages.value
-  if (all.length <= maxRender.value) return all
-  return all.slice(all.length - maxRender.value)
-})
-
-/** Scroll-to-top sentinel ref for load-more trigger. */
-const topSentinel = ref<HTMLDivElement | null>(null)
-let sentinelObserver: IntersectionObserver | null = null
+function scheduleToBottom() {
+  if (scrollFrame != null) return
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = null
+    toBottom()
+  })
+}
 
 function toBottom() {
-  if (locatingFocus.value) return
+  if (locatingFocus.value || conversationTurns.value.length === 0) return
   void nextTick(() => {
-    const el = scroller.value
-    if (el) el.scrollTop = el.scrollHeight
+    rowVirtualizer.value.scrollToIndex(conversationTurns.value.length - 1, {
+      align: 'end',
+      behavior: 'auto'
+    })
   })
-}
-
-function loadMoreAbove() {
-  if (!hasMoreAbove.value) return
-  const wasAtBottom = isNearBottom()
-  // Capture current first visible entry to anchor scroll position after expansion.
-  const el = scroller.value
-  const savedHeight = el?.scrollHeight ?? 0
-  maxRender.value += RENDER_WINDOW_CHUNK
-  void nextTick(() => {
-    if (el) {
-      // Maintain scroll position relative to content bottom so visible area doesn't jump.
-      const newHeight = el.scrollHeight
-      el.scrollTop = newHeight - savedHeight + el.scrollTop
-    }
-    if (wasAtBottom) toBottom()
-  })
-}
-
-function setupSentinel() {
-  if (!topSentinel.value) return
-  sentinelObserver = new IntersectionObserver(
-    (entries) => {
-      if (entries[0]?.isIntersecting && hasMoreAbove.value) {
-        loadMoreAbove()
-      }
-    },
-    { root: scroller.value, threshold: 0.1 }
-  )
-  sentinelObserver.observe(topSentinel.value)
-}
-
-function teardownSentinel() {
-  sentinelObserver?.disconnect()
-  sentinelObserver = null
 }
 
 onMounted(() => {
-  toBottom()
-  void nextTick(setupSentinel)
+  void nextTick(() => {
+    toBottom()
+    // Sidebar search focus can already be pending when this component is mounted
+    // after the hydration skeleton was replaced. In that case the watcher below
+    // registered too late to observe the state change, so retry from mounted.
+    void tryLocatePendingFocus()
+  })
 })
 
 onBeforeUnmount(() => {
-  teardownSentinel()
+  if (scrollFrame != null) {
+    cancelAnimationFrame(scrollFrame)
+    scrollFrame = null
+  }
   if (focusHighlightTimer != null) {
     clearTimeout(focusHighlightTimer)
     focusHighlightTimer = null
@@ -133,27 +114,37 @@ onBeforeUnmount(() => {
   if (scroller.value) clearSearchTextMarks(scroller.value, PAGE_SEARCH_MARK_CLASS)
 })
 
-// Reset render window when conversation changes.
-watch(() => chat.currentId, () => {
-  maxRender.value = RENDER_WINDOW_INITIAL
-  teardownSentinel()
-  void nextTick(setupSentinel)
+watch(() => chat.currentId, async () => {
+  await nextTick()
+  rowVirtualizer.value.measure()
+  toBottom()
 })
 
-// Auto-expand window to include newly arriving messages.
-watch(() => chat.current?.messages.length, (len) => {
-  if (len !== undefined && len > 0 && maxRender.value < len) {
-    // New messages arrived — ensure they're within the render window.
-    maxRender.value = Math.max(maxRender.value, len)
-  }
-  if (!locatingFocus.value && isNearBottom()) toBottom()
+watch(() => chat.current?.messages.length, () => {
+  const shouldFollow = wasNearBottomBeforeUpdate && !locatingFocus.value
+  if (!shouldFollow) return
+
+  // Keep prior row measurements when appending. Clearing the whole cache makes
+  // older variable-height turns briefly fall back to estimates and shifts the viewport.
+  void nextTick(() => scheduleToBottom())
 })
-watch(
-  () => chat.current?.messages.map(m => m.content + (m.toolCalls?.length || 0)).join('|'),
-  () => {
-    if (!locatingFocus.value && isNearBottom()) toBottom()
+const activeRenderSignal = computed(() => {
+  const messages = chat.current?.messages ?? []
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!
+    if (message.status !== 'streaming' && message.status !== 'pending') continue
+    const toolSignal = message.toolCalls
+      ?.map(tool => `${tool.id}:${tool.status}:${tool.result?.length ?? 0}`)
+      .join(',') ?? ''
+    return `${message.id}:${message.content.length}:${message.reasoning?.length ?? 0}:${toolSignal}`
   }
-)
+  return ''
+})
+
+watch(activeRenderSignal, () => {
+  const shouldFollow = isNearBottom() && !locatingFocus.value
+  if (shouldFollow) scheduleToBottom()
+})
 
 function entryContainsMessageId(entry: FlatEntry, messageId: string): boolean {
   const id = messageId.trim()
@@ -211,16 +202,43 @@ function entryIsActiveSearchMatch(entry: FlatEntry): boolean {
   return !!id && entryContainsMessageId(entry, id)
 }
 
-function expandRenderWindowForMessage(messageId: string): boolean {
-  const all = flatMessages.value
-  const idx = all.findIndex(e => entryContainsMessageId(e, messageId))
-  if (idx < 0) return false
-  // Window is the last `maxRender` entries — grow it so `idx` is included.
-  const need = all.length - idx
-  if (maxRender.value < need) {
-    maxRender.value = need
+function nextAnimationFrame(): Promise<void> {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()))
+}
+
+async function waitForMessageElement(
+  messageId: string,
+  attempts = 5
+): Promise<HTMLElement | null> {
+  const root = scroller.value
+  if (!root) return null
+  const selector = `[data-message-id="${CSS.escape(messageId)}"]`
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const element = root.querySelector(selector) as HTMLElement | null
+    if (element) return element
+    await nextTick()
+    await nextAnimationFrame()
   }
-  return true
+  return root.querySelector(selector) as HTMLElement | null
+}
+
+async function mountEntryForMessage(messageId: string): Promise<number | null> {
+  const idx = expandTurnContainingMessage(messageId)
+  if (idx < 0) return null
+
+  // Expanding a collapsed Turn changes its height. Let Vue render the full entries,
+  // then measure that row before scrolling so TanStack Virtual uses the new geometry.
+  await nextTick()
+  await nextAnimationFrame()
+  const turn = conversationTurns.value[idx]
+  const row = turn
+    ? scroller.value?.querySelector(`[data-turn-id="${CSS.escape(turn.id)}"]`) as HTMLElement | null
+    : null
+  if (row) rowVirtualizer.value.resizeItem(idx, row.offsetHeight)
+  rowVirtualizer.value.scrollToIndex(idx, { align: 'center', behavior: 'auto' })
+  await nextTick()
+  await nextAnimationFrame()
+  return idx
 }
 
 function clearFocusTextMarks() {
@@ -264,10 +282,11 @@ async function tryLocatePendingFocus() {
 
   locatingFocus.value = true
   try {
-    if (!expandRenderWindowForMessage(targetId)) {
-      maxRender.value = Math.max(maxRender.value, flatMessages.value.length)
+    if (await mountEntryForMessage(targetId) === null) {
+      console.warn('[MessageList] focus entry missing', targetId)
+      chat.clearPendingFocusMessage()
+      return
     }
-    await nextTick()
     const root = scroller.value
     if (!root) return
     const el = root.querySelector(
@@ -338,8 +357,7 @@ watch(
     if (!targetMessageId || !query) return
     locatingFocus.value = true
     try {
-      if (!expandRenderWindowForMessage(targetMessageId)) return
-      await nextTick()
+      if (await mountEntryForMessage(targetMessageId) === null) return
       const settledRoot = scroller.value
       if (!settledRoot) return
       const targetToolCallId = toolCallId?.trim()
@@ -368,8 +386,34 @@ function isNearBottom(): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < 100
 }
 
+function updateActiveBoardStickyState() {
+  const el = scroller.value
+  const board = activeBoard.value
+  if (!el || !board) {
+    activeBoardInlineScrollTop.value = null
+    activeBoardIsSticky.value = false
+    return
+  }
+
+  const inline = el.querySelector(
+    `[data-active-parent-board-inline="${CSS.escape(board.storeKey)}"]`
+  ) as HTMLElement | null
+  if (inline) {
+    activeBoardInlineScrollTop.value =
+      inline.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+  }
+  activeBoardIsSticky.value = shouldStickActiveTaskBoard(
+    el.scrollTop,
+    activeBoardInlineScrollTop.value,
+    true
+  )
+}
+
 function onScroll() {
-  showScrollButton.value = !isNearBottom()
+  const nearBottom = isNearBottom()
+  wasNearBottomBeforeUpdate = nearBottom
+  showScrollButton.value = !nearBottom
+  updateActiveBoardStickyState()
 }
 
 type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMessage }
@@ -500,8 +544,212 @@ const flatMessages = computed<FlatEntry[]>(() => {
   return entries
 })
 
-function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): string {
+function entryKey(entry: FlatEntry): string {
+  if (entry.type === 'message') return `message-${entry.message.id}`
+  if (entry.type === 'tool_run') {
+    return `tool-run-${entry.items
+      .map(item => item.kind === 'tools' ? item.group.id : item.message.id)
+      .join('-')}`
+  }
+  return `task-board-${entry.storeKey}-${entry.anchorMessageId}`
+}
+
+function entryMessageStatuses(entry: FlatEntry): ChatMessage[] {
+  if (entry.type === 'message') return [entry.message]
+  if (entry.type === 'tool_run') {
+    return entry.items.map(item => item.kind === 'tools' ? item.group.message : item.message)
+  }
+  return []
+}
+
+function entryHasStatus(entry: FlatEntry, statuses: ChatMessage['status'][]): boolean {
+  return entryMessageStatuses(entry).some(message => statuses.includes(message.status))
+}
+
+function entryHasRunningTool(entry: FlatEntry): boolean {
+  return entryMessageStatuses(entry).some(message =>
+    message.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
+  )
+}
+
+function entryIsSummary(entry: FlatEntry): boolean {
+  if (entry.type === 'task_board') return isTaskBoardTerminal(entry.document.meta?.status)
+  return entry.type === 'message' && isCompressionSummaryMessage(entry.message)
+}
+
+function entryIsDelivery(entry: FlatEntry): boolean {
+  return entry.type === 'message'
+    && entry.message.role === 'assistant'
+    && assistantHasDeliverableContent(entry.message)
+    && !isEphemeralDesktopNoticeMessage(entry.message)
+    && !isToolRunContinuityGlue(entry.message)
+}
+
+const activeBoard = computed(() => flatMessages.value.find(
+  (entry): entry is Extract<FlatEntry, { type: 'task_board' }> =>
+    entry.type === 'task_board' && entry.isActive && !isTaskBoardTerminal(entry.document.meta?.status)
+) ?? null)
+
+const turnSourceEntries = computed(() => flatMessages.value)
+const expandedTurnIds = ref<Set<string>>(new Set())
+const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
+const conversationTurns = computed(() => buildConversationTurns(turnSourceEntries.value, {
+  key: entryKey,
+  userMessageId: entry => entry.type === 'message' && entry.message.role === 'user'
+    ? entry.message.id
+    : null,
+  isActive: entry => entryHasStatus(entry, ['pending', 'streaming'])
+    || entryHasRunningTool(entry)
+    || (!!activeBoard.value && entryContainsMessageId(entry, activeBoard.value.anchorMessageId)),
+  isFailed: entry => entryHasStatus(entry, ['error'])
+    || (entry.type === 'task_board' && entry.document.meta?.status === 'failed'),
+  isCancelled: entry => entryHasStatus(entry, ['cancelled'])
+    || (entry.type === 'task_board' && entry.document.meta?.status === 'cancelled'),
+  isSummary: entryIsSummary,
+  isDelivery: entryIsDelivery
+}))
+
+function turnIsExpanded(turnId: string): boolean {
+  if (manuallyCollapsedTurnIds.value.has(turnId)) return false
+  return expandedTurnIds.value.has(turnId)
+    || shouldAutoExpandTurn(conversationTurns.value, turnId)
+}
+
+function turnHasTaskBoard(turn: (typeof conversationTurns.value)[number]): boolean {
+  return turn.entries.some(entry => entry.type === 'task_board')
+}
+
+const parentTaskBoardShellClass = 'task-board-sticky chat-column flex w-full justify-end py-1'
+
+function resizeTurnRow(turnId: string) {
+  const turnIndex = conversationTurns.value.findIndex(turn => turn.id === turnId)
+  if (turnIndex < 0 || !scroller.value) return
+  const row = scroller.value.querySelector(
+    `[data-turn-id="${CSS.escape(turnId)}"]`
+  ) as HTMLElement | null
+  if (!row) return
+  // Preserve every neighboring measurement; resetting the cache shifts the viewport.
+  rowVirtualizer.value.resizeItem(turnIndex, row.offsetHeight)
+}
+
+function toggleTurn(turnId: string) {
+  const expanded = new Set(expandedTurnIds.value)
+  const collapsed = new Set(manuallyCollapsedTurnIds.value)
+  if (turnIsExpanded(turnId)) {
+    expanded.delete(turnId)
+    collapsed.add(turnId)
+  } else {
+    collapsed.delete(turnId)
+    expanded.add(turnId)
+  }
+  expandedTurnIds.value = expanded
+  manuallyCollapsedTurnIds.value = collapsed
+  void nextTick(() => resizeTurnRow(turnId))
+}
+
+function displayedTurnEntries(turn: (typeof conversationTurns.value)[number]): FlatEntry[] {
+  return turnIsExpanded(turn.id) ? turn.entries : turn.collapsedEntries
+}
+
+function turnElapsedLabel(turnId: string): string {
+  const messages = chat.current?.messages ?? []
+  const userIndex = messages.findIndex(message => message.id === turnId && message.role === 'user')
+  if (userIndex >= 0) {
+    const nextUserOffset = messages
+      .slice(userIndex + 1)
+      .findIndex(message => message.role === 'user')
+    const turnEnd = nextUserOffset >= 0 ? userIndex + 1 + nextUserOffset : messages.length
+    const turnMessages = messages.slice(userIndex, turnEnd)
+    const lastMessage = turnMessages[turnMessages.length - 1]
+    const elapsed = lastMessage
+      ? elapsedBetweenTimestamps(messages[userIndex]!.createdAt, lastMessage.createdAt)
+      : null
+    if (elapsed != null) return formatTurnElapsed(elapsed)
+  }
+
+  const conversationId = chat.currentId?.trim()
+  return formatTurnElapsed(conversationId ? turnElapsedMs(conversationId, turnId) : null)
+}
+
+function expandTurnContainingMessage(messageId: string): number {
+  const idx = conversationTurns.value.findIndex(turn =>
+    turnContains(turn, entry => entryContainsMessageId(entry, messageId))
+  )
+  if (idx < 0) return -1
+  const turn = conversationTurns.value[idx]!
+  if (turn.hiddenCount > 0 && !turnIsExpanded(turn.id)) {
+    manuallyCollapsedTurnIds.value = new Set(
+      [...manuallyCollapsedTurnIds.value].filter(id => id !== turn.id)
+    )
+    expandedTurnIds.value = new Set(expandedTurnIds.value).add(turn.id)
+  }
+  return idx
+}
+
+watch(() => chat.currentId, () => {
+  expandedTurnIds.value = new Set()
+  manuallyCollapsedTurnIds.value = new Set()
+  activeBoardInlineScrollTop.value = null
+  activeBoardIsSticky.value = false
+})
+
+watch(
+  () => activeBoard.value?.storeKey ?? null,
+  () => {
+    activeBoardInlineScrollTop.value = null
+    activeBoardIsSticky.value = false
+    void nextTick(updateActiveBoardStickyState)
+  }
+)
+
+const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>(computed(() => ({
+  ...messageVirtualizerBaseOptions(
+    conversationTurns.value.length,
+    index => `turn-${conversationTurns.value[index]!.id}`
+  ),
+  getScrollElement: () => scroller.value
+})))
+
+watch(
+  () => conversationTurns.value.map(turn => turn.id),
+  (turnIds, previousTurnIds) => {
+    const previousLastId = previousTurnIds[previousTurnIds.length - 1]
+    if (!previousLastId || turnIds[turnIds.length - 1] === previousLastId) return
+    if (!turnIds.includes(previousLastId) || expandedTurnIds.value.has(previousLastId)) return
+
+    // The appended user turn removes the previous terminal turn's implicit expansion.
+    // Patch that row's real compact height before the existing bottom-follow RAF runs.
+    void nextTick(() => resizeTurnRow(previousLastId))
+  }
+)
+
+const virtualRows = computed(() => rowVirtualizer.value.getVirtualItems())
+const renderedRows = computed(() => virtualRows.value.flatMap(virtualRow => {
+  const turn = conversationTurns.value[virtualRow.index]
+  return turn ? [{ virtualRow, turn }] : []
+}))
+
+function setVirtualRowElement(node: Element | ComponentPublicInstance | null) {
+  rowVirtualizer.value.measureElement(node instanceof HTMLDivElement ? node : null)
+}
+
+function spacingPixels(
+  entry: FlatEntry,
+  index: number,
+  entries: FlatEntry[],
+  followsCollapsedTurnIndicator = false
+): number {
+  return messageRowSpacingPixels(entrySpacing(entry, index, entries, followsCollapsedTurnIndicator))
+}
+
+function entrySpacing(
+  entry: FlatEntry,
+  index: number,
+  entries: FlatEntry[],
+  followsCollapsedTurnIndicator = false
+): string {
   if (index === 0) return ''
+  if (followsCollapsedTurnIndicator && index === 1) return 'mt-4'
 
   const prev = entries[index - 1]
   const prevIsUser = prev.type === 'message' && prev.message.role === 'user'
@@ -545,6 +793,7 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
     if (entry.message.role === 'user') return 'mt-7'
     if (prevIsToolRun) return 'mt-4'
     if (prevIsDesktopNotice) return 'mt-1.5'
+    if (prev.type === 'message' && entryIsSummary(prev)) return 'mt-1.5'
     if (prevIsUser) return 'mt-7'
     if (prev.type === 'message' && prev.message.role === 'assistant') {
       return assistantMessageHadTools(prev) ? 'mt-4' : 'mt-7'
@@ -557,87 +806,146 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
 </script>
 
 <template>
-  <div ref="scroller" class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6" @scroll="onScroll">
-    <div class="chat-column pt-6 pb-10">
-      <!-- Sentinel element: when this becomes visible, load more history above -->
-      <div v-if="hasMoreAbove" ref="topSentinel" class="flex items-center justify-center py-3 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors" @click="loadMoreAbove">
-        <span>加载更多历史消息…</span>
+  <div
+    ref="scroller"
+    class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6"
+    style="overflow-anchor: none"
+    @scroll="onScroll"
+  >
+    <div
+      v-if="activeBoard && activeBoardIsSticky"
+      class="sticky top-0 z-30 h-0 overflow-visible"
+    >
+      <div :class="[parentTaskBoardShellClass, 'bg-background/95 backdrop-blur-sm']">
+        <TaskBoardPanel
+          :document="activeBoard.document"
+          :is-active="activeBoard.isActive"
+          :child-boards="chat.childBoardsForParent(chat.currentId, activeBoard.storeKey)"
+          :conversation-id="chat.currentId"
+        />
       </div>
-      <template
-        v-for="(entry, index) in renderedEntries"
-        :key="entry.type === 'message'
-          ? entry.message.id
-          : entry.type === 'tool_run'
-            ? `tool-run-${entry.items.map(i => i.kind === 'tools' ? i.group.id : i.message.id).join('-')}`
-            : `task-board-${entry.storeKey}-${entry.anchorMessageId}`"
+    </div>
+
+    <div
+      class="chat-column relative w-full"
+      :style="{ height: `${rowVirtualizer.getTotalSize()}px` }"
+    >
+      <div
+        v-for="row in renderedRows"
+        :key="String(row.virtualRow.key)"
+        :ref="setVirtualRowElement"
+        :data-index="row.virtualRow.index"
+        :data-turn-id="row.turn.id"
+        class="absolute left-0 top-0 w-full"
+        :style="{
+          transform: `translateY(${row.virtualRow.start}px)`,
+          paddingTop: `${messageTurnSpacingPixels(row.virtualRow.index)}px`
+        }"
       >
-        <div
-          v-if="entry.type === 'message'"
-          :data-message-id="entryPrimaryMessageId(entry)"
-          :class="[
-            entrySpacing(entry, index, renderedEntries),
-            entryIsActiveSearchMatch(entry)
-              ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
-              : entryIsFocusHighlight(entry)
-                ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
-                : entryIsSearchMatch(entry)
-                  ? 'rounded-xl bg-accent/5 transition-colors'
-                  : ''
-          ]"
+        <template
+          v-for="(entry, entryIndex) in displayedTurnEntries(row.turn)"
+          :key="entryKey(entry)"
         >
-          <ToolRunGlueRow v-if="entry.compact && shouldShowThreadGlue(entry.message)" :message="entry.message" />
-          <MessageRow
-            v-else
-            :message="entry.message"
-            :trailing-tool-groups="entry.trailingToolGroups"
-          />
-        </div>
-        <div
-          v-else-if="entry.type === 'tool_run'"
-          class="tool-segments chat-column tool-only-message"
-          :class="entrySpacing(entry, index, renderedEntries)"
-        >
-          <template v-for="item in entry.items" :key="item.kind === 'tools' ? item.group.id : item.message.id">
+          <div
+            :style="{
+              paddingTop: `${spacingPixels(
+                entry,
+                entryIndex,
+                displayedTurnEntries(row.turn),
+                row.turn.hiddenCount > 0 && !turnIsExpanded(row.turn.id)
+              )}px`
+            }"
+          >
             <div
-              :data-message-id="item.kind === 'tools' ? item.group.message.id : item.message.id"
+              v-if="entry.type === 'message'"
+              :data-message-id="entryPrimaryMessageId(entry)"
               :class="[
-                messageIdIsActiveSearchMatch(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                entryIsActiveSearchMatch(entry)
                   ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
-                  : messageIdIsFocusHighlight(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                  : entryIsFocusHighlight(entry)
                     ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
-                    : messageIdIsSearchMatch(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                    : entryIsSearchMatch(entry)
                       ? 'rounded-xl bg-accent/5 transition-colors'
                       : ''
               ]"
             >
-              <ToolRunGlueRow
-                v-if="item.kind === 'glue' && shouldShowThreadGlue(item.message)"
-                :message="item.message"
-              />
-              <ToolMessageSegment
-                v-else-if="item.kind === 'tools'"
-                :message="item.group.message"
-                :tool-calls="visibleToolsForMessage(item.group.message, item.group.toolCalls)"
-                :message-ui="uiForMessageAgent(item.group.message.agentId, item.group.message.agentName, settings.settings, agentsCatalog)"
-                compact-top
-                hide-footer
+              <ToolRunGlueRow v-if="entry.compact && shouldShowThreadGlue(entry.message)" :message="entry.message" />
+              <MessageRow
+                v-else
+                :message="entry.message"
+                :trailing-tool-groups="entry.trailingToolGroups"
               />
             </div>
-          </template>
-        </div>
-        <div
-          v-else
-          class="task-board-sticky mb-1 flex justify-end py-1"
-          :class="[entrySpacing(entry, index, renderedEntries), isTaskBoardTerminal(entry.document.meta?.status) ? '' : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm']"
-        >
-          <TaskBoardPanel
-            :document="entry.document"
-            :is-active="entry.isActive"
-            :child-boards="chat.childBoardsForParent(chat.currentId, entry.storeKey)"
-            :conversation-id="chat.currentId"
-          />
-        </div>
-      </template>
+            <div
+              v-else-if="entry.type === 'tool_run'"
+              class="tool-segments chat-column tool-only-message"
+            >
+              <template v-for="item in entry.items" :key="item.kind === 'tools' ? item.group.id : item.message.id">
+                <div
+                  :data-message-id="item.kind === 'tools' ? item.group.message.id : item.message.id"
+                  :class="[
+                    messageIdIsActiveSearchMatch(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                      ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
+                      : messageIdIsFocusHighlight(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                        ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
+                        : messageIdIsSearchMatch(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                          ? 'rounded-xl bg-accent/5 transition-colors'
+                          : ''
+                  ]"
+                >
+                  <ToolRunGlueRow
+                    v-if="item.kind === 'glue' && shouldShowThreadGlue(item.message)"
+                    :message="item.message"
+                  />
+                  <ToolMessageSegment
+                    v-else-if="item.kind === 'tools'"
+                    :message="item.group.message"
+                    :tool-calls="visibleToolsForMessage(item.group.message, item.group.toolCalls)"
+                    :message-ui="uiForMessageAgent(item.group.message.agentId, item.group.message.agentName, settings.settings, agentsCatalog)"
+                    compact-top
+                    hide-footer
+                  />
+                </div>
+              </template>
+            </div>
+            <div
+              v-else
+              :data-active-parent-board-inline="entry === activeBoard ? entry.storeKey : undefined"
+              :class="[
+                parentTaskBoardShellClass,
+                'mb-1',
+                entry === activeBoard && activeBoardIsSticky ? 'invisible' : ''
+              ]"
+            >
+              <TaskBoardPanel
+                :document="entry.document"
+                :is-active="entry.isActive"
+                :child-boards="chat.childBoardsForParent(chat.currentId, entry.storeKey)"
+                :conversation-id="chat.currentId"
+              />
+            </div>
+
+            <div
+              v-if="row.turn.hiddenCount > 0 && (
+                (entry.type === 'message' && entry.message.id === row.turn.id && !turnHasTaskBoard(row.turn))
+                || (entry.type === 'task_board' && entry.anchorMessageId === row.turn.id)
+              )"
+              class="mt-1.5"
+            >
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 py-1 text-xs font-medium text-muted/70 transition-colors hover:text-foreground"
+                :aria-expanded="turnIsExpanded(row.turn.id)"
+                @click="toggleTurn(row.turn.id)"
+              >
+                <ChevronDown v-if="turnIsExpanded(row.turn.id)" class="h-3 w-3" />
+                <ChevronRight v-else class="h-3 w-3" />
+                <span class="tabular-nums">{{ turnElapsedLabel(row.turn.id) }}</span>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
 
     <button

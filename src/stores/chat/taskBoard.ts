@@ -315,7 +315,7 @@ export function createTaskBoardManager(deps: {
   fetchSnapshot: (conversationId: string, taskId?: string) => Promise<unknown>
   showChildBoards: () => boolean
 }): TaskBoardManager {
-  const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const debounceTimers = new Map<string, number>()
 
   function ensureEntry(convId: string): ConversationTaskBoardState {
     if (!deps.taskBoards.value[convId]) {

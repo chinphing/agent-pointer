@@ -85,7 +85,7 @@ describe('settings debug-session save', () => {
     store.addProvider({
       id: 'custom-local',
       name: '本地',
-      apiBase: 'http://127.0.0.1:8080/v1',
+      baseUrl: 'http://127.0.0.1:8080/v1',
       apiKey: 'test-key',
       models: ['old-model'],
       modelConfigs: {}

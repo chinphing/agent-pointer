@@ -118,6 +118,9 @@ pub(crate) async fn run_sub_agent(
             .reset_for_new_user_guidance(conversation_id);
     }
 
+    const MAX_RETRIES: u32 = 3;
+    let mut retry_count: u32 = 0;
+
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
     let _agent_guard = crate::tools::file::AgentWorkspaceGuard::enter(
         &sub_provider.settings.workspace_root,
@@ -259,9 +262,73 @@ pub(crate) async fn run_sub_agent(
         .await?;
 
         let buf = match stream_outcome {
-            SubAgentStreamOutcome::RetryAfterRecoveryHint => continue,
+            SubAgentStreamOutcome::RetryAfterRecoveryHint => {
+                retry_count += 1;
+                if retry_count > MAX_RETRIES {
+                    log::error!(
+                        "recoverable retries exhausted ({}/{MAX_RETRIES}) sub_agent task_id={} agent={}",
+                        retry_count - 1,
+                        task.id,
+                        def.id
+                    );
+                    emit(
+                        stream,
+                        StreamEvent::Error {
+                            conversation_id: conversation_id.to_string(),
+                            message_id: Some(message_id.to_string()),
+                            message: format!(
+                                "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
+                            ),
+                        },
+                    );
+                    state.computer_state.mark_cancelled(conversation_id);
+                    return Err(anyhow!(
+                        "子 Agent 模型服务连续异常，已重试 {MAX_RETRIES} 次"
+                    ));
+                }
+                continue;
+            }
             SubAgentStreamOutcome::Completed(b) => b,
         };
+
+        if buf.raw_content_buf.trim().is_empty() && buf.final_tool_calls.is_empty() {
+            retry_count += 1;
+            if retry_count > MAX_RETRIES {
+                return Err(anyhow!("子 Agent 连续返回空响应，重试次数已达上限（{MAX_RETRIES} 次）"));
+            }
+            log::warn!(
+                "empty response retry {}/{} sub_agent task_id={} agent={} finish_reason={}",
+                retry_count,
+                MAX_RETRIES,
+                task.id,
+                def.id,
+                buf.finish_reason
+            );
+            emit(
+                stream,
+                StreamEvent::MessageEnd {
+                    message_id: message_id.to_string(),
+                    content: None,
+                    raw_content: None,
+                    tool_raw_output: None,
+                    thoughts: None,
+                    headline: None,
+                    trace_id: trace_id_opt(Some(&sub_linkage.trace_id)),
+                    scoped_message_id: trace_id_opt(Some(&round_message_id)),
+                    attachments: None,
+                },
+            );
+            let hint = format!(
+                "你的上一次回复为空，既没有文本内容也没有工具调用。请重新处理当前子任务，必须给出回复或调用合适的工具。（异常重试 {retry_count}/{MAX_RETRIES}）",
+            );
+            super::json_tool_retries::push_injected_format_retry_turn(
+                stream,
+                conversation_id,
+                &mut local_history,
+                hint,
+            );
+            continue;
+        }
 
         // Align with lead-agent rounds: mark sub session stream ended so thoughts collapse between sub rounds.
         emit(

@@ -56,6 +56,9 @@ pub(super) async fn run_single_agent_loop(
             .reset_for_new_user_guidance(conversation_id);
     }
 
+    const MAX_RETRIES: u32 = 3;
+    let mut retry_count: u32 = 0;
+
     loop {
         match super::agent_round_lifecycle::check_loop_guards(&cancel, ctx.tool_budget) {
             super::agent_round_lifecycle::LoopGuardOutcome::Continue => {}
@@ -163,9 +166,198 @@ pub(super) async fn run_single_agent_loop(
         )
         .await?;
         let buf = match stream_outcome {
-            super::single_agent_stream::ProviderRoundOutcome::RetryAfterRecoveryHint => continue,
+            super::single_agent_stream::ProviderRoundOutcome::RetryAfterRecoveryHint => {
+                retry_count += 1;
+                if retry_count > MAX_RETRIES {
+                    log::error!(
+                        "recoverable retries exhausted ({}/{MAX_RETRIES}) conversation_id={conversation_id}",
+                        retry_count - 1
+                    );
+                    emit(
+                        &stream,
+                        StreamEvent::Error {
+                            conversation_id: conversation_id.to_string(),
+                            message_id: Some(assistant_id.clone()),
+                            message: format!(
+                                "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
+                            ),
+                        },
+                    );
+                    emit(
+                        &stream,
+                        StreamEvent::MessageEnd {
+                            message_id: assistant_id.clone(),
+                            content: None,
+                            raw_content: None,
+                            tool_raw_output: None,
+                            thoughts: None,
+                            headline: None,
+                            trace_id: None,
+                            scoped_message_id: None,
+                            attachments: None,
+                        },
+                    );
+                    ctx.tool_budget.sync_out(ctx.consumed_single);
+                    state.computer_state.mark_cancelled(conversation_id);
+                    return Err(anyhow!("模型服务连续异常，已重试 {MAX_RETRIES} 次"));
+                }
+                continue;
+            }
             super::single_agent_stream::ProviderRoundOutcome::Completed(b) => b,
         };
+
+        // ── 空响应检测 ──
+        let is_empty_response = buf.raw_content_buf.trim().is_empty()
+            && buf.final_tool_calls.is_empty();
+        if is_empty_response {
+            retry_count += 1;
+            if retry_count <= MAX_RETRIES {
+                log::warn!(
+                    "empty response retry {}/{} conversation_id={conversation_id} assistant_id={assistant_id} finish_reason={}",
+                    retry_count,
+                    MAX_RETRIES,
+                    buf.finish_reason
+                );
+                emit(
+                    &stream,
+                    StreamEvent::MessageEnd {
+                        message_id: assistant_id.clone(),
+                        content: None,
+                        raw_content: None,
+                        tool_raw_output: None,
+                        thoughts: None,
+                        headline: None,
+                        trace_id: None,
+                        scoped_message_id: None,
+                        attachments: None,
+                    },
+                );
+                let hint = format!(
+                    "你的上一次回复为空，既没有文本内容也没有工具调用。请重新处理用户请求，必须给出回复或调用合适的工具。（异常重试 {retry_count}/{MAX_RETRIES}）",
+                );
+                super::json_tool_retries::push_injected_format_retry_turn(
+                    &stream,
+                    conversation_id,
+                    ctx.history,
+                    hint,
+                );
+                ctx.tool_budget.sync_out(ctx.consumed_single);
+                continue;
+            }
+            // 重试耗尽：降级为错误提示
+            log::warn!(
+                "empty response retries exhausted conversation_id={conversation_id} assistant_id={assistant_id}; falling back to error"
+            );
+            emit(
+                &stream,
+                StreamEvent::Error {
+                    conversation_id: conversation_id.to_string(),
+                    message_id: Some(assistant_id.clone()),
+                    message: "模型连续多次返回空响应，请尝试重新描述问题或新开对话。".to_string(),
+                },
+            );
+            emit(
+                &stream,
+                StreamEvent::MessageEnd {
+                    message_id: assistant_id.clone(),
+                    content: None,
+                    raw_content: None,
+                    tool_raw_output: None,
+                    thoughts: None,
+                    headline: None,
+                    trace_id: None,
+                    scoped_message_id: None,
+                    attachments: None,
+                },
+            );
+            ctx.tool_budget.sync_out(ctx.consumed_single);
+            return Err(anyhow!("模型连续返回空响应，请重试"));
+        }
+
+        // ── 输出截断检测 ──
+        if buf.finish_reason == "length" {
+            retry_count += 1;
+            if retry_count > MAX_RETRIES {
+                return Err(anyhow!("模型输出截断重试次数已达上限（{MAX_RETRIES} 次）"));
+            }
+            log::warn!(
+                "output truncated conversation_id={conversation_id} assistant_id={assistant_id} finish_reason={}",
+                buf.finish_reason
+            );
+            emit(
+                &stream,
+                StreamEvent::MessageEnd {
+                    message_id: assistant_id.clone(),
+                    content: None,
+                    raw_content: None,
+                    tool_raw_output: None,
+                    thoughts: None,
+                    headline: None,
+                    trace_id: None,
+                    scoped_message_id: None,
+                    attachments: None,
+                },
+            );
+            let hint = super::json_tool_retries::output_length_retry_supplement(
+                crate::models::effective_max_tokens(settings),
+                &buf.finish_reason,
+            );
+            super::json_tool_retries::push_injected_format_retry_turn(
+                &stream,
+                conversation_id,
+                ctx.history,
+                hint,
+            );
+            ctx.tool_budget.sync_out(ctx.consumed_single);
+            continue;
+        }
+
+        // ── 畸形 tool_call arguments 检测 ──
+        {
+            let mut malformed = false;
+            for tc in &buf.final_tool_calls {
+                if !tc.arguments.trim().is_empty()
+                    && serde_json::from_str::<serde_json::Value>(&tc.arguments).is_err()
+                {
+                    log::warn!(
+                        "malformed tool_call arguments conversation_id={conversation_id} assistant_id={assistant_id} tool_call_id={} tool_name={}",
+                        tc.id,
+                        tc.name
+                    );
+                    malformed = true;
+                    break;
+                }
+            }
+            if malformed {
+                retry_count += 1;
+                if retry_count > MAX_RETRIES {
+                    return Err(anyhow!("畸形 tool_call 重试次数已达上限（{MAX_RETRIES} 次）"));
+                }
+                emit(
+                    &stream,
+                    StreamEvent::MessageEnd {
+                        message_id: assistant_id.clone(),
+                        content: None,
+                        raw_content: None,
+                        tool_raw_output: None,
+                        thoughts: None,
+                        headline: None,
+                        trace_id: None,
+                        scoped_message_id: None,
+                        attachments: None,
+                    },
+                );
+                let hint = "【环境反馈】上一次工具调用的 arguments 不是合法 JSON。请确保 tool_call 的 arguments 字段为有效 JSON 字符串，重新调用。";
+                super::json_tool_retries::push_injected_format_retry_turn(
+                    &stream,
+                    conversation_id,
+                    ctx.history,
+                    hint.to_string(),
+                );
+                ctx.tool_budget.sync_out(ctx.consumed_single);
+                continue;
+            }
+        }
 
         let lead_scope = ctx.token_session.lead_scope.clone();
         let lead_instance_id = Some(lead_scope.agent_instance_id.clone());

@@ -10,7 +10,9 @@ use super::agent_stream_round::{
 use super::context::{cancel_owned, LeadStreamRoundContext, StreamRoundInput};
 use super::emit::emit;
 use super::json_tool_retries::push_injected_format_retry_turn;
-use super::provider_stream::{is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message};
+use super::provider_stream::{
+    is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message,
+};
 
 /// Collected assistant output after a successful provider stream.
 #[derive(Debug)]
@@ -19,6 +21,7 @@ pub(super) struct SingleAgentRoundStream {
     pub reasoning_buf: String,
     pub final_tool_calls: Vec<ToolCall>,
     pub xml_thoughts: Option<String>,
+    pub finish_reason: String,
 }
 
 /// Outcome of spawning and draining one `stream_chat` round.
@@ -183,5 +186,6 @@ pub(super) async fn run_provider_stream_round(
         reasoning_buf: buffers.reasoning_buf,
         final_tool_calls: buffers.final_tool_calls,
         xml_thoughts: buffers.xml_thoughts,
+        finish_reason: buffers.finish_reason,
     }))
 }

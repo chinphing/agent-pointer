@@ -11,7 +11,9 @@ use super::agent_stream_round::{
 };
 use super::context::{cancel_owned, StreamRoundInput, SubStreamRoundContext, SubStreamRoundRefs};
 use super::emit::emit;
-use super::provider_stream::{is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message};
+use super::provider_stream::{
+    is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message,
+};
 use super::util::{new_id, now_ms};
 use crate::provider::ProviderEvent;
 

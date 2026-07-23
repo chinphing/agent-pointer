@@ -1,6 +1,6 @@
 use super::json_tool_retries::output_length_retry_supplement;
 
-/// Stream/HTTP failures that often follow truncated or oversized model JSON output.
+/// Stream/HTTP failures where a retry might help (includes all HTTP gateway errors).
 pub(crate) fn is_recoverable_provider_stream_error(err: &anyhow::Error) -> bool {
     let s = err.to_string().to_ascii_lowercase();
     s.contains("decoding response body")

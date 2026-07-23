@@ -313,6 +313,8 @@ pub(super) async fn run_single_agent_loop(
         }
 
         // ── 畸形 tool_call arguments 检测 ──
+        // 像工具执行失败那样：提交 assistant 消息，用 push_tool_result 写入错误结果。
+        // 模型在下轮看到 tool error 后自行修正，前端不会显示为用户消息。
         {
             let mut malformed = false;
             for tc in &buf.final_tool_calls {
@@ -333,27 +335,48 @@ pub(super) async fn run_single_agent_loop(
                 if retry_count > MAX_RETRIES {
                     return Err(anyhow!("畸形 tool_call 重试次数已达上限（{MAX_RETRIES} 次）"));
                 }
-                emit(
-                    &stream,
-                    StreamEvent::MessageEnd {
-                        message_id: assistant_id.clone(),
-                        content: None,
-                        raw_content: None,
-                        tool_raw_output: None,
-                        thoughts: None,
-                        headline: None,
-                        trace_id: None,
-                        scoped_message_id: None,
-                        attachments: None,
-                    },
+                // 提交 assistant 消息（含畸形 tool_calls），使 tool result 有可引用的消息
+                let lead_scope = ctx.token_session.lead_scope.clone();
+                let lead_instance_id = Some(lead_scope.agent_instance_id.clone());
+                let malformed_assistant_msg = super::single_agent_post_stream::build_assistant_message_after_stream(
+                    &assistant_id,
+                    buf.raw_content_buf.as_str(),
+                    buf.reasoning_buf,
+                    reasoning_in_messages,
+                    &buf.final_tool_calls,
+                    buf.xml_thoughts,
+                    agent_plan,
+                    lead_instance_id,
+                    &agent_trace,
+                    state.as_ref(),
                 );
-                let hint = "【环境反馈】上一次工具调用的 arguments 不是合法 JSON。请确保 tool_call 的 arguments 字段为有效 JSON 字符串，重新调用。";
-                super::json_tool_retries::push_injected_format_retry_turn(
+                super::single_agent_post_stream::commit_assistant_turn(
                     &stream,
                     conversation_id,
                     ctx.history,
-                    hint.to_string(),
+                    &assistant_id,
+                    &malformed_assistant_msg,
                 );
+                // 为每个畸形 tool_call 写入 tool result error
+                for tc in &buf.final_tool_calls {
+                    if tc.arguments.trim().is_empty() {
+                        continue;
+                    }
+                    if let Err(parse_err) = serde_json::from_str::<serde_json::Value>(&tc.arguments) {
+                        let content = format!(
+                            "ERROR: arguments 不是合法 JSON。原始内容: {}\n解析错误: {parse_err}",
+                            &tc.arguments
+                        );
+                        super::util::push_tool_result(
+                            ctx.history,
+                            conversation_id,
+                            &assistant_id,
+                            &tc.id,
+                            &content,
+                            &super::context::TranscriptPersist::Main,
+                        );
+                    }
+                }
                 ctx.tool_budget.sync_out(ctx.consumed_single);
                 continue;
             }

@@ -133,18 +133,21 @@ Issue **separate** **`file_read`** / **`file_edit`** calls in the **same** turn 
 Policy and complexity gates: see **Task board** in composed primary instructions.
 This section keeps **JSON examples** only.
 
-### Example — init after Recon
+### Example — init for cross-module / multi-file work only
+
+Do **not** copy this for 1–2 file narrow fixes (skip `task_board_init`).
+Titles should stay task-specific; avoid a generic Recon→Implement→Verify ladder.
 
 ```json
 {
   "function": {
     "name": "task_board_init",
     "arguments": {
-      "goal": "Fix null handling in parser",
+      "goal": "Fix null handling across parser and callers",
       "global_milestones": [
-        { "id": "m1", "title": "Recon", "status": "done", "plan": "explore handoff merged", "remark": "explore: single_module_fix; Key files: parser.rs" },
-        { "id": "m2", "title": "Implement fix", "status": "in_progress", "plan": "patch parser null path", "done_when": "file edit parser.rs + callers if needed" },
-        { "id": "m3", "title": "Unit tests", "status": "pending", "plan": "run unit tests", "done_when": "cargo test -p my-crate parser::" }
+        { "id": "m1", "title": "Map parser null path + callers", "status": "done", "plan": "explore handoff merged", "remark": "explore: cross_module_change; Key files: parser.rs, callers.ts" },
+        { "id": "m2", "title": "Patch parser null path", "status": "in_progress", "plan": "edit parser.rs + typed callers", "done_when": "file edit parser.rs + callers" },
+        { "id": "m3", "title": "Run parser unit tests", "status": "pending", "plan": "targeted cargo test", "done_when": "cargo test -p my-crate parser::" }
       ]
     }
   }

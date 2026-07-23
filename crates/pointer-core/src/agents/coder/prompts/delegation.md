@@ -66,7 +66,8 @@ Explore returns **Markdown** in **`run_subagent` → `content`**. Treat it as ev
 ### Merge rules
 
 - **Internalize** edit targets + one-line risks—**do not** paste full Impact map in **Deliver** or **`task_board` `plan`** fields.
-- **`task_board` Recon row:** one-line explore summary + key paths—not the whole handoff.
+- **If a board already exists** with a recon-style row: one-line explore summary + key paths—not the whole handoff.
+  Do **not** init a board just to hold that summary after a narrow explore.
 - **Review before Implement:** Surfaces present for cross-module; app+web and platform branches noted when parity applies; gaps → targeted local grep or **second explore** with **`Still unknown`**.
 
 ### When to re-delegate

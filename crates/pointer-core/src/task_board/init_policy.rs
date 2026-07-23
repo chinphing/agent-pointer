@@ -15,7 +15,10 @@ const COMPUTER_LOOP: &str = "\
 Enumerated → one `wi_*` per target; dynamic → `dynamic_quota` (host seeds wi_*). Shared SOP → `g_plan.plan`.
 Patch terminal `wi_*`; host auto-advances; then `g_deliver`.";
 
-const CODER_ROWS: &str = "Coder when init: Recon → Implement → Verify; 3–8 rows in `global_milestones`.";
+const CODER_ROWS: &str = "\
+Coder: only init when the gate above says so. Prefer task-specific milestone titles \
+(e.g. \"Fix empty media reply\"), not a generic Recon→Implement→Verify ladder. \
+Skip init for 1–2 file / single-module narrow fixes even after explore.";
 
 const COMPUTER_VERIFY: &str = "Host verify runs after desktop tools; patch terminal `wi_*` rows.";
 

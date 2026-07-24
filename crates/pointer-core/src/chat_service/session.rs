@@ -127,16 +127,17 @@ pub async fn run_chat(
             "run_chat failure poll-point backtrace (for deep debugging):\n{}",
             Backtrace::capture()
         );
+        let (message, message_id) = super::emit::chat_run_error_parts(err);
         emit(
             &stream,
             StreamEvent::Error {
                 conversation_id: conversation_id.clone(),
-                message_id: None,
-                message: err.to_string(),
+                message_id,
+                message,
             },
         );
         log::info!(
-            "run_chat emitted StreamEvent::Error (session-level) conversation_id={} message_len_chars={}",
+            "run_chat emitted StreamEvent::Error conversation_id={} message_len_chars={}",
             conversation_id,
             err.to_string().chars().count(),
         );

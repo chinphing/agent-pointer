@@ -1,7 +1,7 @@
 //! One `stream_chat` round: spawn provider task, drain `ProviderEvent`s, await join outcome.
 
 use crate::models::{effective_max_tokens, StreamEvent, ToolCall};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use tokio::sync::mpsc;
 
 use super::agent_stream_round::{
@@ -142,20 +142,15 @@ pub(super) async fn run_provider_stream_round(
                     .await;
                     ctx.tool_budget.sync_out(ctx.consumed_single);
                     state.computer_state.mark_cancelled(&conversation_id);
-                    return Err(anyhow!(
-                        "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+                    return Err(super::emit::chat_run_err(
+                        format!(
+                            "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+                        ),
+                        Some(assistant_id.clone()),
                     ));
                 }
                 return Ok(ProviderRoundOutcome::RetryAfterRecoveryHint);
             }
-            emit(
-                &stream,
-                StreamEvent::Error {
-                    conversation_id: conversation_id.clone(),
-                    message_id: Some(assistant_id.clone()),
-                    message: e.to_string(),
-                },
-            );
             emit(
                 &stream,
                 StreamEvent::MessageEnd {
@@ -172,12 +167,19 @@ pub(super) async fn run_provider_stream_round(
             );
             ctx.tool_budget.sync_out(ctx.consumed_single);
             state.computer_state.mark_cancelled(&conversation_id);
-            return Err(e);
+            // UI Error is emitted once from run_chat with this message_id.
+            return Err(super::emit::chat_run_err(
+                e.to_string(),
+                Some(assistant_id.clone()),
+            ));
         }
         Err(e) => {
             ctx.tool_budget.sync_out(ctx.consumed_single);
             state.computer_state.mark_cancelled(&conversation_id);
-            return Err(anyhow!("任务异常：{e}"));
+            return Err(super::emit::chat_run_err(
+                format!("任务异常：{e}"),
+                Some(assistant_id.clone()),
+            ));
         }
     }
 

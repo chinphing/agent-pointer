@@ -267,19 +267,12 @@ pub(crate) async fn run_sub_agent(
                         task.id,
                         def.id
                     );
-                    emit(
-                        stream,
-                        StreamEvent::Error {
-                            conversation_id: conversation_id.to_string(),
-                            message_id: Some(message_id.to_string()),
-                            message: format!(
-                                "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
-                            ),
-                        },
-                    );
                     state.computer_state.mark_cancelled(conversation_id);
-                    return Err(anyhow!(
-                        "子 Agent 模型服务连续异常，已重试 {MAX_RETRIES} 次"
+                    return Err(super::emit::chat_run_err(
+                        format!(
+                            "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
+                        ),
+                        Some(message_id.to_string()),
                     ));
                 }
                 let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));

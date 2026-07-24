@@ -177,16 +177,6 @@ pub(super) async fn run_single_agent_loop(
                     );
                     emit(
                         &stream,
-                        StreamEvent::Error {
-                            conversation_id: conversation_id.to_string(),
-                            message_id: Some(assistant_id.clone()),
-                            message: format!(
-                                "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
-                            ),
-                        },
-                    );
-                    emit(
-                        &stream,
                         StreamEvent::MessageEnd {
                             message_id: assistant_id.clone(),
                             content: None,
@@ -201,7 +191,12 @@ pub(super) async fn run_single_agent_loop(
                     );
                     ctx.tool_budget.sync_out(ctx.consumed_single);
                     state.computer_state.mark_cancelled(conversation_id);
-                    return Err(anyhow!("模型服务连续异常，已重试 {MAX_RETRIES} 次"));
+                    return Err(super::emit::chat_run_err(
+                        format!(
+                            "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
+                        ),
+                        Some(assistant_id.clone()),
+                    ));
                 }
                 let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
                 tokio::time::sleep(delay).await;
@@ -257,14 +252,6 @@ pub(super) async fn run_single_agent_loop(
             );
             emit(
                 &stream,
-                StreamEvent::Error {
-                    conversation_id: conversation_id.to_string(),
-                    message_id: Some(assistant_id.clone()),
-                    message: "模型连续多次返回空响应，请尝试重新描述问题或新开对话。".to_string(),
-                },
-            );
-            emit(
-                &stream,
                 StreamEvent::MessageEnd {
                     message_id: assistant_id.clone(),
                     content: None,
@@ -278,14 +265,20 @@ pub(super) async fn run_single_agent_loop(
                 },
             );
             ctx.tool_budget.sync_out(ctx.consumed_single);
-            return Err(anyhow!("模型连续返回空响应，请重试"));
+            return Err(super::emit::chat_run_err(
+                "模型连续多次返回空响应，请尝试重新描述问题或新开对话。",
+                Some(assistant_id.clone()),
+            ));
         }
 
         // ── 输出截断检测 ──
         if buf.finish_reason == "length" {
             retry_count += 1;
             if retry_count > MAX_RETRIES {
-                return Err(anyhow!("模型输出截断重试次数已达上限（{MAX_RETRIES} 次）"));
+                return Err(super::emit::chat_run_err(
+                    format!("模型输出截断重试次数已达上限（{MAX_RETRIES} 次）"),
+                    Some(assistant_id.clone()),
+                ));
             }
             log::warn!(
                 "output truncated conversation_id={conversation_id} assistant_id={assistant_id} finish_reason={}",

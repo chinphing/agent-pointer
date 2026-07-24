@@ -185,6 +185,4 @@ Manifest includes **sizeBytes** — use it to warn when a file is large.
 
 For third-party Skill scripts that need a filesystem path, use **localPath** from the manifest.
 
-Do **not** call when the user only sent attachments without stating what to do — ask first.
-
 Re-run with the same **refs** and updated parameters when the user wants a different scope.

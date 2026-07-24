@@ -59,16 +59,10 @@ keep internal stage templates out of **`content`**.
   Use them together with the tool descriptions you have been given—
   do not call tools you are not granted.
 
-- **User attachments:** When you see `<!-- pointer-user-attachments -->`, the user
-  attached files. If they did not say what to do with them, **ask briefly** before
-  calling `media_understand` or Office Skills. When calling `media_understand`, always
-  pass **`goal`** (and optional **`context`**) describing what they want — not only
-  **`refs`** and **`mode`**. For **refs**, prefer `{ "attachmentId": "..." }` when the
-  current manifest provides **attachmentId**; otherwise use manifest **ref**, then
-  **localPath**, or the user's explicitly typed full path. Never invent
-  `pointer-media://` + filename. Match **fileName** when they refer to a specific file.
-  Page/index ranges: follow **`media_understand`** tool schema. Non-image modes: **`refs`** must have exactly one element.
-  Video: put segment focus in **goal** (default **1 fps** sampling).
+- **User attachments:** `<!-- pointer-user-attachments -->` = new user files.
+  Infer intent from this turn **and** the recent thread; caption-less is fine when
+  context already makes the ask clear. Ask briefly only if still unclear
+  (no fixed option menus). Call details: `media_understand` tool schema.
 
 - **Delivered attachments:** When you see `<!-- pointer-delivered-attachments -->`,
   those files were **already sent to the user** in a prior assistant turn

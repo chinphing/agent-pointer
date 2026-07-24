@@ -65,6 +65,7 @@ ask the user if unsure; do not scout the disk yourself):
 **User attachments (`pointer-user-attachments`):** When context includes
 `<!-- pointer-user-attachments -->`, the user sent file(s). Each entry lists **fileName**,
 **attachmentId**, **ref** (`pointer-media://…`), and **localPath** (absolute path).
+Intent (caption-less / ask-or-proceed) follows shared communication rules.
 
 **Delivered attachments (`pointer-delivered-attachments`):** When context includes
 `<!-- pointer-delivered-attachments -->`, those files were **already delivered** to the
@@ -72,14 +73,11 @@ user in a prior assistant turn (same **fileName** / **ref** / **localPath** fiel
 Reuse paths for follow-up; do **not** treat as a new user upload; do **not** ask intent
 solely because this block is present.
 
-- **Intent unclear** (only files, or vague "take a look" / "analyze this") → **ask first** what to do
-  (transcribe, describe, OCR, summarize, edit Office, etc.). Do **not** guess and call
-  `media_understand` or run Skills without consent.
-- **Intent clear** → for **image / video / audio** attachments, call **`media_understand`**
-  with **`refs`**, matching `mode`, and **`goal`**. Prefer `{ "attachmentId": "..." }`
-  when the current manifest provides **attachmentId**; otherwise use manifest **ref**, then
-  **localPath**, or the user's explicitly typed full path. Never invent `pointer-media://` +
-  filename. Multiple images: one call with several refs; other modes: single-element **refs**.
+- For **image / video / audio**, call **`media_understand`** with **`refs`**, matching
+  `mode`, and **`goal`**. Prefer `{ "attachmentId": "..." }` when the current manifest
+  provides **attachmentId**; otherwise use manifest **ref**, then **localPath**, or the
+  user's explicitly typed full path. Never invent `pointer-media://` + filename.
+  Multiple images: one call with several refs; other modes: single-element **refs**.
   For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
   Optional **`context`** for extra thread background.
   **Speech / audio in a video file** → **`mode=audio`** only (host extracts the track;

@@ -2,6 +2,7 @@
 
 use super::media_ref::resolve_media_ref;
 use super::path_hint::MEDIA_URI_SCHEME;
+use crate::text_util::{slice_bytes, split_at_byte};
 use regex::Regex;
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -14,8 +15,15 @@ fn media_prefix_re() -> &'static Regex {
 }
 
 fn trim_trailing_path_punct(s: &str) -> &str {
-    s.trim_end_matches(|c: char| matches!(c, ',' | ';' | ')' | ']' | '}' | '.' | '。' | '、'))
-        .trim()
+    // End-only: keep a prefix of `s` so byte offsets stay valid for slicing.
+    s.trim_end_matches(|c: char| {
+        matches!(c, ',' | ';' | ')' | ']' | '}' | '.' | '。' | '、') || c.is_whitespace()
+    })
+}
+
+/// Byte length of the leading whitespace prefix of `s`.
+fn leading_whitespace_bytes(s: &str) -> usize {
+    s.len() - s.trim_start().len()
 }
 
 /// If `trimmed` begins with `MEDIA:` (ASCII, case-insensitive), return the suffix after it.
@@ -72,28 +80,30 @@ fn parse_media_path_after_marker(after_marker: &str) -> Option<ParsedMediaPath<'
 }
 
 fn parse_unquoted_media_path(rest: &str, leading_skip: usize) -> Option<ParsedMediaPath<'_>> {
-    let full = trim_trailing_path_punct(rest);
+    let start_ws = leading_whitespace_bytes(rest);
+    let body = &rest[start_ws..];
+    let full = trim_trailing_path_punct(body);
     if full.is_empty() {
         return None;
     }
+    // `full` is always a prefix of `body` (end-trim only), so this end offset is a char boundary.
+    let full_end_in_rest = start_ws + full.len();
+
     if reply_media_path_resolves(full) {
         return Some(ParsedMediaPath {
             path: full,
-            consumed: leading_skip + full.len(),
+            consumed: leading_skip + full_end_in_rest,
         });
     }
 
     // Mid-sentence form: `Hello MEDIA:/tmp/a.png world` — try the first token.
-    if let Some(token) = rest
-        .split_whitespace()
-        .next()
-        .map(trim_trailing_path_punct)
-        .filter(|t| !t.is_empty() && *t != full)
-    {
-        if reply_media_path_resolves(token) {
+    if let Some(token_raw) = body.split_whitespace().next() {
+        let token = trim_trailing_path_punct(token_raw);
+        if !token.is_empty() && token != full && reply_media_path_resolves(token) {
             return Some(ParsedMediaPath {
                 path: token,
-                consumed: leading_skip + token.len(),
+                // Consume through the raw whitespace token (incl. trailing punct on it).
+                consumed: leading_skip + start_ws + token_raw.len(),
             });
         }
     }
@@ -101,7 +111,7 @@ fn parse_unquoted_media_path(rest: &str, leading_skip: usize) -> Option<ParsedMe
     // Neither candidate exists — keep the full remainder so spaced paths stay intact in UI.
     Some(ParsedMediaPath {
         path: full,
-        consumed: leading_skip + full.len(),
+        consumed: leading_skip + full_end_in_rest,
     })
 }
 
@@ -123,8 +133,8 @@ fn strip_resolved_inline_media(line: &str, media_paths: &mut Vec<String>) -> Str
     let mut out = String::with_capacity(line.len());
     let mut rest = line;
     while let Some(m) = media_prefix_re().find(rest) {
-        out.push_str(&rest[..m.start()]);
-        let after = &rest[m.end()..];
+        out.push_str(slice_bytes(rest, 0, m.start()));
+        let after = slice_bytes(rest, m.end(), rest.len());
         let Some(parsed) = parse_media_path_after_marker(after) else {
             out.push_str(m.as_str());
             rest = after;
@@ -135,9 +145,9 @@ fn strip_resolved_inline_media(line: &str, media_paths: &mut Vec<String>) -> Str
             media_paths.push(parsed.path.to_string());
         } else {
             // Keep the original marker + path text for failed delivery.
-            out.push_str(&rest[m.start()..m.end() + consumed]);
+            out.push_str(slice_bytes(rest, m.start(), m.end() + consumed));
         }
-        rest = &after[consumed..];
+        rest = split_at_byte(after, consumed).1;
     }
     out.push_str(rest);
     out
@@ -249,6 +259,35 @@ mod tests {
             fs::create_dir_all(parent).ok();
         }
         fs::write(path, b"test").unwrap();
+    }
+
+    #[test]
+    fn chinese_prose_media_mention_does_not_panic() {
+        // Model documents the MEDIA convention mid-sentence with backticks and no path.
+        // Previously panicked: consumed skipped the space after the opening backtick, so the
+        // slice landed inside the UTF-8 char `地`.
+        let reply = "脚本放在 workspace 下，可以用 `MEDIA:` 取回本地。";
+        let (text, media) = split_reply_media(reply);
+        assert!(media.is_empty());
+        assert_eq!(text, reply);
+    }
+
+    #[test]
+    fn chinese_prose_before_real_media_line_still_attaches() {
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-zh-{}.py",
+            uuid::Uuid::new_v4()
+        ));
+        touch(&file);
+        let path = file.display().to_string();
+        let reply = format!(
+            "脚本放在 workspace 下，可以用 `MEDIA:` 取回本地。\nMEDIA:{path}"
+        );
+        let (text, media) = split_reply_media(&reply);
+        assert_eq!(media, vec![path]);
+        assert!(text.contains("取回本地"));
+        assert!(!text.contains(&format!("MEDIA:{}", file.display())));
+        let _ = fs::remove_file(&file);
     }
 
     #[test]

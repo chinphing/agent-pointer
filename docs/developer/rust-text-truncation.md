@@ -6,6 +6,9 @@
 
 | 函数 | 用途 |
 |------|------|
+| `floor_char_boundary` / `ceil_char_boundary` | 把字节下标钳到合法 UTF-8 边界 |
+| `slice_bytes(s, start, end)` | 按字节下标安全切片（内部钳边界） |
+| `split_at_byte(s, mid)` | 按字节下标安全拆分 |
 | `take_chars(s, n)` | 取前 n 个 Unicode 字符，不加省略号（日志预览等） |
 | `truncate_chars(s, n)` | 按字符数截断，超出时追加 `…` |
 | `truncate_chars_fit(s, n)` | 结果总长度（含 `…`）不超过 n 个字符（会话标题等） |

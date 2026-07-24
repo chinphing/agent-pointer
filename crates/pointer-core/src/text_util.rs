@@ -1,7 +1,41 @@
-//! UTF-8-safe string truncation helpers.
+//! UTF-8-safe string truncation / slicing helpers.
 //!
 //! Prefer these over manual `&s[..n]` slicing — byte indices can split multibyte
 //! characters (CJK, emoji) and panic at runtime.
+
+/// Largest char boundary `<= index` (clamped to `0..=s.len()`).
+pub fn floor_char_boundary(s: &str, index: usize) -> usize {
+    let mut i = index.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Smallest char boundary `>= index` (clamped to `0..=s.len()`).
+pub fn ceil_char_boundary(s: &str, index: usize) -> usize {
+    let mut i = index.min(s.len());
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
+/// UTF-8-safe `&s[start..end]` by byte offsets (clamps both ends to char boundaries).
+pub fn slice_bytes(s: &str, start: usize, end: usize) -> &str {
+    let start = ceil_char_boundary(s, start.min(s.len()));
+    let end = floor_char_boundary(s, end.min(s.len()));
+    if start >= end {
+        return "";
+    }
+    &s[start..end]
+}
+
+/// Split at a byte offset without panicking (`mid` is floored to a char boundary).
+pub fn split_at_byte(s: &str, mid: usize) -> (&str, &str) {
+    let mid = floor_char_boundary(s, mid);
+    (&s[..mid], &s[mid..])
+}
 
 /// First `max_chars` Unicode scalars (no ellipsis).
 pub fn take_chars(s: &str, max_chars: usize) -> String {
@@ -30,11 +64,7 @@ pub fn truncate_bytes(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s.to_string();
     }
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", s[..end].trim_end())
+    format!("{}…", slice_bytes(s, 0, max_bytes).trim_end())
 }
 
 /// Log-oriented scalar truncation with `(+N chars)` suffix.
@@ -184,6 +214,20 @@ mod tests {
         let out = truncate_bytes(&s, 80);
         assert!(out.ends_with('…'));
         assert!(std::str::from_utf8(out.trim_end_matches('…').as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn slice_bytes_and_split_at_byte_never_split_cjk() {
+        let s = "可用 `MEDIA:` 取回本地";
+        // Land inside `地` (last CJK char).
+        let inside_di = s.len() - 1;
+        assert!(!s.is_char_boundary(inside_di));
+        let kept = slice_bytes(s, 0, inside_di);
+        assert!(kept.ends_with('本') || kept.ends_with('回') || !kept.is_empty());
+        let (head, tail) = split_at_byte(s, inside_di);
+        assert_eq!(format!("{head}{tail}"), s);
+        assert!(head.is_char_boundary(head.len()));
+        assert!(tail.is_char_boundary(0));
     }
 
     #[test]

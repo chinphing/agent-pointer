@@ -414,6 +414,17 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             )
         }
         "web_search" => { let q = str_field(args, &["query"]).unwrap_or_default(); ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX)) }
+        "web_fetch" => {
+            let u = str_field(args, &["url"]).unwrap_or_else(|| {
+                args.get("urls")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            });
+            ("抓取网页".to_string(), truncate(&u, SUMMARY_MAX))
+        }
         "media_understand" => {
             let goal = str_field(args, &["goal", "question"]).unwrap_or_default();
             ("媒体理解".to_string(), truncate(&goal, SUMMARY_MAX))

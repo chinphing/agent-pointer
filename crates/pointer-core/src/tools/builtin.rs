@@ -9,6 +9,7 @@ pub fn register_all(reg: &ToolRegistry, task_board_store: Arc<crate::task_board:
     crate::agents::coder::read_lints::register_all(reg);
     crate::tools::file::register_all(reg);
     crate::tools::web_search::register_all(reg);
+    crate::tools::web_fetch::register_all(reg);
     crate::tools::media_generate::register_all(reg);
     crate::tools::media_understand::register_all(reg);
     crate::tools::run_subagent::register_all(reg);

@@ -65,7 +65,7 @@ pub fn infer_parallel_metadata(name: &str, is_sidecar: bool) -> (bool, ToolConfl
         "image_generate" | "video_generate" | "media_understand" => {
             (true, ToolConflictClass::Media)
         }
-        "web_search" | "skill_read" | "session_search" | "memory" => {
+        "web_search" | "web_fetch" | "skill_read" | "session_search" | "memory" => {
             (true, ToolConflictClass::None)
         }
         "read_lints" | "cron_job" | "skill_import" => (false, ToolConflictClass::SerialOnly),

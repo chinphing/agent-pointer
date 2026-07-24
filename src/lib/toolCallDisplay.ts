@@ -208,6 +208,7 @@ function groupCategory(name: string): string {
   if (isFileTool(base)) return 'file'
   if (base === 'terminal') return 'terminal'
   if (base === 'web_search') return 'web_search'
+  if (base === 'web_fetch') return 'web_fetch'
   return base
 }
 
@@ -501,6 +502,7 @@ const SHORT_LABELS: Record<string, string> = {
   '列出目录': '列出',
   '终端命令': '终端',
   '联网搜索': '搜索',
+  '抓取网页': '抓取',
   '文件操作': '文件',
   '创建定时任务': '定时',
   '列出定时任务': '定时',
@@ -525,7 +527,7 @@ export function toolCallDetailText(tc: ToolCall): string {
   return toolShortLabel(tc)
 }
 
-const GROUPABLE_BASES = new Set(['file', 'terminal', 'web_search'])
+const GROUPABLE_BASES = new Set(['file', 'terminal', 'web_search', 'web_fetch'])
 
 export function isGroupableToolCall(tc: ToolCall): boolean {
   const base = toolCallBaseName(tc.name)

@@ -114,7 +114,7 @@
 
 - **目标**：减少「训练截止后 API 用错、版本错」。  
 - **第一阶段（已实现）**：DashScope 托管联网搜索 — **`web_search`** 工具（原生 API + 来源列表）+ **`research`** 纯联网子智能体。见 [`web-search-tool.md`](../developer/web-search-tool.md)。  
-- **后续**：只读 MCP 或内置 `http_get` 类工具（指定 URL 抓取）：URL 白名单、重定向限制、TLS、响应体上限、HTML→文本；缓存（URL+etag）；提示词强制「引用官方文档要点」。  
+- **已落地**：内置 `web_fetch`（指定 URL 抓取；SSRF/重定向限制、响应体上限、HTML→文本）。见 `docs/developer/web-fetch-tool.md`。后续可选：缓存（URL+etag）、更强可读性抽取。  
 - **复杂度**：第一阶段 `M`；完整 HTTP/MCP 仍为 `L`（安全与合规占大头）。  
 - **收益**：`H`（对外部库重的任务）。
 

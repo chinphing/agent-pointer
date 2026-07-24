@@ -13,6 +13,7 @@ resolve **under this workspace root**.
 code, config, docs, logs, and artifacts — via **`file`** tools or the
 **`explore`** worker. Use **`web_search`** only after local sources are
 exhausted and the gap is **external** and needs **live** web evidence.
+Use **`web_fetch`** when you already have a concrete public URL.
 
 ---
 

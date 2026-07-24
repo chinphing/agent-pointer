@@ -36,6 +36,7 @@ accessPolicy:
     - task_board_check_deps
     - run_subagent
     - web_search
+    - web_fetch
     - skill_read
     - media_understand
     - im_send

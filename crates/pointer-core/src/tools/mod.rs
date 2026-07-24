@@ -15,6 +15,7 @@ pub mod terminal_prompt;
 mod terminal_pty;
 pub mod tool_doc;
 pub mod tool_md;
+pub mod web_fetch;
 pub mod web_search;
 
 pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplayFn};

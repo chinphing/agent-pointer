@@ -1588,6 +1588,10 @@ mod builtin_agent_tests {
         let comm = include_str!("general/COMMUNICATION.md");
         let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
         assert!(
+            agent.def.access_policy.allow_tools.contains(&"web_fetch".to_string()),
+            "general should allow web_fetch"
+        );
+        assert!(
             agent
                 .def
                 .allow_agents
@@ -1703,6 +1707,10 @@ mod builtin_agent_tests {
         let raw = include_str!("coder/AGENT.md");
         let comm = include_str!("coder/COMMUNICATION.md");
         let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
+        assert!(
+            agent.def.access_policy.allow_tools.contains(&"web_fetch".to_string()),
+            "coder should allow web_fetch"
+        );
         assert!(
             agent.def.allow_agents.binary_search(&"explore".to_string()).is_ok(),
             "coder allowAgents should include explore"

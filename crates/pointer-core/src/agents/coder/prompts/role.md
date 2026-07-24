@@ -26,6 +26,7 @@ Reply in the **same language** the user uses for the task unless they ask otherw
 
 Search the configured workspace first via **`file`** tools or the **`explore`** worker.
 Use **`web_search`** only after local sources are exhausted and the gap is **external** and needs live web evidence.
+Use **`web_fetch`** when you already have a concrete http(s) URL (official docs, changelog, issue) and need the page body.
 
 ## Context compression
 

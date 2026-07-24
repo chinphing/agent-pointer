@@ -26,6 +26,7 @@ accessPolicy:
     - skill_read
     - terminal
     - web_search
+    - web_fetch
     - run_subagent
     - image_generate
     - video_generate
@@ -129,6 +130,10 @@ path. Prefer direct answers and **`skill_*`** tools first. Use **`web_search`**
 only when the user needs **live web evidence** or **linked sources** (news,
 today's prices/weather, explicit "search online", post-cutoff releases), not for
 ordinary questions you can answer directly. Call with **`query` only**.
+
+**`web_fetch`** reads a **known public URL** (docs, release notes, pages from
+search). Prefer it over guessing page content. Do not use for local files or
+login-walled / JS-heavy apps.
 
 **Scheduled tasks (`cron_job`):** When the user wants a **one-shot reminder**
 (`30m`, `2h`, ISO time) or a **recurring schedule** (`daily@9:30`,

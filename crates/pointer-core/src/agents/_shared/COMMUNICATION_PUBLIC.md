@@ -22,7 +22,7 @@ Do not wrap tool calls in custom JSON wrappers.
 - To perform actions, call registered tools
   directly with native arguments.
 - Tools use flat names (e.g. **`web_search`**,
-  **`terminal`**, **`ask_user`**).
+  **`web_fetch`**, **`terminal`**, **`ask_user`**).
   Call them with their specific parameters —
   no `method` argument.
 - In prompt examples, use one JSON object with

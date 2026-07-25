@@ -143,16 +143,6 @@ task_board_abandon:
   required: []
   additionalProperties: true
 
-task_board_sync_finding:
-  type: object
-  properties:
-    finding:
-      type: string
-    _conversation_id:
-      type: string
-  required: [finding]
-  additionalProperties: true
-
 task_board_check_deps:
   type: object
   properties:

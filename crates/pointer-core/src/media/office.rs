@@ -101,7 +101,7 @@ fn truncate_office_text(text: String, kind: &str, file_name: &str) -> Result<Str
             "{kind} {file_name} text exceeds {} bytes; truncating",
             MAX_OFFICE_TEXT_BYTES
         );
-        Ok(text[..MAX_OFFICE_TEXT_BYTES].to_string())
+        Ok(crate::text_util::truncate_bytes(&text, MAX_OFFICE_TEXT_BYTES))
     } else {
         Ok(text)
     }

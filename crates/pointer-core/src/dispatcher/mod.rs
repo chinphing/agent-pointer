@@ -46,6 +46,7 @@ pub use trigger::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use futures_util::future::FutureExt;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -444,7 +445,10 @@ impl RunDispatcher {
                 .map(|s| !s.trim().is_empty())
                 .unwrap_or(false),
         };
-        let result = run_chat(
+        // A panic anywhere in the agent loop must still produce a terminal status:
+        // otherwise the run stays `running` forever and every waiter (UI stream, IM
+        // reply, `wait()`) hangs with no error to show.
+        let run = run_chat(
             tx,
             self.inner.state.clone(),
             conversation_id.clone(),
@@ -459,8 +463,17 @@ impl RunDispatcher {
             req.workspace_inherit_disabled,
             Some(req.trigger_source),
             im_auto_deliver,
-        )
-        .await;
+        );
+        let result = match std::panic::AssertUnwindSafe(run).catch_unwind().await {
+            Ok(result) => result,
+            Err(payload) => {
+                let detail = crate::logging::panic_payload_message(payload.as_ref());
+                log::error!(
+                    "dispatch: run panicked run_id={run_id} conversation_id={conversation_id}: {detail}"
+                );
+                Err(anyhow::anyhow!("运行异常中断：{detail}"))
+            }
+        };
 
         // Tear down: remove legacy cancel registration, drop permit, await
         // forwarder.

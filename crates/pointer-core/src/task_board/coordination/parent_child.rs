@@ -90,7 +90,7 @@ pub fn assert_child_may_mutate(store_key: &str, doc: &BoardDocument, method: &st
         return Ok(());
     }
     let m = method.trim().to_ascii_lowercase();
-    if m == "sync_finding" || m == "check_deps" {
+    if m == "check_deps" {
         return Ok(());
     }
     if doc.meta.scope == Some(BoardScope::Child) || is_child_store_key(store_key) {

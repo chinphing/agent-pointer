@@ -15,7 +15,6 @@ const PATCH_HOST_KEYS: &[&str] = &[
     "global_context",
     "globalContext",
     "ids",
-    "finding",
     "expected_total",
     "expectedTotal",
     "work_item_mode",
@@ -358,9 +357,6 @@ pub fn resolve_method(tool_id: &str, args: &Value) -> String {
     if name.ends_with(":finalize") {
         return "finalize".into();
     }
-    if name.ends_with(":sync_finding") {
-        return "sync_finding".into();
-    }
     if name.ends_with(":check_deps") {
         return "check_deps".into();
     }
@@ -459,15 +455,6 @@ pub fn prune_ids_from_args(args: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-pub fn finding_from_args(args: &Value) -> Option<String> {
-    args.get("finding")
-        .or_else(|| args.get("text"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
 }
 
 pub fn check_item_id_from_args(args: &Value) -> Option<String> {

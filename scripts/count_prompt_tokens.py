@@ -126,7 +126,6 @@ CODER_NATIVE_TOOLS: list[tuple[str, str, str | None]] = [
     ("task_board_patch",         "crates/pointer-core/src/task_board/prompts/task_board.md", "crates/pointer-core/src/task_board/prompts/task_board.schema.yaml"),
     ("task_board_prune",         "crates/pointer-core/src/task_board/prompts/task_board.md", "crates/pointer-core/src/task_board/prompts/task_board.schema.yaml"),
     ("task_board_finalize",      "crates/pointer-core/src/task_board/prompts/task_board.md", "crates/pointer-core/src/task_board/prompts/task_board.schema.yaml"),
-    ("task_board_sync_finding",  "crates/pointer-core/src/task_board/prompts/task_board.md", "crates/pointer-core/src/task_board/prompts/task_board.schema.yaml"),
     ("task_board_check_deps",    "crates/pointer-core/src/task_board/prompts/task_board.md", "crates/pointer-core/src/task_board/prompts/task_board.schema.yaml"),
 ]
 
@@ -335,7 +334,7 @@ def explore_sub_agent_header(ref: str) -> str:
     allowed_tools = (
         "file_read, file_glob, file_grep, file_list, "
         "task_board_init, task_board_patch, task_board_replace, task_board_prune, "
-        "task_board_finalize, task_board_sync_finding, task_board_check_deps"
+        "task_board_finalize, task_board_check_deps"
     )
     header = (
         f"Sub-agent: {EXPLORE_NAME} ({EXPLORE_ID})\n"

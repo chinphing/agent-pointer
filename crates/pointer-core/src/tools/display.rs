@@ -265,7 +265,6 @@ fn task_board_method_label(method: &str) -> &'static str {
         "init" => "初始化",
         "prune" => "清理",
         "finalize" => "完成",
-        "sync_finding" => "同步发现",
         "check_deps" => "检查依赖",
         "get" => "读取",
         _ => "操作",

@@ -503,7 +503,6 @@ Register **child-only** tool names that always write the **parent** campaign via
 |------|------|-------------|
 | `task_board_claim_work_slot` | dynamic, child run | `claim_child_work_slot` if `assignment` present; else error on child key |
 | `task_board_report_work_item` | after each unit | `report_child_work_item` |
-| `task_board_sync_finding` | breakthrough | unchanged → parent `key_findings` |
 | `task_board_patch` | local row only | unchanged; child store only |
 
 Parent lead keeps unscoped `seed_work_items`, `init_campaign_quota`, parent `patch` on milestones.
@@ -550,7 +549,7 @@ Same target_key cannot be claimed by two children (parent unique index).
 | `seed_work_items` / `init_campaign_quota` | ✅ parent store | ❌ |
 | Parent milestone `patch` | ✅ | ❌ |
 | Child `local_*` patch | N/A | ✅ |
-| `sync_finding` | — | ✅ |
+| Any write to the parent board | ✅ | ❌ |
 | `claim` / `report` on parent campaign | ✅ (direct) | ✅ **via Gateway only** |
 | `report_child_status` | — | host @ sub-agent exit |
 
@@ -1564,7 +1563,7 @@ Add to `task_board/prompts/task_board.md`:
 - Use **local** board for UI steps only; do not patch parent milestones.
 - Claim/report targets on the **parent campaign** via `task_board_claim_work_slot` / `task_board_report_work_item` (host scopes assignment).
 - Read quota and criteria from `[TASK_BOARD_PARENT]`; do not assume the full queue is visible.
-- On breakthrough use `task_board_sync_finding`; milestone completion is still host `report_child_status`.
+- Report breakthroughs in the final assistant content; milestone completion is still host `report_child_status`.
 ```
 
 ---

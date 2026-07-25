@@ -26,6 +26,10 @@ let title = truncate_chars_fit(&raw_title, 24);
 anyhow::bail!("HTTP {}: {}", status, truncate_bytes(&body, 400));
 ```
 
+## 为什么必须遵守
+
+这条规则同样适用于**写入持久化文档**的模型/用户文本（任务看板 findings、Office 文本提取等），不只是日志和 UI 预览。这类 panic 不会只影响当前函数：它会向上穿过工具调用和 agent 循环，把整个 run 的任务打死，表现为会话永远停在"运行中"。详见 [Chat run errors](chat-run-errors.md) 的 Panic containment 一节。
+
 ## 迁移说明
 
 历史代码里仍有局部 `fn truncate(...)`（如 `context_compression`、`tools/display`）。新代码请直接用 `text_util`；触到旧实现时可顺手改为委托 `text_util`。

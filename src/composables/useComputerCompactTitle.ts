@@ -19,7 +19,6 @@ const COMPUTER_HIDE_TOOL_NAMES = [
   'task_board_patch',
   'task_board_replace',
   'task_board_finalize',
-  'task_board_sync_finding',
   'task_board_check_deps',
   'task_board_prune',
 ]

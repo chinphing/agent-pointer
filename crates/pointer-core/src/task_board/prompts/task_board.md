@@ -12,7 +12,6 @@ Treat injected **`[TASK_BOARD]`** as source of truth.
 - **`task_board_prune`**: cancel pending rows (`ids`).
 - **`task_board_finalize`**: mark board complete after all rows are terminal.
 - **`task_board_abandon`**: mark a **running** board **failed** (scope ended early; host stops injecting it).
-- **`task_board_sync_finding`**: child board sync to parent findings.
 - **`task_board_check_deps`**: inspect dependency readiness for one row.
 
 Tool result is compact.
@@ -230,8 +229,8 @@ Confirm **`in_progress_id`** matches **Current task** before patching.
 ## Parent / child scope
 
 - **Sub-agent (child):** **`[TASK_BOARD]`** = local `global_milestones` only.
-  **`[TASK_BOARD_PARENT]`** is read-only.
-  Use **`task_board_sync_finding`** for breakthroughs; **do not** patch parent rows.
+  **`[TASK_BOARD_PARENT]`** is read-only — **do not** patch parent rows.
+  Report breakthroughs in your final answer to the lead, not on the parent board.
 - **Lead (parent):** milestone scope only — no micromanaging child `local_*` rows.
 
 ## Injected `[TASK_BOARD]` blocks

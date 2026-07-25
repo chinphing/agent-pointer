@@ -32,7 +32,6 @@ accessPolicy:
     - task_board_replace
     - task_board_prune
     - task_board_finalize
-    - task_board_sync_finding
     - task_board_check_deps
     - run_subagent
     - web_search
@@ -64,7 +63,6 @@ ui:
     - task_board_replace
     - task_board_prune
     - task_board_finalize
-    - task_board_sync_finding
     - task_board_check_deps
   avatar: coder
 ---

@@ -34,7 +34,7 @@ Lifecycle: [`taskboard-lifecycle-and-fields.md`](taskboard-lifecycle-and-fields.
 
 ## Methods
 
-`init`, `replace` (item_milestones only), `patch`, `prune`, `finalize`, `sync_finding`, `check_deps`.
+`init`, `replace` (item_milestones only), `patch`, `prune`, `finalize`, `check_deps`.
 
 ### Type 1 (no work_items)
 
@@ -74,7 +74,6 @@ Authoritative state is injected as **`[TASK_BOARD]`** each round.
 | `init` | `ok`, `method`, `board_len`, optional `goal` |
 | `replace` / `prune` / `finalize` | `ok`, `method`, `board_len` |
 | `check_deps` | `item_id`, `status`, optional `reason` |
-| `sync_finding` | `findings_count` |
 
 ## Storage
 

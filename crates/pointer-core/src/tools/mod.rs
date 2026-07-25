@@ -537,7 +537,17 @@ impl ToolRegistry {
             .ok_or_else(|| anyhow::anyhow!("未注册的工具: {name}"))?;
         let handler = entry.handler.clone();
         drop(g);
-        handler(args)
+        // A handler panic must not unwind into the agent loop: it would kill the run
+        // task before it can write a terminal status, leaving the session stuck with
+        // no error surfaced. Convert it into a normal tool failure instead.
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(args))) {
+            Ok(result) => result,
+            Err(payload) => {
+                let detail = crate::logging::panic_payload_message(payload.as_ref());
+                log::error!("tool_invoke: handler panicked name={name}: {detail}");
+                Err(anyhow::anyhow!("工具 {name} 执行异常：{detail}"))
+            }
+        }
     }
 
     /// UI display label + parameter summary for a tool invocation (not sent to the LLM).
@@ -1228,6 +1238,66 @@ mod subagent_inheritance_tests {
         assert!(registry.is_inheritable_to_subagent("file_read"));
         assert!(!registry.is_inheritable_to_subagent("run_subagent"));
         assert!(!registry.is_inheritable_to_subagent("missing"));
+    }
+}
+
+#[cfg(test)]
+mod invoke_panic_tests {
+    use super::{ToolEntry, ToolHandler, ToolRegistry};
+    use std::sync::Arc;
+
+    #[test]
+    fn handler_panic_becomes_tool_error() {
+        let registry = ToolRegistry::new();
+        let handler: ToolHandler = Arc::new(|_args| panic!("boom inside handler"));
+        registry.register(ToolEntry::new(
+            "panicking_tool",
+            "test",
+            "low",
+            false,
+            "doc",
+            handler,
+        ));
+
+        let err = registry
+            .invoke("panicking_tool", serde_json::json!({}))
+            .expect_err("panic must surface as an error, not unwind");
+        let text = err.to_string();
+        assert!(text.contains("panicking_tool"), "{text}");
+        assert!(text.contains("boom inside handler"), "{text}");
+    }
+
+    #[test]
+    fn registry_stays_usable_after_handler_panic() {
+        let registry = ToolRegistry::new();
+        let panicking: ToolHandler = Arc::new(|_args| panic!("boom"));
+        let healthy: ToolHandler = Arc::new(|_args| Ok("ok".to_string()));
+        registry.register(ToolEntry::new(
+            "panicking_tool",
+            "test",
+            "low",
+            false,
+            "doc",
+            panicking,
+        ));
+        registry.register(ToolEntry::new(
+            "healthy_tool",
+            "test",
+            "low",
+            false,
+            "doc",
+            healthy,
+        ));
+
+        assert!(registry
+            .invoke("panicking_tool", serde_json::json!({}))
+            .is_err());
+        assert_eq!(
+            registry
+                .invoke("healthy_tool", serde_json::json!({}))
+                .expect("healthy tool"),
+            "ok"
+        );
     }
 }
 

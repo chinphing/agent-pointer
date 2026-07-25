@@ -411,6 +411,39 @@ mod apply_tests {
         assert_eq!(doc.global_milestones.len(), 20);
         assert_eq!(doc.meta.expected_total, Some(20));
     }
+
+    #[test]
+    fn long_cjk_key_finding_is_truncated_without_panic() {
+        let store = TaskBoardStore::new();
+        let key = "conv-cjk-finding";
+        let finding = "关键发现".repeat(300);
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "global_context": { "key_findings": [finding] },
+                    "items": []
+                }),
+            )
+            .expect("init");
+        let doc = store.document(key);
+        assert_eq!(doc.global_context.key_findings.len(), 1);
+        let stored = &doc.global_context.key_findings[0];
+        assert!(stored.ends_with('…'));
+        assert!(stored.len() < finding.len());
+    }
+
+    #[test]
+    fn sync_finding_method_is_removed() {
+        let store = TaskBoardStore::new();
+        let child = crate::task_board::sub_agent_task_board_store_key("conv-parent", "task_a");
+        let err = store
+            .apply(&child, "sync_finding", &json!({ "finding": "突破" }))
+            .expect_err("sync_finding is no longer a task_board method");
+        assert!(err.to_string().contains("unknown method sync_finding"));
+    }
 }
 
 #[cfg(test)]

@@ -2,7 +2,9 @@
 
 ## Principle
 
-Details stay on the **child** board (`local_*`). Results are **reported** to the parent milestone. Dependencies are enforced by the **host**. Findings sync via **`global_context.key_findings`**.
+Details stay on the **child** board (`local_*`). Results are **reported** to the parent milestone. Dependencies are enforced by the **host**.
+
+Child boards never write to the parent board. A child's findings reach the lead through its final assistant content, which the host records on the parent milestone via `report_child_status`. The `global_context.key_findings` list is per-board and only written by that board's own `init` / `patch`.
 
 ## Store keys
 
@@ -18,7 +20,6 @@ Details stay on the **child** board (`local_*`). Results are **reported** to the
 | `sync_parent_board_from_supervisor_plan` | `supervisor.rs` after plan | Upsert parent milestones from planned `AgentTask` rows |
 | `dispatch_to_child` | `supervisor.rs` before each sub-agent | Init child meta + seed `local_01` when child board empty |
 | `report_child_status` | `supervisor.rs` after sub-agent | Parent milestone → `done` / `failed` + `output` |
-| `sync_global_finding` | `task_board:sync_finding` tool | Child → parent `key_findings` only |
 | `check_dependencies` | Supervisor before dispatch | `Ready` / `Blocked` |
 
 `report_child_status` is **not** an LLM tool (avoids races on the parent board).

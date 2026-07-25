@@ -1,13 +1,12 @@
 //! In-memory task board store with optional SQLite write-through.
 
-use super::apply::{apply_method, apply_sync_finding_to_doc};
-use super::args::finding_from_args;
+use super::apply::apply_method;
 use super::coordination::parent_child::parent_store_key_from_child;
 use super::migrate::normalize_stored_value;
 use super::model::BoardDocument;
 use super::persistence::TaskBoardSqlite;
 use super::snapshot::snapshot_for_prompt;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use parking_lot::RwLock;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -73,9 +72,6 @@ impl TaskBoardStore {
 
     pub fn apply(&self, store_key: &str, method: &str, args: &Value) -> Result<(Value, bool)> {
         let method = method.trim().to_ascii_lowercase();
-        if method == "sync_finding" {
-            return self.apply_sync_finding_route(store_key, args);
-        }
         let mut doc = self.get_or_default(store_key);
         let outcome = apply_method(store_key, &mut doc, &method, args)?;
         self.inner.write().insert(store_key.to_string(), doc.clone());
@@ -88,18 +84,6 @@ impl TaskBoardStore {
         );
         let body = outcome.body;
         Ok((body, outcome.reflection_required))
-    }
-
-    fn apply_sync_finding_route(&self, child_store_key: &str, args: &Value) -> Result<(Value, bool)> {
-        let finding = finding_from_args(args)
-            .ok_or_else(|| anyhow!("task_board: sync_finding requires finding"))?;
-        let parent_key = parent_store_key_from_child(child_store_key)
-            .ok_or_else(|| anyhow!("task_board: sync_finding only from child board"))?;
-        let mut parent = self.get_or_default(&parent_key);
-        let body = apply_sync_finding_to_doc(&mut parent, &finding)?;
-        self.inner.write().insert(parent_key.clone(), parent.clone());
-        self.persist(&parent_key, &parent);
-        Ok((body, false))
     }
 
     pub fn items_json(&self, store_key: &str) -> Value {

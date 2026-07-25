@@ -94,7 +94,7 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
     showSubAgentTrace: isSupervisor || key === 'research',
     showToolCalls: !isSupervisor,
     showToolCallResults: false,
-    hideToolNames: hasTaskBoard ? ['task_board_init', 'task_board_patch', 'task_board_replace', 'task_board_finalize', 'task_board_sync_finding', 'task_board_check_deps', 'task_board_prune'] : [],
+    hideToolNames: hasTaskBoard ? ['task_board_init', 'task_board_patch', 'task_board_replace', 'task_board_finalize', 'task_board_check_deps', 'task_board_prune'] : [],
     showWorkspacePicker: !isSupervisor,
     showComputerMonitorPicker: key === 'computer',
     showTaskBoardPanel: hasTaskBoard,

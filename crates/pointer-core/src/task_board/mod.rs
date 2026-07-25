@@ -33,7 +33,7 @@ pub use coordination::{
     sub_agent_task_board_store_key_for_instance,
 };
 pub use gateway::{
-    check_dependencies, dispatch_to_child, report_child_status, sync_global_finding,
+    check_dependencies, dispatch_to_child, report_child_status,
     sync_parent_board_from_supervisor_plan, DependencyCheck, DispatchContext,
     SupervisorPlanSyncStats,
 };

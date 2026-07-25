@@ -20,7 +20,7 @@ use super::state_machine::{
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 
-const MAX_FINDING_LEN: usize = 500;
+const MAX_FINDING_BYTES: usize = 500;
 const MAX_FINDINGS: usize = 32;
 const INTERIM_DRAFTS_CHAR_BUDGET: usize = 80_000;
 const INTERIM_DRAFT_ITEM_MAX_CHARS: usize = 2_000;
@@ -107,10 +107,6 @@ pub fn apply_method(
                 }),
                 false,
             )
-        }
-        "sync_finding" => {
-            let body = apply_sync_finding(store_key, doc, args)?;
-            (body, false)
         }
         "check_deps" => {
             let body = apply_check_deps(doc, args)?;
@@ -664,17 +660,6 @@ fn apply_abandon(doc: &mut BoardDocument) -> Result<()> {
     Ok(())
 }
 
-fn apply_sync_finding(__store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<Value> {
-    if let Some(finding) = super::args::finding_from_args(args) {
-        return apply_sync_finding_to_doc(doc, &finding);
-    }
-    Ok(serde_json::json!({
-        "ok": true,
-        "method": "sync_finding",
-        "message": "sync_finding handled by store route; no finding appended"
-    }))
-}
-
 fn apply_check_deps(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
     let id = super::args::check_item_id_from_args(args)
         .ok_or_else(|| anyhow!("task_board: check_deps requires item_id"))?;
@@ -715,38 +700,30 @@ fn apply_check_deps(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
     }
 }
 
-pub fn apply_sync_finding_to_doc(doc: &mut BoardDocument, finding: &str) -> Result<Value> {
-    let t = finding.trim();
-    if t.is_empty() {
-        return Err(anyhow!("task_board: empty finding"));
+/// Append one `key_findings` entry: deduped, oldest dropped at capacity.
+///
+/// Findings are free-form model text, so the byte budget is applied through
+/// the UTF-8-safe helper — a raw byte slice would split a multibyte character.
+fn push_key_finding(gc: &mut GlobalContext, finding: &str) {
+    let entry = finding.trim();
+    if entry.is_empty() {
+        return;
     }
-    let entry = if t.len() > MAX_FINDING_LEN {
-        format!("{}…", &t[..MAX_FINDING_LEN])
-    } else {
-        t.to_string()
-    };
-    if !doc.global_context.key_findings.iter().any(|f| f == &entry) {
-        if doc.global_context.key_findings.len() >= MAX_FINDINGS {
-            doc.global_context.key_findings.remove(0);
-        }
-        doc.global_context.key_findings.push(entry);
+    let entry = crate::text_util::truncate_bytes(entry, MAX_FINDING_BYTES);
+    if gc.key_findings.iter().any(|f| f == &entry) {
+        return;
     }
-    Ok(serde_json::json!({
-        "ok": true,
-        "method": "sync_finding",
-        "findings_count": doc.global_context.key_findings.len()
-    }))
+    if gc.key_findings.len() >= MAX_FINDINGS {
+        gc.key_findings.remove(0);
+    }
+    gc.key_findings.push(entry);
 }
 
 fn merge_global_context(gc: &mut GlobalContext, patch: &Value) {
     if let Some(arr) = patch.get("key_findings").and_then(|v| v.as_array()) {
         for e in arr {
             if let Some(s) = e.as_str() {
-                let mut tmp = BoardDocument::empty_for_store_key("_merge");
-                tmp.global_context = gc.clone();
-                if apply_sync_finding_to_doc(&mut tmp, s).is_ok() {
-                    *gc = tmp.global_context;
-                }
+                push_key_finding(gc, s);
             }
         }
     }

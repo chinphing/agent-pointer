@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures_util::future::FutureExt;
 use parking_lot::Mutex;
 use pointer_core::agents::{AGENT_MODE_SINGLE, DEFAULT_LEAD_AGENT_ID};
 use pointer_core::chat_service::{run_chat, AppState};
@@ -437,7 +438,23 @@ impl DispatchService {
             }
         };
 
-        let (run_res, ()) = tokio::join!(run, collect);
+        // `collect` only stops on the terminal event emitted by `run_chat`, so a panic
+        // in the agent loop would leave this IM request waiting forever. Catch it here
+        // and turn it into a normal dispatch error instead.
+        let joined = std::panic::AssertUnwindSafe(async {
+            let (run_res, ()) = tokio::join!(run, collect);
+            run_res
+        })
+        .catch_unwind()
+        .await;
+        let run_res = match joined {
+            Ok(run_res) => run_res,
+            Err(payload) => {
+                let detail = pointer_core::logging::panic_payload_message(payload.as_ref());
+                log::error!("channel dispatch run panicked conv={conv_id}: {detail}");
+                Err(anyhow::anyhow!("运行异常中断：{detail}"))
+            }
+        };
         if let Err(e) = run_res {
             if e.to_string().contains("已停止生成") {
                 log::info!("channel dispatch run cancelled conv={conv_id}");

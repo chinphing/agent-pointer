@@ -70,6 +70,17 @@ pub fn init_backtrace_defaults() {
     });
 }
 
+/// Human-readable text from a panic payload (`catch_unwind` / panic hook).
+pub fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "(non-string panic payload)".into()
+    }
+}
+
 /// 在 logger 可用后调用：panic 时写入 `log`、stderr，并保留默认 hook。
 pub fn install_panic_hook() {
     PANIC_HOOK.call_once(|| {
@@ -79,14 +90,7 @@ pub fn install_panic_hook() {
                 .location()
                 .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
                 .unwrap_or_else(|| "?".into());
-            let payload = info.payload();
-            let msg = if let Some(s) = payload.downcast_ref::<&'static str>() {
-                (*s).to_string()
-            } else if let Some(s) = payload.downcast_ref::<String>() {
-                s.clone()
-            } else {
-                "(non-string panic payload)".into()
-            };
+            let msg = panic_payload_message(info.payload());
             let bt = Backtrace::capture();
             log::error!("thread panicked at {loc}: {msg}\nBacktrace:\n{bt}");
             eprintln!(

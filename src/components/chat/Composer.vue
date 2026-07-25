@@ -1279,33 +1279,7 @@ onUnmounted(() => {
                   ref="projectPickerRef"
                   class="composer-dropdown composer-project-dropdown composer-dropdown--up"
                 >
-                  <div class="p-1.5">
-                    <button
-                      v-if="isTauriRuntime()"
-                      type="button"
-                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-                      :disabled="projectCreationPending"
-                      @click="pickWorkspaceFolder"
-                    >
-                      <FolderPlus class="w-3.5 h-3.5 shrink-0" />
-                      <span class="whitespace-nowrap text-accent">
-                        {{ projectCreationPending ? '正在创建项目…' : '选择本地目录' }}
-                      </span>
-                    </button>
-                    <input
-                      v-else
-                      ref="workspaceInputRef"
-                      :value="chat.current?.workspaceRoot ?? ''"
-                      type="text"
-                      placeholder="输入本地目录创建新项目"
-                      aria-label="输入本地目录创建新项目"
-                      class="composer-workspace-input"
-                      :title="workspaceTooltip"
-                      @input="onWorkspaceInput"
-                      @keydown.enter.prevent="commitWorkspaceInput"
-                    />
-                  </div>
-                  <div class="border-t border-border px-3 pb-1 pt-2">
+                  <div class="px-3 pb-1 pt-2">
                     <div class="text-[10px] text-muted font-medium whitespace-nowrap">已有项目</div>
                   </div>
                   <div class="max-h-44 space-y-0.5 overflow-y-auto p-1">
@@ -1333,6 +1307,32 @@ onUnmounted(() => {
                       <X class="w-3 h-3 shrink-0" />
                       <span class="whitespace-nowrap">清除选择</span>
                     </button>
+                  </div>
+                  <div class="border-t border-border p-1.5">
+                    <button
+                      v-if="isTauriRuntime()"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      :disabled="projectCreationPending"
+                      @click="pickWorkspaceFolder"
+                    >
+                      <FolderPlus class="w-3.5 h-3.5 shrink-0" />
+                      <span class="whitespace-nowrap text-accent">
+                        {{ projectCreationPending ? '正在创建项目…' : '本地目录' }}
+                      </span>
+                    </button>
+                    <input
+                      v-else
+                      ref="workspaceInputRef"
+                      :value="chat.current?.workspaceRoot ?? ''"
+                      type="text"
+                      placeholder="输入本地目录创建新项目"
+                      aria-label="输入本地目录创建新项目"
+                      class="composer-workspace-input"
+                      :title="workspaceTooltip"
+                      @input="onWorkspaceInput"
+                      @keydown.enter.prevent="commitWorkspaceInput"
+                    />
                   </div>
                 </div>
               </div>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Check, Copy, FileWarning, WrapText } from 'lucide-vue-next'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import type { WorkspaceFilePreview } from '../../lib/api'
+import { parseMarkdown } from '../../lib/markdownConfig'
 import { tokenizeCodeLine } from '../../lib/workspaceFilePreview'
 
 const props = defineProps<{
@@ -11,6 +13,12 @@ const props = defineProps<{
 
 const wrapLines = ref(false)
 const copied = ref(false)
+const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
+const ext = computed(() => (props.absolutePath.split('.').pop()?.toLowerCase() || ''))
+const isImage = computed(() => IMAGE_EXTS.has(ext.value))
+const isPdf = computed(() => ext.value === 'pdf')
+const isMarkdown = computed(() => ext.value === 'md')
+const mediaUrl = computed(() => convertFileSrc(props.absolutePath))
 const lines = computed(() => (props.preview.content ?? '').split('\n'))
 const language = computed(() => {
   const ext = props.preview.path.split('.').pop()?.toLowerCase() || ''
@@ -52,10 +60,19 @@ async function copyPath() {
       </button>
     </div>
 
-    <div v-if="preview.binary" class="file-preview-empty">
+    <div v-if="isImage" class="file-preview-media">
+      <img :src="mediaUrl" :alt="preview.path" />
+    </div>
+    <div v-else-if="isPdf" class="file-preview-media">
+      <iframe :src="mediaUrl" class="file-preview-iframe" />
+    </div>
+    <div v-else-if="preview.binary" class="file-preview-empty">
       <FileWarning class="w-5 h-5" />
       <strong>无法预览二进制文件</strong>
       <span>{{ preview.path }} · {{ sizeLabel }}</span>
+    </div>
+    <div v-else-if="isMarkdown" class="file-preview-scroll">
+      <div class="file-preview-markdown md-body px-3 py-2" v-html="parseMarkdown(preview.content ?? '')" />
     </div>
     <div v-else class="file-preview-scroll">
       <div class="file-preview-code" :class="wrapLines && 'wrap-lines'">
@@ -96,4 +113,7 @@ html.light .token-number { color: #098658; }
 html.light .token-keyword { color: #0000ff; }
 .file-preview-empty { @apply flex-1 flex flex-col items-center justify-center gap-2 p-5 text-center text-xs text-muted; }
 .file-preview-empty strong { @apply text-foreground; }
+.file-preview-media { @apply flex-1 min-h-0 flex items-center justify-center overflow-auto; }
+.file-preview-media img { @apply max-w-full max-h-full object-contain; }
+.file-preview-iframe { @apply w-full h-full border-0; }
 </style>

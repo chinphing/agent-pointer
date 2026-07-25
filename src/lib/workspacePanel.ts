@@ -1,7 +1,6 @@
 export const GIT_INITIALIZATION_TASK = '请为当前工作区初始化 Git 仓库。先分析项目架构和技术栈，识别构建产物、本地配置、缓存、IDE 文件及敏感文件；检查现有 .gitignore，并结合分析结果决定合适的忽略模板。先向我说明拟采用的方案，再写入或补充 .gitignore，最后执行 git init，并运行 git status 验证初始化结果。'
 
 export const WORKSPACE_PANEL_MIN_WIDTH = 280
-export const WORKSPACE_PANEL_MAX_WIDTH = 720
 export const WORKSPACE_PANEL_DEFAULT_WIDTH = 360
 
 export function clampWorkspacePanelWidth(
@@ -9,7 +8,7 @@ export function clampWorkspacePanelWidth(
   viewportWidth = typeof window === 'undefined' ? 1440 : window.innerWidth
 ): number {
   const responsiveMax = Math.max(WORKSPACE_PANEL_MIN_WIDTH, viewportWidth - 320)
-  return Math.round(Math.min(Math.max(width, WORKSPACE_PANEL_MIN_WIDTH), WORKSPACE_PANEL_MAX_WIDTH, responsiveMax))
+  return Math.round(Math.min(Math.max(width, WORKSPACE_PANEL_MIN_WIDTH), responsiveMax))
 }
 
 export function readWorkspacePanelWidth(value: string | null, viewportWidth?: number): number {

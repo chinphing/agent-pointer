@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { Copy, ExternalLink, FileCode2, FileDiff, FolderOpen, GitBranch, Loader2, RefreshCw, X } from 'lucide-vue-next'
 import {
   getWorkspaceGitDiff,
@@ -43,6 +44,7 @@ type BasePreviewTab = {
   title: string
   loading: boolean
   error: string
+  sizeBytes?: number
 }
 type FilePreviewTab = BasePreviewTab & {
   kind: 'file'
@@ -75,6 +77,15 @@ const contextMenu = ref<ContextMenuState | null>(null)
 const isDesktop = isTauriRuntime()
 let resizeStartX = 0
 let resizeStartWidth = 0
+
+const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
+
+function isMediaFile(path: string): 'image' | 'pdf' | null {
+  const ext = path.split('.').pop()?.toLowerCase() || ''
+  if (IMAGE_EXTS.has(ext)) return 'image'
+  if (ext === 'pdf') return 'pdf'
+  return null
+}
 
 const hasWorkspace = computed(() => !!props.workspaceRoot.trim())
 const workspaceName = computed(() => props.workspaceRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || props.workspaceRoot)
@@ -132,14 +143,21 @@ async function loadChanges() {
 
 async function activatePrimaryView(nextView: PrimaryView) {
   activeView.value = nextView
-  if (nextView === 'files') await loadRoot()
-  else await loadChanges()
+  if (nextView === 'files' && roots.value.length === 0) await loadRoot()
+  else if (nextView === 'changes' && changes.value.length === 0) await loadChanges()
 }
 
 async function loadFileTab(tabItem: FilePreviewTab) {
   tabItem.loading = true
   tabItem.error = ''
   try {
+    const mediaKind = isMediaFile(tabItem.path)
+    if (mediaKind && isDesktop) {
+      const absPath = workspaceAbsolutePath(props.workspaceRoot, tabItem.path)
+      tabItem.preview = { path: absPath, sizeBytes: tabItem.sizeBytes ?? 0, truncated: false, binary: false }
+      tabItem.loading = false
+      return
+    }
     tabItem.preview = await readWorkspaceFile(props.workspaceRoot, tabItem.path)
   } catch (err) {
     tabItem.preview = null
@@ -170,7 +188,7 @@ async function refreshActiveTab() {
   else if (activeDiffTab.value) await loadDiffTab(activeDiffTab.value)
 }
 
-async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'>) {
+async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { sizeBytes?: number }) {
   if (node.kind !== 'file') return
   const id = workspacePreviewTabId('file', node.path)
   const existing = previewTabs.value.find(item => item.id === id)
@@ -185,7 +203,8 @@ async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'>) {
     title: node.name,
     loading: false,
     error: '',
-    preview: null
+    preview: null,
+    sizeBytes: node.sizeBytes
   }
   previewTabs.value.push(tabItem)
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as FilePreviewTab

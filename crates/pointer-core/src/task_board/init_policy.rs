@@ -6,19 +6,19 @@ use crate::models::{ChatMessage, Role};
 pub const TASK_BOARD_HINT_TAG: &str = "[TASK_BOARD_HINT";
 
 const GATE_SIGNALS: &str = "\
-**Default: skip `task_board_init`.** Init when **≥2** signals match:
-recoverable workflow; auditable batch; cross-boundary (multi-app; coder ≥3 files or cross-module); high retry/branch risk.
-**Skip:** one-shot outcome; goal lists ≤5 linear GUI steps; parent/sub goal lists simple steps; coder 1–2 file narrow fix.";
+**Default: skip `task_board_init`.** Init only for: user-requested plan/progress;
+≥3 independently recoverable outcomes; batch N≥5; or ≥2 independent retry/branch paths.
+**Never count:** explore → edit → test; one atomic outcome across many files; ≤5 linear GUI steps; parent/sub simple steps.";
 
 const COMPUTER_LOOP: &str = "\
-**Loop vs linear:** linear = 3–8 milestones. **Loop** only if enumerated N≥8 OR goal asks 汇总/逐条/批量/每个.
+**Loop vs linear:** linear = 3–8 milestones. **Loop** only if enumerated N≥5 OR goal asks 汇总/逐条/批量/每个.
 Enumerated → one `wi_*` per target; dynamic → `dynamic_quota` (host seeds wi_*). Shared SOP → `g_plan.plan`.
 Patch terminal `wi_*`; host auto-advances; then `g_deliver`.";
 
 const CODER_ROWS: &str = "\
-Coder: only init when the gate above says so. Prefer task-specific milestone titles \
-(e.g. \"Fix empty media reply\"), not a generic Recon→Implement→Verify ladder. \
-Skip init for 1–2 file / single-module narrow fixes even after explore.";
+Coder: file count and cross-module scope do not themselves justify a board. \
+Skip init for one atomic change, even after explore. \
+If the gate justifies a board, use task-specific units; never use a Recon→Implement→Verify ladder.";
 
 const COMPUTER_VERIFY: &str = "Host verify runs after desktop tools; patch terminal `wi_*` rows.";
 
@@ -51,30 +51,28 @@ pub fn last_task_board_hint_index(messages: &[ChatMessage]) -> Option<usize> {
         .rposition(|m| m.content.contains(TASK_BOARD_HINT_TAG))
 }
 
-fn is_explore_handoff_content(content: &str) -> bool {
-    content.contains("## Summary") && content.contains("## Key files")
-        || content.contains("## Impact map")
-}
-
 fn is_abandon_tool_result(content: &str) -> bool {
     content.contains("task_board_abandon") || content.contains("\"method\":\"abandon\"")
 }
 
-fn scope_upgrade_since(messages: &[ChatMessage], after_hint: Option<usize>) -> bool {
+fn board_abandoned_since(messages: &[ChatMessage], after_hint: Option<usize>) -> bool {
     let start = after_hint.map(|i| i + 1).unwrap_or(0);
-    messages.iter().skip(start).any(|m| {
-        matches!(m.role, Role::Tool)
-            && (is_explore_handoff_content(&m.content) || is_abandon_tool_result(&m.content))
-    })
+    messages
+        .iter()
+        .skip(start)
+        .any(|m| matches!(m.role, Role::Tool) && is_abandon_tool_result(&m.content))
 }
 
-/// Whether to inject `[TASK_BOARD_HINT]` on this turn (first turn, after abandon, or scope upgrade).
+/// Whether to inject `[TASK_BOARD_HINT]` on this turn (first turn or after abandon).
+///
+/// An explore handoff is evidence gathering, not a scope upgrade. Reinjecting the
+/// hint after every handoff encourages a generic Explore → Implement → Verify board.
 pub fn should_inject_init_hint(profile: &AgentProfile, messages: &[ChatMessage]) -> bool {
     if !matches!(profile, AgentProfile::Computer | AgentProfile::Coder) {
         return false;
     }
     let prior = last_task_board_hint_index(messages);
-    prior.is_none() || scope_upgrade_since(messages, prior)
+    prior.is_none() || board_abandoned_since(messages, prior)
 }
 
 #[cfg(test)]
@@ -115,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn first_turn_only_until_scope_upgrade() {
+    fn first_turn_only_until_board_abandoned() {
         let empty: Vec<ChatMessage> = vec![];
         assert!(should_inject_init_hint(&AgentProfile::Coder, &empty));
         assert!(should_inject_init_hint(&AgentProfile::Computer, &empty));
@@ -134,7 +132,7 @@ mod tests {
                 "## Summary\nx\n## Key files\n- a.rs\n## Evidence\n",
             ),
         ];
-        assert!(should_inject_init_hint(
+        assert!(!should_inject_init_hint(
             &AgentProfile::Coder,
             &after_explore
         ));
@@ -150,9 +148,11 @@ mod tests {
     }
 
     #[test]
-    fn hint_includes_loop_threshold_and_sub_agent_parent() {
+    fn hint_includes_quantified_gate_and_sub_agent_parent() {
         let main = build_init_hint(&AgentProfile::Computer, false).expect("computer hint");
-        assert!(main.contains("N≥8"));
+        assert!(main.contains("N≥5"));
+        assert!(main.contains("≥3 independently recoverable outcomes"));
+        assert!(main.contains("≥2 independent retry/branch paths"));
         assert!(main.contains("wi_*"));
 
         let sub = build_init_hint(&AgentProfile::Computer, true).expect("sub hint");

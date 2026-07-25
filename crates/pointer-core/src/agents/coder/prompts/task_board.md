@@ -8,23 +8,13 @@ Multi-step work is tracked with **`task_board`**, not by pasting the full plan o
 
 Follow injected **`[TASK_BOARD_HINT]`** when present — **default skip `task_board_init`**.
 Same gate for lead and sub-agents.
-
-**Skip init** (no board) when any apply:
-
-- 1–2 file narrow fix / typo / lint-only
-- explore handoff scenario is **`narrow_confirm`** or **`single_module_*`**
-- one-shot outcome the user can verify from **Deliver** alone
-
-**Init** only when the hint gate matches (≥2 signals; coder **≥3 files** or **cross-module**,
-recoverable workflow, auditable batch, high branch risk).
+Do not duplicate or expand its gate here.
 
 ### When you do init — row shape
 
 Use **3–8 task-specific** titles tied to this goal
 (e.g. "Locate empty-response path", "Raise vision max_tokens", "Add truncation test").
-
-**Do not** create a generic **Recon / Implement / Verify** (or Unit tests) three-row board
-for narrow work — that pattern is reserved for **cross-module / multi-file** jobs only.
+Follow **`[TASK_BOARD_HINT]`** for row granularity.
 
 If you need a verification milestone on a justified board, set **`done_when`** to the
 exact command, and on **`done`** put **`remark`**: `<command> — <outcome>` or `SKIP: <reason>`.

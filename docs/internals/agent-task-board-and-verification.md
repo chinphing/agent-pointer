@@ -29,7 +29,7 @@
   子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
 - **可信会话键**：宿主在 `invoke` 前写入 **`_conversation_id`**，覆盖模型可能传入的同名字段，防止伪造；子 Agent 路径下写入的是上述 **子任务键**，不是裸 `conversation_id`。
 - 侧车标记：注册为 **`ToolEntry::new_sidecar`**（宿主侧 **`validate_envelope_tool_batch`** 等约束）；用法与 **`response` / `<sidecar_tools>`** 约定见 **`COMMUNICATION_PUBLIC`** 及各工具 **`doc_markdown`**（经 **`generate_tools_system_appendix`** 进入系统提示中的 **`## Tools`**）。未授权该工具时不会出现在上述附录中。
-- 当 board 为空时，公共注入路径按 **`init_policy.rs`** 注入 **`[TASK_BOARD_HINT]`**：首回合、**`task_board_abandon`** 后或 scope 升级（如 explore handoff）；Computer / Coder 主 agent 与子 agent 共用同一 gate。
+- 当 board 为空时，公共注入路径按 **`init_policy.rs`** 注入 **`[TASK_BOARD_HINT]`**：首回合或 **`task_board_abandon`** 后。Explore handoff 只是证据收集，不会重注入 hint；Computer / Coder 主 agent 与子 agent 共用同一 gate。
 
 ## XML：`<sidecar_tools>` + 根级主工具
 
@@ -54,6 +54,7 @@
 ## 任务粒度与 v4 验收字段
 
 - 板上一行应对应 **可独立验收** 的里程碑；**`done_when`** 写清 outcome 验收标准；完成时可选 **`remark`** 写证据摘要。
+- 默认不建板。仅在用户明确要求计划/进度、至少 3 个可独立恢复的结果、批量 N≥5、或至少 2 条独立分支/重试路径时初始化。探索、修改、测试是原子工作的执行阶段；文件数量或跨模块范围本身不计入上述数量。
 - **`action_verify`** 仅用于 **单步** UI/操作校验，与板字段 **`done_when` / `remark`** 不同名、不同语义。
 - **`done`** 建议在有 **`remark`**、近期 action tools 或（Type2）`work_item_delta` + `result_summary` 后更新（宿主可 warn `done_without_action`）。
 - 对 computer 路径建议统一时序：首轮 `init` 可无 `action_verify`；其后 **`action_verify`（步）→ `task_board_patch`（里程碑）**。

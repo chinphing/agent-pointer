@@ -11,7 +11,8 @@ use super::context::{cancel_owned, LeadStreamRoundContext, StreamRoundInput};
 use super::emit::emit;
 use super::json_tool_retries::push_injected_format_retry_turn;
 use super::provider_stream::{
-    is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message,
+    is_http_429, is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message,
+    rate_limit_retry_delay,
 };
 
 /// Collected assistant output after a successful provider stream.
@@ -88,12 +89,32 @@ pub(super) async fn run_provider_stream_round(
     match send_handle.await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
-            if tools_appendix_enabled && is_recoverable_provider_stream_error(&e) {
+            let rate_limit_delay = rate_limit_retry_delay(&e, ctx.history);
+            let retryable = tools_appendix_enabled
+                && is_recoverable_provider_stream_error(&e)
+                && (!is_http_429(&e) || rate_limit_delay.is_some());
+            if retryable {
                 log::warn!(
                     "recoverable provider stream error conversation_id={} assistant_id={}: {e:#}",
                     conversation_id,
                     assistant_id
                 );
+                if let Some(delay) = rate_limit_delay.filter(|delay| !delay.is_zero()) {
+                    log::info!(
+                        "provider rate limit: delaying retry conversation_id={} delay_secs={}",
+                        conversation_id,
+                        delay.as_secs()
+                    );
+                    tokio::select! {
+                        _ = tokio::time::sleep(delay) => {}
+                        _ = cancel.cancelled() => {
+                            return Err(super::emit::chat_run_err(
+                                "请求已取消",
+                                Some(assistant_id.clone()),
+                            ));
+                        }
+                    }
+                }
                 emit(
                     &stream,
                     StreamEvent::MessageEnd {
@@ -108,8 +129,11 @@ pub(super) async fn run_provider_stream_round(
                         attachments: None,
                     },
                 );
-                let hint =
-                    provider_stream_recoverable_retry_message(&e, effective_max_tokens(settings));
+                let hint = provider_stream_recoverable_retry_message(
+                    &e,
+                    effective_max_tokens(settings),
+                    rate_limit_delay,
+                );
                 push_injected_format_retry_turn(&stream, &conversation_id, ctx.history, hint);
                 ctx.tool_budget.sync_out(ctx.consumed_single);
                 if ctx.tool_budget.is_exhausted() {

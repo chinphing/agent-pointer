@@ -12,7 +12,8 @@ use super::agent_stream_round::{
 use super::context::{cancel_owned, StreamRoundInput, SubStreamRoundContext, SubStreamRoundRefs};
 use super::emit::emit;
 use super::provider_stream::{
-    is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message,
+    is_http_429, is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message,
+    rate_limit_retry_delay,
 };
 use super::util::{new_id, now_ms};
 use crate::provider::ProviderEvent;
@@ -88,15 +89,31 @@ pub(super) async fn run_sub_agent_stream_round(
     match handle.await {
         Ok(Ok(())) => Ok(SubAgentStreamOutcome::Completed(buffers)),
         Ok(Err(err)) => {
-            if tools_appendix_enabled && is_recoverable_provider_stream_error(&err) {
+            let rate_limit_delay = rate_limit_retry_delay(&err, sub.local_history);
+            let retryable = tools_appendix_enabled
+                && is_recoverable_provider_stream_error(&err)
+                && (!is_http_429(&err) || rate_limit_delay.is_some());
+            if retryable {
                 log::warn!(
                     "recoverable provider stream error sub_agent task_id={} agent={}: {err:#}",
                     sub.task.id,
                     sub.def.id
                 );
+                if let Some(delay) = rate_limit_delay.filter(|delay| !delay.is_zero()) {
+                    log::info!(
+                        "provider rate limit: delaying sub-agent retry task_id={} delay_secs={}",
+                        sub.task.id,
+                        delay.as_secs()
+                    );
+                    tokio::select! {
+                        _ = tokio::time::sleep(delay) => {}
+                        _ = cancel.cancelled() => return Err(anyhow!("请求已取消")),
+                    }
+                }
                 let hint = provider_stream_recoverable_retry_message(
                     &err,
                     effective_max_tokens(&provider.settings),
+                    rate_limit_delay,
                 );
                 sub.local_history.push(ChatMessage {
                     id: new_id("fmt_retry"),

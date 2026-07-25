@@ -24,6 +24,92 @@ export function workspaceAbsolutePath(workspaceRoot: string, relativePath: strin
   return `${root}${separator}${relative.replace(/[\\/]/g, separator)}`
 }
 
+export type WorkspaceMarkdownReference =
+  | { kind: 'external'; url: string }
+  | { kind: 'workspace'; path: string }
+  | { kind: 'local'; path: string }
+  | { kind: 'unsupported'; label: string }
+
+function decodeReferencePath(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function isAbsoluteFilesystemPath(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(path)
+}
+
+function workspaceRelativePath(workspaceRoot: string, absolutePath: string): string | null {
+  const normalizedRoot = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normalizedPath = absolutePath.replace(/\\/g, '/')
+  const caseInsensitive = /^[A-Za-z]:\//.test(normalizedRoot)
+  const rootForCompare = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot
+  const pathForCompare = caseInsensitive ? normalizedPath.toLowerCase() : normalizedPath
+  if (pathForCompare === rootForCompare) return ''
+  if (!pathForCompare.startsWith(`${rootForCompare}/`)) return null
+  return normalizedPath.slice(normalizedRoot.length + 1)
+}
+
+export function resolveWorkspaceMarkdownReference(
+  workspaceRoot: string,
+  sourcePath: string,
+  href: string
+): WorkspaceMarkdownReference {
+  const trimmed = href.trim()
+  if (!trimmed) return { kind: 'unsupported', label: href }
+  const decodedPathPart = decodeReferencePath(trimmed.split('#', 1)[0]!.split('?', 1)[0]!)
+
+  // A Windows drive path is parsed as a URL with a one-letter protocol, so
+  // filesystem absolutes must be classified before URL handling.
+  if (isAbsoluteFilesystemPath(decodedPathPart)) {
+    const relative = workspaceRelativePath(workspaceRoot, decodedPathPart)
+    return relative === null
+      ? { kind: 'local', path: decodedPathPart }
+      : { kind: 'workspace', path: relative }
+  }
+
+  try {
+    const url = new URL(trimmed)
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return { kind: 'external', url: trimmed }
+    }
+    if (url.protocol === 'file:') {
+      let localPath = decodeReferencePath(url.pathname)
+      if (/^\/[A-Za-z]:\//.test(localPath)) localPath = localPath.slice(1)
+      const relative = workspaceRelativePath(workspaceRoot, localPath)
+      return relative === null
+        ? { kind: 'local', path: localPath }
+        : { kind: 'workspace', path: relative }
+    }
+    return { kind: 'unsupported', label: trimmed }
+  } catch {
+    // Relative and absolute filesystem references are handled below.
+  }
+
+  const pathPart = decodedPathPart
+  if (!pathPart) return { kind: 'unsupported', label: trimmed }
+
+  const sourceDirectory = sourcePath.replace(/\\/g, '/').split('/').slice(0, -1)
+  const parts = [...sourceDirectory]
+  let escapedWorkspace = false
+  for (const part of pathPart.replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      if (parts.length > 0) parts.pop()
+      else escapedWorkspace = true
+      continue
+    }
+    parts.push(part)
+  }
+  if (!escapedWorkspace) return { kind: 'workspace', path: parts.join('/') }
+
+  const unresolved = [...sourceDirectory, pathPart].join('/')
+  return { kind: 'local', path: workspaceAbsolutePath(workspaceRoot, unresolved) }
+}
+
 export function clampContextMenuPosition(
   clientX: number,
   clientY: number,

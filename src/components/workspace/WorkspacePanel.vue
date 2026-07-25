@@ -16,8 +16,10 @@ import {
   clampContextMenuPosition,
   clampWorkspacePanelWidth,
   readWorkspacePanelWidth,
+  resolveWorkspaceMarkdownReference,
   workspaceAbsolutePath
 } from '../../lib/workspacePanel'
+import { openExternalUrl } from '../../lib/openExternalUrl'
 import { parseWorkspaceDiff } from '../../lib/workspaceDiff'
 import {
   workspaceActiveAfterClose,
@@ -210,6 +212,38 @@ async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { siz
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as FilePreviewTab
   activeView.value = id
   await loadFileTab(reactiveTab)
+}
+
+async function openMarkdownReference(href: string) {
+  const sourcePath = activeFileTab.value?.path
+  if (!sourcePath) {
+    console.warn('[WorkspacePanel] Markdown reference has no active source file', href)
+    return
+  }
+
+  const reference = resolveWorkspaceMarkdownReference(props.workspaceRoot, sourcePath, href)
+  try {
+    error.value = ''
+    if (reference.kind === 'external') {
+      await openExternalUrl(reference.url)
+      return
+    }
+    if (reference.kind === 'workspace') {
+      const name = reference.path.split('/').pop() || reference.path
+      await selectFile({ kind: 'file', name, path: reference.path })
+      return
+    }
+    if (reference.kind === 'local') {
+      if (!isDesktop) throw new Error('网页端无法打开工作区外的本地文件')
+      await openPathWithDefaultApp(reference.path)
+      return
+    }
+    throw new Error(`不支持打开此链接：${reference.label}`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[WorkspacePanel] Failed to open Markdown reference', { href, message })
+    error.value = message
+  }
 }
 
 async function selectChange(change: GitChange) {
@@ -451,6 +485,7 @@ onBeforeUnmount(() => {
         v-else-if="activeFileTab.preview"
         :preview="activeFileTab.preview"
         :absolute-path="workspaceAbsolutePath(workspaceRoot, activeFileTab.path)"
+        @open-reference="openMarkdownReference"
       />
       <div v-else class="workspace-empty">无法显示该文件</div>
     </div>

@@ -10,6 +10,9 @@ const props = defineProps<{
   preview: WorkspaceFilePreview
   absolutePath: string
 }>()
+const emit = defineEmits<{
+  (e: 'open-reference', href: string): void
+}>()
 
 const wrapLines = ref(false)
 const copied = ref(false)
@@ -43,6 +46,36 @@ async function copyPath() {
   await navigator.clipboard.writeText(props.absolutePath)
   copied.value = true
   window.setTimeout(() => { copied.value = false }, 1200)
+}
+
+function openMarkdownReference(event: MouseEvent) {
+  const target = event.target
+  const root = event.currentTarget
+  if (!(target instanceof Element) || !(root instanceof HTMLElement)) return
+  const anchor = target.closest('a')
+  if (!anchor || !root.contains(anchor)) return
+  const href = anchor.getAttribute('href')?.trim() ?? ''
+  event.preventDefault()
+  event.stopPropagation()
+  if (!href) {
+    console.warn('[WorkspaceFilePreview] Markdown link has no destination')
+    return
+  }
+
+  if (href.startsWith('#')) {
+    let id = href.slice(1)
+    try {
+      id = decodeURIComponent(id)
+    } catch {
+      console.warn('[WorkspaceFilePreview] Markdown anchor is malformed', href)
+      return
+    }
+    const destination = id ? root.querySelector(`#${CSS.escape(id)}`) as HTMLElement | null : null
+    if (destination) destination.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    else console.warn('[WorkspaceFilePreview] Markdown anchor not found', href)
+    return
+  }
+  emit('open-reference', href)
 }
 </script>
 
@@ -92,8 +125,15 @@ async function copyPath() {
       <strong>无法预览二进制文件</strong>
       <span>{{ preview.path }} · {{ sizeLabel }}</span>
     </div>
-    <div v-else-if="isMarkdown && markdownMode === 'preview'" class="file-preview-scroll">
-      <div class="file-preview-markdown md-body px-3 py-2" v-html="parseMarkdown(preview.content ?? '')" />
+    <div
+      v-else-if="isMarkdown && markdownMode === 'preview'"
+      class="file-preview-scroll"
+      @click.capture="openMarkdownReference"
+    >
+      <div
+        class="file-preview-markdown md-body px-3 py-2"
+        v-html="parseMarkdown(preview.content ?? '')"
+      />
     </div>
     <div v-else class="file-preview-scroll">
       <div class="file-preview-code" :class="wrapLines && 'wrap-lines'">

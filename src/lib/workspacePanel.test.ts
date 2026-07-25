@@ -4,6 +4,7 @@ import {
   clampWorkspacePanelWidth,
   GIT_INITIALIZATION_TASK,
   readWorkspacePanelWidth,
+  resolveWorkspaceMarkdownReference,
   workspaceAbsolutePath
 } from './workspacePanel'
 
@@ -29,6 +30,24 @@ describe('workspacePanel helpers', () => {
   it('builds platform-appropriate absolute paths from relative workspace entries', () => {
     expect(workspaceAbsolutePath('/tmp/project/', 'src/main.ts')).toBe('/tmp/project/src/main.ts')
     expect(workspaceAbsolutePath('C:\\project\\', 'src/main.ts')).toBe('C:\\project\\src\\main.ts')
+  })
+
+  it('resolves Markdown links relative to their source file', () => {
+    expect(resolveWorkspaceMarkdownReference('/tmp/project', 'docs/guide/index.md', '../api.md#usage'))
+      .toEqual({ kind: 'workspace', path: 'docs/api.md' })
+    expect(resolveWorkspaceMarkdownReference('/tmp/project', 'README.md', 'docs/setup%20guide.md'))
+      .toEqual({ kind: 'workspace', path: 'docs/setup guide.md' })
+  })
+
+  it('classifies external and local Markdown links across platforms', () => {
+    expect(resolveWorkspaceMarkdownReference('/tmp/project', 'README.md', 'https://example.com/docs'))
+      .toEqual({ kind: 'external', url: 'https://example.com/docs' })
+    expect(resolveWorkspaceMarkdownReference('/tmp/project', 'README.md', '/tmp/project/docs/api.md'))
+      .toEqual({ kind: 'workspace', path: 'docs/api.md' })
+    expect(resolveWorkspaceMarkdownReference('C:\\project', 'README.md', 'C:\\project\\docs\\api.md'))
+      .toEqual({ kind: 'workspace', path: 'docs/api.md' })
+    expect(resolveWorkspaceMarkdownReference('/tmp/project', 'docs/guide.md', '../../outside.md'))
+      .toEqual({ kind: 'local', path: '/tmp/project/docs/../../outside.md' })
   })
 
   it('keeps context menus inside the viewport', () => {

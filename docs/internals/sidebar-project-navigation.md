@@ -7,6 +7,12 @@ stable id, name, workspace root, default flag, pin state, and archive state.
 `Conversation.projectId` is the ownership link; the workspace root remains
 the execution directory for the conversation.
 
+In a new conversation, choosing a raw workspace directory creates or reuses
+the project for that normalized directory. The composer keeps that project
+selection pending, then persists conversation ownership before the first
+message is dispatched. Desktop uses the directory picker; Web confirms a
+typed directory with Enter.
+
 On first startup after this feature is introduced, migration is gated by the
 absence of the `projects` table, not by `schema_version`. It creates one
 default project from the global workspace root, attaches historical desktop

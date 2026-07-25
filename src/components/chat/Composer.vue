@@ -17,7 +17,8 @@ import {
   readLocalFileForAttachment,
   setComputerConversationMonitor,
   confirmComputerMonitorPick,
-  cancelComputerMonitorPick
+  cancelComputerMonitorPick,
+  createProject
 } from '../../lib/api'
 import { getLocalFileSize } from '../../lib/tauri'
 import { detectDesktopOs } from '../../lib/desktopOs'
@@ -50,6 +51,7 @@ import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
 import { primaryComputerMonitor } from '../../lib/computerMonitorLayout'
 import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
+import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from '../../lib/projectCreation'
 
 function isEphemeralWorkspacePath(path: string): boolean {
   const normalized = path.replace(/\\/g, '/')
@@ -153,6 +155,7 @@ const selectedProject = computed(() => chat.projects.find(
   p => p.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)
 ))
 const projectPickerOpen = ref(false)
+const projectCreationPending = ref(false)
 
 const supervisorRoundsLabel = computed(() => {
   if (sessionAgentMode.value !== 'supervisor' || !chat.current) return ''
@@ -240,6 +243,32 @@ function selectProject(projectId: string) {
   if (chat.setConversationProject(projectId)) projectPickerOpen.value = false
 }
 
+async function createOrSelectWorkspaceProject(workspaceRoot: string): Promise<boolean> {
+  const root = workspaceRoot.trim()
+  if (!root || projectCreationPending.value || projectLocked.value) return false
+  projectCreationPending.value = true
+  try {
+    const result = await createProject(projectNameFromWorkspaceRoot(root), root)
+    await applyProjectCreationResult(result, {
+      refreshProjects: chat.refreshProjects,
+      selectProject: async projectId => {
+        if (!chat.setConversationProject(projectId)) {
+          throw new Error('conversation project selection is locked')
+        }
+      },
+      notify: message => chat.showUiToast(message, 'warning')
+    })
+    projectPickerOpen.value = false
+    return true
+  } catch (error) {
+    console.error('[composer] create project from workspace failed', { workspaceRoot: root, error })
+    chat.showUiToast('项目创建失败，请重试', 'error')
+    return false
+  } finally {
+    projectCreationPending.value = false
+  }
+}
+
 async function pickWorkspaceFolder() {
   if (!isTauriRuntime()) return
   const conv = chat.current || chat.newConversation()
@@ -252,11 +281,16 @@ async function pickWorkspaceFolder() {
       ...(current ? { defaultPath: current } : {})
     })
     if (typeof dir === 'string' && dir) {
-      chat.setConversationWorkspace(dir)
+      await createOrSelectWorkspaceProject(dir)
     }
   } catch (e) {
-    console.error(e)
+    console.error('[composer] pick workspace folder failed', e)
+    chat.showUiToast('目录选择失败，请重试', 'error')
   }
+}
+
+async function commitWorkspaceInput() {
+  await createOrSelectWorkspaceProject(chat.current?.workspaceRoot ?? '')
 }
 
 function onWorkspaceInputChange() {
@@ -1253,10 +1287,13 @@ onUnmounted(() => {
                       v-if="isTauriRuntime()"
                       type="button"
                       class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-                      @click="pickWorkspaceFolder(); projectPickerOpen = false"
+                      :disabled="projectCreationPending"
+                      @click="pickWorkspaceFolder"
                     >
                       <FolderOpen class="w-3 h-3 shrink-0" />
-                      <span class="whitespace-nowrap">选择其他目录…</span>
+                      <span class="whitespace-nowrap">
+                        {{ projectCreationPending ? '正在添加项目…' : '选择其他目录…' }}
+                      </span>
                     </button>
                     <input
                       v-else
@@ -1267,6 +1304,7 @@ onUnmounted(() => {
                       class="composer-workspace-input"
                       :title="workspaceTooltip"
                       @input="onWorkspaceInput"
+                      @keydown.enter.prevent="commitWorkspaceInput"
                     />
                     <button
                       v-if="hasWorkspace"

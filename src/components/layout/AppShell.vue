@@ -208,7 +208,7 @@ async function addProject() {
     const result = await createProject(name, root)
     await applyProjectCreationResult(result, {
       refreshProjects: chat.refreshProjects,
-      switchProject: chat.switchProject,
+      selectProject: chat.switchProject,
       notify: message => chat.showUiToast(message, 'warning')
     })
     projectName.value = ''

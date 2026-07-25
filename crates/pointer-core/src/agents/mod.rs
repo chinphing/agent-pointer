@@ -1469,6 +1469,11 @@ mod builtin_agent_tests {
             "coder should include delegation section"
         );
         assert!(
+            prompt.contains("Parallel module exploration")
+                && prompt.contains("calls in the **same turn**"),
+            "coder should proactively split independent explore scopes into a parallel wave"
+        );
+        assert!(
             !prompt.contains("## Change impact scan"),
             "coder should not include legacy Change impact scan section"
         );

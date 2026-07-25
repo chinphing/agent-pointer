@@ -53,6 +53,14 @@ agents/explore/
 
 修饰符：`Scenario: production_debug+cross_module`。
 
+## 并行探索编排
+
+- coder 在发起宽范围 explore 前，先按独立模块、层、包或平台入口划分未知项。
+- 两个及以上互不依赖的只读范围，应在同一轮发起多个 explore 调用。
+- 每个 explore 使用不重叠的范围，以及独立的 `taskId` 和标题。
+- 紧耦合的端到端调用链、共享状态边界仍由单个 explore 追踪。
+- coder 在进入 Change 前合并全部 handoff；冲突证据通过窄范围本地检查确认。
+
 ## Eval 断言（`agents/mod.rs` tests）
 
 - explore prompt **不含** `## Forward trace` / `## Backward trace` 顶级标题。

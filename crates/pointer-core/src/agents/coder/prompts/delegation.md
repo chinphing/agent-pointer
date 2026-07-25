@@ -43,6 +43,13 @@ That work belongs in **`explore`** — isolated context, structured handoff, les
 
 **Breadth threshold (lower than legacy one-grep paths):** if **any** high-breadth trigger applies (persist, stream timing, Platform API, reload-after-restart), treat as cross-layer — parallel **`file_grep`**, parallel one-file **`file_read`** calls, or **`explore`** before the first edit. Direct edit only when **all** are true: one file, one function, no persist/stream/API surface, line-confident target.
 
+### Parallel module exploration
+
+- Split broad reconnaissance into independent read-only module or layer scopes.
+- For **two or more scopes**, issue non-overlapping explore calls in the **same turn**,
+  with distinct **`taskId`** values and titles.
+- Keep coupled execution paths or shared state in one worker. Merge results before **Change**.
+
 ### Goal / context template
 
 **`goal`** (required) — first line **`Scenario: <id>`** when using explore playbooks; include scope and completion criteria.

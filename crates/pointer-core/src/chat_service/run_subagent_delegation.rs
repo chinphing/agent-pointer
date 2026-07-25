@@ -9,17 +9,15 @@ use crate::chat_service::self_fork::SelfForkSnapshot;
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::ChatMessage;
 use crate::models::{AgentTrace, ComputerOperationTarget, StreamEvent};
+use crate::provider::OpenAIProvider;
 use crate::session_sandbox::SessionSandbox;
 use crate::tools::run_subagent::{
     resolve_computer_operation_target, validate_run_subagent_workspace, validate_spawn_depth,
 };
-use crate::provider::OpenAIProvider;
 use anyhow::Result;
 
-use super::emit::{
-    emit, emit_agent_step, merge_agent_trace, publish_agent_step,
-};
 use super::app_state::AppState;
+use super::emit::{emit, emit_agent_step, merge_agent_trace, publish_agent_step};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
 use tokio_util::sync::CancellationToken;
@@ -300,10 +298,7 @@ pub(super) async fn execute_owned_subagent(
         ),
     );
 
-    let sub_cap = provider
-        .settings
-        .max_sub_agent_tool_rounds
-        .clamp(1, 10_000);
+    let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
     let mut child_trace = Vec::new();
     let mut child_usage = ConversationLlmStats::default();
@@ -439,8 +434,8 @@ impl Drop for SubagentWorkspaceRestore {
         if !self.restore {
             return;
         }
-        let ephemeral = SessionSandbox::is_sandbox(Path::new(self.prior_workspace.trim()))
-            .unwrap_or(false);
+        let ephemeral =
+            SessionSandbox::is_sandbox(Path::new(self.prior_workspace.trim())).unwrap_or(false);
         emit(
             &self.stream,
             StreamEvent::WorkspaceUpdated {
@@ -523,8 +518,8 @@ pub(super) async fn run_subagent_delegation(
     match parsed {
         Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
         Ok(parsed) => {
-            let child_spawn_depth = match validate_spawn_depth(ctx.parent_spawn_depth, max_spawn_depth)
-            {
+            let child_spawn_depth =
+                match validate_spawn_depth(ctx.parent_spawn_depth, max_spawn_depth) {
                 Ok(d) => d,
                 Err(msg) => return Ok((format!("ERROR: {msg}"), false, Some(msg))),
             };
@@ -535,6 +530,7 @@ pub(super) async fn run_subagent_delegation(
             match crate::tools::run_subagent::validate_run_subagent_target(
                 &state.agents,
                 allow_agents,
+                ctx.current_agent_id,
                 &agent_id,
             ) {
                 Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
@@ -557,7 +553,8 @@ pub(super) async fn run_subagent_delegation(
                         parsed.task_id.trim().to_string()
                     };
                     if def.id == "computer" {
-                        if let Err(e) = super::computer_monitor_pick::ensure_computer_monitor_for_subagent(
+                        if let Err(e) =
+                            super::computer_monitor_pick::ensure_computer_monitor_for_subagent(
                             stream,
                             state,
                             &provider.settings,
@@ -589,8 +586,8 @@ pub(super) async fn run_subagent_delegation(
                             &mut sub_settings,
                         ) {
                             Ok(ephemeral) => {
-                                let workspace_changed = sub_settings.workspace_root.trim()
-                                    != prior_workspace.trim();
+                                let workspace_changed =
+                                    sub_settings.workspace_root.trim() != prior_workspace.trim();
                                 if workspace_changed {
                                     emit(
                                         stream,
@@ -620,8 +617,7 @@ pub(super) async fn run_subagent_delegation(
                             }
                         };
                     let _workspace_restore = workspace_restore;
-                    let sub_provider =
-                        OpenAIProvider::new(sub_settings, provider.api_key.clone());
+                    let sub_provider = OpenAIProvider::new(sub_settings, provider.api_key.clone());
                     let context = parsed.context.trim().to_string();
                     let task = AgentTask {
                         id: tid,
@@ -664,8 +660,7 @@ pub(super) async fn run_subagent_delegation(
                         super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task);
                     let instance_scope =
                         definition_source.new_instance_scope(run_id, conversation_id);
-                    let make_trace =
-                        |status: &str, detail: Option<String>| {
+                    let make_trace = |status: &str, detail: Option<String>| {
                             build_subagent_trace(
                                 &task,
                                 &def,
@@ -678,15 +673,8 @@ pub(super) async fn run_subagent_delegation(
                                 detail,
                             )
                         };
-                    emit_subagent_trace_step(
-                        stream,
-                        ctx,
-                        make_trace("running", Some(detail)),
-                    );
-                    let sub_cap = provider
-                        .settings
-                        .max_sub_agent_tool_rounds
-                        .clamp(1, 10_000);
+                    emit_subagent_trace_step(stream, ctx, make_trace("running", Some(detail)));
+                    let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
                     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
                     let mut sub_ctx = super::context::SubAgentLoopContext {
                         session: super::context::SessionRefs {
@@ -709,9 +697,7 @@ pub(super) async fn run_subagent_delegation(
                         spawn_depth: child_spawn_depth,
                         max_spawn_depth,
                     };
-                    match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx))
-                    .await
-                    {
+                    match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await {
                         Ok(result) => {
                             log::info!(
                                 "run_subagent completed conversation_id={} sub_agent={} task_id={} spawn_depth={}",
@@ -727,10 +713,7 @@ pub(super) async fn run_subagent_delegation(
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,
-                                make_trace(
-                                    "completed",
-                                    Some(truncate_str(&result.content, 160)),
-                                ),
+                                make_trace("completed", Some(truncate_str(&result.content, 160))),
                             );
                             Ok((json, true, None))
                         }
@@ -810,7 +793,17 @@ mod trace_tests {
             "instance-1",
         );
 
-        let trace = build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), None, "running", None);
+        let trace = build_subagent_trace(
+            &task,
+            &def,
+            &scope,
+            1,
+            None,
+            Some("call-1"),
+            None,
+            "running",
+            None,
+        );
 
         assert_eq!(trace.agent_instance_id.as_deref(), Some("instance-1"));
         assert_eq!(trace.parent_tool_call_id.as_deref(), Some("call-1"));
@@ -885,7 +878,17 @@ mod trace_tests {
             "current-agent",
             "instance-1",
         );
-        build_subagent_trace(&task, &def, &scope, 1, None, Some("call-1"), None, "completed", Some("done".into()))
+        build_subagent_trace(
+            &task,
+            &def,
+            &scope,
+            1,
+            None,
+            Some("call-1"),
+            None,
+            "completed",
+            Some("done".into()),
+        )
     }
 
     #[test]
@@ -1021,7 +1024,10 @@ mod trace_tests {
         assert_eq!(stats.tool_invocations, 7);
         assert_eq!(stats.rounds_missing_usage, 1);
         assert_eq!(stats.last_round_prompt_tokens, Some(7));
-        assert!(events.try_recv().is_err(), "commit must not publish final status");
+        assert!(
+            events.try_recv().is_err(),
+            "commit must not publish final status"
+        );
 
         let recorded = pending
             .record_tool_result(|exec| async {
@@ -1226,7 +1232,10 @@ mod trace_tests {
         let second = execute("call-2").await;
 
         assert_ne!(first.trace.id, second.trace.id);
-        assert_ne!(first.trace.agent_instance_id, second.trace.agent_instance_id);
+        assert_ne!(
+            first.trace.agent_instance_id,
+            second.trace.agent_instance_id
+        );
         assert_eq!(first.task_id, second.task_id);
         assert_eq!(history.len(), 1);
         assert!(history[0].agent_trace.is_none());

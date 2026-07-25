@@ -1,16 +1,16 @@
 //! Agent loop entry contexts (lead single, sub, supervisor).
 
-use crate::agents::{AgentPlan, AgentTask};
 use crate::agent_instance_scope::AgentInstanceScope;
+use crate::agents::{AgentPlan, AgentTask};
 use crate::dispatcher::TriggerSource;
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, ModelSettings};
 use crate::provider::OpenAIProvider;
 use std::collections::HashMap;
 
-use super::session::{SessionRefs, SessionRefsArc};
 use super::super::session_budget::SessionToolBudget;
 use super::super::sub_agent_prompt::SubAgentDefinitionSource;
+use super::session::{SessionRefs, SessionRefsArc};
 
 /// Lead single-agent inner loop.
 pub struct LeadAgentLoopContext<'a> {
@@ -71,6 +71,7 @@ pub struct SubagentDelegationContext<'a> {
     pub provider: &'a OpenAIProvider,
     pub run_id: &'a str,
     pub allow_agents: &'a [String],
+    pub current_agent_id: &'a str,
     pub enabled_skill_ids: &'a [String],
     pub agent_skill_overrides: &'a HashMap<String, Vec<String>>,
     pub agent_trace: &'a mut Vec<AgentTrace>,

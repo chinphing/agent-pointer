@@ -185,6 +185,7 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
 pub fn validate_run_subagent_target(
     registry: &AgentRegistry,
     allow_agents: &[String],
+    current_agent_id: &str,
     agent_id: &str,
 ) -> Result<RunSubagentTarget, String> {
     let aid = agent_id.trim();
@@ -200,9 +201,17 @@ pub fn validate_run_subagent_target(
                 .into(),
         );
     }
-    if allow_agents.binary_search_by(|probe| probe.as_str().cmp(aid)).is_err() {
+    if allow_agents
+        .binary_search_by(|probe| probe.as_str().cmp(aid))
+        .is_err()
+    {
+        let self_fork_hint = if aid == current_agent_id.trim() {
+            " Use agentId `self` to fork the current agent."
+        } else {
+            ""
+        };
         return Err(format!(
-            "agentId `{aid}` is not listed in the current agent allowAgents (AGENT.md frontmatter)"
+            "agentId `{aid}` is not listed in the current agent allowAgents (AGENT.md frontmatter).{self_fork_hint}"
         ));
     }
     let exec = registry
@@ -374,12 +383,7 @@ mod tests {
 
     #[test]
     fn resolve_computer_target_defaults_external() {
-        let t = resolve_computer_operation_target(
-            "在 Chrome 中填写注册表单",
-            "",
-            "注册账号",
-            None,
-        );
+        let t = resolve_computer_operation_target("在 Chrome 中填写注册表单", "", "注册账号", None);
         assert_eq!(t, crate::models::ComputerOperationTarget::External);
     }
 
@@ -436,7 +440,7 @@ mod tests {
     fn self_target_does_not_require_allow_agents() {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
-        let resolved = validate_run_subagent_target(&reg, &[], "self").unwrap();
+        let resolved = validate_run_subagent_target(&reg, &[], "coder", "self").unwrap();
         assert!(matches!(resolved, RunSubagentTarget::SelfFork));
     }
 
@@ -444,7 +448,7 @@ mod tests {
     fn validate_rejects_missing_allow_list() {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
-        let r = validate_run_subagent_target(&reg, &[], "coder");
+        let r = validate_run_subagent_target(&reg, &[], "general", "coder");
         assert!(r.is_err());
     }
 
@@ -453,7 +457,7 @@ mod tests {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
         let allow = vec!["not_an_agent".to_string()];
-        let r = validate_run_subagent_target(&reg, &allow, "not_an_agent");
+        let r = validate_run_subagent_target(&reg, &allow, "general", "not_an_agent");
         assert!(r.is_err());
     }
 
@@ -462,8 +466,11 @@ mod tests {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
         let allow = vec!["explore".to_string()];
-        let r = validate_run_subagent_target(&reg, &allow, "coder");
-        assert!(r.is_err());
+        let r = validate_run_subagent_target(&reg, &allow, "coder", "coder");
+        assert_eq!(
+            r.unwrap_err(),
+            "agentId `coder` is not listed in the current agent allowAgents (AGENT.md frontmatter). Use agentId `self` to fork the current agent."
+        );
     }
 
     #[test]
@@ -472,7 +479,7 @@ mod tests {
         register_builtin_agents(&reg);
         let allow = vec!["coder".to_string()];
         let RunSubagentTarget::Registered(d) =
-            validate_run_subagent_target(&reg, &allow, "coder").unwrap()
+            validate_run_subagent_target(&reg, &allow, "general", "coder").unwrap()
         else {
             panic!("expected registered target");
         };
@@ -488,7 +495,7 @@ mod tests {
             "computer".to_string(),
             "general-worker".to_string(),
         ];
-        let r = validate_run_subagent_target(&reg, &allow, "general-worker");
+        let r = validate_run_subagent_target(&reg, &allow, "general", "general-worker");
         assert!(r.is_err(), "removed general-worker must not resolve");
     }
 
@@ -498,7 +505,7 @@ mod tests {
         register_builtin_agents(&reg);
         let allow = vec!["explore".to_string()];
         let RunSubagentTarget::Registered(d) =
-            validate_run_subagent_target(&reg, &allow, "explore").unwrap()
+            validate_run_subagent_target(&reg, &allow, "coder", "explore").unwrap()
         else {
             panic!("expected registered target");
         };
@@ -511,7 +518,7 @@ mod tests {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);
         let allow = vec!["supervisor".to_string()];
-        let r = validate_run_subagent_target(&reg, &allow, "supervisor");
+        let r = validate_run_subagent_target(&reg, &allow, "general", "supervisor");
         assert!(r.is_err());
     }
 }

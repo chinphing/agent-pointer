@@ -94,6 +94,7 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_owned_subagent_invocatio
     let target = crate::tools::run_subagent::validate_run_subagent_target(
         &state.agents,
         allow_agents,
+        &active.def.id,
         &task.agent_id,
     )?;
     let crate::tools::run_subagent::RunSubagentTarget::Registered(def) = target else {
@@ -146,6 +147,7 @@ pub(super) async fn dispatch_run_subagent(
             provider,
             run_id: lead_cfg.run_id,
             allow_agents: lead_cfg.allow_agents,
+            current_agent_id: &lead_cfg.active.def.id,
             enabled_skill_ids: lead_cfg.enabled_skill_ids.as_slice(),
             agent_skill_overrides: lead_cfg.agent_skill_overrides,
             agent_trace: lead_cfg.agent_trace,
@@ -172,6 +174,7 @@ pub(super) async fn dispatch_run_subagent(
             provider,
             run_id: &sub_cfg.instance_scope.run_id,
             allow_agents: sub_cfg.allow_agents,
+            current_agent_id: &sub_cfg.active.def.id,
             enabled_skill_ids: empty_skills,
             agent_skill_overrides: sub_cfg.agent_skill_overrides,
             agent_trace: sub_cfg.agent_trace,
@@ -190,9 +193,7 @@ pub(super) async fn dispatch_run_subagent(
 #[cfg(test)]
 mod self_fork_preparation_tests {
     use super::{build_active_self_fork_snapshot, prepare_owned_subagent_invocation};
-    use crate::agents::{
-        AccessPolicy, AgentDef, AgentProfile, AgentUiConfig, SkillsPolicy,
-    };
+    use crate::agents::{AccessPolicy, AgentDef, AgentProfile, AgentUiConfig, SkillsPolicy};
     use crate::chat_service::agent_tool_pass::ActiveAgentExecutionState;
     use std::collections::HashMap;
 
@@ -235,8 +236,7 @@ mod self_fork_preparation_tests {
         mutable_enabled_ids.clear();
         mutable_enabled_ids.push("changed-after-plan".into());
 
-        let snapshot =
-            build_active_self_fork_snapshot(&state, &active, "/captured/workspace");
+        let snapshot = build_active_self_fork_snapshot(&state, &active, "/captured/workspace");
 
         assert_eq!(snapshot.def.id, "coder");
         assert_eq!(snapshot.system_prompt, "captured system prompt");

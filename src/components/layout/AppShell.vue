@@ -143,6 +143,10 @@ function onRowClick(c: {
 const projectSearchQuery = ref('')
 const projectSearchExpanded = ref(false)
 const projectSearchInputRef = ref<HTMLInputElement | null>(null)
+const conversationSearchExpanded = ref(false)
+const conversationSearchInputRef = ref<HTMLInputElement | null>(null)
+const projectsSectionCollapsed = ref(false)
+const conversationsSectionCollapsed = ref(false)
 const showProjectCreator = ref(false)
 const loadingMoreProjects = ref(false)
 const hasMoreProjects = ref(true)
@@ -339,6 +343,8 @@ function openSkills() {
 }
 
 function openProjectSearch() {
+  closeConversationSearch()
+  projectsSectionCollapsed.value = false
   projectSearchExpanded.value = true
   nextTick(() => projectSearchInputRef.value?.focus())
 }
@@ -348,12 +354,35 @@ function closeProjectSearch() {
   projectSearchQuery.value = ''
 }
 
+function openConversationSearch() {
+  closeProjectSearch()
+  conversationsSectionCollapsed.value = false
+  conversationSearchExpanded.value = true
+  nextTick(() => conversationSearchInputRef.value?.focus())
+}
+
+function closeConversationSearch() {
+  conversationSearchExpanded.value = false
+  searchQuery.value = ''
+}
+
+function toggleProjectsSection() {
+  projectsSectionCollapsed.value = !projectsSectionCollapsed.value
+  if (projectsSectionCollapsed.value) closeProjectSearch()
+}
+
+function toggleConversationsSection() {
+  conversationsSectionCollapsed.value = !conversationsSectionCollapsed.value
+  if (conversationsSectionCollapsed.value) closeConversationSearch()
+}
+
 function closeProjectMenuOnOutsideClick(event: MouseEvent) {
   const target = event.target
   if (!(target instanceof Element)) return
-  if (!target.closest('.sidebar-project-search-wrap, .sidebar-project-header-action')) {
+  if (!target.closest('.sidebar-project-search-area')) {
     closeProjectSearch()
   }
+  if (!target.closest('.sidebar-conversation-search-area')) closeConversationSearch()
   if (!target.closest('.project-context-menu, .project-menu-trigger')) {
     projectMenuId.value = null
   }
@@ -361,6 +390,10 @@ function closeProjectMenuOnOutsideClick(event: MouseEvent) {
 
 function closeProjectOverlaysOnKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
+  if (conversationSearchExpanded.value) {
+    closeConversationSearch()
+    return
+  }
   if (projectSearchExpanded.value) {
     closeProjectSearch()
     return
@@ -618,39 +651,24 @@ watch(searchQuery, q => {
           v-if="!sidebarCollapsed"
           class="flex flex-1 flex-col min-h-0 min-w-0"
         >
-          <!-- B: 搜索区 -->
-          <div class="px-3 py-2 shrink-0">
-            <div class="flex items-center gap-2">
-              <div class="flex-1 flex items-center gap-2 h-9 px-3 rounded-lg panel-elevated min-w-0">
-                <Search class="w-3.5 h-3.5 text-muted shrink-0" />
-                <input
-                  v-model="searchQuery"
-                  type="text"
-                  placeholder="搜索会话"
-                  class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs text-foreground placeholder:text-muted"
-                />
-                <button
-                  v-if="searchQuery"
-                  type="button"
-                  class="shrink-0 p-0.5 rounded hover:bg-hover cursor-pointer"
-                  title="清空"
-                  @click="searchQuery = ''"
-                >
-                  <X class="w-3.5 h-3.5 text-muted" />
-                </button>
-              </div>
-              <button
-                class="h-9 w-9 rounded-lg hover:bg-hover flex items-center justify-center cursor-pointer transition shrink-0"
-                @click="newTask()"
-                title="新建任务"
-              >
-                <Plus class="w-4 h-4 text-muted" />
-              </button>
-            </div>
-          </div>
-
           <!-- C: 项目工作台 -->
-          <div class="px-3 pb-2 shrink-0 space-y-1">
+          <div class="px-3 py-2 shrink-0 space-y-1">
+            <button
+              type="button"
+              class="sidebar-workbench-link"
+              @click="newTask()"
+            >
+              <Plus class="w-4 h-4" />
+              新建任务
+            </button>
+            <button
+              type="button"
+              class="sidebar-workbench-link"
+              @click="openAutomation"
+            >
+              <Clock3 class="w-4 h-4" />
+              定时任务
+            </button>
             <button
               type="button"
               class="sidebar-workbench-link"
@@ -667,36 +685,40 @@ watch(searchQuery, q => {
               <Link2 class="w-4 h-4" />
               连接
             </button>
-            <button
-              type="button"
-              class="sidebar-workbench-link"
-              @click="openAutomation"
-            >
-              <Clock3 class="w-4 h-4" />
-              定时任务
-            </button>
           </div>
 
           <section
             v-if="sidebarProjects.length"
             class="group/project-section px-3 pb-4 shrink-0 max-h-[42%] overflow-y-auto"
           >
-            <div class="mb-2 flex h-6 items-center gap-1">
-              <h2 class="sidebar-section-title mr-auto">项目</h2>
+            <div class="group/section-header mb-2 flex h-6 items-center gap-1">
+              <button
+                type="button"
+                class="sidebar-section-collapse mr-auto"
+                :aria-expanded="!projectsSectionCollapsed"
+                :title="projectsSectionCollapsed ? '展开项目' : '收起项目'"
+                @click="toggleProjectsSection"
+              >
+                <h2 class="sidebar-section-title">项目</h2>
+                <component
+                  :is="projectsSectionCollapsed ? ChevronRight : ChevronDown"
+                  class="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100"
+                />
+              </button>
               <div
-                class="relative flex items-center gap-1 opacity-0 transition-opacity group-hover/project-section:opacity-100 group-focus-within/project-section:opacity-100"
+                class="sidebar-project-search-area relative flex items-center gap-1 opacity-0 transition-opacity group-hover/project-section:opacity-100 group-focus-within/project-section:opacity-100"
               >
                 <div
-                  class="sidebar-project-search-wrap"
+                  class="sidebar-section-search-wrap"
                   :class="projectSearchExpanded && 'is-expanded'"
                 >
-                  <Search class="sidebar-project-search-icon" aria-hidden="true" />
+                  <Search class="sidebar-section-search-icon" aria-hidden="true" />
                   <input
                     v-if="projectSearchExpanded"
                     ref="projectSearchInputRef"
                     v-model="projectSearchQuery"
                     type="search"
-                    class="sidebar-project-search-input"
+                    class="sidebar-section-search-input"
                     placeholder="搜索项目"
                     aria-label="搜索项目"
                     @keydown.esc="closeProjectSearch"
@@ -704,7 +726,7 @@ watch(searchQuery, q => {
                   <button
                     v-if="projectSearchExpanded && projectSearchQuery"
                     type="button"
-                    class="sidebar-project-search-clear"
+                    class="sidebar-section-search-clear"
                     title="清除搜索"
                     aria-label="清除搜索"
                     @click="projectSearchQuery = ''"
@@ -712,7 +734,7 @@ watch(searchQuery, q => {
                 </div>
                 <button
                   type="button"
-                  class="sidebar-project-header-action"
+                  class="sidebar-section-header-action"
                   :class="projectSearchExpanded && 'is-active'"
                   :title="projectSearchExpanded ? '关闭项目搜索' : '搜索项目'"
                   :aria-expanded="projectSearchExpanded"
@@ -721,7 +743,7 @@ watch(searchQuery, q => {
                 ><Search class="w-3.5 h-3.5" /></button>
                 <button
                   type="button"
-                  class="sidebar-project-header-action"
+                  class="sidebar-section-header-action"
                   title="新增项目"
                   aria-label="新增项目"
                   @click="showProjectCreator = true; projectError = ''"
@@ -765,13 +787,14 @@ watch(searchQuery, q => {
                 </section>
               </div>
             </Teleport>
-            <p v-if="projectError" class="mb-1 px-1 text-[11px] text-danger">{{ projectError }}</p>
-            <div class="space-y-0.5">
-              <div
-                v-for="project in sidebarProjects"
-                :key="project.id"
-                class="relative space-y-1 group/project"
-              >
+            <div v-show="!projectsSectionCollapsed">
+              <p v-if="projectError" class="mb-1 px-1 text-[11px] text-danger">{{ projectError }}</p>
+              <div class="space-y-0.5">
+                <div
+                  v-for="project in sidebarProjects"
+                  :key="project.id"
+                  class="relative space-y-1 group/project"
+                >
                 <button
                   type="button"
                   class="sidebar-project-row"
@@ -894,25 +917,78 @@ watch(searchQuery, q => {
                     {{ projectLoading.has(project.id) ? '加载中…' : '加载更多' }}
                   </button>
                 </div>
+                </div>
               </div>
+              <button
+                v-if="hasMoreProjects"
+                type="button"
+                class="sidebar-project-conversation mt-1 text-accent"
+                :disabled="loadingMoreProjects"
+                @click="loadMoreProjects"
+              >{{ loadingMoreProjects ? '加载中…' : '加载更多项目' }}</button>
             </div>
-            <button
-              v-if="hasMoreProjects"
-              type="button"
-              class="sidebar-project-conversation mt-1 text-accent"
-              :disabled="loadingMoreProjects"
-              @click="loadMoreProjects"
-            >{{ loadingMoreProjects ? '加载中…' : '加载更多项目' }}</button>
           </section>
 
           <!-- D: 最近对话 -->
           <div
             ref="listScroller"
-            class="flex-1 overflow-y-auto px-2 pb-3 min-h-0"
+            class="group/conversation-section flex-1 overflow-y-auto px-2 pb-3 min-h-0"
             style="overflow-anchor: none"
             @mousedown.self="saveEdit"
           >
-            <h2 class="sidebar-section-title px-1 pt-1 pb-1.5">最近对话</h2>
+            <div class="group/section-header mb-1.5 flex h-6 items-center gap-1 px-1">
+              <button
+                type="button"
+                class="sidebar-section-collapse mr-auto"
+                :aria-expanded="!conversationsSectionCollapsed"
+                :title="conversationsSectionCollapsed ? '展开最近' : '收起最近'"
+                @click="toggleConversationsSection"
+              >
+                <h2 class="sidebar-section-title">最近</h2>
+                <component
+                  :is="conversationsSectionCollapsed ? ChevronRight : ChevronDown"
+                  class="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100"
+                />
+              </button>
+              <div
+                class="sidebar-conversation-search-area relative flex items-center gap-1 opacity-0 transition-opacity group-hover/conversation-section:opacity-100 group-focus-within/conversation-section:opacity-100"
+              >
+                <div
+                  class="sidebar-section-search-wrap"
+                  :class="conversationSearchExpanded && 'is-expanded'"
+                >
+                  <Search class="sidebar-section-search-icon" aria-hidden="true" />
+                  <input
+                    v-if="conversationSearchExpanded"
+                    ref="conversationSearchInputRef"
+                    v-model="searchQuery"
+                    type="search"
+                    class="sidebar-section-search-input"
+                    placeholder="搜索会话"
+                    aria-label="搜索会话"
+                    @keydown.esc="closeConversationSearch"
+                  >
+                  <button
+                    v-if="conversationSearchExpanded && searchQuery"
+                    type="button"
+                    class="sidebar-section-search-clear"
+                    title="清除搜索"
+                    aria-label="清除搜索"
+                    @click="searchQuery = ''"
+                  ><X class="w-3 h-3" /></button>
+                </div>
+                <button
+                  type="button"
+                  class="sidebar-section-header-action"
+                  :class="conversationSearchExpanded && 'is-active'"
+                  :title="conversationSearchExpanded ? '关闭会话搜索' : '搜索会话'"
+                  :aria-expanded="conversationSearchExpanded"
+                  aria-label="搜索会话"
+                  @click="conversationSearchExpanded ? closeConversationSearch() : openConversationSearch()"
+                ><Search class="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+            <div v-show="!conversationsSectionCollapsed">
             <div
               v-for="c in sidebarRows"
               :key="c.id"
@@ -1008,6 +1084,7 @@ watch(searchQuery, q => {
             </div>
             <div v-if="!searchLoading && !sidebarRows.length" class="px-3 py-8 text-center text-xs text-muted">
               {{ searchQuery.trim() ? '没有找到匹配的会话' : '没有会话' }}
+            </div>
             </div>
           </div>
 
@@ -1154,33 +1231,37 @@ watch(searchQuery, q => {
   @apply text-[11px] leading-5 font-medium text-muted;
 }
 
-.sidebar-project-header-action {
+.sidebar-section-collapse {
+  @apply inline-flex h-6 min-w-0 items-center gap-1 rounded-md text-muted transition-colors hover:text-foreground;
+}
+
+.sidebar-section-header-action {
   @apply h-6 w-6 shrink-0 rounded-md inline-flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition;
 }
 
-.sidebar-project-header-action.is-active {
+.sidebar-section-header-action.is-active {
   @apply bg-accent-muted text-accent;
 }
 
-.sidebar-project-search-wrap {
+.sidebar-section-search-wrap {
   @apply absolute right-0 top-0 h-6 w-0 overflow-hidden rounded-md border border-transparent bg-background opacity-0 transition-[width,opacity,border-color] duration-200;
   direction: ltr;
 }
 
-.sidebar-project-search-wrap.is-expanded {
+.sidebar-section-search-wrap.is-expanded {
   @apply w-36 border-border opacity-100;
 }
 
-.sidebar-project-search-icon {
+.sidebar-section-search-icon {
   @apply pointer-events-none absolute left-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted;
 }
 
-.sidebar-project-search-input {
+.sidebar-section-search-input {
   @apply h-full w-full appearance-none bg-transparent py-0 pl-7 pr-6 text-xs leading-6 text-foreground outline-none placeholder:text-muted;
   transform: translateY(-3px);
 }
 
-.sidebar-project-search-clear {
+.sidebar-section-search-clear {
   @apply absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2 rounded text-muted hover:bg-hover hover:text-foreground;
 }
 

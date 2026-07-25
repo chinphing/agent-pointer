@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { ChevronDown, FolderOpen, Paperclip, Send, Square, X } from 'lucide-vue-next'
+import { Check, ChevronDown, FolderOpen, FolderPlus, Paperclip, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
@@ -155,6 +155,8 @@ const selectedProject = computed(() => chat.projects.find(
   p => p.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)
 ))
 const projectPickerOpen = ref(false)
+const projectPickerButtonRef = ref<HTMLButtonElement | null>(null)
+const projectPickerRef = ref<HTMLElement | null>(null)
 const projectCreationPending = ref(false)
 
 const supervisorRoundsLabel = computed(() => {
@@ -162,13 +164,6 @@ const supervisorRoundsLabel = computed(() => {
   const used = chat.current.toolRoundsUsedSupervisor ?? 0
   const max = settings.settings.maxSubAgentToolRounds ?? settings.settings.maxToolRounds ?? 100
   return `子任务轮次 ${used}/${max}`
-})
-
-const workspaceDirName = computed(() => {
-  const p = chat.current?.workspaceRoot ?? ''
-  if (!p) return ''
-  if (isEphemeralWorkspacePath(p)) return '临时目录'
-  return p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || ''
 })
 
 const workspaceTooltip = computed(() => {
@@ -1049,6 +1044,18 @@ function handleClickOutside(e: MouseEvent) {
       showAgentPicker.value = false
     }
   }
+  if (projectPickerOpen.value && projectPickerButtonRef.value && projectPickerRef.value) {
+    if (!projectPickerButtonRef.value.contains(target) && !projectPickerRef.value.contains(target)) {
+      projectPickerOpen.value = false
+    }
+  }
+}
+
+function handleDocumentKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || !projectPickerOpen.value) return
+  e.preventDefault()
+  projectPickerOpen.value = false
+  nextTick(() => projectPickerButtonRef.value?.focus())
 }
 
 watch(composerPrefill, (draft) => {
@@ -1074,12 +1081,14 @@ onMounted(() => {
     chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
   }
   document.addEventListener('click', handleClickOutside)
+  document.addEventListener('keydown', handleDocumentKeydown)
   void setupTauriComposerDragDrop() // no-op on Web; required on desktop — see drag-and-drop comment block
 })
 
 onUnmounted(() => {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
   document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('keydown', handleDocumentKeydown)
   unlistenTauriDragDrop?.()
   unlistenTauriDragDrop = null
 })
@@ -1252,6 +1261,7 @@ onUnmounted(() => {
 
               <div v-if="showWorkspacePicker" class="relative flex items-center gap-1 min-w-0">
                 <button
+                  ref="projectPickerButtonRef"
                   type="button"
                   class="composer-agent-trigger max-w-[200px]"
                   :class="projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
@@ -1261,17 +1271,44 @@ onUnmounted(() => {
                 >
                   <FolderOpen class="w-3 h-3 shrink-0" :class="workspaceNeedsAttention ? 'text-warning' : 'text-accent'" />
                   <span class="truncate max-w-[150px]">
-                    {{ selectedProject ? (selectedProject.isDefault ? '默认项目' : selectedProject.name) : (workspaceDirName || '选择项目或目录…') }}
+                    {{ selectedProject ? (selectedProject.isDefault ? '默认项目' : selectedProject.name) : '选择项目' }}
                   </span>
                 </button>
                 <div
                   v-if="projectPickerOpen && !projectLocked"
-                  class="composer-dropdown composer-dropdown--fit composer-dropdown--up"
+                  ref="projectPickerRef"
+                  class="composer-dropdown composer-project-dropdown composer-dropdown--up"
                 >
-                  <div class="px-2 py-1.5 border-b border-border">
-                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">选择项目或目录</div>
+                  <div class="p-1.5">
+                    <button
+                      v-if="isTauriRuntime()"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      :disabled="projectCreationPending"
+                      @click="pickWorkspaceFolder"
+                    >
+                      <FolderPlus class="w-3.5 h-3.5 shrink-0" />
+                      <span class="whitespace-nowrap text-accent">
+                        {{ projectCreationPending ? '正在创建项目…' : '选择本地目录' }}
+                      </span>
+                    </button>
+                    <input
+                      v-else
+                      ref="workspaceInputRef"
+                      :value="chat.current?.workspaceRoot ?? ''"
+                      type="text"
+                      placeholder="输入本地目录创建新项目"
+                      aria-label="输入本地目录创建新项目"
+                      class="composer-workspace-input"
+                      :title="workspaceTooltip"
+                      @input="onWorkspaceInput"
+                      @keydown.enter.prevent="commitWorkspaceInput"
+                    />
                   </div>
-                  <div class="p-1 space-y-0.5 max-h-60 overflow-y-auto">
+                  <div class="border-t border-border px-3 pb-1 pt-2">
+                    <div class="text-[10px] text-muted font-medium whitespace-nowrap">已有项目</div>
+                  </div>
+                  <div class="max-h-44 space-y-0.5 overflow-y-auto p-1">
                     <button
                       v-for="project in chat.projects.filter(p => !p.isArchived)"
                       :key="project.id"
@@ -1281,31 +1318,12 @@ onUnmounted(() => {
                       @click="selectProject(project.id)"
                     >
                       <FolderOpen class="w-3 h-3 shrink-0" />
-                      <span class="truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
+                      <span class="flex-1 truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
+                      <Check
+                        v-if="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)"
+                        class="h-3 w-3 shrink-0 text-accent"
+                      />
                     </button>
-                    <button
-                      v-if="isTauriRuntime()"
-                      type="button"
-                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-                      :disabled="projectCreationPending"
-                      @click="pickWorkspaceFolder"
-                    >
-                      <FolderOpen class="w-3 h-3 shrink-0" />
-                      <span class="whitespace-nowrap">
-                        {{ projectCreationPending ? '正在添加项目…' : '选择其他目录…' }}
-                      </span>
-                    </button>
-                    <input
-                      v-else
-                      ref="workspaceInputRef"
-                      :value="chat.current?.workspaceRoot ?? ''"
-                      type="text"
-                      placeholder="输入项目目录"
-                      class="composer-workspace-input"
-                      :title="workspaceTooltip"
-                      @input="onWorkspaceInput"
-                      @keydown.enter.prevent="commitWorkspaceInput"
-                    />
                     <button
                       v-if="hasWorkspace"
                       type="button"
@@ -1352,3 +1370,9 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.composer-project-dropdown {
+  width: min(200px, calc(100vw - 2rem));
+}
+</style>

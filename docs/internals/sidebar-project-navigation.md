@@ -31,9 +31,15 @@ outside project navigation.
 - Sidebar projects are queried separately from recent conversations: all
   pinned projects are visible, followed by at most five unpinned recent
   projects. The full project view uses cursor pagination.
-- **Scheduled tasks** opens the existing Automation settings section.
-- **Skills** opens the existing skill manager.
+- Top-level actions are ordered **New task → Scheduled tasks → Skills →
+  Connections**.
+- **Scheduled tasks** opens the existing Automation settings section;
+  **Skills** opens the skill manager; **Connections** opens channel settings.
 - The conversation list remains global and time ordered below the project list.
+- Conversation search is collapsed by default on the right side of the
+  **Recent conversations** header, matching project search behavior.
+- The **Projects** and **Recent conversations** sections can each be collapsed
+  independently from their header.
 
 Deleting a project is rejected while it owns conversations, so no operation can
 silently orphan conversation history. The default project cannot be deleted.

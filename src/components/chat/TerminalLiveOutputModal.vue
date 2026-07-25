@@ -89,7 +89,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               />
             </div>
             <p class="mt-1 text-[12px] text-muted leading-relaxed">
-              命令已运行超过 5 秒且有输出，实时显示已捕获的内容；可手动关闭，命令仍在后台执行。
+              命令已运行超过 5 秒且有输出时可查看；可手动关闭，命令仍在后台执行。
             </p>
           </div>
           <div class="absolute top-4 right-4 flex items-center gap-1">

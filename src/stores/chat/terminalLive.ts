@@ -17,10 +17,11 @@ interface TerminalLiveTrack {
   messageId: string
   toolCallId: string
   traceId?: string
+  /** Stream-scoped write target when the tool lives under a sub-agent message. */
+  scopedMessageId?: string
   command: string
   delayTimer: ReturnType<typeof setTimeout> | null
   delayElapsed: boolean
-  dismissed: boolean
 }
 
 function hasTerminalLiveOutput(output?: string): boolean {
@@ -34,6 +35,8 @@ function terminalLiveKey(messageId: string, toolCallId: string, traceId?: string
 export interface TerminalLiveManager {
   clear(): void
   dismiss(): void
+  /** User-initiated open after the 5s delay (no auto-popup). */
+  open(toolCallId: string): void
   handleToolCallStatus(
     messageId: string,
     toolCallId: string,
@@ -51,6 +54,8 @@ export interface TerminalLiveManager {
 
 export function createTerminalLiveManager(deps: {
   popup: Ref<TerminalLivePopup | null>
+  /** Set to the tracked toolCallId once the 5s delay has elapsed; null otherwise. */
+  viewReadyToolCallId: Ref<string | null>
   resolveToolCall: (
     messageId: string,
     toolCallId: string,
@@ -66,40 +71,71 @@ export function createTerminalLiveManager(deps: {
     if (track?.delayTimer) clearTimeout(track.delayTimer)
     track = null
     deps.popup.value = null
+    deps.viewReadyToolCallId.value = null
   }
 
   function dismiss() {
-    if (!deps.popup.value) return
     deps.popup.value = null
-    if (track) track.dismissed = true
   }
 
-  function tryShowPopup(
-    messageId: string,
-    toolCallId: string,
-    traceId?: string,
-    scopedMessageId?: string
-  ) {
-    if (!track || track.dismissed || !track.delayElapsed) return
-    if (terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
-      track.messageId,
-      track.toolCallId,
-      track.traceId
-    )) {
+  function markViewReadyIfEligible() {
+    if (!track || !track.delayElapsed) {
+      deps.viewReadyToolCallId.value = null
       return
     }
-    if (deps.popup.value) return
-    const current = deps.resolveToolCall(messageId, toolCallId, traceId, scopedMessageId)
+    const current = deps.resolveToolCall(
+      track.messageId,
+      track.toolCallId,
+      track.traceId,
+      track.scopedMessageId
+    )
+    if (
+      !current
+      || current.status !== 'running'
+      || current.waitingForInput
+      || !hasTerminalLiveOutput(current.terminalOutput)
+    ) {
+      deps.viewReadyToolCallId.value = null
+      return
+    }
+    deps.viewReadyToolCallId.value = track.toolCallId
+  }
+
+  function showFromTrack() {
+    if (!track || !track.delayElapsed) return
+    const current = deps.resolveToolCall(
+      track.messageId,
+      track.toolCallId,
+      track.traceId,
+      track.scopedMessageId
+    )
     if (!current || current.status !== 'running') return
     if (current.waitingForInput) return
     if (!hasTerminalLiveOutput(current.terminalOutput)) return
     deps.popup.value = {
-      messageId,
-      toolCallId,
-      traceId: traceId?.trim() || undefined,
+      messageId: track.messageId,
+      toolCallId: track.toolCallId,
+      traceId: track.traceId,
       command: track.command,
       output: current.terminalOutput ?? ''
     }
+  }
+
+  function open(toolCallId: string) {
+    const id = toolCallId.trim()
+    if (!id) {
+      console.warn('[terminalLive] open ignored: empty toolCallId')
+      return
+    }
+    if (!track || track.toolCallId !== id) {
+      console.warn('[terminalLive] open ignored: no active track for toolCallId', id)
+      return
+    }
+    if (!track.delayElapsed) {
+      console.warn('[terminalLive] open ignored: 5s delay not elapsed yet', id)
+      return
+    }
+    showFromTrack()
   }
 
   function syncPopupOutput(
@@ -108,11 +144,9 @@ export function createTerminalLiveManager(deps: {
     traceId?: string,
     scopedMessageId?: string
   ) {
+    markViewReadyIfEligible()
     const popup = deps.popup.value
-    if (!popup) {
-      tryShowPopup(messageId, toolCallId, traceId, scopedMessageId)
-      return
-    }
+    if (!popup) return
     if (terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
       popup.messageId,
       popup.toolCallId,
@@ -148,10 +182,10 @@ export function createTerminalLiveManager(deps: {
       messageId,
       toolCallId,
       traceId: traceId?.trim() || undefined,
+      scopedMessageId: scopedMessageId?.trim() || undefined,
       command: parseTerminalCommandFromArgs(tc.arguments),
       delayTimer: null,
-      delayElapsed: false,
-      dismissed: false
+      delayElapsed: false
     }
     track = nextTrack
 
@@ -160,9 +194,8 @@ export function createTerminalLiveManager(deps: {
       if (terminalLiveKey(track.messageId, track.toolCallId, track.traceId) !== key) {
         return
       }
-      if (track.dismissed) return
       track.delayElapsed = true
-      tryShowPopup(messageId, toolCallId, traceId, scopedMessageId)
+      markViewReadyIfEligible()
     }, delayMs)
   }
 
@@ -199,6 +232,7 @@ export function createTerminalLiveManager(deps: {
   return {
     clear,
     dismiss,
+    open,
     handleToolCallStatus,
     syncPopupOutput
   }

@@ -3,6 +3,16 @@
 When the UI provides terminal input hooks, Pointer can show a modal for
 interactive prompts instead of requiring a host TTY.
 
+## Live output vs input modal
+
+| UI | When it appears |
+| --- | --- |
+| **Terminal live output** (`TerminalLiveOutputModal`) | Manual only: tool row **查看** after the command has run **≥5s** and has output. Does **not** auto-open. |
+| **Terminal input** (`TerminalInputModal`) | Auto-opens on `terminal_needs_input` (password / stdin / host-key). Unchanged by the live-output UX. |
+
+Password / elevation stdin prompts always take priority: the live output modal is
+dismissed and hidden while an input request is active.
+
 ## Paths
 
 | Scenario | How input is collected |

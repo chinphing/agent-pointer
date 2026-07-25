@@ -305,6 +305,19 @@ function abortTerminalOnly() {
   chat.abortTerminalOnly(props.toolCall.id)
 }
 
+const canViewTerminalLive = computed(
+  () =>
+    isTerminal.value
+    && effectiveStatus.value === 'running'
+    && props.toolCall.waitingForInput !== true
+    && chat.terminalLiveViewReadyToolCallId === props.toolCall.id
+    && (props.toolCall.terminalOutput?.trim().length ?? 0) > 0
+)
+
+function viewTerminalLive() {
+  chat.openTerminalLivePopup(props.toolCall.id)
+}
+
 function openSourceUrl(url: string) {
   void openExternalUrl(url)
 }
@@ -321,37 +334,46 @@ function openSourceUrl(url: string) {
         ? 'rounded-lg bg-accent/5'
         : ''"
   >
-    <button
-      type="button"
-      class="tool-call-trigger w-full py-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
-      @click="open = !open"
-    >
-      <Wrench class="w-3 h-3 text-muted/70 shrink-0" />
-      <span>{{ displayLabel }}</span>
-      <span v-if="displaySummary">· {{ displaySummary }}</span>
-      <span
-        v-if="terminalElevated"
-        class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"
+    <div class="flex items-center gap-1.5 min-w-0">
+      <button
+        type="button"
+        class="tool-call-trigger flex-1 py-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
+        @click="open = !open"
       >
-        <ShieldAlert class="w-2.5 h-2.5" />提权
-      </span>
-      <span
-        v-if="showStatusLabel"
-        class="shrink-0 inline-flex items-center gap-0.5"
-        :class="statusInfo.color"
-      >
-        <Loader2 v-if="effectiveStatus === 'running'" class="w-2.5 h-2.5 animate-spin" />
-        <XCircle v-else-if="effectiveStatus === 'rejected'" class="w-2.5 h-2.5" />
-        <span>{{ statusInfo.label }}</span>
-      </span>
-      <span v-else-if="showFailedQuiet" class="shrink-0 text-[10px] text-muted/45">{{ statusInfo.label }}</span>
-      <span v-else-if="showSuccessQuiet" class="shrink-0 text-muted/45">{{ statusInfo.label }}</span>
-      <span v-if="toolCall.durationMs" class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ toolCall.durationMs }}ms</span>
-      <component
-        :is="open ? ChevronDown : ChevronRight"
-        class="tool-call-chevron w-3 h-3 shrink-0 ml-[2ch] text-muted hidden"
-      />
-    </button>
+        <Wrench class="w-3 h-3 text-muted/70 shrink-0" />
+        <span>{{ displayLabel }}</span>
+        <span v-if="displaySummary">· {{ displaySummary }}</span>
+        <span
+          v-if="terminalElevated"
+          class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"
+        >
+          <ShieldAlert class="w-2.5 h-2.5" />提权
+        </span>
+        <span
+          v-if="showStatusLabel"
+          class="shrink-0 inline-flex items-center gap-0.5"
+          :class="statusInfo.color"
+        >
+          <Loader2 v-if="effectiveStatus === 'running'" class="w-2.5 h-2.5 animate-spin" />
+          <XCircle v-else-if="effectiveStatus === 'rejected'" class="w-2.5 h-2.5" />
+          <span>{{ statusInfo.label }}</span>
+        </span>
+        <span v-else-if="showFailedQuiet" class="shrink-0 text-[10px] text-muted/45">{{ statusInfo.label }}</span>
+        <span v-else-if="showSuccessQuiet" class="shrink-0 text-muted/45">{{ statusInfo.label }}</span>
+        <span v-if="toolCall.durationMs" class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ toolCall.durationMs }}ms</span>
+        <component
+          :is="open ? ChevronDown : ChevronRight"
+          class="tool-call-chevron w-3 h-3 shrink-0 ml-[2ch] text-muted hidden"
+        />
+      </button>
+      <button
+        v-if="canViewTerminalLive"
+        type="button"
+        class="shrink-0 h-6 px-2 rounded-md border border-border bg-hover/40 hover:bg-hover text-[11px] text-foreground cursor-pointer transition"
+        title="查看终端输出"
+        @click="viewTerminalLive"
+      >查看</button>
+    </div>
 
     <AskUserOptions
       v-if="toolCall.name === 'ask_user'"

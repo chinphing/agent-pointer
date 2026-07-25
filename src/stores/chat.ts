@@ -329,6 +329,8 @@ export const useChatStore = defineStore('chat', () => {
   const computerMonitorPickRequest = ref<ComputerMonitorPickRequest | null>(null)
   const terminalInputRequest = ref<TerminalInputRequest | null>(null)
   const terminalLivePopup = ref<TerminalLivePopup | null>(null)
+  /** Tool call id whose live-output「查看」is eligible (after 5s + has output). */
+  const terminalLiveViewReadyToolCallId = ref<string | null>(null)
   let uiToastTimer: number | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
@@ -1303,6 +1305,7 @@ export const useChatStore = defineStore('chat', () => {
 
   const terminalLive = createTerminalLiveManager({
     popup: terminalLivePopup,
+    viewReadyToolCallId: terminalLiveViewReadyToolCallId,
     resolveToolCall
   })
 
@@ -1774,6 +1777,10 @@ export const useChatStore = defineStore('chat', () => {
     terminalLive.dismiss()
   }
 
+  function openTerminalLivePopup(toolCallId: string) {
+    terminalLive.open(toolCallId)
+  }
+
   function resetForPlatformLogout() {
     clearStreamDeltaBuffers()
     conversations.value = []
@@ -1813,6 +1820,6 @@ export const useChatStore = defineStore('chat', () => {
     getComposerDraft, setComposerDraft, clearComposerDraft,
     computerMonitorPickRequest, clearComputerMonitorPickRequest,
     terminalInputRequest, dismissTerminalInputModal,
-    terminalLivePopup, dismissTerminalLivePopup
+    terminalLivePopup, terminalLiveViewReadyToolCallId, dismissTerminalLivePopup, openTerminalLivePopup
   }
 })

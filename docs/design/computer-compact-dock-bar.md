@@ -206,7 +206,7 @@ stateDiagram-v2
 ## 边界
 
 - 紧凑态不打开 Settings / SkillPicker；若已打开则先展开
-- `terminalLivePopup`：紧凑态不展示；展开后可见
+- `terminalLivePopup`：命令运行 ≥5s 且有输出后，用户点工具行「查看」才打开；紧凑态不展示，展开后可见
 - 用户拖拽紧凑窗口：允许；展开仍恢复**进入前** bounds
 - API 失败：降级为应用内 fixed 浮条，并 `console.warn`
 

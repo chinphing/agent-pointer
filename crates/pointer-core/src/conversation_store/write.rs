@@ -569,6 +569,7 @@ mod tests {
             tool_rounds_used: 2,
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
+            project_id: None,
             workspace_root: "/tmp".into(),
             workspace_user_set: true,
             workspace_inherit_disabled: false,

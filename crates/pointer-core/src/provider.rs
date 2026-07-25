@@ -346,6 +346,53 @@ impl OpenAIProvider {
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
     ) -> Result<ChatOnceOutput> {
+        self.chat_once_with_thinking_override(
+            messages,
+            system,
+            native_tools,
+            cancel,
+            max_tokens_override,
+            dump_label,
+            false,
+        )
+        .await
+    }
+
+    /// Auxiliary non-streaming completion that suppresses provider thinking tokens.
+    ///
+    /// This is intended for bounded structured text such as context summaries, where
+    /// hidden reasoning must not consume the output budget and truncate the answer.
+    pub async fn chat_once_without_thinking(
+        &self,
+        messages: &[ChatMessage],
+        system: &SystemPromptSections,
+        native_tools: Vec<Value>,
+        cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
+    ) -> Result<ChatOnceOutput> {
+        self.chat_once_with_thinking_override(
+            messages,
+            system,
+            native_tools,
+            cancel,
+            max_tokens_override,
+            dump_label,
+            true,
+        )
+        .await
+    }
+
+    async fn chat_once_with_thinking_override(
+        &self,
+        messages: &[ChatMessage],
+        system: &SystemPromptSections,
+        native_tools: Vec<Value>,
+        cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
+        disable_thinking: bool,
+    ) -> Result<ChatOnceOutput> {
         let base_url = self
             .settings
             .providers
@@ -377,7 +424,15 @@ impl OpenAIProvider {
         );
         let max_tok =
             max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
-        let extra_body = crate::models::effective_chat_extra_body(&self.settings);
+        let mut extra_body = crate::models::effective_chat_extra_body(&self.settings);
+        if disable_thinking {
+            if let Some(Value::Object(body)) = extra_body.as_mut() {
+                if body.contains_key("enable_thinking") {
+                    body.insert("enable_thinking".into(), Value::Bool(false));
+                    body.remove("thinking_budget");
+                }
+            }
+        }
         crate::llm_prompt_dump::try_dump_round(
             &self.settings,
             dump_label,

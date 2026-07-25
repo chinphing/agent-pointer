@@ -35,7 +35,10 @@ import { getTaskBoardSnapshot } from '../lib/api'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
-import { messagesForChatDispatch } from '../lib/chatDispatchHistory'
+import {
+  conversationNeedsHydration,
+  messagesForChatDispatch
+} from '../lib/chatDispatchHistory'
 import { recordTurnStart } from '../lib/turnElapsed'
 import {
   clearStreamDeltaBuffers,
@@ -354,6 +357,8 @@ export const useChatStore = defineStore('chat', () => {
   const hydratedIds = ref<Set<string>>(new Set())
   /** Conversation ids currently fetching messages from disk. */
   const messagesLoadingIds = ref<Set<string>>(new Set())
+  /** Shared hydration promises let send paths wait for an in-flight project/shell load. */
+  const messageHydrationPromises = new Map<string, Promise<boolean>>()
   /** Sidebar search (or similar) asks MessageList to scroll to this message after open/hydrate. */
   const pendingFocusMessage = ref<{
     conversationId: string
@@ -411,9 +416,12 @@ export const useChatStore = defineStore('chat', () => {
 
   function conversationNeedsMessageHydration(conv: Conversation | null | undefined): boolean {
     if (!conv) return false
-    if (messagesLoadingIds.value.has(conv.id)) return true
-    if ((conv.messageCount ?? 0) > 0 && conv.messages.length === 0) return true
-    return !hydratedIds.value.has(conv.id) && conv.messages.length === 0
+    return conversationNeedsHydration({
+      messageCount: conv.messageCount ?? 0,
+      messagesLength: conv.messages.length,
+      hydrated: hydratedIds.value.has(conv.id),
+      loading: messagesLoadingIds.value.has(conv.id)
+    })
   }
 
   const isCurrentConversationHydrating = computed(() =>
@@ -449,12 +457,23 @@ export const useChatStore = defineStore('chat', () => {
   async function drainOutboundQueue(conversationId: string) {
     const convId = conversationId.trim()
     if (!convId || isConversationGenerating(convId) || drainingOutbound.has(convId)) return
-    const item = dequeueOutbound(convId)
-    if (!item) return
 
     const conv = conversations.value.find(c => c.id === convId)
     if (!conv) {
-      await drainOutboundQueue(convId)
+      console.warn('[chat] outbound drain paused: missing conversation', convId)
+      return
+    }
+    if (conversationNeedsMessageHydration(conv)) {
+      const hydrated = await ensureMessagesLoaded(convId, { force: true })
+      if (!hydrated) {
+        console.error('[chat] outbound drain paused: hydration failed', convId)
+        showUiToast('历史消息加载失败，待发送消息已保留', 'error')
+        return
+      }
+    }
+
+    const item = dequeueOutbound(convId)
+    if (!item) {
       return
     }
 
@@ -877,60 +896,69 @@ export const useChatStore = defineStore('chat', () => {
     return merged
   }
 
-  async function ensureMessagesLoaded(id: string, options?: { force?: boolean }): Promise<void> {
+  async function ensureMessagesLoaded(id: string, options?: { force?: boolean }): Promise<boolean> {
     const convId = id.trim()
-    if (!convId) return
+    if (!convId) return false
     const conv = conversations.value.find(c => c.id === convId)
     if (!conv) {
       console.warn('[chat] ensureMessagesLoaded: missing conversation', convId)
-      return
+      return false
     }
     const staleHydration =
       hydratedIds.value.has(convId)
       && (conv.messageCount ?? 0) > 0
       && conv.messages.length === 0
-    if (!options?.force && hydratedIds.value.has(convId) && !staleHydration) return
+    if (!options?.force && hydratedIds.value.has(convId) && !staleHydration) return true
     if (staleHydration) {
       console.warn('[chat] ensureMessagesLoaded: stale hydration, reloading', convId)
     }
     if (!options?.force && !staleHydration && isConversationGenerating(convId)) {
       console.info('[chat] ensureMessagesLoaded: skip hydrating generating conversation', convId)
-      return
+      return true
     }
-    if (messagesLoadingIds.value.has(convId)) return
-    messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
-    try {
-      const messages = await loadConversationMessages(convId)
-      const stripped = stripWireAttachmentFields(
-        messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
-      )
-      let next = stripped
-      if (isImConversation(convId)) {
-        next = dedupeImInboundUserMessages(convId, stripped)
-      }
-      if (isConversationGenerating(convId) && conv.messages.length > 0) {
-        next = mergeHydratedMessages(conv.messages, next)
-        console.info(
-          '[chat] ensureMessagesLoaded: merged DB rows with in-memory stream',
-          convId,
-          next.length
+    const existing = messageHydrationPromises.get(convId)
+    if (existing) return existing
+
+    const hydration = (async (): Promise<boolean> => {
+      messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
+      try {
+        const messages = await loadConversationMessages(convId)
+        const stripped = stripWireAttachmentFields(
+          messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
         )
+        let next = stripped
+        if (isImConversation(convId)) {
+          next = dedupeImInboundUserMessages(convId, stripped)
+        }
+        if (isConversationGenerating(convId) && conv.messages.length > 0) {
+          next = mergeHydratedMessages(conv.messages, next)
+          console.info(
+            '[chat] ensureMessagesLoaded: merged DB rows with in-memory stream',
+            convId,
+            next.length
+          )
+        }
+        conv.messages = next
+        if (!isConversationGenerating(convId)) {
+          normalizeInterruptedAssistantStatuses([conv])
+        }
+        normalizeSubAgentTraces([conv])
+        hydratedIds.value.add(convId)
+        console.info('[chat] ensureMessagesLoaded: hydrated', convId, next.length)
+        reconcileRunStateForConversation(convId)
+        return true
+      } catch (err) {
+        console.error('[chat] ensureMessagesLoaded: load messages failed', convId, err)
+        return false
+      } finally {
+        const next = new Set(messagesLoadingIds.value)
+        next.delete(convId)
+        messagesLoadingIds.value = next
+        messageHydrationPromises.delete(convId)
       }
-      conv.messages = next
-      if (!isConversationGenerating(convId)) {
-        normalizeInterruptedAssistantStatuses([conv])
-      }
-      normalizeSubAgentTraces([conv])
-      hydratedIds.value.add(convId)
-      console.info('[chat] ensureMessagesLoaded: hydrated', convId, next.length)
-      reconcileRunStateForConversation(convId)
-    } catch (err) {
-      console.error('[chat] ensureMessagesLoaded: load messages failed', convId, err)
-    } finally {
-      const next = new Set(messagesLoadingIds.value)
-      next.delete(convId)
-      messagesLoadingIds.value = next
-    }
+    })()
+    messageHydrationPromises.set(convId, hydration)
+    return hydration
   }
 
   /** Fetch the next page of conversation metas and append to the sidebar. */
@@ -1739,6 +1767,14 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value!
     const hasAttachments = attachments.length > 0
     if ((!content.trim() && !hasAttachments)) return
+    if (conversationNeedsMessageHydration(conv)) {
+      const hydrated = await ensureMessagesLoaded(conv.id, { force: true })
+      if (!hydrated) {
+        console.error('[chat] send blocked because message hydration failed', conv.id)
+        showUiToast('历史消息加载失败，请重试', 'error')
+        return
+      }
+    }
     const platformAuth = usePlatformAuthStore()
     let refreshErrorMessage: string | null = null
     try {
@@ -1909,6 +1945,7 @@ export const useChatStore = defineStore('chat', () => {
     nextCursor.value = null
     hydratedIds.value = new Set()
     messagesLoadingIds.value = new Set()
+    messageHydrationPromises.clear()
     dirtyMetaIds.value = new Set()
     pendingFocusMessage.value = null
     if (composerDraftTimer != null) {

@@ -132,6 +132,25 @@ pub fn is_synthetic_user_content(content: &str) -> bool {
     t.starts_with(SUMMARY_PREFIX_BUDGET)
         || t.starts_with(SUMMARY_PREFIX_TOOL_LIMIT)
         || t.starts_with(TRIM_PLACEHOLDER_PREFIX)
+        || t.starts_with("你的上一次回复为空")
+        || t.starts_with("【环境反馈】")
+        || t.starts_with("【输出长度】")
+}
+
+/// User turns that depend entirely on prior task context should not consume one
+/// of the limited verbatim-retention boundaries during compression.
+pub fn is_context_dependent_user_content(content: &str) -> bool {
+    matches!(
+        content.trim().to_ascii_lowercase().as_str(),
+        "继续"
+            | "继续处理"
+            | "继续执行"
+            | "continue"
+            | "continue."
+            | "go on"
+            | "go ahead"
+            | "proceed"
+    )
 }
 
 /// Start index of the Nth **context-included** user message from the end.
@@ -144,7 +163,10 @@ pub fn find_split_at_user_boundary(msgs: &[ChatMessage], keep_last_n_users: usiz
         if !is_context_included(&msgs[i]) {
             continue;
         }
-        if matches!(msgs[i].role, Role::User) && !is_synthetic_user_content(&msgs[i].content) {
+        if matches!(msgs[i].role, Role::User)
+            && !is_synthetic_user_content(&msgs[i].content)
+            && !is_context_dependent_user_content(&msgs[i].content)
+        {
             seen += 1;
             if seen == keep_last_n_users {
                 return i;
@@ -208,6 +230,18 @@ mod tests {
         let msgs = vec![old, u("a"), u("b"), u("c")];
         assert_eq!(find_split_at_user_boundary(&msgs, 1), 3);
         assert_eq!(find_split_at_user_boundary(&msgs, 2), 2);
+    }
+
+    #[test]
+    fn split_skips_retry_and_context_dependent_user_turns() {
+        let msgs = vec![
+            u("original task"),
+            u("你的上一次回复为空，必须重试"),
+            u("继续"),
+            u("follow-up requirement"),
+        ];
+        assert_eq!(find_split_at_user_boundary(&msgs, 1), 3);
+        assert_eq!(find_split_at_user_boundary(&msgs, 2), 0);
     }
 
     #[test]

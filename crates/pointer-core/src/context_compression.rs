@@ -292,63 +292,142 @@ fn tool_output_snippet_limit(tool_name: &str) -> usize {
     }
 }
 
-fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
-    let mut blocks = Vec::with_capacity(msgs.len());
-    for m in msgs {
-        let head = match m.role {
-            Role::System => "system",
-            Role::User => "user",
-            Role::Assistant => "assistant",
-            Role::Tool => "tool",
-        };
-        let limit = content_snippet_limit(&m.role);
-        let mut body = truncate_chars(&m.content, limit);
-        if let Some(r) = &m.reasoning {
-            if !r.is_empty() {
-                body.push_str("\n[reasoning_snippet] ");
-                body.push_str(&truncate_chars(r, MAX_REASONING_SNIPPET_CHARS));
-            }
+fn format_message_for_summary(m: &ChatMessage) -> String {
+    let head = match m.role {
+        Role::System => "system",
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        Role::Tool => "tool",
+    };
+    let limit = content_snippet_limit(&m.role);
+    let mut body = truncate_chars(&m.content, limit);
+    if let Some(r) = &m.reasoning {
+        if !r.is_empty() {
+            body.push_str("\n[reasoning_snippet] ");
+            body.push_str(&truncate_chars(r, MAX_REASONING_SNIPPET_CHARS));
         }
-        if let Some(tcs) = &m.tool_calls {
-            for t in tcs {
+    }
+    if let Some(tcs) = &m.tool_calls {
+        for t in tcs {
+            body.push_str(&format!(
+                "\n[tool {} args] {}",
+                t.name,
+                truncate_chars(&t.arguments, MAX_TOOL_ARGS_CHARS)
+            ));
+            if let Some(res) = &t.result {
                 body.push_str(&format!(
-                    "\n[tool {} args] {}",
+                    "\n[tool {} output] {}",
                     t.name,
-                    truncate_chars(&t.arguments, MAX_TOOL_ARGS_CHARS)
+                    truncate_chars(res, tool_output_snippet_limit(&t.name))
                 ));
-                if let Some(res) = &t.result {
-                    body.push_str(&format!(
-                        "\n[tool {} output] {}",
-                        t.name,
-                        truncate_chars(res, tool_output_snippet_limit(&t.name))
-                    ));
-                }
-                if let Some(err) = &t.error {
-                    body.push_str(&format!(
-                        "\n[tool {} error] {}",
-                        t.name,
-                        truncate_chars(err, MAX_TOOL_ERROR_CHARS)
-                    ));
-                }
+            }
+            if let Some(err) = &t.error {
+                body.push_str(&format!(
+                    "\n[tool {} error] {}",
+                    t.name,
+                    truncate_chars(err, MAX_TOOL_ERROR_CHARS)
+                ));
             }
         }
-        if matches!(m.role, Role::Tool) {
-            if let Some(id) = &m.tool_call_id {
-                body.push_str(&format!("\n(tool_call_id: {id})"));
-            }
+    }
+    if matches!(m.role, Role::Tool) {
+        if let Some(id) = &m.tool_call_id {
+            body.push_str(&format!("\n(tool_call_id: {id})"));
         }
-        blocks.push(format!("--- {head} ---\n{body}"));
     }
-    let mut out = blocks.join("\n\n");
-    if out.chars().count() > MAX_PREFIX_CHARS_FOR_API {
-        let take = MAX_PREFIX_CHARS_FOR_API.saturating_sub(80);
-        out = format!(
-            "{}\n\n… (prefix truncated to ~{} chars for summarization)",
-            truncate_chars(&out, take),
-            MAX_PREFIX_CHARS_FOR_API
-        );
+    format!("--- {head} ---\n{body}")
+}
+
+fn render_selected_summary_blocks(blocks: &[(usize, String)], selected: &[usize]) -> String {
+    let mut out = Vec::with_capacity(selected.len() + 1);
+    let mut previous = None;
+    for &selected_index in selected {
+        if let Some(previous_index) = previous {
+            let omitted = selected_index.saturating_sub(previous_index + 1);
+            if omitted > 0 {
+                out.push(format!(
+                    "… ({omitted} context-included message block(s) omitted; \
+                     split-adjacent context is preserved below)"
+                ));
+            }
+        } else if selected_index > 0 {
+            out.push(format!(
+                "… ({selected_index} context-included message block(s) omitted before preserved context)"
+            ));
+        }
+        out.push(blocks[selected_index].1.clone());
+        previous = Some(selected_index);
     }
-    out
+    out.join("\n\n")
+}
+
+fn summary_anchor_index(messages: &[&ChatMessage]) -> Option<usize> {
+    messages
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, message)| {
+            let content = message.content.trim_start();
+            content.starts_with(SUMMARY_PREFIX_BUDGET)
+                || content.starts_with(SUMMARY_PREFIX_TOOL_LIMIT)
+        })
+        .map(|(index, _)| index)
+        .or_else(|| {
+            messages.iter().position(|message| {
+                matches!(message.role, Role::User)
+                    && !crate::message_context::is_synthetic_user_content(&message.content)
+            })
+        })
+}
+
+fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
+    let included: Vec<&ChatMessage> = msgs
+        .iter()
+        .filter(|message| crate::message_context::is_context_included(message))
+        .collect();
+    let blocks: Vec<(usize, String)> = included
+        .iter()
+        .enumerate()
+        .map(|(index, message)| (index, format_message_for_summary(message)))
+        .collect();
+    let all_chars = blocks
+        .iter()
+        .map(|(_, block)| block.chars().count() + 2)
+        .sum::<usize>()
+        .saturating_sub(2);
+    if all_chars <= MAX_PREFIX_CHARS_FOR_API {
+        return blocks
+            .iter()
+            .map(|(_, block)| block.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+    }
+
+    // Preserve the newest prior summary (or the first real user goal) as an anchor,
+    // then spend the remaining budget backwards from the split. The old strategy
+    // kept the earliest 100k chars and discarded exactly the task state nearest
+    // the compression boundary.
+    let anchor = summary_anchor_index(&included);
+    let mut selected = anchor.into_iter().collect::<Vec<_>>();
+    let mut used_chars = selected
+        .iter()
+        .map(|&index| blocks[index].1.chars().count() + 2)
+        .sum::<usize>();
+    // Reserve space for omission markers between the anchor and the tail.
+    let content_budget = MAX_PREFIX_CHARS_FOR_API.saturating_sub(512);
+    for index in (0..blocks.len()).rev() {
+        if selected.contains(&index) {
+            continue;
+        }
+        let block_chars = blocks[index].1.chars().count() + 2;
+        if used_chars.saturating_add(block_chars) > content_budget {
+            break;
+        }
+        selected.push(index);
+        used_chars += block_chars;
+    }
+    selected.sort_unstable();
+    render_selected_summary_blocks(&blocks, &selected)
 }
 
 const SUMMARY_SYSTEM: &str = r#"You compress an OLDER prefix of a multi-turn agent session (user, assistant, tools).
@@ -416,10 +495,69 @@ fn build_summary_system_prompt(ui: &CompressionUiContext, keep_users: u32) -> St
     prompt
 }
 
-fn summary_fallback_notice() -> String {
-    format!(
-        "{SUMMARY_PREFIX_BUDGET}\n\n(Summary failed or was cancelled; older turns were dropped. Briefly restate your goal and critical context if you still need it.)"
-    )
+const SUMMARY_HEADINGS: [&str; 8] = [
+    "## Goals & constraints",
+    "## Decisions",
+    "## Code & files",
+    "## Commands & verification",
+    "## Tool evidence",
+    "## Sub-agent / explore handoffs",
+    "## Open issues & TODOs",
+    "## Unknown / truncated / not explicit in source",
+];
+
+fn validate_summary_output(out: &crate::provider::ChatOnceOutput) -> Result<String, String> {
+    if let Some(reason) = out.finish_reason.as_deref() {
+        if !reason.eq_ignore_ascii_case("stop") {
+            return Err(format!("finish_reason={reason}"));
+        }
+    }
+    let text = out.text.trim();
+    if text.is_empty() {
+        return Err("empty output".into());
+    }
+    let mut cursor = 0usize;
+    for heading in SUMMARY_HEADINGS {
+        let Some(offset) = text[cursor..].find(heading) else {
+            return Err(format!("missing heading {heading:?}"));
+        };
+        cursor += offset + heading.len();
+    }
+    Ok(text.to_string())
+}
+
+fn record_summary_usage(
+    ui: &CompressionUiContext,
+    out: &crate::provider::ChatOnceOutput,
+    attempt: &str,
+) {
+    let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
+    if let Some(scope) = ui.agent_scope.as_ref() {
+        if let Err(e) =
+            crate::token_usage_store::record_round(scope, out.usage.as_ref(), model, None)
+        {
+            log::warn!(
+                "token_usage_store: context compression {attempt} record_round failed {}: {e}",
+                scope.log_suffix()
+            );
+        }
+    }
+}
+
+fn compression_failed_toast(ui: &CompressionUiContext) -> String {
+    match ui.scope {
+        CompressionScope::Main => {
+            "摘要生成不完整，已保留原对话；请稍后重试或提高摘要 token 上限".into()
+        }
+        CompressionScope::SubAgent => {
+            let name = ui
+                .sub_agent_name
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("子 Agent");
+            format!("{name} 子任务摘要生成不完整，已保留原记录")
+        }
+    }
 }
 
 fn mark_compressed_prefix_excluded(history: &mut [ChatMessage]) -> Vec<String> {
@@ -606,56 +744,94 @@ async fn compress_history_inner(
         }
     );
     let t_llm = Instant::now();
-    let mut summary_failed = false;
     let summary_system = build_summary_system_prompt(ui, keep_users);
-    let summary_body = match provider
+    let summary_sections =
+        crate::models::SystemPromptSections::all_cacheable(vec![summary_system.clone()]);
+    let first = provider
         .chat_once(
             std::slice::from_ref(&input),
-            &crate::models::SystemPromptSections::all_cacheable(vec![summary_system]),
+            &summary_sections,
             Vec::new(),
             cancel.clone(),
             Some(max_tok),
             Some(dump_lbl.as_str()),
         )
-        .await
-    {
+        .await;
+    let mut summary_text = match first {
         Ok(out) => {
-            let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
-            if let Some(scope) = ui.agent_scope.as_ref() {
-                if let Err(e) =
-                    crate::token_usage_store::record_round(scope, out.usage.as_ref(), model, None)
-                {
+            record_summary_usage(ui, &out, "initial");
+            match validate_summary_output(&out) {
+                Ok(text) => Some(text),
+                Err(reason) => {
+                    let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
                     log::warn!(
-                        "token_usage_store: context compression record_round failed {}: {e}",
-                        scope.log_suffix()
+                        "context summary rejected conversation_id={} attempt=initial reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} summary_llm_ms={}",
+                        conversation_id,
+                        reason,
+                        out.finish_reason,
+                        out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                        out.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                        t_llm.elapsed().as_millis(),
                     );
+                    None
                 }
-            }
-            let t = out.text.trim();
-            let summary_llm_ms = t_llm.elapsed().as_millis();
-            if t.is_empty() {
-                summary_failed = true;
-                log::warn!(
-                    "context summary returned empty; using fallback notice (summary_llm_ms={summary_llm_ms} model={model:?} finish_reason={finish_reason:?} completion_tokens={completion_tok} prompt_tokens={prompt_tok})",
-                    model = model,
-                    finish_reason = out.finish_reason,
-                    completion_tok = out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
-                    prompt_tok = out.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-                );
-                summary_fallback_notice()
-            } else {
-                format!("{summary_prefix}\n\n{t}")
             }
         }
         Err(e) => {
-            summary_failed = true;
-            let summary_llm_ms = t_llm.elapsed().as_millis();
             log::warn!(
-                "context summary LLM call failed: {e}; using fallback notice (summary_llm_ms={summary_llm_ms})"
+                "context summary LLM call failed conversation_id={} attempt=initial error={e:#} summary_llm_ms={}",
+                conversation_id,
+                t_llm.elapsed().as_millis()
             );
-            summary_fallback_notice()
+            None
         }
     };
+
+    if summary_text.is_none() && !cancel.is_cancelled() {
+        let retry_label = format!("{dump_lbl}_retry_no_thinking");
+        let retry_system = format!(
+            "{summary_system}\n\nRetry requirement: produce every required heading, keep each section concise, \
+             and finish the complete summary within the output budget."
+        );
+        let retry_sections = crate::models::SystemPromptSections::all_cacheable(vec![retry_system]);
+        match provider
+            .chat_once_without_thinking(
+                std::slice::from_ref(&input),
+                &retry_sections,
+                Vec::new(),
+                cancel.clone(),
+                Some(max_tok),
+                Some(retry_label.as_str()),
+            )
+            .await
+        {
+            Ok(out) => {
+                record_summary_usage(ui, &out, "retry_no_thinking");
+                match validate_summary_output(&out) {
+                    Ok(text) => summary_text = Some(text),
+                    Err(reason) => {
+                        let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
+                        log::warn!(
+                            "context summary rejected conversation_id={} attempt=retry_no_thinking reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} summary_llm_ms={}",
+                            conversation_id,
+                            reason,
+                            out.finish_reason,
+                            out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                            out.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                            t_llm.elapsed().as_millis(),
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "context summary LLM call failed conversation_id={} attempt=retry_no_thinking error={e:#} summary_llm_ms={}",
+                    conversation_id,
+                    t_llm.elapsed().as_millis()
+                );
+            }
+        }
+    }
 
     // 如果用户已取消，不要继续修改历史
     if cancel.is_cancelled() {
@@ -666,6 +842,24 @@ async fn compress_history_inner(
         );
         return false;
     }
+    let Some(summary_text) = summary_text else {
+        log::warn!(
+            "context_compress: abort_invalid_summary conversation_id={} scope={:?} messages={} split_at={} wall_ms={}",
+            conversation_id,
+            ui.scope,
+            messages_before,
+            split,
+            wall.elapsed().as_millis()
+        );
+        emit_ui_toast(
+            stream,
+            conversation_id,
+            &compression_failed_toast(ui),
+            "warning",
+        );
+        return false;
+    };
+    let summary_body = format!("{summary_prefix}\n\n{summary_text}");
 
     let insert_before_message_id = history.get(split).map(|m| m.id.clone()).unwrap_or_default();
     let excluded_message_ids = mark_compressed_prefix_excluded(&mut history[..split]);
@@ -734,8 +928,7 @@ async fn compress_history_inner(
         wall.elapsed().as_millis()
     );
 
-    let (done_msg, done_level) =
-        compression_done_toast(ui, dropped_count, keep_users, summary_failed);
+    let (done_msg, done_level) = compression_done_toast(ui, dropped_count, keep_users, false);
     emit_ui_toast(stream, conversation_id, &done_msg, done_level);
 
     match ui.scope {
@@ -773,6 +966,16 @@ async fn compress_history_inner(
     true
 }
 
+fn clear_last_lead_prompt_tokens(conversation_id: &str) {
+    if let Ok(store) = crate::conversation_store::global_store() {
+        if let Err(e) = store.set_last_lead_prompt_tokens(conversation_id, None) {
+            log::warn!(
+                "conversation_store: clear last_lead_prompt_tokens after compression failed conversation_id={conversation_id}: {e}"
+            );
+        }
+    }
+}
+
 /// When history exceeds char budget, summarize prefix. Emits `ContextCompressionApplied` when successful.
 pub async fn maybe_compress_history(
     history: &mut Vec<ChatMessage>,
@@ -800,13 +1003,7 @@ pub async fn maybe_compress_history(
     .await;
     if changed {
         if ui.scope == CompressionScope::Main {
-            if let Ok(store) = crate::conversation_store::global_store() {
-                if let Err(e) = store.set_last_lead_prompt_tokens(conversation_id, None) {
-                    log::warn!(
-                        "conversation_store: clear last_lead_prompt_tokens after compression failed conversation_id={conversation_id}: {e}"
-                    );
-                }
-            }
+            clear_last_lead_prompt_tokens(conversation_id);
             if let Some(store) = memory_store {
                 if let Err(e) = store.reload_snapshot_for_conversation(conversation_id) {
                     log::warn!("memory: reload after compression failed: {e:#}");
@@ -828,7 +1025,7 @@ pub async fn maybe_compress_after_tool_round_limit(
     ui: CompressionUiContext,
     reported_prompt_tokens: Option<u32>,
 ) -> bool {
-    compress_history_inner(
+    let changed = compress_history_inner(
         history,
         settings,
         provider,
@@ -840,7 +1037,11 @@ pub async fn maybe_compress_after_tool_round_limit(
         &ui,
         reported_prompt_tokens,
     )
-    .await
+    .await;
+    if changed && ui.scope == CompressionScope::Main {
+        clear_last_lead_prompt_tokens(conversation_id);
+    }
+    changed
 }
 
 #[cfg(test)]
@@ -1018,5 +1219,77 @@ mod tests {
         assert!(p.contains("## Goals & constraints"));
         assert!(p.contains("newest 6 user turn"));
         assert!(p.contains("read-only explore"));
+    }
+
+    #[test]
+    fn summary_input_preserves_anchor_and_split_adjacent_tail() {
+        let mut messages = Vec::new();
+        for index in 0..35 {
+            let marker = if index == 0 {
+                "ORIGINAL_GOAL"
+            } else if index == 34 {
+                "SPLIT_ADJACENT_TASK_STATE"
+            } else {
+                "middle"
+            };
+            messages.push(u(&format!("{marker}-{}", "x".repeat(5_000))));
+        }
+
+        let formatted = format_prefix_for_summary(&messages);
+        assert!(formatted.contains("ORIGINAL_GOAL"));
+        assert!(formatted.contains("SPLIT_ADJACENT_TASK_STATE"));
+        assert!(formatted.contains("omitted"));
+        assert!(formatted.chars().count() <= MAX_PREFIX_CHARS_FOR_API);
+    }
+
+    #[test]
+    fn summary_input_ignores_soft_excluded_rows_after_reload() {
+        let mut excluded = u("STALE_EXCLUDED_CONTEXT");
+        crate::message_context::mark_excluded(
+            &mut excluded,
+            crate::models::ExcludedReason::ContextCompression,
+        );
+        let formatted = format_prefix_for_summary(&[excluded, u("ACTIVE_CONTEXT")]);
+        assert!(!formatted.contains("STALE_EXCLUDED_CONTEXT"));
+        assert!(formatted.contains("ACTIVE_CONTEXT"));
+    }
+
+    fn summary_output(
+        text: String,
+        finish_reason: Option<&str>,
+    ) -> crate::provider::ChatOnceOutput {
+        crate::provider::ChatOnceOutput {
+            text,
+            usage: None,
+            model: "test-model".into(),
+            tool_calls: vec![],
+            reasoning_content: None,
+            finish_reason: finish_reason.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn summary_validation_requires_complete_ordered_sections() {
+        let complete = SUMMARY_HEADINGS
+            .iter()
+            .map(|heading| format!("{heading}\n(none)"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(validate_summary_output(&summary_output(complete, Some("stop"))).is_ok());
+
+        let incomplete = "## Goals & constraints\n- task stopped mid-sentence";
+        assert!(validate_summary_output(&summary_output(incomplete.into(), Some("stop"))).is_err());
+    }
+
+    #[test]
+    fn summary_validation_rejects_length_finish_reason() {
+        let complete = SUMMARY_HEADINGS
+            .iter()
+            .map(|heading| format!("{heading}\n(none)"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let error = validate_summary_output(&summary_output(complete, Some("length")))
+            .expect_err("length output must not be accepted");
+        assert!(error.contains("finish_reason=length"));
     }
 }

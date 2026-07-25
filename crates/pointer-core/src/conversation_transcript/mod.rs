@@ -39,6 +39,33 @@ impl ConversationTranscriptSession {
         conversation_id: &str,
         history: &mut Vec<ChatMessage>,
     ) -> Result<Arc<Mutex<Self>>> {
+        if let Ok(store) = conversation_store::global_store() {
+            // Existing DB rows are authoritative for ordering and context_state.
+            // The caller may have missed a compression event or may be sending an
+            // unhydrated shell; only genuinely new ids are accepted from it.
+            store.append_missing_messages(conversation_id, history)?;
+            let persisted = store.load_messages(conversation_id)?;
+            if persisted.is_empty() && !history.is_empty() {
+                anyhow::bail!(
+                    "conversation transcript reload returned empty after appending {} message(s)",
+                    history.len()
+                );
+            }
+            *history = persisted
+                .into_iter()
+                .filter(|message| !crate::models::is_scoped_sub_message(message))
+                .collect();
+            log::info!(
+                "conversation_transcript: canonicalized lead history from store conversation_id={} messages={}",
+                conversation_id,
+                history.len()
+            );
+        } else {
+            log::warn!(
+                "conversation_transcript: global store unavailable; using caller history conversation_id={conversation_id}"
+            );
+        }
+
         let reconciled = reconcile::reconcile_tool_messages(history);
         let message_count = history.len() as u32;
         let preview = conversation_preview(history);
@@ -53,15 +80,8 @@ impl ConversationTranscriptSession {
         }));
 
         if let Ok(store) = conversation_store::global_store() {
-            if let Err(e) = store.append_missing_messages(conversation_id, history) {
-                log::warn!(
-                    "conversation_transcript: append_missing failed conversation_id={conversation_id}: {e:#}"
-                );
-            }
             let mut s = session.lock();
-            s.message_count = history.len() as u32;
-            s.preview = conversation_preview(history);
-            if s.transcript_dirty {
+            if reconciled {
                 if let Err(e) = store.sync_messages_ordered_with_meta(
                     conversation_id,
                     history,

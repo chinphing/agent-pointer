@@ -3,11 +3,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use tauri::{LogicalSize, Position, Size, WebviewWindow, window::Color};
 #[cfg(not(target_os = "macos"))]
 use tauri::LogicalPosition;
 #[cfg(not(target_os = "linux"))]
 use tauri::PhysicalPosition;
+use tauri::{window::Color, LogicalSize, Position, Size, WebviewWindow};
 
 const TRANSPARENT: Color = Color(0, 0, 0, 0);
 const RESTORE_MIN_WIDTH: f64 = 960.0;
@@ -51,7 +51,9 @@ fn capture_window_geometry(window: &WebviewWindow) -> Result<SavedCompactWindowS
         .scale_factor()
         .map_err(|e| format!("scale_factor: {e}"))?
         .max(1.0);
-    let inner = window.inner_size().map_err(|e| format!("inner_size: {e}"))?;
+    let inner = window
+        .inner_size()
+        .map_err(|e| format!("inner_size: {e}"))?;
     let pos = window
         .outer_position()
         .map_err(|e| format!("outer_position: {e}"))?;
@@ -71,7 +73,9 @@ pub async fn begin_computer_compact_window(window: WebviewWindow) -> Result<(), 
         log::warn!("begin_computer_compact_window: overwriting existing saved state");
     }
 
-    let maximized = window.is_maximized().map_err(|e| format!("is_maximized: {e}"))?;
+    let maximized = window
+        .is_maximized()
+        .map_err(|e| format!("is_maximized: {e}"))?;
     let mut saved = if maximized {
         window
             .unmaximize()
@@ -141,9 +145,7 @@ async fn apply_saved_geometry(
     saved: &SavedCompactWindowState,
 ) -> Result<(), String> {
     if saved.maximized {
-        window
-            .maximize()
-            .map_err(|e| format!("maximize: {e}"))?;
+        window.maximize().map_err(|e| format!("maximize: {e}"))?;
         return Ok(());
     }
 
@@ -211,9 +213,7 @@ async fn restore_compact_window_macos(
     crate::repair_macos_overlay_chrome(window, "compact-restore");
 
     if saved.maximized {
-        window
-            .maximize()
-            .map_err(|e| format!("maximize: {e}"))?;
+        window.maximize().map_err(|e| format!("maximize: {e}"))?;
         tokio::time::sleep(std::time::Duration::from_millis(120)).await;
         crate::repair_macos_overlay_chrome(window, "compact-restore-maximized");
     } else {
@@ -362,8 +362,13 @@ pub async fn place_computer_compact_window(
     height: f64,
     margin: f64,
 ) -> Result<(), String> {
-    if window.is_maximized().map_err(|e| format!("is_maximized: {e}"))? {
-        window.unmaximize().map_err(|e| format!("unmaximize: {e}"))?;
+    if window
+        .is_maximized()
+        .map_err(|e| format!("is_maximized: {e}"))?
+    {
+        window
+            .unmaximize()
+            .map_err(|e| format!("unmaximize: {e}"))?;
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             tokio::time::sleep(std::time::Duration::from_millis(60)).await;
@@ -382,7 +387,9 @@ pub async fn place_computer_compact_window(
     {
         // GTK move/resize is most reliable with logical coords after the size change settles.
         tokio::time::sleep(std::time::Duration::from_millis(80)).await;
-        let scale = window.scale_factor().map_err(|e| format!("scale_factor: {e}"))?;
+        let scale = window
+            .scale_factor()
+            .map_err(|e| format!("scale_factor: {e}"))?;
         let (x, y) = linux_compact_logical_position(&window, width, height, margin, scale)?;
         apply_logical_position(&window, x, y)?;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -469,8 +476,12 @@ fn linux_monitor_bounds_for_window(window: &WebviewWindow) -> Result<(i32, i32, 
         return Err("list_monitors: no displays".into());
     }
 
-    let pos = window.outer_position().map_err(|e| format!("outer_position: {e}"))?;
-    let size = window.outer_size().map_err(|e| format!("outer_size: {e}"))?;
+    let pos = window
+        .outer_position()
+        .map_err(|e| format!("outer_position: {e}"))?;
+    let size = window
+        .outer_size()
+        .map_err(|e| format!("outer_size: {e}"))?;
     let cx = pos.x + size.width as i32 / 2;
     let cy = pos.y + size.height as i32 / 2;
 

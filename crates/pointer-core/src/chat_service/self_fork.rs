@@ -38,9 +38,7 @@ pub fn build_self_fork_snapshot(
 #[cfg(test)]
 mod tests {
     use super::{build_self_fork_snapshot, SelfForkSnapshot};
-    use crate::agents::{
-        AccessPolicy, AgentDef, AgentProfile, AgentUiConfig, SkillsPolicy,
-    };
+    use crate::agents::{AccessPolicy, AgentDef, AgentProfile, AgentUiConfig, SkillsPolicy};
     use crate::tools::{ToolEntry, ToolRegistry};
     use std::collections::HashMap;
     use std::sync::Arc;

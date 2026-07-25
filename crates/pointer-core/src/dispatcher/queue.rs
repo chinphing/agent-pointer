@@ -224,11 +224,7 @@ impl RunQueue {
             .inner
             .acquire_lane(&session_lane, cancel.clone(), meta.clone())
             .await?;
-        let global = match self
-            .inner
-            .acquire_lane(global_lane, cancel, meta)
-            .await
-        {
+        let global = match self.inner.acquire_lane(global_lane, cancel, meta).await {
             Ok(g) => g,
             Err(e) => {
                 // Release session slot if global gate fails.
@@ -245,12 +241,7 @@ impl RunQueue {
 
     /// Runs currently holding any lane slot (session + global counted separately).
     pub fn active_count(&self) -> usize {
-        self.inner
-            .lanes
-            .lock()
-            .values()
-            .map(|s| s.active)
-            .sum()
+        self.inner.lanes.lock().values().map(|s| s.active).sum()
     }
 
     /// Runs waiting on any lane queue.
@@ -320,11 +311,7 @@ impl LaneRegistryInner {
     }
 
     fn lane_active(&self, lane: &str) -> usize {
-        self.lanes
-            .lock()
-            .get(lane)
-            .map(|s| s.active)
-            .unwrap_or(0)
+        self.lanes.lock().get(lane).map(|s| s.active).unwrap_or(0)
     }
 
     fn lane_waiting(&self, lane: &str) -> usize {
@@ -560,7 +547,8 @@ mod tests {
         let q = RunQueue::new(4);
         let c1 = CancellationToken::new();
         let c2 = CancellationToken::new();
-        let p1 = q.acquire(req("L", TriggerSource::Ipc), c1.clone())
+        let p1 = q
+            .acquire(req("L", TriggerSource::Ipc), c1.clone())
             .await
             .unwrap();
         let q2 = q.clone();
@@ -604,7 +592,10 @@ mod tests {
 
         // Cron has its own global:cron pool at the same cap.
         let p_cron = q
-            .acquire(req("cron:job1", TriggerSource::Cron), CancellationToken::new())
+            .acquire(
+                req("cron:job1", TriggerSource::Cron),
+                CancellationToken::new(),
+            )
             .await
             .unwrap();
         assert_eq!(q.main_active_count(), 1);

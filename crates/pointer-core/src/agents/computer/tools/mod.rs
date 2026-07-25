@@ -5,26 +5,26 @@
 pub mod args_util;
 mod dati_client;
 pub mod method_route;
+pub(crate) mod tool_app_access;
 mod tool_captcha_verify;
 mod tool_clipboard;
-mod tool_input;
 mod tool_hotkey;
+mod tool_input;
 mod tool_modified_click;
 mod tool_mouse;
-pub(crate) mod tool_app_access;
 mod tool_wait;
 
-pub use tool_clipboard::{clipboard_host_verify_kind, ClipboardHostVerifyKind};
 pub use tool_app_access::{
     app_access_host_pass_summary, parse_app_access_host_outcome, AppAccessHostOutcome,
 };
+pub use tool_clipboard::{clipboard_host_verify_kind, ClipboardHostVerifyKind};
 
-use crate::agents::computer::ComputerState;
 use crate::agents::computer::tier::ComputerTierGuard;
-use args_util::{clamp_scroll_lines, effective_human_like_default};
+use crate::agents::computer::ComputerState;
 use crate::platform::run_synthetic_input;
 use crate::tools::tool_doc::load_tools_from_schema_yaml;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
+use args_util::{clamp_scroll_lines, effective_human_like_default};
 use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -67,16 +67,34 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         let mouse_handlers: &[(&str, Option<(MouseBackend, &str)>)] = &[
             ("mouse_click_index", Some((MouseBackend::Index, "click"))),
             ("mouse_click_at", Some((MouseBackend::At, "click"))),
-            ("mouse_double_click_index", Some((MouseBackend::Index, "double_click"))),
-            ("mouse_double_click_at", Some((MouseBackend::At, "double_click"))),
-            ("mouse_right_click_index", Some((MouseBackend::Index, "right_click"))),
-            ("mouse_right_click_at", Some((MouseBackend::At, "right_click"))),
+            (
+                "mouse_double_click_index",
+                Some((MouseBackend::Index, "double_click")),
+            ),
+            (
+                "mouse_double_click_at",
+                Some((MouseBackend::At, "double_click")),
+            ),
+            (
+                "mouse_right_click_index",
+                Some((MouseBackend::Index, "right_click")),
+            ),
+            (
+                "mouse_right_click_at",
+                Some((MouseBackend::At, "right_click")),
+            ),
             ("mouse_hover_index", Some((MouseBackend::Index, "hover"))),
             ("mouse_hover_at", Some((MouseBackend::At, "hover"))),
             ("mouse_scroll_current", None),
             ("mouse_scroll_index", Some((MouseBackend::Index, "scroll"))),
-            ("mouse_drag_from_to_index", Some((MouseBackend::Index, "drag_from_to"))),
-            ("mouse_drag_from_to_at", Some((MouseBackend::At, "drag_from_to"))),
+            (
+                "mouse_drag_from_to_index",
+                Some((MouseBackend::Index, "drag_from_to")),
+            ),
+            (
+                "mouse_drag_from_to_at",
+                Some((MouseBackend::At, "drag_from_to")),
+            ),
         ];
 
         for (name, backend_method) in mouse_handlers {
@@ -94,8 +112,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 if let Some((backend, method)) = backend_method {
                     let vision = ms.vision_state_for_conversation(&cid);
                     let hl_default = effective_human_like_default();
-                    let tool =
-                        MouseTool::new(ms.executor.clone(), vision, hl_default);
+                    let tool = MouseTool::new(ms.executor.clone(), vision, hl_default);
                     run_synthetic_computer_tool(tier, move || {
                         tool.execute_with(backend, method, &args)
                     })
@@ -213,10 +230,26 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
         let doc = include_str!("prompts/modified_click.md").trim().to_string();
         let mc_handlers: &[(&str, ModifiedClickBackend, &str)] = &[
-            ("modified_click_select_index", ModifiedClickBackend::Index, "select"),
-            ("modified_click_range_select_index", ModifiedClickBackend::Index, "range_select"),
-            ("modified_click_select_at", ModifiedClickBackend::At, "select"),
-            ("modified_click_range_select_at", ModifiedClickBackend::At, "range_select"),
+            (
+                "modified_click_select_index",
+                ModifiedClickBackend::Index,
+                "select",
+            ),
+            (
+                "modified_click_range_select_index",
+                ModifiedClickBackend::Index,
+                "range_select",
+            ),
+            (
+                "modified_click_select_at",
+                ModifiedClickBackend::At,
+                "select",
+            ),
+            (
+                "modified_click_range_select_at",
+                ModifiedClickBackend::At,
+                "range_select",
+            ),
         ];
 
         for (name, backend, method) in mc_handlers {
@@ -236,9 +269,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 let tool = ModifiedClickTool::new(st.executor.clone(), vision, hl_default);
                 run_synthetic_computer_tool(tier, {
                     let method = method.clone();
-                    move || {
-                        tool.execute_with(backend, &method, &args)
-                    }
+                    move || tool.execute_with(backend, &method, &args)
                 })
             });
 
@@ -248,9 +279,16 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .unwrap_or_else(|| panic!("modified_click.schema.yaml missing entry for {name}"));
 
             reg.register(
-                ToolEntry::new(tool_name, MODIFIED_CLICK_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema)
-                    .with_subagent_inheritance(false),
+                ToolEntry::new(
+                    tool_name,
+                    MODIFIED_CLICK_DOC_SOURCE,
+                    "low",
+                    false,
+                    prompt,
+                    handler,
+                )
+                .with_schema(schema)
+                .with_subagent_inheritance(false),
             );
         }
     }
@@ -338,10 +376,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .collect();
 
         let doc = include_str!("prompts/clipboard.md").trim().to_string();
-        let cb_handlers: &[(&str, &str)] = &[
-            ("clipboard_read", "read"),
-            ("clipboard_write", "write"),
-        ];
+        let cb_handlers: &[(&str, &str)] =
+            &[("clipboard_read", "read"), ("clipboard_write", "write")];
 
         for (name, method) in cb_handlers {
             let prompt = doc.clone();
@@ -359,9 +395,16 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .unwrap_or_else(|| panic!("clipboard.schema.yaml missing entry for {name}"));
 
             reg.register(
-                ToolEntry::new(tool_name, CLIPBOARD_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema)
-                    .with_subagent_inheritance(false),
+                ToolEntry::new(
+                    tool_name,
+                    CLIPBOARD_DOC_SOURCE,
+                    "low",
+                    false,
+                    prompt,
+                    handler,
+                )
+                .with_schema(schema)
+                .with_subagent_inheritance(false),
             );
         }
     }

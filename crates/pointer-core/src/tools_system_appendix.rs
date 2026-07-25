@@ -1,5 +1,4 @@
 /// Markdown **## Tools** appendix for the system prompt (per-tool `doc_markdown` only).
-
 use crate::tools::ToolRegistry;
 use std::collections::HashSet;
 

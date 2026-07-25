@@ -122,7 +122,10 @@ mod tests {
 
         let after_hint = vec![msg(Role::User, "[TASK_BOARD_HINT]\nempty")];
         assert!(!should_inject_init_hint(&AgentProfile::Coder, &after_hint));
-        assert!(!should_inject_init_hint(&AgentProfile::Computer, &after_hint));
+        assert!(!should_inject_init_hint(
+            &AgentProfile::Computer,
+            &after_hint
+        ));
 
         let after_explore = vec![
             msg(Role::User, "[TASK_BOARD_HINT]\nempty"),
@@ -131,7 +134,10 @@ mod tests {
                 "## Summary\nx\n## Key files\n- a.rs\n## Evidence\n",
             ),
         ];
-        assert!(should_inject_init_hint(&AgentProfile::Coder, &after_explore));
+        assert!(should_inject_init_hint(
+            &AgentProfile::Coder,
+            &after_explore
+        ));
 
         let after_abandon = vec![
             msg(Role::User, "[TASK_BOARD_HINT]\nempty"),

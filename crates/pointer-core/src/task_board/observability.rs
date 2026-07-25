@@ -3,7 +3,11 @@
 use super::gateway::plan_sync::SupervisorPlanSyncStats;
 use crate::agents::AgentProfile;
 
-pub fn log_supervisor_plan_sync(conversation_id: &str, stats: &SupervisorPlanSyncStats, task_count: usize) {
+pub fn log_supervisor_plan_sync(
+    conversation_id: &str,
+    stats: &SupervisorPlanSyncStats,
+    task_count: usize,
+) {
     let orphans = if stats.orphan_milestone_ids.is_empty() {
         String::new()
     } else {
@@ -18,11 +22,7 @@ pub fn log_supervisor_plan_sync(conversation_id: &str, stats: &SupervisorPlanSyn
     );
 }
 
-pub fn log_dispatch_child(
-    conversation_id: &str,
-    task_id: &str,
-    child_seeded: bool,
-) {
+pub fn log_dispatch_child(conversation_id: &str, task_id: &str, child_seeded: bool) {
     log::info!(
         "task_board_obs: dispatch_child conversation_id={conversation_id} task_id={task_id} child_seeded={child_seeded}",
     );
@@ -41,9 +41,7 @@ pub fn log_snapshot_injected(store_key: &str, board_len: usize, has_goal: bool) 
 }
 
 pub fn log_snapshot_skipped_empty(store_key: &str) {
-    log::debug!(
-        "task_board_obs: snapshot_skipped_empty store_key={store_key}",
-    );
+    log::debug!("task_board_obs: snapshot_skipped_empty store_key={store_key}",);
 }
 
 pub fn log_sub_agent_init_hint(conversation_id: &str, task_id: &str, agent_id: &str) {

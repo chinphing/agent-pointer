@@ -98,9 +98,7 @@ impl VideoTimeRange {
         }
         let duration = duration_sec.max(0.0);
         if end > duration {
-            anyhow::bail!(
-                "timeEndSec ({end}) exceeds video duration ({duration:.1}s)"
-            );
+            anyhow::bail!("timeEndSec ({end}) exceeds video duration ({duration:.1}s)");
         }
         Ok(Self {
             start_sec: start,
@@ -155,9 +153,7 @@ pub fn format_video_scope_notice(
         format!("{frame_count} ffmpeg frame(s) at {fps} frame(s)/second")
     };
     if range.user_specified_time {
-        format!(
-            "[Video scope: {scope} of {total:.1}s total — extracted as requested; {sampling}.]"
-        )
+        format!("[Video scope: {scope} of {total:.1}s total — extracted as requested; {sampling}.]")
     } else {
         format!(
             "[Video scope: {scope} of {total:.1}s total — only the first segment was processed ({sampling}). For other segments, describe the window in **goal** and call again, or split into batches of at most {MAX_VISION_FRAMES_PER_CALL} frames per call.]"
@@ -174,7 +170,9 @@ pub fn probe_video_duration(bytes: &[u8], file_name: &str) -> Result<f64> {
         .suffix(suffix)
         .tempfile()
         .context("video probe temp input")?;
-    input.write_all(bytes).context("write video probe temp input")?;
+    input
+        .write_all(bytes)
+        .context("write video probe temp input")?;
     probe_duration(&ffprobe, input.path())
 }
 
@@ -242,21 +240,19 @@ pub fn remux_video_faststart(bytes: &[u8], file_name: &str) -> Vec<u8> {
         .output();
 
     match result {
-        Ok(out) if out.status.success() => {
-            match std::fs::read(&output_path) {
-                Ok(remuxed) if !remuxed.is_empty() => {
-                    log::info!(
-                        "video faststart ok: {} bytes → {} bytes for {}",
-                        bytes.len(),
-                        remuxed.len(),
-                        file_name
-                    );
-                    return remuxed;
-                }
-                Ok(_) => log::warn!("video faststart: output empty for {file_name}"),
-                Err(e) => log::warn!("video faststart: read output failed: {e}"),
+        Ok(out) if out.status.success() => match std::fs::read(&output_path) {
+            Ok(remuxed) if !remuxed.is_empty() => {
+                log::info!(
+                    "video faststart ok: {} bytes → {} bytes for {}",
+                    bytes.len(),
+                    remuxed.len(),
+                    file_name
+                );
+                return remuxed;
             }
-        }
+            Ok(_) => log::warn!("video faststart: output empty for {file_name}"),
+            Err(e) => log::warn!("video faststart: read output failed: {e}"),
+        },
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             log::warn!("video faststart failed for {file_name}: {stderr}");
@@ -322,13 +318,12 @@ pub fn shrink_video_to_max(
         ));
     }
 
-    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found for video shrink")?;
+    let ffmpeg =
+        crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found for video shrink")?;
     let mut current = bytes.to_vec();
     let mut applied = Vec::new();
 
-    log::info!(
-        "video {file_name}: {original} bytes exceeds {max_bytes} limit; attempting shrink"
-    );
+    log::info!("video {file_name}: {original} bytes exceeds {max_bytes} limit; attempting shrink");
 
     current = remux_video_faststart(&current, file_name);
     applied.push("faststart");
@@ -351,7 +346,9 @@ pub fn shrink_video_to_max(
     let attempts: [(&str, &[&str]); 6] = [
         (
             "compress",
-            &["-c:v", "libx264", "-preset", "fast", "-crf", "28", "-c:a", "aac", "-b:a", "128k"],
+            &[
+                "-c:v", "libx264", "-preset", "fast", "-crf", "28", "-c:a", "aac", "-b:a", "128k",
+            ],
         ),
         (
             "compress+scale1280",
@@ -510,7 +507,12 @@ fn ffmpeg_transcode_bytes(
         input_path.to_str().unwrap_or_default(),
     ];
     args.extend_from_slice(extra_args);
-    args.extend_from_slice(&["-movflags", "+faststart", "-y", out_path.to_str().unwrap_or_default()]);
+    args.extend_from_slice(&[
+        "-movflags",
+        "+faststart",
+        "-y",
+        out_path.to_str().unwrap_or_default(),
+    ]);
 
     let out = Command::new(ffmpeg)
         .args(&args)
@@ -558,14 +560,17 @@ pub fn extract_video_clip_bytes(
     start_sec: f64,
     duration_sec: f64,
 ) -> Result<Vec<u8>> {
-    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found for video clip")?;
+    let ffmpeg =
+        crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found for video clip")?;
     let suffix = video_suffix(file_name);
     let mut input = tempfile::Builder::new()
         .prefix("pointer-vid-clip-in-")
         .suffix(suffix)
         .tempfile()
         .context("video clip temp input")?;
-    input.write_all(bytes).context("write video clip temp input")?;
+    input
+        .write_all(bytes)
+        .context("write video clip temp input")?;
     let input_path = input.path();
 
     let output = tempfile::Builder::new()
@@ -643,7 +648,9 @@ pub fn extract_video_clip_bytes(
         .output()
         .context("ffmpeg clip reencode")?;
     if !reencode_out.status.success() {
-        let stderr = String::from_utf8_lossy(&reencode_out.stderr).trim().to_string();
+        let stderr = String::from_utf8_lossy(&reencode_out.stderr)
+            .trim()
+            .to_string();
         anyhow::bail!("ffmpeg clip reencode failed for {file_name}: {stderr}");
     }
     let clipped = std::fs::read(out_path).context("read clipped video")?;
@@ -749,9 +756,7 @@ pub fn extract_video_frame_base64s_with_range(
         if frame_bytes.is_empty() {
             continue;
         }
-        frames.push(
-            base64::engine::general_purpose::STANDARD.encode(&frame_bytes),
-        );
+        frames.push(base64::engine::general_purpose::STANDARD.encode(&frame_bytes));
     }
     if frames.is_empty() {
         anyhow::bail!(
@@ -803,9 +808,7 @@ fn probe_duration(ffprobe: &PathBuf, path: &Path) -> Result<f64> {
         anyhow::bail!("ffprobe failed");
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    text.trim()
-        .parse::<f64>()
-        .context("parse ffprobe duration")
+    text.trim().parse::<f64>().context("parse ffprobe duration")
 }
 
 #[cfg(test)]
@@ -873,10 +876,8 @@ mod tests {
             return;
         };
 
-        let input_path = std::env::temp_dir().join(format!(
-            "pointer_remux_test_in_{}.mp4",
-            std::process::id()
-        ));
+        let input_path =
+            std::env::temp_dir().join(format!("pointer_remux_test_in_{}.mp4", std::process::id()));
         let status = std::process::Command::new(&ffmpeg)
             .args([
                 "-hide_banner",

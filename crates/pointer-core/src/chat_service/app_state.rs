@@ -16,9 +16,8 @@ use crate::models::{
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
     apply_login_llm_credentials, apply_login_llm_provider_api_keys, apply_login_media_oss,
-    finalize_merged_settings,
-    merge_platform_preferences, persist_local_platform_settings, PlatformConfigManager,
-    SharedPlatformConfig,
+    finalize_merged_settings, merge_platform_preferences, persist_local_platform_settings,
+    PlatformConfigManager, SharedPlatformConfig,
 };
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -171,9 +170,7 @@ impl FileWriteLockManager {
         };
         #[cfg(windows)]
         {
-            Ok(PathBuf::from(
-                normalized.to_string_lossy().to_lowercase(),
-            ))
+            Ok(PathBuf::from(normalized.to_string_lossy().to_lowercase()))
         }
         #[cfg(not(windows))]
         {
@@ -230,16 +227,12 @@ fn open_conversation_store_with_fallback() -> Arc<crate::conversation_store::Con
         Ok(store) => store,
         Err(e) => {
             log::warn!("conversation_store: open failed ({e:#}); using temp db");
-            let temp_path = std::env::temp_dir().join(format!(
-                "pointer-conversations-{}.db",
-                uuid::Uuid::new_v4()
-            ));
+            let temp_path = std::env::temp_dir()
+                .join(format!("pointer-conversations-{}.db", uuid::Uuid::new_v4()));
             match crate::conversation_store::ConversationStore::open(temp_path) {
                 Ok(store) => Arc::new(store),
                 Err(e2) => {
-                    log::error!(
-                        "conversation_store: temp db failed ({e2:#}); using in-memory db"
-                    );
+                    log::error!("conversation_store: temp db failed ({e2:#}); using in-memory db");
                     Arc::new(
                         crate::conversation_store::ConversationStore::open(
                             std::path::PathBuf::from(":memory:"),
@@ -315,7 +308,9 @@ impl AppState {
 
         let tools = Arc::new(ToolRegistry::new());
         let task_board_store = match crate::task_board::open_default_persistence() {
-            Some(db) => std::sync::Arc::new(crate::task_board::TaskBoardStore::with_persistence(db)),
+            Some(db) => {
+                std::sync::Arc::new(crate::task_board::TaskBoardStore::with_persistence(db))
+            }
             None => {
                 log::warn!("task_board: sqlite persistence unavailable; in-memory only");
                 std::sync::Arc::new(crate::task_board::TaskBoardStore::new())
@@ -494,10 +489,7 @@ impl AppState {
         crate::dispatcher::resolve_max_concurrent_runs(&self.platform_config.read())
     }
 
-    pub fn sync_dispatcher_concurrency(
-        &self,
-        dispatcher: &crate::dispatcher::RunDispatcher,
-    ) {
+    pub fn sync_dispatcher_concurrency(&self, dispatcher: &crate::dispatcher::RunDispatcher) {
         dispatcher.set_max_concurrent(self.resolve_max_concurrent_runs());
     }
 
@@ -524,7 +516,10 @@ impl AppState {
         let mut settings =
             finalize_merged_settings(crate::models::merge_user_platform(&user, &platform));
         if let Some(creds) = crate::web_request_auth::scoped_login_creds() {
-            crate::platform_config::apply_login_credentials_to_model_settings(&mut settings, &creds);
+            crate::platform_config::apply_login_credentials_to_model_settings(
+                &mut settings,
+                &creds,
+            );
         }
         settings
     }
@@ -582,7 +577,11 @@ impl AppState {
                     active_provider_id
                 )
             })?;
-        if !active_provider.models.iter().any(|candidate| candidate == &model) {
+        if !active_provider
+            .models
+            .iter()
+            .any(|candidate| candidate == &model)
+        {
             anyhow::bail!(
                 "active model '{}' is not configured for provider '{}'",
                 model,
@@ -777,7 +776,11 @@ impl AppState {
     /// Kill the subprocess for a **`terminal`** tool invocation.
     /// When `tool_call_id` is set, only that invocation is aborted; otherwise all terminals in the conversation.
     /// Does **not** cancel the LLM stream or the rest of the turn. Returns **true** if at least one run was registered.
-    pub fn abort_terminal_command(&self, conversation_id: &str, tool_call_id: Option<&str>) -> bool {
+    pub fn abort_terminal_command(
+        &self,
+        conversation_id: &str,
+        tool_call_id: Option<&str>,
+    ) -> bool {
         let runs = self.terminal_run_abort.lock();
         let mut any = false;
         let mut matched = 0usize;
@@ -805,18 +808,17 @@ impl AppState {
         any
     }
 
-    pub fn register_terminal_abort_flag(
-        &self,
-        scope: ToolExecutionScope,
-        flag: Arc<AtomicBool>,
-    ) {
+    pub fn register_terminal_abort_flag(&self, scope: ToolExecutionScope, flag: Arc<AtomicBool>) {
         log::info!("terminal: registered abort scope {}", scope.log_fields());
         self.terminal_run_abort.lock().insert(scope, flag);
     }
 
     pub fn clear_terminal_abort_flag(&self, scope: &ToolExecutionScope) {
         if self.terminal_run_abort.lock().remove(scope).is_none() {
-            log::warn!("terminal: abort scope missing during cleanup {}", scope.log_fields());
+            log::warn!(
+                "terminal: abort scope missing during cleanup {}",
+                scope.log_fields()
+            );
         }
     }
 
@@ -863,7 +865,12 @@ impl AppState {
         tx: std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>,
     ) {
         let key = TerminalPendingInputKey { scope, request_id };
-        if self.terminal_input_pending.lock().insert(key.clone(), tx).is_some() {
+        if self
+            .terminal_input_pending
+            .lock()
+            .insert(key.clone(), tx)
+            .is_some()
+        {
             log::warn!(
                 "terminal: replaced pending input request_id={} {}",
                 key.request_id,
@@ -881,9 +888,14 @@ impl AppState {
     }
 
     pub fn submit_terminal_input(&self, request_id: &str, text: String) -> bool {
-        let tx = remove_terminal_input_by_request_id(&mut self.terminal_input_pending.lock(), request_id);
+        let tx = remove_terminal_input_by_request_id(
+            &mut self.terminal_input_pending.lock(),
+            request_id,
+        );
         if let Some(tx) = tx {
-            let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Submit(text));
+            let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Submit(
+                text,
+            ));
             true
         } else {
             false
@@ -891,7 +903,10 @@ impl AppState {
     }
 
     pub fn dismiss_terminal_input(&self, request_id: &str) -> bool {
-        let tx = remove_terminal_input_by_request_id(&mut self.terminal_input_pending.lock(), request_id);
+        let tx = remove_terminal_input_by_request_id(
+            &mut self.terminal_input_pending.lock(),
+            request_id,
+        );
         if let Some(tx) = tx {
             let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Dismiss);
             true
@@ -989,7 +1004,8 @@ impl AppState {
                     let doc = self.task_board_store.document(k);
                     !matches!(
                         doc.meta.status,
-                        crate::task_board::MetaStatus::Completed | crate::task_board::MetaStatus::Failed
+                        crate::task_board::MetaStatus::Completed
+                            | crate::task_board::MetaStatus::Failed
                     )
                 })
                 .cloned()
@@ -1012,20 +1028,13 @@ mod active_main_task_board_tests {
     use super::{AppState, FileWriteLockManager, ToolExecutionScope};
     use crate::models::DebugSessionSettings;
     use crate::platform_auth::{PlatformSession, PlatformUserSummary};
-    use crate::task_board::{
-        main_turn_task_board_store_key, sub_agent_task_board_store_key,
-    };
+    use crate::task_board::{main_turn_task_board_store_key, sub_agent_task_board_store_key};
     use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
-    fn seed_running_child_board(
-        state: &AppState,
-        conv: &str,
-        turn: &str,
-        task_id: &str,
-    ) -> String {
+    fn seed_running_child_board(state: &AppState, conv: &str, turn: &str, task_id: &str) -> String {
         let parent = main_turn_task_board_store_key(conv, turn);
         let child = sub_agent_task_board_store_key(&parent, task_id);
         state
@@ -1174,16 +1183,10 @@ mod active_main_task_board_tests {
 
     #[test]
     fn terminal_scope_keys_isolate_same_conversation_and_tool_call() {
-        let first = ToolExecutionScope::new(
-            "conv-shared",
-            Some("fork-instance-a"),
-            "tool-call-shared",
-        );
-        let second = ToolExecutionScope::new(
-            "conv-shared",
-            Some("fork-instance-b"),
-            "tool-call-shared",
-        );
+        let first =
+            ToolExecutionScope::new("conv-shared", Some("fork-instance-a"), "tool-call-shared");
+        let second =
+            ToolExecutionScope::new("conv-shared", Some("fork-instance-b"), "tool-call-shared");
 
         assert_ne!(first.abort_key(), second.abort_key());
         assert_ne!(first.output_trace_key(), second.output_trace_key());
@@ -1201,12 +1204,8 @@ mod active_main_task_board_tests {
             Some("sub-instance"),
             "tc-1",
         );
-        let from_lead = ToolExecutionScope::from_agent_contexts(
-            "conv",
-            Some("lead-instance"),
-            None,
-            "tc-1",
-        );
+        let from_lead =
+            ToolExecutionScope::from_agent_contexts("conv", Some("lead-instance"), None, "tc-1");
         let legacy = ToolExecutionScope::from_agent_contexts("conv", None, None, "tc-1");
 
         assert!(from_sub.abort_key().contains("sub-instance"));

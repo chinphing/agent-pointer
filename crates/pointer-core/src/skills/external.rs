@@ -200,7 +200,9 @@ pub fn resolve_deploy_bundled_skill_sources() -> Vec<PathBuf> {
 pub fn install_deploy_bundled_skills() -> Result<()> {
     let sources = resolve_deploy_bundled_skill_sources();
     if sources.is_empty() {
-        log::warn!("bundled skills: no source directory found (expected skills/ beside pointer-server)");
+        log::warn!(
+            "bundled skills: no source directory found (expected skills/ beside pointer-server)"
+        );
         return Ok(());
     }
     let installed = sync_bundled_skill_dirs(&sources)?;
@@ -346,10 +348,7 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         }
 
         if base.file_name().and_then(|name| name.to_str()).is_none() {
-            skipped.push(format!(
-                "{}: SKILL.md 必须位于 Skill 目录中",
-                manifest.name
-            ));
+            skipped.push(format!("{}: SKILL.md 必须位于 Skill 目录中", manifest.name));
             continue;
         }
 
@@ -421,7 +420,9 @@ fn import_skill_dir(source: &Path) -> Result<SkillImportResult> {
     }
 
     if imported.is_empty() && skipped.is_empty() {
-        return Err(anyhow!("目录中未找到符合规范的 Skill（需含 SKILL.md 或 skill.md）"));
+        return Err(anyhow!(
+            "目录中未找到符合规范的 Skill（需含 SKILL.md 或 skill.md）"
+        ));
     }
     Ok(SkillImportResult { imported, skipped })
 }
@@ -465,7 +466,9 @@ pub fn install_skill_dir_with_provenance(source: &Path, imported_from: &str) -> 
 fn install_skill_dir_internal(source: &Path, imported_from: Option<&str>) -> Result<SkillDef> {
     let preview = load_skill_from_dir(source)?;
     let target = skills_dir()?.join(&preview.id);
-    let source_canon = source.canonicalize().unwrap_or_else(|_| source.to_path_buf());
+    let source_canon = source
+        .canonicalize()
+        .unwrap_or_else(|_| source.to_path_buf());
     if target.exists() {
         let target_canon = target.canonicalize().unwrap_or_else(|_| target.clone());
         if source_canon == target_canon {
@@ -536,8 +539,8 @@ pub fn is_ignored_skill_dir(name: Option<&std::ffi::OsStr>) -> bool {
 }
 
 pub fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
-    let manifest_path = manifest_path_in_dir(dir)
-        .ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
+    let manifest_path =
+        manifest_path_in_dir(dir).ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
 
     let raw = fs::read_to_string(&manifest_path)?;
     let manifest = parse_skill_md(&raw)?;
@@ -570,8 +573,8 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
 /// Read skill name + markdown body from disk (no registry cache).
 /// Used by `skill_read` so edits to `SKILL.md` take effect immediately.
 pub fn read_skill_instructions_from_dir(dir: &Path) -> Result<(String, String)> {
-    let manifest_path = manifest_path_in_dir(dir)
-        .ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
+    let manifest_path =
+        manifest_path_in_dir(dir).ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
     let raw = fs::read_to_string(&manifest_path)
         .with_context(|| format!("无法读取 {}", manifest_path.display()))?;
     let manifest = parse_skill_md(&raw)?;
@@ -772,10 +775,7 @@ fn collect_resource_files(dir: &Path) -> Result<Vec<String>> {
         if path.is_dir() {
             continue;
         }
-        let rel = path
-            .strip_prefix(dir)?
-            .to_string_lossy()
-            .replace('\\', "/");
+        let rel = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
         if is_manifest_file(path) {
             continue;
         }
@@ -846,10 +846,7 @@ mod tests {
     fn literal_preserves_newlines() {
         let input = "---\nname: test-skill\ndescription: |\n  Line one.\n  Line two.\n  Line three.\n---\nbody";
         let m = parse(input);
-        assert_eq!(
-            m.description.trim(),
-            "Line one.\nLine two.\nLine three."
-        );
+        assert_eq!(m.description.trim(), "Line one.\nLine two.\nLine three.");
     }
 
     #[test]
@@ -863,7 +860,8 @@ mod tests {
 
     #[test]
     fn angle_brackets_in_description_value() {
-        let input = "---\nname: test-skill\ndescription: Files larger than >500MB are skipped.\n---\nbody";
+        let input =
+            "---\nname: test-skill\ndescription: Files larger than >500MB are skipped.\n---\nbody";
         let m = parse(input);
         assert_eq!(
             m.description.trim(),
@@ -912,10 +910,7 @@ mod tests {
 
     #[test]
     fn external_skill_id_rejects_path_separator() {
-        let m = parse_skill_md(
-            "---\nname: bad/name\ndescription: d.\n---\nbody",
-        )
-        .unwrap();
+        let m = parse_skill_md("---\nname: bad/name\ndescription: d.\n---\nbody").unwrap();
         assert!(validate_manifest(&m).is_err());
     }
 
@@ -932,10 +927,7 @@ mod tests {
         let m = parse(
             "---\nname: claude-skill\ndescription: Demo.\ntags:\n  - dev\nmetadata:\n  tags:\n    - api\n---\nbody",
         );
-        assert_eq!(
-            merge_tags(&m.tags, &m.metadata),
-            vec!["dev", "api"]
-        );
+        assert_eq!(merge_tags(&m.tags, &m.metadata), vec!["dev", "api"]);
     }
 
     #[test]
@@ -949,10 +941,7 @@ mod tests {
 
     #[test]
     fn empty_description_is_error() {
-        let m = parse_skill_md(
-            "---\nname: my-skill\ndescription: \n---\nbody",
-        )
-        .unwrap();
+        let m = parse_skill_md("---\nname: my-skill\ndescription: \n---\nbody").unwrap();
         assert!(validate_manifest(&m).is_err());
     }
 
@@ -994,7 +983,10 @@ mod tests {
     #[test]
     fn normalize_zip_entry_path_strips_leading_dot_slash() {
         assert_eq!(normalize_zip_entry_path("./pdf/SKILL.md"), "pdf/SKILL.md");
-        assert_eq!(normalize_zip_entry_path("pdf/scripts/run.py"), "pdf/scripts/run.py");
+        assert_eq!(
+            normalize_zip_entry_path("pdf/scripts/run.py"),
+            "pdf/scripts/run.py"
+        );
     }
 
     #[test]

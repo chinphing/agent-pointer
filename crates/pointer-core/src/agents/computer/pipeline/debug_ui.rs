@@ -28,8 +28,7 @@ fn display_label_for_phase(phase: &str) -> &'static str {
 }
 
 fn build_args(wire_input: &str) -> String {
-    serde_json::to_string(&json!({ "input": wire_input.trim() }))
-        .unwrap_or_else(|_| "{}".into())
+    serde_json::to_string(&json!({ "input": wire_input.trim() })).unwrap_or_else(|_| "{}".into())
 }
 
 fn build_result(reasoning: Option<&str>, output: &str) -> String {
@@ -78,7 +77,11 @@ pub fn emit_pipeline_phase_tool_start(
     );
     PipelinePhaseToolEmit {
         tool_call_id,
-        phase: if phase == "verify" { "verify" } else { "position" },
+        phase: if phase == "verify" {
+            "verify"
+        } else {
+            "position"
+        },
     }
 }
 
@@ -104,7 +107,11 @@ pub fn emit_pipeline_phase_tool_complete(
         StreamEvent::ToolCallStatus {
             message_id: assistant_message_id.to_string(),
             tool_call_id: emit_ctx.tool_call_id.clone(),
-            status: if ok { "success".into() } else { "failed".into() },
+            status: if ok {
+                "success".into()
+            } else {
+                "failed".into()
+            },
             result,
             error: error.map(str::to_string),
             duration_ms: Some(duration_ms),

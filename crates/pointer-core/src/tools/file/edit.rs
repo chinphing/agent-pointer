@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 const COLLAPSE_THRESHOLD: usize = 6;
 
 /// Build diff lines from old/new content, folding long unchanged runs.
-pub(super) fn compute_diff_lines(old: &str, new: &str) -> (Vec<serde_json::Value>, serde_json::Value) {
+pub(super) fn compute_diff_lines(
+    old: &str,
+    new: &str,
+) -> (Vec<serde_json::Value>, serde_json::Value) {
     let diff = TextDiff::from_lines(old, new);
     let mut all: Vec<serde_json::Value> = Vec::new();
     let mut adds = 0usize;
@@ -51,12 +54,7 @@ pub(super) fn compute_diff_lines(old: &str, new: &str) -> (Vec<serde_json::Value
                 // Collect the middle hidden lines
                 let mut hidden: Vec<String> = Vec::new();
                 for j in start + 3..i - 3 {
-                    hidden.push(
-                        all[j]["text"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string(),
-                    );
+                    hidden.push(all[j]["text"].as_str().unwrap_or("").to_string());
                 }
                 folded.push(serde_json::json!({
                     "type": "collapse",
@@ -149,11 +147,17 @@ pub(crate) fn try_unique_text_replace(text: &str, old_s: &str, new_s: &str) -> R
         return Ok(out);
     }
     if c > 1 {
-        return Err(anyhow!("oldString 匹配到 {c} 处（按换行规范化后），必须唯一"));
+        return Err(anyhow!(
+            "oldString 匹配到 {c} 处（按换行规范化后），必须唯一"
+        ));
     }
 
     let preview: String = old_s.chars().take(120).collect();
-    let ellipsis = if old_s.chars().count() > 120 { "…" } else { "" };
+    let ellipsis = if old_s.chars().count() > 120 {
+        "…"
+    } else {
+        ""
+    };
     Err(anyhow!(
         "未找到匹配的 oldString。请从本工具 file:read 或 file:grep 复制原文（含缩进），并包含足够上下文保证唯一；注意模型输出可能合并空格/省略片段。当前 oldString 前 120 字符：{}{}",
         preview,
@@ -162,7 +166,12 @@ pub(crate) fn try_unique_text_replace(text: &str, old_s: &str, new_s: &str) -> R
 }
 
 /// One `file_edit` replace. Returns (canonical_path, old_content, new_content).
-fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Result<(PathBuf, String, String)> {
+fn file_edit_apply_one(
+    root: &Path,
+    path: &str,
+    old_s: &str,
+    new_s: &str,
+) -> Result<(PathBuf, String, String)> {
     if old_s.is_empty() {
         return Err(anyhow!("oldString 不能为空"));
     }
@@ -184,9 +193,7 @@ fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Res
 }
 
 /// Resolve a single edit: `path` + `oldString` + `newString` (one file per call).
-fn resolve_single_edit(
-    args: &serde_json::Value,
-) -> Result<(String, String, String)> {
+fn resolve_single_edit(args: &serde_json::Value) -> Result<(String, String, String)> {
     if args.get("edits").is_some() {
         return Err(anyhow!(
             "file_edit 为单文件工具：请传 path、oldString、newString。多文件请并发多次 file_edit，不要传 edits"

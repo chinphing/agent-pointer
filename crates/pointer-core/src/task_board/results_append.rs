@@ -144,10 +144,8 @@ mod tests {
 
     #[test]
     fn appends_single_delta_line() {
-        let (out, w) = append_results_incremental(
-            &[],
-            Some(&serde_json::json!("#7 18578901234: User found")),
-        );
+        let (out, w) =
+            append_results_incremental(&[], Some(&serde_json::json!("#7 18578901234: User found")));
         assert_eq!(out.len(), 1);
         assert!(w.is_empty());
     }

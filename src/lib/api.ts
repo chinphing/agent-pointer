@@ -41,6 +41,45 @@ export interface LocalFileAttachmentPayload {
   contentBase64: string
 }
 
+export interface WorkspaceEntry {
+  name: string
+  path: string
+  kind: 'file' | 'directory' | 'symlink'
+  sizeBytes?: number
+}
+
+export interface WorkspaceFilePreview {
+  path: string
+  content?: string
+  sizeBytes: number
+  truncated: boolean
+  binary: boolean
+}
+
+export interface GitChange {
+  path: string
+  status: string
+  staged: boolean
+  originalPath?: string
+}
+
+export interface GitDiff {
+  path: string
+  diff: string
+}
+
+export type GitErrorCode = 'not_repository' | 'git_not_installed' | 'command_failed'
+
+export interface GitErrorInfo {
+  code: GitErrorCode
+  message: string
+}
+
+export interface GitStatusResponse {
+  changes: GitChange[]
+  error?: GitErrorInfo
+}
+
 export interface SendChatPayload {
   conversationId: string
   messages: ChatMessage[]
@@ -62,6 +101,10 @@ export interface SendChatPayload {
 export interface RuntimeApi {
   sendChat(payload: SendChatPayload): Promise<string | void>
   cancelChat(conversationId: string): Promise<void>
+  listWorkspaceDirectory(workspaceRoot: string, relativePath?: string): Promise<WorkspaceEntry[]>
+  readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<WorkspaceFilePreview>
+  getWorkspaceGitStatus(workspaceRoot: string): Promise<GitStatusResponse>
+  getWorkspaceGitDiff(workspaceRoot: string, relativePath: string): Promise<GitDiff>
   /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
   abortTerminalCommand(conversationId: string, toolCallId?: string): Promise<boolean>
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
@@ -149,6 +192,10 @@ export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
 
 export const sendChat = api.sendChat
 export const cancelChat = api.cancelChat
+export const listWorkspaceDirectory = api.listWorkspaceDirectory
+export const readWorkspaceFile = api.readWorkspaceFile
+export const getWorkspaceGitStatus = api.getWorkspaceGitStatus
+export const getWorkspaceGitDiff = api.getWorkspaceGitDiff
 export const abortTerminalCommand = api.abortTerminalCommand
 export const approveToolCall = api.approveToolCall
 export const submitAskUser = api.submitAskUser

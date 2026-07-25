@@ -13,16 +13,19 @@ pub fn format_im_clarify_message(args: &AskUserArgs) -> String {
     lines.push(String::new());
     for (i, opt) in args.options.iter().enumerate() {
         let n = i + 1;
-        match opt.description.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        match opt
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(desc) => lines.push(format!("{n}. {} — {desc}", opt.label)),
             None => lines.push(format!("{n}. {}", opt.label)),
         }
     }
     lines.push(String::new());
     if args.multi_select {
-        lines.push(
-            "请回复编号（可多选，用逗号分隔）、选项原文，或直接说明你的选择。".into(),
-        );
+        lines.push("请回复编号（可多选，用逗号分隔）、选项原文，或直接说明你的选择。".into());
     } else {
         lines.push("请回复编号、选项原文，或直接说明你的选择。".into());
     }
@@ -62,15 +65,18 @@ impl ImAskUserRegistry {
             desktop_conversation_id: desktop_conversation_id.to_string(),
             args,
         };
-        if let Some(prev) = self.by_base_conv.lock().unwrap().insert(base.clone(), pending) {
+        if let Some(prev) = self
+            .by_base_conv
+            .lock()
+            .unwrap()
+            .insert(base.clone(), pending)
+        {
             log::warn!(
                 "im_ask_user: replaced pending for base_conv={base} prev_tool={}",
                 prev.tool_call_id
             );
         } else {
-            log::info!(
-                "im_ask_user: registered base_conv={base} tool_call_id={tool_call_id}"
-            );
+            log::info!("im_ask_user: registered base_conv={base} tool_call_id={tool_call_id}");
         }
         base
     }
@@ -98,7 +104,11 @@ impl ImAskUserRegistry {
     }
 
     pub fn clear_for_base(&self, base_conversation_id: &str) -> Option<ImAskUserPending> {
-        let removed = self.by_base_conv.lock().unwrap().remove(base_conversation_id);
+        let removed = self
+            .by_base_conv
+            .lock()
+            .unwrap()
+            .remove(base_conversation_id);
         if removed.is_some() {
             log::info!("im_ask_user: cleared base_conv={base_conversation_id}");
         }
@@ -258,11 +268,7 @@ mod tests {
     #[test]
     fn registry_keys_by_base() {
         let reg = ImAskUserRegistry::new();
-        let base = reg.register(
-            "feishu:default:feishu:dm:a:b@s3",
-            "tc1",
-            sample(false),
-        );
+        let base = reg.register("feishu:default:feishu:dm:a:b@s3", "tc1", sample(false));
         assert_eq!(base, "feishu:default:feishu:dm:a:b");
         assert!(reg.peek(&base).is_some());
         assert_eq!(reg.take(&base).unwrap().tool_call_id, "tc1");

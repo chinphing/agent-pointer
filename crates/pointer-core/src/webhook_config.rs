@@ -230,9 +230,7 @@ impl<'a> WebhookTokenStore<'a> {
         let ok = trimmed
             .chars()
             .enumerate()
-            .all(|(i, c)| {
-                c.is_ascii_alphanumeric() || (i > 0 && (c == '-' || c == '_'))
-            });
+            .all(|(i, c)| c.is_ascii_alphanumeric() || (i > 0 && (c == '-' || c == '_')));
         if !ok {
             anyhow::bail!(
                 "webhook source must start with a letter or digit and contain only letters, digits, '-' or '_'"
@@ -250,14 +248,18 @@ impl<'a> WebhookTokenStore<'a> {
     }
 
     /// Build a UI view row for one configured source.
-    pub fn source_view(&self, src: String, token: String, url: String) -> Result<WebhookSourceView> {
+    pub fn source_view(
+        &self,
+        src: String,
+        token: String,
+        url: String,
+    ) -> Result<WebhookSourceView> {
         use crate::conversation_store::webhook_sources;
         let preview = mask_token(&token);
         let conversation_id = webhook_session_key(&src);
         let legacy_has = self.store.message_count(&conversation_id)? > 0;
         let record = self.store.webhook_sources_get(&src)?;
-        let current_session_id =
-            webhook_sources::resolve_view_session_id(record.as_ref(), &src);
+        let current_session_id = webhook_sources::resolve_view_session_id(record.as_ref(), &src);
         let auth_header_name = record
             .as_ref()
             .and_then(|r| r.auth_header_name.clone())
@@ -486,7 +488,14 @@ pub fn mask_token(token: &str) -> String {
     if len <= 4 {
         return "****".into();
     }
-    let tail: String = token.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+    let tail: String = token
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     format!("****{tail}")
 }
 
@@ -614,7 +623,9 @@ mod tests {
         let blob = crate::local_secret::encrypt_local_secret("legacy-global").unwrap();
         assert!(s.app_secret_try_insert(LEGACY_LABEL, &blob).unwrap());
         let ts = WebhookTokenStore::new(&s);
-        assert!(ts.set_source_token("github", "per-source", None, None).unwrap());
+        assert!(ts
+            .set_source_token("github", "per-source", None, None)
+            .unwrap());
         assert_eq!(
             ts.reveal_source_token("github").unwrap().as_deref(),
             Some("per-source")
@@ -627,9 +638,13 @@ mod tests {
         let s = store();
         cleanup_test_secrets(&s);
         let ts = WebhookTokenStore::new(&s);
-        assert!(ts.set_source_token("github", "secret-abcd1234", None, None).unwrap());
+        assert!(ts
+            .set_source_token("github", "secret-abcd1234", None, None)
+            .unwrap());
         assert!(!ts.set_source_token("github", "other", None, None).unwrap());
-        assert!(ts.set_source_token("gitlab", "gitlab-token-9999", None, None).unwrap());
+        assert!(ts
+            .set_source_token("gitlab", "gitlab-token-9999", None, None)
+            .unwrap());
         let list = ts.list_sources().unwrap();
         assert_eq!(list.len(), 2);
         assert!(ts.verify_for_source("github", "secret-abcd1234").unwrap());
@@ -663,10 +678,9 @@ mod tests {
         let s = store();
         cleanup_test_secrets(&s);
         let ts = WebhookTokenStore::new(&s);
-        assert!(
-            ts.set_source_token("codeup", "tok-codeup", Some("X-Codeup-Token"), None)
-                .unwrap()
-        );
+        assert!(ts
+            .set_source_token("codeup", "tok-codeup", Some("X-Codeup-Token"), None)
+            .unwrap());
         assert_eq!(
             ts.auth_header_name_for_source("codeup").unwrap().as_deref(),
             Some("X-Codeup-Token")
@@ -693,8 +707,12 @@ mod tests {
 
     #[test]
     fn normalize_auth_header_name_rejects_invalid() {
-        assert!(WebhookTokenStore::normalize_auth_header_name("").unwrap().is_none());
-        assert!(WebhookTokenStore::normalize_auth_header_name("  ").unwrap().is_none());
+        assert!(WebhookTokenStore::normalize_auth_header_name("")
+            .unwrap()
+            .is_none());
+        assert!(WebhookTokenStore::normalize_auth_header_name("  ")
+            .unwrap()
+            .is_none());
         assert!(WebhookTokenStore::normalize_auth_header_name("-Bad").is_err());
         assert_eq!(
             WebhookTokenStore::normalize_auth_header_name("X-Codeup-Token")
@@ -714,10 +732,19 @@ mod tests {
             webhook_session_id_from_storage_segment("test", "webhook_test"),
             Some("webhook:test".into())
         );
-        assert!(conversation_id_matches_webhook_src("webhook:test:20260708", "test"));
+        assert!(conversation_id_matches_webhook_src(
+            "webhook:test:20260708",
+            "test"
+        ));
         assert!(conversation_id_matches_webhook_src("webhook:test", "test"));
-        assert!(conversation_id_matches_webhook_src("webhook:test:del-abc", "test"));
-        assert!(!conversation_id_matches_webhook_src("webhook:ci:20260708", "test"));
+        assert!(conversation_id_matches_webhook_src(
+            "webhook:test:del-abc",
+            "test"
+        ));
+        assert!(!conversation_id_matches_webhook_src(
+            "webhook:ci:20260708",
+            "test"
+        ));
         assert_eq!(
             webhook_session_id_from_storage_segment("test", "webhook_test_del_abc"),
             Some("webhook:test:del_abc".into())
@@ -731,13 +758,7 @@ mod tests {
             "x-github-delivery",
             http::HeaderValue::from_static("gh-del"),
         );
-        assert_eq!(
-            extract_delivery_id(&headers, Some("idem-key")),
-            "idem-key"
-        );
-        assert_eq!(
-            extract_delivery_id(&headers, None),
-            "gh-del"
-        );
+        assert_eq!(extract_delivery_id(&headers, Some("idem-key")), "idem-key");
+        assert_eq!(extract_delivery_id(&headers, None), "gh-del");
     }
 }

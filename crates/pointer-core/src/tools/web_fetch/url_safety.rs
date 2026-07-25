@@ -191,10 +191,7 @@ mod tests {
             Ok(u) => assert_eq!(u.host_str(), Some("example.com")),
             Err(e) => {
                 let msg = e.to_string();
-                assert!(
-                    msg.contains("DNS lookup failed"),
-                    "unexpected error: {msg}"
-                );
+                assert!(msg.contains("DNS lookup failed"), "unexpected error: {msg}");
             }
         }
     }

@@ -97,10 +97,7 @@ fn read_linux_os_version() -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn trim_os_release_value(raw: &str) -> String {
-    raw.trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .to_string()
+    raw.trim().trim_matches('"').trim_matches('\'').to_string()
 }
 
 #[cfg(test)]

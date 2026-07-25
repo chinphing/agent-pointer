@@ -26,10 +26,10 @@ pub(super) async fn run_single_agent_tool_pass(
     let mut stats = ToolInvocationStats::TokenSession(req.token_session);
     let stream = req.session.stream.clone();
     let stream_for_trim = stream.clone();
-    let anchor_message_id = req.session.state.get_main_task_board_anchor(
-        req.session.conversation_id,
-        req.main_task_board_store_key,
-    );
+    let anchor_message_id = req
+        .session
+        .state
+        .get_main_task_board_anchor(req.session.conversation_id, req.main_task_board_store_key);
     let trim_hook = TaskBoardTrimHook {
         settings: req.settings,
         agent_id: req.lead_agent_id,

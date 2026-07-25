@@ -10,10 +10,7 @@ pub fn push_user_coding_rules_to_cacheable(cacheable: &mut Vec<String>, rules: &
     }
     let chars: Vec<char> = trimmed.chars().collect();
     let body = if chars.len() > USER_CODING_RULES_MAX_CHARS {
-        let head: String = chars
-            .iter()
-            .take(USER_CODING_RULES_MAX_CHARS)
-            .collect();
+        let head: String = chars.iter().take(USER_CODING_RULES_MAX_CHARS).collect();
         format!("{head}\n…(truncated at {USER_CODING_RULES_MAX_CHARS} chars)")
     } else {
         trimmed.to_string()

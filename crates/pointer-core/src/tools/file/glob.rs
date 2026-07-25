@@ -1,7 +1,5 @@
 use super::list::list_entry_type_allowed;
-use super::path::{
-    expand_user_path_for_file, path_display_abs, resolve_existing_read_path,
-};
+use super::path::{expand_user_path_for_file, path_display_abs, resolve_existing_read_path};
 use super::{MAX_GLOB_RESULTS, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
@@ -10,9 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
 
 fn path_is_inside_git_metadata_tree(p: &Path) -> bool {
-    p.to_string_lossy()
-        .replace('\\', "/")
-        .contains("/.git/")
+    p.to_string_lossy().replace('\\', "/").contains("/.git/")
 }
 
 fn has_glob_meta(s: &str) -> bool {
@@ -29,9 +25,7 @@ fn build_glob_set(pattern: &str) -> Result<globset::GlobSet> {
         let alt = format!("{}{}{}", &pattern[..i], "/", &pattern[i + 4..]);
         builder.add(Glob::new(&alt).map_err(|e| anyhow!("glob 模式无效: {e}"))?);
     }
-    builder
-        .build()
-        .map_err(|e| anyhow!("glob 构建失败: {e}"))
+    builder.build().map_err(|e| anyhow!("glob 构建失败: {e}"))
 }
 
 /// When `pattern` is absolute / `~/…`, split into (search root, relative glob).
@@ -138,28 +132,28 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let (walk_root, pattern) = if let Some((abs_root, rel)) = split_absolute_glob_pattern(pattern_raw)?
-    {
-        (abs_root, rel)
-    } else {
-        let walk_root = if let Some(b) = args
-            .get("base")
-            .or_else(|| args.get("rootPath"))
-            .or_else(|| args.get("baseDir"))
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            let p = resolve_existing_read_path(root, b, "glob")?;
-            if !p.is_dir() {
-                return Err(anyhow!("glob 搜索根必须是目录: {}", p.display()));
-            }
-            p
+    let (walk_root, pattern) =
+        if let Some((abs_root, rel)) = split_absolute_glob_pattern(pattern_raw)? {
+            (abs_root, rel)
         } else {
-            root.to_path_buf()
+            let walk_root = if let Some(b) = args
+                .get("base")
+                .or_else(|| args.get("rootPath"))
+                .or_else(|| args.get("baseDir"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                let p = resolve_existing_read_path(root, b, "glob")?;
+                if !p.is_dir() {
+                    return Err(anyhow!("glob 搜索根必须是目录: {}", p.display()));
+                }
+                p
+            } else {
+                root.to_path_buf()
+            };
+            (walk_root, pattern_raw.to_string())
         };
-        (walk_root, pattern_raw.to_string())
-    };
     let walk_root = walk_root
         .canonicalize()
         .map_err(|e| anyhow!("glob 搜索根路径无效: {e}"))?;

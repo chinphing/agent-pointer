@@ -28,10 +28,18 @@ pub struct Conversation {
     )]
     pub computer_monitor_id: Option<String>,
     /// Per-conversation workspace root for coder/file tools (session UI only).
-    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "workspaceRoot",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub workspace_root: String,
     /// True when the user explicitly picked `workspace_root` in the composer (not auto sandbox).
-    #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
+    #[serde(
+        default,
+        rename = "workspaceUserSet",
+        skip_serializing_if = "is_false_bool"
+    )]
     pub workspace_user_set: bool,
     /// User cleared workspace in composer; do not inherit another session's directory.
     #[serde(
@@ -55,7 +63,11 @@ pub struct Conversation {
     )]
     pub agent_mode: String,
     /// Platform login user id or IM channel user / group key for this session.
-    #[serde(default, rename = "sessionUserId", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "sessionUserId",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub session_user_id: String,
 }
 
@@ -98,9 +110,17 @@ pub struct ConversationMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub computer_monitor_id: Option<String>,
-    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "workspaceRoot",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub workspace_root: String,
-    #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
+    #[serde(
+        default,
+        rename = "workspaceUserSet",
+        skip_serializing_if = "is_false_bool"
+    )]
     pub workspace_user_set: bool,
     #[serde(
         default,
@@ -128,7 +148,11 @@ pub struct ConversationMeta {
     /// an in-memory `Conversation`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub preview: String,
-    #[serde(default, rename = "sessionUserId", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "sessionUserId",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub session_user_id: String,
 }
 
@@ -142,7 +166,11 @@ pub struct ConversationSearchHit {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub snippet: String,
     /// Matched message id when the hit came from message body FTS; empty for title-only hits.
-    #[serde(default, rename = "messageId", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "messageId",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub message_id: String,
     #[serde(default, rename = "messageCount")]
     pub message_count: u32,
@@ -215,23 +243,36 @@ pub struct SendChatPayload {
     #[serde(default, rename = "toolRoundsUsedSupervisor")]
     pub tool_rounds_used_supervisor: u32,
     /// Workspace root for this conversation run (overrides global settings when non-empty).
-    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "workspaceRoot",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub workspace_root: String,
     /// When true, do not inherit another conversation's workspace (user cleared composer).
-    #[serde(default, rename = "workspaceInheritDisabled", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "workspaceInheritDisabled",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub workspace_inherit_disabled: Option<bool>,
     /// Session lead worker override for this run (`single` mode).
-    #[serde(default, rename = "leadAgentId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "leadAgentId",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub lead_agent_id: Option<String>,
 }
 
 #[cfg(test)]
 mod agent_trace_persistence_tests {
+    use super::super::settings::{default_agent_mode, default_lead_agent_id};
     use super::*;
     use crate::models::{
-        AgentTrace, ChatMessage, ComputerOperationTarget, Role, SubAgentSessionUi, SubAgentToolStats,
+        AgentTrace, ChatMessage, ComputerOperationTarget, Role, SubAgentSessionUi,
+        SubAgentToolStats,
     };
-    use super::super::settings::{default_agent_mode, default_lead_agent_id};
 
     #[test]
     fn agent_trace_session_round_trips_in_conversation_json() {
@@ -257,9 +298,7 @@ mod agent_trace_persistence_tests {
                     other_count: 3,
                     ..Default::default()
                 },
-                summary_line: Some(
-                    "电脑操控 · 已完成 · 鼠标 2 次 · 输入 1 次 · 其他 3 次".into(),
-                ),
+                summary_line: Some("电脑操控 · 已完成 · 鼠标 2 次 · 输入 1 次 · 其他 3 次".into()),
                 collapsed: true,
                 ..Default::default()
             }),

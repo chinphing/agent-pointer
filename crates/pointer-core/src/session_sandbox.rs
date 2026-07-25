@@ -43,9 +43,8 @@ impl SessionSandbox {
     pub fn ensure_default(conversation_id: &str, session_user_id: &str) -> Result<PathBuf> {
         let path = Self::default_path(conversation_id, session_user_id)?;
         if !path.exists() {
-            std::fs::create_dir_all(&path).with_context(|| {
-                format!("Failed to create session sandbox: {}", path.display())
-            })?;
+            std::fs::create_dir_all(&path)
+                .with_context(|| format!("Failed to create session sandbox: {}", path.display()))?;
         }
         Ok(path)
     }

@@ -3,8 +3,8 @@
 mod windows_activate;
 mod windows_recent;
 
-use super::listed_app::ListedApp;
 use super::launch_verify::{self, LaunchVerifyKind, LaunchVerifyOutcome, LAUNCH_VERIFY_POLL_MS};
+use super::listed_app::ListedApp;
 use super::types::{AppOpenOptions, AppOpenResult, ListAppsOptions};
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
@@ -85,7 +85,9 @@ fn running_process_apps() -> Result<Vec<ListedApp>> {
     };
 
     unsafe extern "system" fn enum_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+        };
 
         let ctx = unsafe { &mut *(lparam.0 as *mut Ctx) };
         if hwnd.is_invalid() || !IsWindowVisible(hwnd).as_bool() {
@@ -96,7 +98,9 @@ fn running_process_apps() -> Result<Vec<ListedApp>> {
         if len == 0 {
             return BOOL(1);
         }
-        let title = String::from_utf16_lossy(&buf[..len as usize]).trim().to_string();
+        let title = String::from_utf16_lossy(&buf[..len as usize])
+            .trim()
+            .to_string();
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
         if pid == 0 {
@@ -132,13 +136,18 @@ fn running_process_apps() -> Result<Vec<ListedApp>> {
     }
 
     let mut out: Vec<_> = ctx.by_pid.into_values().collect();
-    out.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    out.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
     Ok(out)
 }
 
 pub(crate) fn process_name_for_pid(pid: u32) -> Option<String> {
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     unsafe {
@@ -183,7 +192,11 @@ fn focus_window(hwnd: windows::Win32::Foundation::HWND) -> Result<()> {
 fn resolve_launch_target(app: &str) -> Option<PathBuf> {
     let app_trim = app.trim();
     let lower = app_trim.to_ascii_lowercase();
-    if app_trim.contains('\\') || app_trim.contains('/') || lower.ends_with(".exe") || lower.ends_with(".lnk") {
+    if app_trim.contains('\\')
+        || app_trim.contains('/')
+        || lower.ends_with(".exe")
+        || lower.ends_with(".lnk")
+    {
         let path = PathBuf::from(app_trim);
         if path.is_file() {
             return Some(path);

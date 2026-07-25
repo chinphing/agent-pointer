@@ -1,6 +1,8 @@
 //! DashScope **Generation API** web search for generic `web_search` tool calls.
 
-use crate::models::{find_dashscope_provider, effective_web_search_model, ModelSettings, DEFAULT_WEB_SEARCH_MODEL};
+use crate::models::{
+    effective_web_search_model, find_dashscope_provider, ModelSettings, DEFAULT_WEB_SEARCH_MODEL,
+};
 use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use serde_json::Value;
@@ -8,9 +10,10 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use super::client::{
-    build_tool_generation_stream_request_body, dashscope_native_generation_url, log_web_search_http_request,
-    parse_search_response, resolve_web_search_api_model, truncate_for_log, DashScopeSearchConfig,
-    WebSearchRequest, WebSearchResult, DEFAULT_WEB_SEARCH_TIMEOUT_SECS,
+    build_tool_generation_stream_request_body, dashscope_native_generation_url,
+    log_web_search_http_request, parse_search_response, resolve_web_search_api_model,
+    truncate_for_log, DashScopeSearchConfig, WebSearchRequest, WebSearchResult,
+    DEFAULT_WEB_SEARCH_TIMEOUT_SECS,
 };
 use super::sse_drain::{read_dashscope_search_sse, read_dashscope_search_sse_from_str};
 use super::stream_ui::WebSearchStreamUi;
@@ -128,15 +131,13 @@ pub async fn execute_generation_web_search(
             .await
             .context("failed to read web search response body")?;
         let trimmed = text.trim_start();
-        if trimmed.starts_with("data:")
-            || trimmed.starts_with("id:")
-            || text.contains("\ndata:")
-        {
+        if trimmed.starts_with("data:") || trimmed.starts_with("id:") || text.contains("\ndata:") {
             let acc = read_dashscope_search_sse_from_str(&text, ui.as_ref())?;
             acc.into_result(&req.query, &config.model, &req.search_strategy)
         } else {
             let parsed = parse_generation_json_fallback(&text).await?;
-            let result = parse_search_response(&req.query, &config.model, &req.search_strategy, &parsed)?;
+            let result =
+                parse_search_response(&req.query, &config.model, &req.search_strategy, &parsed)?;
             if let Some(ref ui_ctx) = ui {
                 if !result.sources.is_empty() {
                     ui_ctx.emit_sources_ready(&result.sources, result.search_count);
@@ -175,23 +176,27 @@ mod tests {
 
     #[test]
     fn generation_url_uses_text_generation_for_qwen3_max() {
-        let cfg = resolve_dashscope_generation_config(&ModelSettings {
-            providers: vec![crate::models::ProviderConfig {
-                id: "qwen".into(),
-                name: "Qwen".into(),
-                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
-                api_key: "sk".into(),
-                models: vec!["qwen3-max".into()],
-                reasoning_in_messages: None,
-                temperature: None,
-                max_tokens: None,
-                model_configs: Default::default(),
-                enable_thinking: None,
-                thinking_budget: None,
-                reasoning_effort: None,
-            }],
-            ..Default::default()
-        }, None).unwrap();
+        let cfg = resolve_dashscope_generation_config(
+            &ModelSettings {
+                providers: vec![crate::models::ProviderConfig {
+                    id: "qwen".into(),
+                    name: "Qwen".into(),
+                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                    api_key: "sk".into(),
+                    models: vec!["qwen3-max".into()],
+                    reasoning_in_messages: None,
+                    temperature: None,
+                    max_tokens: None,
+                    model_configs: Default::default(),
+                    enable_thinking: None,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                }],
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
         assert_eq!(cfg.model, "qwen3-max");
         assert!(cfg.generation_url.contains("text-generation"));
     }

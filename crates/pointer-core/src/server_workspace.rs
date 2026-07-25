@@ -34,9 +34,8 @@ pub fn ensure_server_user_workspace(login_user_id: &str) -> Result<String> {
     let segment = sanitize_login_user_segment(login_user_id);
     let path = app_dir.join(&segment);
     if !path.is_dir() {
-        std::fs::create_dir_all(&path).with_context(|| {
-            format!("create server user workspace {}", path.display())
-        })?;
+        std::fs::create_dir_all(&path)
+            .with_context(|| format!("create server user workspace {}", path.display()))?;
         log::info!(
             "server_workspace: created user workspace app_dir={} login_user={} path={}",
             app_dir.display(),

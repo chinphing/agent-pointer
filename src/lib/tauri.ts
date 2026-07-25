@@ -56,6 +56,31 @@ export async function cancelChat(conversationId: string): Promise<void> {
   await invoke('cancel_chat', { conversationId })
 }
 
+export async function listWorkspaceDirectory(
+  workspaceRoot: string,
+  relativePath?: string
+): Promise<import('./api').WorkspaceEntry[]> {
+  return await invoke('list_workspace_directory', { workspaceRoot, relativePath: relativePath ?? null })
+}
+
+export async function readWorkspaceFile(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<import('./api').WorkspaceFilePreview> {
+  return await invoke('read_workspace_file', { workspaceRoot, relativePath })
+}
+
+export async function getWorkspaceGitStatus(workspaceRoot: string): Promise<import('./api').GitStatusResponse> {
+  return await invoke('get_workspace_git_status', { workspaceRoot })
+}
+
+export async function getWorkspaceGitDiff(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<import('./api').GitDiff> {
+  return await invoke('get_workspace_git_diff', { workspaceRoot, relativePath })
+}
+
 export async function abortTerminalCommand(
   conversationId: string,
   toolCallId?: string

@@ -10,15 +10,53 @@ use pointer_core::models::{
     PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, ToolDef, UserSettings,
 };
 
+use base64::Engine;
 use pointer_core::provider::OpenAIProvider;
 use pointer_core::storage;
-use base64::Engine;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 pub const STREAM_EVENT: &str = "chat://stream";
+
+#[tauri::command]
+pub fn list_workspace_directory(
+    workspace_root: String,
+    relative_path: Option<String>,
+) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
+    pointer_core::workspace_read::list_directory(
+        Path::new(&workspace_root),
+        relative_path.as_deref(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn read_workspace_file(
+    workspace_root: String,
+    relative_path: String,
+) -> Result<pointer_core::workspace_read::WorkspaceFilePreview, String> {
+    pointer_core::workspace_read::read_file(Path::new(&workspace_root), &relative_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_workspace_git_status(
+    workspace_root: String,
+) -> Result<pointer_core::workspace_read::GitStatusResponse, String> {
+    pointer_core::workspace_read::git_status_response(Path::new(&workspace_root))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_workspace_git_diff(
+    workspace_root: String,
+    relative_path: String,
+) -> Result<pointer_core::workspace_read::GitDiff, String> {
+    pointer_core::workspace_read::git_diff(Path::new(&workspace_root), &relative_path)
+        .map_err(|e| e.to_string())
+}
 
 /// Build a [`TriggerRequest`] from the IPC payload. Centralized so the IPC
 /// trigger source stays consistent with HTTP / webhook / cron paths.
@@ -76,10 +114,7 @@ pub fn abort_terminal_command(
     conversation_id: String,
     tool_call_id: Option<String>,
 ) -> Result<bool, String> {
-    Ok(state.abort_terminal_command(
-        &conversation_id,
-        tool_call_id.as_deref(),
-    ))
+    Ok(state.abort_terminal_command(&conversation_id, tool_call_id.as_deref()))
 }
 
 #[tauri::command]
@@ -248,7 +283,8 @@ pub fn import_skill_zip(
 }
 
 #[tauri::command]
-pub fn probe_external_skills() -> Result<pointer_core::skills::external_probe::ExternalSkillsProbeResult, String> {
+pub fn probe_external_skills(
+) -> Result<pointer_core::skills::external_probe::ExternalSkillsProbeResult, String> {
     pointer_core::skills::external_probe::probe_external_skill_sources().map_err(|e| e.to_string())
 }
 
@@ -265,7 +301,8 @@ pub fn import_external_skills(
 
 #[tauri::command]
 pub fn dismiss_external_skills_prompt() -> Result<(), String> {
-    pointer_core::skills::external_probe::dismiss_external_skills_prompt().map_err(|e| e.to_string())
+    pointer_core::skills::external_probe::dismiss_external_skills_prompt()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -308,7 +345,8 @@ pub fn preview_computer_annotated_screen(
         .cached_annotated_for_conversation(&conversation_id)
         .map(|(img, _monitor)| ComputerAnnotatedPreview {
             image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
-            image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img).to_string(),
+            image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img)
+                .to_string(),
             caption: "Annotated screenshot".into(),
         })
         .ok_or_else(|| {
@@ -362,7 +400,14 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     {
         // Try common file managers
         for (cmd, args) in &[
-            ("xdg-open", vec![path_buf.parent().unwrap_or(std::path::Path::new("/")).to_string_lossy().to_string()]),
+            (
+                "xdg-open",
+                vec![path_buf
+                    .parent()
+                    .unwrap_or(std::path::Path::new("/"))
+                    .to_string_lossy()
+                    .to_string()],
+            ),
             ("nautilus", vec![display.clone()]),
             ("dolphin", vec![format!("--select={display}")]),
             ("nemo", vec![display.clone()]),
@@ -465,10 +510,9 @@ fn mime_from_file_name(file_name: &str) -> String {
 /// Open a local file with the OS default application.
 #[tauri::command]
 pub fn open_path_with_default_app(path: String) -> Result<(), String> {
-    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
-    let canonical = path_buf
-        .canonicalize()
-        .unwrap_or(path_buf);
+    let path_buf =
+        pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
+    let canonical = path_buf.canonicalize().unwrap_or(path_buf);
     open_path_with_system_default(&canonical)
 }
 
@@ -537,9 +581,7 @@ pub async fn upload_composer_video_to_oss(
         log::warn!(
             "upload_composer_video_to_oss: rejected attachment={attachment_id} — OSS not configured"
         );
-        return Err(
-            "OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into(),
-        );
+        return Err("OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into());
     }
     let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| {
         log::warn!("upload_composer_video_to_oss: invalid path {path}: {e}");
@@ -635,9 +677,7 @@ pub async fn upload_composer_video_bytes_to_oss(
         log::warn!(
             "upload_composer_video_bytes_to_oss: rejected attachment={attachment_id} — OSS not configured"
         );
-        return Err(
-            "OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into(),
-        );
+        return Err("OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into());
     }
     let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
     let aid = attachment_id.clone();
@@ -686,7 +726,8 @@ pub async fn upload_composer_video_bytes_to_oss(
 /// Read a user-selected local file for composer attachment upload (any directory).
 #[tauri::command]
 pub fn get_local_file_size(path: String) -> Result<u64, String> {
-    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
+    let path_buf =
+        pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
     if !path_buf.is_file() {
         return Err(format!("文件不存在: {}", path_buf.display()));
     }
@@ -697,7 +738,8 @@ pub fn get_local_file_size(path: String) -> Result<u64, String> {
 /// Read a user-selected local file for composer attachment upload (any directory).
 #[tauri::command]
 pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmentPayload, String> {
-    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
+    let path_buf =
+        pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
     if !path_buf.is_file() {
         return Err(format!("文件不存在: {}", path_buf.display()));
     }
@@ -709,9 +751,7 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
         .unwrap_or("attachment")
         .to_string();
     if pointer_core::media::is_video_file_name(&file_name) {
-        return Err(
-            "视频请通过 OSS 上传：使用文件选择后自动上传，勿直接读取整文件到内存".into(),
-        );
+        return Err("视频请通过 OSS 上传：使用文件选择后自动上传，勿直接读取整文件到内存".into());
     }
     let limit = max_attachment_bytes(&file_name);
     if meta.len() > limit {
@@ -757,13 +797,8 @@ pub fn save_chat_attachment(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content_base64.trim())
         .map_err(|e| format!("decode attachment base64: {e}"))?;
-    pointer_core::media::save_attachment_bytes(
-        &conversation_id,
-        &attachment_id,
-        &bytes,
-        &file_name,
-    )
-    .map_err(|e| e.to_string())
+    pointer_core::media::save_attachment_bytes(&conversation_id, &attachment_id, &bytes, &file_name)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -830,9 +865,7 @@ pub fn load_conversation_metas(
     let cursor = match (cursor_updated_at, cursor_id) {
         (Some(ts), Some(id)) => Some((ts, id)),
         (Some(_), None) | (None, Some(_)) => {
-            return Err(
-                "cursor_updated_at and cursor_id must both be set or both be null".into(),
-            )
+            return Err("cursor_updated_at and cursor_id must both be set or both be null".into())
         }
         (None, None) => None,
     };
@@ -851,7 +884,8 @@ pub fn search_conversations(
 
 #[tauri::command]
 pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMessage>, String> {
-    let messages = storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;
+    let messages =
+        storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;
     log::info!(
         "tauri::load_conversation_messages: id={conversation_id} returned {} messages",
         messages.len()
@@ -892,7 +926,9 @@ pub fn append_conversation_messages(
 }
 
 #[tauri::command]
-pub async fn list_pinned_experiences(limit: Option<u32>) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
+pub async fn list_pinned_experiences(
+    limit: Option<u32>,
+) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
     let n = limit.unwrap_or(3).max(1).min(10) as usize;
     pointer_core::experiences::fetch_pinned_experiences(n)
         .await
@@ -900,14 +936,18 @@ pub async fn list_pinned_experiences(limit: Option<u32>) -> Result<Vec<pointer_c
 }
 
 #[tauri::command]
-pub async fn list_experience_home() -> Result<pointer_core::experiences::ExperienceHomeResponse, String> {
+pub async fn list_experience_home(
+) -> Result<pointer_core::experiences::ExperienceHomeResponse, String> {
     pointer_core::experiences::fetch_experience_home()
         .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn search_experiences(query: String, limit: Option<u32>) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
+pub async fn search_experiences(
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
     let n = limit.unwrap_or(20).max(1).min(50) as usize;
     pointer_core::experiences::fetch_experience_search(&query, n)
         .await
@@ -915,7 +955,9 @@ pub async fn search_experiences(query: String, limit: Option<u32>) -> Result<Vec
 }
 
 #[tauri::command]
-pub async fn get_experience_detail(slug: String) -> Result<pointer_core::experiences::ExperienceDetail, String> {
+pub async fn get_experience_detail(
+    slug: String,
+) -> Result<pointer_core::experiences::ExperienceDetail, String> {
     pointer_core::experiences::fetch_experience_detail(&slug)
         .await
         .map_err(|e| e.to_string())
@@ -936,7 +978,10 @@ pub fn get_dispatcher_queue_snapshot(
 pub fn list_cron_jobs(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<pointer_core::conversation_store::cron_jobs::CronJobView>, String> {
-    let rows = state.session_index.cron_jobs_list_all().map_err(|e| e.to_string())?;
+    let rows = state
+        .session_index
+        .cron_jobs_list_all()
+        .map_err(|e| e.to_string())?;
     Ok(rows
         .iter()
         .map(pointer_core::conversation_store::cron_jobs::CronJobView::from_record)
@@ -994,8 +1039,7 @@ pub fn create_cron_job(
         .map_err(|e| e.to_string())?;
     let (cron_expr, schedule_kind, next_override) = match parsed {
         pointer_core::tools::cron_job::schedule::ParsedSchedule::Recurring { cron_expr } => {
-            if pointer_core::conversation_store::cron_jobs::next_run_ms_now(&cron_expr).is_none()
-            {
+            if pointer_core::conversation_store::cron_jobs::next_run_ms_now(&cron_expr).is_none() {
                 return Err(format!("invalid cron expression: {cron_expr}"));
             }
             (
@@ -1034,7 +1078,10 @@ pub fn create_cron_job(
         enabled: args.enabled,
         deliver: deliver.as_deref(),
     };
-    let inserted = state.session_index.cron_jobs_insert(&new).map_err(|e| e.to_string())?;
+    let inserted = state
+        .session_index
+        .cron_jobs_insert(&new)
+        .map_err(|e| e.to_string())?;
     if !inserted {
         return Err(format!("cron job already exists: {}", args.id));
     }
@@ -1108,15 +1155,17 @@ pub fn list_cron_delivery_targets(
     channel_gateway: State<'_, Arc<pointer_channels::ChannelGateway>>,
 ) -> Result<Vec<pointer_channels::im_delivery::DeliveryTargetInfo>, String> {
     let cfg = channel_gateway.config().clone();
-    Ok(pointer_channels::im_delivery::list_home_delivery_targets(&cfg))
+    Ok(pointer_channels::im_delivery::list_home_delivery_targets(
+        &cfg,
+    ))
 }
 
 #[tauri::command]
-pub fn delete_cron_job(
-    state: State<'_, Arc<AppState>>,
-    job_id: String,
-) -> Result<bool, String> {
-    state.session_index.cron_jobs_delete(&job_id).map_err(|e| e.to_string())
+pub fn delete_cron_job(state: State<'_, Arc<AppState>>, job_id: String) -> Result<bool, String> {
+    state
+        .session_index
+        .cron_jobs_delete(&job_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1157,8 +1206,13 @@ pub fn set_webhook_source_token(
     session_mode: Option<String>,
 ) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
-    if store.is_source_configured(&src).map_err(|e| e.to_string())? {
-        return Err("webhook token already configured for this source; clear it first to rotate".into());
+    if store
+        .is_source_configured(&src)
+        .map_err(|e| e.to_string())?
+    {
+        return Err(
+            "webhook token already configured for this source; clear it first to rotate".into(),
+        );
     }
     let parsed_mode = session_mode
         .as_deref()
@@ -1182,11 +1236,12 @@ pub fn patch_webhook_source(
 ) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
     if let Some(mode_raw) = session_mode {
-        let mode = pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse(
-            &mode_raw,
-        )
-        .map_err(|e| e.to_string())?;
-        store.set_session_mode(&src, mode).map_err(|e| e.to_string())?;
+        let mode =
+            pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse(&mode_raw)
+                .map_err(|e| e.to_string())?;
+        store
+            .set_session_mode(&src, mode)
+            .map_err(|e| e.to_string())?;
     }
     get_webhook_config(state)
 }
@@ -1197,8 +1252,8 @@ pub fn reveal_webhook_source_token(
     src: String,
 ) -> Result<pointer_core::webhook_config::WebhookTokenRevealView, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
-    let normalized =
-        pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src).map_err(|e| e.to_string())?;
+    let normalized = pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src)
+        .map_err(|e| e.to_string())?;
     let Some(token) = store
         .reveal_source_token(&normalized)
         .map_err(|e| e.to_string())?
@@ -1223,10 +1278,7 @@ pub fn clear_webhook_source_token(
 }
 
 #[tauri::command]
-pub fn clear_webhook_legacy_token(
-    state: State<'_, Arc<AppState>>,
-) -> Result<bool, String> {
+pub fn clear_webhook_legacy_token(state: State<'_, Arc<AppState>>) -> Result<bool, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
     store.clear_legacy_token().map_err(|e| e.to_string())
 }
-

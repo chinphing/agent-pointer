@@ -91,7 +91,10 @@ impl ExtensionRegistry {
     }
 
     /// Register a hook, replacing any existing hook with the same `override_key`.
-    pub fn register_message_loop_prompts_after(&mut self, hook: Arc<dyn MessageLoopPromptsAfterHook>) {
+    pub fn register_message_loop_prompts_after(
+        &mut self,
+        hook: Arc<dyn MessageLoopPromptsAfterHook>,
+    ) {
         let key = hook.override_key();
         self.message_loop_prompts_after
             .retain(|h| h.override_key() != key);
@@ -100,7 +103,8 @@ impl ExtensionRegistry {
 
     pub fn register_before_main_llm_call(&mut self, hook: Arc<dyn BeforeMainLlmCallHook>) {
         let key = hook.override_key();
-        self.before_main_llm_call.retain(|h| h.override_key() != key);
+        self.before_main_llm_call
+            .retain(|h| h.override_key() != key);
         self.before_main_llm_call.push(hook);
     }
 
@@ -153,8 +157,8 @@ pub(crate) fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::AgentProfile;
     use crate::agents::computer::ComputerState;
+    use crate::agents::AgentProfile;
     use std::sync::atomic::{AtomicU8, Ordering};
 
     struct CountingHook {

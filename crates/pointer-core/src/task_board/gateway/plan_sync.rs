@@ -1,8 +1,8 @@
 //! Sync parent task board milestones from Supervisor plan output.
 
-use crate::agents::AgentTask;
 use super::super::model::{BoardItem, BoardScope, ItemStatus};
 use super::super::store::TaskBoardStore;
+use crate::agents::AgentTask;
 
 #[derive(Debug, Clone, Default)]
 pub struct SupervisorPlanSyncStats {
@@ -79,10 +79,7 @@ pub fn sync_parent_board_from_supervisor_plan(
 }
 
 fn validate_hint_from_goal(goal: &str) -> Option<String> {
-    let line = goal
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())?;
+    let line = goal.lines().map(str::trim).find(|l| !l.is_empty())?;
     let mut s: String = line.chars().take(160).collect();
     if line.chars().count() > 160 {
         s.push('…');
@@ -118,8 +115,7 @@ mod tests {
                 depends_on: vec!["task_1".into()],
             },
         ];
-        let stats =
-            sync_parent_board_from_supervisor_plan(&store, key, &tasks, "User goal");
+        let stats = sync_parent_board_from_supervisor_plan(&store, key, &tasks, "User goal");
         assert!(stats.goal_set);
         assert_eq!(stats.milestones_created, 2);
         let doc = store.document(key);

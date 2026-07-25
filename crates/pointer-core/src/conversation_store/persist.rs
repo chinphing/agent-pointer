@@ -87,9 +87,9 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
         let payload = payload?;
         match serde_json::from_str::<ChatMessage>(&payload) {
             Ok(msg) => out.push(msg),
-            Err(e) => log::warn!(
-                "conversation_store: skip corrupt message in {conversation_id}: {e}"
-            ),
+            Err(e) => {
+                log::warn!("conversation_store: skip corrupt message in {conversation_id}: {e}")
+            }
         }
     }
     Ok(out)
@@ -265,7 +265,10 @@ pub fn list_all_ids_from_conn(conn: &Connection) -> Result<Vec<String>> {
     for id in rows {
         out.push(id?);
     }
-    log::debug!("conversation_store: list_all_ids returned {} ids", out.len());
+    log::debug!(
+        "conversation_store: list_all_ids returned {} ids",
+        out.len()
+    );
     Ok(out)
 }
 
@@ -315,7 +318,11 @@ pub fn replace_all_in_conn(conn: &Connection, list: &[Conversation]) -> Result<(
     Ok(())
 }
 
-pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messages: bool) -> Result<bool> {
+pub fn upsert_conversation(
+    conn: &Connection,
+    conv: &Conversation,
+    replace_messages: bool,
+) -> Result<bool> {
     let unchanged = conn
         .query_row(
             "SELECT updated_at_ms, message_count FROM conversations WHERE id = ?1",
@@ -323,12 +330,7 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
-    if unchanged
-        == Some((
-            conv.updated_at,
-            conv.messages.len() as i64,
-        ))
-    {
+    if unchanged == Some((conv.updated_at, conv.messages.len() as i64)) {
         return Ok(false);
     }
 
@@ -496,8 +498,7 @@ pub fn delete_conversations_not_in(conn: &Connection, ids: &[String]) -> Result<
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!("DELETE FROM conversations WHERE id NOT IN ({placeholders})");
-    let params: Vec<&dyn rusqlite::ToSql> =
-        ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let params: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
     conn.execute(&sql, params.as_slice())?;
     Ok(())
 }
@@ -546,7 +547,12 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
         updated_at: 1_700_000_100_000,
         messages: vec![
             msg("msg_u1", Role::User, user_text, 1_700_000_000_000),
-            msg("msg_a1", Role::Assistant, "Acknowledged.", 1_700_000_001_000),
+            msg(
+                "msg_a1",
+                Role::Assistant,
+                "Acknowledged.",
+                1_700_000_001_000,
+            ),
         ],
         skill_ids: vec![],
         tool_rounds_used: 0,

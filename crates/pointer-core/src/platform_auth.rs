@@ -333,12 +333,7 @@ impl PlatformAuthManager {
     }
 
     fn resolve_refresh_token(&self) -> String {
-        match self
-            .inner
-            .read()
-            .as_ref()
-            .map(|s| s.refresh_token.clone())
-        {
+        match self.inner.read().as_ref().map(|s| s.refresh_token.clone()) {
             Some(rt) if !rt.is_empty() => rt,
             _ => match storage::load_platform_refresh_token() {
                 Ok(Some(r)) => r,
@@ -501,7 +496,9 @@ impl PlatformAuthManager {
                                 "platform_auth: startup llm-credentials blocked (quota exhausted)"
                             );
                         } else {
-                            log::warn!("platform_auth: startup llm-credentials fetch failed: {e:#}");
+                            log::warn!(
+                                "platform_auth: startup llm-credentials fetch failed: {e:#}"
+                            );
                         }
                         None
                     }
@@ -608,8 +605,7 @@ impl PlatformAuthManager {
             "{}/auth/partner/token-usage",
             Self::api_base().trim_end_matches('/')
         );
-        let meta_str =
-            serde_json::to_string(metadata).context("serialize token usage metadata")?;
+        let meta_str = serde_json::to_string(metadata).context("serialize token usage metadata")?;
         let mut form = reqwest::multipart::Form::new().text("metadata", meta_str);
         if let Some(path) = zip_path {
             let bytes = tokio::fs::read(path)
@@ -699,10 +695,7 @@ impl PlatformAuthManager {
             return Err(anyhow!("token_quota_exhausted"));
         }
         if !parsed.ok {
-            let code = parsed
-                .error_code
-                .as_deref()
-                .unwrap_or("llm_unavailable");
+            let code = parsed.error_code.as_deref().unwrap_or("llm_unavailable");
             log::warn!("platform_auth: llm-credentials unavailable error_code={code}");
             return Err(anyhow!("{code}"));
         }
@@ -790,10 +783,7 @@ impl PlatformAuthManager {
     }
 
     pub async fn fetch_llm_api_key(&self) -> Result<Option<String>> {
-        Ok(self
-            .fetch_llm_credentials()
-            .await?
-            .and_then(|c| c.api_key))
+        Ok(self.fetch_llm_credentials().await?.and_then(|c| c.api_key))
     }
 }
 
@@ -886,14 +876,13 @@ pub struct PartnerBalanceResponse {
 pub async fn bind_loopback_listener() -> Result<(tokio::net::TcpListener, u16)> {
     let preferred = PlatformAuthManager::preferred_loopback_port();
     let last = LAST_LOOPBACK_PORT.load(Ordering::SeqCst);
-    let start_offset = if last >= preferred
-        && last < preferred.saturating_add(LOOPBACK_PORT_SCAN_COUNT)
-    {
-        // Prefer the port after the last successful bind.
-        ((last - preferred) as u32 + 1) % (LOOPBACK_PORT_SCAN_COUNT as u32)
-    } else {
-        0
-    };
+    let start_offset =
+        if last >= preferred && last < preferred.saturating_add(LOOPBACK_PORT_SCAN_COUNT) {
+            // Prefer the port after the last successful bind.
+            ((last - preferred) as u32 + 1) % (LOOPBACK_PORT_SCAN_COUNT as u32)
+        } else {
+            0
+        };
 
     let mut last_err: Option<std::io::Error> = None;
     for i in 0..LOOPBACK_PORT_SCAN_COUNT {
@@ -931,8 +920,8 @@ pub async fn probe_loopback(listener: &tokio::net::TcpListener, port: u16) -> Re
     let probe = async {
         let accept_fut = listener.accept();
         let connect_fut = tokio::net::TcpStream::connect(&addr);
-        let ((mut inbound, _), mut outbound) = tokio::try_join!(accept_fut, connect_fut)
-            .context("loopback probe connect/accept")?;
+        let ((mut inbound, _), mut outbound) =
+            tokio::try_join!(accept_fut, connect_fut).context("loopback probe connect/accept")?;
         outbound
             .write_all(b"GET /probe HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
             .await
@@ -1056,10 +1045,7 @@ async fn handle_loopback_connection(
         }
     };
     let first_line = req.lines().next().unwrap_or("");
-    let path = first_line
-        .split_whitespace()
-        .nth(1)
-        .unwrap_or("/callback");
+    let path = first_line.split_whitespace().nth(1).unwrap_or("/callback");
 
     match parse_callback_query(path, expected_state) {
         Ok((code, _state)) => {
@@ -1168,10 +1154,7 @@ pub async fn wait_loopback_on_listener(
 }
 
 /// After code is captured: 302 further hits to the success page until exchange finishes.
-async fn serve_oauth_keepalive(
-    listener: tokio::net::TcpListener,
-    cancel: CancellationToken,
-) {
+async fn serve_oauth_keepalive(listener: tokio::net::TcpListener, cancel: CancellationToken) {
     let response = oauth_redirect_response(&desktop_oauth_success_redirect_url());
     loop {
         tokio::select! {
@@ -1199,13 +1182,8 @@ async fn serve_oauth_keepalive(
 
 /// 桌面 OAuth 回调成功后跳转官网首页（带一次性提示用的 query）。
 pub fn desktop_oauth_success_redirect_url() -> String {
-    let home = format!(
-        "{}/",
-        platform_endpoints::web_base().trim_end_matches('/')
-    );
-    format!(
-        "{home}?{DESKTOP_OAUTH_SUCCESS_QUERY}={DESKTOP_OAUTH_SUCCESS_VALUE}"
-    )
+    let home = format!("{}/", platform_endpoints::web_base().trim_end_matches('/'));
+    format!("{home}?{DESKTOP_OAUTH_SUCCESS_QUERY}={DESKTOP_OAUTH_SUCCESS_VALUE}")
 }
 
 fn parse_callback_query(path: &str, expected_state: &str) -> Result<(String, String)> {
@@ -1318,9 +1296,7 @@ async fn run_platform_login_flow_inner(
         return Err(e);
     }
 
-    let (code, listener) = callback_task
-        .await
-        .context("oauth callback task join")??;
+    let (code, listener) = callback_task.await.context("oauth callback task join")??;
 
     let keepalive_cancel = CancellationToken::new();
     let kc = keepalive_cancel.clone();
@@ -1367,21 +1343,32 @@ mod tests {
         assert!(url.contains(
             "redirect_uri=https%3A%2F%2Fpointer.example.com%2Fapi%2Fauth%2Foauth%2Fcallback"
         ));
-        assert!(url.contains('&'), "authorize URL must keep query separators");
+        assert!(
+            url.contains('&'),
+            "authorize URL must keep query separators"
+        );
     }
 
     #[test]
     fn build_authorize_url_includes_pkce_and_encoded_redirect() {
-        let url = PlatformAuthManager::build_authorize_url_for_port(19427, "challenge_abc", "pointer-app");
-        assert!(url.starts_with(&format!("{}/oauth/authorize?", PlatformAuthManager::web_base())));
+        let url = PlatformAuthManager::build_authorize_url_for_port(
+            19427,
+            "challenge_abc",
+            "pointer-app",
+        );
+        assert!(url.starts_with(&format!(
+            "{}/oauth/authorize?",
+            PlatformAuthManager::web_base()
+        )));
         assert!(url.contains("client_id=pointer-desktop"));
         assert!(url.contains("code_challenge=challenge_abc"));
         assert!(url.contains("code_challenge_method=S256"));
         assert!(url.contains("state=pointer-app"));
-        assert!(url.contains(
-            "redirect_uri=http%3A%2F%2F127.0.0.1%3A19427%2Fcallback"
-        ));
-        assert!(url.contains('&'), "authorize URL must keep query separators");
+        assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A19427%2Fcallback"));
+        assert!(
+            url.contains('&'),
+            "authorize URL must keep query separators"
+        );
     }
 
     #[test]
@@ -1431,9 +1418,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let wait = tokio::spawn({
             let cancel = cancel.clone();
-            async move {
-                wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await
-            }
+            async move { wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await }
         });
 
         // Invalid first hit must not steal the accept slot permanently.
@@ -1497,9 +1482,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let wait = tokio::spawn({
             let cancel = cancel.clone();
-            async move {
-                wait_loopback_on_listener(listener, "pointer-app", 30, cancel).await
-            }
+            async move { wait_loopback_on_listener(listener, "pointer-app", 30, cancel).await }
         });
         cancel.cancel();
         let err = wait.await.expect("join").expect_err("should cancel");
@@ -1522,9 +1505,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let wait = tokio::spawn({
             let cancel = cancel.clone();
-            async move {
-                wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await
-            }
+            async move { wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await }
         });
 
         let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
@@ -1560,9 +1541,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let wait = tokio::spawn({
             let cancel = cancel.clone();
-            async move {
-                wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await
-            }
+            async move { wait_loopback_on_listener(listener, "pointer-app", 15, cancel).await }
         });
 
         let _preconnect = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))

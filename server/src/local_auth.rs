@@ -1,11 +1,6 @@
 //! Standalone local username/password login + SVG captcha for pointer-server.
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use pointer_core::{
     local_auth::{
         create_local_auth_manager, empty_local_credentials, verify_local_password,
@@ -44,10 +39,7 @@ impl CaptchaStore {
         self.purge_expired();
         let answer = random_captcha_text();
         let id = random_id();
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         guard.insert(
             id.clone(),
             CaptchaEntry {
@@ -65,10 +57,7 @@ impl CaptchaStore {
         if id.is_empty() {
             return false;
         }
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let Some(entry) = guard.remove(id) else {
             log::warn!("local_auth: captcha id not found id={id}");
             return false;
@@ -85,10 +74,7 @@ impl CaptchaStore {
     }
 
     fn purge_expired(&self) {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         guard.retain(|_, e| e.expires_at > now);
     }
@@ -238,11 +224,7 @@ pub async fn local_login(
         token_quota_exhausted: false,
     })
     .into_response();
-    web_session::set_session_cookie(
-        resp.headers_mut(),
-        &session_id,
-        crate::cookie_secure(),
-    );
+    web_session::set_session_cookie(resp.headers_mut(), &session_id, crate::cookie_secure());
     Ok(resp)
 }
 

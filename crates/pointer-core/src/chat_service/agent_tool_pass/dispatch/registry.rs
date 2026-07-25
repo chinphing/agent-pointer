@@ -33,10 +33,7 @@ pub(super) fn resolve_workspace_root(
         }
     }
     // Fall back to session sandbox
-    match crate::session_sandbox::SessionSandbox::ensure_default(
-        conversation_id,
-        session_user_id,
-    ) {
+    match crate::session_sandbox::SessionSandbox::ensure_default(conversation_id, session_user_id) {
         Ok(path) => {
             let ws = path.display().to_string();
             log::info!(
@@ -100,25 +97,30 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
             .or_else(|| args_value.get("file"))
             .and_then(|value| value.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 path"))?;
-        let target = resolve_writable_path(Path::new(&resolved_workspace), path).map_err(|error| {
-            log::warn!(
-                "file_lock: path resolution failed tool={} path={} {} error={error:#}",
-                tool_id,
-                path,
-                execution_scope.log_fields()
-            );
-            error
-        })?;
-        let (guard, waited, normalized) =
-            state.file_write_locks.lock_path(&target).await.map_err(|error| {
+        let target =
+            resolve_writable_path(Path::new(&resolved_workspace), path).map_err(|error| {
                 log::warn!(
-                    "file_lock: acquisition failed tool={} path={} {} error={error:#}",
+                    "file_lock: path resolution failed tool={} path={} {} error={error:#}",
                     tool_id,
-                    target.display(),
+                    path,
                     execution_scope.log_fields()
                 );
                 error
             })?;
+        let (guard, waited, normalized) =
+            state
+                .file_write_locks
+                .lock_path(&target)
+                .await
+                .map_err(|error| {
+                    log::warn!(
+                        "file_lock: acquisition failed tool={} path={} {} error={error:#}",
+                        tool_id,
+                        target.display(),
+                        execution_scope.log_fields()
+                    );
+                    error
+                })?;
         if !waited.is_zero() {
             log::info!(
                 "file_lock: acquired tool={} path={} wait_us={} {}",
@@ -140,8 +142,7 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     let _workspace_guard = ConversationWorkspaceGuard::enter(resolved_workspace.clone());
     let _work_dir_guard =
         crate::session_work_dir_env::SessionWorkDirGuard::enter(resolved_workspace);
-    let _session_user_guard =
-        crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+    let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
     let _tier_guard = if file_profile == AgentProfile::Computer {
         Some(ComputerTierGuard::enter(
             state.computer_state.tier_for_conversation(conversation_id),

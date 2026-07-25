@@ -75,14 +75,14 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             image_slot_labels: None,
                             images_base64: None,
                             computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            });
+                            ui_bindings: None,
+                            context_state: None,
+                            attachments: None,
+                            anchor_message_id: None,
+                            trace_id: None,
+                            task_id: None,
+                            spawn_depth: None,
+                        });
                     }
                     i = j;
                     continue;
@@ -312,10 +312,7 @@ pub fn make_openai_messages(
                 );
                 let mut obj = serde_json::Map::new();
                 obj.insert("role".into(), "assistant".into());
-                obj.insert(
-                    "content".into(),
-                    serde_json::Value::String(api_content),
-                );
+                obj.insert("content".into(), serde_json::Value::String(api_content));
                 // DeepSeek 等「思考模式」在流式里下发 `reasoning_content`；下一轮请求必须原样带回，
                 // 否则 400 — 可由设置 `reasoningInMessages` 关闭（关闭后勿对该类模型开思考）。
                 if include_reasoning_in_api {
@@ -394,14 +391,14 @@ mod make_openai_messages_tests {
             image_slot_labels: None,
             images_base64: None,
             computer_round_screen_rel_path: None,
-        ui_bindings: None,
+            ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            }
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        }
     }
 
     #[test]
@@ -434,7 +431,14 @@ mod make_openai_messages_tests {
         let mut u = msg(Role::User);
         u.content = "see screen".into();
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true, LEAD);
+        let out = make_openai_messages(
+            &[u],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            true,
+            LEAD,
+        );
         assert_eq!(out.len(), 1);
         let content = out[0]["content"].as_array().expect("multipart content");
         assert_eq!(content[0]["type"], "text");
@@ -450,7 +454,14 @@ mod make_openai_messages_tests {
         let mut u = msg(Role::User);
         u.content = "what is this".into();
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, false, LEAD);
+        let out = make_openai_messages(
+            &[u],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
         assert_eq!(out[0]["role"], "user");
         let content = out[0]["content"].as_str().expect("text content");
         assert!(content.contains("what is this"));
@@ -464,7 +475,14 @@ mod make_openai_messages_tests {
         u.content = "[CUR_SCREEN] preamble".into();
         u.image_slot_labels = Some(vec!["[Screen after action]".into()]);
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true, LEAD);
+        let out = make_openai_messages(
+            &[u],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            true,
+            LEAD,
+        );
         let content = out[0]["content"].as_array().expect("multipart content");
         assert_eq!(content.len(), 3);
         assert_eq!(content[0]["text"], "[CUR_SCREEN] preamble");
@@ -477,7 +495,14 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("step 1…".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false, LEAD);
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            true,
+            false,
+            false,
+            LEAD,
+        );
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "answer");
         assert_eq!(out[0]["reasoning_content"], "step 1…");
@@ -505,7 +530,14 @@ mod make_openai_messages_tests {
             remote_url: None,
             oss_object_key: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
         let content = out[0]["content"].as_str().expect("text content");
         assert!(content.starts_with("here is the file"));
         assert!(content.contains(DELIVERED_ATTACHMENTS_MARKER));
@@ -520,8 +552,19 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("hidden".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
-        assert!(out[0].as_object().unwrap().get("reasoning_content").is_none());
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
+        assert!(out[0]
+            .as_object()
+            .unwrap()
+            .get("reasoning_content")
+            .is_none());
     }
 
     #[test]
@@ -540,7 +583,14 @@ mod make_openai_messages_tests {
             display_label: None,
             display_summary: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
         let tc = out[0]["tool_calls"].as_array().expect("tool_calls");
         assert_eq!(tc[0]["function"]["arguments"], "{}");
     }
@@ -565,7 +615,14 @@ mod make_openai_messages_tests {
         t.tool_call_id = Some("call_abc".into());
         t.content = "{}".into();
 
-        let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false, false, LEAD);
+        let out = make_openai_messages(
+            &[a, t],
+            &SystemPromptSections::default(),
+            true,
+            false,
+            false,
+            LEAD,
+        );
         assert_eq!(out.len(), 2, "assistant + tool");
         assert_eq!(out[0]["role"], "assistant");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
@@ -591,7 +648,14 @@ mod make_openai_messages_tests {
             display_label: None,
             display_summary: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false, LEAD);
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            true,
+            false,
+            false,
+            LEAD,
+        );
         assert_eq!(out.len(), 2);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "calling");
@@ -639,7 +703,14 @@ mod make_openai_messages_tests {
             display_label: None,
             display_summary: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
         assert_eq!(out[0]["content"], "visible");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
     }
@@ -662,7 +733,14 @@ mod make_openai_messages_tests {
             display_summary: None,
         }]);
 
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
         assert_eq!(out.len(), 1, "assistant only");
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "");
@@ -698,7 +776,11 @@ mod make_openai_messages_tests {
             false,
             LEAD,
         );
-        assert_eq!(out.len(), 2, "assistant + synthesized tool from inline result");
+        assert_eq!(
+            out.len(),
+            2,
+            "assistant + synthesized tool from inline result"
+        );
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[1]["role"], "tool");
         assert_eq!(out[1]["tool_call_id"], "call_ok");
@@ -757,7 +839,11 @@ mod make_openai_messages_tests {
             false,
             LEAD,
         );
-        assert_eq!(lead.len(), 0, "lead scope: assistant excluded, orphan tool dropped on wire");
+        assert_eq!(
+            lead.len(),
+            0,
+            "lead scope: assistant excluded, orphan tool dropped on wire"
+        );
 
         let sub = make_openai_messages(
             &[assistant, tool],
@@ -775,4 +861,3 @@ mod make_openai_messages_tests {
 }
 
 pub type ToolMap = HashMap<String, ToolDef>;
-

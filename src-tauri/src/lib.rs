@@ -1,5 +1,7 @@
 mod channel_commands;
 mod channel_monitor;
+mod cloud_commands;
+mod cloud_webview;
 mod commands;
 #[cfg(target_os = "macos")]
 mod macos_computer_permissions;
@@ -9,28 +11,21 @@ mod macos_permission_commands;
 mod macos_traffic_lights;
 mod platform_commands;
 mod popup_windows;
-mod cloud_webview;
-mod cloud_commands;
-mod window_chrome_commands;
 mod updater_commands;
+mod window_chrome_commands;
 
 use pointer_channels::adapters::register_builtin_channels;
 use pointer_channels::{ChannelGateway, ChannelRegistry};
 use pointer_core::chat_service::AppState;
 use pointer_core::models::StreamEvent;
-use pointer_core::{
-    skills::external::{system_skills_dir, sync_bundled_skill_dirs},
-};
-use std::{
-    path::PathBuf,
-    sync::Arc,
-};
+use pointer_core::skills::external::{sync_bundled_skill_dirs, system_skills_dir};
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicU64, Ordering};
-use tauri::{Emitter, Manager, RunEvent};
+use std::{path::PathBuf, sync::Arc};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::WindowEvent;
+use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
 fn traffic_light_inset_log_level(label: &'static str) -> Option<log::Level> {
@@ -59,10 +54,7 @@ pub(crate) fn apply_macos_traffic_light_inset(
     };
     macos_traffic_lights::apply_inset(
         ns_window,
-        LogicalPosition::new(
-            macos_traffic_lights::INSET_X,
-            macos_traffic_lights::INSET_Y,
-        ),
+        LogicalPosition::new(macos_traffic_lights::INSET_X, macos_traffic_lights::INSET_Y),
     );
     if let Some(level) = traffic_light_inset_log_level(label) {
         log::log!(
@@ -91,7 +83,10 @@ static MACOS_CHROME_REPAIR_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// Re-apply overlay title bar + traffic-light inset without toggling decorations.
 #[cfg(target_os = "macos")]
-pub(crate) fn repair_macos_overlay_chrome(win: &tauri::WebviewWindow<tauri::Wry>, label: &'static str) {
+pub(crate) fn repair_macos_overlay_chrome(
+    win: &tauri::WebviewWindow<tauri::Wry>,
+    label: &'static str,
+) {
     if window_chrome_commands::is_computer_compact_chrome_active() {
         return;
     }
@@ -205,19 +200,17 @@ fn configure_macos_window_chrome(app: &tauri::App) {
     reapply_macos_window_chrome(&win);
 
     let win_for_events = win.clone();
-    win.on_window_event(move |event| {
-        match event {
-            WindowEvent::Resized(_) => {
-                schedule_macos_overlay_chrome_repair(&win_for_events, "window-resized");
-            }
-            WindowEvent::ScaleFactorChanged { .. } => {
-                schedule_macos_overlay_chrome_repair(&win_for_events, "scale-factor-changed");
-            }
-            WindowEvent::Focused(true) => {
-                schedule_macos_overlay_chrome_repair(&win_for_events, "window-focused");
-            }
-            _ => {}
+    win.on_window_event(move |event| match event {
+        WindowEvent::Resized(_) => {
+            schedule_macos_overlay_chrome_repair(&win_for_events, "window-resized");
         }
+        WindowEvent::ScaleFactorChanged { .. } => {
+            schedule_macos_overlay_chrome_repair(&win_for_events, "scale-factor-changed");
+        }
+        WindowEvent::Focused(true) => {
+            schedule_macos_overlay_chrome_repair(&win_for_events, "window-focused");
+        }
+        _ => {}
     });
 
     log::info!("macOS window chrome: native traffic lights enabled (decorations + overlay)");
@@ -231,9 +224,7 @@ pub fn run() {
     // 发布版默认不含 `pointer_core::provider=debug`；调试模式或 dev 构建见 `logging::default_runtime_log_filter`。
     let default_log_filter = pointer_core::logging::default_runtime_log_filter();
     let log_dir = pointer_core::logging::desktop_log_dir();
-    if let Err(err) =
-        pointer_core::logging::init_runtime_logging(&log_dir, default_log_filter)
-    {
+    if let Err(err) = pointer_core::logging::init_runtime_logging(&log_dir, default_log_filter) {
         eprintln!(
             "Pointer: file logging unavailable ({err}); logs are stderr-only. log_dir={}",
             log_dir.display()
@@ -473,6 +464,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::send_chat,
             commands::cancel_chat,
+            commands::list_workspace_directory,
+            commands::read_workspace_file,
+            commands::get_workspace_git_status,
+            commands::get_workspace_git_diff,
             commands::abort_terminal_command,
             commands::approve_tool_call,
             commands::submit_ask_user,
@@ -655,7 +650,10 @@ fn install_bundled_skills(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     }
     let installed = sync_bundled_skill_dirs(&sources)?;
     if installed.is_empty() {
-        log::info!("bundled skills: all present under {}", system_skills_dir()?.display());
+        log::info!(
+            "bundled skills: all present under {}",
+            system_skills_dir()?.display()
+        );
     } else {
         log::info!("bundled skills: installed {:?}", installed);
     }

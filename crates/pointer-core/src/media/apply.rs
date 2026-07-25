@@ -36,10 +36,7 @@ fn load_attachment_bytes(att: &MediaAttachment) -> Result<Vec<u8>> {
 }
 
 /// Save wire bytes to conversation-media; do not mutate message content.
-fn process_attachment_persist_only(
-    conversation_id: &str,
-    att: &mut MediaAttachment,
-) -> Result<()> {
+fn process_attachment_persist_only(conversation_id: &str, att: &mut MediaAttachment) -> Result<()> {
     let bytes = load_attachment_bytes(att)?;
     if att
         .storage_rel_path
@@ -93,7 +90,11 @@ async fn try_upload_inbound_video_to_oss(
     }
     let mime = {
         let m = att.mime_type.trim();
-        if m.is_empty() { "video/mp4" } else { m }
+        if m.is_empty() {
+            "video/mp4"
+        } else {
+            m
+        }
     };
     let on_progress = Arc::new(|_: u64, _: u64| {});
     match upload_composer_video_bytes(

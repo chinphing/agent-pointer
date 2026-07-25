@@ -257,7 +257,10 @@ mod apply_tests {
             doc.global_milestones[0].done_when.as_deref(),
             Some("run unit tests")
         );
-        assert_eq!(doc.global_milestones[0].remark.as_deref(), Some("tests passed"));
+        assert_eq!(
+            doc.global_milestones[0].remark.as_deref(),
+            Some("tests passed")
+        );
     }
 
     #[test]
@@ -281,9 +284,11 @@ mod apply_tests {
                 &json!({"items": [{"id": "1", "status": "in_progress", "validate_result_delta": "first"}]}),
             )
             .expect("p1");
-        assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
-            w.get("code").and_then(|c| c.as_str()) == Some("v3_field_rejected")
-        }));
+        assert!(body["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| { w.get("code").and_then(|c| c.as_str()) == Some("v3_field_rejected") }));
     }
 
     #[test]
@@ -301,15 +306,13 @@ mod apply_tests {
             )
             .expect("init");
         let (body, _) = store
-            .apply(
-                key,
-                "patch",
-                &json!({"item_id": "1", "remark": "step ok"}),
-            )
+            .apply(key, "patch", &json!({"item_id": "1", "remark": "step ok"}))
             .expect("patch");
-        assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
-            w.get("code").and_then(|c| c.as_str()) == Some("patch_status_required")
-        }));
+        assert!(body["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| { w.get("code").and_then(|c| c.as_str()) == Some("patch_status_required") }));
     }
 
     #[test]
@@ -337,9 +340,11 @@ mod apply_tests {
                 &json!({"item_id": "1", "status": "in_progress", "progress": "7/10"}),
             )
             .expect("patch");
-        assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
-            w.get("code").and_then(|c| c.as_str()) == Some("v3_field_rejected")
-        }));
+        assert!(body["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| { w.get("code").and_then(|c| c.as_str()) == Some("v3_field_rejected") }));
     }
 
     #[test]
@@ -386,7 +391,9 @@ mod apply_tests {
                 }),
             )
             .expect_err("should reject incomplete explicit total");
-        assert!(err.to_string().contains("expected exactly 21 item(s), got 8"));
+        assert!(err
+            .to_string()
+            .contains("expected exactly 21 item(s), got 8"));
     }
 
     #[test]
@@ -451,4 +458,3 @@ mod sqlite_tests {
         assert_eq!(doc.global_milestones[0].id, "m1");
     }
 }
-

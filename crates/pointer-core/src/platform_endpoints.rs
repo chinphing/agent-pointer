@@ -47,8 +47,7 @@ pub fn web_base() -> String {
 }
 
 pub fn oauth_client_id() -> String {
-    std::env::var("POINTER_OAUTH_CLIENT_ID")
-        .unwrap_or_else(|_| DEFAULT_OAUTH_CLIENT_ID.to_string())
+    std::env::var("POINTER_OAUTH_CLIENT_ID").unwrap_or_else(|_| DEFAULT_OAUTH_CLIENT_ID.to_string())
 }
 
 pub fn annotate_api_base() -> String {

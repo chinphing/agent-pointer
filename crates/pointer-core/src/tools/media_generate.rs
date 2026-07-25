@@ -52,16 +52,19 @@ pub fn build_image_request(args: &Value) -> Result<crate::media_generation::Imag
         prompt: parse_prompt(args)?,
         size: parse_optional_string(args, "size"),
         n: parse_count(args),
-        image_url: parse_optional_string(args, "image").or_else(|| parse_optional_string(args, "imageUrl")),
+        image_url: parse_optional_string(args, "image")
+            .or_else(|| parse_optional_string(args, "imageUrl")),
     })
 }
 
 pub fn build_video_request(args: &Value) -> Result<crate::media_generation::VideoGenerateRequest> {
     Ok(crate::media_generation::VideoGenerateRequest {
         prompt: parse_prompt(args)?,
-        size: parse_optional_string(args, "size").or_else(|| parse_optional_string(args, "resolution")),
+        size: parse_optional_string(args, "size")
+            .or_else(|| parse_optional_string(args, "resolution")),
         duration_seconds: parse_duration(args),
-        image_url: parse_optional_string(args, "image").or_else(|| parse_optional_string(args, "imageUrl")),
+        image_url: parse_optional_string(args, "image")
+            .or_else(|| parse_optional_string(args, "imageUrl")),
         audio: parse_bool(args, "audio"),
     })
 }

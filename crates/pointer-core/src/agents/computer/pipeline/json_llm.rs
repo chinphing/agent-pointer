@@ -17,7 +17,10 @@ pub struct PipelineJsonLlmMeta {
     pub reasoning: Option<String>,
 }
 
-fn record_chat_once_usage(recorder: Option<&mut PipelineLlmUsageRecorder<'_>>, out: &ChatOnceOutput) {
+fn record_chat_once_usage(
+    recorder: Option<&mut PipelineLlmUsageRecorder<'_>>,
+    out: &ChatOnceOutput,
+) {
     let Some(r) = recorder else {
         return;
     };
@@ -90,7 +93,10 @@ async fn chat_pipeline_module_with_tools(
     if out.tool_calls.is_empty() {
         return Err(anyhow!(
             "pipeline {phase}: no submit tool call (reasoning_chars={} content_chars={})",
-            meta.reasoning.as_ref().map(|s| s.chars().count()).unwrap_or(0),
+            meta.reasoning
+                .as_ref()
+                .map(|s| s.chars().count())
+                .unwrap_or(0),
             out.text.chars().count()
         ));
     }

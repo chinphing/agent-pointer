@@ -1,8 +1,7 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    ensure_provider_model_capability_defaults, filter_openrouter_providers,
-    merge_user_platform, AgentModelRef, ChatMessage, Conversation, ConversationMeta,
-    ConversationSearchHit,
+    ensure_provider_model_capability_defaults, filter_openrouter_providers, merge_user_platform,
+    AgentModelRef, ChatMessage, Conversation, ConversationMeta, ConversationSearchHit,
     ModelRuntimeOverrides, ModelSettings, PersistedLocalPlatformSettings, PlatformSettings,
     ProviderConfig, UserSettings,
 };
@@ -56,10 +55,7 @@ fn compute_app_data_dir() -> Result<PathBuf> {
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
-    log::info!(
-        "storage: app data dir={} (subdir={subdir})",
-        dir.display()
-    );
+    log::info!("storage: app data dir={} (subdir={subdir})", dir.display());
     Ok(dir)
 }
 
@@ -188,7 +184,10 @@ struct StoredSettings {
     workspace_root: String,
     #[serde(default, rename = "leadAgentId")]
     lead_agent_id: String,
-    #[serde(default = "default_context_compression_enabled", rename = "contextCompressionEnabled")]
+    #[serde(
+        default = "default_context_compression_enabled",
+        rename = "contextCompressionEnabled"
+    )]
     context_compression_enabled: bool,
     #[serde(
         default = "default_context_budget_tokens",
@@ -196,19 +195,34 @@ struct StoredSettings {
         alias = "contextBudgetChars"
     )]
     context_budget_tokens: u32,
-    #[serde(default = "default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
+    #[serde(
+        default = "default_context_keep_recent_user_turns",
+        rename = "contextKeepRecentUserTurns"
+    )]
     context_keep_recent_user_turns: u32,
-    #[serde(default = "default_context_summary_max_tokens", rename = "contextSummaryMaxTokens")]
+    #[serde(
+        default = "default_context_summary_max_tokens",
+        rename = "contextSummaryMaxTokens"
+    )]
     context_summary_max_tokens: u32,
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     max_tool_rounds: u32,
     #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     max_sub_agent_tool_rounds: u32,
-    #[serde(default = "default_max_sub_agent_spawn_depth", rename = "maxSubAgentSpawnDepth")]
+    #[serde(
+        default = "default_max_sub_agent_spawn_depth",
+        rename = "maxSubAgentSpawnDepth"
+    )]
     max_sub_agent_spawn_depth: u32,
-    #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
+    #[serde(
+        default = "default_raw_content_view_enabled",
+        rename = "rawContentViewEnabled"
+    )]
     raw_content_view_enabled: bool,
-    #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
+    #[serde(
+        default = "default_debug_dump_llm_prompts",
+        rename = "debugDumpLlmPrompts"
+    )]
     debug_dump_llm_prompts: bool,
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     debug_menus_enabled: bool,
@@ -218,9 +232,15 @@ struct StoredSettings {
     agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     computer_human_like: bool,
-    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    #[serde(
+        default = "default_computer_initial_tier",
+        rename = "computerInitialTier"
+    )]
     computer_initial_tier: String,
-    #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
+    #[serde(
+        default = "default_computer_annotated_screen_view_enabled",
+        rename = "computerAnnotatedScreenViewEnabled"
+    )]
     computer_annotated_screen_view_enabled: bool,
     #[serde(default = "default_theme")]
     theme: String,
@@ -464,7 +484,10 @@ fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOv
     }
 }
 
-fn stored_provider_to_platform(p: &StoredProvider, legacy_reasoning: Option<bool>) -> ProviderConfig {
+fn stored_provider_to_platform(
+    p: &StoredProvider,
+    legacy_reasoning: Option<bool>,
+) -> ProviderConfig {
     ProviderConfig {
         id: p.id.clone(),
         name: p.name.clone(),
@@ -746,10 +769,7 @@ pub fn load_conversation_metas(
 }
 
 /// FTS-backed sidebar search (full message bodies + title/preview supplement).
-pub fn search_conversations(
-    query: &str,
-    limit: i64,
-) -> Result<Vec<ConversationSearchHit>> {
+pub fn search_conversations(query: &str, limit: i64) -> Result<Vec<ConversationSearchHit>> {
     crate::conversation_store::global_store()?.search_conversations(query, limit)
 }
 

@@ -19,7 +19,8 @@ pub struct TaskBoardSqlite {
 impl TaskBoardSqlite {
     pub fn open(path: PathBuf) -> Result<Arc<Self>> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
         }
         let conn = Connection::open(&path)
             .with_context(|| format!("open task board db {}", path.display()))?;
@@ -39,9 +40,7 @@ impl TaskBoardSqlite {
     pub fn load(&self, store_key: &str) -> Result<Option<BoardDocument>> {
         let loaded = {
             let conn = self.conn.lock();
-            let mut stmt = conn.prepare(
-                "SELECT document FROM task_boards WHERE store_key = ?1",
-            )?;
+            let mut stmt = conn.prepare("SELECT document FROM task_boards WHERE store_key = ?1")?;
             let mut rows = stmt.query(params![store_key])?;
             if let Some(row) = rows.next()? {
                 let text: String = row.get(0)?;
@@ -58,9 +57,7 @@ impl TaskBoardSqlite {
         };
         if needs_upgrade {
             if let Err(e) = self.save(store_key, &doc) {
-                log::warn!(
-                    "task_board: failed to persist v4 upgrade store_key={store_key}: {e}"
-                );
+                log::warn!("task_board: failed to persist v4 upgrade store_key={store_key}: {e}");
             } else {
                 log::info!("task_board: persisted v4 upgrade store_key={store_key}");
             }
@@ -134,7 +131,11 @@ impl TaskBoardSqlite {
         Ok(total)
     }
 
-    fn delete_completed_older_than_with_conn(&self, conn: &Connection, cutoff_ms: i64) -> Result<usize> {
+    fn delete_completed_older_than_with_conn(
+        &self,
+        conn: &Connection,
+        cutoff_ms: i64,
+    ) -> Result<usize> {
         let n = conn.execute(
             "DELETE FROM task_boards
              WHERE updated_at_ms < ?1

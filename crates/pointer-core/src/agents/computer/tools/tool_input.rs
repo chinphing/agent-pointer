@@ -1,11 +1,11 @@
-use crate::agents::computer::actions::ActionExecutor;
-use crate::agents::computer::verify::VerifyHintGenerator;
-use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
     human_like_from_args, json_bool_loose, require_non_empty_str, required_f32_arg,
     required_u32_arg, resolve_index_pixels, text_from_args,
 };
 use super::method_route::InputBackend;
+use crate::agents::computer::actions::ActionExecutor;
+use crate::agents::computer::verify::VerifyHintGenerator;
+use crate::agents::computer::vision_state::VisionState;
 use anyhow::Result;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -44,13 +44,23 @@ impl InputIndexTool {
         let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
-        let use_clipboard = args.get("use_clipboard").map_or(true, |v| json_bool_loose(Some(v)));
+        let use_clipboard = args
+            .get("use_clipboard")
+            .map_or(true, |v| json_bool_loose(Some(v)));
         let vision = self.vision_state.lock().unwrap();
         let (x, y) = resolve_index_pixels(&vision, index)?;
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(x, y, &text, clear_first, auto_enter, hl, use_clipboard)?;
+        executor.type_text_at_with_options(
+            x,
+            y,
+            &text,
+            clear_first,
+            auto_enter,
+            hl,
+            use_clipboard,
+        )?;
         let mut hint = self.verify.type_hint(&text);
         if auto_enter {
             hint.push_str(" Enter key event was dispatched because auto_enter=true; do not press Enter again unless the UI clearly needs it.");
@@ -94,7 +104,9 @@ impl InputAtTool {
         let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
-        let use_clipboard = args.get("use_clipboard").map_or(true, |v| json_bool_loose(Some(v)));
+        let use_clipboard = args
+            .get("use_clipboard")
+            .map_or(true, |v| json_bool_loose(Some(v)));
         let vision = self.vision_state.lock().unwrap();
         let (px, py) = vision
             .resolve_coordinate(x, y)
@@ -102,7 +114,15 @@ impl InputAtTool {
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(px, py, &text, clear_first, auto_enter, hl, use_clipboard)?;
+        executor.type_text_at_with_options(
+            px,
+            py,
+            &text,
+            clear_first,
+            auto_enter,
+            hl,
+            use_clipboard,
+        )?;
         Ok(self.verify.type_hint(&text))
     }
 }
@@ -128,7 +148,9 @@ impl InputFocusedTool {
         let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
-        let use_clipboard = args.get("use_clipboard").map_or(true, |v| json_bool_loose(Some(v)));
+        let use_clipboard = args
+            .get("use_clipboard")
+            .map_or(true, |v| json_bool_loose(Some(v)));
         let executor = self.executor.lock().unwrap();
         executor.type_text_focused_with_options(&text, clear_first, auto_enter, use_clipboard)?;
         Ok(self.verify.type_hint(&text))
@@ -150,11 +172,7 @@ impl InputTool {
         human_like_default: bool,
     ) -> Self {
         Self {
-            index: InputIndexTool::new(
-                executor.clone(),
-                vision_state.clone(),
-                human_like_default,
-            ),
+            index: InputIndexTool::new(executor.clone(), vision_state.clone(), human_like_default),
             at: InputAtTool::new(executor.clone(), vision_state, human_like_default),
             focused: InputFocusedTool::new(executor),
         }

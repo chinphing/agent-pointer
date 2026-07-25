@@ -78,7 +78,9 @@ impl TaskBoardStore {
         }
         let mut doc = self.get_or_default(store_key);
         let outcome = apply_method(store_key, &mut doc, &method, args)?;
-        self.inner.write().insert(store_key.to_string(), doc.clone());
+        self.inner
+            .write()
+            .insert(store_key.to_string(), doc.clone());
         self.persist(store_key, &doc);
         crate::task_board::observability::log_store_apply(
             store_key,
@@ -90,14 +92,20 @@ impl TaskBoardStore {
         Ok((body, outcome.reflection_required))
     }
 
-    fn apply_sync_finding_route(&self, child_store_key: &str, args: &Value) -> Result<(Value, bool)> {
+    fn apply_sync_finding_route(
+        &self,
+        child_store_key: &str,
+        args: &Value,
+    ) -> Result<(Value, bool)> {
         let finding = finding_from_args(args)
             .ok_or_else(|| anyhow!("task_board: sync_finding requires finding"))?;
         let parent_key = parent_store_key_from_child(child_store_key)
             .ok_or_else(|| anyhow!("task_board: sync_finding only from child board"))?;
         let mut parent = self.get_or_default(&parent_key);
         let body = apply_sync_finding_to_doc(&mut parent, &finding)?;
-        self.inner.write().insert(parent_key.clone(), parent.clone());
+        self.inner
+            .write()
+            .insert(parent_key.clone(), parent.clone());
         self.persist(&parent_key, &parent);
         Ok((body, false))
     }
@@ -111,7 +119,9 @@ impl TaskBoardStore {
     }
 
     pub fn save_document(&self, store_key: &str, doc: BoardDocument) {
-        self.inner.write().insert(store_key.to_string(), doc.clone());
+        self.inner
+            .write()
+            .insert(store_key.to_string(), doc.clone());
         self.persist(store_key, &doc);
     }
 
@@ -157,7 +167,11 @@ impl TaskBoardStore {
         block
     }
 
-    pub fn parent_tunnel_for_child(&self, child_store_key: &str, sub_task_id: &str) -> Option<String> {
+    pub fn parent_tunnel_for_child(
+        &self,
+        child_store_key: &str,
+        sub_task_id: &str,
+    ) -> Option<String> {
         let parent_key = parent_store_key_from_child(child_store_key)?;
         let doc = self.get_or_default(&parent_key);
         super::coordination::context_tunnel::parent_tunnel_block(&doc, sub_task_id)

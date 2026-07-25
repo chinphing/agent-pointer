@@ -42,7 +42,11 @@ pub fn dispatch_to_child(
                 ..BoardItem::default()
             });
             true
-        } else if let Some(row) = parent.global_milestones.iter().find(|i| i.id == sub_task_id) {
+        } else if let Some(row) = parent
+            .global_milestones
+            .iter()
+            .find(|i| i.id == sub_task_id)
+        {
             child.global_milestones.push(BoardItem {
                 id: "local_01".into(),
                 title: row.title.clone(),
@@ -62,7 +66,10 @@ pub fn dispatch_to_child(
         "task_board gateway: dispatch_to_child child_key={child_key} sub_task_id={sub_task_id} child_seeded={child_seeded}",
     );
 
-    let row = parent.global_milestones.iter().find(|i| i.id == sub_task_id);
+    let row = parent
+        .global_milestones
+        .iter()
+        .find(|i| i.id == sub_task_id);
     Ok(DispatchContext {
         parent_goal: parent.meta.goal.clone(),
         global_findings: parent.global_context.key_findings.clone(),

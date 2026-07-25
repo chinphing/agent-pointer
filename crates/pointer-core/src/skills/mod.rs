@@ -102,10 +102,7 @@ impl SkillRegistry {
             prompts.push(build_available_skills_prompt(&g, ids));
         }
 
-        let mut tools = vec![
-            "skill_import".to_string(),
-            "skill_read".to_string(),
-        ];
+        let mut tools = vec!["skill_import".to_string(), "skill_read".to_string()];
         for s in selected {
             for t in &s.tool_names {
                 if !tools.contains(t) {
@@ -123,7 +120,9 @@ impl SkillRegistry {
     pub fn read(&self, id: &str, path: &str) -> Result<String> {
         let path = path.trim();
         if path.is_empty() {
-            return Err(anyhow!("缺少 path（读说明传 SKILL.md；读资源传 skill 相对路径）"));
+            return Err(anyhow!(
+                "缺少 path（读说明传 SKILL.md；读资源传 skill 相对路径）"
+            ));
         }
         if external::is_skill_manifest_path(path) {
             self.load_instructions(id)
@@ -264,10 +263,7 @@ fn escape_xml_attr(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-fn build_available_skills_prompt(
-    registry: &HashMap<String, SkillDef>,
-    ids: &[String],
-) -> String {
+fn build_available_skills_prompt(registry: &HashMap<String, SkillDef>, ids: &[String]) -> String {
     let mut lines = vec![
         "可用 Skills（第一层：frontmatter 索引）。".to_string(),
         "Before replying: scan <available_skills> entries.".to_string(),
@@ -541,10 +537,7 @@ mod tests {
         });
         let out = reg.read("vid", "SKILL.md").expect("read");
         let expected = format!("{}/scripts/frame.sh", skill_dir.display());
-        assert!(
-            out.contains(&expected),
-            "expected {expected} in {out}"
-        );
+        assert!(out.contains(&expected), "expected {expected} in {out}");
     }
 
     #[test]
@@ -580,7 +573,8 @@ mod tests {
             .filter(|name| !name.starts_with('.'))
             .collect();
         dirs.sort();
-        let mut expected: Vec<String> = BUNDLED_SKILL_IDS.iter().map(|s| (*s).to_string()).collect();
+        let mut expected: Vec<String> =
+            BUNDLED_SKILL_IDS.iter().map(|s| (*s).to_string()).collect();
         expected.sort();
         assert_eq!(
             dirs, expected,
@@ -589,4 +583,3 @@ mod tests {
         assert_eq!(DEFAULT_ENABLED_SKILL_IDS, BUNDLED_SKILL_IDS);
     }
 }
-

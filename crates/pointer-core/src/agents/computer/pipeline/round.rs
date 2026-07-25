@@ -55,7 +55,10 @@ pub async fn run_verify_phase(
     stream: Option<&StreamTx>,
     mut usage: Option<&mut PipelineLlmUsageRecorder<'_>>,
 ) -> Result<VerifyConclusion> {
-    let after_cap = computer_state.capture_and_annotate(conversation_id).await?.0;
+    let after_cap = computer_state
+        .capture_and_annotate(conversation_id)
+        .await?
+        .0;
     let family = operation_family_for_tool(root_tool_name);
     let op_text = format!(
         "{} args={}",

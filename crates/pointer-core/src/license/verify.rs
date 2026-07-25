@@ -55,8 +55,7 @@ pub struct LicenseStatusView {
 
 /// Read the primary machine binding token (`fp1:…`) for license issuance.
 pub fn current_machine_id() -> anyhow::Result<String> {
-    fingerprint::current_binding_token()
-        .map_err(|e| anyhow::anyhow!("{e}"))
+    fingerprint::current_binding_token().map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 #[derive(Clone)]
@@ -77,7 +76,9 @@ impl LicenseVerifier {
                     .filter(|s| !s.is_empty())
                     .map(str::to_string)
             })
-            .ok_or_else(|| anyhow!("license public key not embedded and {ENV_LICENSE_PUBLIC_KEY} unset"))?;
+            .ok_or_else(|| {
+                anyhow!("license public key not embedded and {ENV_LICENSE_PUBLIC_KEY} unset")
+            })?;
         Self::from_base64_public_key(&raw)
     }
 
@@ -320,7 +321,9 @@ mod tests {
 
     #[test]
     fn verify_v2_machine_binding_with_drift() {
-        use super::fingerprint::{verify_machine_binding_with_factors, MachineFactors, MachineFingerprints};
+        use super::fingerprint::{
+            verify_machine_binding_with_factors, MachineFactors, MachineFingerprints,
+        };
 
         let mut csprng = OsRng;
         let signing = SigningKey::generate(&mut csprng);

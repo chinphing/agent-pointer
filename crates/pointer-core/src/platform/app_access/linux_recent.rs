@@ -51,9 +51,7 @@ pub fn merge_list_catalog(
             entry.pid = Some(*pid);
             continue;
         }
-        log::info!(
-            "list_apps Linux: tray-only process name={display} pid={pid} exe={exe_name}"
-        );
+        log::info!("list_apps Linux: tray-only process name={display} pid={pid} exe={exe_name}");
         by_key.insert(
             key.clone(),
             ListedApp {
@@ -267,9 +265,7 @@ fn process_owned_by_uid(proc_path: &Path, uid: u32) -> bool {
 
 fn process_exe_name(proc_path: &Path) -> Option<String> {
     let exe = fs::read_link(proc_path.join("exe")).ok()?;
-    exe.file_name()
-        .and_then(|s| s.to_str())
-        .map(str::to_string)
+    exe.file_name().and_then(|s| s.to_str()).map(str::to_string)
 }
 
 fn is_user_facing_exe(name: &str) -> bool {

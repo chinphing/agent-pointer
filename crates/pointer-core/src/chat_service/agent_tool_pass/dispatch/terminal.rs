@@ -3,11 +3,11 @@
 use crate::models::{StreamEvent, ToolCall};
 use crate::stream_broadcast::publish_stream;
 use crate::tools::file::ConversationWorkspaceGuard;
+use crate::tools::terminal::InputClass;
 use crate::tools::terminal::{
     run_terminal_command_streaming, terminal_stream_tool_status, TerminalInputHooks,
     TerminalInputResolution, TerminalNeedsInputPrompt,
 };
-use crate::tools::terminal::InputClass;
 use anyhow::anyhow;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -78,11 +78,7 @@ fn run_terminal_input_bridge(
 ) {
     while let Ok(prompt) = prompt_rx.recv() {
         let (tx, rx) = std::sync::mpsc::channel();
-        state.register_terminal_input_wait(
-            execution_scope.clone(),
-            prompt.request_id.clone(),
-            tx,
-        );
+        state.register_terminal_input_wait(execution_scope.clone(), prompt.request_id.clone(), tx);
         let input_class = input_class_wire(prompt.input_class);
         publish_stream(
             stream,

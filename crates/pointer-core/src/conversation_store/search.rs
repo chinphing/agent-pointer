@@ -523,11 +523,7 @@ fn scroll(
     .to_string())
 }
 
-fn read_session(
-    db: &DbHandle,
-    conversation_id: &str,
-    session_user_filter: &str,
-) -> Result<String> {
+fn read_session(db: &DbHandle, conversation_id: &str, session_user_filter: &str) -> Result<String> {
     let conn = db.conn.lock();
     let meta = load_meta_for_session_user(&conn, conversation_id, Some(session_user_filter))?;
     let Some(meta) = meta else {
@@ -540,7 +536,11 @@ fn read_session(
     let total = all.len() as i64;
     let truncated = total > READ_HEAD + READ_TAIL;
     let window: Vec<Value> = if truncated {
-        let head = all.iter().take(READ_HEAD as usize).cloned().collect::<Vec<_>>();
+        let head = all
+            .iter()
+            .take(READ_HEAD as usize)
+            .cloned()
+            .collect::<Vec<_>>();
         let tail = all
             .iter()
             .skip(all.len().saturating_sub(READ_TAIL as usize))
@@ -741,7 +741,9 @@ fn load_bookends(conn: &Connection, conversation_id: &str, start: bool) -> Resul
     let mut out = Vec::new();
     for row in rows {
         let (id, role, content, ts, payload) = row?;
-        out.push(session_search_message_json(id, role, content, ts, &payload, false));
+        out.push(session_search_message_json(
+            id, role, content, ts, &payload, false,
+        ));
     }
     if !start {
         out.reverse();
@@ -768,7 +770,9 @@ fn load_all_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<Val
     let mut out = Vec::new();
     for row in rows {
         let (id, role, content, ts, payload) = row?;
-        out.push(session_search_message_json(id, role, content, ts, &payload, false));
+        out.push(session_search_message_json(
+            id, role, content, ts, &payload, false,
+        ));
     }
     Ok(out)
 }
@@ -806,7 +810,10 @@ fn build_fts_query(raw: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    if trimmed.contains('"') || trimmed.contains('*') || trimmed.to_ascii_uppercase().contains(" OR ") {
+    if trimmed.contains('"')
+        || trimmed.contains('*')
+        || trimmed.to_ascii_uppercase().contains(" OR ")
+    {
         return trimmed.to_string();
     }
     if contains_cjk(trimmed) && !trimmed.contains(' ') {

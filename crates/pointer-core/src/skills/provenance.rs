@@ -108,7 +108,11 @@ pub fn upsert_bundled_manifest_entry(root: &Path, skill_id: &str, hash: &str) ->
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        if trimmed.split(':').next().is_some_and(|n| n.trim() == skill_id) {
+        if trimmed
+            .split(':')
+            .next()
+            .is_some_and(|n| n.trim() == skill_id)
+        {
             *line = entry.clone();
             replaced = true;
             break;
@@ -162,9 +166,7 @@ fn save_usage(store: &UsageStore) -> Result<()> {
 }
 
 pub fn mark_agent_created(skill_id: &str, imported_from: Option<&str>) {
-    let Ok(mut store) = (|| -> Result<UsageStore> {
-        Ok(load_usage())
-    })() else {
+    let Ok(mut store) = (|| -> Result<UsageStore> { Ok(load_usage()) })() else {
         return;
     };
     let rec = store.skills.entry(skill_id.trim().to_string()).or_default();
@@ -178,10 +180,7 @@ pub fn mark_agent_created(skill_id: &str, imported_from: Option<&str>) {
 }
 
 pub fn is_pinned(skill_id: &str) -> bool {
-    load_usage()
-        .skills
-        .get(skill_id)
-        .is_some_and(|r| r.pinned)
+    load_usage().skills.get(skill_id).is_some_and(|r| r.pinned)
 }
 
 pub fn is_system_bundled(skill_id: &str) -> bool {
@@ -196,11 +195,7 @@ pub fn is_agent_created(skill_id: &str) -> bool {
         return false;
     }
     let usage = load_usage();
-    if usage
-        .skills
-        .get(skill_id)
-        .is_some_and(|r| r.agent_created)
-    {
+    if usage.skills.get(skill_id).is_some_and(|r| r.agent_created) {
         return true;
     }
     // Under user dir and not in bundled manifest => treat as user/agent skill.
@@ -259,9 +254,7 @@ pub fn sync_bundled_entry_if_unchanged(
     let hash = skill_dir_hash(skill_dir)?;
     if let Some(origin) = read_bundled_origin_hash(root, skill_id) {
         if origin != hash {
-            log::info!(
-                "bundled skill user-modified, skip sync: {skill_id}"
-            );
+            log::info!("bundled skill user-modified, skip sync: {skill_id}");
             return Ok(false);
         }
     }
@@ -283,6 +276,9 @@ mod tests {
         let names = read_bundled_manifest_names(root);
         assert!(names.contains("alpha"));
         assert!(names.contains("beta"));
-        assert_eq!(read_bundled_origin_hash(root, "alpha").as_deref(), Some("hash1"));
+        assert_eq!(
+            read_bundled_origin_hash(root, "alpha").as_deref(),
+            Some("hash1")
+        );
     }
 }

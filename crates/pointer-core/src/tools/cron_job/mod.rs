@@ -42,9 +42,8 @@ fn validate_deliver_arg(deliver: Option<&str>) -> Result<()> {
 pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
     let doc = CRON_JOB_MD.trim();
     let st = store.clone();
-    let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
-        dispatch(&st, &args)
-    });
+    let handler: ToolHandler =
+        Arc::new(move |args: Value| -> Result<String> { dispatch(&st, &args) });
 
     reg.register(
         ToolEntry::new("cron_job", CRON_JOB_DOC_SOURCE, "low", false, doc, handler)
@@ -146,11 +145,7 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
             if cron_jobs::next_run_ms_now(cron_expr).is_none() {
                 return Err(anyhow!("invalid cron expression after parse: {cron_expr}"));
             }
-            (
-                cron_expr.clone(),
-                cron_jobs::SCHEDULE_KIND_CRON,
-                None,
-            )
+            (cron_expr.clone(), cron_jobs::SCHEDULE_KIND_CRON, None)
         }
         schedule::ParsedSchedule::Once { fire_at_ms } => (
             schedule::ONCE_CRON_PLACEHOLDER.to_string(),
@@ -228,7 +223,11 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         label,
         schedule_kind,
         cron_expr,
-        if conv_id.is_empty() { "(none)" } else { conv_id }
+        if conv_id.is_empty() {
+            "(none)"
+        } else {
+            conv_id
+        }
     );
 
     Ok(json!({
@@ -441,9 +440,7 @@ mod tests {
             Some("once")
         );
         let id = job.get("id").and_then(|x| x.as_str()).unwrap().to_string();
-        store
-            .cron_jobs_mark_ran(&id, chrono::Local::now())
-            .unwrap();
+        store.cron_jobs_mark_ran(&id, chrono::Local::now()).unwrap();
         let rec = store.cron_jobs_get(&id).unwrap().unwrap();
         assert!(!rec.enabled);
         assert!(rec.next_run_at_ms.is_none());

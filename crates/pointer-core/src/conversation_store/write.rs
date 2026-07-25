@@ -231,10 +231,7 @@ pub fn message_count_in_conn(conn: &Connection, conversation_id: &str) -> Result
     Ok(count as u32)
 }
 
-pub fn count_duplicate_positions_in_conn(
-    conn: &Connection,
-    conversation_id: &str,
-) -> Result<u32> {
+pub fn count_duplicate_positions_in_conn(conn: &Connection, conversation_id: &str) -> Result<u32> {
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM (
            SELECT position FROM messages WHERE conversation_id = ?1
@@ -283,8 +280,9 @@ pub fn append_missing_messages_in_conn(
     messages: &[ChatMessage],
 ) -> Result<u32> {
     ensure_conversation_row(conn, conversation_id)?;
-    let existing: std::collections::HashSet<String> =
-        existing_message_ids(conn, conversation_id)?.into_iter().collect();
+    let existing: std::collections::HashSet<String> = existing_message_ids(conn, conversation_id)?
+        .into_iter()
+        .collect();
     let mut pos = max_message_position(conn, conversation_id)?;
     let mut written = 0u32;
     for msg in messages {
@@ -401,9 +399,8 @@ fn message_positions(
     conn: &Connection,
     conversation_id: &str,
 ) -> Result<std::collections::HashMap<String, i64>> {
-    let mut stmt = conn.prepare(
-        "SELECT message_id, position FROM messages WHERE conversation_id = ?1",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT message_id, position FROM messages WHERE conversation_id = ?1")?;
     let rows = stmt.query_map(params![conversation_id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     })?;
@@ -424,10 +421,7 @@ fn shift_positions_from(conn: &Connection, conversation_id: &str, from_pos: i64)
     Ok(())
 }
 
-fn bump_positions_map(
-    existing: &mut std::collections::HashMap<String, i64>,
-    from_pos: i64,
-) {
+fn bump_positions_map(existing: &mut std::collections::HashMap<String, i64>, from_pos: i64) {
     for pos in existing.values_mut() {
         if *pos >= from_pos {
             *pos += 1;
@@ -617,7 +611,10 @@ mod tests {
         let loaded = store.load_all().unwrap();
         assert_eq!(loaded[0].messages.len(), 3);
         assert_eq!(
-            loaded[0].messages[0].context_state.as_ref().map(|s| s.included),
+            loaded[0].messages[0]
+                .context_state
+                .as_ref()
+                .map(|s| s.included),
             Some(false)
         );
     }

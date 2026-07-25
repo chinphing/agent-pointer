@@ -6,9 +6,9 @@ use std::mem;
 use windows::Win32::{
     Foundation::GetLastError,
     Graphics::Gdi::{
-        BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
-        DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDIBits, GetWindowDC, ReleaseDC, SRCCOPY,
-        SelectObject,
+        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits,
+        GetWindowDC, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
+        SRCCOPY,
     },
     UI::WindowsAndMessaging::GetDesktopWindow,
 };
@@ -36,7 +36,10 @@ pub fn capture_monitor_region(x: i32, y: i32, width: i32, height: i32) -> Result
         if hbitmap.is_invalid() {
             let _ = DeleteDC(hdc_mem);
             ReleaseDC(Some(hwnd), hdc_desktop);
-            return Err(anyhow!("CreateCompatibleBitmap failed: {:?}", GetLastError()));
+            return Err(anyhow!(
+                "CreateCompatibleBitmap failed: {:?}",
+                GetLastError()
+            ));
         }
 
         let _prev = SelectObject(hdc_mem, hbitmap.into());
@@ -106,8 +109,10 @@ unsafe fn read_bitmap_rgba(
         return Err(anyhow!("GetDIBits failed: {:?}", GetLastError()));
     }
 
-    bgra_to_rgba(buffer)
-        .and_then(|pixels| RgbaImage::from_raw(width as u32, height as u32, pixels).ok_or_else(|| anyhow!("RgbaImage::from_raw failed")))
+    bgra_to_rgba(buffer).and_then(|pixels| {
+        RgbaImage::from_raw(width as u32, height as u32, pixels)
+            .ok_or_else(|| anyhow!("RgbaImage::from_raw failed"))
+    })
 }
 
 fn bgra_to_rgba(mut buffer: Vec<u8>) -> Result<Vec<u8>> {

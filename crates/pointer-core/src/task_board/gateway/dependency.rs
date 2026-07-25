@@ -24,10 +24,7 @@ pub fn check_dependencies(doc: &BoardDocument, item_id: &str) -> DependencyCheck
             .filter(|dep| {
                 !doc.global_milestones.iter().any(|row| {
                     row.id == **dep
-                        && matches!(
-                            row.status,
-                            ItemStatus::Done | ItemStatus::Cancelled
-                        )
+                        && matches!(row.status, ItemStatus::Done | ItemStatus::Cancelled)
                 })
             })
             .cloned()

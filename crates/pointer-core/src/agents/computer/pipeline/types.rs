@@ -105,7 +105,13 @@ impl VerifyConclusion {
             }
         };
         if matches!(action_result, ActionResult::Pass) {
-            if out.step_summary.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()).is_none() {
+            if out
+                .step_summary
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .is_none()
+            {
                 return Err(anyhow::anyhow!("step_summary required on pass"));
             }
         }

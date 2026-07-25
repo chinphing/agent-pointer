@@ -38,10 +38,7 @@ impl LaunchVerifyOutcome {
 }
 
 /// Apply host verification to a launch/activate result and adjust success + message.
-pub fn apply_launch_verification(
-    result: &mut AppOpenResult,
-    verification: LaunchVerifyOutcome,
-) {
+pub fn apply_launch_verification(result: &mut AppOpenResult, verification: LaunchVerifyOutcome) {
     if !result.success {
         return;
     }

@@ -25,15 +25,11 @@ fn deliver_index(doc: &BoardDocument) -> Option<usize> {
 }
 
 fn plan_index(doc: &BoardDocument) -> Option<usize> {
-    doc.global_milestones
-        .iter()
-        .position(|r| r.id == "g_plan")
+    doc.global_milestones.iter().position(|r| r.id == "g_plan")
 }
 
 fn legacy_exec_index(doc: &BoardDocument) -> Option<usize> {
-    doc.global_milestones
-        .iter()
-        .position(|r| r.id == "g_exec")
+    doc.global_milestones.iter().position(|r| r.id == "g_exec")
 }
 
 /// `g_plan` and `g_deliver` present in order (loop shell without items).
@@ -79,9 +75,7 @@ pub fn loop_item_count(doc: &BoardDocument) -> usize {
 pub fn is_loop_item_id(doc: &BoardDocument, id: &str) -> bool {
     id.starts_with(LOOP_ITEM_ID_PREFIX)
         && loop_item_range(doc).is_some_and(|(start, end)| {
-            doc.global_milestones[start..end]
-                .iter()
-                .any(|r| r.id == id)
+            doc.global_milestones[start..end].iter().any(|r| r.id == id)
         })
 }
 
@@ -175,12 +169,10 @@ fn make_loop_item_row(index: usize, title: &str) -> BoardItem {
 }
 
 fn insert_loop_items(doc: &mut BoardDocument, items: Vec<BoardItem>) -> Result<()> {
-    let deliver_idx = deliver_index(doc).ok_or_else(|| {
-        anyhow!("task_board: loop init requires g_deliver in global_milestones")
-    })?;
-    let plan_idx = plan_index(doc).ok_or_else(|| {
-        anyhow!("task_board: loop init requires g_plan in global_milestones")
-    })?;
+    let deliver_idx = deliver_index(doc)
+        .ok_or_else(|| anyhow!("task_board: loop init requires g_deliver in global_milestones"))?;
+    let plan_idx = plan_index(doc)
+        .ok_or_else(|| anyhow!("task_board: loop init requires g_plan in global_milestones"))?;
     if plan_idx >= deliver_idx {
         return Err(anyhow!(
             "task_board: loop init requires g_plan before g_deliver in global_milestones"
@@ -252,11 +244,7 @@ pub fn validate_loop_milestone_init(doc: &BoardDocument, _args: &Value) -> Resul
                 "task_board: loop init must not include g_exec in the item ladder"
             ));
         }
-        let row_plan = row
-            .plan
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let row_plan = row.plan.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if row_plan.is_none() && loop_shared_plan(doc).is_none() {
             return Err(anyhow!(
                 "task_board: loop item {} requires plan or g_plan.plan (shared procedure)",
@@ -286,10 +274,7 @@ fn ensure_single_loop_item_in_progress(doc: &mut BoardDocument) {
         return;
     };
     let slice = &doc.global_milestones[start..end];
-    if slice
-        .iter()
-        .any(|r| r.status == ItemStatus::InProgress)
-    {
+    if slice.iter().any(|r| r.status == ItemStatus::InProgress) {
         return;
     }
     for row in &mut doc.global_milestones[start..end] {
@@ -332,7 +317,11 @@ pub fn maybe_auto_complete_loop_batch(doc: &mut BoardDocument) {
     if !loop_exec_met(doc) {
         return;
     }
-    if let Some(row) = doc.global_milestones.iter_mut().find(|r| r.id == "g_deliver") {
+    if let Some(row) = doc
+        .global_milestones
+        .iter_mut()
+        .find(|r| r.id == "g_deliver")
+    {
         if row.status == ItemStatus::Pending {
             row.status = ItemStatus::Ready;
         }
@@ -407,8 +396,7 @@ mod tests {
     #[test]
     fn expand_dynamic_quota_inserts_loop_rows_without_g_exec() {
         let mut doc = loop_shell();
-        expand_loop_milestones_on_init(&mut doc, &json!({ "dynamic_quota": 2 }))
-        .expect("expand");
+        expand_loop_milestones_on_init(&mut doc, &json!({ "dynamic_quota": 2 })).expect("expand");
         assert!(is_loop_milestone_board(&doc));
         assert_eq!(loop_item_count(&doc), 2);
         assert_eq!(doc.global_milestones.len(), 4);
@@ -440,7 +428,7 @@ mod tests {
             },
         );
         let err = expand_loop_milestones_on_init(&mut doc, &json!({ "dynamic_quota": 2 }))
-        .expect_err("expand");
+            .expect_err("expand");
         assert!(err.to_string().contains("omit g_exec"));
     }
 

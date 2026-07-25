@@ -5,7 +5,7 @@ use chrono::{DateTime, Local, TimeZone};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use super::cron_jobs::{CRON_SESSION_RESET_AT_HOUR, daily_reset_at_ms};
+use super::cron_jobs::{daily_reset_at_ms, CRON_SESSION_RESET_AT_HOUR};
 use crate::webhook_config::{per_delivery_session_id, webhook_session_key, webhook_session_title};
 
 /// How inbound webhooks map to conversation sessions for one `:src`.
@@ -146,7 +146,10 @@ pub fn set_session_mode(conn: &Connection, src: &str, mode: WebhookSessionMode) 
         "UPDATE webhook_sources SET session_mode = ?2 WHERE src = ?1",
         params![src, mode.as_str()],
     )?;
-    log::info!("webhook_sources: session_mode set src={src} mode={}", mode.as_str());
+    log::info!(
+        "webhook_sources: session_mode set src={src} mode={}",
+        mode.as_str()
+    );
     Ok(())
 }
 
@@ -210,9 +213,7 @@ fn resolve_daily_ingress_session(
     let expected = current_webhook_session_id(src, now);
     let now_ms = now.timestamp_millis();
     let record = get(conn, src)?;
-    let current = record
-        .as_ref()
-        .and_then(|r| r.current_session_id.clone());
+    let current = record.as_ref().and_then(|r| r.current_session_id.clone());
 
     let session_id = expected.clone();
     if current.as_deref() != Some(session_id.as_str()) {
@@ -278,17 +279,12 @@ pub fn adopt_upload_session(
     let title = crate::webhook_config::webhook_session_title(src);
     super::write::ensure_conversation_row_with_title(conn, conversation_id, Some(&title))?;
     touch_ingress(conn, src, now_ms, conversation_id)?;
-    log::info!(
-        "webhook_sources: adopted upload session src={src} session={conversation_id}"
-    );
+    log::info!("webhook_sources: adopted upload session src={src} session={conversation_id}");
     Ok(())
 }
 
 /// Session id for the automation UI "查看会话" entry (never returns legacy `webhook:{src}`).
-pub fn resolve_view_session_id(
-    record: Option<&WebhookSourceRecord>,
-    src: &str,
-) -> Option<String> {
+pub fn resolve_view_session_id(record: Option<&WebhookSourceRecord>, src: &str) -> Option<String> {
     let mode = record
         .map(|r| r.session_mode)
         .unwrap_or(WebhookSessionMode::PerDelivery);
@@ -355,7 +351,10 @@ mod tests {
     #[test]
     fn current_webhook_session_id_matches_cron_reset_window() {
         let src = "github";
-        let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 6, 28, 10, 0, 0)
+            .single()
+            .unwrap();
         let webhook_id = current_webhook_session_id(src, &now);
         let cron_id = crate::conversation_store::cron_jobs::current_cron_session_id("x", &now);
         assert_eq!(webhook_id, "webhook:github:20260628");
@@ -365,7 +364,10 @@ mod tests {
     #[test]
     fn first_ingress_default_is_per_delivery() {
         let conn = mem();
-        let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 6, 28, 10, 0, 0)
+            .single()
+            .unwrap();
         let id1 = resolve_ingress_session_id(&conn, "github", &now, Some("del-1")).unwrap();
         let id2 = resolve_ingress_session_id(&conn, "github", &now, Some("del-2")).unwrap();
         assert_eq!(id1, "webhook:github:del-1");
@@ -377,7 +379,10 @@ mod tests {
         let conn = mem();
         ensure_row(&conn, "github", 1).unwrap();
         set_session_mode(&conn, "github", WebhookSessionMode::Daily).unwrap();
-        let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 6, 28, 10, 0, 0)
+            .single()
+            .unwrap();
         let id = resolve_ingress_session_id(&conn, "github", &now, None).unwrap();
         assert_eq!(id, "webhook:github:20260628");
     }
@@ -387,12 +392,18 @@ mod tests {
         let conn = mem();
         ensure_row(&conn, "github", 1).unwrap();
         set_session_mode(&conn, "github", WebhookSessionMode::Daily).unwrap();
-        let day1 = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let day1 = Local
+            .with_ymd_and_hms(2026, 6, 28, 10, 0, 0)
+            .single()
+            .unwrap();
         set_current_session_id(&conn, "github", "webhook:github").unwrap();
         let id1 = resolve_ingress_session_id(&conn, "github", &day1, None).unwrap();
         assert_eq!(id1, "webhook:github:20260628");
 
-        let day2 = Local.with_ymd_and_hms(2026, 6, 29, 10, 0, 0).single().unwrap();
+        let day2 = Local
+            .with_ymd_and_hms(2026, 6, 29, 10, 0, 0)
+            .single()
+            .unwrap();
         let id2 = resolve_ingress_session_id(&conn, "github", &day2, None).unwrap();
         assert_eq!(id2, "webhook:github:20260629");
     }
@@ -402,13 +413,20 @@ mod tests {
         let conn = mem();
         ensure_row(&conn, "ci", 1).unwrap();
         set_session_mode(&conn, "ci", WebhookSessionMode::PerDelivery).unwrap();
-        let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
+        let now = Local
+            .with_ymd_and_hms(2026, 6, 28, 10, 0, 0)
+            .single()
+            .unwrap();
         let id1 = resolve_ingress_session_id(&conn, "ci", &now, Some("del-1")).unwrap();
         let id2 = resolve_ingress_session_id(&conn, "ci", &now, Some("del-2")).unwrap();
         assert_eq!(id1, "webhook:ci:del-1");
         assert_eq!(id2, "webhook:ci:del-2");
         assert_eq!(
-            get(&conn, "ci").unwrap().unwrap().current_session_id.as_deref(),
+            get(&conn, "ci")
+                .unwrap()
+                .unwrap()
+                .current_session_id
+                .as_deref(),
             Some("webhook:ci:del-2")
         );
     }

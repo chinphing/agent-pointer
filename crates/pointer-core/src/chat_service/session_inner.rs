@@ -3,11 +3,11 @@
 use crate::agents::{
     delegatable_sub_agents_system_block, AgentOrchestrator, AGENT_MODE_SUPERVISOR,
 };
-use crate::llm_token_stats::ChatLlmTokenSession;
-use crate::tools::file::ConversationWorkspaceGuard;
 use crate::dispatcher::TriggerSource;
+use crate::llm_token_stats::ChatLlmTokenSession;
 use crate::models::{effective_reasoning_in_messages, ChatMessage, ModelSettings, StreamEvent};
 use crate::provider::OpenAIProvider;
+use crate::tools::file::ConversationWorkspaceGuard;
 use anyhow::{anyhow, Result};
 use std::time::Instant;
 
@@ -101,8 +101,7 @@ pub(super) async fn run_chat_inner(
     // Refresh platform session and gate chat before binding session_user_id or persisting media.
     let web_session = crate::web_request_auth::scoped_login_creds().is_some();
     let is_local_session = crate::web_request_auth::is_local_scoped_session();
-    let skip_platform_refresh =
-        crate::deployment_mode::is_standalone() && is_local_session;
+    let skip_platform_refresh = crate::deployment_mode::is_standalone() && is_local_session;
     if !skip_platform_refresh {
         match state.active_platform_auth().refresh_if_needed().await {
             Ok(Some((_session, creds))) => {
@@ -192,14 +191,12 @@ pub(super) async fn run_chat_inner(
         .memory_store
         .ensure_session_user(session_user_id.as_str())
     {
-        log::warn!(
-            "memory: ensure session user failed conversation_id={conversation_id}: {e:#}"
-        );
+        log::warn!("memory: ensure session user failed conversation_id={conversation_id}: {e:#}");
     }
 
     let payload_workspace = workspace_root.trim();
-    let inherit_disabled = req.workspace_inherit_disabled == Some(true)
-        || workspace_inherit_disabled(conversation_id);
+    let inherit_disabled =
+        req.workspace_inherit_disabled == Some(true) || workspace_inherit_disabled(conversation_id);
 
     let default_path_before = crate::session_sandbox::SessionSandbox::default_path(
         conversation_id,
@@ -228,15 +225,17 @@ pub(super) async fn run_chat_inner(
         String::new()
     });
 
-    let effective_workspace =
-        ensure_workspace_at_run_start(conversation_id, &effective_workspace, session_user_id.as_str())?;
+    let effective_workspace = ensure_workspace_at_run_start(
+        conversation_id,
+        &effective_workspace,
+        session_user_id.as_str(),
+    )?;
 
     let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
     let _work_dir_guard =
         crate::session_work_dir_env::SessionWorkDirGuard::enter(effective_workspace.clone());
 
-    let _session_user_guard =
-        crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+    let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
 
     if effective_workspace.trim() != ui_workspace_before.trim() {
         let is_ephemeral = ui_workspace_before.trim().is_empty()
@@ -303,12 +302,14 @@ pub(super) async fn run_chat_inner(
             && msg.attachments.as_ref().is_some_and(|a| !a.is_empty())
         {
             super::conversation_persist::upsert_message(conversation_id, msg);
-            crate::stream_broadcast::broadcast_stream(&StreamEvent::UserMessageAttachmentsUpdated {
-                conversation_id: conversation_id.to_string(),
-                message_id: msg.id.clone(),
-                attachments: msg.attachments.clone().unwrap_or_default(),
-                content: Some(msg.content.clone()),
-            });
+            crate::stream_broadcast::broadcast_stream(
+                &StreamEvent::UserMessageAttachmentsUpdated {
+                    conversation_id: conversation_id.to_string(),
+                    message_id: msg.id.clone(),
+                    attachments: msg.attachments.clone().unwrap_or_default(),
+                    content: Some(msg.content.clone()),
+                },
+            );
         }
     }
     let agent_plan = AgentOrchestrator::build_plan(
@@ -324,7 +325,9 @@ pub(super) async fn run_chat_inner(
     if crate::channel_outbound::is_im_conversation(conversation_id) {
         agent_plan
             .system_prompts
-            .push(crate::channel_outbound::im_session_commands_block(&state.agents));
+            .push(crate::channel_outbound::im_session_commands_block(
+                &state.agents,
+            ));
     }
     // Cron: Hermes prepends guidance onto the user message in the scheduler;
     // do not inject a cron system block here.
@@ -349,13 +352,22 @@ pub(super) async fn run_chat_inner(
     let lead_role = lead_worker_id
         .clone()
         .unwrap_or_else(|| effective_agent_mode.clone());
-    let mut llm_token_session =
-        ChatLlmTokenSession::new(run_id.to_string(), conversation_id.to_string(), lead_role, model_name);
+    let mut llm_token_session = ChatLlmTokenSession::new(
+        run_id.to_string(),
+        conversation_id.to_string(),
+        lead_role,
+        model_name,
+    );
     let lead_scope = llm_token_session.lead_scope.clone();
 
     let last_api_prompt = crate::conversation_store::global_store()
         .ok()
-        .and_then(|store| store.get_last_lead_prompt_tokens(conversation_id).ok().flatten());
+        .and_then(|store| {
+            store
+                .get_last_lead_prompt_tokens(conversation_id)
+                .ok()
+                .flatten()
+        });
 
     let t_compress = Instant::now();
     crate::context_compression::maybe_compress_history(
@@ -384,11 +396,8 @@ pub(super) async fn run_chat_inner(
     let tool_budget_single_start = 0;
     let tool_budget_supervisor_start = 0;
 
-    let main_task_board_store_key = choose_main_task_board_store_key(
-        state.as_ref(),
-        conversation_id,
-        ctx.history,
-    );
+    let main_task_board_store_key =
+        choose_main_task_board_store_key(state.as_ref(), conversation_id, ctx.history);
 
     if agent_plan.mode == AGENT_MODE_SUPERVISOR {
         let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_supervisor_start);
@@ -527,7 +536,8 @@ fn default_sandbox_display(
     session_user_id: &str,
     reason: &str,
 ) -> Result<String> {
-    let path = crate::session_sandbox::SessionSandbox::default_path(conversation_id, session_user_id)?;
+    let path =
+        crate::session_sandbox::SessionSandbox::default_path(conversation_id, session_user_id)?;
     log::info!(
         "resolve_run_workspace: {reason} conversation_id={conversation_id} path={}",
         path.display()
@@ -593,8 +603,9 @@ fn ensure_workspace_at_run_start(
     if !crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(trimmed))? {
         return Ok(trimmed.to_string());
     }
-    let existed = crate::session_sandbox::SessionSandbox::default_path(conversation_id, session_user_id)?
-        .exists();
+    let existed =
+        crate::session_sandbox::SessionSandbox::default_path(conversation_id, session_user_id)?
+            .exists();
     let path =
         crate::session_sandbox::SessionSandbox::ensure_default(conversation_id, session_user_id)?;
     if !existed {
@@ -639,7 +650,9 @@ mod workspace_tests {
             crate::task_board::main_turn_task_board_store_key("conv-bind", "u-trigger")
         );
         assert_eq!(
-            state.get_main_task_board_anchor("conv-bind", &key).as_deref(),
+            state
+                .get_main_task_board_anchor("conv-bind", &key)
+                .as_deref(),
             Some("u-trigger")
         );
     }
@@ -658,7 +671,9 @@ mod workspace_tests {
 
         assert_eq!(reused, key);
         assert_eq!(
-            state.get_main_task_board_anchor("conv-resume", &key).as_deref(),
+            state
+                .get_main_task_board_anchor("conv-resume", &key)
+                .as_deref(),
             Some("u-resume")
         );
     }

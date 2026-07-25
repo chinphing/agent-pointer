@@ -1,3 +1,4 @@
+use crate::ServerState;
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -11,7 +12,6 @@ use pointer_channels::{
     webhook::handler::WebhookQuery,
 };
 use serde::Deserialize;
-use crate::ServerState;
 
 static WEBHOOK_GUARDS: std::sync::OnceLock<WebhookGuards> = std::sync::OnceLock::new();
 
@@ -180,13 +180,10 @@ pub async fn update_channels(
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
     } else {
-        state
-            .channel_gateway
-            .update_config(cfg)
-            .map_err(|e| {
-                log::error!("update channels config failed: {e:#}");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        state.channel_gateway.update_config(cfg).map_err(|e| {
+            log::error!("update channels config failed: {e:#}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -206,14 +203,10 @@ pub async fn start_weixin_login(
     State(state): State<ServerState>,
     Path(account_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let session = state
-        .qr_login
-        .start(&account_id)
-        .await
-        .map_err(|e| {
-            log::error!("weixin login start failed: {e:#}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let session = state.qr_login.start(&account_id).await.map_err(|e| {
+        log::error!("weixin login start failed: {e:#}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     Ok(Json(serde_json::json!(session)))
 }
 

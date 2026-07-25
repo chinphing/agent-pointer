@@ -236,7 +236,11 @@ fn collect_positions(pos: &PositionModuleOutput) -> Vec<PositionPoint> {
 }
 
 /// Merge Position LLM fields into execution-ready tool args.
-pub fn merge_position_output(family: OperationFamily, args: &mut Value, pos: &PositionModuleOutput) {
+pub fn merge_position_output(
+    family: OperationFamily,
+    args: &mut Value,
+    pos: &PositionModuleOutput,
+) {
     let Some(model) = family.position_spatial_model() else {
         return;
     };
@@ -275,7 +279,10 @@ fn merge_single_point(obj: &mut serde_json::Map<String, Value>, pos: &PositionMo
     }
 }
 
-fn merge_single_point_inferred(obj: &mut serde_json::Map<String, Value>, pos: &PositionModuleOutput) {
+fn merge_single_point_inferred(
+    obj: &mut serde_json::Map<String, Value>,
+    pos: &PositionModuleOutput,
+) {
     if let Some(x) = pos.x {
         obj.insert("x".into(), json!(x));
     }
@@ -355,9 +362,7 @@ fn write_drag_indices(obj: &mut serde_json::Map<String, Value>, indices: &[u32])
         );
     } else if indices.len() == 1 {
         obj.insert("from_index".into(), json!(indices[0]));
-        log::warn!(
-            "computer pipeline: drag indices has only one entry — missing to_index"
-        );
+        log::warn!("computer pipeline: drag indices has only one entry — missing to_index");
     }
 }
 
@@ -370,9 +375,7 @@ fn write_drag_positions(obj: &mut serde_json::Map<String, Value>, positions: &[P
     } else if let Some(p) = positions.first() {
         obj.insert("x1".into(), json!(p.x));
         obj.insert("y1".into(), json!(p.y));
-        log::warn!(
-            "computer pipeline: drag positions has only one entry — missing destination"
-        );
+        log::warn!("computer pipeline: drag positions has only one entry — missing destination");
     }
 }
 

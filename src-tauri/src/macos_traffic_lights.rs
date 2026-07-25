@@ -45,8 +45,7 @@ unsafe fn inset_traffic_lights(window: &objc2_app_kit::NSWindow, position: Logic
     let title_bar_view: &NSView = title_bar_container_view.as_ref();
     let _: () = msg_send![title_bar_view, setFrame: title_bar_rect];
 
-    let space_between =
-        NSView::frame(miniaturize.as_ref()).origin.x - close_rect.origin.x;
+    let space_between = NSView::frame(miniaturize.as_ref()).origin.x - close_rect.origin.x;
     let window_buttons = [close, miniaturize, zoom];
 
     for (i, button) in window_buttons.into_iter().enumerate() {
@@ -141,7 +140,7 @@ pub fn set_window_geometry(
     // SAFETY: pointer from `WebviewWindow::ns_window()` on the main thread.
     unsafe {
         use objc2::MainThreadMarker;
-        use objc2_app_kit::{NSWindow, NSScreen};
+        use objc2_app_kit::{NSScreen, NSWindow};
         use objc2_foundation::{NSPoint, NSSize};
 
         let window = &*(ns_window.cast::<NSWindow>());

@@ -37,11 +37,7 @@ pub fn parse_tool_markdown(raw: &str, expected_id: &str) -> Result<ParsedToolMar
     let fm: ToolFrontmatter =
         serde_yaml::from_str(yaml_src).context("parse tool YAML frontmatter")?;
     if fm.id != expected_id {
-        anyhow::bail!(
-            "frontmatter id {:?} != expected {:?}",
-            fm.id,
-            expected_id
-        );
+        anyhow::bail!("frontmatter id {:?} != expected {:?}", fm.id, expected_id);
     }
     let parameters_schema: Value = serde_json::from_str(fm.parameters_schema_json.trim())
         .context("parse parameters_schema_json as JSON")?;

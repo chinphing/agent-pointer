@@ -1,6 +1,6 @@
 use super::ToolRegistry;
-use crate::skills::SkillRegistry;
 use crate::agents::computer::ComputerState;
+use crate::skills::SkillRegistry;
 use std::sync::Arc;
 
 pub fn register_all(reg: &ToolRegistry, task_board_store: Arc<crate::task_board::TaskBoardStore>) {

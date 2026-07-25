@@ -39,11 +39,7 @@ pub fn save_generated_bytes(
     Ok(path)
 }
 
-pub async fn download_url_to_file(
-    client: &reqwest::Client,
-    url: &str,
-    dest: &Path,
-) -> Result<()> {
+pub async fn download_url_to_file(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> {
     let resp = client
         .get(url)
         .send()

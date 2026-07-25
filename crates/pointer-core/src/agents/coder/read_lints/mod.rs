@@ -87,7 +87,9 @@ fn wall_ms_from_args(args: &Value) -> u64 {
 
 fn slice_wall_ms(total_wall_ms: u64, run_count: usize) -> u64 {
     let n = run_count.max(1) as u64;
-    (total_wall_ms / n).max(READ_LINTS_MIN_SLICE_MS).min(total_wall_ms)
+    (total_wall_ms / n)
+        .max(READ_LINTS_MIN_SLICE_MS)
+        .min(total_wall_ms)
 }
 
 fn parse_paths_filter(root: &Path, args: &Value) -> Result<Vec<PathBuf>> {
@@ -108,7 +110,9 @@ fn parse_paths_filter(root: &Path, args: &Value) -> Result<Vec<PathBuf>> {
 }
 
 fn path_is_under_workspace(candidate: &Path, workspace: &Path) -> bool {
-    let c = candidate.canonicalize().unwrap_or_else(|_| candidate.to_path_buf());
+    let c = candidate
+        .canonicalize()
+        .unwrap_or_else(|_| candidate.to_path_buf());
     let w = workspace
         .canonicalize()
         .unwrap_or_else(|_| workspace.to_path_buf());
@@ -192,11 +196,7 @@ fn append_node_linter_plans_from_filters(
     }
 }
 
-fn append_eslint_plans_from_filters(
-    root: &Path,
-    filters: &[PathBuf],
-    plans: &mut Vec<RunPlan>,
-) {
+fn append_eslint_plans_from_filters(root: &Path, filters: &[PathBuf], plans: &mut Vec<RunPlan>) {
     append_node_linter_plans_from_filters(
         root,
         filters,
@@ -206,11 +206,7 @@ fn append_eslint_plans_from_filters(
     );
 }
 
-fn append_oxlint_plans_from_filters(
-    root: &Path,
-    filters: &[PathBuf],
-    plans: &mut Vec<RunPlan>,
-) {
+fn append_oxlint_plans_from_filters(root: &Path, filters: &[PathBuf], plans: &mut Vec<RunPlan>) {
     append_node_linter_plans_from_filters(
         root,
         filters,
@@ -279,10 +275,7 @@ fn build_run_plan(root: &Path, mode: StackMode, filters: &[PathBuf]) -> Vec<RunP
         StackMode::Auto => {
             let mut builtins = detect::detect_builtin_stacks(root);
             builtins = detect::filter_stacks_by_paths(builtins, filters);
-            let mut v: Vec<RunPlan> = builtins
-                .into_iter()
-                .map(RunPlan::Builtin)
-                .collect();
+            let mut v: Vec<RunPlan> = builtins.into_iter().map(RunPlan::Builtin).collect();
             append_eslint_plans_from_filters(root, filters, &mut v);
             append_oxlint_plans_from_filters(root, filters, &mut v);
             if let Some(f) = load_lint_config(root) {
@@ -332,7 +325,11 @@ fn node_tool_program_and_args(
     }
 }
 
-fn eslint_program_and_args(cwd: &Path, workspace: &Path, filters: &[PathBuf]) -> (&'static str, Vec<String>) {
+fn eslint_program_and_args(
+    cwd: &Path,
+    workspace: &Path,
+    filters: &[PathBuf],
+) -> (&'static str, Vec<String>) {
     node_tool_program_and_args(
         cwd,
         workspace,
@@ -342,7 +339,11 @@ fn eslint_program_and_args(cwd: &Path, workspace: &Path, filters: &[PathBuf]) ->
     )
 }
 
-fn oxlint_program_and_args(cwd: &Path, workspace: &Path, filters: &[PathBuf]) -> (&'static str, Vec<String>) {
+fn oxlint_program_and_args(
+    cwd: &Path,
+    workspace: &Path,
+    filters: &[PathBuf],
+) -> (&'static str, Vec<String>) {
     node_tool_program_and_args(cwd, workspace, "oxlint", filters, &["-f", "json"])
 }
 
@@ -425,13 +426,8 @@ fn run_eslint_builtin(
 ) -> Result<(Vec<Value>, exec::CapturedOutput)> {
     let (prog, args) = eslint_program_and_args(cwd, workspace, filters);
     let args: Vec<String> = args;
-    let (_lines_unused, cap) = exec::run_argv_capture_lines(
-        prog,
-        &args,
-        cwd,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (_lines_unused, cap) =
+        exec::run_argv_capture_lines(prog, &args, cwd, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let stdout = String::from_utf8_lossy(&cap.stdout);
     let diags = parsers::parse_eslint_json(&stdout, source).unwrap_or_else(|_| {
         parsers::text_on_failure_diagnostic(
@@ -453,13 +449,8 @@ fn run_oxlint_builtin(
 ) -> Result<(Vec<Value>, exec::CapturedOutput)> {
     let (prog, args) = oxlint_program_and_args(cwd, workspace, filters);
     let args: Vec<String> = args;
-    let (_lines_unused, cap) = exec::run_argv_capture_lines(
-        prog,
-        &args,
-        cwd,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (_lines_unused, cap) =
+        exec::run_argv_capture_lines(prog, &args, cwd, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let stdout = String::from_utf8_lossy(&cap.stdout);
     let diags = parsers::parse_oxlint_json(&stdout, source).unwrap_or_else(|_| {
         parsers::text_on_failure_diagnostic(
@@ -473,10 +464,18 @@ fn run_oxlint_builtin(
 }
 
 fn run_indicates_tool_failure(run: &Value) -> bool {
-    if run.get("skipped").and_then(|s| s.as_bool()).unwrap_or(false) {
+    if run
+        .get("skipped")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false)
+    {
         return false;
     }
-    if run.get("timedOut").and_then(|t| t.as_bool()).unwrap_or(false) {
+    if run
+        .get("timedOut")
+        .and_then(|t| t.as_bool())
+        .unwrap_or(false)
+    {
         return true;
     }
     let Some(exit) = run.get("exitCode").and_then(|c| c.as_u64()) else {
@@ -544,11 +543,7 @@ fn run_ruff_builtin(
     wall_ms: u64,
     source: &str,
 ) -> Result<(Vec<Value>, exec::CapturedOutput)> {
-    let mut args = vec![
-        "check".into(),
-        "--output-format".into(),
-        "json".into(),
-    ];
+    let mut args = vec!["check".into(), "--output-format".into(), "json".into()];
     if filters.is_empty() {
         args.push(".".into());
     } else {
@@ -556,13 +551,8 @@ fn run_ruff_builtin(
             args.push(p.display().to_string());
         }
     }
-    let (_lines, cap) = exec::run_argv_capture_lines(
-        "ruff",
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (_lines, cap) =
+        exec::run_argv_capture_lines("ruff", &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let stdout = String::from_utf8_lossy(&cap.stdout);
     let diags = parsers::parse_ruff_json(&stdout, source).unwrap_or_else(|_| {
         parsers::text_on_failure_diagnostic(
@@ -585,13 +575,8 @@ fn run_clippy_builtin(
         "--all-targets".into(),
         "--message-format=json".into(),
     ];
-    let (lines, cap) = exec::run_argv_capture_lines(
-        "cargo",
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (lines, cap) =
+        exec::run_argv_capture_lines("cargo", &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let diags = parsers::parse_cargo_compiler_messages(&lines, source);
     Ok((diags, cap))
 }
@@ -601,11 +586,7 @@ fn run_go_builtin(
     wall_ms: u64,
     source: &str,
 ) -> Result<(Vec<Value>, exec::CapturedOutput)> {
-    let args = vec![
-        "run".into(),
-        "--out-format=json".into(),
-        "./...".into(),
-    ];
+    let args = vec!["run".into(), "--out-format=json".into(), "./...".into()];
     let (lines, cap) = exec::run_argv_capture_lines(
         "golangci-lint",
         &args,
@@ -676,13 +657,8 @@ fn run_java_maven_builtin(
         "-DskipTests".into(),
         "compile".into(),
     ];
-    let (_lines, cap) = exec::run_argv_capture_lines(
-        &prog,
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (_lines, cap) =
+        exec::run_argv_capture_lines(&prog, &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let combined = combine_process_output(&cap);
     let mut diags = parsers::parse_java_compile_output(&combined, source);
     if diags.is_empty() && (cap.exit_code != Some(0) || cap.timed_out) {
@@ -702,17 +678,9 @@ fn run_java_gradle_builtin(
     source: &str,
 ) -> Result<(Vec<Value>, exec::CapturedOutput)> {
     let prog = gradle_program(root);
-    let args = vec![
-        "compileJava".into(),
-        "--console=plain".into(),
-    ];
-    let (_lines, cap) = exec::run_argv_capture_lines(
-        &prog,
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let args = vec!["compileJava".into(), "--console=plain".into()];
+    let (_lines, cap) =
+        exec::run_argv_capture_lines(&prog, &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let combined = combine_process_output(&cap);
     let mut diags = parsers::parse_java_compile_output(&combined, source);
     if diags.is_empty() && (cap.exit_code != Some(0) || cap.timed_out) {
@@ -732,7 +700,8 @@ fn dotnet_target_arg(root: &Path) -> Option<String> {
     let rd = root.read_dir().ok()?;
     for e in rd.flatten() {
         let p = e.path();
-        let (Some(ext), Some(fname)) = (p.extension().and_then(|x| x.to_str()), p.file_name()) else {
+        let (Some(ext), Some(fname)) = (p.extension().and_then(|x| x.to_str()), p.file_name())
+        else {
             continue;
         };
         let name = fname.to_string_lossy().into_owned();
@@ -744,7 +713,9 @@ fn dotnet_target_arg(root: &Path) -> Option<String> {
     }
     slns.sort();
     csprojs.sort();
-    slns.into_iter().next().or_else(|| csprojs.into_iter().next())
+    slns.into_iter()
+        .next()
+        .or_else(|| csprojs.into_iter().next())
 }
 
 fn run_dotnet_builtin(
@@ -755,19 +726,9 @@ fn run_dotnet_builtin(
     let Some(target) = dotnet_target_arg(root) else {
         return Err(anyhow!("未在仓库根目录找到 .sln 或 .csproj"));
     };
-    let args = vec![
-        "build".into(),
-        target,
-        "-v:q".into(),
-        "--nologo".into(),
-    ];
-    let (_lines, cap) = exec::run_argv_capture_lines(
-        "dotnet",
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let args = vec!["build".into(), target, "-v:q".into(), "--nologo".into()];
+    let (_lines, cap) =
+        exec::run_argv_capture_lines("dotnet", &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let combined = combine_process_output(&cap);
     let mut diags = parsers::parse_dotnet_build_log(&combined, source);
     if diags.is_empty() && (cap.exit_code != Some(0) || cap.timed_out) {
@@ -836,13 +797,8 @@ fn run_rubocop_builtin(
             vec!["--format".into(), "json".into(), ".".into()],
         )
     };
-    let (_lines, cap) = exec::run_argv_capture_lines(
-        prog,
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (_lines, cap) =
+        exec::run_argv_capture_lines(prog, &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let stdout = String::from_utf8_lossy(&cap.stdout);
     let mut diags = parsers::parse_rubocop_json(&stdout, root, source).unwrap_or_default();
     if diags.is_empty() && (cap.exit_code != Some(0) || cap.timed_out) {
@@ -862,13 +818,8 @@ fn run_swift_pm_builtin(
     source: &str,
 ) -> Result<(Vec<Value>, exec::CapturedOutput)> {
     let args = vec!["build".into()];
-    let (_lines, cap) = exec::run_argv_capture_lines(
-        "swift",
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (_lines, cap) =
+        exec::run_argv_capture_lines("swift", &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let combined = combine_process_output(&cap);
     let mut diags = parsers::parse_swift_build_log(&combined, source);
     if diags.is_empty() && (cap.exit_code != Some(0) || cap.timed_out) {
@@ -888,13 +839,8 @@ fn run_dart_analyze_builtin(
     source: &str,
 ) -> Result<(Vec<Value>, exec::CapturedOutput)> {
     let args = vec!["analyze".into(), "--format=json".into()];
-    let (_lines, cap) = exec::run_argv_capture_lines(
-        "dart",
-        &args,
-        root,
-        wall_ms,
-        READ_LINTS_MAX_STREAM_BYTES,
-    )?;
+    let (_lines, cap) =
+        exec::run_argv_capture_lines("dart", &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
     let stdout = String::from_utf8_lossy(&cap.stdout);
     let mut diags = parsers::parse_dart_analyze_json(&stdout, source).unwrap_or_default();
     if diags.is_empty() && (cap.exit_code != Some(0) || cap.timed_out) {
@@ -1024,8 +970,7 @@ fn run_read_lints(args: Value) -> Result<String> {
                     scope
                         .spawn(move || match plan {
                             RunPlan::Builtin(b) => {
-                                let (meta, diags) =
-                                    run_builtin(b, &root, &root, &filters, slice);
+                                let (meta, diags) = run_builtin(b, &root, &root, &filters, slice);
                                 (meta, diags)
                             }
                             RunPlan::BuiltinInDir { stack, dir } => {
@@ -1081,7 +1026,13 @@ fn run_read_lints(args: Value) -> Result<String> {
                 }
                 RunPlan::Config(c) => match run_config_entry(&root, &c, slice) {
                     Ok((meta, diags)) => {
-                        push_filtered_batch(&root, &filters, diags, &mut diagnostics, &mut truncated);
+                        push_filtered_batch(
+                            &root,
+                            &filters,
+                            diags,
+                            &mut diagnostics,
+                            &mut truncated,
+                        );
                         runs.push(meta);
                     }
                     Err(e) => {
@@ -1098,8 +1049,7 @@ fn run_read_lints(args: Value) -> Result<String> {
         }
     }
 
-    let (lint_executed, outcome, summary) =
-        summarize_lint_result(&runs, &diagnostics, truncated);
+    let (lint_executed, outcome, summary) = summarize_lint_result(&runs, &diagnostics, truncated);
 
     Ok(json!({
         "ok": true,

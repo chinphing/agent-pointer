@@ -56,17 +56,15 @@ fn message_to_snapshot(msg: &ChatMessage) -> Option<Value> {
             }
             Some(o)
         }
-        Role::Assistant => {
-            Some(json!({
-                "id": msg.id,
-                "role": "assistant",
-                "content": truncate_chars(&msg.content, MAX_CONTENT_CHARS),
-                "agent_role_id": msg.agent_id,
-                "agent_instance_id": msg.agent_instance_id,
-                "agent_name": msg.agent_name,
-                "created_at": msg.created_at,
-            }))
-        }
+        Role::Assistant => Some(json!({
+            "id": msg.id,
+            "role": "assistant",
+            "content": truncate_chars(&msg.content, MAX_CONTENT_CHARS),
+            "agent_role_id": msg.agent_id,
+            "agent_instance_id": msg.agent_instance_id,
+            "agent_name": msg.agent_name,
+            "created_at": msg.created_at,
+        })),
         Role::Tool => {
             let name = msg
                 .tool_calls
@@ -87,10 +85,7 @@ fn message_to_snapshot(msg: &ChatMessage) -> Option<Value> {
 }
 
 /// Messages for one agent instance report (assistant lines + triggering user).
-pub fn build_snapshot_messages(
-    history: &[ChatMessage],
-    agent_instance_id: &str,
-) -> Vec<Value> {
+pub fn build_snapshot_messages(history: &[ChatMessage], agent_instance_id: &str) -> Vec<Value> {
     let mut out = Vec::new();
     let mut last_user: Option<Value> = None;
     for msg in history {
@@ -144,8 +139,8 @@ pub fn build_snapshot_json(
 pub fn write_snapshot_zip(path: &std::path::Path, snapshot: &Value) -> Result<()> {
     let file = std::fs::File::create(path)?;
     let mut zip = zip::ZipWriter::new(file);
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
     zip.start_file("conversation_snapshot.json", options)?;
     let bytes = serde_json::to_vec_pretty(snapshot)?;
     zip.write_all(&bytes)?;
@@ -183,14 +178,14 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            tool_raw_output: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+                tool_raw_output: None,
             },
             ChatMessage {
                 id: "u1".into(),
@@ -212,14 +207,14 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: Some(vec!["base64data".into()]),
                 computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            tool_raw_output: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+                tool_raw_output: None,
             },
             ChatMessage {
                 id: "a1".into(),
@@ -241,14 +236,14 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            tool_raw_output: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+                tool_raw_output: None,
             },
             ChatMessage {
                 id: "a2".into(),
@@ -270,14 +265,14 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            tool_raw_output: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+                tool_raw_output: None,
             },
         ];
         let snap = build_snapshot_json("conv-1", inst, "coder", &history);

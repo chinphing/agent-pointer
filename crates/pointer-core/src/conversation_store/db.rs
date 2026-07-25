@@ -117,9 +117,7 @@ fn apply_wal_with_fallback(conn: &Connection, label: &str) -> Result<()> {
                 || msg.contains("unable to open")
                 || msg.contains("not supported")
             {
-                log::warn!(
-                    "{label}: WAL unavailable ({err}); falling back to journal_mode=DELETE"
-                );
+                log::warn!("{label}: WAL unavailable ({err}); falling back to journal_mode=DELETE");
                 conn.execute_batch("PRAGMA journal_mode=DELETE")?;
                 Ok(())
             } else {

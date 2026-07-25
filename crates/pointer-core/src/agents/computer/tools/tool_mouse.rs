@@ -1,14 +1,14 @@
-use crate::agents::computer::actions::ActionExecutor;
-use crate::agents::computer::verify::VerifyHintGenerator;
-use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
     clamp_scroll_lines, human_like_from_args, require_non_empty_str, required_f32_arg,
     required_u32_arg, resolve_index_pixels as resolve_index_from_vision,
 };
+use super::method_route::MouseBackend;
+use crate::agents::computer::actions::ActionExecutor;
+use crate::agents::computer::verify::VerifyHintGenerator;
+use crate::agents::computer::vision_state::VisionState;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
-use super::method_route::MouseBackend;
 
 // ── MouseIndexTool ───────────────────────────────────────────────────────────
 
@@ -100,7 +100,8 @@ impl MouseIndexTool {
         let index = required_u32_arg(args, "index")?;
         let lines_raw = args["lines"]
             .as_i64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'lines' parameter"))? as i32;
+            .ok_or_else(|| anyhow!("Missing or invalid 'lines' parameter"))?
+            as i32;
         let lines = clamp_scroll_lines(lines_raw)?;
         let (x, y) = self.resolve_index(index)?;
         let hl = self.human_like(args);
@@ -231,12 +232,9 @@ impl MouseAtTool {
     fn drag_from_to(&self, args: &Value) -> Result<String> {
         let x1 = required_f32_arg(args, "x1")
             .map_err(|_| anyhow!("drag_from_to requires x1, y1, x2, y2"))?;
-        let y1 = required_f32_arg(args, "y1")
-            .map_err(|_| anyhow!("drag_from_to requires y1"))?;
-        let x2 = required_f32_arg(args, "x2")
-            .map_err(|_| anyhow!("drag_from_to requires x2"))?;
-        let y2 = required_f32_arg(args, "y2")
-            .map_err(|_| anyhow!("drag_from_to requires y2"))?;
+        let y1 = required_f32_arg(args, "y1").map_err(|_| anyhow!("drag_from_to requires y1"))?;
+        let x2 = required_f32_arg(args, "x2").map_err(|_| anyhow!("drag_from_to requires x2"))?;
+        let y2 = required_f32_arg(args, "y2").map_err(|_| anyhow!("drag_from_to requires y2"))?;
         let vision = self.vision_state.lock().unwrap();
         let (px1, py1) = vision
             .resolve_coordinate(x1, y1)
@@ -270,16 +268,8 @@ impl MouseTool {
         human_like_default: bool,
     ) -> Self {
         Self {
-            index: MouseIndexTool::new(
-                executor.clone(),
-                vision_state.clone(),
-                human_like_default,
-            ),
-            at: MouseAtTool::new(
-                executor.clone(),
-                vision_state,
-                human_like_default,
-            ),
+            index: MouseIndexTool::new(executor.clone(), vision_state.clone(), human_like_default),
+            at: MouseAtTool::new(executor.clone(), vision_state, human_like_default),
         }
     }
 

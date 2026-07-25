@@ -48,10 +48,7 @@ pub fn resolve_reference_image_for_api(raw: &str) -> Result<String> {
         bytes.len()
     );
 
-    Ok(format!(
-        "data:{mime};base64,{}",
-        preview.data_base64.trim()
-    ))
+    Ok(format!("data:{mime};base64,{}", preview.data_base64.trim()))
 }
 
 #[cfg(test)]

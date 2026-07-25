@@ -36,9 +36,7 @@ impl ImageDirRange {
             anyhow::bail!("pageStart ({start}) must be <= pageEnd ({end})");
         }
         if end > total_images {
-            anyhow::bail!(
-                "pageEnd ({end}) exceeds image file count ({total_images})"
-            );
+            anyhow::bail!("pageEnd ({end}) exceeds image file count ({total_images})");
         }
         Ok(Self {
             start,

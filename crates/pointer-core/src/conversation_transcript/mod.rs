@@ -3,8 +3,8 @@
 //! Canonical on disk: `role: tool` rows immediately after the assistant that issued
 //! `tool_calls`. In-memory `history` is the source of order; DB is synced in batches.
 
-mod registry;
 mod reconcile;
+mod registry;
 
 use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
@@ -35,7 +35,10 @@ pub struct ConversationTranscriptSession {
 }
 
 impl ConversationTranscriptSession {
-    pub fn begin(conversation_id: &str, history: &mut Vec<ChatMessage>) -> Result<Arc<Mutex<Self>>> {
+    pub fn begin(
+        conversation_id: &str,
+        history: &mut Vec<ChatMessage>,
+    ) -> Result<Arc<Mutex<Self>>> {
         let reconciled = reconcile::reconcile_tool_messages(history);
         let message_count = history.len() as u32;
         let preview = conversation_preview(history);
@@ -72,11 +75,9 @@ impl ConversationTranscriptSession {
                     s.transcript_dirty = false;
                 }
             }
-            if let Err(e) = store.flush_conversation_meta(
-                conversation_id,
-                s.message_count,
-                &s.preview,
-            ) {
+            if let Err(e) =
+                store.flush_conversation_meta(conversation_id, s.message_count, &s.preview)
+            {
                 log::warn!(
                     "conversation_transcript: flush_meta after bootstrap failed conversation_id={conversation_id}: {e:#}"
                 );
@@ -97,7 +98,9 @@ impl ConversationTranscriptSession {
             s.preview = conversation_preview(history);
             s.conversation_id.clone()
         };
-        if let Err(e) = ConversationTranscriptSession::flush_transcript(&conversation_id, history, session) {
+        if let Err(e) =
+            ConversationTranscriptSession::flush_transcript(&conversation_id, history, session)
+        {
             log::warn!(
                 "conversation_transcript: end flush failed conversation_id={conversation_id}: {e:#}"
             );
@@ -158,7 +161,8 @@ impl ConversationTranscriptSession {
                     "conversation_transcript: upsert_message failed conversation_id={conversation_id} message_id={}: {e:#}",
                     msg.id
                 );
-            } else if let Err(e) = store.flush_conversation_meta(&conversation_id, count, &preview) {
+            } else if let Err(e) = store.flush_conversation_meta(&conversation_id, count, &preview)
+            {
                 log::warn!(
                     "conversation_transcript: flush_meta after upsert failed conversation_id={conversation_id}: {e:#}"
                 );
@@ -185,7 +189,12 @@ impl ConversationTranscriptSession {
             return Ok(());
         }
         let store = conversation_store::global_store()?;
-        store.sync_messages_ordered_with_meta(conversation_id, history, s.message_count, &s.preview)?;
+        store.sync_messages_ordered_with_meta(
+            conversation_id,
+            history,
+            s.message_count,
+            &s.preview,
+        )?;
         s.transcript_dirty = false;
         s.known_ids = history.iter().map(|m| m.id.clone()).collect();
         Ok(())
@@ -231,9 +240,7 @@ pub fn insert_tool_result_in_history(
     content: &str,
 ) {
     let msg = reconcile::tool_result_message(tool_call_id, content);
-    if let Some(idx) =
-        reconcile::find_existing_tool_index(history, tool_call_id, hint_message_id)
-    {
+    if let Some(idx) = reconcile::find_existing_tool_index(history, tool_call_id, hint_message_id) {
         history[idx].content = content.to_string();
     } else if let Some(idx) =
         reconcile::find_tool_insert_index(history, tool_call_id, hint_message_id)
@@ -283,7 +290,9 @@ pub fn sync_ordered(conversation_id: &str, history: &[ChatMessage]) {
     let count = history.len() as u32;
     let preview = conversation_preview(history);
     if let Ok(store) = conversation_store::global_store() {
-        if let Err(e) = store.sync_messages_ordered_with_meta(conversation_id, history, count, &preview) {
+        if let Err(e) =
+            store.sync_messages_ordered_with_meta(conversation_id, history, count, &preview)
+        {
             log::warn!(
                 "conversation_transcript: sync_ordered failed conversation_id={conversation_id}: {e:#}"
             );

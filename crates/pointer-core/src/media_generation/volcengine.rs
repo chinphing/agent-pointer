@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::billing::{GenerationUsage, record_generation_usage};
+use super::billing::{record_generation_usage, GenerationUsage};
+use super::dashscope::{GenerationArtifact, ImageGenerateRequest, VideoGenerateRequest};
 use super::models::{
     is_seedance_v2_model, provider_is_volcengine, resolve_volcengine_video_model,
     volcengine_image_url, volcengine_video_task_url, volcengine_video_tasks_url, GenerationKind,
@@ -14,7 +15,6 @@ use super::models::{
 };
 use super::reference_image::resolve_reference_image_for_api;
 use super::save::{download_url_to_file, save_generated_bytes};
-use super::dashscope::{GenerationArtifact, ImageGenerateRequest, VideoGenerateRequest};
 
 const TIMEOUT_SECS: u64 = 600;
 const POLL_INTERVAL_MS: u64 = 5000;
@@ -127,7 +127,13 @@ pub async fn generate_image_volcengine(
         download_url_to_file(&client, &image_url, &path).await?;
         local_paths.push(path.to_string_lossy().into_owned());
     }
-    record_generation_usage(run_id, conversation_id, GenerationKind::Image, &cfg.model, &usage);
+    record_generation_usage(
+        run_id,
+        conversation_id,
+        GenerationKind::Image,
+        &cfg.model,
+        &usage,
+    );
     Ok(GenerationArtifact {
         local_paths,
         model: cfg.model.clone(),
@@ -233,7 +239,13 @@ pub async fn generate_video_volcengine(
     }
     let path = save_generated_bytes(conversation_id, &[], "gen.mp4")?;
     download_url_to_file(&client, video_url, &path).await?;
-    record_generation_usage(run_id, conversation_id, GenerationKind::Video, &model, &usage);
+    record_generation_usage(
+        run_id,
+        conversation_id,
+        GenerationKind::Video,
+        &model,
+        &usage,
+    );
     Ok(GenerationArtifact {
         local_paths: vec![path.to_string_lossy().into_owned()],
         model,

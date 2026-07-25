@@ -3,9 +3,11 @@
 use crate::models::{StreamEvent, ToolCall};
 use std::time::Duration;
 
-use super::types::ToolPassContext;
 use super::super::emit::{emit, trace_id_opt};
-use super::super::util::{append_assistant_tool_raw_output, desktop_tool_failure_note, truncate_str};
+use super::super::util::{
+    append_assistant_tool_raw_output, desktop_tool_failure_note, truncate_str,
+};
+use super::types::ToolPassContext;
 
 pub(super) async fn record_tool_exec_outcome(
     ctx: &mut ToolPassContext<'_>,
@@ -17,10 +19,7 @@ pub(super) async fn record_tool_exec_outcome(
     trace_id: Option<&str>,
 ) {
     let persist = &ctx.persist;
-    let scoped_message_id = ctx
-        .sub
-        .as_ref()
-        .map(|s| s.scoped_message_id.as_str());
+    let scoped_message_id = ctx.sub.as_ref().map(|s| s.scoped_message_id.as_str());
     let conversation_id = ctx.session.conversation_id;
     let message_id = ctx.message_id.as_str();
     let stream = ctx.session.stream;
@@ -36,10 +35,9 @@ pub(super) async fn record_tool_exec_outcome(
                 failed_note.as_deref(),
             );
             if ok && crate::agents::computer::is_desktop_post_delay_tool(tool_id) {
-                let delay_ms =
-                    crate::agents::computer::post_desktop_action_delay_ms_from_tool_args(
-                        args_for_desktop_log,
-                    );
+                let delay_ms = crate::agents::computer::post_desktop_action_delay_ms_from_tool_args(
+                    args_for_desktop_log,
+                );
                 log::info!(
                     "desktop post_action sleep {}ms before next capture (tool={})",
                     delay_ms,

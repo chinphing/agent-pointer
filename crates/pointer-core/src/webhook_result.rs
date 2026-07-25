@@ -20,7 +20,10 @@ pub struct WebhookRunView {
 }
 
 /// Last non-empty assistant message content in a conversation transcript.
-pub fn last_assistant_text(store: &ConversationStore, conversation_id: &str) -> Result<Option<String>> {
+pub fn last_assistant_text(
+    store: &ConversationStore,
+    conversation_id: &str,
+) -> Result<Option<String>> {
     let messages = store.load_messages(conversation_id)?;
     for msg in messages.iter().rev() {
         if !matches!(msg.role, Role::Assistant) {
@@ -54,10 +57,7 @@ pub fn webhook_run_view_for_source(
         return Ok(None);
     }
 
-    let terminal = matches!(
-        record.status.as_str(),
-        "finished" | "failed" | "cancelled"
-    );
+    let terminal = matches!(record.status.as_str(), "finished" | "failed" | "cancelled");
     let text = if record.status == "finished" {
         last_assistant_text(store, &record.conversation_id)?
     } else {
@@ -128,10 +128,8 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(
-            webhook_run_view_for_source(&s, "ci", "run-1")
-                .unwrap()
-                .is_none()
-        );
+        assert!(webhook_run_view_for_source(&s, "ci", "run-1")
+            .unwrap()
+            .is_none());
     }
 }

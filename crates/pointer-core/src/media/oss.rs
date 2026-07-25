@@ -5,14 +5,14 @@
 //! - V4 presigned URL: <https://help.aliyun.com/zh/oss/developer-reference/add-signatures-to-urls>
 //! - V4 signature upgrade: <https://help.aliyun.com/zh/oss/developer-reference/guidelines-for-upgrading-v1-signatures-to-v4-signatures>
 
+use super::filename::safe_attachment_basename;
+use super::store::save_attachment_bytes;
+use super::video::{shrink_video_to_max, COMPOSER_VIDEO_ADVISORY_BYTES};
 use crate::models::MediaOssConfig;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use chrono::Local;
 use futures_util::Stream;
-use super::filename::safe_attachment_basename;
-use super::store::save_attachment_bytes;
-use super::video::{shrink_video_to_max, COMPOSER_VIDEO_ADVISORY_BYTES};
 use ossify::ops::object::base::{
     DeleteObjectOperations, GetObjectOperations, GetObjectParams, PutObjectOperations,
     PutObjectOptions,
@@ -50,9 +50,7 @@ impl Stream for ChunkUploadStream {
         self.idx += 1;
         self.sent = self.sent.saturating_add(chunk.len() as u64);
         let span = self.phase_end.saturating_sub(self.phase_start);
-        let mapped = self.phase_start
-            + span.saturating_mul(self.sent)
-                / self.upload_total.max(1);
+        let mapped = self.phase_start + span.saturating_mul(self.sent) / self.upload_total.max(1);
         (self.on_progress)(mapped.min(self.phase_end), PROGRESS_TOTAL);
         Poll::Ready(Some(Ok(chunk)))
     }
@@ -150,7 +148,13 @@ fn oss_month_segment() -> String {
 
 fn attachment_object_key(prefix: &str, attachment_id: &str, file_name: &str) -> String {
     let safe = sanitize_object_name(file_name);
-    format!("{}{}/{}/{}", prefix, oss_month_segment(), attachment_id, safe)
+    format!(
+        "{}{}/{}/{}",
+        prefix,
+        oss_month_segment(),
+        attachment_id,
+        safe
+    )
 }
 
 fn env_first(keys: &[&str]) -> Option<String> {
@@ -161,12 +165,9 @@ fn env_first(keys: &[&str]) -> Option<String> {
 }
 
 fn env_enabled() -> bool {
-    env_first(&[
-        "POINTER_MEDIA_OSS_ENABLED",
-        "OSS_MEDIA_UPLOAD_ENABLED",
-    ])
-    .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-    .unwrap_or(false)
+    env_first(&["POINTER_MEDIA_OSS_ENABLED", "OSS_MEDIA_UPLOAD_ENABLED"])
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
 }
 
 /// Merge persisted settings with standard Aliyun/OSS environment variables.
@@ -227,10 +228,11 @@ pub fn resolve_media_oss_config(config: &MediaOssConfig) -> Option<ResolvedMedia
         format!("{key_prefix}/")
     };
 
-    let presign_expires_sec = env_first(&["OSS_PRESIGN_EXPIRES_SEC", "POINTER_OSS_PRESIGN_EXPIRES_SEC"])
-        .and_then(|v| v.parse().ok())
-        .filter(|&n: &u32| n >= 1 && n <= 604_800)
-        .unwrap_or(config.presign_expires_sec.max(1).min(604_800));
+    let presign_expires_sec =
+        env_first(&["OSS_PRESIGN_EXPIRES_SEC", "POINTER_OSS_PRESIGN_EXPIRES_SEC"])
+            .and_then(|v| v.parse().ok())
+            .filter(|&n: &u32| n >= 1 && n <= 604_800)
+            .unwrap_or(config.presign_expires_sec.max(1).min(604_800));
 
     let delete_after_use = env_first(&["POINTER_OSS_DELETE_AFTER_USE"])
         .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
@@ -254,13 +256,14 @@ fn build_client(resolved: &ResolvedMediaOssConfig) -> Result<Client> {
 
 /// Scale HTTP timeout from payload size (ossify default is 30s — too short for Composer videos).
 fn oss_http_timeout_for_bytes(bytes: usize) -> Duration {
-    let secs = (bytes as u64)
-        .saturating_div(256 * 1024)
-        .clamp(300, 7200);
+    let secs = (bytes as u64).saturating_div(256 * 1024).clamp(300, 7200);
     Duration::from_secs(secs)
 }
 
-fn build_client_with_timeout(resolved: &ResolvedMediaOssConfig, timeout: Duration) -> Result<Client> {
+fn build_client_with_timeout(
+    resolved: &ResolvedMediaOssConfig,
+    timeout: Duration,
+) -> Result<Client> {
     Client::builder()
         .endpoint(&resolved.endpoint)
         .region(&resolved.region)
@@ -306,7 +309,13 @@ fn temp_object_key(prefix: &str, file_name: &str) -> String {
     } else {
         format!("{prefix}/")
     };
-    format!("{}{}/{}/{}", p, oss_month_segment(), uuid::Uuid::new_v4(), safe)
+    format!(
+        "{}{}/{}/{}",
+        p,
+        oss_month_segment(),
+        uuid::Uuid::new_v4(),
+        safe
+    )
 }
 
 /// Upload a Composer video attachment to OSS (public-read URL for API manifest / DashScope).
@@ -371,7 +380,8 @@ pub async fn upload_composer_video_bytes(
     } else {
         progress_base
     };
-    let client = build_client_with_timeout(&resolved, oss_http_timeout_for_bytes(upload_bytes.len()))?;
+    let client =
+        build_client_with_timeout(&resolved, oss_http_timeout_for_bytes(upload_bytes.len()))?;
     let prefix = attachment_key_prefix(&resolved);
     let object_key = attachment_object_key(&prefix, attachment_id, file_name);
     let mime = content_type.trim();
@@ -550,11 +560,7 @@ mod tests {
         let month = oss_month_segment();
         assert_eq!(month.len(), 6);
         assert!(month.chars().all(|c| c.is_ascii_digit()));
-        let key = attachment_object_key(
-            "pointer-media-attachments/",
-            "att-1",
-            "demo.mp4",
-        );
+        let key = attachment_object_key("pointer-media-attachments/", "att-1", "demo.mp4");
         assert!(key.starts_with("pointer-media-attachments/"));
         assert!(key.contains(&format!("/{month}/att-1/demo.mp4")));
     }

@@ -24,7 +24,10 @@ pub enum WebSessionAuthKind {
 
 /// Resolve the platform auth manager for the current async task.
 pub fn scoped_auth(default: &Arc<PlatformAuthManager>) -> Arc<PlatformAuthManager> {
-    SCOPED_AUTH.try_with(Arc::clone).ok().unwrap_or_else(|| default.clone())
+    SCOPED_AUTH
+        .try_with(Arc::clone)
+        .ok()
+        .unwrap_or_else(|| default.clone())
 }
 
 /// Login credentials injected for the current request (server web session).
@@ -88,10 +91,7 @@ where
 }
 
 /// Propagate a captured web session into a spawned task (task-local does not inherit across `spawn`).
-pub async fn run_with_optional_web_session<F, Fut, T>(
-    ctx: Option<WebSessionAuth>,
-    f: F,
-) -> T
+pub async fn run_with_optional_web_session<F, Fut, T>(ctx: Option<WebSessionAuth>, f: F) -> T
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,

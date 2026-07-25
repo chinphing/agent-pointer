@@ -45,7 +45,8 @@ pub fn build_research_sub_agent_messages(
                 let mut parts = Vec::new();
                 if !msg.content.trim().is_empty() {
                     parts.push(msg.content.trim().to_string());
-                } else if let Some(thoughts) = msg.thoughts.as_deref().filter(|s| !s.trim().is_empty())
+                } else if let Some(thoughts) =
+                    msg.thoughts.as_deref().filter(|s| !s.trim().is_empty())
                 {
                     parts.push(thoughts.trim().to_string());
                 }

@@ -1,19 +1,19 @@
 //! Canonical SQLite conversation store (Hermes-style) with embedded FTS search.
 
+pub mod app_secrets;
 mod cjk_fts;
+pub mod cron_jobs;
 mod db;
 pub mod im_session;
 mod migrate;
 mod persist;
-pub mod app_secrets;
-pub mod cron_jobs;
-pub mod webhook_sources;
 pub mod runs;
 mod search;
 mod session_user;
-mod write;
 #[cfg(test)]
 mod tests;
+pub mod webhook_sources;
+mod write;
 
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -146,11 +146,7 @@ impl ConversationStore {
         )
     }
 
-    pub fn ensure_session_user_id(
-        &self,
-        conversation_id: &str,
-        candidate: &str,
-    ) -> Result<String> {
+    pub fn ensure_session_user_id(&self, conversation_id: &str, candidate: &str) -> Result<String> {
         self.db.execute_write(|conn| {
             session_user::ensure_session_user_id_in_conn(conn, conversation_id, candidate)
         })
@@ -254,11 +250,7 @@ impl ConversationStore {
     /// Cron sessions are isolated from the user's interactive sessions: they are
     /// excluded from the sidebar/pagination queries and are only reachable via
     /// the cron job management UI.
-    pub fn ensure_cron_session(
-        &self,
-        conversation_id: &str,
-        title: &str,
-    ) -> Result<()> {
+    pub fn ensure_cron_session(&self, conversation_id: &str, title: &str) -> Result<()> {
         self.db.execute_write(|conn| {
             write::ensure_conversation_row_with_title(conn, conversation_id, Some(title))
         })
@@ -283,12 +275,7 @@ impl ConversationStore {
     /// Record explicit webhook session id from multipart upload (keeps trigger aligned).
     pub fn adopt_webhook_upload_session(&self, src: &str, conversation_id: &str) -> Result<()> {
         self.db.execute_write(|conn| {
-            webhook_sources::adopt_upload_session(
-                conn,
-                src,
-                conversation_id,
-                &chrono::Local::now(),
-            )
+            webhook_sources::adopt_upload_session(conn, src, conversation_id, &chrono::Local::now())
         })
     }
 
@@ -427,11 +414,7 @@ impl ConversationStore {
     }
 
     /// P2b: replace full transcript from client-held messages.
-    pub fn replace_messages(
-        &self,
-        conversation_id: &str,
-        messages: &[ChatMessage],
-    ) -> Result<()> {
+    pub fn replace_messages(&self, conversation_id: &str, messages: &[ChatMessage]) -> Result<()> {
         self.db
             .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))
     }
@@ -514,9 +497,11 @@ impl ConversationStore {
         sender_name: Option<&str>,
         first_user_text: Option<&str>,
     ) -> Result<()> {
-        let Some(title) =
-            crate::channel_outbound::im_conversation_title(conversation_id, sender_name, first_user_text)
-        else {
+        let Some(title) = crate::channel_outbound::im_conversation_title(
+            conversation_id,
+            sender_name,
+            first_user_text,
+        ) else {
             return Ok(());
         };
         self.db.execute_write(|conn| {
@@ -566,10 +551,7 @@ impl ConversationStore {
         })
     }
 
-    pub fn runs_find_by_idempotency_key(
-        &self,
-        key: &str,
-    ) -> Result<Option<(String, String)>> {
+    pub fn runs_find_by_idempotency_key(&self, key: &str) -> Result<Option<(String, String)>> {
         let conn = self.db.conn.lock();
         runs::find_by_idempotency_key(&conn, key)
     }
@@ -660,11 +642,7 @@ impl ConversationStore {
         cron_jobs::update_deliver(&conn, id, deliver)
     }
 
-    pub fn cron_jobs_set_last_delivery_error(
-        &self,
-        id: &str,
-        err: Option<&str>,
-    ) -> Result<()> {
+    pub fn cron_jobs_set_last_delivery_error(&self, id: &str, err: Option<&str>) -> Result<()> {
         let conn = self.db.conn.lock();
         cron_jobs::set_last_delivery_error(&conn, id, err)
     }
@@ -706,7 +684,7 @@ impl ConversationStore {
     pub fn dispatch_tool_for_test(&self, args: &serde_json::Value) -> Result<String> {
         self.dispatch_search_tool(args)
     }
-#[cfg(test)]
+    #[cfg(test)]
     pub fn open_in_dir(dir: &std::path::Path) -> Result<Self> {
         Self::open(dir.join(DB_FILE))
     }
@@ -950,7 +928,10 @@ fn ensure_fts_schema(conn: &Connection) -> Result<()> {
     // it leaves the index empty, so existing messages (e.g. after a restore or
     // corruption recovery) would not be searchable. Repopulate from `messages`.
     // This only runs when the table was (re)created, not on every open.
-    match conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')", []) {
+    match conn.execute(
+        "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')",
+        [],
+    ) {
         Ok(n) => log::info!("conversation_store: FTS rebuilt from messages, rows={n}"),
         Err(e) => log::warn!("conversation_store: FTS rebuild failed: {e}"),
     }

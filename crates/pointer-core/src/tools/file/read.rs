@@ -1,7 +1,5 @@
+use super::path::{path_display_abs, path_display_for_read_request, resolve_accessible_path};
 use super::{json_u64_opt, MAX_FILE_READ_BYTES};
-use super::path::{
-    path_display_abs, path_display_for_read_request, resolve_accessible_path,
-};
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::io::{BufRead, BufReader};

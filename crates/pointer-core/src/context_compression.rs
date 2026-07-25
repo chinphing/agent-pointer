@@ -118,9 +118,7 @@ fn compression_done_toast(
                     "摘要生成失败，已丢弃较早 {dropped} 条记录，保留最近 {keep_users} 轮用户消息"
                 )
             } else {
-                format!(
-                    "已压缩较早 {dropped} 条对话为摘要，保留最近 {keep_users} 轮用户消息"
-                )
+                format!("已压缩较早 {dropped} 条对话为摘要，保留最近 {keep_users} 轮用户消息")
             }
         }
         CompressionScope::SubAgent => {
@@ -461,13 +459,13 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         images_base64: None,
         computer_round_screen_rel_path: None,
         ui_bindings: None,
-            context_state: None,
+        context_state: None,
         attachments: None,
         anchor_message_id: None,
         trace_id: None,
         task_id: None,
         spawn_depth: None,
-            }
+    }
 }
 
 async fn compress_history_inner(
@@ -579,13 +577,13 @@ async fn compress_history_inner(
         images_base64: None,
         computer_round_screen_rel_path: None,
         ui_bindings: None,
-            context_state: None,
+        context_state: None,
         attachments: None,
         anchor_message_id: None,
         trace_id: None,
         task_id: None,
         spawn_depth: None,
-            };
+    };
 
     let max_tok = settings.context_summary_max_tokens.max(128);
     let summary_prefix = if force_ignore_char_budget {
@@ -669,10 +667,7 @@ async fn compress_history_inner(
         return false;
     }
 
-    let insert_before_message_id = history
-        .get(split)
-        .map(|m| m.id.clone())
-        .unwrap_or_default();
+    let insert_before_message_id = history.get(split).map(|m| m.id.clone()).unwrap_or_default();
     let excluded_message_ids = mark_compressed_prefix_excluded(&mut history[..split]);
     let excluded_for_persist: Vec<ChatMessage> = history
         .iter()
@@ -872,16 +867,16 @@ mod tests {
             agent_name: None,
             agent_trace: None,
             image_slot_labels: None,
-        images_base64: None,
+            images_base64: None,
             computer_round_screen_rel_path: None,
-        ui_bindings: None,
+            ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            }
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        }
     }
 
     #[test]

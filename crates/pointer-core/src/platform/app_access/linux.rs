@@ -13,7 +13,9 @@ use std::time::Duration;
 
 const TRAY_RELAUNCH_SETTLE_MS: u64 = 800;
 
-pub fn list_apps(options: super::types::ListAppsOptions) -> Result<Vec<super::listed_app::ListedApp>> {
+pub fn list_apps(
+    options: super::types::ListAppsOptions,
+) -> Result<Vec<super::listed_app::ListedApp>> {
     let visible = wm_running_apps()?;
     merge_list_catalog(visible, recent_cutoff(), options.include_all)
 }
@@ -66,9 +68,7 @@ fn try_activate_running(app: &str) -> Result<bool> {
     };
     log::info!("launch_app Linux activate: tray-only pid={pid} app={app}");
     if !try_relaunch_running_instance(app, pid)? {
-        log::warn!(
-            "launch_app Linux activate: relaunch failed for tray-only app={app} pid={pid}"
-        );
+        log::warn!("launch_app Linux activate: relaunch failed for tray-only app={app} pid={pid}");
         return Ok(false);
     }
     thread::sleep(Duration::from_millis(TRAY_RELAUNCH_SETTLE_MS));
@@ -79,7 +79,9 @@ fn wm_running_apps() -> Result<Vec<super::listed_app::ListedApp>> {
     let out = Command::new("wmctrl")
         .args(["-l", "-p"])
         .output()
-        .map_err(|_| anyhow!("wmctrl not available; install wmctrl for list_apps on Linux (X11)"))?;
+        .map_err(|_| {
+            anyhow!("wmctrl not available; install wmctrl for list_apps on Linux (X11)")
+        })?;
     if !out.status.success() {
         return Err(anyhow!("wmctrl failed"));
     }
@@ -96,7 +98,12 @@ fn wm_running_apps() -> Result<Vec<super::listed_app::ListedApp>> {
         if title.is_empty() {
             continue;
         }
-        let name = title.rsplit(" - ").next().unwrap_or(&title).trim().to_string();
+        let name = title
+            .rsplit(" - ")
+            .next()
+            .unwrap_or(&title)
+            .trim()
+            .to_string();
         let key = format!("{}:{:?}", name.to_ascii_lowercase(), pid);
         if !seen.insert(key) {
             continue;
@@ -116,7 +123,11 @@ fn wm_running_apps() -> Result<Vec<super::listed_app::ListedApp>> {
             pid,
         });
     }
-    out_entries.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    out_entries.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
     Ok(out_entries)
 }
 
@@ -146,9 +157,7 @@ fn try_activate_via_wm(app: &str) -> Result<bool> {
 
 fn try_relaunch_running_instance(app: &str, pid: u32) -> Result<bool> {
     if let Some(desktop_id) = find_desktop_id_for_app(app) {
-        log::info!(
-            "launch_app Linux activate: gtk-launch desktop_id={desktop_id} app={app}"
-        );
+        log::info!("launch_app Linux activate: gtk-launch desktop_id={desktop_id} app={app}");
         if try_gtk_launch(&desktop_id)? {
             return Ok(true);
         }

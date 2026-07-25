@@ -103,10 +103,7 @@ pub fn insert_queued(
 
 /// Find an existing run by idempotency key. Returns the run_id + current
 /// status so the dispatcher can reuse it instead of starting a duplicate run.
-pub fn find_by_idempotency_key(
-    conn: &Connection,
-    key: &str,
-) -> Result<Option<(String, String)>> {
+pub fn find_by_idempotency_key(conn: &Connection, key: &str) -> Result<Option<(String, String)>> {
     let row = conn
         .query_row(
             "SELECT run_id, status FROM runs WHERE idempotency_key = ?1 LIMIT 1",
@@ -320,25 +317,11 @@ mod tests {
     #[test]
     fn insert_and_get_roundtrip() {
         let conn = mem();
-        let inserted = insert_queued(
-            &conn,
-            "r1",
-            "c1",
-            TriggerSource::Ipc,
-            "{}",
-            Some("idem-1"),
-        )
-        .unwrap();
+        let inserted =
+            insert_queued(&conn, "r1", "c1", TriggerSource::Ipc, "{}", Some("idem-1")).unwrap();
         assert!(inserted);
-        let dup = insert_queued(
-            &conn,
-            "r1",
-            "c1",
-            TriggerSource::Ipc,
-            "{}",
-            Some("idem-1"),
-        )
-        .unwrap();
+        let dup =
+            insert_queued(&conn, "r1", "c1", TriggerSource::Ipc, "{}", Some("idem-1")).unwrap();
         assert!(!dup, "duplicate run_id should be ignored");
 
         let row = get(&conn, "r1").unwrap().unwrap();
@@ -355,13 +338,7 @@ mod tests {
         insert_queued(&conn, "r2", "c2", TriggerSource::Cron, "{}", None).unwrap();
         set_status(&conn, "r2", RunStatus::Running, None).unwrap();
         assert_eq!(get(&conn, "r2").unwrap().unwrap().status, "running");
-        set_status(
-            &conn,
-            "r2",
-            RunStatus::Failed,
-            Some("boom"),
-        )
-        .unwrap();
+        set_status(&conn, "r2", RunStatus::Failed, Some("boom")).unwrap();
         let row = get(&conn, "r2").unwrap().unwrap();
         assert_eq!(row.status, "failed");
         assert_eq!(row.error.as_deref(), Some("boom"));

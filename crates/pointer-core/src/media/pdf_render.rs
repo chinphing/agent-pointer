@@ -6,7 +6,9 @@
 //! page count + render in one `spawn_blocking` task.
 
 use crate::media::jpeg_vision::{prepare_dynamic_image_for_vision, VISION_IMAGE_MAX_LONG_EDGE};
-use crate::media::pdf::{PdfPageRange, MAX_PDF_IMAGE_BYTES, MAX_PDF_PAGES_PER_CALL, PDF_RENDER_DPI};
+use crate::media::pdf::{
+    PdfPageRange, MAX_PDF_IMAGE_BYTES, MAX_PDF_PAGES_PER_CALL, PDF_RENDER_DPI,
+};
 use anyhow::{Context, Result};
 use base64::Engine as _;
 use image::GenericImageView;
@@ -91,9 +93,7 @@ fn render_with_engine(
         }
         let pdfium_index = (page_index - 1) as u16;
         if pdfium_index as usize >= page_count {
-            log::warn!(
-                "pdf {file_name}: page {page_index} exceeds pdfium page count {page_count}"
-            );
+            log::warn!("pdf {file_name}: page {page_index} exceeds pdfium page count {page_count}");
             break;
         }
         let page = document
@@ -177,8 +177,7 @@ mod tests {
         if !pdfium_render_available() {
             return;
         }
-        let path =
-            "/Users/starliu/.pointer/skills/weilin-case-query/output/case_908005_doc.pdf";
+        let path = "/Users/starliu/.pointer/skills/weilin-case-query/output/case_908005_doc.pdf";
         if !std::path::Path::new(path).exists() {
             return;
         }
@@ -321,7 +320,9 @@ mod tests {
         let frames = render_pdf_pages_base64_range(&bytes, "证据8：放款凭证.pdf", &range).unwrap();
         eprintln!("scan pdf render elapsed: {}ms", t0.elapsed().as_millis());
         assert_eq!(frames.len(), 1);
-        let decoded = base64::engine::general_purpose::STANDARD.decode(&frames[0]).unwrap();
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&frames[0])
+            .unwrap();
         let img = image::load_from_memory(&decoded).unwrap();
         assert!(img.width().max(img.height()) <= VISION_IMAGE_MAX_LONG_EDGE);
         assert!(decoded.len() <= crate::media::jpeg_vision::VISION_JPEG_MAX_BYTES);

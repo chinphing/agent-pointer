@@ -40,7 +40,11 @@ fn plan_includes_skill_tools(_names: &[String]) -> bool {
     false
 }
 
-pub fn memory_review_due_for(settings: &ModelSettings, allowed_tool_names: &[String], history: &[ChatMessage]) -> bool {
+pub fn memory_review_due_for(
+    settings: &ModelSettings,
+    allowed_tool_names: &[String],
+    history: &[ChatMessage],
+) -> bool {
     if !review_base_eligible(settings) {
         return false;
     }
@@ -65,7 +69,10 @@ pub fn skill_review_due_for(
     if !plan_includes_skill_tools(allowed_tool_names) {
         return false;
     }
-    skill_review_due(cumulative_tool_iters, settings.skill_creation_nudge_interval)
+    skill_review_due(
+        cumulative_tool_iters,
+        settings.skill_creation_nudge_interval,
+    )
 }
 
 pub fn resolve_review_kind(memory_due: bool, _skill_due: bool) -> Option<ReviewKind> {
@@ -163,8 +170,7 @@ async fn run_background_review(
     enabled_skill_ids: &[String],
     kind: ReviewKind,
 ) -> Result<Option<String>> {
-    let session_user_id =
-        crate::user_storage::session_user_id_for_conversation(conversation_id);
+    let session_user_id = crate::user_storage::session_user_id_for_conversation(conversation_id);
     memory_store.ensure_session_user(&session_user_id)?;
     let allowed = allowed_tools_for(kind);
     let native_tools = tools.openai_tools(&allowed);
@@ -239,22 +245,16 @@ async fn run_background_review(
                 );
                 continue;
             }
-            let result = dispatch_review_tool(
-                &memory_store,
-                &skills,
-                settings,
-                &tc.name,
-                &tc.arguments,
-            )
-            .unwrap_or_else(|e| json!({ "success": false, "error": e.to_string() }).to_string());
+            let result =
+                dispatch_review_tool(&memory_store, &skills, settings, &tc.name, &tc.arguments)
+                    .unwrap_or_else(|e| {
+                        json!({ "success": false, "error": e.to_string() }).to_string()
+                    });
 
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&result) {
                 if v.get("success").and_then(|b| b.as_bool()) == Some(true) {
                     if tc.name == MEMORY_TOOL {
-                        let target = v
-                            .get("target")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("memory");
+                        let target = v.get("target").and_then(|t| t.as_str()).unwrap_or("memory");
                         let label = if target == "user" {
                             "User profile"
                         } else {
@@ -338,14 +338,12 @@ fn format_review_toast(memory_actions: &[String]) -> Result<Option<String>> {
 }
 
 fn dedupe(items: &[String]) -> Vec<String> {
-    items
-        .iter()
-        .fold(Vec::new(), |mut acc, a| {
-            if !acc.contains(a) {
-                acc.push(a.clone());
-            }
-            acc
-        })
+    items.iter().fold(Vec::new(), |mut acc, a| {
+        if !acc.contains(a) {
+            acc.push(a.clone());
+        }
+        acc
+    })
 }
 
 fn review_user_message(kind: ReviewKind, enabled_skill_ids: &[String]) -> ChatMessage {
@@ -484,11 +482,7 @@ mod tests {
         settings.lead_agent_id = "general".into();
         settings.skill_creation_nudge_interval = 10;
         settings.background_review_enabled = true;
-        assert!(!skill_review_due_for(
-            &settings,
-            &["skill_read".into()],
-            10
-        ));
+        assert!(!skill_review_due_for(&settings, &["skill_read".into()], 10));
     }
 
     #[test]

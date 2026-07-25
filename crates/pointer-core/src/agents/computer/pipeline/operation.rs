@@ -255,8 +255,14 @@ pub fn needs_positioning_for_tool(tool_name: &str, args: &serde_json::Value) -> 
     // Non-spatial tools that never need positioning
     if matches!(
         n.as_str(),
-        "wait" | "hotkey" | "input_focused" | "clipboard_read" | "clipboard_write"
-            | "mouse_scroll_current" | "list_apps" | "launch_app"
+        "wait"
+            | "hotkey"
+            | "input_focused"
+            | "clipboard_read"
+            | "clipboard_write"
+            | "mouse_scroll_current"
+            | "list_apps"
+            | "launch_app"
     ) {
         return false;
     }
@@ -282,18 +288,15 @@ pub fn format_operation_summary(tool_name: &str, args: &Value) -> String {
         .unwrap_or("")
         .trim();
     // `goal` may be absent in decision-phase args; fall back to action.
-    let goal = args
-        .get("goal")
-        .and_then(|v| v.as_str())
-        .unwrap_or(action);
+    let goal = args.get("goal").and_then(|v| v.as_str()).unwrap_or(action);
     format!("tool={tool_name} goal=\"{goal}\" action=\"{action}\"")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate::agents::computer::pipeline::types::{PositionModuleOutput, PositionPoint};
+    use serde_json::json;
 
     #[test]
     fn classifies_mouse_click_at() {
@@ -322,8 +325,14 @@ mod tests {
 
     #[test]
     fn app_access_skips_positioning() {
-        assert_eq!(operation_family_for_tool("launch_app"), OperationFamily::AppAccess);
-        assert!(!needs_positioning_for_tool("launch_app", &json!({"goal": "open Safari", "app": "Safari"})));
+        assert_eq!(
+            operation_family_for_tool("launch_app"),
+            OperationFamily::AppAccess
+        );
+        assert!(!needs_positioning_for_tool(
+            "launch_app",
+            &json!({"goal": "open Safari", "app": "Safari"})
+        ));
     }
 
     #[test]
@@ -423,8 +432,14 @@ mod tests {
 
     #[test]
     fn decision_click_always_auto_positioning_route() {
-        assert_eq!(positioning_route("click", &json!({"positioning_method": "at"})), "auto");
-        assert_eq!(positioning_route("click", &json!({"positioning_method": "index"})), "auto");
+        assert_eq!(
+            positioning_route("click", &json!({"positioning_method": "at"})),
+            "auto"
+        );
+        assert_eq!(
+            positioning_route("click", &json!({"positioning_method": "index"})),
+            "auto"
+        );
         assert_eq!(positioning_route("click", &json!({})), "auto");
     }
 
@@ -461,7 +476,10 @@ mod tests {
             indices: Some(vec![3, 7]),
             ..Default::default()
         };
-        assert_eq!(resolve_execution_tool("drag", &pos), "mouse_drag_from_to_index");
+        assert_eq!(
+            resolve_execution_tool("drag", &pos),
+            "mouse_drag_from_to_index"
+        );
     }
 
     #[test]

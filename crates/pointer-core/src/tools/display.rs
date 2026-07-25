@@ -1,4 +1,4 @@
-﻿//! UI display labels and parameter summaries for tool invocations (not sent to the LLM).
+//! UI display labels and parameter summaries for tool invocations (not sent to the LLM).
 
 use super::registry_tool_base_name;
 use serde_json::Value;
@@ -42,10 +42,7 @@ fn format_ask_user_summary(args: &Value) -> String {
     let mut lines: Vec<String> = vec![question];
     if let Some(options) = args.get("options").and_then(|o| o.as_array()) {
         for (i, opt) in options.iter().enumerate() {
-            let label = opt
-                .get("label")
-                .and_then(|l| l.as_str())
-                .unwrap_or("?");
+            let label = opt.get("label").and_then(|l| l.as_str()).unwrap_or("?");
             let desc = opt
                 .get("description")
                 .and_then(|d| d.as_str())
@@ -157,8 +154,8 @@ fn infer_cron_job_action(args: &Value) -> String {
             return t.to_string();
         }
     }
-    let has_create = str_field(args, &["prompt_text"]).is_some()
-        && str_field(args, &["schedule"]).is_some();
+    let has_create =
+        str_field(args, &["prompt_text"]).is_some() && str_field(args, &["schedule"]).is_some();
     if has_create {
         "create".into()
     } else {
@@ -182,9 +179,8 @@ fn cron_job_summary(action: &str, args: &Value) -> String {
         "create" => str_field(args, &["label"])
             .or_else(|| str_field(args, &["schedule"]))
             .or_else(|| {
-                str_field(args, &["prompt_text"]).map(|s| {
-                    truncate(s.lines().next().unwrap_or(s.as_str()), SUMMARY_MAX)
-                })
+                str_field(args, &["prompt_text"])
+                    .map(|s| truncate(s.lines().next().unwrap_or(s.as_str()), SUMMARY_MAX))
             })
             .unwrap_or_default(),
         "list" => String::new(),
@@ -255,7 +251,9 @@ fn hotkey_summary(args: &Value) -> String {
             return truncate(&parts.join("+"), SUMMARY_MAX);
         }
     }
-    str_field(args, &["keys"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default()
+    str_field(args, &["keys"])
+        .map(|s| truncate(&s, SUMMARY_MAX))
+        .unwrap_or_default()
 }
 
 fn task_board_method_label(method: &str) -> &'static str {
@@ -337,19 +335,26 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 label,
                 str_field(args, &["label"])
                     .or_else(|| {
-                        str_field(args, &["command"]).map(|c| {
-                            truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX)
-                        })
+                        str_field(args, &["command"])
+                            .map(|c| truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX))
                     })
                     .unwrap_or_default(),
             )
         }
         n if n.starts_with("file_") => {
-            let m = if method.is_empty() { "read" } else { method.as_str() };
+            let m = if method.is_empty() {
+                "read"
+            } else {
+                method.as_str()
+            };
             (file_method_label(m).to_string(), file_summary(args, m))
         }
         n if n.starts_with("mouse_") => {
-            let ml = mouse_method_label(if method.is_empty() { "click_index" } else { &method });
+            let ml = mouse_method_label(if method.is_empty() {
+                "click_index"
+            } else {
+                &method
+            });
             (format!("鼠标 · {ml}"), computer_action_summary(args))
         }
         n if n.starts_with("input_") => {
@@ -383,7 +388,13 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             let ml = match method.as_str() {
                 "read" => "读取",
                 "write" => "写入",
-                _ => if method.is_empty() { "操作" } else { method.as_str() },
+                _ => {
+                    if method.is_empty() {
+                        "操作"
+                    } else {
+                        method.as_str()
+                    }
+                }
             };
             (
                 format!("剪贴板 · {ml}"),
@@ -413,7 +424,10 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     .unwrap_or_default(),
             )
         }
-        "web_search" => { let q = str_field(args, &["query"]).unwrap_or_default(); ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX)) }
+        "web_search" => {
+            let q = str_field(args, &["query"]).unwrap_or_default();
+            ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX))
+        }
         "web_fetch" => {
             let u = str_field(args, &["url"]).unwrap_or_else(|| {
                 args.get("urls")
@@ -429,19 +443,40 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             let goal = str_field(args, &["goal", "question"]).unwrap_or_default();
             ("媒体理解".to_string(), truncate(&goal, SUMMARY_MAX))
         }
-        "run_subagent" => ("委派子任务".to_string(), str_field(args, &["title", "goal", "agentId"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default()),
+        "run_subagent" => (
+            "委派子任务".to_string(),
+            str_field(args, &["title", "goal", "agentId"])
+                .map(|s| truncate(&s, SUMMARY_MAX))
+                .unwrap_or_default(),
+        ),
         "read_lints" => ("代码检查".to_string(), file_summary(args, "read")),
         n if n.starts_with("task_board") => {
-            let m = if method.is_empty() { "patch" } else { method.as_str() };
-            (format!("任务板 · {}", task_board_method_label(m)), task_board_invoke_summary(m, args))
+            let m = if method.is_empty() {
+                "patch"
+            } else {
+                method.as_str()
+            };
+            (
+                format!("任务板 · {}", task_board_method_label(m)),
+                task_board_invoke_summary(m, args),
+            )
         }
         "captcha_verify" => {
-            let action = if method.is_empty() { str_field(args, &["action", "method"]).unwrap_or_default() } else { method.clone() };
-            (format!("验证码 · {}", captcha_action_label(action.as_str())), computer_action_summary(args))
+            let action = if method.is_empty() {
+                str_field(args, &["action", "method"]).unwrap_or_default()
+            } else {
+                method.clone()
+            };
+            (
+                format!("验证码 · {}", captcha_action_label(action.as_str())),
+                computer_action_summary(args),
+            )
         }
         "list_apps" => (
             "列出应用".to_string(),
-            str_field(args, &["goal"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default(),
+            str_field(args, &["goal"])
+                .map(|s| truncate(&s, SUMMARY_MAX))
+                .unwrap_or_default(),
         ),
         "launch_app" => (
             "启动应用".to_string(),
@@ -457,12 +492,15 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 cron_job_summary(&action, args),
             )
         }
-        "ask_user" => (
-            "询问用户".to_string(),
-            format_ask_user_summary(args),
-        ),
+        "ask_user" => ("询问用户".to_string(), format_ask_user_summary(args)),
         "response" => ("回复用户".to_string(), String::new()),
-        _ => if !method.is_empty() { (format!("{base} · {method}"), String::new()) } else { (raw_name.to_string(), String::new()) }
+        _ => {
+            if !method.is_empty() {
+                (format!("{base} · {method}"), String::new())
+            } else {
+                (raw_name.to_string(), String::new())
+            }
+        }
     };
 
     ToolDisplay { label, summary }
@@ -664,10 +702,7 @@ mod tests {
 
     #[test]
     fn terminal_falls_back_to_command_when_label_absent() {
-        let d = default_display(
-            "terminal",
-            &json!({"command": "cargo build --release"}),
-        );
+        let d = default_display("terminal", &json!({"command": "cargo build --release"}));
         assert_eq!(d.label, "终端命令");
         assert_eq!(d.summary, "cargo build --release");
     }

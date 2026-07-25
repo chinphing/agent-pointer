@@ -108,10 +108,18 @@ pub fn parse_mdls_date(raw: &str) -> Option<NaiveDate> {
 pub fn compare_listed_apps(a: &ListedApp, b: &ListedApp) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     if a.frontmost != b.frontmost {
-        return if a.frontmost { Ordering::Less } else { Ordering::Greater };
+        return if a.frontmost {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
     }
     if a.running != b.running {
-        return if a.running { Ordering::Less } else { Ordering::Greater };
+        return if a.running {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
     }
     match (a.last_used, b.last_used) {
         (Some(l), Some(r)) if l != r => return r.cmp(&l),
@@ -125,7 +133,9 @@ pub fn compare_listed_apps(a: &ListedApp, b: &ListedApp) -> std::cmp::Ordering {
         (None, Some(_)) => return Ordering::Greater,
         _ => {}
     }
-    a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase())
+    a.name
+        .to_ascii_lowercase()
+        .cmp(&b.name.to_ascii_lowercase())
 }
 
 #[cfg(test)]

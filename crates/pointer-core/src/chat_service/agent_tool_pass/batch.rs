@@ -77,7 +77,12 @@ pub fn plan_tool_batch(input: PlanToolBatchInput<'_>) -> ToolBatchPlan {
 
     if !any_parallel {
         let waves: Vec<ToolWave> = (0..n).map(|i| ToolWave::Serial(vec![i])).collect();
-        log_plan(BatchMode::Serial, &waves, Some("no_parallel_eligible"), started);
+        log_plan(
+            BatchMode::Serial,
+            &waves,
+            Some("no_parallel_eligible"),
+            started,
+        );
         return ToolBatchPlan {
             mode: BatchMode::Serial,
             waves,
@@ -90,7 +95,9 @@ pub fn plan_tool_batch(input: PlanToolBatchInput<'_>) -> ToolBatchPlan {
     let mut current_keys: HashSet<String> = HashSet::new();
     let mut current_self_forks: Vec<usize> = Vec::new();
 
-    let flush = |waves: &mut Vec<ToolWave>, current: &mut Vec<usize>, current_keys: &mut HashSet<String>| {
+    let flush = |waves: &mut Vec<ToolWave>,
+                 current: &mut Vec<usize>,
+                 current_keys: &mut HashSet<String>| {
         if current.is_empty() {
             return;
         }
@@ -130,7 +137,8 @@ pub fn plan_tool_batch(input: PlanToolBatchInput<'_>) -> ToolBatchPlan {
 
         flush_self_forks(&mut waves, &mut current_self_forks);
 
-        if !eligible || class == ToolConflictClass::Sidecar || class == ToolConflictClass::Computer {
+        if !eligible || class == ToolConflictClass::Sidecar || class == ToolConflictClass::Computer
+        {
             flush(&mut waves, &mut current, &mut current_keys);
             waves.push(ToolWave::Serial(vec![i]));
             continue;
@@ -279,10 +287,7 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "a").unwrap();
         std::fs::write(dir.path().join("b.txt"), "b").unwrap();
         let reg = reg_with_file_tools();
-        let batch = vec![
-            tc("1", "file_read"),
-            tc("2", "file_write"),
-        ];
+        let batch = vec![tc("1", "file_read"), tc("2", "file_write")];
         let parsed = vec![
             serde_json::json!({"path": "a.txt"}),
             serde_json::json!({"path": "b.txt", "content": "z"}),
@@ -299,7 +304,10 @@ mod tests {
             max_parallel_tools: 8,
         });
         assert!(matches!(plan.mode, BatchMode::Parallel | BatchMode::Mixed));
-        assert!(plan.waves.iter().any(|w| matches!(w, ToolWave::Parallel(_))));
+        assert!(plan
+            .waves
+            .iter()
+            .any(|w| matches!(w, ToolWave::Parallel(_))));
     }
 
     #[test]
@@ -329,10 +337,7 @@ mod tests {
             max_parallel_tools: 8,
         });
         assert!(plan.waves.len() >= 2);
-        assert!(plan
-            .waves
-            .iter()
-            .all(|w| matches!(w, ToolWave::Serial(_))));
+        assert!(plan.waves.iter().all(|w| matches!(w, ToolWave::Serial(_))));
     }
 
     #[test]

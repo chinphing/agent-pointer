@@ -114,10 +114,8 @@ fn merge_registry_path_into_process() {
         warn!("shell_env: registry PATH empty; keeping process PATH");
         return;
     }
-    let merged = demote_windows_app_execution_aliases(&merge_path_entries(
-        &current,
-        &registry_path,
-    ));
+    let merged =
+        demote_windows_app_execution_aliases(&merge_path_entries(&current, &registry_path));
     if merged == current {
         return;
     }
@@ -172,11 +170,7 @@ fn read_windows_registry_path() -> Option<String> {
         r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
         "Machine",
     );
-    let user = read_registry_path_value(
-        &RegKey::predef(HKEY_CURRENT_USER),
-        "Environment",
-        "User",
-    );
+    let user = read_registry_path_value(&RegKey::predef(HKEY_CURRENT_USER), "Environment", "User");
 
     match (machine, user) {
         (Some(m), Some(u)) if !m.is_empty() && !u.is_empty() => Some(format!("{m};{u}")),
@@ -188,14 +182,19 @@ fn read_windows_registry_path() -> Option<String> {
 
 #[cfg(windows)]
 fn read_registry_path_value(hive: &winreg::RegKey, subkey: &str, label: &str) -> Option<String> {
-    let key = hive.open_subkey(subkey).map_err(|e| {
-        warn!("shell_env: failed to open registry {label} Path ({subkey}): {e}");
-        e
-    }).ok()?;
-    key.get_value::<String, _>("Path").map_err(|e| {
-        warn!("shell_env: failed to read registry {label} Path: {e}");
-        e
-    }).ok()
+    let key = hive
+        .open_subkey(subkey)
+        .map_err(|e| {
+            warn!("shell_env: failed to open registry {label} Path ({subkey}): {e}");
+            e
+        })
+        .ok()?;
+    key.get_value::<String, _>("Path")
+        .map_err(|e| {
+            warn!("shell_env: failed to read registry {label} Path: {e}");
+            e
+        })
+        .ok()
 }
 
 #[cfg(unix)]
@@ -231,7 +230,8 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn demote_windows_app_execution_aliases_moves_stub_last() {
-        let path = r"C:\Users\me\AppData\Local\Microsoft\WindowsApps;C:\Python314;C:\Windows\System32";
+        let path =
+            r"C:\Users\me\AppData\Local\Microsoft\WindowsApps;C:\Python314;C:\Windows\System32";
         let demoted = demote_windows_app_execution_aliases(path);
         assert_eq!(
             demoted,

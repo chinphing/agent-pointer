@@ -247,7 +247,8 @@ pub fn history_to_dashscope_messages(
                 let mut parts = Vec::new();
                 if !msg.content.trim().is_empty() {
                     parts.push(msg.content.trim().to_string());
-                } else if let Some(thoughts) = msg.thoughts.as_deref().filter(|s| !s.trim().is_empty())
+                } else if let Some(thoughts) =
+                    msg.thoughts.as_deref().filter(|s| !s.trim().is_empty())
                 {
                     parts.push(thoughts.trim().to_string());
                 }
@@ -286,9 +287,7 @@ pub fn format_sources_citation_markdown(sources: &[WebSearchSource]) -> String {
     }
     let mut sorted: Vec<&WebSearchSource> = sources.iter().collect();
     sorted.sort_by_key(|s| s.index);
-    let mut lines = vec![
-        "Index map ([N] in answer → source):".to_string(),
-    ];
+    let mut lines = vec!["Index map ([N] in answer → source):".to_string()];
     for s in sorted {
         let label = source_display_label(s);
         lines.push(format!("{}. [{}]({})", s.index, label, s.url.trim()));
@@ -638,14 +637,12 @@ pub fn build_search_stream_request_body(model: &str, req: &WebSearchRequest) -> 
 
 pub(crate) fn log_web_search_http_request(url: &str, body: &Value, streaming: bool) {
     match serde_json::to_string_pretty(body) {
-        Ok(pretty) => info!(
-            "web_search HTTP request (streaming={streaming})\nURL: {url}\nBody:\n{pretty}"
-        ),
+        Ok(pretty) => {
+            info!("web_search HTTP request (streaming={streaming})\nURL: {url}\nBody:\n{pretty}")
+        }
         Err(e) => {
             warn!("web_search request body pretty-print failed: {e}");
-            info!(
-                "web_search HTTP request (streaming={streaming})\nURL: {url}\nBody: {body}"
-            );
+            info!("web_search HTTP request (streaming={streaming})\nURL: {url}\nBody: {body}");
         }
     }
 }
@@ -695,18 +692,9 @@ pub fn parse_search_sse_chunk(body: &Value) -> SearchSseChunk {
 
     let usage_obj = body.get("usage");
     let usage = usage_obj.map(|u| {
-        let input_tokens = u
-            .get("input_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let output_tokens = u
-            .get("output_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let total_tokens = u
-            .get("total_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
+        let input_tokens = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let output_tokens = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let total_tokens = u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
         WebSearchUsage {
             input_tokens,
             output_tokens,
@@ -765,12 +753,7 @@ impl SearchSseAccumulator {
         }
     }
 
-    pub fn into_result(
-        self,
-        query: &str,
-        model: &str,
-        search_strategy: &str,
-    ) -> WebSearchResult {
+    pub fn into_result(self, query: &str, model: &str, search_strategy: &str) -> WebSearchResult {
         WebSearchResult {
             ok: true,
             query: query.to_string(),
@@ -920,7 +903,11 @@ pub(crate) fn truncate_for_log(s: &str, max_bytes: usize) -> String {
     // UTF-16 code units are fixed 2 bytes; truncate on unit boundaries (never split CJK/surrogates).
     let max_units = max_bytes / 2;
     if max_units <= 1 {
-        return if t.is_empty() { String::new() } else { "…".into() };
+        return if t.is_empty() {
+            String::new()
+        } else {
+            "…".into()
+        };
     }
     let units: Vec<u16> = t.encode_utf16().collect();
     if units.len() <= max_units {
@@ -1124,21 +1111,22 @@ mod tests {
             images_base64: None,
             image_slot_labels: None,
             computer_round_screen_rel_path: None,
-        ui_bindings: None,
+            ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
             tool_raw_output: None,
-            };
+        };
         let history = vec![
             mk("u1", Role::User, "Compare Rust editions"),
             mk("a1", Role::Assistant, "I'll search the web."),
             mk("pending", Role::Assistant, ""),
         ];
-        let msgs = history_to_dashscope_messages(&history, "pending", "Find 2024 edition release notes");
+        let msgs =
+            history_to_dashscope_messages(&history, "pending", "Find 2024 edition release notes");
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[0].role, "user");
         assert_eq!(msgs[1].role, "assistant");
@@ -1148,13 +1136,13 @@ mod tests {
 
     #[test]
     fn build_request_includes_search_options() {
-    let req = WebSearchRequest {
-        query: "weather".into(),
-        search_strategy: "max".into(),
-        forced_search: true,
-        enable_vertical_search: true,
-        enable_thinking: true,
-        messages: vec![WebSearchMessage {
+        let req = WebSearchRequest {
+            query: "weather".into(),
+            search_strategy: "max".into(),
+            forced_search: true,
+            enable_vertical_search: true,
+            enable_thinking: true,
+            messages: vec![WebSearchMessage {
                 role: "user".into(),
                 content: "weather".into(),
             }],
@@ -1208,7 +1196,10 @@ mod tests {
             body["parameters"]["search_options"]["enable_citation"],
             json!(true)
         );
-        assert!(!body["parameters"].as_object().unwrap().contains_key("enable_thinking"));
+        assert!(!body["parameters"]
+            .as_object()
+            .unwrap()
+            .contains_key("enable_thinking"));
     }
 
     #[test]
@@ -1276,14 +1267,14 @@ mod tests {
                 images_base64: None,
                 image_slot_labels: None,
                 computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            tool_raw_output: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+                tool_raw_output: None,
             },
             ChatMessage {
                 id: "a1".into(),
@@ -1305,14 +1296,14 @@ mod tests {
                 images_base64: None,
                 image_slot_labels: None,
                 computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            tool_raw_output: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+                tool_raw_output: None,
             },
             ChatMessage {
                 id: "t1".into(),
@@ -1334,14 +1325,14 @@ mod tests {
                 images_base64: None,
                 image_slot_labels: None,
                 computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            tool_raw_output: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+                tool_raw_output: None,
             },
         ];
         assert_eq!(compute_citation_base_index(&history, "a1"), 7);
@@ -1383,7 +1374,9 @@ mod tests {
             url: "https://example.com/a".into(),
             site_name: Some("Example News".into()),
         }]);
-        assert!(reply.contains("1. [Example News · Gemini 3.5 Flash launch](https://example.com/a)"));
+        assert!(
+            reply.contains("1. [Example News · Gemini 3.5 Flash launch](https://example.com/a)")
+        );
     }
 
     #[test]

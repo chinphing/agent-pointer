@@ -57,14 +57,7 @@ pub(crate) async fn dispatch(ctx: WebSearchDispatchContext<'_>) -> Result<WebSea
 
     let result = match &ctx.invoke {
         WebSearchInvokeContext::Tool => {
-            tool_mode::execute(
-                ctx.settings,
-                ctx.agent_id,
-                &ctx.args,
-                ctx.cancel,
-                ui,
-            )
-            .await
+            tool_mode::execute(ctx.settings, ctx.agent_id, &ctx.args, ctx.cancel, ui).await
         }
         WebSearchInvokeContext::ResearchSubAgent {
             history,
@@ -107,10 +100,7 @@ pub(crate) async fn dispatch_to_tool_json_async(
             if !for_reply.is_empty() {
                 if let Some(obj) = value.as_object_mut() {
                     obj.insert("sourcesForReply".into(), Value::String(for_reply));
-                    obj.insert(
-                        "sourcesCitationMarkdown".into(),
-                        Value::String(citation_md),
-                    );
+                    obj.insert("sourcesCitationMarkdown".into(), Value::String(citation_md));
                     obj.insert(
                         "citationGuide".into(),
                         Value::String(

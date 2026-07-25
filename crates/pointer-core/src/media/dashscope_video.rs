@@ -2,8 +2,12 @@
 
 use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::media::token::{record_media_understand_usage, MediaTokenContext, MediaUnderstandKind};
-use crate::media::video::{dashscope_clamp_fps, video_data_url_encoded_len, MAX_VIDEO_API_BASE64_BYTES};
-use crate::models::{provider_uses_dashscope_compatible_api, AgentModelRef, ModelSettings, ProviderConfig};
+use crate::media::video::{
+    dashscope_clamp_fps, video_data_url_encoded_len, MAX_VIDEO_API_BASE64_BYTES,
+};
+use crate::models::{
+    provider_uses_dashscope_compatible_api, AgentModelRef, ModelSettings, ProviderConfig,
+};
 use crate::provider::ChatOnceOutput;
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
@@ -130,7 +134,10 @@ async fn understand_video_dashscope_compatible(
         anyhow::bail!("HTTP {}: {}", status, truncate_bytes(&text, 400));
     }
 
-    let parsed: Value = resp.json().await.context("parse dashscope video response")?;
+    let parsed: Value = resp
+        .json()
+        .await
+        .context("parse dashscope video response")?;
     let text = extract_compatible_text(&parsed)?;
     let usage = extract_compatible_usage(&parsed);
     Ok(ChatOnceOutput {

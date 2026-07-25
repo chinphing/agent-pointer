@@ -131,7 +131,11 @@ pub fn mint_sso_ticket(
     if secret.is_empty() || audience.is_empty() || user_id.is_empty() {
         bail!("sso mint requires non-empty secret, audience, and user_id");
     }
-    let ttl = if ttl_secs > 0 { ttl_secs } else { DEFAULT_TTL_SECS };
+    let ttl = if ttl_secs > 0 {
+        ttl_secs
+    } else {
+        DEFAULT_TTL_SECS
+    };
     let jti = uuid::Uuid::new_v4().to_string();
     let claims = SsoClaims {
         sub: user_id.to_string(),
@@ -185,8 +189,7 @@ fn verify_signature(ticket: &str, secrets: &[&str]) -> Result<(SsoClaims, String
         bail!("sso_bad_signature");
     }
     let payload_raw = b64url_decode(payload_b64)?;
-    let claims: SsoClaims =
-        serde_json::from_slice(&payload_raw).context("sso_payload_json")?;
+    let claims: SsoClaims = serde_json::from_slice(&payload_raw).context("sso_payload_json")?;
     let jti = claims.jti.clone();
     Ok((claims, jti))
 }
@@ -271,7 +274,10 @@ pub fn verify_sso_ticket(
 }
 
 /// Convenience for HTTP handlers: verify with wall-clock time.
-pub fn verify_sso_ticket_now(ticket: &str, nonce_store: &Arc<SsoNonceStore>) -> Result<SsoIdentity> {
+pub fn verify_sso_ticket_now(
+    ticket: &str,
+    nonce_store: &Arc<SsoNonceStore>,
+) -> Result<SsoIdentity> {
     let now = chrono::Utc::now().timestamp();
     verify_sso_ticket(ticket, nonce_store, now).map_err(|e| {
         log::warn!("local_sso: verify failed: {e:#}");
@@ -331,7 +337,9 @@ mod tests {
         let now = 1_700_000_000;
         let ticket = mint_sso_ticket("k", "https://wrong.example.com", "u", None, 60, now).unwrap();
         let store = SsoNonceStore::new();
-        let err = verify_sso_ticket(&ticket, &store, now).unwrap_err().to_string();
+        let err = verify_sso_ticket(&ticket, &store, now)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("audience"), "{err}");
         clear_sso_env();
     }

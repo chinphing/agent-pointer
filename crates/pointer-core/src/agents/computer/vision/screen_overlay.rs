@@ -96,10 +96,7 @@ pub struct VisionOverlayPack {
 
 /// Global screen coordinates → bitmap-local (same space as annotate / vision_state).
 pub fn global_pointer_to_local(global_x: i32, global_y: i32, monitor: &MonitorInfo) -> (i32, i32) {
-    (
-        global_x - monitor.left,
-        global_y - monitor.top,
-    )
+    (global_x - monitor.left, global_y - monitor.top)
 }
 
 fn local_on_monitor(global_x: i32, global_y: i32, monitor: &MonitorInfo) -> (i32, i32) {
@@ -129,7 +126,8 @@ fn set_px(img: &mut RgbaImage, x: i32, y: i32, c: Rgba<u8>) {
 fn pointer_cursor_rgba() -> &'static RgbaImage {
     static CUR: OnceLock<RgbaImage> = OnceLock::new();
     CUR.get_or_init(|| {
-        let mut buf = RgbaImage::from_pixel(POINTER_CURSOR_SIZE, POINTER_CURSOR_SIZE, Rgba([0, 0, 0, 0]));
+        let mut buf =
+            RgbaImage::from_pixel(POINTER_CURSOR_SIZE, POINTER_CURSOR_SIZE, Rgba([0, 0, 0, 0]));
         let pts: Vec<Point<i32>> = vec![
             Point::new(3, 2),
             Point::new(3, 21),
@@ -175,9 +173,8 @@ fn blend_paste(dest: &mut RgbaImage, src: &RgbaImage, origin_x: i32, origin_y: i
             }
             let dp = *dest.get_pixel(dx as u32, dy as u32);
             let inv = 255 - a;
-            let blend = |s: u8, d: u8| -> u8 {
-                ((s as u32 * a + d as u32 * inv) / 255).min(255) as u8
-            };
+            let blend =
+                |s: u8, d: u8| -> u8 { ((s as u32 * a + d as u32 * inv) / 255).min(255) as u8 };
             dest.put_pixel(
                 dx as u32,
                 dy as u32,
@@ -429,7 +426,10 @@ pub fn build_vision_overlay_pack(
         apply_pointer_and_caret_overlays(&mut ann_rgba, caret_ann, mouse_ann);
         return Ok(VisionOverlayPack {
             raw_marked_jpeg: Vec::new(),
-            annotated_marked_jpeg: screen::rgba_to_jpeg_bytes(ann_rgba, screen::SCREENSHOT_JPEG_QUALITY)?,
+            annotated_marked_jpeg: screen::rgba_to_jpeg_bytes(
+                ann_rgba,
+                screen::SCREENSHOT_JPEG_QUALITY,
+            )?,
             zoom_menu_bar_png: Vec::new(),
             zoom_task_bar_png: Vec::new(),
             zoom_pointer_png: Vec::new(),
@@ -537,16 +537,23 @@ pub fn build_before_action_inject(
 ) -> Result<BeforeActionInject> {
     let mut raw_rgba = decode_jpeg_to_rgba(prior_raw_jpeg_unmarked)?;
     let (w, h) = (raw_rgba.width(), raw_rgba.height());
-    let (mx, my) = local_on_monitor(current_global_pointer.0, current_global_pointer.1, prior_monitor);
+    let (mx, my) = local_on_monitor(
+        current_global_pointer.0,
+        current_global_pointer.1,
+        prior_monitor,
+    );
     let mouse = overlay_position_if_inside(mx, my, w, h);
     apply_pointer_and_caret_overlays(&mut raw_rgba, None, mouse);
 
     let zmx = mx.clamp(0, w.saturating_sub(1) as i32);
     let zmy = my.clamp(0, h.saturating_sub(1) as i32);
-    let mut zoom_crop =
-        crop_square_around(&raw_rgba, zmx, zmy, BEFORE_POINTER_ZOOM_CROP_SIDE);
+    let mut zoom_crop = crop_square_around(&raw_rgba, zmx, zmy, BEFORE_POINTER_ZOOM_CROP_SIDE);
     zoom_crop = magnify_nearest(&zoom_crop, BEFORE_POINTER_ZOOM_FACTOR);
-    tint_zoom_border(&mut zoom_crop, ACCENT_POINTER_BEFORE, ZoomBorderMode::LeftAccent);
+    tint_zoom_border(
+        &mut zoom_crop,
+        ACCENT_POINTER_BEFORE,
+        ZoomBorderMode::LeftAccent,
+    );
 
     Ok(BeforeActionInject {
         screen_jpeg: screen::rgba_to_jpeg_bytes(raw_rgba, screen::SCREENSHOT_JPEG_QUALITY)?,
@@ -617,9 +624,11 @@ mod tests {
     fn mark_raw_jpeg_draws_pointer_and_caret() {
         let monitor = MonitorInfo::new(0, 0, 64, 64);
         let prior = RgbaImage::from_pixel(64, 64, Rgba([40, 80, 120, 255]));
-        let jpeg_prior = screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
-        let out = mark_raw_jpeg_with_pointer_and_caret(&jpeg_prior, &monitor, (32, 32), Some((20, 40)))
-            .unwrap();
+        let jpeg_prior =
+            screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
+        let out =
+            mark_raw_jpeg_with_pointer_and_caret(&jpeg_prior, &monitor, (32, 32), Some((20, 40)))
+                .unwrap();
         let marked = decode_jpeg_to_rgba(&out).unwrap();
         let unmarked = decode_jpeg_to_rgba(&jpeg_prior).unwrap();
         assert_ne!(marked.get_pixel(32, 32), unmarked.get_pixel(32, 32));
@@ -630,7 +639,8 @@ mod tests {
     fn before_action_synthetic_pointer_toggle() {
         let monitor = MonitorInfo::new(0, 0, 32, 32);
         let prior = RgbaImage::from_pixel(32, 32, Rgba([40, 80, 120, 255]));
-        let jpeg_prior = screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
+        let jpeg_prior =
+            screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
         let out = build_before_action_raw_jpeg(&jpeg_prior, &monitor, (16, 16)).unwrap();
         let marked = decode_jpeg_to_rgba(&out).unwrap();
         let unmarked = decode_jpeg_to_rgba(&jpeg_prior).unwrap();
@@ -674,10 +684,17 @@ mod tests {
     fn before_action_zoom_is_4x_crop_side() {
         let monitor = MonitorInfo::new(0, 0, 200, 200);
         let prior = RgbaImage::from_pixel(200, 200, Rgba([40, 80, 120, 255]));
-        let jpeg_prior = screen::rgba_to_jpeg_bytes(prior, screen::SCREENSHOT_JPEG_QUALITY).unwrap();
+        let jpeg_prior =
+            screen::rgba_to_jpeg_bytes(prior, screen::SCREENSHOT_JPEG_QUALITY).unwrap();
         let pack = build_before_action_inject(&jpeg_prior, &monitor, (100, 100)).unwrap();
         let zoom = decode_png_to_rgba(&pack.zoom_pointer_png).unwrap();
-        assert_eq!(zoom.width(), BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR);
-        assert_eq!(zoom.height(), BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR);
+        assert_eq!(
+            zoom.width(),
+            BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR
+        );
+        assert_eq!(
+            zoom.height(),
+            BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR
+        );
     }
 }

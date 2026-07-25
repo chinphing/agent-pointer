@@ -105,10 +105,7 @@ pub fn current_cron_session_id<Z: TimeZone>(job_id: &str, now: &DateTime<Z>) -> 
 /// past-only year range) or fails to parse.
 pub fn next_run_ms<Z: TimeZone>(cron_expr: &str, after: &DateTime<Z>) -> Option<i64> {
     let schedule: cron::Schedule = cron_expr.parse().ok()?;
-    schedule
-        .after(after)
-        .next()
-        .map(|dt| dt.timestamp_millis())
+    schedule.after(after).next().map(|dt| dt.timestamp_millis())
 }
 
 /// Convenience wrapper around [`next_run_ms`] using the current **local** time,
@@ -455,21 +452,13 @@ pub fn update_deliver(conn: &Connection, id: &str, deliver: Option<&str>) -> Res
         params![id, deliver],
     )?;
     if affected > 0 {
-        log::info!(
-            "cron_jobs: id={} deliver updated to {:?}",
-            id,
-            deliver
-        );
+        log::info!("cron_jobs: id={} deliver updated to {:?}", id, deliver);
     }
     Ok(affected > 0)
 }
 
 /// Persist the last IM delivery error (or clear it with `None` on success).
-pub fn set_last_delivery_error(
-    conn: &Connection,
-    id: &str,
-    err: Option<&str>,
-) -> Result<()> {
+pub fn set_last_delivery_error(conn: &Connection, id: &str, err: Option<&str>) -> Result<()> {
     conn.execute(
         "UPDATE cron_jobs SET last_delivery_error = ?2 WHERE id = ?1",
         params![id, err],
@@ -655,10 +644,7 @@ mod tests {
     fn daily_reset_boundary_is_today_then_yesterday() {
         // 10:00 local today -> reset boundary is today 04:00.
         let tz = chrono::Local;
-        let today_10 = tz
-            .with_ymd_and_hms(2026, 6, 28, 10, 0, 0)
-            .single()
-            .unwrap();
+        let today_10 = tz.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
         let reset = daily_reset_at_ms(&today_10, 4);
         let expected = tz
             .with_ymd_and_hms(2026, 6, 28, 4, 0, 0)
@@ -668,10 +654,7 @@ mod tests {
         assert_eq!(reset, expected);
 
         // 02:00 local (before today's 04:00) -> boundary is yesterday 04:00.
-        let today_02 = tz
-            .with_ymd_and_hms(2026, 6, 28, 2, 0, 0)
-            .single()
-            .unwrap();
+        let today_02 = tz.with_ymd_and_hms(2026, 6, 28, 2, 0, 0).single().unwrap();
         let reset_early = daily_reset_at_ms(&today_02, 4);
         let expected_yesterday = tz
             .with_ymd_and_hms(2026, 6, 27, 4, 0, 0)

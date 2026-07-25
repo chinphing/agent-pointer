@@ -29,14 +29,12 @@ pub mod trigger;
 pub use hooks::{
     HookOutcome, HookRegistry, OnRunCancelledHook, OnRunFailedHook, OnRunFinishedHook,
     OnRunStartedHook, OnTriggerReceivedHook, PostToolCallContext, PostToolCallHook,
-    PreDispatchContext, PreDispatchHook, PreToolCallContext, PreToolCallHook,
-    RunCancelledContext, RunFailedContext, RunFinishedContext, RunStartedContext,
-    TriggerReceivedContext,
+    PreDispatchContext, PreDispatchHook, PreToolCallContext, PreToolCallHook, RunCancelledContext,
+    RunFailedContext, RunFinishedContext, RunStartedContext, TriggerReceivedContext,
 };
 pub use queue::{
-    resolve_global_lane, resolve_session_lane, LaneQueueView, PendingRunView, Permit,
-    QueueError, QueueLanesSnapshot, QueueWaiterView, RunQueue, RunQueueSnapshot, LANE_CRON,
-    LANE_MAIN,
+    resolve_global_lane, resolve_session_lane, LaneQueueView, PendingRunView, Permit, QueueError,
+    QueueLanesSnapshot, QueueWaiterView, RunQueue, RunQueueSnapshot, LANE_CRON, LANE_MAIN,
 };
 pub use trigger::{
     apply_deliver_string, normalize_deliver_spec, resolve_deliver_marker, DeliverTarget,
@@ -214,8 +212,11 @@ impl RunDispatcher {
         // 2. Idempotency check: reuse existing run if the key matches.
         if let Some(key) = req.idempotency_key.as_deref() {
             if !key.trim().is_empty() {
-                if let Ok(Some((existing_run_id, status))) =
-                    self.inner.state.session_index.runs_find_by_idempotency_key(key)
+                if let Ok(Some((existing_run_id, status))) = self
+                    .inner
+                    .state
+                    .session_index
+                    .runs_find_by_idempotency_key(key)
                 {
                     log::info!(
                         "dispatch: idempotency key {} reused existing run_id={} status={}",
@@ -266,7 +267,8 @@ impl RunDispatcher {
         }
 
         // 4. Persist queued row + emit RunQueued.
-        let trigger_meta_json = serde_json::to_string(&req.trigger_meta).unwrap_or_else(|_| "{}".into());
+        let trigger_meta_json =
+            serde_json::to_string(&req.trigger_meta).unwrap_or_else(|_| "{}".into());
         let inserted = self.inner.state.session_index.runs_insert_queued(
             &run_id,
             &conversation_id,
@@ -276,7 +278,10 @@ impl RunDispatcher {
         )?;
         if !inserted {
             // A row with this run_id already exists. Treat as reuse.
-            log::warn!("dispatch: run_id {} already present in runs table; returning Reused", run_id);
+            log::warn!(
+                "dispatch: run_id {} already present in runs table; returning Reused",
+                run_id
+            );
             return Ok(RunHandle {
                 run_id: run_id.clone(),
                 status: RunAcceptStatus::Reused,
@@ -313,9 +318,13 @@ impl RunDispatcher {
         let conv_id_task = conversation_id.clone();
         let web_session_auth = req.web_session_auth.clone();
         tokio::spawn(async move {
-            crate::web_request_auth::run_with_optional_web_session(web_session_auth, || async move {
-                this.run_runner(req, run_id_task, conv_id_task, cancel).await
-            })
+            crate::web_request_auth::run_with_optional_web_session(
+                web_session_auth,
+                || async move {
+                    this.run_runner(req, run_id_task, conv_id_task, cancel)
+                        .await
+                },
+            )
             .await;
         });
 
@@ -382,11 +391,11 @@ impl RunDispatcher {
         };
 
         // Status -> running, emit RunStarted.
-        if let Err(e) = self
-            .inner
-            .state
-            .session_index
-            .runs_set_status(&run_id, RunStatus::Running, None)
+        if let Err(e) =
+            self.inner
+                .state
+                .session_index
+                .runs_set_status(&run_id, RunStatus::Running, None)
         {
             log::warn!("dispatch: set running status failed run_id={run_id}: {e}");
         }
@@ -397,7 +406,8 @@ impl RunDispatcher {
             ts: 0,
         });
         // Fire on_run_started observers (errors warn-logged, never abort).
-        self.inner.hooks
+        self.inner
+            .hooks
             .run_on_run_started(&RunStartedContext {
                 run_id: run_id.clone(),
                 conversation_id: conversation_id.clone(),
@@ -528,7 +538,8 @@ impl RunDispatcher {
         // registry runner; they never affect the run here.
         match status {
             RunStatus::Finished => {
-                self.inner.hooks
+                self.inner
+                    .hooks
                     .run_on_run_finished(&RunFinishedContext {
                         run_id: run_id.to_string(),
                         conversation_id: conversation_id.to_string(),
@@ -537,7 +548,8 @@ impl RunDispatcher {
                     .await;
             }
             RunStatus::Failed => {
-                self.inner.hooks
+                self.inner
+                    .hooks
                     .run_on_run_failed(&RunFailedContext {
                         run_id: run_id.to_string(),
                         conversation_id: conversation_id.to_string(),
@@ -547,7 +559,8 @@ impl RunDispatcher {
                     .await;
             }
             RunStatus::Cancelled => {
-                self.inner.hooks
+                self.inner
+                    .hooks
                     .run_on_run_cancelled(&RunCancelledContext {
                         run_id: run_id.to_string(),
                         conversation_id: conversation_id.to_string(),
@@ -627,7 +640,9 @@ impl RunDispatcher {
                 continue;
             }
             match &*ev {
-                AgentEvent::RunFinished { conversation_id, .. } => {
+                AgentEvent::RunFinished {
+                    conversation_id, ..
+                } => {
                     return Ok(RunOutcome::Finished {
                         run_id: run_id.to_string(),
                         conversation_id: conversation_id.clone(),
@@ -644,7 +659,9 @@ impl RunDispatcher {
                         error: error.clone(),
                     });
                 }
-                AgentEvent::RunCancelled { conversation_id, .. } => {
+                AgentEvent::RunCancelled {
+                    conversation_id, ..
+                } => {
                     return Ok(RunOutcome::Cancelled {
                         run_id: run_id.to_string(),
                         conversation_id: conversation_id.clone(),
@@ -666,9 +683,9 @@ impl RunDispatcher {
     /// `Arc<AgentEvent>`s for ALL runs; callers filter by `run_id`. Late
     /// subscribers do not receive past events — combine with
     /// [`Self::run_status`] for a race-free terminal check.
-    pub fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<
-        std::sync::Arc<crate::agent_events::AgentEvent>,
-    > {
+    pub fn subscribe_events(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<std::sync::Arc<crate::agent_events::AgentEvent>> {
         self.inner.events.subscribe()
     }
 
@@ -676,10 +693,7 @@ impl RunDispatcher {
     /// if the run id is unknown. Used by SSE / polling clients to recover
     /// the terminal state of a run that already finished before they
     /// subscribed to the bus.
-    pub fn run_status(
-        &self,
-        run_id: &str,
-    ) -> Option<crate::conversation_store::runs::RunRecord> {
+    pub fn run_status(&self, run_id: &str) -> Option<crate::conversation_store::runs::RunRecord> {
         self.inner
             .state
             .session_index

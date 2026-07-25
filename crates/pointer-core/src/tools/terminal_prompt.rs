@@ -317,10 +317,13 @@ mod tests {
         assert!(post_interactive_ssh_secret_prompt("ssh root@1.2.3.4", out, 800, false).is_none());
         let p = post_interactive_ssh_secret_prompt("ssh root@1.2.3.4", out, 800, true).unwrap();
         assert_eq!(p.input_class, InputClass::Secret);
-        assert!(
-            post_interactive_ssh_secret_prompt("ssh root@1.2.3.4", "root@host's password: ", 800, true)
-                .is_none()
-        );
+        assert!(post_interactive_ssh_secret_prompt(
+            "ssh root@1.2.3.4",
+            "root@host's password: ",
+            800,
+            true
+        )
+        .is_none());
     }
 
     #[test]

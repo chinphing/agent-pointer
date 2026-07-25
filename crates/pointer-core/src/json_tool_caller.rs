@@ -91,7 +91,6 @@ impl JsonToolParser {
             self.feed_lane_tail.drain(..excess);
         }
     }
-
 }
 
 fn compact_fragment_head(s: &str, max_chars: usize) -> String {
@@ -306,7 +305,10 @@ fn envelope_from_value(v: &Value) -> Result<ToolEnvelope, String> {
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string();
-            let args = o.get("tool_args").cloned().unwrap_or(Value::Object(Default::default()));
+            let args = o
+                .get("tool_args")
+                .cloned()
+                .unwrap_or(Value::Object(Default::default()));
             sidecar.push(ToolEnvelopeCall {
                 name,
                 arguments: json_args_to_string_map(&args),
@@ -418,18 +420,25 @@ mod tests {
         let env = env.expect("envelope");
         assert_eq!(env.primary.name, "response");
         assert_eq!(env.primary.thoughts, "t");
-        assert_eq!(env.primary.arguments.get("text").map(String::as_str), Some("Hello"));
+        assert_eq!(
+            env.primary.arguments.get("text").map(String::as_str),
+            Some("Hello")
+        );
     }
 
     #[test]
     fn finalize_repairs_unescaped_quotes_in_response_text() {
         // `r##` so the closing `"` before `}}` is not swallowed by `r#"…"#`.
-        let bad = r##"{"thoughts":"","headline":"","tool_name":"response","tool_args":{"text":"a"b"}}"##;
+        let bad =
+            r##"{"thoughts":"","headline":"","tool_name":"response","tool_args":{"text":"a"b"}}"##;
         let (env, diag) = finalize_json_tool_envelope(bad, "");
         assert!(diag.parse_error.is_none(), "{diag:?}");
         let env = env.expect("envelope");
         assert_eq!(env.primary.name, "response");
-        assert_eq!(env.primary.arguments.get("text").map(String::as_str), Some("a\"b"));
+        assert_eq!(
+            env.primary.arguments.get("text").map(String::as_str),
+            Some("a\"b")
+        );
     }
 
     #[test]
@@ -455,7 +464,8 @@ mod tests {
 
     #[test]
     fn partial_streaming_extracts_fields() {
-        let partial = r#"{"thoughts":"a","headline":"b","tool_name":"wait","tool_args":{"seconds":"#;
+        let partial =
+            r#"{"thoughts":"a","headline":"b","tool_name":"wait","tool_args":{"seconds":"#;
         let p = extract_json_streaming_partial(partial);
         assert_eq!(p.thoughts.as_deref(), Some("a"));
         assert_eq!(p.headline.as_deref(), Some("b"));

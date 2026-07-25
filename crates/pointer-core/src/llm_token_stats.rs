@@ -35,7 +35,11 @@ impl LlmUsageSnapshot {
     }
 
     /// DashScope native web search `usage` block (`input_tokens` / `output_tokens`).
-    pub fn from_dashscope_web_search(input_tokens: u32, output_tokens: u32, total_tokens: u32) -> Self {
+    pub fn from_dashscope_web_search(
+        input_tokens: u32,
+        output_tokens: u32,
+        total_tokens: u32,
+    ) -> Self {
         Self {
             prompt_tokens: input_tokens,
             completion_tokens: output_tokens,
@@ -75,9 +79,7 @@ impl ConversationLlmStats {
                     .sum_completion
                     .saturating_add(u.completion_tokens as u64);
                 self.sum_total = self.sum_total.saturating_add(u.total_tokens as u64);
-                self.sum_reasoning = self
-                    .sum_reasoning
-                    .saturating_add(u.reasoning_tokens as u64);
+                self.sum_reasoning = self.sum_reasoning.saturating_add(u.reasoning_tokens as u64);
                 log::debug!(
                     "LLM round {} {} tokens: total={} prompt={} completion={}",
                     self.llm_rounds,
@@ -131,7 +133,8 @@ impl ChatLlmTokenSession {
         agent_role_id: String,
         model_name: Option<String>,
     ) -> Self {
-        let lead_scope = AgentInstanceScope::new(run_id.clone(), conversation_id.clone(), agent_role_id);
+        let lead_scope =
+            AgentInstanceScope::new(run_id.clone(), conversation_id.clone(), agent_role_id);
         let _model = model_name;
         Self {
             run_id,

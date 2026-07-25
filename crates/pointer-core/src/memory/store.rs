@@ -115,9 +115,7 @@ impl MemoryStore {
             .with_context(|| format!("create memories dir {}", base_dir.display()))?;
         let memory_entries = Self::read_entries_with_legacy(
             &base_dir.join(MemoryTarget::Memory.file_name()),
-            &self
-                .memories_root
-                .join(MemoryTarget::Memory.file_name()),
+            &self.memories_root.join(MemoryTarget::Memory.file_name()),
         )?;
         let user_entries = Self::read_entries_with_legacy(
             &base_dir.join(MemoryTarget::User.file_name()),
@@ -128,11 +126,8 @@ impl MemoryStore {
             &memory_entries,
             DEFAULT_MEMORY_CHAR_LIMIT,
         );
-        let snapshot_user = Self::render_snapshot_block(
-            MemoryTarget::User,
-            &user_entries,
-            DEFAULT_USER_CHAR_LIMIT,
-        );
+        let snapshot_user =
+            Self::render_snapshot_block(MemoryTarget::User, &user_entries, DEFAULT_USER_CHAR_LIMIT);
         let mut g = self.inner.write();
         g.memory_entries = memory_entries;
         g.user_entries = user_entries;
@@ -147,11 +142,7 @@ impl MemoryStore {
     }
 
     /// Cacheable system slices to append after `[Environment]`.
-    pub fn snapshot_blocks(
-        &self,
-        memory_enabled: bool,
-        user_profile_enabled: bool,
-    ) -> Vec<String> {
+    pub fn snapshot_blocks(&self, memory_enabled: bool, user_profile_enabled: bool) -> Vec<String> {
         let g = self.inner.read();
         let mut out = Vec::new();
         if memory_enabled && !g.snapshot_memory.is_empty() {
@@ -236,7 +227,12 @@ impl MemoryStore {
         self.reload_target_under_lock(&mut g, target)?;
         let entries = self.entries_mut(&mut g, target);
         if entries.iter().any(|e| e == content) {
-            return Ok(self.success_response(target, entries, limit, Some("Entry already exists (no duplicate added).")));
+            return Ok(self.success_response(
+                target,
+                entries,
+                limit,
+                Some("Entry already exists (no duplicate added)."),
+            ));
         }
         let mut trial = entries.clone();
         trial.push(content.to_string());
@@ -284,7 +280,8 @@ impl MemoryStore {
             }));
         }
         if matches.len() > 1 {
-            let unique: std::collections::HashSet<_> = matches.iter().map(|i| &entries[*i]).collect();
+            let unique: std::collections::HashSet<_> =
+                matches.iter().map(|i| &entries[*i]).collect();
             if unique.len() > 1 {
                 let previews: Vec<String> = matches
                     .iter()
@@ -337,7 +334,8 @@ impl MemoryStore {
             }));
         }
         if matches.len() > 1 {
-            let unique: std::collections::HashSet<_> = matches.iter().map(|i| &entries[*i]).collect();
+            let unique: std::collections::HashSet<_> =
+                matches.iter().map(|i| &entries[*i]).collect();
             if unique.len() > 1 {
                 let previews: Vec<String> = matches
                     .iter()
@@ -410,10 +408,17 @@ impl MemoryStore {
         }
     }
 
-    fn reload_target_under_lock(&self, g: &mut MemoryStoreInner, target: MemoryTarget) -> Result<()> {
+    fn reload_target_under_lock(
+        &self,
+        g: &mut MemoryStoreInner,
+        target: MemoryTarget,
+    ) -> Result<()> {
         let path = self.path_for(target);
         let legacy = self.legacy_path_for(target);
-        if let Some(bak) = Self::detect_external_drift(&path, self.char_limit(target, DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT))? {
+        if let Some(bak) = Self::detect_external_drift(
+            &path,
+            self.char_limit(target, DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT),
+        )? {
             return Err(anyhow!(
                 "Refusing to write {}: external drift detected. Backup: {}",
                 path.display(),
@@ -444,7 +449,10 @@ impl MemoryStore {
             log::info!(
                 "memory: using legacy root file {} for user dir {}",
                 legacy_path.display(),
-                user_path.parent().map(|p| p.display().to_string()).unwrap_or_default()
+                user_path
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
             );
             return Self::read_entries(legacy_path);
         }
@@ -592,10 +600,9 @@ mod tests {
 
     #[test]
     fn add_replace_remove_roundtrip() {
-        let store = MemoryStore::open_in_dir(std::env::temp_dir().join(format!(
-            "pointer_mem_test_{}",
-            uuid::Uuid::new_v4()
-        )));
+        let store = MemoryStore::open_in_dir(
+            std::env::temp_dir().join(format!("pointer_mem_test_{}", uuid::Uuid::new_v4())),
+        );
         store.reload_snapshot().unwrap();
         let add = store
             .dispatch_tool(&json!({"action": "add", "target": "memory", "content": "Prefers Rust"}))
@@ -640,8 +647,14 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].contains("A note"));
         assert!(!blocks[0].contains("B note"));
-        assert!(root.join(user_storage_segment("user-a")).join("MEMORY.md").is_file());
-        assert!(root.join(user_storage_segment("user-b")).join("MEMORY.md").is_file());
+        assert!(root
+            .join(user_storage_segment("user-a"))
+            .join("MEMORY.md")
+            .is_file());
+        assert!(root
+            .join(user_storage_segment("user-b"))
+            .join("MEMORY.md")
+            .is_file());
     }
 
     #[test]

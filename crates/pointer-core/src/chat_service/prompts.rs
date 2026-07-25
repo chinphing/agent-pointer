@@ -1,8 +1,8 @@
 use crate::agents::computer::ComputerState;
 use crate::agents::{
-    computer_agent_body_for_tier, computer_communication_for_tier, expand_agent_prompt_placeholders,
-    rendered_communication_public_inject, rendered_media_delivery_inject, AgentProfile,
-    SessionInjectVars,
+    computer_agent_body_for_tier, computer_communication_for_tier,
+    expand_agent_prompt_placeholders, rendered_communication_public_inject,
+    rendered_media_delivery_inject, AgentProfile, SessionInjectVars,
 };
 
 /// Cacheable lead role prompts: `COMMUNICATION_PUBLIC` + computer tier slice, or non-computer system prompts.

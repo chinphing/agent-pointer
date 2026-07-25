@@ -93,9 +93,7 @@ pub fn probe_ffmpeg_tools() -> FfmpegToolProbe {
             ffprobe_available: false,
             ffmpeg_path: Some(path_display(ffmpeg_path.as_path())),
             ffprobe_path: Some(path_display(ffprobe_path.as_path())),
-            detail: Some(format!(
-                "{broken} 已找到但执行失败（权限、架构或安装损坏）"
-            )),
+            detail: Some(format!("{broken} 已找到但执行失败（权限、架构或安装损坏）")),
         };
     }
 

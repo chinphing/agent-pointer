@@ -1,6 +1,8 @@
 //! DashScope **Responses API** (`/compatible-mode/v1/responses`) for agentic web search.
 
-use crate::models::{find_dashscope_provider, effective_web_search_model, ModelSettings, DEFAULT_WEB_SEARCH_MODEL};
+use crate::models::{
+    effective_web_search_model, find_dashscope_provider, ModelSettings, DEFAULT_WEB_SEARCH_MODEL,
+};
 use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use serde_json::{json, Value};
@@ -123,10 +125,7 @@ pub fn parse_responses_response(
     let sources = extract_web_search_sources(body);
     let usage = parse_responses_usage(body);
     let search_count = parse_responses_search_count(body, &sources);
-    let request_id = body
-        .get("id")
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
+    let request_id = body.get("id").and_then(|v| v.as_str()).map(str::to_string);
 
     Ok(WebSearchResult {
         ok: true,
@@ -173,10 +172,7 @@ fn extract_web_search_sources(body: &Value) -> Vec<WebSearchSource> {
         if item.get("type").and_then(|v| v.as_str()) != Some("web_search_call") {
             continue;
         }
-        let Some(url_items) = item
-            .pointer("/action/sources")
-            .and_then(|v| v.as_array())
-        else {
+        let Some(url_items) = item.pointer("/action/sources").and_then(|v| v.as_array()) else {
             continue;
         };
         for src in url_items {
@@ -244,7 +240,9 @@ fn parse_responses_search_count(body: &Value, sources: &[WebSearchSource]) -> u3
                 .and_then(|o| o.as_array())
                 .map(|arr| {
                     arr.iter()
-                        .filter(|i| i.get("type").and_then(|t| t.as_str()) == Some("web_search_call"))
+                        .filter(|i| {
+                            i.get("type").and_then(|t| t.as_str()) == Some("web_search_call")
+                        })
                         .count() as u32
                 })
                 .unwrap_or(0)
@@ -303,7 +301,8 @@ pub async fn execute_responses_web_search(
 
     let parsed: Value =
         serde_json::from_str(&text).context("DashScope web search returned invalid JSON")?;
-    let result = parse_responses_response(&req.query, &config.model, &req.search_strategy, &parsed)?;
+    let result =
+        parse_responses_response(&req.query, &config.model, &req.search_strategy, &parsed)?;
 
     if let Some(ref ui_ctx) = ui {
         if !result.sources.is_empty() {

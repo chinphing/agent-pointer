@@ -346,10 +346,7 @@ impl HookRegistry {
 
     // ---- pre/post_tool_call firing (Phase 3 wires the call sites) ----
 
-    pub async fn run_pre_tool_call(
-        &self,
-        ctx: &PreToolCallContext<'_>,
-    ) -> Result<HookOutcome> {
+    pub async fn run_pre_tool_call(&self, ctx: &PreToolCallContext<'_>) -> Result<HookOutcome> {
         let mut hooks = self.sorted_pre_tool_call();
         for h in hooks.drain(..) {
             match h.execute(ctx).await? {
@@ -574,19 +571,23 @@ mod tests {
 
         let mut reg = HookRegistry::new();
         reg.register_on_trigger_received(Arc::new(RewriteHook {
-            id: StaticId { key: "a", sk: "_10" },
+            id: StaticId {
+                key: "a",
+                sk: "_10",
+            },
             new_lane: Some("lane-a".into()),
             counter: counter.clone(),
         }));
         reg.register_on_trigger_received(Arc::new(RewriteHook {
-            id: StaticId { key: "b", sk: "_20" },
+            id: StaticId {
+                key: "b",
+                sk: "_20",
+            },
             new_lane: Some("lane-b".into()),
             counter: counter.clone(),
         }));
 
-        let mut ctx = TriggerReceivedContext {
-            req: sample_req(),
-        };
+        let mut ctx = TriggerReceivedContext { req: sample_req() };
         let outcome = reg.run_on_trigger_received(&mut ctx).await.unwrap();
         assert!(matches!(outcome, HookOutcome::Continue));
         assert_eq!(counter.load(Ordering::SeqCst), 2);
@@ -615,9 +616,7 @@ mod tests {
             key: "r",
             sk: "_10",
         })));
-        let mut ctx = TriggerReceivedContext {
-            req: sample_req(),
-        };
+        let mut ctx = TriggerReceivedContext { req: sample_req() };
         let outcome = reg.run_on_trigger_received(&mut ctx).await.unwrap();
         assert!(matches!(outcome, HookOutcome::Reject { .. }));
     }

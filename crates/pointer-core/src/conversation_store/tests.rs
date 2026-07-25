@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::conversation_store::ConversationStore;
     use crate::conversation_store::persist::sample_conv;
+    use crate::conversation_store::ConversationStore;
     use serde_json::{json, Value};
     use tempfile::TempDir;
 
@@ -139,7 +139,10 @@ mod tests {
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         // Long OCR-like message without the contiguous query, plus a later hit.
         // FTS may rank either; snippet must still show「北京」.
-        let ocr = format!("{}日期 **2026-06-29** 附件路径", "=== 第1页 === ".repeat(20));
+        let ocr = format!(
+            "{}日期 **2026-06-29** 附件路径",
+            "=== 第1页 === ".repeat(20)
+        );
         let hit_msg = "候选人期望工作城市是北京朝阳区";
         let conv = Conversation {
             id: "c1".into(),
@@ -220,13 +223,26 @@ mod tests {
         // user-hit, but its redundant message_id points at the preceding assistant.
         {
             let conn = store.db.conn.lock();
-            let (rowid, content, conversation_id, message_id, role):
-                (i64, String, String, String, String) = conn
+            let (rowid, content, conversation_id, message_id, role): (
+                i64,
+                String,
+                String,
+                String,
+                String,
+            ) = conn
                 .query_row(
                     "SELECT id, content, conversation_id, message_id, role
                      FROM messages WHERE conversation_id = 'c1' AND message_id = 'user-hit'",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
                 )
                 .unwrap();
             conn.execute(
@@ -294,11 +310,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         store
-            .sync_conversations(&vec![sample_conv(
-                "c1",
-                "认证",
-                "我们需要重构认证中间件",
-            )])
+            .sync_conversations(&vec![sample_conv("c1", "认证", "我们需要重构认证中间件")])
             .unwrap();
 
         let discover = store
@@ -360,12 +372,7 @@ mod tests {
             updated_at: 1_700_000_100_000,
             messages: vec![
                 user,
-                msg(
-                    "msg_a1",
-                    Role::Assistant,
-                    "收到图片了",
-                    1_700_000_001_000,
-                ),
+                msg("msg_a1", Role::Assistant, "收到图片了", 1_700_000_001_000),
             ],
             skill_ids: vec![],
             tool_rounds_used: 0,
@@ -419,11 +426,19 @@ mod tests {
         store.save_im_session(base, &state).unwrap();
         let loaded = store.load_im_session(base).unwrap();
         assert_eq!(loaded.session_epoch, 2);
-        assert_eq!(loaded.active_conversation_id.as_deref(), Some(format!("{base}@s2").as_str()));
+        assert_eq!(
+            loaded.active_conversation_id.as_deref(),
+            Some(format!("{base}@s2").as_str())
+        );
         assert_eq!(loaded.lead_agent_id, "coder");
     }
 
-    fn conv_with(id: &str, title: &str, updated_at: i64, workspace_root: &str) -> crate::models::Conversation {
+    fn conv_with(
+        id: &str,
+        title: &str,
+        updated_at: i64,
+        workspace_root: &str,
+    ) -> crate::models::Conversation {
         let mut c = sample_conv(id, title, "hello world");
         c.updated_at = updated_at;
         c.workspace_root = workspace_root.to_string();
@@ -681,7 +696,9 @@ mod tests {
 
         let conn = Connection::open(&db_path).unwrap();
         let version: i32 = conn
-            .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(version, 19);
         let has_session_user_id: i64 = conn
@@ -775,7 +792,9 @@ mod tests {
         let _store = ConversationStore::open_in_dir(dir.path()).unwrap();
         let conn = Connection::open(&db_path).unwrap();
         let version: i32 = conn
-            .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(version, 19);
         let has_kind: i64 = conn

@@ -16,7 +16,9 @@ static BACKTRACE_ENV: Once = Once::new();
 static PANIC_HOOK: Once = Once::new();
 
 fn local_timestamp() -> String {
-    chrono::Local::now().format(LOG_TIMESTAMP_FORMAT).to_string()
+    chrono::Local::now()
+        .format(LOG_TIMESTAMP_FORMAT)
+        .to_string()
 }
 
 /// flexi_logger: `[2026-05-21 12:34:56.789] [INFO ] pointer_core::... - …`
@@ -51,11 +53,10 @@ fn env_logger_unified_format(
 
 /// stderr-only fallback when file logging cannot start (same timestamp layout as [`init_runtime_logging`]).
 pub fn init_stderr_only_logging(default_filter: &str) {
-    let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(default_filter),
-    )
-    .format(env_logger_unified_format)
-    .try_init();
+    let _ =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
+            .format(env_logger_unified_format)
+            .try_init();
 }
 
 /// 若未设置环境变量，则启用 **全量** panic 栈（`RUST_BACKTRACE=full`）与库错误栈（`RUST_LIB_BACKTRACE=1`）。
@@ -133,11 +134,7 @@ pub fn raw_llm_console_segments_enabled() -> bool {
 
 /// Non-streaming pipeline LLM (Position / Verify): print reasoning + output to stderr
 /// with the same lane markers as decision streaming.
-pub fn write_pipeline_llm_segments_to_stderr(
-    scope: &str,
-    reasoning: Option<&str>,
-    output: &str,
-) {
+pub fn write_pipeline_llm_segments_to_stderr(scope: &str, reasoning: Option<&str>, output: &str) {
     if !raw_llm_console_segments_enabled() {
         return;
     }
@@ -150,7 +147,10 @@ pub fn write_pipeline_llm_segments_to_stderr(
         return;
     }
     let mut err = std::io::stderr().lock();
-    let _ = std::io::Write::write_all(&mut err, format!("\n[pipeline_llm scope={scope}]\n").as_bytes());
+    let _ = std::io::Write::write_all(
+        &mut err,
+        format!("\n[pipeline_llm scope={scope}]\n").as_bytes(),
+    );
     if !reasoning_text.is_empty() {
         let _ = std::io::Write::write_all(&mut err, "[推理|reasoning]\n".as_bytes());
         let _ = std::io::Write::write_all(&mut err, reasoning_text.as_bytes());

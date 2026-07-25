@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use crate::models::MediaAttachment;
 
-use super::path_hint::MEDIA_URI_SCHEME;
 use super::access::{is_user_filesystem_path, strip_file_uri};
+use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 use super::store::app_data_media_rel_from_abs;
 
@@ -37,7 +37,11 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
     let resolved = match resolve_local_media_path(check_path) {
         Ok(p) if p.is_file() => p,
         Ok(p) => {
-            log::warn!("attachment_from_media_ref: not a file, skipping {} ({})", check_path, p.display());
+            log::warn!(
+                "attachment_from_media_ref: not a file, skipping {} ({})",
+                check_path,
+                p.display()
+            );
             return None;
         }
         Err(e) => {

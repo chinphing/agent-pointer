@@ -85,9 +85,7 @@ pub fn migrate_channel_histories_if_needed(conn: &Connection) -> Result<()> {
             let _ = fs::remove_dir_all(&deprecated);
         }
         if let Err(e) = fs::rename(&dir, &deprecated) {
-            log::warn!(
-                "conversation_store: could not rename legacy channel_histories: {e:#}"
-            );
+            log::warn!("conversation_store: could not rename legacy channel_histories: {e:#}");
         } else {
             log::info!(
                 "conversation_store: deprecated legacy channel_histories at {}",
@@ -129,7 +127,9 @@ fn import_legacy_channel_meta(conn: &Connection, dir: &Path) -> Result<()> {
         write::ensure_conversation_row(conn, &base)?;
         let state = im_session::ImSessionState {
             session_epoch: legacy.session_epoch,
-            active_conversation_id: legacy.active_conversation_id.filter(|s| !s.trim().is_empty()),
+            active_conversation_id: legacy
+                .active_conversation_id
+                .filter(|s| !s.trim().is_empty()),
             last_interaction_at_ms: legacy.last_interaction_at,
             lead_agent_id: legacy
                 .lead_agent_id

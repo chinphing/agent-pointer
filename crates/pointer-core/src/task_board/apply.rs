@@ -3,14 +3,12 @@
 use super::args::{
     constraints_from_args, context_from_args, done_when_from_args, expected_total_from_args,
     global_rows_from_args, goal_from_args, normalize_patch_args, prune_ids_from_args,
-    reject_init_removed_fields, reject_patch_foreign_work_item_fields,
-    replace_has_forbidden_scope, unified_patch_rows_from_args,
+    reject_init_removed_fields, reject_patch_foreign_work_item_fields, replace_has_forbidden_scope,
+    unified_patch_rows_from_args,
 };
 use super::coordination::parent_child::{assert_child_may_mutate, parent_store_key_from_child};
 use super::loop_milestones::{self, validate_board_row_count};
-use super::model::{
-    BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus,
-};
+use super::model::{BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus};
 use super::row_patch::{compact_row_after_done, merge_row_patch_with_warnings};
 use super::snapshot::{unified_patch_target, UnifiedPatchTarget};
 use super::state_machine::{
@@ -203,8 +201,6 @@ fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<
     Ok(())
 }
 
-
-
 fn validate_expected_total_on_init(doc: &BoardDocument, method: &str) -> Result<()> {
     let Some(expected_total) = doc.meta.expected_total else {
         return Ok(());
@@ -315,9 +311,7 @@ fn apply_patch(
             .and_then(|v| v.as_str())
         {
             if let Some(status) = ItemStatus::from_str_loose(status_s) {
-                loop_milestones::patch_rejects_g_deliver_when_loop_blocked(
-                    doc, row_id, status,
-                )?;
+                loop_milestones::patch_rejects_g_deliver_when_loop_blocked(doc, row_id, status)?;
             }
         }
         match target {
@@ -401,20 +395,11 @@ fn patch_rows_on_slice(
                 }
             }
             if incoming.retry_count >= 2
-                && matches!(
-                    incoming.status,
-                    ItemStatus::InProgress | ItemStatus::Failed
-                )
+                && matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Failed)
             {
                 *reflection = true;
             }
-            maybe_warn_done_without_evidence(
-                &prev,
-                &incoming,
-                recent_action,
-                reflection,
-                warnings,
-            );
+            maybe_warn_done_without_evidence(&prev, &incoming, recent_action, reflection, warnings);
             maybe_warn_done_without_verify_pass(
                 &prev,
                 &incoming,
@@ -556,7 +541,8 @@ fn maybe_warn_in_progress_without_plan(
     if has_plan || has_done_when {
         return;
     }
-    let reason = "in_progress_without_plan: add plan or done_when before or when marking in_progress";
+    let reason =
+        "in_progress_without_plan: add plan or done_when before or when marking in_progress";
     warnings.push(serde_json::json!({
         "code": "in_progress_without_plan",
         "message": reason
@@ -600,7 +586,9 @@ fn enforce_interim_drafts_budget(
             continue;
         }
         let compact: String = s.chars().take(INTERIM_DRAFT_ITEM_MAX_CHARS).collect();
-        *v = Value::String(format!("{compact}\n\n[trimmed_by_engine_for_context_budget]"));
+        *v = Value::String(format!(
+            "{compact}\n\n[trimmed_by_engine_for_context_budget]"
+        ));
         shortened += 1;
     }
     if shortened == 0 {
@@ -654,10 +642,7 @@ fn apply_abandon(doc: &mut BoardDocument) -> Result<()> {
     if doc.board_is_empty() && doc.meta.goal.trim().is_empty() {
         return Err(anyhow!("task_board: nothing to abandon"));
     }
-    if matches!(
-        doc.meta.status,
-        MetaStatus::Completed | MetaStatus::Failed
-    ) {
+    if matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed) {
         return Ok(());
     }
     doc.meta.status = MetaStatus::Failed;
@@ -697,10 +682,7 @@ fn apply_check_deps(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
             .filter(|dep| {
                 !doc.global_milestones.iter().any(|row| {
                     row.id == **dep
-                        && matches!(
-                            row.status,
-                            ItemStatus::Done | ItemStatus::Cancelled
-                        )
+                        && matches!(row.status, ItemStatus::Done | ItemStatus::Cancelled)
                 })
             })
             .map(|s| s.as_str())

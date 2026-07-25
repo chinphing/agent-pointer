@@ -191,12 +191,14 @@ impl ActionExecutor {
         self.backend.move_to_with_profile(x1, y1, to_start)?;
         settle_after_absolute_move();
         std::thread::sleep(Duration::from_millis(50));
-        self.backend.mouse_phase(MouseButton::Left, KeyPhase::Press)?;
+        self.backend
+            .mouse_phase(MouseButton::Left, KeyPhase::Press)?;
         std::thread::sleep(Duration::from_millis(50));
         self.backend
             .move_to_with_profile(x2, y2, MouseMoveProfile::drag_segment(human_like))?;
         std::thread::sleep(Duration::from_millis(50));
-        self.backend.mouse_phase(MouseButton::Left, KeyPhase::Release)?;
+        self.backend
+            .mouse_phase(MouseButton::Left, KeyPhase::Release)?;
         settle_after_mouse_button();
         Ok(ActionResult::success("drag completed"))
     }
@@ -219,14 +221,16 @@ impl ActionExecutor {
         self.backend.move_to_with_profile(x1, y1, to_start)?;
         settle_after_absolute_move();
         std::thread::sleep(Duration::from_millis(50));
-        self.backend.mouse_phase(MouseButton::Left, KeyPhase::Press)?;
+        self.backend
+            .mouse_phase(MouseButton::Left, KeyPhase::Press)?;
         std::thread::sleep(Duration::from_millis(50));
         for &(x, y) in &points[1..] {
             self.backend
                 .move_to_with_profile(x, y, MouseMoveProfile::drag_segment(human_like))?;
         }
         std::thread::sleep(Duration::from_millis(50));
-        self.backend.mouse_phase(MouseButton::Left, KeyPhase::Release)?;
+        self.backend
+            .mouse_phase(MouseButton::Left, KeyPhase::Release)?;
         settle_after_mouse_button();
         Ok(ActionResult::success("drag completed"))
     }

@@ -57,14 +57,12 @@ impl LlmRoundRecorder<'_> {
                     .stats
                     .record_llm_round(&session.lead_scope, usage, model);
                 if let Some(u) = usage {
-                    if let Err(e) = crate::conversation_store::global_store()
-                        .and_then(|store| {
-                            store.set_last_lead_prompt_tokens(
-                                &session.lead_scope.conversation_id,
-                                Some(u.prompt_tokens),
-                            )
-                        })
-                    {
+                    if let Err(e) = crate::conversation_store::global_store().and_then(|store| {
+                        store.set_last_lead_prompt_tokens(
+                            &session.lead_scope.conversation_id,
+                            Some(u.prompt_tokens),
+                        )
+                    }) {
                         log::warn!(
                             "conversation_store: set_last_lead_prompt_tokens failed conversation_id={}: {e}",
                             session.lead_scope.conversation_id
@@ -178,14 +176,7 @@ pub(super) async fn drain_provider_events(
                     .tools
                     .format_display(&name, &parse_tool_call_arguments(""));
                 let (display_label, display_summary) = tool_display_stream_fields(&display);
-                log_tool_call_parsed_block(
-                    "start",
-                    message_id,
-                    sub_trace_id,
-                    &id,
-                    &name,
-                    None,
-                );
+                log_tool_call_parsed_block("start", message_id, sub_trace_id, &id, &name, None);
                 emit(
                     stream,
                     StreamEvent::ToolCallStart {
@@ -337,7 +328,10 @@ fn compact_tool_args_for_log(args: &str) -> String {
         return t.to_string();
     }
     let head: String = t.chars().take(TOOL_ARGS_LOG_MAX_CHARS).collect();
-    format!("{head}…(+{} chars)", t.chars().count() - TOOL_ARGS_LOG_MAX_CHARS)
+    format!(
+        "{head}…(+{} chars)",
+        t.chars().count() - TOOL_ARGS_LOG_MAX_CHARS
+    )
 }
 
 fn log_tool_call_parsed_block(
@@ -351,7 +345,9 @@ fn log_tool_call_parsed_block(
     if !crate::logging::internal_runtime_log_enabled() {
         return;
     }
-    let args_text = args.map(compact_tool_args_for_log).unwrap_or_else(|| "(empty)".into());
+    let args_text = args
+        .map(compact_tool_args_for_log)
+        .unwrap_or_else(|| "(empty)".into());
     log::debug!(
         "tool_call_segments message_id={} trace_id={} tool_call_id={} tool_name={}\n[工具调用解析|tool_call_parsed]\n{}\n[参数|args]\n{}",
         message_id,

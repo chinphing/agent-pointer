@@ -59,7 +59,9 @@ pub fn attachment_retryable(att: &MediaAttachment) -> bool {
 }
 
 pub fn content_has_media_block_for_file(content: &str, file_name: &str) -> bool {
-    content.split("\n\n").any(|part| media_block_first_line_matches_file(part, file_name))
+    content
+        .split("\n\n")
+        .any(|part| media_block_first_line_matches_file(part, file_name))
 }
 
 fn media_block_first_line_matches_file(part: &str, file_name: &str) -> bool {
@@ -67,10 +69,7 @@ fn media_block_first_line_matches_file(part: &str, file_name: &str) -> bool {
     if !first.starts_with('[') {
         return false;
     }
-    MEDIA_BLOCK_PREFIXES
-        .iter()
-        .any(|p| first.starts_with(p))
-        && first.contains(file_name)
+    MEDIA_BLOCK_PREFIXES.iter().any(|p| first.starts_with(p)) && first.contains(file_name)
 }
 
 /// Replace or drop the media injection block for `file_name`. When `new_block` is `None`, remove it.
@@ -104,14 +103,20 @@ pub fn replace_media_injection(content: &str, file_name: &str, new_block: Option
 
 fn content_matches_phrases(content: &str, phrases: &[&str]) -> bool {
     let lower = content.to_ascii_lowercase();
-    phrases.iter().any(|p| lower.contains(&p.to_ascii_lowercase()))
+    phrases
+        .iter()
+        .any(|p| lower.contains(&p.to_ascii_lowercase()))
 }
 
 fn last_user_message_index(history: &[ChatMessage]) -> Option<usize> {
     history.iter().rposition(|m| matches!(m.role, Role::User))
 }
 
-fn user_message_indices_before(history: &[ChatMessage], before_idx: usize, max_turns: usize) -> Vec<usize> {
+fn user_message_indices_before(
+    history: &[ChatMessage],
+    before_idx: usize,
+    max_turns: usize,
+) -> Vec<usize> {
     let mut out = Vec::new();
     let mut turns = 0usize;
     for i in (0..before_idx).rev() {

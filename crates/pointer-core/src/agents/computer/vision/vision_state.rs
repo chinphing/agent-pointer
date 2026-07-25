@@ -22,7 +22,11 @@ pub struct RecentAction {
 
 impl RecentAction {
     /// Create a new RecentAction.
-    pub fn new(tool_name: impl Into<String>, method: impl Into<String>, args: impl Into<String>) -> Self {
+    pub fn new(
+        tool_name: impl Into<String>,
+        method: impl Into<String>,
+        args: impl Into<String>,
+    ) -> Self {
         Self {
             tool_name: tool_name.into(),
             method: method.into(),
@@ -142,7 +146,8 @@ impl VisionState {
     }
 
     fn screen_to_session_pair(px: i32, py: i32, monitor: &MonitorInfo) -> (i32, i32) {
-        let (nx, ny) = super::coord::screen_to_normalized((px, py), monitor, CoordinateSystem::Qwen);
+        let (nx, ny) =
+            super::coord::screen_to_normalized((px, py), monitor, CoordinateSystem::Qwen);
         (nx.round() as i32, ny.round() as i32)
     }
 
@@ -244,7 +249,11 @@ impl VisionState {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .trim();
-        let goal = args.get("goal").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let goal = args
+            .get("goal")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
         let action = args
             .get("action")
             .and_then(|v| v.as_str())
@@ -305,7 +314,13 @@ fn compact_args_hint(args: &Value) -> String {
     if let Some(obj) = args.as_object() {
         let keys: Vec<&String> = obj.keys().take(8).collect();
         if !keys.is_empty() {
-            return format!("(fields: {})", keys.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(","));
+            return format!(
+                "(fields: {})",
+                keys.iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
         }
     }
     args.to_string()

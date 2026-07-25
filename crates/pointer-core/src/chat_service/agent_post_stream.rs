@@ -12,8 +12,8 @@ use super::app_state::AppState;
 use super::content_extract::{extract_user_visible_content, reply_attachments_from_assistant_raw};
 use super::context::PostAssistantContext;
 use super::emit::emit;
-use super::util::now_ms;
 use super::sub_message::SubMessageLinkage;
+use super::util::now_ms;
 use super::StreamTx;
 
 const CONSOLE_SEGMENT_MAX_CHARS: usize = 2000;
@@ -67,7 +67,10 @@ fn compact_console_segment(s: &str) -> String {
         return t.to_string();
     }
     let head: String = t.chars().take(CONSOLE_SEGMENT_MAX_CHARS).collect();
-    format!("{head}…(+{} chars)", chars.saturating_sub(CONSOLE_SEGMENT_MAX_CHARS))
+    format!(
+        "{head}…(+{} chars)",
+        chars.saturating_sub(CONSOLE_SEGMENT_MAX_CHARS)
+    )
 }
 
 pub(super) fn log_reasoning_and_output_segments(
@@ -83,7 +86,10 @@ pub(super) fn log_reasoning_and_output_segments(
         .filter(|s| !s.is_empty())
         .or_else(|| thoughts.map(str::trim).filter(|s| !s.is_empty()))
         .unwrap_or("");
-    let output_text = output.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("");
+    let output_text = output
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
     let tool_text = tool_raw_output
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -195,13 +201,13 @@ pub(super) fn build_lead_assistant_message_after_stream(
         images_base64: None,
         computer_round_screen_rel_path: None,
         ui_bindings: None,
-            context_state: None,
+        context_state: None,
         attachments: reply_attachments_from_assistant_raw(raw_content_buf),
         anchor_message_id: None,
         trace_id: None,
         task_id: None,
         spawn_depth: None,
-            }
+    }
 }
 
 pub(super) fn build_sub_assistant_message_after_stream(
@@ -245,13 +251,13 @@ pub(super) fn build_sub_assistant_message_after_stream(
         images_base64: None,
         computer_round_screen_rel_path: None,
         ui_bindings: None,
-            context_state: None,
+        context_state: None,
         attachments: None,
         anchor_message_id: None,
         trace_id: None,
         task_id: None,
         spawn_depth: None,
-            }
+    }
 }
 
 pub(super) fn commit_sub_assistant_turn(
@@ -455,7 +461,7 @@ mod tests {
             active_system_prompt: String::new(),
             resolved_skill_ids: vec![],
             resolved_skill_prompts: vec![],
-             allowed_tool_names: vec![],
+            allowed_tool_names: vec![],
             allow_agents: vec![],
         };
         let msg = build_lead_assistant_message_after_stream(
@@ -478,10 +484,7 @@ mod tests {
     #[test]
     fn assistant_tool_calls_fill_display_fields_for_terminal() {
         let state = AppState::new();
-        let tool_calls = vec![sample_tool_call(
-            "terminal",
-            r#"{"command":"npm test"}"#,
-        )];
+        let tool_calls = vec![sample_tool_call("terminal", r#"{"command":"npm test"}"#)];
         let plan = AgentPlan {
             mode: "single".into(),
             lead_agent_id: "coder".into(),

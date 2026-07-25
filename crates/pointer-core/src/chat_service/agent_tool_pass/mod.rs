@@ -35,15 +35,15 @@ use super::util::{
     tool_display_stream_fields,
 };
 
-use approval::run_approval_gate;
-use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
-use outcome::record_tool_exec_outcome;
-use types::ToolExecResult;
 use super::run_subagent_delegation::{
     commit_subagent_outcome, execute_owned_subagent, failed_owned_subagent_outcome,
     finalize_subagent_outcome, OwnedSubagentExecutionInput, OwnedSubagentSource,
     PreparedSubagentOutcome, SubagentCommitContext,
 };
+use approval::run_approval_gate;
+use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
+use outcome::record_tool_exec_outcome;
+use types::ToolExecResult;
 
 fn task_board_emit_anchor_for_store_key(
     ctx: &ToolPassContext<'_>,
@@ -478,11 +478,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         .lead
                         .as_ref()
                         .map(|l| l.file_tool_lead_for_invoke.clone());
-                    let sub_profile = pass
-                        .ctx
-                        .sub
-                        .as_ref()
-                        .map(|s| s.active.def.profile.clone());
+                    let sub_profile = pass.ctx.sub.as_ref().map(|s| s.active.def.profile.clone());
                     let lead_run_id = pass.ctx.lead.as_ref().map(|l| l.run_id.to_string());
                     let sub_run_id = pass
                         .ctx
@@ -500,27 +496,25 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 .as_ref()
                                 .map(|l| l.instance_scope.agent_instance_id.clone())
                         });
-                    let (web_search_invocation, web_search_history) =
-                        if prep.tool_id == "web_search" {
-                            let lead_scope = match &*pass.ctx.stats {
-                                ToolInvocationStats::TokenSession(session) => {
-                                    Some(&session.lead_scope)
-                                }
-                                ToolInvocationStats::Conversation(_) => None,
-                            };
-                            let invocation =
-                                dispatch::web_search::prepare_web_search_invocation(
-                                    lead_scope,
-                                    pass.ctx.lead.as_ref().map(|l| l.lead_agent_id),
-                                    pass.ctx.sub.as_ref(),
-                                )?;
-                            (
-                                Some(invocation),
-                                Some(Arc::new(pass.ctx.transcript.history.clone())),
-                            )
-                        } else {
-                            (None, None)
+                    let (web_search_invocation, web_search_history) = if prep.tool_id
+                        == "web_search"
+                    {
+                        let lead_scope = match &*pass.ctx.stats {
+                            ToolInvocationStats::TokenSession(session) => Some(&session.lead_scope),
+                            ToolInvocationStats::Conversation(_) => None,
                         };
+                        let invocation = dispatch::web_search::prepare_web_search_invocation(
+                            lead_scope,
+                            pass.ctx.lead.as_ref().map(|l| l.lead_agent_id),
+                            pass.ctx.sub.as_ref(),
+                        )?;
+                        (
+                            Some(invocation),
+                            Some(Arc::new(pass.ctx.transcript.history.clone())),
+                        )
+                    } else {
+                        (None, None)
+                    };
 
                     exec_futures.push(async move {
                         let _tool_permit = tool_sem.acquire_owned().await;
@@ -545,7 +539,9 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             sub_run_id.as_deref(),
                             agent_instance_id.as_deref(),
                             web_search_invocation,
-                            web_search_history.as_deref().map(|history| history.as_slice()),
+                            web_search_history
+                                .as_deref()
+                                .map(|history| history.as_slice()),
                             &cancel,
                         )
                         .await;
@@ -669,7 +665,11 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
     if let Some(output) = final_reply_output {
         return Ok(ToolPassResult::FinalReplyComplete(output));
     }
-    if pass.ctx.ask_user_deferred.load(std::sync::atomic::Ordering::Relaxed) {
+    if pass
+        .ctx
+        .ask_user_deferred
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
         return Ok(ToolPassResult::AskUserDeferred);
     }
     Ok(ToolPassResult::RanTools)
@@ -790,8 +790,7 @@ async fn run_self_fork_wave(
                 (task_id, SelfForkWaveWork::Execute(input))
             }
             Err(error) => {
-                let parsed =
-                    crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
+                let parsed = crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
                 let agent_id = parsed
                     .as_ref()
                     .map(|a| a.agent_id.clone())
@@ -1322,24 +1321,19 @@ mod self_fork_wave_tests {
                 running_event: None,
             })
             .collect();
-        let outcomes = collect_self_fork_wave(
-            items,
-            Arc::new(Semaphore::new(2)),
-            2,
-            {
+        let outcomes = collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, {
+            let completion_order = completion_order.clone();
+            move |index| {
                 let completion_order = completion_order.clone();
-                move |index| {
-                    let completion_order = completion_order.clone();
-                    async move {
-                        if index == 0 {
-                            tokio::time::sleep(Duration::from_millis(30)).await;
-                        }
-                        completion_order.lock().unwrap().push(index);
-                        format!("outcome-{index}")
+                async move {
+                    if index == 0 {
+                        tokio::time::sleep(Duration::from_millis(30)).await;
                     }
+                    completion_order.lock().unwrap().push(index);
+                    format!("outcome-{index}")
                 }
-            },
-        )
+            }
+        })
         .await;
 
         assert_eq!(*completion_order.lock().unwrap(), vec![1, 0]);
@@ -1400,19 +1394,15 @@ mod self_fork_wave_tests {
                 running_event: None,
             })
             .collect();
-        let outcomes = collect_self_fork_wave(
-            items,
-            Arc::new(Semaphore::new(2)),
-            2,
-            |index| async move {
+        let outcomes =
+            collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, |index| async move {
                 if index == 1 {
                     Err("failed")
                 } else {
                     Ok(index)
                 }
-            },
-        )
-        .await;
+            })
+            .await;
 
         assert_eq!(outcomes.len(), 3);
         assert!(outcomes[0].1.is_ok());
@@ -1441,30 +1431,23 @@ mod self_fork_wave_tests {
             }
             cancel_when_running.cancel();
         });
-        let outcomes = collect_self_fork_wave(
-            items,
-            Arc::new(Semaphore::new(2)),
-            2,
-            {
+        let outcomes = collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, {
+            let cancel = cancel.clone();
+            let started = started.clone();
+            move |_| {
                 let cancel = cancel.clone();
                 let started = started.clone();
-                move |_| {
-                    let cancel = cancel.clone();
-                    let started = started.clone();
-                    async move {
-                        started.fetch_add(1, Ordering::SeqCst);
-                        cancel.cancelled().await;
-                        "cancelled"
-                    }
+                async move {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    cancel.cancelled().await;
+                    "cancelled"
                 }
-            },
-        )
+            }
+        })
         .await;
         cancel_task.await.unwrap();
 
         assert_eq!(outcomes.len(), 3);
-        assert!(outcomes
-            .iter()
-            .all(|(_, status)| *status == "cancelled"));
+        assert!(outcomes.iter().all(|(_, status)| *status == "cancelled"));
     }
 }

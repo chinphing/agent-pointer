@@ -13,6 +13,7 @@ const props = defineProps<{
 
 const wrapLines = ref(false)
 const copied = ref(false)
+const markdownMode = ref<'source' | 'preview'>('preview')
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
 const ext = computed(() => (props.absolutePath.split('.').pop()?.toLowerCase() || ''))
 const isImage = computed(() => IMAGE_EXTS.has(ext.value))
@@ -52,7 +53,27 @@ async function copyPath() {
       <span>{{ sizeLabel }}</span>
       <span v-if="preview.truncated" class="text-warning">仅显示前 1 MB</span>
       <span class="flex-1" />
-      <button type="button" :class="wrapLines && 'is-active'" title="切换自动换行" @click="wrapLines = !wrapLines">
+      <div v-if="isMarkdown" class="file-preview-mode-switch" role="group" aria-label="Markdown 显示模式">
+        <button
+          type="button"
+          :class="markdownMode === 'source' && 'is-active'"
+          :aria-pressed="markdownMode === 'source'"
+          @click="markdownMode = 'source'"
+        >原文</button>
+        <button
+          type="button"
+          :class="markdownMode === 'preview' && 'is-active'"
+          :aria-pressed="markdownMode === 'preview'"
+          @click="markdownMode = 'preview'"
+        >预览</button>
+      </div>
+      <button
+        v-if="!isMarkdown || markdownMode === 'source'"
+        type="button"
+        :class="wrapLines && 'is-active'"
+        title="切换自动换行"
+        @click="wrapLines = !wrapLines"
+      >
         <WrapText />
       </button>
       <button type="button" title="复制绝对路径" @click="copyPath">
@@ -71,7 +92,7 @@ async function copyPath() {
       <strong>无法预览二进制文件</strong>
       <span>{{ preview.path }} · {{ sizeLabel }}</span>
     </div>
-    <div v-else-if="isMarkdown" class="file-preview-scroll">
+    <div v-else-if="isMarkdown && markdownMode === 'preview'" class="file-preview-scroll">
       <div class="file-preview-markdown md-body px-3 py-2" v-html="parseMarkdown(preview.content ?? '')" />
     </div>
     <div v-else class="file-preview-scroll">
@@ -97,6 +118,9 @@ async function copyPath() {
 .file-preview-toolbar button { @apply rounded p-1 text-muted hover:bg-hover hover:text-foreground; }
 .file-preview-toolbar button.is-active { @apply bg-hover text-accent; }
 .file-preview-toolbar button :deep(svg) { @apply w-3.5 h-3.5; }
+.file-preview-mode-switch { @apply flex items-center rounded-md bg-hover/60 p-0.5; }
+.file-preview-mode-switch button { @apply px-1.5 py-0.5 leading-none; }
+.file-preview-mode-switch button.is-active { @apply bg-card text-foreground shadow-sm; }
 .file-preview-scroll { @apply flex-1 min-h-0 overflow-auto; }
 .file-preview-code { @apply min-w-full w-max py-1 font-mono text-xs; }
 .file-preview-row { @apply flex min-h-[1.55rem] leading-[1.55rem]; }

@@ -7,14 +7,21 @@ export type DiffLine = {
   type: 'unchanged' | 'del' | 'ins' | 'collapse'
   text: string
   hidden?: string[]
+  oldLine?: number
+  newLine?: number
+  hiddenOldLine?: number
+  hiddenNewLine?: number
+  isHunkHeader?: boolean
 }
 
 const props = withDefaults(defineProps<{
   diffLines: DiffLine[]
   diffStats?: { adds: number; dels: number }
   fillHeight?: boolean
+  showGitLineNumbers?: boolean
 }>(), {
-  fillHeight: false
+  fillHeight: false,
+  showGitLineNumbers: false
 })
 
 // Track which collapse sections are expanded
@@ -82,54 +89,49 @@ function toggleCollapse(idx: number) {
   expanded.value = s
 }
 
-// Build line numbers for every position including hidden lines inside collapses.
-// idx → old‐file line number (1‑based), or null for ins lines / collapse markers.
-function buildLineNums(lines: DiffLine[]) {
+// Legacy tool-call diffs do not carry Git positions. Keep their existing
+// sequential gutter while workspace diffs use the parser-provided positions.
+function buildLegacyLineNums(lines: DiffLine[]) {
   const nums: (number | null)[] = []
-  // hiddenStarts[idx] = first old‐line number of the hidden block at collapse line idx
   const hiddenStarts = new Map<number, number>()
   let oldLine = 1
   for (let i = 0; i < lines.length; i++) {
-    const l = lines[i]
-    if (l.type === 'ins') {
-      nums.push(null)
-    } else if (l.type === 'collapse') {
+    const line = lines[i]
+    if (line.type === 'ins') nums.push(null)
+    else if (line.type === 'collapse') {
       nums.push(null)
       hiddenStarts.set(i, oldLine)
-      oldLine += l.hidden?.length || 0
-    } else {
-      nums.push(oldLine++)
-    }
+      oldLine += line.hidden?.length || 0
+    } else nums.push(oldLine++)
   }
   return { nums, hiddenStarts }
 }
 
-const lineInfo = computed(() => buildLineNums(props.diffLines))
+const lineInfo = computed(() => buildLegacyLineNums(props.diffLines))
 
-/** Gutter width including number digits and horizontal padding. */
-const numWidth = computed(() => {
-  let max = 0
-  for (const n of lineInfo.value.nums) {
-    if (n != null && n > max) max = n
+function lineNumbers(line: DiffLine, idx: number): [number | null, number | null] {
+  const legacy = lineInfo.value.nums[idx] ?? null
+  if (!props.showGitLineNumbers) return [legacy, null]
+  if (line.oldLine !== undefined || line.newLine !== undefined) {
+    return [line.oldLine ?? null, line.newLine ?? null]
   }
-  // Also account for hidden lines inside collapsed sections
-  for (const [ci, start] of lineInfo.value.hiddenStarts) {
-    const line = props.diffLines[ci]
-    const count = line?.hidden?.length || 0
-    if (count > 0) {
-      const end = start + count - 1
-      if (end > max) max = end
-    }
-  }
-  const digits = max === 0 ? 1 : String(max).length
-  return `calc(${Math.max(digits, 3)}ch + 8px)`
-})
-
-/** Line number to render for a hidden line at collapse index ci, offset hi. */
-function hiddenLineNum(ci: number, hi: number): number {
-  const start = lineInfo.value.hiddenStarts.get(ci)
-  return (start ?? 1) + hi
+  return [line.type === 'ins' ? null : legacy, line.type === 'del' ? null : legacy]
 }
+
+function hiddenLineNumbers(line: DiffLine, idx: number, hi: number): [number | null, number | null] {
+  const start = lineInfo.value.hiddenStarts.get(idx) ?? 1
+  if (!props.showGitLineNumbers) return [start + hi, null]
+  if (line.hiddenOldLine !== undefined || line.hiddenNewLine !== undefined) {
+    return [
+      line.hiddenOldLine === undefined ? null : line.hiddenOldLine + hi,
+      line.hiddenNewLine === undefined ? null : line.hiddenNewLine + hi
+    ]
+  }
+  return [start + hi, start + hi]
+}
+
+/** Gutter width including both old and new Git line-number columns. */
+const numWidth = computed(() => 'calc(3ch + 8px)')
 </script>
 
 <template>
@@ -170,10 +172,11 @@ function hiddenLineNum(ci: number, hi: number): number {
           <div
             v-if="line.type === 'collapse'"
             class="diff-collapse"
-            @click="toggleCollapse(idx)"
+            :class="line.isHunkHeader && 'diff-hunk-header'"
+            @click="!line.isHunkHeader && toggleCollapse(idx)"
           >
-            <span class="diff-collapse-icon">{{ expanded.has(idx) ? '▾' : '▸' }}</span>
-            <span class="diff-collapse-text">┄ +{{ line.text }} 行 ┄</span>
+            <span v-if="!line.isHunkHeader" class="diff-collapse-icon">{{ expanded.has(idx) ? '▾' : '▸' }}</span>
+            <span class="diff-collapse-text">{{ line.isHunkHeader ? line.text : `┄ 展开 ${line.text} 行 ┄` }}</span>
           </div>
 
           <template v-if="line.type === 'collapse' && expanded.has(idx)">
@@ -184,7 +187,8 @@ function hiddenLineNum(ci: number, hi: number): number {
               :class="activeMatchKey === `hidden-${idx}-${hi}` && 'is-match'"
               :data-diff-key="`hidden-${idx}-${hi}`"
             >
-              <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ hiddenLineNum(idx, hi) }}</span>
+              <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ hiddenLineNumbers(line, idx, hi)[0] ?? '\u00A0' }}</span>
+              <span v-if="showGitLineNumbers" class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ hiddenLineNumbers(line, idx, hi)[1] ?? '\u00A0' }}</span>
               <span class="diff-bar"></span>
               <span class="diff-text">{{ lineText(h) }}</span>
             </div>
@@ -196,7 +200,8 @@ function hiddenLineNum(ci: number, hi: number): number {
             :class="[line.type, activeMatchKey === `line-${idx}` && 'is-match']"
             :data-diff-key="`line-${idx}`"
           >
-            <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ lineInfo.nums[idx] ?? '\u00A0' }}</span>
+            <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ lineNumbers(line, idx)[0] ?? '\u00A0' }}</span>
+            <span v-if="showGitLineNumbers" class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ lineNumbers(line, idx)[1] ?? '\u00A0' }}</span>
             <span class="diff-bar"></span>
             <span class="diff-text">{{ lineText(line.text) }}</span>
           </div>

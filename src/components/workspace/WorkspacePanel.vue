@@ -360,7 +360,16 @@ function handleDocumentKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeContextMenu()
 }
 
-watch(() => props.workspaceRoot, () => {
+const normalizedWorkspaceRoot = computed(() => props.workspaceRoot.trim().replace(/[\\/]+$/, ''))
+let loadedWorkspaceRoot = ''
+
+watch(normalizedWorkspaceRoot, (nextRoot, previousRoot) => {
+  // Conversation hydration can briefly expose an empty root while refreshing.
+  // Do not destroy the user's open tabs and diff state for that transient value.
+  if (!nextRoot && previousRoot && loadedWorkspaceRoot) return
+  if (nextRoot === loadedWorkspaceRoot) return
+
+  loadedWorkspaceRoot = nextRoot
   previewTabs.value = []
   activeView.value = 'files'
   closeContextMenu()
@@ -483,6 +492,7 @@ onBeforeUnmount(() => {
       <DiffView
         v-else-if="activeDiffTab.parsed.lines.length"
         fill-height
+        show-git-line-numbers
         :diff-lines="activeDiffTab.parsed.lines"
         :diff-stats="activeDiffTab.parsed.stats"
       />

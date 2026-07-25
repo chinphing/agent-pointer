@@ -28,9 +28,11 @@ outside project navigation.
   creates a conversation.
 - Expanded projects query only their own conversations, with the same
   cursor-based paging model as recent conversations.
-- Sidebar projects are queried separately from recent conversations: all
-  pinned projects are visible, followed by at most five unpinned recent
-  projects. The full project view uses cursor pagination.
+- Sidebar projects are queried separately from recent conversations. Initial
+  load returns at most five projects total, with pinned projects first.
+  Loading more uses cursor pagination across both pinned and unpinned projects.
+  The project list viewport remains five project rows tall and scrolls
+  internally after more projects or nested conversations are loaded.
 - Top-level actions are ordered **New task → Scheduled tasks → Skills →
   Connections**.
 - **Scheduled tasks** opens the existing Automation settings section;

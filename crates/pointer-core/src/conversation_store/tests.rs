@@ -40,6 +40,43 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_projects_are_capped_at_five_total_including_pinned() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let projects = (0..8)
+            .map(|index| {
+                store
+                    .create_project(
+                        &format!("Project {index}"),
+                        &format!("/workspace/project-{index}"),
+                    )
+                    .unwrap()
+                    .project
+            })
+            .collect::<Vec<_>>();
+        for project in projects.iter().take(6) {
+            store
+                .update_project(&project.id, None, None, Some(true), None)
+                .unwrap();
+        }
+
+        let sidebar = store.load_sidebar_projects().unwrap();
+        let cursor = sidebar.last().map(|project| crate::models::ProjectCursor {
+            updated_at: project.updated_at,
+            id: project.id.clone(),
+        });
+        let next_page = store.load_projects(cursor, 5).unwrap();
+
+        assert_eq!(sidebar.len(), 5);
+        assert!(sidebar.iter().all(|project| project.is_pinned));
+        assert_eq!(next_page.items.len(), 4);
+        assert!(next_page.items[0].is_pinned);
+        assert!(next_page.items[1..]
+            .iter()
+            .all(|project| !project.is_pinned));
+    }
+
+    #[test]
     fn sync_discover_and_scroll() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

@@ -115,17 +115,33 @@ pub fn load_project_page_from_conn(
         .as_ref()
         .map(|c| (Some(c.updated_at), Some(c.id.as_str())))
         .unwrap_or((None, None));
+    let cursor_pinned = match cursor.as_ref() {
+        Some(cursor) => conn
+            .query_row(
+                "SELECT is_pinned FROM projects WHERE id = ?1",
+                params![cursor.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0),
+        None => 0,
+    };
     let mut stmt = conn.prepare(
         "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
                 created_at_ms, updated_at_ms
          FROM projects
          WHERE is_archived = 0
-           AND is_pinned = 0
-           AND (?1 IS NULL OR (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2)))
-         ORDER BY updated_at_ms DESC, id DESC
-         LIMIT ?3",
+           AND (?1 IS NULL
+             OR is_pinned < ?3
+             OR (is_pinned = ?3
+               AND (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2))))
+         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC
+         LIMIT ?4",
     )?;
-    let rows = stmt.query_map(params![cursor_at, cursor_id, limit + 1], project_from_row)?;
+    let rows = stmt.query_map(
+        params![cursor_at, cursor_id, cursor_pinned, limit + 1],
+        project_from_row,
+    )?;
     let mut items = rows.collect::<std::result::Result<Vec<_>, _>>()?;
     let has_more = items.len() > limit as usize;
     if has_more {
@@ -148,17 +164,12 @@ pub fn load_sidebar_projects_from_conn(conn: &Connection) -> Result<Vec<Project>
                 created_at_ms, updated_at_ms
          FROM projects
          WHERE is_archived = 0
-         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC",
+         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC
+         LIMIT 5",
     )?;
-    let all = stmt
-        .query_map([], project_from_row)?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    let pinned_count = all.iter().take_while(|p| p.is_pinned).count();
-    Ok(all
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, p)| (p.is_pinned || index < pinned_count + 5).then_some(p))
-        .collect())
+    let rows = stmt.query_map([], project_from_row)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
 fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {

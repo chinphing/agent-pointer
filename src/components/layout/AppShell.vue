@@ -263,13 +263,12 @@ async function confirmProjectDeletion() {
 
 async function loadMoreProjects() {
   if (loadingMoreProjects.value || !hasMoreProjects.value) return
-  const lastUnpinned = [...chat.projects].reverse().find(project => !project.isPinned)
-  if (!lastUnpinned) return
+  const lastProject = chat.projects[chat.projects.length - 1]
 
   loadingMoreProjects.value = true
   try {
     const page = await loadProjects(
-      { updatedAt: lastUnpinned.updatedAt, id: lastUnpinned.id },
+      lastProject ? { updatedAt: lastProject.updatedAt, id: lastProject.id } : null,
       5
     )
     const knownIds = new Set(chat.projects.map(project => project.id))
@@ -379,10 +378,10 @@ function toggleConversationsSection() {
 function closeProjectMenuOnOutsideClick(event: MouseEvent) {
   const target = event.target
   if (!(target instanceof Element)) return
-  if (!target.closest('.sidebar-project-search-area')) {
+  if (!target.closest('.sidebar-project-section')) {
     closeProjectSearch()
   }
-  if (!target.closest('.sidebar-conversation-search-area')) closeConversationSearch()
+  if (!target.closest('.sidebar-conversation-section')) closeConversationSearch()
   if (!target.closest('.project-context-menu, .project-menu-trigger')) {
     projectMenuId.value = null
   }
@@ -494,6 +493,19 @@ async function runSidebarSearch(query: string) {
 const listScroller = ref<HTMLElement | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | null = null
+const scrollbarHideTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>()
+
+function showScrollbarWhileScrolling(event: Event) {
+  const target = event.currentTarget
+  if (!(target instanceof HTMLElement)) return
+  target.classList.add('is-scrolling')
+  const existingTimer = scrollbarHideTimers.get(target)
+  if (existingTimer) clearTimeout(existingTimer)
+  scrollbarHideTimers.set(target, setTimeout(() => {
+    target.classList.remove('is-scrolling')
+    scrollbarHideTimers.delete(target)
+  }, 600))
+}
 
 function maybeLoadMore(entry: IntersectionObserverEntry) {
   if (!entry.isIntersecting) return
@@ -520,6 +532,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', closeProjectOverlaysOnKeydown)
   observer?.disconnect()
   observer = null
+  for (const timer of scrollbarHideTimers.values()) clearTimeout(timer)
+  scrollbarHideTimers.clear()
 })
 
 // When the sidebar expands after being collapsed, the scroll container may
@@ -689,7 +703,7 @@ watch(searchQuery, q => {
 
           <section
             v-if="sidebarProjects.length"
-            class="group/project-section px-3 pb-4 shrink-0 max-h-[42%] overflow-y-auto"
+            class="sidebar-project-section group/project-section shrink-0 px-3 pb-4"
           >
             <div class="group/section-header mb-2 flex h-6 items-center gap-1">
               <button
@@ -787,7 +801,11 @@ watch(searchQuery, q => {
                 </section>
               </div>
             </Teleport>
-            <div v-show="!projectsSectionCollapsed">
+            <div
+              v-show="!projectsSectionCollapsed"
+              class="sidebar-auto-scrollbar -mr-3 max-h-[11.75rem] overflow-y-auto pr-3"
+              @scroll.passive="showScrollbarWhileScrolling"
+            >
               <p v-if="projectError" class="mb-1 px-1 text-[11px] text-danger">{{ projectError }}</p>
               <div class="space-y-0.5">
                 <div
@@ -809,7 +827,6 @@ watch(searchQuery, q => {
                   />
                   <FolderGit2 class="w-3.5 h-3.5 shrink-0" />
                   <span class="truncate">{{ displayProjectName(project) }}</span>
-                  <span v-if="project.isDefault" class="sidebar-project-default">默认</span>
                 </button>
                 <button
                   type="button"
@@ -843,8 +860,8 @@ watch(searchQuery, q => {
                   <div
                     v-for="conversation in projectConversations(project)"
                     :key="conversation.id"
-                    class="group/task flex items-center gap-1 rounded-md"
-                    :class="conversation.id === chat.currentId && 'bg-accent-muted'"
+                    class="sidebar-project-task-row group/task flex items-center gap-1 rounded-md"
+                    :class="conversation.id === chat.currentId && 'is-active'"
                   >
                     <div
                       role="button"
@@ -932,9 +949,10 @@ watch(searchQuery, q => {
           <!-- D: 最近对话 -->
           <div
             ref="listScroller"
-            class="group/conversation-section flex-1 overflow-y-auto px-2 pb-3 min-h-0"
+            class="sidebar-auto-scrollbar sidebar-conversation-section group/conversation-section flex-1 overflow-y-auto px-2 pb-3 min-h-0"
             style="overflow-anchor: none"
             @mousedown.self="saveEdit"
+            @scroll.passive="showScrollbarWhileScrolling"
           >
             <div class="group/section-header mb-1.5 flex h-6 items-center gap-1 px-1">
               <button
@@ -1219,6 +1237,24 @@ watch(searchQuery, q => {
 </template>
 
 <style scoped>
+.sidebar-auto-scrollbar {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-auto-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+
+.sidebar-auto-scrollbar.is-scrolling {
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+.sidebar-auto-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+}
+
 .sidebar-workbench-link {
   @apply w-full h-8 px-3 rounded-lg text-[13px] text-foreground inline-flex items-center gap-2 text-left hover:bg-hover transition-colors;
 }
@@ -1297,16 +1333,21 @@ watch(searchQuery, q => {
   @apply bg-accent-muted text-accent;
 }
 
-.sidebar-project-default {
-  @apply ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none bg-hover text-muted;
-}
-
 .sidebar-project-conversation {
   @apply w-full h-7 px-2 rounded-md inline-flex items-center gap-2 text-[12px] text-muted text-left hover:bg-hover hover:text-foreground transition-colors;
 }
 
 .sidebar-project-conversation.is-active {
   @apply bg-accent-muted text-accent;
+}
+
+.sidebar-project-task-row:hover {
+  @apply bg-hover;
+}
+
+.sidebar-project-task-row.is-active,
+.sidebar-project-task-row.is-active:hover {
+  @apply bg-accent-muted;
 }
 
 .project-task-action {

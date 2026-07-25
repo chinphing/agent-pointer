@@ -74,6 +74,17 @@ pub fn attachment_local_abs_path(att: &MediaAttachment) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn attachment_sandbox_path(att: &MediaAttachment) -> Option<String> {
+    let rel = att
+        .storage_rel_path
+        .as_deref()?
+        .trim()
+        .trim_start_matches('/');
+    let (_, sandbox_path) = rel.rsplit_once("/attachments/")?;
+    let path = format!("attachments/{sandbox_path}");
+    super::store::short_attachment_id_from_sandbox_rel(rel).map(|_| path)
+}
+
 /// JSON attachment summary for tools (`session_search`, etc.) — same fields as the API manifest.
 pub fn attachment_summary_json(att: &MediaAttachment) -> Value {
     let mut obj = json!({
@@ -97,6 +108,9 @@ pub fn attachment_summary_json(att: &MediaAttachment) -> Value {
     {
         obj["storageRelPath"] = json!(rel);
         obj["ref"] = json!(attachment_ref_uri(rel));
+    }
+    if let Some(path) = attachment_sandbox_path(att) {
+        obj["sandboxPath"] = json!(path);
     }
     if let Some(path) = attachment_local_abs_path(att) {
         obj["localPath"] = json!(path);
@@ -151,6 +165,9 @@ fn format_attachment_entry(index: usize, att: &MediaAttachment) -> String {
     };
 
     let mut lines = vec![header, format!("   - attachmentId: {}", att.id)];
+    if let Some(path) = attachment_sandbox_path(att) {
+        lines.push(format!("   - sandboxPath: {path}"));
+    }
     if has_remote && kind == "video" {
         let url = att.remote_url.as_deref().unwrap_or("").trim();
         lines.push(format!("{size_line}   - remoteUrl: {url}"));
@@ -330,6 +347,28 @@ mod tests {
         assert_eq!(j["fileName"], "photo.png");
         assert!(j["ref"].as_str().unwrap().starts_with("pointer-media://"));
         assert!(j.get("localPath").is_some());
+    }
+
+    #[test]
+    fn manifest_includes_sandbox_relative_path_for_new_attachment() {
+        let att = MediaAttachment {
+            id: "0a1b2c3d4e5f".into(),
+            kind: "document".into(),
+            mime_type: "application/pdf".into(),
+            file_name: "report.pdf".into(),
+            size_bytes: 1,
+            storage_rel_path: Some(
+                "session-sandboxes/user-1/attachments/0a1b2c3d4e5f_report.pdf".into(),
+            ),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        };
+        let manifest = format_user_attachments_api_manifest(&[att]);
+        assert!(manifest.contains("attachmentId: 0a1b2c3d4e5f"));
+        assert!(manifest.contains("sandboxPath: attachments/0a1b2c3d4e5f_report.pdf"));
     }
 
     #[test]

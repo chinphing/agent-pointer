@@ -3,11 +3,13 @@
 use anyhow::{anyhow, Result};
 use base64::Engine;
 use serde::Serialize;
-use uuid::Uuid;
 
 use crate::media::layout::parse_storage_rel;
 use crate::media::reply_attachments::{infer_attachment_kind, infer_attachment_mime};
-use crate::media::store::{media_abs_path, save_attachment_bytes};
+use crate::media::store::{
+    media_abs_path, save_attachment_bytes, short_attachment_id_from_sandbox_rel,
+    SESSION_SANDBOXES_PREFIX,
+};
 use crate::models::MediaAttachment;
 use crate::storage::sanitize_storage_dir_segment;
 
@@ -45,11 +47,11 @@ pub fn save_webhook_upload(
     if file_name.is_empty() {
         anyhow::bail!("fileName required");
     }
-    let attachment_id = format!("wh-{}", Uuid::new_v4());
     let kind = infer_attachment_kind(file_name);
     let mime_type = infer_attachment_mime(file_name, mime_hint);
-    let storage_rel_path =
-        save_attachment_bytes(conversation_id, &attachment_id, bytes, file_name)?;
+    let storage_rel_path = save_attachment_bytes(conversation_id, "webhook", bytes, file_name)?;
+    let attachment_id = short_attachment_id_from_sandbox_rel(&storage_rel_path)
+        .ok_or_else(|| anyhow!("saved webhook attachment has no short ID"))?;
     log::info!(
         "webhook upload: saved {} ({} bytes) -> {}",
         file_name,
@@ -128,6 +130,12 @@ fn validate_storage_rel_for_conversation(conversation_id: &str, rel: &str) -> Re
     if rel.is_empty() || rel.contains("..") {
         anyhow::bail!("invalid storageRelPath");
     }
+    if rel.starts_with(SESSION_SANDBOXES_PREFIX) {
+        if short_attachment_id_from_sandbox_rel(rel).is_some() {
+            return Ok(());
+        }
+        anyhow::bail!("invalid sandbox attachment storageRelPath");
+    }
     let conv = sanitize_storage_dir_segment(conversation_id.trim());
     if conv.is_empty() {
         anyhow::bail!("invalid conversationId");
@@ -145,6 +153,7 @@ fn validate_storage_rel_for_conversation(conversation_id: &str, rel: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[test]
     fn rejects_foreign_storage_rel_path() {
@@ -217,8 +226,8 @@ mod tests {
         assert!(
             saved
                 .storage_rel_path
-                .contains(&format!("{}/", sanitize_storage_dir_segment(&conv))),
-            "expected user-scoped storage rel path"
+                .contains("/attachments/"),
+            "expected sandbox attachment storage rel path"
         );
         if let Some(parent) = abs.parent() {
             let _ = std::fs::remove_dir_all(parent);

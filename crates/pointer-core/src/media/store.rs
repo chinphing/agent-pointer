@@ -1,15 +1,18 @@
 use anyhow::{Context, Result};
 use base64::Engine;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 use crate::models::ChatMediaPreview;
-use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
+use crate::session_sandbox::{SessionSandbox, ANONYMOUS_SEGMENT};
+use crate::storage::app_data_dir;
 use crate::user_storage::session_user_id_for_conversation;
 
 use super::access::{assert_app_media_preview_allowed, path_has_traversal};
-use super::filename::{allocate_unique_stored_basename, safe_attachment_basename};
-use super::layout::{build_storage_rel, parse_storage_rel, verify_storage_rel_access};
+use super::filename::safe_attachment_basename;
+use super::layout::{parse_storage_rel, verify_storage_rel_access};
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 
@@ -18,6 +21,8 @@ pub const CONVERSATION_MEDIA_DIR: &str = "conversation-media";
 /// App-data subtrees outside `conversation-media/` that use their own rel prefix.
 pub const GENERATED_MEDIA_PREFIX: &str = "generated-media/";
 pub const SESSION_SANDBOXES_PREFIX: &str = "session-sandboxes/";
+pub const SANDBOX_ATTACHMENTS_DIR: &str = "attachments";
+pub const SHORT_ATTACHMENT_ID_LEN: usize = 12;
 
 /// True for rel paths stored directly under `{app_data}/` (not conversation attachment layout).
 pub fn is_app_data_subtree_rel(raw: &str) -> bool {
@@ -25,11 +30,144 @@ pub fn is_app_data_subtree_rel(raw: &str) -> bool {
     rel.starts_with(GENERATED_MEDIA_PREFIX) || rel.starts_with(SESSION_SANDBOXES_PREFIX)
 }
 
+/// Return a 12-character lowercase hex attachment ID embedded in a sandbox attachment path.
+pub fn short_attachment_id_from_sandbox_rel(raw: &str) -> Option<String> {
+    let rel = raw.trim().trim_start_matches('/');
+    let file_name = Path::new(rel).file_name()?.to_str()?;
+    let (id, _) = file_name.split_once('_')?;
+    if id.len() == SHORT_ATTACHMENT_ID_LEN && id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(id.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+
+fn sandbox_attachment_rel(conversation_id: &str) -> Result<(PathBuf, String)> {
+    let session_user_id = session_user_id_for_conversation(conversation_id);
+    let sandbox = SessionSandbox::ensure_default(conversation_id, &session_user_id)?;
+    let dir = sandbox.join(SANDBOX_ATTACHMENTS_DIR);
+    fs::create_dir_all(&dir).context("create sandbox attachment directory")?;
+    let rel = dir
+        .strip_prefix(app_data_dir()?)
+        .context("sandbox attachment outside app data")?
+        .to_string_lossy()
+        .replace('\\', "/");
+    Ok((dir, rel))
+}
+
+fn sandbox_attachment_dir_for_path(path: &Path) -> Result<Option<PathBuf>> {
+    let root = app_data_dir()?;
+    let rel = match path.strip_prefix(&root) {
+        Ok(rel) => rel,
+        Err(_) => return Ok(None),
+    };
+    let parts: Vec<_> = rel.components().collect();
+    if parts.first().and_then(|part| part.as_os_str().to_str()) != Some("session-sandboxes") {
+        return Ok(None);
+    }
+    let user = parts
+        .get(1)
+        .ok_or_else(|| anyhow::anyhow!("sandbox path missing user segment"))?;
+    let mut sandbox = root.join("session-sandboxes").join(user.as_os_str());
+    if user.as_os_str() == std::ffi::OsStr::new(ANONYMOUS_SEGMENT) {
+        let conversation = parts.get(2).ok_or_else(|| {
+            anyhow::anyhow!("anonymous sandbox path missing conversation segment")
+        })?;
+        sandbox.push(conversation.as_os_str());
+    }
+    Ok(Some(sandbox.join(SANDBOX_ATTACHMENTS_DIR)))
+}
+
+/// Copy a file created in a default sandbox into its attachment directory and assign a short ID.
+///
+/// Files already in `attachments/` are returned unchanged. Files outside a default sandbox are
+/// ignored so caller-owned paths are never copied without an explicit conversation context.
+pub fn register_sandbox_output_file(path: &Path) -> Result<Option<String>> {
+    let source = path
+        .canonicalize()
+        .with_context(|| format!("resolve sandbox output {}", path.display()))?;
+    let Some(dir) = sandbox_attachment_dir_for_path(&source)? else {
+        return Ok(None);
+    };
+    if source.starts_with(&dir)
+        && app_data_media_rel_from_abs(&source)
+            .as_deref()
+            .and_then(short_attachment_id_from_sandbox_rel)
+            .is_some()
+    {
+        return Ok(app_data_media_rel_from_abs(&source));
+    }
+    if !source.is_file() {
+        anyhow::bail!("sandbox output is not a file: {}", source.display());
+    }
+    fs::create_dir_all(&dir).context("create sandbox attachment directory")?;
+    let source_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("attachment");
+    let (_, dest, mut file) = create_sandbox_attachment_file(&dir, source_name)?;
+    match fs::read(&source)
+        .with_context(|| format!("read sandbox output {}", source.display()))
+        .and_then(|bytes| {
+            file.write_all(&bytes)
+                .with_context(|| format!("write sandbox attachment {}", dest.display()))
+        }) {
+        Ok(()) => app_data_media_rel_from_abs(&dest)
+            .map(Some)
+            .ok_or_else(|| anyhow::anyhow!("sandbox attachment outside app data")),
+        Err(e) => {
+            let _ = fs::remove_file(&dest);
+            Err(e)
+        }
+    }
+}
+
+fn next_short_attachment_id() -> u64 {
+    let raw = Uuid::new_v4().simple().to_string();
+    u64::from_str_radix(&raw[..SHORT_ATTACHMENT_ID_LEN], 16).unwrap_or(0)
+}
+
+/// Reserve an attachment filename atomically. Collisions advance to the next 48-bit value.
+fn create_sandbox_attachment_file(
+    dir: &Path,
+    file_name: &str,
+) -> Result<(String, PathBuf, std::fs::File)> {
+    let safe_name = safe_attachment_basename(file_name);
+    let display_name = if safe_name.is_empty() {
+        "attachment".to_string()
+    } else {
+        safe_name
+    };
+    let mut value = next_short_attachment_id();
+    for _ in 0..=0xFF_FFFF {
+        let id = format!("{value:0width$x}", width = SHORT_ATTACHMENT_ID_LEN);
+        let path = dir.join(format!("{id}_{display_name}"));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((id, path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                value = (value + 1) & 0xFF_FFFF_FFFF_FFFF;
+            }
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("reserve sandbox attachment {}", path.display()));
+            }
+        }
+    }
+    anyhow::bail!("unable to allocate a unique 12-character attachment ID")
+}
+
 pub fn conversation_media_root() -> Result<PathBuf> {
     Ok(app_data_dir()?.join(CONVERSATION_MEDIA_DIR))
 }
 
 pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
+    if is_app_data_subtree_rel(storage_rel_path) {
+        let path = app_data_dir()?.join(storage_rel_path.trim().trim_start_matches('/'));
+        if path.exists() {
+            return Ok(path);
+        }
+        anyhow::bail!("media file not found under app data: {}", path.display());
+    }
     if let Err(e) = verify_storage_rel_access(storage_rel_path) {
         log::info!("media_abs_path verify_storage_rel_access FAILED: {e:#}");
         return Err(e);
@@ -112,27 +250,24 @@ pub fn app_data_media_rel_from_abs(path: &Path) -> Option<String> {
 
 pub fn save_attachment_bytes(
     conversation_id: &str,
-    attachment_id: &str,
+    _attachment_id: &str,
     bytes: &[u8],
     file_name: &str,
 ) -> Result<String> {
-    let conv = sanitize_storage_dir_segment(conversation_id.trim());
-    let id = attachment_id.trim();
-    if conv.is_empty() || id.is_empty() {
-        anyhow::bail!("conversation_id and attachment_id required");
+    if conversation_id.trim().is_empty() {
+        anyhow::bail!("conversation_id required");
     }
-    let session_user_id = session_user_id_for_conversation(conversation_id);
-    let dir = conversation_media_root()?
-        .join(crate::user_storage::user_storage_segment(&session_user_id))
-        .join(&conv);
-    fs::create_dir_all(&dir).context("媒体目录创建失败")?;
-    let safe_name = safe_attachment_basename(file_name);
-    let stored_name = allocate_unique_stored_basename(&dir, &safe_name, file_name)
-        .ok_or_else(|| anyhow::anyhow!("unique attachment filename allocation failed"))?;
-    let file_path = dir.join(&stored_name);
-    fs::write(&file_path, bytes).context("write attachment file")?;
-    let rel = conversation_media_abs_to_rel(&file_path)
-        .unwrap_or_else(|| build_storage_rel(&session_user_id, conversation_id, &stored_name));
+    let (dir, rel_base) = sandbox_attachment_rel(conversation_id)?;
+    let (id, file_path, mut file) = create_sandbox_attachment_file(&dir, file_name)?;
+    if let Err(e) = file.write_all(bytes) {
+        let _ = fs::remove_file(&file_path);
+        return Err(e).with_context(|| format!("write attachment file {}", file_path.display()));
+    }
+    let file_name = file_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("sandbox attachment filename is not UTF-8")?;
+    let rel = format!("{rel_base}/{file_name}");
     log::info!(
         "save_attachment_bytes conv={conversation_id} id={id} -> {} rel={} ({} bytes)",
         file_path.display(),
@@ -369,5 +504,46 @@ fn mime_from_path(path: &Path) -> String {
         Some("ogg") => "audio/ogg".into(),
         Some("flac") => "audio/flac".into(),
         _ => "application/octet-stream".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_attachment_filename_contains_twelve_hex_id() {
+        let dir = std::env::temp_dir().join(format!("pointer-store-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+
+        let (id, path, mut file) =
+            create_sandbox_attachment_file(&dir, "Quarterly report.pdf").unwrap();
+        file.write_all(b"test").unwrap();
+        let rel = format!(
+            "session-sandboxes/user-1/attachments/{}",
+            path.file_name().unwrap().to_string_lossy()
+        );
+
+        assert_eq!(id.len(), SHORT_ATTACHMENT_ID_LEN);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(
+            short_attachment_id_from_sandbox_rel(&rel).as_deref(),
+            Some(id.as_str())
+        );
+        assert!(path.is_file());
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn short_id_parser_rejects_non_attachment_names() {
+        assert!(
+            short_attachment_id_from_sandbox_rel("session-sandboxes/user-1/notes/report.pdf")
+                .is_none()
+        );
+        assert!(short_attachment_id_from_sandbox_rel(
+            "session-sandboxes/user-1/attachments/abcdef_notes.pdf"
+        )
+        .is_none());
     }
 }

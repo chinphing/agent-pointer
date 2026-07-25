@@ -9,7 +9,9 @@ use crate::models::MediaAttachment;
 use super::access::{is_user_filesystem_path, strip_file_uri};
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
-use super::store::app_data_media_rel_from_abs;
+use super::store::{
+    app_data_media_rel_from_abs, register_sandbox_output_file, short_attachment_id_from_sandbox_rel,
+};
 
 pub fn attachments_from_reply_paths(paths: &[String]) -> Vec<MediaAttachment> {
     paths
@@ -34,7 +36,7 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
 
     // Verify the referenced file actually exists on disk before creating attachment.
     let check_path = local_abs_path.as_deref().or(storage_rel_path.as_deref())?;
-    let resolved = match resolve_local_media_path(check_path) {
+    let mut resolved = match resolve_local_media_path(check_path) {
         Ok(p) if p.is_file() => p,
         Ok(p) => {
             log::warn!(
@@ -50,9 +52,46 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
         }
     };
 
-    if storage_rel_path.is_none() {
+    if storage_rel_path
+        .as_deref()
+        .and_then(short_attachment_id_from_sandbox_rel)
+        .is_none()
+    {
         storage_rel_path = app_data_media_rel_from_abs(&resolved);
     }
+    if storage_rel_path
+        .as_deref()
+        .and_then(short_attachment_id_from_sandbox_rel)
+        .is_none()
+    {
+        match register_sandbox_output_file(&resolved) {
+            Ok(Some(rel)) => match resolve_local_media_path(&rel) {
+                Ok(path) => {
+                    log::info!(
+                        "reply attachment: registered sandbox output {} -> {}",
+                        resolved.display(),
+                        rel
+                    );
+                    resolved = path;
+                    storage_rel_path = Some(rel);
+                }
+                Err(e) => {
+                    log::warn!("reply attachment: resolve registered sandbox output failed: {e:#}");
+                }
+            },
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!(
+                    "reply attachment: register sandbox output {} failed: {e:#}",
+                    resolved.display()
+                );
+            }
+        }
+    }
+    let id = storage_rel_path
+        .as_deref()
+        .and_then(short_attachment_id_from_sandbox_rel)
+        .unwrap_or_else(|| format!("reply-media-{}", Uuid::new_v4()));
     let local_abs_path = Some(resolved.display().to_string());
 
     let file_name = file_name_from_ref(rel, local_abs_path.as_deref());
@@ -60,7 +99,7 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
     let mime_type = mime_from_file_name(&file_name);
 
     Some(MediaAttachment {
-        id: format!("reply-media-{}", Uuid::new_v4()),
+        id,
         kind,
         mime_type,
         file_name,

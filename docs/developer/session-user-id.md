@@ -39,8 +39,9 @@ See [terminal-environment-variables.md](terminal-environment-variables.md) for i
 | --- | --- |
 | `memories/{session_user_id}/MEMORY.md` | Agent notes for one user; `_anonymous/` when id empty |
 | `memories/{session_user_id}/USER.md` | User profile for one user |
-| `conversation-media/{session_user_id}/{conversation_id}/…` | Chat attachments (legacy `{conversation_id}/…` still readable) |
-| `generated-media/{session_user_id}/{conversation_id}/…` | AI-generated images/videos |
+| `session-sandboxes/{session_user_id}/attachments/{12-hex-id}_{file}` | New chat attachments and AI-generated media |
+| `session-sandboxes/_anonymous/{conversation_id}/attachments/{12-hex-id}_{file}` | New anonymous attachments and AI-generated media |
+| `conversation-media/…`, `generated-media/…` | Historical media; read-compatible and not migrated automatically |
 
 Legacy root-level `memories/MEMORY.md` is read as a fallback until a user-scoped file exists. New writes always go to the user subdirectory.
 

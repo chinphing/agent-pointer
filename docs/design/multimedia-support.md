@@ -46,12 +46,12 @@ flowchart TD
 
 | 字段 | 说明 |
 |------|------|
-| `id` | UUID |
+| `id` | New saved attachments use a 12-character lowercase hexadecimal ID; historical rows may use UUID |
 | `kind` | `image` / `document` / `audio` / `video` / `file` |
 | `mimeType` | MIME |
 | `fileName` | 原始文件名 |
 | `sizeBytes` | 大小 |
-| `storageRelPath` | 相对 `conversation-media/{convId}/`；UI 预览用；API 清单注入 `pointer-media://` + `localPath` |
+| `storageRelPath` | New files are relative to `session-sandboxes/.../attachments/`; UI preview and path resolution use it |
 | `contentBase64` | **仅 wire**，持久化前剥离 |
 | `derivedText` | 可选缓存（`media_understand` 结果）；不写回 `msg.content` |
 
@@ -370,7 +370,7 @@ zip、Office（docx/xlsx/pptx）等 Composer 可上传但后端无法内联解�
 
 ### 10.5b 附件重试（无需重发文件）
 
-首次处理失败后，附件字节已保存在 `conversation-media/`（`storageRelPath`）。用户无需重传：
+首次处理失败后，附件字节已保存在用户 sandbox 的 `attachments/` 目录（`storageRelPath`）。用户无需重传：
 
 | 触发 | 行为 |
 |------|------|

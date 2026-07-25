@@ -2,7 +2,9 @@
 
 use crate::media::filename::normalize_inbound_filename;
 use crate::media::oss::{resolve_media_oss_config, upload_composer_video_bytes};
-use crate::media::store::{read_media_bytes, save_attachment_bytes};
+use crate::media::store::{
+    read_media_bytes, save_attachment_bytes, short_attachment_id_from_sandbox_rel,
+};
 use crate::media::COMPOSER_VIDEO_ADVISORY_BYTES;
 use crate::models::{ChatMessage, MediaAttachment, ModelSettings, Role};
 use anyhow::{Context, Result};
@@ -47,6 +49,22 @@ fn process_attachment_persist_only(conversation_id: &str, att: &mut MediaAttachm
     {
         let rel = save_attachment_bytes(conversation_id, &att.id, &bytes, &att.file_name)?;
         att.storage_rel_path = Some(rel);
+    }
+    if let Some(short_id) = att
+        .storage_rel_path
+        .as_deref()
+        .and_then(short_attachment_id_from_sandbox_rel)
+    {
+        att.id = short_id;
+    } else if att
+        .storage_rel_path
+        .as_deref()
+        .is_some_and(|rel| rel.starts_with(crate::media::store::SESSION_SANDBOXES_PREFIX))
+    {
+        log::warn!(
+            "media: sandbox attachment has no recognizable short ID: {}",
+            att.storage_rel_path.as_deref().unwrap_or_default()
+        );
     }
     att.content_base64 = None;
     att.size_bytes = bytes.len() as u64;
@@ -121,6 +139,13 @@ async fn try_upload_inbound_video_to_oss(
                 .is_none()
             {
                 att.storage_rel_path = result.storage_rel_path;
+            }
+            if let Some(short_id) = att
+                .storage_rel_path
+                .as_deref()
+                .and_then(short_attachment_id_from_sandbox_rel)
+            {
+                att.id = short_id;
             }
             att.content_base64 = None;
             att.size_bytes = bytes.len() as u64;

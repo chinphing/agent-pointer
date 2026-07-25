@@ -6,7 +6,8 @@ use pointer_core::dispatcher::{
 };
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView, ModelSettings,
+    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView, ModelSettings, Project,
+    ProjectCursor, ProjectPage,
     PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, ToolDef, UserSettings,
 };
 
@@ -871,6 +872,76 @@ pub fn load_conversation_metas(
     };
     let limit = limit.unwrap_or(50);
     storage::load_conversation_metas(cursor, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_projects(
+    cursor_updated_at: Option<i64>,
+    cursor_id: Option<String>,
+    limit: Option<i64>,
+) -> Result<ProjectPage, String> {
+    let cursor = match (cursor_updated_at, cursor_id) {
+        (Some(updated_at), Some(id)) => Some(ProjectCursor { updated_at, id }),
+        (None, None) => None,
+        _ => return Err("project cursor fields must both be set or omitted".into()),
+    };
+    storage::load_projects(cursor, limit.unwrap_or(20)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_sidebar_projects() -> Result<Vec<Project>, String> {
+    storage::load_sidebar_projects().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_project_conversation_metas(
+    project_id: String, cursor_updated_at: Option<i64>, cursor_id: Option<String>, limit: Option<i64>,
+) -> Result<Vec<pointer_core::models::ConversationMeta>, String> {
+    let cursor = match (cursor_updated_at, cursor_id) {
+        (Some(updated_at), Some(id)) => Some((updated_at, id)),
+        (None, None) => None,
+        _ => return Err("conversation cursor fields must both be set or omitted".into()),
+    };
+    storage::load_project_conversation_metas(&project_id, cursor, limit.unwrap_or(20))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_project(name: String, workspace_root: String) -> Result<Project, String> {
+    storage::create_project(&name, &workspace_root).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_directory(parent_path: String, name: String) -> Result<String, String> {
+    let parent = Path::new(&parent_path);
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty()
+        || trimmed_name == "."
+        || trimmed_name == ".."
+        || trimmed_name.contains('/')
+        || trimmed_name.contains('\\')
+    {
+        return Err("目录名称无效".into());
+    }
+    if !parent.is_dir() {
+        return Err("父目录不存在或不可访问".into());
+    }
+    let target = parent.join(trimmed_name);
+    fs::create_dir(&target).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn update_project(    id: String, name: Option<String>, workspace_root: Option<String>,
+    is_pinned: Option<bool>, is_archived: Option<bool>,
+) -> Result<Project, String> {
+    storage::update_project(&id, name.as_deref(), workspace_root.as_deref(), is_pinned, is_archived)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_project(id: String) -> Result<(), String> {
+    storage::delete_project(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

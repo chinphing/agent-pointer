@@ -20,7 +20,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use crate::models::{ChatMessage, Conversation, ConversationMeta, ConversationSearchHit};
+use crate::models::{
+    ChatMessage, Conversation, ConversationMeta, ConversationSearchHit, Project, ProjectCursor,
+    ProjectPage,
+};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
@@ -86,6 +89,119 @@ impl ConversationStore {
     pub fn load_meta(&self, id: &str) -> Result<Option<ConversationMeta>> {
         let conn = self.db.conn.lock();
         persist::load_meta_from_conn(&conn, id)
+    }
+
+    pub fn load_projects(&self, cursor: Option<ProjectCursor>, limit: i64) -> Result<ProjectPage> {
+        let conn = self.db.conn.lock();
+        persist::load_project_page_from_conn(&conn, cursor, limit)
+    }
+
+    pub fn load_sidebar_projects(&self) -> Result<Vec<Project>> {
+        let conn = self.db.conn.lock();
+        persist::load_sidebar_projects_from_conn(&conn)
+    }
+
+    pub fn load_project_metas(
+        &self,
+        project_id: &str,
+        cursor: Option<persist::MetaCursor>,
+        limit: i64,
+    ) -> Result<Vec<ConversationMeta>> {
+        let conn = self.db.conn.lock();
+        persist::load_project_metas_from_conn(&conn, project_id, cursor, limit)
+    }
+
+    pub fn create_project(&self, name: &str, workspace_root: &str) -> Result<Project> {
+        let name = name.trim();
+        if name.is_empty() {
+            anyhow::bail!("project name is required");
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        let project = Project {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            workspace_root: workspace_root.trim().to_string(),
+            is_default: false,
+            is_pinned: false,
+            is_archived: false,
+            created_at: now,
+            updated_at: now,
+        };
+        self.db.execute_write(|conn| {
+            conn.execute(
+                "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms)
+                 VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4)",
+                params![project.id, project.name, project.workspace_root, now],
+            )?;
+            Ok(())
+        })?;
+        log::info!("conversation_store: created project id={}", project.id);
+        Ok(project)
+    }
+
+    pub fn update_project(
+        &self, id: &str, name: Option<&str>, workspace_root: Option<&str>,
+        is_pinned: Option<bool>, is_archived: Option<bool>,
+    ) -> Result<Project> {
+        if is_archived == Some(true) {
+            let conn = self.db.conn.lock();
+            let is_default: Option<i64> = conn.query_row(
+                "SELECT is_default FROM projects WHERE id = ?1", params![id], |row| row.get(0)
+            ).optional()?;
+            if is_default == Some(1) {
+                anyhow::bail!("default project cannot be archived");
+            }
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        self.db.execute_write(|conn| {
+            let changed = conn.execute(
+                "UPDATE projects SET
+                   name = COALESCE(?2, name), workspace_root = COALESCE(?3, workspace_root),
+                   is_pinned = COALESCE(?4, is_pinned), is_archived = COALESCE(?5, is_archived),
+                   updated_at_ms = ?6 WHERE id = ?1",
+                params![id, name.map(str::trim), workspace_root.map(str::trim),
+                    is_pinned.map(i64::from), is_archived.map(i64::from), now],
+            )?;
+            if changed == 0 { anyhow::bail!("project not found"); }
+            Ok(())
+        })?;
+        let conn = self.db.conn.lock();
+        conn.query_row(
+            "SELECT id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms
+             FROM projects WHERE id = ?1",
+            params![id],
+            |row| Ok(Project {
+                id: row.get(0)?, name: row.get(1)?, workspace_root: row.get(2)?,
+                is_default: row.get::<_, i64>(3)? != 0, is_pinned: row.get::<_, i64>(4)? != 0,
+                is_archived: row.get::<_, i64>(5)? != 0, created_at: row.get(6)?, updated_at: row.get(7)?,
+            }),
+        ).map_err(Into::into)
+    }
+
+    pub fn delete_project(&self, id: &str) -> Result<()> {
+        self.db.execute_write(|conn| {
+            let default: Option<i64> = conn.query_row(
+                "SELECT is_default FROM projects WHERE id = ?1", params![id], |r| r.get(0)
+            ).optional()?;
+            match default {
+                None => anyhow::bail!("project not found"),
+                Some(v) if v != 0 => anyhow::bail!("default project cannot be deleted"),
+                _ => {}
+            }
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM conversations WHERE project_id = ?1", params![id], |r| r.get(0)
+            )?;
+            // Project deletion is confirmed by the UI and intentionally removes
+            // its conversations only. The workspace directory is never touched.
+            conn.execute(
+                "DELETE FROM conversations WHERE project_id = ?1",
+                params![id],
+            )?;
+            conn.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
+            log::info!("conversation_store: deleted project id={id} conversations={count}");
+            Ok(())
+        })?;
+        Ok(())
     }
 
     /// Cheap list of all conversation ids (no message deserialization).
@@ -216,7 +332,12 @@ impl ConversationStore {
                     }
                 }
             }
-            write::save_meta_all_in_conn(conn, metas)
+            write::save_meta_all_in_conn(conn, metas)?;
+            // A first conversation learns the platform user id before its
+            // workspace event arrives. Reconcile again on every meta save so
+            // that first resolved sandbox becomes that user's default project
+            // without requiring an application restart.
+            reconcile_default_project_from_sandbox(conn)
         })?;
         Ok(())
     }
@@ -764,7 +885,196 @@ fn init_schema(conn: &Connection) -> Result<()> {
     migrate_schema_columns(conn)?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
+    ensure_projects_schema(conn)?;
     Ok(())
+}
+
+/// Project migration is intentionally gated by the `projects` table itself,
+/// rather than the shared schema version. This allows an app upgrade to safely
+/// add project support even when an older build already advanced that version.
+fn ensure_projects_schema(conn: &Connection) -> Result<()> {
+    let exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'projects' LIMIT 1",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    add_column_if_missing(conn, "conversations", "project_id", "TEXT")?;
+    if !exists {
+        conn.execute_batch(
+            "CREATE TABLE projects (
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               workspace_root TEXT NOT NULL DEFAULT '',
+               is_default INTEGER NOT NULL DEFAULT 0,
+               is_pinned INTEGER NOT NULL DEFAULT 0,
+               is_archived INTEGER NOT NULL DEFAULT 0,
+               created_at_ms INTEGER NOT NULL,
+               updated_at_ms INTEGER NOT NULL
+             );",
+        )?;
+        log::info!("conversation_store: created projects table");
+    }
+    add_column_if_missing(
+        conn,
+        "projects",
+        "is_pinned",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "projects",
+        "is_archived",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    // Recover databases opened by an intermediate build that created the table
+    // before project backfill existed. A populated table is authoritative and
+    // is never re-migrated.
+    let project_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))?;
+    if project_count == 0 {
+        log::info!(
+            "conversation_store: projects table is empty; backfilling historical conversations"
+        );
+        migrate_projects_from_conversations(conn)?;
+    }
+    reconcile_default_project_from_sandbox(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
+           ON conversations(project_id, updated_at_ms DESC);",
+    )?;
+    Ok(())
+}
+
+fn migrate_projects_from_conversations(conn: &Connection) -> Result<()> {
+    let default_root = default_sandbox_root_from_conversations(conn)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let default_id = uuid::Uuid::new_v4().to_string();
+    let default_name = "默认项目".to_string();
+    conn.execute(
+        "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms)
+         VALUES (?1, ?2, ?3, 1, 0, 0, ?4, ?4)",
+        params![default_id, default_name, default_root, now],
+    )?;
+    let mut roots = std::collections::BTreeSet::new();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT trim(workspace_root) FROM conversations
+         WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
+           AND trim(workspace_root) != '' AND trim(workspace_root) != ?1",
+    )?;
+    for root in stmt.query_map(params![default_root], |row| row.get::<_, String>(0))? {
+        roots.insert(root?);
+    }
+    let additional_projects = roots.len();
+    for root in roots {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4)",
+            params![id, project_name_for_root(&root), root, now],
+        )?;
+    }
+    let assigned_default = conn.execute(
+        "UPDATE conversations SET project_id = ?1
+         WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
+           AND (trim(workspace_root) = '' OR trim(workspace_root) = ?2)",
+        params![default_id, default_root],
+    )?;
+    let assigned_other = conn.execute(
+        "UPDATE conversations SET project_id = (
+           SELECT id FROM projects p WHERE p.workspace_root = trim(conversations.workspace_root)
+         )
+         WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
+           AND trim(workspace_root) != '' AND trim(workspace_root) != ?1",
+        params![default_root],
+    )?;
+    log::info!(
+        "conversation_store: project migration default_root={} projects={} assigned_default={} assigned_other={}",
+        default_root, additional_projects + 1, assigned_default, assigned_other
+    );
+    Ok(())
+}
+
+/// Derive the active user's default workspace from persisted session identity,
+/// never from the global workspace preference. A signed-in user shares
+/// `{session-sandboxes}/{session_user_id}` across their default conversations.
+fn default_sandbox_root_from_conversations(conn: &Connection) -> Result<String> {
+    let session_user_id: Option<String> = conn
+        .query_row(
+            "SELECT trim(session_user_id) FROM conversations
+             WHERE trim(session_user_id) != ''
+               AND id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
+             ORDER BY updated_at_ms DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(session_user_id) = session_user_id else {
+        return Ok(String::new());
+    };
+    Ok(crate::session_sandbox::SessionSandbox::default_path("", &session_user_id)?
+        .to_string_lossy()
+        .into_owned())
+}
+
+/// Repair projects created by early builds that treated the default user
+/// sandbox as an ordinary directory project. This is idempotent and preserves
+/// all conversations and local files.
+fn reconcile_default_project_from_sandbox(conn: &Connection) -> Result<()> {
+    let root = default_sandbox_root_from_conversations(conn)?;
+    if root.is_empty() {
+        return Ok(());
+    }
+    let now = chrono::Utc::now().timestamp_millis();
+    let project_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM projects WHERE workspace_root = ?1 LIMIT 1",
+            params![root],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let project_id = match project_id {
+        Some(id) => id,
+        None => {
+            let existing_default: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM projects WHERE is_default != 0 LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let Some(id) = existing_default else {
+                return Ok(());
+            };
+            conn.execute(
+                "UPDATE projects SET name = '默认项目', workspace_root = ?2, updated_at_ms = ?3 WHERE id = ?1",
+                params![id, root, now],
+            )?;
+            id
+        }
+    };
+    conn.execute("UPDATE projects SET is_default = 0 WHERE is_default != 0", [])?;
+    conn.execute(
+        "UPDATE projects SET name = '默认项目', is_default = 1, updated_at_ms = ?2 WHERE id = ?1",
+        params![project_id, now],
+    )?;
+    conn.execute(
+        "UPDATE conversations SET project_id = ?1
+         WHERE workspace_root = ?2",
+        params![project_id, root],
+    )?;
+    log::info!("conversation_store: reconciled default project sandbox={root}");
+    Ok(())
+}
+
+fn project_name_for_root(root: &str) -> String {
+    let normalized = root.trim_end_matches(['/', '\\']);
+    normalized.rsplit(['/', '\\']).next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Default project")
+        .to_string()
 }
 
 fn migrate_schema_columns(conn: &Connection) -> Result<()> {

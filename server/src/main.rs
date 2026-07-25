@@ -552,6 +552,16 @@ async fn main() -> anyhow::Result<()> {
             "/api/conversations/meta",
             get(load_conversation_metas).put(save_conversation_meta),
         )
+        .route("/api/projects/sidebar", get(load_sidebar_projects))
+        .route("/api/projects", get(load_projects).post(create_project))
+        .route(
+            "/api/projects/:project_id",
+            axum::routing::patch(update_project).delete(delete_project),
+        )
+        .route(
+            "/api/projects/:project_id/conversations",
+            get(load_project_conversation_metas),
+        )
         .route(
             "/api/conversations/search",
             get(search_conversations_handler),
@@ -1456,6 +1466,87 @@ async fn load_conversation_metas(
         metas.len()
     );
     Ok(Json(metas))
+}
+
+#[derive(Deserialize)]
+struct ProjectsQuery {
+    cursor_updated_at: Option<i64>,
+    cursor_id: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn load_sidebar_projects(
+    State(state): State<ServerState>,
+) -> Result<Json<Vec<pointer_core::models::Project>>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(storage::load_sidebar_projects()?))
+}
+
+async fn load_projects(
+    State(state): State<ServerState>,
+    Query(q): Query<ProjectsQuery>,
+) -> Result<Json<pointer_core::models::ProjectPage>, ApiError> {
+    require_platform_access(&state)?;
+    let cursor = match (q.cursor_updated_at, q.cursor_id) {
+        (Some(updated_at), Some(id)) => Some(pointer_core::models::ProjectCursor { updated_at, id }),
+        (None, None) => None,
+        _ => return Err(ApiError::from(anyhow::anyhow!("project cursor fields must both be set or omitted"))),
+    };
+    Ok(Json(storage::load_projects(cursor, q.limit.unwrap_or(20))?))
+}
+
+#[derive(Deserialize)]
+struct CreateProjectRequest { name: String, workspace_root: String }
+
+async fn create_project(
+    State(state): State<ServerState>,
+    Json(input): Json<CreateProjectRequest>,
+) -> Result<Json<pointer_core::models::Project>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(storage::create_project(&input.name, &input.workspace_root)?))
+}
+
+#[derive(Deserialize)]
+struct UpdateProjectRequest {
+    name: Option<String>,
+    workspace_root: Option<String>,
+    is_pinned: Option<bool>,
+    is_archived: Option<bool>,
+}
+
+async fn update_project(
+    State(state): State<ServerState>,
+    Path(project_id): Path<String>,
+    Json(input): Json<UpdateProjectRequest>,
+) -> Result<Json<pointer_core::models::Project>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(storage::update_project(
+        &project_id, input.name.as_deref(), input.workspace_root.as_deref(),
+        input.is_pinned, input.is_archived,
+    )?))
+}
+
+async fn delete_project(
+    State(state): State<ServerState>,
+    Path(project_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    storage::delete_project(&project_id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn load_project_conversation_metas(
+    State(state): State<ServerState>,
+    Path(project_id): Path<String>,
+    Query(q): Query<ConversationMetasQuery>,
+) -> Result<Json<Vec<pointer_core::models::ConversationMeta>>, ApiError> {
+    require_platform_access(&state)?;
+    let cursor = match (q.cursor_updated_at, q.cursor_id) {
+        (Some(ts), Some(id)) => Some((ts, id)),
+        (None, None) => None,
+        _ => return Err(ApiError::from(anyhow::anyhow!("cursor fields must both be set or omitted"))),
+    };
+    Ok(Json(storage::load_project_conversation_metas(&project_id, cursor, q.limit.unwrap_or(20))?))
 }
 
 #[derive(serde::Deserialize)]

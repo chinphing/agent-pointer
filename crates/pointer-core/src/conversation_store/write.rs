@@ -21,11 +21,11 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
         "INSERT INTO conversations (
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
-           computer_monitor_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
+           computer_monitor_id, project_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
            lead_agent_id, agent_mode, session_user_id
          ) VALUES (?1,?2,?3,?4,
            COALESCE((SELECT message_count FROM conversations WHERE id = ?1), 0),
-           ?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+           ?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            updated_at_ms = excluded.updated_at_ms,
@@ -33,6 +33,7 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
            tool_rounds_used = excluded.tool_rounds_used,
            tool_rounds_used_supervisor = excluded.tool_rounds_used_supervisor,
            computer_monitor_id = excluded.computer_monitor_id,
+           project_id = excluded.project_id,
            workspace_root = excluded.workspace_root,
            workspace_user_set = excluded.workspace_user_set,
            workspace_inherit_disabled = excluded.workspace_inherit_disabled,
@@ -52,6 +53,7 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
             meta.tool_rounds_used,
             meta.tool_rounds_used_supervisor,
             meta.computer_monitor_id,
+            meta.project_id,
             meta.workspace_root,
             i64::from(meta.workspace_user_set),
             i64::from(meta.workspace_inherit_disabled),
@@ -127,6 +129,7 @@ pub(crate) fn ensure_conversation_row_with_title(
             tool_rounds_used: 0,
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
+            project_id: None,
             workspace_root: String::new(),
             workspace_user_set: false,
             workspace_inherit_disabled: false,

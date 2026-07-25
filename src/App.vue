@@ -40,6 +40,7 @@ const skills = useSkillsStore()
 
 const showSettings = ref(false)
 const showSkills = ref(false)
+const settingsInitialSection = ref('assistant')
 const {
   open: pairingModalOpen,
   pendingItem: pairingModalPending,
@@ -107,6 +108,15 @@ function onOpenSkillsFromSettings() {
   showSkills.value = true
 }
 
+function openSettings(section = 'assistant') {
+  settingsInitialSection.value = section
+  showSettings.value = true
+}
+
+function openAutomation() {
+  openSettings('automation')
+}
+
 watch(showSettings, open => {
   if (open && isCompact.value) expandComputerCompact()
 })
@@ -132,7 +142,9 @@ watch(showSkills, open => {
   />
     <template v-else>
       <AppShell
-        @open-settings="showSettings = true"
+        @open-settings="openSettings()"
+        @open-automation="openAutomation"
+        @open-skills="showSkills = true"
       >
         <ChatView />
       </AppShell>
@@ -141,6 +153,7 @@ watch(showSkills, open => {
 
   <SettingsDialog
     v-if="showSettings"
+    :initial-section="settingsInitialSection"
     @close="showSettings = false"
     @open-skills="onOpenSkillsFromSettings"
   />

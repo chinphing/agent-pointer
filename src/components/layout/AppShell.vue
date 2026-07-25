@@ -13,10 +13,20 @@ import {
   Bot,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightOpen
+  PanelRightOpen,
+  FolderGit2,
+  Clock3,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Pin,
+  Settings2
 } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
-import { searchConversations } from '../../lib/api'
+import {
+  createProject, loadProjects, searchConversations, updateProject
+} from '../../lib/api'
 import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
@@ -25,8 +35,13 @@ import WindowDragRegion from './WindowDragRegion.vue'
 import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
 import { isTauriRuntime } from '../../lib/runtime'
 import WorkspacePanel from '../workspace/WorkspacePanel.vue'
+import type { Project } from '../../types/chat'
 
-defineEmits<{ (e: 'open-settings'): void }>()
+const emit = defineEmits<{
+  (e: 'open-settings'): void
+  (e: 'open-automation'): void
+  (e: 'open-skills'): void
+}>()
 
 const chat = useChatStore()
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
@@ -107,18 +122,244 @@ function onRowClick(c: {
   updatedAt?: number
   messageId?: string
   messageCount?: number
+  projectId?: string
 }) {
   saveEdit()
   pendingDeleteId.value = null
-  chat.selectConversation(c.id, {
+  chat.openConversation(c.id, {
     focusMessageId: c.messageId?.trim() || undefined,
     focusQueryTerm: searchQuery.value.trim() || undefined,
     ensureShell: {
       title: c.title,
       updatedAt: c.updatedAt,
-      messageCount: c.messageCount
+      messageCount: c.messageCount,
+      projectId: c.projectId
     }
   })
+}
+
+const projectSearchQuery = ref('')
+const projectSearchExpanded = ref(false)
+const showProjectCreator = ref(false)
+const loadingMoreProjects = ref(false)
+const hasMoreProjects = ref(true)
+const sidebarProjects = computed(() => {
+  const query = projectSearchQuery.value.trim().toLocaleLowerCase()
+  return chat.projects.filter(project =>
+    !project.isArchived
+    && (!query
+      || displayProjectName(project).toLocaleLowerCase().includes(query)
+      || project.workspaceRoot.toLocaleLowerCase().includes(query))
+  )
+})
+const expandedProjectIds = ref(new Set<string>())
+const projectCursors = ref<Record<string, import('../../types/chat').ConversationCursor | null>>({})
+const projectLoading = ref(new Set<string>())
+const projectName = ref('')
+const projectRoot = ref('')
+const projectError = ref('')
+const projectEditing = ref<Project | null>(null)
+const projectPendingDeletion = ref<Project | null>(null)
+const projectMenuId = ref<string | null>(null)
+const projectMenuPosition = ref({ left: 0, top: 0 })
+
+function displayProjectName(project: Project): string {
+  return project.isDefault ? '默认项目' : project.name
+}
+
+function toggleProjectMenu(project: Project, event: MouseEvent) {
+  if (projectMenuId.value === project.id) {
+    projectMenuId.value = null
+    return
+  }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  projectMenuPosition.value = {
+    left: Math.max(8, rect.right - 160),
+    top: rect.bottom + 4
+  }
+  projectMenuId.value = project.id
+}
+
+async function pickProjectDirectory() {
+  if (!isTauriRuntime()) {
+    projectError.value = '当前环境不支持目录选择，请手动填写目录路径'
+    return
+  }
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const selected = await open({ directory: true, multiple: false })
+    if (typeof selected === 'string' && selected.trim()) projectRoot.value = selected
+  } catch (err) {
+    projectError.value = String(err)
+  }
+}
+
+async function addProject() {
+  const name = projectName.value.trim()
+  const root = projectRoot.value.trim()
+  if (!name || !root) {
+    projectError.value = '请输入项目名称并选择项目目录'
+    return
+  }
+  try {
+    await createProject(name, root)
+    await chat.refreshProjects()
+    projectName.value = ''
+    projectRoot.value = ''
+    projectError.value = ''
+    showProjectCreator.value = false
+  } catch (err) {
+    projectError.value = String(err)
+  }
+}
+
+async function persistProject(project: Project) {
+  try {
+    const updated = await updateProject(project.id, {
+      name: project.name, workspaceRoot: project.workspaceRoot,
+      isPinned: project.isPinned, isArchived: project.isArchived
+    })
+    chat.projects = (chat.projects
+      .map(p => p.id === updated.id ? updated : p)
+      .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.updatedAt - a.updatedAt))
+    await chat.refreshProjects()
+  } catch (err) {
+    projectError.value = String(err)
+  }
+}
+
+async function toggleProjectPin(project: Project) {
+  projectMenuId.value = null
+  project.isPinned = !project.isPinned
+  await persistProject(project)
+}
+
+async function openProjectSettings(project: Project) {
+  projectMenuId.value = null
+  projectEditing.value = { ...project }
+}
+
+async function confirmProjectDeletion() {
+  const project = projectPendingDeletion.value
+  if (!project) return
+  try {
+    await chat.deleteProject(project.id)
+    projectPendingDeletion.value = null
+  } catch (err) {
+    projectError.value = String(err)
+  }
+}
+
+async function loadMoreProjects() {
+  if (loadingMoreProjects.value || !hasMoreProjects.value) return
+  const lastUnpinned = [...chat.projects].reverse().find(project => !project.isPinned)
+  if (!lastUnpinned) return
+
+  loadingMoreProjects.value = true
+  try {
+    const page = await loadProjects(
+      { updatedAt: lastUnpinned.updatedAt, id: lastUnpinned.id },
+      5
+    )
+    const knownIds = new Set(chat.projects.map(project => project.id))
+    chat.projects = [...chat.projects, ...page.items.filter(project => !knownIds.has(project.id))]
+      .sort((a, b) => Number(b.isPinned) - Number(a.isPinned)
+        || b.updatedAt - a.updatedAt
+        || b.id.localeCompare(a.id))
+    hasMoreProjects.value = page.nextCursor !== null
+  } catch (err) {
+    projectError.value = String(err)
+  } finally {
+    loadingMoreProjects.value = false
+  }
+}
+
+function requestDeleteProject(project: Project) {
+  projectMenuId.value = null
+  projectPendingDeletion.value = project
+}
+
+function newTask(project?: Project) {
+  const activeProject = project
+    ?? chat.projects.find(p => p.id === chat.current?.projectId)
+    ?? chat.projects.find(p => p.isDefault)
+  const conversation = chat.newConversation(activeProject?.id)
+  if (activeProject?.workspaceRoot) chat.setConversationWorkspace(activeProject.workspaceRoot)
+  return conversation
+}
+
+function projectConversations(project: Project) {
+  return visibleConversations(chat.conversations)
+    .filter(conversation => conversation.projectId === project.id)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+async function toggleProject(project: Project) {
+  const expanded = new Set(expandedProjectIds.value)
+  if (expanded.has(project.id)) {
+    expanded.delete(project.id)
+  } else {
+    expanded.add(project.id)
+    if (!projectCursors.value[project.id] && projectConversations(project).length === 0) {
+      await loadMoreProjectConversations(project)
+    }
+  }
+  expandedProjectIds.value = expanded
+  await chat.switchProject(project.id)
+}
+
+async function loadMoreProjectConversations(project: Project) {
+  if (projectLoading.value.has(project.id)) return
+  projectLoading.value = new Set([...projectLoading.value, project.id])
+  try {
+    const page = await chat.loadProjectConversations(project.id, projectCursors.value[project.id] ?? null)
+    projectCursors.value = { ...projectCursors.value, [project.id]: page.nextCursor }
+  } catch (err) {
+    console.error('[sidebar] load project conversations failed', project.id, err)
+  } finally {
+    const next = new Set(projectLoading.value)
+    next.delete(project.id)
+    projectLoading.value = next
+  }
+}
+
+function openAutomation() {
+  emit('open-automation')
+}
+
+function openSkills() {
+  emit('open-skills')
+}
+
+function closeProjectSearch() {
+  projectSearchExpanded.value = false
+  projectSearchQuery.value = ''
+}
+
+function closeProjectMenuOnOutsideClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (!target.closest('.sidebar-project-search-wrap, .sidebar-project-header-action')) {
+    closeProjectSearch()
+  }
+  if (!target.closest('.project-context-menu, .project-menu-trigger')) {
+    projectMenuId.value = null
+  }
+}
+
+function closeProjectOverlaysOnKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  if (projectSearchExpanded.value) {
+    closeProjectSearch()
+    return
+  }
+  projectMenuId.value = null
+  if (projectPendingDeletion.value) {
+    projectPendingDeletion.value = null
+    return
+  }
+  if (projectEditing.value) projectEditing.value = null
+  if (showProjectCreator.value) showProjectCreator.value = false
 }
 const {
   enabled: chromeEnabled,
@@ -151,6 +392,7 @@ type SidebarRow = {
   snippet?: string
   messageId?: string
   messageCount?: number
+  projectId?: string
 }
 const searchResults = ref<SidebarRow[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -192,7 +434,8 @@ async function runSidebarSearch(query: string) {
         // Prefer FTS match-centered snippet; preview is only a last-resort fallback.
         snippet: h.snippet?.trim() || h.preview?.trim() || undefined,
         messageId: h.messageId?.trim() || undefined,
-        messageCount: h.messageCount
+        messageCount: h.messageCount,
+        projectId: h.projectId
       }))
   } catch (err) {
     console.error('[sidebar] searchConversations failed', err)
@@ -215,6 +458,8 @@ function maybeLoadMore(entry: IntersectionObserverEntry) {
 }
 
 onMounted(() => {
+  document.addEventListener('mousedown', closeProjectMenuOnOutsideClick)
+  document.addEventListener('keydown', closeProjectOverlaysOnKeydown)
   if (!sentinel.value || !listScroller.value) return
   observer = new IntersectionObserver(
     entries => {
@@ -226,6 +471,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', closeProjectMenuOnOutsideClick)
+  document.removeEventListener('keydown', closeProjectOverlaysOnKeydown)
   observer?.disconnect()
   observer = null
 })
@@ -299,8 +546,8 @@ watch(searchQuery, q => {
       <button
         type="button"
         class="chrome-icon-btn shrink-0"
-        title="新建会话"
-        @click="chat.newConversation()"
+        title="新建任务"
+        @click="newTask()"
       >
         <Plus class="w-4 h-4" />
       </button>
@@ -382,21 +629,265 @@ watch(searchQuery, q => {
               </div>
               <button
                 class="h-9 w-9 rounded-lg hover:bg-hover flex items-center justify-center cursor-pointer transition shrink-0"
-                @click="chat.newConversation()"
-                title="新建会话"
+                @click="newTask()"
+                title="新建任务"
               >
                 <Plus class="w-4 h-4 text-muted" />
               </button>
             </div>
           </div>
 
-          <!-- C: 会话列表 -->
+          <!-- C: 项目工作台 -->
+          <div class="px-3 pb-2 shrink-0 space-y-1">
+            <button
+              type="button"
+              class="sidebar-workbench-link"
+              @click="openAutomation"
+            >
+              <Clock3 class="w-4 h-4" />
+              定时任务
+            </button>
+            <button
+              type="button"
+              class="sidebar-workbench-link"
+              @click="openSkills"
+            >
+              <Sparkles class="w-4 h-4" />
+              技能
+            </button>
+          </div>
+
+          <section
+            v-if="sidebarProjects.length"
+            class="px-3 pb-2 shrink-0 max-h-[42%] overflow-y-auto"
+          >
+            <div class="flex h-6 items-center gap-1">
+              <h2 class="sidebar-section-title mr-auto">项目</h2>
+              <div class="relative flex items-center gap-1">
+                <div
+                  class="sidebar-project-search-wrap"
+                  :class="projectSearchExpanded && 'is-expanded'"
+                >
+                  <Search class="sidebar-project-search-icon" aria-hidden="true" />
+                  <input
+                    v-if="projectSearchExpanded"
+                    v-model="projectSearchQuery"
+                    type="search"
+                    class="sidebar-project-search-input"
+                    placeholder="搜索项目"
+                    aria-label="搜索项目"
+                    @keydown.esc="closeProjectSearch"
+                  >
+                  <button
+                    v-if="projectSearchExpanded && projectSearchQuery"
+                    type="button"
+                    class="sidebar-project-search-clear"
+                    title="清除搜索"
+                    aria-label="清除搜索"
+                    @click="projectSearchQuery = ''"
+                  ><X class="w-3 h-3" /></button>
+                </div>
+                <button
+                  type="button"
+                  class="sidebar-project-header-action"
+                  :class="projectSearchExpanded && 'is-active'"
+                  :title="projectSearchExpanded ? '关闭项目搜索' : '搜索项目'"
+                  :aria-expanded="projectSearchExpanded"
+                  aria-label="搜索项目"
+                  @click="projectSearchExpanded ? closeProjectSearch() : projectSearchExpanded = true"
+                ><Search class="w-3.5 h-3.5" /></button>
+                <button
+                  type="button"
+                  class="sidebar-project-header-action"
+                  title="新增项目"
+                  aria-label="新增项目"
+                  @click="showProjectCreator = true; projectError = ''"
+                ><Plus class="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+            <Teleport to="body">
+              <div
+                v-if="showProjectCreator"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                @click.self="showProjectCreator = false"
+              >
+                <section class="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby="project-create-title">
+                  <div class="flex items-center justify-between gap-3">
+                    <div>
+                      <h2 id="project-create-title" class="text-sm font-semibold text-foreground">新增项目</h2>
+                      <p class="mt-0.5 text-[11px] text-muted">选择已有目录</p>
+                    </div>
+                    <button type="button" class="chrome-icon-btn" title="关闭" aria-label="关闭" @click="showProjectCreator = false"><X class="w-4 h-4" /></button>
+                  </div>
+                  <div class="mt-4 space-y-3">
+                    <label class="block text-xs text-muted">
+                      项目名称
+                      <input v-model="projectName" class="project-dialog-input mt-1" placeholder="例如：Pointer App" @keydown.enter="addProject">
+                    </label>
+                    <div>
+                      <label class="block text-xs text-muted">项目目录</label>
+                      <div class="mt-1 flex gap-2">
+                        <input v-model="projectRoot" class="project-dialog-input min-w-0 flex-1" placeholder="选择已有目录">
+                        <button type="button" class="project-dialog-secondary shrink-0" title="选择已有目录" @click="pickProjectDirectory"><FolderGit2 class="w-3.5 h-3.5" />选择目录</button>
+                      </div>
+                    </div>
+                  </div>
+                  <p v-if="projectError" class="mt-3 text-xs text-danger">{{ projectError }}</p>
+                  <div class="mt-5 flex justify-end gap-2">
+                    <button type="button" class="project-dialog-secondary" @click="showProjectCreator = false">取消</button>
+                    <button type="button" class="project-dialog-primary" :disabled="!projectName.trim() || !projectRoot.trim()" @click="addProject">创建项目</button>
+                  </div>
+                </section>
+              </div>
+            </Teleport>
+            <p v-if="projectError" class="mb-1 px-1 text-[11px] text-danger">{{ projectError }}</p>
+            <div class="space-y-0.5">
+              <div
+                v-for="project in sidebarProjects"
+                :key="project.id"
+                class="relative space-y-1 group/project"
+              >
+                <button
+                  type="button"
+                  class="sidebar-project-row"
+                  :class="chat.current?.projectId === project.id && 'is-active'"
+                  :title="project.workspaceRoot"
+                  :aria-expanded="expandedProjectIds.has(project.id)"
+                  @click="toggleProject(project)"
+                >
+                  <component
+                    :is="expandedProjectIds.has(project.id) ? ChevronDown : ChevronRight"
+                    class="w-3.5 h-3.5 shrink-0"
+                  />
+                  <FolderGit2 class="w-3.5 h-3.5 shrink-0" />
+                  <span class="truncate">{{ displayProjectName(project) }}</span>
+                  <span v-if="project.isDefault" class="sidebar-project-default">默认</span>
+                </button>
+                <button
+                  type="button"
+                  class="project-menu-trigger opacity-0 group-hover/project:opacity-100"
+                  :title="`${displayProjectName(project)} 操作`"
+                  @click.stop="toggleProjectMenu(project, $event)"
+                >
+                  <MoreHorizontal class="w-3.5 h-3.5" />
+                </button>
+                <Teleport to="body">
+                  <div
+                    v-if="projectMenuId === project.id"
+                    class="project-context-menu"
+                    :style="{ left: `${projectMenuPosition.left}px`, top: `${projectMenuPosition.top}px` }"
+                  >
+                    <button type="button" @click="newTask(project); projectMenuId = null"><Plus />新建本地任务</button>
+                    <button type="button" @click="toggleProjectPin(project)"><Pin />{{ project.isPinned ? '取消置顶' : '置顶项目' }}</button>
+                    <button type="button" @click="openProjectSettings(project)"><Settings2 />项目设置</button>
+                    <button
+                      v-if="!project.isDefault"
+                      type="button"
+                      class="text-danger"
+                      @click="requestDeleteProject(project)"
+                    ><Trash2 />删除项目</button>
+                  </div>
+                </Teleport>
+                <div
+                  v-if="expandedProjectIds.has(project.id)"
+                  class="ml-4 border-l border-border pl-1 space-y-0.5"
+                >
+                  <div
+                    v-for="conversation in projectConversations(project)"
+                    :key="conversation.id"
+                    class="group/task flex items-center gap-1 rounded-md"
+                    :class="conversation.id === chat.currentId && 'bg-accent-muted'"
+                  >
+                    <div
+                      role="button"
+                      tabindex="0"
+                      class="sidebar-project-conversation flex-1 min-w-0"
+                      :class="conversation.id === chat.currentId && 'is-active'"
+                      :title="conversation.title"
+                      @click="onRowClick(conversation)"
+                      @keydown.enter="onRowClick(conversation)"
+                      @keydown.space.prevent="onRowClick(conversation)"
+                    >
+                      <Loader2
+                        v-if="chat.isConversationGenerating(conversation.id)"
+                        class="w-3.5 h-3.5 shrink-0 animate-spin"
+                      />
+                      <MessageSquare v-else class="w-3.5 h-3.5 shrink-0" />
+                      <input
+                        v-if="editingId === conversation.id"
+                        ref="editInputRef"
+                        v-model="editingTitle"
+                        type="text"
+                        class="w-full bg-transparent border border-accent rounded px-1 text-[12px] text-foreground outline-none"
+                        @click.stop
+                        @keydown.enter.prevent="saveEdit"
+                        @keydown="onEditKeydown"
+                        @blur="saveEdit"
+                      />
+                      <span v-else class="truncate">{{ conversation.title }}</span>
+                    </div>
+                    <template v-if="pendingDeleteId === conversation.id">
+                      <button
+                        type="button"
+                        class="project-task-action"
+                        title="取消"
+                        @click.stop="cancelDeleteConversation"
+                      ><X /></button>
+                      <button
+                        type="button"
+                        class="project-task-action text-danger"
+                        title="确认删除"
+                        @click.stop="confirmDeleteConversation(conversation)"
+                      ><Check /></button>
+                    </template>
+                    <template v-else-if="editingId !== conversation.id">
+                      <button
+                        type="button"
+                        class="project-task-action opacity-0 group-hover/task:opacity-100"
+                        title="重命名任务"
+                        @click.stop="startEdit(conversation)"
+                      ><Pencil /></button>
+                      <button
+                        type="button"
+                        class="project-task-action opacity-0 group-hover/task:opacity-100"
+                        title="删除任务"
+                        @click.stop="askDeleteConversation(conversation)"
+                      ><Trash2 /></button>
+                    </template>
+                  </div>
+                  <div
+                    v-if="!projectLoading.has(project.id) && projectConversations(project).length === 0"
+                    class="px-2 py-1 text-[11px] text-muted"
+                  >无任务</div>
+                  <button
+                    v-if="projectCursors[project.id]"
+                    type="button"
+                    class="sidebar-project-conversation text-accent"
+                    :disabled="projectLoading.has(project.id)"
+                    @click="loadMoreProjectConversations(project)"
+                  >
+                    {{ projectLoading.has(project.id) ? '加载中…' : '加载更多' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button
+              v-if="hasMoreProjects"
+              type="button"
+              class="sidebar-project-conversation mt-1 text-accent"
+              :disabled="loadingMoreProjects"
+              @click="loadMoreProjects"
+            >{{ loadingMoreProjects ? '加载中…' : '加载更多项目' }}</button>
+          </section>
+
+          <!-- D: 最近对话 -->
           <div
             ref="listScroller"
-            class="flex-1 overflow-y-auto px-2 pb-3 space-y-1 min-h-0"
+            class="flex-1 overflow-y-auto px-2 pb-3 min-h-0"
             style="overflow-anchor: none"
             @mousedown.self="saveEdit"
           >
+            <h2 class="sidebar-section-title px-1 pt-1 pb-1.5">最近对话</h2>
             <div
               v-for="c in sidebarRows"
               :key="c.id"
@@ -560,5 +1051,178 @@ watch(searchQuery, q => {
         @close="setWorkspacePanelOpen(false)"
       />
     </div>
+    <div
+      v-if="projectEditing"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      @click.self="projectEditing = null"
+    >
+      <section class="w-full max-w-md rounded-xl border border-border bg-card p-4 shadow-xl">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-foreground">项目设置</h2>
+          <button class="chrome-icon-btn" @click="projectEditing = null"><X class="w-4 h-4" /></button>
+        </div>
+        <div class="space-y-3">
+          <label class="block text-xs text-muted">
+            项目名称
+            <input v-model="projectEditing.name" class="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground">
+          </label>
+          <label class="block text-xs text-muted">
+            项目目录
+            <input v-model="projectEditing.workspaceRoot" class="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground">
+          </label>
+        </div>
+        <p v-if="projectError" class="mt-2 text-xs text-danger">{{ projectError }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover" @click="projectEditing = null">取消</button>
+          <button
+            class="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-foreground"
+            :disabled="!projectEditing.name.trim() || !projectEditing.workspaceRoot.trim()"
+            @click="persistProject(projectEditing); projectEditing = null"
+          >保存</button>
+        </div>
+      </section>
+    </div>
+    <div
+      v-if="projectPendingDeletion"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-[hsl(var(--foreground)/0.32)] p-4"
+      @click.self="projectPendingDeletion = null"
+    >
+      <section class="w-full max-w-sm rounded-xl border border-border bg-card p-5">
+        <h2 class="text-base font-semibold text-foreground">删除项目？</h2>
+        <p class="mt-2 text-sm leading-6 text-muted">
+          删除“{{ displayProjectName(projectPendingDeletion) }}”会删除项目下所有会话记录，
+          不会删除本地文件。确认删除项目吗？
+        </p>
+        <div class="mt-3 rounded-lg border border-border bg-hover/50 px-3 py-2">
+          <div class="text-[11px] font-medium text-muted">项目目录</div>
+          <div class="mt-0.5 break-all font-mono text-xs text-foreground">
+            {{ projectPendingDeletion.workspaceRoot || '未设置目录' }}
+          </div>
+        </div>
+        <div class="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover"
+            @click="projectPendingDeletion = null"
+          >取消</button>
+          <button
+            type="button"
+            class="rounded-md bg-danger px-3 py-1.5 text-sm text-white hover:opacity-90"
+            @click="confirmProjectDeletion"
+          >删除项目</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.sidebar-workbench-link {
+  @apply w-full h-8 px-3 rounded-lg text-[13px] text-foreground inline-flex items-center gap-2 text-left hover:bg-hover transition-colors;
+}
+
+.sidebar-workbench-link :deep(svg) {
+  @apply text-muted;
+}
+
+.sidebar-section-title {
+  @apply text-[11px] leading-5 font-medium text-muted;
+}
+
+.sidebar-project-header-action {
+  @apply h-6 w-6 shrink-0 rounded-md inline-flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition;
+}
+
+.sidebar-project-header-action.is-active {
+  @apply bg-accent-muted text-accent;
+}
+
+.sidebar-project-search-wrap {
+  @apply absolute right-0 top-0 h-6 w-0 overflow-hidden rounded-md border border-transparent bg-background opacity-0 transition-[width,opacity,border-color] duration-200;
+  direction: ltr;
+}
+
+.sidebar-project-search-wrap.is-expanded {
+  @apply w-36 border-border opacity-100;
+}
+
+.sidebar-project-search-icon {
+  @apply pointer-events-none absolute left-1.5 top-1.5 h-3.5 w-3.5 text-muted;
+}
+
+.sidebar-project-search-input {
+  @apply h-full w-full bg-transparent pl-7 pr-6 text-xs text-foreground outline-none placeholder:text-muted;
+}
+
+.sidebar-project-search-clear {
+  @apply absolute right-1 top-1 h-4 w-4 rounded text-muted hover:bg-hover hover:text-foreground;
+}
+
+.project-create-dialog {
+  @apply w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-2xl;
+}
+
+.project-dialog-input {
+  @apply w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground outline-none placeholder:text-muted focus:border-accent focus:ring-1 focus:ring-accent/30;
+}
+
+.project-dialog-secondary {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground transition hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.project-dialog-primary {
+  @apply rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.sidebar-project-input {
+  @apply w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground outline-none placeholder:text-muted focus:border-accent;
+}
+
+.sidebar-project-create {
+  @apply w-full rounded-md bg-accent px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.sidebar-project-row {
+  @apply w-full h-9 pl-2 pr-8 rounded-lg inline-flex items-center gap-2 text-[13px] text-muted text-left hover:bg-hover hover:text-foreground transition-colors;
+}
+
+.sidebar-project-row.is-active {
+  @apply bg-accent-muted text-accent;
+}
+
+.sidebar-project-default {
+  @apply ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none bg-hover text-muted;
+}
+
+.sidebar-project-conversation {
+  @apply w-full h-7 px-2 rounded-md inline-flex items-center gap-2 text-[12px] text-muted text-left hover:bg-hover hover:text-foreground transition-colors;
+}
+
+.sidebar-project-conversation.is-active {
+  @apply bg-accent-muted text-accent;
+}
+
+.project-task-action {
+  @apply h-6 w-6 shrink-0 rounded inline-flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition;
+}
+
+.project-task-action :deep(svg) {
+  @apply w-3 h-3;
+}
+
+.project-context-menu {
+  @apply fixed z-[300] w-40 rounded-lg border border-border bg-card p-1 shadow-xl;
+}
+
+.project-menu-trigger {
+  @apply absolute right-1 top-1 h-6 w-6 rounded-md inline-flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition;
+}
+
+.project-context-menu button {
+  @apply w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-foreground hover:bg-hover;
+}
+
+.project-context-menu button :deep(svg) {
+  @apply w-3.5 h-3.5 text-muted;
+}
+</style>

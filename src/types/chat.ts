@@ -330,6 +330,8 @@ export interface Conversation {
   toolRoundsUsedSupervisor?: number
   /** Selected desktop monitor for Computer agent; empty = auto (monitor under cursor). */
   computerMonitorId?: string
+  /** Persisted project that owns this conversation. */
+  projectId?: string
   /** Per-conversation workspace for coder/file tools (set in composer). */
   workspaceRoot?: string
   /** User explicitly picked workspaceRoot in composer (not auto sandbox). */
@@ -355,6 +357,7 @@ export type ConversationMetaBase = Pick<
   | 'toolRoundsUsed'
   | 'toolRoundsUsedSupervisor'
   | 'computerMonitorId'
+  | 'projectId'
   | 'workspaceRoot'
   | 'workspaceUserSet'
   | 'workspaceInheritDisabled'
@@ -368,6 +371,23 @@ export interface ConversationMeta extends ConversationMetaBase {
   messageCount?: number
   /** Short preview of latest messages (DB-backed; empty when derived from in-memory Conversation). */
   preview?: string
+}
+
+/** A persisted workspace project that owns conversations. */
+export interface Project {
+  id: string
+  name: string
+  workspaceRoot: string
+  isDefault: boolean
+  isPinned: boolean
+  isArchived: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ProjectPage {
+  items: Project[]
+  nextCursor: ConversationCursor | null
 }
 
 /** Cursor for paginated conversation-meta list (sort: updatedAt DESC, id DESC). */
@@ -391,6 +411,7 @@ export interface ConversationSearchHit {
   /** Matched message id when hit is from message body; omit for title-only matches. */
   messageId?: string
   messageCount?: number
+  projectId?: string
   preview?: string
 }
 

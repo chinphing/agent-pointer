@@ -9,6 +9,8 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  Project,
+  ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
   EffectiveSettingsView,
@@ -463,6 +465,64 @@ export async function loadConversationMetas(
       ? { updatedAt: items[items.length - 1]!.updatedAt, id: items[items.length - 1]!.id }
       : null
   return { items, nextCursor }
+}
+
+export async function loadProjects(cursor: ConversationCursor | null, limit = 20): Promise<ProjectPage> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor_updated_at', String(cursor.updatedAt))
+    params.set('cursor_id', cursor.id)
+  }
+  return await request<ProjectPage>(`/api/projects?${params}`)
+}
+
+export async function loadSidebarProjects(): Promise<Project[]> {
+  return await request<Project[]>('/api/projects/sidebar')
+}
+
+export async function loadProjectConversationMetas(
+  projectId: string, cursor: ConversationCursor | null, limit = 20
+): Promise<ConversationMetaPage> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) {
+    params.set('cursor_updated_at', String(cursor.updatedAt))
+    params.set('cursor_id', cursor.id)
+  }
+  const items = await request<ConversationMeta[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/conversations?${params}`
+  )
+  return {
+    items,
+    nextCursor: items.length === limit && items.length
+      ? { updatedAt: items[items.length - 1]!.updatedAt, id: items[items.length - 1]!.id }
+      : null
+  }
+}
+
+export async function createProject(name: string, workspaceRoot: string): Promise<Project> {
+  return await request<Project>('/api/projects', {
+    method: 'POST', body: JSON.stringify({ name, workspace_root: workspaceRoot })
+  })
+}
+
+export async function createDirectory(_parentPath: string, _name: string): Promise<string> {
+  throw new Error('当前网页环境不支持创建目录，请先在系统中创建目录后选择')
+}
+
+export async function updateProject(
+  id: string, patch: Partial<Pick<Project, 'name' | 'workspaceRoot' | 'isPinned' | 'isArchived'>>
+): Promise<Project> {
+  return await request<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      name: patch.name, workspace_root: patch.workspaceRoot,
+      is_pinned: patch.isPinned, is_archived: patch.isArchived
+    })
+  })
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await request(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function searchConversations(

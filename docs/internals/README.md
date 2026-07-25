@@ -11,6 +11,7 @@
 | [standalone-server-deployment.md](standalone-server-deployment.md) | pointer-server standalone 完整部署流程（构建、License、配置模板、验收） |
 | [agent-task-board-and-verification.md](agent-task-board-and-verification.md) | 任务板、`verification` 字段与多 Agent 约定 |
 | [sidebar-conversation-search.md](sidebar-conversation-search.md) | 侧边栏会话搜索：FTS 命中 + match-centered snippet |
+| [sidebar-project-navigation.md](sidebar-project-navigation.md) | 侧边栏项目分组与入口行为 |
 | [taskboard-lifecycle-and-fields.md](taskboard-lifecycle-and-fields.md) | Task Board v4 生命周期与字段语义 |
 | [terminal-shell-path.md](terminal-shell-path.md) | `terminal` 工具在各平台的 PATH / shell 行为 |
 | [pointer-build-toml.md](pointer-build-toml.md) | 编译期 `.pointer-build.toml` |

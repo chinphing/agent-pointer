@@ -1,7 +1,8 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
     ensure_provider_model_capability_defaults, filter_openrouter_providers, merge_user_platform,
-    AgentModelRef, ChatMessage, Conversation, ConversationMeta, ConversationSearchHit,
+    AgentModelRef, ChatMessage, Conversation, ConversationMeta, ConversationSearchHit, Project,
+    ProjectCursor, ProjectPage,
     ModelRuntimeOverrides, ModelSettings, PersistedLocalPlatformSettings, PlatformSettings,
     ProviderConfig, UserSettings,
 };
@@ -766,6 +767,38 @@ pub fn load_conversation_metas(
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
     crate::conversation_store::global_store()?.load_metas(cursor, limit)
+}
+
+pub fn load_projects(cursor: Option<ProjectCursor>, limit: i64) -> Result<ProjectPage> {
+    crate::conversation_store::global_store()?.load_projects(cursor, limit)
+}
+
+pub fn load_sidebar_projects() -> Result<Vec<Project>> {
+    crate::conversation_store::global_store()?.load_sidebar_projects()
+}
+
+pub fn load_project_conversation_metas(
+    project_id: &str,
+    cursor: Option<(i64, String)>,
+    limit: i64,
+) -> Result<Vec<ConversationMeta>> {
+    crate::conversation_store::global_store()?.load_project_metas(project_id, cursor, limit)
+}
+
+pub fn create_project(name: &str, workspace_root: &str) -> Result<Project> {
+    crate::conversation_store::global_store()?.create_project(name, workspace_root)
+}
+
+pub fn update_project(
+    id: &str, name: Option<&str>, workspace_root: Option<&str>,
+    is_pinned: Option<bool>, is_archived: Option<bool>,
+) -> Result<Project> {
+    crate::conversation_store::global_store()?
+        .update_project(id, name, workspace_root, is_pinned, is_archived)
+}
+
+pub fn delete_project(id: &str) -> Result<()> {
+    crate::conversation_store::global_store()?.delete_project(id)
 }
 
 /// FTS-backed sidebar search (full message bodies + title/preview supplement).

@@ -3,12 +3,14 @@
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::{ChatMessage, Conversation, ConversationMeta, Role};
+use crate::models::{
+    ChatMessage, Conversation, ConversationMeta, Project, ProjectCursor, ProjectPage, Role,
+};
 
 pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, skill_ids_json,
-                tool_rounds_used, tool_rounds_used_supervisor, computer_monitor_id, workspace_root,
+                tool_rounds_used, tool_rounds_used_supervisor, computer_monitor_id, project_id, workspace_root,
                 workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode,
                 session_user_id
          FROM conversations
@@ -26,12 +28,13 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             row.get::<_, u32>(5)?,
             row.get::<_, u32>(6)?,
             row.get::<_, Option<String>>(7)?,
-            row.get::<_, String>(8)?,
-            row.get::<_, i64>(9)? != 0,
+            row.get::<_, Option<String>>(8)?,
+            row.get::<_, String>(9)?,
             row.get::<_, i64>(10)? != 0,
-            row.get::<_, String>(11)?,
+            row.get::<_, i64>(11)? != 0,
             row.get::<_, String>(12)?,
             row.get::<_, String>(13)?,
+            row.get::<_, String>(14)?,
         ))
     })?;
     let mut out = Vec::new();
@@ -45,6 +48,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             tool_rounds_used,
             tool_rounds_used_supervisor,
             computer_monitor_id,
+            project_id,
             workspace_root,
             workspace_user_set,
             workspace_inherit_disabled,
@@ -64,6 +68,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             tool_rounds_used,
             tool_rounds_used_supervisor,
             computer_monitor_id,
+            project_id,
             workspace_root,
             workspace_user_set,
             workspace_inherit_disabled,
@@ -100,6 +105,117 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
 /// previous page; the next page fetches rows strictly "before" it.
 pub type MetaCursor = (i64, String);
 
+pub fn load_project_page_from_conn(
+    conn: &Connection,
+    cursor: Option<ProjectCursor>,
+    limit: i64,
+) -> Result<ProjectPage> {
+    let limit = limit.clamp(1, 100);
+    let (cursor_at, cursor_id) = cursor
+        .as_ref()
+        .map(|c| (Some(c.updated_at), Some(c.id.as_str())))
+        .unwrap_or((None, None));
+    let mut stmt = conn.prepare(
+        "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
+                created_at_ms, updated_at_ms
+         FROM projects
+         WHERE is_archived = 0
+           AND is_pinned = 0
+           AND (?1 IS NULL OR (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2)))
+         ORDER BY updated_at_ms DESC, id DESC
+         LIMIT ?3",
+    )?;
+    let rows = stmt.query_map(params![cursor_at, cursor_id, limit + 1], project_from_row)?;
+    let mut items = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+    let has_more = items.len() > limit as usize;
+    if has_more {
+        items.pop();
+    }
+    let next_cursor = if has_more {
+        items.last().map(|p| ProjectCursor {
+            updated_at: p.updated_at,
+            id: p.id.clone(),
+        })
+    } else {
+        None
+    };
+    Ok(ProjectPage { items, next_cursor })
+}
+
+pub fn load_sidebar_projects_from_conn(conn: &Connection) -> Result<Vec<Project>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
+                created_at_ms, updated_at_ms
+         FROM projects
+         WHERE is_archived = 0
+         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC",
+    )?;
+    let all = stmt
+        .query_map([], project_from_row)?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let pinned_count = all.iter().take_while(|p| p.is_pinned).count();
+    Ok(all
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, p)| (p.is_pinned || index < pinned_count + 5).then_some(p))
+        .collect())
+}
+
+fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+    Ok(Project {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        workspace_root: row.get(2)?,
+        is_default: row.get::<_, i64>(3)? != 0,
+        is_pinned: row.get::<_, i64>(4)? != 0,
+        is_archived: row.get::<_, i64>(5)? != 0,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+pub fn load_project_metas_from_conn(
+    conn: &Connection,
+    project_id: &str,
+    cursor: Option<MetaCursor>,
+    limit: i64,
+) -> Result<Vec<ConversationMeta>> {
+    let limit = limit.clamp(1, 500);
+    let (cur_ts, cur_id): (Option<i64>, Option<&str>) = match &cursor {
+        Some((ts, id)) => (Some(*ts), Some(id.as_str())),
+        None => (None, None),
+    };
+    let mut stmt = conn.prepare(
+        "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
+                skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
+                computer_monitor_id, project_id, workspace_root, workspace_user_set,
+                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
+         FROM conversations
+         WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%'
+           AND project_id = ?3
+           AND (?1 IS NULL OR (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2)))
+         ORDER BY updated_at_ms DESC, id DESC LIMIT ?4",
+    )?;
+    let rows = stmt.query_map(params![cur_ts, cur_id, project_id, limit], |row| {
+        Ok(MetaRow {
+            id: row.get(0)?, title: row.get(1)?, created_at: row.get(2)?,
+            updated_at: row.get(3)?, message_count: row.get::<_, i64>(4)? as u32,
+            preview: row.get(5)?, skill_ids_json: row.get(6)?,
+            tool_rounds_used: row.get(7)?, tool_rounds_used_supervisor: row.get(8)?,
+            computer_monitor_id: row.get(9)?, project_id: row.get(10)?,
+            workspace_root: row.get(11)?, workspace_user_set: row.get::<_, i64>(12)? != 0,
+            workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
+            lead_agent_id: row.get(14)?, agent_mode: row.get(15)?,
+            session_user_id: row.get(16)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(meta_from_row(row?)?);
+    }
+    Ok(out)
+}
+
 /// Load conversation shells (no messages) with cursor pagination.
 ///
 /// When `cursor` is `None`, returns the most recent page. Otherwise returns
@@ -116,7 +232,7 @@ pub fn load_metas_from_conn(
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
-                computer_monitor_id, workspace_root, workspace_user_set,
+                computer_monitor_id, project_id, workspace_root, workspace_user_set,
                 workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
@@ -141,12 +257,13 @@ pub fn load_metas_from_conn(
             tool_rounds_used: row.get(7)?,
             tool_rounds_used_supervisor: row.get(8)?,
             computer_monitor_id: row.get(9)?,
-            workspace_root: row.get(10)?,
-            workspace_user_set: row.get::<_, i64>(11)? != 0,
-            workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
-            lead_agent_id: row.get(13)?,
-            agent_mode: row.get(14)?,
-            session_user_id: row.get(15)?,
+            project_id: row.get(10)?,
+            workspace_root: row.get(11)?,
+            workspace_user_set: row.get::<_, i64>(12)? != 0,
+            workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
+            lead_agent_id: row.get(14)?,
+            agent_mode: row.get(15)?,
+            session_user_id: row.get(16)?,
         })
     })?;
     let mut out = Vec::new();
@@ -171,6 +288,7 @@ pub fn load_metas_from_conn(
             tool_rounds_used: r.tool_rounds_used,
             tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
             computer_monitor_id: r.computer_monitor_id,
+            project_id: r.project_id,
             workspace_root: r.workspace_root,
             workspace_user_set: r.workspace_user_set,
             workspace_inherit_disabled: r.workspace_inherit_disabled,
@@ -199,7 +317,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
         .query_row(
             "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                     skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
-                    computer_monitor_id, workspace_root, workspace_user_set,
+                    computer_monitor_id, project_id, workspace_root, workspace_user_set,
                     workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
              FROM conversations WHERE id = ?1",
             params![id],
@@ -215,12 +333,13 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
                     tool_rounds_used: row.get(7)?,
                     tool_rounds_used_supervisor: row.get(8)?,
                     computer_monitor_id: row.get(9)?,
-                    workspace_root: row.get(10)?,
-                    workspace_user_set: row.get::<_, i64>(11)? != 0,
-                    workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
-                    lead_agent_id: row.get(13)?,
-                    agent_mode: row.get(14)?,
-                    session_user_id: row.get(15)?,
+                    project_id: row.get(10)?,
+                    workspace_root: row.get(11)?,
+                    workspace_user_set: row.get::<_, i64>(12)? != 0,
+                    workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
+                    lead_agent_id: row.get(14)?,
+                    agent_mode: row.get(15)?,
+                    session_user_id: row.get(16)?,
                 })
             },
         )
@@ -245,6 +364,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
         tool_rounds_used: r.tool_rounds_used,
         tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
         computer_monitor_id: r.computer_monitor_id,
+        project_id: r.project_id,
         workspace_root: r.workspace_root,
         workspace_user_set: r.workspace_user_set,
         workspace_inherit_disabled: r.workspace_inherit_disabled,
@@ -303,12 +423,45 @@ struct MetaRow {
     tool_rounds_used: u32,
     tool_rounds_used_supervisor: u32,
     computer_monitor_id: Option<String>,
+    project_id: Option<String>,
     workspace_root: String,
     workspace_user_set: bool,
     workspace_inherit_disabled: bool,
     lead_agent_id: String,
     agent_mode: String,
     session_user_id: String,
+}
+
+fn meta_from_row(r: MetaRow) -> Result<ConversationMeta> {
+    let skill_ids = match serde_json::from_str(&r.skill_ids_json) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!(
+                "conversation_store: skip corrupt skill_ids_json for {}: {e}",
+                r.id
+            );
+            Vec::new()
+        }
+    };
+    Ok(ConversationMeta {
+        id: r.id,
+        title: r.title,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        skill_ids,
+        tool_rounds_used: r.tool_rounds_used,
+        tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
+        computer_monitor_id: r.computer_monitor_id,
+        project_id: r.project_id,
+        workspace_root: r.workspace_root,
+        workspace_user_set: r.workspace_user_set,
+        workspace_inherit_disabled: r.workspace_inherit_disabled,
+        lead_agent_id: r.lead_agent_id,
+        agent_mode: r.agent_mode,
+        message_count: r.message_count,
+        preview: r.preview,
+        session_user_id: r.session_user_id,
+    })
 }
 
 pub fn replace_all_in_conn(conn: &Connection, list: &[Conversation]) -> Result<()> {
@@ -340,9 +493,9 @@ pub fn upsert_conversation(
         "INSERT INTO conversations (
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
-           computer_monitor_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
+           computer_monitor_id, project_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
            lead_agent_id, agent_mode, session_user_id
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            created_at_ms = excluded.created_at_ms,
@@ -353,6 +506,7 @@ pub fn upsert_conversation(
            tool_rounds_used = excluded.tool_rounds_used,
            tool_rounds_used_supervisor = excluded.tool_rounds_used_supervisor,
            computer_monitor_id = excluded.computer_monitor_id,
+           project_id = excluded.project_id,
            workspace_root = excluded.workspace_root,
            workspace_user_set = excluded.workspace_user_set,
            workspace_inherit_disabled = excluded.workspace_inherit_disabled,
@@ -373,6 +527,7 @@ pub fn upsert_conversation(
             conv.tool_rounds_used,
             conv.tool_rounds_used_supervisor,
             conv.computer_monitor_id,
+            conv.project_id,
             conv.workspace_root,
             i64::from(conv.workspace_user_set),
             i64::from(conv.workspace_inherit_disabled),
@@ -558,6 +713,7 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
         tool_rounds_used: 0,
         tool_rounds_used_supervisor: 0,
         computer_monitor_id: None,
+        project_id: None,
         workspace_root: String::new(),
         workspace_user_set: false,
         workspace_inherit_disabled: false,

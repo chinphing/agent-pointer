@@ -10,6 +10,8 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  Project,
+  ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
   EffectiveSettingsView,
@@ -153,6 +155,13 @@ export interface RuntimeApi {
   loadConversations(): Promise<Conversation[]>
   /** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
   loadConversationMetas(cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
+  loadProjects(cursor: ConversationCursor | null, limit?: number): Promise<ProjectPage>
+  loadSidebarProjects(): Promise<Project[]>
+  loadProjectConversationMetas(projectId: string, cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
+  createProject(name: string, workspaceRoot: string): Promise<Project>
+  createDirectory(parentPath: string, name: string): Promise<string>
+  updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'workspaceRoot' | 'isPinned' | 'isArchived'>>): Promise<Project>
+  deleteProject(id: string): Promise<void>
   searchConversations(query: string, limit?: number): Promise<ConversationSearchHit[]>
   loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
   saveConversations(conversations: Conversation[]): Promise<void>
@@ -292,6 +301,13 @@ export const dismissMacosPermissionDragGuide = isTauriRuntime()
 
 export const loadConversations = api.loadConversations
 export const loadConversationMetas = api.loadConversationMetas
+export const loadProjects = api.loadProjects
+export const loadSidebarProjects = api.loadSidebarProjects
+export const loadProjectConversationMetas = api.loadProjectConversationMetas
+export const createProject = api.createProject
+export const createDirectory = api.createDirectory
+export const updateProject = api.updateProject
+export const deleteProject = api.deleteProject
 export const searchConversations = api.searchConversations
 export const loadConversationMessages = api.loadConversationMessages
 export const saveConversations = api.saveConversations

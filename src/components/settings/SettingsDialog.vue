@@ -21,12 +21,17 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'open-skills'): void
 }>()
+const props = withDefaults(defineProps<{
+  initialSection?: string
+}>(), {
+  initialSection: 'assistant'
+})
 
 const s = useSettingsStore()
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 
-const activeSection = ref('assistant')
+const activeSection = ref(props.initialSection)
 const saving = ref(false)
 
 const alwaysSections = [

@@ -8,7 +8,10 @@ import {
   deleteConversation as deleteConversationApi,
   appendConversationMessages,
   saveChatAttachment,
-  getDispatcherQueueSnapshot
+  getDispatcherQueueSnapshot,
+  loadSidebarProjects,
+  loadProjectConversationMetas,
+  deleteProject as deleteProjectApi
 } from '../lib/api'
 import type {
   AgentMode,
@@ -18,6 +21,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  Project,
   OutboundQueueItem,
   StreamEvent,
   TerminalInputRequest,
@@ -166,6 +170,8 @@ interface ConversationRunState {
 
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
+  /** Persisted project sidebar, independent of the loaded recent-conversation page. */
+  const projects = ref<Project[]>([])
   const currentId = ref<string | null>(null)
   const runByConversation = ref<Record<string, ConversationRunState>>({})
 
@@ -735,6 +741,7 @@ export const useChatStore = defineStore('chat', () => {
       toolRoundsUsed: m.toolRoundsUsed,
       toolRoundsUsedSupervisor: m.toolRoundsUsedSupervisor,
       computerMonitorId: m.computerMonitorId,
+      projectId: m.projectId,
       workspaceRoot: m.workspaceRoot,
       workspaceUserSet: m.workspaceUserSet,
       workspaceInheritDisabled: m.workspaceInheritDisabled,
@@ -745,6 +752,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function init() {
+    await refreshProjects()
     // Boot path: load only the first page of conversation metas (no messages).
     // The active conversation's messages are hydrated on demand below; other
     // conversations are hydrated when the user selects them.
@@ -790,6 +798,49 @@ export const useChatStore = defineStore('chat', () => {
     if (currentId.value) {
       void refreshTaskBoard(currentId.value)
       void refreshSubAgentTaskBoards(currentId.value)
+    }
+  }
+
+  async function refreshProjects() {
+    try {
+      projects.value = (await loadSidebarProjects()).sort((a, b) =>
+        Number(b.isPinned) - Number(a.isPinned)
+        || b.updatedAt - a.updatedAt
+        || b.id.localeCompare(a.id)
+      )
+    } catch (err) {
+      console.error('[chat] loadSidebarProjects failed', err)
+      projects.value = []
+    }
+  }
+
+  /** Delete a project and reconcile the active conversation with a valid fallback. */
+  async function deleteProject(projectId: string): Promise<void> {
+    const id = projectId.trim()
+    if (!id) return
+
+    await deleteProjectApi(id)
+    await refreshProjects()
+
+    const deletedCurrent = current.value?.projectId === id
+    conversations.value = conversations.value.filter(conv => conv.projectId !== id)
+
+    // A deleted project's conversation can no longer be the active row. Select
+    // an existing fallback project first; otherwise create an unowned session.
+    if (deletedCurrent || !current.value || current.value.projectId === id) {
+      const fallbackProject = projects.value.find(project => !project.isArchived)
+        ?? projects.value.find(project => project.isDefault)
+      const fallbackConversation = fallbackProject
+        ? conversations.value
+          .filter(conv => conv.projectId === fallbackProject.id)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        : undefined
+
+      if (fallbackConversation) {
+        openConversation(fallbackConversation.id)
+      } else {
+        newConversation(fallbackProject?.id, fallbackProject?.workspaceRoot)
+      }
     }
   }
 
@@ -918,6 +969,7 @@ export const useChatStore = defineStore('chat', () => {
       toolRoundsUsed: c.toolRoundsUsed,
       toolRoundsUsedSupervisor: c.toolRoundsUsedSupervisor,
       computerMonitorId: c.computerMonitorId,
+      projectId: c.projectId,
       workspaceRoot: c.workspaceRoot,
       workspaceUserSet: c.workspaceUserSet,
       workspaceInheritDisabled: c.workspaceInheritDisabled,
@@ -978,10 +1030,23 @@ export const useChatStore = defineStore('chat', () => {
     )
   }
 
-  function newConversation(): Conversation {
-    const existingBlank = conversations.value.find(isBlankDesktopConversation)
+  function newConversation(projectId?: string, workspaceRoot?: string): Conversation {
+    // All creation entry points use the same ownership priority: an explicit
+    // project wins, then the active conversation's project, then the default.
+    // This keeps global/empty-state creation inside the selected project while
+    // still allowing callers to intentionally create in another project.
+    const resolvedProjectId = projectId
+      ?? current.value?.projectId
+      ?? projects.value.find(p => p.isDefault)?.id
+    const project = resolvedProjectId ? projects.value.find(p => p.id === resolvedProjectId) : undefined
+    const resolvedWorkspaceRoot = workspaceRoot ?? project?.workspaceRoot ?? ''
+    const existingBlank = conversations.value.find(c => isBlankDesktopConversation(c) && c.projectId === resolvedProjectId)
     if (existingBlank) {
       existingBlank.updatedAt = Date.now()
+      existingBlank.projectId = resolvedProjectId
+      if (resolvedWorkspaceRoot && !existingBlank.workspaceUserSet && !existingBlank.workspaceInheritDisabled) {
+        existingBlank.workspaceRoot = resolvedWorkspaceRoot
+      }
       conversations.value = [
         existingBlank,
         ...conversations.value.filter(c => c.id !== existingBlank.id)
@@ -993,8 +1058,6 @@ export const useChatStore = defineStore('chat', () => {
       markMetaDirty(existingBlank.id)
       return existingBlank
     }
-    // New sessions start with an empty workspace; backend inherits from the last active
-    // conversation on first send unless the user clears the picker (inherit disabled).
     const c: Conversation = {
       id: uid(),
       title: DEFAULT_CONVERSATION_TITLE,
@@ -1004,11 +1067,12 @@ export const useChatStore = defineStore('chat', () => {
       skillIds: [],
       toolRoundsUsed: 0,
       toolRoundsUsedSupervisor: 0,
-      workspaceRoot: '',
+      workspaceRoot: resolvedWorkspaceRoot,
       workspaceUserSet: false,
       workspaceInheritDisabled: false,
       leadAgentId: DEFAULT_LEAD_AGENT_ID,
-      agentMode: 'single'
+      agentMode: 'single',
+      projectId: resolvedProjectId
     }
     conversations.value.unshift(c)
     flushActiveComposerDraft()
@@ -1017,6 +1081,60 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value.add(c.id)
     markMetaDirty(c.id)
     return c
+  }
+
+  function syncConversationProjectWorkspace(conv: Conversation): void {
+    if (!conv.projectId || conv.workspaceUserSet || conv.workspaceInheritDisabled) return
+    const project = projects.value.find(p => p.id === conv.projectId)
+    const workspaceRoot = project?.workspaceRoot?.trim()
+    if (!workspaceRoot || conv.workspaceRoot?.trim() === workspaceRoot) return
+    conv.workspaceRoot = workspaceRoot
+    markMetaDirty(conv.id)
+  }
+
+  /** Open a conversation from any sidebar entry while keeping project context coherent. */
+  function openConversation(
+    id: string,
+    options?: {
+      focusMessageId?: string
+      focusQueryTerm?: string
+      ensureShell?: { title?: string; updatedAt?: number; messageCount?: number; projectId?: string }
+    }
+  ): Conversation | null {
+    const conv = conversations.value.find(c => c.id === id)
+    if (!conv && !options?.ensureShell) return null
+    selectConversation(id, options)
+    const opened = conversations.value.find(c => c.id === id) ?? null
+    if (opened) syncConversationProjectWorkspace(opened)
+    return opened
+  }
+
+  async function switchProject(projectId: string): Promise<Conversation | null> {
+    const project = projects.value.find(p => p.id === projectId && !p.isArchived)
+    if (!project) return null
+
+    const loaded = conversations.value
+      .filter(c => c.projectId === projectId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+    if (loaded.length === 0) {
+      await loadProjectConversations(projectId, null)
+    }
+    const latest = conversations.value
+      .filter(c => c.projectId === projectId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    if (latest) {
+      openConversation(latest.id)
+      return latest
+    }
+    return newConversation(projectId, project.workspaceRoot)
+  }
+
+  async function loadProjectConversations(projectId: string, cursor: ConversationCursor | null) {
+    const page = await loadProjectConversationMetas(projectId, cursor, 20)
+    const existing = new Set(conversations.value.map(c => c.id))
+    const fresh = page.items.map(metaToConversationShell).filter(c => !existing.has(c.id))
+    if (fresh.length) conversations.value = [...conversations.value, ...fresh]
+    return page
   }
 
   /**
@@ -1130,6 +1248,7 @@ export const useChatStore = defineStore('chat', () => {
     title?: string
     updatedAt?: number
     messageCount?: number
+    projectId?: string
   }): Conversation {
     const id = meta.id.trim()
     const existing = conversations.value.find(c => c.id === id)
@@ -1140,7 +1259,8 @@ export const useChatStore = defineStore('chat', () => {
       createdAt: meta.updatedAt ?? Date.now(),
       updatedAt: meta.updatedAt ?? Date.now(),
       skillIds: [],
-      messageCount: meta.messageCount ?? 0
+      messageCount: meta.messageCount ?? 0,
+      projectId: meta.projectId
     })
     conversations.value = [shell, ...conversations.value]
     console.info(
@@ -1159,7 +1279,7 @@ export const useChatStore = defineStore('chat', () => {
       focusMessageId?: string
       focusQueryTerm?: string
       /** When opening a search hit (or other out-of-page id), pass meta to inject a shell. */
-      ensureShell?: { title?: string; updatedAt?: number; messageCount?: number }
+      ensureShell?: { title?: string; updatedAt?: number; messageCount?: number; projectId?: string }
     }
   ) {
     const focusMessageId = options?.focusMessageId?.trim()
@@ -1173,7 +1293,8 @@ export const useChatStore = defineStore('chat', () => {
         id,
         title: options?.ensureShell?.title,
         updatedAt: options?.ensureShell?.updatedAt,
-        messageCount: options?.ensureShell?.messageCount
+        messageCount: options?.ensureShell?.messageCount,
+        projectId: options?.ensureShell?.projectId
       })
     }
     const conv = conversations.value.find(c => c.id === id)
@@ -1803,9 +1924,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
-    init, resetForPlatformLogout, newConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
-    loadMoreConversations, loadingMoreConversations, hasMoreConversations,
+    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
+    init, refreshProjects, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
+    loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     pendingFocusMessage, clearPendingFocusMessage,
     sendUserMessage, stop, abortTerminalOnly, approve,

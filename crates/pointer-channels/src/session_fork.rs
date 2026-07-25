@@ -40,6 +40,7 @@ pub fn fork_im_desktop_session(
         tool_rounds_used: 0,
         tool_rounds_used_supervisor: 0,
         computer_monitor_id: None,
+        project_id: None,
         workspace_root: String::new(),
         workspace_user_set: false,
         workspace_inherit_disabled: false,

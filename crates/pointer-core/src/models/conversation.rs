@@ -4,6 +4,38 @@ use std::collections::HashMap;
 use super::message::ChatMessage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "workspaceRoot")]
+    pub workspace_root: String,
+    #[serde(rename = "isDefault")]
+    pub is_default: bool,
+    #[serde(rename = "isPinned")]
+    pub is_pinned: bool,
+    #[serde(rename = "isArchived")]
+    pub is_archived: bool,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectPage {
+    pub items: Vec<Project>,
+    #[serde(rename = "nextCursor")]
+    pub next_cursor: Option<ProjectCursor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectCursor {
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conversation {
     pub id: String,
     pub title: String,
@@ -27,6 +59,10 @@ pub struct Conversation {
         skip_serializing_if = "Option::is_none"
     )]
     pub computer_monitor_id: Option<String>,
+    /// Persisted project that owns this conversation. `None` is only valid
+    /// before the one-time project backfill completes.
+    #[serde(default, rename = "projectId", skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     /// Per-conversation workspace root for coder/file tools (session UI only).
     #[serde(
         default,
@@ -110,6 +146,8 @@ pub struct ConversationMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub computer_monitor_id: Option<String>,
+    #[serde(default, rename = "projectId", skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     #[serde(
         default,
         rename = "workspaceRoot",
@@ -189,6 +227,7 @@ impl From<&Conversation> for ConversationMeta {
             tool_rounds_used: c.tool_rounds_used,
             tool_rounds_used_supervisor: c.tool_rounds_used_supervisor,
             computer_monitor_id: c.computer_monitor_id.clone(),
+            project_id: c.project_id.clone(),
             workspace_root: c.workspace_root.clone(),
             workspace_user_set: c.workspace_user_set,
             workspace_inherit_disabled: c.workspace_inherit_disabled,

@@ -229,6 +229,64 @@ pub fn validate_run_subagent_target(
     Ok(RunSubagentTarget::Registered(d))
 }
 
+/// Resolution for an `agentId` that names the calling agent itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelfDelegation {
+    /// Another worker, already `self`, or delegatable through the registered path.
+    NotApplicable,
+    /// Serve it as a self fork.
+    Fork,
+}
+
+/// Decide how to serve an `agentId` that repeats the caller's own id.
+///
+/// Asking for your own id means "another instance of me", which is exactly a self
+/// fork; the registered path can never serve it, since an agent's own id is normally
+/// absent from `allowAgents` and lead ids are not workers. Ids that *are* listed keep
+/// the registered path so an explicit self-listing still spawns a fresh worker.
+pub fn resolve_self_delegation(
+    current_agent_id: &str,
+    allow_agents: &[String],
+    parsed: &RunSubagentArgs,
+) -> SelfDelegation {
+    let aid = parsed.agent_id.trim();
+    if aid.is_empty() || aid == "self" || aid != current_agent_id.trim() {
+        return SelfDelegation::NotApplicable;
+    }
+    if allow_agents
+        .binary_search_by(|probe| probe.as_str().cmp(aid))
+        .is_ok()
+    {
+        return SelfDelegation::NotApplicable;
+    }
+    SelfDelegation::Fork
+}
+
+/// Rewrite a self-naming `agentId` to `self` in place; `Ok(true)` when rewritten.
+///
+/// Runs before batch planning so every later stage (wave planning, preparation,
+/// execution, UI) sees one target id.
+pub fn apply_self_delegation_rewrite(
+    args: &mut Value,
+    current_agent_id: &str,
+    allow_agents: &[String],
+) -> Result<bool, String> {
+    // Malformed args are reported by the regular parse further down the pipeline.
+    let Ok(parsed) = parse_run_subagent_args(args) else {
+        return Ok(false);
+    };
+    match resolve_self_delegation(current_agent_id, allow_agents, &parsed) {
+        SelfDelegation::NotApplicable => Ok(false),
+        SelfDelegation::Fork => match args.as_object_mut() {
+            Some(obj) => {
+                obj.insert("agentId".to_string(), Value::String("self".to_string()));
+                Ok(true)
+            }
+            None => Err("run_subagent arguments must be a JSON object".to_string()),
+        },
+    }
+}
+
 /// **`workspaceRoot`** is required when delegating to **`coder`**.
 pub fn validate_run_subagent_workspace(parsed: &RunSubagentArgs) -> Result<(), String> {
     if parsed.agent_id.trim() != "coder" {
@@ -520,5 +578,72 @@ mod tests {
         let allow = vec!["supervisor".to_string()];
         let r = validate_run_subagent_target(&reg, &allow, "general", "supervisor");
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn own_agent_id_is_rewritten_to_a_self_fork() {
+        let allow = vec!["explore".to_string()];
+        let mut args = json!({
+            "agentId": "coder",
+            "goal": "What: split the work\nDone when: tests pass"
+        });
+        assert_eq!(
+            apply_self_delegation_rewrite(&mut args, "coder", &allow),
+            Ok(true)
+        );
+        assert_eq!(args["agentId"], json!("self"));
+    }
+
+    #[test]
+    fn own_agent_id_with_workspace_is_rewritten_to_a_self_fork() {
+        let allow: Vec<String> = vec![];
+        let mut args = json!({
+            "agentId": "coder",
+            "goal": "What: split the work\nDone when: tests pass",
+            "workspaceRoot": "/workspace/project/"
+        });
+        assert_eq!(
+            apply_self_delegation_rewrite(&mut args, "coder", &allow),
+            Ok(true)
+        );
+        assert_eq!(args["agentId"], json!("self"));
+        assert_eq!(args["workspaceRoot"], json!("/workspace/project/"));
+    }
+
+    #[test]
+    fn own_agent_id_with_another_workspace_is_rewritten() {
+        let allow: Vec<String> = vec![];
+        let mut args = json!({
+            "agentId": "coder",
+            "goal": "What: split the work\nDone when: tests pass",
+            "workspaceRoot": "/other/project"
+        });
+        assert_eq!(
+            apply_self_delegation_rewrite(&mut args, "coder", &allow),
+            Ok(true)
+        );
+        assert_eq!(args["agentId"], json!("self"));
+        assert_eq!(args["workspaceRoot"], json!("/other/project"));
+    }
+
+    #[test]
+    fn listed_own_id_and_other_targets_keep_the_registered_path() {
+        let allow = vec!["coder".to_string(), "explore".to_string()];
+        for (current, requested) in [
+            ("coder", "coder"),
+            ("general", "explore"),
+            ("coder", "self"),
+        ] {
+            let mut args = json!({
+                "agentId": requested,
+                "goal": "What: work\nDone when: done"
+            });
+            assert_eq!(
+                apply_self_delegation_rewrite(&mut args, current, &allow),
+                Ok(false),
+                "{current} -> {requested}"
+            );
+            assert_eq!(args["agentId"], json!(requested));
+        }
     }
 }

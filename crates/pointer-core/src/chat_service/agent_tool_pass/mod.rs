@@ -188,7 +188,54 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 continue;
             }
         };
-        let (tool_id, args_value) = normalize_tool_invoke_name(&tc.name, args_value);
+        let (tool_id, mut args_value) = normalize_tool_invoke_name(&tc.name, args_value);
+        if tool_id == "run_subagent" {
+            let rewrite = match pass.ctx.active_delegation_scope() {
+                Some((current_agent_id, allow_agents)) => {
+                    crate::tools::run_subagent::apply_self_delegation_rewrite(
+                        &mut args_value,
+                        current_agent_id,
+                        allow_agents,
+                    )
+                }
+                None => Ok(false),
+            };
+            match rewrite {
+                Ok(true) => log::info!(
+                    "run_subagent: own agent id resolved as self fork conversation_id={} agent_id={}",
+                    pass.ctx.session.conversation_id,
+                    pass.ctx
+                        .active_delegation_scope()
+                        .map(|(id, _)| id)
+                        .unwrap_or_default()
+                ),
+                Ok(false) => {}
+                Err(err) => {
+                    log::warn!(
+                        "run_subagent: self delegation rejected conversation_id={}: {err}",
+                        pass.ctx.session.conversation_id
+                    );
+                    emit_tool_failed(
+                        pass.ctx.session.stream,
+                        &pass.ctx.message_id,
+                        tc,
+                        sub_trace_id.as_deref(),
+                        sub_scoped_id.as_deref(),
+                        &err,
+                    );
+                    super::util::push_tool_result(
+                        pass.ctx.transcript.history,
+                        pass.ctx.session.conversation_id,
+                        &pass.ctx.message_id,
+                        &tc.id,
+                        &format!("ERROR: {err}"),
+                        &pass.ctx.persist,
+                    );
+                    any_executed = true;
+                    continue;
+                }
+            }
+        }
         let mut task_board_store_key = pass.ctx.task_board_store_key.to_string();
         if tool_id == "task_board_init" {
             if let Some(fresh) = crate::task_board::resolve_fresh_main_turn_init_store_key(

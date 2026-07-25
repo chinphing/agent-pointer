@@ -113,6 +113,17 @@ impl<'a> ToolPassContext<'a> {
     pub fn persist_transcript(&self) -> bool {
         self.persist.persist_transcript()
     }
+
+    /// Id of the agent running this pass and the worker ids it may delegate to.
+    /// A delegated sub-agent scope wins: it is the one calling `run_subagent`.
+    pub fn active_delegation_scope(&self) -> Option<(&str, &[String])> {
+        if let Some(sub) = self.sub.as_ref() {
+            return Some((sub.active.def.id.as_str(), sub.allow_agents));
+        }
+        self.lead
+            .as_ref()
+            .map(|lead| (lead.active.def.id.as_str(), lead.allow_agents))
+    }
 }
 
 /// Lead single-agent tool pass request (wrapper over shared `run_agent_tool_pass`).

@@ -31,7 +31,7 @@ fn resolve_subagent_workspace(
     session_workspace: &str,
 ) -> Result<(String, bool)> {
     if let Some(raw) = explicit_from_tool.map(str::trim).filter(|s| !s.is_empty()) {
-        let path = validate_existing_workspace_dir(raw)?;
+        let path = resolve_explicit_workspace_root(raw)?;
         info!(
             "workspace_delegation: using explicit path for conversation_id={conversation_id}: {path}"
         );
@@ -40,7 +40,7 @@ fn resolve_subagent_workspace(
 
     let session_ws = session_workspace.trim();
     if !session_ws.is_empty() {
-        return match validate_existing_workspace_dir(session_ws) {
+        return match resolve_explicit_workspace_root(session_ws) {
             Ok(path) => {
                 let ephemeral = SessionSandbox::is_sandbox(Path::new(&path)).unwrap_or(false);
                 info!(
@@ -52,7 +52,7 @@ fn resolve_subagent_workspace(
                 std::fs::create_dir_all(session_ws).with_context(|| {
                     format!("workspace_delegation: create session sandbox failed: {session_ws}")
                 })?;
-                let path = validate_existing_workspace_dir(session_ws)?;
+                let path = resolve_explicit_workspace_root(session_ws)?;
                 warn!(
                     "workspace_delegation: created missing session sandbox conversation_id={conversation_id}: {path}"
                 );
@@ -78,7 +78,11 @@ fn session_user_id_for_conversation(conversation_id: &str) -> String {
         .unwrap_or_default()
 }
 
-fn validate_existing_workspace_dir(raw: &str) -> Result<String> {
+/// Validate and canonicalize an explicit `workspaceRoot` from a subagent call.
+///
+/// Registered workers and self forks share this policy: an explicit directory
+/// overrides the parent session workspace.
+pub fn resolve_explicit_workspace_root(raw: &str) -> Result<String> {
     let trimmed = raw.trim();
     let path = if trimmed.starts_with('~') {
         crate::media::access::expand_root(trimmed)?
@@ -112,7 +116,7 @@ mod tests {
 
     #[test]
     fn explicit_relative_path_rejected() {
-        assert!(validate_existing_workspace_dir("relative/path").is_err());
+        assert!(resolve_explicit_workspace_root("relative/path").is_err());
     }
 
     #[test]

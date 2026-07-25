@@ -14,6 +14,18 @@
 
 **`agentId="self"`** 不在 `allowAgents` 中配置：任意拥有 **`run_subagent`** 工具的 agent 均可 fork 自身，用于隔离上下文的 leaf 执行（general、coder 等）。详见 **`run_subagent`** 工具文档与 lead **`AGENT.md`**。
 
+### `agentId` 填自己的 id = `self`
+
+模型在 coder 里写 `agentId: "coder"`、在 general 里写 `agentId: "general"`，语义就是"再来一个我"，这正是 fork；而自身 id 通常不在 `allowAgents` 里，registered 路径必然失败。宿主因此在**工具批次准备阶段**（`agent_tool_pass`，早于 wave 规划）把它改写成 `self`，使编排、执行与 UI 看到同一个目标 id，并记录 `run_subagent: own agent id resolved as self fork`。
+
+只有一种情况不改写：
+
+| 情况 | 行为 | 原因 |
+|------|------|------|
+| 该 id 已显式写入 `allowAgents` | 保持 registered 路径 | fork（继承当前快照）与新实例语义不同，显式配置优先 |
+
+`workspaceRoot` 可用于 self fork，且优先于父会话工作区。运行时会按所有子代理共用的规则校验它为存在的绝对目录并 canonicalize；无效路径会明确报错，不会静默回退到父工作区。
+
 示例（`crates/pointer-core/src/agents/coder/AGENT.md`）：
 
 ```yaml

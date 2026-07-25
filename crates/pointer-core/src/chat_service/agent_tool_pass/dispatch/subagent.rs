@@ -33,7 +33,7 @@ pub(in crate::chat_service::agent_tool_pass) struct PreparedOwnedSubagentInvocat
 fn prepare_owned_parallel_task(
     args_value: &serde_json::Value,
     tool_call_id: &str,
-) -> Result<crate::agents::AgentTask, String> {
+) -> Result<(crate::agents::AgentTask, Option<String>), String> {
     let parsed = crate::tools::run_subagent::parse_run_subagent_args(args_value)?;
     if !parsed.is_parallel_wave_target() {
         return Err(format!(
@@ -52,14 +52,17 @@ fn prepare_owned_parallel_task(
     } else {
         parsed.title
     };
-    Ok(crate::agents::AgentTask {
-        id: task_id,
-        agent_id: parsed.agent_id,
-        title,
-        goal: parsed.goal,
-        context: parsed.context.trim().to_string(),
-        depends_on: vec![],
-    })
+    Ok((
+        crate::agents::AgentTask {
+            id: task_id,
+            agent_id: parsed.agent_id,
+            title,
+            goal: parsed.goal,
+            context: parsed.context.trim().to_string(),
+            depends_on: vec![],
+        },
+        parsed.workspace_root,
+    ))
 }
 
 /// Prepare `self` or `explore` for the owned-outcome parallel wave.
@@ -74,15 +77,20 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_owned_subagent_invocatio
     args_value: &serde_json::Value,
     tool_call_id: &str,
 ) -> Result<PreparedOwnedSubagentInvocation, String> {
-    let task = prepare_owned_parallel_task(args_value, tool_call_id)?;
+    let (task, explicit_workspace_root) = prepare_owned_parallel_task(args_value, tool_call_id)?;
     let max_spawn_depth = max_spawn_depth.max(1);
     if task.agent_id == "self" {
+        let workspace_root = match explicit_workspace_root.as_deref() {
+            Some(root) => crate::workspace_delegation::resolve_explicit_workspace_root(root)
+                .map_err(|err| format!("invalid workspaceRoot for self fork: {err}"))?,
+            None => workspace_root.to_string(),
+        };
         let trace_depth = parent_spawn_depth.saturating_add(1);
         return Ok(PreparedOwnedSubagentInvocation {
             run_id: run_id.to_string(),
             task,
             source: crate::chat_service::run_subagent_delegation::OwnedSubagentSource::SelfFork(
-                build_active_self_fork_snapshot(state, active, workspace_root),
+                build_active_self_fork_snapshot(state, active, &workspace_root),
             ),
             child_spawn_depth: trace_depth,
             max_spawn_depth: max_spawn_depth.max(trace_depth),
@@ -317,6 +325,65 @@ mod self_fork_preparation_tests {
 
         assert_eq!(prepared.child_spawn_depth, 3);
         assert_eq!(prepared.task.agent_id, "self");
+    }
+
+    /// Delegating to your own id is rewritten to `self` during tool-pass preparation.
+    /// An explicit workspace is preserved and becomes the fork's workspace.
+    #[test]
+    fn own_agent_id_rewritten_by_the_tool_pass_prepares_as_a_self_fork_in_explicit_workspace() {
+        let state = crate::chat_service::AppState::new();
+        let workspace = tempfile::tempdir().unwrap();
+        let workspace_root = workspace.path().display().to_string();
+        let canonical_workspace = workspace
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
+        let def = coder_def();
+        let skill_ids = vec![];
+        let skill_prompts = vec![];
+        let allowed_tools = vec!["run_subagent".to_string()];
+        let active = ActiveAgentExecutionState {
+            def: &def,
+            system_prompt: "coder current prompt",
+            skill_ids: &skill_ids,
+            skill_prompts: &skill_prompts,
+            allowed_tools: &allowed_tools,
+        };
+        let mut args = serde_json::json!({
+            "agentId": "coder",
+            "goal": "What: split the work\nDone when: tests pass",
+            "workspaceRoot": workspace_root
+        });
+        assert_eq!(
+            crate::tools::run_subagent::apply_self_delegation_rewrite(
+                &mut args,
+                "coder",
+                &["explore".to_string()],
+            ),
+            Ok(true)
+        );
+
+        let prepared = prepare_owned_subagent_invocation(
+            &state,
+            &active,
+            "coder-run",
+            &["explore".to_string()],
+            1,
+            2,
+            "/parent/workspace",
+            &args,
+            "call-self-named",
+        )
+        .expect("rewritten self call belongs in the owned wave");
+
+        assert_eq!(prepared.task.agent_id, "self");
+        assert!(matches!(
+            prepared.source,
+            crate::chat_service::run_subagent_delegation::OwnedSubagentSource::SelfFork(ref s)
+                if s.def.id == "coder" && s.workspace_root == canonical_workspace
+        ));
     }
 
     #[test]

@@ -215,13 +215,14 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 - **`agentId`** (required) — Worker id from the
   **delegatable sub-agents** metadata block, or reserved id **`self`**.
   **`self`** does not require **`allowAgents`**.
+  Naming **your own** id runs as **`self`** — pass **`self`** directly.
 - **`goal`** (required) — **`What:`** + **`Done when:`**; optional **`Out of scope:`** (≤3 lines, **≤25 words per line**; see **Goal vs context**).
 - **`context`** (optional) — One string; Markdown **`##` blocks** (not JSON). See template above.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.
 - **`workspaceRoot`** (**required** when **`agentId`** is **`coder`**) —
   Absolute directory for the coder worker.
-  A self fork inherits the current workspace and does not require this field.
+  Optional for a self fork; when present, it overrides the current workspace.
 - **`computerTarget`** (optional, **general → `computer`**) — `self` | `external`.
 
 **Handoff flow**

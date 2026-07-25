@@ -1,19 +1,19 @@
 use super::json_str;
 use super::path::{
-    build_glob_set, deduplicate_globs, expand_file_types, path_display_abs,
-    path_error_with_hints, resolve_existing_read_path, SKIP_EXT,
+    build_glob_set, deduplicate_globs, expand_file_types, path_display_abs, path_error_with_hints,
+    resolve_existing_read_path, SKIP_EXT,
 };
 use super::{CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_GREP_RESULTS, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
-use log::{info, warn};
-use std::fs;
-use std::path::{Path, PathBuf};
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkFinish, SinkMatch,
 };
 use ignore::WalkBuilder;
+use log::{info, warn};
+use std::fs;
 use std::io;
+use std::path::{Path, PathBuf};
 
 fn should_skip_grep(path: &Path) -> bool {
     path.file_name()
@@ -70,17 +70,13 @@ impl GrepJsonSink<'_> {
 impl Sink for GrepJsonSink<'_> {
     type Error = io::Error;
 
-    fn matched(
-        &mut self,
-        _searcher: &Searcher,
-        mat: &SinkMatch<'_>,
-    ) -> Result<bool, io::Error> {
+    fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, io::Error> {
         if self.results.len() >= self.max_results {
             return Ok(false);
         }
-        let ln = mat.line_number().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Other, "grep: missing line number")
-        })?;
+        let ln = mat
+            .line_number()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "grep: missing line number"))?;
         let text = Self::bytes_to_line(mat.bytes());
         self.stanza.push((ln, text.clone()));
         self.pending_match_line = Some(ln);
@@ -88,17 +84,13 @@ impl Sink for GrepJsonSink<'_> {
         Ok(true)
     }
 
-    fn context(
-        &mut self,
-        _searcher: &Searcher,
-        ctx: &SinkContext<'_>,
-    ) -> Result<bool, io::Error> {
+    fn context(&mut self, _searcher: &Searcher, ctx: &SinkContext<'_>) -> Result<bool, io::Error> {
         if self.results.len() >= self.max_results {
             return Ok(false);
         }
-        let ln = ctx.line_number().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Other, "grep: missing line number")
-        })?;
+        let ln = ctx
+            .line_number()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "grep: missing line number"))?;
         let text = Self::bytes_to_line(ctx.bytes());
         self.stanza.push((ln, text));
         Ok(true)
@@ -109,11 +101,7 @@ impl Sink for GrepJsonSink<'_> {
         Ok(self.results.len() < self.max_results)
     }
 
-    fn finish(
-        &mut self,
-        _searcher: &Searcher,
-        _finish: &SinkFinish,
-    ) -> Result<(), io::Error> {
+    fn finish(&mut self, _searcher: &Searcher, _finish: &SinkFinish) -> Result<(), io::Error> {
         self.flush()
     }
 }
@@ -183,18 +171,37 @@ pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -
     let include_globs: Option<Vec<String>> = args
         .get("includeGlobs")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        });
     let exclude_globs: Option<Vec<String>> = args
         .get("excludeGlobs")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
-    let file_types: Option<Vec<String>> = args
-        .get("fileTypes")
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
-    let fixed_string = args.get("fixedString").and_then(|v| v.as_bool()).unwrap_or(false);
-    let ignore_case = args.get("ignoreCase").and_then(|v| v.as_bool()).unwrap_or(false);
-    let include_hidden = args.get("includeHidden").and_then(|v| v.as_bool()).unwrap_or(false);
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        });
+    let file_types: Option<Vec<String>> =
+        args.get("fileTypes").and_then(|v| v.as_array()).map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        });
+    let fixed_string = args
+        .get("fixedString")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let ignore_case = args
+        .get("ignoreCase")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let include_hidden = args
+        .get("includeHidden")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // Expand file types and merge with include_globs
     let merged_include_globs = if let Some(types) = &file_types {

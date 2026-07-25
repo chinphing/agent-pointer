@@ -49,10 +49,7 @@ pub(super) async fn run_sub_agent_stream_round(
     };
     let prov = crate::provider::OpenAIProvider::new(round_settings, provider.api_key.clone());
     let cancel_clone = cancel_owned(&cancel);
-    let dump_lbl = format!(
-        "{}_{}_sub_{}",
-        conversation_id, sub.message_id, sub.task.id
-    );
+    let dump_lbl = format!("{}_{}_sub_{}", conversation_id, sub.message_id, sub.task.id);
     let handle = tokio::spawn(async move {
         prov.stream_chat(
             &input.history_for_api,
@@ -141,7 +138,9 @@ pub(super) async fn run_sub_agent_stream_round(
                             conversation_id: conversation_id.to_string(),
                             max_rounds: max_cap,
                             message: hint,
-                            will_retry_after_compress: provider.settings.context_compression_enabled,
+                            will_retry_after_compress: provider
+                                .settings
+                                .context_compression_enabled,
                         },
                     );
                     let _ = crate::context_compression::maybe_compress_after_tool_round_limit(

@@ -2,8 +2,8 @@
 
 use crate::agents::computer::vision::coord::{screen_to_normalized, CoordinateSystem};
 use crate::agents::computer::vision::vision_state::VisionState;
-use crate::models::ComputerTierLlmConfig;
 use crate::agents::AgentRegistry;
+use crate::models::ComputerTierLlmConfig;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -16,7 +16,8 @@ pub const CONFIG_KEY_ADVANCED_PIPELINE: &str = "computerAdvancedPipeline";
 pub const CONFIG_KEY_PIPELINE_MODEL_DECISION: &str = "computerPipelineModelDecision";
 pub const CONFIG_KEY_PIPELINE_MODEL_POSITION: &str = "computerPipelineModelPosition";
 pub const CONFIG_KEY_PIPELINE_MODEL_VERIFY: &str = "computerPipelineModelVerify";
-pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str = "computerPipelineThinkingBudgetPosition";
+pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str =
+    "computerPipelineThinkingBudgetPosition";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
 pub const CONFIG_KEY_PIPELINE_VERIFY_HOST: &str = "computerPipelineVerifyHost";
 
@@ -277,10 +278,7 @@ impl ComputerTierConfig {
     }
 
     /// Override Advanced pipeline phase models from platform `computerPipelineLlm`.
-    pub fn apply_platform_pipeline_llm(
-        &mut self,
-        p: &crate::models::ComputerPipelineLlmSettings,
-    ) {
+    pub fn apply_platform_pipeline_llm(&mut self, p: &crate::models::ComputerPipelineLlmSettings) {
         if !p.decision.trim().is_empty() {
             self.pipeline_llm.model_decision = p.decision.trim().to_string();
         }
@@ -369,7 +367,10 @@ impl ComputerTierRuntime {
     }
 
     pub fn history_for(&self, tier: ComputerTier) -> &[TierActionRecord] {
-        self.histories.get(&tier).map(|v| v.as_slice()).unwrap_or(&[])
+        self.histories
+            .get(&tier)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn push_action(&mut self, tier: ComputerTier, record: TierActionRecord) {
@@ -408,7 +409,11 @@ impl ComputerTierRuntime {
     }
 
     /// Backfill verify outcome into the newest open history row. Returns true when stored.
-    pub fn backfill_newest_open_verify(&mut self, tier: ComputerTier, outcome: VerifyOutcome) -> bool {
+    pub fn backfill_newest_open_verify(
+        &mut self,
+        tier: ComputerTier,
+        outcome: VerifyOutcome,
+    ) -> bool {
         if outcome.step_result == "pending" {
             return false;
         }
@@ -416,9 +421,7 @@ impl ComputerTierRuntime {
             return false;
         };
         let Some(idx) = v.iter().rposition(|r| r.verify_result.is_none()) else {
-            log::warn!(
-                "computer tier: host verify ignored — no open verifying row to close"
-            );
+            log::warn!("computer tier: host verify ignored — no open verifying row to close");
             return false;
         };
         if v[idx].verify_result.is_some() {
@@ -482,7 +485,11 @@ impl ComputerTierRuntime {
             self.tier_error_streak = self.tier_error_streak.saturating_add(1);
             if let Some(goal) = last_tool_goal.map(str::trim).filter(|s| !s.is_empty()) {
                 let fp = Self::fingerprint_goal(goal);
-                if self.locked_goal.as_ref().is_some_and(|l| l.fingerprint == fp) {
+                if self
+                    .locked_goal
+                    .as_ref()
+                    .is_some_and(|l| l.fingerprint == fp)
+                {
                     self.task_error_streak = self.task_error_streak.saturating_add(1);
                 } else if self.locked_goal.is_none() {
                     if self.goal_fail_fingerprint.as_deref() == Some(fp.as_str()) {
@@ -520,10 +527,8 @@ impl ComputerTierRuntime {
         }
 
         if !is_pass {
-            let effective_rep = Self::effective_repetition_count(
-                sidecar_repetition_count,
-                host_repetition_count,
-            );
+            let effective_rep =
+                Self::effective_repetition_count(sidecar_repetition_count, host_repetition_count);
             let should_upgrade = if effective_rep > 0 {
                 effective_rep > TIER_UPGRADE_THRESHOLD
             } else {
@@ -591,9 +596,7 @@ impl ComputerTierRuntime {
 
         let mut lines = Vec::new();
         if self.should_give_up {
-            lines.push(
-                "Stop reason: repetition exhausted — user guidance requested.".to_string(),
-            );
+            lines.push("Stop reason: repetition exhausted — user guidance requested.".to_string());
         }
         if let Some(lock) = &self.locked_goal {
             lines.push(format!(
@@ -837,7 +840,8 @@ pub fn format_tier_history_block(
     } else {
         if give_up_reference.is_some() {
             lines.push(
-                "[Current session — fresh after user guidance; verify only rows below.]".to_string(),
+                "[Current session — fresh after user guidance; verify only rows below.]"
+                    .to_string(),
             );
         }
         for (i, r) in records.iter().enumerate() {
@@ -903,12 +907,13 @@ pub fn parse_verify_from_thoughts(thoughts: &str) -> Option<ParsedVerify> {
         return None;
     }
     let cause = extract_field_line(thoughts, "Cause:")
-        .map(|s| s.trim().trim_matches(|c: char| c == '.' || c == ';').to_string())
+        .map(|s| {
+            s.trim()
+                .trim_matches(|c: char| c == '.' || c == ';')
+                .to_string()
+        })
         .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("—") && !s.eq_ignore_ascii_case("-"));
-    Some(ParsedVerify {
-        step_result,
-        cause,
-    })
+    Some(ParsedVerify { step_result, cause })
 }
 
 fn extract_field_line(text: &str, key: &str) -> Option<String> {
@@ -930,7 +935,11 @@ pub fn normalize_tool_record(
     args: &Value,
     vision: &VisionState,
 ) -> Option<TierActionRecord> {
-    let goal = args.get("goal").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let goal = args
+        .get("goal")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     if goal.is_empty() {
         log::warn!("computer tier history: skip record — missing goal on {tool_name}");
         return None;
@@ -964,7 +973,10 @@ fn extract_normalized_coords(args: &Value, vision: &VisionState) -> Option<(i32,
     ) {
         return normalized_pair(vision, x as f32, y as f32);
     }
-    let index = args.get("index").and_then(|v| v.as_u64()).map(|n| n as u32)?;
+    let index = args
+        .get("index")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32)?;
     let (px, py) = vision.resolve_index(index)?;
     let monitor = vision.screen_bbox()?;
     let (nx, ny) = screen_to_normalized((px, py), &monitor, CoordinateSystem::Qwen);
@@ -999,7 +1011,13 @@ fn compact_non_coord_args(args: &Value) -> String {
                 .take(4)
                 .collect();
             if !keys.is_empty() {
-                return format!("({})", keys.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(","));
+                return format!(
+                    "({})",
+                    keys.iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
             }
         }
     }
@@ -1246,7 +1264,10 @@ mod tests {
         );
         let records = rt.history_for(tier);
         assert_eq!(records.len(), 2);
-        assert_eq!(records[0].verify_result.as_ref().unwrap().step_result, "skipped");
+        assert_eq!(
+            records[0].verify_result.as_ref().unwrap().step_result,
+            "skipped"
+        );
         assert!(records[1].verify_result.is_none());
     }
 
@@ -1286,7 +1307,10 @@ mod tests {
         assert!(applied);
         let records = rt.history_for(tier);
         assert!(records[0].verify_result.is_none());
-        assert_eq!(records[1].verify_result.as_ref().unwrap().step_result, "pass");
+        assert_eq!(
+            records[1].verify_result.as_ref().unwrap().step_result,
+            "pass"
+        );
     }
 
     #[test]
@@ -1366,7 +1390,10 @@ mod tests {
         ];
         let n = auto_close_stale_open_rows_slice(&mut records);
         assert_eq!(n, 1);
-        assert_eq!(records[0].verify_result.as_ref().unwrap().step_result, "skipped");
+        assert_eq!(
+            records[0].verify_result.as_ref().unwrap().step_result,
+            "skipped"
+        );
         assert!(records[1].verify_result.is_none());
     }
 
@@ -1647,11 +1674,13 @@ mod tests {
     fn pipeline_llm_thinking_for_phase() {
         let cfg = ComputerTierConfig::default();
         assert_eq!(
-            cfg.pipeline_llm.thinking_for_phase(PipelineLlmPhase::Position),
+            cfg.pipeline_llm
+                .thinking_for_phase(PipelineLlmPhase::Position),
             (true, DEFAULT_PIPELINE_POSITION_THINKING_BUDGET)
         );
         assert_eq!(
-            cfg.pipeline_llm.thinking_for_phase(PipelineLlmPhase::Verify),
+            cfg.pipeline_llm
+                .thinking_for_phase(PipelineLlmPhase::Verify),
             (true, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET)
         );
     }

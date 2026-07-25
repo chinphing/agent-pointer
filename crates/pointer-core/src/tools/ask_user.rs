@@ -25,8 +25,8 @@ pub struct AskUserArgs {
 }
 
 pub fn parse_args(value: Value) -> Result<AskUserArgs> {
-    let mut args: AskUserArgs = serde_json::from_value(value)
-        .map_err(|e| anyhow!("ask_user 参数无效: {e}"))?;
+    let mut args: AskUserArgs =
+        serde_json::from_value(value).map_err(|e| anyhow!("ask_user 参数无效: {e}"))?;
     args.question = args.question.trim().to_string();
     if args.question.is_empty() {
         return Err(anyhow!("ask_user.question 不能为空"));

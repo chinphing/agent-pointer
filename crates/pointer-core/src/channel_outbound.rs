@@ -47,7 +47,10 @@ fn channel_display_name(channel: &str) -> &str {
 /// Strip fork suffix `@sN` from a desktop IM conversation id.
 pub fn im_base_conversation_id(conversation_id: &str) -> String {
     if let Some((base, suffix)) = conversation_id.rsplit_once('@') {
-        if suffix.starts_with('s') && suffix.len() > 1 && suffix[1..].chars().all(|c| c.is_ascii_digit()) {
+        if suffix.starts_with('s')
+            && suffix.len() > 1
+            && suffix[1..].chars().all(|c| c.is_ascii_digit())
+        {
             return base.to_string();
         }
     }
@@ -168,7 +171,8 @@ pub fn resolve_im_run_workspace(stored_workspace: &str, workspace_user_set: bool
 pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
     let mut lines = vec![
         "[IM Channel Session]".to_string(),
-        "The user is chatting through an IM integration (Feishu, DingTalk, WeCom, or Weixin).".to_string(),
+        "The user is chatting through an IM integration (Feishu, DingTalk, WeCom, or Weixin)."
+            .to_string(),
         "They may use the following commands without special syntax.".to_string(),
         String::new(),
         "## Reset conversation".to_string(),
@@ -201,8 +205,7 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
     lines.push(String::new());
     lines.push("## ask_user tool in IM".to_string());
     lines.push(
-        "When you need the user to make a choice, call `ask_user` with the options."
-            .to_string(),
+        "When you need the user to make a choice, call `ask_user` with the options.".to_string(),
     );
     lines.push(
         "In IM mode, `ask_user` **blocks this turn** until the user replies (or times out)."
@@ -219,13 +222,9 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
             .to_string(),
     );
     lines.push(
-        "3. Call `ask_user` with those options. Wait for the tool result (`selected`)."
-            .to_string(),
+        "3. Call `ask_user` with those options. Wait for the tool result (`selected`).".to_string(),
     );
-    lines.push(
-        "4. Continue the task in this same turn using their choice."
-            .to_string(),
-    );
+    lines.push("4. Continue the task in this same turn using their choice.".to_string());
     lines.push(
         "Users may reply with `1` / `2`, the option label, or free text (Hermes-style)."
             .to_string(),

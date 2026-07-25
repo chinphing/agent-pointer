@@ -3,27 +3,23 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-static SCRIPT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)<script[^>]*>.*?</script>").expect("script strip regex")
-});
-static STYLE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)<style[^>]*>.*?</style>").expect("style strip regex")
-});
+static SCRIPT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<script[^>]*>.*?</script>").expect("script strip regex"));
+static STYLE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<style[^>]*>.*?</style>").expect("style strip regex"));
 static NOSCRIPT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?is)<noscript[^>]*>.*?</noscript>").expect("noscript strip regex")
 });
 static SVG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?is)<svg[^>]*>.*?</svg>").expect("svg strip regex"));
-static IFRAME_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)<iframe[^>]*>.*?</iframe>").expect("iframe strip regex")
-});
+static IFRAME_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<iframe[^>]*>.*?</iframe>").expect("iframe strip regex"));
 static COMMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<!--.*?-->").expect("comment strip regex"));
 static TAG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<[^>]+>").expect("tag strip regex"));
-static TITLE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)<title[^>]*>(.*?)</title>").expect("title extract regex")
-});
+static TITLE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<title[^>]*>(.*?)</title>").expect("title extract regex"));
 static BLOCK_OPEN_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)</?(br|p|div|tr|li|h[1-6]|section|article|header|footer|main|ul|ol|table|blockquote)(\s[^>]*)?/?>",

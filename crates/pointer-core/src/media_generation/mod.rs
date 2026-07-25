@@ -53,7 +53,10 @@ pub async fn generate_video(
     }
 }
 
-pub fn format_generation_tool_result(artifact: &GenerationArtifact, kind: GenerationKind) -> String {
+pub fn format_generation_tool_result(
+    artifact: &GenerationArtifact,
+    kind: GenerationKind,
+) -> String {
     let label = match kind {
         GenerationKind::Image => "image",
         GenerationKind::Video => "video",

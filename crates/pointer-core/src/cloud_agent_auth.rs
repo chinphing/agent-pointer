@@ -26,13 +26,19 @@ fn env_with_legacy(primary: &str, legacy: &str) -> Option<String> {
 }
 
 pub fn control_plane_api_base() -> String {
-    env_with_legacy("POINTER_API_BASE", "OPENPOINTER_API_BASE")
-        .unwrap_or_else(|| crate::platform_endpoints::api_base().trim_end_matches('/').to_string())
+    env_with_legacy("POINTER_API_BASE", "OPENPOINTER_API_BASE").unwrap_or_else(|| {
+        crate::platform_endpoints::api_base()
+            .trim_end_matches('/')
+            .to_string()
+    })
 }
 
 pub fn control_plane_oauth_client_secret() -> String {
-    env_with_legacy("POINTER_OAUTH_CLIENT_SECRET", "OPENPOINTER_OAUTH_CLIENT_SECRET")
-        .unwrap_or_default()
+    env_with_legacy(
+        "POINTER_OAUTH_CLIENT_SECRET",
+        "OPENPOINTER_OAUTH_CLIENT_SECRET",
+    )
+    .unwrap_or_default()
 }
 
 pub fn is_cloud_auth_configured() -> bool {
@@ -56,7 +62,10 @@ fn exchange_has_usable_llm_key(parsed: &OAuthCodeExchangeResponse) -> bool {
         .any(|k| !k.trim().is_empty())
 }
 
-pub async fn exchange_agent_oauth_code(code: &str, state: &str) -> Result<(PlatformSession, PlatformLoginCredentials)> {
+pub async fn exchange_agent_oauth_code(
+    code: &str,
+    state: &str,
+) -> Result<(PlatformSession, PlatformLoginCredentials)> {
     let code = code.trim();
     let state = state.trim();
     if code.is_empty() || state.is_empty() {
@@ -170,7 +179,11 @@ struct OAuthExchangeUser {
     included_tokens: u64,
     #[serde(default, rename = "consumedTokens", alias = "consumed_tokens")]
     consumed_tokens: u64,
-    #[serde(default, rename = "tokenQuotaExhausted", alias = "token_quota_exhausted")]
+    #[serde(
+        default,
+        rename = "tokenQuotaExhausted",
+        alias = "token_quota_exhausted"
+    )]
     token_quota_exhausted: bool,
 }
 

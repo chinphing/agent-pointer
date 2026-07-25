@@ -47,11 +47,7 @@ pub fn infer_parallel_metadata(name: &str, is_sidecar: bool) -> (bool, ToolConfl
     if desktop_tool_family_id(name).is_some()
         || matches!(
             name,
-            "hotkey"
-                | "wait"
-                | "launch_app"
-                | "clipboard_read"
-                | "clipboard_write"
+            "hotkey" | "wait" | "launch_app" | "clipboard_read" | "clipboard_write"
         )
     {
         return (false, ToolConflictClass::Computer);
@@ -70,9 +66,7 @@ pub fn infer_parallel_metadata(name: &str, is_sidecar: bool) -> (bool, ToolConfl
         }
         "read_lints" | "cron_job" | "skill_import" => (false, ToolConflictClass::SerialOnly),
         n if n.starts_with("task_board_") => (false, ToolConflictClass::Sidecar),
-        n if n.starts_with("skill_") && n != "skill_read" => {
-            (false, ToolConflictClass::SerialOnly)
-        }
+        n if n.starts_with("skill_") && n != "skill_read" => (false, ToolConflictClass::SerialOnly),
         _ => (false, ToolConflictClass::SerialOnly),
     }
 }

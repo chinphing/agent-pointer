@@ -6,9 +6,9 @@ use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{ChatMessage, ModelSettings, SystemPromptSections};
 use tokio_util::sync::CancellationToken;
 
-use super::session::{SessionRefs, SessionRefsArc};
 use super::super::session_budget::SessionToolBudget;
 use super::super::StreamTx;
+use super::session::{SessionRefs, SessionRefsArc};
 use crate::provider::OpenAIProvider;
 
 /// Owned inputs assembled once per stream round (prompt clone + native tools).

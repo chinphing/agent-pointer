@@ -37,10 +37,7 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_web_search_invocation(
     sub: Option<&SubToolPassConfig<'_>>,
 ) -> Result<WebSearchInvocation> {
     Ok(WebSearchInvocation {
-        usage_scope: resolve_web_search_usage_scope(
-            lead_scope,
-            sub.map(|s| s.instance_scope),
-        )?,
+        usage_scope: resolve_web_search_usage_scope(lead_scope, sub.map(|s| s.instance_scope))?,
         agent_id: sub
             .map(|s| s.active.def.id.clone())
             .or_else(|| lead_agent_id.map(str::to_string)),
@@ -106,12 +103,10 @@ mod tests {
             "sub-instance",
         );
 
-        let lead_resolved =
-            resolve_web_search_usage_scope(Some(&lead), None).expect("lead scope");
+        let lead_resolved = resolve_web_search_usage_scope(Some(&lead), None).expect("lead scope");
         assert_eq!(lead_resolved.agent_instance_id, "lead-instance");
 
-        let sub_resolved =
-            resolve_web_search_usage_scope(None, Some(&sub)).expect("sub scope");
+        let sub_resolved = resolve_web_search_usage_scope(None, Some(&sub)).expect("sub scope");
         assert_eq!(sub_resolved.agent_instance_id, "sub-instance");
     }
 

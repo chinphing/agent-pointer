@@ -60,9 +60,7 @@ impl VerifyHintGenerator {
 
     /// Generate a verification hint for a wait action.
     pub fn wait_hint_secs(&self, seconds: f64) -> String {
-        format!(
-            "Goal step complete: waited {seconds} seconds. Proceed with next action."
-        )
+        format!("Goal step complete: waited {seconds} seconds. Proceed with next action.")
     }
 
     /// Generate a generic verification hint.
@@ -93,9 +91,7 @@ impl VerifyHintGenerator {
     /// Generate a verification hint after launch_app.
     pub fn launch_app_hint(&self, app: &str, success: bool, action: &str) -> String {
         if success {
-            format!(
-                "launch_app {action} for \"{app}\" reported success with host verification."
-            )
+            format!("launch_app {action} for \"{app}\" reported success with host verification.")
         } else {
             format!(
                 "launch_app {action} for \"{app}\" failed host verification. \

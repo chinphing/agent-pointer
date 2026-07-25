@@ -1,5 +1,5 @@
-use crate::media::outbound_reply::{split_reply_media, strip_outbound_media_markers};
 use crate::media::attachments_from_reply_paths;
+use crate::media::outbound_reply::{split_reply_media, strip_outbound_media_markers};
 use crate::models::MediaAttachment;
 use serde_json::Value;
 

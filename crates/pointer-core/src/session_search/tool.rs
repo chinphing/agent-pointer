@@ -12,9 +12,8 @@ const SESSION_SEARCH_DOC_SOURCE: &str = "session_search/prompts/session_search.m
 pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
     let doc = SESSION_SEARCH_MD.trim();
     let st = store.clone();
-    let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
-        st.dispatch_search_tool(&args)
-    });
+    let handler: ToolHandler =
+        Arc::new(move |args: Value| -> Result<String> { st.dispatch_search_tool(&args) });
 
     reg.register(
         ToolEntry::new(
@@ -67,7 +66,5 @@ pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
 }
 
 pub fn plan_includes_session_search(allowed_tool_names: &[String]) -> bool {
-    allowed_tool_names
-        .iter()
-        .any(|n| n == "session_search")
+    allowed_tool_names.iter().any(|n| n == "session_search")
 }

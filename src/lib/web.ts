@@ -122,6 +122,37 @@ export async function cancelChat(conversationId: string): Promise<void> {
   await request(`/api/chat/${encodeURIComponent(conversationId)}/cancel`, { method: 'POST' })
 }
 
+function workspaceQuery(workspaceRoot: string, relativePath?: string): string {
+  const params = new URLSearchParams({ workspaceRoot })
+  if (relativePath !== undefined) params.set('relativePath', relativePath)
+  return params.toString()
+}
+
+export async function listWorkspaceDirectory(
+  workspaceRoot: string,
+  relativePath?: string
+): Promise<import('./api').WorkspaceEntry[]> {
+  return await request(`/api/workspace/directory?${workspaceQuery(workspaceRoot, relativePath)}`)
+}
+
+export async function readWorkspaceFile(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<import('./api').WorkspaceFilePreview> {
+  return await request(`/api/workspace/file?${workspaceQuery(workspaceRoot, relativePath)}`)
+}
+
+export async function getWorkspaceGitStatus(workspaceRoot: string): Promise<import('./api').GitStatusResponse> {
+  return await request(`/api/workspace/git/status?${workspaceQuery(workspaceRoot)}`)
+}
+
+export async function getWorkspaceGitDiff(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<import('./api').GitDiff> {
+  return await request(`/api/workspace/git/diff?${workspaceQuery(workspaceRoot, relativePath)}`)
+}
+
 export async function abortTerminalCommand(
   conversationId: string,
   toolCallId?: string

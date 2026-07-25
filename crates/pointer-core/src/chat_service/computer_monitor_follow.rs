@@ -2,10 +2,10 @@
 
 use crate::agents::computer::screen;
 use crate::agents::computer::tools::tool_app_access;
-use crate::chat_service::emit::emit;
-use crate::models::{ModelSettings, StreamEvent};
 use crate::chat_service::app_state::AppState;
+use crate::chat_service::emit::emit;
 use crate::chat_service::StreamTx;
+use crate::models::{ModelSettings, StreamEvent};
 use serde_json::Value;
 
 fn computer_agent_show_monitor_picker(state: &AppState) -> bool {
@@ -17,10 +17,7 @@ fn computer_agent_show_monitor_picker(state: &AppState) -> bool {
 
 /// Whether **`run_subagent` → computer** should block on the frontend monitor/permissions flow
 /// (same gate as Computer lead send — includes auto-switch; macOS permissions run in UI).
-pub fn computer_subagent_monitor_flow_required(
-    state: &AppState,
-    settings: &ModelSettings,
-) -> bool {
+pub fn computer_subagent_monitor_flow_required(state: &AppState, settings: &ModelSettings) -> bool {
     if !settings.computer_show_monitor_picker {
         return false;
     }
@@ -107,10 +104,7 @@ pub fn maybe_auto_switch_capture_monitor_after_tool(
     );
 }
 
-fn computer_monitor_picker_enabled(
-    state: &AppState,
-    settings: &ModelSettings,
-) -> bool {
+fn computer_monitor_picker_enabled(state: &AppState, settings: &ModelSettings) -> bool {
     if !settings.computer_show_monitor_picker {
         return false;
     }

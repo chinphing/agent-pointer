@@ -128,7 +128,10 @@ mod tests {
             conversation_id_from_main_turn_key(&key).as_deref(),
             Some("conv-1")
         );
-        assert_eq!(anchor_message_id_from_main_turn_key(&key).as_deref(), Some("msg-1"));
+        assert_eq!(
+            anchor_message_id_from_main_turn_key(&key).as_deref(),
+            Some("msg-1")
+        );
     }
 
     #[test]

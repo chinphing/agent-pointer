@@ -53,11 +53,7 @@ fn pick_submit_tool_call<'a>(
 
 /// Parse the verify submit tool call into [`VerifyModuleOutput`].
 pub fn parse_verify_from_tool_calls(tool_calls: &[ToolCall]) -> Result<VerifyModuleOutput> {
-    let tc = pick_submit_tool_call(
-        tool_calls,
-        |name| name == TOOL_SUBMIT_VERIFY,
-        "verify",
-    )?;
+    let tc = pick_submit_tool_call(tool_calls, |name| name == TOOL_SUBMIT_VERIFY, "verify")?;
     let args = tc.arguments.trim();
     if args.is_empty() {
         return Err(anyhow!("pipeline verify: empty arguments on submit_verify"));

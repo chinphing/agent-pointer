@@ -1,8 +1,6 @@
 //! Soft-exclude conversation prefix after successful `task_board` updates (no LLM summarization).
 
-use crate::context_compression::{
-    SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT,
-};
+use crate::context_compression::{SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT};
 use crate::message_context::{
     count_context_included_messages, find_split_at_user_boundary, is_context_included,
     mark_excluded,
@@ -85,8 +83,7 @@ pub fn is_real_user_task_message(m: &ChatMessage) -> bool {
 }
 
 fn find_first_real_user_index(msgs: &[ChatMessage]) -> Option<usize> {
-    msgs.iter()
-        .position(|m| is_real_user_task_message(m))
+    msgs.iter().position(|m| is_real_user_task_message(m))
 }
 
 fn find_index_by_message_id(msgs: &[ChatMessage], message_id: &str) -> Option<usize> {
@@ -119,7 +116,11 @@ pub fn resolve_task_board_anchor_user_index(
     find_first_real_user_index(msgs)
 }
 
-fn mark_range_excluded_collect(history: &mut [ChatMessage], start: usize, end: usize) -> Vec<String> {
+fn mark_range_excluded_collect(
+    history: &mut [ChatMessage],
+    start: usize,
+    end: usize,
+) -> Vec<String> {
     let mut ids = Vec::new();
     for m in history.iter_mut().take(end).skip(start) {
         if is_context_included(m) {
@@ -388,11 +389,11 @@ mod tests {
             computer_round_screen_rel_path: None,
             ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
             tool_raw_output: None,
         }
     }
@@ -420,11 +421,11 @@ mod tests {
             computer_round_screen_rel_path: None,
             ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
             tool_raw_output: None,
         }
     }
@@ -458,7 +459,10 @@ mod tests {
         assert!(hist.iter().any(is_excluded));
         let tail_start = before_len.saturating_sub(10);
         for i in tail_start..before_len {
-            assert!(!is_excluded(&hist[i]), "tail index {i} should stay included");
+            assert!(
+                !is_excluded(&hist[i]),
+                "tail index {i} should stay included"
+            );
         }
     }
 
@@ -588,11 +592,17 @@ mod tests {
         let progress = serde_json::json!({
             "items": [{ "id": "1", "progress": "3/10" }]
         });
-        assert!(!task_board_call_is_checkpoint("task_board_patch", &progress));
+        assert!(!task_board_call_is_checkpoint(
+            "task_board_patch",
+            &progress
+        ));
         let legacy_validate = serde_json::json!({
             "items": [{ "id": "1", "validate_results": "legacy" }]
         });
-        assert!(!task_board_call_is_checkpoint("task_board_patch", &legacy_validate));
+        assert!(!task_board_call_is_checkpoint(
+            "task_board_patch",
+            &legacy_validate
+        ));
     }
 
     #[test]

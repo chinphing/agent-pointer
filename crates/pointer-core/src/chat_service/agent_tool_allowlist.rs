@@ -17,9 +17,9 @@ pub(crate) fn resolve_agent_tools(
     names.retain(|name| {
         !deny.contains(name)
             && (available.contains(name.as_str())
-                || available
-                    .iter()
-                    .any(|reg| crate::tools::registry_tool_in_allow_list(std::slice::from_ref(name), reg)))
+                || available.iter().any(|reg| {
+                    crate::tools::registry_tool_in_allow_list(std::slice::from_ref(name), reg)
+                }))
     });
     names = crate::tools::expand_family_allow_names(&names, &available);
     normalize_allowed_tool_names(&mut names, &available);

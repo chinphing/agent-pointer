@@ -7,7 +7,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::web_search::{
-    execute_responses_web_search, parse_research_web_search_args, WebSearchStreamUi, WebSearchResult,
+    execute_responses_web_search, parse_research_web_search_args, WebSearchResult,
+    WebSearchStreamUi,
 };
 
 pub async fn execute(
@@ -20,7 +21,6 @@ pub async fn execute(
     ui: WebSearchStreamUi,
 ) -> Result<WebSearchResult> {
     let mut req = parse_research_web_search_args(args)?;
-    req.messages =
-        build_research_sub_agent_messages(history, exclude_message_id, &req.query);
+    req.messages = build_research_sub_agent_messages(history, exclude_message_id, &req.query);
     execute_responses_web_search(settings, agent_id, req, cancel, Some(ui)).await
 }

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, Expand, Minimize2, Search, Space, WrapText, X } from 'lucide-vue-next'
+import { findDiffChangeBlocks, findDiffMatches, showDiffWhitespace } from '../../lib/diffView'
 
 export type DiffLine = {
   type: 'unchanged' | 'del' | 'ins' | 'collapse'
@@ -7,13 +9,71 @@ export type DiffLine = {
   hidden?: string[]
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   diffLines: DiffLine[]
   diffStats?: { adds: number; dels: number }
-}>()
+  fillHeight?: boolean
+}>(), {
+  fillHeight: false
+})
 
 // Track which collapse sections are expanded
 const expanded = ref<Set<number>>(new Set())
+const rootElement = ref<HTMLElement | null>(null)
+const scrollElement = ref<HTMLElement | null>(null)
+const searchQuery = ref('')
+const activeMatchIndex = ref(-1)
+const activeBlockIndex = ref(-1)
+const wrapLines = ref(true)
+const showWhitespace = ref(false)
+const maximized = ref(false)
+
+const searchMatches = computed(() => findDiffMatches(props.diffLines, searchQuery.value))
+const changeBlocks = computed(() => findDiffChangeBlocks(props.diffLines))
+const activeMatchKey = computed(() => searchMatches.value[activeMatchIndex.value]?.key)
+
+function lineText(text: string) {
+  return showWhitespace.value ? showDiffWhitespace(text) : text
+}
+
+async function scrollToKey(key: string, parentIndex?: number) {
+  if (parentIndex !== undefined && !expanded.value.has(parentIndex)) {
+    expanded.value = new Set(expanded.value).add(parentIndex)
+  }
+  await nextTick()
+  const target = rootElement.value?.querySelector<HTMLElement>(`[data-diff-key="${key}"]`)
+  target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+async function stepMatch(direction: 1 | -1) {
+  const matches = searchMatches.value
+  if (!matches.length) return
+  activeMatchIndex.value = (activeMatchIndex.value + direction + matches.length) % matches.length
+  const match = matches[activeMatchIndex.value]!
+  await scrollToKey(match.key, match.parentIndex)
+}
+
+async function stepBlock(direction: 1 | -1) {
+  const blocks = changeBlocks.value
+  if (!blocks.length) return
+  activeBlockIndex.value = (activeBlockIndex.value + direction + blocks.length) % blocks.length
+  await scrollToKey(blocks[activeBlockIndex.value]!)
+}
+
+function toggleMaximized() {
+  maximized.value = !maximized.value
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && maximized.value) maximized.value = false
+}
+
+watch(searchMatches, () => {
+  activeMatchIndex.value = -1
+})
+
+onMounted(() => document.addEventListener('keydown', handleKeydown))
+onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
 
 function toggleCollapse(idx: number) {
   const s = new Set(expanded.value)
@@ -73,11 +133,40 @@ function hiddenLineNum(ci: number, hi: number): number {
 </script>
 
 <template>
-  <div class="diff-view">
-    <div class="overflow-x-hidden max-h-96">
+  <div
+    ref="rootElement"
+    class="diff-view"
+    :class="[
+      fillHeight && 'diff-view-fill',
+      maximized && 'diff-view-maximized',
+      !wrapLines && 'diff-view-nowrap'
+    ]"
+  >
+    <div v-if="fillHeight" class="diff-toolbar">
+      <label class="diff-search">
+        <Search />
+        <input v-model="searchQuery" type="search" placeholder="搜索 Diff" @keydown.enter.prevent="stepMatch(1)" />
+        <span v-if="searchQuery">{{ searchMatches.length ? `${activeMatchIndex + 1}/${searchMatches.length}` : '0/0' }}</span>
+        <button v-if="searchQuery" type="button" title="清除搜索" @click="searchQuery = ''"><X /></button>
+      </label>
+      <button type="button" :disabled="!searchMatches.length" title="上一个匹配" @click="stepMatch(-1)"><ArrowUp /></button>
+      <button type="button" :disabled="!searchMatches.length" title="下一个匹配" @click="stepMatch(1)"><ArrowDown /></button>
+      <span class="diff-toolbar-divider" />
+      <button type="button" :disabled="!changeBlocks.length" title="上一个变更块" @click="stepBlock(-1)"><ChevronUp /></button>
+      <button type="button" :disabled="!changeBlocks.length" title="下一个变更块" @click="stepBlock(1)"><ChevronDown /></button>
+      <button type="button" :class="wrapLines && 'is-active'" title="切换长行换行" @click="wrapLines = !wrapLines"><WrapText /></button>
+      <button type="button" :class="showWhitespace && 'is-active'" title="显示空白字符" @click="showWhitespace = !showWhitespace"><Space /></button>
+      <button type="button" :title="maximized ? '退出放大' : '放大 Diff'" @click="toggleMaximized">
+        <Minimize2 v-if="maximized" /><Expand v-else />
+      </button>
+    </div>
+
+    <div
+      ref="scrollElement"
+      :class="fillHeight ? 'diff-scroll flex-1 min-h-0 overflow-y-auto' : 'overflow-x-hidden max-h-96'"
+    >
       <div class="diff-table">
         <template v-for="(line, idx) in diffLines" :key="idx">
-          <!-- Collapse marker -->
           <div
             v-if="line.type === 'collapse'"
             class="diff-collapse"
@@ -87,38 +176,37 @@ function hiddenLineNum(ci: number, hi: number): number {
             <span class="diff-collapse-text">┄ +{{ line.text }} 行 ┄</span>
           </div>
 
-          <!-- Hidden lines (only rendered when expanded) -->
           <template v-if="line.type === 'collapse' && expanded.has(idx)">
             <div
               v-for="(h, hi) in line.hidden"
               :key="'h-' + hi"
               class="diff-row unchanged"
+              :class="activeMatchKey === `hidden-${idx}-${hi}` && 'is-match'"
+              :data-diff-key="`hidden-${idx}-${hi}`"
             >
               <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ hiddenLineNum(idx, hi) }}</span>
               <span class="diff-bar"></span>
-              <span class="diff-text">{{ h }}</span>
+              <span class="diff-text">{{ lineText(h) }}</span>
             </div>
           </template>
 
-          <!-- Regular line -->
           <div
             v-if="line.type !== 'collapse'"
             class="diff-row"
-            :class="line.type"
+            :class="[line.type, activeMatchKey === `line-${idx}` && 'is-match']"
+            :data-diff-key="`line-${idx}`"
           >
             <span class="diff-num" :style="{ width: numWidth, minWidth: numWidth }">{{ lineInfo.nums[idx] ?? '\u00A0' }}</span>
             <span class="diff-bar"></span>
-            <span class="diff-text">{{ line.text }}</span>
+            <span class="diff-text">{{ lineText(line.text) }}</span>
           </div>
         </template>
       </div>
     </div>
-    <div
-      v-if="diffStats && (diffStats.adds || diffStats.dels)"
-      class="diff-footer"
-    >
+    <div v-if="diffStats && (diffStats.adds || diffStats.dels)" class="diff-footer">
       <span class="diff-stat-diff">+{{ diffStats.adds }}<span class="num-label"> 新增</span></span>
       <span class="diff-stat-diff diff-stat-del">-{{ diffStats.dels }}<span class="num-label"> 删除</span></span>
+      <span v-if="fillHeight" class="ml-auto text-neutral-500">{{ changeBlocks.length }} 个变更块</span>
     </div>
   </div>
 </template>
@@ -129,6 +217,29 @@ function hiddenLineNum(ci: number, hi: number): number {
   @apply rounded-lg overflow-hidden;
   border: 1px solid;
 }
+.diff-view-fill {
+  @apply h-full min-h-0 flex flex-col;
+}
+.diff-view-maximized {
+  @apply fixed inset-4 z-[350] h-auto max-h-none rounded-xl shadow-2xl;
+}
+.diff-toolbar {
+  @apply h-9 shrink-0 flex items-center gap-1 border-b px-1.5;
+}
+.diff-toolbar > button {
+  @apply rounded p-1 text-neutral-500 hover:text-neutral-200 disabled:cursor-not-allowed disabled:opacity-30;
+}
+.diff-toolbar > button.is-active { @apply bg-white/10 text-blue-400; }
+.diff-toolbar svg { @apply w-3.5 h-3.5; }
+.diff-toolbar-divider { @apply h-4 w-px mx-0.5 bg-white/10; }
+.diff-search { @apply min-w-0 flex-1 flex items-center gap-1 rounded border px-1.5 py-1 text-[11px]; }
+.diff-search input { @apply min-w-0 flex-1 bg-transparent text-inherit outline-none; }
+.diff-search > button { @apply shrink-0 text-neutral-500 hover:text-neutral-200; }
+.diff-scroll { overflow-x: hidden; }
+.diff-view-nowrap .diff-scroll { overflow-x: auto; }
+.diff-view-nowrap .diff-table { width: max-content; }
+.diff-view-nowrap .diff-text { white-space: pre; overflow-wrap: normal; }
+.diff-row.is-match { outline: 1px solid rgba(250, 204, 21, 0.9); outline-offset: -1px; }
 .diff-table { min-width: 100%; }
 .diff-row {
   display: flex;

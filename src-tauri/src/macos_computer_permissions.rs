@@ -10,14 +10,18 @@ use core_foundation::dictionary::CFDictionary;
 use core_foundation::string::CFString;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{define_class, msg_send, AnyThread, DefinedClass, MainThreadOnly, MainThreadMarker, Message};
-use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSDraggingContext, NSDraggingItem, NSDraggingSession, NSDragOperation,
-    NSDraggingSource, NSEvent, NSFloatingWindowLevel, NSImage, NSImageAlignment, NSImageScaling,
-    NSImageView, NSPanel, NSPasteboardWriting, NSScreen, NSTextAlignment, NSTextField, NSView,
-    NSWindowStyleMask, NSWorkspace,
+use objc2::{
+    define_class, msg_send, AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
 };
-use objc2_foundation::{NSArray, NSBundle, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL};
+use objc2_app_kit::{
+    NSBackingStoreType, NSColor, NSDragOperation, NSDraggingContext, NSDraggingItem,
+    NSDraggingSession, NSDraggingSource, NSEvent, NSFloatingWindowLevel, NSImage, NSImageAlignment,
+    NSImageScaling, NSImageView, NSPanel, NSPasteboardWriting, NSScreen, NSTextAlignment,
+    NSTextField, NSView, NSWindowStyleMask, NSWorkspace,
+};
+use objc2_foundation::{
+    NSArray, NSBundle, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL,
+};
 use serde::Serialize;
 use tauri::AppHandle;
 
@@ -116,9 +120,7 @@ pub fn status() -> MacosComputerPermissionsStatus {
         screen_recording: screen_effective,
         screen_recording_preflight: preflight,
         accessibility,
-        app_bundle_path: bundle
-            .map(|p| p.display().to_string())
-            .unwrap_or_default(),
+        app_bundle_path: bundle.map(|p| p.display().to_string()).unwrap_or_default(),
         executable_path: std::env::current_exe()
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
@@ -203,11 +205,7 @@ fn show_drag_guide_on_main(kind: PermissionKind) -> Result<(), String> {
     DRAG_PANEL.with(|cell| {
         *cell.borrow_mut() = Some(panel);
     });
-    log::info!(
-        "macOS {:?} drag guide shown for {}",
-        kind,
-        bundle.display()
-    );
+    log::info!("macOS {:?} drag guide shown for {}", kind, bundle.display());
     Ok(())
 }
 
@@ -298,10 +296,7 @@ fn build_drag_panel(
 
     let hint = centered_label(
         kind.drag_hint(),
-        NSRect::new(
-            NSPoint::new(pad, pad),
-            NSSize::new(inner_w, 40.0),
-        ),
+        NSRect::new(NSPoint::new(pad, pad), NSSize::new(inner_w, 40.0)),
         mtm,
     );
 
@@ -393,12 +388,7 @@ define_class!(
 );
 
 impl DragIconView {
-    fn new(
-        frame: NSRect,
-        url: &NSURL,
-        icon: &NSImage,
-        mtm: MainThreadMarker,
-    ) -> Retained<Self> {
+    fn new(frame: NSRect, url: &NSURL, icon: &NSImage, mtm: MainThreadMarker) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(DragIconViewIvars {
             bundle_url: url.retain(),
             icon: icon.retain(),

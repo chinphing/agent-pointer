@@ -176,12 +176,9 @@ pub fn record_generation_usage(
         billing_mode: usage.billing_mode.as_str(),
         unit_count: usage.unit_count,
     };
-    if let Err(e) = token_usage_store::record_round(
-        &scope,
-        Some(&snapshot),
-        Some(&model_key),
-        Some(&billing),
-    ) {
+    if let Err(e) =
+        token_usage_store::record_round(&scope, Some(&snapshot), Some(&model_key), Some(&billing))
+    {
         log::warn!(
             "token_usage_store: media generation record failed {} kind={}: {e}",
             scope.log_suffix(),

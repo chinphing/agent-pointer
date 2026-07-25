@@ -36,11 +36,7 @@ const BUS_CAPACITY: usize = 1024;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentEvent {
     /// Run accepted by dispatcher, waiting for a lane slot.
-    RunQueued {
-        run_id: String,
-        seq: u64,
-        ts: u64,
-    },
+    RunQueued { run_id: String, seq: u64, ts: u64 },
     /// Run left the queue and started executing (`run_chat` invoked).
     RunStarted {
         run_id: String,

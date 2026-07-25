@@ -17,9 +17,15 @@ fn validate_selection(args: &AskUserArgs, selected: Vec<String>) -> anyhow::Resu
     if !args.multi_select && selected.len() != 1 {
         anyhow::bail!("ask_user 当前问题只允许单选");
     }
-    let labels: std::collections::HashSet<&str> =
-        args.options.iter().map(|option| option.label.as_str()).collect();
-    if selected.iter().any(|value| !labels.contains(value.as_str())) {
+    let labels: std::collections::HashSet<&str> = args
+        .options
+        .iter()
+        .map(|option| option.label.as_str())
+        .collect();
+    if selected
+        .iter()
+        .any(|value| !labels.contains(value.as_str()))
+    {
         anyhow::bail!("ask_user 提交了无效选项");
     }
     let mut deduped = Vec::new();

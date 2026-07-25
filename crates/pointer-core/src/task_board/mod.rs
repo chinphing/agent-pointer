@@ -8,15 +8,15 @@ pub mod evidence;
 pub mod finalize;
 pub mod gateway;
 pub mod history_trim;
-pub mod inject;
 pub mod init_policy;
-pub mod observability;
+pub mod inject;
 pub mod loop_milestones;
 pub mod migrate;
 pub mod model;
+pub mod observability;
+pub mod persistence;
 pub mod results_append;
 pub mod row_patch;
-pub mod persistence;
 pub mod snapshot;
 pub mod state_machine;
 pub mod store;
@@ -32,6 +32,8 @@ pub use coordination::{
     resolve_store_key_for_read, sub_agent_task_board_store_key,
     sub_agent_task_board_store_key_for_instance,
 };
+pub use evidence::history_has_recent_action_tools;
+pub use finalize::maybe_auto_finalize_if_complete;
 pub use gateway::{
     check_dependencies, dispatch_to_child, report_child_status,
     sync_parent_board_from_supervisor_plan, DependencyCheck, DispatchContext,
@@ -42,8 +44,6 @@ pub use history_trim::{
     maybe_trim_after_tool_pass, trim_history_after_task_board, TaskBoardTrimHook,
     TaskBoardTrimStats, TRIM_PLACEHOLDER_PREFIX,
 };
-pub use evidence::history_has_recent_action_tools;
-pub use finalize::maybe_auto_finalize_if_complete;
 pub use inject::inject_host_task_board_conversation_id;
 pub use model::{BoardDocument, BoardItem, DeliveryFormat, ItemStatus, MetaStatus};
 pub use persistence::TaskBoardSqlite;

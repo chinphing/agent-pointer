@@ -7,9 +7,7 @@ use crate::models::ChatMediaPreview;
 use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
 use crate::user_storage::session_user_id_for_conversation;
 
-use super::access::{
-    assert_app_media_preview_allowed, path_has_traversal,
-};
+use super::access::{assert_app_media_preview_allowed, path_has_traversal};
 use super::filename::{allocate_unique_stored_basename, safe_attachment_basename};
 use super::layout::{build_storage_rel, parse_storage_rel, verify_storage_rel_access};
 use super::path_hint::MEDIA_URI_SCHEME;
@@ -105,7 +103,8 @@ pub fn app_data_media_rel_from_abs(path: &Path) -> Option<String> {
     if let Some(stripped) = rel_str.strip_prefix("conversation-media/") {
         return Some(stripped.to_string());
     }
-    if rel_str.starts_with(GENERATED_MEDIA_PREFIX) || rel_str.starts_with(SESSION_SANDBOXES_PREFIX) {
+    if rel_str.starts_with(GENERATED_MEDIA_PREFIX) || rel_str.starts_with(SESSION_SANDBOXES_PREFIX)
+    {
         return Some(rel_str);
     }
     None
@@ -132,10 +131,14 @@ pub fn save_attachment_bytes(
         .ok_or_else(|| anyhow::anyhow!("unique attachment filename allocation failed"))?;
     let file_path = dir.join(&stored_name);
     fs::write(&file_path, bytes).context("write attachment file")?;
-    let rel = conversation_media_abs_to_rel(&file_path).unwrap_or_else(|| {
-        build_storage_rel(&session_user_id, conversation_id, &stored_name)
-    });
-    log::info!("save_attachment_bytes conv={conversation_id} id={id} -> {} rel={} ({} bytes)", file_path.display(), rel, bytes.len());
+    let rel = conversation_media_abs_to_rel(&file_path)
+        .unwrap_or_else(|| build_storage_rel(&session_user_id, conversation_id, &stored_name));
+    log::info!(
+        "save_attachment_bytes conv={conversation_id} id={id} -> {} rel={} ({} bytes)",
+        file_path.display(),
+        rel,
+        bytes.len()
+    );
     Ok(rel)
 }
 
@@ -298,12 +301,12 @@ fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
         .to_string();
     let mime_type = mime_from_path(path);
     let mime_lower = mime_type.to_ascii_lowercase();
-    let needs_audio_transcode =
-        mime_lower.starts_with("audio/") && mime_lower != "audio/wav"
-            || file_name.to_ascii_lowercase().ends_with(".bin");
+    let needs_audio_transcode = mime_lower.starts_with("audio/") && mime_lower != "audio/wav"
+        || file_name.to_ascii_lowercase().ends_with(".bin");
     if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available() {
         let storage_ctx = conversation_media_abs_to_rel(path).map(|rel| {
-            let (conv, id) = parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
+            let (conv, id) =
+                parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
             crate::media::audio::AudioStorageContext {
                 storage_rel_path: Some(rel),
                 conversation_id: conv,

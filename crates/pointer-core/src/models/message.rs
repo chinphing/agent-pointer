@@ -24,10 +24,18 @@ pub struct ToolCall {
     #[serde(default, rename = "riskLevel")]
     pub risk_level: Option<String>,
     /// UI-only Chinese label (not sent to the LLM).
-    #[serde(default, rename = "displayLabel", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "displayLabel",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub display_label: Option<String>,
     /// UI-only short parameter summary (not sent to the LLM).
-    #[serde(default, rename = "displaySummary", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "displaySummary",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub display_summary: Option<String>,
 }
 
@@ -65,13 +73,25 @@ pub struct SubAgentSessionUi {
     pub thoughts: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headline: Option<String>,
-    #[serde(default, rename = "toolNamePreview", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "toolNamePreview",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub tool_name_preview: Option<String>,
-    #[serde(default, rename = "responseTextDraft", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "responseTextDraft",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub response_text_draft: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
-    #[serde(default, rename = "rawContent", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "rawContent",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub raw_content: Option<String>,
     #[serde(default, rename = "contentStreaming")]
     pub content_streaming: bool,
@@ -79,7 +99,11 @@ pub struct SubAgentSessionUi {
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(default)]
     pub stats: SubAgentToolStats,
-    #[serde(default, rename = "summaryLine", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "summaryLine",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub summary_line: Option<String>,
     #[serde(default)]
     pub collapsed: bool,
@@ -118,17 +142,33 @@ pub struct AgentTrace {
     #[serde(default, rename = "userExpanded")]
     pub user_expanded: bool,
     /// Runtime child invocation UUID used to isolate scoped rows with reused task IDs.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "agentInstanceId")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "agentInstanceId"
+    )]
     pub agent_instance_id: Option<String>,
     /// Set on `run_subagent` → `computer` traces; controls dock-bar shrink in the desktop client.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "computerTarget")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "computerTarget"
+    )]
     pub computer_target: Option<ComputerOperationTarget>,
     /// Parent assistant `run_subagent` tool-call id; UI nests the sub-agent frame under that row.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "parentToolCallId")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "parentToolCallId"
+    )]
     pub parent_tool_call_id: Option<String>,
     /// The `ChatMessage.id` that owns this trace's scoped child messages (for nested
     /// sub-agents this differs from the lead anchor; see [`AgentTrace::parent_tool_call_id`]).
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "anchorMessageId")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "anchorMessageId"
+    )]
     pub anchor_message_id: Option<String>,
 }
 
@@ -206,7 +246,11 @@ pub struct ChatMessage {
     #[serde(default, rename = "agentId")]
     pub agent_id: Option<String>,
     /// Runtime agent launch UUID (one per lead / sub-agent invocation).
-    #[serde(default, rename = "agentInstanceId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "agentInstanceId",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub agent_instance_id: Option<String>,
     #[serde(default, rename = "agentName")]
     pub agent_name: Option<String>,
@@ -214,7 +258,11 @@ pub struct ChatMessage {
     pub agent_trace: Option<Vec<AgentTrace>>,
     /// PNG (or other) images as raw base64 payloads for vision APIs. Serialized for the UI only when
     /// present; ephemeral computer screen inject uses this without persisting to conversation files.
-    #[serde(default, rename = "imagesBase64", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "imagesBase64",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub images_base64: Option<Vec<String>>,
     /// Slot labels prepended in the API request immediately before each `images_base64` entry (same length).
     #[serde(
@@ -231,23 +279,39 @@ pub struct ChatMessage {
     )]
     pub computer_round_screen_rel_path: Option<String>,
     /// UI mount hints (e.g. TaskBoard anchor); persisted with conversation.
-    #[serde(default, rename = "uiBindings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "uiBindings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ui_bindings: Option<MessageUiBindings>,
     /// Whether this message is included in LLM context.
-    #[serde(default, rename = "contextState", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "contextState",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub context_state: Option<MessageContextState>,
     /// User-attached files/images (metadata persisted; base64 wire-only via `contentBase64`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<MediaAttachment>>,
     /// Parent lead assistant message id (scoped sub-agent transcript rows).
-    #[serde(default, rename = "anchorMessageId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "anchorMessageId",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub anchor_message_id: Option<String>,
     /// Stable sub-task trace id; self-forks include a unique instance segment.
     #[serde(default, rename = "traceId", skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
     #[serde(default, rename = "taskId", skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
-    #[serde(default, rename = "spawnDepth", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "spawnDepth",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub spawn_depth: Option<u32>,
 }
 
@@ -301,21 +365,41 @@ pub struct MediaAttachment {
     pub file_name: String,
     #[serde(default, rename = "sizeBytes")]
     pub size_bytes: u64,
-    #[serde(default, rename = "storageRelPath", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "storageRelPath",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub storage_rel_path: Option<String>,
     /// Wire-only payload; stripped before conversation persist.
-    #[serde(default, rename = "contentBase64", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "contentBase64",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub content_base64: Option<String>,
-    #[serde(default, rename = "derivedText", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "derivedText",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub derived_text: Option<String>,
     /// Absolute local path for assistant reply `MEDIA:` preview in App UI.
-    #[serde(default, rename = "localAbsPath", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "localAbsPath",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub local_abs_path: Option<String>,
     /// OSS HTTPS URL for video attachments (Composer upload).
     #[serde(default, rename = "remoteUrl", skip_serializing_if = "Option::is_none")]
     pub remote_url: Option<String>,
     /// OSS object key for re-signing or cleanup (optional).
-    #[serde(default, rename = "ossObjectKey", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "ossObjectKey",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub oss_object_key: Option<String>,
 }
 

@@ -5,9 +5,17 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentUiConfig {
-    #[serde(default, rename = "showInComposer", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showInComposer",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_in_composer: Option<bool>,
-    #[serde(default, rename = "showAgentLabel", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showAgentLabel",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_agent_label: Option<bool>,
     #[serde(
         default,
@@ -21,27 +29,67 @@ pub struct AgentUiConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub show_non_sidecar_tool_calls: Option<bool>,
-    #[serde(default, rename = "showReasoning", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showReasoning",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_reasoning: Option<bool>,
-    #[serde(default, rename = "showSubAgentTrace", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showSubAgentTrace",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_sub_agent_trace: Option<bool>,
-    #[serde(default, rename = "showToolCalls", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showToolCalls",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_tool_calls: Option<bool>,
-    #[serde(default, rename = "showToolCallResults", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showToolCallResults",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_tool_call_results: Option<bool>,
-    #[serde(default, rename = "hideToolNames", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "hideToolNames",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub hide_tool_names: Option<Vec<String>>,
-    #[serde(default, rename = "showWorkspacePicker", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showWorkspacePicker",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_workspace_picker: Option<bool>,
-    #[serde(default, rename = "showComputerMonitorPicker", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showComputerMonitorPicker",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_computer_monitor_picker: Option<bool>,
-    #[serde(default, rename = "showTaskBoardPanel", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "showTaskBoardPanel",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub show_task_board_panel: Option<bool>,
     /// When true, user may pick this worker in the chat composer agent menu.
-    #[serde(default, rename = "userSelectable", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "userSelectable",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub user_selectable: Option<bool>,
     /// Optional label for the chat composer agent picker (UI only).
-    #[serde(default, rename = "composerLabel", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "composerLabel",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub composer_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
@@ -104,7 +152,13 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         show_tool_calls: !is_supervisor,
         show_tool_call_results: false,
         hide_tool_names: if has_task_board {
-            vec!["task_board_init".into(), "task_board_patch".into(), "task_board_replace".into(), "task_board_finalize".into(), "task_board_abandon".into()]
+            vec![
+                "task_board_init".into(),
+                "task_board_patch".into(),
+                "task_board_replace".into(),
+                "task_board_finalize".into(),
+                "task_board_abandon".into(),
+            ]
         } else {
             vec![]
         },
@@ -138,8 +192,7 @@ fn merge_vec(manifest: Option<Vec<String>>, base: Vec<String>) -> Vec<String> {
 }
 
 fn merge_str(manifest: Option<String>, base: String) -> String {
-    manifest.filter(|s| !s.trim().is_empty())
-        .unwrap_or(base)
+    manifest.filter(|s| !s.trim().is_empty()).unwrap_or(base)
 }
 
 fn merge_composer_label(

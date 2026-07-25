@@ -1,10 +1,10 @@
 //! Sub-agent session bootstrap and per-round system prompt assembly.
 
+use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{
     delegatable_sub_agents_system_block, expand_agent_prompt_placeholders, normalize_allow_agents,
     AgentDef, AgentProfile, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
 };
-use crate::agent_instance_scope::AgentInstanceScope;
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, Role, SystemPromptSections};
 use crate::provider::OpenAIProvider;
@@ -14,19 +14,18 @@ use std::time::Instant;
 
 use super::agent_tool_allowlist::{resolve_agent_tools, retain_inheritable_subagent_tools};
 use super::app_state::AppState;
+use super::emit::agent_trace_step_id;
 use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
 use super::self_fork::SelfForkSnapshot;
 use super::sub_agent_task_prompt::{
     build_subagent_initial_user_message, build_subagent_spawn_depth_block,
-    build_subagent_task_system_blocks, push_sub_agent_task_system_dynamic,
-    SubAgentSpawnCapability,
+    build_subagent_task_system_blocks, push_sub_agent_task_system_dynamic, SubAgentSpawnCapability,
 };
+use super::sub_message::{persist_sub_message, SubMessageLinkage};
+use super::util::{new_id, now_ms};
 use crate::task_board::{
     sub_agent_task_board_store_key, sub_agent_task_board_store_key_for_instance,
 };
-use super::emit::agent_trace_step_id;
-use super::sub_message::{persist_sub_message, SubMessageLinkage};
-use super::util::{new_id, now_ms};
 
 pub(super) enum SubAgentDefinitionSource<'a> {
     Registered(&'a AgentTask),
@@ -87,8 +86,7 @@ pub(super) fn sub_agent_trace_id(
     instance_scope: &AgentInstanceScope,
 ) -> String {
     if task.agent_id.trim() == "self" || task.agent_id.trim() == "explore" {
-        let scoped_agent_id =
-            agent_trace_step_id(&instance_scope.agent_instance_id, &def.id);
+        let scoped_agent_id = agent_trace_step_id(&instance_scope.agent_instance_id, &def.id);
         agent_trace_step_id(&task.id, &scoped_agent_id)
     } else {
         agent_trace_step_id(&task.id, &def.id)
@@ -183,15 +181,7 @@ pub(super) fn init_sub_agent_session(
     spawn_depth: u32,
     max_spawn_depth: u32,
 ) -> Result<SubAgentSession> {
-    let (
-        def,
-        system_prompt,
-        skill_ids,
-        skill_prompts,
-        allowed_tools,
-        allow_agents,
-        workspace_root,
-    ) =
+    let (def, system_prompt, skill_ids, skill_prompts, allowed_tools, allow_agents, workspace_root) =
         match definition_source {
             SubAgentDefinitionSource::Registered(source_task) => {
                 let agent = state
@@ -205,8 +195,7 @@ pub(super) fn init_sub_agent_session(
                     enabled_skill_ids,
                     agent_skill_overrides,
                 );
-                let (skill_prompts, session_tools) =
-                    state.skills.progressive_context(&skill_ids);
+                let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
                 let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
                 let allow_agents = normalize_allow_agents(&def.allow_agents);
                 (
@@ -291,11 +280,8 @@ pub(super) fn init_sub_agent_session(
         }
     }
     session_extras.extend(skill_prompts.clone());
-    let mut task_dynamic_blocks = build_subagent_task_system_blocks(
-        &task.goal,
-        &task.context,
-        workspace_root.as_str(),
-    );
+    let mut task_dynamic_blocks =
+        build_subagent_task_system_blocks(&task.goal, &task.context, workspace_root.as_str());
     task_dynamic_blocks.push(build_subagent_spawn_depth_block(
         spawn_depth,
         max_spawn_depth,
@@ -303,10 +289,7 @@ pub(super) fn init_sub_agent_session(
     ));
 
     let tools_system_appendix =
-        crate::tools_system_appendix::generate_tools_system_appendix(
-            &state.tools,
-            &allowed_tools,
-        );
+        crate::tools_system_appendix::generate_tools_system_appendix(&state.tools, &allowed_tools);
     let tool_approval_mode = state.effective_settings().tool_approval_mode;
     let linkage =
         build_sub_agent_linkage(anchor_message_id, task, &def, &instance_scope, spawn_depth);
@@ -453,9 +436,8 @@ pub(super) async fn prepare_sub_agent_round_prompts(
 #[cfg(test)]
 mod definition_source_tests {
     use super::{
-        build_sub_agent_linkage, fresh_sub_agent_local_history,
-        resolve_child_task_board_store_key, resolve_subagent_spawn_capability,
-        SubAgentDefinitionSource,
+        build_sub_agent_linkage, fresh_sub_agent_local_history, resolve_child_task_board_store_key,
+        resolve_subagent_spawn_capability, SubAgentDefinitionSource,
     };
     use crate::agents::{
         AccessPolicy, AgentDef, AgentProfile, AgentTask, AgentUiConfig, SkillsPolicy,
@@ -530,15 +512,11 @@ mod definition_source_tests {
 
         let source = SubAgentDefinitionSource::Snapshot(&snapshot);
         let instance_scope = source.new_instance_scope("run", "conversation");
-        let linkage =
-            build_sub_agent_linkage("anchor", &task, &snapshot.def, &instance_scope, 1);
+        let linkage = build_sub_agent_linkage("anchor", &task, &snapshot.def, &instance_scope, 1);
 
         assert_eq!(
             linkage.trace_id,
-            format!(
-                "task-1:{}:active-parent",
-                instance_scope.agent_instance_id
-            )
+            format!("task-1:{}:active-parent", instance_scope.agent_instance_id)
         );
         assert_eq!(linkage.agent_instance_id, instance_scope.agent_instance_id);
     }
@@ -587,12 +565,7 @@ mod definition_source_tests {
         let mut allowed_tools = vec!["terminal".to_string(), "run_subagent".to_string()];
         let allow_agents = vec!["explore".to_string()];
 
-        let capability = resolve_subagent_spawn_capability(
-            &mut allowed_tools,
-            &allow_agents,
-            2,
-            2,
-        );
+        let capability = resolve_subagent_spawn_capability(&mut allowed_tools, &allow_agents, 2, 2);
 
         assert_eq!(
             capability,

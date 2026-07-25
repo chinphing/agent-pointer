@@ -22,9 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::chat_service::AppState;
 use crate::conversation_store::cron_jobs::CronJobRecord;
-use crate::dispatcher::{
-    RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource,
-};
+use crate::dispatcher::{RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource};
 use crate::models::{ChatMessage, StreamEvent};
 use crate::stream_broadcast;
 
@@ -123,7 +121,9 @@ impl Scheduler {
     }
 
     async fn dispatch_job(&self, job: &CronJobRecord) {
-        let scheduled_ms = job.next_run_at_ms.unwrap_or_else(|| Utc::now().timestamp_millis());
+        let scheduled_ms = job
+            .next_run_at_ms
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
         // Idempotency key scopes to this scheduled slot; a repeated tick for
         // the same slot reuses the existing run instead of double-firing.
         let idempotency_key = format!("cron:{}:{}", job.id, scheduled_ms);
@@ -160,10 +160,7 @@ impl Scheduler {
                 .session_index
                 .ensure_cron_session(&expected_session_id, &job.label)
             {
-                log::warn!(
-                    "scheduler: ensure_cron_session failed id={}: {e:#}",
-                    job.id
-                );
+                log::warn!("scheduler: ensure_cron_session failed id={}: {e:#}", job.id);
             }
             log::info!(
                 "scheduler: cron session {} id={} session={}",
@@ -178,11 +175,7 @@ impl Scheduler {
         }
         // Load the active session's transcript; on a rollover/first-fire this is
         // empty (new session id), so the new prompt starts a fresh transcript.
-        let mut messages = match self
-            .state
-            .session_index
-            .load_messages(&expected_session_id)
-        {
+        let mut messages = match self.state.session_index.load_messages(&expected_session_id) {
             Ok(history) => history,
             Err(e) => {
                 log::warn!(
@@ -279,7 +272,8 @@ with exactly \"[SILENT]\" (nothing else) to suppress delivery. \
 Never combine [SILENT] with content — either report your \
 findings normally, or say [SILENT] and nothing more.]\n\n";
 
-const AUTO_DELIVER_HINT: &str = "Your final reply is auto-delivered to IM — do not call im_send to duplicate it.\n\
+const AUTO_DELIVER_HINT: &str =
+    "Your final reply is auto-delivered to IM — do not call im_send to duplicate it.\n\
 If there is nothing to report, reply with exactly [SILENT] and nothing else.";
 
 /// Build the `TriggerMeta` for a cron tick. `job_id` is always set so the

@@ -1,10 +1,10 @@
 //! Task board init hints for dynamic user inject (delegates to [`super::init_policy`]).
 
-use crate::agents::AgentProfile;
-use crate::models::ChatMessage;
 use super::coordination::is_child_store_key;
 use super::init_policy;
 use super::store::TaskBoardStore;
+use crate::agents::AgentProfile;
+use crate::models::ChatMessage;
 
 pub use init_policy::TASK_BOARD_HINT_TAG;
 

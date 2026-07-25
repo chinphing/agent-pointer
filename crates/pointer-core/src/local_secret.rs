@@ -22,7 +22,9 @@ fn machine_identity() -> Vec<u8> {
             fallback_identity()
         }
         Err(e) => {
-            log::warn!("local_secret: machine-uid unavailable ({e}); falling back to hostname+username");
+            log::warn!(
+                "local_secret: machine-uid unavailable ({e}); falling back to hostname+username"
+            );
             fallback_identity()
         }
     }
@@ -42,8 +44,7 @@ fn derive_key_with_info(info: &[u8]) -> [u8; 32] {
     let identity = machine_identity();
     let hk = Hkdf::<Sha256>::new(Some(APP_PEPPER), &identity);
     let mut key = [0u8; 32];
-    hk.expand(info, &mut key)
-        .expect("HKDF expand to 32 bytes");
+    hk.expand(info, &mut key).expect("HKDF expand to 32 bytes");
     key
 }
 

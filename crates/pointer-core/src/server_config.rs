@@ -234,7 +234,8 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
             eprintln!("pointer-server: skipped {key} (environment already set to {current})");
         }
     }
-    let effective_addr = std::env::var("POINTER_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());
+    let effective_addr =
+        std::env::var("POINTER_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());
     eprintln!("pointer-server: effective POINTER_SERVER_ADDR={effective_addr}");
     Ok(Some(ServerConfigLoadResult {
         path,
@@ -280,8 +281,8 @@ fn resolve_config_path() -> Result<Option<PathBuf>> {
 }
 
 fn parse_env_file(path: &Path) -> Result<Vec<(String, String)>> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("read config file {}", path.display()))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("read config file {}", path.display()))?;
     Ok(parse_dotenv_bytes(&bytes).into_iter().collect())
 }
 
@@ -476,10 +477,7 @@ fn resolve_license_key(license: &LicenseSection, base_dir: &Path) -> Option<Stri
         Ok(text) => {
             let trimmed = text.trim();
             if trimmed.is_empty() {
-                log::warn!(
-                    "server_config: license file {} is empty",
-                    path.display()
-                );
+                log::warn!("server_config: license file {} is empty", path.display());
                 None
             } else {
                 Some(trimmed.to_string())
@@ -634,11 +632,13 @@ require_allowed_users = true
         let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
         let map: HashMap<_, _> = pairs.into_iter().collect();
         assert_eq!(
-            map.get("POINTER_SERVER_ALLOWED_USER_IDS").map(String::as_str),
+            map.get("POINTER_SERVER_ALLOWED_USER_IDS")
+                .map(String::as_str),
             Some("user-a,user-b")
         );
         assert_eq!(
-            map.get("POINTER_SERVER_REQUIRE_ALLOWED_USERS").map(String::as_str),
+            map.get("POINTER_SERVER_REQUIRE_ALLOWED_USERS")
+                .map(String::as_str),
             Some("true")
         );
     }
@@ -685,7 +685,10 @@ POINTER_WEB_SEARCH_MODEL = "gpt-4o-mini"
         .unwrap();
         let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
         let map: HashMap<_, _> = pairs.into_iter().collect();
-        assert_eq!(map.get("POINTER_SERVER_ADDR").map(String::as_str), Some("0.0.0.0:9999"));
+        assert_eq!(
+            map.get("POINTER_SERVER_ADDR").map(String::as_str),
+            Some("0.0.0.0:9999")
+        );
         assert_eq!(
             map.get("POINTER_SERVER_STATIC_DIR").map(String::as_str),
             Some(dir.path().join("dist").to_str().unwrap())
@@ -694,7 +697,10 @@ POINTER_WEB_SEARCH_MODEL = "gpt-4o-mini"
             map.get("POINTER_API_BASE").map(String::as_str),
             Some("https://api.example.com")
         );
-        assert_eq!(map.get("POINTER_WEB_SEARCH_MODEL").map(String::as_str), Some("gpt-4o-mini"));
+        assert_eq!(
+            map.get("POINTER_WEB_SEARCH_MODEL").map(String::as_str),
+            Some("gpt-4o-mini")
+        );
     }
 
     #[test]
@@ -722,8 +728,7 @@ api_base = "https://legacy.example.com"
         let _guard = env_guard();
         let key = "POINTER_SERVER_CONFIG_TEST_ONLY";
         std::env::set_var(key, "from_env");
-        let (applied, skipped) =
-            apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
+        let (applied, skipped) = apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
         assert!(applied.is_empty());
         assert_eq!(skipped, vec![key.to_string()]);
         assert_eq!(std::env::var(key).unwrap(), "from_env");
@@ -735,8 +740,7 @@ api_base = "https://legacy.example.com"
         let _guard = env_guard();
         let key = "POINTER_SERVER_CONFIG_TEST_ONLY";
         std::env::remove_var(key);
-        let (applied, skipped) =
-            apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
+        let (applied, skipped) = apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
         assert_eq!(applied.len(), 1);
         assert!(skipped.is_empty());
         assert_eq!(std::env::var(key).unwrap(), "from_file");

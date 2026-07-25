@@ -10,7 +10,9 @@ use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, SupervisorPlanTa
 
 use super::emit::{agent_trace_step_id, emit, emit_agent_step, emit_task_board_updated};
 use super::session_budget::SessionToolBudget;
-use super::supervisor_plan::{fallback_agent_tasks, plan_agent_tasks, sort_agent_tasks_topologically};
+use super::supervisor_plan::{
+    fallback_agent_tasks, plan_agent_tasks, sort_agent_tasks_topologically,
+};
 use super::supervisor_synth::synthesize_final_answer;
 use super::util::{new_id, now_ms, truncate_str};
 use crate::task_board::{
@@ -26,8 +28,8 @@ pub(crate) async fn run_supervisor_chat(
     let state = ctx.session.state.clone();
     let conversation_id = ctx.session.conversation_id;
     let parent_board_key = ctx.main_task_board_store_key;
-    let parent_anchor_message_id = state
-        .get_main_task_board_anchor(conversation_id, parent_board_key);
+    let parent_anchor_message_id =
+        state.get_main_task_board_anchor(conversation_id, parent_board_key);
     let provider = &ctx.provider;
     let cancel = ctx.session.cancel.clone();
     let run_id = ctx.run_id;
@@ -97,7 +99,8 @@ pub(crate) async fn run_supervisor_chat(
     let tasks = sort_agent_tasks_topologically(tasks);
     let tasks: Vec<_> = tasks.into_iter().take(limits.max_sub_agents).collect();
 
-    let plan_goal = ctx.history
+    let plan_goal = ctx
+        .history
         .iter()
         .rev()
         .find(|m| matches!(m.role, Role::User))
@@ -168,9 +171,8 @@ pub(crate) async fn run_supervisor_chat(
                 None,
             )
         });
-        let instance_scope =
-            super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task)
-                .new_instance_scope(run_id, conversation_id);
+        let instance_scope = super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task)
+            .new_instance_scope(run_id, conversation_id);
         emit_agent_step(
             &stream,
             &assistant_id,
@@ -284,16 +286,16 @@ pub(crate) async fn run_supervisor_chat(
             enabled_skill_ids: ctx.enabled_skill_ids,
             agent_skill_overrides: ctx.agent_skill_overrides,
             task: &task_run,
-            definition_source:
-                super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task_run),
+            definition_source: super::sub_agent_prompt::SubAgentDefinitionSource::Registered(
+                &task_run,
+            ),
             instance_scope: instance_scope.clone(),
             sub_tool_budget: &mut sub_budget,
             llm_stats: ctx.llm_stats,
             spawn_depth: 1,
             max_spawn_depth,
         };
-        match super::sub_agent::run_sub_agent(&mut sub_ctx).await
-        {
+        match super::sub_agent::run_sub_agent(&mut sub_ctx).await {
             Ok(result) => {
                 ctx.tool_budget.record_tool_cycle();
                 let mut parent = state.task_board_store.document(parent_board_key);
@@ -306,7 +308,9 @@ pub(crate) async fn run_supervisor_chat(
                     ) {
                         log::warn!("supervisor: report_child_status failed: {err}");
                     } else {
-                        state.task_board_store.save_document(parent_board_key, parent.clone());
+                        state
+                            .task_board_store
+                            .save_document(parent_board_key, parent.clone());
                         emit_task_board_updated(
                             &stream,
                             conversation_id,
@@ -344,15 +348,14 @@ pub(crate) async fn run_supervisor_chat(
                 let mut parent = state.task_board_store.document(parent_board_key);
                 if parent.global_milestones.iter().any(|i| i.id == task.id) {
                     let note = err.to_string();
-                    if let Err(rep) = report_child_status(
-                        &mut parent,
-                        task.id.trim(),
-                        ItemStatus::Failed,
-                        &note,
-                    ) {
+                    if let Err(rep) =
+                        report_child_status(&mut parent, task.id.trim(), ItemStatus::Failed, &note)
+                    {
                         log::warn!("supervisor: report_child_status (failed) err: {rep}");
                     } else {
-                        state.task_board_store.save_document(parent_board_key, parent.clone());
+                        state
+                            .task_board_store
+                            .save_document(parent_board_key, parent.clone());
                         emit_task_board_updated(
                             &stream,
                             conversation_id,

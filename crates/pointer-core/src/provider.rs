@@ -29,9 +29,7 @@ pub fn set_llm_user_agent(value: &str) -> Result<()> {
         if existing == value {
             return Ok(());
         }
-        return Err(anyhow!(
-            "LLM User-Agent already configured as '{existing}'"
-        ));
+        return Err(anyhow!("LLM User-Agent already configured as '{existing}'"));
     }
     LLM_USER_AGENT
         .set(value.to_string())
@@ -377,7 +375,8 @@ impl OpenAIProvider {
             crate::media::model_supports_vision(&self.settings),
             crate::message_context::LlmHistoryScope::Lead,
         );
-        let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
+        let max_tok =
+            max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
         crate::llm_prompt_dump::try_dump_round(
             &self.settings,
@@ -400,11 +399,7 @@ impl OpenAIProvider {
             } else {
                 Some(native_tools)
             },
-            tool_choice: if tools_empty {
-                None
-            } else {
-                Some("auto")
-            },
+            tool_choice: if tools_empty { None } else { Some("auto") },
             extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
@@ -479,7 +474,8 @@ impl OpenAIProvider {
                     .map(|p| p.base_url.clone())
                     .unwrap_or_default()
             });
-        let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
+        let max_tok =
+            max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
         crate::llm_prompt_dump::try_dump_round(
             &self.settings,
@@ -607,9 +603,10 @@ impl OpenAIProvider {
                     .map(|p| p.base_url.clone())
                     .unwrap_or_default()
             });
-        let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
-        let mut extra_body = crate::models::effective_chat_extra_body(&self.settings)
-            .unwrap_or_else(|| json!({}));
+        let max_tok =
+            max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
+        let mut extra_body =
+            crate::models::effective_chat_extra_body(&self.settings).unwrap_or_else(|| json!({}));
         let has_response_format = response_format.is_some();
         if let Some(rf) = response_format {
             if let Some(obj) = extra_body.as_object_mut() {
@@ -936,11 +933,7 @@ impl OpenAIProvider {
             max_tokens: Some(max_tok),
             stream_options,
             tools: if tools_empty { None } else { Some(tools) },
-            tool_choice: if tools_empty {
-                None
-            } else {
-                Some("auto")
-            },
+            tool_choice: if tools_empty { None } else { Some("auto") },
             extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
@@ -1036,7 +1029,8 @@ impl OpenAIProvider {
                             let idx = call.index;
                             let state = tool_states.entry(idx).or_default();
                             if state.id.is_empty() {
-                                if let Some(id) = call.id.as_ref().filter(|s| !s.trim().is_empty()) {
+                                if let Some(id) = call.id.as_ref().filter(|s| !s.trim().is_empty())
+                                {
                                     state.id = id.clone();
                                 }
                             }
@@ -1157,11 +1151,7 @@ impl OpenAIProvider {
             } else {
                 Some(native_tools)
             },
-            tool_choice: if tools_empty {
-                None
-            } else {
-                Some("auto")
-            },
+            tool_choice: if tools_empty { None } else { Some("auto") },
             extra_body,
         };
 
@@ -1274,7 +1264,8 @@ impl OpenAIProvider {
                             let idx = call.index;
                             let state = tool_states.entry(idx).or_default();
                             if state.id.is_empty() {
-                                if let Some(id) = call.id.as_ref().filter(|s| !s.trim().is_empty()) {
+                                if let Some(id) = call.id.as_ref().filter(|s| !s.trim().is_empty())
+                                {
                                     state.id = id.clone();
                                 }
                             }
@@ -1291,8 +1282,7 @@ impl OpenAIProvider {
                                 }
                             }
                             if state.id.is_empty() {
-                                state.id =
-                                    format!("native_{stream_tool_session_id}_{idx}");
+                                state.id = format!("native_{stream_tool_session_id}_{idx}");
                             }
                             if !state.started && !state.name.trim().is_empty() {
                                 state.started = true;

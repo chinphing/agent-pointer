@@ -2,9 +2,7 @@
 
 use serde_json::Value;
 
-pub use super::wire_format::{
-    build_verify_wire_messages, VerifyWireInput, TAG_VERIFY,
-};
+pub use super::wire_format::{build_verify_wire_messages, VerifyWireInput, TAG_VERIFY};
 
 /// Text-only debug view of pipeline wire messages (images replaced with placeholders).
 pub fn wire_messages_debug_text(messages: &[Value]) -> String {

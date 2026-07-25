@@ -115,7 +115,11 @@ pub fn register(registry: &mut ExtensionRegistry) {
     registry.register_message_loop_prompts_after(Arc::new(ComputerScreenInject));
 }
 
-fn emit_screen_thread_notice(ctx: &MessageLoopPromptsAfterContext<'_>, message_id: String, content: String) {
+fn emit_screen_thread_notice(
+    ctx: &MessageLoopPromptsAfterContext<'_>,
+    message_id: String,
+    content: String,
+) {
     let Some(tx) = ctx.stream else {
         return;
     };
@@ -126,7 +130,11 @@ fn emit_screen_thread_notice(ctx: &MessageLoopPromptsAfterContext<'_>, message_i
     });
 }
 
-fn emit_screen_notice_update(ctx: &MessageLoopPromptsAfterContext<'_>, message_id: String, content: String) {
+fn emit_screen_notice_update(
+    ctx: &MessageLoopPromptsAfterContext<'_>,
+    message_id: String,
+    content: String,
+) {
     let Some(tx) = ctx.stream else {
         return;
     };
@@ -161,7 +169,11 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             DESKTOP_NOTICE_PROCESSING.to_string(),
         );
 
-        match ctx.computer_state.capture_and_annotate(ctx.conversation_id).await {
+        match ctx
+            .computer_state
+            .capture_and_annotate(ctx.conversation_id)
+            .await
+        {
             Ok((cap, refreshed_monitor_id)) => {
                 if let (Some(tx), Some(new_id)) = (ctx.stream, refreshed_monitor_id.as_ref()) {
                     let _ = tx.send(StreamEvent::ComputerMonitorUpdated {
@@ -174,14 +186,17 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     .as_deref()
                     .or(ctx.round_assistant_message_id.as_deref())
                     .unwrap_or("round_unknown");
-                let tier = ctx.computer_state.tier_for_conversation(ctx.conversation_id);
+                let tier = ctx
+                    .computer_state
+                    .tier_for_conversation(ctx.conversation_id);
                 let annotated_rel = capture_debug::save_computer_capture_debug(
                     ctx.conversation_id,
                     dump_prefix,
                     &cap,
                     tier,
                 );
-                if let (Some(tx), Some(mid)) = (ctx.stream, ctx.round_assistant_message_id.as_ref()) {
+                if let (Some(tx), Some(mid)) = (ctx.stream, ctx.round_assistant_message_id.as_ref())
+                {
                     if let Some(rel) = annotated_rel {
                         let _ = tx.send(StreamEvent::AssistantRoundScreen {
                             conversation_id: ctx.conversation_id.to_string(),
@@ -190,23 +205,19 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                         });
                     }
                 }
-                emit_screen_notice_update(
-                    ctx,
-                    notice_id,
-                    DESKTOP_NOTICE_READY.to_string(),
-                );
+                emit_screen_notice_update(ctx, notice_id, DESKTOP_NOTICE_READY.to_string());
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 let has_previous_raw = cap.inject_before_action.is_some();
                 let (image_slot_labels, images) = assemble_cur_screen_payload(tier, &cap);
                 let mut text = cur_screen_clock_prefix();
-                if let Some(label) = ctx
-                    .computer_state
-                    .locked_goal_label(ctx.conversation_id)
-                {
+                if let Some(label) = ctx.computer_state.locked_goal_label(ctx.conversation_id) {
                     text.push_str(&format!("Locked goal: {label}\n\n"));
                 }
                 text.push_str(&build_cur_screen_preamble(tier, has_previous_raw));
-                if let Some(block) = ctx.computer_state.recent_actions_prompt_block(ctx.conversation_id) {
+                if let Some(block) = ctx
+                    .computer_state
+                    .recent_actions_prompt_block(ctx.conversation_id)
+                {
                     text.push_str("\n\n");
                     text.push_str(&block);
                     text.push('\n');
@@ -236,14 +247,14 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     image_slot_labels: Some(image_slot_labels),
                     images_base64: Some(images),
                     computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            });
+                    ui_bindings: None,
+                    context_state: None,
+                    attachments: None,
+                    anchor_message_id: None,
+                    trace_id: None,
+                    task_id: None,
+                    spawn_depth: None,
+                });
             }
             Err(e) => {
                 log::warn!("computer screenshot processing failed: {:#}", e);
@@ -274,14 +285,14 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     image_slot_labels: None,
                     images_base64: None,
                     computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            });
+                    ui_bindings: None,
+                    context_state: None,
+                    attachments: None,
+                    anchor_message_id: None,
+                    trace_id: None,
+                    task_id: None,
+                    spawn_depth: None,
+                });
             }
         }
         Ok(())
@@ -316,14 +327,14 @@ mod tests {
             image_slot_labels: None,
             images_base64: images.map(|v| v.into_iter().map(String::from).collect()),
             computer_round_screen_rel_path: None,
-        ui_bindings: None,
+            ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-            }
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        }
     }
 
     fn dummy_cap(has_before: bool) -> ScreenCaptureResult {
@@ -387,7 +398,10 @@ mod tests {
         let (labels_no_before, images_no_before) =
             assemble_cur_screen_payload(ComputerTier::Primary, &cap_no_before);
         assert_eq!(labels_no_before.len(), 2);
-        assert_eq!(labels_no_before, vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]);
+        assert_eq!(
+            labels_no_before,
+            vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
+        );
         assert_eq!(labels_no_before.len(), images_no_before.len());
 
         let cap_with_before = dummy_cap(true);
@@ -396,7 +410,11 @@ mod tests {
         assert_eq!(labels_with_before.len(), 3);
         assert_eq!(
             labels_with_before,
-            vec![SLOT_SCREEN_BEFORE_ACTION, SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
+            vec![
+                SLOT_SCREEN_BEFORE_ACTION,
+                SLOT_SCREEN_AFTER_ACTION,
+                SLOT_SCREEN_ANNOTATED
+            ]
         );
         assert_eq!(labels_with_before.len(), images_with_before.len());
     }
@@ -411,7 +429,10 @@ mod tests {
         ] {
             let (labels, images) = assemble_cur_screen_payload(tier, &cap);
             assert_eq!(labels.len(), 2, "tier={tier:?}");
-            assert_eq!(labels, vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]);
+            assert_eq!(
+                labels,
+                vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
+            );
             assert_eq!(labels.len(), images.len());
         }
     }
@@ -428,7 +449,11 @@ mod tests {
             assert_eq!(labels.len(), 3, "tier={tier:?}");
             assert_eq!(
                 labels,
-                vec![SLOT_SCREEN_BEFORE_ACTION, SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
+                vec![
+                    SLOT_SCREEN_BEFORE_ACTION,
+                    SLOT_SCREEN_AFTER_ACTION,
+                    SLOT_SCREEN_ANNOTATED
+                ]
             );
             assert_eq!(labels.len(), images.len());
         }

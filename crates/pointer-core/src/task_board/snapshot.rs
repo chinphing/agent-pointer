@@ -29,17 +29,30 @@ pub fn format_parent_tunnel_block(parent: &BoardDocument, sub_task_id: &str) -> 
 }
 
 pub fn format_parent_tunnel_block_full(parent: &BoardDocument, sub_task_id: &str) -> String {
-    let mut lines = vec!["[TASK_BOARD_PARENT]".to_string(), "read_only: true".to_string()];
+    let mut lines = vec![
+        "[TASK_BOARD_PARENT]".to_string(),
+        "read_only: true".to_string(),
+    ];
     if !parent.meta.goal.is_empty() {
         lines.push(format!("goal: {}", parent.meta.goal));
     }
     if !parent.meta.context.trim().is_empty() {
         lines.push(format!("context: {}", parent.meta.context.trim()));
     }
-    if let Some(c) = parent.meta.constraints.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(c) = parent
+        .meta
+        .constraints
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         append_constraints_block(&mut lines, "constraints", c);
     }
-    if let Some(dw) = parent.meta.done_when.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(dw) = parent
+        .meta
+        .done_when
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         lines.push(format!("done_when: {dw}"));
     }
     lines.push(format!(
@@ -62,7 +75,11 @@ pub fn format_parent_tunnel_block_full(parent: &BoardDocument, sub_task_id: &str
     for f in parent.global_context.key_findings.iter().rev().take(8) {
         lines.push(format!("finding: {f}"));
     }
-    if let Some(row) = parent.global_milestones.iter().find(|i| i.id == sub_task_id) {
+    if let Some(row) = parent
+        .global_milestones
+        .iter()
+        .find(|i| i.id == sub_task_id)
+    {
         lines.push(format!(
             "current_milestone: id={} status={} title={}",
             row.id,
@@ -142,7 +159,10 @@ pub enum UnifiedPatchTarget {
 }
 
 /// Route a unified `milestones` patch row to the document slice matching inject projection.
-pub fn unified_patch_target(doc: &BoardDocument, row_id: &str) -> anyhow::Result<UnifiedPatchTarget> {
+pub fn unified_patch_target(
+    doc: &BoardDocument,
+    row_id: &str,
+) -> anyhow::Result<UnifiedPatchTarget> {
     use anyhow::anyhow;
     let id = row_id.trim();
     if id.is_empty() {
@@ -268,11 +288,7 @@ fn append_loop_shared_plan_section(lines: &mut Vec<String>, doc: &BoardDocument)
     lines.push(truncate_field(Some(plan.as_str()), PLAN_INJECT_MAX));
 }
 
-fn append_current_task_section(
-    lines: &mut Vec<String>,
-    item: &BoardItem,
-    doc: &BoardDocument,
-) {
+fn append_current_task_section(lines: &mut Vec<String>, item: &BoardItem, doc: &BoardDocument) {
     lines.push(String::new());
     lines.push("## Current task".to_string());
     append_current_row_bullets(lines, item, doc);
@@ -352,7 +368,6 @@ fn append_current_row_bullets(lines: &mut Vec<String>, item: &BoardItem, _doc: &
     }
 }
 
-
 fn append_constraints_block(lines: &mut Vec<String>, label: &str, constraints: &str) {
     let t = constraints.trim();
     if t.is_empty() {
@@ -377,7 +392,10 @@ fn append_milestone_rules_and_constraints(lines: &mut Vec<String>, item: &BoardI
     }
 }
 
-pub fn substitute_placeholders(template: &str, vars: &std::collections::HashMap<String, String>) -> String {
+pub fn substitute_placeholders(
+    template: &str,
+    vars: &std::collections::HashMap<String, String>,
+) -> String {
     let mut out = template.to_string();
     for (key, val) in vars {
         let placeholder = format!("{{{key}}}");
@@ -411,8 +429,15 @@ fn truncate_field(text: Option<&str>, max: usize) -> String {
 
 fn format_global_list_line(item: &BoardItem) -> String {
     let title = item.title.trim();
-    let title = if title.is_empty() { "(untitled)" } else { title };
-    if matches!(item.status, ItemStatus::InProgress | ItemStatus::Pending | ItemStatus::Ready) {
+    let title = if title.is_empty() {
+        "(untitled)"
+    } else {
+        title
+    };
+    if matches!(
+        item.status,
+        ItemStatus::InProgress | ItemStatus::Pending | ItemStatus::Ready
+    ) {
         return format!(
             "- {}: {} | done_when: {} | {}",
             item.id,
@@ -653,9 +678,7 @@ mod inject_format_tests {
         let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test");
         assert!(block.contains("- m1: Explore | done"));
         assert!(block.contains("  remark: grep done"));
-        assert!(block.contains(
-            "- m2: Implement | done_when: cargo test -p foo | in_progress"
-        ));
+        assert!(block.contains("- m2: Implement | done_when: cargo test -p foo | in_progress"));
     }
 
     #[test]
@@ -672,5 +695,4 @@ mod inject_format_tests {
         let target = unified_patch_target(&doc, "m1").expect("target");
         assert_eq!(target, UnifiedPatchTarget::GlobalMilestones);
     }
-
 }

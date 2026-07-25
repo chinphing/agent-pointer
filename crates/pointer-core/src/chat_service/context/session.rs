@@ -21,5 +21,3 @@ pub struct SessionRefsArc<'a> {
     pub conversation_id: &'a str,
     pub cancel: CancellationToken,
 }
-
-

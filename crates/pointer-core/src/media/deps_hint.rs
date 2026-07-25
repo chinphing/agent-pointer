@@ -184,8 +184,7 @@ mod tests {
 
     #[test]
     fn unsupported_hint_prioritizes_installed_skills_without_specific_skill_id() {
-        let hint =
-            unsupported_attachment_hint("report.docx", "application/octet-stream", None);
+        let hint = unsupported_attachment_hint("report.docx", "application/octet-stream", None);
         assert!(hint.contains(UNSUPPORTED_ATTACHMENT_MARKER));
         assert!(hint.contains("Available Skills"));
         assert!(hint.contains("do **not** run npx skills find"));

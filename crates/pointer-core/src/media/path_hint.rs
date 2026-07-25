@@ -71,11 +71,8 @@ mod tests {
 
     #[test]
     fn recovery_binary_mentions_no_file_read() {
-        let out = append_recovery_paths(
-            "[Attachment: a.zip] failed",
-            None,
-            RecoveryPathMode::Binary,
-        );
+        let out =
+            append_recovery_paths("[Attachment: a.zip] failed", None, RecoveryPathMode::Binary);
         assert_eq!(out, "[Attachment: a.zip] failed");
     }
 }

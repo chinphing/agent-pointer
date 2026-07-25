@@ -58,7 +58,8 @@ pub(super) fn sort_agent_tasks_topologically(tasks: Vec<AgentTask>) -> Vec<Agent
         log::warn!("agent task graph has cycle or inconsistent deps; using planner order");
         return tasks;
     }
-    let mut by_id: HashMap<String, AgentTask> = tasks.into_iter().map(|t| (t.id.clone(), t)).collect();
+    let mut by_id: HashMap<String, AgentTask> =
+        tasks.into_iter().map(|t| (t.id.clone(), t)).collect();
     order_ids
         .into_iter()
         .filter_map(|id| by_id.remove(&id))

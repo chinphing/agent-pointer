@@ -111,7 +111,14 @@ pub fn purge_computer_captures_older_than_days(days: i64) -> std::io::Result<usi
     Ok(removed)
 }
 
-fn write_bytes(dir: &PathBuf, pfx: &str, name: &str, ext: &str, ts: i64, bytes: &[u8]) -> Option<String> {
+fn write_bytes(
+    dir: &PathBuf,
+    pfx: &str,
+    name: &str,
+    ext: &str,
+    ts: i64,
+    bytes: &[u8],
+) -> Option<String> {
     if bytes.is_empty() {
         return None;
     }
@@ -248,10 +255,31 @@ pub fn save_computer_capture_debug(
     let pfx = sanitize_path_segment(file_prefix);
 
     if let Some(prev) = &cap.inject_before_action {
-        write_bytes(&dir, &pfx, "screen_before_action", "jpg", ts, &prev.screen_jpeg);
+        write_bytes(
+            &dir,
+            &pfx,
+            "screen_before_action",
+            "jpg",
+            ts,
+            &prev.screen_jpeg,
+        );
     }
-    write_bytes(&dir, &pfx, "screen_after_action", "jpg", ts, &cap.raw_marked_jpeg);
-    write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
+    write_bytes(
+        &dir,
+        &pfx,
+        "screen_after_action",
+        "jpg",
+        ts,
+        &cap.raw_marked_jpeg,
+    );
+    write_bytes(
+        &dir,
+        &pfx,
+        "annotated",
+        "jpg",
+        ts,
+        &cap.annotated_marked_jpeg,
+    );
 
     let annotated_name = format!("{pfx}_{ts}_annotated.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");

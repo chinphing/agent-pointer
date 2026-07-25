@@ -164,12 +164,15 @@ mod tests {
             .to_string();
         assert!(!Path::new(&stale).exists());
         let mut settings = settings_with_workspace(&stale);
-        let ephemeral =
-            ensure_subagent_workspace("conv_new_chat", None, &mut settings).unwrap();
+        let ephemeral = ensure_subagent_workspace("conv_new_chat", None, &mut settings).unwrap();
         assert!(Path::new(&settings.workspace_root).is_dir());
         assert_eq!(
             settings.workspace_root,
-            Path::new(&stale).canonicalize().unwrap().display().to_string()
+            Path::new(&stale)
+                .canonicalize()
+                .unwrap()
+                .display()
+                .to_string()
         );
         assert!(ephemeral);
     }
@@ -187,7 +190,11 @@ mod tests {
         assert!(Path::new(&settings.workspace_root).is_dir());
         assert_eq!(
             settings.workspace_root,
-            Path::new(&stale).canonicalize().unwrap().display().to_string()
+            Path::new(&stale)
+                .canonicalize()
+                .unwrap()
+                .display()
+                .to_string()
         );
         assert!(ephemeral);
     }

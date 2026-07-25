@@ -179,9 +179,7 @@ pub fn dashscope_aigc_origin(compatible_base: &str) -> String {
         }
     }
     if lower.ends_with("/compatible-mode/v1") {
-        return trimmed
-            .trim_end_matches("/compatible-mode/v1")
-            .to_string();
+        return trimmed.trim_end_matches("/compatible-mode/v1").to_string();
     }
     if lower.starts_with("http://") || lower.starts_with("https://") {
         return trimmed.to_string();
@@ -224,7 +222,10 @@ pub fn volcengine_ark_origin(base_url: &str) -> String {
 }
 
 pub fn volcengine_image_url(base_url: &str) -> String {
-    format!("{}/api/v3/images/generations", volcengine_ark_origin(base_url))
+    format!(
+        "{}/api/v3/images/generations",
+        volcengine_ark_origin(base_url)
+    )
 }
 
 pub fn volcengine_video_tasks_url(base_url: &str) -> String {
@@ -338,8 +339,7 @@ mod tests {
             provider_id: "doubao".into(),
             model: "doubao-seedance-2-0-fast-260128".into(),
         });
-        let cfg =
-            resolve_generation_config(&settings, GenerationKind::Video).expect("config");
+        let cfg = resolve_generation_config(&settings, GenerationKind::Video).expect("config");
         assert_eq!(cfg.model, "doubao-seedance-2-0-fast-260128");
         assert_eq!(cfg.provider_id, "doubao");
         assert!(cfg.base_url.contains("volces"));
@@ -368,8 +368,7 @@ mod tests {
             provider_id: "qwen".into(),
             model: "happyhorse-1.0-t2v".into(),
         });
-        let cfg =
-            resolve_generation_config(&settings, GenerationKind::Video).expect("config");
+        let cfg = resolve_generation_config(&settings, GenerationKind::Video).expect("config");
         assert_eq!(cfg.model, "happyhorse-1.0-t2v");
         assert_eq!(cfg.provider_id, "qwen");
     }

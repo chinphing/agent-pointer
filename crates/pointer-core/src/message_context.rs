@@ -19,10 +19,7 @@ pub fn is_context_included(m: &ChatMessage) -> bool {
     if crate::models::is_scoped_sub_message(m) {
         return false;
     }
-    m.context_state
-        .as_ref()
-        .map(|s| s.included)
-        .unwrap_or(true)
+    m.context_state.as_ref().map(|s| s.included).unwrap_or(true)
 }
 
 /// Sub-agent loop inclusion: honor real exclusions (compression/trim), not scoped linkage stamps.
@@ -185,11 +182,11 @@ mod tests {
             computer_round_screen_rel_path: None,
             ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
             tool_raw_output: None,
         }
     }
@@ -238,10 +235,17 @@ mod tests {
         tool.role = Role::Tool;
         tool.tool_call_id = Some("call_1".into());
         let msgs = vec![assistant.clone(), tool.clone()];
-        assert_eq!(filter_context_messages(&msgs).len(), 1, "lead keeps orphan tool only");
+        assert_eq!(
+            filter_context_messages(&msgs).len(),
+            1,
+            "lead keeps orphan tool only"
+        );
         let kept = filter_sub_agent_loop_messages(&msgs);
         assert_eq!(kept.len(), 2);
-        assert_eq!(filter_messages_for_llm_scope(&msgs, LlmHistoryScope::Lead).len(), 1);
+        assert_eq!(
+            filter_messages_for_llm_scope(&msgs, LlmHistoryScope::Lead).len(),
+            1
+        );
         assert_eq!(
             filter_messages_for_llm_scope(&msgs, LlmHistoryScope::SubAgentLoop).len(),
             2

@@ -3,11 +3,9 @@
 use crate::agents::computer::pipeline::operation::{
     format_operation_summary, needs_verify_for_tool, operation_family_for_tool, OperationFamily,
 };
-use crate::agents::computer::pipeline::types::{
-    ActionResult, FailureCause, VerifyConclusion,
-};
-use crate::agents::computer::pipeline::{find_root_tool_name, run_verify_phase};
+use crate::agents::computer::pipeline::types::{ActionResult, FailureCause, VerifyConclusion};
 pub use crate::agents::computer::pipeline::PipelineLlmUsageRecorder;
+use crate::agents::computer::pipeline::{find_root_tool_name, run_verify_phase};
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
 use crate::chat_service::app_state::AppState;
@@ -32,7 +30,9 @@ pub async fn ensure_verify_before_capture(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<ScreenCaptureResult> {
-    let _round = state.computer_state.next_pipeline_round_seq(conversation_id);
+    let _round = state
+        .computer_state
+        .next_pipeline_round_seq(conversation_id);
     state
         .computer_state
         .ensure_pipeline_capture(conversation_id)
@@ -91,29 +91,25 @@ fn host_verify_conclusion(
         return match tool_text.and_then(|t| {
             crate::agents::computer::tools::parse_app_access_host_outcome(root_name, t)
         }) {
-            Some(crate::agents::computer::tools::AppAccessHostOutcome::Pass) => {
-                VerifyConclusion {
-                    action_result: ActionResult::Pass,
-                    failure_cause: None,
-                    step_summary: Some(
-                        crate::agents::computer::tools::app_access_host_pass_summary(
-                            root_name,
-                            tool_text.unwrap_or_default(),
-                        ),
+            Some(crate::agents::computer::tools::AppAccessHostOutcome::Pass) => VerifyConclusion {
+                action_result: ActionResult::Pass,
+                failure_cause: None,
+                step_summary: Some(
+                    crate::agents::computer::tools::app_access_host_pass_summary(
+                        root_name,
+                        tool_text.unwrap_or_default(),
                     ),
-                }
-            }
-            Some(crate::agents::computer::tools::AppAccessHostOutcome::Fail) => {
-                VerifyConclusion {
-                    action_result: ActionResult::Fail,
-                    failure_cause: Some(FailureCause::WrongOperation),
-                    step_summary: tool_text
-                        .and_then(|t| t.lines().next())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(str::to_string),
-                }
-            }
+                ),
+            },
+            Some(crate::agents::computer::tools::AppAccessHostOutcome::Fail) => VerifyConclusion {
+                action_result: ActionResult::Fail,
+                failure_cause: Some(FailureCause::WrongOperation),
+                step_summary: tool_text
+                    .and_then(|t| t.lines().next())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string),
+            },
             None => VerifyConclusion {
                 action_result: ActionResult::Na,
                 failure_cause: None,
@@ -133,30 +129,27 @@ fn clipboard_early_fail_conclusion(
     root_name: &str,
     tool_text: Option<&str>,
 ) -> Option<VerifyConclusion> {
-    let (step_summary, kind) = match crate::agents::computer::tools::clipboard_host_verify_kind(
-        root_name, tool_text,
-    ) {
-        crate::agents::computer::tools::ClipboardHostVerifyKind::Defer => return None,
-        crate::agents::computer::tools::ClipboardHostVerifyKind::EmptyClipboard => (
-            "Clipboard is empty after read; expected content.".to_string(),
-            "empty",
-        ),
-        crate::agents::computer::tools::ClipboardHostVerifyKind::ZeroWritten => (
-            "Clipboard write copied zero characters.".to_string(),
-            "zero_written",
-        ),
-        crate::agents::computer::tools::ClipboardHostVerifyKind::ToolError => {
-            let summary = tool_text
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.lines().next().unwrap_or(s).trim().to_string())
-                .unwrap_or_else(|| "Clipboard tool result missing or unreadable.".to_string());
-            (summary, "tool_error")
-        }
-    };
-    log::info!(
-        "computer pipeline: clipboard host early fail tool={root_name} reason={kind}"
-    );
+    let (step_summary, kind) =
+        match crate::agents::computer::tools::clipboard_host_verify_kind(root_name, tool_text) {
+            crate::agents::computer::tools::ClipboardHostVerifyKind::Defer => return None,
+            crate::agents::computer::tools::ClipboardHostVerifyKind::EmptyClipboard => (
+                "Clipboard is empty after read; expected content.".to_string(),
+                "empty",
+            ),
+            crate::agents::computer::tools::ClipboardHostVerifyKind::ZeroWritten => (
+                "Clipboard write copied zero characters.".to_string(),
+                "zero_written",
+            ),
+            crate::agents::computer::tools::ClipboardHostVerifyKind::ToolError => {
+                let summary = tool_text
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.lines().next().unwrap_or(s).trim().to_string())
+                    .unwrap_or_else(|| "Clipboard tool result missing or unreadable.".to_string());
+                (summary, "tool_error")
+            }
+        };
+    log::info!("computer pipeline: clipboard host early fail tool={root_name} reason={kind}");
     Some(VerifyConclusion {
         action_result: ActionResult::Fail,
         failure_cause: Some(FailureCause::WrongOperation),
@@ -251,7 +244,9 @@ pub async fn run_pipeline_post_execute_verify(
         .filter(|s| !s.is_empty());
     let family = operation_family_for_tool(&root_name);
     let tool_text = tool_text.as_deref();
-    let round_seq = state.computer_state.current_pipeline_round_seq(conversation_id);
+    let round_seq = state
+        .computer_state
+        .current_pipeline_round_seq(conversation_id);
     let file_prefix = format!("{conversation_id}_{round_seq}");
 
     if family == OperationFamily::AppAccess {
@@ -392,7 +387,9 @@ fn arg_u32(v: Option<&Value>) -> Option<u32> {
 }
 
 fn arg_str(v: Option<&Value>) -> Option<&str> {
-    v.and_then(|x| x.as_str()).map(str::trim).filter(|s| !s.is_empty())
+    v.and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 fn execution_summary_for_tool_card(
@@ -402,7 +399,8 @@ fn execution_summary_for_tool_card(
 ) -> Option<String> {
     if let Some(t) = tool_text.map(str::trim).filter(|s| !s.is_empty()) {
         let lower = t.to_lowercase();
-        if lower.contains(" ok —") || lower.contains("verified:") || lower.contains("failed —") {
+        if lower.contains(" ok —") || lower.contains("verified:") || lower.contains("failed —")
+        {
             return Some(t.lines().next().unwrap_or(t).trim().to_string());
         }
     }
@@ -538,10 +536,7 @@ pub fn apply_pipeline_verify_to_tool_card(
 
     if family == OperationFamily::AppAccess {
         if let Some(msg) = history.iter_mut().find(|m| m.id == message_id) {
-            msg.tool_raw_output = Some(format!(
-                "[tool:verify id:verify]\n[output]\n{}",
-                card_text
-            ));
+            msg.tool_raw_output = Some(format!("[tool:verify id:verify]\n[output]\n{}", card_text));
         }
         emit(
             stream,
@@ -586,10 +581,7 @@ pub fn apply_pipeline_verify_to_tool_card(
         );
     } else {
         crate::conversation_transcript::insert_tool_result_in_history(
-            history,
-            message_id,
-            &tc.id,
-            &card_text,
+            history, message_id, &tc.id, &card_text,
         );
     }
     log::info!(

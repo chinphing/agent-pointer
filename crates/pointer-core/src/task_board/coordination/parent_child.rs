@@ -117,20 +117,17 @@ mod tests {
     #[test]
     fn same_user_task_id_has_unique_child_key_per_instance() {
         let parent = "conv-1\u{1f}ptr_main_turn\u{1f}msg-1";
-        let first = sub_agent_task_board_store_key_for_instance(
-            parent,
-            "shared-task",
-            "fork-instance-a",
-        );
-        let second = sub_agent_task_board_store_key_for_instance(
-            parent,
-            "shared-task",
-            "fork-instance-b",
-        );
+        let first =
+            sub_agent_task_board_store_key_for_instance(parent, "shared-task", "fork-instance-a");
+        let second =
+            sub_agent_task_board_store_key_for_instance(parent, "shared-task", "fork-instance-b");
 
         assert_ne!(first, second);
         assert_eq!(parent_store_key_from_child(&first).as_deref(), Some(parent));
-        assert_eq!(parent_store_key_from_child(&second).as_deref(), Some(parent));
+        assert_eq!(
+            parent_store_key_from_child(&second).as_deref(),
+            Some(parent)
+        );
     }
 
     #[test]

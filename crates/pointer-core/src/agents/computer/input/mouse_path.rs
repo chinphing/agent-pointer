@@ -74,7 +74,13 @@ fn segment_control_points(
         let sign_f = match config.bend_sign {
             Some(s) if s > 0 => 1.0,
             Some(_) => -1.0,
-            None => if rng.gen_bool(0.5) { 1.0 } else { -1.0 },
+            None => {
+                if rng.gen_bool(0.5) {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }
         };
         sign_f * mag
     };
@@ -140,8 +146,8 @@ fn quantize_path(points: Vec<(f64, f64)>) -> Vec<(i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     #[test]
     fn bezier_ends_at_target() {
@@ -174,7 +180,12 @@ mod tests {
     #[test]
     fn bezier_same_point_empty() {
         let mut rng = StdRng::seed_from_u64(1);
-        let path = bezier_path((5.0, 5.0), (5.0, 5.0), BezierPathConfig::default(), &mut rng);
+        let path = bezier_path(
+            (5.0, 5.0),
+            (5.0, 5.0),
+            BezierPathConfig::default(),
+            &mut rng,
+        );
         assert!(path.is_empty() || path == vec![(5, 5)]);
     }
 }

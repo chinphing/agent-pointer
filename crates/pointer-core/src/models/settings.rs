@@ -13,29 +13,57 @@ use crate::agents::computer::tier::{
 /// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelRuntimeOverrides {
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningInMessages")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "reasoningInMessages"
+    )]
     pub reasoning_in_messages: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
     pub max_tokens: Option<u32>,
     /// Qwen: `enable_thinking` on the chat/completions request.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "enableThinking")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "enableThinking"
+    )]
     pub enable_thinking: Option<bool>,
     /// Qwen: `thinking_budget` when deep thinking is enabled.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "thinkingBudget")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingBudget"
+    )]
     pub thinking_budget: Option<u32>,
     /// DeepSeek: `reasoning_effort` — `high` or `max`.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningEffort")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "reasoningEffort"
+    )]
     pub reasoning_effort: Option<String>,
     /// Whether the model accepts vision / image understanding input.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "supportsVision")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "supportsVision"
+    )]
     pub supports_vision: Option<bool>,
     /// Whether the model can generate images (`image_generate`).
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "canGenerateImage")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "canGenerateImage"
+    )]
     pub can_generate_image: Option<bool>,
     /// Whether the model can generate videos (`video_generate`).
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "canGenerateVideo")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "canGenerateVideo"
+    )]
     pub can_generate_video: Option<bool>,
 }
 
@@ -49,7 +77,11 @@ pub struct ProviderConfig {
     pub api_key: String,
     pub models: Vec<String>,
     /// Default for all models under this provider when `model_configs[model]` has no override.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningInMessages")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "reasoningInMessages"
+    )]
     pub reasoning_in_messages: Option<bool>,
     /// Default creativity when a model has no per-model `temperature`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,13 +93,25 @@ pub struct ProviderConfig {
     #[serde(default, rename = "modelConfigs")]
     pub model_configs: HashMap<String, ModelRuntimeOverrides>,
     /// Qwen: default `enable_thinking` for models without a per-model override.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "enableThinking")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "enableThinking"
+    )]
     pub enable_thinking: Option<bool>,
     /// Qwen: default `thinking_budget` when deep thinking is enabled.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "thinkingBudget")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingBudget"
+    )]
     pub thinking_budget: Option<u32>,
     /// DeepSeek: default `reasoning_effort` — `high` or `max`.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningEffort")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "reasoningEffort"
+    )]
     pub reasoning_effort: Option<String>,
 }
 /// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
@@ -98,7 +142,11 @@ impl AgentModelRef {
                     .and_then(|x| x.as_str())
                     .unwrap_or("")
                     .trim();
-                let model = map.get("model").and_then(|x| x.as_str()).unwrap_or("").trim();
+                let model = map
+                    .get("model")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .trim();
                 if model.is_empty() {
                     return None;
                 }
@@ -168,10 +216,18 @@ pub struct MediaModelOverrides {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<AgentModelRef>,
     /// Image generation tool (`image_generate`); defaults to Qwen Wan 2.7 or Doubao Seedream.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "imageGeneration")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "imageGeneration"
+    )]
     pub image_generation: Option<AgentModelRef>,
     /// Video generation tool (`video_generate`); defaults to Qwen Wan 2.7 or Doubao Seedance 1.5.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "videoGeneration")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "videoGeneration"
+    )]
     pub video_generation: Option<AgentModelRef>,
 }
 /// Whether to persist/stream reasoning and send `reasoning_content` on the next request,
@@ -217,11 +273,7 @@ pub(crate) fn active_provider_and_model<'a>(
 /// Creativity (`temperature`) for the **active** provider + **current** `settings.model`.
 pub fn effective_temperature(settings: &ModelSettings) -> f32 {
     if let Some((p, model)) = active_provider_and_model(settings) {
-        if let Some(t) = p
-            .model_configs
-            .get(model)
-            .and_then(|o| o.temperature)
-        {
+        if let Some(t) = p.model_configs.get(model).and_then(|o| o.temperature) {
             return t;
         }
         if let Some(t) = p.temperature {
@@ -285,7 +337,8 @@ fn infer_model_generation_capability_flags(model: &str) -> ModelRuntimeOverrides
     if m.is_empty() {
         return over;
     }
-    if m.contains("image") || m.contains("seedream") || (m.contains("wan2.") && m.contains("image")) {
+    if m.contains("image") || m.contains("seedream") || (m.contains("wan2.") && m.contains("image"))
+    {
         over.can_generate_image = Some(true);
     }
     if m.contains("t2v")
@@ -298,10 +351,7 @@ fn infer_model_generation_capability_flags(model: &str) -> ModelRuntimeOverrides
     over
 }
 
-fn resolve_supports_vision(
-    provider_id: &str,
-    model_over: Option<&ModelRuntimeOverrides>,
-) -> bool {
+fn resolve_supports_vision(provider_id: &str, model_over: Option<&ModelRuntimeOverrides>) -> bool {
     model_over
         .and_then(|o| o.supports_vision)
         .or_else(|| provider_default_supports_vision(provider_id))
@@ -654,7 +704,10 @@ pub struct ModelSettings {
     #[serde(default, rename = "leadAgentId")]
     pub lead_agent_id: String,
     /// When true, summarize older turns via a separate model call when estimated context exceeds budget.
-    #[serde(default = "default_context_compression_enabled", rename = "contextCompressionEnabled")]
+    #[serde(
+        default = "default_context_compression_enabled",
+        rename = "contextCompressionEnabled"
+    )]
     pub context_compression_enabled: bool,
     /// Estimated token budget for included messages; compression runs when heuristic exceeds this.
     #[serde(
@@ -664,10 +717,16 @@ pub struct ModelSettings {
     )]
     pub context_budget_tokens: u32,
     /// Keep this many most recent user messages (and everything after the cutoff) verbatim.
-    #[serde(default = "default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
+    #[serde(
+        default = "default_context_keep_recent_user_turns",
+        rename = "contextKeepRecentUserTurns"
+    )]
     pub context_keep_recent_user_turns: u32,
     /// Max tokens for the one-off summarization chat completion.
-    #[serde(default = "default_context_summary_max_tokens", rename = "contextSummaryMaxTokens")]
+    #[serde(
+        default = "default_context_summary_max_tokens",
+        rename = "contextSummaryMaxTokens"
+    )]
     pub context_summary_max_tokens: u32,
     /// Max tool-call rounds per assistant turn. Default 100.
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
@@ -676,13 +735,22 @@ pub struct ModelSettings {
     #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     pub max_sub_agent_tool_rounds: u32,
     /// Max nesting depth for `run_subagent` (1 = lead only; 2 = one nested level).
-    #[serde(default = "default_max_sub_agent_spawn_depth", rename = "maxSubAgentSpawnDepth")]
+    #[serde(
+        default = "default_max_sub_agent_spawn_depth",
+        rename = "maxSubAgentSpawnDepth"
+    )]
     pub max_sub_agent_spawn_depth: u32,
     /// When true, chat UI shows the assistant “原始输出” inspector (code icon); includes wire text and API reasoning for debug, not inline in the bubble.
-    #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
+    #[serde(
+        default = "default_raw_content_view_enabled",
+        rename = "rawContentViewEnabled"
+    )]
     pub raw_content_view_enabled: bool,
     /// When true, each LLM round writes request `messages` + params under app data `logs/llm_prompts/`.
-    #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
+    #[serde(
+        default = "default_debug_dump_llm_prompts",
+        rename = "debugDumpLlmPrompts"
+    )]
     pub debug_dump_llm_prompts: bool,
     /// When true, settings UI exposes debug sections (independent of raw wire / prompt dump toggles).
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
@@ -694,10 +762,18 @@ pub struct ModelSettings {
     )]
     pub task_board_show_child_boards: bool,
     /// Migration flag: append task board runtime markdown as the last user message each round.
-    #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
+    #[serde(
+        default = "default_user_dynamic_inject_enabled",
+        rename = "userDynamicInjectEnabled"
+    )]
     pub user_dynamic_inject_enabled: bool,
     /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.
-    #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
+    #[serde(
+        default,
+        rename = "agentDefaultModels",
+        deserialize_with = "deserialize_agent_default_models",
+        serialize_with = "serialize_agent_default_models"
+    )]
     pub agent_default_models: HashMap<String, AgentModelRef>,
     /// When true for a worker id, successful `task_board` updates hard-trim older history (no LLM).
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
@@ -706,10 +782,16 @@ pub struct ModelSettings {
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
     /// Starting vision tier for new computer conversations (`primary` | `intermediate` | `advanced`).
-    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    #[serde(
+        default = "default_computer_initial_tier",
+        rename = "computerInitialTier"
+    )]
     pub computer_initial_tier: String,
     /// When true, Computer Use assistant messages show the annotated screenshot preview action.
-    #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
+    #[serde(
+        default = "default_computer_annotated_screen_view_enabled",
+        rename = "computerAnnotatedScreenViewEnabled"
+    )]
     pub computer_annotated_screen_view_enabled: bool,
     /// DaTi CAPTCHA API endpoint.
     #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
@@ -724,17 +806,29 @@ pub struct ModelSettings {
     #[serde(default = "default_dati_author", rename = "datiAuthor")]
     pub dati_author: String,
     /// Pixel adjustment applied to the final point of slider CAPTCHA drags.
-    #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
+    #[serde(
+        default = "default_captcha_slider_offset_px",
+        rename = "captchaSliderOffsetPx"
+    )]
     pub captcha_slider_offset_px: i32,
     /// When true, Composer shows the monitor picker for the computer agent.
-    #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
+    #[serde(
+        default = "default_computer_show_monitor_picker",
+        rename = "computerShowMonitorPicker"
+    )]
     pub computer_show_monitor_picker: bool,
     /// When true, skip manual monitor picker (default primary) and follow app window monitor after launch_app.
-    #[serde(default = "default_computer_auto_switch_monitor", rename = "computerAutoSwitchMonitor")]
+    #[serde(
+        default = "default_computer_auto_switch_monitor",
+        rename = "computerAutoSwitchMonitor"
+    )]
     pub computer_auto_switch_monitor: bool,
     #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]
     pub memory_enabled: bool,
-    #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
+    #[serde(
+        default = "default_user_profile_enabled",
+        rename = "userProfileEnabled"
+    )]
     pub user_profile_enabled: bool,
     /// Global coding preferences injected as `[USER RULES]` (see `user_rules` module).
     #[serde(default, rename = "userCodingRules")]
@@ -743,17 +837,29 @@ pub struct ModelSettings {
     pub memory_char_limit: u32,
     #[serde(default = "default_user_char_limit", rename = "userCharLimit")]
     pub user_char_limit: u32,
-    #[serde(default = "default_memory_nudge_interval", rename = "memoryNudgeInterval")]
+    #[serde(
+        default = "default_memory_nudge_interval",
+        rename = "memoryNudgeInterval"
+    )]
     pub memory_nudge_interval: u32,
-    #[serde(default = "default_background_review_enabled", rename = "backgroundReviewEnabled")]
+    #[serde(
+        default = "default_background_review_enabled",
+        rename = "backgroundReviewEnabled"
+    )]
     pub background_review_enabled: bool,
-    #[serde(default = "default_skill_creation_nudge_interval", rename = "skillCreationNudgeInterval")]
+    #[serde(
+        default = "default_skill_creation_nudge_interval",
+        rename = "skillCreationNudgeInterval"
+    )]
     pub skill_creation_nudge_interval: u32,
     #[serde(default = "default_curator_enabled", rename = "curatorEnabled")]
     pub curator_enabled: bool,
     #[serde(default = "default_curator_idle_hours", rename = "curatorIdleHours")]
     pub curator_idle_hours: u32,
-    #[serde(default = "default_curator_interval_days", rename = "curatorIntervalDays")]
+    #[serde(
+        default = "default_curator_interval_days",
+        rename = "curatorIntervalDays"
+    )]
     pub curator_interval_days: u32,
     /// UI theme: `light`, `dark`, or `system`.
     #[serde(default = "default_theme", rename = "theme")]
@@ -762,7 +868,10 @@ pub struct ModelSettings {
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     /// Model id for DashScope web search tool calls (defaults to `qwen3-max` when empty).
-    #[serde(default = "default_web_search_model_setting", rename = "webSearchModel")]
+    #[serde(
+        default = "default_web_search_model_setting",
+        rename = "webSearchModel"
+    )]
     pub web_search_model: String,
     /// Independent models for attachment understanding (image/audio/video).
     #[serde(default, rename = "mediaModelOverrides")]
@@ -782,19 +891,34 @@ pub struct ModelSettings {
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
     /// Max concurrent tool invocations per batch (`None` → min(CPU cores, 8)).
-    #[serde(default, rename = "maxParallelToolCalls", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelToolCalls",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_tool_calls: Option<u32>,
     /// Max concurrent `run_subagent` invocations (`None` → min(CPU cores, 8)).
-    #[serde(default, rename = "maxParallelSubAgents", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelSubAgents",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_sub_agents: Option<u32>,
     /// Max concurrent media tool jobs (`None` → min(CPU cores, 8)).
-    #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelMediaJobs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_media_jobs: Option<u32>,
     /// Max concurrent dispatcher runs (chat, webhook, cron, …).
     #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
     pub max_concurrent_runs: u32,
     /// When false, all tool calls in one assistant turn run serially.
-    #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
+    #[serde(
+        default = "default_parallel_tool_execution_enabled",
+        rename = "parallelToolExecutionEnabled"
+    )]
     pub parallel_tool_execution_enabled: bool,
     /// Per-request override (e.g. computer tier); not persisted.
     #[serde(skip)]
@@ -1066,7 +1190,8 @@ impl Default for ModelSettings {
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: true,
             computer_initial_tier: default_computer_initial_tier(),
-            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
+            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
+            ),
             dati_api_url: default_dati_api_url(),
             dati_authcode: default_dati_authcode(),
             dati_typeno: default_dati_typeno(),
@@ -1230,7 +1355,10 @@ pub struct MediaOssConfig {
         rename = "presignExpiresSec"
     )]
     pub presign_expires_sec: u32,
-    #[serde(default = "default_media_oss_delete_after_use", rename = "deleteAfterUse")]
+    #[serde(
+        default = "default_media_oss_delete_after_use",
+        rename = "deleteAfterUse"
+    )]
     pub delete_after_use: bool,
 }
 
@@ -1272,7 +1400,10 @@ pub struct UserSettings {
     pub agent_skill_overrides: HashMap<String, Vec<String>>,
     #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]
     pub memory_enabled: bool,
-    #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
+    #[serde(
+        default = "default_user_profile_enabled",
+        rename = "userProfileEnabled"
+    )]
     pub user_profile_enabled: bool,
     /// Global coding preferences injected as `[USER RULES]` (see `user_rules` module).
     #[serde(default, rename = "userCodingRules")]
@@ -1281,19 +1412,34 @@ pub struct UserSettings {
     pub memory_char_limit: u32,
     #[serde(default = "default_user_char_limit", rename = "userCharLimit")]
     pub user_char_limit: u32,
-    #[serde(default = "default_memory_nudge_interval", rename = "memoryNudgeInterval")]
+    #[serde(
+        default = "default_memory_nudge_interval",
+        rename = "memoryNudgeInterval"
+    )]
     pub memory_nudge_interval: u32,
-    #[serde(default = "default_background_review_enabled", rename = "backgroundReviewEnabled")]
+    #[serde(
+        default = "default_background_review_enabled",
+        rename = "backgroundReviewEnabled"
+    )]
     pub background_review_enabled: bool,
-    #[serde(default = "default_skill_creation_nudge_interval", rename = "skillCreationNudgeInterval")]
+    #[serde(
+        default = "default_skill_creation_nudge_interval",
+        rename = "skillCreationNudgeInterval"
+    )]
     pub skill_creation_nudge_interval: u32,
     #[serde(default = "default_curator_enabled", rename = "curatorEnabled")]
     pub curator_enabled: bool,
     #[serde(default = "default_curator_idle_hours", rename = "curatorIdleHours")]
     pub curator_idle_hours: u32,
-    #[serde(default = "default_curator_interval_days", rename = "curatorIntervalDays")]
+    #[serde(
+        default = "default_curator_interval_days",
+        rename = "curatorIntervalDays"
+    )]
     pub curator_interval_days: u32,
-    #[serde(default = "default_computer_auto_compact", rename = "computerAutoCompact")]
+    #[serde(
+        default = "default_computer_auto_compact",
+        rename = "computerAutoCompact"
+    )]
     pub computer_auto_compact: bool,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
@@ -1406,7 +1552,10 @@ pub struct PlatformSettings {
     pub workspace_root: String,
     #[serde(default, rename = "leadAgentId")]
     pub lead_agent_id: String,
-    #[serde(default = "platform_default_context_compression_enabled", rename = "contextCompressionEnabled")]
+    #[serde(
+        default = "platform_default_context_compression_enabled",
+        rename = "contextCompressionEnabled"
+    )]
     pub context_compression_enabled: bool,
     #[serde(
         default = "platform_default_context_budget_tokens",
@@ -1414,19 +1563,37 @@ pub struct PlatformSettings {
         alias = "contextBudgetChars"
     )]
     pub context_budget_tokens: u32,
-    #[serde(default = "platform_default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
+    #[serde(
+        default = "platform_default_context_keep_recent_user_turns",
+        rename = "contextKeepRecentUserTurns"
+    )]
     pub context_keep_recent_user_turns: u32,
-    #[serde(default = "platform_default_context_summary_max_tokens", rename = "contextSummaryMaxTokens")]
+    #[serde(
+        default = "platform_default_context_summary_max_tokens",
+        rename = "contextSummaryMaxTokens"
+    )]
     pub context_summary_max_tokens: u32,
     #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
-    #[serde(default = "platform_default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
+    #[serde(
+        default = "platform_default_max_tool_rounds",
+        rename = "maxSubAgentToolRounds"
+    )]
     pub max_sub_agent_tool_rounds: u32,
-    #[serde(default = "platform_default_max_sub_agent_spawn_depth", rename = "maxSubAgentSpawnDepth")]
+    #[serde(
+        default = "platform_default_max_sub_agent_spawn_depth",
+        rename = "maxSubAgentSpawnDepth"
+    )]
     pub max_sub_agent_spawn_depth: u32,
-    #[serde(default = "platform_default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
+    #[serde(
+        default = "platform_default_raw_content_view_enabled",
+        rename = "rawContentViewEnabled"
+    )]
     pub raw_content_view_enabled: bool,
-    #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
+    #[serde(
+        default = "default_debug_dump_llm_prompts",
+        rename = "debugDumpLlmPrompts"
+    )]
     pub debug_dump_llm_prompts: bool,
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
@@ -1435,17 +1602,31 @@ pub struct PlatformSettings {
         rename = "taskBoardShowChildBoards"
     )]
     pub task_board_show_child_boards: bool,
-    #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
+    #[serde(
+        default = "default_user_dynamic_inject_enabled",
+        rename = "userDynamicInjectEnabled"
+    )]
     pub user_dynamic_inject_enabled: bool,
-    #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
+    #[serde(
+        default,
+        rename = "agentDefaultModels",
+        deserialize_with = "deserialize_agent_default_models",
+        serialize_with = "serialize_agent_default_models"
+    )]
     pub agent_default_models: HashMap<String, AgentModelRef>,
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
     pub agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
-    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    #[serde(
+        default = "default_computer_initial_tier",
+        rename = "computerInitialTier"
+    )]
     pub computer_initial_tier: String,
-    #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
+    #[serde(
+        default = "default_computer_annotated_screen_view_enabled",
+        rename = "computerAnnotatedScreenViewEnabled"
+    )]
     pub computer_annotated_screen_view_enabled: bool,
     #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
     pub dati_api_url: String,
@@ -1455,16 +1636,28 @@ pub struct PlatformSettings {
     pub dati_typeno: String,
     #[serde(default = "default_dati_author", rename = "datiAuthor")]
     pub dati_author: String,
-    #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
+    #[serde(
+        default = "default_captcha_slider_offset_px",
+        rename = "captchaSliderOffsetPx"
+    )]
     pub captcha_slider_offset_px: i32,
-    #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
+    #[serde(
+        default = "default_computer_show_monitor_picker",
+        rename = "computerShowMonitorPicker"
+    )]
     pub computer_show_monitor_picker: bool,
-    #[serde(default = "default_computer_auto_switch_monitor", rename = "computerAutoSwitchMonitor")]
+    #[serde(
+        default = "default_computer_auto_switch_monitor",
+        rename = "computerAutoSwitchMonitor"
+    )]
     pub computer_auto_switch_monitor: bool,
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     /// Model id for DashScope web search tool calls (empty = default `qwen3-max`).
-    #[serde(default = "default_web_search_model_setting", rename = "webSearchModel")]
+    #[serde(
+        default = "default_web_search_model_setting",
+        rename = "webSearchModel"
+    )]
     pub web_search_model: String,
     #[serde(default, rename = "mediaModelOverrides")]
     pub media_model_overrides: MediaModelOverrides,
@@ -1483,15 +1676,30 @@ pub struct PlatformSettings {
     /// Session-only media OSS credentials from platform login (not persisted locally).
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
-    #[serde(default, rename = "maxParallelToolCalls", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelToolCalls",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_tool_calls: Option<u32>,
-    #[serde(default, rename = "maxParallelSubAgents", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelSubAgents",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_sub_agents: Option<u32>,
-    #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelMediaJobs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_media_jobs: Option<u32>,
     #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
     pub max_concurrent_runs: u32,
-    #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
+    #[serde(
+        default = "default_parallel_tool_execution_enabled",
+        rename = "parallelToolExecutionEnabled"
+    )]
     pub parallel_tool_execution_enabled: bool,
 }
 
@@ -1579,7 +1787,10 @@ pub struct PersistedLocalPlatformSettings {
     pub user_dynamic_inject_enabled: bool,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
-    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    #[serde(
+        default = "default_computer_initial_tier",
+        rename = "computerInitialTier"
+    )]
     pub computer_initial_tier: String,
     #[serde(
         default = "platform_default_context_compression_enabled",
@@ -1610,9 +1821,15 @@ pub struct PersistedLocalPlatformSettings {
     pub lead_agent_id: String,
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
-    #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
+    #[serde(
+        default = "default_captcha_slider_offset_px",
+        rename = "captchaSliderOffsetPx"
+    )]
     pub captcha_slider_offset_px: i32,
-    #[serde(default = "default_computer_auto_switch_monitor", rename = "computerAutoSwitchMonitor")]
+    #[serde(
+        default = "default_computer_auto_switch_monitor",
+        rename = "computerAutoSwitchMonitor"
+    )]
     pub computer_auto_switch_monitor: bool,
     #[serde(default, rename = "mediaModelOverrides")]
     pub media_model_overrides: MediaModelOverrides,
@@ -1620,13 +1837,28 @@ pub struct PersistedLocalPlatformSettings {
     pub agent_performance_modes: HashMap<String, String>,
     #[serde(default, rename = "mediaUnderstandingModes")]
     pub media_understanding_modes: MediaUnderstandingModes,
-    #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
+    #[serde(
+        default = "default_parallel_tool_execution_enabled",
+        rename = "parallelToolExecutionEnabled"
+    )]
     pub parallel_tool_execution_enabled: bool,
-    #[serde(default, rename = "maxParallelToolCalls", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelToolCalls",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_tool_calls: Option<u32>,
-    #[serde(default, rename = "maxParallelSubAgents", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelSubAgents",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_sub_agents: Option<u32>,
-    #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "maxParallelMediaJobs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_parallel_media_jobs: Option<u32>,
     #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
     pub max_concurrent_runs: u32,
@@ -1744,16 +1976,28 @@ fn mode_llm_entry(provider_id: &str, model: &str, budget: u32) -> ComputerTierLl
 
 fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
     let mut general = HashMap::new();
-    general.insert("fast".into(), mode_llm_entry("deepseek", "deepseek-v4-flash", 2048));
+    general.insert(
+        "fast".into(),
+        mode_llm_entry("deepseek", "deepseek-v4-flash", 2048),
+    );
     general.insert(
         "standard".into(),
         mode_llm_entry("deepseek", "deepseek-v4-pro", 2048),
     );
-    general.insert("expert".into(), mode_llm_entry("qwen", "qwen3.7-plus", 8192));
+    general.insert(
+        "expert".into(),
+        mode_llm_entry("qwen", "qwen3.7-plus", 8192),
+    );
 
     let mut coder = HashMap::new();
-    coder.insert("fast".into(), mode_llm_entry("deepseek", "deepseek-v4-flash", 2048));
-    coder.insert("standard".into(), mode_llm_entry("deepseek", "deepseek-v4-pro", 4096));
+    coder.insert(
+        "fast".into(),
+        mode_llm_entry("deepseek", "deepseek-v4-flash", 2048),
+    );
+    coder.insert(
+        "standard".into(),
+        mode_llm_entry("deepseek", "deepseek-v4-pro", 4096),
+    );
     coder.insert("expert".into(), mode_llm_entry("qwen", "qwen3.7-max", 8192));
 
     let mut m = HashMap::new();
@@ -1765,27 +2009,33 @@ fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmCo
 fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
     let mut image = HashMap::new();
     image.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
-    image.insert("standard".into(), mode_llm_entry("qwen", "qwen3.5-plus", 2048));
-    image.insert("expert".into(), mode_llm_entry("qwen", "qwen3.6-plus", 8192));
+    image.insert(
+        "standard".into(),
+        mode_llm_entry("qwen", "qwen3.5-plus", 2048),
+    );
+    image.insert(
+        "expert".into(),
+        mode_llm_entry("qwen", "qwen3.6-plus", 8192),
+    );
 
     let mut audio = HashMap::new();
     audio.insert(
         "fast".into(),
         mode_llm_entry("qwen", "qwen3-asr-flash", 2048),
     );
-    audio.insert(
-        "standard".into(),
-        mode_llm_entry("qwen", "fun-asr", 2048),
-    );
-    audio.insert(
-        "expert".into(),
-        mode_llm_entry("qwen", "fun-asr", 8192),
-    );
+    audio.insert("standard".into(), mode_llm_entry("qwen", "fun-asr", 2048));
+    audio.insert("expert".into(), mode_llm_entry("qwen", "fun-asr", 8192));
 
     let mut video = HashMap::new();
     video.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
-    video.insert("standard".into(), mode_llm_entry("qwen", "qwen3.5-plus", 2048));
-    video.insert("expert".into(), mode_llm_entry("qwen", "qwen3.6-plus", 8192));
+    video.insert(
+        "standard".into(),
+        mode_llm_entry("qwen", "qwen3.5-plus", 2048),
+    );
+    video.insert(
+        "expert".into(),
+        mode_llm_entry("qwen", "qwen3.6-plus", 8192),
+    );
 
     let mut m = HashMap::new();
     m.insert("image".into(), image);
@@ -1948,7 +2198,8 @@ impl Default for PlatformSettings {
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: true,
             computer_initial_tier: default_computer_initial_tier(),
-            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
+            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
+            ),
             dati_api_url: default_dati_api_url(),
             dati_authcode: default_dati_authcode(),
             dati_typeno: default_dati_typeno(),
@@ -1987,12 +2238,8 @@ pub struct EffectiveSettingsView {
     pub is_platform_admin: bool,
 }
 
-const DATI_SETTINGS_JSON_KEYS: &[&str] = &[
-    "datiApiUrl",
-    "datiAuthcode",
-    "datiTypeno",
-    "datiAuthor",
-];
+const DATI_SETTINGS_JSON_KEYS: &[&str] =
+    &["datiApiUrl", "datiAuthcode", "datiTypeno", "datiAuthor"];
 
 /// Debug-only settings (visible when debug menus are enabled). Omitted from pointer-server Web API.
 const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
@@ -2059,11 +2306,7 @@ fn redact_provider_api_keys_in_array(providers: &mut serde_json::Value) {
             .is_some_and(|k| !k.is_empty());
         obj.insert(
             "apiKey".into(),
-            serde_json::Value::String(if masked {
-                "****".into()
-            } else {
-                String::new()
-            }),
+            serde_json::Value::String(if masked { "****".into() } else { String::new() }),
         );
     }
 }
@@ -2104,12 +2347,16 @@ fn redact_settings_object_secrets(obj: &mut serde_json::Map<String, serde_json::
 }
 
 /// Web PUT must not overwrite server debug toggles with client defaults (debug fields are omitted on GET).
-pub fn preserve_platform_debug_settings_in_model(incoming: &mut ModelSettings, platform: &PlatformSettings) {
+pub fn preserve_platform_debug_settings_in_model(
+    incoming: &mut ModelSettings,
+    platform: &PlatformSettings,
+) {
     incoming.raw_content_view_enabled = platform.raw_content_view_enabled;
     incoming.debug_dump_llm_prompts = platform.debug_dump_llm_prompts;
     incoming.debug_menus_enabled = platform.debug_menus_enabled;
     incoming.task_board_show_child_boards = platform.task_board_show_child_boards;
-    incoming.computer_annotated_screen_view_enabled = platform.computer_annotated_screen_view_enabled;
+    incoming.computer_annotated_screen_view_enabled =
+        platform.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = platform.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = platform.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_tool_rounds = platform.max_sub_agent_tool_rounds;
@@ -2132,8 +2379,7 @@ impl serde::Serialize for WebEffectiveSettingsView {
     where
         S: serde::Serializer,
     {
-        let mut value =
-            serde_json::to_value(&self.0).map_err(serde::ser::Error::custom)?;
+        let mut value = serde_json::to_value(&self.0).map_err(serde::ser::Error::custom)?;
         redact_settings_json_for_web_api(&mut value);
         value.serialize(serializer)
     }
@@ -2451,10 +2697,7 @@ mod effective_extra_body_tests {
         let v = effective_chat_extra_body(&s).expect("merged");
         let o = v.as_object().unwrap();
         assert_eq!(o.get("enable_thinking"), Some(&Value::Bool(true)));
-        assert_eq!(
-            o.get("thinking_budget"),
-            Some(&Value::Number(500.into()))
-        );
+        assert_eq!(o.get("thinking_budget"), Some(&Value::Number(500.into())));
     }
 
     #[test]
@@ -2575,18 +2818,20 @@ mod effective_extra_body_tests {
         let o = out.as_object().unwrap();
         assert!(!o.contains_key("extra_body"));
         assert_eq!(o.get("enable_thinking"), Some(&Value::Bool(true)));
-        assert_eq!(
-            o.get("thinking_budget"),
-            Some(&Value::Number(100.into()))
-        );
+        assert_eq!(o.get("thinking_budget"), Some(&Value::Number(100.into())));
     }
 
     #[test]
     fn debug_session_web_redaction_keeps_mappings_and_masks_keys() {
         let mut debug = DebugSessionSettings::from(PlatformSettings::default());
         debug.providers[0].api_key = "sk-secret".into();
-        debug.agent_mode_llm.get_mut("general").unwrap().get_mut("fast").unwrap().model =
-            "session-model".into();
+        debug
+            .agent_mode_llm
+            .get_mut("general")
+            .unwrap()
+            .get_mut("fast")
+            .unwrap()
+            .model = "session-model".into();
 
         redact_debug_session_settings_for_web(&mut debug);
 

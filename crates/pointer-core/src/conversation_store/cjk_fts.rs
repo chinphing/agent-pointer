@@ -18,18 +18,15 @@ extern "C" {
 
 /// Must run before the first `sqlite3_open` / `Connection::open` in this process.
 pub fn ensure_registered() -> Result<()> {
-    let res = REGISTERED.get_or_init(|| {
-        unsafe {
-            let rc = libsqlite3_sys::sqlite3_auto_extension(Some(sqlite3_cjkfts_init));
-            if rc != libsqlite3_sys::SQLITE_OK {
-                log::warn!(
-                    "conversation_store: sqlite3_auto_extension(cjk_bigram) failed rc={rc}"
-                );
-                return Err("sqlite3_auto_extension(cjk_bigram) failed");
-            }
-            log::info!("conversation_store: registered cjk_bigram tokenizer (static)");
-            Ok(())
+    let res = REGISTERED.get_or_init(|| unsafe {
+        let rc = libsqlite3_sys::sqlite3_auto_extension(Some(sqlite3_cjkfts_init));
+        if rc != libsqlite3_sys::SQLITE_OK {
+            log::warn!("conversation_store: sqlite3_auto_extension(cjk_bigram) failed rc={rc}");
+            return Err("sqlite3_auto_extension(cjk_bigram) failed");
         }
+        log::info!("conversation_store: registered cjk_bigram tokenizer (static)");
+        Ok(())
     });
-    res.map_err(|e| anyhow::anyhow!("{e}")).context("register cjk fts extension")
+    res.map_err(|e| anyhow::anyhow!("{e}"))
+        .context("register cjk fts extension")
 }

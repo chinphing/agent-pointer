@@ -1,9 +1,9 @@
 //! Legacy dynamic `[TASK_BOARD]` system inject path used for rollback compatibility.
 
 use super::{BeforeMainLlmCallContext, BeforeMainLlmCallHook};
+use crate::task_board::sub_agent_hint::task_board_init_hint;
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::task_board::sub_agent_hint::task_board_init_hint;
 
 pub struct TaskBoardSnapshotHook;
 

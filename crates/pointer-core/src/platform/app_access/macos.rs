@@ -3,8 +3,10 @@
 #[path = "macos_window.rs"]
 mod macos_window;
 
-use super::listed_app::{compare_listed_apps, parse_mdls_date, recent_usage_cutoff_days, ListedApp};
 use super::launch_verify::{self, LaunchVerifyKind, LaunchVerifyOutcome, LAUNCH_VERIFY_POLL_MS};
+use super::listed_app::{
+    compare_listed_apps, parse_mdls_date, recent_usage_cutoff_days, ListedApp,
+};
 use super::types::{AppOpenOptions, AppOpenResult, ListAppsOptions};
 use crate::platform::macos_permissions;
 use anyhow::{anyhow, Result};
@@ -360,7 +362,11 @@ fn mdls_catalog_record(path: &str) -> Option<ListedApp> {
     }
     let display = mdls_value(&text, "kMDItemDisplayName")
         .map(|s| strip_app_suffix(&s))
-        .or_else(|| Path::new(path).file_stem().and_then(|s| s.to_str().map(str::to_string)))?;
+        .or_else(|| {
+            Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str().map(str::to_string))
+        })?;
     let last_used = mdls_value(&text, "kMDItemLastUsedDate").and_then(|s| parse_mdls_date(&s));
     let uses = mdls_value(&text, "kMDItemUseCount").and_then(|s| s.parse().ok());
     Some(ListedApp {
@@ -395,7 +401,11 @@ fn plist_catalog_record(path: &str) -> Option<ListedApp> {
     let display = plist_string_value(&text, "CFBundleDisplayName")
         .or_else(|| plist_string_value(&text, "CFBundleName"))
         .map(|s| strip_app_suffix(&s))
-        .or_else(|| Path::new(path).file_stem().and_then(|s| s.to_str().map(str::to_string)))?;
+        .or_else(|| {
+            Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str().map(str::to_string))
+        })?;
     Some(ListedApp {
         name: display,
         identifier: bundle,
@@ -455,7 +465,9 @@ fn mdls_value(text: &str, key: &str) -> Option<String> {
 }
 
 fn activate_running(app: &str) -> Result<bool> {
-    use objc2_app_kit::{NSApplicationActivationOptions, NSApplicationActivationPolicy, NSWorkspace};
+    use objc2_app_kit::{
+        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSWorkspace,
+    };
     use std::thread;
     use std::time::Duration;
 
@@ -838,6 +850,9 @@ mod tests {
             Some("com.baidu.netdisk")
         ));
         assert!(localized_name_matches("BaiduNetdisk", "BaiduNetdisk"));
-        assert!(bundle_identifier_matches("BaiduNetdisk", "com.baidu.netdisk"));
+        assert!(bundle_identifier_matches(
+            "BaiduNetdisk",
+            "com.baidu.netdisk"
+        ));
     }
 }

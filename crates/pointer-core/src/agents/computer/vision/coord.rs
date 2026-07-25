@@ -47,10 +47,7 @@ pub fn normalized_to_screen(
         CoordinateSystem::Qwen | CoordinateSystem::Kimi => {
             let x = (normalized.0 / 1000.0) * monitor.width as f32;
             let y = (normalized.1 / 1000.0) * monitor.height as f32;
-            (
-                monitor.left + x as i32,
-                monitor.top + y as i32,
-            )
+            (monitor.left + x as i32, monitor.top + y as i32)
         }
         CoordinateSystem::Pixel => (normalized.0 as i32, normalized.1 as i32),
     }

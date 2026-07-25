@@ -6,9 +6,9 @@ use chrono::{NaiveDate, TimeZone, Utc};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use winreg::enums::HKEY_CURRENT_USER;
 use winreg::RegKey;
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
 
 pub const RECENT_USAGE_DAYS: i64 = 14;
 
@@ -60,10 +60,7 @@ pub fn merge_list_catalog(
             entry.pid = Some(*pid);
             continue;
         }
-        let display = key
-            .strip_suffix(".exe")
-            .unwrap_or(key.as_str())
-            .to_string();
+        let display = key.strip_suffix(".exe").unwrap_or(key.as_str()).to_string();
         let identifier = if key.ends_with(".exe") {
             key.clone()
         } else {
@@ -172,7 +169,10 @@ fn collect_all_start_menu_launch_entries() -> Result<Vec<StartMenuLaunchEntry>> 
     Ok(out)
 }
 
-fn collect_start_menu_launch_entries(dir: &Path, out: &mut Vec<StartMenuLaunchEntry>) -> Result<()> {
+fn collect_start_menu_launch_entries(
+    dir: &Path,
+    out: &mut Vec<StartMenuLaunchEntry>,
+) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -218,7 +218,11 @@ fn launch_match_score(app: &str, entry: &StartMenuLaunchEntry) -> Option<u8> {
     }
     let id_key = normalize_app_key(&entry.identifier);
     let name_key = normalize_app_key(&entry.name);
-    if entry.path.to_string_lossy().eq_ignore_ascii_case(app.trim()) {
+    if entry
+        .path
+        .to_string_lossy()
+        .eq_ignore_ascii_case(app.trim())
+    {
         return Some(0);
     }
     if id_key == key {
@@ -244,7 +248,10 @@ fn launch_match_score(app: &str, entry: &StartMenuLaunchEntry) -> Option<u8> {
 }
 
 fn start_menu_launch_entry(path: &Path) -> Option<StartMenuLaunchEntry> {
-    let ext = path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())?
+        .to_ascii_lowercase();
     if ext != "lnk" && ext != "exe" {
         return None;
     }
@@ -270,7 +277,8 @@ fn exe_key(name: &str) -> String {
 
 fn userassist_recent_apps(cutoff: NaiveDate) -> Result<Vec<ListedApp>> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let base = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist")?;
+    let base =
+        hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist")?;
     let mut out: HashMap<String, ListedApp> = HashMap::new();
 
     for guid in USERASSIST_GUIDS {
@@ -437,7 +445,8 @@ fn snapshot_running_exe_pids() -> Result<HashMap<String, u32>> {
 
 fn process_name_for_pid(pid: u32) -> Option<String> {
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     unsafe {
@@ -511,7 +520,8 @@ pub fn find_running_pid_for_app(app: &str) -> Result<Option<u32>> {
 /// Full filesystem path for a process image.
 pub fn process_image_path_for_pid(pid: u32) -> Option<PathBuf> {
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     unsafe {
@@ -568,11 +578,14 @@ mod tests {
     #[test]
     fn launch_match_chrome_exe_to_google_chrome_lnk() {
         let entries = vec![StartMenuLaunchEntry {
-            path: PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk"),
+            path: PathBuf::from(
+                r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk",
+            ),
             name: "Google Chrome".into(),
             identifier: "Google Chrome.lnk".into(),
         }];
-        let picked = pick_best_launch_match("chrome.exe", &entries).expect("chrome.exe should match");
+        let picked =
+            pick_best_launch_match("chrome.exe", &entries).expect("chrome.exe should match");
         assert_eq!(picked.identifier, "Google Chrome.lnk");
     }
 

@@ -30,7 +30,9 @@ pub(crate) fn truncate_str(s: &str, n: usize) -> String {
     crate::text_util::truncate_chars(s, n)
 }
 
-pub(crate) fn tool_display_stream_fields(display: &ToolDisplay) -> (Option<String>, Option<String>) {
+pub(crate) fn tool_display_stream_fields(
+    display: &ToolDisplay,
+) -> (Option<String>, Option<String>) {
     let summary = if display.summary.is_empty() {
         None
     } else {
@@ -177,7 +179,11 @@ pub(crate) fn desktop_tool_failure_note(
         return None;
     }
     let mut parts: Vec<String> = Vec::new();
-    if let Some(e) = err_note.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(e) = err_note
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         parts.push(e.to_string());
     }
     let out = truncate_str(tool_output, 200);

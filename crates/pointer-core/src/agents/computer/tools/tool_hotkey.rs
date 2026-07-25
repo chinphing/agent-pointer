@@ -1,6 +1,6 @@
+use super::args_util::require_non_empty_str;
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
-use super::args_util::require_non_empty_str;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -49,8 +49,7 @@ fn parse_keys_arg(keys: &Value) -> Result<Vec<String>> {
                     serde_json::from_str(t).map_err(|_| anyhow!("invalid JSON array in keys"))?;
                 return parse_keys_arg(&Value::Array(arr));
             }
-            Ok(t
-                .split(',')
+            Ok(t.split(',')
                 .map(|p| p.trim().to_string())
                 .filter(|p| !p.is_empty())
                 .collect())

@@ -119,16 +119,14 @@ pub async fn download_update(
     let byte_len = bytes.len();
     {
         let mut guard = pending.inner.lock().map_err(|e| e.to_string())?;
-        *guard = Some(PendingUpdate { version: version.clone(), bytes });
+        *guard = Some(PendingUpdate {
+            version: version.clone(),
+            bytes,
+        });
     }
 
-    log::info!(
-        "[updater] {version} downloaded ({byte_len} bytes), ready for user confirm"
-    );
-    let _ = app.emit(
-        "updater://status",
-        serde_json::json!({ "phase": "ready" }),
-    );
+    log::info!("[updater] {version} downloaded ({byte_len} bytes), ready for user confirm");
+    let _ = app.emit("updater://status", serde_json::json!({ "phase": "ready" }));
     Ok(())
 }
 

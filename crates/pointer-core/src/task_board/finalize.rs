@@ -52,10 +52,7 @@ mod tests {
             )
             .expect("init");
         assert!(maybe_auto_finalize_if_complete(&store, key));
-        assert_eq!(
-            store.document(key).meta.status,
-            MetaStatus::Completed
-        );
+        assert_eq!(store.document(key).meta.status, MetaStatus::Completed);
     }
 
     #[test]

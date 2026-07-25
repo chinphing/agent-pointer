@@ -158,7 +158,10 @@ async fn transcribe_audio_dashscope_legacy_multimodal(
         anyhow::bail!("HTTP {}: {}", status, truncate_bytes(&text, 400));
     }
 
-    let parsed: Value = resp.json().await.context("parse dashscope audio response")?;
+    let parsed: Value = resp
+        .json()
+        .await
+        .context("parse dashscope audio response")?;
     let text = extract_multimodal_text(&parsed)?;
     let usage = extract_multimodal_usage(&parsed);
 
@@ -208,9 +211,15 @@ fn extract_compatible_usage(payload: &Value) -> Option<LlmUsageSnapshot> {
 }
 
 fn extract_multimodal_text(payload: &Value) -> Result<String> {
-    if let Some(choices) = payload.pointer("/output/choices").and_then(|v| v.as_array()) {
+    if let Some(choices) = payload
+        .pointer("/output/choices")
+        .and_then(|v| v.as_array())
+    {
         for choice in choices {
-            if let Some(content) = choice.pointer("/message/content").and_then(|v| v.as_array()) {
+            if let Some(content) = choice
+                .pointer("/message/content")
+                .and_then(|v| v.as_array())
+            {
                 for item in content {
                     if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
                         let t = text.trim();
@@ -269,7 +278,10 @@ mod tests {
 
     #[test]
     fn asr_model_kept() {
-        assert_eq!(dashscope_audio_model_id("qwen3-asr-flash"), "qwen3-asr-flash");
+        assert_eq!(
+            dashscope_audio_model_id("qwen3-asr-flash"),
+            "qwen3-asr-flash"
+        );
     }
 
     #[test]

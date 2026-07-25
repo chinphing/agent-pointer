@@ -92,9 +92,7 @@ pub fn validate_server_access_at_startup(public_url: Option<&str>) -> Result<()>
     let require = require_allowed_users_configured();
     let has_list = access_restriction_enabled();
     if require && !has_list {
-        bail!(
-            "{ENV_REQUIRE_ALLOWED_USERS} is set but {ENV_ALLOWED_USER_IDS} is empty"
-        );
+        bail!("{ENV_REQUIRE_ALLOWED_USERS} is set but {ENV_ALLOWED_USER_IDS} is empty");
     }
     if let Some(url) = public_url {
         if is_public_deployment_url(url) && !has_list && !require {

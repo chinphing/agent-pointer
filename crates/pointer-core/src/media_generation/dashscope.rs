@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::billing::{GenerationUsage, record_generation_usage};
+use super::billing::{record_generation_usage, GenerationUsage};
 use super::models::{
     dashscope_multimodal_image_url, dashscope_tasks_url, dashscope_video_synthesis_url,
     is_happyhorse_model, resolve_dashscope_video_model, GenerationKind, ResolvedGenerationConfig,
@@ -48,7 +48,9 @@ fn auth_headers(api_key: &str) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
-        format!("Bearer {}", api_key.trim()).parse().expect("auth header"),
+        format!("Bearer {}", api_key.trim())
+            .parse()
+            .expect("auth header"),
     );
     headers.insert(
         reqwest::header::CONTENT_TYPE,
@@ -64,7 +66,10 @@ fn extract_image_urls(payload: &Value) -> Vec<String> {
         .and_then(|v| v.as_array())
     {
         for choice in choices {
-            if let Some(content) = choice.pointer("/message/content").and_then(|v| v.as_array()) {
+            if let Some(content) = choice
+                .pointer("/message/content")
+                .and_then(|v| v.as_array())
+            {
                 for item in content {
                     if let Some(url) = item.get("image").and_then(|v| v.as_str()) {
                         urls.push(url.to_string());
@@ -74,7 +79,10 @@ fn extract_image_urls(payload: &Value) -> Vec<String> {
         }
     }
     if urls.is_empty() {
-        if let Some(results) = payload.pointer("/output/results").and_then(|v| v.as_array()) {
+        if let Some(results) = payload
+            .pointer("/output/results")
+            .and_then(|v| v.as_array())
+        {
             for entry in results {
                 if let Some(url) = entry.get("url").and_then(|v| v.as_str()) {
                     urls.push(url.to_string());
@@ -87,14 +95,20 @@ fn extract_image_urls(payload: &Value) -> Vec<String> {
 
 fn extract_video_urls(payload: &Value) -> Vec<String> {
     let mut urls = Vec::new();
-    if let Some(results) = payload.pointer("/output/results").and_then(|v| v.as_array()) {
+    if let Some(results) = payload
+        .pointer("/output/results")
+        .and_then(|v| v.as_array())
+    {
         for entry in results {
             if let Some(url) = entry.get("video_url").and_then(|v| v.as_str()) {
                 urls.push(url.to_string());
             }
         }
     }
-    if let Some(url) = payload.pointer("/output/video_url").and_then(|v| v.as_str()) {
+    if let Some(url) = payload
+        .pointer("/output/video_url")
+        .and_then(|v| v.as_str())
+    {
         urls.push(url.to_string());
     }
     urls
@@ -294,7 +308,13 @@ pub async fn generate_image_dashscope(
         local_paths.push(path);
         log::info!("dashscope image saved index={i} model={}", cfg.model);
     }
-    record_generation_usage(run_id, conversation_id, GenerationKind::Image, &cfg.model, &usage);
+    record_generation_usage(
+        run_id,
+        conversation_id,
+        GenerationKind::Image,
+        &cfg.model,
+        &usage,
+    );
     Ok(GenerationArtifact {
         local_paths,
         model: cfg.model.clone(),
@@ -359,8 +379,7 @@ pub async fn generate_video_dashscope(
         .pointer("/output/task_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("DashScope video missing task_id"))?;
-    let completed =
-        poll_dashscope_task(&client, cfg, task_id, &cancel, poll_interval).await?;
+    let completed = poll_dashscope_task(&client, cfg, task_id, &cancel, poll_interval).await?;
     let urls = extract_video_urls(&completed);
     if urls.is_empty() {
         return Err(anyhow!("DashScope video completed without URLs"));
@@ -378,7 +397,13 @@ pub async fn generate_video_dashscope(
         let path = download_to_conversation(&client, conversation_id, video_url, ".mp4").await?;
         local_paths.push(path);
     }
-    record_generation_usage(run_id, conversation_id, GenerationKind::Video, &model, &usage);
+    record_generation_usage(
+        run_id,
+        conversation_id,
+        GenerationKind::Video,
+        &model,
+        &usage,
+    );
     Ok(GenerationArtifact {
         local_paths,
         model,

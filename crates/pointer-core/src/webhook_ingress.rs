@@ -132,7 +132,10 @@ impl std::fmt::Display for WebhookParseError {
 impl std::error::Error for WebhookParseError {}
 
 /// Parse raw HTTP body into control fields + inbound turn (with optional fallback).
-pub fn parse_webhook_body(raw: &[u8], src: &str) -> Result<WebhookIngressPayload, WebhookParseError> {
+pub fn parse_webhook_body(
+    raw: &[u8],
+    src: &str,
+) -> Result<WebhookIngressPayload, WebhookParseError> {
     if raw.len() > MAX_WEBHOOK_BODY_BYTES {
         return Err(WebhookParseError::PayloadTooLarge {
             max: MAX_WEBHOOK_BODY_BYTES,
@@ -165,10 +168,12 @@ pub fn parse_webhook_body(raw: &[u8], src: &str) -> Result<WebhookIngressPayload
     })
 }
 
-fn parse_json_webhook_body(value: &Value, src: &str) -> Result<WebhookIngressPayload, WebhookParseError> {
-    let body: WebhookIngressBody = serde_json::from_value(value.clone()).map_err(|e| {
-        WebhookParseError::InvalidJson(e.to_string())
-    })?;
+fn parse_json_webhook_body(
+    value: &Value,
+    src: &str,
+) -> Result<WebhookIngressPayload, WebhookParseError> {
+    let body: WebhookIngressBody = serde_json::from_value(value.clone())
+        .map_err(|e| WebhookParseError::InvalidJson(e.to_string()))?;
 
     if has_structured_message(&body) {
         return Ok(WebhookIngressPayload {
@@ -277,11 +282,7 @@ fn resolve_inbound_text(inbound: &WebhookInboundTurn) -> Result<String> {
     if let Some(s) = text.filter(|s| !s.is_empty()) {
         return Ok(s.to_string());
     }
-    if inbound
-        .attachments
-        .as_ref()
-        .is_some_and(|a| !a.is_empty())
-    {
+    if inbound.attachments.as_ref().is_some_and(|a| !a.is_empty()) {
         return Ok(String::new());
     }
     Err(anyhow!(
@@ -298,10 +299,7 @@ fn apply_name_prefix(name: Option<&str>, text: &str) -> String {
 }
 
 fn is_full_history_override(messages: &[ChatMessage]) -> bool {
-    messages.len() > 1
-        || messages
-            .iter()
-            .any(|m| !matches!(m.role, Role::User))
+    messages.len() > 1 || messages.iter().any(|m| !matches!(m.role, Role::User))
 }
 
 #[cfg(test)]
@@ -352,7 +350,12 @@ mod tests {
         let parsed = parse_webhook_body(raw, "github").unwrap();
         assert!(parsed.used_raw_body_fallback);
         assert_eq!(parsed.inbound.name.as_deref(), Some("github"));
-        assert!(parsed.inbound.text.as_ref().unwrap().contains("refs/heads/main"));
+        assert!(parsed
+            .inbound
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("refs/heads/main"));
         let s = store();
         let conv = "webhook:github:20260628";
         let msgs = build_webhook_dispatch_messages(&s, conv, &parsed.inbound).unwrap();
@@ -444,11 +447,7 @@ mod tests {
             remote_url: None,
             oss_object_key: None,
         }];
-        let reconciled = reconcile_webhook_conversation_id(
-            "test",
-            "webhook:test",
-            Some(&atts),
-        );
+        let reconciled = reconcile_webhook_conversation_id("test", "webhook:test", Some(&atts));
         assert_eq!(reconciled, "webhook:test:20260708");
     }
 }

@@ -28,7 +28,10 @@ fn tier_cfg_to_ref(cfg: &ComputerTierLlmConfig) -> AgentModelRef {
 }
 
 fn lookup_mode_llm(
-    map: &std::collections::HashMap<String, std::collections::HashMap<String, ComputerTierLlmConfig>>,
+    map: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, ComputerTierLlmConfig>,
+    >,
     outer_key: &str,
     mode: &str,
 ) -> Option<AgentModelRef> {
@@ -97,7 +100,11 @@ mod tests {
     use crate::models::MediaModelOverrides;
     use std::collections::HashMap;
 
-    fn sample_mode_llm(agent: &str, mode: &str, model: &str) -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
+    fn sample_mode_llm(
+        agent: &str,
+        mode: &str,
+        model: &str,
+    ) -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
         let mut inner = HashMap::new();
         inner.insert(
             mode.into(),
@@ -116,7 +123,9 @@ mod tests {
     #[test]
     fn resolve_general_fast_mode() {
         let mut settings = ModelSettings::default();
-        settings.agent_performance_modes.insert("general".into(), "fast".into());
+        settings
+            .agent_performance_modes
+            .insert("general".into(), "fast".into());
         settings.agent_mode_llm = sample_mode_llm("general", "fast", "qwen3.5-flash");
         let r = resolve_agent_mode_llm(&settings, "general").unwrap();
         assert_eq!(r.model, "qwen3.5-flash");

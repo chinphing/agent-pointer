@@ -330,7 +330,8 @@ fn persist_playable_wav(ctx: &AudioStorageContext, prepared: &PreparedAudio) {
 }
 
 fn persist_playable_wav_ids(conv: &str, id: &str, prepared: &PreparedAudio) {
-    match crate::media::store::save_attachment_bytes(conv, id, &prepared.bytes, &prepared.file_name) {
+    match crate::media::store::save_attachment_bytes(conv, id, &prepared.bytes, &prepared.file_name)
+    {
         Ok(rel) => {
             log::info!("media: persisted playable wav at {}", rel);
         }
@@ -421,7 +422,10 @@ mod tests {
 
     #[test]
     fn feishu_bin_needs_transcode() {
-        assert!(needs_audio_transcode("application/octet-stream", "file_v3_abc.bin"));
+        assert!(needs_audio_transcode(
+            "application/octet-stream",
+            "file_v3_abc.bin"
+        ));
     }
 
     #[test]

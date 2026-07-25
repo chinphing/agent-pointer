@@ -39,10 +39,7 @@ pub fn save_webhook_upload(
         anyhow::bail!("empty file");
     }
     if bytes.len() > MAX_WEBHOOK_UPLOAD_BYTES {
-        anyhow::bail!(
-            "file too large (max {} bytes)",
-            MAX_WEBHOOK_UPLOAD_BYTES
-        );
+        anyhow::bail!("file too large (max {} bytes)", MAX_WEBHOOK_UPLOAD_BYTES);
     }
     let file_name = file_name.trim();
     if file_name.is_empty() {
@@ -196,8 +193,7 @@ mod tests {
     #[test]
     fn save_and_validate_roundtrip() {
         let conv = format!("webhook_test_{}", Uuid::new_v4());
-        let saved = save_webhook_upload(&conv, "note.txt", Some("text/plain"), b"hello")
-            .unwrap();
+        let saved = save_webhook_upload(&conv, "note.txt", Some("text/plain"), b"hello").unwrap();
         assert_eq!(saved.kind, "document");
         validate_webhook_attachments(
             &conv,

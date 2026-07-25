@@ -37,7 +37,10 @@ pub fn post_desktop_action_delay_ms_from_tool_args(args: &Value) -> u64 {
         debug!("post_action wait: non-positive or non-finite, using default ms");
         return POST_DESKTOP_ACTION_DELAY_MS;
     }
-    let clamped = sec.clamp(POST_DESKTOP_ACTION_WAIT_SEC_MIN, POST_DESKTOP_ACTION_WAIT_SEC_MAX);
+    let clamped = sec.clamp(
+        POST_DESKTOP_ACTION_WAIT_SEC_MIN,
+        POST_DESKTOP_ACTION_WAIT_SEC_MAX,
+    );
     if (clamped - sec).abs() > f64::EPSILON {
         debug!(
             "post_action wait: clamped wait {}s to {}s before screenshot",
@@ -134,8 +137,7 @@ pub fn is_desktop_vision_log_tool(tool_id: &str) -> bool {
 
 #[inline]
 pub fn is_desktop_post_delay_tool(tool_id: &str) -> bool {
-    desktop_tool_family_id(tool_id)
-        .is_some_and(|fam| DESKTOP_POST_DELAY_TOOL_IDS.contains(&fam))
+    desktop_tool_family_id(tool_id).is_some_and(|fam| DESKTOP_POST_DELAY_TOOL_IDS.contains(&fam))
 }
 
 #[cfg(test)]
@@ -160,10 +162,7 @@ mod tests {
     #[test]
     fn flat_computer_tool_ids_map_to_families() {
         assert_eq!(desktop_tool_family_id("mouse_click_index"), Some("mouse"));
-        assert_eq!(
-            desktop_tool_family_id("input_index"),
-            Some("input")
-        );
+        assert_eq!(desktop_tool_family_id("input_index"), Some("input"));
         assert_eq!(
             desktop_tool_family_id("modified_click_select_index"),
             Some("modified_click")
@@ -183,9 +182,18 @@ mod tests {
 
     #[test]
     fn post_delay_clamps_wait_seconds() {
-        assert_eq!(post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 2.5})), 2500);
-        assert_eq!(post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 0.2})), 1000);
-        assert_eq!(post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 9})), 5000);
+        assert_eq!(
+            post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 2.5})),
+            2500
+        );
+        assert_eq!(
+            post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 0.2})),
+            1000
+        );
+        assert_eq!(
+            post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 9})),
+            5000
+        );
         assert_eq!(
             post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 0})),
             POST_DESKTOP_ACTION_DELAY_MS

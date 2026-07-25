@@ -17,7 +17,9 @@ pub fn parse_cargo_compiler_messages(lines: &[String], source: &str) -> Vec<Valu
         if v.get("reason").and_then(|r| r.as_str()) != Some("compiler-message") {
             continue;
         }
-        let Some(msg) = v.get("message") else { continue };
+        let Some(msg) = v.get("message") else {
+            continue;
+        };
         if let Some(d) = compiler_message_to_diagnostic(msg, source) {
             out.push(d);
         }
@@ -28,7 +30,10 @@ pub fn parse_cargo_compiler_messages(lines: &[String], source: &str) -> Vec<Valu
 fn compiler_message_to_diagnostic(msg: &Value, source: &str) -> Option<Value> {
     let level = msg.get("level")?.as_str()?;
     let short = msg.get("message").and_then(|m| m.as_str()).unwrap_or("");
-    let rendered = msg.get("rendered").and_then(|m| m.as_str()).unwrap_or(short);
+    let rendered = msg
+        .get("rendered")
+        .and_then(|m| m.as_str())
+        .unwrap_or(short);
     let code = msg
         .get("code")
         .and_then(|c| c.get("code").and_then(|x| x.as_str()));
@@ -115,10 +120,7 @@ pub fn parse_oxlint_json(stdout: &str, source: &str) -> Result<Vec<Value>> {
             .and_then(|x| x.as_str())
             .unwrap_or("oxlint");
         let code = d.get("code").and_then(|x| x.as_str());
-        let path = d
-            .get("filename")
-            .and_then(|x| x.as_str())
-            .unwrap_or("");
+        let path = d.get("filename").and_then(|x| x.as_str()).unwrap_or("");
         let (line, col) = d
             .get("labels")
             .and_then(|l| l.as_array())
@@ -151,10 +153,7 @@ pub fn parse_ruff_json(stdout: &str, source: &str) -> Result<Vec<Value>> {
         .ok_or_else(|| anyhow!("ruff JSON: expected array"))?;
     let mut out = Vec::new();
     for item in arr {
-        let path = item
-            .get("filename")
-            .and_then(|x| x.as_str())
-            .unwrap_or("");
+        let path = item.get("filename").and_then(|x| x.as_str()).unwrap_or("");
         let loc = item.get("location").cloned().unwrap_or(json!({}));
         let line = loc.get("row").and_then(|x| x.as_u64()).unwrap_or(1);
         let col = loc.get("column").and_then(|x| x.as_u64()).unwrap_or(1);
@@ -190,7 +189,10 @@ pub fn parse_golangci_json(stdout: &str, source: &str) -> Result<Vec<Value>> {
     let mut out = Vec::new();
     for iss in issues {
         let text = iss.get("Text").and_then(|x| x.as_str()).unwrap_or("lint");
-        let linter = iss.get("FromLinter").and_then(|x| x.as_str()).unwrap_or("golangci-lint");
+        let linter = iss
+            .get("FromLinter")
+            .and_then(|x| x.as_str())
+            .unwrap_or("golangci-lint");
         let pos = iss.get("Pos").cloned().unwrap_or(json!({}));
         let path = pos.get("Filename").and_then(|x| x.as_str()).unwrap_or("");
         let line = pos.get("Line").and_then(|x| x.as_u64()).unwrap_or(1);
@@ -238,7 +240,10 @@ pub fn parse_dotnet_build_log(combined: &str, source: &str) -> Vec<Value> {
             "error"
         };
         let code = caps.name("code").map(|m| m.as_str()).unwrap_or("dotnet");
-        let msg = caps.name("msg").map(|m| m.as_str().trim()).unwrap_or("build");
+        let msg = caps
+            .name("msg")
+            .map(|m| m.as_str().trim())
+            .unwrap_or("build");
         let key = format!("{file}|{line}|{col}|{msg}");
         if !seen.insert(key) {
             continue;
@@ -313,12 +318,18 @@ pub fn parse_rubocop_json(stdout: &str, workspace_root: &Path, source: &str) -> 
             continue;
         };
         for off in offenses {
-            let sev_raw = off.get("severity").and_then(|x| x.as_str()).unwrap_or("convention");
+            let sev_raw = off
+                .get("severity")
+                .and_then(|x| x.as_str())
+                .unwrap_or("convention");
             let severity = match sev_raw {
                 "fatal" | "error" => "error",
                 _ => "warning",
             };
-            let message = off.get("message").and_then(|x| x.as_str()).unwrap_or("rubocop");
+            let message = off
+                .get("message")
+                .and_then(|x| x.as_str())
+                .unwrap_or("rubocop");
             let cop = off.get("cop_name").and_then(|x| x.as_str());
             let loc = off.get("location").cloned().unwrap_or(json!({}));
             let line = loc
@@ -368,7 +379,10 @@ pub fn parse_swift_build_log(combined: &str, source: &str) -> Vec<Value> {
         } else {
             "error"
         };
-        let msg = caps.name("msg").map(|m| m.as_str().trim()).unwrap_or("swift");
+        let msg = caps
+            .name("msg")
+            .map(|m| m.as_str().trim())
+            .unwrap_or("swift");
         let key = format!("{file}|{line}|{col}|{msg}");
         if !seen.insert(key) {
             continue;
@@ -394,7 +408,8 @@ fn strip_file_uri(path: &str) -> String {
 }
 
 pub fn parse_dart_analyze_json(stdout: &str, source: &str) -> Result<Vec<Value>> {
-    let root: Value = serde_json::from_str(stdout).map_err(|e| anyhow!("dart analyze JSON: {e}"))?;
+    let root: Value =
+        serde_json::from_str(stdout).map_err(|e| anyhow!("dart analyze JSON: {e}"))?;
     let diagnostics = if let Some(a) = root.get("diagnostics").and_then(|x| x.as_array()) {
         a
     } else if let Some(a) = root.as_array() {
@@ -467,8 +482,21 @@ pub fn parse_java_compile_output(combined: &str, source: &str) -> Vec<Value> {
             .name("col")
             .and_then(|m| m.as_str().parse().ok())
             .unwrap_or(1);
-        let msg = caps.name("msg").map(|m| m.as_str().trim()).unwrap_or("compile");
-        push_java_diag(&mut out, &mut seen, file, line, col, severity, msg, source, "maven-log");
+        let msg = caps
+            .name("msg")
+            .map(|m| m.as_str().trim())
+            .unwrap_or("compile");
+        push_java_diag(
+            &mut out,
+            &mut seen,
+            file,
+            line,
+            col,
+            severity,
+            msg,
+            source,
+            "maven-log",
+        );
     }
 
     for caps in re_javac.captures_iter(combined) {
@@ -487,7 +515,10 @@ pub fn parse_java_compile_output(combined: &str, source: &str) -> Vec<Value> {
         } else {
             "error"
         };
-        let msg = caps.name("msg").map(|m| m.as_str().trim()).unwrap_or("compile");
+        let msg = caps
+            .name("msg")
+            .map(|m| m.as_str().trim())
+            .unwrap_or("compile");
         push_java_diag(
             &mut out,
             &mut seen,
@@ -544,7 +575,14 @@ pub fn text_on_failure_diagnostic(
         tail.push_str("\n--- stderr ---\n");
         tail.push_str(&String::from_utf8_lossy(&cap.stderr));
     }
-    let tail: String = tail.chars().rev().take(4000).collect::<String>().chars().rev().collect();
+    let tail: String = tail
+        .chars()
+        .rev()
+        .take(4000)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     vec![json!({
         "severity": "error",
         "message": format!("Lint command failed (exit {:?}): {}\n\n{}", cap.exit_code, shell, tail),

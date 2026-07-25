@@ -32,11 +32,7 @@ pub fn dependencies_satisfied_rows(global: &[BoardItem], item: &BoardItem) -> bo
     }
     item.depends_on.iter().all(|dep| {
         global.iter().any(|row| {
-            row.id == *dep
-                && matches!(
-                    row.status,
-                    ItemStatus::Done | ItemStatus::Cancelled
-                )
+            row.id == *dep && matches!(row.status, ItemStatus::Done | ItemStatus::Cancelled)
         })
     })
 }
@@ -58,11 +54,6 @@ pub fn mark_ready_pending_rows(doc: &mut BoardDocument) {
 pub fn count_incomplete(doc: &BoardDocument) -> usize {
     doc.global_milestones
         .iter()
-        .filter(|i| {
-            !matches!(
-                i.status,
-                ItemStatus::Done | ItemStatus::Cancelled
-            )
-        })
+        .filter(|i| !matches!(i.status, ItemStatus::Done | ItemStatus::Cancelled))
         .count()
 }

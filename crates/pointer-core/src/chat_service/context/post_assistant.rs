@@ -1,12 +1,12 @@
 //! Context for post-stream assistant turn decisions and tool-budget checks.
 
+use super::super::app_state::AppState;
+use super::super::session_budget::SessionToolBudget;
+use super::super::StreamTx;
 use super::budget::{ToolBudgetExhaustionScope, ToolBudgetRefs};
 use super::llm::LlmRoundRefs;
 use super::session::SessionRefs;
 use super::transcript::TranscriptRefs;
-use super::super::app_state::AppState;
-use super::super::session_budget::SessionToolBudget;
-use super::super::StreamTx;
 use crate::models::{ChatMessage, ModelSettings};
 use crate::provider::OpenAIProvider;
 use tokio_util::sync::CancellationToken;
@@ -43,10 +43,7 @@ impl<'a> PostAssistantContext<'a> {
                 cancel,
             },
             transcript: TranscriptRefs { history },
-            llm: LlmRoundRefs {
-                provider,
-                settings,
-            },
+            llm: LlmRoundRefs { provider, settings },
             budget: ToolBudgetRefs {
                 tool_budget,
                 consumed_single,

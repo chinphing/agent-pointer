@@ -89,7 +89,10 @@ pub fn run_argv_capture_lines(
         .stdout
         .take()
         .ok_or_else(|| anyhow!("无法读取 stdout"))?;
-    let stderr = child.stderr.take().ok_or_else(|| anyhow!("无法读取 stderr"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("无法读取 stderr"))?;
 
     let stdout_handle = thread::spawn(move || copy_limited(stdout, max_stdout_bytes));
 
@@ -112,7 +115,9 @@ pub fn run_argv_capture_lines(
                         wall_ms
                     );
                     kill_child_process_tree(&mut child);
-                    break 'wait child.wait().map_err(|e| anyhow!("等待子进程结束失败: {e}"))?;
+                    break 'wait child
+                        .wait()
+                        .map_err(|e| anyhow!("等待子进程结束失败: {e}"))?;
                 }
                 thread::sleep(Duration::from_millis(50));
             }
@@ -148,8 +153,11 @@ pub fn run_shell_capture(
 ) -> Result<CapturedOutput> {
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("cmd.exe");
-        c.args(["/C", &crate::windows_shell_encoding::prefix_cmd_utf8_codepage(shell_cmd)])
-            .current_dir(cwd);
+        c.args([
+            "/C",
+            &crate::windows_shell_encoding::prefix_cmd_utf8_codepage(shell_cmd),
+        ])
+        .current_dir(cwd);
         c
     } else {
         let mut c = Command::new("sh");
@@ -179,7 +187,9 @@ pub fn run_shell_capture(
                 if start.elapsed() >= Duration::from_millis(wall_ms) {
                     timed_out = true;
                     kill_child_process_tree(&mut child);
-                    break 'wait child.wait().map_err(|e| anyhow!("等待 shell 结束失败: {e}"))?;
+                    break 'wait child
+                        .wait()
+                        .map_err(|e| anyhow!("等待 shell 结束失败: {e}"))?;
                 }
                 thread::sleep(Duration::from_millis(50));
             }

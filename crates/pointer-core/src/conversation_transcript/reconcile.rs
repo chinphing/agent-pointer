@@ -11,7 +11,13 @@ fn now_ms() -> i64 {
 pub fn tool_message_id(tool_call_id: &str) -> String {
     let safe: String = tool_call_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("tool_{safe}")
 }
@@ -136,7 +142,10 @@ pub fn reconcile_tool_messages(messages: &mut Vec<ChatMessage>) -> bool {
         let valid = if tool_call_id.is_empty() {
             false
         } else {
-            messages[..i].iter().rev().any(|m| assistant_has_tool_call(m, &tool_call_id))
+            messages[..i]
+                .iter()
+                .rev()
+                .any(|m| assistant_has_tool_call(m, &tool_call_id))
         };
         if valid {
             i += 1;

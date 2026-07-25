@@ -123,10 +123,7 @@ pub fn apply_deliver_string(meta: &mut TriggerMeta, deliver: Option<&str>) -> De
     let Some(d) = normalize_deliver_spec(deliver) else {
         return DeliverTarget::None;
     };
-    let mut extra = meta
-        .extra
-        .take()
-        .unwrap_or_else(|| serde_json::json!({}));
+    let mut extra = meta.extra.take().unwrap_or_else(|| serde_json::json!({}));
     match extra.as_object_mut() {
         Some(obj) => {
             obj.insert(
@@ -246,7 +243,17 @@ pub enum RunAcceptStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RunOutcome {
-    Finished { run_id: String, conversation_id: String },
-    Failed { run_id: String, conversation_id: String, error: String },
-    Cancelled { run_id: String, conversation_id: String },
+    Finished {
+        run_id: String,
+        conversation_id: String,
+    },
+    Failed {
+        run_id: String,
+        conversation_id: String,
+        error: String,
+    },
+    Cancelled {
+        run_id: String,
+        conversation_id: String,
+    },
 }

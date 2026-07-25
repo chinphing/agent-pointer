@@ -1,7 +1,7 @@
+use pointer_core::chat_service::AppState;
 use pointer_core::platform_auth::{run_platform_login_flow, PlatformSessionView};
 use pointer_core::platform_config::apply_login_media_oss;
 use pointer_core::token_usage_store;
-use pointer_core::chat_service::AppState;
 use std::sync::Arc;
 use tauri::State;
 
@@ -29,7 +29,9 @@ pub fn cancel_platform_login(state: State<'_, Arc<AppState>>) {
 }
 
 #[tauri::command]
-pub async fn refresh_platform_session(state: State<'_, Arc<AppState>>) -> Result<PlatformSessionView, String> {
+pub async fn refresh_platform_session(
+    state: State<'_, Arc<AppState>>,
+) -> Result<PlatformSessionView, String> {
     state
         .platform_auth
         .refresh_if_needed()
@@ -77,7 +79,9 @@ pub async fn flush_platform_token_usage(state: State<'_, Arc<AppState>>) -> Resu
 }
 
 #[tauri::command]
-pub async fn load_platform_session_persisted(state: State<'_, Arc<AppState>>) -> Result<bool, String> {
+pub async fn load_platform_session_persisted(
+    state: State<'_, Arc<AppState>>,
+) -> Result<bool, String> {
     let creds = state
         .platform_auth
         .load_persisted_session()
@@ -93,6 +97,8 @@ pub async fn load_platform_session_persisted(state: State<'_, Arc<AppState>>) ->
 
 /// Back-compat alias.
 #[tauri::command]
-pub async fn load_platform_session_from_keyring(state: State<'_, Arc<AppState>>) -> Result<bool, String> {
+pub async fn load_platform_session_from_keyring(
+    state: State<'_, Arc<AppState>>,
+) -> Result<bool, String> {
     load_platform_session_persisted(state).await
 }

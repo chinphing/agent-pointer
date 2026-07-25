@@ -93,9 +93,8 @@ fn largest_window_quartz_bounds(pid: i32) -> Option<(f64, f64, f64, f64)> {
     let mut best_area = 0.0_f64;
 
     for item in windows.iter() {
-        let dict: WindowDict = unsafe {
-            CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef)
-        };
+        let dict: WindowDict =
+            unsafe { CFDictionary::wrap_under_get_rule(*item as CFDictionaryRef) };
         if !window_dict_matches_pid(&dict, pid) || !window_dict_is_user_visible(&dict) {
             continue;
         }
@@ -132,8 +131,7 @@ fn quartz_point_to_top_left_global(qx: f64, qy: f64) -> Option<(i32, i32)> {
             continue;
         }
         let monitor = monitors.iter().find(|m| {
-            m.id
-                .strip_prefix(XCAP_MONITOR_ID_PREFIX)
+            m.id.strip_prefix(XCAP_MONITOR_ID_PREFIX)
                 .and_then(|s| s.parse::<u32>().ok())
                 .is_some_and(|xid| xid == display_id)
         })?;
@@ -169,9 +167,8 @@ fn window_bounds_size(dict: &WindowDict) -> Option<(f64, f64)> {
 fn window_bounds_rect(dict: &WindowDict) -> Option<(f64, f64, f64, f64)> {
     let key = CFString::new("kCGWindowBounds");
     let bounds_ref = dict.find(&key)?;
-    let bounds: WindowDict = unsafe {
-        CFDictionary::wrap_under_get_rule(bounds_ref.as_CFTypeRef() as CFDictionaryRef)
-    };
+    let bounds: WindowDict =
+        unsafe { CFDictionary::wrap_under_get_rule(bounds_ref.as_CFTypeRef() as CFDictionaryRef) };
     Some((
         cf_dict_num(&bounds, "X")?,
         cf_dict_num(&bounds, "Y")?,

@@ -2,21 +2,20 @@
 use super::terminal_askpass::{
     deliver_askpass_password, try_create_ssh_askpass, try_setup_ssh_askpass,
 };
-use super::terminal_pty::{
-    command_wants_pty, try_spawn_terminal_pty, ActiveChild, TerminalInputSink,
-};
 use super::terminal_elevated::run_terminal_command_elevated;
 use super::terminal_prompt::{
     agent_retry_forbidden, detect_prompt_state, input_context_snippet,
     post_interactive_ssh_secret_prompt, scrub_secret_echo, PROMPT_DETECT_IDLE_MS,
+};
+use super::terminal_pty::{
+    command_wants_pty, try_spawn_terminal_pty, ActiveChild, TerminalInputSink,
 };
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 
 pub(crate) use super::terminal_elevated::terminal_requests_elevation;
 pub use super::terminal_prompt::InputClass;
 use crate::dotenv::{
-    apply_supplemental_env_files, default_user_env_file, parse_env_file_args,
-    resolve_env_file_path,
+    apply_supplemental_env_files, default_user_env_file, parse_env_file_args, resolve_env_file_path,
 };
 use anyhow::{anyhow, Result};
 use log::{info, warn};
@@ -77,14 +76,7 @@ fn register_terminal(reg: &ToolRegistry) {
     const DOC_SOURCE: &str = "tools/prompts/terminal.md";
     let doc = include_str!("prompts/terminal.md").trim();
     let h: ToolHandler = Arc::new(run_terminal_command);
-    reg.register(ToolEntry::new(
-        "terminal",
-        DOC_SOURCE,
-        "high",
-        true,
-        doc,
-        h,
-    ));
+    reg.register(ToolEntry::new("terminal", DOC_SOURCE, "high", true, doc, h));
 }
 
 pub(crate) fn effective_terminal_cwd(
@@ -114,7 +106,9 @@ pub(crate) fn effective_terminal_cwd(
 /// `cmd.exe` rejects those as `WorkingDirectory` — strip before spawning shells.
 #[cfg(windows)]
 fn normalize_terminal_cwd(path: PathBuf) -> PathBuf {
-    PathBuf::from(strip_windows_extended_path_prefix(path.display().to_string()))
+    PathBuf::from(strip_windows_extended_path_prefix(
+        path.display().to_string(),
+    ))
 }
 
 #[cfg(not(windows))]
@@ -300,9 +294,7 @@ pub fn run_terminal_command_streaming(
         let mut pty_askpass_pairs: Option<Vec<(String, String)>> = None;
         #[cfg(unix)]
         {
-            if let Some((bridge, helper)) =
-                try_create_ssh_askpass(command, input_hooks.is_some())
-            {
+            if let Some((bridge, helper)) = try_create_ssh_askpass(command, input_hooks.is_some()) {
                 pty_askpass_pairs = Some(bridge.env_pairs(&helper));
                 askpass_bridge = Some(bridge);
                 ssh_askpass_active = true;
@@ -363,13 +355,10 @@ pub fn run_terminal_command_streaming(
         cmd.creation_flags(CREATE_NO_WINDOW);
         #[cfg(unix)]
         {
-            askpass_bridge =
-                try_setup_ssh_askpass(command, input_hooks.is_some(), &mut cmd);
+            askpass_bridge = try_setup_ssh_askpass(command, input_hooks.is_some(), &mut cmd);
             ssh_askpass_active = askpass_bridge.is_some();
         }
-        let mut process = cmd
-            .spawn()
-            .map_err(|e| anyhow!("启动终端命令失败: {e}"))?;
+        let mut process = cmd.spawn().map_err(|e| anyhow!("启动终端命令失败: {e}"))?;
         if want_stdin_pipe {
             if let Some(stdin) = process.stdin.take() {
                 input_sink = Some(TerminalInputSink::Pipe(stdin));
@@ -438,10 +427,7 @@ pub fn run_terminal_command_streaming(
             break status;
         }
 
-        if run_abort
-            .as_ref()
-            .is_some_and(|a| a.load(Ordering::SeqCst))
-        {
+        if run_abort.as_ref().is_some_and(|a| a.load(Ordering::SeqCst)) {
             run_aborted = true;
             warn!("terminal: run-only abort; killing child process tree");
             child.kill_best_effort();
@@ -460,8 +446,7 @@ pub fn run_terminal_command_streaming(
                 if let Some(hooks) = &input_hooks {
                     info!("terminal: SSH_ASKPASS connected; waiting for password in modal");
                     let wait_started = Instant::now();
-                    let wait_deadline =
-                        wait_started + Duration::from_millis(wait_for_input_ms);
+                    let wait_deadline = wait_started + Duration::from_millis(wait_for_input_ms);
                     let combined = format!("{}{}", stdout_buf, stderr_buf);
                     let wait_prompt = TerminalNeedsInputPrompt {
                         request_id: uuid::Uuid::new_v4().to_string(),
@@ -487,14 +472,8 @@ pub fn run_terminal_command_streaming(
                         }
 
                         if let Some(status) = child.try_wait()? {
-                            waited_for_input_ms +=
-                                wait_started.elapsed().as_millis() as u64;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            waited_for_input_ms += wait_started.elapsed().as_millis() as u64;
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             break 'main status;
                         }
 
@@ -502,29 +481,16 @@ pub fn run_terminal_command_streaming(
                             cancelled = true;
                             child.kill_best_effort();
                             let status = child.wait()?;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             on_output("\n进程已因会话取消被终止\n");
                             break 'main status;
                         }
 
-                        if run_abort
-                            .as_ref()
-                            .is_some_and(|a| a.load(Ordering::SeqCst))
-                        {
+                        if run_abort.as_ref().is_some_and(|a| a.load(Ordering::SeqCst)) {
                             run_aborted = true;
                             child.kill_best_effort();
                             let status = child.wait()?;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             on_output("\n进程已由宿主仅终止当前终端命令\n");
                             break 'main status;
                         }
@@ -534,16 +500,11 @@ pub fn run_terminal_command_streaming(
                                 user_input_provided = true;
                                 last_secret_submitted = Some(text.clone());
                                 if let Some(stream) = askpass_stream.take() {
-                                    if let Err(e) =
-                                        deliver_askpass_password(stream, &text)
-                                    {
-                                        warn!(
-                                            "terminal: askpass password delivery failed: {e:#}"
-                                        );
+                                    if let Err(e) = deliver_askpass_password(stream, &text) {
+                                        warn!("terminal: askpass password delivery failed: {e:#}");
                                     }
                                 }
-                                waited_for_input_ms +=
-                                    wait_started.elapsed().as_millis() as u64;
+                                waited_for_input_ms += wait_started.elapsed().as_millis() as u64;
                                 last_output_at = Instant::now();
                                 continue 'main;
                             }
@@ -582,12 +543,7 @@ pub fn run_terminal_command_streaming(
                             timed_out = true;
                             child.kill_best_effort();
                             let status = child.wait()?;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             on_output("\nSSH 密码输入超时，已终止执行\n");
                             break 'main status;
                         }
@@ -624,9 +580,7 @@ pub fn run_terminal_command_streaming(
                     idle_ms,
                     user_input_provided,
                 ) {
-                    info!(
-                        "terminal: post-interactive SSH password modal (idle={idle_ms}ms)"
-                    );
+                    info!("terminal: post-interactive SSH password modal (idle={idle_ms}ms)");
                     prompt = fallback;
                 }
             }
@@ -649,8 +603,7 @@ pub fn run_terminal_command_streaming(
                         prompt.input_class
                     );
                     let wait_started = Instant::now();
-                    let wait_deadline =
-                        wait_started + Duration::from_millis(wait_for_input_ms);
+                    let wait_deadline = wait_started + Duration::from_millis(wait_for_input_ms);
                     let output_len_before_wait = stdout_buf.len() + stderr_buf.len();
                     let request_id = uuid::Uuid::new_v4().to_string();
                     let wait_prompt = TerminalNeedsInputPrompt {
@@ -662,7 +615,9 @@ pub fn run_terminal_command_streaming(
                         wait_for_input_ms,
                     };
                     if hooks.prompt_tx.send(wait_prompt).is_err() {
-                        warn!("terminal: input prompt channel closed; falling back to host TTY wait");
+                        warn!(
+                            "terminal: input prompt channel closed; falling back to host TTY wait"
+                        );
                     } else {
                         info!("terminal: input prompt queued request_id={request_id}");
                     }
@@ -677,14 +632,8 @@ pub fn run_terminal_command_streaming(
                         }
 
                         if let Some(status) = child.try_wait()? {
-                            waited_for_input_ms +=
-                                wait_started.elapsed().as_millis() as u64;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            waited_for_input_ms += wait_started.elapsed().as_millis() as u64;
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             break 'main status;
                         }
 
@@ -692,29 +641,16 @@ pub fn run_terminal_command_streaming(
                             cancelled = true;
                             child.kill_best_effort();
                             let status = child.wait()?;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             on_output("\n进程已因会话取消被终止\n");
                             break 'main status;
                         }
 
-                        if run_abort
-                            .as_ref()
-                            .is_some_and(|a| a.load(Ordering::SeqCst))
-                        {
+                        if run_abort.as_ref().is_some_and(|a| a.load(Ordering::SeqCst)) {
                             run_aborted = true;
                             child.kill_best_effort();
                             let status = child.wait()?;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             on_output("\n进程已由宿主仅终止当前终端命令\n");
                             break 'main status;
                         }
@@ -723,8 +659,7 @@ pub fn run_terminal_command_streaming(
                         if !stdin_piped {
                             let output_len_now = stdout_buf.len() + stderr_buf.len();
                             if output_len_now > output_len_before_wait {
-                                waited_for_input_ms +=
-                                    wait_started.elapsed().as_millis() as u64;
+                                waited_for_input_ms += wait_started.elapsed().as_millis() as u64;
                                 last_output_at = Instant::now();
                                 continue 'main;
                             }
@@ -745,8 +680,7 @@ pub fn run_terminal_command_streaming(
                                         "terminal: modal input ignored (host TTY inherit); use the dev terminal"
                                     );
                                 }
-                                waited_for_input_ms +=
-                                    wait_started.elapsed().as_millis() as u64;
+                                waited_for_input_ms += wait_started.elapsed().as_millis() as u64;
                                 last_output_at = Instant::now();
                                 continue 'main;
                             }
@@ -785,12 +719,7 @@ pub fn run_terminal_command_streaming(
                             timed_out = true;
                             child.kill_best_effort();
                             let status = child.wait()?;
-                            drain_pipe_chunks(
-                                &rx,
-                                &mut stdout_buf,
-                                &mut stderr_buf,
-                                &on_output,
-                            );
+                            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
                             on_output("\n进程等待输入超时，已终止执行\n");
                             break 'main status;
                         }
@@ -998,7 +927,9 @@ fn split_windows_command_line(s: &str) -> Vec<String> {
 
 /// When the model prefixes with `powershell` / `pwsh`, spawn that executable directly.
 #[cfg(windows)]
-pub(crate) fn parse_direct_powershell_invocation(command: &str) -> Option<(&'static str, Vec<String>)> {
+pub(crate) fn parse_direct_powershell_invocation(
+    command: &str,
+) -> Option<(&'static str, Vec<String>)> {
     let trimmed = command.trim();
     let lower = trimmed.to_ascii_lowercase();
     let (exe, rest) = if lower.starts_with("pwsh.exe") {
@@ -1101,10 +1032,7 @@ fn terminal_shell_command(command: &str) -> (&'static str, Command) {
         .arg("Bypass")
         .arg("-Command")
         .arg(wrap_powershell_command(command));
-    (
-        "powershell -ExecutionPolicy Bypass -Command",
-        cmd,
-    )
+    ("powershell -ExecutionPolicy Bypass -Command", cmd)
 }
 
 #[cfg(not(windows))]
@@ -1129,7 +1057,10 @@ pub fn terminal_stream_tool_status(r: &TerminalStreamingResult) -> (bool, Option
         return (false, Some("命令已因会话取消被终止".to_string()));
     }
     if r.run_aborted {
-        return (false, Some("命令已由宿主终止（仅结束当前终端）".to_string()));
+        return (
+            false,
+            Some("命令已由宿主终止（仅结束当前终端）".to_string()),
+        );
     }
     if r.elevation_denied {
         return (false, Some("用户已拒绝系统提权".to_string()));
@@ -1185,7 +1116,11 @@ mod cwd_tests {
     fn effective_terminal_cwd_prefers_explicit_path() {
         let ws_dir = tempfile::tempdir().unwrap();
         let other = tempfile::tempdir().unwrap();
-        let cwd = effective_terminal_cwd(Some(other.path().to_path_buf()), ws_dir.path().to_str().unwrap()).unwrap();
+        let cwd = effective_terminal_cwd(
+            Some(other.path().to_path_buf()),
+            ws_dir.path().to_str().unwrap(),
+        )
+        .unwrap();
         assert_eq!(cwd, other.path().canonicalize().unwrap());
     }
 
@@ -1258,10 +1193,7 @@ mod tests {
         );
         assert_eq!(
             parse_direct_cmd_invocation(r#"cmd.exe /C "choco -v 2>nul || echo NOT_FOUND""#),
-            Some((
-                "/C",
-                "choco -v 2>nul || echo NOT_FOUND".to_string()
-            ))
+            Some(("/C", "choco -v 2>nul || echo NOT_FOUND".to_string()))
         );
         assert!(parse_direct_cmd_invocation("powershell -Command foo").is_none());
     }
@@ -1279,7 +1211,9 @@ mod tests {
         assert!(windows_command_uses_explicit_shell(
             "powershell -Command Get-Location"
         ));
-        assert!(windows_command_uses_explicit_shell("pwsh -c $PSVersionTable"));
+        assert!(windows_command_uses_explicit_shell(
+            "pwsh -c $PSVersionTable"
+        ));
     }
 
     #[test]

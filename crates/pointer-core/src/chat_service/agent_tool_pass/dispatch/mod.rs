@@ -89,14 +89,7 @@ pub(super) async fn execute_tool_invocation(
                 sub.as_deref(),
             )?;
             web_search::dispatch_web_search(
-                stream,
-                provider,
-                message_id,
-                history,
-                tc,
-                args_value,
-                cancel,
-                invocation,
+                stream, provider, message_id, history, tc, args_value, cancel, invocation,
             )
             .await
         }
@@ -155,17 +148,19 @@ pub(super) async fn execute_tool_invocation(
             args_value,
             lead,
         ),
-        _ => registry::dispatch_registry_invoke(
-            state,
-            conversation_id,
-            tool_id,
-            args_value,
-            &provider.settings.workspace_root,
-            lead.as_deref(),
-            sub.as_deref(),
-            execution_scope,
-        )
-        .await,
+        _ => {
+            registry::dispatch_registry_invoke(
+                state,
+                conversation_id,
+                tool_id,
+                args_value,
+                &provider.settings.workspace_root,
+                lead.as_deref(),
+                sub.as_deref(),
+                execution_scope,
+            )
+            .await
+        }
     }
 }
 
@@ -216,14 +211,7 @@ pub(super) async fn invoke_prepared_parallel(
             let history = web_search_history
                 .ok_or_else(|| anyhow::anyhow!("web_search history context missing"))?;
             web_search::dispatch_web_search(
-                stream,
-                provider,
-                message_id,
-                history,
-                tc,
-                args_value,
-                cancel,
-                invocation,
+                stream, provider, message_id, history, tc, args_value, cancel, invocation,
             )
             .await
         }
@@ -259,17 +247,19 @@ pub(super) async fn invoke_prepared_parallel(
         "run_subagent" => Err(anyhow::anyhow!(
             "run_subagent must not run in parallel wave"
         )),
-        _ => registry::dispatch_registry_invoke_with_profile(
-            state,
-            conversation_id,
-            tool_id,
-            args_value,
-            workspace_root,
-            lead_profile
-                .or(sub_profile)
-                .unwrap_or(AgentProfile::General),
-            execution_scope,
-        )
-        .await,
+        _ => {
+            registry::dispatch_registry_invoke_with_profile(
+                state,
+                conversation_id,
+                tool_id,
+                args_value,
+                workspace_root,
+                lead_profile
+                    .or(sub_profile)
+                    .unwrap_or(AgentProfile::General),
+                execution_scope,
+            )
+            .await
+        }
     }
 }

@@ -4,7 +4,8 @@ use crate::chat_service::AppState;
 use crate::models::ChatMessage;
 use crate::task_board::checkpoint::is_task_board_tool_name;
 use crate::task_board::evidence::{
-    history_has_recent_action_tools, history_has_recent_verify_pass, history_has_recent_verify_report,
+    history_has_recent_action_tools, history_has_recent_verify_pass,
+    history_has_recent_verify_report,
 };
 use serde_json::Value;
 
@@ -123,7 +124,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn session_search_gets_conversation_binding() {
         let out = inject_host_task_board_conversation_id(
@@ -166,16 +166,10 @@ mod tests {
 
     #[test]
     fn inherited_task_board_call_is_bound_only_to_its_child_store() {
-        let first_store = sub_agent_task_board_store_key_for_instance(
-            "parent",
-            "shared-task",
-            "fork-a",
-        );
-        let second_store = sub_agent_task_board_store_key_for_instance(
-            "parent",
-            "shared-task",
-            "fork-b",
-        );
+        let first_store =
+            sub_agent_task_board_store_key_for_instance("parent", "shared-task", "fork-a");
+        let second_store =
+            sub_agent_task_board_store_key_for_instance("parent", "shared-task", "fork-b");
         let supplied = serde_json::json!({
             "_conversation_id": second_store,
             "items": [{"id": "local_01", "status": "done"}]

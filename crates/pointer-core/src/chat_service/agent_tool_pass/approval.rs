@@ -4,8 +4,8 @@ use crate::models::{StreamEvent, ToolCall};
 use anyhow::Result;
 use tokio::sync::oneshot;
 
-use super::types::ToolPassContext;
 use super::super::emit::{emit, trace_id_opt};
+use super::types::ToolPassContext;
 
 pub(super) async fn run_approval_gate(
     ctx: &mut ToolPassContext<'_>,
@@ -28,10 +28,7 @@ pub(super) async fn run_approval_gate(
         return Ok(true);
     }
 
-    let scoped_message_id = ctx
-        .sub
-        .as_ref()
-        .map(|s| s.scoped_message_id.as_str());
+    let scoped_message_id = ctx.sub.as_ref().map(|s| s.scoped_message_id.as_str());
 
     emit(
         ctx.session.stream,

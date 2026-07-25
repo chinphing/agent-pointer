@@ -203,9 +203,7 @@ pub fn format_delegation_attachments_block(attachments: &[MediaAttachment]) -> S
     if manifest.is_empty() {
         return String::new();
     }
-    format!(
-        "{DELEGATION_ATTACHMENTS_HEADER}\n\n{DELEGATION_ATTACHMENTS_NOTE}\n\n{manifest}"
-    )
+    format!("{DELEGATION_ATTACHMENTS_HEADER}\n\n{DELEGATION_ATTACHMENTS_NOTE}\n\n{manifest}")
 }
 
 fn context_already_lists_attachment(existing: &str, att: &MediaAttachment) -> bool {
@@ -309,7 +307,11 @@ mod tests {
         }));
         assert_eq!(specs.len(), 3);
         assert_eq!(specs[0].id.as_deref(), Some("att_1"));
-        assert!(specs[1].ref_uri.as_ref().unwrap().contains("pointer-media://"));
+        assert!(specs[1]
+            .ref_uri
+            .as_ref()
+            .unwrap()
+            .contains("pointer-media://"));
         assert_eq!(specs[2].id.as_deref(), Some("att_3"));
     }
 

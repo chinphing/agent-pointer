@@ -4,11 +4,11 @@
 //! Add a new variant when a tool group needs a different user-message layout.
 
 use crate::agents::computer::screen;
-use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::computer::vision::screen_overlay::{
     SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED_CURRENT, SLOT_SCREEN_BEFORE_ACTION,
     SLOT_SCREEN_CURRENT,
 };
+use crate::agents::computer::ScreenCaptureResult;
 use serde_json::{json, Value};
 
 use super::operation::OperationFamily;
@@ -252,8 +252,18 @@ mod tests {
         });
         let content = wire[0].get("content").unwrap().as_array().unwrap();
         assert_eq!(content.len(), 5);
-        assert!(content[0].get("text").unwrap().as_str().unwrap().contains(TAG_POSITION));
-        assert!(content[0].get("text").unwrap().as_str().unwrap().contains("Overlay reference"));
+        assert!(content[0]
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains(TAG_POSITION));
+        assert!(content[0]
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("Overlay reference"));
     }
 
     #[test]
@@ -272,8 +282,18 @@ mod tests {
         assert!(text.contains("[Tool result]"));
         assert!(text.contains("sk-test123"));
         assert!(text.contains("clipboard bytes as authoritative"));
-        assert!(content[1].get("text").unwrap().as_str().unwrap().contains(SLOT_SCREEN_BEFORE_ACTION));
-        assert!(content[3].get("text").unwrap().as_str().unwrap().contains(SLOT_SCREEN_AFTER_ACTION));
+        assert!(content[1]
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains(SLOT_SCREEN_BEFORE_ACTION));
+        assert!(content[3]
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains(SLOT_SCREEN_AFTER_ACTION));
     }
 
     #[test]
@@ -288,6 +308,11 @@ mod tests {
         });
         let content = wire[0].get("content").unwrap().as_array().unwrap();
         assert_eq!(content.len(), 5);
-        assert!(content[0].get("text").unwrap().as_str().unwrap().contains("before vs after"));
+        assert!(content[0]
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("before vs after"));
     }
 }

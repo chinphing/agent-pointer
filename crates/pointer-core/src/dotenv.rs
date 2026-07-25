@@ -35,10 +35,7 @@ pub fn merged_env_from_files(env_files: &[PathBuf]) -> HashMap<String, String> {
                 }
             }
             Err(e) => {
-                warn!(
-                    "dotenv: failed to read {}: {e}",
-                    path.display()
-                );
+                warn!("dotenv: failed to read {}: {e}", path.display());
             }
         }
     }
@@ -59,7 +56,10 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
                 info!("dotenv: loaded {}", path.display());
                 for (k, v) in parse_dotenv_bytes(&bytes) {
                     if is_sensitive_env_key(&k) {
-                        warn!("dotenv: skipping sensitive key from {}: {k}", path.display());
+                        warn!(
+                            "dotenv: skipping sensitive key from {}: {k}",
+                            path.display()
+                        );
                         continue;
                     }
                     let applied = env_value_for_child(&k, &v);
@@ -67,10 +67,7 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
                 }
             }
             Err(e) => {
-                warn!(
-                    "dotenv: failed to read {}: {e}",
-                    path.display()
-                );
+                warn!("dotenv: failed to read {}: {e}", path.display());
             }
         }
     }
@@ -100,10 +97,7 @@ pub fn is_sensitive_env_key(key: &str) -> bool {
 }
 
 /// Load one or more `.env` files (in order) and apply them to a child `Command`.
-pub fn apply_supplemental_env_files(
-    cmd: &mut Command,
-    env_files: &[PathBuf],
-) -> Vec<String> {
+pub fn apply_supplemental_env_files(cmd: &mut Command, env_files: &[PathBuf]) -> Vec<String> {
     let child_env = build_terminal_child_environment(env_files);
     let loaded: Vec<String> = env_files
         .iter()

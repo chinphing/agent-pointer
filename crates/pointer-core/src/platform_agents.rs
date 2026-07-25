@@ -22,10 +22,7 @@ async fn parse_error(resp: reqwest::Response) -> anyhow::Error {
     let text = resp.text().await.unwrap_or_default();
     let detail = serde_json::from_str::<serde_json::Value>(&text)
         .ok()
-        .and_then(|v| {
-            v.get("detail")
-                .and_then(|d| d.as_str().map(str::to_string))
-        })
+        .and_then(|v| v.get("detail").and_then(|d| d.as_str().map(str::to_string)))
         .unwrap_or_else(|| text.trim().to_string());
     anyhow!("HTTP {status}: {detail}")
 }
@@ -293,11 +290,7 @@ pub async fn list_agents(
 }
 
 pub async fn get_agent(auth: &PlatformAuthManager, agent_id: &str) -> Result<CloudAgent> {
-    let url = format!(
-        "{}/api/agents/{}",
-        api_base(),
-        urlencoding_encode(agent_id)
-    );
+    let url = format!("{}/api/agents/{}", api_base(), urlencoding_encode(agent_id));
     let client = http_client()?;
     let token = bearer(auth).await?;
     let resp = client

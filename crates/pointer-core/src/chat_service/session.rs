@@ -53,20 +53,21 @@ pub async fn run_chat(
         .lock()
         .insert(conversation_id.clone(), cancel.clone());
 
-    let transcript_session = match crate::conversation_transcript::ConversationTranscriptSession::begin(
-        &conversation_id,
-        &mut history,
-    ) {
-        Ok(session) => Some(session),
-        Err(e) => {
-            log::warn!(
-                "run_chat: transcript begin failed conversation_id={}: {e:#}",
-                conversation_id
-            );
-            super::conversation_persist::append_missing(&conversation_id, &history);
-            None
-        }
-    };
+    let transcript_session =
+        match crate::conversation_transcript::ConversationTranscriptSession::begin(
+            &conversation_id,
+            &mut history,
+        ) {
+            Ok(session) => Some(session),
+            Err(e) => {
+                log::warn!(
+                    "run_chat: transcript begin failed conversation_id={}: {e:#}",
+                    conversation_id
+                );
+                super::conversation_persist::append_missing(&conversation_id, &history);
+                None
+            }
+        };
 
     let run_id = Uuid::new_v4().to_string();
     let mut consumed_single = 0u32;
@@ -122,7 +123,11 @@ pub async fn run_chat(
     if let Err(err) = &result {
         // Root cause is in `err` (often an HTTP/API message). `Backtrace::capture()` here only
         // shows the async poll point (e.g. chat_service + tokio), not the failing await site.
-        log::error!("run_chat failed conversation_id={} error={:#}", conversation_id, err);
+        log::error!(
+            "run_chat failed conversation_id={} error={:#}",
+            conversation_id,
+            err
+        );
         log::debug!(
             "run_chat failure poll-point backtrace (for deep debugging):\n{}",
             Backtrace::capture()
@@ -142,9 +147,7 @@ pub async fn run_chat(
             err.to_string().chars().count(),
         );
     }
-    let max_tr = state
-        .effective_settings()
-        .max_tool_rounds;
+    let max_tr = state.effective_settings().max_tool_rounds;
     // Persist per-turn consumption only; the cap is evaluated from the latest
     // user prompt (each run_chat starts a fresh budget at 0).
     super::conversation_persist::patch_tool_rounds(
@@ -166,7 +169,10 @@ pub async fn run_chat(
         .get_active_main_task_board_key(&conversation_id)
         .unwrap_or_else(|| conversation_id.clone());
     if result.is_ok()
-        && crate::task_board::maybe_auto_finalize_if_complete(&state.task_board_store, &main_store_key)
+        && crate::task_board::maybe_auto_finalize_if_complete(
+            &state.task_board_store,
+            &main_store_key,
+        )
     {
         let doc = state.task_board_store.document(&main_store_key);
         let anchor_message_id = state.get_main_task_board_anchor(&conversation_id, &main_store_key);

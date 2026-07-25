@@ -38,15 +38,13 @@ pub fn strip_file_uri(raw: &str) -> Option<String> {
     if !trimmed.to_lowercase().starts_with("file://") {
         return None;
     }
-    let rest = trimmed
-        .get(7..)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())?;
+    let rest = trimmed.get(7..).map(str::trim).filter(|s| !s.is_empty())?;
     if rest.starts_with('/') {
         let without = rest.trim_start_matches('/');
         if without.len() >= 2 {
             let bytes = without.as_bytes();
-            if bytes.get(1) == Some(&b':') && bytes.first().is_some_and(|c| c.is_ascii_alphabetic()) {
+            if bytes.get(1) == Some(&b':') && bytes.first().is_some_and(|c| c.is_ascii_alphabetic())
+            {
                 return Some(without.replace('\\', "/"));
             }
         }

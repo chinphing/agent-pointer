@@ -195,7 +195,10 @@ impl AnnotateClient {
     ///
     /// # Arguments
     /// * `image_bytes` - Raw screenshot bytes (e.g. JPEG or PNG).
-    pub async fn annotate_image(&self, image_bytes: &[u8]) -> Result<AnnotateResponse, AnnotateError> {
+    pub async fn annotate_image(
+        &self,
+        image_bytes: &[u8],
+    ) -> Result<AnnotateResponse, AnnotateError> {
         self.annotate_inner(
             image_bytes,
             DEFAULT_THRESHOLD,
@@ -234,13 +237,7 @@ impl AnnotateClient {
         for attempt in 1..=MAX_ANNOTATE_NETWORK_ATTEMPTS {
             let t = Instant::now();
             match self
-                .post_annotate_all(
-                    &url,
-                    &png_bytes,
-                    threshold,
-                    overlap_threshold,
-                    padding,
-                )
+                .post_annotate_all(&url, &png_bytes, threshold, overlap_threshold, padding)
                 .await
             {
                 Ok(annotate_response) => {
@@ -272,8 +269,9 @@ impl AnnotateClient {
                         boxes,
                     });
                 }
-                Err(e) if is_retryable_annotate_network_error(&e)
-                    && attempt < MAX_ANNOTATE_NETWORK_ATTEMPTS =>
+                Err(e)
+                    if is_retryable_annotate_network_error(&e)
+                        && attempt < MAX_ANNOTATE_NETWORK_ATTEMPTS =>
                 {
                     let delay = annotate_network_retry_delay(attempt);
                     log::warn!(
@@ -410,7 +408,10 @@ struct PreparedUpload {
 }
 
 /// Downscale if `max(w,h) > max_long_edge` so the upload respects the long-edge cap.
-fn prepare_png_for_annotation_upload(bytes: &[u8], max_long_edge: u32) -> Result<PreparedUpload, AnnotateError> {
+fn prepare_png_for_annotation_upload(
+    bytes: &[u8],
+    max_long_edge: u32,
+) -> Result<PreparedUpload, AnnotateError> {
     let img = image::load_from_memory(bytes)
         .map_err(|e| AnnotateError::ImageEncode(format!("decode screenshot for annotate: {e}")))?;
     let (w0, h0) = (img.width(), img.height());
@@ -479,13 +480,15 @@ mod tests {
 
     #[test]
     fn retryable_network_error_only_for_network_variant() {
-        assert!(is_retryable_annotate_network_error(&AnnotateError::Network(
-            "connection refused".into()
-        )));
-        assert!(!is_retryable_annotate_network_error(&AnnotateError::ServiceError {
-            status: 503,
-            body: "busy".into(),
-        }));
+        assert!(is_retryable_annotate_network_error(
+            &AnnotateError::Network("connection refused".into())
+        ));
+        assert!(!is_retryable_annotate_network_error(
+            &AnnotateError::ServiceError {
+                status: 503,
+                body: "busy".into(),
+            }
+        ));
     }
 
     #[test]

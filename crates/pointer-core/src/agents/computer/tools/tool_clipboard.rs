@@ -31,7 +31,9 @@ impl ClipboardTool {
     fn read_clipboard(&self, args: &Value) -> Result<String> {
         let goal = args["goal"].as_str().unwrap_or("").trim();
         let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
-        let text = cb.get_text().map_err(|e| anyhow!("read_clipboard failed: {e}"))?;
+        let text = cb
+            .get_text()
+            .map_err(|e| anyhow!("read_clipboard failed: {e}"))?;
         let (body, truncated) = truncate_clipboard_reply(&text);
         let note = if truncated {
             " (truncated in reply)"
@@ -92,7 +94,10 @@ pub enum ClipboardHostVerifyKind {
     ToolError,
 }
 
-pub fn clipboard_host_verify_kind(tool_name: &str, tool_text: Option<&str>) -> ClipboardHostVerifyKind {
+pub fn clipboard_host_verify_kind(
+    tool_name: &str,
+    tool_text: Option<&str>,
+) -> ClipboardHostVerifyKind {
     let name = tool_name.trim().to_ascii_lowercase();
     let Some(text) = tool_text else {
         return ClipboardHostVerifyKind::ToolError;

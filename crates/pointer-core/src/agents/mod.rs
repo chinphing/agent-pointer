@@ -167,9 +167,7 @@ pub fn computer_agent_body_for_tier(tier: computer::tier::ComputerTier) -> Strin
 }
 
 /// Verify module prompt for an operation family (host post-execute pipeline).
-pub fn computer_verify_prompt(
-    family: computer::pipeline::operation::OperationFamily,
-) -> String {
+pub fn computer_verify_prompt(family: computer::pipeline::operation::OperationFamily) -> String {
     let family_md = match family {
         computer::pipeline::operation::OperationFamily::PointerClick => {
             COMPUTER_VERIFY_POINTER_CLICK
@@ -534,7 +532,9 @@ pub fn delegatable_sub_agents_system_block(
     ];
     for id in ids {
         let Some(exec) = registry.get(id) else {
-            lines.push(format!("- id: {id} (unknown or disabled; tool calls will fail)"));
+            lines.push(format!(
+                "- id: {id} (unknown or disabled; tool calls will fail)"
+            ));
             continue;
         };
         let d = exec.def();
@@ -597,9 +597,7 @@ impl AgentOrchestrator {
                 resolve_skill_ids(&agent, enabled_skill_ids, agent_skill_overrides);
             let (skill_prompts, session_tools) = skills.progressive_context(&session_skill_ids);
             let allowed_tool_names = resolve_tools(&agent.access_policy, &session_tools, tools);
-            let lead_prompt = agents
-                .get(&agent.id)
-                .map(|a| a.system_prompt());
+            let lead_prompt = agents.get(&agent.id).map(|a| a.system_prompt());
             let mut system_prompts = vec![agent_prompt(&agent, lead_prompt)];
             let active_system_prompt = system_prompts[0].clone();
             system_prompts.extend(skill_prompts.clone());
@@ -692,26 +690,26 @@ fn default_agent_def() -> AgentDef {
         BUILTIN_AGENT_BUNDLES[0].manifest,
         BUILTIN_AGENT_BUNDLES[0].communication,
     )
-        .map(|agent| agent.def)
-        .unwrap_or_else(|_| AgentDef {
-            id: DEFAULT_AGENT_ID.into(),
-            name: "general-assistant".into(),
-            description: "Handles general tasks, simple Q&A, summarization, and default fallback."
-                .into(),
-            role: "worker".into(),
-            profile: AgentProfile::General,
-            default_skill_ids: Vec::new(),
-            skills_policy: SkillsPolicy::UserConfigurable,
-            access_policy: AccessPolicy::default(),
-            builtin: true,
-            enabled: true,
-            tool_names: Vec::new(),
-            source: None,
-            resource_files: Vec::new(),
-            allow_agents: Vec::new(),
-            config: HashMap::new(),
-            ui: AgentUiConfig::default(),
-        })
+    .map(|agent| agent.def)
+    .unwrap_or_else(|_| AgentDef {
+        id: DEFAULT_AGENT_ID.into(),
+        name: "general-assistant".into(),
+        description: "Handles general tasks, simple Q&A, summarization, and default fallback."
+            .into(),
+        role: "worker".into(),
+        profile: AgentProfile::General,
+        default_skill_ids: Vec::new(),
+        skills_policy: SkillsPolicy::UserConfigurable,
+        access_policy: AccessPolicy::default(),
+        builtin: true,
+        enabled: true,
+        tool_names: Vec::new(),
+        source: None,
+        resource_files: Vec::new(),
+        allow_agents: Vec::new(),
+        config: HashMap::new(),
+        ui: AgentUiConfig::default(),
+    })
 }
 
 fn supervisor_agent_def() -> AgentDef {
@@ -720,27 +718,26 @@ fn supervisor_agent_def() -> AgentDef {
         BUILTIN_AGENT_BUNDLES[1].manifest,
         BUILTIN_AGENT_BUNDLES[1].communication,
     )
-        .map(|agent| agent.def)
-        .unwrap_or_else(|_| AgentDef {
-            id: SUPERVISOR_AGENT_ID.into(),
-            name: "团队模式".into(),
-            description:
-                "Understands goals, decomposes work, selects worker agents, and merges answers."
-                    .into(),
-            role: "supervisor".into(),
-            profile: AgentProfile::Supervisor,
-            default_skill_ids: Vec::new(),
-            skills_policy: SkillsPolicy::Disabled,
-            access_policy: AccessPolicy::default(),
-            builtin: true,
-            enabled: true,
-            tool_names: Vec::new(),
-            source: None,
-            resource_files: Vec::new(),
-            allow_agents: Vec::new(),
-            config: HashMap::new(),
-            ui: AgentUiConfig::default(),
-        })
+    .map(|agent| agent.def)
+    .unwrap_or_else(|_| AgentDef {
+        id: SUPERVISOR_AGENT_ID.into(),
+        name: "团队模式".into(),
+        description:
+            "Understands goals, decomposes work, selects worker agents, and merges answers.".into(),
+        role: "supervisor".into(),
+        profile: AgentProfile::Supervisor,
+        default_skill_ids: Vec::new(),
+        skills_policy: SkillsPolicy::Disabled,
+        access_policy: AccessPolicy::default(),
+        builtin: true,
+        enabled: true,
+        tool_names: Vec::new(),
+        source: None,
+        resource_files: Vec::new(),
+        allow_agents: Vec::new(),
+        config: HashMap::new(),
+        ui: AgentUiConfig::default(),
+    })
 }
 
 fn load_builtin_agent(id: &str, raw: &str, communication: &str) -> Result<BaseAgent> {
@@ -1159,9 +1156,9 @@ fn resolve_tools(
     names.retain(|name| {
         !deny.contains(name)
             && (available.contains(name.as_str())
-                || available
-                    .iter()
-                    .any(|reg| crate::tools::registry_tool_in_allow_list(std::slice::from_ref(name), reg)))
+                || available.iter().any(|reg| {
+                    crate::tools::registry_tool_in_allow_list(std::slice::from_ref(name), reg)
+                }))
     });
     names = crate::tools::expand_family_allow_names(&names, &available);
     crate::tools::normalize_allowed_tool_names(&mut names, &available);
@@ -1262,7 +1259,11 @@ mod builtin_agent_tests {
         );
         assert_eq!(
             plan.resolved_skill_prompts,
-            plan.system_prompts.iter().skip(1).cloned().collect::<Vec<_>>()
+            plan.system_prompts
+                .iter()
+                .skip(1)
+                .cloned()
+                .collect::<Vec<_>>()
         );
         assert_eq!(plan.active_def.id, plan.lead_agent_id);
         assert_eq!(enabled, vec!["changed-after-plan"]);
@@ -1279,10 +1280,7 @@ mod builtin_agent_tests {
         };
         let names = resolve_tools(&policy, &["terminal".into()], &tools);
         assert!(
-            !tools
-                .list_defs()
-                .iter()
-                .any(|d| d.name == "response"),
+            !tools.list_defs().iter().any(|d| d.name == "response"),
             "response tool removed (OpenClaw-aligned: final reply is assistant content)"
         );
         assert!(
@@ -1300,8 +1298,7 @@ mod builtin_agent_tests {
         let tools = crate::tools::ToolRegistry::new();
         let store = Arc::new(crate::task_board::TaskBoardStore::new());
         builtin::register_all(&tools, store);
-        let computer_state =
-            Arc::new(ComputerState::with_annotate_url("http://127.0.0.1:9"));
+        let computer_state = Arc::new(ComputerState::with_annotate_url("http://127.0.0.1:9"));
         builtin::register_computer_tools(&tools, computer_state);
         let raw = include_str!("computer/AGENT.md");
         let comm = builtin_computer_communication();
@@ -1363,7 +1360,9 @@ mod builtin_agent_tests {
             "communication should include Verify step"
         );
         assert!(
-            agent.system_prompt.contains("Nearby overlay reference bboxes"),
+            agent
+                .system_prompt
+                .contains("Nearby overlay reference bboxes"),
             "communication should reference nearby bboxes"
         );
         assert!(
@@ -1446,18 +1445,9 @@ mod builtin_agent_tests {
         let comm = include_str!("coder/COMMUNICATION.md");
         let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
         let prompt = &agent.system_prompt;
-        assert!(
-            prompt.contains("G1"),
-            "coder should include G1 gate"
-        );
-        assert!(
-            prompt.contains("G2"),
-            "coder should include G2 gate"
-        );
-        assert!(
-            prompt.contains("G3"),
-            "coder should include G3 gate"
-        );
+        assert!(prompt.contains("G1"), "coder should include G1 gate");
+        assert!(prompt.contains("G2"), "coder should include G2 gate");
+        assert!(prompt.contains("G3"), "coder should include G3 gate");
         assert!(
             prompt.contains("Scope gate"),
             "coder should include scope gate section"
@@ -1569,7 +1559,11 @@ mod builtin_agent_tests {
         let agent = load_builtin_agent("coder", raw, comm).expect("coder");
         assert_eq!(agent.def.ui.user_selectable, Some(true));
         let json = serde_json::to_string(&agent.def).expect("json");
-        assert!(json.contains("userSelectable"), "json missing userSelectable: {}", json);
+        assert!(
+            json.contains("userSelectable"),
+            "json missing userSelectable: {}",
+            json
+        );
     }
 
     #[test]
@@ -1588,7 +1582,11 @@ mod builtin_agent_tests {
         let comm = include_str!("general/COMMUNICATION.md");
         let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
         assert!(
-            agent.def.access_policy.allow_tools.contains(&"web_fetch".to_string()),
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"web_fetch".to_string()),
             "general should allow web_fetch"
         );
         assert!(
@@ -1600,7 +1598,11 @@ mod builtin_agent_tests {
             "general allowAgents must not include general-worker"
         );
         assert!(
-            agent.def.allow_agents.binary_search(&"coder".to_string()).is_ok(),
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"coder".to_string())
+                .is_ok(),
             "general allowAgents should include coder"
         );
         assert!(
@@ -1666,7 +1668,9 @@ mod builtin_agent_tests {
     fn sub_agent_inherits_session_skills_only_for_coder() {
         assert!(crate::agents::sub_agent_inherits_session_skills("coder"));
         assert!(!crate::agents::sub_agent_inherits_session_skills("explore"));
-        assert!(!crate::agents::sub_agent_inherits_session_skills("general-worker"));
+        assert!(!crate::agents::sub_agent_inherits_session_skills(
+            "general-worker"
+        ));
     }
 
     #[test]
@@ -1678,11 +1682,7 @@ mod builtin_agent_tests {
         )
         .expect("load coder")
         .def;
-        let ids = sub_agent_skill_ids(
-            &coder,
-            &["docx".into(), "pdf".into()],
-            &HashMap::new(),
-        );
+        let ids = sub_agent_skill_ids(&coder, &["docx".into(), "pdf".into()], &HashMap::new());
         assert_eq!(
             ids,
             vec![
@@ -1708,11 +1708,19 @@ mod builtin_agent_tests {
         let comm = include_str!("coder/COMMUNICATION.md");
         let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
         assert!(
-            agent.def.access_policy.allow_tools.contains(&"web_fetch".to_string()),
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"web_fetch".to_string()),
             "coder should allow web_fetch"
         );
         assert!(
-            agent.def.allow_agents.binary_search(&"explore".to_string()).is_ok(),
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"explore".to_string())
+                .is_ok(),
             "coder allowAgents should include explore"
         );
         assert!(
@@ -1794,10 +1802,7 @@ mod builtin_agent_tests {
             ]
         );
         let ids = resolve_skill_ids(&coder, &["docx".into()], &HashMap::new());
-        assert_eq!(
-            ids,
-            vec!["docx".to_string()]
-        );
+        assert_eq!(ids, vec!["docx".to_string()]);
     }
 
     #[test]
@@ -1812,7 +1817,11 @@ mod builtin_agent_tests {
         assert_eq!(agent.def.ui.user_selectable, Some(false));
         assert_eq!(agent.def.ui.show_in_composer, Some(false));
         assert!(
-            agent.def.access_policy.allow_tools.contains(&"web_search".to_string()),
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"web_search".to_string()),
             "research should allow web_search"
         );
     }

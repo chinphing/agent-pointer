@@ -45,9 +45,7 @@ impl PdfPageRange {
             anyhow::bail!("pageStart ({start}) must be <= pageEnd ({end})");
         }
         if end > total_pages {
-            anyhow::bail!(
-                "pageEnd ({end}) exceeds document page count ({total_pages})"
-            );
+            anyhow::bail!("pageEnd ({end}) exceeds document page count ({total_pages})");
         }
         Ok(Self {
             start,
@@ -87,9 +85,7 @@ pub fn format_pdf_scope_notice(range: &PdfPageRange, total_pages: usize) -> Stri
         format!("pages {}-{}", range.start, range.end)
     };
     if range.user_specified {
-        format!(
-            "[PDF scope: {scope} of {total_pages} total pages — extracted as requested.]"
-        )
+        format!("[PDF scope: {scope} of {total_pages} total pages — extracted as requested.]")
     } else {
         format!(
             "[PDF scope: {scope} of {total_pages} total pages — user did not specify pages; only the first {} pages were processed. Call again with pageStart/pageEnd when they need other pages, or split into batches of at most {MAX_PDF_PAGES_PER_CALL} pages.]"
@@ -131,8 +127,7 @@ mod tests {
         if !pdfium_render_available() {
             return;
         }
-        let path =
-            "/Users/starliu/.pointer/skills/weilin-case-query/output/case_908005_doc.pdf";
+        let path = "/Users/starliu/.pointer/skills/weilin-case-query/output/case_908005_doc.pdf";
         if !std::path::Path::new(path).exists() {
             return;
         }

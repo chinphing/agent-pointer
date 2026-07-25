@@ -16,6 +16,10 @@ use log::{info, warn};
 #[cfg(unix)]
 use std::io::Write;
 #[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(unix)]
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::Command;
@@ -23,10 +27,6 @@ use std::process::Command;
 use std::sync::mpsc;
 #[cfg(unix)]
 use std::thread;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
-use std::os::unix::net::{UnixListener, UnixStream};
 
 #[cfg(unix)]
 const ASKPASS_HELPER: &str = r#"#!/bin/sh
@@ -45,11 +45,14 @@ sys.stdout.write(data.decode("utf-8", errors="replace"))
 /// True when OpenSSH is likely to need a GUI/askpass password (no BatchMode).
 pub fn command_wants_ssh_askpass(command: &str) -> bool {
     let lower = command.trim().to_ascii_lowercase();
-    if !(lower.contains("ssh ") || lower.starts_with("ssh ")
+    if !(lower.contains("ssh ")
+        || lower.starts_with("ssh ")
         || lower.starts_with("ssh-copy-id")
         || lower.contains(" ssh-copy-id ")
-        || lower.contains(" scp ") || lower.starts_with("scp ")
-        || lower.contains(" sftp ") || lower.starts_with("sftp "))
+        || lower.contains(" scp ")
+        || lower.starts_with("scp ")
+        || lower.contains(" sftp ")
+        || lower.starts_with("sftp "))
     {
         return false;
     }
@@ -83,10 +86,7 @@ impl AskpassBridge {
                 }
             }
         });
-        info!(
-            "terminal askpass: listening on {}",
-            socket_path.display()
-        );
+        info!("terminal askpass: listening on {}", socket_path.display());
         Ok(Self {
             socket_path,
             connection_rx,
@@ -103,10 +103,7 @@ impl AskpassBridge {
     /// Env vars for portable-pty `CommandBuilder` (same contract as `apply_to_command`).
     pub fn env_pairs(&self, helper_path: &Path) -> Vec<(String, String)> {
         vec![
-            (
-                "SSH_ASKPASS".to_string(),
-                helper_path.display().to_string(),
-            ),
+            ("SSH_ASKPASS".to_string(), helper_path.display().to_string()),
             ("SSH_ASKPASS_REQUIRE".to_string(), "force".to_string()),
             (
                 "POINTER_ASKPASS_SOCKET".to_string(),
@@ -131,9 +128,9 @@ pub fn try_create_ssh_askpass(
     if !input_hooks_active || !command_wants_ssh_askpass(command) {
         return None;
     }
-    match ensure_askpass_helper_script().and_then(|helper| {
-        AskpassBridge::start().map(|bridge| (bridge, helper))
-    }) {
+    match ensure_askpass_helper_script()
+        .and_then(|helper| AskpassBridge::start().map(|bridge| (bridge, helper)))
+    {
         Ok(pair) => Some(pair),
         Err(e) => {
             warn!("terminal askpass: setup failed: {e:#}");
@@ -144,10 +141,7 @@ pub fn try_create_ssh_askpass(
 
 #[cfg(unix)]
 pub fn ensure_askpass_helper_script() -> Result<PathBuf> {
-    let path = std::env::temp_dir().join(format!(
-        "pointer-ssh-askpass-{}.sh",
-        std::process::id()
-    ));
+    let path = std::env::temp_dir().join(format!("pointer-ssh-askpass-{}.sh", std::process::id()));
     std::fs::write(&path, ASKPASS_HELPER)?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
     Ok(path)

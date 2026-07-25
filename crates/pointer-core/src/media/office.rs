@@ -37,8 +37,8 @@ fn zip_contains(bytes: &[u8], entry: &str) -> bool {
 }
 
 pub fn extract_docx_text(bytes: &[u8], file_name: &str) -> Result<String> {
-    let mut zip =
-        ZipArchive::new(Cursor::new(bytes)).with_context(|| format!("open docx zip {file_name}"))?;
+    let mut zip = ZipArchive::new(Cursor::new(bytes))
+        .with_context(|| format!("open docx zip {file_name}"))?;
     let mut doc = zip
         .by_name("word/document.xml")
         .with_context(|| format!("docx missing word/document.xml: {file_name}"))?;
@@ -53,8 +53,8 @@ pub fn extract_docx_text(bytes: &[u8], file_name: &str) -> Result<String> {
 }
 
 pub fn extract_xlsx_text(bytes: &[u8], file_name: &str) -> Result<String> {
-    let mut zip =
-        ZipArchive::new(Cursor::new(bytes)).with_context(|| format!("open xlsx zip {file_name}"))?;
+    let mut zip = ZipArchive::new(Cursor::new(bytes))
+        .with_context(|| format!("open xlsx zip {file_name}"))?;
     let shared = read_shared_strings(&mut zip, file_name)?;
     let sheet_paths = list_worksheet_paths(&mut zip);
     if sheet_paths.is_empty() {
@@ -101,13 +101,19 @@ fn truncate_office_text(text: String, kind: &str, file_name: &str) -> Result<Str
             "{kind} {file_name} text exceeds {} bytes; truncating",
             MAX_OFFICE_TEXT_BYTES
         );
-        Ok(crate::text_util::truncate_bytes(&text, MAX_OFFICE_TEXT_BYTES))
+        Ok(crate::text_util::truncate_bytes(
+            &text,
+            MAX_OFFICE_TEXT_BYTES,
+        ))
     } else {
         Ok(text)
     }
 }
 
-fn read_shared_strings(zip: &mut ZipArchive<Cursor<&[u8]>>, file_name: &str) -> Result<Vec<String>> {
+fn read_shared_strings(
+    zip: &mut ZipArchive<Cursor<&[u8]>>,
+    file_name: &str,
+) -> Result<Vec<String>> {
     let Ok(mut file) = zip.by_name("xl/sharedStrings.xml") else {
         return Ok(Vec::new());
     };
@@ -229,7 +235,13 @@ fn extract_cell_text(cell_xml: &str, shared: &[String]) -> String {
             .unwrap_or_default(),
         Some("inlineStr") => extract_concat_t_tags(cell_xml),
         Some("b") => extract_v_value(cell_xml)
-            .map(|v| if v == "1" { "TRUE".into() } else { "FALSE".into() })
+            .map(|v| {
+                if v == "1" {
+                    "TRUE".into()
+                } else {
+                    "FALSE".into()
+                }
+            })
             .unwrap_or_default(),
         Some("str") => extract_v_value(cell_xml).unwrap_or_default(),
         _ => extract_v_value(cell_xml).unwrap_or_default(),
@@ -360,7 +372,8 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut zip = ZipWriter::new(Cursor::new(&mut buf));
-            let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
             zip.start_file("xl/sharedStrings.xml", options).unwrap();
             zip.write_all(shared_strings_xml).unwrap();
             zip.start_file("xl/worksheets/sheet1.xml", options).unwrap();

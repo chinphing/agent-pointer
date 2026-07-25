@@ -240,9 +240,7 @@ pub fn detect_phpstan(root: &Path) -> bool {
     let Ok(s) = fs::read_to_string(root.join("composer.json")) else {
         return false;
     };
-    s.contains("phpstan/phpstan")
-        || s.contains("\"phpstan\"")
-        || s.contains("'phpstan'")
+    s.contains("phpstan/phpstan") || s.contains("\"phpstan\"") || s.contains("'phpstan'")
 }
 
 pub fn detect_rubocop(root: &Path) -> bool {
@@ -317,8 +315,9 @@ fn stacks_for_extension(ext: &str) -> &'static [BuiltinStack] {
         "rs" => &[BuiltinStack::RustClippy],
 
         // JavaScript / TypeScript / JSX / TSX / Vue / Svelte / Astro
-        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "vue" | "svelte"
-        | "astro" => &[BuiltinStack::NodeEslint, BuiltinStack::NodeOxlint],
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "vue" | "svelte" | "astro" => {
+            &[BuiltinStack::NodeEslint, BuiltinStack::NodeOxlint]
+        }
 
         // Python
         "py" | "pyi" => &[BuiltinStack::PythonRuff],

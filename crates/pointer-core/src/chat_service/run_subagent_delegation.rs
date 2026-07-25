@@ -520,9 +520,9 @@ pub(super) async fn run_subagent_delegation(
         Ok(parsed) => {
             let child_spawn_depth =
                 match validate_spawn_depth(ctx.parent_spawn_depth, max_spawn_depth) {
-                Ok(d) => d,
-                Err(msg) => return Ok((format!("ERROR: {msg}"), false, Some(msg))),
-            };
+                    Ok(d) => d,
+                    Err(msg) => return Ok((format!("ERROR: {msg}"), false, Some(msg))),
+                };
             if let Err(msg) = validate_run_subagent_workspace(&parsed) {
                 return Ok((format!("ERROR: {msg}"), false, Some(msg)));
             }
@@ -555,15 +555,15 @@ pub(super) async fn run_subagent_delegation(
                     if def.id == "computer" {
                         if let Err(e) =
                             super::computer_monitor_pick::ensure_computer_monitor_for_subagent(
-                            stream,
-                            state,
-                            &provider.settings,
-                            conversation_id,
-                            message_id,
-                            tool_call_id,
-                            cancel,
-                        )
-                        .await
+                                stream,
+                                state,
+                                &provider.settings,
+                                conversation_id,
+                                message_id,
+                                tool_call_id,
+                                cancel,
+                            )
+                            .await
                         {
                             let msg = e.to_string();
                             log::warn!(
@@ -661,18 +661,18 @@ pub(super) async fn run_subagent_delegation(
                     let instance_scope =
                         definition_source.new_instance_scope(run_id, conversation_id);
                     let make_trace = |status: &str, detail: Option<String>| {
-                            build_subagent_trace(
-                                &task,
-                                &def,
-                                &instance_scope,
-                                child_spawn_depth,
-                                computer_target,
-                                Some(tool_call_id),
-                                Some(message_id),
-                                status,
-                                detail,
-                            )
-                        };
+                        build_subagent_trace(
+                            &task,
+                            &def,
+                            &instance_scope,
+                            child_spawn_depth,
+                            computer_target,
+                            Some(tool_call_id),
+                            Some(message_id),
+                            status,
+                            detail,
+                        )
+                    };
                     emit_subagent_trace_step(stream, ctx, make_trace("running", Some(detail)));
                     let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
                     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);

@@ -81,7 +81,9 @@ pub(crate) fn build_glob_set(globs: Option<&[String]>) -> Result<Option<globset:
                 let glob = Glob::new(g).map_err(|e| anyhow!("无效 glob 模式 '{g}': {e}"))?;
                 builder.add(glob);
             }
-            let set = builder.build().map_err(|e| anyhow!("构建 glob set 失败: {e}"))?;
+            let set = builder
+                .build()
+                .map_err(|e| anyhow!("构建 glob set 失败: {e}"))?;
             Ok(Some(set))
         }
     } else {
@@ -96,8 +98,7 @@ pub(crate) fn expand_user_path_for_file(user_path: &str) -> Result<String> {
         return Ok(String::new());
     }
     if s == "~" || s.starts_with("~/") || s.starts_with("~\\") {
-        return crate::media::access::expand_root(s)
-            .map(|p| p.to_string_lossy().into_owned());
+        return crate::media::access::expand_root(s).map(|p| p.to_string_lossy().into_owned());
     }
     Ok(s.to_string())
 }
@@ -187,9 +188,8 @@ impl AgentWorkspaceGuard {
         } else {
             Some(trimmed.to_string())
         };
-        let previous = CONVERSATION_WORKSPACE_ROOT.with(|c| {
-            std::mem::replace(&mut *c.borrow_mut(), next)
-        });
+        let previous =
+            CONVERSATION_WORKSPACE_ROOT.with(|c| std::mem::replace(&mut *c.borrow_mut(), next));
         Self { previous }
     }
 }
@@ -418,9 +418,12 @@ pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<P
 /// Resolve an **absolute** path for `file:write` / `file:edit`: must stay under canonical `root`.
 /// The target file (or missing parent dirs) may not exist yet; resolution walks up to an
 fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> {
-    resolve_absolute_under_roots(&[root
-        .canonicalize()
-        .map_err(|e| anyhow!("工作区根无效: {e}"))?], abs)
+    resolve_absolute_under_roots(
+        &[root
+            .canonicalize()
+            .map_err(|e| anyhow!("工作区根无效: {e}"))?],
+        abs,
+    )
 }
 
 /// Resolve `user_path` (relative to root, or absolute but must stay under canonical `root`).
@@ -492,9 +495,7 @@ fn levenshtein_ascii(a: &str, b: &str) -> u32 {
         curr[0] = (i + 1) as u32;
         for (j, cb) in b.iter().enumerate() {
             let cost = if ca == cb { 0 } else { 1 };
-            curr[j + 1] = (prev[j + 1] + 1)
-                .min(curr[j] + 1)
-                .min(prev[j] + cost);
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -522,7 +523,10 @@ fn path_name_similarity(want: &str, candidate: &str) -> u32 {
 }
 
 /// Parent directory to list when `user_path` does not exist, plus the missing final name.
-fn listing_base_for_missing_path(workspace_root: &Path, user_path: &str) -> Option<(PathBuf, String)> {
+fn listing_base_for_missing_path(
+    workspace_root: &Path,
+    user_path: &str,
+) -> Option<(PathBuf, String)> {
     let user_path = normalize_user_fspath(user_path);
     let path = Path::new(user_path);
     let want = path
@@ -625,7 +629,11 @@ pub(crate) fn path_error_with_hints(
 }
 
 /// Resolve a path for read-only tools that require an existing file or directory.
-pub(crate) fn resolve_existing_read_path(workspace_root: &Path, user_path: &str, purpose: &str) -> Result<PathBuf> {
+pub(crate) fn resolve_existing_read_path(
+    workspace_root: &Path,
+    user_path: &str,
+    purpose: &str,
+) -> Result<PathBuf> {
     let p = resolve_accessible_path(workspace_root, user_path).map_err(|e| {
         path_error_with_hints(
             workspace_root,

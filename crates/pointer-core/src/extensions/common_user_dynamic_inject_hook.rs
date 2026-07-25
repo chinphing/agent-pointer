@@ -6,9 +6,7 @@ use crate::extensions::{
 };
 use crate::models::{ChatMessage, Role};
 use crate::task_board::snapshot::markdown_runtime_block_for_inject;
-use crate::task_board::sub_agent_hint::{
-    should_inject_task_board_init_hint, task_board_init_hint,
-};
+use crate::task_board::sub_agent_hint::{should_inject_task_board_init_hint, task_board_init_hint};
 use crate::task_board::MetaStatus;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -32,8 +30,8 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
 
         let doc = ctx.task_board_store.document(ctx.task_board_store_key);
         let terminal_board = matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed);
-        let has_board_content =
-            !terminal_board && (!doc.meta.goal.trim().is_empty() || !doc.global_milestones.is_empty());
+        let has_board_content = !terminal_board
+            && (!doc.meta.goal.trim().is_empty() || !doc.global_milestones.is_empty());
         let board_block = if has_board_content {
             Some(markdown_runtime_block_for_inject(
                 &doc,
@@ -90,11 +88,11 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             computer_round_screen_rel_path: None,
             ui_bindings: None,
             context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
         });
         if ctx.lead_agent_profile == AgentProfile::Computer
             || ctx.lead_agent_profile == AgentProfile::Coder

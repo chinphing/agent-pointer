@@ -3,10 +3,10 @@ use anyhow::{anyhow, Result};
 use enigo::{Enigo, Mouse, Settings};
 use image::imageops::FilterType;
 use image::DynamicImage;
-#[cfg(target_os = "macos")]
-use std::process::Command;
 #[cfg(windows)]
 use std::any::Any;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::time::Instant;
 use xcap::Monitor;
 
@@ -65,10 +65,7 @@ impl MonitorInfo {
 
     /// Check if a point (x, y) is within this monitor.
     pub fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.left
-            && x < self.left + self.width
-            && y >= self.top
-            && y < self.top + self.height
+        x >= self.left && x < self.left + self.width && y >= self.top && y < self.top + self.height
     }
 
     pub fn stable_id(&self) -> String {
@@ -136,7 +133,11 @@ fn legacy_origin_from_id(stored_id: &str) -> Option<(i32, i32)> {
     Some((left, top))
 }
 
-fn monitor_matches_stored_id(m: &Monitor, info: &MonitorInfo, stored_id: &str) -> Option<MonitorResolveKind> {
+fn monitor_matches_stored_id(
+    m: &Monitor,
+    info: &MonitorInfo,
+    stored_id: &str,
+) -> Option<MonitorResolveKind> {
     match parse_stored_monitor_id(stored_id) {
         StoredMonitorId::Xcap(n) => {
             let xid = m.id().ok()?;
@@ -162,7 +163,9 @@ fn list_monitor_pairs() -> Result<Vec<(Monitor, MonitorInfo)>> {
     Ok(out)
 }
 
-fn find_monitor_by_stored_id(stored_id: &str) -> Result<(Monitor, MonitorInfo, MonitorResolveKind)> {
+fn find_monitor_by_stored_id(
+    stored_id: &str,
+) -> Result<(Monitor, MonitorInfo, MonitorResolveKind)> {
     for (m, info) in list_monitor_pairs()? {
         if let Some(kind) = monitor_matches_stored_id(&m, &info, stored_id) {
             return Ok((m, info, kind));
@@ -288,7 +291,10 @@ fn screenshot_from_monitor(
 
 fn global_pointer_for_capture() -> Result<(i32, i32)> {
     cursor_position().or_else(|e| {
-        log::debug!("cursor position unavailable ({}), using primary monitor center", e);
+        log::debug!(
+            "cursor position unavailable ({}), using primary monitor center",
+            e
+        );
         primary_monitor_center()
     })
 }
@@ -302,8 +308,14 @@ pub fn screenshot_for_selection(stored_id: Option<&str>) -> Result<MonitorCaptur
 
     match stored_id {
         None => {
-            let (monitor, info) = MonitorSelector::at_global_point(global_pointer.0, global_pointer.1)?;
-            let packet = screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_current_monitor")?;
+            let (monitor, info) =
+                MonitorSelector::at_global_point(global_pointer.0, global_pointer.1)?;
+            let packet = screenshot_from_monitor(
+                &monitor,
+                info,
+                global_pointer,
+                "screenshot_current_monitor",
+            )?;
             Ok(MonitorCapturePlan {
                 packet,
                 refreshed_monitor_id: None,
@@ -316,14 +328,20 @@ pub fn screenshot_for_selection(stored_id: Option<&str>) -> Result<MonitorCaptur
                     kind,
                     MonitorResolveKind::XcapId | MonitorResolveKind::LegacyBoundsExact
                 );
-                let refreshed_monitor_id = needs_refresh.then(|| monitor_list_id(&monitor)).transpose()?;
+                let refreshed_monitor_id = needs_refresh
+                    .then(|| monitor_list_id(&monitor))
+                    .transpose()?;
                 if let Some(ref new_id) = refreshed_monitor_id {
                     log::info!(
                         "screenshot_for_selection: refreshed monitor id {id} -> {new_id} ({kind:?})"
                     );
                 }
-                let packet =
-                    screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_monitor_by_id")?;
+                let packet = screenshot_from_monitor(
+                    &monitor,
+                    info,
+                    global_pointer,
+                    "screenshot_monitor_by_id",
+                )?;
                 Ok(MonitorCapturePlan {
                     packet,
                     refreshed_monitor_id,
@@ -340,21 +358,30 @@ pub fn screenshot_for_selection(stored_id: Option<&str>) -> Result<MonitorCaptur
                     log::info!(
                         "screenshot_for_selection: fallback primary display, refreshed id {id} -> {new_id}"
                     );
-                    let packet =
-                        screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_monitor_primary_fallback")?;
+                    let packet = screenshot_from_monitor(
+                        &monitor,
+                        info,
+                        global_pointer,
+                        "screenshot_monitor_primary_fallback",
+                    )?;
                     return Ok(MonitorCapturePlan {
                         packet,
                         refreshed_monitor_id: Some(new_id),
                         resolve_kind: MonitorResolveKind::FallbackPrimary,
                     });
                 }
-                let (monitor, info) = MonitorSelector::at_global_point(global_pointer.0, global_pointer.1)?;
+                let (monitor, info) =
+                    MonitorSelector::at_global_point(global_pointer.0, global_pointer.1)?;
                 let new_id = monitor_list_id(&monitor)?;
                 log::info!(
                     "screenshot_for_selection: fallback cursor display, refreshed id {id} -> {new_id}"
                 );
-                let packet =
-                    screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_monitor_cursor_fallback")?;
+                let packet = screenshot_from_monitor(
+                    &monitor,
+                    info,
+                    global_pointer,
+                    "screenshot_monitor_cursor_fallback",
+                )?;
                 Ok(MonitorCapturePlan {
                     packet,
                     refreshed_monitor_id: Some(new_id),
@@ -440,8 +467,14 @@ fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
 fn capture_monitor_gdi_fallback(monitor: &Monitor, wgc_reason: &str) -> Result<image::RgbaImage> {
     let x = monitor.x().map_err(|e| anyhow!("monitor x: {e}"))?;
     let y = monitor.y().map_err(|e| anyhow!("monitor y: {e}"))?;
-    let width = monitor.width().map_err(|e| anyhow!("monitor width: {e}"))?.max(1) as i32;
-    let height = monitor.height().map_err(|e| anyhow!("monitor height: {e}"))?.max(1) as i32;
+    let width = monitor
+        .width()
+        .map_err(|e| anyhow!("monitor width: {e}"))?
+        .max(1) as i32;
+    let height = monitor
+        .height()
+        .map_err(|e| anyhow!("monitor height: {e}"))?
+        .max(1) as i32;
 
     super::windows_gdi::capture_monitor_region(x, y, width, height).map_err(|e| {
         if wgc_reason.contains("D3D11")

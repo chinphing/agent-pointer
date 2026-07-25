@@ -19,8 +19,8 @@ fn schema_from_yaml_front_matter(md: &str) -> Result<Option<Value>> {
     let Some((yaml_src, _body)) = split_yaml_front_matter(md) else {
         return Ok(None);
     };
-    let yaml_v: serde_yaml::Value = serde_yaml::from_str(yaml_src)
-        .map_err(|e| anyhow!("Invalid YAML front matter: {e}"))?;
+    let yaml_v: serde_yaml::Value =
+        serde_yaml::from_str(yaml_src).map_err(|e| anyhow!("Invalid YAML front matter: {e}"))?;
     let Some(schema_yaml) = yaml_v.get("schema") else {
         return Ok(None);
     };
@@ -183,11 +183,7 @@ file_write:
             ]
         );
         for (name, schema) in &tools {
-            assert_eq!(
-                schema["type"],
-                "object",
-                "tool {name} missing type: object"
-            );
+            assert_eq!(schema["type"], "object", "tool {name} missing type: object");
         }
     }
 
@@ -201,8 +197,7 @@ file_write:
 
     #[test]
     fn real_input_schema_yaml_parses() {
-        let yaml_str =
-            include_str!("../agents/computer/tools/prompts/input.schema.yaml");
+        let yaml_str = include_str!("../agents/computer/tools/prompts/input.schema.yaml");
         let tools = load_tools_from_schema_yaml(yaml_str).unwrap();
         let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, vec!["input_index", "input_at", "input_focused"]);

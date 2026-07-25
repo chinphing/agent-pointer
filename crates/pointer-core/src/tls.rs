@@ -10,10 +10,10 @@ static RUSTLS_INIT: Once = Once::new();
 /// rustls cannot auto-select and TLS handshakes panic unless a provider is installed first.
 /// Safe to call multiple times.
 pub fn ensure_rustls_crypto_provider() {
-    RUSTLS_INIT.call_once(|| {
-        match rustls::crypto::ring::default_provider().install_default() {
+    RUSTLS_INIT.call_once(
+        || match rustls::crypto::ring::default_provider().install_default() {
             Ok(()) => log::debug!("tls: installed rustls ring CryptoProvider"),
             Err(e) => log::warn!("tls: rustls CryptoProvider install skipped: {e:?}"),
-        }
-    });
+        },
+    );
 }

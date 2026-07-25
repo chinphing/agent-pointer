@@ -18,7 +18,7 @@ pub use path::{
     resolve_accessible_path, resolve_tool_workspace_root, resolve_within_workspace_root,
     resolve_writable_path, workspace_root_from_override_or_settings,
 };
-pub use path::{AgentWorkspaceGuard, ConversationWorkspaceGuard, set_runtime_workspace_root};
+pub use path::{set_runtime_workspace_root, AgentWorkspaceGuard, ConversationWorkspaceGuard};
 
 use edit::execute_file_edit_payload;
 use glob::execute_file_glob_payload;
@@ -41,7 +41,6 @@ pub(crate) const MAX_GLOB_RESULTS: usize = 500;
 pub(crate) const MAX_LIST_ENTRIES: usize = 2000;
 pub(crate) const MAX_WALK_DEPTH: usize = 64;
 pub(crate) const CONTEXT_LINES: usize = 2;
-
 
 pub fn register_all(reg: &ToolRegistry) {
     let doc = super::tool_doc::doc_markdown_without_schema_fence(FILE_MD);
@@ -72,13 +71,11 @@ pub fn register_all(reg: &ToolRegistry) {
                 let root = resolve_tool_workspace_root()?;
                 execute_file_read(&args, &root)
             }),
-            "file_write" => {
-                Arc::new(move |args| {
-                    let root = resolve_tool_workspace_root()?;
-                    explore_guard(&args, "file_write")?;
-                    execute_file_write_payload(&args, &root)
-                })
-            }
+            "file_write" => Arc::new(move |args| {
+                let root = resolve_tool_workspace_root()?;
+                explore_guard(&args, "file_write")?;
+                execute_file_write_payload(&args, &root)
+            }),
             "file_edit" => Arc::new(move |args| {
                 let root = resolve_tool_workspace_root()?;
                 explore_guard(&args, "file_edit")?;
@@ -100,13 +97,24 @@ pub fn register_all(reg: &ToolRegistry) {
         };
 
         reg.register(
-            ToolEntry::new(name.clone(), FILE_DOC_SOURCE, risk, is_write, prompt.clone(), handler)
-                .with_schema(schema),
+            ToolEntry::new(
+                name.clone(),
+                FILE_DOC_SOURCE,
+                risk,
+                is_write,
+                prompt.clone(),
+                handler,
+            )
+            .with_schema(schema),
         );
     }
 }
 /// Tool JSON often uses camelCase in schema; models trained on other agents may emit snake_case.
-pub(crate) fn json_str<'a>(args: &'a serde_json::Value, camel: &str, snake: &str) -> Option<&'a str> {
+pub(crate) fn json_str<'a>(
+    args: &'a serde_json::Value,
+    camel: &str,
+    snake: &str,
+) -> Option<&'a str> {
     args.get(camel)
         .and_then(|v| v.as_str())
         .or_else(|| args.get(snake).and_then(|v| v.as_str()))
@@ -120,13 +128,13 @@ pub(crate) fn json_u64_opt(args: &serde_json::Value, camel: &str, snake: &str) -
 
 #[cfg(test)]
 mod tests {
+    use super::edit::try_unique_text_replace;
+    use super::path::writable_path_roots;
     use super::{
         execute_file_edit_payload, execute_file_glob_payload, execute_file_grep_payload,
         execute_file_list_payload, execute_file_read, execute_file_write_payload,
         resolve_accessible_path, resolve_within_workspace_root, resolve_writable_path,
     };
-    use super::edit::try_unique_text_replace;
-    use super::path::writable_path_roots;
     use serde_json::json;
     use std::fs;
     use std::io::Write;
@@ -185,22 +193,16 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("big.txt"), "x".repeat(2000)).unwrap();
-        let err = execute_file_read(
-            &json!({ "path": "big.txt", "maxBytes": 1000 }),
-            root,
-        )
-        .unwrap_err();
+        let err =
+            execute_file_read(&json!({ "path": "big.txt", "maxBytes": 1000 }), root).unwrap_err();
         assert!(err.to_string().contains("文件过大"), "{err}");
     }
 
     #[test]
     fn file_read_rejects_paths_array() {
         let tmp = tempfile::tempdir().expect("tmp");
-        let err = execute_file_read(
-            &json!({ "paths": [{ "path": "a.txt" }] }),
-            tmp.path(),
-        )
-        .unwrap_err();
+        let err =
+            execute_file_read(&json!({ "paths": [{ "path": "a.txt" }] }), tmp.path()).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("path") && msg.contains("paths"), "{msg}");
     }
@@ -222,7 +224,10 @@ mod tests {
         assert!(args.is_null());
         let err = execute_file_read(&args, tempfile::tempdir().unwrap().path()).unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("不是合法 JSON") || msg.contains("正斜杠"), "{msg}");
+        assert!(
+            msg.contains("不是合法 JSON") || msg.contains("正斜杠"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -243,7 +248,10 @@ mod tests {
         assert_eq!(v["success"], true);
         assert_eq!(v["replaced"], 1);
         assert!(v["path"].as_str().unwrap().contains("z.txt"));
-        assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
+        assert_eq!(
+            fs::read_to_string(root.join("z.txt")).unwrap().trim(),
+            "bar"
+        );
     }
 
     /// Relative write/edit paths must stay under the conversation workspace even when that
@@ -253,10 +261,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         let got = resolve_writable_path(root, "z.txt").expect("relative");
-        let want = root
-            .canonicalize()
-            .expect("canon ws")
-            .join("z.txt");
+        let want = root.canonicalize().expect("canon ws").join("z.txt");
         assert_eq!(got, want);
         let home = dirs::home_dir().expect("home");
         assert!(
@@ -305,7 +310,10 @@ mod tests {
         .expect("edit");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["success"], true);
-        assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
+        assert_eq!(
+            fs::read_to_string(root.join("z.txt")).unwrap().trim(),
+            "bar"
+        );
     }
 
     #[test]
@@ -481,7 +489,8 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("f.txt"), "x.y)\n").unwrap();
         // regex would treat '.' as any char and ')' as literal (needs escape). But with fixedString it's literal.
-        let args = json!({"pattern": "x.y)", "path": "f.txt", "fixedString": true, "maxResults": 20});
+        let args =
+            json!({"pattern": "x.y)", "path": "f.txt", "fixedString": true, "maxResults": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["count"], 1, "fixedString should match literal");
@@ -496,9 +505,13 @@ mod tests {
         let args_sensitive = json!({"pattern": "hello", "path": "case.txt", "maxResults": 20});
         let out1 = execute_file_grep_payload(&args_sensitive, root).expect("grep");
         let v1: serde_json::Value = serde_json::from_str(&out1).unwrap();
-        assert_eq!(v1["count"], 0, "case sensitive should not match lowercase pattern if text is uppercase");
+        assert_eq!(
+            v1["count"], 0,
+            "case sensitive should not match lowercase pattern if text is uppercase"
+        );
         // ignoreCase: true should match
-        let args_ignore = json!({"pattern": "hello", "path": "case.txt", "ignoreCase": true, "maxResults": 20});
+        let args_ignore =
+            json!({"pattern": "hello", "path": "case.txt", "ignoreCase": true, "maxResults": 20});
         let out2 = execute_file_grep_payload(&args_ignore, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
         assert_eq!(v2["count"], 1, "ignoreCase should match");
@@ -511,7 +524,8 @@ mod tests {
         fs::write(root.join("a.rs"), "rust\n").unwrap();
         fs::write(root.join("a.py"), "python\n").unwrap();
         // fileTypes ["rust"] should only scan .rs files and not .py
-        let args = json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rust"], "maxResults": 20});
+        let args =
+            json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rust"], "maxResults": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let results = v["results"].as_array().unwrap();
@@ -527,11 +541,16 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("a.rs"), "rust\n").unwrap();
         fs::write(root.join("a.py"), "python\n").unwrap();
-        let args = json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rs"], "maxResults": 20});
+        let args =
+            json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rs"], "maxResults": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let results = v["results"].as_array().unwrap();
-        assert_eq!(results.len(), 1, "fileTypes rs alias should restrict to .rs");
+        assert_eq!(
+            results.len(),
+            1,
+            "fileTypes rs alias should restrict to .rs"
+        );
         assert!(results[0]["path"].as_str().unwrap().ends_with("a.rs"));
     }
 
@@ -543,17 +562,25 @@ mod tests {
         fs::write(root.join("main.cpp"), "int main() {}\n").unwrap();
         fs::write(root.join("readme.md"), "key: val\n").unwrap();
 
-        let args_yaml = json!({"pattern": "key:", "path": ".", "fileTypes": ["yml"], "maxResults": 20});
+        let args_yaml =
+            json!({"pattern": "key:", "path": ".", "fileTypes": ["yml"], "maxResults": 20});
         let out_yaml = execute_file_grep_payload(&args_yaml, root).expect("grep yaml");
         let v_yaml: serde_json::Value = serde_json::from_str(&out_yaml).unwrap();
         assert_eq!(v_yaml["count"], 1);
-        assert!(v_yaml["results"][0]["path"].as_str().unwrap().ends_with("cfg.yml"));
+        assert!(v_yaml["results"][0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("cfg.yml"));
 
-        let args_cpp = json!({"pattern": "main", "path": ".", "fileTypes": ["c++"], "maxResults": 20});
+        let args_cpp =
+            json!({"pattern": "main", "path": ".", "fileTypes": ["c++"], "maxResults": 20});
         let out_cpp = execute_file_grep_payload(&args_cpp, root).expect("grep cpp");
         let v_cpp: serde_json::Value = serde_json::from_str(&out_cpp).unwrap();
         assert_eq!(v_cpp["count"], 1);
-        assert!(v_cpp["results"][0]["path"].as_str().unwrap().ends_with("main.cpp"));
+        assert!(v_cpp["results"][0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("main.cpp"));
     }
 
     #[test]
@@ -635,18 +662,12 @@ mod tests {
     fn writable_path_accepts_absolute_under_temp() {
         let ws = tempfile::tempdir().expect("tmp");
         let temp = std::env::temp_dir();
-        let dir = temp.join(format!(
-            "pointer-writable-test-{}",
-            std::process::id()
-        ));
+        let dir = temp.join(format!("pointer-writable-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let target = dir.join("out.txt");
         fs::write(&target, "").unwrap();
         let got = resolve_writable_path(ws.path(), target.to_str().unwrap()).expect("temp write");
-        assert_eq!(
-            got.canonicalize().unwrap(),
-            target.canonicalize().unwrap()
-        );
+        assert_eq!(got.canonicalize().unwrap(), target.canonicalize().unwrap());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -715,7 +736,9 @@ mod tests {
             .map(|e| e["path"].as_str().unwrap())
             .collect();
         assert!(paths.iter().any(|p| p.ends_with("b.txt")));
-        assert!(paths.iter().any(|p| p.ends_with("sub") && !p.ends_with("sub\\a.txt")));
+        assert!(paths
+            .iter()
+            .any(|p| p.ends_with("sub") && !p.ends_with("sub\\a.txt")));
     }
 
     #[test]
@@ -807,7 +830,9 @@ mod tests {
             .map(|m| m.as_str().unwrap())
             .collect();
         assert!(
-            matches.iter().any(|p| p.replace('\\', "/").ends_with("/.git")),
+            matches
+                .iter()
+                .any(|p| p.replace('\\', "/").ends_with("/.git")),
             "expected a .git directory in matches: {matches:?}"
         );
     }
@@ -866,7 +891,10 @@ mod tests {
     fn file_glob_absolute_pattern_ignores_wrong_base_and_finds_files() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
-        let skill = root.join(".pointer").join("skills").join("cwpt-reimburse-submit");
+        let skill = root
+            .join(".pointer")
+            .join("skills")
+            .join("cwpt-reimburse-submit");
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), "body").unwrap();
         let abs_pattern = format!("{}/**/*.md", skill.display()).replace('\\', "/");

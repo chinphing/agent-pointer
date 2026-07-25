@@ -12,21 +12,33 @@ import {
   X,
   Bot,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  PanelRightOpen
 } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { searchConversations } from '../../lib/api'
+import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
 import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
 import { isTauriRuntime } from '../../lib/runtime'
+import WorkspacePanel from '../workspace/WorkspacePanel.vue'
 
 defineEmits<{ (e: 'open-settings'): void }>()
 
 const chat = useChatStore()
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
+const WORKSPACE_PANEL_STORAGE_KEY = 'pointer.workspacePanel.open'
+const workspacePanelOpen = ref(
+  typeof localStorage !== 'undefined' && localStorage.getItem(WORKSPACE_PANEL_STORAGE_KEY) === 'true'
+)
+
+function setWorkspacePanelOpen(open: boolean) {
+  workspacePanelOpen.value = open
+  if (typeof localStorage !== 'undefined') localStorage.setItem(WORKSPACE_PANEL_STORAGE_KEY, String(open))
+}
 
 /**
  * Two-step inline delete confirmation. The first click on the trash icon
@@ -506,6 +518,15 @@ watch(searchQuery, q => {
           :class="macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
         >
           <div class="main-chrome-drag flex-1 min-w-0 h-full min-h-10" />
+          <button
+            v-if="!workspacePanelOpen"
+            type="button"
+            class="chrome-icon-btn self-center mr-1"
+            title="打开工作区"
+            @click="setWorkspacePanelOpen(true)"
+          >
+            <PanelRightOpen class="w-4 h-4" />
+          </button>
           <WindowControls
             v-if="windowControlsOnMainTop"
             class="window-controls-win"
@@ -517,10 +538,27 @@ watch(searchQuery, q => {
         </WindowDragRegion>
 
         <!-- E: 聊天正文 -->
-        <WindowDragRegion region="chat-body" as="main" class="flex-1 min-h-0 flex flex-col">
+        <WindowDragRegion region="chat-body" as="main" class="flex-1 min-h-0 flex flex-col relative">
+          <button
+            v-if="!workspacePanelOpen && (!chromeEnabled || sidebarCollapsed)"
+            type="button"
+            class="hidden lg:flex absolute right-2 top-2 z-10 chrome-icon-btn"
+            title="打开工作区"
+            @click="setWorkspacePanelOpen(true)"
+          >
+            <PanelRightOpen class="w-4 h-4" />
+          </button>
           <slot />
         </WindowDragRegion>
       </div>
+
+      <WorkspacePanel
+        v-if="workspacePanelOpen"
+        :workspace-root="chat.current?.workspaceRoot ?? ''"
+        @initialize-git="chat.sendUserMessage(GIT_INITIALIZATION_TASK)"
+        @install-git="chat.sendUserMessage('帮我安装 Git')"
+        @close="setWorkspacePanelOpen(false)"
+      />
     </div>
   </div>
 </template>

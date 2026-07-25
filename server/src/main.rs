@@ -10,12 +10,9 @@ use axum::{
 };
 use futures_util::Stream;
 use pointer_channels::{
-    adapters::register_builtin_channels,
-    adapters::weixin::qr_login::QrLoginState,
-    gateway::ChannelGateway,
-    monitor_supervisor::MonitorSupervisor,
-    registration::ChannelRegistrationState,
-    registry::ChannelRegistry,
+    adapters::register_builtin_channels, adapters::weixin::qr_login::QrLoginState,
+    gateway::ChannelGateway, monitor_supervisor::MonitorSupervisor,
+    registration::ChannelRegistrationState, registry::ChannelRegistry,
 };
 use pointer_core::{
     agents::computer::capture_debug,
@@ -26,7 +23,7 @@ use pointer_core::{
         TriggerSource,
     },
     models::{
-        ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation,
+        ChatMediaPreview, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
         DebugSessionSettings, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
         SkillImportResult, StreamEvent, ToolDef, UserSettings, WebEffectiveSettingsView,
     },
@@ -41,12 +38,12 @@ mod web_session;
 
 use web_session::WebSessionStore;
 
-use channels::{
-    approve_channel_pairing, channel_webhook, get_channel_webhook_url, get_channels_config,
-    list_channel_pairing_pending, list_channels,     channel_registration_status, start_channel_registration, start_weixin_login, update_channels,
-    weixin_login_status,
-};
 use base64::Engine;
+use channels::{
+    approve_channel_pairing, channel_registration_status, channel_webhook, get_channel_webhook_url,
+    get_channels_config, list_channel_pairing_pending, list_channels, start_channel_registration,
+    start_weixin_login, update_channels, weixin_login_status,
+};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -54,17 +51,70 @@ struct ConversationPreviewQuery {
     #[serde(rename = "conversationId")]
     conversation_id: String,
 }
+
+#[derive(Deserialize)]
+struct WorkspacePathQuery {
+    #[serde(rename = "workspaceRoot")]
+    workspace_root: String,
+    #[serde(default, rename = "relativePath")]
+    relative_path: Option<String>,
+}
+
+async fn list_workspace_directory(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspacePathQuery>,
+) -> Result<Json<Vec<pointer_core::workspace_read::WorkspaceEntry>>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(pointer_core::workspace_read::list_directory(
+        std::path::Path::new(&q.workspace_root),
+        q.relative_path.as_deref(),
+    )?))
+}
+
+async fn read_workspace_file(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspacePathQuery>,
+) -> Result<Json<pointer_core::workspace_read::WorkspaceFilePreview>, ApiError> {
+    require_platform_access(&state)?;
+    let relative_path = q.relative_path.as_deref().unwrap_or("");
+    Ok(Json(pointer_core::workspace_read::read_file(
+        std::path::Path::new(&q.workspace_root),
+        relative_path,
+    )?))
+}
+
+async fn get_workspace_git_status(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspacePathQuery>,
+) -> Result<Json<pointer_core::workspace_read::GitStatusResponse>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(pointer_core::workspace_read::git_status_response(
+        std::path::Path::new(&q.workspace_root),
+    )?))
+}
+
+async fn get_workspace_git_diff(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspacePathQuery>,
+) -> Result<Json<pointer_core::workspace_read::GitDiff>, ApiError> {
+    require_platform_access(&state)?;
+    let relative_path = q.relative_path.as_deref().unwrap_or("");
+    Ok(Json(pointer_core::workspace_read::git_diff(
+        std::path::Path::new(&q.workspace_root),
+        relative_path,
+    )?))
+}
+use parking_lot::RwLock;
+use rand::RngCore;
 use std::{
     collections::HashMap,
     convert::Infallible,
     env,
     net::SocketAddr,
-    path::{PathBuf},
+    path::PathBuf,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
-use parking_lot::RwLock;
-use rand::RngCore;
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
@@ -277,9 +327,7 @@ async fn main() -> anyhow::Result<()> {
     const DEFAULT_LOG_FILTER: &str =
         "warn,pointer_core=info,pointer_server=info,pointer_channels=info";
     let log_dir = pointer_core::logging::desktop_log_dir();
-    if let Err(err) =
-        pointer_core::logging::init_runtime_logging(&log_dir, DEFAULT_LOG_FILTER)
-    {
+    if let Err(err) = pointer_core::logging::init_runtime_logging(&log_dir, DEFAULT_LOG_FILTER) {
         eprintln!(
             "pointer-server: file logging unavailable ({err}); stderr-only. log_dir={}",
             log_dir.display()
@@ -299,7 +347,9 @@ async fn main() -> anyhow::Result<()> {
 
     storage::set_platform_auth_persist_enabled(false);
     if pointer_core::deployment_mode::is_standalone() {
-        log::info!("pointer-server: standalone mode — local password/SSO auth + config-injected LLM keys");
+        log::info!(
+            "pointer-server: standalone mode — local password/SSO auth + config-injected LLM keys"
+        );
         pointer_core::local_auth::warn_if_deprecated_admin_token_configured();
         if !pointer_core::local_auth::local_password_auth_configured() {
             log::warn!(
@@ -319,7 +369,9 @@ async fn main() -> anyhow::Result<()> {
             );
         }
     } else {
-        log::info!("pointer-server: web mode — auth.dat persistence disabled; per-browser cookie sessions");
+        log::info!(
+            "pointer-server: web mode — auth.dat persistence disabled; per-browser cookie sessions"
+        );
     }
 
     let core = Arc::new(AppState::new());
@@ -366,7 +418,9 @@ async fn main() -> anyhow::Result<()> {
             let _ = ev_tx.send(ev);
         }));
     }
-    match capture_debug::purge_computer_captures_older_than_days(capture_debug::CAPTURE_RETENTION_DAYS) {
+    match capture_debug::purge_computer_captures_older_than_days(
+        capture_debug::CAPTURE_RETENTION_DAYS,
+    ) {
         Ok(removed) if removed > 0 => {
             let _ = events.send(StreamEvent::UiToast {
                 conversation_id: String::new(),
@@ -380,10 +434,7 @@ async fn main() -> anyhow::Result<()> {
     let mut channel_registry = ChannelRegistry::new();
     register_builtin_channels(&mut channel_registry);
     let channel_gateway = Arc::new(ChannelGateway::new(core.clone(), channel_registry)?);
-    pointer_channels::install_channel_outbound_bridge(
-        channel_gateway.clone(),
-        core.tools.clone(),
-    );
+    pointer_channels::install_channel_outbound_bridge(channel_gateway.clone(), core.tools.clone());
     let channel_monitors = Arc::new(MonitorSupervisor::new());
     channel_monitors.start(channel_gateway.clone());
     let registration = Arc::new(ChannelRegistrationState::with_completion(
@@ -426,6 +477,10 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
+        .route("/api/workspace/directory", get(list_workspace_directory))
+        .route("/api/workspace/file", get(read_workspace_file))
+        .route("/api/workspace/git/status", get(get_workspace_git_status))
+        .route("/api/workspace/git/diff", get(get_workspace_git_diff))
         .route("/api/version", get(api_version))
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
@@ -453,7 +508,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/skills/reload-meta", post(reload_skill_meta))
         .route("/api/skills/external-probe", get(probe_external_skills))
         .route("/api/skills/import-external", post(import_external_skills))
-        .route("/api/skills/external-probe/dismiss", post(dismiss_external_skills_prompt))
+        .route(
+            "/api/skills/external-probe/dismiss",
+            post(dismiss_external_skills_prompt),
+        )
         .route("/api/tools", get(list_tools))
         .route("/api/agents", get(list_agents))
         .route("/api/task-board/snapshot", get(get_task_board_snapshot))
@@ -465,9 +523,15 @@ async fn main() -> anyhow::Result<()> {
             "/api/computer/round-screen-preview",
             get(preview_computer_round_screen),
         )
-        .route("/api/computer/manual-snapshot", post(manual_computer_snapshot))
+        .route(
+            "/api/computer/manual-snapshot",
+            post(manual_computer_snapshot),
+        )
         .route("/api/computer/monitors", get(list_computer_monitors))
-        .route("/api/computer/monitor", post(set_computer_conversation_monitor))
+        .route(
+            "/api/computer/monitor",
+            post(set_computer_conversation_monitor),
+        )
         .route(
             "/api/computer/monitor-pick/:conversation_id/confirm",
             post(confirm_computer_monitor_pick),
@@ -484,8 +548,14 @@ async fn main() -> anyhow::Result<()> {
             "/api/conversations/:conversation_id",
             delete(delete_conversation_handler),
         )
-        .route("/api/conversations/meta", get(load_conversation_metas).put(save_conversation_meta))
-        .route("/api/conversations/search", get(search_conversations_handler))
+        .route(
+            "/api/conversations/meta",
+            get(load_conversation_metas).put(save_conversation_meta),
+        )
+        .route(
+            "/api/conversations/search",
+            get(search_conversations_handler),
+        )
         .route(
             "/api/conversations/:conversation_id/messages",
             get(load_conversation_messages_handler),
@@ -505,7 +575,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/chat/media-ref-download", get(download_media_ref))
         .route("/api/media/public-download", get(public_media_download))
         .route("/api/chat/save-attachment", post(save_chat_attachment))
-        .route("/api/chat/upload-video-oss", post(upload_composer_video_oss))
+        .route(
+            "/api/chat/upload-video-oss",
+            post(upload_composer_video_oss),
+        )
         .route("/api/media/deps", get(check_media_deps))
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
@@ -531,10 +604,7 @@ async fn main() -> anyhow::Result<()> {
             )),
         )
         .route("/api/webhooks/:src", post(webhook_ingress))
-        .route(
-            "/api/webhooks/:src/runs/:run_id",
-            get(get_webhook_run),
-        )
+        .route("/api/webhooks/:src/runs/:run_id", get(get_webhook_run))
         .route(
             "/api/webhooks/config",
             get(get_webhook_config).post(set_webhook_source_token),
@@ -549,14 +619,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/webhooks/config/:src",
-            axum::routing::patch(patch_webhook_source)
-                .delete(clear_webhook_source_token),
+            axum::routing::patch(patch_webhook_source).delete(clear_webhook_source_token),
         )
         // Phase 5: cron job management for the scheduler.
-        .route(
-            "/api/cron-jobs",
-            get(list_cron_jobs).post(create_cron_job),
-        )
+        .route("/api/cron-jobs", get(list_cron_jobs).post(create_cron_job))
         .route(
             "/api/cron-jobs/delivery-targets",
             get(list_cron_delivery_targets),
@@ -567,7 +633,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/tools/:tool_call_id/approve", post(approve_tool_call))
         .route("/api/tools/:tool_call_id/ask-user", post(submit_ask_user))
-        .route("/api/terminal-input/:request_id/submit", post(submit_terminal_input))
+        .route(
+            "/api/terminal-input/:request_id/submit",
+            post(submit_terminal_input),
+        )
         .route(
             "/api/terminal-input/:request_id/dismiss",
             post(dismiss_terminal_input),
@@ -633,9 +702,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn get_settings(State(state): State<ServerState>) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
+async fn get_settings(
+    State(state): State<ServerState>,
+) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
-    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
+    Ok(Json(WebEffectiveSettingsView(
+        state.core.effective_settings_view(),
+    )))
 }
 
 async fn update_user_settings(
@@ -647,7 +720,9 @@ async fn update_user_settings(
         user.theme = "system".into();
     }
     state.core.save_user_settings(&user)?;
-    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
+    Ok(Json(WebEffectiveSettingsView(
+        state.core.effective_settings_view(),
+    )))
 }
 
 async fn update_platform_settings(
@@ -683,11 +758,11 @@ async fn update_settings(
     require_platform_access(&state)?;
     let platform = state.core.platform_config.read().clone();
     pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
-    state
-        .core
-        .apply_session_platform_preferences(&settings)?;
+    state.core.apply_session_platform_preferences(&settings)?;
     state.core.sync_dispatcher_concurrency(&state.dispatcher);
-    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
+    Ok(Json(WebEffectiveSettingsView(
+        state.core.effective_settings_view(),
+    )))
 }
 
 async fn update_agent_settings(
@@ -702,7 +777,9 @@ async fn update_agent_settings(
         .update_agent_settings(&settings)
         .map_err(ApiError)?;
     state.core.sync_dispatcher_concurrency(&state.dispatcher);
-    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
+    Ok(Json(WebEffectiveSettingsView(
+        state.core.effective_settings_view(),
+    )))
 }
 
 #[derive(Deserialize)]
@@ -819,11 +896,7 @@ async fn get_task_board_snapshot(
         &parent_key,
     );
     Ok(Json(
-        state
-            .core
-            .task_board_store
-            .document(&store_key)
-            .to_value(),
+        state.core.task_board_store.document(&store_key).to_value(),
     ))
 }
 
@@ -840,7 +913,8 @@ async fn preview_computer_annotated_screen(
         .cached_annotated_for_conversation(&q.conversation_id)
         .map(|(img, _monitor)| ComputerAnnotatedPreview {
             image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
-            image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img).to_string(),
+            image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img)
+                .to_string(),
             caption: "Annotated screenshot".into(),
         })
         .map(Json)
@@ -868,20 +942,17 @@ async fn preview_computer_round_screen(
     ))
 }
 
-async fn manual_computer_snapshot(
-    State(state): State<ServerState>,
-) -> Result<Response, ApiError> {
+async fn manual_computer_snapshot(State(state): State<ServerState>) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
-    let jpeg =
-        capture_debug::capture_manual_desktop_snapshot_jpeg().map_err(ApiError::from)?;
+    let jpeg = capture_debug::capture_manual_desktop_snapshot_jpeg().map_err(ApiError::from)?;
     let mut response = Response::new(jpeg.into());
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("image/jpeg"),
-    );
     response
         .headers_mut()
-        .insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("inline"));
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static("image/jpeg"));
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("inline"),
+    );
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -913,7 +984,8 @@ async fn preview_chat_media(
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
     require_platform_access(&state)?;
     Ok(Json(
-        pointer_core::media::read_chat_media_preview(&q.storage_rel_path).map_err(ApiError::from)?,
+        pointer_core::media::read_chat_media_preview(&q.storage_rel_path)
+            .map_err(ApiError::from)?,
     ))
 }
 
@@ -946,7 +1018,8 @@ async fn download_media_ref(
     let mut response = Response::new(bytes.into());
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(&mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
@@ -997,9 +1070,19 @@ fn attachment_content_disposition(file_name: &str, inline: bool) -> HeaderValue 
     let kind = if inline { "inline" } else { "attachment" };
     let safe: String = file_name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    let fallback = if safe.is_empty() { "attachment".into() } else { safe };
+    let fallback = if safe.is_empty() {
+        "attachment".into()
+    } else {
+        safe
+    };
     HeaderValue::from_str(&format!("{kind}; filename=\"{fallback}\""))
         .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
@@ -1017,11 +1100,13 @@ async fn download_chat_media(
     let mut response = Response::new(bytes.into());
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(&mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
-    response
-        .headers_mut()
-        .insert(header::CONTENT_DISPOSITION, attachment_content_disposition(&file_name, false));
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        attachment_content_disposition(&file_name, false),
+    );
     Ok(response)
 }
 
@@ -1038,11 +1123,13 @@ async fn stream_chat_media(
     let mut response = Response::new(bytes.into());
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(&mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
-    response
-        .headers_mut()
-        .insert(header::CONTENT_DISPOSITION, attachment_content_disposition(&file_name, true));
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        attachment_content_disposition(&file_name, true),
+    );
     Ok(response)
 }
 
@@ -1183,7 +1270,9 @@ async fn upload_composer_video_oss(
     }
 
     if attachment_id.is_empty() || file_name.is_empty() {
-        return Err(ApiError(anyhow::anyhow!("attachmentId and fileName required")));
+        return Err(ApiError(anyhow::anyhow!(
+            "attachmentId and fileName required"
+        )));
     }
     let bytes = file_bytes.ok_or_else(|| ApiError(anyhow::anyhow!("file field required")))?;
     let settings = state.core.effective_settings();
@@ -1199,9 +1288,7 @@ async fn upload_composer_video_oss(
             let mut last = last_pct.lock().expect("progress mutex");
             if pct != *last {
                 *last = pct;
-                log::info!(
-                    "upload-video-oss {attachment_id_log}: {pct}% ({loaded}/{total})"
-                );
+                log::info!("upload-video-oss {attachment_id_log}: {pct}% ({loaded}/{total})");
             }
         });
     let result = pointer_core::media::upload_composer_video_bytes(
@@ -1456,8 +1543,8 @@ async fn send_chat(
     Json(payload): Json<SendChatPayload>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
-    let web_session_auth = web_session::lookup_session_auth(&state.web_sessions, &headers)
-        .or_else(|| {
+    let web_session_auth =
+        web_session::lookup_session_auth(&state.web_sessions, &headers).or_else(|| {
             pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
         });
     if web_session_auth.is_none() {
@@ -1517,9 +1604,8 @@ async fn create_run(
     if deliver_str.is_some() {
         raw["deliver"] = serde_json::json!({ "kind": "none" });
     }
-    let mut body: TriggerRequest = serde_json::from_value(raw).map_err(|e| {
-        ApiError(anyhow::anyhow!("invalid run request body: {e}"))
-    })?;
+    let mut body: TriggerRequest = serde_json::from_value(raw)
+        .map_err(|e| ApiError(anyhow::anyhow!("invalid run request body: {e}")))?;
     body.trigger_source = TriggerSource::HttpRuns;
     body.trigger_meta.webhook_source = None;
     body.deliver = pointer_core::dispatcher::apply_deliver_string(
@@ -1530,14 +1616,15 @@ async fn create_run(
         .or_else(|| {
             pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
         });
-    let handle = state.dispatcher.dispatch(body).await.map_err(ApiError::from)?;
+    let handle = state
+        .dispatcher
+        .dispatch(body)
+        .await
+        .map_err(ApiError::from)?;
     log::info!(
         "runs-api: accepted run_id={} conv={} status={:?} deliver={:?}",
         handle.run_id,
-        handle
-            .reused_run_id
-            .as_deref()
-            .unwrap_or("new"),
+        handle.reused_run_id.as_deref().unwrap_or("new"),
         handle.status,
         deliver_str,
     );
@@ -1734,9 +1821,7 @@ async fn finish_webhook_blocking(
                 .into_response());
         }
         Err(_) => {
-            log::warn!(
-                "webhook blocking: timed out run_id={run_id} after {timeout_secs}s"
-            );
+            log::warn!("webhook blocking: timed out run_id={run_id} after {timeout_secs}s");
             return Ok((
                 StatusCode::GATEWAY_TIMEOUT,
                 Json(WebhookBlockingResponse {
@@ -1756,11 +1841,9 @@ async fn finish_webhook_blocking(
             conversation_id: conv,
             ..
         } => {
-            let text = pointer_core::webhook_result::last_assistant_text(
-                &state.core.session_index,
-                &conv,
-            )
-            .map_err(ApiError::from)?;
+            let text =
+                pointer_core::webhook_result::last_assistant_text(&state.core.session_index, &conv)
+                    .map_err(ApiError::from)?;
             log::info!(
                 "webhook blocking: finished run_id={run_id} conv={conv} text_len={}",
                 text.as_ref().map(|t| t.len()).unwrap_or(0)
@@ -1816,14 +1899,13 @@ async fn finish_webhook_blocking(
 }
 
 /// Map webhook auth failures to HTTP status + message.
-fn webhook_auth_status(err: pointer_core::webhook_config::WebhookIngressAuthError) -> (StatusCode, String) {
+fn webhook_auth_status(
+    err: pointer_core::webhook_config::WebhookIngressAuthError,
+) -> (StatusCode, String) {
     use pointer_core::webhook_config::WebhookIngressAuthError;
     match err {
         WebhookIngressAuthError::InvalidSrc(msg) => (StatusCode::BAD_REQUEST, msg),
-        WebhookIngressAuthError::NotConfigured => (
-            StatusCode::UNAUTHORIZED,
-            err.to_string(),
-        ),
+        WebhookIngressAuthError::NotConfigured => (StatusCode::UNAUTHORIZED, err.to_string()),
         WebhookIngressAuthError::Unauthorized => (StatusCode::UNAUTHORIZED, err.to_string()),
     }
 }
@@ -1838,17 +1920,14 @@ async fn webhook_upload(
     mut multipart: Multipart,
 ) -> Result<axum::response::Response, ApiError> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
-    let normalized_src = match pointer_core::webhook_config::authorize_webhook_ingress(
-        &store,
-        &src,
-        &headers,
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            let (status, msg) = webhook_auth_status(e);
-            return Ok(status_text(status, msg));
-        }
-    };
+    let normalized_src =
+        match pointer_core::webhook_config::authorize_webhook_ingress(&store, &src, &headers) {
+            Ok(s) => s,
+            Err(e) => {
+                let (status, msg) = webhook_auth_status(e);
+                return Ok(status_text(status, msg));
+            }
+        };
 
     let mut conversation_id: Option<String> = None;
     let mut file_name = String::new();
@@ -1906,9 +1985,8 @@ async fn webhook_upload(
         }
     }
 
-    let bytes = file_bytes.ok_or_else(|| {
-        ApiError(anyhow::anyhow!("multipart field `file` required"))
-    })?;
+    let bytes =
+        file_bytes.ok_or_else(|| ApiError(anyhow::anyhow!("multipart field `file` required")))?;
     if file_name.is_empty() {
         return Ok(status_text(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -1987,17 +2065,14 @@ async fn webhook_ingress(
     body: Bytes,
 ) -> Result<axum::response::Response, ApiError> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
-    let normalized_src = match pointer_core::webhook_config::authorize_webhook_ingress(
-        &store,
-        &src,
-        &headers,
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            let (status, msg) = webhook_auth_status(e);
-            return Ok(status_text(status, msg));
-        }
-    };
+    let normalized_src =
+        match pointer_core::webhook_config::authorize_webhook_ingress(&store, &src, &headers) {
+            Ok(s) => s,
+            Err(e) => {
+                let (status, msg) = webhook_auth_status(e);
+                return Ok(status_text(status, msg));
+            }
+        };
 
     let parsed = match pointer_core::webhook_ingress::parse_webhook_body(&body, &normalized_src) {
         Ok(p) => p,
@@ -2034,10 +2109,7 @@ async fn webhook_ingress(
         state
             .core
             .session_index
-            .resolve_webhook_ingress_session(
-                &normalized_src,
-                Some(delivery_id.as_str()),
-            )
+            .resolve_webhook_ingress_session(&normalized_src, Some(delivery_id.as_str()))
             .map_err(ApiError::from)?
     };
     let conversation_id = pointer_core::webhook_ingress::reconcile_webhook_conversation_id(
@@ -2068,9 +2140,7 @@ async fn webhook_ingress(
     let timeout_seconds = body.timeout_seconds;
 
     // Surface the inbound user turn in open cron/webhook views (same as cron scheduler / IM).
-    if let Some(user_msg) =
-        pointer_core::webhook_ingress::last_inbound_user_message(&messages)
-    {
+    if let Some(user_msg) = pointer_core::webhook_ingress::last_inbound_user_message(&messages) {
         pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::InjectedUserMessage {
             conversation_id: conversation_id.clone(),
             message_id: user_msg.id.clone(),
@@ -2083,10 +2153,8 @@ async fn webhook_ingress(
         webhook_source: Some(normalized_src.clone()),
         ..TriggerMeta::empty()
     };
-    let deliver = pointer_core::dispatcher::apply_deliver_string(
-        &mut trigger_meta,
-        body.deliver.as_deref(),
-    );
+    let deliver =
+        pointer_core::dispatcher::apply_deliver_string(&mut trigger_meta, body.deliver.as_deref());
     let req = TriggerRequest {
         run_id: None,
         idempotency_key: body.idempotency_key,
@@ -2110,7 +2178,11 @@ async fn webhook_ingress(
         },
     };
 
-    let handle = state.dispatcher.dispatch(req).await.map_err(ApiError::from)?;
+    let handle = state
+        .dispatcher
+        .dispatch(req)
+        .await
+        .map_err(ApiError::from)?;
     if blocking {
         return finish_webhook_blocking(
             &state,
@@ -2184,7 +2256,13 @@ fn default_true() -> bool {
 async fn create_cron_job(
     State(state): State<ServerState>,
     Json(body): Json<CreateCronJobBody>,
-) -> Result<(StatusCode, Json<pointer_core::conversation_store::cron_jobs::CronJobView>), ApiError> {
+) -> Result<
+    (
+        StatusCode,
+        Json<pointer_core::conversation_store::cron_jobs::CronJobView>,
+    ),
+    ApiError,
+> {
     require_platform_access(&state)?;
     let schedule_input = body
         .schedule
@@ -2265,7 +2343,12 @@ async fn create_cron_job(
         .session_index
         .cron_jobs_get(&body.id)
         .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError(anyhow::anyhow!("cron job vanished after insert: {}", body.id)))?;
+        .ok_or_else(|| {
+            ApiError(anyhow::anyhow!(
+                "cron job vanished after insert: {}",
+                body.id
+            ))
+        })?;
     log::info!(
         "cron-jobs: created id={} label={} kind={} expr={}",
         body.id,
@@ -2342,8 +2425,16 @@ async fn update_cron_job(
             ));
         }
     }
-    match state.core.session_index.cron_jobs_get(&job_id).map_err(ApiError::from)? {
-        Some(rec) => Ok(Json(pointer_core::conversation_store::cron_jobs::CronJobView::from_record(&rec)).into_response()),
+    match state
+        .core
+        .session_index
+        .cron_jobs_get(&job_id)
+        .map_err(ApiError::from)?
+    {
+        Some(rec) => Ok(Json(
+            pointer_core::conversation_store::cron_jobs::CronJobView::from_record(&rec),
+        )
+        .into_response()),
         None => Ok(status_text(
             StatusCode::NOT_FOUND,
             format!("cron job not found: {job_id}"),
@@ -2399,17 +2490,14 @@ async fn get_webhook_run(
     headers: axum::http::HeaderMap,
 ) -> Result<axum::response::Response, ApiError> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
-    let normalized_src = match pointer_core::webhook_config::authorize_webhook_ingress(
-        &store,
-        &src,
-        &headers,
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            let (status, msg) = webhook_auth_status(e);
-            return Ok(status_text(status, msg));
-        }
-    };
+    let normalized_src =
+        match pointer_core::webhook_config::authorize_webhook_ingress(&store, &src, &headers) {
+            Ok(s) => s,
+            Err(e) => {
+                let (status, msg) = webhook_auth_status(e);
+                return Ok(status_text(status, msg));
+            }
+        };
     let view = pointer_core::webhook_result::webhook_run_view_for_source(
         &state.core.session_index,
         &normalized_src,
@@ -2440,9 +2528,7 @@ fn build_webhook_config_view(
         .into_iter()
         .map(|(src, token)| {
             let url = webhook_url_for_src(&src);
-            store
-                .source_view(src, token, url)
-                .map_err(ApiError::from)
+            store.source_view(src, token, url).map_err(ApiError::from)
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
     let legacy_configured = store.is_legacy_configured().map_err(ApiError::from)?;
@@ -2524,7 +2610,10 @@ async fn reveal_webhook_source_token(
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
     let normalized = pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src)
         .map_err(ApiError::from)?;
-    let Some(token) = store.reveal_source_token(&normalized).map_err(ApiError::from)? else {
+    let Some(token) = store
+        .reveal_source_token(&normalized)
+        .map_err(ApiError::from)?
+    else {
         return Err(ApiError(anyhow::anyhow!(
             "webhook token not configured for this source"
         )));
@@ -2546,10 +2635,9 @@ async fn patch_webhook_source(
     require_platform_access(&state)?;
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
     if let Some(mode_raw) = body.session_mode {
-        let mode = pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse(
-            &mode_raw,
-        )
-        .map_err(ApiError::from)?;
+        let mode =
+            pointer_core::conversation_store::webhook_sources::WebhookSessionMode::parse(&mode_raw)
+                .map_err(ApiError::from)?;
         store.set_session_mode(&src, mode).map_err(|e| {
             let msg = e.to_string();
             if msg.contains("not configured") {
@@ -2762,7 +2850,8 @@ async fn list_pinned_experiences(
     Ok(Json(rows))
 }
 
-async fn get_experience_home() -> Result<Json<pointer_core::experiences::ExperienceHomeResponse>, ApiError> {
+async fn get_experience_home(
+) -> Result<Json<pointer_core::experiences::ExperienceHomeResponse>, ApiError> {
     let home = pointer_core::experiences::fetch_experience_home().await?;
     Ok(Json(home))
 }
@@ -2825,7 +2914,10 @@ fn resolve_static_dir() -> Option<PathBuf> {
 }
 
 /// When `dist/` exists, serve the Vue SPA from the same process (API routes take precedence).
-fn maybe_with_static_files(api: Router<ServerState>, static_dir: Option<PathBuf>) -> Router<ServerState> {
+fn maybe_with_static_files(
+    api: Router<ServerState>,
+    static_dir: Option<PathBuf>,
+) -> Router<ServerState> {
     let Some(dir) = static_dir else {
         log::info!("pointer-server: no dist/ found; API-only mode");
         return api;
@@ -2833,7 +2925,10 @@ fn maybe_with_static_files(api: Router<ServerState>, static_dir: Option<PathBuf>
     let _ = WEB_DIST.set(dir);
     log::info!(
         "pointer-server: serving web UI from {}",
-        WEB_DIST.get().map(|p| p.display().to_string()).unwrap_or_default()
+        WEB_DIST
+            .get()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
     );
     api.fallback(get(spa_fallback))
 }
@@ -2908,10 +3003,7 @@ async fn platform_oauth_callback(
         ..
     } = pending.ok_or_else(|| {
         log::warn!("platform_auth: callback unknown/expired state={}", q.state);
-        (
-            StatusCode::BAD_REQUEST,
-            "invalid_or_expired_state".into(),
-        )
+        (StatusCode::BAD_REQUEST, "invalid_or_expired_state".into())
     })?;
     let auth = Arc::new(PlatformAuthManager::new());
     match auth
@@ -2927,7 +3019,8 @@ async fn platform_oauth_callback(
                     session.user.id
                 );
                 return Ok(
-                    Redirect::temporary("/?platform_login_error=server_access_denied").into_response(),
+                    Redirect::temporary("/?platform_login_error=server_access_denied")
+                        .into_response(),
                 );
             }
             auth.set_session(session);
@@ -2937,7 +3030,10 @@ async fn platform_oauth_callback(
                 pointer_core::web_request_auth::WebSessionAuthKind::Platform,
             );
             sync_automation_web_session(&state);
-            log::info!("platform_auth: callback ok state={} web_session={session_id}", q.state);
+            log::info!(
+                "platform_auth: callback ok state={} web_session={session_id}",
+                q.state
+            );
             let mut resp = Redirect::temporary("/?platform_login=success").into_response();
             web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
             Ok(resp)
@@ -2951,10 +3047,7 @@ async fn platform_oauth_callback(
 }
 
 /// `POST /api/auth/logout` — clear browser web session cookie and in-memory auth.
-async fn platform_logout(
-    headers: HeaderMap,
-    State(state): State<ServerState>,
-) -> Response {
+async fn platform_logout(headers: HeaderMap, State(state): State<ServerState>) -> Response {
     if let Some(session_id) = web_session::session_id_from_headers(&headers) {
         if let Some(entry) = state.web_sessions.get(&session_id) {
             entry.auth.clear_session_async().await;
@@ -3003,14 +3096,11 @@ async fn refresh_platform_session(
             }
         }
     }
-    Ok(Json(
-        state.core.active_platform_auth().session_view(),
-    ))
+    Ok(Json(state.core.active_platform_auth().session_view()))
 }
 
 pub(crate) fn cookie_secure() -> bool {
-    resolve_server_public_url()
-        .is_some_and(|url| url.to_ascii_lowercase().starts_with("https://"))
+    resolve_server_public_url().is_some_and(|url| url.to_ascii_lowercase().starts_with("https://"))
 }
 
 /// Resolve the externally-reachable base URL for OAuth `redirect_uri`.
@@ -3062,10 +3152,7 @@ fn purge_expired_oauth_pending(pending: &RwLock<HashMap<String, PkcePending>>) {
     guard.retain(|_, v| now.duration_since(v.created_at) < OAUTH_PENDING_TTL);
 }
 
-async fn spa_fallback(
-    State(state): State<ServerState>,
-    uri: Uri,
-) -> Result<Response, StatusCode> {
+async fn spa_fallback(State(state): State<ServerState>, uri: Uri) -> Result<Response, StatusCode> {
     if let Some(resp) = try_standalone_sso(&state, &uri) {
         return Ok(resp);
     }
@@ -3251,10 +3338,9 @@ async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCod
         response.headers_mut().insert(header::CONTENT_TYPE, value);
     }
     if path.file_name().and_then(|n| n.to_str()) == Some("index.html") {
-        response.headers_mut().insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("no-cache"),
-        );
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     }
     Ok(response)
 }

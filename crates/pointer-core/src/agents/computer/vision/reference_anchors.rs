@@ -160,7 +160,8 @@ pub fn format_pointer_coordinate_anchor(
     global_pointer: (i32, i32),
     coord: CoordinateSystem,
 ) -> Option<String> {
-    let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
+    let (mouse_bx, mouse_by, cw, ch) =
+        pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
     Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}"))
 }
@@ -173,11 +174,17 @@ pub fn format_mouse_nearby_reference_bboxes(
     global_pointer: (i32, i32),
     coord: CoordinateSystem,
 ) -> Option<String> {
-    let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
+    let (mouse_bx, mouse_by, cw, ch) =
+        pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
     let nearby = select_boxes_near_pointer(boxes, mouse_bx, mouse_by, MOUSE_NEARBY_REFERENCE_LIMIT);
-    let bbox_block =
-        format_nearby_overlay_reference_bboxes(&nearby, cw, ch, coord, MOUSE_NEARBY_REFERENCE_LIMIT);
+    let bbox_block = format_nearby_overlay_reference_bboxes(
+        &nearby,
+        cw,
+        ch,
+        coord,
+        MOUSE_NEARBY_REFERENCE_LIMIT,
+    );
     Some(format!(
         "{pointer_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}\n\n{bbox_block}"
     ))

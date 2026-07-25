@@ -30,10 +30,7 @@ impl ConversationTranscriptRegistry {
         self.active.lock().remove(conversation_id);
     }
 
-    pub fn get(
-        &self,
-        conversation_id: &str,
-    ) -> Option<Arc<Mutex<ConversationTranscriptSession>>> {
+    pub fn get(&self, conversation_id: &str) -> Option<Arc<Mutex<ConversationTranscriptSession>>> {
         self.active.lock().get(conversation_id).cloned()
     }
 }

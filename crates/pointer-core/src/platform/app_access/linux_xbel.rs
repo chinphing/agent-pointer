@@ -190,10 +190,7 @@ mod tests {
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].identifier, "firefox");
         assert_eq!(apps[0].name, "Firefox Web Browser");
-        assert_eq!(
-            apps[0].last_used,
-            NaiveDate::from_ymd_opt(2026, 6, 10)
-        );
+        assert_eq!(apps[0].last_used, NaiveDate::from_ymd_opt(2026, 6, 10));
         assert!(apps[0].uses.is_none());
     }
 

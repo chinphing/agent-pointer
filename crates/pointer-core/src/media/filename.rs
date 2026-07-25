@@ -52,7 +52,9 @@ pub fn merge_inbound_filename(
         (None, None) => None,
         (Some(h), None) => Some(h.clone()),
         (None, Some(c)) => Some(c.clone()),
-        (Some(h), Some(c)) if looks_percent_encoded(h) && !looks_percent_encoded(c) => Some(c.clone()),
+        (Some(h), Some(c)) if looks_percent_encoded(h) && !looks_percent_encoded(c) => {
+            Some(c.clone())
+        }
         (Some(h), Some(c)) if looks_percent_encoded(h) => Some(c.clone()),
         (Some(h), Some(_)) => Some(h.clone()),
     }
@@ -60,9 +62,9 @@ pub fn merge_inbound_filename(
 
 pub fn looks_percent_encoded(s: &str) -> bool {
     s.contains('%')
-        && s.as_bytes().windows(3).any(|w| {
-            w[0] == b'%' && w[1].is_ascii_hexdigit() && w[2].is_ascii_hexdigit()
-        })
+        && s.as_bytes()
+            .windows(3)
+            .any(|w| w[0] == b'%' && w[1].is_ascii_hexdigit() && w[2].is_ascii_hexdigit())
 }
 
 fn percent_decode_if_needed(s: &str) -> String {
@@ -95,8 +97,7 @@ const TEXT_LIKE_EXTENSIONS: &[&str] = &[
 ];
 
 pub fn is_text_like_filename(file_name: &str) -> bool {
-    extension_lower(file_name)
-        .is_some_and(|ext| TEXT_LIKE_EXTENSIONS.contains(&ext.as_str()))
+    extension_lower(file_name).is_some_and(|ext| TEXT_LIKE_EXTENSIONS.contains(&ext.as_str()))
 }
 
 pub fn recovery_mode_for_filename(file_name: &str) -> RecoveryPathMode {
@@ -271,7 +272,10 @@ mod tests {
 
     #[test]
     fn short_attachment_suffix_is_eight_chars() {
-        assert_eq!(short_attachment_suffix().len(), STORED_ATTACHMENT_SUFFIX_LEN);
+        assert_eq!(
+            short_attachment_suffix().len(),
+            STORED_ATTACHMENT_SUFFIX_LEN
+        );
     }
 
     #[test]

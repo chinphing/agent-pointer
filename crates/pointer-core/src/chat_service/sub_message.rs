@@ -56,8 +56,7 @@ fn filter_scoped_messages(
         .filter(|m| {
             m.anchor_message_id.as_deref() == Some(linkage.anchor_message_id.as_str())
                 && m.trace_id.as_deref() == Some(linkage.trace_id.as_str())
-                && m.agent_instance_id.as_deref()
-                    == Some(linkage.agent_instance_id.as_str())
+                && m.agent_instance_id.as_deref() == Some(linkage.agent_instance_id.as_str())
         })
         .cloned()
         .collect()
@@ -139,9 +138,7 @@ pub fn push_sub_tool_result(
         .iter()
         .find(|m| m.tool_call_id.as_deref() == Some(tool_call_id))
     else {
-        log::warn!(
-            "sub_message: tool result row missing after insert tool_call_id={tool_call_id}"
-        );
+        log::warn!("sub_message: tool result row missing after insert tool_call_id={tool_call_id}");
         return;
     };
     persist_sub_message(conversation_id, linkage, tool_row);
@@ -197,7 +194,11 @@ mod tests {
     #[test]
     fn is_scoped_detects_anchor() {
         assert!(!is_scoped_sub_message(&sample_msg("m1", None, None)));
-        assert!(is_scoped_sub_message(&sample_msg("m2", Some("anchor"), Some("t:a"))));
+        assert!(is_scoped_sub_message(&sample_msg(
+            "m2",
+            Some("anchor"),
+            Some("t:a")
+        )));
     }
 
     #[test]
@@ -229,14 +230,8 @@ mod tests {
         matching.agent_instance_id = Some("instance-a".into());
         let mut other = sample_msg("other", Some("anchor"), Some("task:coder"));
         other.agent_instance_id = Some("instance-a".into());
-        let loaded = filter_scoped_messages(
-            &[
-                sample_msg("lead", None, None),
-                matching,
-                other,
-            ],
-            &link,
-        );
+        let loaded =
+            filter_scoped_messages(&[sample_msg("lead", None, None), matching, other], &link);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id, "sub1");
     }
@@ -342,6 +337,9 @@ mod tests {
         // DB may be unavailable in unit tests; history mutation is still required.
         sync_anchor_agent_trace_index("conv", &mut history, "lead", &traces);
         assert_eq!(history[0].agent_trace.as_ref().map(|t| t.len()), Some(1));
-        assert_eq!(history[0].agent_trace.as_ref().unwrap()[0].id, "task:explore");
+        assert_eq!(
+            history[0].agent_trace.as_ref().unwrap()[0].id,
+            "task:explore"
+        );
     }
 }

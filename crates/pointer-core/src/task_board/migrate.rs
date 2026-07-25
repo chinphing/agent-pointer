@@ -1,8 +1,6 @@
 //! Load persisted task board JSON as v4 [`BoardDocument`].
 
-use super::model::{
-    BoardDocument, BoardItem, BOARD_VERSION, meta_from_value,
-};
+use super::model::{meta_from_value, BoardDocument, BoardItem, BOARD_VERSION};
 use serde_json::Value;
 
 const V3_VERSION: u32 = 3;
@@ -118,10 +116,7 @@ fn coalesce_slice_constraints(items: &mut [BoardItem], raw_rows: Option<&Value>)
             continue;
         }
         let Some(raw) = arr.iter().find(|v| {
-            v.get("id")
-                .and_then(|x| x.as_str())
-                .map(str::trim)
-                == Some(item.id.as_str())
+            v.get("id").and_then(|x| x.as_str()).map(str::trim) == Some(item.id.as_str())
         }) else {
             continue;
         };

@@ -284,8 +284,14 @@ mod tests {
     #[test]
     fn required_u32_arg_accepts_numeric_string() {
         use serde_json::json;
-        assert_eq!(required_u32_arg(&json!({"index": "150"}), "index").unwrap(), 150);
-        assert_eq!(required_u32_arg(&json!({"index": 150}), "index").unwrap(), 150);
+        assert_eq!(
+            required_u32_arg(&json!({"index": "150"}), "index").unwrap(),
+            150
+        );
+        assert_eq!(
+            required_u32_arg(&json!({"index": 150}), "index").unwrap(),
+            150
+        );
         assert!(required_u32_arg(&json!({"index": "x"}), "index").is_err());
     }
 

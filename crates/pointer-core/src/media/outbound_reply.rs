@@ -124,9 +124,7 @@ pub fn reply_media_path_resolves(path: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    resolve_media_ref(trimmed)
-        .ok()
-        .is_some_and(|p| p.is_file())
+    resolve_media_ref(trimmed).ok().is_some_and(|p| p.is_file())
 }
 
 fn strip_resolved_inline_media(line: &str, media_paths: &mut Vec<String>) -> String {
@@ -220,7 +218,10 @@ pub fn reply_media_source(raw: &str) -> String {
 }
 
 /// Rebuild IM outbound reply text: user-visible body plus resolved `MEDIA:` lines from raw output.
-pub fn im_outbound_reply_source(raw_content: Option<&str>, visible_content: Option<&str>) -> String {
+pub fn im_outbound_reply_source(
+    raw_content: Option<&str>,
+    visible_content: Option<&str>,
+) -> String {
     let Some(raw) = raw_content.map(str::trim).filter(|s| !s.is_empty()) else {
         return visible_content.unwrap_or("").trim().to_string();
     };
@@ -274,15 +275,11 @@ mod tests {
 
     #[test]
     fn chinese_prose_before_real_media_line_still_attaches() {
-        let file = std::env::temp_dir().join(format!(
-            "pointer-outbound-zh-{}.py",
-            uuid::Uuid::new_v4()
-        ));
+        let file =
+            std::env::temp_dir().join(format!("pointer-outbound-zh-{}.py", uuid::Uuid::new_v4()));
         touch(&file);
         let path = file.display().to_string();
-        let reply = format!(
-            "脚本放在 workspace 下，可以用 `MEDIA:` 取回本地。\nMEDIA:{path}"
-        );
+        let reply = format!("脚本放在 workspace 下，可以用 `MEDIA:` 取回本地。\nMEDIA:{path}");
         let (text, media) = split_reply_media(&reply);
         assert_eq!(media, vec![path]);
         assert!(text.contains("取回本地"));
@@ -366,10 +363,7 @@ mod tests {
     #[test]
     fn bare_pointer_media_resolved_is_outbound() {
         let root = crate::storage::app_data_dir().expect("app data dir");
-        let rel = format!(
-            "_anonymous/outbound-bare-{}/out.md",
-            uuid::Uuid::new_v4()
-        );
+        let rel = format!("_anonymous/outbound-bare-{}/out.md", uuid::Uuid::new_v4());
         let file = root.join("conversation-media").join(&rel);
         touch(&file);
         let uri = format!("pointer-media://{rel}");
@@ -384,10 +378,8 @@ mod tests {
 
     #[test]
     fn media_prefix_pointer_uri_is_outbound_when_file_exists() {
-        let file = std::env::temp_dir().join(format!(
-            "pointer-outbound-uri-{}.wav",
-            uuid::Uuid::new_v4()
-        ));
+        let file =
+            std::env::temp_dir().join(format!("pointer-outbound-uri-{}.wav", uuid::Uuid::new_v4()));
         touch(&file);
         let uri = format!("file://{}", file.display());
         let (text, media) = split_reply_media(&format!("好的\nMEDIA:{uri}"));
@@ -398,10 +390,8 @@ mod tests {
 
     #[test]
     fn spaced_path_on_own_line_resolves() {
-        let dir = std::env::temp_dir().join(format!(
-            "pointer app support {}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pointer app support {}", uuid::Uuid::new_v4()));
         let file = dir.join("report v4.md");
         touch(&file);
         let path = file.display().to_string();
@@ -414,10 +404,8 @@ mod tests {
 
     #[test]
     fn spaced_path_inline_after_label_resolves() {
-        let dir = std::env::temp_dir().join(format!(
-            "pointer app support {}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pointer app support {}", uuid::Uuid::new_v4()));
         let file = dir.join("report v4.md");
         touch(&file);
         let path = file.display().to_string();
@@ -448,10 +436,8 @@ mod tests {
 
     #[test]
     fn spaced_path_backtick_quoted_inline_resolves() {
-        let dir = std::env::temp_dir().join(format!(
-            "pointer app support {}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pointer app support {}", uuid::Uuid::new_v4()));
         let file = dir.join("report v4.md");
         touch(&file);
         let path = file.display().to_string();
@@ -533,7 +519,12 @@ mod tests {
         assert!(text.contains("换个文件名"));
 
         let _ = fs::remove_file(&file);
-        let _ = fs::remove_dir_all(sandbox.parent().and_then(|p| p.parent()).unwrap_or(&sandbox));
+        let _ = fs::remove_dir_all(
+            sandbox
+                .parent()
+                .and_then(|p| p.parent())
+                .unwrap_or(&sandbox),
+        );
     }
 
     /// Same prose as the customer report, but with a literal Windows-style absolute path
@@ -581,10 +572,8 @@ mod tests {
 
     #[test]
     fn im_outbound_reply_source_restores_resolved_media_from_raw() {
-        let file = std::env::temp_dir().join(format!(
-            "pointer-outbound-im-{}.html",
-            uuid::Uuid::new_v4()
-        ));
+        let file =
+            std::env::temp_dir().join(format!("pointer-outbound-im-{}.html", uuid::Uuid::new_v4()));
         touch(&file);
         let path = file.display().to_string();
         let raw = format!("文件在这里 👇\n\nMEDIA:{path}");

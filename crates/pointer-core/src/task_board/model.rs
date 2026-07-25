@@ -272,10 +272,7 @@ impl BoardItem {
                 }
             })
             .unwrap_or_default();
-        let retry_count = v
-            .get("retry_count")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(0) as u32;
+        let retry_count = v.get("retry_count").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
         let blocked_by = v
             .get("blocked_by")
             .and_then(|x| x.as_str())
@@ -288,16 +285,16 @@ impl BoardItem {
             results.last().cloned()
         });
 
-        let delivery_format = v
-            .get("delivery_format")
-            .and_then(|x| x.as_str())
-            .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
-                "xlsx" => Some(DeliveryFormat::Xlsx),
-                "csv" => Some(DeliveryFormat::Csv),
-                "txt" => Some(DeliveryFormat::Txt),
-                "jsonl" => Some(DeliveryFormat::Jsonl),
-                _ => None,
-            });
+        let delivery_format =
+            v.get("delivery_format")
+                .and_then(|x| x.as_str())
+                .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+                    "xlsx" => Some(DeliveryFormat::Xlsx),
+                    "csv" => Some(DeliveryFormat::Csv),
+                    "txt" => Some(DeliveryFormat::Txt),
+                    "jsonl" => Some(DeliveryFormat::Jsonl),
+                    _ => None,
+                });
 
         Some(Self {
             id,
@@ -394,9 +391,7 @@ pub fn str_field(v: &Value, key: &str) -> Option<String> {
 }
 
 pub fn string_array_field(v: &Value, key: &str) -> Vec<String> {
-    v.get(key)
-        .map(parse_string_array)
-        .unwrap_or_default()
+    v.get(key).map(parse_string_array).unwrap_or_default()
 }
 
 pub fn parse_string_array(val: &Value) -> Vec<String> {

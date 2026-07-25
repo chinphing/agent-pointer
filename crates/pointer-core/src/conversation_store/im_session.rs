@@ -30,7 +30,11 @@ impl Default for ImSessionState {
 }
 
 pub fn resolve_active_desktop_id(base_conv_id: &str, state: &ImSessionState) -> String {
-    if let Some(active) = state.active_conversation_id.as_deref().filter(|s| !s.is_empty()) {
+    if let Some(active) = state
+        .active_conversation_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
         if im_base_conversation_id(active) == base_conv_id {
             return active.to_string();
         }
@@ -61,11 +65,7 @@ pub fn load_im_session_in_conn(conn: &Connection, base_conv_id: &str) -> Result<
         Some((epoch, active, im_last, updated_at, lead, mode)) => ImSessionState {
             session_epoch: epoch,
             active_conversation_id: active,
-            last_interaction_at_ms: if im_last > 0 {
-                im_last
-            } else {
-                updated_at
-            },
+            last_interaction_at_ms: if im_last > 0 { im_last } else { updated_at },
             lead_agent_id: lead,
             agent_mode: mode,
         },

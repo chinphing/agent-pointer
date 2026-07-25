@@ -3,7 +3,9 @@
 use crate::models::ToolCall;
 use crate::provider::OpenAIProvider;
 use crate::tools::media_generate::{dispatch_media_generate_async, MediaGenerateDispatchContext};
-use crate::tools::media_understand::{dispatch_media_understand_async, MediaUnderstandDispatchContext};
+use crate::tools::media_understand::{
+    dispatch_media_understand_async, MediaUnderstandDispatchContext,
+};
 use anyhow::anyhow;
 use tokio_util::sync::CancellationToken;
 

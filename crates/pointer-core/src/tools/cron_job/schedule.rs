@@ -153,7 +153,9 @@ fn try_parse_iso_once(raw: &str) -> Result<Option<ParsedSchedule>> {
     // Require a date-like shape so we do not steal friendly presets.
     if !raw.contains('-') || !raw.contains('T') {
         // Also allow space-separated `YYYY-MM-DD HH:MM:SS`.
-        if !(raw.contains('-') && raw.contains(':') && raw.chars().filter(|c| *c == '-').count() >= 2)
+        if !(raw.contains('-')
+            && raw.contains(':')
+            && raw.chars().filter(|c| *c == '-').count() >= 2)
         {
             return Ok(None);
         }
@@ -182,9 +184,7 @@ fn try_parse_iso_once(raw: &str) -> Result<Option<ParsedSchedule>> {
 
     let now = Local::now();
     if fire.timestamp_millis() <= now.timestamp_millis() {
-        return Err(anyhow!(
-            "one-shot time must be in the future (got {raw})"
-        ));
+        return Err(anyhow!("one-shot time must be in the future (got {raw})"));
     }
     Ok(Some(ParsedSchedule::Once {
         fire_at_ms: fire.timestamp_millis(),
@@ -467,8 +467,14 @@ mod tests {
             }
             other => panic!("expected Once, got {other:?}"),
         }
-        assert!(matches!(parse_schedule("1d").unwrap(), ParsedSchedule::Once { .. }));
-        assert!(matches!(parse_schedule("2H").unwrap(), ParsedSchedule::Once { .. }));
+        assert!(matches!(
+            parse_schedule("1d").unwrap(),
+            ParsedSchedule::Once { .. }
+        ));
+        assert!(matches!(
+            parse_schedule("2H").unwrap(),
+            ParsedSchedule::Once { .. }
+        ));
         assert!(parse_schedule("0m").is_err());
     }
 

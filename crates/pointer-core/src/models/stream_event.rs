@@ -75,7 +75,11 @@ pub enum StreamEvent {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     ReasoningDelta {
@@ -84,7 +88,11 @@ pub enum StreamEvent {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     /// Progressive `thoughts` / `headline` / `tool_name` / `response` body (`tool_args.text`) from partial JSON repair while streaming.
@@ -101,7 +109,11 @@ pub enum StreamEvent {
         response_text: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     AgentStep {
@@ -117,7 +129,11 @@ pub enum StreamEvent {
         tool_call: ToolCall,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     ToolCallArgsDelta {
@@ -129,7 +145,11 @@ pub enum StreamEvent {
         args_delta: String,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     ToolCallStatus {
@@ -144,13 +164,25 @@ pub enum StreamEvent {
         error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "durationMs")]
         duration_ms: Option<u64>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "displayLabel")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "displayLabel"
+        )]
         display_label: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "displaySummary")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "displaySummary"
+        )]
         display_summary: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     TerminalOutputDelta {
@@ -162,7 +194,11 @@ pub enum StreamEvent {
         output: String,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     TerminalNeedsInput {
@@ -174,7 +210,11 @@ pub enum StreamEvent {
         request_id: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         command: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "outputContext")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "outputContext"
+        )]
         output_context: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "inputHint")]
         input_hint: Option<String>,
@@ -182,7 +222,11 @@ pub enum StreamEvent {
         input_class: String,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     WebSearchOutputDelta {
@@ -193,7 +237,11 @@ pub enum StreamEvent {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     WebSearchSourcesReady {
@@ -206,7 +254,11 @@ pub enum StreamEvent {
         search_count: u32,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
     },
     MessageEnd {
@@ -225,7 +277,11 @@ pub enum StreamEvent {
         headline: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "scopedMessageId"
+        )]
         scoped_message_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attachments: Option<Vec<MediaAttachment>>,
@@ -301,9 +357,15 @@ pub enum StreamEvent {
     Done {
         #[serde(rename = "conversationId")]
         conversation_id: String,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRoundsUsedTotal")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "toolRoundsUsedTotal"
+        )]
         tool_rounds_used_total: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRoundsUsedSupervisorTotal")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "toolRoundsUsedSupervisorTotal"
+        )]
         tool_rounds_used_supervisor_total: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "maxToolRounds")]
         max_tool_rounds: Option<u32>,
@@ -376,7 +438,11 @@ pub enum StreamEvent {
         conversation_id: String,
         #[serde(rename = "storeKey")]
         store_key: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "anchorMessageId")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "anchorMessageId"
+        )]
         anchor_message_id: Option<String>,
         document: serde_json::Value,
     },
@@ -386,7 +452,11 @@ pub enum StreamEvent {
         conversation_id: String,
         #[serde(rename = "importedIds")]
         imported_ids: Vec<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "enabledIds")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "enabledIds"
+        )]
         enabled_ids: Option<Vec<String>>,
     },
     /// Conversation workspace root changed mid-run (e.g. general → coder delegation).

@@ -6,12 +6,12 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::agent_instance_scope::AgentInstanceScope;
@@ -28,7 +28,8 @@ const REPORT_STATUS_PENDING: &str = "pending";
 const REPORT_STATUS_SENT: &str = "sent";
 
 const BILLING_MODE_TOKENS: &str = "tokens";
-const PLATFORM_AGENT_INSTANCE_NAMESPACE: Uuid = Uuid::from_u128(0x6ba7b8109dad11d1_80b4_00c04fd430c8);
+const PLATFORM_AGENT_INSTANCE_NAMESPACE: Uuid =
+    Uuid::from_u128(0x6ba7b8109dad11d1_80b4_00c04fd430c8);
 
 /// Partner API accepts request_id up to 128 chars; keep stable hash when longer.
 pub fn platform_request_id(raw: &str) -> String {
@@ -142,19 +143,26 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
            created_at TEXT NOT NULL
          );",
     )?;
-    if table_exists(conn, "usage_accum")? && !table_has_column(conn, "usage_accum", "agent_instance_id")? {
+    if table_exists(conn, "usage_accum")?
+        && !table_has_column(conn, "usage_accum", "agent_instance_id")?
+    {
         migrate_usage_accum_v1(conn)?;
     }
-    if table_exists(conn, "usage_pending")? && !table_has_column(conn, "usage_pending", "agent_instance_id")? {
+    if table_exists(conn, "usage_pending")?
+        && !table_has_column(conn, "usage_pending", "agent_instance_id")?
+    {
         migrate_usage_pending_v1(conn)?;
     }
     if table_exists(conn, "usage_accum")? && !table_has_column(conn, "usage_accum", "run_id")? {
         migrate_usage_accum_v2(conn)?;
     }
-    if table_exists(conn, "usage_accum")? && table_has_column(conn, "usage_accum", "model_totals_json")? {
+    if table_exists(conn, "usage_accum")?
+        && table_has_column(conn, "usage_accum", "model_totals_json")?
+    {
         migrate_usage_accum_v3(conn)?;
     }
-    if table_exists(conn, "usage_accum")? && !table_has_column(conn, "usage_accum", "billing_mode")? {
+    if table_exists(conn, "usage_accum")? && !table_has_column(conn, "usage_accum", "billing_mode")?
+    {
         migrate_usage_accum_v4(conn)?;
     }
     migrate_legacy_jsonl(conn)?;
@@ -272,7 +280,9 @@ fn synthetic_run_id_from_request_id(request_id: &str) -> String {
 }
 
 fn migrate_usage_accum_v2(conn: &Connection) -> Result<()> {
-    log::info!("token_usage_store: migrating usage_accum to run_id + report_status (drop usage_pending)");
+    log::info!(
+        "token_usage_store: migrating usage_accum to run_id + report_status (drop usage_pending)"
+    );
     conn.execute_batch(
         "ALTER TABLE usage_accum RENAME TO usage_accum_old;
          CREATE TABLE usage_accum (
@@ -422,7 +432,9 @@ fn split_tokens_by_ratio(total: u32, model_total: u64, json_total: u64) -> u32 {
 }
 
 fn migrate_usage_accum_v3(conn: &Connection) -> Result<()> {
-    log::info!("token_usage_store: migrating usage_accum to per-model rows (drop model_totals_json)");
+    log::info!(
+        "token_usage_store: migrating usage_accum to per-model rows (drop model_totals_json)"
+    );
     conn.execute_batch(
         "ALTER TABLE usage_accum RENAME TO usage_accum_v2_old;
          CREATE TABLE usage_accum (
@@ -749,7 +761,9 @@ pub fn record_round(
     let guard = connection()?;
     let conn = guard.lock();
     let now = Utc::now().to_rfc3339();
-    let billing_mode = billing.map(|b| b.billing_mode).unwrap_or(BILLING_MODE_TOKENS);
+    let billing_mode = billing
+        .map(|b| b.billing_mode)
+        .unwrap_or(BILLING_MODE_TOKENS);
     let unit_delta = billing.map(|b| b.unit_count).unwrap_or(0);
     if let Some(u) = usage {
         conn.execute(
@@ -834,12 +848,8 @@ pub fn finalize_run(run_id: &str, conversation_id: &str, history: &[ChatMessage]
 
     for row in rows {
         let role_id = row.agent_role_id.as_deref().unwrap_or("unknown");
-        let archive_path = maybe_write_history_archive(
-            conversation_id,
-            &row.agent_instance_id,
-            role_id,
-            history,
-        )?;
+        let archive_path =
+            maybe_write_history_archive(conversation_id, &row.agent_instance_id, role_id, history)?;
         conn.execute(
             "UPDATE usage_accum SET
                report_status = ?3,
@@ -973,10 +983,7 @@ async fn send_pending_report(
         .get("request_id")
         .and_then(|v| v.as_str())
         .unwrap_or("?");
-    match auth
-        .report_token_usage_multipart(metadata, zip_path)
-        .await
-    {
+    match auth.report_token_usage_multipart(metadata, zip_path).await {
         Ok(()) => Ok(ReportDelivery::Multipart),
         Err(multipart_err) => {
             log::warn!(
@@ -984,9 +991,7 @@ async fn send_pending_report(
             );
             auth.report_token_usage(metadata.clone())
                 .await
-                .map_err(|json_err| {
-                    anyhow!("multipart: {multipart_err}; json-only: {json_err}")
-                })?;
+                .map_err(|json_err| anyhow!("multipart: {multipart_err}; json-only: {json_err}"))?;
             Ok(ReportDelivery::JsonOnlyFallback)
         }
     }
@@ -1340,9 +1345,7 @@ mod tests {
 
         migrate_usage_accum_v3(&conn).expect("v3 migrate");
 
-        assert!(
-            !table_has_column(&conn, "usage_accum", "model_totals_json").expect("column check")
-        );
+        assert!(!table_has_column(&conn, "usage_accum", "model_totals_json").expect("column check"));
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(1) FROM usage_accum WHERE run_id = 'run-v3'",

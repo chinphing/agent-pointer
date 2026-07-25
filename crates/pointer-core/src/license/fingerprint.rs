@@ -46,17 +46,17 @@ pub struct MachineIdentityView {
 
 impl MachineFingerprints {
     pub fn from_factors(factors: &MachineFactors) -> Self {
-        let strict = format!("{FINGERPRINT_PREFIX}{}", hash_parts(&[
-            ("os", normalize_factor(&factors.os_id)),
-            (
-                "board",
-                normalize_factor(&factors.board_uuid),
-            ),
-            (
-                "cloud",
-                cloud_token(&factors.cloud_provider, &factors.cloud_instance_id),
-            ),
-        ]));
+        let strict = format!(
+            "{FINGERPRINT_PREFIX}{}",
+            hash_parts(&[
+                ("os", normalize_factor(&factors.os_id)),
+                ("board", normalize_factor(&factors.board_uuid),),
+                (
+                    "cloud",
+                    cloud_token(&factors.cloud_provider, &factors.cloud_instance_id),
+                ),
+            ])
+        );
         let board = {
             let token = normalize_factor(&factors.board_uuid);
             if token.is_empty() {
@@ -129,16 +129,15 @@ pub fn verify_machine_binding(
     machine_cloud_fp: Option<&str>,
 ) -> Result<()> {
     // Unbound licenses must not probe cloud metadata (blocking HTTP inside async startup).
-    if machine_id.map(str::trim).filter(|s| !s.is_empty()).is_none() {
+    if machine_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
         return Ok(());
     }
     let factors = collect_machine_factors()?;
-    verify_machine_binding_with_factors(
-        machine_id,
-        machine_board_fp,
-        machine_cloud_fp,
-        &factors,
-    )
+    verify_machine_binding_with_factors(machine_id, machine_board_fp, machine_cloud_fp, &factors)
 }
 
 pub fn verify_machine_binding_with_factors(
@@ -195,7 +194,9 @@ pub fn binding_for_current_host() -> Result<(String, Option<String>, Option<Stri
 }
 
 /// Parse explicit `--machine-id` for remote signing.
-pub fn binding_from_explicit_machine_id(raw: &str) -> Result<(String, Option<String>, Option<String>)> {
+pub fn binding_from_explicit_machine_id(
+    raw: &str,
+) -> Result<(String, Option<String>, Option<String>)> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         anyhow::bail!("machine id is empty");
@@ -223,7 +224,10 @@ fn hash_parts(parts: &[(&str, String)]) -> String {
 }
 
 fn normalize_factor(raw: &str) -> String {
-    raw.trim().trim_matches('{').trim_matches('}').to_ascii_lowercase()
+    raw.trim()
+        .trim_matches('{')
+        .trim_matches('}')
+        .to_ascii_lowercase()
 }
 
 fn cloud_token(provider: &str, instance_id: &str) -> String {
@@ -359,11 +363,7 @@ fn fetch_azure_instance() -> Option<(String, String)> {
 
 mod hex {
     pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 

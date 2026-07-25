@@ -176,7 +176,12 @@ fn build_client() -> Result<Client> {
         .map_err(|e| anyhow!("http client: {e}"))
 }
 
-fn fetch_one(client: &Client, raw_url: &str, max_chars: usize, extract_mode: &str) -> Result<Value> {
+fn fetch_one(
+    client: &Client,
+    raw_url: &str,
+    max_chars: usize,
+    extract_mode: &str,
+) -> Result<Value> {
     let url = assert_url_safe(raw_url)?;
     log::info!("web_fetch: GET {}", url.as_str());
     let resp = client
@@ -192,9 +197,7 @@ fn fetch_one(client: &Client, raw_url: &str, max_chars: usize, extract_mode: &st
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let bytes = resp
-        .bytes()
-        .map_err(|e| anyhow!("read body failed: {e}"))?;
+    let bytes = resp.bytes().map_err(|e| anyhow!("read body failed: {e}"))?;
     let truncated_download = bytes.len() > MAX_RESPONSE_BYTES;
     let slice = if truncated_download {
         &bytes[..MAX_RESPONSE_BYTES]
@@ -243,11 +246,18 @@ fn extract_content(
         (body, "html_text")
     } else if ct.starts_with("text/") || ct.is_empty() {
         (raw.to_string(), "text")
-    } else if raw.chars().take(200).all(|c| !c.is_control() || c.is_whitespace()) {
+    } else if raw
+        .chars()
+        .take(200)
+        .all(|c| !c.is_control() || c.is_whitespace())
+    {
         (raw.to_string(), "text")
     } else {
         (
-            format!("[binary or unsupported content-type: {content_type}; {} bytes]", raw.len()),
+            format!(
+                "[binary or unsupported content-type: {content_type}; {} bytes]",
+                raw.len()
+            ),
             "unsupported",
         )
     };
@@ -255,7 +265,11 @@ fn extract_content(
     truncate_chars(&text, max_chars, kind)
 }
 
-fn truncate_chars(text: &str, max_chars: usize, kind: &'static str) -> (String, &'static str, bool) {
+fn truncate_chars(
+    text: &str,
+    max_chars: usize,
+    kind: &'static str,
+) -> (String, &'static str, bool) {
     let count = text.chars().count();
     if count <= max_chars {
         return (text.to_string(), kind, false);

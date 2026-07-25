@@ -1,8 +1,8 @@
 use super::args_util::{json_bool_loose, require_non_empty_str, resolve_index_pixels};
 use super::dati_client::{query_until_ready, upload, DatiConfig};
-use crate::agents::computer::tier::{ComputerTier, ComputerTierGuard};
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::state::ComputerState;
+use crate::agents::computer::tier::{ComputerTier, ComputerTierGuard};
 use crate::agents::computer::vision::screen::MonitorInfo;
 use crate::agents::computer::vision_state::{ElementInfo, VisionState};
 use anyhow::{anyhow, Result};
@@ -19,7 +19,8 @@ use std::time::Duration;
 const QUERY_TIMEOUT_SECS: u64 = 60;
 const POLL_INTERVAL_SECS: u64 = 1;
 
-const CAPTCHA_POST_ACTION_HINT: &str = "Challenge done — click Confirm/Verify/Submit with mouse_* if shown; \
+const CAPTCHA_POST_ACTION_HINT: &str =
+    "Challenge done — click Confirm/Verify/Submit with mouse_* if shown; \
 no repeat captcha until new puzzle; verify after submit.";
 
 pub struct CaptchaVerifyTool {
@@ -68,7 +69,15 @@ impl CaptchaVerifyTool {
             resolve_index_pixels(&vision, index_input_area)?
         };
         self.run_desktop_action(move |executor| {
-            executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true, false)
+            executor.type_text_at_with_options(
+                input_pos.0,
+                input_pos.1,
+                &answer,
+                true,
+                false,
+                true,
+                false,
+            )
         })?;
         Ok(format!(
             "Goal: {goal}. Type action attempted (cleared first). {CAPTCHA_POST_ACTION_HINT}"
@@ -128,8 +137,8 @@ impl CaptchaVerifyTool {
         }
 
         if is_slider {
-            let offset = crate::platform_config::effective_settings_global()
-                .captcha_slider_offset_px;
+            let offset =
+                crate::platform_config::effective_settings_global().captcha_slider_offset_px;
             if let Some(last) = points.last_mut() {
                 last.0 += offset;
             }
@@ -279,9 +288,7 @@ fn translate_points(points: &mut [(i32, i32)], new_start: (i32, i32)) {
 }
 
 fn required_u32(args: &Value, key: &str) -> Result<u32> {
-    let value = args
-        .get(key)
-        .ok_or_else(|| anyhow!("Missing {key}."))?;
+    let value = args.get(key).ok_or_else(|| anyhow!("Missing {key}."))?;
     value_to_u32(value, key)
 }
 

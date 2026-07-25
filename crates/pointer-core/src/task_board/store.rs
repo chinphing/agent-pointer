@@ -74,7 +74,9 @@ impl TaskBoardStore {
         let method = method.trim().to_ascii_lowercase();
         let mut doc = self.get_or_default(store_key);
         let outcome = apply_method(store_key, &mut doc, &method, args)?;
-        self.inner.write().insert(store_key.to_string(), doc.clone());
+        self.inner
+            .write()
+            .insert(store_key.to_string(), doc.clone());
         self.persist(store_key, &doc);
         crate::task_board::observability::log_store_apply(
             store_key,
@@ -95,7 +97,9 @@ impl TaskBoardStore {
     }
 
     pub fn save_document(&self, store_key: &str, doc: BoardDocument) {
-        self.inner.write().insert(store_key.to_string(), doc.clone());
+        self.inner
+            .write()
+            .insert(store_key.to_string(), doc.clone());
         self.persist(store_key, &doc);
     }
 
@@ -141,7 +145,11 @@ impl TaskBoardStore {
         block
     }
 
-    pub fn parent_tunnel_for_child(&self, child_store_key: &str, sub_task_id: &str) -> Option<String> {
+    pub fn parent_tunnel_for_child(
+        &self,
+        child_store_key: &str,
+        sub_task_id: &str,
+    ) -> Option<String> {
         let parent_key = parent_store_key_from_child(child_store_key)?;
         let doc = self.get_or_default(&parent_key);
         super::coordination::context_tunnel::parent_tunnel_block(&doc, sub_task_id)

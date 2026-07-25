@@ -130,7 +130,9 @@ impl ActionBackend for EnigoBackend {
         enigo
             .scroll(-lines, enigo::Axis::Vertical)
             .map_err(|e| anyhow!("Scroll failed: {:?}", e))?;
-        Ok(ActionResult::success(format!("Scrolled {lines} lines (Pointer sign)")))
+        Ok(ActionResult::success(format!(
+            "Scrolled {lines} lines (Pointer sign)"
+        )))
     }
 
     fn type_text(&self, text: &str) -> Result<ActionResult> {
@@ -143,14 +145,11 @@ impl ActionBackend for EnigoBackend {
 
     fn type_text_via_clipboard(&self, text: &str) -> Result<ActionResult> {
         // 1. Save old clipboard content
-        let old = Clipboard::new()
-            .ok()
-            .and_then(|mut cb| cb.get_text().ok());
+        let old = Clipboard::new().ok().and_then(|mut cb| cb.get_text().ok());
 
         // 2. Write target text to clipboard
         {
-            let mut cb = Clipboard::new()
-                .map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
+            let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
             cb.set_text(text)
                 .map_err(|e| anyhow!("Clipboard write failed: {e}"))?;
         }
@@ -163,14 +162,18 @@ impl ActionBackend for EnigoBackend {
             "ctrl"
         };
         let mut enigo = self.enigo.borrow_mut();
-        enigo.key(parse_key_name(modifier)?, Press)
+        enigo
+            .key(parse_key_name(modifier)?, Press)
             .map_err(|e| anyhow!("Paste hotkey press failed: {e}"))?;
-        enigo.key(Key::Unicode('v'), Press)
+        enigo
+            .key(Key::Unicode('v'), Press)
             .map_err(|e| anyhow!("Paste key 'v' press failed: {e}"))?;
         std::thread::sleep(Duration::from_millis(20));
-        enigo.key(Key::Unicode('v'), Release)
+        enigo
+            .key(Key::Unicode('v'), Release)
             .map_err(|e| anyhow!("Paste key 'v' release failed: {e}"))?;
-        enigo.key(parse_key_name(modifier)?, Release)
+        enigo
+            .key(parse_key_name(modifier)?, Release)
             .map_err(|e| anyhow!("Paste hotkey release failed: {e}"))?;
         std::thread::sleep(Duration::from_millis(30));
 
@@ -181,7 +184,10 @@ impl ActionBackend for EnigoBackend {
             }
         }
 
-        Ok(ActionResult::success(format!("Pasted via clipboard: {}", text)))
+        Ok(ActionResult::success(format!(
+            "Pasted via clipboard: {}",
+            text
+        )))
     }
 
     fn hotkey(&self, keys: &[&str]) -> Result<ActionResult> {
@@ -211,7 +217,9 @@ impl ActionBackend for EnigoBackend {
 
     fn get_position(&self) -> Result<(i32, i32)> {
         let enigo = self.enigo.borrow();
-        let (x, y) = enigo.location().map_err(|e| anyhow!("Get position failed: {:?}", e))?;
+        let (x, y) = enigo
+            .location()
+            .map_err(|e| anyhow!("Get position failed: {:?}", e))?;
         Ok((x, y))
     }
 

@@ -250,8 +250,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        escape_literal_newlines_in_json_strings, escape_unescaped_double_quotes_in_json_string_interior,
-        munge_finalize_json_parse, repair_json_unescaped_quotes,
+        escape_literal_newlines_in_json_strings,
+        escape_unescaped_double_quotes_in_json_string_interior, munge_finalize_json_parse,
+        repair_json_unescaped_quotes,
     };
 
     #[test]
@@ -320,11 +321,9 @@ mod tests {
         let fixed = repair_json_unescaped_quotes(bad);
         let expected = r##"{"message": "小明说:\"我觉得Rust很好玩\"。"}"##;
         assert_eq!(fixed, expected, "repair output mismatch");
-        let v: serde_json::Value = serde_json::from_str(&fixed).expect("repaired JSON should parse");
-        assert_eq!(
-            v["message"],
-            json!("小明说:\"我觉得Rust很好玩\"\u{3002}")
-        );
+        let v: serde_json::Value =
+            serde_json::from_str(&fixed).expect("repaired JSON should parse");
+        assert_eq!(v["message"], json!("小明说:\"我觉得Rust很好玩\"\u{3002}"));
     }
 
     #[test]

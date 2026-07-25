@@ -155,7 +155,11 @@ fn resolve_token_rel_to_abs(rel: &str) -> Result<PathBuf> {
 }
 
 /// Issue a signed token for an on-disk file under app data.
-pub fn issue_download_token(path_or_rel: &str, file_name: Option<&str>, ttl_secs: u64) -> Result<String> {
+pub fn issue_download_token(
+    path_or_rel: &str,
+    file_name: Option<&str>,
+    ttl_secs: u64,
+) -> Result<String> {
     let rel = normalize_app_data_rel(path_or_rel)?;
     let abs = resolve_token_rel_to_abs(&rel)?;
     if !abs.is_file() {
@@ -184,11 +188,13 @@ pub fn issue_download_token(path_or_rel: &str, file_name: Option<&str>, ttl_secs
 }
 
 /// Build a full public download URL when `POINTER_SERVER_PUBLIC_URL` is set.
-pub fn issue_download_url(path_or_rel: &str, file_name: Option<&str>, ttl_secs: u64) -> Result<String> {
+pub fn issue_download_url(
+    path_or_rel: &str,
+    file_name: Option<&str>,
+    ttl_secs: u64,
+) -> Result<String> {
     let base = public_download_base_url().ok_or_else(|| {
-        anyhow::anyhow!(
-            "{ENV_PUBLIC_URL} not configured; cannot issue public download link for IM"
-        )
+        anyhow::anyhow!("{ENV_PUBLIC_URL} not configured; cannot issue public download link for IM")
     })?;
     let token = issue_download_token(path_or_rel, file_name, ttl_secs)?;
     Ok(format!(
@@ -288,7 +294,10 @@ mod tests {
         std::env::set_var(ENV_SECRET, "test-public-download-secret");
         // Clear OnceLock by using a unique secret only once per process — re-set before first call.
         let root = app_data_dir().expect("app data");
-        let rel = format!("generated-media/_pub_dl_test/{}/a.txt", uuid::Uuid::new_v4());
+        let rel = format!(
+            "generated-media/_pub_dl_test/{}/a.txt",
+            uuid::Uuid::new_v4()
+        );
         let file = root.join(&rel);
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, b"hello-public").unwrap();

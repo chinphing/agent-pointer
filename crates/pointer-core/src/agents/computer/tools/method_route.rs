@@ -62,10 +62,7 @@ fn looks_like_operation_name(s: &str) -> bool {
     if s.is_empty() || !s.is_ascii() {
         return false;
     }
-    if !s
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-    {
+    if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         return false;
     }
     let lower = s.to_ascii_lowercase();

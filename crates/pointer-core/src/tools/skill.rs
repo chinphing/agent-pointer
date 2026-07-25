@@ -33,7 +33,9 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|p| !p.is_empty())
-                    .ok_or_else(|| anyhow!("缺少 path（读说明传 SKILL.md；读资源传 skill 相对路径）"))?;
+                    .ok_or_else(|| {
+                        anyhow!("缺少 path（读说明传 SKILL.md；读资源传 skill 相对路径）")
+                    })?;
                 sk.read(id, path)
             }),
             "skill_import" => Arc::new(move |args| {

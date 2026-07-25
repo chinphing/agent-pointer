@@ -18,11 +18,7 @@ pub struct ParsedMediaRel {
     pub legacy: bool,
 }
 
-pub fn build_storage_rel(
-    session_user_id: &str,
-    conversation_id: &str,
-    file_name: &str,
-) -> String {
+pub fn build_storage_rel(session_user_id: &str, conversation_id: &str, file_name: &str) -> String {
     let user = user_storage_segment(session_user_id);
     let conv = crate::storage::sanitize_storage_dir_segment(conversation_id.trim());
     format!("{user}/{conv}/{file_name}")

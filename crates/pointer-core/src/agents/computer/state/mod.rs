@@ -240,7 +240,10 @@ impl ComputerState {
         let executor = match EnigoBackend::new() {
             Ok(backend) => Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend)))),
             Err(err) => {
-                log::warn!("Failed to create enigo backend, computer tools will be unavailable: {}", err);
+                log::warn!(
+                    "Failed to create enigo backend, computer tools will be unavailable: {}",
+                    err
+                );
                 Arc::new(Mutex::new(ActionExecutor::new(Box::new(FallbackBackend))))
             }
         };
@@ -255,7 +258,7 @@ impl ComputerState {
                     &platform_endpoints::annotate_api_base(),
                     None,
                 )
-                    .expect("default annotate client should not fail")
+                .expect("default annotate client should not fail")
             });
         Self {
             executor,
@@ -488,22 +491,27 @@ impl ComputerState {
         let tier = session.lock().unwrap().tier_runtime.current_tier;
         let work = VisionOverlayWork::for_tier(tier);
 
-        let inject_before_action = if matches!(tier, ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced) {
+        let inject_before_action = if matches!(
+            tier,
+            ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced
+        ) {
             let s = session.lock().unwrap();
             match (
                 s.last_turn_raw_jpeg_unmarked.as_deref(),
                 s.last_turn_monitor.as_ref(),
             ) {
-                (Some(jpeg), Some(mon)) => match build_before_action_inject(jpeg, mon, global_pointer) {
-                    Ok(pack) => Some(pack),
-                    Err(e) => {
-                        log::warn!(
+                (Some(jpeg), Some(mon)) => {
+                    match build_before_action_inject(jpeg, mon, global_pointer) {
+                        Ok(pack) => Some(pack),
+                        Err(e) => {
+                            log::warn!(
                             "apply_screen_capture: build before-action inject from prior unmarked failed: {:#}",
                             e
                         );
-                        None
+                            None
+                        }
                     }
-                },
+                }
                 _ => None,
             }
         } else {
@@ -530,14 +538,13 @@ impl ComputerState {
         }
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        let mouse_neighbor_reference_text =
-            reference_anchors::format_mouse_nearby_reference_bboxes(
-                &boxes,
-                &monitor,
-                capture_px,
-                global_pointer,
-                CoordinateSystem::Qwen,
-            );
+        let mouse_neighbor_reference_text = reference_anchors::format_mouse_nearby_reference_bboxes(
+            &boxes,
+            &monitor,
+            capture_px,
+            global_pointer,
+            CoordinateSystem::Qwen,
+        );
 
         let t = Instant::now();
         let pack = build_vision_overlay_pack(
@@ -555,7 +562,10 @@ impl ComputerState {
             let mut session = session.lock().unwrap();
             session.current_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
             session.current_turn_capture_px = Some(capture_px);
-            if matches!(tier, ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced) {
+            if matches!(
+                tier,
+                ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced
+            ) {
                 session.last_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
                 session.last_turn_monitor = Some(monitor);
             } else {
@@ -648,7 +658,10 @@ impl ComputerState {
     }
 
     /// Latest annotated screenshot (PNG bytes already shown to the model) for the given conversation, if any.
-    pub fn cached_annotated_for_conversation(&self, conversation_id: &str) -> Option<(Vec<u8>, screen::MonitorInfo)> {
+    pub fn cached_annotated_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Option<(Vec<u8>, screen::MonitorInfo)> {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
         s.last_annotated.clone()
@@ -774,9 +787,7 @@ impl ComputerState {
                 return Ok(cap);
             }
         }
-        log::info!(
-            "pipeline capture: fresh OS screenshot conversation_id={conversation_id}"
-        );
+        log::info!("pipeline capture: fresh OS screenshot conversation_id={conversation_id}");
         let (cap, _) = self.capture_and_annotate(conversation_id).await?;
         {
             let session = self.get_or_create_session(conversation_id);
@@ -786,11 +797,7 @@ impl ComputerState {
         Ok(cap)
     }
 
-    pub fn store_pipeline_after_capture(
-        &self,
-        conversation_id: &str,
-        cap: ScreenCaptureResult,
-    ) {
+    pub fn store_pipeline_after_capture(&self, conversation_id: &str, cap: ScreenCaptureResult) {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.pipeline.cached_capture = Some(cap);
@@ -846,11 +853,7 @@ impl ComputerState {
         }
     }
 
-    pub fn set_pipeline_last_operation(
-        &self,
-        conversation_id: &str,
-        summary: String,
-    ) {
+    pub fn set_pipeline_last_operation(&self, conversation_id: &str, summary: String) {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.pipeline.last_operation_summary = Some(summary);
@@ -873,15 +876,11 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
         let tier = s.tier_runtime.current_tier;
-        s.tier_runtime
-            .history_for(tier)
-            .iter()
-            .rev()
-            .any(|r| {
-                r.verify_result
-                    .as_ref()
-                    .is_some_and(|v| v.step_result.eq_ignore_ascii_case("pass"))
-            })
+        s.tier_runtime.history_for(tier).iter().rev().any(|r| {
+            r.verify_result
+                .as_ref()
+                .is_some_and(|v| v.step_result.eq_ignore_ascii_case("pass"))
+        })
     }
 
     pub fn tier_history_has_verify_report(&self, conversation_id: &str) -> bool {
@@ -898,7 +897,11 @@ impl ComputerState {
 
     pub fn locked_goal_dynamic_block(&self, conversation_id: &str) -> Option<String> {
         let session = self.get_or_create_session(conversation_id);
-        let block = session.lock().unwrap().tier_runtime.locked_goal_dynamic_block();
+        let block = session
+            .lock()
+            .unwrap()
+            .tier_runtime
+            .locked_goal_dynamic_block();
         block
     }
 
@@ -925,7 +928,10 @@ mod tests {
         let state = make_state();
         let s1 = state.vision_state_for_conversation("a");
         let s2 = state.vision_state_for_conversation("a");
-        assert!(Arc::ptr_eq(&s1, &s2), "same conversation_id returns same session");
+        assert!(
+            Arc::ptr_eq(&s1, &s2),
+            "same conversation_id returns same session"
+        );
     }
 
     #[test]
@@ -933,17 +939,26 @@ mod tests {
         let state = make_state();
         let sa = state.vision_state_for_conversation("a");
         let sb = state.vision_state_for_conversation("b");
-        assert!(!Arc::ptr_eq(&sa, &sb), "different conversation_id must yield different sessions");
+        assert!(
+            !Arc::ptr_eq(&sa, &sb),
+            "different conversation_id must yield different sessions"
+        );
     }
 
     #[test]
     fn mark_ended_and_cancelled_status() {
         let state = make_state();
         state.mark_ended("x");
-        assert_eq!(state.get_or_create_session("x").lock().unwrap().status, SessionStatus::Ended);
+        assert_eq!(
+            state.get_or_create_session("x").lock().unwrap().status,
+            SessionStatus::Ended
+        );
 
         state.mark_cancelled("y");
-        assert_eq!(state.get_or_create_session("y").lock().unwrap().status, SessionStatus::Cancelled);
+        assert_eq!(
+            state.get_or_create_session("y").lock().unwrap().status,
+            SessionStatus::Cancelled
+        );
     }
 
     #[test]
@@ -965,7 +980,10 @@ mod tests {
             .iter()
             .filter(|s| s.lock().unwrap().status == SessionStatus::Ended)
             .count();
-        assert!(ended_before <= 1, "at most one ended session should survive after evicting ended first");
+        assert!(
+            ended_before <= 1,
+            "at most one ended session should survive after evicting ended first"
+        );
     }
 
     #[test]
@@ -987,8 +1005,21 @@ mod tests {
         let state = make_state();
         state.set_conversation_monitor("a", Some("m1".into()));
         state.set_conversation_monitor("b", None);
-        assert_eq!(state.get_or_create_session("a").lock().unwrap().selected_monitor.as_deref(), Some("m1"));
-        assert!(state.get_or_create_session("b").lock().unwrap().selected_monitor.is_none());
+        assert_eq!(
+            state
+                .get_or_create_session("a")
+                .lock()
+                .unwrap()
+                .selected_monitor
+                .as_deref(),
+            Some("m1")
+        );
+        assert!(state
+            .get_or_create_session("b")
+            .lock()
+            .unwrap()
+            .selected_monitor
+            .is_none());
     }
 }
 
@@ -1025,10 +1056,18 @@ impl actions::ActionBackend for FallbackBackend {
     fn get_position(&self) -> anyhow::Result<(i32, i32)> {
         anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-    fn key_phase(&self, _name: &str, _phase: actions::KeyPhase) -> anyhow::Result<actions::ActionResult> {
+    fn key_phase(
+        &self,
+        _name: &str,
+        _phase: actions::KeyPhase,
+    ) -> anyhow::Result<actions::ActionResult> {
         anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-    fn mouse_phase(&self, _button: actions::MouseButton, _phase: actions::KeyPhase) -> anyhow::Result<actions::ActionResult> {
+    fn mouse_phase(
+        &self,
+        _button: actions::MouseButton,
+        _phase: actions::KeyPhase,
+    ) -> anyhow::Result<actions::ActionResult> {
         anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
 }

@@ -1,7 +1,7 @@
 //! Parse tool arguments (`global_milestones`, `milestones`, `items`, flat patch).
 
-use anyhow::{anyhow, Result};
 use crate::task_board::model::constraints_text_field;
+use anyhow::{anyhow, Result};
 use serde_json::{Map, Value};
 
 const PATCH_HOST_KEYS: &[&str] = &[
@@ -325,7 +325,9 @@ fn flat_patch_row_from_args(args: &Value) -> Option<Value> {
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
-    let has_row_field = obj.keys().any(|k| PATCH_ROW_FIELD_KEYS.contains(&k.as_str()));
+    let has_row_field = obj
+        .keys()
+        .any(|k| PATCH_ROW_FIELD_KEYS.contains(&k.as_str()));
     if !has_row_field {
         return None;
     }

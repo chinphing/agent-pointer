@@ -3,9 +3,9 @@ use super::terminal::{
     InputClass, TerminalStreamingResult,
 };
 use crate::dotenv::build_terminal_child_environment;
-use anyhow::{anyhow, Result};
 #[cfg(unix)]
 use anyhow::Context;
+use anyhow::{anyhow, Result};
 use log::info;
 #[cfg(unix)]
 use log::warn;
@@ -20,9 +20,9 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
 #[cfg(unix)]
 use std::time::Duration;
+use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(windows)]
@@ -43,9 +43,7 @@ pub fn terminal_requests_elevation(args: &serde_json::Value) -> bool {
 /// Build child environment for elevated runs: refresh registry/login PATH first, then snapshot.
 ///
 /// Matches non-elevated `terminal` ordering so `env.json` / Unix `env.sh` include the latest PATH.
-pub(crate) fn build_elevated_child_environment(
-    env_paths: &[PathBuf],
-) -> HashMap<String, String> {
+pub(crate) fn build_elevated_child_environment(env_paths: &[PathBuf]) -> HashMap<String, String> {
     crate::shell_env::refresh_process_path_from_registry();
     build_terminal_child_environment(env_paths)
 }
@@ -60,10 +58,7 @@ pub fn run_terminal_command_elevated(
     if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
         return Ok(cancelled_result(0));
     }
-    if run_abort
-        .as_ref()
-        .is_some_and(|a| a.load(Ordering::SeqCst))
-    {
+    if run_abort.as_ref().is_some_and(|a| a.load(Ordering::SeqCst)) {
         return Ok(aborted_result(0));
     }
 
@@ -157,10 +152,8 @@ fn run_elevated_platform(
         .map(|p| p.to_path_buf())
         .ok_or_else(|| anyhow!("无法确定工作目录"))?;
 
-    let temp_dir = std::env::temp_dir().join(format!(
-        "pointer-elev-{}",
-        uuid::Uuid::new_v4().simple()
-    ));
+    let temp_dir =
+        std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
     fs::create_dir_all(&temp_dir)?;
     let out_path = temp_dir.join("stdout.txt");
     let err_path = temp_dir.join("stderr.txt");
@@ -296,10 +289,8 @@ fn run_elevated_platform(
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
     let command = strip_redundant_sudo(command);
-    let temp_dir = std::env::temp_dir().join(format!(
-        "pointer-elev-{}",
-        uuid::Uuid::new_v4().simple()
-    ));
+    let temp_dir =
+        std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
     fs::create_dir_all(&temp_dir)?;
     let env_path = temp_dir.join("env.sh");
     write_unix_env_exports_file(&env_path, env)?;
@@ -352,10 +343,8 @@ fn run_elevated_platform(
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
     let command = strip_redundant_sudo(command);
-    let temp_dir = std::env::temp_dir().join(format!(
-        "pointer-elev-{}",
-        uuid::Uuid::new_v4().simple()
-    ));
+    let temp_dir =
+        std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
     fs::create_dir_all(&temp_dir)?;
     let env_path = temp_dir.join("env.sh");
     write_unix_env_exports_file(&env_path, env)?;
@@ -364,10 +353,7 @@ fn run_elevated_platform(
     on_output("[elevated] 等待 polkit (pkexec) 授权…\n");
 
     let output = run_command_with_wall_cap(
-        Command::new("pkexec")
-            .arg("sh")
-            .arg("-lc")
-            .arg(&script),
+        Command::new("pkexec").arg("sh").arg("-lc").arg(&script),
         wall_cap_ms,
     );
 
@@ -464,7 +450,9 @@ fn extract_runas_inner_command(command: &str) -> Option<String> {
 #[cfg(windows)]
 fn unquote_windows_arg_list(raw: &str) -> String {
     let raw = raw.trim();
-    if (raw.starts_with('\'') && raw.ends_with('\'')) || (raw.starts_with('"') && raw.ends_with('"')) {
+    if (raw.starts_with('\'') && raw.ends_with('\''))
+        || (raw.starts_with('"') && raw.ends_with('"'))
+    {
         return raw[1..raw.len() - 1].to_string();
     }
     raw.to_string()
@@ -513,10 +501,7 @@ fn shell_escape_single_quote(value: &str) -> String {
 
 #[cfg(windows)]
 fn windows_cmd_quoted_path(path: &Path) -> String {
-    format!(
-        "\"{}\"",
-        path.display().to_string().replace('"', "")
-    )
+    format!("\"{}\"", path.display().to_string().replace('"', ""))
 }
 
 #[cfg(windows)]
@@ -643,7 +628,9 @@ mod tests {
 
     #[test]
     fn terminal_requests_elevation_parses_bool() {
-        assert!(!terminal_requests_elevation(&serde_json::json!({"command": "ls"})));
+        assert!(!terminal_requests_elevation(
+            &serde_json::json!({"command": "ls"})
+        ));
         assert!(terminal_requests_elevation(
             &serde_json::json!({"command": "ls", "elevated": true})
         ));

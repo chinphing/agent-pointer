@@ -10,7 +10,11 @@ pub enum SubAgentSpawnCapability {
 }
 
 /// System dynamic blocks for the delegated task (not repeated in the first user message).
-pub fn build_subagent_task_system_blocks(goal: &str, context: &str, workspace_root: &str) -> Vec<String> {
+pub fn build_subagent_task_system_blocks(
+    goal: &str,
+    context: &str,
+    workspace_root: &str,
+) -> Vec<String> {
     let mut blocks = Vec::new();
     let goal = goal.trim();
     if !goal.is_empty() {
@@ -111,26 +115,20 @@ mod tests {
 
     #[test]
     fn orchestrator_block_mentions_run_subagent() {
-        let b = build_subagent_spawn_depth_block(
-            1,
-            2,
-            SubAgentSpawnCapability::Registered,
-        );
+        let b = build_subagent_spawn_depth_block(1, 2, SubAgentSpawnCapability::Registered);
         assert!(b.contains("run_subagent"));
         assert!(b.contains("1/2"));
     }
 
     #[test]
     fn leaf_block_denies_spawn() {
-        let b =
-            build_subagent_spawn_depth_block(2, 2, SubAgentSpawnCapability::None);
+        let b = build_subagent_spawn_depth_block(2, 2, SubAgentSpawnCapability::None);
         assert!(b.contains("cannot call"));
     }
 
     #[test]
     fn self_only_block_allows_leaf_self_fork_without_registered_catalog() {
-        let b =
-            build_subagent_spawn_depth_block(2, 2, SubAgentSpawnCapability::SelfOnly);
+        let b = build_subagent_spawn_depth_block(2, 2, SubAgentSpawnCapability::SelfOnly);
         assert!(b.contains(r#"agentId: "self""#));
         assert!(b.contains("leaf"));
         assert!(b.contains("cannot delegate to registered agents"));

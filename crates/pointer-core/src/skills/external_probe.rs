@@ -46,8 +46,16 @@ fn external_source_specs(home: &Path) -> Vec<(&'static str, &'static str, PathBu
     vec![
         ("codex", "OpenAI Codex", codex_skills_dir(home)),
         ("claude", "Claude Code", home.join(".claude").join("skills")),
-        ("openclaw", "OpenClaw", home.join(".openclaw").join("skills")),
-        ("hermes", "Hermes Agent", home.join(".hermes").join("skills")),
+        (
+            "openclaw",
+            "OpenClaw",
+            home.join(".openclaw").join("skills"),
+        ),
+        (
+            "hermes",
+            "Hermes Agent",
+            home.join(".hermes").join("skills"),
+        ),
     ]
 }
 

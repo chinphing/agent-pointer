@@ -2,7 +2,9 @@
 
 use super::args_util::require_non_empty_str;
 use crate::agents::computer::verify::VerifyHintGenerator;
-use crate::platform::app_access::{self, render_list, AppOpenOptions, AppOpenResult, ListAppsOptions};
+use crate::platform::app_access::{
+    self, render_list, AppOpenOptions, AppOpenResult, ListAppsOptions,
+};
 use anyhow::{anyhow, Result};
 use log::info;
 use serde_json::Value;
@@ -90,7 +92,11 @@ impl Default for AppAccessTool {
     }
 }
 
-fn format_launch_reply(args: &Value, result: &AppOpenResult, verify: &VerifyHintGenerator) -> String {
+fn format_launch_reply(
+    args: &Value,
+    result: &AppOpenResult,
+    verify: &VerifyHintGenerator,
+) -> String {
     let goal = args["goal"].as_str().unwrap_or("").trim();
     let app = args["app"].as_str().unwrap_or("").trim();
     let display_app = result.app_name.as_deref().unwrap_or(app);

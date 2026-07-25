@@ -314,7 +314,9 @@ impl MouseMoveTimingPlanner {
                 rng,
             );
         }
-        MouseMoveTimingPlan { step_intervals_secs }
+        MouseMoveTimingPlan {
+            step_intervals_secs,
+        }
     }
 }
 
@@ -399,11 +401,7 @@ pub fn execute_move_plan<E>(
 }
 
 /// Random normal-offset jitter on interior path points (Python `_add_path_jitter`).
-pub fn add_path_jitter(
-    points: &[(i32, i32)],
-    max_px: f64,
-    rng: &mut impl Rng,
-) -> Vec<(i32, i32)> {
+pub fn add_path_jitter(points: &[(i32, i32)], max_px: f64, rng: &mut impl Rng) -> Vec<(i32, i32)> {
     if points.is_empty() || max_px <= 0.0 {
         return points.to_vec();
     }
@@ -416,10 +414,7 @@ pub fn add_path_jitter(
             continue;
         }
         let (dx, dy) = if i == 0 {
-            (
-                points[1].0 as f64 - x as f64,
-                points[1].1 as f64 - y as f64,
-            )
+            (points[1].0 as f64 - x as f64, points[1].1 as f64 - y as f64)
         } else if i == n - 1 {
             (
                 x as f64 - points[i - 1].0 as f64,
@@ -587,8 +582,8 @@ fn dedupe_consecutive_points(points: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     #[test]
     fn linear_by_point_count_returns_empty_for_same_point() {
@@ -660,10 +655,17 @@ mod tests {
         };
         let mut seen = Vec::new();
         let mut rng = StdRng::seed_from_u64(0);
-        execute_move_plan(&plan, (0, 0), (3, 3), &MouseMoveExecConfig::default(), |x, y| -> Result<(), ()> {
-            seen.push((x, y));
-            Ok(())
-        }, &mut rng)
+        execute_move_plan(
+            &plan,
+            (0, 0),
+            (3, 3),
+            &MouseMoveExecConfig::default(),
+            |x, y| -> Result<(), ()> {
+                seen.push((x, y));
+                Ok(())
+            },
+            &mut rng,
+        )
         .unwrap();
         assert_eq!(seen, vec![(1, 1), (2, 2), (3, 3), (3, 3)]);
     }

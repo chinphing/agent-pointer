@@ -148,7 +148,10 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
 }
 
 /// Apply UI-edited preferences while preserving empty incoming provider keys.
-pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformSettings) -> PlatformSettings {
+pub fn merge_platform_preferences(
+    incoming: &ModelSettings,
+    existing: &PlatformSettings,
+) -> PlatformSettings {
     let mut next = platform_settings_from_model_settings(incoming);
     next.computer_tier_llm = existing.computer_tier_llm.clone();
     next.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
@@ -281,7 +284,8 @@ pub fn apply_login_llm_provider_api_keys(
         if key.is_empty() {
             continue;
         }
-        let Some(pid) = resolve_llm_provider_id(Some(raw_provider.as_str()), &platform.providers) else {
+        let Some(pid) = resolve_llm_provider_id(Some(raw_provider.as_str()), &platform.providers)
+        else {
             log::warn!("platform_config: skip unknown provider {raw_provider}");
             continue;
         };
@@ -346,9 +350,8 @@ pub fn apply_login_media_oss(
         log::info!("platform_config: login token has no usable media_oss; cleared");
         return;
     }
-    let region = parse_oss_region_from_endpoint(endpoint).unwrap_or_else(|| {
-        DEFAULT_PLATFORM_MEDIA_OSS_REGION.to_string()
-    });
+    let region = parse_oss_region_from_endpoint(endpoint)
+        .unwrap_or_else(|| DEFAULT_PLATFORM_MEDIA_OSS_REGION.to_string());
     let bucket = parse_oss_bucket_from_endpoint(endpoint)
         .unwrap_or_else(|| DEFAULT_PLATFORM_MEDIA_OSS_BUCKET.to_string());
     platform.media_oss = MediaOssConfig {
@@ -363,7 +366,10 @@ pub fn apply_login_media_oss(
     log::debug!("platform_config: injected media_oss from platform login");
 }
 
-fn resolve_llm_provider_id(llm_provider: Option<&str>, providers: &[ProviderConfig]) -> Option<String> {
+fn resolve_llm_provider_id(
+    llm_provider: Option<&str>,
+    providers: &[ProviderConfig],
+) -> Option<String> {
     if let Some(raw) = llm_provider.map(str::trim).filter(|s| !s.is_empty()) {
         let lower = raw.to_ascii_lowercase();
         if providers.iter().any(|p| p.id == lower) {
@@ -405,7 +411,12 @@ mod tests {
         keys.insert("deepseek".into(), "sk-ds".into());
         apply_login_llm_provider_api_keys(&mut platform, &keys);
         assert_eq!(
-            platform.providers.iter().find(|p| p.id == "qwen").unwrap().api_key,
+            platform
+                .providers
+                .iter()
+                .find(|p| p.id == "qwen")
+                .unwrap()
+                .api_key,
             "sk-qwen"
         );
         assert_eq!(

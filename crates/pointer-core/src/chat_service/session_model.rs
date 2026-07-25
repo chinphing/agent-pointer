@@ -1,4 +1,4 @@
-use crate::agents::{DEFAULT_LEAD_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR};
+use crate::agents::{AGENT_MODE_SUPERVISOR, DEFAULT_LEAD_AGENT_ID, SUPERVISOR_AGENT_ID};
 use crate::mode_llm::resolve_agent_mode_llm;
 use crate::models::ModelSettings;
 use crate::provider::OpenAIProvider;
@@ -48,7 +48,10 @@ fn resolve_lead_agent_key(
     if mode == AGENT_MODE_SUPERVISOR {
         return SUPERVISOR_AGENT_ID.to_string();
     }
-    if let Some(id) = lead_agent_id_override.map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(id) = lead_agent_id_override
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         return id.to_string();
     }
     let id = settings.lead_agent_id.trim();

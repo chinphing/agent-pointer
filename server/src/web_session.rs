@@ -1,5 +1,6 @@
 //! Browser-scoped platform OAuth sessions for pointer-server (cookie `pointer_web_session`).
 
+use axum::response::IntoResponse;
 use axum::{
     body::Body,
     extract::State,
@@ -7,7 +8,6 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use axum::response::IntoResponse;
 use parking_lot::RwLock;
 use pointer_core::platform_auth::{PlatformAuthManager, PlatformLoginCredentials};
 use pointer_core::web_request_auth::WebSessionAuthKind;
@@ -70,11 +70,14 @@ impl WebSessionStore {
     pub fn any_session_auth(&self) -> Option<pointer_core::web_request_auth::WebSessionAuth> {
         self.purge_expired();
         let guard = self.inner.read();
-        guard.values().next().map(|entry| pointer_core::web_request_auth::WebSessionAuth {
-            kind: entry.kind,
-            auth: entry.auth.clone(),
-            creds: entry.creds.clone(),
-        })
+        guard
+            .values()
+            .next()
+            .map(|entry| pointer_core::web_request_auth::WebSessionAuth {
+                kind: entry.kind,
+                auth: entry.auth.clone(),
+                creds: entry.creds.clone(),
+            })
     }
 
     pub fn purge_expired(&self) {
@@ -163,12 +166,9 @@ pub async fn web_session_middleware(
             }
         }
     }
-    pointer_core::web_request_auth::run_scoped(
-        entry.auth,
-        entry.creds,
-        entry.kind,
-        || async move { next.run(req).await },
-    )
+    pointer_core::web_request_auth::run_scoped(entry.auth, entry.creds, entry.kind, || async move {
+        next.run(req).await
+    })
     .await
 }
 

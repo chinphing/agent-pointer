@@ -1,6 +1,4 @@
-use super::path::{
-    path_display_abs, resolve_existing_read_path,
-};
+use super::path::{path_display_abs, resolve_existing_read_path};
 use super::{MAX_LIST_ENTRIES, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
 use std::fs;
@@ -25,7 +23,10 @@ pub(crate) fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("缺少 path 或 directory（要列出的目录）"))?;
 
-    let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(true);
+    let recursive = args
+        .get("recursive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let max_results = args
         .get("maxResults")
         .or_else(|| args.get("max_results"))
@@ -116,4 +117,3 @@ pub(crate) fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -
     })
     .to_string())
 }
-

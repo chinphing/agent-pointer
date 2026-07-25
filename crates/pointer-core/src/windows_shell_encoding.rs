@@ -8,7 +8,8 @@ use std::collections::HashMap;
 pub const POWERSHELL_UTF8_PREAMBLE: &str = "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); ";
 
 /// Multi-line block for `.ps1` job scripts (elevated runs).
-pub const POWERSHELL_UTF8_SETUP_BLOCK: &str = "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+pub const POWERSHELL_UTF8_SETUP_BLOCK: &str =
+    "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)";
 
@@ -75,8 +76,7 @@ pub fn decode_utf8_finish(carry: &mut Vec<u8>) -> String {
 pub fn apply_windows_utf8_child_env(env: &mut HashMap<String, String>) {
     env.entry("PYTHONIOENCODING".into())
         .or_insert_with(|| "utf-8".into());
-    env.entry("PYTHONUTF8".into())
-        .or_insert_with(|| "1".into());
+    env.entry("PYTHONUTF8".into()).or_insert_with(|| "1".into());
     env.entry("JAVA_TOOL_OPTIONS".into())
         .or_insert_with(|| "-Dfile.encoding=UTF-8".into());
 }
@@ -128,7 +128,10 @@ mod tests {
     fn apply_windows_utf8_child_env_sets_defaults() {
         let mut env = HashMap::new();
         apply_windows_utf8_child_env(&mut env);
-        assert_eq!(env.get("PYTHONIOENCODING").map(String::as_str), Some("utf-8"));
+        assert_eq!(
+            env.get("PYTHONIOENCODING").map(String::as_str),
+            Some("utf-8")
+        );
         assert_eq!(env.get("PYTHONUTF8").map(String::as_str), Some("1"));
         assert_eq!(
             env.get("JAVA_TOOL_OPTIONS").map(String::as_str),
@@ -140,7 +143,10 @@ mod tests {
     fn apply_windows_utf8_child_env_does_not_override_existing() {
         let mut env = HashMap::from([("PYTHONIOENCODING".into(), "latin-1".into())]);
         apply_windows_utf8_child_env(&mut env);
-        assert_eq!(env.get("PYTHONIOENCODING").map(String::as_str), Some("latin-1"));
+        assert_eq!(
+            env.get("PYTHONIOENCODING").map(String::as_str),
+            Some("latin-1")
+        );
     }
 }
 

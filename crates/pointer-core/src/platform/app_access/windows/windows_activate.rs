@@ -23,9 +23,7 @@ pub fn try_activate_running(app: &str) -> Result<Option<windows::Win32::Foundati
 
     if let Some(pid) = find_running_pid_for_app(app_trim)? {
         if let Some(hwnd) = find_top_level_window_for_pid(pid, false) {
-            log::info!(
-                "launch_app Windows activate: hidden window for app={app_trim} pid={pid}"
-            );
+            log::info!("launch_app Windows activate: hidden window for app={app_trim} pid={pid}");
             return Ok(Some(hwnd));
         }
         if try_relaunch_running_instance(app_trim, pid)? {
@@ -222,9 +220,7 @@ fn try_relaunch_running_instance(app: &str, pid: u32) -> Result<bool> {
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     let path_str = path.to_string_lossy();
-    log::info!(
-        "launch_app Windows activate: relaunching tray instance app={app} path={path_str}"
-    );
+    log::info!("launch_app Windows activate: relaunching tray instance app={app} path={path_str}");
     let status = Command::new("cmd")
         .creation_flags(CREATE_NO_WINDOW)
         .args(["/C", "start", "", &path_str])

@@ -13,7 +13,10 @@ pub struct ToolBudgetExhaustionScope {
 }
 
 impl ToolBudgetExhaustionScope {
-    pub(in crate::chat_service) fn lead_single(max_cap: u32, compression_scope: AgentInstanceScope) -> Self {
+    pub(in crate::chat_service) fn lead_single(
+        max_cap: u32,
+        compression_scope: AgentInstanceScope,
+    ) -> Self {
         Self {
             compression_scope,
             user_hint: format!(
@@ -27,16 +30,17 @@ impl ToolBudgetExhaustionScope {
         }
     }
 
-    pub(in crate::chat_service) fn sub_agent(max_cap: u32, compression_scope: AgentInstanceScope) -> Self {
+    pub(in crate::chat_service) fn sub_agent(
+        max_cap: u32,
+        compression_scope: AgentInstanceScope,
+    ) -> Self {
         Self {
             compression_scope,
             user_hint: format!(
                 "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
                 max_cap
             ),
-            error_message: format!(
-                "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"
-            ),
+            error_message: format!("子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"),
             compress_for_session: false,
         }
     }

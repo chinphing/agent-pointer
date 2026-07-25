@@ -8,17 +8,20 @@ mod token;
 mod tool_mode;
 
 pub use client::{
-    build_search_request_body, build_search_stream_request_body, build_tool_generation_request_body,
-    build_tool_generation_stream_request_body, dashscope_model_uses_multimodal_endpoint,
+    apply_citation_base_index, build_search_request_body, build_search_stream_request_body,
+    build_tool_generation_request_body, build_tool_generation_stream_request_body,
+    compute_citation_base_index, dashscope_model_uses_multimodal_endpoint,
     dashscope_native_generation_url, execute_web_search, execute_web_search_stream,
-    apply_citation_base_index, compute_citation_base_index, format_sources_citation_markdown,
-    format_sources_for_reply, format_merged_sources_for_reply, format_sources_title_list,
-    finalize_web_search_result, history_to_dashscope_messages, normalize_search_strategy,
-    parse_search_response, parse_search_sse_chunk, resolve_dashscope_search_config,
-    resolve_web_search_api_model, resolve_web_search_citations,
+    finalize_web_search_result, format_merged_sources_for_reply, format_sources_citation_markdown,
+    format_sources_for_reply, format_sources_title_list, history_to_dashscope_messages,
+    normalize_search_strategy, parse_search_response, parse_search_sse_chunk,
+    resolve_dashscope_search_config, resolve_web_search_api_model, resolve_web_search_citations,
     web_search_unsupported_on_generation_api, SearchSseAccumulator, SearchSseChunk,
-    DEFAULT_TOOL_WEB_SEARCH_STRATEGY, DEFAULT_WEB_SEARCH_STRATEGY, WebSearchMessage,
-    WebSearchRequest, WebSearchResult, WebSearchSource,
+    WebSearchMessage, WebSearchRequest, WebSearchResult, WebSearchSource,
+    DEFAULT_TOOL_WEB_SEARCH_STRATEGY, DEFAULT_WEB_SEARCH_STRATEGY,
+};
+pub(crate) use dispatch::{
+    dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
 };
 pub use generation::{execute_generation_web_search, DEFAULT_TOOL_WEB_SEARCH_MODEL};
 pub use responses::{
@@ -30,9 +33,6 @@ pub use sse_drain::{
     SearchStreamEvent,
 };
 pub use stream_ui::WebSearchStreamUi;
-pub(crate) use dispatch::{
-    dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
-};
 
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 use anyhow::{anyhow, Result};

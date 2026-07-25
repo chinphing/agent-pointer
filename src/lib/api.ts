@@ -11,6 +11,7 @@ import type {
   ConversationMeta,
   ConversationMetaPage,
   Project,
+  ProjectCreationResult,
   ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
@@ -158,7 +159,7 @@ export interface RuntimeApi {
   loadProjects(cursor: ConversationCursor | null, limit?: number): Promise<ProjectPage>
   loadSidebarProjects(): Promise<Project[]>
   loadProjectConversationMetas(projectId: string, cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
-  createProject(name: string, workspaceRoot: string): Promise<Project>
+  createProject(name: string, workspaceRoot: string): Promise<ProjectCreationResult>
   createDirectory(parentPath: string, name: string): Promise<string>
   updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'workspaceRoot' | 'isPinned' | 'isArchived'>>): Promise<Project>
   deleteProject(id: string): Promise<void>

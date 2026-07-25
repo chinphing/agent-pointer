@@ -21,8 +21,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use crate::models::{
-    ChatMessage, Conversation, ConversationMeta, ConversationSearchHit, Project, ProjectCursor,
-    ProjectPage,
+    ChatMessage, Conversation, ConversationMeta, ConversationSearchHit, Project,
+    ProjectCreationResult, ProjectCursor, ProjectPage,
 };
 use crate::storage::app_data_dir;
 
@@ -111,43 +111,82 @@ impl ConversationStore {
         persist::load_project_metas_from_conn(&conn, project_id, cursor, limit)
     }
 
-    pub fn create_project(&self, name: &str, workspace_root: &str) -> Result<Project> {
+    pub fn create_project(
+        &self,
+        name: &str,
+        workspace_root: &str,
+    ) -> Result<ProjectCreationResult> {
         let name = name.trim();
         if name.is_empty() {
             anyhow::bail!("project name is required");
+        }
+        let workspace_root = normalize_workspace_root(workspace_root);
+        if workspace_root.is_empty() {
+            anyhow::bail!("project workspace root is required");
         }
         let now = chrono::Utc::now().timestamp_millis();
         let project = Project {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.to_string(),
-            workspace_root: workspace_root.trim().to_string(),
+            workspace_root: workspace_root.clone(),
             is_default: false,
             is_pinned: false,
             is_archived: false,
             created_at: now,
             updated_at: now,
         };
-        self.db.execute_write(|conn| {
+        let result = self.db.execute_write(|conn| {
+            let existing = conn.query_row(
+                "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
+                        created_at_ms, updated_at_ms
+                 FROM projects
+                 WHERE rtrim(trim(workspace_root), '/\\') = ?1
+                 ORDER BY is_archived ASC, updated_at_ms DESC, id DESC
+                 LIMIT 1",
+                params![workspace_root],
+                project_from_row,
+            ).optional()?;
+            if let Some(existing) = existing {
+                return Ok(ProjectCreationResult { project: existing, reused_existing: true });
+            }
             conn.execute(
                 "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms)
                  VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4)",
                 params![project.id, project.name, project.workspace_root, now],
             )?;
-            Ok(())
+            Ok(ProjectCreationResult { project: project.clone(), reused_existing: false })
         })?;
-        log::info!("conversation_store: created project id={}", project.id);
-        Ok(project)
+        if result.reused_existing {
+            log::info!(
+                "conversation_store: reused project id={}",
+                result.project.id
+            );
+        } else {
+            log::info!(
+                "conversation_store: created project id={}",
+                result.project.id
+            );
+        }
+        Ok(result)
     }
 
     pub fn update_project(
-        &self, id: &str, name: Option<&str>, workspace_root: Option<&str>,
-        is_pinned: Option<bool>, is_archived: Option<bool>,
+        &self,
+        id: &str,
+        name: Option<&str>,
+        workspace_root: Option<&str>,
+        is_pinned: Option<bool>,
+        is_archived: Option<bool>,
     ) -> Result<Project> {
         if is_archived == Some(true) {
             let conn = self.db.conn.lock();
-            let is_default: Option<i64> = conn.query_row(
-                "SELECT is_default FROM projects WHERE id = ?1", params![id], |row| row.get(0)
-            ).optional()?;
+            let is_default: Option<i64> = conn
+                .query_row(
+                    "SELECT is_default FROM projects WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .optional()?;
             if is_default == Some(1) {
                 anyhow::bail!("default project cannot be archived");
             }
@@ -159,10 +198,18 @@ impl ConversationStore {
                    name = COALESCE(?2, name), workspace_root = COALESCE(?3, workspace_root),
                    is_pinned = COALESCE(?4, is_pinned), is_archived = COALESCE(?5, is_archived),
                    updated_at_ms = ?6 WHERE id = ?1",
-                params![id, name.map(str::trim), workspace_root.map(str::trim),
-                    is_pinned.map(i64::from), is_archived.map(i64::from), now],
+                params![
+                    id,
+                    name.map(str::trim),
+                    workspace_root.map(str::trim),
+                    is_pinned.map(i64::from),
+                    is_archived.map(i64::from),
+                    now
+                ],
             )?;
-            if changed == 0 { anyhow::bail!("project not found"); }
+            if changed == 0 {
+                anyhow::bail!("project not found");
+            }
             Ok(())
         })?;
         let conn = self.db.conn.lock();
@@ -180,16 +227,22 @@ impl ConversationStore {
 
     pub fn delete_project(&self, id: &str) -> Result<()> {
         self.db.execute_write(|conn| {
-            let default: Option<i64> = conn.query_row(
-                "SELECT is_default FROM projects WHERE id = ?1", params![id], |r| r.get(0)
-            ).optional()?;
+            let default: Option<i64> = conn
+                .query_row(
+                    "SELECT is_default FROM projects WHERE id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .optional()?;
             match default {
                 None => anyhow::bail!("project not found"),
                 Some(v) if v != 0 => anyhow::bail!("default project cannot be deleted"),
                 _ => {}
             }
             let count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM conversations WHERE project_id = ?1", params![id], |r| r.get(0)
+                "SELECT COUNT(*) FROM conversations WHERE project_id = ?1",
+                params![id],
+                |r| r.get(0),
             )?;
             // Project deletion is confirmed by the UI and intentionally removes
             // its conversations only. The workspace directory is never touched.
@@ -917,12 +970,7 @@ fn ensure_projects_schema(conn: &Connection) -> Result<()> {
         )?;
         log::info!("conversation_store: created projects table");
     }
-    add_column_if_missing(
-        conn,
-        "projects",
-        "is_pinned",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
+    add_column_if_missing(conn, "projects", "is_pinned", "INTEGER NOT NULL DEFAULT 0")?;
     add_column_if_missing(
         conn,
         "projects",
@@ -1014,9 +1062,11 @@ fn default_sandbox_root_from_conversations(conn: &Connection) -> Result<String> 
     let Some(session_user_id) = session_user_id else {
         return Ok(String::new());
     };
-    Ok(crate::session_sandbox::SessionSandbox::default_path("", &session_user_id)?
-        .to_string_lossy()
-        .into_owned())
+    Ok(
+        crate::session_sandbox::SessionSandbox::default_path("", &session_user_id)?
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 /// Repair projects created by early builds that treated the default user
@@ -1055,7 +1105,10 @@ fn reconcile_default_project_from_sandbox(conn: &Connection) -> Result<()> {
             id
         }
     };
-    conn.execute("UPDATE projects SET is_default = 0 WHERE is_default != 0", [])?;
+    conn.execute(
+        "UPDATE projects SET is_default = 0 WHERE is_default != 0",
+        [],
+    )?;
     conn.execute(
         "UPDATE projects SET name = '默认项目', is_default = 1, updated_at_ms = ?2 WHERE id = ?1",
         params![project_id, now],
@@ -1069,9 +1122,28 @@ fn reconcile_default_project_from_sandbox(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+    Ok(Project {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        workspace_root: row.get(2)?,
+        is_default: row.get::<_, i64>(3)? != 0,
+        is_pinned: row.get::<_, i64>(4)? != 0,
+        is_archived: row.get::<_, i64>(5)? != 0,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+fn normalize_workspace_root(root: &str) -> String {
+    root.trim().trim_end_matches(['/', '\\']).to_string()
+}
+
 fn project_name_for_root(root: &str) -> String {
     let normalized = root.trim_end_matches(['/', '\\']);
-    normalized.rsplit(['/', '\\']).next()
+    normalized
+        .rsplit(['/', '\\'])
+        .next()
         .filter(|s| !s.is_empty())
         .unwrap_or("Default project")
         .to_string()

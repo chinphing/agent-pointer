@@ -1027,7 +1027,7 @@ export const useChatStore = defineStore('chat', () => {
     }, 400)
   }
 
-  async function flushPersistMeta() {
+  async function flushPersistMeta(throwOnError = false) {
     if (saveTimer) {
       window.clearTimeout(saveTimer)
       saveTimer = null
@@ -1044,7 +1044,17 @@ export const useChatStore = defineStore('chat', () => {
       if (c) metas.push(toConversationMeta(c))
     }
     if (metas.length === 0) return
-    await saveConversationMeta(metas).catch(e => console.error('save meta error', e))
+    try {
+      await saveConversationMeta(metas)
+    } catch (e) {
+      // Preserve failed writes for the next flush instead of silently dropping them.
+      const retry = new Set(dirtyMetaIds.value)
+      for (const id of pending) retry.add(id)
+      dirtyMetaIds.value = retry
+      console.error('save meta error', e)
+      if (throwOnError) throw e
+      scheduleMetaFlush()
+    }
   }
 
   /** P0: append client-held messages missing from DB (never deletes tool rows). */
@@ -1059,20 +1069,23 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function newConversation(projectId?: string, workspaceRoot?: string): Conversation {
-    // All creation entry points use the same ownership priority: an explicit
-    // project wins, then the active conversation's project, then the default.
-    // This keeps global/empty-state creation inside the selected project while
-    // still allowing callers to intentionally create in another project.
+    // Global creation starts unowned. Project-menu creation passes an explicit
+    // id and therefore remains directly bound to that project.
     const resolvedProjectId = projectId
-      ?? current.value?.projectId
-      ?? projects.value.find(p => p.isDefault)?.id
     const project = resolvedProjectId ? projects.value.find(p => p.id === resolvedProjectId) : undefined
     const resolvedWorkspaceRoot = workspaceRoot ?? project?.workspaceRoot ?? ''
-    const existingBlank = conversations.value.find(c => isBlankDesktopConversation(c) && c.projectId === resolvedProjectId)
+    const existingBlank = resolvedProjectId
+      ? conversations.value.find(c => isBlankDesktopConversation(c) && c.projectId === resolvedProjectId)
+      : undefined
     if (existingBlank) {
       existingBlank.updatedAt = Date.now()
       existingBlank.projectId = resolvedProjectId
-      if (resolvedWorkspaceRoot && !existingBlank.workspaceUserSet && !existingBlank.workspaceInheritDisabled) {
+      if (!resolvedProjectId) {
+        existingBlank.pendingProjectId = undefined
+        existingBlank.workspaceRoot = ''
+        existingBlank.workspaceUserSet = false
+        existingBlank.workspaceInheritDisabled = false
+      } else if (resolvedWorkspaceRoot && !existingBlank.workspaceUserSet && !existingBlank.workspaceInheritDisabled) {
         existingBlank.workspaceRoot = resolvedWorkspaceRoot
       }
       conversations.value = [
@@ -1762,6 +1775,49 @@ export const useChatStore = defineStore('chat', () => {
     dispatchStreamEvent(streamHandlerContext(), e)
   }
 
+  async function bindProjectForFirstSend(conv: Conversation): Promise<boolean> {
+    if (conv.messages.length > 0) return true
+
+    const previous = {
+      projectId: conv.projectId,
+      pendingProjectId: conv.pendingProjectId,
+      workspaceRoot: conv.workspaceRoot,
+      workspaceUserSet: conv.workspaceUserSet,
+      workspaceInheritDisabled: conv.workspaceInheritDisabled
+    }
+    const pendingProject = conv.pendingProjectId
+      ? projects.value.find(project => project.id === conv.pendingProjectId && !project.isArchived)
+      : undefined
+    // A user-selected raw directory is already represented by workspaceUserSet;
+    // only a truly unselected conversation inherits the default project.
+    const defaultProject = !conv.projectId && !pendingProject && !conv.workspaceUserSet
+      ? projects.value.find(project => project.isDefault && !project.isArchived)
+      : undefined
+    const resolvedProject = pendingProject ?? defaultProject
+
+    if (resolvedProject) {
+      conv.projectId = resolvedProject.id
+      conv.workspaceRoot = resolvedProject.workspaceRoot
+      conv.workspaceUserSet = false
+      conv.workspaceInheritDisabled = false
+    }
+    conv.pendingProjectId = undefined
+    markMetaDirty(conv.id)
+
+    try {
+      // Project/workspace ownership must reach persistence before any user row
+      // can be appended or dispatched to terminal/tool execution.
+      await flushPersistMeta(true)
+      return true
+    } catch (e) {
+      Object.assign(conv, previous)
+      markMetaDirty(conv.id)
+      console.error('[chat] first-send project binding failed', e)
+      showUiToast('项目绑定保存失败，请重试', 'error')
+      return false
+    }
+  }
+
   async function sendUserMessage(content: string, attachments: ComposerAttachment[] = []) {
     if (!current.value) newConversation()
     const conv = current.value!
@@ -1809,6 +1865,7 @@ export const useChatStore = defineStore('chat', () => {
       })
       return
     }
+    if (!await bindProjectForFirstSend(conv)) return
     const wireAttachments = []
     for (const a of attachments) {
       const isOssVideo = a.kind === 'video' && !!a.remoteUrl?.trim()
@@ -1899,10 +1956,24 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function setConversationProject(projectId: string): boolean {
+    const conv = current.value ?? newConversation()
+    if (!conv || conv.projectId || conv.messages.length > 0) return false
+    const project = projects.value.find(p => p.id === projectId && !p.isArchived)
+    if (!project) return false
+    conv.pendingProjectId = project.id
+    conv.workspaceRoot = project.workspaceRoot
+    conv.workspaceUserSet = false
+    conv.workspaceInheritDisabled = false
+    return true
+  }
+
   function setConversationWorkspace(root: string) {
     if (!current.value) newConversation()
     if (!current.value) return
+    if (current.value.projectId || current.value.messages.length > 0) return
     const trimmed = root.trim()
+    current.value.pendingProjectId = undefined
     current.value.workspaceRoot = trimmed
     if (trimmed.length > 0) {
       current.value.workspaceUserSet = true
@@ -1969,7 +2040,7 @@ export const useChatStore = defineStore('chat', () => {
     sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,
-    setConversationWorkspace, setConversationAgent,
+    setConversationWorkspace, setConversationProject, setConversationAgent,
     effectiveConversationLeadAgentId, effectiveConversationAgentMode,
     showUiToast,
     clearPlatformLoginErrorMessages,

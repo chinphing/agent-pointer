@@ -148,6 +148,11 @@ const isMacDesktop = computed(
 )
 
 const showWorkspacePicker = computed(() => true)
+const projectLocked = computed(() => !!chat.current?.projectId || (chat.current?.messages.length ?? 0) > 0)
+const selectedProject = computed(() => chat.projects.find(
+  p => p.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)
+))
+const projectPickerOpen = ref(false)
 
 const supervisorRoundsLabel = computed(() => {
   if (sessionAgentMode.value !== 'supervisor' || !chat.current) return ''
@@ -229,6 +234,11 @@ async function onOpenBilling() {
   }
 }
 
+
+function selectProject(projectId: string) {
+  if (projectLocked.value) return
+  if (chat.setConversationProject(projectId)) projectPickerOpen.value = false
+}
 
 async function pickWorkspaceFolder() {
   if (!isTauriRuntime()) return
@@ -1206,40 +1216,70 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <div v-if="showWorkspacePicker" class="relative flex items-center gap-1 min-w-0">
-              <button
-                v-if="isTauriRuntime()"
-                type="button"
-                class="composer-agent-trigger max-w-[200px] cursor-pointer"
-                :title="workspaceTooltip"
-                @click="pickWorkspaceFolder"
-              >
-                <FolderOpen
-                  class="w-3 h-3 shrink-0"
-                  :class="workspaceNeedsAttention ? 'text-warning' : 'text-muted'"
-                />
-                <span class="truncate max-w-[150px]">{{ workspaceDirName || '工作目录…' }}</span>
-              </button>
-              <input
-                v-else
-                ref="workspaceInputRef"
-                :value="chat.current?.workspaceRoot ?? ''"
-                type="text"
-                placeholder="项目目录（留空继承上一会话；清除后发送用临时目录）"
-                class="composer-workspace-input"
-                :title="workspaceTooltip"
-                @input="onWorkspaceInput"
-              />
-              <button
-                v-if="hasWorkspace"
-                type="button"
-                class="composer-agent-trigger px-1 py-1 text-muted hover:text-foreground cursor-pointer"
-                title="清除工作目录"
-                @click="clearWorkspace"
-              >
-                <X class="w-3 h-3 shrink-0" />
-              </button>
-            </div>
+              <div v-if="showWorkspacePicker" class="relative flex items-center gap-1 min-w-0">
+                <button
+                  type="button"
+                  class="composer-agent-trigger max-w-[200px]"
+                  :class="projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
+                  :title="projectLocked ? '项目已锁定' : workspaceTooltip"
+                  :disabled="projectLocked"
+                  @click="projectPickerOpen = !projectPickerOpen"
+                >
+                  <FolderOpen class="w-3 h-3 shrink-0" :class="workspaceNeedsAttention ? 'text-warning' : 'text-accent'" />
+                  <span class="truncate max-w-[150px]">
+                    {{ selectedProject ? (selectedProject.isDefault ? '默认项目' : selectedProject.name) : (workspaceDirName || '选择项目或目录…') }}
+                  </span>
+                </button>
+                <div
+                  v-if="projectPickerOpen && !projectLocked"
+                  class="composer-dropdown composer-dropdown--fit composer-dropdown--up"
+                >
+                  <div class="px-2 py-1.5 border-b border-border">
+                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">选择项目或目录</div>
+                  </div>
+                  <div class="p-1 space-y-0.5 max-h-60 overflow-y-auto">
+                    <button
+                      v-for="project in chat.projects.filter(p => !p.isArchived)"
+                      :key="project.id"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      :class="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId) ? 'composer-dropdown-item-active' : ''"
+                      @click="selectProject(project.id)"
+                    >
+                      <FolderOpen class="w-3 h-3 shrink-0" />
+                      <span class="truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
+                    </button>
+                    <button
+                      v-if="isTauriRuntime()"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      @click="pickWorkspaceFolder(); projectPickerOpen = false"
+                    >
+                      <FolderOpen class="w-3 h-3 shrink-0" />
+                      <span class="whitespace-nowrap">选择其他目录…</span>
+                    </button>
+                    <input
+                      v-else
+                      ref="workspaceInputRef"
+                      :value="chat.current?.workspaceRoot ?? ''"
+                      type="text"
+                      placeholder="输入项目目录"
+                      class="composer-workspace-input"
+                      :title="workspaceTooltip"
+                      @input="onWorkspaceInput"
+                    />
+                    <button
+                      v-if="hasWorkspace"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer text-muted"
+                      @click="clearWorkspace(); projectPickerOpen = false"
+                    >
+                      <X class="w-3 h-3 shrink-0" />
+                      <span class="whitespace-nowrap">清除选择</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
           </div>
 
           <button

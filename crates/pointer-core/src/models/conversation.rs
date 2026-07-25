@@ -22,6 +22,13 @@ pub struct Project {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectCreationResult {
+    pub project: Project,
+    #[serde(rename = "reusedExisting")]
+    pub reused_existing: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectPage {
     pub items: Vec<Project>,
     #[serde(rename = "nextCursor")]

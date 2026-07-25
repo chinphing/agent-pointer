@@ -6,6 +6,40 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    fn create_project_reuses_normalized_workspace_root() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+
+        let created = store
+            .create_project("Original", "/workspace/example/")
+            .unwrap();
+        let reused = store
+            .create_project("Duplicate name", "  /workspace/example  ")
+            .unwrap();
+
+        assert!(!created.reused_existing);
+        assert!(reused.reused_existing);
+        assert_eq!(reused.project.id, created.project.id);
+        assert_eq!(reused.project.name, "Original");
+        assert_eq!(reused.project.workspace_root, "/workspace/example");
+        let matching: Vec<_> = store
+            .load_sidebar_projects()
+            .unwrap()
+            .into_iter()
+            .filter(|project| project.workspace_root == "/workspace/example")
+            .collect();
+        assert_eq!(matching.len(), 1);
+    }
+
+    #[test]
+    fn create_project_requires_non_empty_workspace_root() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let error = store.create_project("Invalid", "  /  ").unwrap_err();
+        assert!(error.to_string().contains("workspace root is required"));
+    }
+
+    #[test]
     fn sync_discover_and_scroll() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

@@ -1488,22 +1488,34 @@ async fn load_projects(
 ) -> Result<Json<pointer_core::models::ProjectPage>, ApiError> {
     require_platform_access(&state)?;
     let cursor = match (q.cursor_updated_at, q.cursor_id) {
-        (Some(updated_at), Some(id)) => Some(pointer_core::models::ProjectCursor { updated_at, id }),
+        (Some(updated_at), Some(id)) => {
+            Some(pointer_core::models::ProjectCursor { updated_at, id })
+        }
         (None, None) => None,
-        _ => return Err(ApiError::from(anyhow::anyhow!("project cursor fields must both be set or omitted"))),
+        _ => {
+            return Err(ApiError::from(anyhow::anyhow!(
+                "project cursor fields must both be set or omitted"
+            )))
+        }
     };
     Ok(Json(storage::load_projects(cursor, q.limit.unwrap_or(20))?))
 }
 
 #[derive(Deserialize)]
-struct CreateProjectRequest { name: String, workspace_root: String }
+struct CreateProjectRequest {
+    name: String,
+    workspace_root: String,
+}
 
 async fn create_project(
     State(state): State<ServerState>,
     Json(input): Json<CreateProjectRequest>,
-) -> Result<Json<pointer_core::models::Project>, ApiError> {
+) -> Result<Json<pointer_core::models::ProjectCreationResult>, ApiError> {
     require_platform_access(&state)?;
-    Ok(Json(storage::create_project(&input.name, &input.workspace_root)?))
+    Ok(Json(storage::create_project(
+        &input.name,
+        &input.workspace_root,
+    )?))
 }
 
 #[derive(Deserialize)]
@@ -1521,8 +1533,11 @@ async fn update_project(
 ) -> Result<Json<pointer_core::models::Project>, ApiError> {
     require_platform_access(&state)?;
     Ok(Json(storage::update_project(
-        &project_id, input.name.as_deref(), input.workspace_root.as_deref(),
-        input.is_pinned, input.is_archived,
+        &project_id,
+        input.name.as_deref(),
+        input.workspace_root.as_deref(),
+        input.is_pinned,
+        input.is_archived,
     )?))
 }
 
@@ -1544,9 +1559,17 @@ async fn load_project_conversation_metas(
     let cursor = match (q.cursor_updated_at, q.cursor_id) {
         (Some(ts), Some(id)) => Some((ts, id)),
         (None, None) => None,
-        _ => return Err(ApiError::from(anyhow::anyhow!("cursor fields must both be set or omitted"))),
+        _ => {
+            return Err(ApiError::from(anyhow::anyhow!(
+                "cursor fields must both be set or omitted"
+            )))
+        }
     };
-    Ok(Json(storage::load_project_conversation_metas(&project_id, cursor, q.limit.unwrap_or(20))?))
+    Ok(Json(storage::load_project_conversation_metas(
+        &project_id,
+        cursor,
+        q.limit.unwrap_or(20),
+    )?))
 }
 
 #[derive(serde::Deserialize)]

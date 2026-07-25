@@ -330,8 +330,10 @@ export interface Conversation {
   toolRoundsUsedSupervisor?: number
   /** Selected desktop monitor for Computer agent; empty = auto (monitor under cursor). */
   computerMonitorId?: string
-  /** Persisted project that owns this conversation. */
+  /** Persisted project that owns this conversation after first-send binding. */
   projectId?: string
+  /** Composer-only project choice awaiting first-send binding. */
+  pendingProjectId?: string
   /** Per-conversation workspace for coder/file tools (set in composer). */
   workspaceRoot?: string
   /** User explicitly picked workspaceRoot in composer (not auto sandbox). */
@@ -364,6 +366,12 @@ export type ConversationMetaBase = Pick<
   | 'leadAgentId'
   | 'agentMode'
 >
+
+/** Result of creating a project; duplicate workspace roots reuse the persisted project. */
+export interface ProjectCreationResult {
+  project: Project
+  reusedExisting: boolean
+}
 
 /** Conversation shell + DB-backed summary fields (no messages). */
 export interface ConversationMeta extends ConversationMetaBase {

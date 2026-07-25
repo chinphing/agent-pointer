@@ -17,6 +17,7 @@ import {
   FolderGit2,
   Clock3,
   Sparkles,
+  Link2,
   ChevronDown,
   ChevronRight,
   MoreHorizontal,
@@ -28,6 +29,7 @@ import {
   createProject, loadProjects, searchConversations, updateProject
 } from '../../lib/api'
 import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
+import { applyProjectCreationResult } from '../../lib/projectCreation'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import WindowControls from './WindowControls.vue'
@@ -38,7 +40,7 @@ import WorkspacePanel from '../workspace/WorkspacePanel.vue'
 import type { Project } from '../../types/chat'
 
 const emit = defineEmits<{
-  (e: 'open-settings'): void
+  (e: 'open-settings', section?: string): void
   (e: 'open-automation'): void
   (e: 'open-skills'): void
 }>()
@@ -140,6 +142,7 @@ function onRowClick(c: {
 
 const projectSearchQuery = ref('')
 const projectSearchExpanded = ref(false)
+const projectSearchInputRef = ref<HTMLInputElement | null>(null)
 const showProjectCreator = ref(false)
 const loadingMoreProjects = ref(false)
 const hasMoreProjects = ref(true)
@@ -202,8 +205,12 @@ async function addProject() {
     return
   }
   try {
-    await createProject(name, root)
-    await chat.refreshProjects()
+    const result = await createProject(name, root)
+    await applyProjectCreationResult(result, {
+      refreshProjects: chat.refreshProjects,
+      switchProject: chat.switchProject,
+      notify: message => chat.showUiToast(message, 'warning')
+    })
     projectName.value = ''
     projectRoot.value = ''
     projectError.value = ''
@@ -280,11 +287,11 @@ function requestDeleteProject(project: Project) {
 }
 
 function newTask(project?: Project) {
-  const activeProject = project
-    ?? chat.projects.find(p => p.id === chat.current?.projectId)
-    ?? chat.projects.find(p => p.isDefault)
-  const conversation = chat.newConversation(activeProject?.id)
-  if (activeProject?.workspaceRoot) chat.setConversationWorkspace(activeProject.workspaceRoot)
+  const conversation = project
+    ? chat.newConversation(project.id, project.workspaceRoot)
+    : chat.newConversation()
+  searchQuery.value = ''
+  nextTick(() => listScroller.value?.scrollTo({ top: 0, behavior: 'smooth' }))
   return conversation
 }
 
@@ -329,6 +336,11 @@ function openAutomation() {
 
 function openSkills() {
   emit('open-skills')
+}
+
+function openProjectSearch() {
+  projectSearchExpanded.value = true
+  nextTick(() => projectSearchInputRef.value?.focus())
 }
 
 function closeProjectSearch() {
@@ -642,28 +654,38 @@ watch(searchQuery, q => {
             <button
               type="button"
               class="sidebar-workbench-link"
-              @click="openAutomation"
-            >
-              <Clock3 class="w-4 h-4" />
-              定时任务
-            </button>
-            <button
-              type="button"
-              class="sidebar-workbench-link"
               @click="openSkills"
             >
               <Sparkles class="w-4 h-4" />
               技能
             </button>
+            <button
+              type="button"
+              class="sidebar-workbench-link"
+              @click="emit('open-settings', 'channels')"
+            >
+              <Link2 class="w-4 h-4" />
+              连接
+            </button>
+            <button
+              type="button"
+              class="sidebar-workbench-link"
+              @click="openAutomation"
+            >
+              <Clock3 class="w-4 h-4" />
+              定时任务
+            </button>
           </div>
 
           <section
             v-if="sidebarProjects.length"
-            class="px-3 pb-2 shrink-0 max-h-[42%] overflow-y-auto"
+            class="group/project-section px-3 pb-4 shrink-0 max-h-[42%] overflow-y-auto"
           >
-            <div class="flex h-6 items-center gap-1">
+            <div class="mb-2 flex h-6 items-center gap-1">
               <h2 class="sidebar-section-title mr-auto">项目</h2>
-              <div class="relative flex items-center gap-1">
+              <div
+                class="relative flex items-center gap-1 opacity-0 transition-opacity group-hover/project-section:opacity-100 group-focus-within/project-section:opacity-100"
+              >
                 <div
                   class="sidebar-project-search-wrap"
                   :class="projectSearchExpanded && 'is-expanded'"
@@ -671,6 +693,7 @@ watch(searchQuery, q => {
                   <Search class="sidebar-project-search-icon" aria-hidden="true" />
                   <input
                     v-if="projectSearchExpanded"
+                    ref="projectSearchInputRef"
                     v-model="projectSearchQuery"
                     type="search"
                     class="sidebar-project-search-input"
@@ -694,7 +717,7 @@ watch(searchQuery, q => {
                   :title="projectSearchExpanded ? '关闭项目搜索' : '搜索项目'"
                   :aria-expanded="projectSearchExpanded"
                   aria-label="搜索项目"
-                  @click="projectSearchExpanded ? closeProjectSearch() : projectSearchExpanded = true"
+                  @click="projectSearchExpanded ? closeProjectSearch() : openProjectSearch()"
                 ><Search class="w-3.5 h-3.5" /></button>
                 <button
                   type="button"
@@ -719,24 +742,26 @@ watch(searchQuery, q => {
                     </div>
                     <button type="button" class="chrome-icon-btn" title="关闭" aria-label="关闭" @click="showProjectCreator = false"><X class="w-4 h-4" /></button>
                   </div>
-                  <div class="mt-4 space-y-3">
-                    <label class="block text-xs text-muted">
-                      项目名称
-                      <input v-model="projectName" class="project-dialog-input mt-1" placeholder="例如：Pointer App" @keydown.enter="addProject">
-                    </label>
-                    <div>
-                      <label class="block text-xs text-muted">项目目录</label>
-                      <div class="mt-1 flex gap-2">
-                        <input v-model="projectRoot" class="project-dialog-input min-w-0 flex-1" placeholder="选择已有目录">
-                        <button type="button" class="project-dialog-secondary shrink-0" title="选择已有目录" @click="pickProjectDirectory"><FolderGit2 class="w-3.5 h-3.5" />选择目录</button>
+                  <form class="mt-4" @submit.prevent="addProject">
+                    <div class="space-y-3">
+                      <label class="block text-xs text-muted">
+                        项目名称
+                        <input v-model="projectName" class="project-dialog-input mt-1" placeholder="例如：Pointer App">
+                      </label>
+                      <div>
+                        <label class="block text-xs text-muted">项目目录</label>
+                        <div class="mt-1 flex gap-2">
+                          <input v-model="projectRoot" class="project-dialog-input min-w-0 flex-1" placeholder="选择已有目录">
+                          <button type="button" class="project-dialog-secondary shrink-0" title="选择已有目录" @click="pickProjectDirectory"><FolderGit2 class="w-3.5 h-3.5" />选择目录</button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <p v-if="projectError" class="mt-3 text-xs text-danger">{{ projectError }}</p>
-                  <div class="mt-5 flex justify-end gap-2">
-                    <button type="button" class="project-dialog-secondary" @click="showProjectCreator = false">取消</button>
-                    <button type="button" class="project-dialog-primary" :disabled="!projectName.trim() || !projectRoot.trim()" @click="addProject">创建项目</button>
-                  </div>
+                    <p v-if="projectError" class="mt-3 text-xs text-danger">{{ projectError }}</p>
+                    <div class="mt-5 flex justify-end gap-2">
+                      <button type="button" class="project-dialog-secondary" @click="showProjectCreator = false">取消</button>
+                      <button type="submit" class="project-dialog-primary" :disabled="!projectName.trim() || !projectRoot.trim()">创建项目</button>
+                    </div>
+                  </form>
                 </section>
               </div>
             </Teleport>
@@ -1147,15 +1172,16 @@ watch(searchQuery, q => {
 }
 
 .sidebar-project-search-icon {
-  @apply pointer-events-none absolute left-1.5 top-1.5 h-3.5 w-3.5 text-muted;
+  @apply pointer-events-none absolute left-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted;
 }
 
 .sidebar-project-search-input {
-  @apply h-full w-full bg-transparent pl-7 pr-6 text-xs text-foreground outline-none placeholder:text-muted;
+  @apply h-full w-full appearance-none bg-transparent py-0 pl-7 pr-6 text-xs leading-6 text-foreground outline-none placeholder:text-muted;
+  transform: translateY(-3px);
 }
 
 .sidebar-project-search-clear {
-  @apply absolute right-1 top-1 h-4 w-4 rounded text-muted hover:bg-hover hover:text-foreground;
+  @apply absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2 rounded text-muted hover:bg-hover hover:text-foreground;
 }
 
 .project-create-dialog {

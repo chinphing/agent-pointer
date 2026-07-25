@@ -6,9 +6,9 @@ use pointer_core::dispatcher::{
 };
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView, ModelSettings, Project,
-    ProjectCursor, ProjectPage,
-    PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, ToolDef, UserSettings,
+    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView, ModelSettings,
+    PlatformSettings, Project, ProjectCreationResult, ProjectCursor, ProjectPage, SendChatPayload,
+    SkillDef, SkillImportResult, ToolDef, UserSettings,
 };
 
 use base64::Engine;
@@ -895,7 +895,10 @@ pub fn load_sidebar_projects() -> Result<Vec<Project>, String> {
 
 #[tauri::command]
 pub fn load_project_conversation_metas(
-    project_id: String, cursor_updated_at: Option<i64>, cursor_id: Option<String>, limit: Option<i64>,
+    project_id: String,
+    cursor_updated_at: Option<i64>,
+    cursor_id: Option<String>,
+    limit: Option<i64>,
 ) -> Result<Vec<pointer_core::models::ConversationMeta>, String> {
     let cursor = match (cursor_updated_at, cursor_id) {
         (Some(updated_at), Some(id)) => Some((updated_at, id)),
@@ -907,7 +910,10 @@ pub fn load_project_conversation_metas(
 }
 
 #[tauri::command]
-pub fn create_project(name: String, workspace_root: String) -> Result<Project, String> {
+pub fn create_project(
+    name: String,
+    workspace_root: String,
+) -> Result<ProjectCreationResult, String> {
     storage::create_project(&name, &workspace_root).map_err(|e| e.to_string())
 }
 
@@ -932,11 +938,21 @@ pub fn create_directory(parent_path: String, name: String) -> Result<String, Str
 }
 
 #[tauri::command]
-pub fn update_project(    id: String, name: Option<String>, workspace_root: Option<String>,
-    is_pinned: Option<bool>, is_archived: Option<bool>,
+pub fn update_project(
+    id: String,
+    name: Option<String>,
+    workspace_root: Option<String>,
+    is_pinned: Option<bool>,
+    is_archived: Option<bool>,
 ) -> Result<Project, String> {
-    storage::update_project(&id, name.as_deref(), workspace_root.as_deref(), is_pinned, is_archived)
-        .map_err(|e| e.to_string())
+    storage::update_project(
+        &id,
+        name.as_deref(),
+        workspace_root.as_deref(),
+        is_pinned,
+        is_archived,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

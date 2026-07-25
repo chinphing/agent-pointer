@@ -12,6 +12,7 @@ import type {
   ConversationMeta,
   ConversationMetaPage,
   Project,
+  ProjectCreationResult,
   ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
@@ -343,8 +344,8 @@ export async function loadProjectConversationMetas(
   }
 }
 
-export async function createProject(name: string, workspaceRoot: string): Promise<Project> {
-  return await invoke<Project>('create_project', { name, workspaceRoot })
+export async function createProject(name: string, workspaceRoot: string): Promise<ProjectCreationResult> {
+  return await invoke<ProjectCreationResult>('create_project', { name, workspaceRoot })
 }
 
 export async function createDirectory(parentPath: string, name: string): Promise<string> {

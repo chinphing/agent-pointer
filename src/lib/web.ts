@@ -10,6 +10,7 @@ import type {
   ConversationMeta,
   ConversationMetaPage,
   Project,
+  ProjectCreationResult,
   ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
@@ -499,8 +500,8 @@ export async function loadProjectConversationMetas(
   }
 }
 
-export async function createProject(name: string, workspaceRoot: string): Promise<Project> {
-  return await request<Project>('/api/projects', {
+export async function createProject(name: string, workspaceRoot: string): Promise<ProjectCreationResult> {
+  return await request<ProjectCreationResult>('/api/projects', {
     method: 'POST', body: JSON.stringify({ name, workspace_root: workspaceRoot })
   })
 }

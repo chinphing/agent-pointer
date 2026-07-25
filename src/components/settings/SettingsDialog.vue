@@ -36,7 +36,7 @@ const saving = ref(false)
 
 const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
-  { id: 'channels', label: 'IM 通道', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
+  { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
   { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot }
 ] as const
 
@@ -78,7 +78,7 @@ const sections = computed(() => {
   const merged = showDebugMenus.value
     ? [...alwaysSections, ...debugSections]
     : [...alwaysSections]
-  // 侧栏顺序：账户 → 自动化 → IM 通道 → 智能体 → （调试菜单）→ 云主机。
+  // 侧栏顺序：账户 → 自动化 → 连接 → 智能体 → （调试菜单）→ 云主机。
   // 账户：platform 走 OAuth；standalone 走账号密码。云主机仅桌面端。
   const account = {
     id: 'account',

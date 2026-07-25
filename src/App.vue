@@ -142,7 +142,7 @@ watch(showSkills, open => {
   />
     <template v-else>
       <AppShell
-        @open-settings="openSettings()"
+        @open-settings="openSettings"
         @open-automation="openAutomation"
         @open-skills="showSkills = true"
       >

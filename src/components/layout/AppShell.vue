@@ -1006,6 +1006,13 @@ watch(searchQuery, q => {
                   aria-label="搜索会话"
                   @click="conversationSearchExpanded ? closeConversationSearch() : openConversationSearch()"
                 ><Search class="w-3.5 h-3.5" /></button>
+                <button
+                  type="button"
+                  class="sidebar-section-header-action"
+                  title="新建任务"
+                  aria-label="新建任务"
+                  @click="newTask()"
+                ><Plus class="w-3.5 h-3.5" /></button>
               </div>
             </div>
             <div v-show="!conversationsSectionCollapsed">

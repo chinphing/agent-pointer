@@ -33,3 +33,56 @@ export function tokenizeCodeLine(line: string): CodeToken[] {
   if (cursor < line.length) tokens.push({ text: line.slice(cursor), kind: 'plain' })
   return tokens.length ? tokens : [{ text: line || '\u00A0', kind: 'plain' }]
 }
+
+export type FilePreviewSearchMatch = {
+  lineIndex: number
+  start: number
+  end: number
+}
+
+export type FilePreviewSearchPart = {
+  text: string
+  matchIndex?: number
+}
+
+/** Case-insensitive occurrence matches for workspace text preview find. */
+export function findFilePreviewMatches(content: string, query: string): FilePreviewSearchMatch[] {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return []
+
+  const matches: FilePreviewSearchMatch[] = []
+  const lines = content.split('\n')
+  lines.forEach((line, lineIndex) => {
+    const haystack = line.toLocaleLowerCase()
+    let from = 0
+    while (from <= haystack.length - needle.length) {
+      const index = haystack.indexOf(needle, from)
+      if (index < 0) break
+      matches.push({ lineIndex, start: index, end: index + needle.length })
+      from = index + needle.length
+    }
+  })
+  return matches
+}
+
+/** Split one source line into plain/match segments for Vue rendering. */
+export function filePreviewSearchParts(
+  line: string,
+  lineIndex: number,
+  matches: FilePreviewSearchMatch[]
+): FilePreviewSearchPart[] {
+  const lineMatches = matches
+    .map((match, matchIndex) => ({ match, matchIndex }))
+    .filter(({ match }) => match.lineIndex === lineIndex)
+  if (!lineMatches.length) return [{ text: line || '\u00A0' }]
+
+  const parts: FilePreviewSearchPart[] = []
+  let cursor = 0
+  for (const { match, matchIndex } of lineMatches) {
+    if (match.start > cursor) parts.push({ text: line.slice(cursor, match.start) })
+    parts.push({ text: line.slice(match.start, match.end), matchIndex })
+    cursor = match.end
+  }
+  if (cursor < line.length) parts.push({ text: line.slice(cursor) })
+  return parts.length ? parts : [{ text: line || '\u00A0' }]
+}

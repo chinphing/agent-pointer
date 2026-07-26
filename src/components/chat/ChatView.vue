@@ -127,6 +127,8 @@ function onPageSearchKeydown(event: KeyboardEvent) {
 
 function onGlobalFindShortcut(event: KeyboardEvent) {
   if (event.key.toLocaleLowerCase() !== 'f' || (!event.metaKey && !event.ctrlKey)) return
+  // Workspace file preview may claim ⌘/Ctrl+F in the capture phase.
+  if (event.defaultPrevented) return
   event.preventDefault()
   openPageSearch()
 }

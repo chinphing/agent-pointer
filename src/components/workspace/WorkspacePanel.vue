@@ -461,6 +461,7 @@ onBeforeUnmount(() => {
 <template>
   <aside
     class="workspace-panel hidden lg:flex shrink-0 flex-col min-h-0 border-l border-border bg-card relative"
+    data-workspace-panel
     :class="resizing && 'is-resizing'"
     :style="panelStyle"
   >

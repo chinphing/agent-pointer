@@ -156,7 +156,7 @@ pub(super) async fn run_single_agent_loop(
             cancel: cancel.clone(),
         };
         let stream_input = super::context::StreamRoundInput {
-            history_for_api: round_prompts.history_for_api,
+            injected_tail: round_prompts.injected_tail,
             system_prompts: round_prompts.system_prompts,
             native_tools,
             tools_appendix_enabled,

@@ -21,11 +21,17 @@ use std::sync::Arc;
 pub mod common_user_dynamic_inject_hook;
 pub mod task_board_hook;
 
-/// Per-turn context for [`ExtensionPoint::MessageLoopPromptsAfter`] (after history is cloned for the API).
+/// Per-turn context for [`ExtensionPoint::MessageLoopPromptsAfter`].
+///
+/// Canonical transcript is **read-only** (`base_messages`). Hooks may only append
+/// ephemeral rows to [`Self::injected_tail`] (never mutate / push onto session history).
 pub struct MessageLoopPromptsAfterContext<'a> {
     pub computer_state: &'a ComputerState,
     pub lead_agent_profile: AgentProfile,
-    pub messages: &'a mut Vec<ChatMessage>,
+    /// Authoritative history for this round (session `history` / sub-agent `local_history`).
+    pub base_messages: &'a [ChatMessage],
+    /// Ephemeral API-only rows for this request (`[CUR_SCREEN]`, task-board inject, …).
+    pub injected_tail: &'a mut Vec<ChatMessage>,
     pub conversation_id: &'a str,
     /// When set, hooks may emit thread events (e.g. [`crate::models::StreamEvent::InjectedAssistantMessage`])
     /// or legacy [`crate::models::StreamEvent::UiToast`]; neither is part of the model API payload.
@@ -42,6 +48,13 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     pub task_board_store_key: &'a str,
     /// Feature flag for common user dynamic inject migration.
     pub user_dynamic_inject_enabled: bool,
+}
+
+impl MessageLoopPromptsAfterContext<'_> {
+    /// Scan base history then already-queued injects (for hint cadence, etc.).
+    pub fn messages_for_scan(&self) -> impl Iterator<Item = &ChatMessage> {
+        self.base_messages.iter().chain(self.injected_tail.iter())
+    }
 }
 
 /// Context for [`ExtensionPoint::BeforeMainLlmCall`] immediately before [`crate::provider::OpenAIProvider::stream_chat`].
@@ -199,11 +212,13 @@ mod tests {
             counter: c2.clone(),
         }));
         let computer = ComputerState::with_annotate_url("http://127.0.0.1:9");
-        let mut msgs = Vec::new();
+        let base: &[ChatMessage] = &[];
+        let mut tail = Vec::new();
         let mut ctx = MessageLoopPromptsAfterContext {
             computer_state: &computer,
             lead_agent_profile: AgentProfile::General,
-            messages: &mut msgs,
+            base_messages: base,
+            injected_tail: &mut tail,
             conversation_id: "test",
             stream: None,
             round_assistant_message_id: None,
@@ -256,11 +271,13 @@ mod tests {
         }));
 
         let computer = ComputerState::with_annotate_url("http://127.0.0.1:9");
-        let mut msgs = Vec::new();
+        let base: &[ChatMessage] = &[];
+        let mut tail = Vec::new();
         let mut ctx = MessageLoopPromptsAfterContext {
             computer_state: &computer,
             lead_agent_profile: AgentProfile::General,
-            messages: &mut msgs,
+            base_messages: base,
+            injected_tail: &mut tail,
             conversation_id: "test",
             stream: None,
             round_assistant_message_id: None,

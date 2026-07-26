@@ -249,7 +249,7 @@ pub(crate) async fn run_sub_agent(
             llm_stats: ctx.llm_stats,
         };
         let stream_input = super::context::StreamRoundInput {
-            history_for_api: round_prompts.history_for_api,
+            injected_tail: round_prompts.injected_tail,
             system_prompts: round_prompts.system_prompts,
             native_tools: native_tools.clone(),
             tools_appendix_enabled,

@@ -65,7 +65,7 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             .unwrap_or(0);
         let user_block_len = content.len();
 
-        ctx.messages.push(ChatMessage {
+        ctx.injected_tail.push(ChatMessage {
             id: new_extension_message_id("user_dynamic_inject"),
             role: Role::User,
             content,
@@ -110,5 +110,15 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
 }
 
 fn should_show_init_hint(ctx: &MessageLoopPromptsAfterContext<'_>) -> bool {
-    should_inject_task_board_init_hint(&ctx.lead_agent_profile, ctx.messages)
+    // Init hints are ephemeral API rows; cadence checks session history (base).
+    // Also skip if an earlier hook already queued a hint in this round's tail.
+    use crate::task_board::sub_agent_hint::TASK_BOARD_HINT_TAG;
+    if ctx
+        .injected_tail
+        .iter()
+        .any(|m| m.content.contains(TASK_BOARD_HINT_TAG))
+    {
+        return false;
+    }
+    should_inject_task_board_init_hint(&ctx.lead_agent_profile, ctx.base_messages)
 }

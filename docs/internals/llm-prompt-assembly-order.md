@@ -8,14 +8,15 @@
 
 ## 1. `stream_chat` 主路径（单智能体与子 Agent 同构）
 
-### 1.1 `messages`（`history_for_api`）
+### 1.1 `messages`（base + `injected_tail`）
 
 | 步骤 | 行为 | 参考代码 |
 |------|------|----------|
-| 克隆 | `history.clone()`（主会话）或 `local_history.clone()`（子 Agent） | `session_inner.rs` / `single_agent.rs` / `single_agent_stream.rs` / `sub_agent.rs` — `run_chat_inner` / `run_single_agent_loop` / `run_sub_agent` 内 `let mut history_for_api = …`（子 Agent 在 `sub_agent_prompt.rs`） |
-| 同轮扩展 | `run_message_loop_prompts_after`：在克隆的 `messages` 上追加（如 Computer **`user` + `[CUR_SCREEN]`**、公共 **user dynamic inject**） | `single_agent_prompt.rs` / `sub_agent_prompt.rs` 中 `prepare_*_round_prompts`；Computer 见 `crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`，公共注入见 `extensions/common_user_dynamic_inject_hook.rs` |
+| 只读 base | 借用 `history`（主会话）或 `local_history`（子 Agent），**不**再整表 `clone` 进 API 快照 | `single_agent_prompt.rs` / `sub_agent_prompt.rs` — `prepare_*_round_prompts`；stream 侧 `build_stream_chat_wire` |
+| 同轮扩展 | `run_message_loop_prompts_after`：仅向 **`injected_tail`** 追加（如 Computer **`user` + `[CUR_SCREEN]`**、公共 **user dynamic inject**） | Computer：`agents/computer/extension_hooks/screen_inject.rs`；公共：`extensions/common_user_dynamic_inject_hook.rs` |
+| 组 wire | `make_openai_messages_with_inject(base, injected_tail, …)` → HTTP JSON；spawn 只持有 wire | `provider.rs` — `build_stream_chat_wire` / `stream_chat_wired` |
 
-**说明**：`messages` **不含** `[Environment]` user；环境日期等在 **§1.2** cacheable 的 `[Environment]` 块中。
+**说明**：API `messages` **不含** `[Environment]` user；环境日期等在 **§1.2** cacheable 的 `[Environment]` 块中。峰值内存说明见 [`long-chat-memory.md`](long-chat-memory.md)。
 
 ### 1.2 `SystemPromptSections`（cacheable + dynamic）
 
@@ -41,17 +42,18 @@
 
 合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**；task board 已迁移到 `messages` 末尾的公共 user 注入块（仅在有 board 内容或 init hint 时追加）。
 
-### 1.3 HTTP `messages` 最终顺序（`make_openai_messages`）
+### 1.3 HTTP `messages` 最终顺序（`make_openai_messages_with_inject`）
 
 | 顺序 | 角色 | 说明 |
 |------|------|------|
 | 1 | `system` | 见 **§1.4** |
-| 2… | `user` / `assistant` / … | `expand_tool_messages_for_openai_request` → `flatten_tool_rounds_computer_style_for_api` |
+| 2… | `user` / `assistant` / … | scope-filtered **base** history，再追加本轮 **`injected_tail`**，然后 `expand_tool_messages_for_openai_request` → `flatten_tool_rounds_computer_style_for_api` |
 
 | 参考代码 | 说明 |
 |----------|------|
-| `crates/pointer-core/src/models.rs` | `SystemPromptSections`、`push_openai_system_messages`、`make_openai_messages` |
-| `crates/pointer-core/src/provider.rs` | `stream_chat` / `chat_once` |
+| `crates/pointer-core/src/models/openai_convert.rs` | `SystemPromptSections`、`push_openai_system_messages`、`make_openai_messages_with_inject` |
+| `crates/pointer-core/src/provider.rs` | `build_stream_chat_wire` / `stream_chat_wired` / `chat_once` |
+| [`long-chat-memory.md`](long-chat-memory.md) | 为何不再 `history.clone()` 进 spawn |
 
 ### 1.4 千问显式 Context Cache 序列化
 

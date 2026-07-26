@@ -229,6 +229,17 @@ pub struct OpenAIProvider {
     pub api_key: String,
 }
 
+/// Built HTTP request for `stream_chat` (`openai_msgs` Values already dropped after serialize).
+pub struct StreamChatWire {
+    pub url: String,
+    pub wire_body: Value,
+    pub api_message_count: usize,
+    pub build_openai_messages_ms: u128,
+    pub system_prompt_block_count: usize,
+    pub base_message_count: usize,
+    pub injected_tail_count: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 struct NativeToolCallState {
     id: String,
@@ -414,14 +425,6 @@ impl OpenAIProvider {
             dump_label,
             crate::message_context::LlmHistoryScope::Lead,
         );
-        let openai_msgs = crate::models::make_openai_messages(
-            messages,
-            system,
-            crate::models::effective_reasoning_in_messages(&self.settings),
-            crate::models::qwen_explicit_system_cache_enabled(&self.settings),
-            crate::media::model_supports_vision(&self.settings),
-            crate::message_context::LlmHistoryScope::Lead,
-        );
         let max_tok =
             max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let mut extra_body = crate::models::effective_chat_extra_body(&self.settings);
@@ -433,32 +436,44 @@ impl OpenAIProvider {
                 }
             }
         }
-        crate::llm_prompt_dump::try_dump_round(
-            &self.settings,
-            dump_label,
-            "chat_once",
-            false,
-            max_tok,
-            &openai_msgs,
-        );
-        let tools_empty = native_tools.is_empty();
-        let req = ChatRequest {
-            model: &self.settings.model,
-            messages: openai_msgs,
-            stream: false,
-            temperature: crate::models::effective_temperature(&self.settings),
-            max_tokens: Some(max_tok),
-            stream_options: None,
-            tools: if tools_empty {
-                None
-            } else {
-                Some(native_tools)
-            },
-            tool_choice: if tools_empty { None } else { Some("auto") },
-            extra_body,
+        // Build wire in a scope so `openai_msgs` / ChatRequest drop before the HTTP round-trip.
+        let (url, wire_body) = {
+            let openai_msgs = crate::models::make_openai_messages(
+                messages,
+                system,
+                crate::models::effective_reasoning_in_messages(&self.settings),
+                crate::models::qwen_explicit_system_cache_enabled(&self.settings),
+                crate::media::model_supports_vision(&self.settings),
+                crate::message_context::LlmHistoryScope::Lead,
+            );
+            crate::llm_prompt_dump::try_dump_round(
+                &self.settings,
+                dump_label,
+                "chat_once",
+                false,
+                max_tok,
+                &openai_msgs,
+            );
+            let tools_empty = native_tools.is_empty();
+            let req = ChatRequest {
+                model: &self.settings.model,
+                messages: openai_msgs,
+                stream: false,
+                temperature: crate::models::effective_temperature(&self.settings),
+                max_tokens: Some(max_tok),
+                stream_options: None,
+                tools: if tools_empty {
+                    None
+                } else {
+                    Some(native_tools)
+                },
+                tool_choice: if tools_empty { None } else { Some("auto") },
+                extra_body,
+            };
+            let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+            let wire_body = chat_request_wire_json(&req, &self.settings);
+            (url, wire_body)
         };
-        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-        let wire_body = chat_request_wire_json(&req, &self.settings);
         crate::llm_prompt_dump::try_log_openai_chat_request_json(
             &self.settings,
             "chat_once",
@@ -1136,17 +1151,16 @@ impl OpenAIProvider {
         })
     }
 
-    pub async fn stream_chat(
+    /// Serialize stream chat request to wire JSON without holding openai message Values afterward.
+    pub fn build_stream_chat_wire(
         &self,
-        messages: &[ChatMessage],
+        base_messages: &[ChatMessage],
+        injected_tail: &[ChatMessage],
         system: &SystemPromptSections,
         native_tools: Vec<Value>,
-        tx: mpsc::Sender<ProviderEvent>,
-        cancel: CancellationToken,
         dump_label: Option<&str>,
         history_scope: crate::message_context::LlmHistoryScope,
-    ) -> Result<()> {
-        let stream_t0 = Instant::now();
+    ) -> Result<StreamChatWire> {
         let base_url = self
             .settings
             .providers
@@ -1164,13 +1178,14 @@ impl OpenAIProvider {
         let t_build = Instant::now();
         crate::message_context::try_log_context_excluded_messages(
             &self.settings,
-            messages,
+            base_messages,
             "stream_chat",
             dump_label,
             history_scope,
         );
-        let openai_msgs = crate::models::make_openai_messages(
-            messages,
+        let openai_msgs = crate::models::make_openai_messages_with_inject(
+            base_messages,
+            injected_tail,
             system,
             crate::models::effective_reasoning_in_messages(&self.settings),
             crate::models::qwen_explicit_system_cache_enabled(&self.settings),
@@ -1194,24 +1209,26 @@ impl OpenAIProvider {
             None
         };
         let tools_empty = native_tools.is_empty();
-        let req = ChatRequest {
-            model: &self.settings.model,
-            messages: openai_msgs,
-            stream: true,
-            temperature: crate::models::effective_temperature(&self.settings),
-            max_tokens: Some(crate::models::effective_max_tokens(&self.settings)),
-            stream_options,
-            tools: if tools_empty {
-                None
-            } else {
-                Some(native_tools)
-            },
-            tool_choice: if tools_empty { None } else { Some("auto") },
-            extra_body,
-        };
-
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-        let wire_body = chat_request_wire_json(&req, &self.settings);
+        // Scope drops `openai_msgs` / ChatRequest before returning; only `wire_body` is retained.
+        let wire_body = {
+            let req = ChatRequest {
+                model: &self.settings.model,
+                messages: openai_msgs,
+                stream: true,
+                temperature: crate::models::effective_temperature(&self.settings),
+                max_tokens: Some(crate::models::effective_max_tokens(&self.settings)),
+                stream_options,
+                tools: if tools_empty {
+                    None
+                } else {
+                    Some(native_tools)
+                },
+                tool_choice: if tools_empty { None } else { Some("auto") },
+                extra_body,
+            };
+            chat_request_wire_json(&req, &self.settings)
+        };
         crate::llm_prompt_dump::try_log_openai_chat_request_json(
             &self.settings,
             "stream_chat",
@@ -1219,6 +1236,69 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
+        let injected_image_slots: usize = injected_tail
+            .iter()
+            .map(|m| m.images_base64.as_ref().map(|v| v.len()).unwrap_or(0))
+            .sum();
+        log::info!(
+            "stream_chat_wire_built dump_label={:?} history_scope={:?} base_messages={} injected_tail={} injected_image_slots={} api_message_count={} build_openai_messages_ms={} cloned_history=false",
+            dump_label,
+            history_scope,
+            base_messages.len(),
+            injected_tail.len(),
+            injected_image_slots,
+            api_message_count,
+            build_openai_messages_ms,
+        );
+        Ok(StreamChatWire {
+            url,
+            wire_body,
+            api_message_count,
+            build_openai_messages_ms,
+            system_prompt_block_count: system.slice_count(),
+            base_message_count: base_messages.len(),
+            injected_tail_count: injected_tail.len(),
+        })
+    }
+
+    pub async fn stream_chat(
+        &self,
+        messages: &[ChatMessage],
+        system: &SystemPromptSections,
+        native_tools: Vec<Value>,
+        tx: mpsc::Sender<ProviderEvent>,
+        cancel: CancellationToken,
+        dump_label: Option<&str>,
+        history_scope: crate::message_context::LlmHistoryScope,
+    ) -> Result<()> {
+        let wire = self.build_stream_chat_wire(
+            messages,
+            &[],
+            system,
+            native_tools,
+            dump_label,
+            history_scope,
+        )?;
+        self.stream_chat_wired(wire, tx, cancel, dump_label).await
+    }
+
+    /// POST a previously built stream wire body and drain SSE into `tx`.
+    pub async fn stream_chat_wired(
+        &self,
+        wire: StreamChatWire,
+        tx: mpsc::Sender<ProviderEvent>,
+        cancel: CancellationToken,
+        dump_label: Option<&str>,
+    ) -> Result<()> {
+        let stream_t0 = Instant::now();
+        let StreamChatWire {
+            url,
+            wire_body,
+            api_message_count,
+            build_openai_messages_ms,
+            system_prompt_block_count,
+            ..
+        } = wire;
         let client = llm_http_client(Duration::from_secs(180))?;
 
         let t_http = Instant::now();
@@ -1237,7 +1317,7 @@ impl OpenAIProvider {
                 build_openai_messages_ms,
                 http_until_headers_ms,
                 api_message_count,
-                system.slice_count(),
+                system_prompt_block_count,
                 dump_label,
                 stream_t0.elapsed().as_millis()
             );

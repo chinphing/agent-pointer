@@ -9,7 +9,8 @@ use std::time::Instant;
 use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
 
 pub(super) struct SingleAgentRoundPrompts {
-    pub history_for_api: Vec<ChatMessage>,
+    /// Ephemeral API-only rows for this request (screen / task-board inject).
+    pub injected_tail: Vec<ChatMessage>,
     pub system_prompts: SystemPromptSections,
 }
 
@@ -28,13 +29,12 @@ pub(super) async fn prepare_single_agent_round_prompts(
     let tools_system_appendix = ctx.tools_system_appendix;
     let _tools_appendix_enabled = ctx.tools_appendix_enabled;
     let round_prep = Instant::now();
-    let t = Instant::now();
-    let mut history_for_api = history.to_vec();
-    let clone_ms = t.elapsed().as_millis();
+    let mut injected_tail = Vec::new();
     let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
         computer_state: state.computer_state.as_ref(),
         lead_agent_profile: lead_profile.clone(),
-        messages: &mut history_for_api,
+        base_messages: history,
+        injected_tail: &mut injected_tail,
         conversation_id,
         stream: Some(stream),
         round_assistant_message_id: Some(assistant_id.to_string()),
@@ -108,12 +108,18 @@ pub(super) async fn prepare_single_agent_round_prompts(
         );
     }
     let before_main_llm_tail_ms = t.elapsed().as_millis();
-    log::debug!(
-        "run_chat single_agent pre_stream_chat conversation_id={} assistant_id={} history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
+    let injected_tail_len = injected_tail.len();
+    let injected_image_slots: usize = injected_tail
+        .iter()
+        .map(|m| m.images_base64.as_ref().map(|v| v.len()).unwrap_or(0))
+        .sum();
+    log::info!(
+        "run_chat single_agent pre_stream_chat conversation_id={} assistant_id={} history_messages={} injected_tail_messages={} injected_image_slots={} cloned_history=false message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
         conversation_id,
         assistant_id,
         history.len(),
-        clone_ms,
+        injected_tail_len,
+        injected_image_slots,
         message_loop_prompts_after_ms,
         assemble_system_prompts_ms,
         before_main_llm_tail_ms,
@@ -121,7 +127,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
     );
 
     Ok(SingleAgentRoundPrompts {
-        history_for_api,
+        injected_tail,
         system_prompts: SystemPromptSections { cacheable, dynamic },
     })
 }

@@ -50,7 +50,11 @@ fn cur_screen_clock_prefix() -> String {
 /// When stripping prior vision, replace stale `[CUR_SCREEN]` prose so the model is not told about screenshots that are no longer attached.
 const CUR_SCREEN_HISTORY_PLACEHOLDER: &str = "[CUR_SCREEN] Earlier desktop screenshots are omitted here; use only the latest [CUR_SCREEN] message in this request for images.\n";
 
-/// Remove vision payloads from all messages already in history so older frames do not affect the model’s read of the latest `[CUR_SCREEN]`.
+/// Clear vision payloads from ephemeral inject rows already queued this round.
+///
+/// Authoritative session history is read-only for hooks and does not persist
+/// `[CUR_SCREEN]` / `images_base64`; this only sanitizes `injected_tail` before
+/// appending the latest screen message.
 pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
     for m in messages.iter_mut() {
         m.images_base64 = None;
@@ -206,7 +210,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     }
                 }
                 emit_screen_notice_update(ctx, notice_id, DESKTOP_NOTICE_READY.to_string());
-                strip_images_from_prior_messages(ctx.messages.as_mut_slice());
+                strip_images_from_prior_messages(ctx.injected_tail.as_mut_slice());
                 let has_previous_raw = cap.inject_before_action.is_some();
                 let (image_slot_labels, images) = assemble_cur_screen_payload(tier, &cap);
                 let mut text = cur_screen_clock_prefix();
@@ -226,7 +230,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     text.push_str("\n\n");
                     text.push_str(anchor);
                 }
-                ctx.messages.push(ChatMessage {
+                ctx.injected_tail.push(ChatMessage {
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
                     content: text,
@@ -259,8 +263,8 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             Err(e) => {
                 log::warn!("computer screenshot processing failed: {:#}", e);
                 emit_screen_notice_update(ctx, notice_id, DESKTOP_NOTICE_FAILED.to_string());
-                strip_images_from_prior_messages(ctx.messages.as_mut_slice());
-                ctx.messages.push(ChatMessage {
+                strip_images_from_prior_messages(ctx.injected_tail.as_mut_slice());
+                ctx.injected_tail.push(ChatMessage {
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
                     content: format!(

@@ -7,6 +7,7 @@
 | 文档 | 说明 |
 |------|------|
 | [llm-prompt-assembly-order.md](llm-prompt-assembly-order.md) | `stream_chat` 前 `messages` 与 `SystemPromptSections` 拼接顺序 |
+| [long-chat-memory.md](long-chat-memory.md) | 长会话峰值内存：base + injected_tail、wire-before-spawn |
 | [context-compression.md](context-compression.md) | 上下文压缩输入预算、摘要验收、无损失败与重载一致性 |
 | [trigger-dispatcher.md](trigger-dispatcher.md) | 统一触发入口 `RunDispatcher`：队列、Cron（Webhook 见 [`../developer/webhook-api.md`](../developer/webhook-api.md)） |
 | [standalone-server-deployment.md](standalone-server-deployment.md) | pointer-server standalone 完整部署流程（构建、License、配置模板、验收） |

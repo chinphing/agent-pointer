@@ -11,9 +11,12 @@ use super::super::StreamTx;
 use super::session::{SessionRefs, SessionRefsArc};
 use crate::provider::OpenAIProvider;
 
-/// Owned inputs assembled once per stream round (prompt clone + native tools).
+/// Owned inputs assembled once per stream round (ephemeral injects + native tools).
+///
+/// Base transcript is borrowed from the session at wire-build time so the provider
+/// task does not hold a full `history` clone for the HTTP stream lifetime.
 pub struct StreamRoundInput {
-    pub history_for_api: Vec<ChatMessage>,
+    pub injected_tail: Vec<ChatMessage>,
     pub system_prompts: SystemPromptSections,
     pub native_tools: Vec<serde_json::Value>,
     pub tools_appendix_enabled: bool,

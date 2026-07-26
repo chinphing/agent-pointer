@@ -61,7 +61,8 @@
 |------|------|
 | `computer_state` | 全局唯一的 Computer 运行时状态：截图/标注客户端、共享的 `VisionState`（索引 → 像素）、动作执行器等。 |
 | `lead_agent_profile` | **当前这一轮**要对话的 Agent 的 profile。单智能体模式下为主 lead 的 profile；Supervisor 子任务模式下为**该子 Agent 定义**的 profile（例如 `Computer` / `Coder`）。钩子用它决定是否为 no-op（如仅 `Computer` 才注入屏幕）。 |
-| `messages` | 本次即将发给模型的 **HTTP 消息列表的可变借用**。起始内容为某条「基础历史」的克隆（见第 4、5 节）；钩子通常**追加** ephemeral 的 `User` 消息（如带 `images_base64`），**不会**写回会话持久化的 `history`。 |
+| `base_messages` | **只读**：本轮权威 transcript（主会话 `history` 或子 Agent `local_history`）。钩子**不得**修改或向其 `push`。 |
+| `injected_tail` | **可变**：本轮仅用于 API 的 ephemeral 行。钩子在此**追加**（如 `[CUR_SCREEN]` / task-board user 块）；**不会**写回持久化 `history`。 |
 | `conversation_id` | 当前会话 id（与前端/Tauri 流一致）。 |
 | `stream` | 可选的 `ChatStreamSender`；若存在，钩子可发送 **`StreamEvent::UiToast`**（仅界面横幅提醒，**不**写入聊天记录、**不**进入模型 payload）。 |
 | `round_assistant_message_id` | 可选；本轮助手消息 id（与主循环 `MessageStart` 一致，或 Supervisor 子任务下**父级**助手气泡 id）。注入用它发送 **`StreamEvent::AssistantRoundScreen`**。 |
@@ -93,25 +94,25 @@
 1. **进入本轮** — 检查取消、工具预算；生成本轮 `assistant_id`（UI 流式用）。
 2. **`MessageStart`（及 Supervisor 的 `AgentStep`）** — 先创建前端助手气泡，再跑注入，以便把本圈截图事件绑定到该 `message_id`。
 3. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
-4. **构造 API 消息列表** — `messages = <基础历史>.clone()`（单智能体：`history`；子 Agent：`local_history`），并填入 `round_assistant_message_id`。
-5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：可修改 `messages`（例如追加屏幕注入）。
+4. **准备 API 输入** — 只读借用基础历史（单智能体：`history`；子 Agent：`local_history`），新建空的 `injected_tail`，并填入 `round_assistant_message_id`。
+5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：仅向 `injected_tail` 追加 ephemeral 行（例如屏幕注入）。
 6. **组装 system（cacheable）** — 公共通信、Agent/Skills、工具附录，再 `push_env_to_cacheable`（`[Environment]`）。
 7. **`before_main_llm_call`** — 钩子向 **`system_prompts_dynamic`** 追加（例如 `[LOCKED GOAL]`）。
-8. **`stream_chat`** — `SystemPromptSections` → `make_openai_messages`（千问见 **[`qwen-context-cache.md`](../llm/qwen-context-cache.md)**）。Computer **完整墙钟时间**在 **`[CUR_SCREEN]`** `user` 消息中（`screen_inject.rs`）。
+8. **组 wire → `stream_chat_wired`** — `build_stream_chat_wire(base, injected_tail, SystemPromptSections)` → `make_openai_messages_with_inject`（千问见 **[`qwen-context-cache.md`](../llm/qwen-context-cache.md)**）；HTTP 任务只持有 wire JSON，不再持有完整 `history` 克隆。Computer **完整墙钟时间**在 **`[CUR_SCREEN]`** `user` 消息中（`screen_inject.rs`）。
 
-要点：task board 已迁移为 `message_loop_prompts_after` 的末尾 user 注入块，不再占用 system cacheable/dynamic。
+要点：task board 已迁移为 `message_loop_prompts_after` 的末尾 user 注入块，不再占用 system cacheable/dynamic。长会话峰值内存见 **[`../internals/long-chat-memory.md`](../internals/long-chat-memory.md)**。
 
-### 4.2 单智能体：`messages` 在注入时刻包含什么
+### 4.2 单智能体：注入时刻的消息视图
 
-- **来源**：`history.clone()`，即当前会话中**已持久化**的多轮消息（user / assistant / 工具轮次 flatten 前的结构由后续 `make_openai_messages` 处理）。
-- **注入追加**：例如 Computer 在列表**末尾**追加一条仅用于本次请求的 `User` 消息（**`Local wall-clock at capture:`** 含完整日期时间，接 **`[CUR_SCREEN]`** 与可选 `images_base64`）。
-- **不落盘**：本轮结束后，持久化 `history` 仍按原逻辑只追加**真实的** assistant / tool 消息；**不会**把这条 ephemeral 注入写进会话存储。
+- **基础历史**：会话中已持久化的多轮消息（只读借用；user / assistant / 工具轮次 flatten 前的结构由后续 `make_openai_messages_with_inject` 处理）。
+- **注入追加**：例如 Computer 向 `injected_tail` **末尾**追加一条仅用于本次请求的 `User` 消息（**`Local wall-clock at capture:`** 含完整日期时间，接 **`[CUR_SCREEN]`** 与可选 `images_base64`）。
+- **不落盘**：本轮结束后，持久化 `history` 仍按原逻辑只追加**真实的** assistant / tool 消息；**不会**把 ephemeral 注入写进会话存储。
 
 ### 4.3 一轮内的多次模型调用（工具循环）
 
-用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 4～9 步：
+用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 4～8 步：
 
-- 每一轮都会重新 `history.clone()`（此时 `history` 已包含上一轮 assistant 与 tool 结果）。
+- 每一轮都只读借用当前 `history`（已包含上一轮 assistant 与 tool 结果），并新建本轮 `injected_tail`。
 - 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`（task board 摘要在 user 末尾块刷新，有内容时）。  
 因此 Computer **每一轮都会重新截图+标注**（与 Python 每轮 inject 一致）。
 
@@ -121,20 +122,22 @@
 sequenceDiagram
     participant Loop as 消息循环（每轮工具周期）
     participant Hist as 持久化 history
-    participant Msg as messages（API 快照）
+    participant Tail as injected_tail
     participant Ext1 as message_loop_prompts_after
     participant Sys as 拼接 system prompts
     participant Ext2 as before_main_llm_call
-    participant LLM as stream_chat
+    participant Wire as build_stream_chat_wire
+    participant LLM as stream_chat_wired
 
-    Loop->>Hist: 读取当前 history（上一轮已 push）
-    Loop->>Msg: messages = history.clone() 或 local_history.clone()
+    Loop->>Hist: 只读借用当前 history
+    Loop->>Tail: 新建空 injected_tail
     Loop->>Ext1: run_message_loop_prompts_after(ctx)
-    Note over Ext1,Msg: 含 [CUR_SCREEN] 与 Local wall-clock（完整日期时间）
+    Note over Ext1,Tail: 向 tail 追加 [CUR_SCREEN] 等
     Loop->>Sys: cacheable = 公共 / Agent / 工具 / Environment
     Loop->>Ext2: run_before_main_llm_call(ctx)
     Note over Ext2,Sys: dynamic += [LOCKED GOAL] 等
-    Loop->>LLM: stream_chat(messages, SystemPromptSections)
+    Loop->>Wire: base + injected_tail + SystemPromptSections
+    Loop->>LLM: 仅持有 wire JSON 发 HTTP
 ```
 
 ---
@@ -158,10 +161,11 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 
 - 会话初始化与每轮 prompt 组装在 **`sub_agent_prompt.rs`**（`init_sub_agent_session` / `prepare_sub_agent_round_prompts`）；流式收包在 **`sub_agent_stream.rs`**（内部共用 **`agent_stream_round.rs`**）；流后决策与工具执行分别共用 **`agent_post_stream.rs`** / **`agent_tool_pass.rs`**（与 Lead 同构，见 §5.2.1）。
 - 每一轮子 Agent 的每次模型请求前，同样执行：
-  - `messages = local_history.clone()`
+  - 只读借用 `local_history`，新建 `injected_tail`
   - `run_message_loop_prompts_after`（`lead_agent_profile = def.profile`，例如子 Agent 为 `computer` 时仍会注入屏幕）
   - **cacheable** = `push_agent_role_cacheable_prompts` + 子 Agent `session_extras` + **`tools_system_appendix`** + Environment
   - `run_before_main_llm_call`（dynamic 追加其他系统动态块；`task_board_store_key` 仍用于任务板读写/注入）
+  - `build_stream_chat_wire(local_history, injected_tail, …)` 后 `stream_chat_wired`
 - 使用的 **`ExtensionRegistry` 与单智能体相同**（`AppState.extensions`），**不是**每子 Agent 一份。
 
 #### 5.2.1 Lead 与子 Agent 共用模块的差异（行为不变）

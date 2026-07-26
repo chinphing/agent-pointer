@@ -232,7 +232,32 @@ pub fn make_openai_messages(
     inline_vision: bool,
     history_scope: crate::message_context::LlmHistoryScope,
 ) -> Vec<serde_json::Value> {
-    let included = crate::message_context::filter_messages_for_llm_scope(msgs, history_scope);
+    make_openai_messages_with_inject(
+        msgs,
+        &[],
+        system,
+        include_reasoning_in_api,
+        explicit_system_cache,
+        inline_vision,
+        history_scope,
+    )
+}
+
+/// Like [`make_openai_messages`], but appends ephemeral `injected_tail` rows after
+/// scope-filtered base history (API-only injects such as `[CUR_SCREEN]`).
+pub fn make_openai_messages_with_inject(
+    msgs: &[ChatMessage],
+    injected_tail: &[ChatMessage],
+    system: &SystemPromptSections,
+    include_reasoning_in_api: bool,
+    explicit_system_cache: bool,
+    inline_vision: bool,
+    history_scope: crate::message_context::LlmHistoryScope,
+) -> Vec<serde_json::Value> {
+    let mut included = crate::message_context::filter_messages_for_llm_scope(msgs, history_scope);
+    if !injected_tail.is_empty() {
+        included.extend(injected_tail.iter().cloned());
+    }
     let expanded = expand_tool_messages_for_openai_request(&included);
     let mut out: Vec<serde_json::Value> = Vec::new();
     push_openai_system_messages(&mut out, system, explicit_system_cache);
@@ -399,6 +424,38 @@ mod make_openai_messages_tests {
             task_id: None,
             spawn_depth: None,
         }
+    }
+
+    #[test]
+    fn injected_tail_appended_after_base_history() {
+        let mut base = msg(Role::User);
+        base.content = "hello".into();
+        let mut inject = msg(Role::User);
+        inject.content = "[CUR_SCREEN] latest".into();
+        let system = SystemPromptSections {
+            cacheable: vec!["sys".into()],
+            dynamic: vec![],
+        };
+        let out = make_openai_messages_with_inject(
+            &[base],
+            &[inject],
+            &system,
+            false,
+            false,
+            false,
+            LEAD,
+        );
+        let roles: Vec<&str> = out
+            .iter()
+            .filter_map(|m| m["role"].as_str())
+            .collect();
+        assert!(roles.contains(&"system"));
+        let user_texts: Vec<&str> = out
+            .iter()
+            .filter(|m| m["role"] == "user")
+            .filter_map(|m| m["content"].as_str())
+            .collect();
+        assert_eq!(user_texts, vec!["hello", "[CUR_SCREEN] latest"]);
     }
 
     #[test]

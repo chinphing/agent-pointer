@@ -51,17 +51,22 @@ pub(super) async fn run_sub_agent_stream_round(
     let prov = crate::provider::OpenAIProvider::new(round_settings, provider.api_key.clone());
     let cancel_clone = cancel_owned(&cancel);
     let dump_lbl = format!("{}_{}_sub_{}", conversation_id, sub.message_id, sub.task.id);
+    // Build wire from local_history + injects before spawn (no full history clone on the HTTP task).
+    // Use `prov` (round settings) — not session `provider` — so computer-tier LLM overrides apply.
+    let wire = prov.build_stream_chat_wire(
+        sub.local_history,
+        &input.injected_tail,
+        &input.system_prompts,
+        input.native_tools,
+        Some(dump_lbl.as_str()),
+        crate::message_context::LlmHistoryScope::SubAgentLoop,
+    )?;
+    drop(input.injected_tail);
+    drop(input.system_prompts);
+
     let handle = tokio::spawn(async move {
-        prov.stream_chat(
-            &input.history_for_api,
-            &input.system_prompts,
-            input.native_tools,
-            tx,
-            cancel_clone,
-            Some(dump_lbl.as_str()),
-            crate::message_context::LlmHistoryScope::SubAgentLoop,
-        )
-        .await
+        prov.stream_chat_wired(wire, tx, cancel_clone, Some(dump_lbl.as_str()))
+            .await
     });
 
     let mut buffers = StreamRoundBuffers::default();

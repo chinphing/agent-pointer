@@ -2,12 +2,16 @@ export const GIT_INITIALIZATION_TASK = '请为当前工作区初始化 Git 仓�
 
 export const WORKSPACE_PANEL_MIN_WIDTH = 280
 export const WORKSPACE_PANEL_DEFAULT_WIDTH = 360
+export const WORKSPACE_PANEL_MAX_WIDTH = 720
 
 export function clampWorkspacePanelWidth(
   width: number,
   viewportWidth = typeof window === 'undefined' ? 1440 : window.innerWidth
 ): number {
-  const responsiveMax = Math.max(WORKSPACE_PANEL_MIN_WIDTH, viewportWidth - 320)
+  const responsiveMax = Math.max(
+    WORKSPACE_PANEL_MIN_WIDTH,
+    Math.min(WORKSPACE_PANEL_MAX_WIDTH, viewportWidth - 320)
+  )
   return Math.round(Math.min(Math.max(width, WORKSPACE_PANEL_MIN_WIDTH), responsiveMax))
 }
 

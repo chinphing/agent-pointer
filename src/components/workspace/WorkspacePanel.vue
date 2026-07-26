@@ -214,6 +214,42 @@ async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { siz
   await loadFileTab(reactiveTab)
 }
 
+async function openWorkspaceReference(path: string) {
+  const id = workspacePreviewTabId('file', path)
+  const existing = previewTabs.value.find(item => item.id === id)
+  if (existing) {
+    activeView.value = id
+    return
+  }
+
+  try {
+    const preview = await readWorkspaceFile(props.workspaceRoot, path)
+    const mediaKind = isMediaFile(path)
+    const tabItem: FilePreviewTab = {
+      id,
+      kind: 'file',
+      path,
+      title: path.split('/').pop() || path,
+      loading: false,
+      error: '',
+      preview: mediaKind && isDesktop
+        ? {
+            path: workspaceAbsolutePath(props.workspaceRoot, path),
+            sizeBytes: preview.sizeBytes,
+            truncated: false,
+            binary: false
+          }
+        : preview,
+      sizeBytes: preview.sizeBytes
+    }
+    previewTabs.value.push(tabItem)
+    activeView.value = id
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[WorkspacePanel] Markdown reference target is unavailable', { path, message })
+  }
+}
+
 async function openMarkdownReference(href: string) {
   const sourcePath = activeFileTab.value?.path
   if (!sourcePath) {
@@ -229,8 +265,7 @@ async function openMarkdownReference(href: string) {
       return
     }
     if (reference.kind === 'workspace') {
-      const name = reference.path.split('/').pop() || reference.path
-      await selectFile({ kind: 'file', name, path: reference.path })
+      await openWorkspaceReference(reference.path)
       return
     }
     if (reference.kind === 'local') {
@@ -242,7 +277,6 @@ async function openMarkdownReference(href: string) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[WorkspacePanel] Failed to open Markdown reference', { href, message })
-    error.value = message
   }
 }
 

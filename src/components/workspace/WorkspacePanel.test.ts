@@ -67,4 +67,43 @@ describe('WorkspacePanel Markdown references', () => {
       .toHaveBeenLastCalledWith('/workspace', 'docs/user/getting-started.md')
     expect(host.textContent).toContain('Getting started')
   })
+
+  it('keeps the current preview when a Markdown reference target is unavailable', async () => {
+    apiMocks.readWorkspaceFile.mockImplementation(async (_root: string, path: string) => {
+      if (path === 'README.md') {
+        return {
+          path,
+          content: '[Missing document](docs/missing.md)',
+          sizeBytes: 64,
+          truncated: false,
+          binary: false
+        }
+      }
+      throw new Error('File not found')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
+    mountedApps.push(app)
+    app.mount(host)
+    await settle()
+
+    const readmeRow = [...host.querySelectorAll<HTMLElement>('[role="button"], button')]
+      .find(element => element.textContent?.includes('README.md'))
+    readmeRow?.click()
+    await settle()
+    host.querySelector<HTMLAnchorElement>('a[href="docs/missing.md"]')?.click()
+    await settle()
+
+    expect(apiMocks.readWorkspaceFile)
+      .toHaveBeenLastCalledWith('/workspace', 'docs/missing.md')
+    expect(host.querySelectorAll('.workspace-preview-tab')).toHaveLength(1)
+    expect(host.querySelector('.workspace-preview-tab.is-active')?.textContent).toContain('README.md')
+    expect(warn).toHaveBeenCalledWith(
+      '[WorkspacePanel] Markdown reference target is unavailable',
+      expect.objectContaining({ path: 'docs/missing.md' })
+    )
+    warn.mockRestore()
+  })
 })

@@ -18,13 +18,21 @@ How Pointer reduces **peak RSS during a chat turn** without changing the persist
 3. **Shorter Value overlap** — After `chat_request_wire_json`, `openai_msgs` / `ChatRequest` drop before the HTTP round-trip (`chat_once` and stream wire build).
 4. **Metrics** — `log::info!` on pre-stream prep and `stream_chat_wire_built` with `cloned_history=false`, inject counts, and image slot counts.
 
+## Phase 2.1 (implemented)
+
+- Frontend `persistAppend` uses the same `persistedMessageIdsByConv` watermark as
+  hydrated `sendChat`: only non-persisted rows are deep-cloned for
+  `append_conversation_messages` (`messagesForPersistAppend`). Empty incremental
+  skips the IPC/HTTP append but still refreshes the watermark.
+
 ## Still cloned (acceptable / later)
 
 - `make_openai_messages_with_inject` still clones included rows into the filter/expand pipeline (needed for tool flatten).
 - Background memory review and parallel `web_search` may snapshot `history` into an owned `Vec` / `Arc` for async lifetimes.
-- Frontend baseline slim / incremental persist is **phase 2** (not in this change).
+- Frontend **display slim** for old in-memory messages (phase 2.2) is deferred.
 
 ## Related
 
 - Extension hook contract: [`../developer/agent-extension-hooks.md`](../developer/agent-extension-hooks.md)
 - Prompt assembly order: [`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)
+- Persist / hydration: [`context-compression.md`](context-compression.md)

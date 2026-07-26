@@ -39,6 +39,7 @@ import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import {
   conversationNeedsHydration,
   messagesForChatDispatch,
+  messagesForPersistAppend,
   persistedCandidateMessageIds
 } from '../lib/chatDispatchHistory'
 import { recordTurnStart } from '../lib/turnElapsed'
@@ -1208,9 +1209,34 @@ export const useChatStore = defineStore('chat', () => {
     const conv = conversations.value.find(c => c.id === conversationId)
     if (!conv) return
     const [stripped] = stripEphemeralDesktopNoticesForDisk([conv])
-    const messages = JSON.parse(JSON.stringify(stripped.messages)) as ChatMessage[]
+    const hydrated = hydratedIds.value.has(conversationId)
+    const persistedIds = hydrated ? persistedIdsFor(conversationId) : undefined
+    const messages = messagesForPersistAppend(
+      stripped.messages,
+      persistedIds ? { persistedIds } : undefined
+    )
     // Align the send watermark with what we treat as on-disk after a turn / trim.
     markConversationMessagesPersisted(conversationId)
+    if (messages.length === 0) {
+      if (hydrated) {
+        console.info(
+          '[chat] persistAppend incremental empty',
+          conversationId,
+          'of',
+          stripped.messages.length
+        )
+      }
+      return
+    }
+    if (hydrated) {
+      console.info(
+        '[chat] persistAppend incremental',
+        conversationId,
+        messages.length,
+        'of',
+        stripped.messages.length
+      )
+    }
     appendConversationMessages(conversationId, messages).catch(e =>
       console.error('append messages error', e)
     )

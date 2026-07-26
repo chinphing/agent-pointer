@@ -131,8 +131,8 @@ P2a 压缩 / TaskBoard trim ──sync_ordered_with_meta──► 改 position/c
 
 | 场景 | 策略 |
 |------|------|
-| 正常对话 | 后端 `run_chat` 落库；前端 `persistMeta` |
-| `sendChat` 网络失败 | `persistAppend`（`append_conversation_messages`） |
+| 正常对话 | 后端 `run_chat` 落库；前端 `persistMeta`；Done 时 `persistAppend` 仅 append 水位线外消息 |
+| `sendChat` 网络失败 | `persistAppend`（`append_conversation_messages`，同样按水位线增量） |
 | 登录 / 额度错误（未发 chat） | **仅 UI**，不写 messages |
 | 清除登录错误气泡 | **仅 UI** 过滤 |
 

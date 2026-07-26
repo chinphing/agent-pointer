@@ -44,6 +44,32 @@ export function messagesForChatDispatch(
     .map(m => JSON.parse(JSON.stringify(m)) as ChatMessage)
 }
 
+export interface MessagesForPersistAppendOptions {
+  /**
+   * Message ids already treated as on-disk for a hydrated conversation.
+   * When set, only non-persisted rows are deep-cloned for `append_conversation_messages`.
+   */
+  persistedIds?: ReadonlySet<string>
+}
+
+/**
+ * Messages to ship on `persistAppend` (Done / trim / send failure).
+ * Callers should strip ephemeral desktop notices and wire-only attachment fields first.
+ */
+export function messagesForPersistAppend(
+  messages: ChatMessage[],
+  options?: MessagesForPersistAppendOptions
+): ChatMessage[] {
+  const persisted = options?.persistedIds
+  return messages
+    .filter(m => {
+      if (m.status === 'pending') return false
+      if (persisted?.has(m.id)) return false
+      return true
+    })
+    .map(m => JSON.parse(JSON.stringify(m)) as ChatMessage)
+}
+
 /** Ids safe to treat as on-disk after hydration / append (excludes outbound queue rows). */
 export function persistedCandidateMessageIds(messages: ChatMessage[]): string[] {
   return messages.filter(m => m.status !== 'pending').map(m => m.id)

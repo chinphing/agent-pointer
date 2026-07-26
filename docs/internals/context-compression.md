@@ -64,9 +64,10 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 APP 和 WEB 在项目切换、空 shell、消息淘汰或 IM fork 后发送前，
 必须等待 hydration 完成。加载失败时阻止发送并保留待发送消息。
 
-会话已 hydration 后，前端 `sendChat` 只序列化尚未写入 SQLite 的新消息
-（通常是刚 push 的用户行），不再深拷贝整段历史。水位线随 hydration、
-`sendChat` 成功与 `persistAppend`（回合结束 / trim）更新；若增量结果为空则回退全量。
+会话已 hydration 后，前端 `sendChat` 与 `persistAppend`（回合结束 / trim /
+发送失败兜底）都只序列化尚未写入 SQLite 的新消息，不再深拷贝整段历史。
+水位线随 hydration、`sendChat` 成功与 `persistAppend` 更新；`sendChat` 若增量
+结果为空则回退全量，`persistAppend` 增量为空则跳过 append（仍刷新水位线）。
 
 压缩成功后，无论由预算还是工具轮次触发，都必须清除
 `last_lead_prompt_tokens`，防止下一轮使用压缩前的陈旧 token 数。

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   conversationNeedsHydration,
   messagesForChatDispatch,
+  messagesForPersistAppend,
   persistedCandidateMessageIds
 } from './chatDispatchHistory'
 import type { ChatMessage } from '../types/chat'
@@ -38,6 +39,39 @@ describe('messagesForChatDispatch', () => {
     expect(
       messagesForChatDispatch(messages, { persistedIds: new Set(['u1']) })
     ).toEqual([])
+  })
+})
+
+describe('messagesForPersistAppend', () => {
+  it('when hydrated, only clones messages not yet persisted', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: 'old', status: 'done', createdAt: 1 },
+      { id: 'a1', role: 'assistant', content: 'reply', status: 'done', createdAt: 2 },
+      { id: 'u2', role: 'user', content: 'new', status: 'done', createdAt: 3 }
+    ]
+    const out = messagesForPersistAppend(messages, {
+      persistedIds: new Set(['u1', 'a1'])
+    })
+    expect(out.map(m => m.id)).toEqual(['u2'])
+    expect(out[0]).not.toBe(messages[2])
+  })
+
+  it('skips pending outbound rows and returns empty when everything is persisted', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: 'a', status: 'done', createdAt: 1 },
+      { id: 'u2', role: 'user', content: 'q', status: 'pending', createdAt: 2 }
+    ]
+    expect(
+      messagesForPersistAppend(messages, { persistedIds: new Set(['u1']) })
+    ).toEqual([])
+  })
+
+  it('without watermark clones all non-pending rows', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', content: 'a', status: 'done', createdAt: 1 },
+      { id: 'u2', role: 'user', content: 'q', status: 'pending', createdAt: 2 }
+    ]
+    expect(messagesForPersistAppend(messages).map(m => m.id)).toEqual(['u1'])
   })
 })
 

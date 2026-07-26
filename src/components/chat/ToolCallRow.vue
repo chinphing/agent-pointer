@@ -337,7 +337,7 @@ function openSourceUrl(url: string) {
     <div class="flex items-center gap-1.5 min-w-0">
       <button
         type="button"
-        class="tool-call-trigger flex-1 py-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
+        class="tool-call-trigger py-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
         @click="open = !open"
       >
         <Wrench class="w-3 h-3 text-muted/70 shrink-0" />
@@ -369,7 +369,7 @@ function openSourceUrl(url: string) {
       <button
         v-if="canViewTerminalLive"
         type="button"
-        class="shrink-0 h-6 px-2 rounded-md border border-border bg-hover/40 hover:bg-hover text-[11px] text-foreground cursor-pointer transition"
+        class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer transition-colors"
         title="查看终端输出"
         @click="viewTerminalLive"
       >查看</button>

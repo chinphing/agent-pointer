@@ -43,10 +43,12 @@ function openContextMenu(event: MouseEvent, node: WorkspaceTreeNodeModel) {
       @contextmenu.prevent="openContextMenu($event, node)"
     >
       <component
-        :is="node.loading ? Loader2 : node.kind === 'directory' ? (node.expanded ? ChevronDown : ChevronRight) : File"
+        :is="node.loading ? Loader2 : node.expanded ? ChevronDown : ChevronRight"
+        v-if="node.kind === 'directory'"
         class="w-3.5 h-3.5 shrink-0"
         :class="node.loading && 'animate-spin'"
       />
+      <span v-else class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
       <component
         :is="node.kind === 'directory' ? (node.expanded ? FolderOpen : Folder) : File"
         class="w-3.5 h-3.5 shrink-0 text-muted"

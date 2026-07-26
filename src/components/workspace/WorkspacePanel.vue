@@ -330,8 +330,6 @@ function openTurnDiff(conversationId: string, turnId: string, path: string) {
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
-    if (existing.kind === 'turn-diff') void loadTurnDiffTab(existing)
-    refreshChangesBadge()
     return
   }
   const relative = workspaceRelativeDisplayPath(path, props.workspaceRoot)
@@ -398,8 +396,8 @@ function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { sizeBytes
   const id = workspacePreviewTabId('file', node.path)
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
+    // Already open: just focus. Reload only via the toolbar refresh button.
     activeView.value = id
-    if (existing.kind === 'file') void loadFileTab(existing)
     return
   }
   const tabItem: FilePreviewTab = {
@@ -423,7 +421,6 @@ async function openWorkspaceReference(path: string) {
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
-    if (existing.kind === 'file') void loadFileTab(existing)
     return
   }
 
@@ -491,7 +488,6 @@ function selectChange(change: GitChange) {
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
-    if (existing.kind === 'diff') void loadDiffTab(existing)
     return
   }
   const tabItem: DiffPreviewTab = {
@@ -513,9 +509,8 @@ function selectChange(change: GitChange) {
 }
 
 function activatePreviewTab(tabId: string) {
+  // Switching tabs must not reload — keep cached preview until explicit refresh.
   activeView.value = tabId
-  const tabItem = previewTabs.value.find(item => item.id === tabId)
-  if (tabItem) reloadPreviewTab(tabItem)
 }
 
 function closePreviewTabs(targetId: string, action: WorkspaceTabCloseAction = 'close') {

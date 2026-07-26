@@ -2802,18 +2802,18 @@ mod effective_extra_body_tests {
 
         let user: UserSettings = serde_json::from_value(serde_json::json!({
             "agentSkillOverrides": {
-                "coder": ["skill-creator"]
+                "coder": ["skill-manager"]
             }
         }))
         .unwrap();
         assert_eq!(
             user.agent_skill_overrides.get("coder"),
-            Some(&vec!["skill-creator".to_string()])
+            Some(&vec!["skill-manager".to_string()])
         );
         let json = serde_json::to_value(user).unwrap();
         assert_eq!(
             json["agentSkillOverrides"]["coder"],
-            serde_json::json!(["skill-creator"])
+            serde_json::json!(["skill-manager"])
         );
     }
 

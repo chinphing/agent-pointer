@@ -8,7 +8,7 @@ pub mod provenance;
 pub const BUNDLED_SKILL_IDS: &[&str] = &[
     "find-skills",
     "dev-env-setup",
-    "skill-creator",
+    "skill-manager",
     "pointer-manager",
     "docx",
     "xlsx",

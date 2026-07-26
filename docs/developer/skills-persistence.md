@@ -59,13 +59,13 @@
 
 运行时规则（`pointer-core`）：
 
-- **单智能体模式**：lead 为 **`general`** 时使用用户启用的 skill 列表；lead 为 **`coder`** 时默认合并 **`skill-creator`**。**general** 对 skill 文件只读 + **`skill_import`** 安装；任何 **`~/.pointer/skills/`** 写入 → **`run_subagent(coder)`**。**coder**（含子 agent）用 **`file_*`** 编辑，仅 **`skill_read`**（无 **`skill_import`**）。
+- **单智能体模式**：lead 为 **`general`** 时使用用户启用的 skill 列表；lead 为 **`coder`** 时默认合并 **`skill-manager`**。**general** 对 skill 文件只读 + **`skill_import`** 安装；任何 **`~/.pointer/skills/`** 写入 → **`run_subagent(coder)`**。**coder**（含子 agent）用 **`file_*`** 编辑，仅 **`skill_read`**（无 **`skill_import`**）。
 - **Supervisor 模式**：不加载技能。
-- **子 Agent**：**coder** 子 Agent 加载 **`skill-creator`** 等默认 skill（仅 `skill_read`）。**self fork** 继承父 agent 的有效 skill 列表。其他子 Agent 不加载 skill。
+- **子 Agent**：**coder** 子 Agent 加载 **`skill-manager`** 等默认 skill（仅 `skill_read`）。**self fork** 继承父 agent 的有效 skill 列表。其他子 Agent 不加载 skill。
 
-前端发消息时：`general` 传用户 `enabledSkillIds`；`coder` 传 `['skill-creator']`；其他 lead 不传 skill。
+前端发消息时：`general` 传用户 `enabledSkillIds`；`coder` 传 `['skill-manager']`；其他 lead 不传 skill。
 
-**IM 渠道与 Cron 定时任务**：不传显式列表时，使用 `user_settings.json` 的 `enabledSkillIds`（与 UI 全局启用一致；新用户默认全开内置 skill）。仍须 lead 为 **`general`** 或 **`coder`** 且单智能体模式才会注入 skill；`coder` 会被 `allowSkills` 限制为 `skill-creator`。
+**IM 渠道与 Cron 定时任务**：不传显式列表时，使用 `user_settings.json` 的 `enabledSkillIds`（与 UI 全局启用一致；新用户默认全开内置 skill）。仍须 lead 为 **`general`** 或 **`coder`** 且单智能体模式才会注入 skill；`coder` 会被 `allowSkills` 限制为 `skill-manager`。
 
 ## 内置技能
 

@@ -24,7 +24,7 @@ export const GENERAL_AGENT_ID = 'general'
 export const CODER_AGENT_ID = 'coder'
 
 /** Default skills for the coder lead agent. Keep in sync with coder `defaultSkillIds`. */
-export const CODER_DEFAULT_SKILL_IDS = ['skill-creator', 'agent-browser', 'dev-env-setup'] as const
+export const CODER_DEFAULT_SKILL_IDS = ['skill-manager', 'agent-browser', 'dev-env-setup'] as const
 
 export interface ResolvedAgentUi {
   showInComposer: boolean

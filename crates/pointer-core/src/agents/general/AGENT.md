@@ -8,7 +8,7 @@ enabled: true
 defaultSkillIds:
   - find-skills
   - dev-env-setup
-  - skill-creator
+  - skill-manager
   - pointer-manager
   - docx
   - xlsx

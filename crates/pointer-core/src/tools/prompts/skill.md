@@ -50,7 +50,7 @@ Delegate with **`run_subagent(agentId="coder")`** — when-to / **`workspaceRoot
 **`goal`** / **`context`**: follow the **`run_subagent`** tool doc (**`coder`**).
 Skill root is typically `~/.pointer/skills/{skill-name}/` (or `~/.pointer/skills/`
 when creating). The **coder** worker applies edits (prefer small patches;
-avoid whole-file overwrites of **`SKILL.md`**) and may use **`skill-creator`**.
+avoid whole-file overwrites of **`SKILL.md`**) and may use **`skill-manager`**.
 **Install only:** user-supplied zip or directory → **`skill_import`** (general lead).
 
 #### Tools

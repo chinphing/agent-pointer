@@ -1655,7 +1655,7 @@ mod builtin_agent_tests {
         for skill in [
             "find-skills",
             "dev-env-setup",
-            "skill-creator",
+            "skill-manager",
             "pointer-manager",
             "docx",
             "xlsx",
@@ -1697,7 +1697,7 @@ mod builtin_agent_tests {
                 "find-skills".to_string(),
                 "pdf".to_string(),
                 "pptx".to_string(),
-                "skill-creator".to_string(),
+                "skill-manager".to_string(),
                 "xlsx".to_string()
             ]
         );
@@ -1733,8 +1733,8 @@ mod builtin_agent_tests {
                 .def
                 .default_skill_ids
                 .iter()
-                .any(|id| id == "skill-creator"),
-            "coder defaultSkillIds should include skill-creator"
+                .any(|id| id == "skill-manager"),
+            "coder defaultSkillIds should include skill-manager"
         );
         assert!(
             agent
@@ -1750,8 +1750,8 @@ mod builtin_agent_tests {
                 .access_policy
                 .allow_skills
                 .iter()
-                .any(|id| id == "skill-creator"),
-            "coder allowSkills should include skill-creator"
+                .any(|id| id == "skill-manager"),
+            "coder allowSkills should include skill-manager"
         );
         assert!(
             agent
@@ -1802,7 +1802,7 @@ mod builtin_agent_tests {
                 "find-skills".to_string(),
                 "pdf".to_string(),
                 "pptx".to_string(),
-                "skill-creator".to_string(),
+                "skill-manager".to_string(),
                 "xlsx".to_string()
             ]
         );

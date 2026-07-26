@@ -232,7 +232,9 @@ async function persistProject(project: Project) {
     })
     chat.projects = (chat.projects
       .map(p => p.id === updated.id ? updated : p)
-      .sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.updatedAt - a.updatedAt))
+      .sort((a, b) => Number(b.isPinned) - Number(a.isPinned)
+        || b.lastActivityAt - a.lastActivityAt
+        || b.id.localeCompare(a.id)))
     await chat.refreshProjects()
   } catch (err) {
     projectError.value = String(err)
@@ -268,13 +270,13 @@ async function loadMoreProjects() {
   loadingMoreProjects.value = true
   try {
     const page = await loadProjects(
-      lastProject ? { updatedAt: lastProject.updatedAt, id: lastProject.id } : null,
+      lastProject ? { lastActivityAt: lastProject.lastActivityAt, id: lastProject.id } : null,
       5
     )
     const knownIds = new Set(chat.projects.map(project => project.id))
     chat.projects = [...chat.projects, ...page.items.filter(project => !knownIds.has(project.id))]
       .sort((a, b) => Number(b.isPinned) - Number(a.isPinned)
-        || b.updatedAt - a.updatedAt
+        || b.lastActivityAt - a.lastActivityAt
         || b.id.localeCompare(a.id))
     hasMoreProjects.value = page.nextCursor !== null
   } catch (err) {

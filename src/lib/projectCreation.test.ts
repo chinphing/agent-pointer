@@ -14,7 +14,8 @@ const project: Project = {
   isPinned: false,
   isArchived: false,
   createdAt: 1,
-  updatedAt: 1
+  updatedAt: 1,
+  lastActivityAt: 1
 }
 
 function result(reusedExisting: boolean): ProjectCreationResult {

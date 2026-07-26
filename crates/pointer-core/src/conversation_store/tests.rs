@@ -62,7 +62,7 @@ mod tests {
 
         let sidebar = store.load_sidebar_projects().unwrap();
         let cursor = sidebar.last().map(|project| crate::models::ProjectCursor {
-            updated_at: project.updated_at,
+            last_activity_at: project.last_activity_at,
             id: project.id.clone(),
         });
         let next_page = store.load_projects(cursor, 5).unwrap();
@@ -74,6 +74,52 @@ mod tests {
         assert!(next_page.items[1..]
             .iter()
             .all(|project| !project.is_pinned));
+    }
+
+    #[test]
+    fn projects_sort_by_pin_then_latest_conversation_activity() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let older = store
+            .create_project("Older", "/workspace/older")
+            .unwrap()
+            .project;
+        let newer = store
+            .create_project("Newer", "/workspace/newer")
+            .unwrap()
+            .project;
+        let mut older_conversation = sample_conv("older-conv", "Older", "older");
+        older_conversation.project_id = Some(older.id.clone());
+        older_conversation.workspace_root = older.workspace_root.clone();
+        older_conversation.updated_at = 100;
+        let mut newer_conversation = sample_conv("newer-conv", "Newer", "newer");
+        newer_conversation.project_id = Some(newer.id.clone());
+        newer_conversation.workspace_root = newer.workspace_root.clone();
+        newer_conversation.updated_at = 200;
+        store
+            .sync_conversations(&[older_conversation, newer_conversation])
+            .unwrap();
+
+        let projects = store.load_projects(None, 20).unwrap().items;
+        let older_index = projects.iter().position(|p| p.id == older.id).unwrap();
+        let newer_index = projects.iter().position(|p| p.id == newer.id).unwrap();
+        assert!(newer_index < older_index);
+        assert_eq!(
+            store
+                .load_project(&newer.id)
+                .unwrap()
+                .unwrap()
+                .last_activity_at,
+            200
+        );
+
+        store
+            .update_project(&older.id, None, None, Some(true), None)
+            .unwrap();
+        let projects = store.load_projects(None, 20).unwrap().items;
+        let older_index = projects.iter().position(|p| p.id == older.id).unwrap();
+        let newer_index = projects.iter().position(|p| p.id == newer.id).unwrap();
+        assert!(older_index < newer_index);
     }
 
     #[test]

@@ -514,6 +514,7 @@ pub fn run() {
             commands::load_conversation_metas,
             commands::load_projects,
             commands::load_sidebar_projects,
+            commands::load_project,
             commands::load_project_conversation_metas,
             commands::create_project,
             commands::create_directory,

@@ -12,6 +12,7 @@ import type {
   ConversationMetaPage,
   Project,
   ProjectCreationResult,
+  ProjectCursor,
   ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
@@ -156,8 +157,9 @@ export interface RuntimeApi {
   loadConversations(): Promise<Conversation[]>
   /** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
   loadConversationMetas(cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
-  loadProjects(cursor: ConversationCursor | null, limit?: number): Promise<ProjectPage>
+  loadProjects(cursor: ProjectCursor | null, limit?: number): Promise<ProjectPage>
   loadSidebarProjects(): Promise<Project[]>
+  loadProject(projectId: string): Promise<Project | null>
   loadProjectConversationMetas(projectId: string, cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
   createProject(name: string, workspaceRoot: string): Promise<ProjectCreationResult>
   createDirectory(parentPath: string, name: string): Promise<string>
@@ -304,6 +306,7 @@ export const loadConversations = api.loadConversations
 export const loadConversationMetas = api.loadConversationMetas
 export const loadProjects = api.loadProjects
 export const loadSidebarProjects = api.loadSidebarProjects
+export const loadProject = api.loadProject
 export const loadProjectConversationMetas = api.loadProjectConversationMetas
 export const createProject = api.createProject
 export const createDirectory = api.createDirectory

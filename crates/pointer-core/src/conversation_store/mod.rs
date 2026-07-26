@@ -101,6 +101,11 @@ impl ConversationStore {
         persist::load_sidebar_projects_from_conn(&conn)
     }
 
+    pub fn load_project(&self, id: &str) -> Result<Option<Project>> {
+        let conn = self.db.conn.lock();
+        persist::load_project_from_conn(&conn, id)
+    }
+
     pub fn load_project_metas(
         &self,
         project_id: &str,
@@ -134,8 +139,9 @@ impl ConversationStore {
             is_archived: false,
             created_at: now,
             updated_at: now,
+            last_activity_at: now,
         };
-        let result = self.db.execute_write(|conn| {
+        let mut result = self.db.execute_write(|conn| {
             let existing = conn.query_row(
                 "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
                         created_at_ms, updated_at_ms
@@ -157,6 +163,10 @@ impl ConversationStore {
             Ok(ProjectCreationResult { project: project.clone(), reused_existing: false })
         })?;
         if result.reused_existing {
+            let conn = self.db.conn.lock();
+            if let Some(project) = persist::load_project_from_conn(&conn, &result.project.id)? {
+                result.project = project;
+            }
             log::info!(
                 "conversation_store: reused project id={}",
                 result.project.id
@@ -213,16 +223,8 @@ impl ConversationStore {
             Ok(())
         })?;
         let conn = self.db.conn.lock();
-        conn.query_row(
-            "SELECT id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms
-             FROM projects WHERE id = ?1",
-            params![id],
-            |row| Ok(Project {
-                id: row.get(0)?, name: row.get(1)?, workspace_root: row.get(2)?,
-                is_default: row.get::<_, i64>(3)? != 0, is_pinned: row.get::<_, i64>(4)? != 0,
-                is_archived: row.get::<_, i64>(5)? != 0, created_at: row.get(6)?, updated_at: row.get(7)?,
-            }),
-        ).map_err(Into::into)
+        persist::load_project_from_conn(&conn, id)?
+            .ok_or_else(|| anyhow::anyhow!("project not found"))
     }
 
     pub fn delete_project(&self, id: &str) -> Result<()> {
@@ -1123,6 +1125,7 @@ fn reconcile_default_project_from_sandbox(conn: &Connection) -> Result<()> {
 }
 
 fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+    let updated_at = row.get(7)?;
     Ok(Project {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -1131,7 +1134,8 @@ fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         is_pinned: row.get::<_, i64>(4)? != 0,
         is_archived: row.get::<_, i64>(5)? != 0,
         created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        updated_at,
+        last_activity_at: updated_at,
     })
 }
 

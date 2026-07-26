@@ -10,6 +10,7 @@ import {
   saveChatAttachment,
   getDispatcherQueueSnapshot,
   loadSidebarProjects,
+  loadProject as loadProjectApi,
   loadProjectConversationMetas,
   deleteProject as deleteProjectApi
 } from '../lib/api'
@@ -175,6 +176,9 @@ export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
   /** Persisted project sidebar, independent of the loaded recent-conversation page. */
   const projects = ref<Project[]>([])
+  /** Project details loaded for active conversations without changing sidebar membership. */
+  const projectDetails = ref<Record<string, Project>>({})
+  const projectLoads = new Map<string, Promise<Project | null>>()
   const currentId = ref<string | null>(null)
   const runByConversation = ref<Record<string, ConversationRunState>>({})
 
@@ -808,6 +812,7 @@ export const useChatStore = defineStore('chat', () => {
     } else {
       currentId.value = shells[0]!.id
       touchConversation(shells[0]!.id)
+      await ensureConversationProjectLoaded(shells[0]!)
       await syncRunStateFromDispatcherQueue()
       await ensureMessagesLoaded(shells[0]!.id)
       loadActiveComposerDraft(currentId.value)
@@ -820,13 +825,70 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function projectById(projectId?: string): Project | undefined {
+    const id = projectId?.trim()
+    if (!id) return undefined
+    return projects.value.find(project => project.id === id) ?? projectDetails.value[id]
+  }
+
+  function compareProjectsByActivity(a: Project, b: Project): number {
+    return Number(b.isPinned) - Number(a.isPinned)
+      || b.lastActivityAt - a.lastActivityAt
+      || b.id.localeCompare(a.id)
+  }
+
+  function syncProjectActivityInMemory(conv: Conversation): void {
+    const projectId = conv.projectId?.trim()
+    if (!projectId) return
+    const sidebarProject = projects.value.find(project => project.id === projectId)
+    if (sidebarProject && conv.updatedAt > sidebarProject.lastActivityAt) {
+      sidebarProject.lastActivityAt = conv.updatedAt
+      projects.value = [...projects.value].sort(compareProjectsByActivity)
+    }
+    const detail = projectDetails.value[projectId]
+    if (detail && conv.updatedAt > detail.lastActivityAt) {
+      projectDetails.value = {
+        ...projectDetails.value,
+        [projectId]: { ...detail, lastActivityAt: conv.updatedAt }
+      }
+    }
+  }
+
+  async function ensureProjectLoaded(projectId: string): Promise<Project | null> {
+    const id = projectId.trim()
+    if (!id) return null
+    const existing = projectById(id)
+    if (existing) return existing
+    const inFlight = projectLoads.get(id)
+    if (inFlight) return inFlight
+
+    const load = loadProjectApi(id)
+      .then(project => {
+        if (!project) {
+          console.warn('[chat] conversation project is unavailable', { projectId: id })
+          return null
+        }
+        projectDetails.value = { ...projectDetails.value, [id]: project }
+        return project
+      })
+      .catch(err => {
+        console.warn('[chat] load conversation project failed', { projectId: id, error: err })
+        return null
+      })
+      .finally(() => projectLoads.delete(id))
+    projectLoads.set(id, load)
+    return load
+  }
+
+  async function ensureConversationProjectLoaded(conv: Conversation): Promise<void> {
+    if (!conv.projectId) return
+    const project = await ensureProjectLoaded(conv.projectId)
+    if (project) syncConversationProjectWorkspace(conv)
+  }
+
   async function refreshProjects() {
     try {
-      projects.value = (await loadSidebarProjects()).sort((a, b) =>
-        Number(b.isPinned) - Number(a.isPinned)
-        || b.updatedAt - a.updatedAt
-        || b.id.localeCompare(a.id)
-      )
+      projects.value = (await loadSidebarProjects()).sort(compareProjectsByActivity)
     } catch (err) {
       console.error('[chat] loadSidebarProjects failed', err)
       projects.value = []
@@ -839,6 +901,9 @@ export const useChatStore = defineStore('chat', () => {
     if (!id) return
 
     await deleteProjectApi(id)
+    const remainingProjectDetails = { ...projectDetails.value }
+    delete remainingProjectDetails[id]
+    projectDetails.value = remainingProjectDetails
     await refreshProjects()
 
     const deletedCurrent = current.value?.projectId === id
@@ -1017,6 +1082,8 @@ export const useChatStore = defineStore('chat', () => {
 
   function markMetaDirty(id: string) {
     dirtyMetaIds.value.add(id)
+    const conv = conversations.value.find(conversation => conversation.id === id)
+    if (conv) syncProjectActivityInMemory(conv)
     scheduleMetaFlush()
   }
 
@@ -1126,7 +1193,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function syncConversationProjectWorkspace(conv: Conversation): void {
     if (!conv.projectId || conv.workspaceUserSet || conv.workspaceInheritDisabled) return
-    const project = projects.value.find(p => p.id === conv.projectId)
+    const project = projectById(conv.projectId)
     const workspaceRoot = project?.workspaceRoot?.trim()
     if (!workspaceRoot || conv.workspaceRoot?.trim() === workspaceRoot) return
     conv.workspaceRoot = workspaceRoot
@@ -1146,7 +1213,10 @@ export const useChatStore = defineStore('chat', () => {
     if (!conv && !options?.ensureShell) return null
     selectConversation(id, options)
     const opened = conversations.value.find(c => c.id === id) ?? null
-    if (opened) syncConversationProjectWorkspace(opened)
+    if (opened) {
+      syncConversationProjectWorkspace(opened)
+      void ensureConversationProjectLoaded(opened)
+    }
     return opened
   }
 
@@ -2012,6 +2082,8 @@ export const useChatStore = defineStore('chat', () => {
   function resetForPlatformLogout() {
     clearStreamDeltaBuffers()
     conversations.value = []
+    projectDetails.value = {}
+    projectLoads.clear()
     currentId.value = null
     nextCursor.value = null
     hydratedIds.value = new Set()
@@ -2033,7 +2105,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
-    init, refreshProjects, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
+    init, refreshProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     pendingFocusMessage, clearPendingFocusMessage,

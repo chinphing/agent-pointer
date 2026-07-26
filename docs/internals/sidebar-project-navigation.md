@@ -29,7 +29,10 @@ outside project navigation.
 - Expanded projects query only their own conversations, with the same
   cursor-based paging model as recent conversations.
 - Sidebar projects are queried separately from recent conversations. Initial
-  load returns at most five projects total, with pinned projects first.
+  load returns at most five projects total. Pinned projects remain first;
+  projects with the same pin state are ordered by their newest conversation
+  activity, then by id for stable pagination. Empty projects use creation time
+  as their activity fallback.
   Loading more uses cursor pagination across both pinned and unpinned projects.
   The project list viewport remains five project rows tall and scrolls
   internally after more projects or nested conversations are loaded.
@@ -38,6 +41,9 @@ outside project navigation.
 - **Scheduled tasks** opens the existing Automation settings section;
   **Skills** opens the skill manager; **Connections** opens channel settings.
 - The conversation list remains global and time ordered below the project list.
+- Opening a recent conversation whose project is outside the loaded sidebar
+  fetches that project by id for Composer context only. This lookup does not
+  insert or highlight the project in the sidebar.
 - Conversation search is collapsed by default on the right side of the
   **Recent conversations** header, matching project search behavior.
 - The **Projects** and **Recent conversations** sections can each be collapsed

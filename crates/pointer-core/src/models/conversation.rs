@@ -19,6 +19,9 @@ pub struct Project {
     pub created_at: i64,
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
+    /// Newest owned conversation activity, or `created_at` when none exists.
+    #[serde(rename = "lastActivityAt")]
+    pub last_activity_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,8 +40,8 @@ pub struct ProjectPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectCursor {
-    #[serde(rename = "updatedAt")]
-    pub updated_at: i64,
+    #[serde(rename = "lastActivityAt")]
+    pub last_activity_at: i64,
     pub id: String,
 }
 

@@ -391,11 +391,19 @@ export interface Project {
   isArchived: boolean
   createdAt: number
   updatedAt: number
+  /** Newest owned conversation activity, or createdAt when the project is empty. */
+  lastActivityAt: number
 }
 
 export interface ProjectPage {
   items: Project[]
-  nextCursor: ConversationCursor | null
+  nextCursor: ProjectCursor | null
+}
+
+/** Cursor for project paging (sort: pinned DESC, lastActivityAt DESC, id DESC). */
+export interface ProjectCursor {
+  lastActivityAt: number
+  id: string
 }
 
 /** Cursor for paginated conversation-meta list (sort: updatedAt DESC, id DESC). */

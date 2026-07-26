@@ -113,7 +113,7 @@ pub fn load_project_page_from_conn(
     let limit = limit.clamp(1, 100);
     let (cursor_at, cursor_id) = cursor
         .as_ref()
-        .map(|c| (Some(c.updated_at), Some(c.id.as_str())))
+        .map(|c| (Some(c.last_activity_at), Some(c.id.as_str())))
         .unwrap_or((None, None));
     let cursor_pinned = match cursor.as_ref() {
         Some(cursor) => conn
@@ -127,15 +127,29 @@ pub fn load_project_page_from_conn(
         None => 0,
     };
     let mut stmt = conn.prepare(
-        "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
-                created_at_ms, updated_at_ms
-         FROM projects
-         WHERE is_archived = 0
+        "WITH project_activity AS (
+           SELECT p.*,
+                  COALESCE(
+                    (SELECT c.updated_at_ms
+                     FROM conversations c
+                     WHERE c.project_id = p.id
+                     ORDER BY c.updated_at_ms DESC
+                     LIMIT 1),
+                    p.created_at_ms
+                  ) AS last_activity_at_ms
+           FROM projects p
+           WHERE p.is_archived = 0
+         )
+         SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
+                created_at_ms, updated_at_ms, last_activity_at_ms
+         FROM project_activity
+         WHERE 1 = 1
            AND (?1 IS NULL
              OR is_pinned < ?3
              OR (is_pinned = ?3
-               AND (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2))))
-         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC
+               AND (last_activity_at_ms < ?1
+                 OR (last_activity_at_ms = ?1 AND id < ?2))))
+         ORDER BY is_pinned DESC, last_activity_at_ms DESC, id DESC
          LIMIT ?4",
     )?;
     let rows = stmt.query_map(
@@ -149,7 +163,7 @@ pub fn load_project_page_from_conn(
     }
     let next_cursor = if has_more {
         items.last().map(|p| ProjectCursor {
-            updated_at: p.updated_at,
+            last_activity_at: p.last_activity_at,
             id: p.id.clone(),
         })
     } else {
@@ -160,11 +174,19 @@ pub fn load_project_page_from_conn(
 
 pub fn load_sidebar_projects_from_conn(conn: &Connection) -> Result<Vec<Project>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
-                created_at_ms, updated_at_ms
-         FROM projects
-         WHERE is_archived = 0
-         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC
+        "SELECT p.id, p.name, p.workspace_root, p.is_default, p.is_pinned, p.is_archived,
+                p.created_at_ms, p.updated_at_ms,
+                COALESCE(
+                  (SELECT c.updated_at_ms
+                   FROM conversations c
+                   WHERE c.project_id = p.id
+                   ORDER BY c.updated_at_ms DESC
+                   LIMIT 1),
+                  p.created_at_ms
+                ) AS last_activity_at_ms
+         FROM projects p
+         WHERE p.is_archived = 0
+         ORDER BY p.is_pinned DESC, last_activity_at_ms DESC, p.id DESC
          LIMIT 5",
     )?;
     let rows = stmt.query_map([], project_from_row)?;
@@ -172,7 +194,29 @@ pub fn load_sidebar_projects_from_conn(conn: &Connection) -> Result<Vec<Project>
         .map_err(Into::into)
 }
 
+pub fn load_project_from_conn(conn: &Connection, id: &str) -> Result<Option<Project>> {
+    conn.query_row(
+        "SELECT p.id, p.name, p.workspace_root, p.is_default, p.is_pinned, p.is_archived,
+                p.created_at_ms, p.updated_at_ms,
+                COALESCE(
+                  (SELECT c.updated_at_ms
+                   FROM conversations c
+                   WHERE c.project_id = p.id
+                   ORDER BY c.updated_at_ms DESC
+                   LIMIT 1),
+                  p.created_at_ms
+                ) AS last_activity_at_ms
+         FROM projects p
+         WHERE p.id = ?1",
+        params![id],
+        project_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+    let updated_at = row.get(7)?;
     Ok(Project {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -181,7 +225,8 @@ fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         is_pinned: row.get::<_, i64>(4)? != 0,
         is_archived: row.get::<_, i64>(5)? != 0,
         created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        updated_at,
+        last_activity_at: row.get(8).unwrap_or(updated_at),
     })
 }
 

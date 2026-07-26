@@ -151,9 +151,9 @@ const isMacDesktop = computed(
 
 const showWorkspacePicker = computed(() => true)
 const projectLocked = computed(() => !!chat.current?.projectId || (chat.current?.messages.length ?? 0) > 0)
-const selectedProject = computed(() => chat.projects.find(
-  p => p.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)
-))
+const selectedProject = computed(() =>
+  chat.projectById(chat.current?.projectId ?? chat.current?.pendingProjectId)
+)
 const projectPickerOpen = ref(false)
 const projectPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const projectPickerRef = ref<HTMLElement | null>(null)

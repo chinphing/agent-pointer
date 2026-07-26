@@ -776,6 +776,10 @@ pub fn load_sidebar_projects() -> Result<Vec<Project>> {
     crate::conversation_store::global_store()?.load_sidebar_projects()
 }
 
+pub fn load_project(id: &str) -> Result<Option<Project>> {
+    crate::conversation_store::global_store()?.load_project(id)
+}
+
 pub fn load_project_conversation_metas(
     project_id: &str,
     cursor: Option<(i64, String)>,

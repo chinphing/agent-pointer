@@ -11,6 +11,7 @@ import type {
   ConversationMetaPage,
   Project,
   ProjectCreationResult,
+  ProjectCursor,
   ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
@@ -468,10 +469,10 @@ export async function loadConversationMetas(
   return { items, nextCursor }
 }
 
-export async function loadProjects(cursor: ConversationCursor | null, limit = 20): Promise<ProjectPage> {
+export async function loadProjects(cursor: ProjectCursor | null, limit = 20): Promise<ProjectPage> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (cursor) {
-    params.set('cursor_updated_at', String(cursor.updatedAt))
+    params.set('cursor_last_activity_at', String(cursor.lastActivityAt))
     params.set('cursor_id', cursor.id)
   }
   return await request<ProjectPage>(`/api/projects?${params}`)
@@ -479,6 +480,10 @@ export async function loadProjects(cursor: ConversationCursor | null, limit = 20
 
 export async function loadSidebarProjects(): Promise<Project[]> {
   return await request<Project[]>('/api/projects/sidebar')
+}
+
+export async function loadProject(projectId: string): Promise<Project | null> {
+  return await request<Project | null>(`/api/projects/${encodeURIComponent(projectId)}`)
 }
 
 export async function loadProjectConversationMetas(

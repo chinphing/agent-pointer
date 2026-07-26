@@ -13,6 +13,7 @@ import type {
   ConversationMetaPage,
   Project,
   ProjectCreationResult,
+  ProjectCursor,
   ProjectPage,
   ConversationSearchHit,
   DebugSessionSettings,
@@ -320,14 +321,18 @@ export async function loadConversationMetas(
   return { items, nextCursor }
 }
 
-export async function loadProjects(cursor: ConversationCursor | null, limit = 20): Promise<ProjectPage> {
+export async function loadProjects(cursor: ProjectCursor | null, limit = 20): Promise<ProjectPage> {
   return await invoke<ProjectPage>('load_projects', {
-    cursorUpdatedAt: cursor?.updatedAt ?? null, cursorId: cursor?.id ?? null, limit
+    cursorLastActivityAt: cursor?.lastActivityAt ?? null, cursorId: cursor?.id ?? null, limit
   })
 }
 
 export async function loadSidebarProjects(): Promise<Project[]> {
   return await invoke<Project[]>('load_sidebar_projects')
+}
+
+export async function loadProject(projectId: string): Promise<Project | null> {
+  return await invoke<Project | null>('load_project', { projectId })
 }
 
 export async function loadProjectConversationMetas(

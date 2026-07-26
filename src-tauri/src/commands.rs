@@ -876,12 +876,15 @@ pub fn load_conversation_metas(
 
 #[tauri::command]
 pub fn load_projects(
-    cursor_updated_at: Option<i64>,
+    cursor_last_activity_at: Option<i64>,
     cursor_id: Option<String>,
     limit: Option<i64>,
 ) -> Result<ProjectPage, String> {
-    let cursor = match (cursor_updated_at, cursor_id) {
-        (Some(updated_at), Some(id)) => Some(ProjectCursor { updated_at, id }),
+    let cursor = match (cursor_last_activity_at, cursor_id) {
+        (Some(last_activity_at), Some(id)) => Some(ProjectCursor {
+            last_activity_at,
+            id,
+        }),
         (None, None) => None,
         _ => return Err("project cursor fields must both be set or omitted".into()),
     };
@@ -891,6 +894,11 @@ pub fn load_projects(
 #[tauri::command]
 pub fn load_sidebar_projects() -> Result<Vec<Project>, String> {
     storage::load_sidebar_projects().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_project(project_id: String) -> Result<Option<Project>, String> {
+    storage::load_project(&project_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

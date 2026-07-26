@@ -556,7 +556,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/projects", get(load_projects).post(create_project))
         .route(
             "/api/projects/:project_id",
-            axum::routing::patch(update_project).delete(delete_project),
+            get(load_project)
+                .patch(update_project)
+                .delete(delete_project),
         )
         .route(
             "/api/projects/:project_id/conversations",
@@ -1470,7 +1472,7 @@ async fn load_conversation_metas(
 
 #[derive(Deserialize)]
 struct ProjectsQuery {
-    cursor_updated_at: Option<i64>,
+    cursor_last_activity_at: Option<i64>,
     cursor_id: Option<String>,
     limit: Option<i64>,
 }
@@ -1487,10 +1489,11 @@ async fn load_projects(
     Query(q): Query<ProjectsQuery>,
 ) -> Result<Json<pointer_core::models::ProjectPage>, ApiError> {
     require_platform_access(&state)?;
-    let cursor = match (q.cursor_updated_at, q.cursor_id) {
-        (Some(updated_at), Some(id)) => {
-            Some(pointer_core::models::ProjectCursor { updated_at, id })
-        }
+    let cursor = match (q.cursor_last_activity_at, q.cursor_id) {
+        (Some(last_activity_at), Some(id)) => Some(pointer_core::models::ProjectCursor {
+            last_activity_at,
+            id,
+        }),
         (None, None) => None,
         _ => {
             return Err(ApiError::from(anyhow::anyhow!(
@@ -1516,6 +1519,14 @@ async fn create_project(
         &input.name,
         &input.workspace_root,
     )?))
+}
+
+async fn load_project(
+    State(state): State<ServerState>,
+    Path(project_id): Path<String>,
+) -> Result<Json<Option<pointer_core::models::Project>>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(storage::load_project(&project_id)?))
 }
 
 #[derive(Deserialize)]

@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const loadSidebarProjects = vi.hoisted(() => vi.fn())
+const loadProject = vi.hoisted(() => vi.fn())
 const deleteProject = vi.hoisted(() => vi.fn())
 const saveConversationMeta = vi.hoisted(() => vi.fn())
 const sendChat = vi.hoisted(() => vi.fn())
@@ -15,6 +16,7 @@ vi.mock('../../lib/api', async importOriginal => {
   return {
     ...actual,
     loadSidebarProjects,
+    loadProject,
     deleteProject,
     saveConversationMeta,
     sendChat,
@@ -34,7 +36,8 @@ const project = (id: string, workspaceRoot: string, isDefault = false): Project 
   isPinned: false,
   isArchived: false,
   createdAt: 1,
-  updatedAt: 1
+  updatedAt: 1,
+  lastActivityAt: 1
 })
 
 describe('chat project context flow', () => {
@@ -42,6 +45,7 @@ describe('chat project context flow', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     deleteProject.mockResolvedValue(undefined)
+    loadProject.mockResolvedValue(null)
     saveConversationMeta.mockResolvedValue(undefined)
     sendChat.mockResolvedValue(undefined)
     getPlatformSession.mockResolvedValue({ logged_in: true })
@@ -70,6 +74,27 @@ describe('chat project context flow', () => {
 
     expect(conversation.projectId).toBeUndefined()
     expect(conversation.workspaceRoot).toBe('')
+  })
+
+  it('loads a hidden conversation project without adding it to the sidebar', async () => {
+    const store = useChatStore()
+    const visible = project('visible', '/workspace/visible')
+    const hidden = project('hidden', '/workspace/hidden')
+    store.projects = [visible]
+    loadProject.mockResolvedValueOnce(hidden)
+    const conversation = store.newConversation(hidden.id, '/workspace/stale')
+
+    store.openConversation(conversation.id)
+    await vi.waitFor(() => expect(store.projectById(hidden.id)).toMatchObject({
+      id: hidden.id,
+      name: hidden.name,
+      workspaceRoot: hidden.workspaceRoot
+    }))
+
+    expect(loadProject).toHaveBeenCalledWith(hidden.id)
+    expect(conversation.workspaceRoot).toBe(hidden.workspaceRoot)
+    expect(store.projectById(hidden.id)?.lastActivityAt).toBe(conversation.updatedAt)
+    expect(store.projects).toEqual([visible])
   })
 
   it('creates a fresh visible blank for each global new-conversation action', () => {

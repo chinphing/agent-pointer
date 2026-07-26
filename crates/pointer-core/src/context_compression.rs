@@ -495,17 +495,6 @@ fn build_summary_system_prompt(ui: &CompressionUiContext, keep_users: u32) -> St
     prompt
 }
 
-const SUMMARY_HEADINGS: [&str; 8] = [
-    "## Goals & constraints",
-    "## Decisions",
-    "## Code & files",
-    "## Commands & verification",
-    "## Tool evidence",
-    "## Sub-agent / explore handoffs",
-    "## Open issues & TODOs",
-    "## Unknown / truncated / not explicit in source",
-];
-
 fn validate_summary_output(out: &crate::provider::ChatOnceOutput) -> Result<String, String> {
     if let Some(reason) = out.finish_reason.as_deref() {
         if !reason.eq_ignore_ascii_case("stop") {
@@ -515,13 +504,6 @@ fn validate_summary_output(out: &crate::provider::ChatOnceOutput) -> Result<Stri
     let text = out.text.trim();
     if text.is_empty() {
         return Err("empty output".into());
-    }
-    let mut cursor = 0usize;
-    for heading in SUMMARY_HEADINGS {
-        let Some(offset) = text[cursor..].find(heading) else {
-            return Err(format!("missing heading {heading:?}"));
-        };
-        cursor += offset + heading.len();
     }
     Ok(text.to_string())
 }
@@ -1269,27 +1251,23 @@ mod tests {
     }
 
     #[test]
-    fn summary_validation_requires_complete_ordered_sections() {
-        let complete = SUMMARY_HEADINGS
-            .iter()
-            .map(|heading| format!("{heading}\n(none)"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(validate_summary_output(&summary_output(complete, Some("stop"))).is_ok());
+    fn summary_validation_accepts_nonempty_unstructured_output() {
+        let summary = "用户目标：修复压缩失败。\n当前状态：继续处理。";
+        assert!(validate_summary_output(&summary_output(summary.into(), Some("stop"))).is_ok());
+    }
 
-        let incomplete = "## Goals & constraints\n- task stopped mid-sentence";
-        assert!(validate_summary_output(&summary_output(incomplete.into(), Some("stop"))).is_err());
+    #[test]
+    fn summary_validation_rejects_empty_output() {
+        let error = validate_summary_output(&summary_output("  \n".into(), Some("stop")))
+            .expect_err("empty output must not be accepted");
+        assert_eq!(error, "empty output");
     }
 
     #[test]
     fn summary_validation_rejects_length_finish_reason() {
-        let complete = SUMMARY_HEADINGS
-            .iter()
-            .map(|heading| format!("{heading}\n(none)"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let error = validate_summary_output(&summary_output(complete, Some("length")))
-            .expect_err("length output must not be accepted");
+        let error =
+            validate_summary_output(&summary_output("partial summary".into(), Some("length")))
+                .expect_err("length output must not be accepted");
         assert!(error.contains("finish_reason=length"));
     }
 }

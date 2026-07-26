@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   clearStreamDeltaBuffers,
+  clearToolArgsDeltaBufferForTool,
   enqueueContentDelta,
+  enqueueToolArgsDelta,
   flushContentDeltaBuffer,
-  setContentDeltaApplyHandler
+  setContentDeltaApplyHandler,
+  setToolArgsDeltaApplyHandler
 } from './reasoningDeltaBatch'
 
 afterEach(() => {
   clearStreamDeltaBuffers()
   setContentDeltaApplyHandler(null)
+  setToolArgsDeltaApplyHandler(null)
   vi.useRealTimers()
 })
 
@@ -42,5 +46,19 @@ describe('content delta batching', () => {
     expect(apply).not.toHaveBeenCalledWith('m2', undefined, undefined, 'two')
     vi.advanceTimersByTime(50)
     expect(apply).toHaveBeenCalledWith('m2', undefined, undefined, 'two')
+  })
+})
+
+describe('tool args delta batching', () => {
+  it('discards pending args when an authoritative snapshot arrives', () => {
+    vi.useFakeTimers()
+    const apply = vi.fn()
+    setToolArgsDeltaApplyHandler(apply)
+
+    enqueueToolArgsDelta('m1', 'tc1', '}')
+    clearToolArgsDeltaBufferForTool('m1', 'tc1')
+    vi.advanceTimersByTime(100)
+
+    expect(apply).not.toHaveBeenCalled()
   })
 })

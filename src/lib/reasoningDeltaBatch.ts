@@ -323,6 +323,27 @@ export function clearToolArgsDeltaBuffer(): void {
   clearToolDeltaBuffer(toolArgsBuffer)
 }
 
+/**
+ * Drop pending batched args for one tool call without applying them.
+ * Needed when a later `tool_call_start` carries the authoritative full
+ * `arguments` string — otherwise a deferred flush would append chunks that
+ * were already included in that snapshot (duplicate / trailing junk).
+ */
+export function clearToolArgsDeltaBufferForTool(
+  messageId: string,
+  toolCallId: string,
+  traceId?: string,
+  scopedMessageId?: string
+): void {
+  const key = toolBufferKey(messageId, toolCallId, traceId, scopedMessageId)
+  const timer = toolArgsTimers.get(key)
+  if (timer) {
+    clearTimeout(timer)
+    toolArgsTimers.delete(key)
+  }
+  toolArgsPending.delete(key)
+}
+
 export function clearToolOutputDeltaBuffer(): void {
   clearToolDeltaBuffer(toolOutputBuffer)
 }

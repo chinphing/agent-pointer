@@ -219,7 +219,7 @@ pub(super) async fn drain_provider_events(
                 );
             }
             ProviderEvent::JsonToolStreamingReady { tool_calls, .. } => {
-                emit_deduped_tool_starts(
+                emit_tool_starts(
                     stream,
                     message_id,
                     state,
@@ -227,6 +227,7 @@ pub(super) async fn drain_provider_events(
                     &mut streamed_tool_call_ids,
                     sub_trace_id,
                     sub_scoped_message_id,
+                    false,
                 );
             }
             ProviderEvent::AssistantJsonPartial {
@@ -262,7 +263,10 @@ pub(super) async fn drain_provider_events(
                 buffers.xml_thoughts = thoughts;
                 let model_report = crate::llm_token_stats::model_name_for_usage_report(&model);
                 llm_recorder.record(usage.as_ref(), model_report);
-                emit_deduped_tool_starts(
+                // Always refresh starts on Finish so the UI replaces any polluted
+                // streamed `arguments` (e.g. trailing `}`) with the authoritative
+                // final payload used for tool execution.
+                emit_tool_starts(
                     stream,
                     message_id,
                     state,
@@ -270,6 +274,7 @@ pub(super) async fn drain_provider_events(
                     &mut streamed_tool_call_ids,
                     sub_trace_id,
                     sub_scoped_message_id,
+                    true,
                 );
                 buffers.final_tool_calls = tool_calls;
             }
@@ -277,7 +282,7 @@ pub(super) async fn drain_provider_events(
     }
 }
 
-fn emit_deduped_tool_starts(
+fn emit_tool_starts(
     stream: &StreamTx,
     message_id: &str,
     state: &AppState,
@@ -285,37 +290,40 @@ fn emit_deduped_tool_starts(
     streamed_ids: &mut HashSet<String>,
     trace_id: Option<&str>,
     scoped_message_id: Option<&str>,
+    refresh_existing: bool,
 ) {
     for tc in tool_calls {
-        if streamed_ids.insert(tc.id.clone()) {
-            let mut t = tc.clone();
-            let args_v = parse_tool_call_arguments(&t.arguments);
-            log_tool_call_parsed_block(
-                "finalized",
-                message_id,
-                trace_id,
-                &t.id,
-                &t.name,
-                Some(&t.arguments),
-            );
-            let display = state.tools.format_display(&t.name, &args_v);
-            let (display_label, display_summary) = tool_display_stream_fields(&display);
-            t.display_label = display_label;
-            t.display_summary = display_summary;
-            t.risk_level = state
-                .tools
-                .tool_risk_level_for_invocation(&t.name, &args_v)
-                .or(Some("low".into()));
-            emit(
-                stream,
-                StreamEvent::ToolCallStart {
-                    message_id: message_id.to_string(),
-                    tool_call: t,
-                    trace_id: trace_id_opt(trace_id),
-                    scoped_message_id: trace_id_opt(scoped_message_id),
-                },
-            );
+        let is_new = streamed_ids.insert(tc.id.clone());
+        if !is_new && !refresh_existing {
+            continue;
         }
+        let mut t = tc.clone();
+        let args_v = parse_tool_call_arguments(&t.arguments);
+        log_tool_call_parsed_block(
+            if is_new { "finalized" } else { "args_refresh" },
+            message_id,
+            trace_id,
+            &t.id,
+            &t.name,
+            Some(&t.arguments),
+        );
+        let display = state.tools.format_display(&t.name, &args_v);
+        let (display_label, display_summary) = tool_display_stream_fields(&display);
+        t.display_label = display_label;
+        t.display_summary = display_summary;
+        t.risk_level = state
+            .tools
+            .tool_risk_level_for_invocation(&t.name, &args_v)
+            .or(Some("low".into()));
+        emit(
+            stream,
+            StreamEvent::ToolCallStart {
+                message_id: message_id.to_string(),
+                tool_call: t,
+                trace_id: trace_id_opt(trace_id),
+                scoped_message_id: trace_id_opt(scoped_message_id),
+            },
+        );
     }
 }
 

@@ -1,4 +1,5 @@
 import {
+  clearToolArgsDeltaBufferForTool,
   enqueueToolArgsDelta,
   enqueueToolOutputDelta,
   enqueueWebSearchOutputDelta
@@ -17,7 +18,18 @@ function upsertToolCall(toolCalls: ToolCall[] | undefined, incoming: ToolCall): 
   if (!existing) {
     list.push({ ...incoming })
   } else {
+    // Finish may re-emit ToolCallStart to refresh arguments; don't clobber outcomes.
+    const prevStatus = existing.status
+    const prevResult = existing.result
+    const prevError = existing.error
+    const prevDuration = existing.durationMs
     Object.assign(existing, incoming)
+    if (prevStatus === 'success' || prevStatus === 'failed' || prevStatus === 'rejected') {
+      existing.status = prevStatus
+      existing.result = prevResult
+      existing.error = prevError
+      existing.durationMs = prevDuration
+    }
   }
   return list
 }
@@ -91,6 +103,10 @@ function syncTerminalInputOutputContext(
 export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
+  // Authoritative snapshot already includes prior deltas; discard batched leftovers.
+  if (e.toolCall.arguments?.trim()) {
+    clearToolArgsDeltaBufferForTool(e.messageId, e.toolCall.id, e.traceId, e.scopedMessageId)
+  }
   const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
   if (target) {
     target.toolCalls = upsertToolCall(target.toolCalls, e.toolCall)

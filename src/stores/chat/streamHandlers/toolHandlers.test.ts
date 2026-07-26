@@ -44,6 +44,38 @@ describe('toolHandlers', () => {
     expect(conv.messages[0].toolCalls?.[0].displayLabel).toBe('读文件')
   })
 
+  it('handleToolCallStart refreshes arguments without clobbering success', () => {
+    const conv = sampleConversation()
+    const msg = sampleAssistantMessage('a1')
+    msg.toolCalls = [
+      {
+        id: 'tc1',
+        name: 'file_edit',
+        arguments: '{"path":"a.py"}extra}',
+        status: 'success',
+        result: '{"success":true}',
+        durationMs: 12
+      }
+    ]
+    conv.messages.push(msg)
+    const ctx = createMockStreamHandlerContext([conv])
+    handleToolCallStart(ctx, {
+      kind: 'tool_call_start',
+      messageId: 'a1',
+      toolCall: {
+        id: 'tc1',
+        name: 'file_edit',
+        arguments: '{"path":"a.py","oldString":"x","newString":"y"}',
+        status: 'pending'
+      }
+    })
+    const tc = conv.messages[0].toolCalls?.[0]
+    expect(tc?.arguments).toBe('{"path":"a.py","oldString":"x","newString":"y"}')
+    expect(tc?.status).toBe('success')
+    expect(tc?.result).toBe('{"success":true}')
+    expect(tc?.durationMs).toBe(12)
+  })
+
   it('handleToolCallStatus forwards terminal hook', () => {
     const conv = sampleConversation()
     const msg = sampleAssistantMessage('a1')

@@ -47,10 +47,8 @@ pub(super) async fn record_tool_exec_outcome(
             }
             let preview = if tool_id == "list_apps" {
                 truncate_str(&out, 12_000)
-            } else if tool_id == "file_edit" || tool_id == "file_write" {
-                // diff_lines JSON can be large — don't truncate
-                out.to_string()
             } else {
+                // file_edit / file_write results are short summaries (no diff_lines).
                 truncate_str(&out, 800)
             };
             let display = state.tools.format_display(&tc.name, args_for_desktop_log);

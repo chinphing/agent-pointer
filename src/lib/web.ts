@@ -126,9 +126,18 @@ export async function cancelChat(conversationId: string): Promise<void> {
   await request(`/api/chat/${encodeURIComponent(conversationId)}/cancel`, { method: 'POST' })
 }
 
-function workspaceQuery(workspaceRoot: string, relativePath?: string): string {
+function workspaceQuery(
+  workspaceRoot: string,
+  relativePath?: string,
+  extras?: Record<string, string | undefined>
+): string {
   const params = new URLSearchParams({ workspaceRoot })
   if (relativePath !== undefined) params.set('relativePath', relativePath)
+  if (extras) {
+    for (const [key, value] of Object.entries(extras)) {
+      if (value !== undefined && value !== '') params.set(key, value)
+    }
+  }
   return params.toString()
 }
 
@@ -152,9 +161,27 @@ export async function getWorkspaceGitStatus(workspaceRoot: string): Promise<impo
 
 export async function getWorkspaceGitDiff(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  status?: string
 ): Promise<import('./api').GitDiff> {
-  return await request(`/api/workspace/git/diff?${workspaceQuery(workspaceRoot, relativePath)}`)
+  return await request(
+    `/api/workspace/git/diff?${workspaceQuery(workspaceRoot, relativePath, { status })}`
+  )
+}
+
+export async function getTurnFileDiff(
+  conversationId: string,
+  turnId: string,
+  workspaceRoot: string,
+  path: string
+): Promise<import('./api').TurnFileDiff> {
+  const params = new URLSearchParams({
+    conversationId,
+    turnId,
+    workspaceRoot,
+    path
+  })
+  return await request(`/api/workspace/turn-file-diff?${params}`)
 }
 
 export async function abortTerminalCommand(

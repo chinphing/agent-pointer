@@ -80,9 +80,28 @@ export async function getWorkspaceGitStatus(workspaceRoot: string): Promise<impo
 
 export async function getWorkspaceGitDiff(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  status?: string
 ): Promise<import('./api').GitDiff> {
-  return await invoke('get_workspace_git_diff', { workspaceRoot, relativePath })
+  return await invoke('get_workspace_git_diff', {
+    workspaceRoot,
+    relativePath,
+    status: status || null
+  })
+}
+
+export async function getTurnFileDiff(
+  conversationId: string,
+  turnId: string,
+  workspaceRoot: string,
+  path: string
+): Promise<import('./api').TurnFileDiff> {
+  return await invoke('get_turn_file_diff', {
+    conversationId,
+    turnId,
+    workspaceRoot,
+    path
+  })
 }
 
 export async function abortTerminalCommand(

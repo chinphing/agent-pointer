@@ -69,7 +69,26 @@ export interface GitChange {
 
 export interface GitDiff {
   path: string
-  diff: string
+  /** `unstaged` | `staged` | `untracked` */
+  mode: string
+  diffLines: Array<{
+    type: 'unchanged' | 'del' | 'ins' | 'collapse'
+    text: string
+    hidden?: string[]
+  }>
+  diffStats: { adds?: number; dels?: number }
+}
+
+export interface TurnFileDiff {
+  path: string
+  baselineMissing: boolean
+  created: boolean
+  diffLines: Array<{
+    type: 'unchanged' | 'del' | 'ins' | 'collapse'
+    text: string
+    hidden?: string[]
+  }>
+  diffStats: { adds?: number; dels?: number }
 }
 
 export type GitErrorCode = 'not_repository' | 'git_not_installed' | 'command_failed'
@@ -108,7 +127,17 @@ export interface RuntimeApi {
   listWorkspaceDirectory(workspaceRoot: string, relativePath?: string): Promise<WorkspaceEntry[]>
   readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<WorkspaceFilePreview>
   getWorkspaceGitStatus(workspaceRoot: string): Promise<GitStatusResponse>
-  getWorkspaceGitDiff(workspaceRoot: string, relativePath: string): Promise<GitDiff>
+  getWorkspaceGitDiff(
+    workspaceRoot: string,
+    relativePath: string,
+    status?: string
+  ): Promise<GitDiff>
+  getTurnFileDiff(
+    conversationId: string,
+    turnId: string,
+    workspaceRoot: string,
+    path: string
+  ): Promise<TurnFileDiff>
   /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
   abortTerminalCommand(conversationId: string, toolCallId?: string): Promise<boolean>
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
@@ -208,6 +237,7 @@ export const listWorkspaceDirectory = api.listWorkspaceDirectory
 export const readWorkspaceFile = api.readWorkspaceFile
 export const getWorkspaceGitStatus = api.getWorkspaceGitStatus
 export const getWorkspaceGitDiff = api.getWorkspaceGitDiff
+export const getTurnFileDiff = api.getTurnFileDiff
 export const abortTerminalCommand = api.abortTerminalCommand
 export const approveToolCall = api.approveToolCall
 export const submitAskUser = api.submitAskUser

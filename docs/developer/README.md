@@ -43,6 +43,7 @@
 | 文档 | 说明 |
 |------|------|
 | [file-tool-write-scope.md](file-tool-write-scope.md) | `file_write` / `file_edit` 允许的写入目录 |
+| [turn-file-baseline-review.md](turn-file-baseline-review.md) | 本轮修改列表、轮次文件基线与右侧栏 Review |
 | [web-search-tool.md](web-search-tool.md) | `web_search` 工具行为与 DashScope API |
 | [web-fetch-tool.md](web-fetch-tool.md) | `web_fetch` 抓取公开 URL（Hermes `web_extract` 对齐） |
 | [terminal-environment-variables.md](terminal-environment-variables.md) | **`terminal`** 子进程环境变量（`WORKING_DIR`、`SESSION_USER_ID`） |

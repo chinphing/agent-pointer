@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { Copy, ExternalLink, FileCode2, FileDiff, FolderOpen, GitBranch, Loader2, RefreshCw, X } from 'lucide-vue-next'
 import {
+  getTurnFileDiff,
   getWorkspaceGitDiff,
   getWorkspaceGitStatus,
   listWorkspaceDirectory,
@@ -10,8 +11,11 @@ import {
   readWorkspaceFile,
   revealInFinder
 } from '../../lib/api'
+import type { DiffLine } from '../chat/DiffView.vue'
 import type { GitChange, WorkspaceFilePreview as WorkspaceFilePreviewData } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
+import { useWorkspacePanelStore } from '../../stores/workspacePanel'
+import { workspaceRelativeDisplayPath } from '../../lib/toolCallDisplay'
 import {
   clampContextMenuPosition,
   clampWorkspacePanelWidth,
@@ -20,7 +24,6 @@ import {
   workspaceAbsolutePath
 } from '../../lib/workspacePanel'
 import { openExternalUrl } from '../../lib/openExternalUrl'
-import { parseWorkspaceDiff } from '../../lib/workspaceDiff'
 import {
   workspaceActiveAfterClose,
   workspacePreviewTabId,
@@ -55,15 +58,26 @@ type FilePreviewTab = BasePreviewTab & {
 type DiffPreviewTab = BasePreviewTab & {
   kind: 'diff'
   change: GitChange
-  parsed: ReturnType<typeof parseWorkspaceDiff>
+  mode: string
+  diffLines: DiffLine[]
+  diffStats: { adds: number; dels: number }
 }
-type PreviewTab = FilePreviewTab | DiffPreviewTab
+type TurnDiffPreviewTab = BasePreviewTab & {
+  kind: 'turn-diff'
+  conversationId: string
+  turnId: string
+  diffLines: DiffLine[]
+  diffStats: { adds: number; dels: number }
+  baselineMissing: boolean
+}
+type PreviewTab = FilePreviewTab | DiffPreviewTab | TurnDiffPreviewTab
 type PrimaryView = 'files' | 'changes'
 type ContextMenuState =
   | { kind: 'tree'; node: TreeNode; left: number; top: number }
   | { kind: 'change'; change: GitChange; left: number; top: number }
   | { kind: 'tab'; tabId: string; left: number; top: number }
 
+const workspacePanelStore = useWorkspacePanelStore()
 const WIDTH_STORAGE_KEY = 'pointer.workspacePanel.width'
 const activeView = ref<PrimaryView | string>('files')
 const previewTabs = ref<PreviewTab[]>([])
@@ -95,6 +109,7 @@ const panelStyle = computed(() => ({ width: `${panelWidth.value}px` }))
 const activePreviewTab = computed(() => previewTabs.value.find(item => item.id === activeView.value) ?? null)
 const activeFileTab = computed(() => activePreviewTab.value?.kind === 'file' ? activePreviewTab.value : null)
 const activeDiffTab = computed(() => activePreviewTab.value?.kind === 'diff' ? activePreviewTab.value : null)
+const activeTurnDiffTab = computed(() => activePreviewTab.value?.kind === 'turn-diff' ? activePreviewTab.value : null)
 
 async function loadRoot() {
   roots.value = []
@@ -173,14 +188,84 @@ async function loadDiffTab(tabItem: DiffPreviewTab) {
   tabItem.loading = true
   tabItem.error = ''
   try {
-    const result = await getWorkspaceGitDiff(props.workspaceRoot, tabItem.path)
-    tabItem.parsed = parseWorkspaceDiff(result.diff)
+    const result = await getWorkspaceGitDiff(
+      props.workspaceRoot,
+      tabItem.path,
+      tabItem.change.status
+    )
+    tabItem.mode = result.mode ?? ''
+    tabItem.diffLines = (result.diffLines ?? []) as DiffLine[]
+    tabItem.diffStats = {
+      adds: result.diffStats?.adds ?? 0,
+      dels: result.diffStats?.dels ?? 0
+    }
   } catch (err) {
-    tabItem.parsed = parseWorkspaceDiff('')
+    tabItem.diffLines = []
+    tabItem.diffStats = { adds: 0, dels: 0 }
     tabItem.error = err instanceof Error ? err.message : String(err)
   } finally {
     tabItem.loading = false
   }
+}
+
+async function loadTurnDiffTab(tabItem: TurnDiffPreviewTab) {
+  tabItem.loading = true
+  tabItem.error = ''
+  try {
+    const result = await getTurnFileDiff(
+      tabItem.conversationId,
+      tabItem.turnId,
+      props.workspaceRoot,
+      tabItem.path
+    )
+    tabItem.diffLines = (result.diffLines ?? []) as DiffLine[]
+    tabItem.diffStats = {
+      adds: result.diffStats?.adds ?? 0,
+      dels: result.diffStats?.dels ?? 0
+    }
+    tabItem.baselineMissing = Boolean(result.baselineMissing)
+    if (result.baselineMissing) {
+      tabItem.error = '未找到本轮修改前快照，显示结果可能不完整'
+    }
+  } catch (err) {
+    tabItem.diffLines = []
+    tabItem.diffStats = { adds: 0, dels: 0 }
+    tabItem.error = err instanceof Error ? err.message : String(err)
+  } finally {
+    tabItem.loading = false
+  }
+}
+
+async function openTurnDiff(conversationId: string, turnId: string, path: string) {
+  if (!props.workspaceRoot.trim()) {
+    error.value = '请先选择工作区'
+    return
+  }
+  const id = workspacePreviewTabId('turn-diff', path, turnId)
+  const existing = previewTabs.value.find(item => item.id === id)
+  if (existing) {
+    activeView.value = id
+    if (existing.kind === 'turn-diff') await loadTurnDiffTab(existing)
+    return
+  }
+  const relative = workspaceRelativeDisplayPath(path, props.workspaceRoot)
+  const tabItem: TurnDiffPreviewTab = {
+    id,
+    kind: 'turn-diff',
+    path,
+    title: relative.split(/[\\/]/).pop() || relative,
+    loading: false,
+    error: '',
+    conversationId,
+    turnId,
+    diffLines: [],
+    diffStats: { adds: 0, dels: 0 },
+    baselineMissing: false
+  }
+  previewTabs.value.push(tabItem)
+  const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as TurnDiffPreviewTab
+  activeView.value = id
+  await loadTurnDiffTab(reactiveTab)
 }
 
 async function refreshActiveTab() {
@@ -188,6 +273,7 @@ async function refreshActiveTab() {
   else if (activeView.value === 'changes') await loadChanges()
   else if (activeFileTab.value) await loadFileTab(activeFileTab.value)
   else if (activeDiffTab.value) await loadDiffTab(activeDiffTab.value)
+  else if (activeTurnDiffTab.value) await loadTurnDiffTab(activeTurnDiffTab.value)
 }
 
 async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { sizeBytes?: number }) {
@@ -295,7 +381,9 @@ async function selectChange(change: GitChange) {
     loading: false,
     error: '',
     change,
-    parsed: parseWorkspaceDiff('')
+    mode: '',
+    diffLines: [],
+    diffStats: { adds: 0, dels: 0 }
   }
   previewTabs.value.push(tabItem)
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as DiffPreviewTab
@@ -311,7 +399,7 @@ function closePreviewTabs(targetId: string, action: WorkspaceTabCloseAction = 'c
   const ids = previewTabs.value.map(item => item.id)
   const closingIds = workspaceTabIdsToClose(ids, targetId, action)
   const target = previewTabs.value.find(item => item.id === targetId)
-  const fallback: PrimaryView = target?.kind === 'diff' ? 'changes' : 'files'
+  const fallback: PrimaryView = target?.kind === 'diff' || target?.kind === 'turn-diff' ? 'changes' : 'files'
   activeView.value = workspaceActiveAfterClose(ids, activeView.value, closingIds, targetId, fallback)
   previewTabs.value = previewTabs.value.filter(item => !closingIds.includes(item.id))
 }
@@ -417,6 +505,7 @@ async function runTabContextAction(action: WorkspaceTabCloseAction | 'copy-absol
       closePreviewTabs(tabItem.id, action)
     } else if (action === 'refresh') {
       if (tabItem.kind === 'file') await loadFileTab(tabItem)
+      else if (tabItem.kind === 'turn-diff') await loadTurnDiffTab(tabItem)
       else await loadDiffTab(tabItem)
     } else await runPathAction(tabItem.path, action)
   } catch (err) {
@@ -444,10 +533,22 @@ watch(normalizedWorkspaceRoot, (nextRoot, previousRoot) => {
   void loadRoot()
 }, { immediate: true })
 
+watch(
+  () => workspacePanelStore.pendingTurnDiff,
+  (request) => {
+    if (!request) return
+    const pending = workspacePanelStore.consumePendingTurnDiff()
+    if (!pending) return
+    void openTurnDiff(pending.conversationId, pending.turnId, pending.path)
+  }
+)
+
 onMounted(() => {
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('scroll', closeContextMenu, true)
   document.addEventListener('keydown', handleDocumentKeydown)
+  const pending = workspacePanelStore.consumePendingTurnDiff()
+  if (pending) void openTurnDiff(pending.conversationId, pending.turnId, pending.path)
 })
 
 onBeforeUnmount(() => {
@@ -474,8 +575,27 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="workspace-tabs-bar">
-      <button type="button" class="workspace-tab shrink-0" :class="activeView === 'files' && 'is-active'" @click="activatePrimaryView('files')">Files</button>
-      <button type="button" class="workspace-tab shrink-0" :class="activeView === 'changes' && 'is-active'" @click="activatePrimaryView('changes')">Changes <span v-if="changes.length">{{ changes.length }}</span></button>
+      <button
+        type="button"
+        class="workspace-tab workspace-tab-icon shrink-0"
+        :class="activeView === 'files' && 'is-active'"
+        title="工作区文件"
+        aria-label="工作区文件"
+        @click="activatePrimaryView('files')"
+      >
+        <FolderOpen class="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        class="workspace-tab workspace-tab-icon shrink-0"
+        :class="activeView === 'changes' && 'is-active'"
+        title="变更文件"
+        aria-label="变更文件"
+        @click="activatePrimaryView('changes')"
+      >
+        <GitBranch class="w-3.5 h-3.5" />
+        <span v-if="changes.length" class="workspace-tab-badge">{{ changes.length }}</span>
+      </button>
       <div class="workspace-preview-tabs">
         <button
           v-for="previewTab in previewTabs"
@@ -556,15 +676,29 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
+    <div v-else-if="activeTurnDiffTab" class="flex-1 min-h-0 overflow-hidden p-2">
+      <div v-if="activeTurnDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
+      <div v-else-if="activeTurnDiffTab.error && !activeTurnDiffTab.diffLines.length" class="text-xs text-danger break-words p-2">{{ activeTurnDiffTab.error }}</div>
+      <template v-else>
+        <p v-if="activeTurnDiffTab.error" class="text-[11px] text-muted px-1 pb-1">{{ activeTurnDiffTab.error }}</p>
+        <DiffView
+          v-if="activeTurnDiffTab.diffLines.length"
+          fill-height
+          :diff-lines="activeTurnDiffTab.diffLines"
+          :diff-stats="activeTurnDiffTab.diffStats"
+        />
+        <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
+      </template>
+    </div>
+
     <div v-else-if="activeDiffTab" class="flex-1 min-h-0 overflow-hidden p-2">
       <div v-if="activeDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
       <div v-else-if="activeDiffTab.error" class="text-xs text-danger break-words p-2">{{ activeDiffTab.error }}</div>
       <DiffView
-        v-else-if="activeDiffTab.parsed.lines.length"
+        v-else-if="activeDiffTab.diffLines.length"
         fill-height
-        show-git-line-numbers
-        :diff-lines="activeDiffTab.parsed.lines"
-        :diff-stats="activeDiffTab.parsed.stats"
+        :diff-lines="activeDiffTab.diffLines"
+        :diff-stats="activeDiffTab.diffStats"
       />
       <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
     </div>
@@ -622,6 +756,12 @@ onBeforeUnmount(() => {
 .workspace-resize-handle:hover::after, .workspace-panel.is-resizing .workspace-resize-handle::after { content: ''; @apply absolute inset-y-0 left-1 w-px bg-accent; }
 .workspace-tab { @apply px-3 py-2 text-xs text-muted border-b-2 border-transparent; }
 .workspace-tab.is-active { @apply text-foreground border-accent; }
+.workspace-tab-icon {
+  @apply relative inline-flex items-center justify-center px-2.5;
+}
+.workspace-tab-badge {
+  @apply absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-accent px-1 text-[9px] leading-3 text-white;
+}
 .workspace-empty { @apply p-4 text-xs text-muted flex items-center justify-center gap-2; }
 .workspace-action-btn { @apply rounded border border-border px-2.5 py-1.5 text-xs text-foreground hover:bg-hover disabled:opacity-50; }
 .change-row { @apply w-full flex items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-hover; }

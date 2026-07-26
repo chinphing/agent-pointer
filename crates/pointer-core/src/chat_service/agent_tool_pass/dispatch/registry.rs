@@ -143,6 +143,15 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     let _work_dir_guard =
         crate::session_work_dir_env::SessionWorkDirGuard::enter(resolved_workspace);
     let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+    let _turn_baseline_guard = if matches!(tool_id, "file_write" | "file_edit") {
+        let turn_id = crate::turn_file_baseline::resolve_active_turn_id(conversation_id);
+        Some(crate::turn_file_baseline::TurnBaselineGuard::enter(
+            conversation_id.to_string(),
+            turn_id,
+        ))
+    } else {
+        None
+    };
     let _tier_guard = if file_profile == AgentProfile::Computer {
         Some(ComputerTierGuard::enter(
             state.computer_state.tier_for_conversation(conversation_id),

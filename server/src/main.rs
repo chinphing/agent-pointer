@@ -58,6 +58,9 @@ struct WorkspacePathQuery {
     workspace_root: String,
     #[serde(default, rename = "relativePath")]
     relative_path: Option<String>,
+    /// Optional porcelain status (e.g. `M.`, `MM`, `??`) for Git full-file review.
+    #[serde(default)]
+    status: Option<String>,
 }
 
 async fn list_workspace_directory(
@@ -102,6 +105,31 @@ async fn get_workspace_git_diff(
     Ok(Json(pointer_core::workspace_read::git_diff(
         std::path::Path::new(&q.workspace_root),
         relative_path,
+        q.status.as_deref(),
+    )?))
+}
+
+#[derive(Debug, Deserialize)]
+struct TurnFileDiffQuery {
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
+    #[serde(rename = "turnId")]
+    turn_id: String,
+    #[serde(rename = "workspaceRoot")]
+    workspace_root: String,
+    path: String,
+}
+
+async fn get_turn_file_diff(
+    State(state): State<ServerState>,
+    Query(q): Query<TurnFileDiffQuery>,
+) -> Result<Json<pointer_core::turn_file_baseline::TurnFileDiff>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(pointer_core::turn_file_baseline::turn_file_diff(
+        &q.conversation_id,
+        &q.turn_id,
+        std::path::Path::new(&q.workspace_root),
+        &q.path,
     )?))
 }
 use parking_lot::RwLock;
@@ -481,6 +509,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/workspace/file", get(read_workspace_file))
         .route("/api/workspace/git/status", get(get_workspace_git_status))
         .route("/api/workspace/git/diff", get(get_workspace_git_diff))
+        .route("/api/workspace/turn-file-diff", get(get_turn_file_diff))
         .route("/api/version", get(api_version))
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))

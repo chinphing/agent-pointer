@@ -190,15 +190,21 @@ describe('workspace-relative file tool paths', () => {
 })
 
 describe('buildFileChangeSummaries', () => {
-  function fileResult(path: string, adds: number, dels: number): string {
+  function editResult(path: string, adds: number, dels: number): string {
     return JSON.stringify({
       path,
       success: true,
-      diff_lines: [
-        { type: 'del', text: 'before' },
-        { type: 'ins', text: 'after' }
-      ],
-      diff_stats: { adds, dels }
+      replaced: 1,
+      stats: { adds, dels }
+    })
+  }
+
+  function writeResult(path: string): string {
+    return JSON.stringify({
+      path,
+      success: true,
+      bytesWritten: 12,
+      created: true
     })
   }
 
@@ -209,21 +215,21 @@ describe('buildFileChangeSummaries', () => {
         name: 'file_edit',
         status: 'success',
         arguments: JSON.stringify({ path: 'src\\App.vue' }),
-        result: fileResult('src\\App.vue', 2, 1)
+        result: editResult('src\\App.vue', 2, 1)
       }),
       tc({
         id: 'edit-2',
         name: 'file_edit',
         status: 'success',
         arguments: JSON.stringify({ path: 'src/App.vue' }),
-        result: fileResult('src/App.vue', 3, 4)
+        result: editResult('src/App.vue', 3, 4)
       }),
       tc({
         id: 'write-1',
         name: 'file_write',
         status: 'success',
         arguments: JSON.stringify({ path: 'src/New.vue' }),
-        result: fileResult('src/New.vue', 8, 0)
+        result: writeResult('src/New.vue')
       })
     ])
 
@@ -234,12 +240,12 @@ describe('buildFileChangeSummaries', () => {
       adds: 5,
       dels: 5
     })
-    expect(summaries[0].diffs).toHaveLength(2)
+    expect(summaries[0].diffs).toHaveLength(0)
     expect(summaries[1]).toMatchObject({
       path: 'src/New.vue',
       fileName: 'New.vue',
       kind: 'write',
-      adds: 8,
+      adds: 0,
       dels: 0
     })
   })
@@ -250,13 +256,13 @@ describe('buildFileChangeSummaries', () => {
         id: 'failed',
         name: 'file_edit',
         status: 'failed',
-        result: fileResult('failed.ts', 1, 1)
+        result: editResult('failed.ts', 1, 1)
       }),
       tc({
         id: 'running',
         name: 'file_write',
         status: 'running',
-        result: fileResult('running.ts', 1, 0)
+        result: writeResult('running.ts')
       }),
       tc({
         id: 'malformed',
@@ -268,7 +274,7 @@ describe('buildFileChangeSummaries', () => {
         id: 'terminal',
         name: 'terminal',
         status: 'success',
-        result: fileResult('not-a-file-tool.ts', 1, 1)
+        result: editResult('not-a-file-tool.ts', 1, 1)
       })
     ])
 

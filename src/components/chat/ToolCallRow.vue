@@ -9,8 +9,7 @@ import {
   Loader2,
   ShieldAlert,
   Check,
-  X,
-  FileEdit
+  X
 } from 'lucide-vue-next'
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
@@ -20,6 +19,8 @@ import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 import DiffView from './DiffView.vue'
 import AskUserOptions from './AskUserOptions.vue'
+import { parseToolCallArguments } from '../../lib/parseToolCallArguments'
+import { computeDiffLines, fileEditSnippetFromArgs } from '../../lib/textDiff'
 
 
 
@@ -110,7 +111,7 @@ const argsParseError = computed(() => {
   const text = props.toolCall.arguments?.trim()
   if (!text) return ''
   try {
-    JSON.parse(text)
+    parseToolCallArguments(text)
     return ''
   } catch (error) {
     return error instanceof Error ? error.message : '无效 JSON'
@@ -122,7 +123,7 @@ const prettyArgs = computed(() => {
   const text = props.toolCall.arguments?.trim()
   if (!text) return ''
   try {
-    return JSON.stringify(JSON.parse(text), null, 2)
+    return JSON.stringify(parseToolCallArguments(text), null, 2)
   } catch { return text }
 })
 
@@ -227,37 +228,28 @@ const webSearchSourcesView = computed(() =>
   }))
 )
 
-type FileEditResult = {
+type FileMutateResult = {
   path?: string
   success?: boolean
-  diff_lines?: {
-    type: string
-    text: string
-    hidden?: string[]
-  }[]
-  diff_stats?: {
-    adds: number
-    dels: number
-  }
+  stats?: { adds?: number; dels?: number }
+  diff_stats?: { adds?: number; dels?: number }
 }
 
-const fileEditResult = computed<FileEditResult | null>(() => {
+const fileMutateResult = computed<FileMutateResult | null>(() => {
   if (!isFileEdit.value && !isFileWrite.value) return null
   if (!props.toolCall.result) return null
   try {
-    return JSON.parse(props.toolCall.result) as FileEditResult
+    return JSON.parse(props.toolCall.result) as FileMutateResult
   } catch {
     return null
   }
 })
 
-const fileEditFileName = computed(() => {
-  const r = fileEditResult.value
-  if (r?.path) {
-    const parts = r.path.replace(/\\/g, '/').split('/')
-    return parts[parts.length - 1] || r.path
-  }
-  return ''
+const fileEditSnippetDiff = computed(() => {
+  if (!isFileEdit.value || fileMutateResult.value?.success !== true) return null
+  const snippet = fileEditSnippetFromArgs(props.toolCall.arguments)
+  if (!snippet) return null
+  return computeDiffLines(snippet.oldString, snippet.newString)
 })
 
 const terminalMeta = computed(() => {
@@ -481,10 +473,10 @@ function openSourceUrl(url: string) {
         </div>
       </template>
 
-      <template v-else-if="(isFileEdit || isFileWrite) && fileEditResult?.success && fileEditResult?.diff_lines">
+      <template v-else-if="isFileEdit && fileEditSnippetDiff">
         <DiffView
-          :diff-lines="fileEditResult.diff_lines as any"
-          :diff-stats="fileEditResult.diff_stats"
+          :diff-lines="fileEditSnippetDiff.diffLines"
+          :diff-stats="fileEditSnippetDiff.diffStats"
         />
       </template>
 

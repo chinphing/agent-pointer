@@ -54,9 +54,30 @@ pub fn get_workspace_git_status(
 pub fn get_workspace_git_diff(
     workspace_root: String,
     relative_path: String,
+    status: Option<String>,
 ) -> Result<pointer_core::workspace_read::GitDiff, String> {
-    pointer_core::workspace_read::git_diff(Path::new(&workspace_root), &relative_path)
-        .map_err(|e| e.to_string())
+    pointer_core::workspace_read::git_diff(
+        Path::new(&workspace_root),
+        &relative_path,
+        status.as_deref(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_turn_file_diff(
+    conversation_id: String,
+    turn_id: String,
+    workspace_root: String,
+    path: String,
+) -> Result<pointer_core::turn_file_baseline::TurnFileDiff, String> {
+    pointer_core::turn_file_baseline::turn_file_diff(
+        &conversation_id,
+        &turn_id,
+        Path::new(&workspace_root),
+        &path,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Build a [`TriggerRequest`] from the IPC payload. Centralized so the IPC

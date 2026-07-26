@@ -1,7 +1,12 @@
-export type WorkspacePreviewTabKind = 'file' | 'diff'
+export type WorkspacePreviewTabKind = 'file' | 'diff' | 'turn-diff'
 export type WorkspaceTabCloseAction = 'close' | 'close-others' | 'close-right'
 
-export function workspacePreviewTabId(kind: WorkspacePreviewTabKind, path: string): string {
+export function workspacePreviewTabId(
+  kind: WorkspacePreviewTabKind,
+  path: string,
+  turnId?: string
+): string {
+  if (kind === 'turn-diff') return `turn-diff:${turnId ?? ''}:${path}`
   return `${kind}:${path}`
 }
 

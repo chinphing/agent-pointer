@@ -69,10 +69,17 @@ pub fn looks_like_resume_intent(text: &str) -> bool {
     en_keywords.iter().any(|k| t.contains(k))
 }
 
-/// Latest non-synthetic user message id in transcript order (for main-turn board binding).
+/// Latest non-synthetic **lead** user message id in transcript order
+/// (for main-turn board binding and turn-file baselines).
+///
+/// Scoped sub-agent rows (host stub / nested user hints) are ignored so a
+/// delegated `file_edit` / `file_write` still anchors to the real user turn.
 pub fn latest_real_user_message_id(history: &[ChatMessage]) -> Option<String> {
     history.iter().rev().find_map(|m| {
-        if !matches!(m.role, Role::User) || is_synthetic_user_content(&m.content) {
+        if !matches!(m.role, Role::User)
+            || is_synthetic_user_content(&m.content)
+            || crate::models::is_scoped_sub_message(m)
+        {
             return None;
         }
         let id = m.id.trim();
@@ -139,5 +146,50 @@ mod tests {
         assert!(looks_like_resume_intent("继续上次任务"));
         assert!(looks_like_resume_intent("please continue this task"));
         assert!(!looks_like_resume_intent("新建一个独立任务"));
+    }
+
+    #[test]
+    fn latest_real_user_skips_scoped_sub_agent_stub() {
+        let lead = ChatMessage {
+            id: "user-lead".into(),
+            role: Role::User,
+            content: "please edit".into(),
+            status: "done".into(),
+            created_at: 1,
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            tool_raw_output: None,
+            agent_id: None,
+            agent_instance_id: None,
+            agent_name: None,
+            agent_trace: None,
+            image_slot_labels: None,
+            images_base64: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        };
+        let mut stub = lead.clone();
+        stub.id = "sub_task_stub".into();
+        stub.content =
+            "Begin. Your assigned task is in the system prompt under **Assigned task**.".into();
+        stub.created_at = 2;
+        stub.anchor_message_id = Some("assistant-anchor".into());
+        stub.trace_id = Some("trace-1".into());
+
+        assert_eq!(
+            latest_real_user_message_id(&[lead, stub]).as_deref(),
+            Some("user-lead")
+        );
     }
 }

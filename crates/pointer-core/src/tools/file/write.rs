@@ -1,4 +1,3 @@
-use super::edit::compute_diff_lines;
 use super::path::{path_display_abs, resolve_writable_path};
 use anyhow::{anyhow, Result};
 use log::info;
@@ -39,23 +38,27 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
         );
         String::new()
     };
+    if let Err(error) = crate::turn_file_baseline::ensure_baseline(&full, &old_content) {
+        log::warn!(
+            "file_write: turn baseline save failed path={}: {error:#}",
+            path_display_abs(&full)
+        );
+    }
     if let Some(parent) = full.parent() {
         fs::create_dir_all(parent).map_err(|e| anyhow!("创建目录失败: {e}"))?;
     }
     fs::write(&full, content.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
-    let (diff_lines, diff_stats) = compute_diff_lines(&old_content, &content);
+    // No full-file diff in the tool result — turn review uses baseline vs disk.
     info!(
-        "file_write: path={}, bytes={}, diff_lines={}",
+        "file_write: path={}, bytes={}",
         path_display_abs(&full),
-        content.len(),
-        diff_lines.len()
+        content.len()
     );
     Ok(serde_json::json!({
         "path": path_display_abs(&full),
         "bytesWritten": content.as_bytes().len(),
         "success": true,
-        "diff_lines": diff_lines,
-        "diff_stats": diff_stats,
+        "created": old_content.is_empty(),
     })
     .to_string())
 }

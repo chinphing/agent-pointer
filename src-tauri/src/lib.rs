@@ -468,6 +468,7 @@ pub fn run() {
             commands::read_workspace_file,
             commands::get_workspace_git_status,
             commands::get_workspace_git_diff,
+            commands::get_turn_file_diff,
             commands::abort_terminal_command,
             commands::approve_tool_call,
             commands::submit_ask_user,

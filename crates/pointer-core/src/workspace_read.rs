@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use crate::text_diff::compute_diff_lines;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fmt;
@@ -17,6 +18,9 @@ pub struct WorkspaceEntry {
 }
 
 pub const WORKSPACE_FILE_PREVIEW_MAX_BYTES: usize = 1024 * 1024;
+
+/// Max bytes per side when building a full-file Git review diff.
+pub const GIT_FULL_DIFF_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -45,11 +49,14 @@ pub struct GitChange {
     pub original_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GitDiff {
     pub path: String,
-    pub diff: String,
+    /// `unstaged` (index→worktree), `staged` (HEAD→index), or `untracked`.
+    pub mode: String,
+    pub diff_lines: Vec<serde_json::Value>,
+    pub diff_stats: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -245,18 +252,119 @@ fn parse_git_status(output: &[u8]) -> Vec<GitChange> {
     changes
 }
 
-pub fn git_diff(workspace_root: &Path, relative_path: &str) -> Result<GitDiff> {
+/// Full-file Git review diff for one path.
+///
+/// - Untracked / unstaged worktree changes → index (or empty) vs disk  
+/// - Staged-only → HEAD vs index  
+pub fn git_diff(
+    workspace_root: &Path,
+    relative_path: &str,
+    status: Option<&str>,
+) -> Result<GitDiff> {
     let root = canonical_workspace(workspace_root)?;
     let relative = safe_relative(relative_path)?;
     if relative.as_os_str().is_empty() {
         return Err(anyhow!("file path is required"));
     }
     let path = relative.to_string_lossy().replace('\\', "/");
-    let unstaged = run_git(&root, ["diff", "--no-ext-diff", "--", &path])?;
-    let staged = run_git(&root, ["diff", "--cached", "--no-ext-diff", "--", &path])?;
-    let mut diff = String::from_utf8_lossy(&staged).into_owned();
-    diff.push_str(&String::from_utf8_lossy(&unstaged));
-    Ok(GitDiff { path, diff })
+    let status = match status.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => s.to_string(),
+        None => resolve_git_status_for_path(&root, &path)?,
+    };
+    let mode = git_diff_mode(&status);
+    let (before, after) = match mode {
+        "untracked" => (String::new(), read_worktree_text(&root, &path)?),
+        "unstaged" => (
+            read_git_blob_text(&root, &format!(":{path}"))?.unwrap_or_default(),
+            read_worktree_text(&root, &path)?,
+        ),
+        "staged" => (
+            read_git_blob_text(&root, &format!("HEAD:{path}"))?.unwrap_or_default(),
+            read_git_blob_text(&root, &format!(":{path}"))?.unwrap_or_default(),
+        ),
+        other => return Err(anyhow!("unsupported git diff mode: {other}")),
+    };
+    let (diff_lines, diff_stats) = compute_diff_lines(&before, &after);
+    log::info!("workspace git full diff path={path} mode={mode}");
+    Ok(GitDiff {
+        path,
+        mode: mode.to_string(),
+        diff_lines,
+        diff_stats,
+    })
+}
+
+fn git_diff_mode(status: &str) -> &'static str {
+    if status == "??" || status.starts_with('?') {
+        return "untracked";
+    }
+    let bytes = status.as_bytes();
+    let unstaged = bytes.get(1).is_some_and(|c| *c != b'.');
+    if unstaged {
+        return "unstaged";
+    }
+    let staged = bytes
+        .first()
+        .is_some_and(|c| *c != b'.' && *c != b'?');
+    if staged {
+        return "staged";
+    }
+    // Fallback: treat as unstaged worktree review.
+    "unstaged"
+}
+
+fn resolve_git_status_for_path(root: &Path, path: &str) -> Result<String> {
+    let changes = git_status(root)?;
+    changes
+        .into_iter()
+        .find(|c| c.path == path)
+        .map(|c| c.status)
+        .ok_or_else(|| anyhow!("path not in git status: {path}"))
+}
+
+fn read_git_blob_text(root: &Path, spec: &str) -> Result<Option<String>> {
+    match run_git(root, ["show", spec]) {
+        Ok(bytes) => Ok(Some(decode_text_blob(&bytes, spec)?)),
+        Err(error) => {
+            if error.downcast_ref::<GitCommandError>().is_some() {
+                Ok(None)
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
+fn read_worktree_text(root: &Path, relative: &str) -> Result<String> {
+    let full = root.join(relative);
+    if !full.exists() {
+        return Ok(String::new());
+    }
+    let meta = fs::metadata(&full).with_context(|| format!("stat {}", full.display()))?;
+    if !meta.is_file() {
+        return Err(anyhow!("不是常规文件: {}", full.display()));
+    }
+    if meta.len() as usize > GIT_FULL_DIFF_MAX_BYTES {
+        return Err(anyhow!(
+            "文件过大（>{} bytes），无法展示整文件 Diff",
+            GIT_FULL_DIFF_MAX_BYTES
+        ));
+    }
+    let bytes = fs::read(&full).with_context(|| format!("read {}", full.display()))?;
+    decode_text_blob(&bytes, relative)
+}
+
+fn decode_text_blob(bytes: &[u8], label: &str) -> Result<String> {
+    if bytes.len() > GIT_FULL_DIFF_MAX_BYTES {
+        return Err(anyhow!(
+            "内容过大（>{} bytes）：{label}",
+            GIT_FULL_DIFF_MAX_BYTES
+        ));
+    }
+    if bytes.contains(&0) {
+        return Err(anyhow!("二进制文件不支持 Diff：{label}"));
+    }
+    String::from_utf8(bytes.to_vec()).map_err(|_| anyhow!("非 UTF-8 文本，无法 Diff：{label}"))
 }
 
 fn original_field_present(field: Option<&&[u8]>) -> bool {
@@ -364,7 +472,7 @@ mod tests {
     fn rejects_paths_outside_workspace() {
         let root = tempfile::tempdir().unwrap();
         assert!(list_directory(root.path(), Some("../outside")).is_err());
-        assert!(git_diff(root.path(), "/tmp/outside").is_err());
+        assert!(git_diff(root.path(), "/tmp/outside", None).is_err());
     }
 
     #[test]
@@ -447,10 +555,31 @@ mod tests {
         assert_eq!(status.len(), 1);
         assert_eq!(status[0].status, "MM");
         assert!(status[0].staged);
-        let diff = git_diff(root.path(), "a.txt").unwrap().diff;
-        assert!(diff.contains("-one"));
-        assert!(diff.contains("+two"));
-        assert!(diff.contains("-two"));
-        assert!(diff.contains("+three"));
+
+        // MM prefers unstaged: index ("two") → worktree ("three")
+        let unstaged = git_diff(root.path(), "a.txt", Some("MM")).unwrap();
+        assert_eq!(unstaged.mode, "unstaged");
+        assert_eq!(unstaged.diff_stats["adds"].as_u64().unwrap(), 1);
+        assert_eq!(unstaged.diff_stats["dels"].as_u64().unwrap(), 1);
+        assert!(unstaged
+            .diff_lines
+            .iter()
+            .any(|line| line["type"] == "del" && line["text"] == "two"));
+        assert!(unstaged
+            .diff_lines
+            .iter()
+            .any(|line| line["type"] == "ins" && line["text"] == "three"));
+
+        // Staged-only uses HEAD → index
+        let staged = git_diff(root.path(), "a.txt", Some("M.")).unwrap();
+        assert_eq!(staged.mode, "staged");
+        assert!(staged
+            .diff_lines
+            .iter()
+            .any(|line| line["type"] == "del" && line["text"] == "one"));
+        assert!(staged
+            .diff_lines
+            .iter()
+            .any(|line| line["type"] == "ins" && line["text"] == "two"));
     }
 }

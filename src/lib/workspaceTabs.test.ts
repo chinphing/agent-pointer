@@ -7,6 +7,7 @@ describe('workspace preview tabs', () => {
   it('deduplicates identity by kind and path', () => {
     expect(workspacePreviewTabId('file', 'a.ts')).toBe('file:a.ts')
     expect(workspacePreviewTabId('diff', 'a.ts')).toBe('diff:a.ts')
+    expect(workspacePreviewTabId('turn-diff', 'a.ts', 'turn-1')).toBe('turn-diff:turn-1:a.ts')
   })
 
   it('selects close scopes', () => {

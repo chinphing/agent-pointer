@@ -25,6 +25,7 @@ import {
   Settings2
 } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
+import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 import {
   createProject, loadProjects, searchConversations, updateProject
 } from '../../lib/api'
@@ -46,15 +47,12 @@ const emit = defineEmits<{
 }>()
 
 const chat = useChatStore()
+const workspacePanel = useWorkspacePanelStore()
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
-const WORKSPACE_PANEL_STORAGE_KEY = 'pointer.workspacePanel.open'
-const workspacePanelOpen = ref(
-  typeof localStorage !== 'undefined' && localStorage.getItem(WORKSPACE_PANEL_STORAGE_KEY) === 'true'
-)
+const workspacePanelOpen = computed(() => workspacePanel.open)
 
 function setWorkspacePanelOpen(open: boolean) {
-  workspacePanelOpen.value = open
-  if (typeof localStorage !== 'undefined') localStorage.setItem(WORKSPACE_PANEL_STORAGE_KEY, String(open))
+  workspacePanel.setOpen(open)
 }
 
 /**

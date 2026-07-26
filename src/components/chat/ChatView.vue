@@ -45,9 +45,7 @@ const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const isHydratingMessages = computed(() => chat.isCurrentConversationHydrating)
-const conversationToolCalls = computed(() =>
-  (chat.current?.messages ?? []).flatMap(message => message.toolCalls ?? [])
-)
+const conversationMessages = computed(() => chat.current?.messages ?? [])
 const showWelcomeHome = computed(() => {
   if (isHydratingMessages.value) return false
   const cur = chat.current
@@ -327,7 +325,7 @@ const toastClass = computed(() => {
     </div>
     <div v-if="!showWelcomeHome && !isHydratingMessages" class="chat-shell shrink-0 bg-background">
       <div class="chat-column">
-        <ChangeSummary :tool-calls="conversationToolCalls" />
+        <ChangeSummary :messages="conversationMessages" />
       </div>
     </div>
     <Composer v-if="!showWelcomeHome && !isHydratingMessages" />

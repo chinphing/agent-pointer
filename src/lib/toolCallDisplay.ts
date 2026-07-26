@@ -304,8 +304,20 @@ export interface FileChangeSummary {
 type RawFileChangeResult = {
   path?: unknown
   success?: unknown
+  /** Legacy full/snippet diff payload (older sessions). */
   diff_lines?: unknown
   diff_stats?: unknown
+  /** Current file_edit summary stats. */
+  stats?: unknown
+}
+
+function parseStats(raw: unknown): { adds: number; dels: number } {
+  if (!raw || typeof raw !== 'object') return { adds: 0, dels: 0 }
+  const row = raw as Record<string, unknown>
+  return {
+    adds: typeof row.adds === 'number' ? row.adds : 0,
+    dels: typeof row.dels === 'number' ? row.dels : 0
+  }
 }
 
 function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
@@ -317,32 +329,30 @@ function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
   try {
     const result = JSON.parse(tc.result) as RawFileChangeResult
     if (result.success !== true || typeof result.path !== 'string' || !result.path.trim()) return null
-    if (!Array.isArray(result.diff_lines)) return null
-
-    const diffLines = result.diff_lines.filter((line): line is FileChangeDiff['diffLines'][number] => {
-      if (!line || typeof line !== 'object') return false
-      const row = line as Record<string, unknown>
-      return (
-        (row.type === 'unchanged' || row.type === 'del' || row.type === 'ins' || row.type === 'collapse')
-        && typeof row.text === 'string'
-        && (typeof row.hidden === 'undefined' || Array.isArray(row.hidden))
-      )
-    })
-    if (!diffLines.length) return null
-
-    const rawStats = result.diff_stats && typeof result.diff_stats === 'object'
-      ? result.diff_stats as Record<string, unknown>
-      : {}
-    const adds = typeof rawStats.adds === 'number' ? rawStats.adds : 0
-    const dels = typeof rawStats.dels === 'number' ? rawStats.dels : 0
     const path = result.path.trim()
+    const stats = parseStats(result.stats ?? result.diff_stats)
+
+    const diffLines = Array.isArray(result.diff_lines)
+      ? result.diff_lines.filter((line): line is FileChangeDiff['diffLines'][number] => {
+          if (!line || typeof line !== 'object') return false
+          const row = line as Record<string, unknown>
+          return (
+            (row.type === 'unchanged' || row.type === 'del' || row.type === 'ins' || row.type === 'collapse')
+            && typeof row.text === 'string'
+            && (typeof row.hidden === 'undefined' || Array.isArray(row.hidden))
+          )
+        })
+      : []
+
     return {
       path,
       fileName: pathBasename(path),
       kind: method,
-      adds,
-      dels,
-      diffs: [{ toolCallId: tc.id, diffLines, diffStats: { adds, dels } }]
+      adds: stats.adds,
+      dels: stats.dels,
+      diffs: diffLines.length
+        ? [{ toolCallId: tc.id, diffLines, diffStats: { adds: stats.adds, dels: stats.dels } }]
+        : []
     }
   } catch {
     return null

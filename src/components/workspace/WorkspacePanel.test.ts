@@ -9,14 +9,33 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('../../lib/runtime', () => ({ isTauriRuntime: () => false }))
 vi.mock('../../lib/api', () => ({
-  getWorkspaceGitDiff: vi.fn(async () => ({ path: '', diff: '' })),
+  getWorkspaceGitDiff: vi.fn(async () => ({
+    path: '',
+    mode: 'unstaged',
+    diffLines: [],
+    diffStats: { adds: 0, dels: 0 }
+  })),
   getWorkspaceGitStatus: vi.fn(async () => ({ changes: [] })),
+  getTurnFileDiff: vi.fn(async () => ({
+    path: '',
+    baselineMissing: false,
+    created: false,
+    diffLines: [],
+    diffStats: { adds: 0, dels: 0 }
+  })),
   listWorkspaceDirectory: vi.fn(async () => [
     { name: 'README.md', path: 'README.md', kind: 'file', sizeBytes: 64 }
   ]),
   openPathWithDefaultApp: vi.fn(),
   readWorkspaceFile: apiMocks.readWorkspaceFile,
   revealInFinder: vi.fn()
+}))
+
+vi.mock('../../stores/workspacePanel', () => ({
+  useWorkspacePanelStore: () => ({
+    pendingTurnDiff: null,
+    consumePendingTurnDiff: () => null
+  })
 }))
 
 import WorkspacePanel from './WorkspacePanel.vue'

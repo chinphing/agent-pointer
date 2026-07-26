@@ -11,18 +11,22 @@ import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { uiForMessageAgent, useAgentsCatalog } from '../../composables/useAgentUi'
 import { visibleToolCalls } from '../../lib/messageTooling'
-import type { ChatMessage, TaskBoardDocument, ToolCall } from '../../types/chat'
+import type { ChatMessage, ToolCall } from '../../types/chat'
 import {
-  assistantDisplayKind,
-  assistantHasDeliverableContent,
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
-import { isToolRunContinuityGlue, shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
-import { isScopedSubMessage } from '../../lib/subAgentMessages'
 import { isCompressionSummaryMessage } from '../../lib/compressionMessage'
+import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
-import { buildConversationTurns, shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
+import {
+  buildMessageListLayout,
+  entryContainsMessageId,
+  entryKey,
+  type FlatEntry,
+  type MessageListLayoutCache
+} from '../../lib/messageListLayout'
+import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
 import { elapsedBetweenTimestamps, formatTurnElapsed, turnElapsedMs } from '../../lib/turnElapsed'
 import { shouldStickActiveTaskBoard } from '../../lib/taskBoardSticky'
 import {
@@ -151,20 +155,6 @@ watch(activeRenderSignal, () => {
   const shouldFollow = isNearBottom() && !locatingFocus.value
   if (shouldFollow) scheduleToBottom()
 })
-
-function entryContainsMessageId(entry: FlatEntry, messageId: string): boolean {
-  const id = messageId.trim()
-  if (!id) return false
-  if (entry.type === 'message') return entry.message.id === id
-  if (entry.type === 'tool_run') {
-    return entry.items.some(item =>
-      item.kind === 'tools'
-        ? item.group.message.id === id || item.group.id === id
-        : item.message.id === id
-    )
-  }
-  return entry.anchorMessageId === id
-}
 
 function entryPrimaryMessageId(entry: FlatEntry): string | undefined {
   if (entry.type === 'message') return entry.message.id
@@ -422,33 +412,14 @@ function onScroll() {
   updateActiveBoardStickyState()
 }
 
-type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMessage }
-
-type ToolRunItem =
-  | { kind: 'tools'; group: ToolRunGroup }
-  | { kind: 'glue'; message: ChatMessage }
-
-type FlatEntry =
-  | { type: 'message'; message: ChatMessage; trailingToolGroups?: ToolRunGroup[]; compact?: boolean }
-  | { type: 'tool_run'; items: ToolRunItem[] }
-  | { type: 'task_board'; anchorMessageId: string; storeKey: string; document: TaskBoardDocument; isActive: boolean }
-
-function canAttachTrailingTools(message: ChatMessage): boolean {
-  return (
-    message.role === 'assistant'
-    && !isToolOnlyAssistantMessage(message)
-    && assistantDisplayKind(message) === 'model'
-  )
+function isTaskBoardTerminal(status: string | undefined): boolean {
+  const s = (status ?? '').trim()
+  return s === 'completed' || s === 'failed'
 }
 
 function assistantMessageHadTools(entry: FlatEntry): boolean {
   if (entry.type !== 'message' || entry.message.role !== 'assistant') return false
   return (entry.message.toolCalls?.length ?? 0) > 0 || (entry.trailingToolGroups?.length ?? 0) > 0
-}
-
-function isTaskBoardTerminal(status: string | undefined): boolean {
-  const s = (status ?? '').trim()
-  return s === 'completed' || s === 'failed'
 }
 
 function visibleToolsForMessage(message: ChatMessage, toolCalls: ToolCall[]): ToolCall[] {
@@ -462,158 +433,44 @@ function visibleToolsForMessage(message: ChatMessage, toolCalls: ToolCall[]): To
   )
 }
 
-function toolRunHasTools(items: ToolRunItem[]): boolean {
-  return items.some(i => i.kind === 'tools')
-}
-
 function shouldShowThreadGlue(message: ChatMessage): boolean {
   return shouldShowGlueMessage(message, settings.settings)
 }
 
-const flatMessages = computed<FlatEntry[]>(() => {
+/**
+ * Completed-turn structure cache (non-reactive on purpose).
+ * Updating a ref inside this computed would retrigger itself.
+ */
+let layoutCacheHold: MessageListLayoutCache | null = null
+
+const messageListLayout = computed(() => {
   void chat.taskBoards
-  const msgs = chat.current?.messages ?? []
-  const entries: FlatEntry[] = []
-  const convId = chat.currentId
-  let toolRunItems: ToolRunItem[] = []
-
-  function flushToolRun() {
-    if (toolRunItems.length === 0) return
-    if (!toolRunHasTools(toolRunItems)) {
-      for (const item of toolRunItems) {
-        if (item.kind === 'glue' && shouldShowThreadGlue(item.message)) {
-          entries.push({ type: 'message', message: item.message, compact: true })
-        }
-      }
-      toolRunItems = []
-      return
-    }
-    const last = entries[entries.length - 1]
-    const groups = toolRunItems
-      .filter((i): i is { kind: 'tools'; group: ToolRunGroup } => i.kind === 'tools')
-      .map(i => i.group)
-    const hasGlue = toolRunItems.some(
-      i => i.kind === 'glue' && shouldShowThreadGlue(i.message)
-    )
-    if (last?.type === 'message' && canAttachTrailingTools(last.message) && !hasGlue) {
-      last.trailingToolGroups = [...(last.trailingToolGroups ?? []), ...groups]
-    } else {
-      entries.push({ type: 'tool_run', items: [...toolRunItems] })
-    }
-    toolRunItems = []
-  }
-
-  for (const message of msgs) {
-    if (isScopedSubMessage(message)) continue
-    if (isEphemeralDesktopNoticeMessage(message)) {
-      flushToolRun()
-      entries.push({ type: 'message', message })
-    } else if (isToolOnlyAssistantMessage(message)) {
-      const visible = visibleToolsForMessage(message, message.toolCalls ?? [])
-      if (visible.length > 0) {
-        toolRunItems.push({
-          kind: 'tools',
-          group: {
-            id: message.id,
-            toolCalls: message.toolCalls ?? [],
-            message
-          }
-        })
-      }
-    } else if (isToolRunContinuityGlue(message)) {
-      if (toolRunHasTools(toolRunItems)) {
-        if (shouldShowThreadGlue(message)) {
-          toolRunItems.push({ kind: 'glue', message })
-        }
-      } else if (shouldShowThreadGlue(message)) {
-        flushToolRun()
-        entries.push({ type: 'message', message, compact: true })
-      }
-    } else {
-      flushToolRun()
-      entries.push({ type: 'message', message })
-    }
-
-    const boards = chat.parentBoardsBoundToMessage(convId, message.id)
-    for (const board of boards) {
-      flushToolRun()
-      entries.push({
-        type: 'task_board',
-        anchorMessageId: message.id,
-        storeKey: board.storeKey,
-        document: board.document,
-        isActive: board.isActive
-      })
-    }
-  }
-  flushToolRun()
-  return entries
+  void settings.settings
+  void agentsCatalog.value
+  const result = buildMessageListLayout({
+    conversationId: chat.currentId,
+    messages: chat.current?.messages ?? [],
+    deps: {
+      boardsForMessage: messageId => chat.parentBoardsBoundToMessage(chat.currentId, messageId),
+      visibleToolCallsFor: message => visibleToolsForMessage(message, message.toolCalls ?? []),
+      shouldShowGlue: shouldShowThreadGlue
+    },
+    cache: layoutCacheHold
+  })
+  layoutCacheHold = result.cache
+  return result
 })
 
-function entryKey(entry: FlatEntry): string {
-  if (entry.type === 'message') return `message-${entry.message.id}`
-  if (entry.type === 'tool_run') {
-    return `tool-run-${entry.items
-      .map(item => item.kind === 'tools' ? item.group.id : item.message.id)
-      .join('-')}`
-  }
-  return `task-board-${entry.storeKey}-${entry.anchorMessageId}`
-}
-
-function entryMessageStatuses(entry: FlatEntry): ChatMessage[] {
-  if (entry.type === 'message') return [entry.message]
-  if (entry.type === 'tool_run') {
-    return entry.items.map(item => item.kind === 'tools' ? item.group.message : item.message)
-  }
-  return []
-}
-
-function entryHasStatus(entry: FlatEntry, statuses: ChatMessage['status'][]): boolean {
-  return entryMessageStatuses(entry).some(message => statuses.includes(message.status))
-}
-
-function entryHasRunningTool(entry: FlatEntry): boolean {
-  return entryMessageStatuses(entry).some(message =>
-    message.toolCalls?.some(tool => tool.status === 'running' || tool.status === 'pending')
-  )
-}
-
-function entryIsSummary(entry: FlatEntry): boolean {
-  if (entry.type === 'task_board') return isTaskBoardTerminal(entry.document.meta?.status)
-  return entry.type === 'message' && isCompressionSummaryMessage(entry.message)
-}
-
-function entryIsDelivery(entry: FlatEntry): boolean {
-  return entry.type === 'message'
-    && entry.message.role === 'assistant'
-    && assistantHasDeliverableContent(entry.message)
-    && !isEphemeralDesktopNoticeMessage(entry.message)
-    && !isToolRunContinuityGlue(entry.message)
-}
+const flatMessages = computed(() => messageListLayout.value.entries)
+const conversationTurns = computed(() => messageListLayout.value.turns)
 
 const activeBoard = computed(() => flatMessages.value.find(
   (entry): entry is Extract<FlatEntry, { type: 'task_board' }> =>
     entry.type === 'task_board' && entry.isActive && !isTaskBoardTerminal(entry.document.meta?.status)
 ) ?? null)
 
-const turnSourceEntries = computed(() => flatMessages.value)
 const expandedTurnIds = ref<Set<string>>(new Set())
 const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
-const conversationTurns = computed(() => buildConversationTurns(turnSourceEntries.value, {
-  key: entryKey,
-  userMessageId: entry => entry.type === 'message' && entry.message.role === 'user'
-    ? entry.message.id
-    : null,
-  isActive: entry => entryHasStatus(entry, ['pending', 'streaming'])
-    || entryHasRunningTool(entry)
-    || (!!activeBoard.value && entryContainsMessageId(entry, activeBoard.value.anchorMessageId)),
-  isFailed: entry => entryHasStatus(entry, ['error'])
-    || (entry.type === 'task_board' && entry.document.meta?.status === 'failed'),
-  isCancelled: entry => entryHasStatus(entry, ['cancelled'])
-    || (entry.type === 'task_board' && entry.document.meta?.status === 'cancelled'),
-  isSummary: entryIsSummary,
-  isDelivery: entryIsDelivery
-}))
 
 function turnIsExpanded(turnId: string): boolean {
   if (manuallyCollapsedTurnIds.value.has(turnId)) return false
@@ -693,6 +550,7 @@ function expandTurnContainingMessage(messageId: string): number {
 }
 
 watch(() => chat.currentId, () => {
+  layoutCacheHold = null
   expandedTurnIds.value = new Set()
   manuallyCollapsedTurnIds.value = new Set()
   activeBoardInlineScrollTop.value = null
@@ -799,7 +657,7 @@ function entrySpacing(
     if (entry.message.role === 'user') return 'mt-7'
     if (prevIsToolRun) return 'mt-4'
     if (prevIsDesktopNotice) return 'mt-1.5'
-    if (prev.type === 'message' && entryIsSummary(prev)) return 'mt-1.5'
+    if (prev.type === 'message' && isCompressionSummaryMessage(prev.message)) return 'mt-1.5'
     if (prevIsUser) return 'mt-7'
     if (prev.type === 'message' && prev.message.role === 'assistant') {
       return assistantMessageHadTools(prev) ? 'mt-4' : 'mt-7'

@@ -38,7 +38,8 @@ import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scop
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import {
   conversationNeedsHydration,
-  messagesForChatDispatch
+  messagesForChatDispatch,
+  persistedCandidateMessageIds
 } from '../lib/chatDispatchHistory'
 import { recordTurnStart } from '../lib/turnElapsed'
 import {
@@ -359,10 +360,45 @@ export const useChatStore = defineStore('chat', () => {
   const loadingMoreConversations = ref(false)
   /** Conversation ids whose messages have been loaded into memory this session. */
   const hydratedIds = ref<Set<string>>(new Set())
+  /**
+   * Message ids already known to exist in SQLite for a hydrated conversation.
+   * Used so `sendChat` only ships rows that still need `append_missing`.
+   */
+  const persistedMessageIdsByConv = new Map<string, Set<string>>()
   /** Conversation ids currently fetching messages from disk. */
   const messagesLoadingIds = ref<Set<string>>(new Set())
   /** Shared hydration promises let send paths wait for an in-flight project/shell load. */
   const messageHydrationPromises = new Map<string, Promise<boolean>>()
+
+  function persistedIdsFor(convId: string): Set<string> {
+    let set = persistedMessageIdsByConv.get(convId)
+    if (!set) {
+      set = new Set()
+      persistedMessageIdsByConv.set(convId, set)
+    }
+    return set
+  }
+
+  function replacePersistedMessageIds(convId: string, ids: Iterable<string>) {
+    persistedMessageIdsByConv.set(convId, new Set(ids))
+  }
+
+  function addPersistedMessageIds(convId: string, ids: Iterable<string>) {
+    const set = persistedIdsFor(convId)
+    for (const id of ids) {
+      if (id) set.add(id)
+    }
+  }
+
+  function clearPersistedMessageIds(convId: string) {
+    persistedMessageIdsByConv.delete(convId)
+  }
+
+  function markConversationMessagesPersisted(convId: string) {
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv) return
+    replacePersistedMessageIds(convId, persistedCandidateMessageIds(conv.messages))
+  }
   /** Sidebar search (or similar) asks MessageList to scroll to this message after open/hydrate. */
   const pendingFocusMessage = ref<{
     conversationId: string
@@ -393,6 +429,7 @@ export const useChatStore = defineStore('chat', () => {
     console.info('[chat] evicting idle conversation', id, conv.title, 'messages', conv.messages.length)
     conv.messages = []
     hydratedIds.value.delete(id)
+    clearPersistedMessageIds(id)
     lastAccessed.delete(id)
   }
 
@@ -513,18 +550,46 @@ export const useChatStore = defineStore('chat', () => {
     await flushPersistMeta()
     await refreshTaskBoard(conv.id)
 
-    await sendChat({
-      conversationId: conv.id,
-      messages: messagesForChatDispatch(conv.messages),
-      enabledSkillIds: enabledSkillIdsForRequest(conv),
-      agentSkillOverrides: { ...(useSettingsStore().userSettings.agentSkillOverrides ?? {}) },
-      agentMode: effectiveConversationAgentMode(conv),
-      leadAgentId: effectiveConversationLeadAgentId(conv),
-      toolRoundsUsed: 0,
-      toolRoundsUsedSupervisor: 0,
-      workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
-      ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
-    }).catch(err => {
+    const hydrated = hydratedIds.value.has(conv.id)
+    const persistedIds = hydrated ? persistedIdsFor(conv.id) : undefined
+    let history = messagesForChatDispatch(
+      conv.messages,
+      persistedIds ? { persistedIds } : undefined
+    )
+    if (hydrated && history.length === 0) {
+      console.warn(
+        '[chat] incremental dispatch empty; falling back to full history',
+        conv.id,
+        'messages',
+        conv.messages.length
+      )
+      history = messagesForChatDispatch(conv.messages)
+    } else if (hydrated) {
+      console.info(
+        '[chat] dispatch incremental history',
+        conv.id,
+        history.length,
+        'of',
+        conv.messages.length
+      )
+    }
+
+    try {
+      await sendChat({
+        conversationId: conv.id,
+        messages: history,
+        enabledSkillIds: enabledSkillIdsForRequest(conv),
+        agentSkillOverrides: { ...(useSettingsStore().userSettings.agentSkillOverrides ?? {}) },
+        agentMode: effectiveConversationAgentMode(conv),
+        leadAgentId: effectiveConversationLeadAgentId(conv),
+        toolRoundsUsed: 0,
+        toolRoundsUsedSupervisor: 0,
+        workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
+        ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
+      })
+      // begin() appends these ids before the stream runs; keep the watermark in sync.
+      addPersistedMessageIds(conv.id, history.map(m => m.id))
+    } catch (err) {
       clearRunState(conv.id)
       console.error('sendChat error', err)
       const errText = String(err)
@@ -546,7 +611,7 @@ export const useChatStore = defineStore('chat', () => {
           : errText
       })
       persistAppend(conv.id)
-    })
+    }
   }
 
   const generatingClearTimers = new Map<string, number>()
@@ -1000,17 +1065,22 @@ export const useChatStore = defineStore('chat', () => {
         const stripped = stripWireAttachmentFields(
           messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
         )
+        const dbPersistedIds = persistedCandidateMessageIds(stripped)
         let next = stripped
         if (isImConversation(convId)) {
           next = dedupeImInboundUserMessages(convId, stripped)
         }
         if (isConversationGenerating(convId) && conv.messages.length > 0) {
           next = mergeHydratedMessages(conv.messages, next)
+          // Only DB rows are guaranteed on disk; keep live-only stream ids out.
+          addPersistedMessageIds(convId, dbPersistedIds)
           console.info(
             '[chat] ensureMessagesLoaded: merged DB rows with in-memory stream',
             convId,
             next.length
           )
+        } else {
+          replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
         }
         conv.messages = next
         if (!isConversationGenerating(convId)) {
@@ -1139,6 +1209,8 @@ export const useChatStore = defineStore('chat', () => {
     if (!conv) return
     const [stripped] = stripEphemeralDesktopNoticesForDisk([conv])
     const messages = JSON.parse(JSON.stringify(stripped.messages)) as ChatMessage[]
+    // Align the send watermark with what we treat as on-disk after a turn / trim.
+    markConversationMessagesPersisted(conversationId)
     appendConversationMessages(conversationId, messages).catch(e =>
       console.error('append messages error', e)
     )
@@ -1172,6 +1244,7 @@ export const useChatStore = defineStore('chat', () => {
       currentId.value = existingBlank.id
       loadActiveComposerDraft(existingBlank.id)
       hydratedIds.value.add(existingBlank.id)
+      replacePersistedMessageIds(existingBlank.id, [])
       markMetaDirty(existingBlank.id)
       return existingBlank
     }
@@ -1196,6 +1269,7 @@ export const useChatStore = defineStore('chat', () => {
     currentId.value = c.id
     loadActiveComposerDraft(c.id)
     hydratedIds.value.add(c.id)
+    replacePersistedMessageIds(c.id, [])
     markMetaDirty(c.id)
     return c
   }
@@ -1307,6 +1381,7 @@ export const useChatStore = defineStore('chat', () => {
     // cache an empty snapshot from before the first tick finished, and
     // selectConversation skips work when currentId is already this session.
     hydratedIds.value.delete(sessionId)
+    clearPersistedMessageIds(sessionId)
     flushActiveComposerDraft()
     currentId.value = sessionId
     reconcileRunStateForConversation(sessionId)
@@ -1349,6 +1424,7 @@ export const useChatStore = defineStore('chat', () => {
       conv.title = `[Webhook] ${label}`
     }
     hydratedIds.value.delete(sessionId)
+    clearPersistedMessageIds(sessionId)
     flushActiveComposerDraft()
     currentId.value = sessionId
     reconcileRunStateForConversation(sessionId)
@@ -1463,6 +1539,7 @@ export const useChatStore = defineStore('chat', () => {
     const i = conversations.value.findIndex(c => c.id === id)
     if (i >= 0) conversations.value.splice(i, 1)
     hydratedIds.value.delete(id)
+    clearPersistedMessageIds(id)
     clearOutboundQueue(id)
     cancelGeneratingClearTimer(id)
     const nextRuns = { ...runByConversation.value }
@@ -2111,6 +2188,7 @@ export const useChatStore = defineStore('chat', () => {
     currentId.value = null
     nextCursor.value = null
     hydratedIds.value = new Set()
+    persistedMessageIdsByConv.clear()
     messagesLoadingIds.value = new Set()
     messageHydrationPromises.clear()
     dirtyMetaIds.value = new Set()

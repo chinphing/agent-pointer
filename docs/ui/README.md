@@ -6,6 +6,7 @@
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
 | 设置 → **平台账户 / 管理员账户** | 登录状态、「退出登录」；完成提示音开关 |
 | [assistant-message-ui.md](assistant-message-ui.md) | 助手消息 `thoughts` / reasoning / 原始输出面板等约定 |
+| [message-list-layout-cache.md](message-list-layout-cache.md) | 消息列表已完成 turn 结构指纹缓存，流式时只重算尾部 |
 | [workspace-file-preview-find.md](workspace-file-preview-find.md) | 右侧工作区文本预览查找（⌘/Ctrl+F、上下匹配） |
 | [workspace-panel-refresh.md](workspace-panel-refresh.md) | 右侧工作区打开 / 切会话 / 切 Tab 时的刷新约定 |
 | 本轮修改 / 工作区导航 | 输入框上方「本轮修改」文件列表；右侧栏主导航为文件夹/Git 图标（工作区文件、变更文件）。基线 Diff 见 [`../developer/turn-file-baseline-review.md`](../developer/turn-file-baseline-review.md) |

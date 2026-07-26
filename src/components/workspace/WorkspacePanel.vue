@@ -133,17 +133,42 @@ function changeRowKey(change: GitChange): string {
   return `${change.staged ? '1' : '0'}:${change.path}`
 }
 
-async function loadRoot() {
-  roots.value = []
-  if (!hasWorkspace.value) return
-  loadingFiles.value = true
-  error.value = ''
+/** Drop stale async results when the user switches workspace / tabs quickly. */
+let rootLoadSeq = 0
+let changesLoadSeq = 0
+
+/**
+ * Load the file tree.
+ * `silent` keeps the previous tree visible (stale-while-revalidate) so clicks stay snappy.
+ */
+async function loadRoot(options?: { silent?: boolean }) {
+  const silent = options?.silent === true
+  const seq = ++rootLoadSeq
+  const workspaceRoot = props.workspaceRoot
+  if (!hasWorkspace.value) {
+    roots.value = []
+    return
+  }
+  if (!silent) {
+    roots.value = []
+    loadingFiles.value = true
+    error.value = ''
+  }
   try {
-    roots.value = (await listWorkspaceDirectory(props.workspaceRoot)).map(entry => ({ ...entry }))
+    const entries = (await listWorkspaceDirectory(workspaceRoot)).map(entry => ({ ...entry }))
+    if (seq !== rootLoadSeq || props.workspaceRoot !== workspaceRoot) return
+    roots.value = entries
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    if (seq !== rootLoadSeq || props.workspaceRoot !== workspaceRoot) return
+    const message = err instanceof Error ? err.message : String(err)
+    if (silent) {
+      console.warn('[WorkspacePanel] background file tree failed', message)
+    } else {
+      error.value = message
+      roots.value = []
+    }
   } finally {
-    loadingFiles.value = false
+    if (!silent && seq === rootLoadSeq) loadingFiles.value = false
   }
 }
 
@@ -170,21 +195,26 @@ async function toggleDirectory(node: TreeNode) {
  */
 async function loadChanges(options?: { silent?: boolean }) {
   const silent = options?.silent === true
-  gitError.value = null
+  const seq = ++changesLoadSeq
+  const workspaceRoot = props.workspaceRoot
   if (!hasWorkspace.value) {
     changes.value = []
+    gitError.value = null
     return
   }
   if (!silent) {
     changes.value = []
     loadingChanges.value = true
     error.value = ''
+    gitError.value = null
   }
   try {
-    const result = await getWorkspaceGitStatus(props.workspaceRoot)
+    const result = await getWorkspaceGitStatus(workspaceRoot)
+    if (seq !== changesLoadSeq || props.workspaceRoot !== workspaceRoot) return
     changes.value = result.changes
     gitError.value = result.error ?? null
   } catch (err) {
+    if (seq !== changesLoadSeq || props.workspaceRoot !== workspaceRoot) return
     const message = err instanceof Error ? err.message : String(err)
     if (silent) {
       console.warn('[WorkspacePanel] background git status failed', message)
@@ -193,7 +223,7 @@ async function loadChanges(options?: { silent?: boolean }) {
       error.value = message
     }
   } finally {
-    if (!silent) loadingChanges.value = false
+    if (!silent && seq === changesLoadSeq) loadingChanges.value = false
   }
 }
 
@@ -202,21 +232,21 @@ function refreshChangesBadge() {
   void loadChanges({ silent: true })
 }
 
-async function activatePrimaryView(nextView: PrimaryView) {
+/** Switch primary nav immediately; refresh in the background. */
+function activatePrimaryView(nextView: PrimaryView) {
   activeView.value = nextView
-  // Always reload — lists go stale after agent edits / git ops / conversation switch.
   if (nextView === 'files') {
-    await loadRoot()
+    void loadRoot({ silent: true })
     refreshChangesBadge()
   } else {
-    await loadChanges()
+    void loadChanges({ silent: true })
   }
 }
 
-async function reloadPreviewTab(tabItem: PreviewTab) {
-  if (tabItem.kind === 'file') await loadFileTab(tabItem)
-  else if (tabItem.kind === 'turn-diff') await loadTurnDiffTab(tabItem)
-  else await loadDiffTab(tabItem)
+function reloadPreviewTab(tabItem: PreviewTab) {
+  if (tabItem.kind === 'file') void loadFileTab(tabItem)
+  else if (tabItem.kind === 'turn-diff') void loadTurnDiffTab(tabItem)
+  else void loadDiffTab(tabItem)
 }
 
 async function loadFileTab(tabItem: FilePreviewTab) {
@@ -291,7 +321,7 @@ async function loadTurnDiffTab(tabItem: TurnDiffPreviewTab) {
   }
 }
 
-async function openTurnDiff(conversationId: string, turnId: string, path: string) {
+function openTurnDiff(conversationId: string, turnId: string, path: string) {
   if (!props.workspaceRoot.trim()) {
     error.value = '请先选择工作区'
     return
@@ -300,7 +330,7 @@ async function openTurnDiff(conversationId: string, turnId: string, path: string
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
-    if (existing.kind === 'turn-diff') await loadTurnDiffTab(existing)
+    if (existing.kind === 'turn-diff') void loadTurnDiffTab(existing)
     refreshChangesBadge()
     return
   }
@@ -321,35 +351,55 @@ async function openTurnDiff(conversationId: string, turnId: string, path: string
   previewTabs.value.push(tabItem)
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as TurnDiffPreviewTab
   activeView.value = id
-  await loadTurnDiffTab(reactiveTab)
+  void loadTurnDiffTab(reactiveTab)
   refreshChangesBadge()
 }
 
-async function refreshActiveTab() {
+/** Explicit toolbar refresh — shows loading; still non-blocking for the click handler. */
+function refreshActiveTab() {
   if (activeView.value === 'files') {
-    await loadRoot()
+    void loadRoot()
     refreshChangesBadge()
   } else if (activeView.value === 'changes') {
-    await loadChanges()
+    void loadChanges()
   } else if (activeFileTab.value) {
-    await loadFileTab(activeFileTab.value)
+    void loadFileTab(activeFileTab.value)
     refreshChangesBadge()
   } else if (activeDiffTab.value) {
-    await loadDiffTab(activeDiffTab.value)
+    void loadDiffTab(activeDiffTab.value)
     refreshChangesBadge()
   } else if (activeTurnDiffTab.value) {
-    await loadTurnDiffTab(activeTurnDiffTab.value)
+    void loadTurnDiffTab(activeTurnDiffTab.value)
     refreshChangesBadge()
   }
 }
 
-async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { sizeBytes?: number }) {
+/** Conversation / workspace switch: keep current UI, refresh quietly in background. */
+function refreshActiveTabInBackground() {
+  if (activeView.value === 'files') {
+    void loadRoot({ silent: true })
+    refreshChangesBadge()
+  } else if (activeView.value === 'changes') {
+    void loadChanges({ silent: true })
+  } else if (activeFileTab.value) {
+    void loadFileTab(activeFileTab.value)
+    refreshChangesBadge()
+  } else if (activeDiffTab.value) {
+    void loadDiffTab(activeDiffTab.value)
+    refreshChangesBadge()
+  } else if (activeTurnDiffTab.value) {
+    void loadTurnDiffTab(activeTurnDiffTab.value)
+    refreshChangesBadge()
+  }
+}
+
+function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { sizeBytes?: number }) {
   if (node.kind !== 'file') return
   const id = workspacePreviewTabId('file', node.path)
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
-    if (existing.kind === 'file') await loadFileTab(existing)
+    if (existing.kind === 'file') void loadFileTab(existing)
     return
   }
   const tabItem: FilePreviewTab = {
@@ -365,7 +415,7 @@ async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { siz
   previewTabs.value.push(tabItem)
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as FilePreviewTab
   activeView.value = id
-  await loadFileTab(reactiveTab)
+  void loadFileTab(reactiveTab)
 }
 
 async function openWorkspaceReference(path: string) {
@@ -373,11 +423,12 @@ async function openWorkspaceReference(path: string) {
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
-    if (existing.kind === 'file') await loadFileTab(existing)
+    if (existing.kind === 'file') void loadFileTab(existing)
     return
   }
 
   try {
+    // Probe first so missing Markdown targets do not leave an empty tab.
     const preview = await readWorkspaceFile(props.workspaceRoot, path)
     const mediaKind = isMediaFile(path)
     const tabItem: FilePreviewTab = {
@@ -435,12 +486,12 @@ async function openMarkdownReference(href: string) {
   }
 }
 
-async function selectChange(change: GitChange) {
+function selectChange(change: GitChange) {
   const id = workspacePreviewTabId('diff', change.path)
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
-    if (existing.kind === 'diff') await loadDiffTab(existing)
+    if (existing.kind === 'diff') void loadDiffTab(existing)
     return
   }
   const tabItem: DiffPreviewTab = {
@@ -458,13 +509,13 @@ async function selectChange(change: GitChange) {
   previewTabs.value.push(tabItem)
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as DiffPreviewTab
   activeView.value = id
-  await loadDiffTab(reactiveTab)
+  void loadDiffTab(reactiveTab)
 }
 
-async function activatePreviewTab(tabId: string) {
+function activatePreviewTab(tabId: string) {
   activeView.value = tabId
   const tabItem = previewTabs.value.find(item => item.id === tabId)
-  if (tabItem) await reloadPreviewTab(tabItem)
+  if (tabItem) reloadPreviewTab(tabItem)
 }
 
 function closePreviewTabs(targetId: string, action: WorkspaceTabCloseAction = 'close') {
@@ -602,8 +653,10 @@ function resetWorkspaceSurface(nextRoot: string, nextConversationId: string) {
   error.value = ''
   activeView.value = 'files'
   closeContextMenu()
-  void loadRoot()
-  // Badge uses changes.length — fetch git status even while Files is active.
+  // Invalidate in-flight loads from the previous workspace.
+  rootLoadSeq++
+  changesLoadSeq++
+  void loadRoot({ silent: true })
   refreshChangesBadge()
 }
 
@@ -619,8 +672,7 @@ function onConversationChanged(nextConversationId: string) {
     activeView.value = 'files'
   }
   closeContextMenu()
-  void refreshActiveTab()
-  if (activeView.value !== 'changes') refreshChangesBadge()
+  refreshActiveTabInBackground()
 }
 
 watch(

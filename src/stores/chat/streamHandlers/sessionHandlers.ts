@@ -17,6 +17,7 @@ import {
   removeTrailingDiscardableEmptyAssistant,
   uid
 } from '../helpers'
+import { playTaskCompleteSoundIfEnabled } from '../../../lib/taskCompleteSound'
 import type { StreamHandlerContext } from './types'
 
 type UiToast = Extract<StreamEvent, { kind: 'ui_toast' }>
@@ -299,4 +300,5 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
     }
   }
   if (convId) ctx.markMetaDirty(convId)
+  playTaskCompleteSoundIfEnabled()
 }

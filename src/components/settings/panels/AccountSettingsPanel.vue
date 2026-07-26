@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
-import { UserCircle } from 'lucide-vue-next'
+import { Volume2, UserCircle } from 'lucide-vue-next'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
+import { useSettingsStore } from '../../../stores/settings'
+import { playTaskCompleteSound } from '../../../lib/taskCompleteSound'
 import PlatformLoginActions from '../../auth/PlatformLoginActions.vue'
 
 const props = defineProps<{
@@ -9,6 +12,8 @@ const props = defineProps<{
 }>()
 
 const platformAuth = usePlatformAuthStore()
+const settings = useSettingsStore()
+const soundSaving = ref(false)
 
 const {
   platformAccountTitle,
@@ -16,6 +21,8 @@ const {
   logoutPlatformAccount,
   loginPlatformAccount
 } = props.form
+
+const playSoundOnFinish = ref(settings.userSettings.playSoundOnFinish !== false)
 
 async function onPlatformLogin() {
   try {
@@ -27,6 +34,23 @@ async function onPlatformLogin() {
 
 function onPlatformLoginCancel() {
   void platformAuth.cancelLogin()
+}
+
+async function onPlaySoundToggle(checked: boolean) {
+  playSoundOnFinish.value = checked
+  soundSaving.value = true
+  try {
+    await settings.saveUser({ playSoundOnFinish: checked })
+    console.info('[settings] playSoundOnFinish=%s', checked)
+    if (checked) {
+      void playTaskCompleteSound()
+    }
+  } catch (err) {
+    playSoundOnFinish.value = settings.userSettings.playSoundOnFinish !== false
+    console.error('[settings] failed to save playSoundOnFinish', err)
+  } finally {
+    soundSaving.value = false
+  }
 }
 </script>
 
@@ -75,6 +99,33 @@ function onPlatformLoginCancel() {
         @login="onPlatformLogin"
         @cancel="onPlatformLoginCancel"
       />
+    </div>
+  </div>
+
+  <div>
+    <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+      <Volume2 class="w-4 h-4 text-accent" />
+      通知
+    </h3>
+    <p class="mt-0.5 text-xs text-muted">任务完成时的提示</p>
+  </div>
+
+  <div class="rounded-xl border border-border panel p-5">
+    <div class="flex items-center justify-between gap-4">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-foreground">完成时播放提示音</p>
+        <p class="mt-1 text-xs text-muted">对话回合结束时播放短促提示音</p>
+      </div>
+      <label class="relative inline-flex items-center cursor-pointer shrink-0">
+        <input
+          type="checkbox"
+          class="sr-only peer"
+          :checked="playSoundOnFinish"
+          :disabled="soundSaving"
+          @change="onPlaySoundToggle(($event.target as HTMLInputElement).checked)"
+        />
+        <div class="settings-toggle-track" />
+      </label>
     </div>
   </div>
 </template>

@@ -6,7 +6,7 @@ Runtime configuration is split into two layers:
 
 | Layer | Contents | Persistence | Editable by |
 |-------|----------|-------------|-------------|
-| **User** | Theme; optional UI cache (`userNickname`); globally enabled skill ids (`enabledSkillIds`); **coding rules** (`userCodingRules` → `[USER RULES]` inject) | `user_settings.json` | All users |
+| **User** | Theme; optional UI cache (`userNickname`); globally enabled skill ids (`enabledSkillIds`); **coding rules** (`userCodingRules` → `[USER RULES]` inject); **completion sound** (`playSoundOnFinish`) | `user_settings.json` | All users |
 | **Platform** | Providers, generation params, agent defaults, Computer tier LLM, workspace, etc. | **In-memory only** (process lifetime) | `is_platform_admin` only |
 
 Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, platform)` and used by chat, tools, and the UI.

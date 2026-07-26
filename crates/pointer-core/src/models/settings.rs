@@ -1318,6 +1318,10 @@ fn default_computer_auto_compact() -> bool {
     true
 }
 
+fn default_play_sound_on_finish() -> bool {
+    true
+}
+
 fn default_media_oss_key_prefix() -> String {
     "pointer-media-attachments/".to_string()
 }
@@ -1441,6 +1445,12 @@ pub struct UserSettings {
         rename = "computerAutoCompact"
     )]
     pub computer_auto_compact: bool,
+    /// Play a short chime when a chat turn finishes (UI preference).
+    #[serde(
+        default = "default_play_sound_on_finish",
+        rename = "playSoundOnFinish"
+    )]
+    pub play_sound_on_finish: bool,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
 }
@@ -1464,6 +1474,7 @@ impl Default for UserSettings {
             curator_idle_hours: default_curator_idle_hours(),
             curator_interval_days: default_curator_interval_days(),
             computer_auto_compact: default_computer_auto_compact(),
+            play_sound_on_finish: default_play_sound_on_finish(),
             media_oss: MediaOssConfig::default(),
         }
     }

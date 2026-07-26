@@ -513,6 +513,8 @@ export interface UserSettings {
   agentSkillOverrides?: Record<string, string[]>
   /** Shrink app window to dock bar while computer agent is executing (default true). */
   computerAutoCompact?: boolean
+  /** Play a short chime when a chat turn finishes (default true). */
+  playSoundOnFinish?: boolean
   /** Global coding preferences injected as [USER RULES] in agent system prompt. */
   userCodingRules?: string
   /** Aliyun OSS for large video understanding (HTTP video_url to DashScope). */

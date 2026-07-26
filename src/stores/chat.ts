@@ -87,6 +87,7 @@ import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
+import { playTaskCompleteSoundIfEnabled } from '../lib/taskCompleteSound'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
 import {
   assistantTurnActivelyRunning,
@@ -585,6 +586,7 @@ export const useChatStore = defineStore('chat', () => {
     clearRunState(convId)
     msg.status = 'done'
     msg.contentStreaming = false
+    playTaskCompleteSoundIfEnabled()
   }
 
   function scheduleMaybeFinishGenerating(conversationId: string, messageId: string) {

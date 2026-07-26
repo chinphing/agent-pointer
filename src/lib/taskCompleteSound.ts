@@ -1,0 +1,104 @@
+import { getActivePinia } from 'pinia'
+import { useSettingsStore } from '../stores/settings'
+
+type WindowWithWebkitAudio = Window & {
+  webkitAudioContext?: typeof AudioContext
+}
+
+let sharedCtx: AudioContext | null = null
+/** Avoid double chime when fallback finish races a late `done` event. */
+let lastPlayAtMs = 0
+const PLAY_DEBOUNCE_MS = 800
+
+function resolveAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  const w = window as WindowWithWebkitAudio
+  const Ctor = window.AudioContext || w.webkitAudioContext
+  if (!Ctor) {
+    console.warn('[sound] AudioContext unavailable on this platform')
+    return null
+  }
+  if (!sharedCtx) {
+    sharedCtx = new Ctor()
+  }
+  return sharedCtx
+}
+
+type ToneLayer = {
+  freq: number
+  type: OscillatorType
+  gain: number
+  start: number
+  attack: number
+  dur: number
+}
+
+/**
+ * Mid-warm two-note chime: clear on laptop speakers, not shrill.
+ * Body ~G3/D4, presence ~G4/D5 (kept under ~600Hz fundamentals).
+ */
+export async function playTaskCompleteSound(): Promise<void> {
+  const nowMs = Date.now()
+  if (nowMs - lastPlayAtMs < PLAY_DEBOUNCE_MS) {
+    console.info('[sound] skip task-complete chime (debounced)')
+    return
+  }
+  lastPlayAtMs = nowMs
+
+  const ctx = resolveAudioContext()
+  if (!ctx) return
+  try {
+    if (ctx.state === 'suspended') {
+      await ctx.resume()
+    }
+    const now = ctx.currentTime
+    // Soft low-pass so residual triangle harmonics stay rounded.
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = 1400
+    filter.Q.value = 0.7
+    const master = ctx.createGain()
+    // Slight master lift: layer peaks stay moderate; perceived level was soft on laptops.
+    master.gain.value = 1.45
+    filter.connect(master)
+    master.connect(ctx.destination)
+
+    const layers: ToneLayer[] = [
+      // Note 1 — G3 body + G4 presence
+      { freq: 196.0, type: 'sine', gain: 0.26, start: 0, attack: 0.016, dur: 0.3 },
+      { freq: 392.0, type: 'triangle', gain: 0.2, start: 0, attack: 0.012, dur: 0.26 },
+      // Note 2 — D4 body + D5 soft lift (interval reads as "done")
+      { freq: 293.66, type: 'sine', gain: 0.28, start: 0.11, attack: 0.018, dur: 0.38 },
+      { freq: 587.33, type: 'triangle', gain: 0.14, start: 0.11, attack: 0.014, dur: 0.32 }
+    ]
+
+    for (const layer of layers) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = layer.type
+      osc.frequency.value = layer.freq
+      const t0 = now + layer.start
+      gain.gain.setValueAtTime(0.0001, t0)
+      gain.gain.exponentialRampToValueAtTime(layer.gain, t0 + layer.attack)
+      gain.gain.exponentialRampToValueAtTime(layer.gain * 0.65, t0 + layer.attack + 0.07)
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + layer.dur)
+      osc.connect(gain)
+      gain.connect(filter)
+      osc.start(t0)
+      osc.stop(t0 + layer.dur + 0.03)
+    }
+    console.info('[sound] played task-complete chime')
+  } catch (err) {
+    console.warn('[sound] failed to play task-complete chime', err)
+  }
+}
+
+/** Honor user preference; no-op when Pinia is unavailable (unit tests). */
+export function playTaskCompleteSoundIfEnabled(): void {
+  if (!getActivePinia()) return
+  const settings = useSettingsStore()
+  if (settings.userSettings.playSoundOnFinish === false) {
+    return
+  }
+  void playTaskCompleteSound()
+}

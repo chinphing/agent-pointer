@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, Database, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -13,7 +13,6 @@ import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
 import AgentSettingsPanel from './panels/AgentSettingsPanel.vue'
 import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
-import RuntimeSettingsPanel from './panels/RuntimeSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
 
@@ -43,8 +42,7 @@ const alwaysSections = [
 const debugSections = [
   { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
   { id: 'generation', label: '界面配置', desc: '界面', icon: Gauge },
-  { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge },
-  { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
+  { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge }
 ] as const
 
 const debugSectionIds = new Set<string>(debugSections.map(item => item.id))
@@ -105,7 +103,7 @@ const sections = computed(() => {
 
 const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
 const showFooterSave = computed(() => {
-  if (activeSection.value === 'account' || activeSection.value === 'runtime' || activeSection.value === 'cloud' || activeSection.value === 'automation' || activeSection.value === 'about') return false
+  if (activeSection.value === 'account' || activeSection.value === 'cloud' || activeSection.value === 'automation' || activeSection.value === 'about') return false
   return (
     activeSection.value === 'assistant' ||
     activeSection.value === 'channels' ||
@@ -305,11 +303,6 @@ async function saveFromFooter() {
           <!-- About Settings -->
           <section v-else-if="activeSection === 'about'" class="p-6 space-y-5">
             <AboutSettingsPanel />
-          </section>
-
-          <!-- ==================== Runtime Section ==================== -->
-          <section v-else-if="activeSection === 'runtime'" class="p-6 space-y-5">
-            <RuntimeSettingsPanel />
           </section>
 
           <!-- Provider panel stays mounted while debug menus are on (preserves in-progress edits). -->

@@ -3,7 +3,8 @@
 | 文档 | 说明 |
 |------|------|
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换 |
-| 设置 → **平台账户**（仅桌面端） | 平台登录状态、昵称、「退出登录」 |
+| [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
+| 设置 → **平台账户 / 管理员账户** | 登录状态、「退出登录」；完成提示音开关 |
 | [assistant-message-ui.md](assistant-message-ui.md) | 助手消息 `thoughts` / reasoning / 原始输出面板等约定 |
 | 侧边栏会话搜索 | 第二行展示命中关键词附近的 snippet；点击正文命中结果会定位到对应消息并短暂高亮。详见 [`../internals/sidebar-conversation-search.md`](../internals/sidebar-conversation-search.md) |
 | 新会话空状态 | 「热门」与分类并列 Tab（`GET /api/experiences/home`）；搜索关键词（`GET /api/experiences?q=`）；点击后切换绑定智能体并将 `prompt_text` 填入输入框 |

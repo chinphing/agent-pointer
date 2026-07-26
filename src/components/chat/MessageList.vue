@@ -812,12 +812,13 @@ function entrySpacing(
 </script>
 
 <template>
-  <div
-    ref="scroller"
-    class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6"
-    style="overflow-anchor: none"
-    @scroll="onScroll"
-  >
+  <div class="relative h-full min-h-0">
+    <div
+      ref="scroller"
+      class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6"
+      style="overflow-anchor: none"
+      @scroll="onScroll"
+    >
     <div
       v-if="activeBoard && activeBoardIsSticky"
       class="sticky top-0 z-30 h-0 overflow-visible"
@@ -953,10 +954,12 @@ function entrySpacing(
         </template>
       </div>
     </div>
+  </div>
 
     <button
       v-if="showScrollButton"
-      class="fixed bottom-32 right-8 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
+      type="button"
+      class="absolute bottom-4 right-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
       @click="toBottom"
       title="滚动到底部"
     >

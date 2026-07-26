@@ -25,6 +25,7 @@ import {
 } from '../../lib/workspacePanel'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import {
+  filterPreviewTabsForConversation,
   workspaceActiveAfterClose,
   workspacePreviewTabId,
   workspaceTabIdsToClose,
@@ -35,7 +36,11 @@ import WorkspaceFilePreview from './WorkspaceFilePreview.vue'
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue'
 import type { WorkspaceTreeNodeModel } from './WorkspaceTreeNode.vue'
 
-const props = defineProps<{ workspaceRoot: string }>()
+const props = defineProps<{
+  workspaceRoot: string
+  /** Active conversation id — used to drop stale turn-diff tabs on switch. */
+  conversationId?: string
+}>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'initialize-git'): void
@@ -111,6 +116,23 @@ const activeFileTab = computed(() => activePreviewTab.value?.kind === 'file' ? a
 const activeDiffTab = computed(() => activePreviewTab.value?.kind === 'diff' ? activePreviewTab.value : null)
 const activeTurnDiffTab = computed(() => activePreviewTab.value?.kind === 'turn-diff' ? activePreviewTab.value : null)
 
+/** Row kept highlighted while its context menu is open (hover alone disappears under the overlay). */
+const contextSelectedTreePath = computed(() =>
+  contextMenu.value?.kind === 'tree' ? contextMenu.value.node.path : ''
+)
+const contextSelectedChangeKey = computed(() => {
+  if (contextMenu.value?.kind !== 'change') return ''
+  const change = contextMenu.value.change
+  return `${change.staged ? '1' : '0'}:${change.path}`
+})
+const contextSelectedTabId = computed(() =>
+  contextMenu.value?.kind === 'tab' ? contextMenu.value.tabId : ''
+)
+
+function changeRowKey(change: GitChange): string {
+  return `${change.staged ? '1' : '0'}:${change.path}`
+}
+
 async function loadRoot() {
   roots.value = []
   if (!hasWorkspace.value) return
@@ -141,27 +163,60 @@ async function toggleDirectory(node: TreeNode) {
   }
 }
 
-async function loadChanges() {
-  changes.value = []
+/**
+ * Load git status for the Changes tab and the header badge.
+ * `silent` keeps the previous badge count visible and avoids flipping the
+ * Changes-tab loading UI (used for background refresh while on Files).
+ */
+async function loadChanges(options?: { silent?: boolean }) {
+  const silent = options?.silent === true
   gitError.value = null
-  if (!hasWorkspace.value) return
-  loadingChanges.value = true
-  error.value = ''
+  if (!hasWorkspace.value) {
+    changes.value = []
+    return
+  }
+  if (!silent) {
+    changes.value = []
+    loadingChanges.value = true
+    error.value = ''
+  }
   try {
     const result = await getWorkspaceGitStatus(props.workspaceRoot)
     changes.value = result.changes
     gitError.value = result.error ?? null
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    const message = err instanceof Error ? err.message : String(err)
+    if (silent) {
+      console.warn('[WorkspacePanel] background git status failed', message)
+    } else {
+      changes.value = []
+      error.value = message
+    }
   } finally {
-    loadingChanges.value = false
+    if (!silent) loadingChanges.value = false
   }
+}
+
+/** Keep the Changes badge current even when the Files tab is active. */
+function refreshChangesBadge() {
+  void loadChanges({ silent: true })
 }
 
 async function activatePrimaryView(nextView: PrimaryView) {
   activeView.value = nextView
-  if (nextView === 'files' && roots.value.length === 0) await loadRoot()
-  else if (nextView === 'changes' && changes.value.length === 0) await loadChanges()
+  // Always reload — lists go stale after agent edits / git ops / conversation switch.
+  if (nextView === 'files') {
+    await loadRoot()
+    refreshChangesBadge()
+  } else {
+    await loadChanges()
+  }
+}
+
+async function reloadPreviewTab(tabItem: PreviewTab) {
+  if (tabItem.kind === 'file') await loadFileTab(tabItem)
+  else if (tabItem.kind === 'turn-diff') await loadTurnDiffTab(tabItem)
+  else await loadDiffTab(tabItem)
 }
 
 async function loadFileTab(tabItem: FilePreviewTab) {
@@ -246,6 +301,7 @@ async function openTurnDiff(conversationId: string, turnId: string, path: string
   if (existing) {
     activeView.value = id
     if (existing.kind === 'turn-diff') await loadTurnDiffTab(existing)
+    refreshChangesBadge()
     return
   }
   const relative = workspaceRelativeDisplayPath(path, props.workspaceRoot)
@@ -266,14 +322,25 @@ async function openTurnDiff(conversationId: string, turnId: string, path: string
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as TurnDiffPreviewTab
   activeView.value = id
   await loadTurnDiffTab(reactiveTab)
+  refreshChangesBadge()
 }
 
 async function refreshActiveTab() {
-  if (activeView.value === 'files') await loadRoot()
-  else if (activeView.value === 'changes') await loadChanges()
-  else if (activeFileTab.value) await loadFileTab(activeFileTab.value)
-  else if (activeDiffTab.value) await loadDiffTab(activeDiffTab.value)
-  else if (activeTurnDiffTab.value) await loadTurnDiffTab(activeTurnDiffTab.value)
+  if (activeView.value === 'files') {
+    await loadRoot()
+    refreshChangesBadge()
+  } else if (activeView.value === 'changes') {
+    await loadChanges()
+  } else if (activeFileTab.value) {
+    await loadFileTab(activeFileTab.value)
+    refreshChangesBadge()
+  } else if (activeDiffTab.value) {
+    await loadDiffTab(activeDiffTab.value)
+    refreshChangesBadge()
+  } else if (activeTurnDiffTab.value) {
+    await loadTurnDiffTab(activeTurnDiffTab.value)
+    refreshChangesBadge()
+  }
 }
 
 async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { sizeBytes?: number }) {
@@ -282,6 +349,7 @@ async function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { siz
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
+    if (existing.kind === 'file') await loadFileTab(existing)
     return
   }
   const tabItem: FilePreviewTab = {
@@ -305,6 +373,7 @@ async function openWorkspaceReference(path: string) {
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
+    if (existing.kind === 'file') await loadFileTab(existing)
     return
   }
 
@@ -371,6 +440,7 @@ async function selectChange(change: GitChange) {
   const existing = previewTabs.value.find(item => item.id === id)
   if (existing) {
     activeView.value = id
+    if (existing.kind === 'diff') await loadDiffTab(existing)
     return
   }
   const tabItem: DiffPreviewTab = {
@@ -391,8 +461,10 @@ async function selectChange(change: GitChange) {
   await loadDiffTab(reactiveTab)
 }
 
-function activatePreviewTab(tabId: string) {
+async function activatePreviewTab(tabId: string) {
   activeView.value = tabId
+  const tabItem = previewTabs.value.find(item => item.id === tabId)
+  if (tabItem) await reloadPreviewTab(tabItem)
 }
 
 function closePreviewTabs(targetId: string, action: WorkspaceTabCloseAction = 'close') {
@@ -504,9 +576,7 @@ async function runTabContextAction(action: WorkspaceTabCloseAction | 'copy-absol
     if (action === 'close' || action === 'close-others' || action === 'close-right') {
       closePreviewTabs(tabItem.id, action)
     } else if (action === 'refresh') {
-      if (tabItem.kind === 'file') await loadFileTab(tabItem)
-      else if (tabItem.kind === 'turn-diff') await loadTurnDiffTab(tabItem)
-      else await loadDiffTab(tabItem)
+      await reloadPreviewTab(tabItem)
     } else await runPathAction(tabItem.path, action)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -518,20 +588,63 @@ function handleDocumentKeydown(event: KeyboardEvent) {
 }
 
 const normalizedWorkspaceRoot = computed(() => props.workspaceRoot.trim().replace(/[\\/]+$/, ''))
+const normalizedConversationId = computed(() => props.conversationId?.trim() ?? '')
 let loadedWorkspaceRoot = ''
+let loadedConversationId = ''
 
-watch(normalizedWorkspaceRoot, (nextRoot, previousRoot) => {
-  // Conversation hydration can briefly expose an empty root while refreshing.
-  // Do not destroy the user's open tabs and diff state for that transient value.
-  if (!nextRoot && previousRoot && loadedWorkspaceRoot) return
-  if (nextRoot === loadedWorkspaceRoot) return
-
+function resetWorkspaceSurface(nextRoot: string, nextConversationId: string) {
   loadedWorkspaceRoot = nextRoot
+  loadedConversationId = nextConversationId
   previewTabs.value = []
+  roots.value = []
+  changes.value = []
+  gitError.value = null
+  error.value = ''
   activeView.value = 'files'
   closeContextMenu()
   void loadRoot()
-}, { immediate: true })
+  // Badge uses changes.length — fetch git status even while Files is active.
+  refreshChangesBadge()
+}
+
+function onConversationChanged(nextConversationId: string) {
+  loadedConversationId = nextConversationId
+  // Turn-diff tabs are conversation-scoped; keep file/git tabs for the same workspace.
+  previewTabs.value = filterPreviewTabsForConversation(previewTabs.value, nextConversationId)
+  if (
+    activeView.value !== 'files'
+    && activeView.value !== 'changes'
+    && !previewTabs.value.some(tab => tab.id === activeView.value)
+  ) {
+    activeView.value = 'files'
+  }
+  closeContextMenu()
+  void refreshActiveTab()
+  if (activeView.value !== 'changes') refreshChangesBadge()
+}
+
+watch(
+  [normalizedWorkspaceRoot, normalizedConversationId],
+  ([nextRoot, nextConversationId], previous) => {
+    const previousRoot = previous?.[0] ?? ''
+    const previousConversationId = previous?.[1] ?? ''
+    // Conversation hydration can briefly expose an empty root while refreshing.
+    // Do not destroy the user's open tabs and diff state for that transient value.
+    if (!nextRoot && previousRoot && loadedWorkspaceRoot) return
+
+    const rootChanged = nextRoot !== loadedWorkspaceRoot
+    if (rootChanged) {
+      resetWorkspaceSurface(nextRoot, nextConversationId)
+      return
+    }
+
+    // Same workspace: ignore a transient empty conversation id during switch.
+    if (!nextConversationId && previousConversationId && loadedConversationId) return
+    if (nextConversationId === loadedConversationId) return
+    onConversationChanged(nextConversationId)
+  },
+  { immediate: true }
+)
 
 watch(
   () => workspacePanelStore.pendingTurnDiff,
@@ -602,7 +715,10 @@ onBeforeUnmount(() => {
           :key="previewTab.id"
           type="button"
           class="workspace-tab workspace-preview-tab"
-          :class="activeView === previewTab.id && 'is-active'"
+          :class="[
+            activeView === previewTab.id && 'is-active',
+            contextSelectedTabId === previewTab.id && 'is-context-selected'
+          ]"
           :title="previewTab.path"
           @click="activatePreviewTab(previewTab.id)"
           @contextmenu.prevent="openTabContextMenu($event, previewTab.id)"
@@ -627,6 +743,7 @@ onBeforeUnmount(() => {
         v-for="node in roots"
         :key="node.path"
         :node="node"
+        :highlighted-path="contextSelectedTreePath"
         @toggle="toggleDirectory"
         @activate="selectFile"
         @contextmenu="openTreeContextMenu"
@@ -669,6 +786,7 @@ onBeforeUnmount(() => {
         :key="`${change.staged}-${change.path}`"
         type="button"
         class="change-row"
+        :class="contextSelectedChangeKey === changeRowKey(change) && 'is-selected'"
         @click="selectChange(change)"
         @contextmenu.prevent="openChangeContextMenu($event, change)"
       >
@@ -756,6 +874,7 @@ onBeforeUnmount(() => {
 .workspace-resize-handle:hover::after, .workspace-panel.is-resizing .workspace-resize-handle::after { content: ''; @apply absolute inset-y-0 left-1 w-px bg-accent; }
 .workspace-tab { @apply px-3 py-2 text-xs text-muted border-b-2 border-transparent; }
 .workspace-tab.is-active { @apply text-foreground border-accent; }
+.workspace-tab.is-context-selected { @apply bg-accent/10 text-foreground; }
 .workspace-tab-icon {
   @apply relative inline-flex items-center justify-center px-2.5;
 }
@@ -765,6 +884,7 @@ onBeforeUnmount(() => {
 .workspace-empty { @apply p-4 text-xs text-muted flex items-center justify-center gap-2; }
 .workspace-action-btn { @apply rounded border border-border px-2.5 py-1.5 text-xs text-foreground hover:bg-hover disabled:opacity-50; }
 .change-row { @apply w-full flex items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-hover; }
+.change-row.is-selected { @apply bg-accent/10 text-foreground; }
 .status-badge { @apply min-w-7 text-center font-mono text-[10px] text-accent; }
 .workspace-context-menu { @apply fixed z-[301] w-52 rounded-md border border-border bg-card p-1 shadow-xl select-none; }
 .workspace-context-separator { @apply my-1 border-t border-border; }

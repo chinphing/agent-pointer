@@ -1173,6 +1173,7 @@ watch(searchQuery, q => {
       <WorkspacePanel
         v-if="workspacePanelOpen"
         :workspace-root="chat.current?.workspaceRoot ?? ''"
+        :conversation-id="chat.current?.id ?? ''"
         @initialize-git="chat.sendUserMessage(GIT_INITIALIZATION_TASK)"
         @install-git="chat.sendUserMessage('帮我安装 Git')"
         @close="setWorkspacePanelOpen(false)"

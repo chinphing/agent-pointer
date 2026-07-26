@@ -8,7 +8,12 @@ export type WorkspaceTreeNodeModel = WorkspaceEntry & {
   loading?: boolean
 }
 
-const props = defineProps<{ node: WorkspaceTreeNodeModel; depth?: number }>()
+const props = defineProps<{
+  node: WorkspaceTreeNodeModel
+  depth?: number
+  /** Path of the row that should stay highlighted (e.g. open context menu). */
+  highlightedPath?: string
+}>()
 const emit = defineEmits<{
   (e: 'toggle', node: WorkspaceTreeNodeModel): void
   (e: 'activate', node: WorkspaceTreeNodeModel): void
@@ -37,6 +42,7 @@ function openContextMenu(event: MouseEvent, node: WorkspaceTreeNodeModel) {
   <div>
     <button
       class="tree-row"
+      :class="highlightedPath === node.path && 'is-selected'"
       :style="{ paddingLeft: `${12 + (depth ?? 0) * 16}px` }"
       type="button"
       @click="activate(node)"
@@ -60,6 +66,7 @@ function openContextMenu(event: MouseEvent, node: WorkspaceTreeNodeModel) {
       :key="child.path"
       :node="child"
       :depth="(depth ?? 0) + 1"
+      :highlighted-path="highlightedPath"
       @toggle="toggle"
       @activate="forwardActivate"
       @contextmenu="openContextMenu"
@@ -69,4 +76,5 @@ function openContextMenu(event: MouseEvent, node: WorkspaceTreeNodeModel) {
 
 <style scoped>
 .tree-row { @apply w-full flex items-center gap-1.5 pr-3 py-1.5 text-left text-xs hover:bg-hover disabled:cursor-default select-none; }
+.tree-row.is-selected { @apply bg-accent/10 text-foreground; }
 </style>

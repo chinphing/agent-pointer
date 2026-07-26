@@ -38,3 +38,12 @@ export function workspaceActiveAfterClose(
   const left = [...ids.slice(0, Math.max(0, targetIndex))].reverse().find(id => remaining.includes(id))
   return left ?? remaining[remaining.length - 1]!
 }
+
+/** Drop turn-diff tabs that belong to another conversation after a session switch. */
+export function filterPreviewTabsForConversation<T extends { kind: string; conversationId?: string }>(
+  tabs: readonly T[],
+  conversationId: string
+): T[] {
+  const id = conversationId.trim()
+  return tabs.filter(tab => tab.kind !== 'turn-diff' || tab.conversationId === id)
+}

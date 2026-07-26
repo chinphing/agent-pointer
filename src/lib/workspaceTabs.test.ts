@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { workspaceActiveAfterClose, workspacePreviewTabId, workspaceTabIdsToClose } from './workspaceTabs'
+import {
+  filterPreviewTabsForConversation,
+  workspaceActiveAfterClose,
+  workspacePreviewTabId,
+  workspaceTabIdsToClose
+} from './workspaceTabs'
 
 describe('workspace preview tabs', () => {
   const ids = ['file:a.ts', 'diff:a.ts', 'file:b.ts']
@@ -21,5 +26,19 @@ describe('workspace preview tabs', () => {
     expect(workspaceActiveAfterClose(ids, 'diff:a.ts', ['diff:a.ts'], 'diff:a.ts', 'changes')).toBe('file:b.ts')
     expect(workspaceActiveAfterClose(ids, 'file:b.ts', ['file:b.ts'], 'file:b.ts', 'files')).toBe('diff:a.ts')
     expect(workspaceActiveAfterClose(['file:a.ts'], 'file:a.ts', ['file:a.ts'], 'file:a.ts', 'files')).toBe('files')
+  })
+
+  it('keeps file/git tabs but drops other conversations turn-diffs', () => {
+    const tabs = [
+      { id: 'file:a.ts', kind: 'file' },
+      { id: 'diff:a.ts', kind: 'diff' },
+      { id: 'turn-diff:t1:a.ts', kind: 'turn-diff', conversationId: 'c1' },
+      { id: 'turn-diff:t2:b.ts', kind: 'turn-diff', conversationId: 'c2' }
+    ]
+    expect(filterPreviewTabsForConversation(tabs, 'c2').map(tab => tab.id)).toEqual([
+      'file:a.ts',
+      'diff:a.ts',
+      'turn-diff:t2:b.ts'
+    ])
   })
 })

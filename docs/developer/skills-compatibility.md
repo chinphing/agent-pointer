@@ -40,6 +40,8 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 **说明**：`<available_skills>` 里的 description 仍来自上次扫描；改 frontmatter 描述后需刷新技能列表才会更新目录摘要。
 
+目录内容 = 当前 lead 解析后的 skill id 列表（override / 默认再经 `allowSkills`）。若某内置 skill（如 `skill-manager`）不在列表中，模型按 description 扫描时不会触发；启动时会把 agent `defaultSkillIds` 中的 system skill 补回已有 override（见 skills-persistence）。
+
 ## 运行时注入（OpenClaw 对齐）
 
 启用技能时，system 注入 **`<available_skills>`**  catalog，每个 skill 含：

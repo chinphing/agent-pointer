@@ -87,7 +87,6 @@ import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 import { isPlatformAuthTransientError, usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
-import { playTaskCompleteSoundIfEnabled } from '../lib/taskCompleteSound'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
 import {
   assistantTurnActivelyRunning,
@@ -441,9 +440,15 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function patchRunState(id: string, patch: Partial<ConversationRunState>) {
+    const key = id.trim()
+    // A new stream/tool round resumed — cancel the message_end finish fallback
+    // so mid-turn gaps do not clear generating or race a late Done.
+    if (key && patch.generating === true) {
+      cancelGeneratingClearTimer(key)
+    }
     runByConversation.value = {
       ...runByConversation.value,
-      [id]: { ...runStateFor(id), ...patch }
+      [key || id]: { ...runStateFor(id), ...patch }
     }
   }
 
@@ -586,7 +591,9 @@ export const useChatStore = defineStore('chat', () => {
     clearRunState(convId)
     msg.status = 'done'
     msg.contentStreaming = false
-    playTaskCompleteSoundIfEnabled()
+    // Do not play the completion chime here. `message_end` also fires between
+    // tool rounds while the run continues; only StreamEvent::Done is the real
+    // turn boundary (see handleDone → playTaskCompleteSoundIfEnabled).
   }
 
   function scheduleMaybeFinishGenerating(conversationId: string, messageId: string) {

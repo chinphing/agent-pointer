@@ -1,6 +1,6 @@
 # 任务完成提示音
 
-对话回合正常结束时（收到 `done` 流事件，或前端兜底结束 generating），若用户偏好开启，则播放短促双音提示音。
+对话**整轮**正常结束时（收到流事件 `done`），若用户偏好开启，则播放短促双音提示音。
 
 ## 用户设置
 
@@ -15,7 +15,8 @@
 | 层 | 说明 |
 |----|------|
 | 前端播放 | `src/lib/taskCompleteSound.ts`（Web Audio API，桌面端与网页端通用） |
-| 触发 | `handleDone`；以及 `maybeFinishGenerating`（缺少 `done` 事件时的兜底） |
+| 触发 | **仅** `handleDone`（`StreamEvent::Done`，整轮 `run_chat` 结束） |
+| 不触发 | `message_end` 后的 `maybeFinishGenerating` 兜底（它也会在工具轮次间隙触发，不能当完成音） |
 | 不触发 | 用户停止生成、流错误取消等非正常完成路径 |
 
 取消 / 报错结束不会播放提示音。

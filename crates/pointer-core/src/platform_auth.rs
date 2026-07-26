@@ -22,6 +22,10 @@ const DEFAULT_LOOPBACK_PORT: u16 = 19427;
 /// 从首选端口起依次尝试绑定（含首选共 N 个端口）。
 const LOOPBACK_PORT_SCAN_COUNT: u16 = 32;
 const EXPIRY_BUFFER_SEC: i64 = 300;
+/// Initial refresh try + this many retries on transient network errors.
+const REFRESH_TRANSIENT_RETRY_COUNT: u32 = 3;
+/// Total post_token attempts for a refresh (1 initial + [`REFRESH_TRANSIENT_RETRY_COUNT`]).
+const REFRESH_TRANSIENT_MAX_ATTEMPTS: u32 = 1 + REFRESH_TRANSIENT_RETRY_COUNT;
 /// 等待浏览器 OAuth 回调的最长时间（秒）。
 pub const OAUTH_CALLBACK_TIMEOUT_SEC: u64 = 300;
 /// bind 后本机回环自检超时。
@@ -346,9 +350,72 @@ impl PlatformAuthManager {
         }
     }
 
+    /// Parse `http_status=NNN` (preferred) or `token exchange failed (NNN` from error text.
+    fn parse_http_status_from_error(err: &anyhow::Error) -> Option<u16> {
+        let msg = err.to_string();
+        if let Some(rest) = msg.split("http_status=").nth(1) {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(code) = digits.parse::<u16>() {
+                return Some(code);
+            }
+        }
+        if let Some(rest) = msg.split("token exchange failed (").nth(1) {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(code) = digits.parse::<u16>() {
+                return Some(code);
+            }
+        }
+        if let Some(rest) = msg.split("HTTP ").nth(1) {
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(code) = digits.parse::<u16>() {
+                return Some(code);
+            }
+        }
+        None
+    }
+
+    /// True when refresh/balance failed because the session/token itself was rejected.
     fn is_refresh_auth_failure(err: &anyhow::Error) -> bool {
         let msg = err.to_string();
-        msg.contains("401") || msg.contains("invalid_refresh_token")
+        if msg.contains("invalid_refresh_token") || msg.contains("platform_token_expired") {
+            return true;
+        }
+        matches!(Self::parse_http_status_from_error(err), Some(401 | 403))
+    }
+
+    /// Transient transport / upstream failures — keep `auth.dat`, do not force re-login.
+    /// Prefer HTTP status: 408/429/5xx (and no status = transport) retry; 401/403 do not.
+    pub fn is_refresh_transient_failure(&self, err: &anyhow::Error) -> bool {
+        let _ = self;
+        if Self::is_refresh_auth_failure(err) {
+            return false;
+        }
+        match Self::parse_http_status_from_error(err) {
+            Some(408 | 429) => true,
+            Some(code) if (500..=599).contains(&code) => true,
+            Some(_) => false,
+            None => true,
+        }
+    }
+
+    /// Backoff after transient platform HTTP failure `attempt` (1-based failed try).
+    fn refresh_transient_retry_delay(attempt: u32) -> Duration {
+        match attempt {
+            1 => Duration::from_millis(800),
+            2 => Duration::from_millis(2_000),
+            _ => Duration::from_millis(4_000),
+        }
+    }
+
+    async fn sleep_transient_retry(&self, attempt: u32, op: &str) {
+        let delay = Self::refresh_transient_retry_delay(attempt);
+        log::info!(
+            "platform_auth: retrying {op} in {}ms (retry {}/{})",
+            delay.as_millis(),
+            attempt,
+            REFRESH_TRANSIENT_RETRY_COUNT
+        );
+        tokio::time::sleep(delay).await;
     }
 
     fn is_expired(expires_at: i64) -> bool {
@@ -459,29 +526,62 @@ impl PlatformAuthManager {
             "client_id": Self::client_id(),
             "refresh_token": refresh,
         });
-        match self.post_token(body).await {
-            Ok((session, creds)) => {
-                self.set_session(session.clone());
-                Ok(Some((session, creds)))
-            }
-            Err(e) => {
-                log::warn!("platform_auth: refresh failed: {e}");
-                if Self::is_refresh_auth_failure(&e) && self.valid_session_if_fresh().is_none() {
-                    self.clear_session_inner();
+
+        // Transient network blips: retry with backoff before failing the chat turn.
+        let mut last_err: Option<anyhow::Error> = None;
+        for attempt in 1..=REFRESH_TRANSIENT_MAX_ATTEMPTS {
+            match self.post_token(body.clone()).await {
+                Ok((session, creds)) => {
+                    self.set_session(session.clone());
+                    if attempt > 1 {
+                        log::info!(
+                            "platform_auth: refresh succeeded after transient retry attempt={attempt}/{}",
+                            REFRESH_TRANSIENT_MAX_ATTEMPTS
+                        );
+                    }
+                    return Ok(Some((session, creds)));
                 }
-                Err(e)
+                Err(e) if Self::is_refresh_auth_failure(&e) => {
+                    log::warn!("platform_auth: refresh auth failure: {e}");
+                    if self.valid_session_if_fresh().is_none() {
+                        self.clear_session_inner();
+                    }
+                    return Err(e);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "platform_auth: refresh transient failure attempt={attempt}/{}: {e:#}",
+                        REFRESH_TRANSIENT_MAX_ATTEMPTS
+                    );
+                    last_err = Some(e);
+                    if attempt < REFRESH_TRANSIENT_MAX_ATTEMPTS {
+                        self.sleep_transient_retry(attempt, "refresh").await;
+                    }
+                }
             }
         }
+
+        let err = last_err.unwrap_or_else(|| anyhow!("platform refresh failed"));
+        log::warn!(
+            "platform_auth: refresh gave up after {} transient attempts: {err:#}",
+            REFRESH_TRANSIENT_MAX_ATTEMPTS
+        );
+        Err(err)
     }
 
     pub async fn ensure_access_token(&self) -> Result<String> {
         if let Some(tok) = self.access_token() {
             return Ok(tok);
         }
-        if let Some((s, _)) = self.refresh_if_needed().await? {
-            return Ok(s.access_token);
+        match self.refresh_if_needed().await {
+            Ok(Some((s, _))) => Ok(s.access_token),
+            Ok(None) => Err(anyhow!("platform_login_required")),
+            Err(e) if self.is_refresh_transient_failure(&e) => {
+                log::warn!("platform_auth: ensure_access_token transient refresh failure: {e:#}");
+                Err(anyhow!("网络异常，暂时无法刷新登录态，请稍后重试"))
+            }
+            Err(e) => Err(e),
         }
-        Err(anyhow!("platform_login_required"))
     }
 
     pub async fn load_persisted_session(&self) -> Result<Option<PlatformLoginCredentials>> {
@@ -538,7 +638,11 @@ impl PlatformAuthManager {
         let status = resp.status();
         let text = resp.text().await.context("read token response")?;
         if !status.is_success() {
-            return Err(anyhow!("token exchange failed ({status}): {text}"));
+            // Stable `http_status=` tag so clients classify auth vs transient without brittle substrings.
+            return Err(anyhow!(
+                "token exchange failed http_status={} ({status}): {text}",
+                status.as_u16()
+            ));
         }
         let parsed: AppTokenResponse =
             serde_json::from_str(&text).context("parse token response")?;
@@ -722,7 +826,8 @@ impl PlatformAuthManager {
     /// Live balance check for chat-start gate. **No-op in standalone mode.**
     ///
     /// Uses `GET /auth/partner/balance` (not llm-credentials). Login / key refresh unchanged.
-    /// Fail-closed on network errors. Soft overdraft on charge remains server-side.
+    /// Transient network/5xx errors retry with the same backoff as token refresh; still fail-closed
+    /// after retries. Soft overdraft on charge remains server-side.
     pub async fn ensure_llm_allowed(&self) -> Result<()> {
         if crate::deployment_mode::is_standalone() {
             return Ok(());
@@ -739,25 +844,84 @@ impl PlatformAuthManager {
                 Ok(())
             }
             Err(e) => {
-                if e.to_string().contains("token_quota_exhausted") {
+                let msg = e.to_string();
+                if msg.contains("token_quota_exhausted") {
                     self.set_token_quota_exhausted(true);
+                    return Err(e);
                 }
                 log::warn!("platform_auth: partner balance check failed: {e:#}");
+                if Self::is_refresh_auth_failure(&e) {
+                    return Err(e);
+                }
+                if self.is_refresh_transient_failure(&e) {
+                    return Err(anyhow!("网络异常，暂时无法验证账户余额，请稍后重试"));
+                }
                 Err(e)
             }
         }
     }
 
-    /// Query official account balance for run_chat gate.
+    /// Query official account balance for run_chat gate (with transient retries).
     pub async fn fetch_partner_balance(&self) -> Result<PartnerBalanceResponse> {
-        let token = self.ensure_access_token().await?;
         let url = format!(
             "{}/auth/partner/balance",
             Self::api_base().trim_end_matches('/')
         );
+        let mut last_err: Option<anyhow::Error> = None;
+        for attempt in 1..=REFRESH_TRANSIENT_MAX_ATTEMPTS {
+            // Re-resolve access token each attempt (may refresh after a prior 401 race).
+            let token = self.ensure_access_token().await?;
+            match self.fetch_partner_balance_once(&url, &token).await {
+                Ok(parsed) => {
+                    if attempt > 1 {
+                        log::info!(
+                            "platform_auth: partner balance succeeded after transient retry attempt={attempt}/{}",
+                            REFRESH_TRANSIENT_MAX_ATTEMPTS
+                        );
+                    }
+                    log::info!(
+                        "platform_auth: partner balance_yuan={} exhausted={}",
+                        parsed.balance_yuan,
+                        parsed.token_quota_exhausted
+                    );
+                    return Ok(parsed);
+                }
+                Err(e) if Self::is_refresh_auth_failure(&e) => {
+                    log::warn!("platform_auth: partner balance auth failure: {e:#}");
+                    return Err(e);
+                }
+                Err(e) if self.is_refresh_transient_failure(&e) => {
+                    log::warn!(
+                        "platform_auth: partner balance transient failure attempt={attempt}/{}: {e:#}",
+                        REFRESH_TRANSIENT_MAX_ATTEMPTS
+                    );
+                    last_err = Some(e);
+                    if attempt < REFRESH_TRANSIENT_MAX_ATTEMPTS {
+                        self.sleep_transient_retry(attempt, "partner balance").await;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("platform_auth: partner balance non-retryable failure: {e:#}");
+                    return Err(e);
+                }
+            }
+        }
+        let err = last_err.unwrap_or_else(|| anyhow!("partner balance request failed"));
+        log::warn!(
+            "platform_auth: partner balance gave up after {} transient attempts: {err:#}",
+            REFRESH_TRANSIENT_MAX_ATTEMPTS
+        );
+        Err(err)
+    }
+
+    async fn fetch_partner_balance_once(
+        &self,
+        url: &str,
+        token: &str,
+    ) -> Result<PartnerBalanceResponse> {
         let resp = self
             .http
-            .get(&url)
+            .get(url)
             .header("Authorization", format!("Bearer {token}"))
             .send()
             .await
@@ -770,16 +934,11 @@ impl PlatformAuthManager {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             return Err(anyhow!(
-                "partner balance request failed: HTTP {status}: {text}"
+                "partner balance request failed http_status={} (HTTP {status}): {text}",
+                status.as_u16()
             ));
         }
-        let parsed: PartnerBalanceResponse = resp.json().await.context("parse partner balance")?;
-        log::info!(
-            "platform_auth: partner balance_yuan={} exhausted={}",
-            parsed.balance_yuan,
-            parsed.token_quota_exhausted
-        );
-        Ok(parsed)
+        resp.json().await.context("parse partner balance")
     }
 
     pub async fn fetch_llm_api_key(&self) -> Result<Option<String>> {
@@ -1324,6 +1483,50 @@ async fn run_platform_login_flow_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_auth_failure_uses_http_status_not_proxy_noise() {
+        let auth = PlatformAuthManager::new();
+        let auth_fail =
+            anyhow!("token exchange failed http_status=401 (401 Unauthorized): invalid_refresh_token");
+        let legacy_auth = anyhow!("token exchange failed (403 Forbidden): denied");
+        let proxy_noise = anyhow!("upstream gateway 401 while connecting to CDN");
+        let network = anyhow!("token request failed: error sending request for url");
+        let gateway = anyhow!("token exchange failed http_status=502 (502 Bad Gateway): oops");
+        let bad_request = anyhow!("token exchange failed http_status=400 (400 Bad Request): bad");
+        assert!(!auth.is_refresh_transient_failure(&auth_fail));
+        assert!(!auth.is_refresh_transient_failure(&legacy_auth));
+        assert!(auth.is_refresh_transient_failure(&proxy_noise));
+        assert!(auth.is_refresh_transient_failure(&network));
+        assert!(auth.is_refresh_transient_failure(&gateway));
+        assert!(!auth.is_refresh_transient_failure(&bad_request));
+        assert_eq!(
+            PlatformAuthManager::parse_http_status_from_error(&auth_fail),
+            Some(401)
+        );
+        assert_eq!(
+            PlatformAuthManager::parse_http_status_from_error(&gateway),
+            Some(502)
+        );
+    }
+
+    #[test]
+    fn refresh_transient_retry_uses_backoff_schedule() {
+        assert_eq!(REFRESH_TRANSIENT_MAX_ATTEMPTS, 4);
+        assert_eq!(REFRESH_TRANSIENT_RETRY_COUNT, 3);
+        assert_eq!(
+            PlatformAuthManager::refresh_transient_retry_delay(1).as_millis(),
+            800
+        );
+        assert_eq!(
+            PlatformAuthManager::refresh_transient_retry_delay(2).as_millis(),
+            2000
+        );
+        assert_eq!(
+            PlatformAuthManager::refresh_transient_retry_delay(3).as_millis(),
+            4000
+        );
+    }
 
     #[test]
     fn build_authorize_url_for_redirect_includes_pkce_and_encoded_redirect() {

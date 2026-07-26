@@ -15,6 +15,67 @@ export interface PlatformSessionView {
   tokenQuotaExhausted?: boolean
 }
 
+/** Prefer stable `http_status=NNN`, then common HTTP shapes in backend errors. */
+export function extractPlatformAuthHttpStatus(message: string): number | null {
+  const tagged = message.match(/\bhttp_status=(\d{3})\b/i)
+  if (tagged) {
+    const code = Number(tagged[1])
+    return Number.isFinite(code) ? code : null
+  }
+  const exchange = message.match(/token exchange failed\s*\((\d{3})\b/i)
+  if (exchange) {
+    const code = Number(exchange[1])
+    return Number.isFinite(code) ? code : null
+  }
+  const httpWord = message.match(/\bHTTP[ :](\d{3})\b/i)
+  if (httpWord) {
+    const code = Number(httpWord[1])
+    return Number.isFinite(code) ? code : null
+  }
+  return null
+}
+
+function isAuthFailureHttpStatus(status: number): boolean {
+  return status === 401 || status === 403
+}
+
+function isTransientHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status <= 599)
+}
+
+/** True when refresh/token failed due to transport / retryable HTTP — not a revoked session. */
+export function isPlatformAuthTransientError(message: string): boolean {
+  const msg = message.toLowerCase()
+  if (msg.includes('invalid_refresh_token')) return false
+  if (msg.includes('登录已失效')) return false
+  if (msg.includes('platform_login_required') || msg.includes('local_login_required')) return false
+  if (msg.includes('platform_token_expired')) return false
+
+  // Prefer HTTP status when the backend tagged the error (`http_status=NNN`).
+  const status = extractPlatformAuthHttpStatus(message)
+  if (status != null) {
+    if (isAuthFailureHttpStatus(status)) return false
+    return isTransientHttpStatus(status)
+  }
+
+  // No parseable status: only treat clear transport failures as transient.
+  // Do not scan for bare "401" in prose — that misfires on proxy/HTML noise.
+  return (
+    msg.includes('网络异常') ||
+    msg.includes('暂时无法') ||
+    msg.includes('token request failed') ||
+    msg.includes('error sending request') ||
+    msg.includes('error trying to connect') ||
+    msg.includes('connection reset') ||
+    msg.includes('connection refused') ||
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('dns error') ||
+    msg.includes('network unreachable') ||
+    msg.includes('连接')
+  )
+}
+
 function formatPlatformAuthError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
   if (msg.includes('oauth callback timeout')) return '登录超时，请重试'
@@ -22,13 +83,23 @@ function formatPlatformAuthError(e: unknown): string {
   if (msg.includes('本机回环')) {
     return '本机回环不可用：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost，然后重试'
   }
-  if (msg.includes('invalid_refresh_token')) return '登录已失效，请重新登录 Pointer 账户'
+  const status = extractPlatformAuthHttpStatus(msg)
+  if (
+    msg.includes('invalid_refresh_token') ||
+    msg.includes('platform_token_expired') ||
+    (status != null && isAuthFailureHttpStatus(status))
+  ) {
+    return '登录已失效，请重新登录 Pointer 账户'
+  }
   if (msg.includes('server_access_denied')) return '此 Server 未授权您的账户，请联系管理员'
   if (msg.includes('invalid_captcha')) return '验证码错误，请重试'
   if (msg.includes('invalid_credentials')) return '账号或密码错误'
   if (msg.includes('local_login_required')) return '请先登录'
   if (msg.includes('Plugin not found') || msg.includes('not allowed')) {
     return '当前为云主机页面，登录态由平台自动注入，无需再次登录'
+  }
+  if (isPlatformAuthTransientError(msg)) {
+    return '网络异常，暂时无法验证登录态，请稍后重试'
   }
   return msg
 }
@@ -120,8 +191,14 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
         error.value = redirectError
       }
     } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e)
       error.value = formatPlatformAuthError(e)
-      session.value = { logged_in: false }
+      // Network blips must not wipe a still-valid UI session as "logged out".
+      if (!isPlatformAuthTransientError(raw)) {
+        session.value = { logged_in: false }
+      } else {
+        console.warn('[platformAuth] load failed transiently; keeping prior session', raw)
+      }
     } finally {
       loading.value = false
     }
@@ -143,8 +220,14 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
       return session.value
     } catch (e) {
       if (loading.value) throw e
+      const raw = e instanceof Error ? e.message : String(e)
       error.value = formatPlatformAuthError(e)
-      if ((e instanceof Error ? e.message : String(e)).includes('invalid_refresh_token')) {
+      const status = extractPlatformAuthHttpStatus(raw)
+      if (
+        raw.includes('invalid_refresh_token') ||
+        raw.includes('platform_token_expired') ||
+        (status != null && isAuthFailureHttpStatus(status))
+      ) {
         session.value = { logged_in: false }
       }
       throw new Error(error.value || '平台登录态刷新失败')

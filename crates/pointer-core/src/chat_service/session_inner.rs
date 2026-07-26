@@ -102,6 +102,7 @@ pub(super) async fn run_chat_inner(
     let web_session = crate::web_request_auth::scoped_login_creds().is_some();
     let is_local_session = crate::web_request_auth::is_local_scoped_session();
     let skip_platform_refresh = crate::deployment_mode::is_standalone() && is_local_session;
+    let mut refresh_transient_error: Option<String> = None;
     if !skip_platform_refresh {
         match state.active_platform_auth().refresh_if_needed().await {
             Ok(Some((_session, creds))) => {
@@ -121,6 +122,12 @@ pub(super) async fn run_chat_inner(
             Ok(None) => {}
             Err(e) => {
                 log::warn!("platform_auth: refresh before chat failed: {e:#}");
+                if state
+                    .active_platform_auth()
+                    .is_refresh_transient_failure(&e)
+                {
+                    refresh_transient_error = Some(e.to_string());
+                }
             }
         }
     }
@@ -134,10 +141,16 @@ pub(super) async fn run_chat_inner(
         // Standalone never applies. Login / llm-credentials unchanged.
         if !crate::deployment_mode::is_standalone() && platform_logged_in {
             if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
-                let msg = if e.to_string().contains("token_quota_exhausted") {
+                let raw = e.to_string();
+                let msg = if raw.contains("token_quota_exhausted") {
                     "账户余额已用尽，请前往 Pointer 官网余额页充值。".to_string()
+                } else if raw.contains("网络异常") {
+                    // Already normalized after balance-check retries.
+                    raw
+                } else if state.active_platform_auth().is_refresh_transient_failure(&e) {
+                    "网络异常，暂时无法验证账户余额，请稍后重试".to_string()
                 } else {
-                    e.to_string()
+                    raw
                 };
                 return Err(anyhow!(msg));
             }
@@ -152,6 +165,12 @@ pub(super) async fn run_chat_inner(
         return Err(anyhow!(
             "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」或 Web 端完成一次登录；自部署请在配置中注入 API Key"
         ));
+    } else if let Some(detail) = refresh_transient_error {
+        // Access token expired and refresh hit a transport/upstream blip — not a real logout.
+        log::warn!(
+            "platform_auth: chat gated by transient refresh failure conversation_id={conversation_id} detail={detail}"
+        );
+        return Err(anyhow!("网络异常，暂时无法验证登录态，请稍后重试"));
     } else {
         let msg = if crate::deployment_mode::is_standalone() {
             "请先登录"

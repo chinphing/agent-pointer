@@ -14,6 +14,7 @@
 | [webhook-api.md](webhook-api.md) | 通用 Webhook API（触发 Agent、鉴权、附件、同步/异步） |
 | [cloud-host-integration.md](cloud-host-integration.md) | 云实例自部署、环境变量、认证链路 |
 | [desktop-oauth-web-integration.md](desktop-oauth-web-integration.md) | 桌面 OAuth 回调与官网 `?desktop_oauth=success` |
+| [platform-auth-refresh-errors.md](platform-auth-refresh-errors.md) | 登录刷新：网络抖动 vs 需要重新登录 |
 | [feishu-cli-integration-sop.md](feishu-cli-integration-sop.md) | 飞书 CLI 集成 SOP |
 | [lark-cli-quickstart.md](lark-cli-quickstart.md) | Lark CLI 快速上手 |
 

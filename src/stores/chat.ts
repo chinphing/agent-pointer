@@ -85,7 +85,7 @@ import {
 } from '../lib/subAgentSession'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
-import { usePlatformAuthStore } from './platformAuth'
+import { isPlatformAuthTransientError, usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
 import { playTaskCompleteSoundIfEnabled } from '../lib/taskCompleteSound'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
@@ -1910,18 +1910,33 @@ export const useChatStore = defineStore('chat', () => {
     } catch (e) {
       console.error('[chat] platform session refresh failed', e)
       refreshErrorMessage = e instanceof Error ? e.message : String(e)
+      // Access expired + network blip: keep prior logged_in and let the send path
+      // surface a network error instead of forcing a fake re-login.
+      if (isPlatformAuthTransientError(refreshErrorMessage) && platformAuth.session.logged_in) {
+        conv.messages.push({
+          id: uid(),
+          role: 'assistant',
+          content: '',
+          status: 'error',
+          createdAt: Date.now(),
+          errorMessage: refreshErrorMessage || '网络异常，暂时无法验证登录态，请稍后重试'
+        })
+        return
+      }
     }
     if (!platformAuth.session.logged_in) {
+      const loginHint = platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户'
+      const errorMessage =
+        refreshErrorMessage && isPlatformAuthTransientError(refreshErrorMessage)
+          ? refreshErrorMessage
+          : refreshErrorMessage || platformAuth.error || loginHint
       conv.messages.push({
         id: uid(),
         role: 'assistant',
         content: '',
         status: 'error',
         createdAt: Date.now(),
-        errorMessage:
-          refreshErrorMessage ||
-          platformAuth.error ||
-          (platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户')
+        errorMessage
       })
       return
     }

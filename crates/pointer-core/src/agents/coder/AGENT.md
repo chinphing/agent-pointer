@@ -41,16 +41,6 @@ accessPolicy:
     - im_send
     - ask_user
   denyTools: []
-  allowSkills:
-    - find-skills
-    - skill-manager
-    - xlsx
-    - pdf
-    - docx
-    - pptx
-    - agent-browser
-    - dev-env-setup
-  denySkills: []
 ui:
   userSelectable: true
   composerLabel: 氛围编程

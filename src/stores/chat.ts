@@ -85,7 +85,6 @@ import {
   ensureSubTrace,
   migrateLegacyTraceUiState
 } from '../lib/subAgentSession'
-import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 import { isPlatformAuthTransientError, usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
@@ -579,8 +578,8 @@ export const useChatStore = defineStore('chat', () => {
       await sendChat({
         conversationId: conv.id,
         messages: history,
-        enabledSkillIds: enabledSkillIdsForRequest(conv),
-        agentSkillOverrides: { ...(useSettingsStore().userSettings.agentSkillOverrides ?? {}) },
+        // Skills resolve on the backend from user_settings.agentSkillOverrides.
+        enabledSkillIds: [],
         agentMode: effectiveConversationAgentMode(conv),
         leadAgentId: effectiveConversationLeadAgentId(conv),
         toolRoundsUsed: 0,
@@ -750,12 +749,6 @@ export const useChatStore = defineStore('chat', () => {
     conv.leadAgentId = leadAgentId.trim() || DEFAULT_LEAD_AGENT_ID
     conv.agentMode = agentMode
     conv.updatedAt = Date.now()
-  }
-
-  function enabledSkillIdsForRequest(conv: Conversation): string[] {
-    if (effectiveConversationAgentMode(conv) === 'supervisor') return []
-    const lead = effectiveConversationLeadAgentId(conv)
-    return [...useSkillsStore().enabledIdsForAgent(lead)]
   }
 
   async function refreshSubAgentTaskBoards(conversationId: string) {

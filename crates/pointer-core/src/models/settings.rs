@@ -1396,10 +1396,11 @@ pub struct UserSettings {
     pub theme: String,
     #[serde(default, rename = "userNickname")]
     pub user_nickname: Option<String>,
-    /// Globally enabled skill ids (UI + runtime when lead agent is `general`).
+    /// Legacy globally enabled skill ids. Not used for runtime resolve; kept for
+    /// migration into `agent_skill_overrides["general"]` on client startup.
     #[serde(default = "default_enabled_skill_ids", rename = "enabledSkillIds")]
     pub enabled_skill_ids: Vec<String>,
-    /// Optional agent-specific skill ids; absent entries inherit `enabled_skill_ids`.
+    /// Per-agent enabled skill ids. Runtime resolve: override ?? agent defaultSkillIds.
     #[serde(default, rename = "agentSkillOverrides")]
     pub agent_skill_overrides: HashMap<String, Vec<String>>,
     #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]

@@ -19,7 +19,7 @@ pub async fn run_chat(
     state: Arc<AppState>,
     conversation_id: String,
     mut history: Vec<ChatMessage>,
-    mut enabled_skill_ids: Vec<String>,
+    _enabled_skill_ids: Vec<String>,
     agent_skill_overrides: HashMap<String, Vec<String>>,
     agent_mode: Option<String>,
     lead_agent_id_override: Option<String>,
@@ -30,11 +30,20 @@ pub async fn run_chat(
     trigger_source: Option<TriggerSource>,
     im_auto_deliver: bool,
 ) -> Result<()> {
+    // Canonical skill source: user_settings.agentSkillOverrides (request overrides
+    // only when non-empty, e.g. tests). Legacy enabledSkillIds is ignored.
+    let agent_skill_overrides = if agent_skill_overrides.is_empty() {
+        state.default_run_agent_skill_overrides()
+    } else {
+        agent_skill_overrides
+    };
+    // Filled with the lead's resolved skill ids after build_plan (for inherit/import).
+    let mut enabled_skill_ids: Vec<String> = Vec::new();
     log::info!(
-        "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={} trigger_source={:?} im_auto_deliver={}",
+        "run_chat start conversation_id={} incoming_history_messages={} agent_skill_overrides={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={} trigger_source={:?} im_auto_deliver={}",
         conversation_id,
         history.len(),
-        enabled_skill_ids.len(),
+        agent_skill_overrides.len(),
         agent_mode,
         lead_agent_id_override,
         tool_rounds_used_single_start,

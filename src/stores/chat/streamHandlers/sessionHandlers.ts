@@ -8,7 +8,7 @@ import {
 import { flushStreamDeltaBuffers } from '../../../lib/reasoningDeltaBatch'
 import { recordTurnDone } from '../../../lib/turnElapsed'
 import { useSkillsStore } from '../../skills'
-import { GENERAL_AGENT_ID } from '../../../lib/agentUi'
+import { useSettingsStore } from '../../settings'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
 import {
   markTrailingAssistantCancelled,
@@ -100,12 +100,10 @@ export function handleComputerMonitorUpdated(ctx: StreamHandlerContext, e: Compu
   }
 }
 
-export function handleSkillsUpdated(_ctx: StreamHandlerContext, e: SkillsUpdated) {
-  const skillsStore = useSkillsStore()
-  void skillsStore.load({ rescan: true })
-  if (e.enabledIds !== undefined) {
-    void skillsStore.setAgentEnabledIds(GENERAL_AGENT_ID, e.enabledIds)
-  }
+export function handleSkillsUpdated(_ctx: StreamHandlerContext, _e: SkillsUpdated) {
+  // Backend already persisted agentSkillOverrides[lead]; refresh catalog + settings.
+  void useSkillsStore().load({ rescan: true })
+  void useSettingsStore().load()
 }
 
 export function handleImSessionForked(ctx: StreamHandlerContext, e: ImSessionForked) {

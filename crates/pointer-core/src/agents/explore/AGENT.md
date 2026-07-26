@@ -22,8 +22,6 @@ accessPolicy:
     - file_grep
     - file_list
   denyTools: []
-  allowSkills: []
-  denySkills: []
 ui:
   userSelectable: false
   showInComposer: false

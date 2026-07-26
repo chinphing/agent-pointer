@@ -30,9 +30,6 @@ accessPolicy:
     - captcha_verify
     - im_send
   denyTools: []
-  allowSkills:
-    - xlsx
-  denySkills: []
 ui:
   userSelectable: true
   composerLabel: 电脑操控

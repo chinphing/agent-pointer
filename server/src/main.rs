@@ -2317,7 +2317,8 @@ async fn webhook_ingress(
         trigger_meta,
         lane: None,
         messages,
-        enabled_skill_ids: body.enabled_skill_ids,
+        enabled_skill_ids: Vec::new(),
+        // Empty → run_chat loads agentSkillOverrides from user_settings.
         agent_skill_overrides: HashMap::new(),
         agent_mode: body.agent_mode,
         lead_agent_id: body.lead_agent_id,

@@ -374,7 +374,6 @@ impl DispatchService {
             conv_id.clone(),
         );
 
-        let enabled_skill_ids = state.default_run_enabled_skill_ids();
         let automation_auth = state.automation_execution_auth();
         let agent_mode = request_agent_mode(&im_session);
         let lead_agent = lead_agent_override(&im_session);
@@ -384,7 +383,8 @@ impl DispatchService {
                 state.clone(),
                 desktop_conv_id.clone(),
                 history,
-                enabled_skill_ids,
+                Vec::new(),
+                // Empty → run_chat loads agentSkillOverrides from user_settings.
                 std::collections::HashMap::new(),
                 agent_mode,
                 lead_agent,

@@ -335,12 +335,14 @@ pub(super) async fn run_chat_inner(
         &state.agents,
         &state.skills,
         &state.tools,
-        ctx.enabled_skill_ids,
+        &[],
         &req.agent_skill_overrides,
         &effective_agent_mode,
         lead_worker_id.as_deref(),
     );
     let mut agent_plan = agent_plan;
+    // Effective list for inherit / skill_import persistence (not a resolve input).
+    *ctx.enabled_skill_ids = agent_plan.resolved_skill_ids.clone();
     if crate::channel_outbound::is_im_conversation(conversation_id) {
         agent_plan
             .system_prompts

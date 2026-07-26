@@ -1,4 +1,4 @@
-//! Skill import side effects (persist enabled ids + stream event).
+//! Skill import side effects (persist agent overrides + stream event).
 
 use crate::models::StreamEvent;
 
@@ -36,10 +36,30 @@ pub(super) fn dispatch_skill_import(
                 }
             }
             let ids = lead_cfg.enabled_skill_ids.clone();
-            let mut user = state.load_user_settings();
-            user.enabled_skill_ids = ids.clone();
-            if let Err(err) = state.save_user_settings(&user) {
-                log::warn!("skill_import: persist enabled_skill_ids failed: {err}");
+            let lead_id = lead_cfg.lead_agent_id.trim();
+            if lead_id.is_empty() {
+                log::warn!(
+                    "skill_import: auto_enable skipped persist — empty lead_agent_id conversation_id={conversation_id}"
+                );
+            } else {
+                let mut user = state.load_user_settings();
+                let entry = user
+                    .agent_skill_overrides
+                    .entry(lead_id.to_string())
+                    .or_insert_with(|| ids.clone());
+                for id in &imported_ids {
+                    if !entry.iter().any(|existing| existing == id) {
+                        entry.push(id.clone());
+                    }
+                }
+                if let Err(err) = state.save_user_settings(&user) {
+                    log::warn!("skill_import: persist agentSkillOverrides failed: {err}");
+                } else {
+                    log::info!(
+                        "skill_import: enabled {} skill(s) on agentSkillOverrides[{lead_id}]",
+                        imported_ids.len()
+                    );
+                }
             }
             Some(ids)
         } else {

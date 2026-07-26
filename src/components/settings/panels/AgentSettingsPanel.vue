@@ -57,15 +57,11 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
 }
 
 function supportsSkills(agent: AgentDef): boolean {
-  return agent.defaultSkillIds.length > 0 || agent.accessPolicy.allowSkills.length > 0
+  return agent.defaultSkillIds.length > 0
 }
 
 function configuredSkillIds(agent: AgentDef): string[] {
-  const allowed = new Set(agent.accessPolicy.allowSkills)
-  const denied = new Set(agent.accessPolicy.denySkills)
-  return skillsStore.enabledIdsForAgent(agent.id).filter(id =>
-    (allowed.size === 0 || allowed.has(id)) && !denied.has(id)
-  )
+  return skillsStore.enabledIdsForAgent(agent.id)
 }
 
 function skillLabel(skillId: string): string {

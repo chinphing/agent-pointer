@@ -251,8 +251,10 @@ pub struct AccessPolicy {
     pub allow_tools: Vec<String>,
     #[serde(default, rename = "denyTools")]
     pub deny_tools: Vec<String>,
+    /// Legacy field; ignored at runtime. Skill boundary is defaultSkillIds + override.
     #[serde(default, rename = "allowSkills")]
     pub allow_skills: Vec<String>,
+    /// Legacy field; ignored at runtime. Skill boundary is defaultSkillIds + override.
     #[serde(default, rename = "denySkills")]
     pub deny_skills: Vec<String>,
 }
@@ -1081,62 +1083,64 @@ pub fn sub_agent_inherits_session_skills(agent_id: &str) -> bool {
 /// Skill ids for a delegated sub-agent session. Uses `agent.skills_policy` to determine strategy.
 pub fn sub_agent_skill_ids(
     agent: &AgentDef,
-    lead_enabled_skill_ids: &[String],
+    parent_skill_ids: &[String],
     lead_agent_skill_overrides: &HashMap<String, Vec<String>>,
 ) -> Vec<String> {
-    let mut ids = match agent.skills_policy {
-        SkillsPolicy::Disabled => return Vec::new(),
-        SkillsPolicy::DefaultsOnly => agent.default_skill_ids.clone(),
-        SkillsPolicy::UserConfigurable => lead_agent_skill_overrides
-            .get(&agent.id)
-            .cloned()
-            .unwrap_or_else(|| agent.default_skill_ids.clone()),
-        SkillsPolicy::InheritsFromParent => lead_enabled_skill_ids.to_vec(),
-    };
-    filter_skill_ids(agent, &mut ids);
-    ids
+    resolve_skill_ids(agent, parent_skill_ids, lead_agent_skill_overrides)
 }
 
-/// Resolve the effective skill IDs for an agent based on its `SkillsPolicy`.
+/// Resolve effective skill ids:
+/// `override[agent] ?? defaultSkillIds`, then merge missing bundled defaults.
+///
+/// `parent_skill_ids` is only used for [`SkillsPolicy::InheritsFromParent`] (lead's
+/// already-resolved list). Legacy global `enabledSkillIds` is not a resolve source.
+/// `accessPolicy.allowSkills` / `denySkills` are unused (kept for manifest compat).
 fn resolve_skill_ids(
     agent: &AgentDef,
-    enabled_skill_ids: &[String],
+    parent_skill_ids: &[String],
     agent_skill_overrides: &HashMap<String, Vec<String>>,
 ) -> Vec<String> {
     let mut ids = match agent.skills_policy {
         SkillsPolicy::Disabled => return Vec::new(),
         SkillsPolicy::DefaultsOnly => agent.default_skill_ids.clone(),
-        SkillsPolicy::UserConfigurable => agent_skill_overrides
-            .get(&agent.id)
-            .or_else(|| agent_skill_overrides.get("_global"))
-            .cloned()
-            .unwrap_or_else(|| {
-                if enabled_skill_ids.is_empty() {
-                    agent.default_skill_ids.clone()
-                } else {
-                    enabled_skill_ids.to_vec()
-                }
-            }),
+        SkillsPolicy::UserConfigurable => {
+            let mut ids = agent_skill_overrides
+                .get(&agent.id)
+                .or_else(|| agent_skill_overrides.get("_global"))
+                .cloned()
+                .unwrap_or_else(|| agent.default_skill_ids.clone());
+            merge_missing_bundled_defaults(&agent.default_skill_ids, &mut ids);
+            ids
+        }
         SkillsPolicy::InheritsFromParent => {
-            if enabled_skill_ids.is_empty() {
+            if parent_skill_ids.is_empty() {
                 agent.default_skill_ids.clone()
             } else {
-                enabled_skill_ids.to_vec()
+                parent_skill_ids.to_vec()
             }
         }
     };
-    filter_skill_ids(agent, &mut ids);
+    finalize_skill_ids(&mut ids);
     ids
 }
 
-fn filter_skill_ids(agent: &AgentDef, ids: &mut Vec<String>) {
-    // Apply access policy allow/deny. Defaults are selected by the caller from SkillsPolicy.
-    if !agent.access_policy.allow_skills.is_empty() {
-        let allow: HashSet<_> = agent.access_policy.allow_skills.iter().cloned().collect();
-        ids.retain(|id| allow.contains(id));
+/// Keep bundled skills listed in `defaultSkillIds` present after upgrades even when a
+/// stale per-agent override was saved before those ids existed.
+fn merge_missing_bundled_defaults(default_skill_ids: &[String], ids: &mut Vec<String>) {
+    for id in default_skill_ids {
+        if crate::skills::BUNDLED_SKILL_IDS
+            .iter()
+            .any(|bundled| *bundled == id.as_str())
+            && !ids.iter().any(|existing| existing == id)
+        {
+            ids.push(id.clone());
+        }
     }
-    let deny: HashSet<_> = agent.access_policy.deny_skills.iter().cloned().collect();
-    ids.retain(|id| !deny.contains(id));
+}
+
+fn finalize_skill_ids(ids: &mut Vec<String>) {
+    // Skill boundary is defaultSkillIds + user override only.
+    // accessPolicy.allowSkills / denySkills are legacy fields and are not applied.
     ids.sort();
     ids.dedup();
 }
@@ -1215,44 +1219,48 @@ mod builtin_agent_tests {
     use super::*;
 
     #[test]
-    fn resolve_skill_ids_uses_enabled_ids_and_agent_overrides() {
+    fn resolve_skill_ids_uses_override_or_defaults_not_enabled_list() {
         let general = default_agent_def();
-        let enabled = vec!["my-skill".into()];
-        assert_eq!(
-            resolve_skill_ids(&general, &enabled, &HashMap::new()),
-            vec!["my-skill".to_string()]
-        );
+        // Legacy enabled list is ignored when overrides are empty.
+        let ignored_enabled = vec!["my-skill".into()];
+        let from_defaults = resolve_skill_ids(&general, &ignored_enabled, &HashMap::new());
+        assert!(from_defaults.iter().any(|id| id == "skill-manager"));
+        assert!(!from_defaults.iter().any(|id| id == "my-skill"));
 
-        let overrides = HashMap::from([("general".to_string(), vec!["pdf".to_string()])]);
-        assert_eq!(
-            resolve_skill_ids(&general, &enabled, &overrides),
-            vec!["pdf".to_string()]
-        );
+        // Stale override missing a bundled default regains it via merge.
+        let overrides = HashMap::from([(
+            "general".to_string(),
+            vec!["pdf".to_string(), "docx".to_string()],
+        )]);
+        let resolved = resolve_skill_ids(&general, &[], &overrides);
+        assert!(resolved.iter().any(|id| id == "pdf"));
+        assert!(resolved.iter().any(|id| id == "skill-manager"));
     }
 
     #[test]
-    fn lead_plan_captures_effective_state_before_enabled_ids_mutate() {
+    fn lead_plan_captures_effective_state_from_overrides() {
         let agents = AgentRegistry::new();
         register_builtin_agents(&agents);
         let skills = SkillRegistry::new();
         let tools = ToolRegistry::new();
         let store = std::sync::Arc::new(crate::task_board::TaskBoardStore::new());
         crate::tools::builtin::register_all(&tools, store);
-        let mut enabled = vec!["captured-skill".to_string()];
+        let overrides = HashMap::from([(
+            "general".to_string(),
+            vec!["captured-skill".to_string()],
+        )]);
         let plan = AgentOrchestrator::build_plan(
             &agents,
             &skills,
             &tools,
-            &enabled,
-            &HashMap::new(),
+            &[],
+            &overrides,
             AGENT_MODE_SINGLE,
             Some("general"),
         );
 
-        enabled.clear();
-        enabled.push("changed-after-plan".into());
-
-        assert_eq!(plan.resolved_skill_ids, vec!["captured-skill"]);
+        assert!(plan.resolved_skill_ids.iter().any(|id| id == "captured-skill"));
+        assert!(plan.resolved_skill_ids.iter().any(|id| id == "skill-manager"));
         assert_eq!(
             plan.active_system_prompt,
             plan.system_prompts.first().cloned().unwrap()
@@ -1266,7 +1274,6 @@ mod builtin_agent_tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(plan.active_def.id, plan.lead_agent_id);
-        assert_eq!(enabled, vec!["changed-after-plan"]);
     }
 
     #[test]
@@ -1661,6 +1668,7 @@ mod builtin_agent_tests {
             "xlsx",
             "pptx",
             "pdf",
+            "agent-browser",
         ] {
             assert!(
                 agent.def.default_skill_ids.iter().any(|id| id == skill),
@@ -1744,24 +1752,6 @@ mod builtin_agent_tests {
                 .any(|id| id == "agent-browser"),
             "coder defaultSkillIds should include agent-browser"
         );
-        assert!(
-            agent
-                .def
-                .access_policy
-                .allow_skills
-                .iter()
-                .any(|id| id == "skill-manager"),
-            "coder allowSkills should include skill-manager"
-        );
-        assert!(
-            agent
-                .def
-                .access_policy
-                .allow_skills
-                .iter()
-                .any(|id| id == "agent-browser"),
-            "coder allowSkills should include agent-browser"
-        );
         for tool in ["skill_read"] {
             assert!(
                 agent
@@ -1806,8 +1796,10 @@ mod builtin_agent_tests {
                 "xlsx".to_string()
             ]
         );
+        // Parent/enabled list is ignored for UserConfigurable leads.
         let ids = resolve_skill_ids(&coder, &["docx".into()], &HashMap::new());
-        assert_eq!(ids, vec!["docx".to_string()]);
+        assert_eq!(ids.len(), 8);
+        assert!(ids.iter().any(|id| id == "skill-manager"));
     }
 
     #[test]

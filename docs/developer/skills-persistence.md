@@ -33,18 +33,37 @@
 
 **注意**：运行时 **不再** 自动挂载 Codex/Hermes 等外部目录；仅通过首次导入或手动 `skill_import` 进入用户库。
 
-## 全局持久化
+## 唯一启用状态：`agentSkillOverrides`
 
-已启用技能列表保存在 **`user_settings.json`** 的 `enabledSkillIds` 字段（`UserSettings`），跨会话、跨应用重启生效。APP 与 Web 通过 `updateUserSettings` 读写。
+已启用技能按 agent 保存在 **`user_settings.json`** 的 `agentSkillOverrides`（`agentId → skill ids`）。
 
 | 操作 | 行为 |
 |------|------|
-| 技能库勾选/取消 | `skills.toggle` → `saveUser({ enabledSkillIds })` |
-| 应用启动 | `settings.load` 后 `skills.initEnabledFromUserSettings()` |
-| `skill_import` + `auto_enable` | 后端写入 `user_settings.json` 并推送 `skills_updated` |
+| 技能库勾选/取消 | `skills.toggleForAgent` → `saveUser({ agentSkillOverrides })` |
+| 应用启动 | `settings.load` 后 `skills.initEnabledFromUserSettings()`（仅迁移遗留字段） |
+| `skill_import` + `auto_enable` | 写入当前 lead 的 `agentSkillOverrides[leadId]` 并推送 `skills_updated` |
 | 外部一键导入 | `import_external_skills` → 用户库 + `reload_meta` |
 
+遗留字段 `enabledSkillIds` **不再参与运行时 resolve**；若存在且尚无 `general` override，启动时迁移到 `agentSkillOverrides.general`。
+
 `Conversation.skillIds` 为历史字段，**不再**作为启用状态来源。
+
+## 运行时解析（唯一链路）
+
+```
+effective = agentSkillOverrides[agentId] ?? defaultSkillIds
+effective = merge missing bundled ids from defaultSkillIds
+```
+
+`accessPolicy.allowSkills` / `denySkills` 为遗留字段，**运行时不再过滤**。技能边界只由 `defaultSkillIds` + 用户 override 决定。
+
+入口（APP / Web / IM / Cron / Webhook）**不携带** skill 列表；`run_chat` 在 overrides 为空时从 `user_settings.agentSkillOverrides` 加载。
+
+- **单智能体**：lead 为 **`general`** / **`coder`** 时按上式注入。**general** 对 skill 文件只读 + **`skill_import`**；写入用户库 → **`run_subagent(coder)`**。**coder** 仅 **`skill_read`** + **`file_*`**。
+- **Supervisor**：不加载技能。
+- **子 Agent**：**coder** 用自身 `defaultSkillIds`（经同一链路）；**self fork** 用 `inheritsFromParent`（父已解析列表）。其他子 Agent 通常不加载 skill。
+
+升级补全：resolve 时把 agent `defaultSkillIds` 中仍属 bundled 的 id 补进 stale override（例如旧 coder override 漏掉 **`skill-manager`**）。前端 `ensureSystemSkillsEnabled` 只做同逻辑的 **持久化**，让设置页勾选与运行时一致。
 
 ## Curator 与 Self-improvement
 
@@ -55,25 +74,11 @@
 
 系统库 skill 在 API 中 `provenance: "system"`、`mutable: false`。`.agents/skills` 来源为 `provenance: "external"`、`mutable: false`。
 
-## general / coder lead 加载技能
-
-运行时规则（`pointer-core`）：
-
-- **单智能体模式**：lead 为 **`general`** / **`coder`** 时注入该 agent 的有效 skill 列表（`agentSkillOverrides[agentId]`，否则 `defaultSkillIds`），再经 `allowSkills` / `denySkills` 过滤。**general** 对 skill 文件只读 + **`skill_import`** 安装；任何 **`~/.pointer/skills/`** 写入 → **`run_subagent(coder)`**。**coder**（含子 agent）用 **`file_*`** 编辑，仅 **`skill_read`**（无 **`skill_import`**）。
-- **Supervisor 模式**：不加载技能。
-- **子 Agent**：**coder** 子 Agent 加载其 `defaultSkillIds`（含 **`skill-manager`** 等，仅 `skill_read`）。**self fork** 继承父 agent 的有效 skill 列表。其他子 Agent 不加载 skill。
-
-前端发消息时：`enabledSkillIds` = 当前 lead 的 `enabledIdsForAgent(lead)`，并附带完整 `agentSkillOverrides`。后端优先用 override，否则用请求列表 / agent 默认。
-
-启动 `skills.load()` 会补全：`general` 启用全部 `provenance=system`；**已有 override 的其他 agent** 补全其 `defaultSkillIds` 中的 system skill（避免 coder 旧 override 漏掉后来加入的 **`skill-manager`**）。
-
-**IM 渠道与 Cron 定时任务**：不传显式列表时，后端用 `user_settings.json` 的 override / 默认；仍须 lead 为 **`general`** 或 **`coder`** 且单智能体模式才会注入 skill；`coder` 再经 `allowSkills` 过滤。
-
 ## 内置技能
 
 仓库 `skills/` 随应用打包；启动时同步到 **`{data_dir}/PointerApp/skills/`** 并登记 manifest。
 
-**默认启用**：`DEFAULT_ENABLED_SKILL_IDS` = 全部内置 skill（与 `skills/` 目录一致）。新用户默认全开；老用户在启动加载技能列表时会自动补全尚未启用的 `provenance=system` 技能。
+**Agent 默认**：见各 agent `AGENT.md` 的 `defaultSkillIds`（与 bundled 对齐）。`general` 默认包含全部内置 skill。
 
 **Office 技能（docx / xlsx / pptx / pdf）** 直接来自上游
 [anthropics/skills](https://github.com/anthropics/skills)（含 `SKILL.md` 与 `scripts/`），
@@ -85,6 +90,8 @@
 
 ## 实现入口
 
+- `crates/pointer-core/src/agents/mod.rs` — `resolve_skill_ids` / `sub_agent_skill_ids`
+- `crates/pointer-core/src/chat_service/session.rs` — 从 settings 加载 overrides
 - `crates/pointer-core/src/skills/provenance.rs` — manifest、mutable 判定
 - `crates/pointer-core/src/skills/external.rs` — 双目录加载、bundled sync
 - `crates/pointer-core/src/skills/external_probe.rs` — 首次外部探测与导入

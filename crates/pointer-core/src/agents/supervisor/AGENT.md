@@ -10,8 +10,6 @@ skillsPolicy: disabled
 accessPolicy:
   allowTools: []
   denyTools: []
-  allowSkills: []
-  denySkills: []
 ui:
   userSelectable: false
   composerLabel: 团队模式

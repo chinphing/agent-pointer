@@ -27,8 +27,6 @@ accessPolicy:
     - run_subagent
     - web_search
   denyTools: []
-  allowSkills: []
-  denySkills: []
 ui:
   userSelectable: true
   composerLabel: 氛围编程

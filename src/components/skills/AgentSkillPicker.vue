@@ -16,14 +16,7 @@ const query = ref('')
 const loading = ref(false)
 const savingId = ref<string | null>(null)
 
-const allowedIds = computed(() => new Set(props.agent.accessPolicy.allowSkills))
-const deniedIds = computed(() => new Set(props.agent.accessPolicy.denySkills))
-const availableSkills = computed(() =>
-  skillsStore.skills.filter(skill =>
-    (allowedIds.value.size === 0 || allowedIds.value.has(skill.id)) &&
-    !deniedIds.value.has(skill.id)
-  )
-)
+const availableSkills = computed(() => skillsStore.skills)
 const enabledIds = computed(() => new Set(skillsStore.enabledIdsForAgent(props.agent.id)))
 const enabledCount = computed(() =>
   availableSkills.value.filter(skill => enabledIds.value.has(skill.id)).length

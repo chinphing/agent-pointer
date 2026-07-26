@@ -14,6 +14,7 @@ defaultSkillIds:
   - xlsx
   - pptx
   - pdf
+  - agent-browser
 skillsPolicy: userConfigurable
 allowAgents:
   - coder
@@ -35,8 +36,6 @@ accessPolicy:
     - im_send
     - ask_user
   denyTools: []
-  allowSkills: []
-  denySkills: []
 ui:
   userSelectable: true
   composerLabel: 通用助手

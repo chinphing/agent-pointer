@@ -34,6 +34,7 @@ export interface ToolCall {
 export const DEFAULT_LEAD_AGENT_ID = 'general'
 
 /** Bundled skills enabled for new users when lead agent is `general`. Keep in sync with pointer-core `DEFAULT_ENABLED_SKILL_IDS`. */
+/** @deprecated Runtime uses agentSkillOverrides + agent defaultSkillIds. Kept for docs/sync. */
 export const DEFAULT_ENABLED_SKILL_IDS = [
   'find-skills',
   'dev-env-setup',
@@ -165,7 +166,9 @@ export type AgentProfile =
 export interface AccessPolicy {
   allowTools: string[]
   denyTools: string[]
+  /** Legacy; ignored at runtime. Skill boundary is defaultSkillIds + override. */
   allowSkills: string[]
+  /** Legacy; ignored at runtime. Skill boundary is defaultSkillIds + override. */
   denySkills: string[]
 }
 
@@ -509,7 +512,12 @@ export interface AgentModelRef {
 export interface UserSettings {
   theme?: ThemePreference
   userNickname?: string
-  /** Per-agent skill overrides (agentId -> skill ids). */
+  /**
+   * Legacy globally enabled skill ids. Not used at runtime; migrated into
+   * `agentSkillOverrides.general` on startup when that override is absent.
+   */
+  enabledSkillIds?: string[]
+  /** Per-agent enabled skill ids — sole runtime enablement source. */
   agentSkillOverrides?: Record<string, string[]>
   /** Shrink app window to dock bar while computer agent is executing (default true). */
   computerAutoCompact?: boolean

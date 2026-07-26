@@ -223,7 +223,8 @@ impl Scheduler {
             trigger_meta,
             lane: None,
             messages,
-            enabled_skill_ids: self.state.default_run_enabled_skill_ids(),
+            enabled_skill_ids: Vec::new(),
+            // Empty → run_chat loads agentSkillOverrides from user_settings.
             agent_skill_overrides: std::collections::HashMap::new(),
             agent_mode: job.agent_mode.clone(),
             lead_agent_id: job.lead_agent_id.clone(),

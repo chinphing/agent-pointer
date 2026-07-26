@@ -15,8 +15,6 @@ accessPolicy:
     - web_search
     - im_send
   denyTools: []
-  allowSkills: []
-  denySkills: []
 ui:
   userSelectable: false
   showInComposer: false

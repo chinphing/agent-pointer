@@ -497,9 +497,18 @@ impl AppState {
         storage::load_user_settings().unwrap_or_default()
     }
 
-    /// Globally enabled skill ids for automated runs (IM, cron) that omit an explicit list.
+    /// Deprecated legacy field accessor. Skill resolve no longer uses
+    /// `enabledSkillIds`; prefer [`Self::default_run_agent_skill_overrides`].
     pub fn default_run_enabled_skill_ids(&self) -> Vec<String> {
-        self.load_user_settings().enabled_skill_ids
+        Vec::new()
+    }
+
+    /// Per-agent skill overrides for automated runs (IM, cron, webhook) and UI
+    /// requests that omit an explicit override map.
+    pub fn default_run_agent_skill_overrides(
+        &self,
+    ) -> std::collections::HashMap<String, Vec<String>> {
+        self.load_user_settings().agent_skill_overrides
     }
 
     pub fn active_platform_auth(&self) -> Arc<crate::platform_auth::PlatformAuthManager> {

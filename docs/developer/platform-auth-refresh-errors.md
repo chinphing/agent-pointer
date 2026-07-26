@@ -27,7 +27,7 @@ access token 过期后，发送消息会先 `refresh_if_needed()`。若此时官
 | 调用点 | 接口 | 仍失败时的提示 |
 |--------|------|----------------|
 | `refresh_if_needed` | `POST /auth/app/token` | 网络异常，暂时无法验证登录态，请稍后重试 |
-| `fetch_partner_balance`（`ensure_llm_allowed`） | `GET /auth/partner/balance`（每轮对话前） | 网络异常，暂时无法验证账户余额，请稍后重试 |
+| `fetch_partner_balance`（`ensure_llm_allowed`） | `GET /auth/partner/balance`（每轮对话前） | 网络异常，请检查网络链接是否正常，然后重试。 |
 
 换票持 `refresh_lock`；鉴权失败（401/403 / `platform_token_expired`）**不重试**，立即按登录失效处理。余额耗尽（`token_quota_exhausted`）不重试。
 

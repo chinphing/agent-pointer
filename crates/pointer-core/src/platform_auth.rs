@@ -854,7 +854,7 @@ impl PlatformAuthManager {
                     return Err(e);
                 }
                 if self.is_refresh_transient_failure(&e) {
-                    return Err(anyhow!("网络异常，暂时无法验证账户余额，请稍后重试"));
+                    return Err(anyhow!("网络异常，请检查网络链接是否正常，然后重试。"));
                 }
                 Err(e)
             }

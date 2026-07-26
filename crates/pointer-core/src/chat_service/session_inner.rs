@@ -148,7 +148,7 @@ pub(super) async fn run_chat_inner(
                     // Already normalized after balance-check retries.
                     raw
                 } else if state.active_platform_auth().is_refresh_transient_failure(&e) {
-                    "网络异常，暂时无法验证账户余额，请稍后重试".to_string()
+                    "网络异常，请检查网络链接是否正常，然后重试。".to_string()
                 } else {
                     raw
                 };

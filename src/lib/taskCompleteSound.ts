@@ -6,7 +6,7 @@ type WindowWithWebkitAudio = Window & {
 }
 
 let sharedCtx: AudioContext | null = null
-/** Avoid double chime when fallback finish races a late `done` event. */
+/** Avoid double chime when two Done events race (e.g. reconnect replay). */
 let lastPlayAtMs = 0
 const PLAY_DEBOUNCE_MS = 800
 
@@ -22,6 +22,22 @@ function resolveAudioContext(): AudioContext | null {
     sharedCtx = new Ctor()
   }
   return sharedCtx
+}
+
+/**
+ * Unlock Web Audio during a user gesture (send / settings toggle).
+ * WKWebView often keeps AudioContext suspended until resume() runs in-gesture;
+ * Done arrives later without a gesture, so prime here or the chime is silent.
+ */
+export function primeTaskCompleteAudio(): void {
+  const ctx = resolveAudioContext()
+  if (!ctx) return
+  if (ctx.state === 'suspended') {
+    void ctx.resume().then(
+      () => console.info('[sound] AudioContext primed (resumed)'),
+      err => console.warn('[sound] AudioContext prime failed', err)
+    )
+  }
 }
 
 type ToneLayer = {
@@ -50,6 +66,10 @@ export async function playTaskCompleteSound(): Promise<void> {
   try {
     if (ctx.state === 'suspended') {
       await ctx.resume()
+    }
+    if (ctx.state !== 'running') {
+      console.warn('[sound] AudioContext not running after resume; state=%s', ctx.state)
+      return
     }
     const now = ctx.currentTime
     // Soft low-pass so residual triangle harmonics stay rounded.
@@ -98,6 +118,7 @@ export function playTaskCompleteSoundIfEnabled(): void {
   if (!getActivePinia()) return
   const settings = useSettingsStore()
   if (settings.userSettings.playSoundOnFinish === false) {
+    console.info('[sound] skip task-complete chime (disabled in settings)')
     return
   }
   void playTaskCompleteSound()

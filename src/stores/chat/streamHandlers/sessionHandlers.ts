@@ -280,23 +280,27 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
 
 export function handleDone(ctx: StreamHandlerContext, e: Done) {
   const convId = e.conversationId?.trim() || ctx.currentId.value?.trim() || ''
-  if (convId) recordTurnDone(convId)
-  if (convId) ctx.clearRunState(convId)
-  flushStreamDeltaBuffers()
-  if (convId) ctx.ensureImConversation(convId)
-  const conv = convId ? ctx.conversations.value.find(c => c.id === convId) : undefined
-  if (conv) {
-    normalizeInterruptedAssistantStatuses([conv])
-    removeTrailingDiscardableEmptyAssistant(conv)
-    if (e.toolRoundsUsedTotal != null) conv.toolRoundsUsed = e.toolRoundsUsedTotal
-    if (e.toolRoundsUsedSupervisorTotal != null) {
-      conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
+  try {
+    if (convId) recordTurnDone(convId)
+    if (convId) ctx.clearRunState(convId)
+    flushStreamDeltaBuffers()
+    if (convId) ctx.ensureImConversation(convId)
+    const conv = convId ? ctx.conversations.value.find(c => c.id === convId) : undefined
+    if (conv) {
+      normalizeInterruptedAssistantStatuses([conv])
+      removeTrailingDiscardableEmptyAssistant(conv)
+      if (e.toolRoundsUsedTotal != null) conv.toolRoundsUsed = e.toolRoundsUsedTotal
+      if (e.toolRoundsUsedSupervisorTotal != null) {
+        conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
+      }
+      ctx.persistAppend(convId)
+      if (convId.startsWith('cron:') || convId.startsWith('webhook:')) {
+        ctx.refreshConversationMessages(convId)
+      }
     }
-    ctx.persistAppend(convId)
-    if (convId.startsWith('cron:') || convId.startsWith('webhook:')) {
-      ctx.refreshConversationMessages(convId)
-    }
+    if (convId) ctx.markMetaDirty(convId)
+  } finally {
+    // Chime must not depend on persist/normalize succeeding.
+    playTaskCompleteSoundIfEnabled()
   }
-  if (convId) ctx.markMetaDirty(convId)
-  playTaskCompleteSoundIfEnabled()
 }

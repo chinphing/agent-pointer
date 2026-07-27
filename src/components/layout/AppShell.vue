@@ -946,15 +946,11 @@ watch(searchQuery, q => {
             </div>
           </section>
 
-          <!-- D: 最近对话 -->
+          <!-- D: 最近对话（标题固定；仅列表滚动） -->
           <div
-            ref="listScroller"
-            class="sidebar-auto-scrollbar sidebar-conversation-section group/conversation-section flex-1 overflow-y-auto px-2 pb-3 min-h-0"
-            style="overflow-anchor: none"
-            @mousedown.self="saveEdit"
-            @scroll.passive="showScrollbarWhileScrolling"
+            class="sidebar-conversation-section group/conversation-section flex min-h-0 flex-1 flex-col px-2 pb-3"
           >
-            <div class="group/section-header mb-1.5 flex h-6 items-center gap-1 px-1">
+            <div class="group/section-header mb-1.5 flex h-6 shrink-0 items-center gap-1 px-1">
               <button
                 type="button"
                 class="sidebar-section-collapse mr-auto"
@@ -1013,6 +1009,13 @@ watch(searchQuery, q => {
                 ><Plus class="w-3.5 h-3.5" /></button>
               </div>
             </div>
+            <div
+              ref="listScroller"
+              class="sidebar-auto-scrollbar min-h-0 flex-1 overflow-y-auto"
+              style="overflow-anchor: none"
+              @mousedown.self="saveEdit"
+              @scroll.passive="showScrollbarWhileScrolling"
+            >
             <div v-show="!conversationsSectionCollapsed">
             <div
               v-for="c in sidebarRows"
@@ -1109,6 +1112,7 @@ watch(searchQuery, q => {
             </div>
             <div v-if="!searchLoading && !sidebarRows.length" class="px-3 py-8 text-center text-xs text-muted">
               {{ searchQuery.trim() ? '没有找到匹配的会话' : '没有会话' }}
+            </div>
             </div>
             </div>
           </div>

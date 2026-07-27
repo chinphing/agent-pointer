@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { parseMarkdown } from '../../../lib/markdownConfig'
-import { Archive, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { compressionSummaryBody } from '../../../lib/compressionMessage'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
-import MessageFooterActions from './MessageFooterActions.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 
@@ -22,43 +20,22 @@ useMarkdownExternalLinks(bodyRef, () => summaryBody.value)
 </script>
 
 <template>
-  <div class="chat-hover-root relative chat-column">
-    <div
-      class="message-avatar-slot absolute right-full mr-2 top-0 w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-accent-muted/30 border border-border"
-    >
-      <Archive class="w-4 h-4 text-muted" aria-hidden="true" />
-    </div>
-
+  <div class="chat-column px-3" role="group">
     <button
       type="button"
-      class="w-full text-left rounded-xl border border-border bg-card px-3 py-2.5 transition-colors hover:bg-hover/50"
+      class="py-0.5 inline-flex items-center gap-0.5 text-[11px] text-muted hover:text-foreground/70 transition-colors cursor-pointer"
+      :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
-      <div class="flex items-center gap-2 min-w-0">
-        <component
-          :is="expanded ? ChevronDown : ChevronRight"
-          class="w-3.5 h-3.5 shrink-0 text-muted"
-          aria-hidden="true"
-        />
-        <span class="text-[12px] font-medium text-foreground">较早对话摘要</span>
-        <span class="text-[10px] text-muted">自动压缩</span>
-      </div>
-      <p v-if="!expanded" class="mt-1.5 text-[11px] text-muted line-clamp-2 pl-5">
-        {{ summaryBody }}
-      </p>
+      <span>自动压缩摘要</span>
+      <span class="select-none" aria-hidden="true">{{ expanded ? '∨' : '>' }}</span>
     </button>
 
     <div
-      v-if="expanded"
-      class="mt-1.5 rounded-xl border border-border bg-accent-muted/20 px-3 py-3"
-    >
-      <div ref="bodyRef" class="md-body text-[13px] text-foreground" v-html="html" />
-    </div>
-
-    <MessageFooterActions
-      :created-at="message.createdAt"
-      :copy-text="summaryBody"
-      :show-copy="!!summaryBody?.trim()"
+      v-if="expanded && summaryBody.trim()"
+      ref="bodyRef"
+      class="mt-1 md-body text-[11px] text-muted max-w-none"
+      v-html="html"
     />
   </div>
 </template>

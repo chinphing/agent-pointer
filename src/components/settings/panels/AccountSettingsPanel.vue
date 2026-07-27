@@ -4,7 +4,7 @@ import type { SettingsDialogForm } from '../../../composables/useSettingsDialogF
 import { Volume2, UserCircle } from 'lucide-vue-next'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
 import { useSettingsStore } from '../../../stores/settings'
-import { playTaskCompleteSound } from '../../../lib/taskCompleteSound'
+import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import PlatformLoginActions from '../../auth/PlatformLoginActions.vue'
 
 const props = defineProps<{
@@ -43,6 +43,7 @@ async function onPlaySoundToggle(checked: boolean) {
     await settings.saveUser({ playSoundOnFinish: checked })
     console.info('[settings] playSoundOnFinish=%s', checked)
     if (checked) {
+      primeTaskCompleteAudio()
       void playTaskCompleteSound()
     }
   } catch (err) {

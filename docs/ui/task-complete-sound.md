@@ -15,7 +15,8 @@
 | 层 | 说明 |
 |----|------|
 | 前端播放 | `src/lib/taskCompleteSound.ts`（Web Audio API，桌面端与网页端通用） |
-| 触发 | **仅** `handleDone`（`StreamEvent::Done`，整轮 `run_chat` 结束） |
+| 触发 | **仅** `handleDone`（`StreamEvent::Done`，整轮 `run_chat` 结束）；在 `finally` 中播放，避免落盘失败跳过提示音 |
+| 音频解锁 | 用户点发送 / 设置里试听时 `primeTaskCompleteAudio()`（WKWebView 需在手势内 `resume` AudioContext，否则 Done 时静音） |
 | 不触发 | 用户停止生成、流错误取消等非正常完成路径 |
 
 取消 / 报错结束不会播放提示音。

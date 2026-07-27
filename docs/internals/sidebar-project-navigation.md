@@ -41,6 +41,8 @@ outside project navigation.
 - **Scheduled tasks** opens the existing Automation settings section;
   **Skills** opens the skill manager; **Connections** opens channel settings.
 - The conversation list remains global and time ordered below the project list.
+  The **最近** section title (and search / new-task actions) stays **outside** the
+  scroll container so it does not scroll away; only the conversation rows scroll.
 - Opening a recent conversation whose project is outside the loaded sidebar
   fetches that project by id for Composer context only. This lookup does not
   insert or highlight the project in the sidebar.

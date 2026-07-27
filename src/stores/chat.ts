@@ -87,6 +87,7 @@ import {
 import { useSettingsStore } from './settings'
 import { isPlatformAuthTransientError, usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
+import { primeTaskCompleteAudio } from '../lib/taskCompleteSound'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
 import {
   assistantTurnActivelyRunning,
@@ -1927,6 +1928,8 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value!
     const hasAttachments = attachments.length > 0
     if ((!content.trim() && !hasAttachments)) return
+    // User gesture: unlock Web Audio so Done-time chime is not blocked by WKWebView.
+    primeTaskCompleteAudio()
     if (conversationNeedsMessageHydration(conv)) {
       const hydrated = await ensureMessagesLoaded(conv.id, { force: true })
       if (!hydrated) {

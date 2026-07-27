@@ -13,13 +13,48 @@ const emit = defineEmits<{
 
 const outputEl = ref<HTMLElement | null>(null)
 const fullscreen = ref(false)
+/** User scrolled away from the live tail — stop auto-following until they return. */
+const followOutput = ref(true)
+let touchStartY: number | null = null
 
 const hasOutput = computed(() => props.output.trim().length > 0)
+
+function distanceFromBottom(): number {
+  const el = outputEl.value
+  if (!el) return 0
+  return el.scrollHeight - el.scrollTop - el.clientHeight
+}
 
 function scrollOutputToBottom() {
   const el = outputEl.value
   if (!el) return
+  followOutput.value = true
   el.scrollTop = el.scrollHeight
+}
+
+function onOutputScroll() {
+  const distance = distanceFromBottom()
+  if (distance <= 8) followOutput.value = true
+  else if (distance > 48) followOutput.value = false
+}
+
+function onOutputWheel(event: WheelEvent) {
+  if (event.deltaY < 0) followOutput.value = false
+}
+
+function onOutputTouchStart(event: TouchEvent) {
+  touchStartY = event.touches[0]?.clientY ?? null
+}
+
+function onOutputTouchMove(event: TouchEvent) {
+  if (touchStartY == null) return
+  const y = event.touches[0]?.clientY
+  if (y == null) return
+  if (y - touchStartY > 8) followOutput.value = false
+}
+
+function onOutputTouchEnd() {
+  touchStartY = null
 }
 
 function close() {
@@ -41,6 +76,7 @@ function onKeydown(e: KeyboardEvent) {
 watch(
   () => props.output,
   () => {
+    if (!followOutput.value) return
     void nextTick(scrollOutputToBottom)
   },
   { immediate: true }
@@ -123,6 +159,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             <pre
               ref="outputEl"
               class="min-h-0 flex-1 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-black/50 p-2.5 text-slate-200"
+              @scroll="onOutputScroll"
+              @wheel="onOutputWheel"
+              @touchstart.passive="onOutputTouchStart"
+              @touchmove.passive="onOutputTouchMove"
+              @touchend="onOutputTouchEnd"
+              @touchcancel="onOutputTouchEnd"
             >{{ hasOutput ? output : '（暂无输出）' }}</pre>
           </div>
         </div>

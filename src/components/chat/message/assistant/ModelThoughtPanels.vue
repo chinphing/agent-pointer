@@ -47,9 +47,15 @@ watch(
 function onThoughtsBoxScroll() {
   const el = thoughtsBoxRef.value
   if (!el || !props.isStreaming) return
-  // If user scrolled more than 20px away from the bottom, stop auto-following.
+  // If user scrolled more than 8px away from the bottom, stop auto-following.
   const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-  thoughtsUserScrolled.value = distanceFromBottom > 20
+  if (distanceFromBottom > 8) thoughtsUserScrolled.value = true
+  else if (distanceFromBottom <= 2) thoughtsUserScrolled.value = false
+}
+
+function onThoughtsBoxWheel(event: WheelEvent) {
+  if (!props.isStreaming) return
+  if (event.deltaY < 0) thoughtsUserScrolled.value = true
 }
 
 watch(
@@ -104,6 +110,7 @@ const hasContent = computed(() => showXmlThoughts.value || showPlan.value)
             : 'mt-2 border-t border-border/30 pt-2'
         "
         @scroll="onThoughtsBoxScroll"
+        @wheel="onThoughtsBoxWheel"
       >{{ xmlThoughts }}</div>
     </div>
     <ul

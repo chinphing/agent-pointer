@@ -71,16 +71,52 @@ provide('currentConversationActiveToolCallId', computed(() => props.activeSearch
 // ── Bidirectional virtual rendering ──
 // Rows are variable-height and measured after mount. Only visible rows plus overscan
 // stay in the DOM, regardless of where the user or search target is in the thread.
-let wasNearBottomBeforeUpdate = true
+//
+// Sticky follow: while the user stays at the bottom, streaming appends keep
+// scrolling down. Any intentional scroll-up pins them away until they return
+// essentially to the bottom (hysteresis) or click the jump button.
+let followOutput = true
+let programmaticScrollDepth = 0
 let scrollFrame: number | null = null
 /** Minimum wall-clock gap between two programmatic scroll-to-bottom calls. */
 const SCROLL_MIN_INTERVAL_MS = 80
+/** Must be this close to resume auto-follow after the user scrolled away. */
+const ATTACH_BOTTOM_PX = 8
+/** Scroll this far from bottom before onScroll alone detaches follow. */
+const DETACH_BOTTOM_PX = 48
 let lastScrollTs = 0
+let touchStartY: number | null = null
+
+function distanceFromBottom(): number {
+  const el = scroller.value
+  if (!el) return 0
+  return el.scrollHeight - el.scrollTop - el.clientHeight
+}
+
+function beginProgrammaticScroll() {
+  programmaticScrollDepth += 1
+}
+
+function endProgrammaticScroll() {
+  // Double rAF so scroll events from scrollToIndex settle before we re-enable
+  // user-driven follow updates.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      programmaticScrollDepth = Math.max(0, programmaticScrollDepth - 1)
+    })
+  })
+}
+
+function shouldFollowOutput(): boolean {
+  return followOutput && !locatingFocus.value
+}
 
 function scheduleToBottom() {
+  if (!shouldFollowOutput()) return
   if (scrollFrame != null) return
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = null
+    if (!shouldFollowOutput()) return
     const now = performance.now()
     if (now - lastScrollTs < SCROLL_MIN_INTERVAL_MS) return
     lastScrollTs = now
@@ -90,12 +126,43 @@ function scheduleToBottom() {
 
 function toBottom() {
   if (locatingFocus.value || conversationTurns.value.length === 0) return
+  followOutput = true
+  showScrollButton.value = false
+  beginProgrammaticScroll()
   void nextTick(() => {
     rowVirtualizer.value.scrollToIndex(conversationTurns.value.length - 1, {
       align: 'end',
       behavior: 'auto'
     })
+    endProgrammaticScroll()
   })
+}
+
+function unpinFollowOutput() {
+  if (!followOutput) return
+  followOutput = false
+  showScrollButton.value = true
+}
+
+function onWheel(event: WheelEvent) {
+  // Trackpad / mouse wheel up = read older messages → stop fighting the user.
+  if (event.deltaY < 0) unpinFollowOutput()
+}
+
+function onTouchStart(event: TouchEvent) {
+  touchStartY = event.touches[0]?.clientY ?? null
+}
+
+function onTouchMove(event: TouchEvent) {
+  if (touchStartY == null) return
+  const y = event.touches[0]?.clientY
+  if (y == null) return
+  // Finger moves down → content scrolls toward older messages.
+  if (y - touchStartY > 8) unpinFollowOutput()
+}
+
+function onTouchEnd() {
+  touchStartY = null
 }
 
 onMounted(() => {
@@ -125,14 +192,14 @@ onBeforeUnmount(() => {
 })
 
 watch(() => chat.currentId, async () => {
+  followOutput = true
   await nextTick()
   rowVirtualizer.value.measure()
   toBottom()
 })
 
 watch(() => chat.current?.messages.length, () => {
-  const shouldFollow = wasNearBottomBeforeUpdate && !locatingFocus.value
-  if (!shouldFollow) return
+  if (!shouldFollowOutput()) return
 
   // Keep prior row measurements when appending. Clearing the whole cache makes
   // older variable-height turns briefly fall back to estimates and shifts the viewport.
@@ -152,8 +219,7 @@ const activeRenderSignal = computed(() => {
 })
 
 watch(activeRenderSignal, () => {
-  const shouldFollow = isNearBottom() && !locatingFocus.value
-  if (shouldFollow) scheduleToBottom()
+  if (shouldFollowOutput()) scheduleToBottom()
 })
 
 function entryPrimaryMessageId(entry: FlatEntry): string | undefined {
@@ -376,12 +442,6 @@ watch(
   { immediate: true }
 )
 
-function isNearBottom(): boolean {
-  const el = scroller.value
-  if (!el) return true
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 100
-}
-
 function updateActiveBoardStickyState() {
   const el = scroller.value
   const board = activeBoard.value
@@ -406,9 +466,17 @@ function updateActiveBoardStickyState() {
 }
 
 function onScroll() {
-  const nearBottom = isNearBottom()
-  wasNearBottomBeforeUpdate = nearBottom
-  showScrollButton.value = !nearBottom
+  const distance = distanceFromBottom()
+  if (programmaticScrollDepth === 0) {
+    // Hysteresis: wheel/touch may unpin while still within DETACH_BOTTOM_PX.
+    // Only resume follow when essentially at the bottom again.
+    if (distance <= ATTACH_BOTTOM_PX) {
+      followOutput = true
+    } else if (distance > DETACH_BOTTOM_PX) {
+      followOutput = false
+    }
+  }
+  showScrollButton.value = !followOutput
   updateActiveBoardStickyState()
 }
 
@@ -676,6 +744,11 @@ function entrySpacing(
       class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6"
       style="overflow-anchor: none"
       @scroll="onScroll"
+      @wheel="onWheel"
+      @touchstart.passive="onTouchStart"
+      @touchmove.passive="onTouchMove"
+      @touchend="onTouchEnd"
+      @touchcancel="onTouchEnd"
     >
     <div
       v-if="activeBoard && activeBoardIsSticky"

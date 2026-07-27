@@ -15,7 +15,8 @@ describe('sessionHandlers', () => {
       currentId: ref('conv1'),
       clearRunState,
       markMetaDirty,
-      persistAppend
+      persistAppend,
+      isConversationGenerating: (id: string) => id === 'conv1'
     })
 
     handleDone(ctx, {

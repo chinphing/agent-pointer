@@ -6,7 +6,7 @@ import {
   isGenerationCancelledMessage
 } from '../../../lib/assistantMessageKind'
 import { flushStreamDeltaBuffers } from '../../../lib/reasoningDeltaBatch'
-import { recordTurnDone } from '../../../lib/turnElapsed'
+import { hasActiveTurn, recordTurnDone } from '../../../lib/turnElapsed'
 import { useSkillsStore } from '../../skills'
 import { useSettingsStore } from '../../settings'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
@@ -280,6 +280,11 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
 
 export function handleDone(ctx: StreamHandlerContext, e: Done) {
   const convId = e.conversationId?.trim() || ctx.currentId.value?.trim() || ''
+  // Capture before clearRunState / recordTurnDone.
+  // Poll/resync may clear `generating` before Done arrives; turn timing still marks
+  // a real user turn so the chime is not skipped after a few minutes of streaming.
+  const wasGenerating = !!convId && ctx.isConversationGenerating(convId)
+  const hadActiveTurn = !!convId && hasActiveTurn(convId)
   try {
     if (convId) recordTurnDone(convId)
     if (convId) ctx.clearRunState(convId)
@@ -301,6 +306,12 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
     if (convId) ctx.markMetaDirty(convId)
   } finally {
     // Chime must not depend on persist/normalize succeeding.
-    playTaskCompleteSoundIfEnabled()
+    if (wasGenerating || hadActiveTurn) {
+      playTaskCompleteSoundIfEnabled()
+    } else {
+      console.info('[sound] skip task-complete chime (no generating / active turn)', {
+        conversationId: convId || null
+      })
+    }
   }
 }

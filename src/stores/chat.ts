@@ -9,7 +9,7 @@ import {
   appendConversationMessages,
   saveChatAttachment,
   getDispatcherQueueSnapshot,
-  loadSidebarProjects,
+  loadProjects,
   loadProject as loadProjectApi,
   loadProjectConversationMetas,
   deleteProject as deleteProjectApi
@@ -177,6 +177,10 @@ export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
   /** Persisted project sidebar, independent of the loaded recent-conversation page. */
   const projects = ref<Project[]>([])
+  /** First sidebar page is 5 projects; true when another page exists. */
+  const SIDEBAR_PROJECT_PAGE_SIZE = 5
+  const hasMoreProjects = ref(false)
+  const loadingMoreProjects = ref(false)
   /** Project details loaded for active conversations without changing sidebar membership. */
   const projectDetails = ref<Record<string, Project>>({})
   const projectLoads = new Map<string, Promise<Project | null>>()
@@ -475,14 +479,6 @@ export const useChatStore = defineStore('chat', () => {
     return runByConversation.value[id] ?? { generating: false, activeMessageId: null }
   }
 
-  function patchRunState(id: string, patch: Partial<ConversationRunState>) {
-    const key = id.trim()
-    runByConversation.value = {
-      ...runByConversation.value,
-      [key || id]: { ...runStateFor(id), ...patch }
-    }
-  }
-
   function clearRunState(id: string) {
     const key = id.trim()
     if (!key) return
@@ -490,6 +486,14 @@ export const useChatStore = defineStore('chat', () => {
     queueMicrotask(() => {
       void drainOutboundQueue(key)
     })
+  }
+
+  function patchRunState(id: string, patch: Partial<ConversationRunState>) {
+    const key = id.trim()
+    runByConversation.value = {
+      ...runByConversation.value,
+      [key || id]: { ...runStateFor(id), ...patch }
+    }
   }
 
   let drainingOutbound = new Set<string>()
@@ -615,12 +619,24 @@ export const useChatStore = defineStore('chat', () => {
     return runStateFor(id).generating
   }
 
-  /** Restore generating UI from server dispatcher queue after page refresh. */
-  async function syncRunStateFromDispatcherQueue() {
+  /** Restore generating UI from server dispatcher queue after page refresh / SSE gap. */
+  async function syncRunStateFromDispatcherQueue(mode: 'flags' | 'catch_up' = 'flags') {
     try {
       const snapshot = await getDispatcherQueueSnapshot()
       const activeIds = activeConversationIdsFromQueueSnapshot(snapshot)
-      if (activeIds.size === 0) return
+      const clearedStaleIds: string[] = []
+
+      // Clear UI that still shows "running" after Done was dropped on a weak link.
+      for (const [convId, state] of Object.entries(runByConversation.value)) {
+        if (!state.generating) continue
+        if (activeIds.has(convId)) continue
+        clearRunState(convId)
+        const conv = conversations.value.find(c => c.id === convId)
+        if (conv) normalizeInterruptedAssistantStatuses([conv])
+        clearedStaleIds.push(convId)
+        console.info('[chat] syncRunStateFromDispatcherQueue: clear stale', convId)
+      }
+
       for (const convId of activeIds) {
         if (isConversationGenerating(convId)) continue
         patchRunState(convId, {
@@ -629,9 +645,66 @@ export const useChatStore = defineStore('chat', () => {
         })
         console.info('[chat] syncRunStateFromDispatcherQueue: active', convId)
       }
+
+      // Pull messages only after a real SSE disconnect / lag — never on poll / visibility.
+      if (mode !== 'catch_up') return
+
+      const reloadIds = new Set<string>([...activeIds, ...clearedStaleIds])
+      if (currentId.value) reloadIds.add(currentId.value)
+      for (const convId of reloadIds) {
+        if (!conversations.value.some(c => c.id === convId)) continue
+        void ensureMessagesLoaded(convId, { force: true, silent: true })
+      }
+      console.info(
+        '[chat] syncRunStateFromDispatcherQueue: catch_up reload',
+        [...reloadIds]
+      )
     } catch (err) {
       console.warn('[chat] syncRunStateFromDispatcherQueue failed', err)
     }
+  }
+
+  let streamGapResyncTimer: number | null = null
+  let streamGapWired = false
+
+  /** True only for SSE transport failures — the only paths that force-pull messages. */
+  function streamGapNeedsMessageCatchUp(reason: string): boolean {
+    return (
+      reason === 'server_lagged'
+      || reason === 'stream_ended'
+      || reason === 'stream_ended_idle'
+      || reason === 'stream_error'
+      || reason === 'stream_gateway_error'
+      || reason === 'sse_gap'
+    )
+  }
+
+  /**
+   * Reconcile run flags with the dispatcher.
+   * Message catch-up (`force` hydrate) only when SSE actually dropped / lagged.
+   */
+  function resyncAfterStreamGap(reason: string) {
+    const mode = streamGapNeedsMessageCatchUp(reason) ? 'catch_up' : 'flags'
+    console.info('[chat] resyncAfterStreamGap', reason, mode)
+    if (streamGapResyncTimer != null) {
+      window.clearTimeout(streamGapResyncTimer)
+    }
+    streamGapResyncTimer = window.setTimeout(() => {
+      streamGapResyncTimer = null
+      void syncRunStateFromDispatcherQueue(mode)
+    }, 300)
+  }
+
+  function wireStreamGapRecovery() {
+    if (streamGapWired || typeof window === 'undefined') return
+    streamGapWired = true
+    // Online / visibility: fix stuck stop button only — do not re-fetch messages.
+    window.addEventListener('online', () => resyncAfterStreamGap('online'))
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        resyncAfterStreamGap('visibility')
+      }
+    })
   }
 
   /** Restore run UI when switching back to a conversation still streaming in the background. */
@@ -818,7 +891,10 @@ export const useChatStore = defineStore('chat', () => {
       loadActiveComposerDraft(currentId.value)
     }
 
-    if (!unlisten) unlisten = await onStream(handleEvent)
+    if (!unlisten) {
+      unlisten = await onStream(handleEvent, 'global', reason => resyncAfterStreamGap(reason))
+    }
+    wireStreamGapRecovery()
     if (currentId.value) {
       void refreshTaskBoard(currentId.value)
       void refreshSubAgentTaskBoards(currentId.value)
@@ -888,10 +964,49 @@ export const useChatStore = defineStore('chat', () => {
 
   async function refreshProjects() {
     try {
-      projects.value = (await loadSidebarProjects()).sort(compareProjectsByActivity)
+      // Same first page as「加载更多项目」so hasMoreProjects is correct without a click.
+      const page = await loadProjects(null, SIDEBAR_PROJECT_PAGE_SIZE)
+      projects.value = page.items.sort(compareProjectsByActivity)
+      hasMoreProjects.value = page.nextCursor !== null
+      console.info(
+        '[chat] refreshProjects: count=%s hasMore=%s',
+        projects.value.length,
+        hasMoreProjects.value
+      )
     } catch (err) {
-      console.error('[chat] loadSidebarProjects failed', err)
+      console.error('[chat] loadProjects (sidebar page) failed', err)
       projects.value = []
+      hasMoreProjects.value = false
+    }
+  }
+
+  async function loadMoreProjects() {
+    if (loadingMoreProjects.value || !hasMoreProjects.value) return
+    const lastProject = projects.value[projects.value.length - 1]
+    loadingMoreProjects.value = true
+    try {
+      const page = await loadProjects(
+        lastProject
+          ? { lastActivityAt: lastProject.lastActivityAt, id: lastProject.id }
+          : null,
+        SIDEBAR_PROJECT_PAGE_SIZE
+      )
+      const knownIds = new Set(projects.value.map(project => project.id))
+      const fresh = page.items.filter(project => !knownIds.has(project.id))
+      if (fresh.length > 0) {
+        projects.value = [...projects.value, ...fresh].sort(compareProjectsByActivity)
+      }
+      hasMoreProjects.value = page.nextCursor !== null
+      console.info(
+        '[chat] loadMoreProjects: appended=%s hasMore=%s',
+        fresh.length,
+        hasMoreProjects.value
+      )
+    } catch (err) {
+      console.error('[chat] loadMoreProjects failed', err)
+      throw err
+    } finally {
+      loadingMoreProjects.value = false
     }
   }
 
@@ -937,6 +1052,8 @@ export const useChatStore = defineStore('chat', () => {
   function mergeHydratedMessages(inMemory: ChatMessage[], fromDb: ChatMessage[]): ChatMessage[] {
     if (inMemory.length === 0) return fromDb
     const dbById = new Map(fromDb.map(m => [m.id, m]))
+    const longer = (a?: string, b?: string) =>
+      (a?.length ?? 0) >= (b?.length ?? 0) ? a : b
     const merged: ChatMessage[] = []
     for (const dbMsg of fromDb) {
       const live = inMemory.find(m => m.id === dbMsg.id)
@@ -946,10 +1063,27 @@ export const useChatStore = defineStore('chat', () => {
           || live.status === 'pending'
           || live.contentStreaming)
       ) {
+        // Keep live streaming flags, but prefer longer persisted text / tool
+        // snapshots after SSE gaps (live often misses lagged deltas).
         merged.push({
           ...dbMsg,
           ...live,
-          toolCalls: live.toolCalls?.length ? live.toolCalls : dbMsg.toolCalls
+          content: longer(live.content, dbMsg.content) ?? '',
+          reasoning: longer(live.reasoning, dbMsg.reasoning),
+          rawContent: longer(live.rawContent, dbMsg.rawContent),
+          thoughts: longer(live.thoughts, dbMsg.thoughts),
+          toolCalls:
+            (live.toolCalls?.length ?? 0) >= (dbMsg.toolCalls?.length ?? 0)
+              ? live.toolCalls
+              : dbMsg.toolCalls,
+          attachments:
+            (live.attachments?.length ?? 0) >= (dbMsg.attachments?.length ?? 0)
+              ? live.attachments
+              : dbMsg.attachments,
+          agentTrace:
+            (live.agentTrace?.length ?? 0) >= (dbMsg.agentTrace?.length ?? 0)
+              ? live.agentTrace
+              : dbMsg.agentTrace
         })
       } else {
         merged.push(dbMsg)
@@ -961,7 +1095,10 @@ export const useChatStore = defineStore('chat', () => {
     return merged
   }
 
-  async function ensureMessagesLoaded(id: string, options?: { force?: boolean }): Promise<boolean> {
+  async function ensureMessagesLoaded(
+    id: string,
+    options?: { force?: boolean; silent?: boolean }
+  ): Promise<boolean> {
     const convId = id.trim()
     if (!convId) return false
     const conv = conversations.value.find(c => c.id === convId)
@@ -977,7 +1114,12 @@ export const useChatStore = defineStore('chat', () => {
     if (staleHydration) {
       console.warn('[chat] ensureMessagesLoaded: stale hydration, reloading', convId)
     }
-    if (!options?.force && !staleHydration && isConversationGenerating(convId)) {
+    if (
+      !options?.force
+      && !staleHydration
+      && isConversationGenerating(convId)
+      && conv.messages.length > 0
+    ) {
       console.info('[chat] ensureMessagesLoaded: skip hydrating generating conversation', convId)
       return true
     }
@@ -985,7 +1127,10 @@ export const useChatStore = defineStore('chat', () => {
     if (existing) return existing
 
     const hydration = (async (): Promise<boolean> => {
-      messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
+      // silent: background SSE catch-up — avoid toggling hydrating UI (page flash).
+      if (!options?.silent) {
+        messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
+      }
       try {
         const messages = await loadConversationMessages(convId)
         const stripped = stripWireAttachmentFields(
@@ -1021,9 +1166,11 @@ export const useChatStore = defineStore('chat', () => {
         console.error('[chat] ensureMessagesLoaded: load messages failed', convId, err)
         return false
       } finally {
-        const next = new Set(messagesLoadingIds.value)
-        next.delete(convId)
-        messagesLoadingIds.value = next
+        if (!options?.silent) {
+          const next = new Set(messagesLoadingIds.value)
+          next.delete(convId)
+          messagesLoadingIds.value = next
+        }
         messageHydrationPromises.delete(convId)
       }
     })()
@@ -1588,8 +1735,11 @@ export const useChatStore = defineStore('chat', () => {
     const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
     if (target) {
       target.reasoning = (target.reasoning || '') + text
-      target.contentStreaming = true
-      target.status = 'streaming'
+      // Late flush after Done must not revive executing UI.
+      if (target.status !== 'cancelled' && target.status !== 'error' && target.status !== 'done') {
+        target.contentStreaming = true
+        target.status = 'streaming'
+      }
       return
     }
     if (traceId?.trim()) {
@@ -1597,13 +1747,17 @@ export const useChatStore = defineStore('chat', () => {
       const session = trace.session
       if (session) {
         session.reasoning = (session.reasoning || '') + text
-        session.contentStreaming = true
+        if (r.msg.status !== 'done' && r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
+          session.contentStreaming = true
+        }
       }
       return
     }
     r.msg.reasoning = (r.msg.reasoning || '') + text
-    r.msg.status = 'streaming'
-    r.msg.contentStreaming = true
+    if (r.msg.status !== 'cancelled' && r.msg.status !== 'error' && r.msg.status !== 'done') {
+      r.msg.status = 'streaming'
+      r.msg.contentStreaming = true
+    }
   }
 
   function applyContentDeltaBatch(
@@ -1615,7 +1769,8 @@ export const useChatStore = defineStore('chat', () => {
     const r = findMessage(messageId)
     if (!r) return
     r.msg.content += text
-    if (r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
+    // Keep text if a buffered delta lands after Done; do not flip back to streaming.
+    if (r.msg.status !== 'cancelled' && r.msg.status !== 'error' && r.msg.status !== 'done') {
       r.msg.status = 'streaming'
       r.msg.contentStreaming = true
     }
@@ -2158,7 +2313,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
-    init, refreshProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
+    init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     pendingFocusMessage, clearPendingFocusMessage,

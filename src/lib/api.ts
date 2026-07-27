@@ -204,7 +204,11 @@ export interface RuntimeApi {
   saveConversationMeta(metas: ConversationMeta[]): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   appendConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<number>
-  onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
+  onStream(
+    handler: (e: StreamEvent) => void,
+    conversationId?: string,
+    onGap?: (reason: string) => void
+  ): Promise<UnlistenFn>
 
   // ---- Phase 5/6: automation (cron jobs + webhook token) ----
   listCronJobs(): Promise<import('../types/automation').CronJob[]>

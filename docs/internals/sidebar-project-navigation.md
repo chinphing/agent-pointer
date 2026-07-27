@@ -29,7 +29,10 @@ outside project navigation.
 - Expanded projects query only their own conversations, with the same
   cursor-based paging model as recent conversations.
 - Sidebar projects are queried separately from recent conversations. Initial
-  load returns at most five projects total. Pinned projects remain first;
+  load returns at most five projects total (`loadProjects` first page, same as
+ 「加载更多项目」). `hasMoreProjects` comes from `nextCursor` on that page, so the
+  button is hidden when there is no further page (no need to click once to find out).
+  Pinned projects remain first;
   projects with the same pin state are ordered by their newest conversation
   activity, then by id for stable pagination. Empty projects use creation time
   as their activity fallback.

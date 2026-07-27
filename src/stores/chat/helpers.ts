@@ -1,7 +1,7 @@
 import {
   isDiscardableEmptyAssistant
 } from '../../lib/assistantMessageKind'
-import type { ChatMessage, Conversation, ExcludedReason } from '../../types/chat'
+import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
 /** Conversation / message client ids — UUID v4 (stable opaque segment for media paths). */
 export function uid() {
@@ -78,8 +78,8 @@ export function hasInFlightToolCalls(msg: ChatMessage): boolean {
   )
 }
 
-function finalizeStuckToolCalls(msg: ChatMessage): void {
-  for (const tc of msg.toolCalls ?? []) {
+function finalizeStuckToolCallsList(toolCalls: ToolCall[] | undefined): void {
+  for (const tc of toolCalls ?? []) {
     if (
       tc.status !== 'running' &&
       tc.status !== 'pending' &&
@@ -94,6 +94,10 @@ function finalizeStuckToolCalls(msg: ChatMessage): void {
     tc.status = tc.result?.trim() ? 'success' : 'failed'
     if (tc.status === 'failed' && !tc.error) tc.error = 'interrupted'
   }
+}
+
+function finalizeStuckToolCalls(msg: ChatMessage): void {
+  finalizeStuckToolCallsList(msg.toolCalls)
 }
 
 /** True only when the assistant turn is still receiving stream events or running tools. */
@@ -123,6 +127,19 @@ export function normalizeStaleEndedAssistantTurn(msg: ChatMessage): void {
   finalizeStuckToolCalls(msg)
 }
 
+function finalizeStuckAgentTraces(msg: ChatMessage): void {
+  for (const trace of msg.agentTrace ?? []) {
+    const st = (trace.status || '').trim()
+    if (st === 'running' || st === 'streaming' || st === 'pending') {
+      trace.status = 'completed'
+    }
+    if (trace.session) {
+      trace.session.contentStreaming = false
+      finalizeStuckToolCallsList(trace.session.toolCalls)
+    }
+  }
+}
+
 /** After reload or stop, assistant rows must not stay `streaming`/`pending`. */
 export function normalizeInterruptedAssistantStatuses(conversations: Conversation[]): void {
   for (const conv of conversations) {
@@ -133,6 +150,7 @@ export function normalizeInterruptedAssistantStatuses(conversations: Conversatio
       }
       m.contentStreaming = false
       finalizeStuckToolCalls(m)
+      finalizeStuckAgentTraces(m)
     }
   }
 }

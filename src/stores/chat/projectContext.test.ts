@@ -3,7 +3,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const loadSidebarProjects = vi.hoisted(() => vi.fn())
+const loadProjects = vi.hoisted(() => vi.fn())
 const loadProject = vi.hoisted(() => vi.fn())
 const deleteProject = vi.hoisted(() => vi.fn())
 const saveConversationMeta = vi.hoisted(() => vi.fn())
@@ -15,7 +15,7 @@ vi.mock('../../lib/api', async importOriginal => {
   const actual = await importOriginal<typeof import('../../lib/api')>()
   return {
     ...actual,
-    loadSidebarProjects,
+    loadProjects,
     loadProject,
     deleteProject,
     saveConversationMeta,
@@ -189,7 +189,7 @@ describe('chat project context flow', () => {
     const deletedConversation = store.newConversation('deleted', deleted.workspaceRoot)
     const fallbackConversation = store.newConversation('fallback', fallback.workspaceRoot)
     store.openConversation(deletedConversation.id)
-    loadSidebarProjects.mockResolvedValue([fallback])
+    loadProjects.mockResolvedValue({ items: [fallback], nextCursor: null })
 
     await store.deleteProject(deleted.id)
 

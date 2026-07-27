@@ -419,7 +419,12 @@ export async function appendConversationMessages(
   return await invoke<number>('append_conversation_messages', { conversationId, messages })
 }
 
-export async function onStream(handler: (e: StreamEvent) => void): Promise<UnlistenFn> {
+export async function onStream(
+  handler: (e: StreamEvent) => void,
+  _conversationId?: string,
+  _onGap?: (reason: string) => void
+): Promise<UnlistenFn> {
+  // Desktop emits every event over the Tauri channel (no SSE lag / replay gap).
   return await listen<StreamEvent>(STREAM_EVENT, ev => handler(ev.payload))
 }
 

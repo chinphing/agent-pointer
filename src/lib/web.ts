@@ -664,9 +664,27 @@ export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
   return s.logged_in
 }
 
-export async function onStream(handler: (e: StreamEvent) => void, conversationId = 'global'): Promise<() => void> {
+/**
+ * Subscribe to chat SSE. `onGap(reason)` fires when the browser must catch up
+ * (broadcast lag, reconnect after drop, 502/504) — missed frames are not replayed.
+ */
+export async function onStream(
+  handler: (e: StreamEvent) => void,
+  conversationId = 'global',
+  onGap?: (reason: string) => void
+): Promise<() => void> {
   let stopped = false
   let abort: AbortController | null = null
+  let connectGeneration = 0
+
+  const notifyGap = (reason: string) => {
+    console.warn('[stream] SSE gap — client should resync', { reason, conversationId })
+    try {
+      onGap?.(reason)
+    } catch (err) {
+      console.error('[stream] onGap handler failed', err)
+    }
+  }
 
   const parseSseChunk = (chunk: string) => {
     let eventName = 'message'
@@ -678,6 +696,11 @@ export async function onStream(handler: (e: StreamEvent) => void, conversationId
         dataLines.push(line.slice(5).trimStart())
       }
     }
+    if (eventName === 'resync') {
+      notifyGap('server_lagged')
+      return
+    }
+    if (eventName === 'keep-alive' || eventName === 'ping') return
     if (eventName !== 'message' || dataLines.length === 0) return
     const payload = dataLines.join('\n')
     if (!payload) return
@@ -686,6 +709,7 @@ export async function onStream(handler: (e: StreamEvent) => void, conversationId
 
   const connect = async () => {
     if (stopped) return
+    const gen = ++connectGeneration
     abort = new AbortController()
     try {
       const res = await fetch(
@@ -697,11 +721,15 @@ export async function onStream(handler: (e: StreamEvent) => void, conversationId
         }
       )
       if (!res.ok || !res.body) {
+        // 502/504 from nginx while the long-poll is open — always resync;
+        // chat may already be `generating` even if no SSE frame arrived yet.
         throw new Error(`stream ${res.status}`)
       }
+      console.info('[stream] SSE connected', { conversationId, generation: gen })
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let receivedFrames = false
       while (!stopped) {
         const { done, value } = await reader.read()
         if (done) break
@@ -709,12 +737,25 @@ export async function onStream(handler: (e: StreamEvent) => void, conversationId
         const parts = buffer.split('\n\n')
         buffer = parts.pop() ?? ''
         for (const part of parts) {
-          if (part.trim()) parseSseChunk(part)
+          if (!part.trim()) continue
+          receivedFrames = true
+          parseSseChunk(part)
         }
+      }
+      if (!stopped && gen === connectGeneration) {
+        // Proxy idle timeout / upstream close — catch up even if only keep-alives
+        // were seen (Done may have been lost while the body stayed open).
+        notifyGap(receivedFrames ? 'stream_ended' : 'stream_ended_idle')
+        await new Promise(resolve => window.setTimeout(resolve, 1000))
+        if (!stopped) void connect()
       }
     } catch (e) {
       if (stopped || (e instanceof DOMException && e.name === 'AbortError')) return
-      await new Promise(resolve => window.setTimeout(resolve, 1000))
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn('[stream] SSE error, reconnecting', msg)
+      // Always resync: generating can be set via POST /api/chat before any SSE frame.
+      notifyGap(/stream 50[234]/.test(msg) ? 'stream_gateway_error' : 'stream_error')
+      await new Promise(resolve => window.setTimeout(resolve, 1500))
       if (!stopped) void connect()
     }
   }

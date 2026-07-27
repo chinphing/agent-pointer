@@ -46,6 +46,13 @@ export function recordTurnStart(conversationId: string, turnId: string, startedA
   writeState(state)
 }
 
+/** True while a turn is open for this conversation (survives UI generating being cleared early). */
+export function hasActiveTurn(conversationId: string): boolean {
+  const id = conversationId.trim()
+  if (!id) return false
+  return !!readState().active[id]
+}
+
 export function recordTurnDone(conversationId: string, finishedAt = Date.now()): number | null {
   const state = readState()
   const active = state.active[conversationId]

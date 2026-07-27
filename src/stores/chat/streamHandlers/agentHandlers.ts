@@ -9,16 +9,23 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
   const depth = e.agent.depth ?? 0
+  const terminal = e.agent.status === 'completed' || e.agent.status === 'failed'
+  // Never revive a finished / cancelled lead row when a late or terminal agent_step arrives.
+  const canMarkStreaming =
+    !terminal &&
+    r.msg.status !== 'cancelled' &&
+    r.msg.status !== 'error' &&
+    r.msg.status !== 'done'
   if (depth > 0) {
     const trace = ensureSubTrace(r.msg, e.agent.id, e.agent)
     trace.content = undefined
-    r.msg.status = 'streaming'
-    if (e.agent.status === 'completed' || e.agent.status === 'failed') {
+    if (canMarkStreaming) r.msg.status = 'streaming'
+    if (terminal) {
       finalizeSubSession(trace)
     }
     r.conv.updatedAt = Date.now()
   } else {
-    r.msg.status = 'streaming'
+    if (canMarkStreaming) r.msg.status = 'streaming'
     r.msg.agentId = e.agent.id
     r.msg.agentName = e.agent.name
     r.msg.agentTrace = r.msg.agentTrace || []
@@ -36,7 +43,9 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
 export function handleSupervisorPlan(ctx: StreamHandlerContext, e: SupervisorPlan) {
   const r = ctx.findMessage(e.messageId)
   if (!r || r.conv.id !== e.conversationId) return
-  r.msg.status = 'streaming'
+  if (r.msg.status !== 'cancelled' && r.msg.status !== 'error' && r.msg.status !== 'done') {
+    r.msg.status = 'streaming'
+  }
   r.msg.supervisorPlanTasks = e.tasks
   void ctx.refreshTaskBoard(e.conversationId)
 }

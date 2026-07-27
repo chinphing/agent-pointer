@@ -27,7 +27,7 @@ import {
 import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 import {
-  createProject, loadProjects, searchConversations, updateProject
+  createProject, searchConversations, updateProject
 } from '../../lib/api'
 import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
 import { applyProjectCreationResult } from '../../lib/projectCreation'
@@ -146,8 +146,6 @@ const conversationSearchInputRef = ref<HTMLInputElement | null>(null)
 const projectsSectionCollapsed = ref(false)
 const conversationsSectionCollapsed = ref(false)
 const showProjectCreator = ref(false)
-const loadingMoreProjects = ref(false)
-const hasMoreProjects = ref(true)
 const sidebarProjects = computed(() => {
   const query = projectSearchQuery.value.trim().toLocaleLowerCase()
   return chat.projects.filter(project =>
@@ -262,25 +260,11 @@ async function confirmProjectDeletion() {
 }
 
 async function loadMoreProjects() {
-  if (loadingMoreProjects.value || !hasMoreProjects.value) return
-  const lastProject = chat.projects[chat.projects.length - 1]
-
-  loadingMoreProjects.value = true
+  if (chat.loadingMoreProjects || !chat.hasMoreProjects) return
   try {
-    const page = await loadProjects(
-      lastProject ? { lastActivityAt: lastProject.lastActivityAt, id: lastProject.id } : null,
-      5
-    )
-    const knownIds = new Set(chat.projects.map(project => project.id))
-    chat.projects = [...chat.projects, ...page.items.filter(project => !knownIds.has(project.id))]
-      .sort((a, b) => Number(b.isPinned) - Number(a.isPinned)
-        || b.lastActivityAt - a.lastActivityAt
-        || b.id.localeCompare(a.id))
-    hasMoreProjects.value = page.nextCursor !== null
+    await chat.loadMoreProjects()
   } catch (err) {
     projectError.value = String(err)
-  } finally {
-    loadingMoreProjects.value = false
   }
 }
 
@@ -937,12 +921,12 @@ watch(searchQuery, q => {
                 </div>
               </div>
               <button
-                v-if="hasMoreProjects"
+                v-if="chat.hasMoreProjects"
                 type="button"
                 class="sidebar-project-conversation mt-1 text-accent"
-                :disabled="loadingMoreProjects"
+                :disabled="chat.loadingMoreProjects"
                 @click="loadMoreProjects"
-              >{{ loadingMoreProjects ? '加载中…' : '加载更多项目' }}</button>
+              >{{ chat.loadingMoreProjects ? '加载中…' : '加载更多项目' }}</button>
             </div>
           </section>
 

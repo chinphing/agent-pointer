@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   elapsedBetweenTimestamps,
   formatTurnElapsed,
+  hasActiveTurn,
   recordTurnDone,
   recordTurnStart,
   turnElapsedMs
@@ -16,8 +17,10 @@ describe('turn elapsed', () => {
 
   it('records dispatch-to-done elapsed time by conversation and user turn', () => {
     recordTurnStart('conv-1', 'user-1', 1_000)
+    expect(hasActiveTurn('conv-1')).toBe(true)
 
     expect(recordTurnDone('conv-1', 66_400)).toBe(65_400)
+    expect(hasActiveTurn('conv-1')).toBe(false)
     expect(turnElapsedMs('conv-1', 'user-1')).toBe(65_400)
     expect(turnElapsedMs('conv-1', 'other-user')).toBeNull()
   })

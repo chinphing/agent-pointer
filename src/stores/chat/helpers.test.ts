@@ -109,6 +109,39 @@ describe('chat helpers', () => {
     expect(c.messages[0].toolCalls![0].error).toBe('interrupted')
   })
 
+  it('normalizeInterruptedAssistantStatuses finalizes stuck agent traces', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'done reply',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [],
+        agentTrace: [
+          {
+            id: 'sub-1',
+            name: 'explore',
+            role: 'sub',
+            status: 'running',
+            depth: 1,
+            session: {
+              contentStreaming: true,
+              collapsed: true,
+              userExpanded: false,
+              stats: { searchCount: 0, readCount: 0 },
+              toolCalls: [{ id: 't1', name: 'shell', arguments: '{}', status: 'running' }]
+            }
+          }
+        ]
+      }
+    ])
+    normalizeInterruptedAssistantStatuses([c])
+    expect(c.messages[0].agentTrace![0].status).toBe('completed')
+    expect(c.messages[0].agentTrace![0].session!.contentStreaming).toBe(false)
+    expect(c.messages[0].agentTrace![0].session!.toolCalls![0].status).toBe('failed')
+  })
+
   it('normalizeStaleEndedAssistantTurn clears stale streaming without active stream', () => {
     const msg: ChatMessage = {
       id: 'a1',

@@ -434,7 +434,9 @@ async fn main() -> anyhow::Result<()> {
             resolve_server_public_url().as_deref(),
         )?;
     }
-    let (events, _) = broadcast::channel::<StreamEvent>(512);
+    // Larger buffer: weak clients / high-frequency tool output lag the SSE
+    // consumer; when the ring overflows we emit `resync` (see chat_stream).
+    let (events, _) = broadcast::channel::<StreamEvent>(4096);
     // Bridge global stream_broadcast -> server events so the SSE endpoint
     // (`GET /api/chat/:id/stream`) keeps working regardless of who calls
     // `run_chat`. The dispatcher calls `run_chat`, which emits via
@@ -2986,7 +2988,20 @@ async fn chat_stream(
                         yield Ok(Event::default().event("message").data(data));
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    // Dropped events (often Done / deltas under weak networks).
+                    // Tell the browser to reload messages + reconcile run state.
+                    log::warn!(
+                        "chat_stream lagged conversation_id={} skipped≈{}",
+                        conversation_id,
+                        skipped
+                    );
+                    yield Ok(
+                        Event::default()
+                            .event("resync")
+                            .data(format!("{{\"skipped\":{skipped}}}")),
+                    );
+                }
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }

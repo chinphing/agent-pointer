@@ -252,7 +252,9 @@ models = ["glm-5", "glm-5-flash"]
 
 **实现：** `server_config.rs` → `apply_llm_providers_from_config()`，启动时写入 `platform_config`（与 OAuth 注入走同一路径）。
 
-**支持的 provider id：** `qwen`, `deepseek`, `glm`, `kimi`, `openai-compatible`
+注入后会校验当前 `model` 是否仍在活跃 Provider 的 `models` 列表中；若不在（例如内置默认 `qwen3.5-plus`，而 TOML 只配了本地 `qwen3.6-27b`），自动改用列表中的第一个模型。模式映射（如 fast → DeepSeek）无 Key 时也会回退到该活跃 Provider + 列表内模型。
+
+**支持的 provider id：** `qwen`, `deepseek`, `glm`, `kimi`, `openai-compatible`（也可自定义 id，如本地网关）
 
 ---
 

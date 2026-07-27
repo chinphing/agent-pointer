@@ -6,6 +6,10 @@
 
 > 配置写入内存，重启后恢复默认；底部「保存(本次会话)」通过专用的
 > `DebugSessionSettings` 边界更新当前进程配置。
+>
+> **WEB 回读**：平台管理员（含 standalone 本地管理员）的 `/api/settings` 响应会保留
+> `agentModeLlm` / `debugMenusEnabled` 等调试字段，保存后再打开设置不会退回内置默认。
+> 非管理员响应仍省略这些字段；前端在字段缺失时保留当前内存值。
 
 ## 调试会话配置边界
 
@@ -40,7 +44,7 @@
 ## 模式选择与调试模型映射
 
 - 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 智能体 → 模式选择** 中选运行模式；具体模型在调试模式下于 `agentModeLlm` / `mediaModeLlm` / `computerTierLlm` 配置（平台内存，重启恢复默认，相同持久化策略）。
-- **API Key 回退**：主会话 / 子 Agent 按模式解析出的 Provider **没有可用 API Key**，但当前活跃 Provider 有 Key 时，自动回退到活跃 Provider + 模型（打 warn 日志）。有 Key 时仍优先用模式映射，不静默改道。
+- **API Key 回退**：主会话 / 子 Agent 按模式解析出的 Provider **没有可用 API Key**，但当前活跃 Provider 有 Key 时，自动回退到活跃 Provider；模型优先用原活跃模型，若不在该 Provider 的 `models` 列表中则改用列表首项（打 warn 日志）。有 Key 时仍优先用模式映射，不静默改道。
 
 ## 保存后界面「空白」
 

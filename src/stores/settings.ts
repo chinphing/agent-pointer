@@ -336,22 +336,57 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function applyEffectiveView(view: EffectiveSettingsView) {
     userSettings.value = { ...view.user, theme: (view.user.theme as ThemePreference) ?? 'system' }
+    // WEB non-admin responses omit debug / mode-LLM fields. Preserve the current
+    // in-memory values when the payload lacks them so save→reopen does not snap
+    // back to built-in defaults (admins now receive these fields from the API).
+    const platformIn = view.platform ?? ({} as PlatformSettings)
+    const mergedIn = view.merged ?? ({} as ModelSettings)
     platformSettings.value = {
       ...defaultPlatformSettings(),
-      ...view.platform,
-      providers: normalizeProviders(view.platform.providers, undefined, globalGenFallbackFrom(view.merged)),
-      computerTierLlm: { ...defaultPlatformSettings().computerTierLlm, ...view.platform.computerTierLlm },
+      ...platformIn,
+      providers: normalizeProviders(platformIn.providers, undefined, globalGenFallbackFrom(mergedIn)),
+      computerTierLlm: {
+        ...defaultPlatformSettings().computerTierLlm,
+        ...(platformIn.computerTierLlm ?? platformSettings.value.computerTierLlm ?? {})
+      },
       computerPipelineLlm: {
         ...defaultPlatformSettings().computerPipelineLlm,
-        ...view.platform.computerPipelineLlm
+        ...(platformIn.computerPipelineLlm ?? platformSettings.value.computerPipelineLlm ?? {})
       },
-      agentModeLlm: { ...defaultAgentModeLlm(), ...view.platform.agentModeLlm },
-      mediaModeLlm: { ...defaultMediaModeLlm(), ...view.platform.mediaModeLlm }
+      agentModeLlm: {
+        ...defaultAgentModeLlm(),
+        ...(platformIn.agentModeLlm ?? platformSettings.value.agentModeLlm ?? {})
+      },
+      mediaModeLlm: {
+        ...defaultMediaModeLlm(),
+        ...(platformIn.mediaModeLlm ?? platformSettings.value.mediaModeLlm ?? {})
+      }
     }
     canEditPlatform.value = view.canEditPlatform
     isPlatformAdmin.value = view.isPlatformAdmin
-    const activeId = view.merged.activeProviderId || 'qwen'
-    settings.value = normalizeMergedSettings(view.merged, activeId)
+    const activeId = mergedIn.activeProviderId || 'qwen'
+    const nextMerged = {
+      ...mergedIn,
+      // Keep session debug toggles when WEB omitted them from the response.
+      debugMenusEnabled:
+        mergedIn.debugMenusEnabled ?? settings.value.debugMenusEnabled,
+      rawContentViewEnabled:
+        mergedIn.rawContentViewEnabled ?? settings.value.rawContentViewEnabled,
+      debugDumpLlmPrompts:
+        mergedIn.debugDumpLlmPrompts ?? settings.value.debugDumpLlmPrompts,
+      taskBoardShowChildBoards:
+        mergedIn.taskBoardShowChildBoards ?? settings.value.taskBoardShowChildBoards,
+      computerAnnotatedScreenViewEnabled:
+        mergedIn.computerAnnotatedScreenViewEnabled ??
+        settings.value.computerAnnotatedScreenViewEnabled,
+      agentUiOverrides:
+        mergedIn.agentUiOverrides ?? settings.value.agentUiOverrides,
+      agentModeLlm: platformSettings.value.agentModeLlm,
+      mediaModeLlm: platformSettings.value.mediaModeLlm,
+      computerTierLlm: platformSettings.value.computerTierLlm,
+      computerPipelineLlm: platformSettings.value.computerPipelineLlm
+    }
+    settings.value = normalizeMergedSettings(nextMerged, activeId)
     applyTheme(settings.value.theme)
   }
 

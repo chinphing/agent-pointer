@@ -2253,7 +2253,11 @@ pub struct EffectiveSettingsView {
 const DATI_SETTINGS_JSON_KEYS: &[&str] =
     &["datiApiUrl", "datiAuthcode", "datiTypeno", "datiAuthor"];
 
-/// Debug-only settings (visible when debug menus are enabled). Omitted from pointer-server Web API.
+/// Debug-only settings (visible when debug menus are enabled).
+/// Omitted from pointer-server Web API responses for **non-admin** users so
+/// casual clients do not round-trip session-only debug state. Platform admins
+/// (including standalone local admin) receive these fields so settings UI save
+/// → reopen keeps providers / mode LLM maps / debug toggles.
 const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "rawContentViewEnabled",
     "debugDumpLlmPrompts",
@@ -2330,10 +2334,15 @@ fn redact_media_oss_secrets(oss: &mut serde_json::Value) {
     obj.remove("accessKeySecret");
 }
 
-fn redact_settings_object_secrets(obj: &mut serde_json::Map<String, serde_json::Value>) {
+fn redact_settings_object_secrets(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    strip_debug: bool,
+) {
     if let Some(platform) = obj.get_mut("platform") {
         strip_dati_keys_from_settings_object(platform);
-        strip_debug_keys_from_settings_object(platform);
+        if strip_debug {
+            strip_debug_keys_from_settings_object(platform);
+        }
         if let Some(platform_obj) = platform.as_object_mut() {
             if let Some(providers) = platform_obj.get_mut("providers") {
                 redact_provider_api_keys_in_array(providers);
@@ -2345,7 +2354,9 @@ fn redact_settings_object_secrets(obj: &mut serde_json::Map<String, serde_json::
     }
     if let Some(merged) = obj.get_mut("merged") {
         strip_dati_keys_from_settings_object(merged);
-        strip_debug_keys_from_settings_object(merged);
+        if strip_debug {
+            strip_debug_keys_from_settings_object(merged);
+        }
         if let Some(merged_obj) = merged.as_object_mut() {
             merged_obj.insert("apiKey".into(), serde_json::Value::String(String::new()));
             if let Some(providers) = merged_obj.get_mut("providers") {
@@ -2358,7 +2369,9 @@ fn redact_settings_object_secrets(obj: &mut serde_json::Map<String, serde_json::
     }
 }
 
-/// Web PUT must not overwrite server debug toggles with client defaults (debug fields are omitted on GET).
+/// Web PUT from non-admin clients must not overwrite server debug toggles with
+/// serde defaults (those fields are omitted on non-admin GET). Admins receive
+/// and may update the fields; callers should skip this preserve for admins.
 pub fn preserve_platform_debug_settings_in_model(
     incoming: &mut ModelSettings,
     platform: &PlatformSettings,
@@ -2373,17 +2386,22 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.agent_task_board_history_trim = platform.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_tool_rounds = platform.max_sub_agent_tool_rounds;
     incoming.max_sub_agent_spawn_depth = platform.max_sub_agent_spawn_depth;
+    // Mode LLM maps are also omitted for non-admins; keep server values.
+    incoming.agent_mode_llm = platform.agent_mode_llm.clone();
+    incoming.media_mode_llm = platform.media_mode_llm.clone();
 }
 
 /// Strip DaTi fields and redact secrets for pointer-server Web API responses.
-pub fn redact_settings_json_for_web_api(value: &mut serde_json::Value) {
+/// When `strip_debug` is true (non-admin), also omit session-only debug fields.
+pub fn redact_settings_json_for_web_api(value: &mut serde_json::Value, strip_debug: bool) {
     let serde_json::Value::Object(obj) = value else {
         return;
     };
-    redact_settings_object_secrets(obj);
+    redact_settings_object_secrets(obj, strip_debug);
 }
 
 /// Web API response wrapper: omits DaTi fields (server-side only; desktop Tauri unchanged).
+/// Platform admins keep debug / mode-LLM fields so settings save → reopen round-trips.
 pub struct WebEffectiveSettingsView(pub EffectiveSettingsView);
 
 impl serde::Serialize for WebEffectiveSettingsView {
@@ -2392,7 +2410,8 @@ impl serde::Serialize for WebEffectiveSettingsView {
         S: serde::Serializer,
     {
         let mut value = serde_json::to_value(&self.0).map_err(serde::ser::Error::custom)?;
-        redact_settings_json_for_web_api(&mut value);
+        let strip_debug = !self.0.is_platform_admin;
+        redact_settings_json_for_web_api(&mut value, strip_debug);
         value.serialize(serializer)
     }
 }
@@ -2777,6 +2796,29 @@ mod effective_extra_body_tests {
         assert!(!json.contains("debugDumpLlmPrompts"));
         assert!(!json.contains("debugMenusEnabled"));
         assert!(!json.contains("computerAnnotatedScreenViewEnabled"));
+        assert!(json.contains("\"apiKey\":\"****\""));
+    }
+
+    #[test]
+    fn web_effective_settings_view_keeps_debug_fields_for_admin() {
+        let mut platform = PlatformSettings::default();
+        platform.debug_menus_enabled = true;
+        platform.raw_content_view_enabled = true;
+        platform.agent_mode_llm = default_agent_mode_llm();
+        platform.providers[0].api_key = "sk-live-secret".into();
+        let merged = merge_user_platform(&UserSettings::default(), &platform);
+        let view = EffectiveSettingsView {
+            user: UserSettings::default(),
+            platform,
+            merged,
+            can_edit_platform: true,
+            is_platform_admin: true,
+        };
+        let json = serde_json::to_string(&WebEffectiveSettingsView(view)).unwrap();
+        assert!(json.contains("debugMenusEnabled"));
+        assert!(json.contains("rawContentViewEnabled"));
+        assert!(json.contains("agentModeLlm"));
+        assert!(!json.contains("sk-live-secret"));
         assert!(json.contains("\"apiKey\":\"****\""));
     }
 

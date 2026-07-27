@@ -798,7 +798,11 @@ async fn update_settings(
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
     let platform = state.core.platform_config.read().clone();
-    pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
+    // Non-admins omit debug fields on GET; preserve server values so serde defaults
+    // do not wipe them. Admins round-trip the fields and may update them.
+    if !state.core.active_platform_auth().is_platform_admin() {
+        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
+    }
     state.core.apply_session_platform_preferences(&settings)?;
     state.core.sync_dispatcher_concurrency(&state.dispatcher);
     Ok(Json(WebEffectiveSettingsView(
@@ -812,7 +816,9 @@ async fn update_agent_settings(
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
     let platform = state.core.platform_config.read().clone();
-    pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
+    if !state.core.active_platform_auth().is_platform_admin() {
+        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
+    }
     state
         .core
         .update_agent_settings(&settings)

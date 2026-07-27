@@ -50,8 +50,62 @@ fn provider_has_api_key(settings: &ModelSettings, provider_id: &str) -> bool {
         .any(|p| p.id == pid && !p.api_key.trim().is_empty())
 }
 
-/// If the mode/agent override landed on a provider with no API key, restore the
-/// previously active provider + model when that provider does have a key.
+fn provider_model_in_list(settings: &ModelSettings, provider_id: &str, model: &str) -> bool {
+    let pid = provider_id.trim();
+    let model = model.trim();
+    if pid.is_empty() || model.is_empty() {
+        return false;
+    }
+    settings
+        .providers
+        .iter()
+        .any(|p| p.id == pid && p.models.iter().any(|m| m.trim() == model))
+}
+
+/// Usable when the provider has a key, and either has an empty catalog (no
+/// restriction) or lists the requested model.
+fn provider_model_usable(settings: &ModelSettings, provider_id: &str, model: &str) -> bool {
+    let pid = provider_id.trim();
+    let model = model.trim();
+    if pid.is_empty() || model.is_empty() || !provider_has_api_key(settings, pid) {
+        return false;
+    }
+    let Some(provider) = settings.providers.iter().find(|p| p.id == pid) else {
+        return false;
+    };
+    if provider.models.is_empty() {
+        return true;
+    }
+    provider.models.iter().any(|m| m.trim() == model)
+}
+
+/// Prefer `preferred` when it is in the provider list; otherwise first listed model.
+fn resolve_fallback_model(
+    settings: &ModelSettings,
+    provider_id: &str,
+    preferred: &str,
+) -> String {
+    let preferred = preferred.trim();
+    if provider_model_in_list(settings, provider_id, preferred) {
+        return preferred.to_string();
+    }
+    settings
+        .providers
+        .iter()
+        .find(|p| p.id == provider_id.trim())
+        .and_then(|p| {
+            p.models
+                .iter()
+                .map(|m| m.trim())
+                .find(|m| !m.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| preferred.to_string())
+}
+
+/// If the mode/agent override landed on an unusable provider/model (no API key,
+/// or model missing from a non-empty catalog), restore the previously active
+/// provider + a model that provider actually lists.
 fn fallback_to_active_if_unusable(
     settings: &mut ModelSettings,
     prior_provider_id: &str,
@@ -59,25 +113,31 @@ fn fallback_to_active_if_unusable(
     context: &str,
 ) {
     let resolved_pid = settings.active_provider_id.trim().to_string();
-    if provider_has_api_key(settings, &resolved_pid) {
+    let resolved_model = settings.model.trim().to_string();
+    if provider_model_usable(settings, &resolved_pid, &resolved_model) {
         return;
     }
     let prior_pid = prior_provider_id.trim();
     if prior_pid.is_empty() || !provider_has_api_key(settings, prior_pid) {
         return;
     }
-    if resolved_pid == prior_pid && settings.model.trim() == prior_model.trim() {
+    let fallback_model = resolve_fallback_model(settings, prior_pid, prior_model);
+    if resolved_pid == prior_pid && resolved_model == fallback_model.trim() {
         return;
     }
+    let reason = if !provider_has_api_key(settings, &resolved_pid) {
+        "has no API key"
+    } else {
+        "model not in provider catalog"
+    };
     log::warn!(
-        "llm: mode/agent model provider={resolved_pid} model={} has no API key; \
+        "llm: mode/agent model provider={resolved_pid} model={resolved_model} {reason}; \
          falling back to active provider={prior_pid} model={} ({context})",
-        settings.model,
-        prior_model.trim()
+        fallback_model.trim()
     );
     settings.active_provider_id = prior_pid.to_string();
-    if !prior_model.trim().is_empty() {
-        settings.model = prior_model.trim().to_string();
+    if !fallback_model.trim().is_empty() {
+        settings.model = fallback_model;
     }
 }
 
@@ -263,6 +323,35 @@ mod tests {
         let key = prepare_session_llm_settings(&mut settings, "single", None);
         assert_eq!(settings.active_provider_id, "qwen");
         assert_eq!(settings.model, "qwen-plus");
+        assert_eq!(key, "qwen-key");
+    }
+
+    #[test]
+    fn prepare_session_fallback_picks_listed_model_when_prior_not_in_catalog() {
+        let mut settings = sample_settings();
+        // Stale built-in default is not in the standalone-replaced catalog.
+        settings.model = "qwen3.5-plus".into();
+        settings.providers[0].models = vec!["qwen3.6-27b".into()];
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "coder".into();
+        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        assert_eq!(settings.active_provider_id, "qwen");
+        assert_eq!(settings.model, "qwen3.6-27b");
+        assert_eq!(key, "qwen-key");
+    }
+
+    #[test]
+    fn prepare_session_fallback_when_mode_model_missing_from_keyed_catalog() {
+        let mut settings = sample_settings();
+        // expert → qwen/qwen3.7-plus via agentModeLlm, but catalog only has local id.
+        settings.agent_performance_modes.insert("coder".into(), "expert".into());
+        settings.providers[0].models = vec!["qwen3.6-27b".into()];
+        settings.model = "qwen3.6-27b".into();
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "coder".into();
+        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        assert_eq!(settings.active_provider_id, "qwen");
+        assert_eq!(settings.model, "qwen3.6-27b");
         assert_eq!(key, "qwen-key");
     }
 

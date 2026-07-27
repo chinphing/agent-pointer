@@ -504,11 +504,130 @@ fn resolve_license_key(license: &LicenseSection, base_dir: &Path) -> Option<Stri
     }
 }
 
+/// If `platform.model` is missing from the active provider's `models` list,
+/// switch to the first configured model (standalone TOML often replaces the
+/// built-in catalog with a single local/custom id).
+fn sync_active_model_to_provider_list(platform: &mut PlatformSettings) {
+    let pid = platform.active_provider_id.trim().to_string();
+    if pid.is_empty() {
+        return;
+    }
+    let Some(provider) = platform.providers.iter().find(|p| p.id == pid) else {
+        return;
+    };
+    let first = provider
+        .models
+        .iter()
+        .map(|m| m.trim())
+        .find(|m| !m.is_empty())
+        .map(str::to_string);
+    let Some(first) = first else {
+        return;
+    };
+    let current = platform.model.trim();
+    if provider.models.iter().any(|m| m.trim() == current) {
+        return;
+    }
+    log::info!(
+        "server_config: active model '{current}' not in provider {pid} models; using '{first}'"
+    );
+    platform.model = first;
+}
+
+fn platform_provider_model_usable(
+    platform: &PlatformSettings,
+    provider_id: &str,
+    model: &str,
+) -> bool {
+    let pid = provider_id.trim();
+    let model = model.trim();
+    if pid.is_empty() || model.is_empty() {
+        return false;
+    }
+    let Some(provider) = platform.providers.iter().find(|p| p.id == pid) else {
+        return false;
+    };
+    if provider.api_key.trim().is_empty() {
+        return false;
+    }
+    if provider.models.is_empty() {
+        return true;
+    }
+    provider.models.iter().any(|m| m.trim() == model)
+}
+
+/// Rewrite `agentModeLlm` / `mediaModeLlm` rows that point at missing keys or
+/// catalog models so chat uses the standalone-configured active model.
+fn sync_mode_llm_maps_to_active(platform: &mut PlatformSettings) {
+    let active_pid = platform.active_provider_id.trim().to_string();
+    let active_model = platform.model.trim().to_string();
+    if active_pid.is_empty() || active_model.is_empty() {
+        return;
+    }
+    if !platform_provider_model_usable(platform, &active_pid, &active_model) {
+        return;
+    }
+
+    let mut agent_rewrites: Vec<(String, String)> = Vec::new();
+    for (outer, modes) in &platform.agent_mode_llm {
+        for (mode, cfg) in modes {
+            if !platform_provider_model_usable(platform, &cfg.provider_id, &cfg.model) {
+                agent_rewrites.push((outer.clone(), mode.clone()));
+            }
+        }
+    }
+    for (outer, mode) in agent_rewrites {
+        if let Some(cfg) = platform
+            .agent_mode_llm
+            .get_mut(&outer)
+            .and_then(|m| m.get_mut(&mode))
+        {
+            log::info!(
+                "server_config: agentModeLlm {outer}/{mode} provider={} model={} unusable; \
+                 rewriting to active {active_pid}/{active_model}",
+                cfg.provider_id.trim(),
+                cfg.model.trim()
+            );
+            cfg.provider_id = active_pid.clone();
+            cfg.model = active_model.clone();
+        }
+    }
+
+    let mut media_rewrites: Vec<(String, String)> = Vec::new();
+    for (outer, modes) in &platform.media_mode_llm {
+        for (mode, cfg) in modes {
+            if !platform_provider_model_usable(platform, &cfg.provider_id, &cfg.model) {
+                media_rewrites.push((outer.clone(), mode.clone()));
+            }
+        }
+    }
+    for (outer, mode) in media_rewrites {
+        if let Some(cfg) = platform
+            .media_mode_llm
+            .get_mut(&outer)
+            .and_then(|m| m.get_mut(&mode))
+        {
+            log::info!(
+                "server_config: mediaModeLlm {outer}/{mode} provider={} model={} unusable; \
+                 rewriting to active {active_pid}/{active_model}",
+                cfg.provider_id.trim(),
+                cfg.model.trim()
+            );
+            cfg.provider_id = active_pid.clone();
+            cfg.model = active_model.clone();
+        }
+    }
+}
+
 /// Apply `[llm]` provider keys from pointer-server.toml into in-memory platform settings.
 pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings) {
     let Some(llm) = PARSED_LLM.get().and_then(|o| o.as_ref()) else {
         return;
     };
+    apply_llm_section(platform, llm);
+}
+
+fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
     if llm.providers.is_empty() {
         return;
     }
@@ -562,6 +681,8 @@ pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings) {
             log::info!("server_config: added llm provider {pid} from config");
         }
     }
+    sync_active_model_to_provider_list(platform);
+    sync_mode_llm_maps_to_active(platform);
 }
 
 fn push_mapped(
@@ -761,5 +882,66 @@ api_base = "https://legacy.example.com"
         assert!(skipped.is_empty());
         assert_eq!(std::env::var(key).unwrap(), "from_file");
         std::env::remove_var(key);
+    }
+
+    #[test]
+    fn apply_llm_section_syncs_active_model_to_configured_list() {
+        let _guard = env_guard();
+        std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
+
+        let mut platform = PlatformSettings::default();
+        platform.model = "qwen3.5-plus".into();
+        platform.active_provider_id = "qwen".into();
+
+        let mut llm = LlmSection::default();
+        llm.active_provider = "xiaohe".into();
+        llm.providers.insert(
+            "xiaohe".into(),
+            LlmProviderToml {
+                api_key: "sk-local".into(),
+                base_url: "http://127.0.0.1:8000/v1".into(),
+                name: "xiaohe".into(),
+                models: vec!["qwen3.6-27b".into()],
+            },
+        );
+
+        apply_llm_section(&mut platform, &llm);
+
+        assert_eq!(platform.active_provider_id, "xiaohe");
+        assert_eq!(platform.model, "qwen3.6-27b");
+        let p = platform
+            .providers
+            .iter()
+            .find(|p| p.id == "xiaohe")
+            .expect("xiaohe provider");
+        assert_eq!(p.api_key, "sk-local");
+        assert_eq!(p.models, vec!["qwen3.6-27b".to_string()]);
+    }
+
+    #[test]
+    fn apply_llm_section_keeps_active_model_when_still_listed() {
+        let _guard = env_guard();
+        std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
+
+        let mut platform = PlatformSettings::default();
+        platform.model = "qwen3.5-turbo".into();
+        platform.active_provider_id = "qwen".into();
+
+        let mut llm = LlmSection::default();
+        llm.active_provider = "qwen".into();
+        llm.providers.insert(
+            "qwen".into(),
+            LlmProviderToml {
+                api_key: "sk-qwen".into(),
+                base_url: String::new(),
+                name: String::new(),
+                models: vec!["qwen3.5-plus".into(), "qwen3.5-turbo".into()],
+            },
+        );
+
+        apply_llm_section(&mut platform, &llm);
+
+        assert_eq!(platform.active_provider_id, "qwen");
+        assert_eq!(platform.model, "qwen3.5-turbo");
     }
 }

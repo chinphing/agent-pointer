@@ -342,7 +342,7 @@ app_data_dir = "/var/lib/pointer-server"
 | `kimi` | 月之暗面 Moonshot | `https://api.moonshot.cn/v1` | `moonshot-v1-8k`, `moonshot-v1-32k`, `moonshot-v1-128k` |
 | `openai-compatible` | 自建兼容网关 | 客户自定 | 客户自定 |
 
-`active_provider` 决定默认对话模型来源；客户至少配置并填写**一个** Provider 的 `api_key`。
+`active_provider` 决定默认对话模型来源；客户至少配置并填写**一个** Provider 的 `api_key`。若 `models` 不含内置默认模型名（如 `qwen3.5-plus`），启动注入后会自动把活跃模型改成该 Provider `models` 列表的第一项。
 
 ---
 

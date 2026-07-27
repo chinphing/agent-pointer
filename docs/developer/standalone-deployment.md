@@ -18,10 +18,12 @@ pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构�
 
 **文件：** `crates/pointer-core/src/deployment_mode.rs`
 
-| 模式 | 说明 |
-|------|------|
+
+| 模式             | 说明                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------- |
 | `platform`（默认） | 连接 [readflowai.com](https://pointer-api.readflowai.com)，使用官方 OAuth + 云端 LLM Key 下发 |
-| `standalone` | 脱离官方平台，使用本地账号密码登录 + TOML 注入 LLM Key + Ed25519 License 校验 |
+| `standalone`   | 脱离官方平台，使用本地账号密码登录 + TOML 注入 LLM Key + Ed25519 License 校验                           |
+
 
 **余额 / LLM 门禁：** 官方账户余额校验（`ensure_llm_allowed`、`GET /auth/partner/llm-credentials`）仅在 `platform` 模式生效；`standalone` 下为 no-op，不访问官方余额 API。
 
@@ -31,10 +33,13 @@ pub fn is_standalone() -> bool;
 ```
 
 配置来源优先级：
+
 1. `POINTER_DEPLOYMENT_MODE` 环境变量（`platform` / `standalone`）
 2. `[deployment].mode` 配置文件值
 
 ---
+
+
 
 ## 本地认证
 
@@ -55,6 +60,7 @@ pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 ```
 
 **流程：**
+
 ```
 GET  /api/auth/mode              → { "mode": "standalone" | "platform" }
 GET  /api/auth/local/captcha     → { captchaId, imageSvg }  （内存一次性，TTL 5min）
@@ -72,10 +78,13 @@ POST /api/auth/local/login
 ### Standalone 模式下 LLM 凭证路径
 
 在 `chat_service/session_inner.rs` 中：
+
 - standalone + web_session + `has_local_llm` → 跳过 `ensure_llm_allowed()`（无平台 quota 检查）
 - standalone + 无本地 LLM Key → 报错提示配置 LLM
 
 ---
+
+
 
 ## License 系统
 
@@ -101,6 +110,8 @@ payload (JSON):
 }
 ```
 
+
+
 ### 模块结构
 
 ```rust
@@ -119,6 +130,8 @@ pub fn current_machine_identity() -> Result<MachineIdentityView> // --machine-id
 pub fn verify_machine_binding(...) -> Result<()>
 ```
 
+
+
 ### 验证流程
 
 ```
@@ -133,15 +146,19 @@ main()
     → 缓存 claims → 运行
 ```
 
+
+
 ### 机器绑定（v2 指纹）
 
 `fingerprint.rs` 收集多信号并生成 salted SHA-256：
 
-| 信号 | Linux | macOS | Windows | 云 VM |
-|------|-------|-------|---------|-------|
-| os_id | `/etc/machine-id` | IOPlatformUUID | MachineGuid | 同左 |
-| board_uuid | DMI product_uuid | IOPlatformUUID | WMI BIOS UUID | — |
-| cloud | — | — | — | AWS/Azure IMDS |
+
+| 信号         | Linux             | macOS          | Windows       | 云 VM           |
+| ---------- | ----------------- | -------------- | ------------- | -------------- |
+| os_id      | `/etc/machine-id` | IOPlatformUUID | MachineGuid   | 同左             |
+| board_uuid | DMI product_uuid  | IOPlatformUUID | WMI BIOS UUID | —              |
+| cloud      | —                 | —              | —             | AWS/Azure IMDS |
+
 
 - **strict**（`machine_id`）：`fp1:` + SHA256(salt + os + board + cloud)
 - **漂移锚点**：`machine_board_fp`、`machine_cloud_fp` — OS 重装后 strict 变化仍可验证
@@ -151,6 +168,8 @@ main()
 ./pointer-server --machine-id-json   # 推荐远程签发
 ./pointer-server --machine-id        # 仅 fp1:… token
 ```
+
+
 
 ### License 生成 CLI
 
@@ -193,6 +212,8 @@ cargo run -p pointer-license-gen -- sign \
   --machine-id "5A372B48-8721-5807-9645-8E7A560F2518"
 ```
 
+
+
 ### 热加载（不重启）
 
 ```bash
@@ -204,11 +225,14 @@ curl -X POST http://localhost:8787/api/license/reload
 
 ---
 
+
+
 ## LLM Provider 注入
 
 Standalone 模式下从 TOML 配置注入 LLM Key，替代 OAuth 下发。
 
-**配置格式（`pointer-server.toml`）：**
+**配置格式（**`pointer-server.toml`**）：**
+
 ```toml
 [llm]
 active_provider = "qwen"
@@ -232,28 +256,38 @@ models = ["glm-5", "glm-5-flash"]
 
 ---
 
+
+
 ## 平台副作用管理
 
-| 模块 | Standalone 行为 |
-|------|----------------|
-| `platform_endpoints.rs` | 不回落 readflowai.com 默认域名，未配置时 warn |
-| `cloud_agent_auth.rs` | 禁用云 OAuth code exchange |
-| `token_usage_store.rs` | `usage_report_enabled()` 默认 false，跳过上报 |
-| `media/oss.rs` | 从 `[media_oss]` 或 `OSS_*` 环境变量读取，不从 OAuth 注入 |
-| `experiences.rs` | 直连 `pointer-api` 失败时降级（欢迎页不可用） |
+
+| 模块                                   | Standalone 行为                                           |
+| ------------------------------------ | ------------------------------------------------------- |
+| `platform_endpoints.rs`              | 不回落 readflowai.com 默认域名，未配置时 warn                       |
+| `cloud_agent_auth.rs`                | 禁用云 OAuth code exchange                                 |
+| `token_usage_store.rs`               | `usage_report_enabled()` 默认 false，跳过上报                  |
+| `media/oss.rs`                       | 从 `[media_oss]` 或 `OSS_*` 环境变量读取，不从 OAuth 注入            |
+| `experiences.rs`                     | **不加载**官方经验目录（直接返回空，欢迎页不展示经验区）                    |
 | `agents/computer/vision/annotate.rs` | Computer Agent 标注能力降级（需自建 `COMPUTER_ANNOTATE_API_BASE`） |
+
 
 ---
 
+
+
 ## API 端点
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/auth/mode` | GET | `{ "mode": "standalone" \| "platform" }` |
-| `/api/auth/local/captcha` | GET | `{ captchaId, imageSvg }`，standalone only |
-| `/api/auth/local/login` | POST | `{ username, password, captchaId, captcha }`，返回 Set-Cookie |
-| `/api/license/status` | GET | 返回 license claims、状态、机器绑定信息 |
-| `/api/license/reload` | POST | 从 `POINTER_LICENSE_KEY` 热加载新 license |
+
+| 端点                        | 方法   | 说明                                                         |
+| ------------------------- | ---- | ---------------------------------------------------------- |
+| `/api/auth/mode`          | GET  | `{ "mode": "standalone" | "platform" }`                    |
+| `/api/auth/local/captcha` | GET  | `{ captchaId, imageSvg }`，standalone only                  |
+| `/api/auth/local/login`   | POST | `{ username, password, captchaId, captcha }`，返回 Set-Cookie |
+| `/api/license/status`     | GET  | 返回 license claims、状态、机器绑定信息                                |
+| `/api/license/reload`     | POST | 从 `POINTER_LICENSE_KEY` 热加载新 license                       |
+
+
+
 
 ### License Status 响应
 
@@ -271,9 +305,11 @@ models = ["glm-5", "glm-5-flash"]
 
 ---
 
+
+
 ## 配置参考
 
-完整示例见 [`server/pointer-server.toml.example`](../../server/pointer-server.toml.example)。
+完整示例见 `[server/pointer-server.toml.example](../../server/pointer-server.toml.example)`。
 
 ```toml
 [deployment]
@@ -305,52 +341,73 @@ models = ["qwen3.5-plus"]
 addr = "0.0.0.0:8787"
 public_url = "https://pointer.example.com"
 app_data_dir = "/var/lib/pointer"
+# zip: skills beside binary; deb:
+# static_dir = "/usr/share/pointer-server/dist"
+# skills_dir = "/usr/share/pointer-server/skills"
+static_dir = "dist"
+skills_dir = "skills"
 ```
 
 ---
 
+
+
 ## 改造文件清单
+
+
 
 ### 新增文件（9 个）
 
-| 文件 | 说明 |
-|------|------|
-| `crates/pointer-core/src/deployment_mode.rs` | 部署模式检测：`platform` / `standalone` |
-| `crates/pointer-core/src/local_auth.rs` | 账号密码 HMAC 本地认证 |
-| `crates/pointer-core/src/license/mod.rs` | License 模块入口 |
-| `crates/pointer-core/src/license/verify.rs` | Ed25519 验签、启动校验、热加载、机器绑定 |
-| `crates/pointer-core/license.pub` | 编译嵌入的公钥文件 |
-| `server/src/local_auth.rs` | `/api/auth/local/login`、`/api/license/*` 路由 |
-| `tools/license-gen/Cargo.toml` | License 签发 CLI |
-| `tools/license-gen/src/main.rs` | `gen-keypair` / `sign` 子命令 |
-| `tools/license-gen/dev-license.key.example` | 开发用私钥示例 |
+
+| 文件                                           | 说明                                          |
+| -------------------------------------------- | ------------------------------------------- |
+| `crates/pointer-core/src/deployment_mode.rs` | 部署模式检测：`platform` / `standalone`            |
+| `crates/pointer-core/src/local_auth.rs`      | 账号密码 HMAC 本地认证                              |
+| `crates/pointer-core/src/license/mod.rs`     | License 模块入口                                |
+| `crates/pointer-core/src/license/verify.rs`  | Ed25519 验签、启动校验、热加载、机器绑定                    |
+| `crates/pointer-core/license.pub`            | 编译嵌入的公钥文件                                   |
+| `server/src/local_auth.rs`                   | `/api/auth/local/login`、`/api/license/*` 路由 |
+| `tools/license-gen/Cargo.toml`               | License 签发 CLI                              |
+| `tools/license-gen/src/main.rs`              | `gen-keypair` / `sign` 子命令                  |
+| `tools/license-gen/dev-license.key.example`  | 开发用私钥示例                                     |
+
+
+
 
 ### 修改文件（12 个）
 
-| 文件 | 改动 |
-|------|------|
-| `Cargo.toml`（workspace） | 加入 `tools/license-gen` |
-| `crates/pointer-core/Cargo.toml` | 加 `ed25519-dalek` 依赖 |
-| `crates/pointer-core/build.rs` | 编译嵌入 `license.pub` |
-| `crates/pointer-core/src/lib.rs` | 注册 3 个新模块 |
-| `crates/pointer-core/src/server_config.rs` | 解析 `[deployment]`、`[auth.local]`、`[llm]`、`[license]` 段 |
-| `crates/pointer-core/src/platform_endpoints.rs` | standalone 不回落 readflowai |
-| `crates/pointer-core/src/web_request_auth.rs` | `auth_kind` 字段 |
-| `crates/pointer-core/src/cloud_agent_auth.rs` | standalone 禁用云 OAuth |
-| `crates/pointer-core/src/token_usage_store.rs` | standalone 不上报 |
-| `crates/pointer-core/src/chat_service/session_inner.rs` | 本地 session 跳过平台检查 |
-| `server/src/web_session.rs` | session 携带 `auth_kind` |
-| `server/src/main.rs` | 启动流程 + `--machine-id` + 路由 + 鉴权分支 |
+
+| 文件                                                      | 改动                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------ |
+| `Cargo.toml`（workspace）                                 | 加入 `tools/license-gen`                                 |
+| `crates/pointer-core/Cargo.toml`                        | 加 `ed25519-dalek` 依赖                                   |
+| `crates/pointer-core/build.rs`                          | 编译嵌入 `license.pub`                                     |
+| `crates/pointer-core/src/lib.rs`                        | 注册 3 个新模块                                              |
+| `crates/pointer-core/src/server_config.rs`              | 解析 `[deployment]`、`[auth.local]`、`[llm]`、`[license]` 段 |
+| `crates/pointer-core/src/platform_endpoints.rs`         | standalone 不回落 readflowai                              |
+| `crates/pointer-core/src/web_request_auth.rs`           | `auth_kind` 字段                                         |
+| `crates/pointer-core/src/cloud_agent_auth.rs`           | standalone 禁用云 OAuth                                   |
+| `crates/pointer-core/src/token_usage_store.rs`          | standalone 不上报                                         |
+| `crates/pointer-core/src/chat_service/session_inner.rs` | 本地 session 跳过平台检查                                      |
+| `server/src/web_session.rs`                             | session 携带 `auth_kind`                                 |
+| `server/src/main.rs`                                    | 启动流程 + `--machine-id` + 路由 + 鉴权分支                      |
+
 
 ---
 
+
+
 ## 编译与构建
+
+
 
 ### 二进制
 
 ```bash
 cargo build -p pointer-server --release
 ```
+
+
 
 ### zip 包（跨平台，自动）
 
@@ -359,6 +416,8 @@ npm run server:build
 # macOS / Windows → zip
 # Linux         → zip + .deb（有 dpkg-deb 时）
 ```
+
+
 
 ### .deb 包（Linux，已包含在 server:build 中）
 
@@ -369,11 +428,15 @@ npm run server:build:deb
 # 产物：target/release/bundle/deb/pointer-server_0.1.0_*.deb
 ```
 
+
+
 ### 单元测试
 
 ```bash
 cargo test -p pointer-core -- license::verify
 ```
+
+
 
 ### License 签发 CLI
 
@@ -387,3 +450,4 @@ npm run license-gen:build
 ```bash
 npm run license-gen:dev -- sign --help
 ```
+

@@ -39,6 +39,48 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
     applied
 }
 
+fn provider_has_api_key(settings: &ModelSettings, provider_id: &str) -> bool {
+    let pid = provider_id.trim();
+    if pid.is_empty() {
+        return false;
+    }
+    settings
+        .providers
+        .iter()
+        .any(|p| p.id == pid && !p.api_key.trim().is_empty())
+}
+
+/// If the mode/agent override landed on a provider with no API key, restore the
+/// previously active provider + model when that provider does have a key.
+fn fallback_to_active_if_unusable(
+    settings: &mut ModelSettings,
+    prior_provider_id: &str,
+    prior_model: &str,
+    context: &str,
+) {
+    let resolved_pid = settings.active_provider_id.trim().to_string();
+    if provider_has_api_key(settings, &resolved_pid) {
+        return;
+    }
+    let prior_pid = prior_provider_id.trim();
+    if prior_pid.is_empty() || !provider_has_api_key(settings, prior_pid) {
+        return;
+    }
+    if resolved_pid == prior_pid && settings.model.trim() == prior_model.trim() {
+        return;
+    }
+    log::warn!(
+        "llm: mode/agent model provider={resolved_pid} model={} has no API key; \
+         falling back to active provider={prior_pid} model={} ({context})",
+        settings.model,
+        prior_model.trim()
+    );
+    settings.active_provider_id = prior_pid.to_string();
+    if !prior_model.trim().is_empty() {
+        settings.model = prior_model.trim().to_string();
+    }
+}
+
 fn resolve_lead_agent_key(
     settings: &ModelSettings,
     effective_agent_mode: &str,
@@ -67,8 +109,11 @@ pub(crate) fn apply_session_agent_model_defaults(
     effective_agent_mode: &str,
     lead_agent_id_override: Option<&str>,
 ) {
+    let prior_provider = settings.active_provider_id.clone();
+    let prior_model = settings.model.clone();
     let key = resolve_lead_agent_key(settings, effective_agent_mode, lead_agent_id_override);
     let _ = apply_agent_model_defaults(settings, &key);
+    fallback_to_active_if_unusable(settings, &prior_provider, &prior_model, "session");
 }
 
 /// Resolve API key for `settings.active_provider_id`.
@@ -101,10 +146,18 @@ pub(crate) fn prepare_session_llm_settings(
 /// Build a provider for a sub-agent run, honoring per-agent `agentDefaultModels` when set.
 pub(crate) fn sub_agent_provider(parent: &OpenAIProvider, sub_agent_id: &str) -> OpenAIProvider {
     let mut settings = parent.settings.clone();
+    let prior_provider = settings.active_provider_id.clone();
+    let prior_model = settings.model.clone();
     let applied = apply_agent_model_defaults(&mut settings, sub_agent_id);
     if !applied {
         return OpenAIProvider::new(settings, parent.api_key.clone());
     }
+    fallback_to_active_if_unusable(
+        &mut settings,
+        &prior_provider,
+        &prior_model,
+        &format!("sub_agent={}", sub_agent_id.trim()),
+    );
     let provider_switched =
         settings.active_provider_id.trim() != parent.settings.active_provider_id.trim();
     let api_key = if provider_switched {
@@ -199,6 +252,55 @@ mod tests {
         // Default performance mode is fast → deepseek-v4-flash from platform agentModeLlm.
         assert_eq!(settings.active_provider_id, "deepseek");
         assert_eq!(settings.model, "deepseek-v4-flash");
+    }
+
+    #[test]
+    fn prepare_session_falls_back_to_active_when_mode_provider_has_no_key() {
+        let mut settings = sample_settings();
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "coder".into();
+        // coder fast → deepseek (not in providers / no key); active qwen has key.
+        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        assert_eq!(settings.active_provider_id, "qwen");
+        assert_eq!(settings.model, "qwen-plus");
+        assert_eq!(key, "qwen-key");
+    }
+
+    #[test]
+    fn prepare_session_keeps_mode_model_when_provider_has_key() {
+        let mut settings = sample_settings();
+        settings.providers.push(ProviderConfig {
+            id: "deepseek".into(),
+            name: "DeepSeek".into(),
+            base_url: "https://api.deepseek.com".into(),
+            api_key: "ds-key".into(),
+            models: vec!["deepseek-v4-flash".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: Default::default(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+        });
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "coder".into();
+        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        assert_eq!(settings.active_provider_id, "deepseek");
+        assert_eq!(settings.model, "deepseek-v4-flash");
+        assert_eq!(key, "ds-key");
+    }
+
+    #[test]
+    fn sub_agent_provider_falls_back_when_override_provider_has_no_key() {
+        let mut settings = sample_settings();
+        // explore → openai; clear openai key so fallback should restore qwen.
+        settings.providers[1].api_key.clear();
+        let parent = OpenAIProvider::new(settings, "qwen-key".into());
+        let sub = sub_agent_provider(&parent, "explore");
+        assert_eq!(sub.settings.active_provider_id, "qwen");
+        assert_eq!(sub.settings.model, "qwen-plus");
+        assert_eq!(sub.api_key, "qwen-key");
     }
 
     #[test]

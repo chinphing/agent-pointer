@@ -95,6 +95,10 @@ struct ServerSection {
     addr: String,
     #[serde(default)]
     static_dir: String,
+    /// Bundled skills source directory (maps to `POINTER_SERVER_SKILLS_DIR`).
+    /// Zip: `skills` beside the binary; deb: `/usr/share/pointer-server/skills`.
+    #[serde(default)]
+    skills_dir: String,
     /// Optional override for `POINTER_APP_DATA_DIR`. When empty, pointer-core uses
     /// the same default as the desktop client (`{data_dir}/PointerApp` or `PointerAppDev`).
     #[serde(default)]
@@ -394,6 +398,13 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
     );
     push_mapped(
         &mut pairs,
+        "POINTER_SERVER_SKILLS_DIR",
+        &parsed.server.skills_dir,
+        base_dir,
+        true,
+    );
+    push_mapped(
+        &mut pairs,
         "POINTER_APP_DATA_DIR",
         &parsed.server.app_data_dir,
         base_dir,
@@ -673,6 +684,7 @@ public_url = "https://pointer.example.com"
 [server]
 addr = "0.0.0.0:9999"
 static_dir = "dist"
+skills_dir = "skills"
 
 [pointer]
 api_base = "https://api.example.com"
@@ -692,6 +704,10 @@ POINTER_WEB_SEARCH_MODEL = "gpt-4o-mini"
         assert_eq!(
             map.get("POINTER_SERVER_STATIC_DIR").map(String::as_str),
             Some(dir.path().join("dist").to_str().unwrap())
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_SKILLS_DIR").map(String::as_str),
+            Some(dir.path().join("skills").to_str().unwrap())
         );
         assert_eq!(
             map.get("POINTER_API_BASE").map(String::as_str),

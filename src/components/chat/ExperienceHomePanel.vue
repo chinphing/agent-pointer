@@ -13,10 +13,12 @@ import type {
 import { useChatStore } from '../../stores/chat'
 import { Search, X } from 'lucide-vue-next'
 import ExperienceHomeCard from './ExperienceHomeCard.vue'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 
 const FEATURED_TAB_ID = '__featured__'
 
 const chat = useChatStore()
+const platformAuth = usePlatformAuthStore()
 
 const home = ref<ExperienceHomeResponse | null>(null)
 const searchInput = ref('')
@@ -85,6 +87,7 @@ watch(searchQuery, async (q) => {
 })
 
 onMounted(async () => {
+  if (platformAuth.isStandalone) return
   try {
     const data = await listExperienceHome()
     home.value = data

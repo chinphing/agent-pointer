@@ -165,7 +165,17 @@ pub fn sync_bundled_skill_dirs(sources: &[PathBuf]) -> Result<Vec<String>> {
     Ok(installed)
 }
 
-/// Bundled skill source directories for pointer-server deploy (zip / exe-adjacent `skills/`).
+/// Deb / FHS install path for bundled skills (see `scripts/build-server-deb.mjs`).
+pub const DEB_SHARE_SKILLS_DIR: &str = "/usr/share/pointer-server/skills";
+
+/// Bundled skill source directories for pointer-server deploy.
+///
+/// Search order:
+/// 1. `POINTER_SERVER_SKILLS_DIR`
+/// 2. `{exe_dir}/skills` (zip layout)
+/// 3. `{exe_dir}/../../skills` (cargo `target/*/pointer-server` → repo `skills/`)
+/// 4. `{cwd}/skills`
+/// 5. `/usr/share/pointer-server/skills` (Linux `.deb` layout)
 pub fn resolve_deploy_bundled_skill_sources() -> Vec<PathBuf> {
     let mut sources = Vec::new();
     let mut seen = HashSet::new();
@@ -192,6 +202,8 @@ pub fn resolve_deploy_bundled_skill_sources() -> Vec<PathBuf> {
     if let Ok(cwd) = std::env::current_dir() {
         push_dir(cwd.join("skills"));
     }
+    // Linux deb: binary is `/usr/bin/pointer-server`, skills live under share/.
+    push_dir(PathBuf::from(DEB_SHARE_SKILLS_DIR));
 
     sources
 }
@@ -813,6 +825,11 @@ mod tests {
     }
 
     // ── `>` folded block scalar ──
+
+    #[test]
+    fn deb_share_skills_dir_constant_matches_packaging() {
+        assert_eq!(DEB_SHARE_SKILLS_DIR, "/usr/share/pointer-server/skills");
+    }
 
     #[test]
     fn folded_single_paragraph() {

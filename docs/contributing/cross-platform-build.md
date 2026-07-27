@@ -511,6 +511,7 @@ npm run server:build:deb
 [server]
 addr = "0.0.0.0:8787"
 static_dir = "dist"          # 相对路径相对于配置文件所在目录
+skills_dir = "skills"        # 内置 Skills 源；deb 用 /usr/share/pointer-server/skills
 # 数据目录与日志默认与桌面客户端相同（PointerApp/logs/，debug 为 PointerAppDev），无需配置
 
 [pointer]

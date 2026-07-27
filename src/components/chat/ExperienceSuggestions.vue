@@ -7,8 +7,10 @@ import {
 } from '../../lib/experiences'
 import type { ExperienceListItem } from '../../types/experience'
 import { useChatStore } from '../../stores/chat'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 
 const chat = useChatStore()
+const platformAuth = usePlatformAuthStore()
 const items = ref<ExperienceListItem[]>([])
 const loadingSlug = ref<string | null>(null)
 
@@ -21,6 +23,7 @@ const CARD_TONES = [
 ] as const
 
 onMounted(async () => {
+  if (platformAuth.isStandalone) return
   try {
     items.value = await listPinnedExperiences(3)
   } catch (e) {

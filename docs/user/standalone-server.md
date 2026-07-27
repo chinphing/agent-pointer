@@ -251,6 +251,8 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 | `POINTER_USAGE_REPORT_ENABLED` | 是否上报用量 | `false`（standalone） |
 | `POINTER_SERVER_PUBLIC_URL` | 服务公网地址 | 自动推断 |
 | `POINTER_APP_DATA_DIR` | 数据目录 | OS 默认 |
+| `POINTER_SERVER_STATIC_DIR` | Web UI `dist/` 目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/dist`） |
+| `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/skills`） |
 | `POINTER_SERVER_ALLOWED_USER_IDS` | 平台用户白名单 | 空 |
 
 ---

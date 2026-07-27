@@ -108,9 +108,9 @@ pub fn render_captcha_svg(text: &str) -> String {
         let y1: i32 = rng.gen_range(0..height);
         let x2: i32 = rng.gen_range(0..width);
         let y2: i32 = rng.gen_range(0..height);
-        // `##` escapes `#` inside format! named-arg syntax.
+        // `#` is literal in format!; do not write `##` (invalid CSS color → black box).
         noise.push_str(&format!(
-            "<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\" stroke=\"##c5c9d1\" stroke-width=\"1\"/>"
+            "<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\" stroke=\"#c5c9d1\" stroke-width=\"1\"/>"
         ));
     }
     let mut chars = String::new();
@@ -119,12 +119,12 @@ pub fn render_captcha_svg(text: &str) -> String {
         let y = 32 + rng.gen_range(-4..=4);
         let rot = rng.gen_range(-18..=18);
         chars.push_str(&format!(
-            "<text x=\"{x}\" y=\"{y}\" font-family=\"ui-monospace,Menlo,Consolas,monospace\" font-size=\"26\" font-weight=\"700\" fill=\"##1f2937\" transform=\"rotate({rot} {x} {y})\">{ch}</text>"
+            "<text x=\"{x}\" y=\"{y}\" font-family=\"ui-monospace,Menlo,Consolas,monospace\" font-size=\"26\" font-weight=\"700\" fill=\"#1f2937\" transform=\"rotate({rot} {x} {y})\">{ch}</text>"
         ));
     }
     format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" role=\"img\" aria-label=\"captcha\">\
-<rect width=\"100%\" height=\"100%\" fill=\"##f3f4f6\"/>\
+<rect width=\"100%\" height=\"100%\" fill=\"#f3f4f6\"/>\
 {noise}\
 {chars}\
 </svg>"
@@ -270,5 +270,10 @@ mod tests {
         assert!(svg.contains("AB12".chars().next().unwrap()) || svg.contains(">A<"));
         assert!(svg.contains("<svg"));
         assert!(svg.contains(">A<") || svg.contains("A</text>"));
+        // Valid CSS hex colors (a mistaken `##rrggbb` paints the whole tile black).
+        assert!(svg.contains("fill=\"#f3f4f6\""));
+        assert!(svg.contains("fill=\"#1f2937\""));
+        assert!(svg.contains("stroke=\"#c5c9d1\""));
+        assert!(!svg.contains("##"));
     }
 }

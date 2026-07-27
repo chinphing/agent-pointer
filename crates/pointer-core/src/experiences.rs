@@ -1,4 +1,6 @@
 //! Platform experience (SOP) list/detail/home for new-session welcome panel.
+//!
+//! Standalone deployments never load experiences (no official catalog).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -56,6 +58,13 @@ pub struct ExperienceHomeResponse {
     pub categories: Vec<ExperienceHomeCategoryBlock>,
 }
 
+fn experiences_enabled() -> bool {
+    if crate::deployment_mode::is_standalone() {
+        return false;
+    }
+    !platform_endpoints::api_base().trim().is_empty()
+}
+
 fn experiences_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(DEFAULT_TIMEOUT_SEC))
@@ -64,6 +73,10 @@ fn experiences_client() -> Result<reqwest::Client> {
 }
 
 pub async fn fetch_pinned_experiences(limit: usize) -> Result<Vec<ExperienceListItem>> {
+    if !experiences_enabled() {
+        log::info!("experiences: skipped (standalone or no POINTER_API_BASE)");
+        return Ok(Vec::new());
+    }
     let limit = limit.max(1).min(20);
     let url = format!(
         "{}/api/experiences?pinned_only=true&page_size={limit}",
@@ -84,6 +97,13 @@ pub async fn fetch_pinned_experiences(limit: usize) -> Result<Vec<ExperienceList
 }
 
 pub async fn fetch_experience_home() -> Result<ExperienceHomeResponse> {
+    if !experiences_enabled() {
+        log::info!("experiences: home skipped (standalone or no POINTER_API_BASE)");
+        return Ok(ExperienceHomeResponse {
+            featured: Vec::new(),
+            categories: Vec::new(),
+        });
+    }
     let url = format!(
         "{}/api/experiences/home",
         platform_endpoints::api_base().trim_end_matches('/')
@@ -102,6 +122,9 @@ pub async fn fetch_experience_home() -> Result<ExperienceHomeResponse> {
 }
 
 pub async fn fetch_experience_search(query: &str, limit: usize) -> Result<Vec<ExperienceListItem>> {
+    if !experiences_enabled() {
+        return Ok(Vec::new());
+    }
     let q = query.trim();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -125,6 +148,9 @@ pub async fn fetch_experience_search(query: &str, limit: usize) -> Result<Vec<Ex
 }
 
 pub async fn fetch_experience_detail(slug: &str) -> Result<ExperienceDetail> {
+    if !experiences_enabled() {
+        anyhow::bail!("experiences disabled in standalone mode");
+    }
     let slug = slug.trim();
     if slug.is_empty() {
         anyhow::bail!("experience slug is empty");

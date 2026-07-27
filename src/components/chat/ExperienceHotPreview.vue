@@ -8,16 +8,19 @@ import {
 } from '../../lib/experiences'
 import type { ExperienceListItem } from '../../types/experience'
 import { useChatStore } from '../../stores/chat'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 
 const HOT_LIMIT = 5
 
 const chat = useChatStore()
+const platformAuth = usePlatformAuthStore()
 const items = ref<ExperienceListItem[]>([])
 const loadingSlug = ref<string | null>(null)
 
 const visible = computed(() => items.value.length > 0)
 
 onMounted(async () => {
+  if (platformAuth.isStandalone) return
   try {
     const home = await listExperienceHome()
     items.value = (home.featured ?? []).slice(0, HOT_LIMIT)

@@ -142,6 +142,8 @@ RestartSec=5
 Environment=POINTER_DEPLOYMENT_MODE=standalone
 Environment=POINTER_APP_DATA_DIR=/var/lib/pointer-server
 Environment=POINTER_SERVER_CONFIG=/etc/pointer-server/pointer-server.toml
+Environment=POINTER_SERVER_STATIC_DIR=/usr/share/pointer-server/dist
+Environment=POINTER_SERVER_SKILLS_DIR=/usr/share/pointer-server/skills
 
 # Security
 NoNewPrivileges=yes

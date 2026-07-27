@@ -10,10 +10,11 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 |--------|------|------|--------------|----------|
 | 1 | `~/.pointer/skills/` | 用户库（导入 / Agent 创建） | `user` | **`run_subagent` → coder**（`file_*`）；**`skill_import`** 仅整包安装 |
 | 2 | `~/.agents/skills/` | 用户 Codex / Agent 标准目录 | `external` | ❌ |
-| 3 | `{data_dir}/PointerApp/skills/` | 应用 bundled 同步副本 | `system` | ❌ |
+| 3 | `{data_dir}/PointerApp/skills/`（或 standalone 的 `{POINTER_APP_DATA_DIR}/skills/`） | 应用 bundled 同步副本 | `system` | ❌ |
 
 **不扫描**：工作区 `{workspace}/.agents/skills/`、工作区 `./skills/`（Pointer 内置 skill 源码）、以 `.` 开头的 vendor 目录。
 
+**pointer-server 内置源（仅安装同步用，不直接作运行时扫描根）**：`POINTER_SERVER_SKILLS_DIR` / TOML `[server].skills_dir` → 可执行文件旁 `skills/` → `{exe}/../../skills` → `{cwd}/skills` → Linux deb 的 `/usr/share/pointer-server/skills`。启动时同步到 `{app_data_dir}/skills/` 后再由上表第 3 行加载。
 **修改 external skill**：用 **`skill_import`** 复制到 `~/.pointer/skills/`。**更新已有用户 skill**：general lead 委派 **`run_subagent(coder)`**，**`workspaceRoot`** = `~/.pointer/skills/{name}/`；coder 用 **`file_edit`** 等小范围修改，禁止 general 直接写 skill 文件。
 
 ## Frontmatter 兼容

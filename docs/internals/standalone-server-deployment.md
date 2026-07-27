@@ -230,8 +230,11 @@ systemd 单元内置环境变量：
 Environment=POINTER_DEPLOYMENT_MODE=standalone
 Environment=POINTER_APP_DATA_DIR=/var/lib/pointer-server
 Environment=POINTER_SERVER_CONFIG=/etc/pointer-server/pointer-server.toml
+Environment=POINTER_SERVER_STATIC_DIR=/usr/share/pointer-server/dist
+Environment=POINTER_SERVER_SKILLS_DIR=/usr/share/pointer-server/skills
 ```
 
+启动时会把 `POINTER_SERVER_SKILLS_DIR`（或 zip 旁的 `skills/`）同步到 `{POINTER_APP_DATA_DIR}/skills/`，再载入 Skill 目录。若日志出现 `bundled skills: no source directory found`，说明未找到内置 Skills 源目录。
 ---
 
 ## 6. 完整配置模板（`pointer-server.toml`）
@@ -311,7 +314,8 @@ models = ["gpt-4o", "gpt-4o-mini"]
 
 [server]
 addr = "0.0.0.0:8787"
-static_dir = "dist"
+static_dir = "/usr/share/pointer-server/dist"
+skills_dir = "/usr/share/pointer-server/skills"
 # 浏览器实际访问地址（反代后的 HTTPS 域名，无尾斜杠）
 public_url = "https://pointer.acme-corp.com"
 # 数据持久化根目录（deb 默认 /var/lib/pointer-server）
@@ -422,7 +426,8 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_LICENSE_KEY` | License 字符串 | 与 TOML `[license].key` 一致 |
 | `POINTER_LICENSE_PUBLIC_KEY` | 覆盖编译嵌入公钥 | 通常不设置 |
 | `POINTER_SERVER_ADDR` | 监听地址 | `0.0.0.0:8787` |
-| `POINTER_SERVER_STATIC_DIR` | 静态资源目录 | `dist` 或 `/usr/share/pointer-server/dist` |
+| `POINTER_SERVER_STATIC_DIR` | 静态资源目录 | `dist` 或 `/usr/share/pointer-server/dist`（TOML `[server].static_dir`） |
+| `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | `skills` 或 `/usr/share/pointer-server/skills`（TOML `[server].skills_dir`） |
 | `POINTER_SERVER_PUBLIC_URL` | 浏览器访问根 URL | `https://pointer.acme-corp.com` |
 | `POINTER_APP_DATA_DIR` | 数据目录 | `/var/lib/pointer-server` |
 | `POINTER_LLM_ACTIVE_PROVIDER` | 默认 LLM provider id | `qwen` |

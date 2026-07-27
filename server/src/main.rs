@@ -3033,7 +3033,13 @@ async fn get_experience_detail(
     Ok(Json(detail))
 }
 
+/// Deb / FHS install path for the Vue SPA (see `scripts/build-server-deb.mjs`).
+const DEB_SHARE_STATIC_DIR: &str = "/usr/share/pointer-server/dist";
+
 /// Resolve Vue production bundle directory (`dist/`).
+///
+/// Search order: `POINTER_SERVER_STATIC_DIR` → cwd/`dist` → exe-adjacent →
+/// `{exe}/../../dist` → `/usr/share/pointer-server/dist` (Linux `.deb`).
 fn resolve_static_dir() -> Option<PathBuf> {
     if let Ok(raw) = env::var("POINTER_SERVER_STATIC_DIR") {
         let path = PathBuf::from(raw.trim());
@@ -3057,6 +3063,7 @@ fn resolve_static_dir() -> Option<PathBuf> {
             candidates.push(parent.join("../../dist"));
         }
     }
+    candidates.push(PathBuf::from(DEB_SHARE_STATIC_DIR));
 
     for candidate in candidates {
         if let Ok(canonical) = candidate.canonicalize() {

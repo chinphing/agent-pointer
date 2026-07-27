@@ -35,10 +35,17 @@
 [server]
 addr = "0.0.0.0:8787"
 static_dir = "dist"
+skills_dir = "skills"
 # Data dir and logs default to the same paths as the desktop client
 # ({data_dir}/PointerApp release, PointerAppDev debug; logs under …/logs/).
 # Override data dir only if needed:
 # app_data_dir = "/absolute/path"
+# Web UI + bundled skills:
+# - zip layout: relative `dist` / `skills` beside the binary (or next to this toml)
+# - Linux .deb: use absolute FHS paths, e.g.
+#   static_dir = "/usr/share/pointer-server/dist"
+#   skills_dir = "/usr/share/pointer-server/skills"
+# (systemd unit also sets POINTER_SERVER_STATIC_DIR / POINTER_SERVER_SKILLS_DIR)
 # Public base URL (no trailing slash) reachable from end-user browsers.
 # Used to build the OAuth redirect_uri for the server-side PKCE login flow
 # ({public_url}/api/auth/oauth/callback). Also used for IM large-file

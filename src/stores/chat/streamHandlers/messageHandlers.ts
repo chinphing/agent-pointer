@@ -176,7 +176,6 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
         scopedTarget.status = 'done'
       }
       r.conv.updatedAt = Date.now()
-      ctx.scheduleMaybeFinishGenerating(r.conv.id, e.messageId)
       return
     }
     if (e.traceId?.trim()) {
@@ -208,7 +207,6 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     delete r.msg.responseTextDraft
     if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
     r.conv.updatedAt = Date.now()
-    ctx.scheduleMaybeFinishGenerating(r.conv.id, e.messageId)
   }
   if (r) ctx.markMetaDirty(r.conv.id)
 }

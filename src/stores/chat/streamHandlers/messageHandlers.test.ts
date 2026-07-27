@@ -139,4 +139,33 @@ describe('messageHandlers', () => {
     expect(conv.messages[0].status).toBe('cancelled')
     expect(conv.messages[0].errorMessage).toBe('已停止生成')
   })
+
+  it('handleMessageEnd for scoped sub-agent clears contentStreaming only', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a1'),
+      content: 'delegating…',
+      contentStreaming: false,
+      toolCalls: [{ id: 'rs1', name: 'run_subagent', status: 'running', arguments: '{}' }]
+    })
+    conv.messages.push({
+      ...sampleAssistantMessage('sub-round-1'),
+      content: 'sub done',
+      contentStreaming: true
+    })
+    const clearRunState = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      isConversationGenerating: () => true,
+      clearRunState
+    })
+    handleMessageEnd(ctx, {
+      kind: 'message_end',
+      messageId: 'a1',
+      scopedMessageId: 'sub-round-1',
+      traceId: 'trace-1',
+      content: 'sub done'
+    })
+    expect(conv.messages.find(m => m.id === 'sub-round-1')?.contentStreaming).toBe(false)
+    expect(clearRunState).not.toHaveBeenCalled()
+  })
 })

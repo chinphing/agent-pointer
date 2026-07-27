@@ -77,7 +77,6 @@ import { createDesktopNoticeScheduler } from './chat/desktopNotice'
 
 export type { ConversationTaskBoardState, TerminalLivePopup }
 import {
-  assistantHasDeliverableContent,
   isDiscardableEmptyAssistant,
   isEphemeralDesktopNoticeMessage
 } from '../lib/assistantMessageKind'
@@ -288,7 +287,6 @@ export const useChatStore = defineStore('chat', () => {
       terminalLive.clear()
     }
 
-    cancelGeneratingClearTimer(key)
     // Optimistic UI: hide stop button / show cancelled while host cancel runs.
     patchRunState(key, { generating: false, activeMessageId: null })
 
@@ -478,11 +476,6 @@ export const useChatStore = defineStore('chat', () => {
 
   function patchRunState(id: string, patch: Partial<ConversationRunState>) {
     const key = id.trim()
-    // A new stream/tool round resumed — cancel the message_end finish fallback
-    // so mid-turn gaps do not clear generating or race a late Done.
-    if (key && patch.generating === true) {
-      cancelGeneratingClearTimer(key)
-    }
     runByConversation.value = {
       ...runByConversation.value,
       [key || id]: { ...runStateFor(id), ...patch }
@@ -492,7 +485,6 @@ export const useChatStore = defineStore('chat', () => {
   function clearRunState(id: string) {
     const key = id.trim()
     if (!key) return
-    cancelGeneratingClearTimer(key)
     patchRunState(key, { generating: false, activeMessageId: null })
     queueMicrotask(() => {
       void drainOutboundQueue(key)
@@ -612,67 +604,6 @@ export const useChatStore = defineStore('chat', () => {
       })
       persistAppend(conv.id)
     }
-  }
-
-  const generatingClearTimers = new Map<string, number>()
-
-  function cancelGeneratingClearTimer(conversationId: string) {
-    const key = conversationId.trim()
-    if (!key) return
-    const timer = generatingClearTimers.get(key)
-    if (timer != null) {
-      clearTimeout(timer)
-      generatingClearTimers.delete(key)
-    }
-  }
-
-  function maybeFinishGenerating(conversationId: string, messageId: string) {
-    const convId = conversationId.trim()
-    const msgId = messageId.trim()
-    if (!convId || !msgId) return
-    if (!isConversationGenerating(convId)) return
-
-    const activeId = runStateFor(convId).activeMessageId
-    if (activeId && activeId !== msgId) return
-
-    const conv = conversations.value.find(c => c.id === convId)
-    const msg = conv?.messages.find(m => m.id === msgId)
-    if (!msg || msg.role !== 'assistant') return
-    if (!assistantHasDeliverableContent(msg)) return
-    if (hasInFlightToolCalls(msg)) return
-
-    if (!activeId) {
-      const streaming = conv!.messages.filter(
-        m => m.role === 'assistant' && (m.status === 'streaming' || m.status === 'pending')
-      )
-      if (streaming.length !== 1 || streaming[0]!.id !== msgId) return
-    }
-
-    console.warn(
-      '[chat] finishing generating after assistant reply (done event missing?) conv=%s msg=%s',
-      convId,
-      msgId
-    )
-    clearRunState(convId)
-    msg.status = 'done'
-    msg.contentStreaming = false
-    // Do not play the completion chime here. `message_end` also fires between
-    // tool rounds while the run continues; only StreamEvent::Done is the real
-    // turn boundary (see handleDone → playTaskCompleteSoundIfEnabled).
-  }
-
-  function scheduleMaybeFinishGenerating(conversationId: string, messageId: string) {
-    const convId = conversationId.trim()
-    const msgId = messageId.trim()
-    if (!convId || !msgId) return
-    cancelGeneratingClearTimer(convId)
-    generatingClearTimers.set(
-      convId,
-      window.setTimeout(() => {
-        generatingClearTimers.delete(convId)
-        maybeFinishGenerating(convId, msgId)
-      }, 400)
-    )
   }
 
   function clearAllRunStates() {
@@ -1560,7 +1491,6 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value.delete(id)
     clearPersistedMessageIds(id)
     clearOutboundQueue(id)
-    cancelGeneratingClearTimer(id)
     const nextRuns = { ...runByConversation.value }
     delete nextRuns[id]
     runByConversation.value = nextRuns
@@ -1929,7 +1859,6 @@ export const useChatStore = defineStore('chat', () => {
       clearAllRunStates,
       isConversationGenerating,
       hasInFlightToolCalls,
-      scheduleMaybeFinishGenerating,
       applyTaskBoardDocument,
       applyTaskBoardDocumentDebounced,
       refreshTaskBoard,

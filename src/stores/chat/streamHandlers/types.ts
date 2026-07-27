@@ -36,7 +36,6 @@ export interface StreamHandlerContext {
   clearAllRunStates(): void
   isConversationGenerating(id: string): boolean
   hasInFlightToolCalls(msg: ChatMessage): boolean
-  scheduleMaybeFinishGenerating(conversationId: string, messageId: string): void
 
   applyTaskBoardDocument(
     convId: string,

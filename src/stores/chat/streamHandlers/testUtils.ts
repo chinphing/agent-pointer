@@ -66,7 +66,6 @@ export function createMockStreamHandlerContext(
     clearAllRunStates: noop,
     isConversationGenerating: () => false,
     hasInFlightToolCalls: () => false,
-    scheduleMaybeFinishGenerating: noop,
     applyTaskBoardDocument: noop,
     applyTaskBoardDocumentDebounced: noop,
     refreshTaskBoard: noopAsync,

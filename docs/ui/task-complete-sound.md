@@ -16,7 +16,6 @@
 |----|------|
 | 前端播放 | `src/lib/taskCompleteSound.ts`（Web Audio API，桌面端与网页端通用） |
 | 触发 | **仅** `handleDone`（`StreamEvent::Done`，整轮 `run_chat` 结束） |
-| 不触发 | `message_end` 后的 `maybeFinishGenerating` 兜底（它也会在工具轮次间隙触发，不能当完成音） |
 | 不触发 | 用户停止生成、流错误取消等非正常完成路径 |
 
 取消 / 报错结束不会播放提示音。

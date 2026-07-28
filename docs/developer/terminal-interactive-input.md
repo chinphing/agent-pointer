@@ -28,6 +28,11 @@ dismissed and hidden while an input request is active.
 - Full `timeoutMs` still governs killing non-interactive pipe commands with no output.
 - Do **not** force an SSH password modal on first connect with no prior input and no clear `password:` text (avoids false prompts for key auth / hanging connects).
 
+## Agent guidance
+
+`terminal` prompt: in-app password/host-key modals exist — run `ssh` /
+`ssh-copy-id` / `scp` yourself and wait; never put secrets in tool args.
+
 ## Related code
 
 - `crates/pointer-core/src/tools/terminal.rs` — main loop

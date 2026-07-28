@@ -106,13 +106,18 @@ limits.
 
 #### Interactive input and secrets
 
-- Do not pass passwords or secrets in **`command`**, **`stdin`**, or tool args.
-- Prefer SSH keys; use **`BatchMode=yes`** when verifying key-only login.
-- **`stdin`**: non-sensitive one-shot input at spawn only (e.g. `y`, menu choice).
-- If **`agentRetryForbidden`**: true — do not retry with secrets; ask the user
-  to complete the in-app prompt or re-run.
-- If **`needsInputLikely`**: true — you may retry with non-interactive flags or
-  non-sensitive **`stdin`** only.
+Passwords and yes/no prompts use an **in-app modal** — never put secrets in
+**`command`**, **`stdin`**, or tool args.
+
+- For **`ssh`** / **`scp`** / **`sftp`** / **`ssh-copy-id`**: run via
+  **`terminal`** and wait; raise **`timeoutMs`** / **`maxWallMs`** for slow
+  entry. Do not ask the user to run these in their own terminal.
+- Prefer keys when they already work; use **`BatchMode=yes`** only to verify
+  key-only login.
+- **`stdin`**: non-sensitive one-shot at spawn only (e.g. `y`).
+- **`agentRetryForbidden`**: do not retry with secrets; user finishes the modal.
+- **`needsInputLikely`**: retry with non-interactive flags or non-sensitive
+  **`stdin`** only.
 
 #### Host stop
 

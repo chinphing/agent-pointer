@@ -175,10 +175,20 @@ struct ChatChoice {
 struct ChatResponseMessage {
     #[serde(default)]
     content: Option<String>,
+    /// DeepSeek / many OpenAI-compat servers.
     #[serde(default)]
     reasoning_content: Option<String>,
+    /// vLLM / some Qwen thinking builds use `reasoning` instead.
+    #[serde(default)]
+    reasoning: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<ChatApiToolCall>>,
+}
+
+impl ChatResponseMessage {
+    fn reasoning_text(&self) -> Option<&str> {
+        coalesce_reasoning(self.reasoning_content.as_deref(), self.reasoning.as_deref())
+    }
 }
 #[derive(Deserialize, Debug, Default)]
 struct ChatApiToolCall {
@@ -198,12 +208,35 @@ struct ChatApiToolFn {
 struct StreamDelta {
     #[serde(default)]
     content: Option<String>,
+    /// DeepSeek / many OpenAI-compat servers.
     #[serde(default)]
     reasoning_content: Option<String>,
+    /// vLLM / some Qwen thinking builds use `reasoning` instead.
+    #[serde(default)]
+    reasoning: Option<String>,
     /// Absorbed from provider SSE; native `tool_calls` are unused (JSON-in-content only). Kept for serde + forward-compat.
     #[serde(default)]
     #[allow(dead_code)]
     tool_calls: Option<Vec<StreamToolCall>>,
+}
+
+impl StreamDelta {
+    fn reasoning_text(&self) -> Option<&str> {
+        coalesce_reasoning(self.reasoning_content.as_deref(), self.reasoning.as_deref())
+    }
+}
+
+/// Prefer canonical `reasoning_content`; fall back to `reasoning` (vLLM/Qwen).
+fn coalesce_reasoning<'a>(
+    reasoning_content: Option<&'a str>,
+    reasoning: Option<&'a str>,
+) -> Option<&'a str> {
+    if let Some(s) = reasoning_content {
+        if !s.is_empty() {
+            return Some(s);
+        }
+    }
+    reasoning.filter(|s| !s.is_empty())
 }
 /// Native streaming `tool_calls` shape (ignored: we use JSON-in-content only). Kept for serde + forward-compat.
 #[allow(dead_code)]
@@ -509,7 +542,7 @@ impl OpenAIProvider {
         let text = message
             .content
             .clone()
-            .or_else(|| message.reasoning_content.clone())
+            .or_else(|| message.reasoning_text().map(|s| s.to_string()))
             .unwrap_or_default();
         let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
         let tool_calls = parse_chat_once_tool_calls(message.tool_calls.as_deref());
@@ -596,7 +629,7 @@ impl OpenAIProvider {
         let text = message
             .content
             .clone()
-            .or_else(|| message.reasoning_content.clone())
+            .or_else(|| message.reasoning_text().map(|s| s.to_string()))
             .unwrap_or_default();
         let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
         let tool_calls = parse_chat_once_tool_calls(message.tool_calls.as_deref());
@@ -767,8 +800,8 @@ impl OpenAIProvider {
             .ok_or_else(|| anyhow!("模型未返回候选结果"))?;
         let content = message.content.clone().unwrap_or_default();
         let reasoning_content = message
-            .reasoning_content
-            .clone()
+            .reasoning_text()
+            .map(|s| s.to_string())
             .filter(|s| !s.trim().is_empty());
         let text = if content.trim().is_empty() {
             reasoning_content.clone().unwrap_or_default()
@@ -907,17 +940,15 @@ impl OpenAIProvider {
                             content_buf.push_str(c);
                         }
                     }
-                    if let Some(ref r) = ch.delta.reasoning_content {
-                        if !r.is_empty() {
-                            if stream_raw_to_console {
-                                write_llm_stream_chunk_to_stderr(
-                                    r,
-                                    ConsoleStreamLane::Reasoning,
-                                    &mut last_console_lane,
-                                );
-                            }
-                            reasoning_buf.push_str(r);
+                    if let Some(r) = ch.delta.reasoning_text() {
+                        if stream_raw_to_console {
+                            write_llm_stream_chunk_to_stderr(
+                                r,
+                                ConsoleStreamLane::Reasoning,
+                                &mut last_console_lane,
+                            );
                         }
+                        reasoning_buf.push_str(r);
                     }
                     if let Some(ref reason) = ch.finish_reason {
                         last_finish_reason = Some(reason.clone());
@@ -1079,17 +1110,15 @@ impl OpenAIProvider {
                             content_buf.push_str(c);
                         }
                     }
-                    if let Some(ref r) = ch.delta.reasoning_content {
-                        if !r.is_empty() {
-                            if stream_raw_to_console {
-                                write_llm_stream_chunk_to_stderr(
-                                    r,
-                                    ConsoleStreamLane::Reasoning,
-                                    &mut last_console_lane,
-                                );
-                            }
-                            reasoning_buf.push_str(r);
+                    if let Some(r) = ch.delta.reasoning_text() {
+                        if stream_raw_to_console {
+                            write_llm_stream_chunk_to_stderr(
+                                r,
+                                ConsoleStreamLane::Reasoning,
+                                &mut last_console_lane,
+                            );
                         }
+                        reasoning_buf.push_str(r);
                     }
                     if let Some(ref reason) = ch.finish_reason {
                         last_finish_reason = Some(reason.clone());
@@ -1382,17 +1411,15 @@ impl OpenAIProvider {
                             let _ = tx.send(ProviderEvent::ContentDelta(c.clone())).await;
                         }
                     }
-                    if let Some(ref r) = ch.delta.reasoning_content {
-                        if !r.is_empty() {
-                            if stream_raw_to_console {
-                                write_llm_stream_chunk_to_stderr(
-                                    r,
-                                    ConsoleStreamLane::Reasoning,
-                                    &mut last_console_lane,
-                                );
-                            }
-                            let _ = tx.send(ProviderEvent::ReasoningDelta(r.clone())).await;
+                    if let Some(r) = ch.delta.reasoning_text() {
+                        if stream_raw_to_console {
+                            write_llm_stream_chunk_to_stderr(
+                                r,
+                                ConsoleStreamLane::Reasoning,
+                                &mut last_console_lane,
+                            );
                         }
+                        let _ = tx.send(ProviderEvent::ReasoningDelta(r.to_string())).await;
                     }
                     if let Some(ref calls) = ch.delta.tool_calls {
                         for call in calls {
@@ -1643,5 +1670,33 @@ mod native_tool_call_tests {
         );
         let calls = native_tool_calls_from_states(&states);
         assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn stream_delta_accepts_reasoning_alias_used_by_vllm_qwen() {
+        let delta: StreamDelta = serde_json::from_str(
+            r#"{"reasoning":" 9.","content":null}"#,
+        )
+        .unwrap();
+        assert_eq!(delta.reasoning_text(), Some(" 9."));
+        assert!(delta.reasoning_content.is_none());
+    }
+
+    #[test]
+    fn stream_delta_prefers_reasoning_content_over_reasoning() {
+        let delta: StreamDelta = serde_json::from_str(
+            r#"{"reasoning_content":"a","reasoning":"b"}"#,
+        )
+        .unwrap();
+        assert_eq!(delta.reasoning_text(), Some("a"));
+    }
+
+    #[test]
+    fn chat_response_message_accepts_reasoning_alias() {
+        let msg: ChatResponseMessage = serde_json::from_str(
+            r#"{"content":"ok","reasoning":"think"}"#,
+        )
+        .unwrap();
+        assert_eq!(msg.reasoning_text(), Some("think"));
     }
 }

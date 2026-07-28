@@ -37,13 +37,13 @@
 在 **`pointer-core` 的 OpenAI 流式路径** 中，可将模型增量按 **SSE 到达顺序** 连续写到 **stderr**（与结构化日志分流；内容为 API 返回的 UTF-8 片段原文，**不做** XML 解析）。
 
 - **默认开启**。关闭：`POINTER_STREAM_RAW_LLM_TO_STDOUT=0`（或 `false`）。
-- 写出形式：**仅纯文本拼接**。对每条非空的 `delta.content` / `delta.reasoning_content` 按顺序直接写入 stderr，**不加前缀、不打印序号、不在片段之间插入换行**（与模型在协议里给出的字节序一致，便于对照「推理与正文在同一 chunk 内先后出现」等现象）。
+- 写出形式：**仅纯文本拼接**。对每条非空的 `delta.content` / 推理增量（`delta.reasoning_content` 或 vLLM/Qwen 的 `delta.reasoning`）按顺序直接写入 stderr，**不加前缀、不打印序号、不在片段之间插入换行**（与模型在协议里给出的字节序一致，便于对照「推理与正文在同一 chunk 内先后出现」等现象）。
 - 已不再提供回合结束时的整段 RAW 落盘环境变量；如需完整请求与消息体，请用本文开头的 **LLM 请求落盘**（`llm_prompt_dump`）。
 
 实现见 `crates/pointer-core/src/provider.rs`（`stream_chat`、`write_llm_stream_chunk_to_stderr`）。
 
 ### 工具 JSON：流式解析（仅正文）
 
-- **`reasoning_content` 与 `content` 分列缓冲**：推理只用于 UI / 历史；**只有 `content` 参与 JSON 工具信封**（流式渐进字段用 `partial-json-fixer` 修复后再解析），避免与 reasoning 交错。
+- **`reasoning_content`（及兼容 `reasoning`）与 `content` 分列缓冲**：推理只用于 UI / 历史；**只有 `content` 参与 JSON 工具信封**（流式渐进字段用 `partial-json-fixer` 修复后再解析），避免与 reasoning 交错。
 - 流式过程中：用不完整 JSON 缓冲通过 `extract_json_streaming_partial` 推 `assistant_json_partial`；回合结束后再用 `finalize_json_tool_envelope` 得到完整工具列表，并可通过 `JsonToolStreamingReady` 推给前端（与 `StreamEvent` 定义一致）。
 - **流结束后**对正文做严格 JSON 解析（失败则再尝试修复后解析）；若仍无可用 `tool_calls`，由上层按 `JsonToolFinishDiagnostics` 与既有重试提示处理。`merge_ui_order_reparse_ok` 字段保留在结构中，当前实现下恒为 `false`。

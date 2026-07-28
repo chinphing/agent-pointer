@@ -27,7 +27,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 19;
+const SCHEMA_VERSION: i32 = 20;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -75,7 +75,7 @@ impl ConversationStore {
     }
 
     /// Cursor-paginated meta-only list (no messages). Sort order is
-    /// `(updated_at_ms DESC, id DESC)`. Pass `None` for the first page.
+    /// `(is_pinned DESC, updated_at_ms DESC, id DESC)`. Pass `None` for the first page.
     pub fn load_metas(
         &self,
         cursor: Option<persist::MetaCursor>,
@@ -903,7 +903,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
            im_session_epoch INTEGER NOT NULL DEFAULT 0,
            im_active_conversation_id TEXT,
            im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,
-           session_user_id TEXT NOT NULL DEFAULT ''
+           session_user_id TEXT NOT NULL DEFAULT '',
+           is_pinned INTEGER NOT NULL DEFAULT 0
          );
          CREATE TABLE IF NOT EXISTS messages (
            id INTEGER PRIMARY KEY,
@@ -938,9 +939,18 @@ fn init_schema(conn: &Connection) -> Result<()> {
         )?;
     }
     migrate_schema_columns(conn)?;
+    // Always-run: existing DBs already at SCHEMA_VERSION still need new columns.
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "is_pinned",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
     ensure_projects_schema(conn)?;
+    // project_id is added in ensure_projects_schema; pin indexes need it.
+    ensure_conversations_pinned_updated_index(conn)?;
     Ok(())
 }
 
@@ -1234,6 +1244,13 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "session_user_id",
         "TEXT NOT NULL DEFAULT ''",
     )?;
+    // v20: sidebar conversation pin state (pinned first, then updated_at).
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "is_pinned",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)
          WHERE session_user_id != trim(session_user_id)",
@@ -1257,6 +1274,16 @@ fn ensure_conversations_user_updated_index(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_conversations_user_updated
          ON conversations(session_user_id, updated_at_ms DESC);",
+    )?;
+    Ok(())
+}
+
+fn ensure_conversations_pinned_updated_index(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_conversations_pinned_updated
+           ON conversations(is_pinned DESC, updated_at_ms DESC, id DESC);
+         CREATE INDEX IF NOT EXISTS idx_conversations_project_pinned_updated
+           ON conversations(project_id, is_pinned DESC, updated_at_ms DESC, id DESC);",
     )?;
     Ok(())
 }

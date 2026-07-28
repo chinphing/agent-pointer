@@ -53,6 +53,9 @@ pub struct Conversation {
     pub created_at: i64,
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
+    /// User-pinned conversations stay above unpinned ones in sidebar lists.
+    #[serde(default, rename = "isPinned")]
+    pub is_pinned: bool,
     pub messages: Vec<ChatMessage>,
     #[serde(default, rename = "skillIds")]
     pub skill_ids: Vec<String>,
@@ -144,6 +147,9 @@ pub struct ConversationMeta {
     pub created_at: i64,
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
+    /// User-pinned conversations stay above unpinned ones in sidebar lists.
+    #[serde(default, rename = "isPinned")]
+    pub is_pinned: bool,
     #[serde(default, rename = "skillIds")]
     pub skill_ids: Vec<String>,
     #[serde(default, rename = "toolRoundsUsed")]
@@ -233,6 +239,7 @@ impl From<&Conversation> for ConversationMeta {
             title: c.title.clone(),
             created_at: c.created_at,
             updated_at: c.updated_at,
+            is_pinned: c.is_pinned,
             skill_ids: c.skill_ids.clone(),
             tool_rounds_used: c.tool_rounds_used,
             tool_rounds_used_supervisor: c.tool_rounds_used_supervisor,
@@ -357,6 +364,7 @@ mod agent_trace_persistence_tests {
             title: "t".into(),
             created_at: 1,
             updated_at: 1,
+            is_pinned: false,
             messages: vec![ChatMessage {
                 id: "m1".into(),
                 role: Role::Assistant,

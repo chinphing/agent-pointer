@@ -43,9 +43,15 @@ outside project navigation.
   Connections**.
 - **Scheduled tasks** opens the existing Automation settings section;
   **Skills** opens the skill manager; **Connections** opens channel settings.
-- The conversation list remains global and time ordered below the project list.
-  The **最近** section title (and search / new-task actions) stays **outside** the
-  scroll container so it does not scroll away; only the conversation rows scroll.
+- Pinned conversations appear in a dedicated **置顶** section above projects.
+  The section is hidden when there are no pinned conversations. Pinning does
+  not bump `updatedAt`. Pinned rows are excluded from the recent list and from
+  nested project task lists to avoid duplicates.
+- The conversation list (**最近**) remains global below the project list and is
+  ordered by `updatedAt` descending (stable id tie-break). The section title
+  (and search / new-task actions) stays **outside** the scroll container so it
+  does not scroll away; only the conversation rows scroll.
+  Conversation pin state is persisted on the conversation meta row (`isPinned`).
 - Opening a recent conversation whose project is outside the loaded sidebar
   fetches that project by id for Composer context only. This lookup does not
   insert or highlight the project in the sidebar.

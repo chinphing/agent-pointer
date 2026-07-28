@@ -36,6 +36,7 @@ pub fn fork_im_desktop_session(
         title: title.clone(),
         created_at: now,
         updated_at: now,
+        is_pinned: false,
         skill_ids: vec![],
         tool_rounds_used: 0,
         tool_rounds_used_supervisor: 0,

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import {
-  Pencil,
   Plus,
   Search,
   Settings,
@@ -22,6 +21,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   Pin,
+  PinOff,
   Settings2
 } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
@@ -64,41 +64,41 @@ function setWorkspacePanelOpen(open: boolean) {
  */
 const pendingDeleteId = ref<string | null>(null)
 
-/** Inline edit (rename) state for a sidebar conversation title. */
-const editingId = ref<string | null>(null)
-const editingTitle = ref('')
-const editInputRef = ref<HTMLInputElement | null>(null)
+/** Rename dialog (opened by double-clicking a conversation title). */
+const renameTarget = ref<{ id: string; title: string } | null>(null)
+const renameTitle = ref('')
+const renameInputRef = ref<HTMLInputElement | null>(null)
 
 function startEdit(conv: { id: string; title: string }) {
-  saveEdit()
-  editingId.value = conv.id
-  editingTitle.value = conv.title
   pendingDeleteId.value = null
+  renameTarget.value = { id: conv.id, title: conv.title }
+  renameTitle.value = conv.title
   nextTick(() => {
-    editInputRef.value?.focus()
-    editInputRef.value?.select()
+    renameInputRef.value?.focus()
+    renameInputRef.value?.select()
   })
 }
 
-function saveEdit() {
-  if (!editingId.value) return
-  const newTitle = editingTitle.value.trim()
+function saveRename() {
+  if (!renameTarget.value) return
+  const newTitle = renameTitle.value.trim()
   if (newTitle) {
-    chat.renameConversation(editingId.value, newTitle)
+    chat.renameConversation(renameTarget.value.id, newTitle)
   }
-  editingId.value = null
-  editingTitle.value = ''
+  renameTarget.value = null
+  renameTitle.value = ''
 }
 
-function cancelEdit() {
-  editingId.value = null
-  editingTitle.value = ''
+function cancelRename() {
+  renameTarget.value = null
+  renameTitle.value = ''
 }
 
-/** ESC exits edit without saving. */
-function onEditKeydown(e: KeyboardEvent) {
+/** ESC closes rename dialog without saving. */
+function onRenameKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    cancelEdit()
+    e.preventDefault()
+    cancelRename()
   }
 }
 
@@ -124,7 +124,6 @@ function onRowClick(c: {
   messageCount?: number
   projectId?: string
 }) {
-  saveEdit()
   pendingDeleteId.value = null
   chat.openConversation(c.id, {
     focusMessageId: c.messageId?.trim() || undefined,
@@ -284,8 +283,9 @@ function newTask(project?: Project) {
 
 function projectConversations(project: Project) {
   return visibleConversations(chat.conversations)
-    .filter(conversation => conversation.projectId === project.id)
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter(conversation => conversation.projectId === project.id && !conversation.isPinned)
+    .slice()
+    .sort(compareUnpinnedByActivity)
 }
 
 async function toggleProject(project: Project) {
@@ -388,6 +388,7 @@ function closeProjectOverlaysOnKeydown(event: KeyboardEvent) {
   }
   if (projectEditing.value) projectEditing.value = null
   if (showProjectCreator.value) showProjectCreator.value = false
+  if (renameTarget.value) cancelRename()
 }
 const {
   enabled: chromeEnabled,
@@ -417,6 +418,7 @@ type SidebarRow = {
   id: string
   title: string
   updatedAt: number
+  isPinned?: boolean
   snippet?: string
   messageId?: string
   messageCount?: number
@@ -434,13 +436,36 @@ function visibleConversations(list: typeof chat.conversations) {
   })
 }
 
+function compareUnpinnedByActivity(
+  a: { updatedAt: number; id: string },
+  b: { updatedAt: number; id: string }
+): number {
+  return b.updatedAt - a.updatedAt || b.id.localeCompare(a.id)
+}
+
+function toggleConversationPin(c: { id: string }) {
+  chat.toggleConversationPin(c.id)
+}
+
+const pinnedConversations = computed(() =>
+  visibleConversations(chat.conversations)
+    .filter(c => !!c.isPinned)
+    .slice()
+    .sort(compareUnpinnedByActivity)
+)
+
 const sidebarRows = computed((): SidebarRow[] => {
   if (searchQuery.value.trim()) return searchResults.value
-  return visibleConversations(chat.conversations).map(c => ({
-    id: c.id,
-    title: c.title,
-    updatedAt: c.updatedAt
-  }))
+  return visibleConversations(chat.conversations)
+    .filter(c => !c.isPinned)
+    .slice()
+    .sort(compareUnpinnedByActivity)
+    .map(c => ({
+      id: c.id,
+      title: c.title,
+      updatedAt: c.updatedAt,
+      isPinned: false
+    }))
 })
 
 async function runSidebarSearch(query: string) {
@@ -536,19 +561,15 @@ watch(sidebarCollapsed, collapsed => {
   }
 })
 
-// Dismiss the inline delete confirmation and editing state when the active
+// Dismiss the inline delete confirmation and rename dialog when the active
 // conversation or search filter changes, so a stale pending state never lingers.
 watch(() => chat.currentId, () => {
   pendingDeleteId.value = null
-  editingId.value = null
-  editingTitle.value = ''
+  cancelRename()
 })
-// Dismiss editing when sidebar collapses.
+// Dismiss rename dialog when sidebar collapses.
 watch(sidebarCollapsed, (collapsed) => {
-  if (collapsed) {
-    editingId.value = null
-    editingTitle.value = ''
-  }
+  if (collapsed) cancelRename()
 })
 watch(searchQuery, q => {
   pendingDeleteId.value = null
@@ -684,6 +705,87 @@ watch(searchQuery, q => {
               连接
             </button>
           </div>
+
+          <section
+            v-if="pinnedConversations.length"
+            class="sidebar-pinned-section shrink-0 px-2 pb-4"
+          >
+            <div class="mb-1.5 flex h-6 items-center px-1">
+              <h2 class="sidebar-section-title">置顶</h2>
+            </div>
+            <div class="space-y-0.5">
+              <div
+                v-for="c in pinnedConversations"
+                :key="c.id"
+                class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition border"
+                :class="chat.currentId === c.id
+                  ? 'bg-accent-muted border-accent/40'
+                  : 'hover:bg-hover border-transparent'"
+                @click="onRowClick(c)"
+              >
+                <Loader2
+                  v-if="chat.isConversationGenerating(c.id)"
+                  class="w-3.5 h-3.5 shrink-0 animate-spin"
+                  :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                />
+                <span
+                  v-else-if="chat.isConversationAwaitingView(c.id)"
+                  class="sidebar-awaiting-dot"
+                  title="有新完成"
+                  aria-label="有新完成"
+                />
+                <MessageSquare
+                  v-else
+                  class="w-3.5 h-3.5 shrink-0"
+                  :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                />
+                <div class="flex-1 min-w-0">
+                  <div
+                    class="text-[13px] text-foreground truncate"
+                    :title="c.title"
+                    @dblclick.stop="startEdit(c)"
+                  >{{ c.title }}</div>
+                  <div class="text-[10px] text-muted">{{ new Date(c.updatedAt).toLocaleString() }}</div>
+                </div>
+                <template v-if="pendingDeleteId === c.id">
+                  <button
+                    type="button"
+                    class="p-1 rounded hover:bg-hover cursor-pointer"
+                    title="取消"
+                    @click.stop="cancelDeleteConversation()"
+                  >
+                    <X class="w-3.5 h-3.5 text-muted" />
+                  </button>
+                  <button
+                    type="button"
+                    class="p-1 rounded hover:bg-danger/15 cursor-pointer"
+                    title="确认删除"
+                    @click.stop="confirmDeleteConversation(c)"
+                  >
+                    <Check class="w-3.5 h-3.5 text-danger" />
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
+                    title="取消置顶"
+                    @click.stop="toggleConversationPin(c)"
+                  >
+                    <PinOff class="w-3.5 h-3.5 text-muted" />
+                  </button>
+                  <button
+                    type="button"
+                    class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
+                    title="删除"
+                    @click.stop="askDeleteConversation(c)"
+                  >
+                    <Trash2 class="w-3.5 h-3.5 text-muted" />
+                  </button>
+                </template>
+              </div>
+            </div>
+          </section>
 
           <section
             v-if="sidebarProjects.length"
@@ -868,18 +970,11 @@ watch(searchQuery, q => {
                         aria-label="有新完成"
                       />
                       <MessageSquare v-else class="w-3.5 h-3.5 shrink-0" />
-                      <input
-                        v-if="editingId === conversation.id"
-                        ref="editInputRef"
-                        v-model="editingTitle"
-                        type="text"
-                        class="w-full bg-transparent border border-accent rounded px-1 text-[12px] text-foreground outline-none"
-                        @click.stop
-                        @keydown.enter.prevent="saveEdit"
-                        @keydown="onEditKeydown"
-                        @blur="saveEdit"
-                      />
-                      <span v-else class="truncate">{{ conversation.title }}</span>
+                      <span
+                        class="truncate"
+                        :title="conversation.title"
+                        @dblclick.stop="startEdit(conversation)"
+                      >{{ conversation.title }}</span>
                     </div>
                     <template v-if="pendingDeleteId === conversation.id">
                       <button
@@ -895,13 +990,13 @@ watch(searchQuery, q => {
                         @click.stop="confirmDeleteConversation(conversation)"
                       ><Check /></button>
                     </template>
-                    <template v-else-if="editingId !== conversation.id">
+                    <template v-else>
                       <button
                         type="button"
                         class="project-task-action opacity-0 group-hover/task:opacity-100"
-                        title="重命名任务"
-                        @click.stop="startEdit(conversation)"
-                      ><Pencil /></button>
+                        title="置顶"
+                        @click.stop="toggleConversationPin(conversation)"
+                      ><Pin /></button>
                       <button
                         type="button"
                         class="project-task-action opacity-0 group-hover/task:opacity-100"
@@ -1003,7 +1098,6 @@ watch(searchQuery, q => {
               ref="listScroller"
               class="sidebar-auto-scrollbar min-h-0 flex-1 overflow-y-auto"
               style="overflow-anchor: none"
-              @mousedown.self="saveEdit"
               @scroll.passive="showScrollbarWhileScrolling"
             >
             <div v-show="!conversationsSectionCollapsed">
@@ -1033,25 +1127,11 @@ watch(searchQuery, q => {
                 :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
               />
               <div class="flex-1 min-w-0">
-                <template v-if="editingId === c.id">
-                  <input
-                    ref="editInputRef"
-                    v-model="editingTitle"
-                    type="text"
-                    class="w-full bg-transparent border border-accent rounded px-1 text-[13px] text-foreground outline-none"
-                    @click.stop
-                    @keydown.enter.prevent="saveEdit"
-                    @keydown="onEditKeydown"
-                    @blur="saveEdit"
-                  />
-                </template>
-                <template v-else>
-                  <div
-                    class="text-[13px] text-foreground truncate cursor-text"
-                    :title="c.title"
-                    @dblclick.stop="startEdit(c)"
-                  >{{ c.title }}</div>
-                </template>
+                <div
+                  class="text-[13px] text-foreground truncate"
+                  :title="c.title"
+                  @dblclick.stop="startEdit(c)"
+                >{{ c.title }}</div>
                 <div
                   v-if="c.snippet"
                   class="text-[10px] text-muted truncate"
@@ -1075,13 +1155,13 @@ watch(searchQuery, q => {
                   <Check class="w-3.5 h-3.5 text-danger" />
                 </button>
               </template>
-              <template v-else-if="editingId !== c.id">
+              <template v-else>
                 <button
                   class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                  @click.stop="startEdit(c)"
-                  title="重命名"
+                  @click.stop="toggleConversationPin(c)"
+                  title="置顶"
                 >
-                  <Pencil class="w-3.5 h-3.5 text-muted" />
+                  <Pin class="w-3.5 h-3.5 text-muted" />
                 </button>
                 <button
                   class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
@@ -1178,6 +1258,49 @@ watch(searchQuery, q => {
         @install-git="chat.sendUserMessage('帮我安装 Git')"
         @close="setWorkspacePanelOpen(false)"
       />
+    </div>
+    <div
+      v-if="renameTarget"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      @click.self="cancelRename"
+    >
+      <section
+        class="w-full max-w-sm rounded-xl border border-border bg-card p-4 shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rename-conversation-title"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <h2 id="rename-conversation-title" class="text-sm font-semibold text-foreground">重命名会话</h2>
+          <button type="button" class="chrome-icon-btn" title="关闭" aria-label="关闭" @click="cancelRename">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <label class="block text-xs text-muted">
+          会话名称
+          <input
+            ref="renameInputRef"
+            v-model="renameTitle"
+            type="text"
+            class="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent"
+            @keydown.enter.prevent="saveRename"
+            @keydown="onRenameKeydown"
+          >
+        </label>
+        <div class="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover"
+            @click="cancelRename"
+          >取消</button>
+          <button
+            type="button"
+            class="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-foreground disabled:opacity-50"
+            :disabled="!renameTitle.trim()"
+            @click="saveRename"
+          >保存</button>
+        </div>
+      </section>
     </div>
     <div
       v-if="projectEditing"

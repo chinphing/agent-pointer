@@ -879,12 +879,26 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  function compareConversationsByPinThenActivity(
+    a: { isPinned?: boolean; updatedAt: number; id: string },
+    b: { isPinned?: boolean; updatedAt: number; id: string }
+  ): number {
+    return Number(!!b.isPinned) - Number(!!a.isPinned)
+      || b.updatedAt - a.updatedAt
+      || b.id.localeCompare(a.id)
+  }
+
+  function sortConversationsInPlace(): void {
+    conversations.value = [...conversations.value].sort(compareConversationsByPinThenActivity)
+  }
+
   function metaToConversationShell(m: ConversationMeta): Conversation {
     return {
       id: m.id,
       title: m.title,
       createdAt: m.createdAt,
       updatedAt: m.updatedAt,
+      isPinned: !!m.isPinned,
       messages: [],
       skillIds: m.skillIds ?? [],
       toolRoundsUsed: m.toolRoundsUsed,
@@ -917,6 +931,7 @@ export const useChatStore = defineStore('chat', () => {
       if (!conv.agentMode?.trim()) conv.agentMode = 'single'
     }
     conversations.value = shells
+    sortConversationsInPlace()
     nextCursor.value = firstPage.nextCursor
     // IM conversations can derive a title purely from their id (no messages
     // needed); persist any such title fixes as targeted delta writes. Desktop
@@ -1247,6 +1262,7 @@ export const useChatStore = defineStore('chat', () => {
           if (!conv.agentMode?.trim()) conv.agentMode = 'single'
         }
         conversations.value = [...conversations.value, ...fresh]
+        sortConversationsInPlace()
       }
       nextCursor.value = page.nextCursor
       console.info('[chat] loadMoreConversations: appended', fresh.length, 'nextCursor=', page.nextCursor)
@@ -1263,6 +1279,7 @@ export const useChatStore = defineStore('chat', () => {
       title: c.title,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
+      isPinned: !!c.isPinned,
       skillIds: c.skillIds,
       toolRoundsUsed: c.toolRoundsUsed,
       toolRoundsUsedSupervisor: c.toolRoundsUsedSupervisor,
@@ -1404,6 +1421,7 @@ export const useChatStore = defineStore('chat', () => {
       title: DEFAULT_CONVERSATION_TITLE,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      isPinned: false,
       messages: [],
       skillIds: [],
       toolRoundsUsed: 0,
@@ -1416,6 +1434,7 @@ export const useChatStore = defineStore('chat', () => {
       projectId: resolvedProjectId
     }
     conversations.value.unshift(c)
+    sortConversationsInPlace()
     flushActiveComposerDraft()
     currentId.value = c.id
     loadActiveComposerDraft(c.id)
@@ -1478,7 +1497,10 @@ export const useChatStore = defineStore('chat', () => {
     const page = await loadProjectConversationMetas(projectId, cursor, 20)
     const existing = new Set(conversations.value.map(c => c.id))
     const fresh = page.items.map(metaToConversationShell).filter(c => !existing.has(c.id))
-    if (fresh.length) conversations.value = [...conversations.value, ...fresh]
+    if (fresh.length) {
+      conversations.value = [...conversations.value, ...fresh]
+      sortConversationsInPlace()
+    }
     return page
   }
 
@@ -1685,7 +1707,20 @@ export const useChatStore = defineStore('chat', () => {
     if (!trimmed || trimmed === conv.title) return
     conv.title = trimmed
     conv.updatedAt = Date.now()
+    sortConversationsInPlace()
     markMetaDirty(id)
+  }
+
+  function toggleConversationPin(id: string): void {
+    const conv = conversations.value.find(c => c.id === id)
+    if (!conv) {
+      console.warn('[chat] toggleConversationPin: conversation not found', id)
+      return
+    }
+    conv.isPinned = !conv.isPinned
+    sortConversationsInPlace()
+    markMetaDirty(id)
+    console.info('[chat] toggleConversationPin', id, conv.isPinned)
   }
 
   async function deleteConversation(id: string) {
@@ -2393,7 +2428,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
-    init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
+    init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, toggleConversationPin, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     pendingFocusMessage, clearPendingFocusMessage,

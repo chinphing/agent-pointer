@@ -498,7 +498,7 @@ export async function loadConversations(): Promise<Conversation[]> {
   return await request<Conversation[]>('/api/conversations')
 }
 
-/** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
+/** Cursor-paginated meta-only list (no messages). Sort: pinned DESC, updatedAt DESC, id DESC. */
 export async function loadConversationMetas(
   cursor: ConversationCursor | null,
   limit = 50

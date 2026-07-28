@@ -266,6 +266,7 @@ mod tests {
             title: "案件ID: 841648".into(),
             created_at: 1_700_000_000_000,
             updated_at: 1_700_000_100_000,
+            is_pinned: false,
             messages: vec![
                 msg("m1", Role::Assistant, &ocr, 1_700_000_000_000),
                 msg("m2", Role::User, hit_msg, 1_700_000_001_000),
@@ -315,6 +316,7 @@ mod tests {
             title: "推送记录".into(),
             created_at: 1_700_000_000_000,
             updated_at: 1_700_000_100_000,
+            is_pinned: false,
             messages: vec![
                 msg(
                     "assistant-before",
@@ -489,6 +491,7 @@ mod tests {
             title: "微信 私信".into(),
             created_at: 1_700_000_000_000,
             updated_at: 1_700_000_100_000,
+            is_pinned: false,
             messages: vec![
                 user,
                 msg("msg_a1", Role::Assistant, "收到图片了", 1_700_000_001_000),
@@ -570,7 +573,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         // Insert 3 conversations with distinct (updated_at, id). Sort order is
-        // (updated_at DESC, id DESC), so expected order is: c3, c2, c1.
+        // (is_pinned DESC, updated_at DESC, id DESC), so expected order is: c3, c2, c1.
         store
             .save_all(&[
                 conv_with("c1", "T1", 1_000, ""),
@@ -590,6 +593,32 @@ mod tests {
         let page2 = store.load_metas(Some(cursor), 2).unwrap();
         assert_eq!(page2.len(), 1);
         assert_eq!(page2[0].id, "c1");
+    }
+
+    #[test]
+    fn load_metas_pins_before_recent_activity() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut older_pinned = conv_with("pinned-old", "Pinned", 1_000, "");
+        older_pinned.is_pinned = true;
+        store
+            .save_all(&[
+                older_pinned,
+                conv_with("fresh", "Fresh", 9_000, ""),
+                conv_with("mid", "Mid", 5_000, ""),
+            ])
+            .unwrap();
+
+        let page1 = store.load_metas(None, 2).unwrap();
+        assert_eq!(page1[0].id, "pinned-old");
+        assert!(page1[0].is_pinned);
+        assert_eq!(page1[1].id, "fresh");
+        assert!(!page1[1].is_pinned);
+
+        let cursor = (page1[1].updated_at, page1[1].id.clone());
+        let page2 = store.load_metas(Some(cursor), 2).unwrap();
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].id, "mid");
     }
 
     #[test]
@@ -694,6 +723,7 @@ mod tests {
             title: "新会话".into(),
             created_at: 1_000,
             updated_at: 1_000,
+            is_pinned: false,
             skill_ids: vec![],
             tool_rounds_used: 0,
             tool_rounds_used_supervisor: 0,
@@ -821,7 +851,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 20);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -841,8 +871,8 @@ mod tests {
         assert_eq!(index_count, 1);
     }
 
-    /// v18 DBs already at SCHEMA_VERSION gate must still pick up v19 cron columns
-    /// when SCHEMA_VERSION is bumped (schedule_kind / schedule_raw).
+    /// v18 DBs already at SCHEMA_VERSION gate must still pick up later cron
+    /// columns when SCHEMA_VERSION is bumped (schedule_kind / schedule_raw).
     #[test]
     fn migrates_v18_cron_jobs_adds_schedule_kind() {
         use rusqlite::Connection;
@@ -917,7 +947,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 20);
         let has_kind: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",

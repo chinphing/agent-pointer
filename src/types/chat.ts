@@ -325,6 +325,8 @@ export interface Conversation {
   title: string
   createdAt: number
   updatedAt: number
+  /** Pinned conversations stay above others in sidebar lists. */
+  isPinned?: boolean
   messages: ChatMessage[]
   skillIds: string[]
   /** Cumulative tool rounds for single-agent replies (cap in settings). */
@@ -358,6 +360,7 @@ export type ConversationMetaBase = Pick<
   | 'title'
   | 'createdAt'
   | 'updatedAt'
+  | 'isPinned'
   | 'skillIds'
   | 'toolRoundsUsed'
   | 'toolRoundsUsedSupervisor'
@@ -409,7 +412,7 @@ export interface ProjectCursor {
   id: string
 }
 
-/** Cursor for paginated conversation-meta list (sort: updatedAt DESC, id DESC). */
+/** Cursor for paginated conversation-meta list (sort: pinned DESC, updatedAt DESC, id DESC). */
 export interface ConversationCursor {
   updatedAt: number
   id: string

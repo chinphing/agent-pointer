@@ -12,11 +12,11 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
         "SELECT id, title, created_at_ms, updated_at_ms, skill_ids_json,
                 tool_rounds_used, tool_rounds_used_supervisor, computer_monitor_id, project_id, workspace_root,
                 workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode,
-                session_user_id
+                session_user_id, is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
            AND id NOT LIKE 'webhook:%'
-         ORDER BY updated_at_ms DESC",
+         ORDER BY is_pinned DESC, updated_at_ms DESC",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((
@@ -35,6 +35,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             row.get::<_, String>(12)?,
             row.get::<_, String>(13)?,
             row.get::<_, String>(14)?,
+            row.get::<_, i64>(15)? != 0,
         ))
     })?;
     let mut out = Vec::new();
@@ -55,6 +56,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             lead_agent_id,
             agent_mode,
             session_user_id,
+            is_pinned,
         ) = row?;
         let skill_ids: Vec<String> = serde_json::from_str(&skill_ids_json).unwrap_or_default();
         let messages = load_messages(conn, &id)?;
@@ -63,6 +65,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             title,
             created_at,
             updated_at,
+            is_pinned,
             messages,
             skill_ids,
             tool_rounds_used,
@@ -101,9 +104,23 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
 }
 
 /// Cursor for paginated conversation-meta reads. Sort order is
-/// `(updated_at_ms DESC, id DESC)`, so the cursor is the last row of the
-/// previous page; the next page fetches rows strictly "before" it.
+/// `(is_pinned DESC, updated_at_ms DESC, id DESC)`, so the cursor is the last
+/// row of the previous page; the next page fetches rows strictly "before" it.
 pub type MetaCursor = (i64, String);
+
+fn cursor_pinned_from_conn(conn: &Connection, cursor: Option<&MetaCursor>) -> Result<i64> {
+    match cursor {
+        Some((_, id)) => Ok(conn
+            .query_row(
+                "SELECT is_pinned FROM conversations WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0)),
+        None => Ok(0),
+    }
+}
 
 pub fn load_project_page_from_conn(
     conn: &Connection,
@@ -241,30 +258,48 @@ pub fn load_project_metas_from_conn(
         Some((ts, id)) => (Some(*ts), Some(id.as_str())),
         None => (None, None),
     };
+    let cursor_pinned = cursor_pinned_from_conn(conn, cursor.as_ref())?;
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                 computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
+                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id,
+                is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%'
            AND project_id = ?3
-           AND (?1 IS NULL OR (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2)))
-         ORDER BY updated_at_ms DESC, id DESC LIMIT ?4",
+           AND (?1 IS NULL
+             OR is_pinned < ?5
+             OR (is_pinned = ?5
+               AND (updated_at_ms < ?1
+                 OR (updated_at_ms = ?1 AND id < ?2))))
+         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC LIMIT ?4",
     )?;
-    let rows = stmt.query_map(params![cur_ts, cur_id, project_id, limit], |row| {
-        Ok(MetaRow {
-            id: row.get(0)?, title: row.get(1)?, created_at: row.get(2)?,
-            updated_at: row.get(3)?, message_count: row.get::<_, i64>(4)? as u32,
-            preview: row.get(5)?, skill_ids_json: row.get(6)?,
-            tool_rounds_used: row.get(7)?, tool_rounds_used_supervisor: row.get(8)?,
-            computer_monitor_id: row.get(9)?, project_id: row.get(10)?,
-            workspace_root: row.get(11)?, workspace_user_set: row.get::<_, i64>(12)? != 0,
-            workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
-            lead_agent_id: row.get(14)?, agent_mode: row.get(15)?,
-            session_user_id: row.get(16)?,
-        })
-    })?;
+    let rows = stmt.query_map(
+        params![cur_ts, cur_id, project_id, limit, cursor_pinned],
+        |row| {
+            Ok(MetaRow {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+                message_count: row.get::<_, i64>(4)? as u32,
+                preview: row.get(5)?,
+                skill_ids_json: row.get(6)?,
+                tool_rounds_used: row.get(7)?,
+                tool_rounds_used_supervisor: row.get(8)?,
+                computer_monitor_id: row.get(9)?,
+                project_id: row.get(10)?,
+                workspace_root: row.get(11)?,
+                workspace_user_set: row.get::<_, i64>(12)? != 0,
+                workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
+                lead_agent_id: row.get(14)?,
+                agent_mode: row.get(15)?,
+                session_user_id: row.get(16)?,
+                is_pinned: row.get::<_, i64>(17)? != 0,
+            })
+        },
+    )?;
     let mut out = Vec::new();
     for row in rows {
         out.push(meta_from_row(row?)?);
@@ -275,8 +310,8 @@ pub fn load_project_metas_from_conn(
 /// Load conversation shells (no messages) with cursor pagination.
 ///
 /// When `cursor` is `None`, returns the most recent page. Otherwise returns
-/// rows strictly before `(updated_at_ms, id)` in DESC/DESC order. `limit` is
-/// clamped to `[1, 500]` for safety. Logs an `info` line per call with the
+/// rows strictly before `(is_pinned, updated_at_ms, id)` in DESC order. `limit`
+/// is clamped to `[1, 500]` for safety. Logs an `info` line per call with the
 /// row count and a `warn` per row with corrupt `skill_ids_json` (falls back
 /// to `[]`).
 pub fn load_metas_from_conn(
@@ -285,23 +320,29 @@ pub fn load_metas_from_conn(
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
     let limit = limit.clamp(1, 500);
+    let cursor_pinned = cursor_pinned_from_conn(conn, cursor.as_ref())?;
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                 computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
+                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id,
+                is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
            AND id NOT LIKE 'webhook:%'
-           AND (?1 IS NULL OR (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2)))
-         ORDER BY updated_at_ms DESC, id DESC
+           AND (?1 IS NULL
+             OR is_pinned < ?4
+             OR (is_pinned = ?4
+               AND (updated_at_ms < ?1
+                 OR (updated_at_ms = ?1 AND id < ?2))))
+         ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC
          LIMIT ?3",
     )?;
     let (cur_ts, cur_id): (Option<i64>, Option<&str>) = match &cursor {
         Some((ts, id)) => (Some(*ts), Some(id.as_str())),
         None => (None, None),
     };
-    let rows = stmt.query_map(params![cur_ts, cur_id, limit], |row| {
+    let rows = stmt.query_map(params![cur_ts, cur_id, limit, cursor_pinned], |row| {
         Ok(MetaRow {
             id: row.get(0)?,
             title: row.get(1)?,
@@ -320,6 +361,7 @@ pub fn load_metas_from_conn(
             lead_agent_id: row.get(14)?,
             agent_mode: row.get(15)?,
             session_user_id: row.get(16)?,
+            is_pinned: row.get::<_, i64>(17)? != 0,
         })
     })?;
     let mut out = Vec::new();
@@ -340,6 +382,7 @@ pub fn load_metas_from_conn(
             title: r.title,
             created_at: r.created_at,
             updated_at: r.updated_at,
+            is_pinned: r.is_pinned,
             skill_ids,
             tool_rounds_used: r.tool_rounds_used,
             tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
@@ -374,7 +417,8 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
             "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                     skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                     computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                    workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
+                    workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id,
+                    is_pinned
              FROM conversations WHERE id = ?1",
             params![id],
             |row| {
@@ -396,6 +440,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
                     lead_agent_id: row.get(14)?,
                     agent_mode: row.get(15)?,
                     session_user_id: row.get(16)?,
+                    is_pinned: row.get::<_, i64>(17)? != 0,
                 })
             },
         )
@@ -416,6 +461,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
         title: r.title,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        is_pinned: r.is_pinned,
         skill_ids,
         tool_rounds_used: r.tool_rounds_used,
         tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
@@ -486,6 +532,7 @@ struct MetaRow {
     lead_agent_id: String,
     agent_mode: String,
     session_user_id: String,
+    is_pinned: bool,
 }
 
 fn meta_from_row(r: MetaRow) -> Result<ConversationMeta> {
@@ -504,6 +551,7 @@ fn meta_from_row(r: MetaRow) -> Result<ConversationMeta> {
         title: r.title,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        is_pinned: r.is_pinned,
         skill_ids,
         tool_rounds_used: r.tool_rounds_used,
         tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
@@ -550,8 +598,8 @@ pub fn upsert_conversation(
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
            computer_monitor_id, project_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
-           lead_agent_id, agent_mode, session_user_id
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+           lead_agent_id, agent_mode, session_user_id, is_pinned
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            created_at_ms = excluded.created_at_ms,
@@ -571,7 +619,8 @@ pub fn upsert_conversation(
            session_user_id = CASE
              WHEN trim(excluded.session_user_id) != '' THEN excluded.session_user_id
              ELSE conversations.session_user_id
-           END",
+           END,
+           is_pinned = excluded.is_pinned",
         params![
             conv.id,
             conv.title,
@@ -590,6 +639,7 @@ pub fn upsert_conversation(
             conv.lead_agent_id,
             conv.agent_mode,
             conv.session_user_id,
+            i64::from(conv.is_pinned),
         ],
     )?;
 
@@ -756,6 +806,7 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
         title: title.to_string(),
         created_at: 1_700_000_000_000,
         updated_at: 1_700_000_100_000,
+        is_pinned: false,
         messages: vec![
             msg("msg_u1", Role::User, user_text, 1_700_000_000_000),
             msg(

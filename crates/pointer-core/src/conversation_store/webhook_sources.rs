@@ -332,6 +332,7 @@ mod tests {
                tool_rounds_used INTEGER NOT NULL DEFAULT 0,
                tool_rounds_used_supervisor INTEGER NOT NULL DEFAULT 0,
                computer_monitor_id TEXT,
+               project_id TEXT,
                workspace_root TEXT NOT NULL DEFAULT '',
                workspace_user_set INTEGER NOT NULL DEFAULT 0,
                workspace_inherit_disabled INTEGER NOT NULL DEFAULT 0,
@@ -340,7 +341,8 @@ mod tests {
                im_session_epoch INTEGER NOT NULL DEFAULT 0,
                im_active_conversation_id TEXT,
                im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,
-               session_user_id TEXT NOT NULL DEFAULT ''
+               session_user_id TEXT NOT NULL DEFAULT '',
+               is_pinned INTEGER NOT NULL DEFAULT 0
              );",
         )
         .unwrap();

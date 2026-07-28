@@ -142,6 +142,112 @@ pub fn list_directory(
     Ok(entries)
 }
 
+const SEARCH_SKIP_DIR_NAMES: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "vendor",
+    ".turbo",
+    ".cache",
+];
+
+/// Case-insensitive filename / relative-path search under the workspace root.
+/// Skips heavy/vendor directories; returns at most `limit` entries (files, dirs, symlinks).
+pub fn search_entries(
+    workspace_root: &Path,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<WorkspaceEntry>> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let root = canonical_workspace(workspace_root)?;
+    let mut out = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        if out.len() >= limit {
+            break;
+        }
+        let read = match fs::read_dir(&dir) {
+            Ok(iter) => iter,
+            Err(err) => {
+                log::warn!(
+                    "workspace_read: search skip unreadable dir {}: {err}",
+                    dir.display()
+                );
+                continue;
+            }
+        };
+        for item in read {
+            if out.len() >= limit {
+                break;
+            }
+            let item = match item {
+                Ok(v) => v,
+                Err(err) => {
+                    log::warn!("workspace_read: search skip entry: {err}");
+                    continue;
+                }
+            };
+            let metadata = match fs::symlink_metadata(item.path()) {
+                Ok(m) => m,
+                Err(err) => {
+                    log::warn!(
+                        "workspace_read: search skip metadata {}: {err}",
+                        item.path().display()
+                    );
+                    continue;
+                }
+            };
+            let name = item.file_name().to_string_lossy().into_owned();
+            let kind = if metadata.file_type().is_symlink() {
+                WorkspaceEntryKind::Symlink
+            } else if metadata.is_dir() {
+                WorkspaceEntryKind::Directory
+            } else {
+                WorkspaceEntryKind::File
+            };
+            let item_relative = match item.path().strip_prefix(&root) {
+                Ok(p) => p.to_string_lossy().replace('\\', "/"),
+                Err(_) => continue,
+            };
+            let name_l = name.to_lowercase();
+            let path_l = item_relative.to_lowercase();
+            if name_l.contains(&needle) || path_l.contains(&needle) {
+                out.push(WorkspaceEntry {
+                    name: name.clone(),
+                    path: item_relative.clone(),
+                    size_bytes: metadata.is_file().then_some(metadata.len()),
+                    kind: kind.clone(),
+                });
+            }
+            if matches!(kind, WorkspaceEntryKind::Directory)
+                && !SEARCH_SKIP_DIR_NAMES
+                    .iter()
+                    .any(|skip| name.eq_ignore_ascii_case(skip))
+            {
+                stack.push(item.path());
+            }
+        }
+    }
+    out.sort_by(|a, b| {
+        entry_rank(&a.kind)
+            .cmp(&entry_rank(&b.kind))
+            .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
+    });
+    if out.len() > limit {
+        out.truncate(limit);
+    }
+    Ok(out)
+}
+
 /// Delete a file, symlink, or directory under `workspace_root`.
 ///
 /// Safety: relative paths only (no `..` / absolute); never deletes the workspace
@@ -523,6 +629,19 @@ mod tests {
         delete_path(root.path(), "folder").unwrap();
         assert!(!root.path().join("folder").exists());
         assert!(delete_path(root.path(), "missing.txt").is_err());
+    }
+
+    #[test]
+    fn search_entries_matches_nested_names_and_skips_node_modules() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("src")).unwrap();
+        fs::write(root.path().join("src/App.vue"), b"app").unwrap();
+        fs::create_dir(root.path().join("node_modules")).unwrap();
+        fs::write(root.path().join("node_modules/hidden.ts"), b"x").unwrap();
+
+        let hits = search_entries(root.path(), "app", 50).unwrap();
+        assert!(hits.iter().any(|e| e.path == "src/App.vue"));
+        assert!(!hits.iter().any(|e| e.path.contains("node_modules")));
     }
 
     #[test]

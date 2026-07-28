@@ -148,6 +148,18 @@ export async function listWorkspaceDirectory(
   return await request(`/api/workspace/directory?${workspaceQuery(workspaceRoot, relativePath)}`)
 }
 
+export async function searchWorkspaceEntries(
+  workspaceRoot: string,
+  query: string,
+  limit?: number
+): Promise<import('./api').WorkspaceEntry[]> {
+  const params = new URLSearchParams()
+  params.set('workspace_root', workspaceRoot)
+  params.set('query', query)
+  if (limit != null) params.set('limit', String(limit))
+  return await request(`/api/workspace/search?${params.toString()}`)
+}
+
 export async function readWorkspaceFile(
   workspaceRoot: string,
   relativePath: string

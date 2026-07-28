@@ -87,7 +87,7 @@ import {
 import { useSettingsStore } from './settings'
 import { isPlatformAuthTransientError, usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
-import { primeTaskCompleteAudio } from '../lib/taskCompleteSound'
+import { disarmTaskCompleteAudio, primeTaskCompleteAudio } from '../lib/taskCompleteSound'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
 import {
   assistantTurnActivelyRunning,
@@ -335,6 +335,7 @@ export const useChatStore = defineStore('chat', () => {
 
     // Host cancel is signaled; keep UI stopped even if a late stream event raced.
     patchRunState(key, { generating: false, activeMessageId: null })
+    disarmTaskCompleteAudio()
     await drainOutboundQueue(key)
 
     // If the cancelled run never emitted Done, drop the watch so the next turn's Done is kept.
@@ -564,6 +565,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function dispatchChatTurn(conv: Conversation) {
+    // Queue drain / force-send may not go through composer click; re-arm audio here.
+    primeTaskCompleteAudio()
     const turnId = [...conv.messages].reverse().find(message => message.role === 'user')?.id
     if (turnId) recordTurnStart(conv.id, turnId)
     patchRunState(conv.id, { generating: true, activeMessageId: null })
@@ -1631,13 +1634,20 @@ export const useChatStore = defineStore('chat', () => {
         ? { force: true }
         : undefined
     )
+    // Selection must update before heavy follow-up work so the sidebar can paint
+    // is-active (long transcripts otherwise block the first frame after click).
     currentId.value = id
     touchConversation(id)
-    evictIdleConversations()
     reconcileRunStateForConversation(id)
     loadActiveComposerDraft(id)
-    void refreshTaskBoard(id)
-    void refreshSubAgentTaskBoards(id)
+
+    const selectedId = id
+    requestAnimationFrame(() => {
+      if (currentId.value !== selectedId) return
+      evictIdleConversations()
+      void refreshTaskBoard(selectedId)
+      void refreshSubAgentTaskBoards(selectedId)
+    })
   }
 
   function renameConversation(id: string, newTitle: string): void {

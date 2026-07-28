@@ -156,6 +156,18 @@ const terminalOutput = computed(() => {
   return parts.join(result.stdout && result.stderr ? '\n' : '')
 })
 
+/** Must be declared before any computed/watch that reads it during setup (e.g. useMarkdownExternalLinks). */
+const effectiveStatus = computed(() => {
+  if (!isTerminal.value || props.toolCall.status !== 'success') return props.toolCall.status
+  const r = terminalResult.value
+  if (r?.timedOut === true) return 'failed' as ToolCall['status']
+  if (r?.elevationDenied === true) return 'failed' as ToolCall['status']
+  if (r?.runAborted === true || r?.cancelled === true) return 'failed' as ToolCall['status']
+  const code = r?.exitCode
+  if (typeof code === 'number' && code !== 0) return 'failed' as ToolCall['status']
+  return props.toolCall.status
+})
+
 const webSearchQuery = computed(() => {
   if (!isWebSearch.value) return ''
   const text = props.toolCall.arguments?.trim()
@@ -262,17 +274,6 @@ const terminalMeta = computed(() => {
   if (result.runAborted) items.push('已结束命令')
   if (result.cancelled) items.push('已停止')
   return items.join(' · ')
-})
-
-const effectiveStatus = computed(() => {
-  if (!isTerminal.value || props.toolCall.status !== 'success') return props.toolCall.status
-  const r = terminalResult.value
-  if (r?.timedOut === true) return 'failed' as ToolCall['status']
-  if (r?.elevationDenied === true) return 'failed' as ToolCall['status']
-  if (r?.runAborted === true || r?.cancelled === true) return 'failed' as ToolCall['status']
-  const code = r?.exitCode
-  if (typeof code === 'number' && code !== 0) return 'failed' as ToolCall['status']
-  return props.toolCall.status
 })
 
 const statusInfo = computed(() => {

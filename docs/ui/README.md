@@ -5,13 +5,14 @@
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换 |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
 | [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」口径；队列立即发送不得把排队等待算进去 |
+| [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选超长会话：乐观高亮，避免首帧被消息列表堵住 |
 | 设置 → **平台账户 / 管理员账户** | 登录状态、「退出登录」；完成提示音开关 |
 | [assistant-message-ui.md](assistant-message-ui.md) | 助手消息 `thoughts` / reasoning / 原始输出面板等约定 |
 | [message-list-layout-cache.md](message-list-layout-cache.md) | 消息列表已完成 turn 结构指纹缓存，流式时只重算尾部 |
 | [message-list-scroll-follow.md](message-list-scroll-follow.md) | 流式输出贴底跟随：上滑脱离、贴底/按钮恢复 |
 | [streaming-markdown-throttle.md](streaming-markdown-throttle.md) | 流式 Markdown 渲染节流：默认 100ms，长文 250ms |
 | [workspace-file-preview-find.md](workspace-file-preview-find.md) | 右侧工作区文本预览查找（⌘/Ctrl+F、上下匹配） |
-| [workspace-panel-refresh.md](workspace-panel-refresh.md) | 右侧工作区打开 / 切会话 / 切 Tab 时的刷新约定 |
+| [workspace-panel-refresh.md](workspace-panel-refresh.md) | 右侧工作区打开 / 切会话 / 切 Tab 时的刷新约定；文件树查找 |
 | 本轮修改 / 工作区导航 | 输入框上方「本轮修改」文件列表；右侧栏主导航为文件夹/Git 图标（工作区文件、变更文件）。基线 Diff 见 [`../developer/turn-file-baseline-review.md`](../developer/turn-file-baseline-review.md) |
 | 侧边栏会话搜索 | 第二行展示命中关键词附近的 snippet；点击正文命中结果会定位到对应消息并短暂高亮。详见 [`../internals/sidebar-conversation-search.md`](../internals/sidebar-conversation-search.md) |
 | 新会话空状态 | 「热门」与分类并列 Tab（`GET /api/experiences/home`）；搜索关键词（`GET /api/experiences?q=`）；点击后切换绑定智能体并将 `prompt_text` 填入输入框 |

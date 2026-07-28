@@ -74,6 +74,28 @@ async fn list_workspace_directory(
     )?))
 }
 
+#[derive(Debug, Deserialize)]
+struct WorkspaceSearchQuery {
+    workspace_root: String,
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+async fn search_workspace_entries(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspaceSearchQuery>,
+) -> Result<Json<Vec<pointer_core::workspace_read::WorkspaceEntry>>, ApiError> {
+    require_platform_access(&state)?;
+    let limit = q.limit.unwrap_or(80).clamp(1, 200) as usize;
+    Ok(Json(pointer_core::workspace_read::search_entries(
+        std::path::Path::new(&q.workspace_root),
+        &q.query,
+        limit,
+    )?))
+}
+
 async fn read_workspace_file(
     State(state): State<ServerState>,
     Query(q): Query<WorkspacePathQuery>,
@@ -521,6 +543,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/workspace/directory", get(list_workspace_directory))
+        .route("/api/workspace/search", get(search_workspace_entries))
         .route("/api/workspace/file", get(read_workspace_file))
         .route("/api/workspace/path", delete(delete_workspace_path))
         .route("/api/workspace/git/status", get(get_workspace_git_status))

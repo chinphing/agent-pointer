@@ -1,7 +1,21 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Copy, ExternalLink, FileCode2, FileDiff, FolderOpen, GitBranch, Loader2, RefreshCw, Trash2, X } from 'lucide-vue-next'
+import {
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  ExternalLink,
+  FileCode2,
+  FileDiff,
+  FolderOpen,
+  GitBranch,
+  Loader2,
+  RefreshCw,
+  Search,
+  Trash2,
+  X
+} from 'lucide-vue-next'
 import {
   deleteWorkspacePath,
   getTurnFileDiff,
@@ -10,10 +24,11 @@ import {
   listWorkspaceDirectory,
   openPathWithDefaultApp,
   readWorkspaceFile,
-  revealInFinder
+  revealInFinder,
+  searchWorkspaceEntries
 } from '../../lib/api'
 import type { DiffLine } from '../chat/DiffView.vue'
-import type { GitChange, WorkspaceFilePreview as WorkspaceFilePreviewData } from '../../lib/api'
+import type { GitChange, WorkspaceEntry, WorkspaceFilePreview as WorkspaceFilePreviewData } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 import { workspaceRelativeDisplayPath } from '../../lib/toolCallDisplay'
@@ -32,6 +47,11 @@ import {
   workspaceTabIdsToClose,
   type WorkspaceTabCloseAction
 } from '../../lib/workspaceTabs'
+import {
+  findWorkspaceTreeNode,
+  mergeWorkspaceTreePreserveState,
+  workspacePathAncestorDirs
+} from '../../lib/workspaceTree'
 import DiffView from '../chat/DiffView.vue'
 import WorkspaceFilePreview from './WorkspaceFilePreview.vue'
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue'
@@ -100,6 +120,19 @@ const contextMenu = ref<ContextMenuState | null>(null)
 const pendingDelete = ref<{ path: string; name: string; kind: TreeNode['kind'] } | null>(null)
 const deletingPath = ref(false)
 const isDesktop = isTauriRuntime()
+const panelRoot = ref<HTMLElement | null>(null)
+const filesScroller = ref<HTMLElement | null>(null)
+/** True while the pointer is over the workspace panel (used so ⌘F follows the view under the cursor). */
+const pointerOverPanel = ref(false)
+const treeSearchOpen = ref(false)
+const treeSearchQuery = ref('')
+const treeSearchInput = ref<HTMLInputElement | null>(null)
+const treeSearchMatches = ref<WorkspaceEntry[]>([])
+const treeSearchIndex = ref(0)
+const treeSearchLoading = ref(false)
+const treeSearchActivePath = ref('')
+let treeSearchSeq = 0
+let treeSearchDebounce: ReturnType<typeof setTimeout> | null = null
 let resizeStartX = 0
 let resizeStartWidth = 0
 
@@ -161,7 +194,9 @@ async function loadRoot(options?: { silent?: boolean }) {
   try {
     const entries = (await listWorkspaceDirectory(workspaceRoot)).map(entry => ({ ...entry }))
     if (seq !== rootLoadSeq || props.workspaceRoot !== workspaceRoot) return
-    roots.value = entries
+    roots.value = silent
+      ? mergeWorkspaceTreePreserveState(roots.value, entries)
+      : entries.map(entry => ({ ...entry }))
   } catch (err) {
     if (seq !== rootLoadSeq || props.workspaceRoot !== workspaceRoot) return
     const message = err instanceof Error ? err.message : String(err)
@@ -236,13 +271,18 @@ function refreshChangesBadge() {
   void loadChanges({ silent: true })
 }
 
-/** Switch primary nav immediately; refresh in the background. */
+/** Switch primary nav immediately; do not reload the file tree (keeps scroll + expanded folders). */
 function activatePrimaryView(nextView: PrimaryView) {
   activeView.value = nextView
   if (nextView === 'files') {
-    void loadRoot({ silent: true })
     refreshChangesBadge()
-  } else {
+    void nextTick(() => {
+      filesScroller.value?.focus({ preventScroll: true })
+    })
+    return
+  }
+  // First open of Changes may still need data; later switches keep the list.
+  if (!changes.value.length && !loadingChanges.value) {
     void loadChanges({ silent: true })
   }
 }
@@ -711,7 +751,165 @@ function handleDocumentKeydown(event: KeyboardEvent) {
     if (!deletingPath.value) pendingDelete.value = null
     return
   }
+  if (treeSearchOpen.value) {
+    closeTreeSearch()
+    return
+  }
   closeContextMenu()
+}
+
+const treeSearchMatchCountLabel = computed(() => {
+  if (!treeSearchQuery.value.trim()) return '0/0'
+  if (!treeSearchMatches.value.length) return '0/0'
+  return `${treeSearchIndex.value + 1}/${treeSearchMatches.value.length}`
+})
+
+function openTreeSearch() {
+  treeSearchOpen.value = true
+  void nextTick(() => {
+    treeSearchInput.value?.focus()
+    treeSearchInput.value?.select()
+  })
+}
+
+function closeTreeSearch() {
+  treeSearchOpen.value = false
+  treeSearchQuery.value = ''
+  treeSearchMatches.value = []
+  treeSearchIndex.value = 0
+  treeSearchActivePath.value = ''
+  treeSearchLoading.value = false
+  if (treeSearchDebounce != null) {
+    clearTimeout(treeSearchDebounce)
+    treeSearchDebounce = null
+  }
+}
+
+async function ensureTreePathVisible(relativePath: string): Promise<TreeNode | null> {
+  const normalized = relativePath.replace(/\\/g, '/')
+  for (const dir of workspacePathAncestorDirs(normalized)) {
+    let node = findWorkspaceTreeNode(roots.value, dir)
+    if (!node) {
+      // Parent missing from current tree (e.g. filtered); reload root once.
+      await loadRoot({ silent: true })
+      node = findWorkspaceTreeNode(roots.value, dir)
+    }
+    if (!node || node.kind !== 'directory') return null
+    if (!node.expanded) node.expanded = true
+    if (!node.children) {
+      node.loading = true
+      try {
+        node.children = (await listWorkspaceDirectory(props.workspaceRoot, node.path)).map(
+          entry => ({ ...entry })
+        )
+      } catch (err) {
+        node.expanded = false
+        console.warn('[WorkspacePanel] expand for search failed', err)
+        return null
+      } finally {
+        node.loading = false
+      }
+    }
+  }
+  return findWorkspaceTreeNode(roots.value, normalized)
+}
+
+async function focusTreeSearchMatch(index: number) {
+  const match = treeSearchMatches.value[index]
+  if (!match) return
+  treeSearchIndex.value = index
+  treeSearchActivePath.value = match.path
+  await ensureTreePathVisible(match.path)
+  await nextTick()
+  const scroller = filesScroller.value
+  if (!scroller) return
+  const row = scroller.querySelector(
+    `[data-workspace-tree-path="${CSS.escape(match.path)}"]`
+  ) as HTMLElement | null
+  row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+async function runTreeSearch(query: string) {
+  const q = query.trim()
+  const seq = ++treeSearchSeq
+  if (!q || !hasWorkspace.value) {
+    treeSearchMatches.value = []
+    treeSearchIndex.value = 0
+    treeSearchActivePath.value = ''
+    treeSearchLoading.value = false
+    return
+  }
+  treeSearchLoading.value = true
+  try {
+    const hits = await searchWorkspaceEntries(props.workspaceRoot, q, 80)
+    if (seq !== treeSearchSeq) return
+    treeSearchMatches.value = hits
+    treeSearchIndex.value = 0
+    if (hits.length) await focusTreeSearchMatch(0)
+    else treeSearchActivePath.value = ''
+  } catch (err) {
+    if (seq !== treeSearchSeq) return
+    console.warn('[WorkspacePanel] tree search failed', err)
+    treeSearchMatches.value = []
+    treeSearchActivePath.value = ''
+  } finally {
+    if (seq === treeSearchSeq) treeSearchLoading.value = false
+  }
+}
+
+function scheduleTreeSearch(query: string) {
+  if (treeSearchDebounce != null) clearTimeout(treeSearchDebounce)
+  treeSearchDebounce = setTimeout(() => {
+    treeSearchDebounce = null
+    void runTreeSearch(query)
+  }, 200)
+}
+
+function stepTreeSearchMatch(direction: 1 | -1) {
+  const count = treeSearchMatches.value.length
+  if (!count) return
+  const next = (treeSearchIndex.value + direction + count) % count
+  void focusTreeSearchMatch(next)
+}
+
+function onTreeSearchKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeTreeSearch()
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    stepTreeSearchMatch(event.shiftKey ? -1 : 1)
+  }
+}
+
+function isWorkspaceFilesFindTarget(event: KeyboardEvent): boolean {
+  if (activeView.value !== 'files' || !hasWorkspace.value) return false
+  const panel = panelRoot.value
+  if (!panel) return false
+
+  const active = document.activeElement instanceof Element ? document.activeElement : null
+  const target = event.target instanceof Element ? event.target : null
+  // File preview owns ⌘F while a preview tab is active / focused.
+  if (target?.closest('[data-workspace-file-preview]') || active?.closest('[data-workspace-file-preview]')) {
+    return false
+  }
+
+  // Prefer the pane under the cursor so ⌘F works while browsing files even if
+  // the chat composer still holds keyboard focus.
+  if (pointerOverPanel.value) return true
+  if (active && panel.contains(active)) return true
+  if (target && panel.contains(target)) return true
+  return false
+}
+
+function onGlobalTreeFindShortcut(event: KeyboardEvent) {
+  if (event.key.toLocaleLowerCase() !== 'f' || (!event.metaKey && !event.ctrlKey)) return
+  if (event.defaultPrevented || !isWorkspaceFilesFindTarget(event)) return
+  event.preventDefault()
+  event.stopPropagation()
+  event.stopImmediatePropagation()
+  openTreeSearch()
 }
 
 const normalizedWorkspaceRoot = computed(() => props.workspaceRoot.trim().replace(/[\\/]+$/, ''))
@@ -728,6 +926,7 @@ function resetWorkspaceSurface(nextRoot: string, nextConversationId: string) {
   gitError.value = null
   error.value = ''
   activeView.value = 'files'
+  closeTreeSearch()
   closeContextMenu()
   // Invalidate in-flight loads from the previous workspace.
   rootLoadSeq++
@@ -784,10 +983,20 @@ watch(
   }
 )
 
+watch(treeSearchQuery, query => {
+  if (!treeSearchOpen.value) return
+  scheduleTreeSearch(query)
+})
+
+watch(activeView, view => {
+  if (view !== 'files' && treeSearchOpen.value) closeTreeSearch()
+})
+
 onMounted(() => {
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('scroll', closeContextMenu, true)
   document.addEventListener('keydown', handleDocumentKeydown)
+  window.addEventListener('keydown', onGlobalTreeFindShortcut, true)
   const pending = workspacePanelStore.consumePendingTurnDiff()
   if (pending) void openTurnDiff(pending.conversationId, pending.turnId, pending.path)
 })
@@ -797,15 +1006,20 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleViewportResize)
   window.removeEventListener('scroll', closeContextMenu, true)
   document.removeEventListener('keydown', handleDocumentKeydown)
+  window.removeEventListener('keydown', onGlobalTreeFindShortcut, true)
+  if (treeSearchDebounce != null) clearTimeout(treeSearchDebounce)
 })
 </script>
 
 <template>
   <aside
+    ref="panelRoot"
     class="workspace-panel hidden lg:flex shrink-0 flex-col min-h-0 border-l border-border bg-card relative"
     data-workspace-panel
     :class="resizing && 'is-resizing'"
     :style="panelStyle"
+    @pointerenter="pointerOverPanel = true"
+    @pointerleave="pointerOverPanel = false"
   >
     <div class="workspace-resize-handle" title="拖动调整宽度" @mousedown="beginResize" />
 
@@ -864,91 +1078,148 @@ onBeforeUnmount(() => {
     </div>
     <div v-else-if="error" class="p-4 text-xs text-danger break-words">{{ error }}</div>
 
-    <div v-else-if="activeView === 'files'" class="flex-1 min-h-0 overflow-auto py-2">
-      <div v-if="loadingFiles" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载中…</div>
-      <div v-else-if="!roots.length" class="workspace-empty">目录为空</div>
-      <WorkspaceTreeNode
-        v-for="node in roots"
-        :key="node.path"
-        :node="node"
-        :highlighted-path="contextSelectedTreePath"
-        @toggle="toggleDirectory"
-        @activate="selectFile"
-        @contextmenu="openTreeContextMenu"
-      />
-    </div>
-
-    <div v-else-if="activeFileTab" class="flex-1 min-h-0 overflow-hidden p-2">
-      <div v-if="activeFileTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载文件…</div>
-      <div v-else-if="activeFileTab.error" class="text-xs text-danger break-words p-2">{{ activeFileTab.error }}</div>
-      <WorkspaceFilePreview
-        v-else-if="activeFileTab.preview"
-        :preview="activeFileTab.preview"
-        :absolute-path="workspaceAbsolutePath(workspaceRoot, activeFileTab.path)"
-        @open-reference="openMarkdownReference"
-      />
-      <div v-else class="workspace-empty">无法显示该文件</div>
-    </div>
-
-    <div v-else-if="activeView === 'changes'" class="flex-1 min-h-0 overflow-auto py-2">
-      <div v-if="loadingChanges" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载中…</div>
-      <div v-else-if="gitError" class="workspace-empty flex-col text-center">
-        <GitBranch class="w-4 h-4" />
-        <span>{{ gitError.code === 'not_repository' ? '当前目录不是 Git 仓库' : gitError.code === 'git_not_installed' ? '未检测到 Git' : gitError.message }}</span>
-        <button
-          v-if="gitError.code === 'not_repository'"
-          type="button"
-          class="workspace-action-btn"
-          @click="emit('initialize-git')"
-        >让 Pointer 初始化 Git 仓库</button>
-        <button
-          v-else-if="gitError.code === 'git_not_installed'"
-          type="button"
-          class="workspace-action-btn"
-          @click="emit('install-git')"
-        >帮我安装 Git</button>
-      </div>
-      <div v-else-if="!changes.length" class="workspace-empty"><GitBranch class="w-4 h-4" /> 没有 Git 变更</div>
-      <button
-        v-for="change in changes"
-        :key="`${change.staged}-${change.path}`"
-        type="button"
-        class="change-row"
-        :class="contextSelectedChangeKey === changeRowKey(change) && 'is-selected'"
-        @click="selectChange(change)"
-        @contextmenu.prevent="openChangeContextMenu($event, change)"
+    <template v-else>
+      <!-- Keep Files / Changes mounted so scroll + expanded folders survive tab switches. -->
+      <div
+        v-show="activeView === 'files'"
+        ref="filesScroller"
+        class="relative flex-1 min-h-0 overflow-auto py-2 outline-none"
+        tabindex="-1"
       >
-        <span class="status-badge">{{ statusLabel(change) }}</span><span class="truncate select-none" :title="change.path">{{ change.path }}</span>
-      </button>
-    </div>
+        <div
+          v-if="treeSearchOpen"
+          class="sticky top-0 z-20 mx-2 mb-2 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1.5 shadow-lg backdrop-blur"
+          role="search"
+        >
+          <Search class="ml-1 h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+          <input
+            ref="treeSearchInput"
+            v-model="treeSearchQuery"
+            class="w-full min-w-0 bg-transparent px-1.5 py-1 text-xs text-foreground outline-none placeholder:text-muted"
+            type="search"
+            placeholder="查找文件"
+            aria-label="查找工作区文件"
+            @keydown="onTreeSearchKeydown"
+          />
+          <span class="min-w-10 shrink-0 text-center text-[10px] tabular-nums text-muted">
+            <Loader2 v-if="treeSearchLoading" class="mx-auto h-3 w-3 animate-spin" />
+            <template v-else>{{ treeSearchMatchCountLabel }}</template>
+          </span>
+          <button
+            type="button"
+            class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
+            title="上一个（Shift+Enter）"
+            :disabled="!treeSearchMatches.length"
+            @click="stepTreeSearchMatch(-1)"
+          >
+            <ArrowUp class="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
+            title="下一个（Enter）"
+            :disabled="!treeSearchMatches.length"
+            @click="stepTreeSearchMatch(1)"
+          >
+            <ArrowDown class="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground"
+            title="关闭（Esc）"
+            @click="closeTreeSearch"
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div v-if="loadingFiles" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载中…</div>
+        <div v-else-if="!roots.length" class="workspace-empty">目录为空</div>
+        <WorkspaceTreeNode
+          v-for="node in roots"
+          :key="node.path"
+          :node="node"
+          :highlighted-path="contextSelectedTreePath || treeSearchActivePath"
+          @toggle="toggleDirectory"
+          @activate="selectFile"
+          @contextmenu="openTreeContextMenu"
+        />
+      </div>
 
-    <div v-else-if="activeTurnDiffTab" class="flex-1 min-h-0 overflow-hidden p-2">
-      <div v-if="activeTurnDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
-      <div v-else-if="activeTurnDiffTab.error && !activeTurnDiffTab.diffLines.length" class="text-xs text-danger break-words p-2">{{ activeTurnDiffTab.error }}</div>
-      <template v-else>
-        <p v-if="activeTurnDiffTab.error" class="text-[11px] text-muted px-1 pb-1">{{ activeTurnDiffTab.error }}</p>
+      <div v-show="activeView === 'changes'" class="flex-1 min-h-0 overflow-auto py-2">
+        <div v-if="loadingChanges" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载中…</div>
+        <div v-else-if="gitError" class="workspace-empty flex-col text-center">
+          <GitBranch class="w-4 h-4" />
+          <span>{{ gitError.code === 'not_repository' ? '当前目录不是 Git 仓库' : gitError.code === 'git_not_installed' ? '未检测到 Git' : gitError.message }}</span>
+          <button
+            v-if="gitError.code === 'not_repository'"
+            type="button"
+            class="workspace-action-btn"
+            @click="emit('initialize-git')"
+          >让 Pointer 初始化 Git 仓库</button>
+          <button
+            v-else-if="gitError.code === 'git_not_installed'"
+            type="button"
+            class="workspace-action-btn"
+            @click="emit('install-git')"
+          >帮我安装 Git</button>
+        </div>
+        <div v-else-if="!changes.length" class="workspace-empty"><GitBranch class="w-4 h-4" /> 没有 Git 变更</div>
+        <button
+          v-for="change in changes"
+          :key="`${change.staged}-${change.path}`"
+          type="button"
+          class="change-row"
+          :class="contextSelectedChangeKey === changeRowKey(change) && 'is-selected'"
+          @click="selectChange(change)"
+          @contextmenu.prevent="openChangeContextMenu($event, change)"
+        >
+          <span class="status-badge">{{ statusLabel(change) }}</span><span class="truncate select-none" :title="change.path">{{ change.path }}</span>
+        </button>
+      </div>
+
+      <div v-if="activeFileTab && activeView === activeFileTab.id" class="flex-1 min-h-0 overflow-hidden p-2">
+        <div v-if="activeFileTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载文件…</div>
+        <div v-else-if="activeFileTab.error" class="text-xs text-danger break-words p-2">{{ activeFileTab.error }}</div>
+        <WorkspaceFilePreview
+          v-else-if="activeFileTab.preview"
+          :preview="activeFileTab.preview"
+          :absolute-path="workspaceAbsolutePath(workspaceRoot, activeFileTab.path)"
+          @open-reference="openMarkdownReference"
+        />
+        <div v-else class="workspace-empty">无法显示该文件</div>
+      </div>
+
+      <div v-else-if="activeTurnDiffTab && activeView === activeTurnDiffTab.id" class="flex-1 min-h-0 overflow-hidden p-2">
+        <div v-if="activeTurnDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
+        <div v-else-if="activeTurnDiffTab.error && !activeTurnDiffTab.diffLines.length" class="text-xs text-danger break-words p-2">{{ activeTurnDiffTab.error }}</div>
+        <template v-else>
+          <p v-if="activeTurnDiffTab.error" class="text-[11px] text-muted px-1 pb-1">{{ activeTurnDiffTab.error }}</p>
+          <DiffView
+            v-if="activeTurnDiffTab.diffLines.length"
+            fill-height
+            :diff-lines="activeTurnDiffTab.diffLines"
+            :diff-stats="activeTurnDiffTab.diffStats"
+          />
+          <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
+        </template>
+      </div>
+
+      <div v-else-if="activeDiffTab && activeView === activeDiffTab.id" class="flex-1 min-h-0 overflow-hidden p-2">
+        <div v-if="activeDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
+        <div v-else-if="activeDiffTab.error" class="text-xs text-danger break-words p-2">{{ activeDiffTab.error }}</div>
         <DiffView
-          v-if="activeTurnDiffTab.diffLines.length"
+          v-else-if="activeDiffTab.diffLines.length"
           fill-height
-          :diff-lines="activeTurnDiffTab.diffLines"
-          :diff-stats="activeTurnDiffTab.diffStats"
+          :diff-lines="activeDiffTab.diffLines"
+          :diff-stats="activeDiffTab.diffStats"
         />
         <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
-      </template>
-    </div>
-
-    <div v-else-if="activeDiffTab" class="flex-1 min-h-0 overflow-hidden p-2">
-      <div v-if="activeDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
-      <div v-else-if="activeDiffTab.error" class="text-xs text-danger break-words p-2">{{ activeDiffTab.error }}</div>
-      <DiffView
-        v-else-if="activeDiffTab.diffLines.length"
-        fill-height
-        :diff-lines="activeDiffTab.diffLines"
-        :diff-stats="activeDiffTab.diffStats"
-      />
-      <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
-    </div>
-    <div v-else class="workspace-empty">预览标签已关闭</div>
+      </div>
+      <div
+        v-else-if="activeView !== 'files' && activeView !== 'changes'"
+        class="workspace-empty"
+      >预览标签已关闭</div>
+    </template>
 
     <Teleport to="body">
       <div v-if="contextMenu" class="fixed inset-0 z-[300]" @mousedown="closeContextMenu" @contextmenu.prevent="closeContextMenu">

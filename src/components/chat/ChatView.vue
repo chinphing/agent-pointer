@@ -45,9 +45,38 @@ const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const isHydratingMessages = computed(() => chat.isCurrentConversationHydrating)
+/**
+ * In-memory long transcripts rebuild MessageList layout synchronously on switch.
+ * Defer revealing them by two animation frames so the sidebar selection can paint first.
+ */
+const LARGE_TRANSCRIPT_DEFER_COUNT = 80
+const deferHeavyTranscript = ref(false)
+watch(
+  () => chat.currentId,
+  id => {
+    if (!id || isHydratingMessages.value) {
+      deferHeavyTranscript.value = false
+      return
+    }
+    const count = chat.current?.messages.length ?? 0
+    if (count < LARGE_TRANSCRIPT_DEFER_COUNT) {
+      deferHeavyTranscript.value = false
+      return
+    }
+    deferHeavyTranscript.value = true
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (chat.currentId === id) deferHeavyTranscript.value = false
+      })
+    })
+  }
+)
+const showMessageListPlaceholder = computed(
+  () => isHydratingMessages.value || deferHeavyTranscript.value
+)
 const conversationMessages = computed(() => chat.current?.messages ?? [])
 const showWelcomeHome = computed(() => {
-  if (isHydratingMessages.value) return false
+  if (showMessageListPlaceholder.value) return false
   const cur = chat.current
   if (!cur) return true
   return cur.messages.length === 0
@@ -125,7 +154,7 @@ function onPageSearchKeydown(event: KeyboardEvent) {
 
 function onGlobalFindShortcut(event: KeyboardEvent) {
   if (event.key.toLocaleLowerCase() !== 'f' || (!event.metaKey && !event.ctrlKey)) return
-  // Workspace file preview may claim ⌘/Ctrl+F in the capture phase.
+  // Workspace file tree / file preview may claim ⌘/Ctrl+F in the capture phase.
   if (event.defaultPrevented) return
   event.preventDefault()
   openPageSearch()
@@ -251,7 +280,7 @@ const toastClass = computed(() => {
           <X class="h-4 w-4" />
         </button>
       </div>
-      <div v-if="isHydratingMessages" class="h-full flex flex-col min-h-0">
+      <div v-if="showMessageListPlaceholder" class="h-full flex flex-col min-h-0">
         <MessageListSkeleton />
       </div>
 

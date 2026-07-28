@@ -34,6 +34,17 @@ pub fn list_workspace_directory(
 }
 
 #[tauri::command]
+pub fn search_workspace_entries(
+    workspace_root: String,
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
+    let limit = limit.unwrap_or(80).clamp(1, 200) as usize;
+    pointer_core::workspace_read::search_entries(Path::new(&workspace_root), &query, limit)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn read_workspace_file(
     workspace_root: String,
     relative_path: String,

@@ -125,6 +125,11 @@ export interface RuntimeApi {
   sendChat(payload: SendChatPayload): Promise<string | void>
   cancelChat(conversationId: string): Promise<void>
   listWorkspaceDirectory(workspaceRoot: string, relativePath?: string): Promise<WorkspaceEntry[]>
+  searchWorkspaceEntries(
+    workspaceRoot: string,
+    query: string,
+    limit?: number
+  ): Promise<WorkspaceEntry[]>
   readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<WorkspaceFilePreview>
   deleteWorkspacePath(workspaceRoot: string, relativePath: string): Promise<void>
   getWorkspaceGitStatus(workspaceRoot: string): Promise<GitStatusResponse>
@@ -239,6 +244,7 @@ export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
 export const sendChat = api.sendChat
 export const cancelChat = api.cancelChat
 export const listWorkspaceDirectory = api.listWorkspaceDirectory
+export const searchWorkspaceEntries = api.searchWorkspaceEntries
 export const readWorkspaceFile = api.readWorkspaceFile
 export const deleteWorkspacePath = api.deleteWorkspacePath
 export const getWorkspaceGitStatus = api.getWorkspaceGitStatus

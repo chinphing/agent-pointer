@@ -14,11 +14,11 @@
 
 | 层 | 说明 |
 |----|------|
-| 前端播放 | `src/lib/taskCompleteSound.ts`（Web Audio API，桌面端与网页端通用） |
-| 触发 | **仅** `handleDone`（`StreamEvent::Done`，整轮 `run_chat` 结束）；在 `finally` 中播放，避免落盘失败跳过提示音 |
-| 条件 | 该会话 Done 前仍为 `generating`，**或**仍有未关闭的 turn timing（`hasActiveTurn`）。后者避免弱网对账提前清掉 generating 后漏播 |
-| 音频解锁 | 用户点发送 / 设置里试听时 `primeTaskCompleteAudio()`；页签回到前台时尝试 `resume`；`closed` 时重建 AudioContext |
-| 不触发 | 用户停止生成、流错误取消等非正常完成路径；重复 Done（turn 已关且非 generating） |
+| **桌面（Tauri）** | 原生播音：`play_task_complete_chime` 按**原 Web Audio 四层音色**离线合成 WAV（G3/G4 + D4/D5、1400Hz 低通、master 1.45），经 OS 播放（macOS `afplay` / Windows `SoundPlayer` / Linux `paplay\|aplay\|ffplay`）。不走 WebView，避免无声 |
+| **网页** | 同款合成 WAV + `HTMLAudioElement`；发送时 `primeTaskCompleteAudio` 静音解锁 |
+| 触发 | **仅** `handleDone`（`StreamEvent::Done`）；在 `finally` 中播放 |
+| 条件 | Done 前仍为 `generating`，**或**仍有未关闭的 turn timing（`hasActiveTurn`） |
+| 不触发 | 用户停止生成、流错误取消等；重复 Done（debounced） |
 
 取消 / 报错结束不会播放提示音。
 

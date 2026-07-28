@@ -67,6 +67,18 @@ export async function listWorkspaceDirectory(
   return await invoke('list_workspace_directory', { workspaceRoot, relativePath: relativePath ?? null })
 }
 
+export async function searchWorkspaceEntries(
+  workspaceRoot: string,
+  query: string,
+  limit?: number
+): Promise<import('./api').WorkspaceEntry[]> {
+  return await invoke('search_workspace_entries', {
+    workspaceRoot,
+    query,
+    limit: limit ?? null
+  })
+}
+
 export async function readWorkspaceFile(
   workspaceRoot: string,
   relativePath: string

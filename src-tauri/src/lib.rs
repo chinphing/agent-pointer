@@ -11,6 +11,7 @@ mod macos_permission_commands;
 mod macos_traffic_lights;
 mod platform_commands;
 mod popup_windows;
+mod task_complete_sound;
 mod updater_commands;
 mod window_chrome_commands;
 
@@ -464,7 +465,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::send_chat,
             commands::cancel_chat,
+            task_complete_sound::play_task_complete_chime,
             commands::list_workspace_directory,
+            commands::search_workspace_entries,
             commands::read_workspace_file,
             commands::delete_workspace_path,
             commands::get_workspace_git_status,

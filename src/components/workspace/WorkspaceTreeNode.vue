@@ -45,6 +45,7 @@ function openContextMenu(event: MouseEvent, node: WorkspaceTreeNodeModel) {
       :class="highlightedPath === node.path && 'is-selected'"
       :style="{ paddingLeft: `${12 + (depth ?? 0) * 16}px` }"
       type="button"
+      :data-workspace-tree-path="node.path"
       @click="activate(node)"
       @contextmenu.prevent="openContextMenu($event, node)"
     >

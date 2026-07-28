@@ -6,7 +6,7 @@ IM 通道上 `ask_user` 与 Hermes `clarify` 同语义：
 
 - **同轮阻塞**：工具等待用户回复，不结束 turn
 - **入站拦截**：下一则 IM 消息解析为选项，填入 tool result，不当作新一轮对话
-- App/Web 保持现有 oneshot UI 不变
+- App/Web 保持 oneshot UI；宿主提供「其他」自由输入（与 IM 同源校验）
 
 ## 非目标
 

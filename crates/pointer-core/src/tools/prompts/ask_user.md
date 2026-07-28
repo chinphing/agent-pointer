@@ -7,6 +7,9 @@ submits a choice.
 
 - Keep questions concise and decision-oriented.
 - Provide 2–6 mutually clear options.
+- The host always offers a free-text path
+  beyond those options; you do not need to
+  add an "Other" option yourself.
 - Use `multi_select` only when several choices
   may be combined.
 - Do not use this tool for questions answerable

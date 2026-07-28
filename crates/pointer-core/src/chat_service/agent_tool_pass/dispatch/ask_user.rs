@@ -10,41 +10,14 @@ use serde_json::json;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-fn validate_selection(args: &AskUserArgs, selected: Vec<String>) -> anyhow::Result<Vec<String>> {
-    if selected.is_empty() {
-        anyhow::bail!("ask_user 至少需要选择一个选项");
-    }
-    if !args.multi_select && selected.len() != 1 {
-        anyhow::bail!("ask_user 当前问题只允许单选");
-    }
-    let labels: std::collections::HashSet<&str> = args
-        .options
-        .iter()
-        .map(|option| option.label.as_str())
-        .collect();
-    if selected
-        .iter()
-        .any(|value| !labels.contains(value.as_str()))
-    {
-        anyhow::bail!("ask_user 提交了无效选项");
-    }
-    let mut deduped = Vec::new();
-    for value in selected {
-        if !deduped.contains(&value) {
-            deduped.push(value);
-        }
-    }
-    Ok(deduped)
-}
-
-/// IM / Hermes: allow free-text answers that are not in the option list.
-fn validate_im_selection(args: &AskUserArgs, selected: Vec<String>) -> anyhow::Result<Vec<String>> {
+fn validate_answers(args: &AskUserArgs, selected: Vec<String>) -> anyhow::Result<Vec<String>> {
     if selected.is_empty() {
         anyhow::bail!("ask_user 至少需要一个回答");
     }
     if !args.multi_select && selected.len() != 1 {
         anyhow::bail!("ask_user 当前问题只允许单选");
     }
+    // Hermes-style: listed option labels or free-text beyond the list.
     let mut deduped = Vec::new();
     for value in selected {
         let t = value.trim();
@@ -153,11 +126,7 @@ pub(super) async fn dispatch_ask_user(
     };
 
     state.im_ask_user.clear_for_desktop(conversation_id);
-    let selected = if is_im {
-        validate_im_selection(&args, selected)?
-    } else {
-        validate_selection(&args, selected)?
-    };
+    let selected = validate_answers(&args, selected)?;
     Ok((json!({ "selected": selected }).to_string(), true, None))
 }
 
@@ -186,13 +155,21 @@ mod tests {
     #[test]
     fn accepts_known_single_choice() {
         assert_eq!(
-            validate_selection(&args(false), vec!["A".into()]).unwrap(),
+            validate_answers(&args(false), vec!["A".into()]).unwrap(),
             vec!["A"]
         );
     }
 
     #[test]
-    fn rejects_unknown_choice() {
-        assert!(validate_selection(&args(false), vec!["C".into()]).is_err());
+    fn accepts_free_text_beyond_options() {
+        assert_eq!(
+            validate_answers(&args(false), vec!["我自己的方案".into()]).unwrap(),
+            vec!["我自己的方案"]
+        );
+    }
+
+    #[test]
+    fn rejects_empty_after_trim() {
+        assert!(validate_answers(&args(false), vec!["  ".into()]).is_err());
     }
 }

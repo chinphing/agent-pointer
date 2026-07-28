@@ -47,11 +47,15 @@ outside project navigation.
   The section is hidden when there are no pinned conversations. Pinning does
   not bump `updatedAt`. Pinned rows are excluded from the recent list and from
   nested project task lists to avoid duplicates.
+- Conversation rows support a right-click menu: pin/unpin, rename, copy session
+  id, copy workspace directory, and (desktop only) reveal workspace in Finder.
+  Empty workspace actions are disabled. Web hides the Finder action.
 - The conversation list (**最近**) remains global below the project list and is
   ordered by `updatedAt` descending (stable id tie-break). The section title
   (and search / new-task actions) stays **outside** the scroll container so it
   does not scroll away; only the conversation rows scroll.
   Conversation pin state is persisted on the conversation meta row (`isPinned`).
+  Double-click a title to rename in a dialog.
 - Opening a recent conversation whose project is outside the loaded sidebar
   fetches that project by id for Composer context only. This lookup does not
   insert or highlight the project in the sidebar.

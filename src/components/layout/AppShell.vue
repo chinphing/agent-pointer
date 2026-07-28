@@ -14,6 +14,7 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   FolderGit2,
+  FolderOpen,
   Clock3,
   Sparkles,
   Link2,
@@ -22,12 +23,14 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
+  Pencil,
+  Copy,
   Settings2
 } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 import {
-  createProject, searchConversations, updateProject
+  createProject, searchConversations, updateProject, revealInFinder
 } from '../../lib/api'
 import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
 import { applyProjectCreationResult } from '../../lib/projectCreation'
@@ -369,10 +372,17 @@ function closeProjectMenuOnOutsideClick(event: MouseEvent) {
   if (!target.closest('.project-context-menu, .project-menu-trigger')) {
     projectMenuId.value = null
   }
+  if (!target.closest('.conversation-context-menu')) {
+    closeConversationMenu()
+  }
 }
 
 function closeProjectOverlaysOnKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
+  if (conversationMenu.value) {
+    closeConversationMenu()
+    return
+  }
   if (conversationSearchExpanded.value) {
     closeConversationSearch()
     return
@@ -445,6 +455,118 @@ function compareUnpinnedByActivity(
 
 function toggleConversationPin(c: { id: string }) {
   chat.toggleConversationPin(c.id)
+}
+
+type ConversationMenuTarget = {
+  id: string
+  title: string
+  isPinned: boolean
+  workspaceRoot: string
+}
+
+const conversationMenu = ref<{
+  target: ConversationMenuTarget
+  left: number
+  top: number
+} | null>(null)
+
+function resolveConversationWorkspaceRoot(conversationId: string): string {
+  const conv = chat.conversations.find(c => c.id === conversationId)
+  const direct = conv?.workspaceRoot?.trim()
+  if (direct) return direct
+  const projectId = conv?.projectId?.trim()
+  if (!projectId) return ''
+  return chat.projectById(projectId)?.workspaceRoot?.trim() || ''
+}
+
+function openConversationMenu(event: MouseEvent, c: { id: string; title?: string }) {
+  event.preventDefault()
+  event.stopPropagation()
+  projectMenuId.value = null
+  pendingDeleteId.value = null
+  const full = chat.conversations.find(item => item.id === c.id)
+  const menuWidth = 188
+  const menuHeight = 220
+  const left = Math.min(Math.max(8, event.clientX), window.innerWidth - menuWidth - 8)
+  const top = Math.min(Math.max(8, event.clientY), window.innerHeight - menuHeight - 8)
+  conversationMenu.value = {
+    target: {
+      id: c.id,
+      title: full?.title?.trim() || c.title?.trim() || '会话',
+      isPinned: !!full?.isPinned,
+      workspaceRoot: resolveConversationWorkspaceRoot(c.id)
+    },
+    left,
+    top
+  }
+}
+
+function closeConversationMenu() {
+  conversationMenu.value = null
+}
+
+async function copyText(label: string, text: string) {
+  const value = text.trim()
+  if (!value) {
+    chat.showUiToast(`${label}为空`, 'warning')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(value)
+    chat.showUiToast(`已复制${label}`, 'success')
+  } catch (err) {
+    console.error('[sidebar] clipboard write failed', label, err)
+    chat.showUiToast(`复制${label}失败`, 'error')
+  }
+}
+
+async function onConversationMenuPin() {
+  const target = conversationMenu.value?.target
+  closeConversationMenu()
+  if (!target) return
+  toggleConversationPin(target)
+}
+
+function onConversationMenuRename() {
+  const target = conversationMenu.value?.target
+  closeConversationMenu()
+  if (!target) return
+  startEdit(target)
+}
+
+async function onConversationMenuCopyId() {
+  const target = conversationMenu.value?.target
+  closeConversationMenu()
+  if (!target) return
+  await copyText('会话 ID', target.id)
+}
+
+async function onConversationMenuCopyWorkspace() {
+  const target = conversationMenu.value?.target
+  closeConversationMenu()
+  if (!target) return
+  await copyText('工作目录', target.workspaceRoot)
+}
+
+async function onConversationMenuRevealWorkspace() {
+  const target = conversationMenu.value?.target
+  closeConversationMenu()
+  if (!target) return
+  const root = target.workspaceRoot.trim()
+  if (!root) {
+    chat.showUiToast('工作目录为空', 'warning')
+    return
+  }
+  if (!isTauriRuntime()) {
+    chat.showUiToast('网页端不支持在 Finder 中显示', 'warning')
+    return
+  }
+  try {
+    await revealInFinder(root)
+  } catch (err) {
+    console.error('[sidebar] revealInFinder failed', root, err)
+    chat.showUiToast('打开目录失败', 'error')
+  }
 }
 
 const pinnedConversations = computed(() =>
@@ -722,6 +844,7 @@ watch(searchQuery, q => {
                   ? 'bg-accent-muted border-accent/40'
                   : 'hover:bg-hover border-transparent'"
                 @click="onRowClick(c)"
+                @contextmenu="openConversationMenu($event, c)"
               >
                 <Loader2
                   v-if="chat.isConversationGenerating(c.id)"
@@ -948,6 +1071,7 @@ watch(searchQuery, q => {
                     :key="conversation.id"
                     class="sidebar-project-task-row group/task flex items-center gap-1 rounded-md"
                     :class="chat.currentId === conversation.id && 'is-active'"
+                    @contextmenu="openConversationMenu($event, conversation)"
                   >
                     <div
                       role="button"
@@ -1109,6 +1233,7 @@ watch(searchQuery, q => {
                 ? 'bg-accent-muted border-accent/40'
                 : 'hover:bg-hover border-transparent'"
               @click="onRowClick(c)"
+              @contextmenu="openConversationMenu($event, c)"
             >
               <Loader2
                 v-if="chat.isConversationGenerating(c.id)"
@@ -1259,6 +1384,55 @@ watch(searchQuery, q => {
         @close="setWorkspacePanelOpen(false)"
       />
     </div>
+    <Teleport to="body">
+      <div
+        v-if="conversationMenu"
+        class="fixed inset-0 z-[300]"
+        @mousedown="closeConversationMenu"
+        @contextmenu.prevent="closeConversationMenu"
+      >
+        <div
+          class="conversation-context-menu"
+          role="menu"
+          :style="{ left: `${conversationMenu.left}px`, top: `${conversationMenu.top}px` }"
+          @mousedown.stop
+        >
+          <button
+            type="button"
+            role="menuitem"
+            @click="onConversationMenuPin"
+          >
+            <PinOff v-if="conversationMenu.target.isPinned" />
+            <Pin v-else />
+            {{ conversationMenu.target.isPinned ? '取消置顶' : '置顶' }}
+          </button>
+          <button type="button" role="menuitem" @click="onConversationMenuRename">
+            <Pencil />重命名
+          </button>
+          <div class="conversation-context-separator" />
+          <button type="button" role="menuitem" @click="onConversationMenuCopyId">
+            <Copy />复制会话 ID
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            :disabled="!conversationMenu.target.workspaceRoot"
+            @click="onConversationMenuCopyWorkspace"
+          >
+            <Copy />复制工作目录
+          </button>
+          <button
+            v-if="isTauriRuntime()"
+            type="button"
+            role="menuitem"
+            :disabled="!conversationMenu.target.workspaceRoot"
+            @click="onConversationMenuRevealWorkspace"
+          >
+            <FolderOpen />在 Finder 中显示
+          </button>
+        </div>
+      </div>
+    </Teleport>
     <div
       v-if="renameTarget"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -1503,6 +1677,22 @@ watch(searchQuery, q => {
 
 .project-context-menu button :deep(svg) {
   @apply w-3.5 h-3.5 text-muted;
+}
+
+.conversation-context-menu {
+  @apply fixed z-[301] w-48 rounded-lg border border-border bg-card p-1 shadow-xl select-none;
+}
+
+.conversation-context-menu button {
+  @apply w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-foreground hover:bg-hover disabled:opacity-40 disabled:pointer-events-none;
+}
+
+.conversation-context-menu button :deep(svg) {
+  @apply w-3.5 h-3.5 text-muted;
+}
+
+.conversation-context-separator {
+  @apply my-1 h-px bg-border;
 }
 
 .sidebar-awaiting-dot {

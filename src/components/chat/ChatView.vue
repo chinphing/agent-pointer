@@ -46,33 +46,25 @@ const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const isHydratingMessages = computed(() => chat.isCurrentConversationHydrating)
 /**
- * In-memory long transcripts rebuild MessageList layout synchronously on switch.
- * Defer revealing them by two animation frames so the sidebar selection can paint first.
+ * After currentId changes, keep the main pane on a cheap skeleton for one frame
+ * so the sidebar is-active paint is not blocked by MessageList layout.
  */
-const LARGE_TRANSCRIPT_DEFER_COUNT = 80
-const deferHeavyTranscript = ref(false)
+const deferMainPane = ref(false)
 watch(
   () => chat.currentId,
   id => {
-    if (!id || isHydratingMessages.value) {
-      deferHeavyTranscript.value = false
+    if (!id) {
+      deferMainPane.value = false
       return
     }
-    const count = chat.current?.messages.length ?? 0
-    if (count < LARGE_TRANSCRIPT_DEFER_COUNT) {
-      deferHeavyTranscript.value = false
-      return
-    }
-    deferHeavyTranscript.value = true
+    deferMainPane.value = true
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (chat.currentId === id) deferHeavyTranscript.value = false
-      })
+      if (chat.currentId === id) deferMainPane.value = false
     })
   }
 )
 const showMessageListPlaceholder = computed(
-  () => isHydratingMessages.value || deferHeavyTranscript.value
+  () => isHydratingMessages.value || deferMainPane.value
 )
 const conversationMessages = computed(() => chat.current?.messages ?? [])
 const showWelcomeHome = computed(() => {

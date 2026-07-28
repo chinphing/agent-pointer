@@ -1623,25 +1623,24 @@ export const useChatStore = defineStore('chat', () => {
       touchConversation(id)
       return
     }
+    // Persist the previous composer draft before switching selection.
     flushActiveComposerDraft()
-    // Start loading messages BEFORE changing currentId so that
-    // isCurrentConversationHydrating is true when the MessageList
-    // watcher fires synchronously — otherwise tryLocatePendingFocus
-    // clears pendingFocusMessage prematurely (race condition).
-    void ensureMessagesLoaded(
-      id,
-      needsHydration && (conv?.messageCount ?? 0) > 0 && (conv?.messages.length ?? 0) === 0
-        ? { force: true }
-        : undefined
-    )
-    // Selection must update before heavy follow-up work so the sidebar can paint
-    // is-active (long transcripts otherwise block the first frame after click).
+    // Commit selection first so the sidebar can paint is-active before heavy UI work.
     currentId.value = id
     touchConversation(id)
-    reconcileRunStateForConversation(id)
-    loadActiveComposerDraft(id)
 
     const selectedId = id
+    const hydrateOpts =
+      needsHydration && (conv?.messageCount ?? 0) > 0 && (conv?.messages.length ?? 0) === 0
+        ? { force: true as const }
+        : undefined
+    // Defer transcript hydrate / draft load / boards so they do not block the highlight frame.
+    queueMicrotask(() => {
+      if (currentId.value !== selectedId) return
+      void ensureMessagesLoaded(selectedId, hydrateOpts)
+      reconcileRunStateForConversation(selectedId)
+      loadActiveComposerDraft(selectedId)
+    })
     requestAnimationFrame(() => {
       if (currentId.value !== selectedId) return
       evictIdleConversations()

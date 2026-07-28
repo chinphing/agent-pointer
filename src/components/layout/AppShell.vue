@@ -115,22 +115,6 @@ function confirmDeleteConversation(c: { id: string }) {
   chat.deleteConversation(c.id)
 }
 
-/**
- * Pointer-down optimistic highlight so the sidebar paints selection before the
- * click handler runs heavy open/hydrate work (long transcripts).
- */
-const optimisticConversationId = ref<string | null>(null)
-
-function isConversationHighlighted(id: string): boolean {
-  return id === (optimisticConversationId.value ?? chat.currentId)
-}
-
-function onConversationPointerDown(id: string) {
-  const key = id.trim()
-  if (!key) return
-  optimisticConversationId.value = key
-}
-
 /** Row click selects the conversation and dismisses any pending delete. */
 function onRowClick(c: {
   id: string
@@ -152,20 +136,7 @@ function onRowClick(c: {
       projectId: c.projectId
     }
   })
-  // openConversation sets currentId synchronously; drop optimistic once store matches.
-  if (chat.currentId === c.id) {
-    optimisticConversationId.value = null
-  }
 }
-
-watch(
-  () => chat.currentId,
-  id => {
-    if (optimisticConversationId.value != null && optimisticConversationId.value === id) {
-      optimisticConversationId.value = null
-    }
-  }
-)
 
 const projectSearchQuery = ref('')
 const projectSearchExpanded = ref(false)
@@ -874,15 +845,14 @@ watch(searchQuery, q => {
                     v-for="conversation in projectConversations(project)"
                     :key="conversation.id"
                     class="sidebar-project-task-row group/task flex items-center gap-1 rounded-md"
-                    :class="isConversationHighlighted(conversation.id) && 'is-active'"
+                    :class="chat.currentId === conversation.id && 'is-active'"
                   >
                     <div
                       role="button"
                       tabindex="0"
                       class="sidebar-project-conversation flex-1 min-w-0"
-                      :class="isConversationHighlighted(conversation.id) && 'is-active'"
+                      :class="chat.currentId === conversation.id && 'is-active'"
                       :title="conversation.title"
-                      @pointerdown.left="onConversationPointerDown(conversation.id)"
                       @click="onRowClick(conversation)"
                       @keydown.enter="onRowClick(conversation)"
                       @keydown.space.prevent="onRowClick(conversation)"
@@ -1035,21 +1005,20 @@ watch(searchQuery, q => {
               v-for="c in sidebarRows"
               :key="c.id"
               class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition border"
-              :class="isConversationHighlighted(c.id)
+              :class="chat.currentId === c.id
                 ? 'bg-accent-muted border-accent/40'
                 : 'hover:bg-hover border-transparent'"
-              @pointerdown.left="onConversationPointerDown(c.id)"
               @click="onRowClick(c)"
             >
               <Loader2
                 v-if="chat.isConversationGenerating(c.id)"
                 class="w-3.5 h-3.5 shrink-0 animate-spin"
-                :class="isConversationHighlighted(c.id) ? 'text-accent' : 'text-muted'"
+                :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
               />
               <MessageSquare
                 v-else
                 class="w-3.5 h-3.5 shrink-0"
-                :class="isConversationHighlighted(c.id) ? 'text-accent' : 'text-muted'"
+                :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
               />
               <div class="flex-1 min-w-0">
                 <template v-if="editingId === c.id">

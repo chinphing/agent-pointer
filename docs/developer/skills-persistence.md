@@ -59,7 +59,10 @@ effective = merge missing bundled ids from defaultSkillIds
 
 入口（APP / Web / IM / Cron / Webhook）**不携带** skill 列表；`run_chat` 在 overrides 为空时从 `user_settings.agentSkillOverrides` 加载。
 
-- **单智能体**：lead 为 **`general`** / **`coder`** 时按上式注入。**general** 对 skill 文件只读 + **`skill_import`**；写入用户库 → **`run_subagent(coder)`**。**coder** 仅 **`skill_read`** + **`file_*`**。
+- **单智能体**：lead 为 **`general`** / **`coder`** 时按上式注入。
+  **general** 可 **`file_*`** + **`skill_import`**；何时本地写、何时
+  **`run_subagent(coder)`** → 见 `run_subagent` 工具提示词 **`coder`** 小节
+  （唯一来源）。**coder** 仅 **`skill_read`** + **`file_*`**。
 - **Supervisor**：不加载技能。
 - **子 Agent**：**coder** 用自身 `defaultSkillIds`（经同一链路）；**self fork** 用 `inheritsFromParent`（父已解析列表）。其他子 Agent 通常不加载 skill。
 

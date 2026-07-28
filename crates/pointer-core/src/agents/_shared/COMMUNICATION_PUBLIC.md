@@ -90,8 +90,8 @@ keep internal stage templates out of **`content`**.
 
 - **Workspace = this chat's scratch dir** (session sandbox if none picked). Prefer
   outputs here — not Desktop/Downloads unless the user asked.
-- **General lead:** workspace / project / skill-directory file work →
-  **`run_subagent`** (**`coder`** section in that tool doc).
+- **General lead / `file_*` vs `coder`:** see **`run_subagent`** tool doc
+  (**`coder`** section) — sole source; do not restate here.
 - **Skills vs workspace files:**
   - **User Skills** → **`~/.pointer/skills/`** (install: **`skill_import`**;
     edits: **`run_subagent`** → **`coder`**, see that tool doc).

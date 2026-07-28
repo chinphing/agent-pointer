@@ -118,15 +118,23 @@ Unverified assumptions (optional).
 
 **`coder` (general lead only)**
 
-Authoritative when-to-delegate and call rules for **`coder`** (do not restate elsewhere):
+**Sole source** for when the general lead stays local vs delegates to **`coder`** :
 
 - **Delegate directly — no user consent.**
-- **All** workspace / project disk work (read, search, create, edit) and tests.
-- All **writes** under **`~/.pointer/skills/`** (skill create/update).
+- **Delegate for:** **changing code** (any file count), **changing skill
+  prompts** / skill files (any file count), all writes under
+  **`~/.pointer/skills/`**, tests, multi-file refactors, and **broad**
+  search/mapping (unknown paths, multi-hop discovery).
+- **Stay local on the general lead:** known-path **`file_*`** when the path
+  is already known — reads (**`file_read`**, scoped **`file_grep`** /
+  **`file_list`** / **`file_glob`**) and small **non-code** edits
+  (**`file_edit`** / **`file_write`**, about **1–3** plain files:
+  notes, user text, simple deliverables).
+  Do **not** start a repo-wide scout on the lead thread.
 - Loading / installing skills is **not** a coder task —
   use **`skill_read`** / **`skill_import`** when those tools are granted.
-- Next tool must be **`run_subagent`** — no repo scout
-  (**`terminal`** `cat` / `grep` / `find`).
+- When delegating: next tool must be **`run_subagent`** — no repo scout via
+  **`terminal`** (`cat` / `grep` / `find`).
 - User questions and facts → **`context`**; worker maps (**`explore`**), edits, tests.
 - **`workspaceRoot`** **required** — skill root, user project path, or conversation workspace.
 - Before delegate: **`skill_read`** (`path` required; use `SKILL.md` for instructions)
@@ -138,9 +146,9 @@ Authoritative when-to-delegate and call rules for **`coder`** (do not restate el
 - **When:** long main thread, or a sub-phase needs many tool rounds without polluting lead context
   (multi-skill steps, research, attachment pipelines) — and the work stays in the **current agent's**
   domain.
-- **When not:** workspace / project / skill-directory file work → **`coder`** (rules above);
-  desktop/browser → **`computer`**; simple Q&A → stay local;
-  broad read-only repo mapping → **`explore`** (coder only).
+- **When not:** work that belongs to **`coder`** / **`computer`** /
+  **`explore`** per the sections above — stay on this brief only for
+  in-domain leaf work; simple Q&A stays on the lead.
 - Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.
 - Parallel rules: see **Parallel wave** above.
 

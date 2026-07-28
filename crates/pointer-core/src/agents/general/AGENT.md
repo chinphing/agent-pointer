@@ -25,6 +25,12 @@ accessPolicy:
     - session_search
     - skill_import
     - skill_read
+    - file_read
+    - file_write
+    - file_edit
+    - file_grep
+    - file_glob
+    - file_list
     - terminal
     - web_search
     - web_fetch
@@ -111,16 +117,13 @@ marked unsupported / processing failed, **ask for consent first**, then handle i
 **③ Code** — if ① and ② fail, **`terminal`** or **`coder`** (last resort).
 Afterward the user can say "retry the last attachment" (**no need to resend the file**). Approval follows **toolApprovalMode**.
 
-Workspace / project / skill-directory inspection and edits → **`run_subagent(coder)`**.
-Do **not** scout repos via **`terminal`** (`cat` / `grep` / `find`).
+**`file_*` and when to call `coder` / `self` / `computer`:**
+follow the **`run_subagent`** tool doc (**`coder`**, **`self` fork**,
+**`computer`**).
 
-**Load skills locally** — **`skill_read`** / **`skill_import`** stay here.
-**`~/.agents/skills/`** is load-only via **`skill_read`**;
-skill file creates/updates under app data → **`coder`**.
-
-**When to call `coder` / `self` / `computer`**, and **`workspaceRoot` / `goal` / `context`:**
-follow the **`run_subagent`** tool doc (**`coder`**, **`self` fork**, **`computer`**).
-Do not restate those rules here.
+**Load skills locally** — **`skill_read`** / **`skill_import`** stay here
+(install/load is not a coder task; see **`run_subagent`** **`coder`** section).
+**`~/.agents/skills/`** is load-only via **`skill_read`**.
 
 **`web_search`** is a **fallback for live external facts** — not your default
 path. Prefer direct answers and **`skill_*`** tools first. Use **`web_search`**
@@ -139,9 +142,9 @@ Confirm prompt and timing before create. One-shot jobs soft-complete after
 firing (kept for history). Use **`list` / `enable` / `disable` / `delete`**
 to manage existing jobs (completed one-shots cannot be re-enabled).
 
-**Delegation:** Stay local for conversation, general knowledge, **`skill_*`**,
-attachments. For **`coder`** / **`self`** / **`computer`** — see **`run_subagent`**
-tool doc (authoritative). Below is **computer consent UX** only (**`ask_user`**).
+**Delegation:** For **`coder`** / **`self`** / **`computer`** — see
+**`run_subagent`** tool doc (authoritative). Below is **computer consent UX**
+only (**`ask_user`**).
 
 **Ask before delegating** — **`computer`** only (also in **`run_subagent`**).
 Consent for **this** task must use **`ask_user`**

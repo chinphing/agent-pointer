@@ -1641,12 +1641,12 @@ mod builtin_agent_tests {
             "file_list",
         ] {
             assert!(
-                !agent
+                agent
                     .def
                     .access_policy
                     .allow_tools
                     .contains(&tool.to_string()),
-                "general allowTools must not include {tool} (disk files go via coder)"
+                "general allowTools should include {tool}"
             );
         }
         for tool in ["skill_read", "skill_import"] {

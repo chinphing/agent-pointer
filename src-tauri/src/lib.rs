@@ -466,6 +466,7 @@ pub fn run() {
             commands::cancel_chat,
             commands::list_workspace_directory,
             commands::read_workspace_file,
+            commands::delete_workspace_path,
             commands::get_workspace_git_status,
             commands::get_workspace_git_diff,
             commands::get_turn_file_diff,

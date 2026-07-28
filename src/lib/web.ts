@@ -155,6 +155,15 @@ export async function readWorkspaceFile(
   return await request(`/api/workspace/file?${workspaceQuery(workspaceRoot, relativePath)}`)
 }
 
+export async function deleteWorkspacePath(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<void> {
+  await request(`/api/workspace/path?${workspaceQuery(workspaceRoot, relativePath)}`, {
+    method: 'DELETE'
+  })
+}
+
 export async function getWorkspaceGitStatus(workspaceRoot: string): Promise<import('./api').GitStatusResponse> {
   return await request(`/api/workspace/git/status?${workspaceQuery(workspaceRoot)}`)
 }

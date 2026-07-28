@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { Copy, ExternalLink, FileCode2, FileDiff, FolderOpen, GitBranch, Loader2, RefreshCw, X } from 'lucide-vue-next'
+import { Copy, ExternalLink, FileCode2, FileDiff, FolderOpen, GitBranch, Loader2, RefreshCw, Trash2, X } from 'lucide-vue-next'
 import {
+  deleteWorkspacePath,
   getTurnFileDiff,
   getWorkspaceGitDiff,
   getWorkspaceGitStatus,
@@ -95,6 +96,9 @@ const gitError = ref<import('../../lib/api').GitErrorInfo | null>(null)
 const panelWidth = ref(readWorkspacePanelWidth(typeof localStorage === 'undefined' ? null : localStorage.getItem(WIDTH_STORAGE_KEY)))
 const resizing = ref(false)
 const contextMenu = ref<ContextMenuState | null>(null)
+/** Pending delete after context-menu action (Tauri has no usable window.confirm). */
+const pendingDelete = ref<{ path: string; name: string; kind: TreeNode['kind'] } | null>(null)
+const deletingPath = ref(false)
 const isDesktop = isTauriRuntime()
 let resizeStartX = 0
 let resizeStartWidth = 0
@@ -558,7 +562,8 @@ function menuPosition(event: MouseEvent, menuHeight: number) {
 }
 
 function openTreeContextMenu(event: MouseEvent, node: TreeNode) {
-  contextMenu.value = { kind: 'tree', node, ...menuPosition(event, isDesktop ? 246 : 190) }
+  // Extra room for the destructive Delete row + separator.
+  contextMenu.value = { kind: 'tree', node, ...menuPosition(event, isDesktop ? 290 : 234) }
 }
 
 function openChangeContextMenu(event: MouseEvent, change: GitChange) {
@@ -580,7 +585,9 @@ async function runPathAction(path: string, action: 'copy-absolute' | 'copy-relat
   else await revealInFinder(absolutePath)
 }
 
-async function runTreeContextAction(action: 'preview' | 'open-system' | 'copy-absolute' | 'copy-relative' | 'reveal' | 'refresh') {
+async function runTreeContextAction(
+  action: 'preview' | 'open-system' | 'copy-absolute' | 'copy-relative' | 'reveal' | 'refresh' | 'delete'
+) {
   const menu = contextMenu.value
   closeContextMenu()
   if (menu?.kind !== 'tree') return
@@ -592,9 +599,78 @@ async function runTreeContextAction(action: 'preview' | 'open-system' | 'copy-ab
     } else if (action === 'open-system') {
       await openPathWithDefaultApp(workspaceAbsolutePath(props.workspaceRoot, node.path))
     } else if (action === 'refresh') await loadRoot()
-    else await runPathAction(node.path, action)
+    else if (action === 'delete') {
+      pendingDelete.value = { path: node.path, name: node.name, kind: node.kind }
+    } else await runPathAction(node.path, action)
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+function previewTabMatchesDeletedPath(
+  tabPath: string,
+  deletedPath: string,
+  deletedKind: TreeNode['kind']
+): boolean {
+  if (tabPath === deletedPath) return true
+  if (deletedKind !== 'directory') return false
+  return tabPath === deletedPath || tabPath.startsWith(`${deletedPath}/`)
+}
+
+function closeTabsForDeletedPath(deletedPath: string, deletedKind: TreeNode['kind']) {
+  const closing = previewTabs.value.filter(tab =>
+    previewTabMatchesDeletedPath(tab.path, deletedPath, deletedKind)
+  )
+  if (closing.length === 0) return
+  const closingIds = new Set(closing.map(tab => tab.id))
+  const ids = previewTabs.value.map(item => item.id)
+  const fallback: PrimaryView = closing.some(tab => tab.kind === 'diff' || tab.kind === 'turn-diff')
+    ? 'changes'
+    : 'files'
+  const primaryClosedId = closing[0]!.id
+  activeView.value = workspaceActiveAfterClose(
+    ids,
+    activeView.value,
+    [...closingIds],
+    primaryClosedId,
+    fallback
+  )
+  previewTabs.value = previewTabs.value.filter(item => !closingIds.has(item.id))
+}
+
+/** Remove a deleted entry in place so expanded folders stay open. */
+function removeNodeFromTree(nodes: TreeNode[], path: string): boolean {
+  const index = nodes.findIndex(node => node.path === path)
+  if (index >= 0) {
+    nodes.splice(index, 1)
+    return true
+  }
+  for (const node of nodes) {
+    if (node.children && removeNodeFromTree(node.children, path)) return true
+  }
+  return false
+}
+
+async function confirmPendingDelete() {
+  const target = pendingDelete.value
+  if (!target || deletingPath.value) return
+  deletingPath.value = true
+  error.value = ''
+  try {
+    await deleteWorkspacePath(props.workspaceRoot, target.path)
+    console.info('[WorkspacePanel] deleted workspace path', target.path)
+    closeTabsForDeletedPath(target.path, target.kind)
+    if (!removeNodeFromTree(roots.value, target.path)) {
+      await loadRoot({ silent: true })
+    }
+    pendingDelete.value = null
+    refreshChangesBadge()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[WorkspacePanel] delete workspace path failed', message)
+    error.value = message
+  } finally {
+    deletingPath.value = false
   }
 }
 
@@ -630,7 +706,12 @@ async function runTabContextAction(action: WorkspaceTabCloseAction | 'copy-absol
 }
 
 function handleDocumentKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') closeContextMenu()
+  if (event.key !== 'Escape') return
+  if (pendingDelete.value) {
+    if (!deletingPath.value) pendingDelete.value = null
+    return
+  }
+  closeContextMenu()
 }
 
 const normalizedWorkspaceRoot = computed(() => props.workspaceRoot.trim().replace(/[\\/]+$/, ''))
@@ -885,6 +966,8 @@ onBeforeUnmount(() => {
             <button type="button" role="menuitem" @click="runTreeContextAction('copy-relative')"><Copy />复制相对路径</button>
             <button v-if="isDesktop" type="button" role="menuitem" @click="runTreeContextAction('reveal')"><FolderOpen />在 Finder 中显示</button>
             <button type="button" role="menuitem" @click="runTreeContextAction('refresh')"><RefreshCw />刷新文件树</button>
+            <div class="workspace-context-separator" />
+            <button type="button" role="menuitem" class="is-danger" @click="runTreeContextAction('delete')"><Trash2 />删除</button>
           </template>
 
           <template v-else-if="contextMenu.kind === 'change'">
@@ -907,6 +990,43 @@ onBeforeUnmount(() => {
             <button v-if="isDesktop" type="button" role="menuitem" @click="runTabContextAction('reveal')"><FolderOpen />在 Finder 中显示</button>
           </template>
         </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="pendingDelete"
+        class="fixed inset-0 z-[310] flex items-center justify-center bg-[hsl(var(--foreground)/0.32)] p-4"
+        @click.self="!deletingPath && (pendingDelete = null)"
+      >
+        <section class="w-full max-w-sm rounded-xl border border-border bg-card p-5" role="dialog" aria-modal="true" aria-label="确认删除">
+          <h2 class="text-base font-semibold text-foreground">
+            {{ pendingDelete.kind === 'directory' ? '删除文件夹？' : '删除文件？' }}
+          </h2>
+          <p class="mt-2 text-sm leading-6 text-muted">
+            {{ pendingDelete.kind === 'directory'
+              ? '将永久删除该文件夹及其全部内容，此操作不可撤销。'
+              : '将永久删除该文件，此操作不可撤销。' }}
+          </p>
+          <div class="mt-3 rounded-lg border border-border bg-hover/50 px-3 py-2">
+            <div class="text-[11px] font-medium text-muted">路径</div>
+            <div class="mt-0.5 break-all font-mono text-xs text-foreground">{{ pendingDelete.path }}</div>
+          </div>
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover disabled:opacity-50"
+              :disabled="deletingPath"
+              @click="pendingDelete = null"
+            >取消</button>
+            <button
+              type="button"
+              class="rounded-md bg-danger px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
+              :disabled="deletingPath"
+              @click="confirmPendingDelete"
+            >{{ deletingPath ? '删除中…' : '删除' }}</button>
+          </div>
+        </section>
       </div>
     </Teleport>
   </aside>
@@ -937,4 +1057,6 @@ onBeforeUnmount(() => {
 .workspace-context-separator { @apply my-1 border-t border-border; }
 .workspace-context-menu button { @apply w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-foreground hover:bg-hover; }
 .workspace-context-menu button :deep(svg) { @apply w-3.5 h-3.5 text-muted; }
+.workspace-context-menu button.is-danger { @apply text-danger; }
+.workspace-context-menu button.is-danger :deep(svg) { @apply text-danger; }
 </style>

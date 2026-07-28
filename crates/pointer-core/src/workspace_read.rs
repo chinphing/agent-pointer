@@ -142,6 +142,39 @@ pub fn list_directory(
     Ok(entries)
 }
 
+/// Delete a file, symlink, or directory under `workspace_root`.
+///
+/// Safety: relative paths only (no `..` / absolute); never deletes the workspace
+/// root itself; does not follow directory symlinks (`remove_file` for symlinks).
+pub fn delete_path(workspace_root: &Path, relative_path: &str) -> Result<()> {
+    let root = canonical_workspace(workspace_root)?;
+    let relative = safe_relative(relative_path)?;
+    if relative.as_os_str().is_empty() {
+        return Err(anyhow!("cannot delete workspace root"));
+    }
+    let target = root.join(&relative);
+    if !target.starts_with(&root) {
+        return Err(anyhow!("path is outside workspaceRoot"));
+    }
+    let metadata = fs::symlink_metadata(&target).with_context(|| {
+        format!("workspace path does not exist: {}", relative.display())
+    })?;
+    let file_type = metadata.file_type();
+    let display = relative.to_string_lossy().replace('\\', "/");
+    if file_type.is_symlink() || file_type.is_file() {
+        fs::remove_file(&target)
+            .with_context(|| format!("failed to delete file: {display}"))?;
+        log::info!("workspace_read: deleted file path={display}");
+    } else if file_type.is_dir() {
+        fs::remove_dir_all(&target)
+            .with_context(|| format!("failed to delete directory: {display}"))?;
+        log::info!("workspace_read: deleted directory path={display}");
+    } else {
+        return Err(anyhow!("unsupported file type for delete: {display}"));
+    }
+    Ok(())
+}
+
 /// Read a bounded, UTF-8 text preview without following paths outside the workspace.
 pub fn read_file(workspace_root: &Path, relative_path: &str) -> Result<WorkspaceFilePreview> {
     let root = canonical_workspace(workspace_root)?;
@@ -473,6 +506,23 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         assert!(list_directory(root.path(), Some("../outside")).is_err());
         assert!(git_diff(root.path(), "/tmp/outside", None).is_err());
+        assert!(delete_path(root.path(), "../outside").is_err());
+        assert!(delete_path(root.path(), "").is_err());
+    }
+
+    #[test]
+    fn deletes_files_and_directories_inside_workspace() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("folder")).unwrap();
+        fs::write(root.path().join("folder/nested.txt"), b"nested").unwrap();
+        fs::write(root.path().join("file.txt"), b"hello").unwrap();
+
+        delete_path(root.path(), "file.txt").unwrap();
+        assert!(!root.path().join("file.txt").exists());
+
+        delete_path(root.path(), "folder").unwrap();
+        assert!(!root.path().join("folder").exists());
+        assert!(delete_path(root.path(), "missing.txt").is_err());
     }
 
     #[test]

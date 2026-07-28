@@ -9,6 +9,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('../../lib/runtime', () => ({ isTauriRuntime: () => false }))
 vi.mock('../../lib/api', () => ({
+  deleteWorkspacePath: vi.fn(async () => undefined),
   getWorkspaceGitDiff: vi.fn(async () => ({
     path: '',
     mode: 'unstaged',

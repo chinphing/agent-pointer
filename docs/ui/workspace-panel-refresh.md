@@ -26,6 +26,15 @@
 
 右键打开菜单时，文件树 / 变更列表 / 预览 Tab 对应行保持整行高亮（`is-selected` / `is-context-selected`），直到菜单关闭。菜单遮罩会吃掉 hover，因此不能只依赖 `:hover`。
 
+## 右键删除
+
+文件树右键提供 **删除**（文件 / 文件夹 / 符号链接）。桌面 WebView 无可靠 `window.confirm`，因此走确认弹层后再调用：
+
+- 桌面：`delete_workspace_path`（Tauri）
+- Web：`DELETE /api/workspace/path`
+
+后端只允许删除工作区内相对路径，禁止删除工作区根与 `..` 逃逸。成功后关闭相关预览 Tab，并从文件树就地移除节点（保留已展开目录）；同时静默刷新 Git 变更角标。
+
 ## 跨端
 
 桌面与 Web 共用同一组件与 API；两端行为一致。

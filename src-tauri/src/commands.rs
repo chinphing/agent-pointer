@@ -43,6 +43,15 @@ pub fn read_workspace_file(
 }
 
 #[tauri::command]
+pub fn delete_workspace_path(
+    workspace_root: String,
+    relative_path: String,
+) -> Result<(), String> {
+    pointer_core::workspace_read::delete_path(Path::new(&workspace_root), &relative_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_workspace_git_status(
     workspace_root: String,
 ) -> Result<pointer_core::workspace_read::GitStatusResponse, String> {

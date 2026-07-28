@@ -86,6 +86,19 @@ async fn read_workspace_file(
     )?))
 }
 
+async fn delete_workspace_path(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspacePathQuery>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    let relative_path = q.relative_path.as_deref().unwrap_or("");
+    pointer_core::workspace_read::delete_path(
+        std::path::Path::new(&q.workspace_root),
+        relative_path,
+    )?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn get_workspace_git_status(
     State(state): State<ServerState>,
     Query(q): Query<WorkspacePathQuery>,
@@ -509,6 +522,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/workspace/directory", get(list_workspace_directory))
         .route("/api/workspace/file", get(read_workspace_file))
+        .route("/api/workspace/path", delete(delete_workspace_path))
         .route("/api/workspace/git/status", get(get_workspace_git_status))
         .route("/api/workspace/git/diff", get(get_workspace_git_diff))
         .route("/api/workspace/turn-file-diff", get(get_turn_file_diff))

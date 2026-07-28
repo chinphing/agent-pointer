@@ -126,6 +126,7 @@ export interface RuntimeApi {
   cancelChat(conversationId: string): Promise<void>
   listWorkspaceDirectory(workspaceRoot: string, relativePath?: string): Promise<WorkspaceEntry[]>
   readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<WorkspaceFilePreview>
+  deleteWorkspacePath(workspaceRoot: string, relativePath: string): Promise<void>
   getWorkspaceGitStatus(workspaceRoot: string): Promise<GitStatusResponse>
   getWorkspaceGitDiff(
     workspaceRoot: string,
@@ -239,6 +240,7 @@ export const sendChat = api.sendChat
 export const cancelChat = api.cancelChat
 export const listWorkspaceDirectory = api.listWorkspaceDirectory
 export const readWorkspaceFile = api.readWorkspaceFile
+export const deleteWorkspacePath = api.deleteWorkspacePath
 export const getWorkspaceGitStatus = api.getWorkspaceGitStatus
 export const getWorkspaceGitDiff = api.getWorkspaceGitDiff
 export const getTurnFileDiff = api.getTurnFileDiff

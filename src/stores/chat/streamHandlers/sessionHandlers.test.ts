@@ -89,6 +89,38 @@ describe('sessionHandlers', () => {
     expect(clearRunState).not.toHaveBeenCalledWith('convB')
   })
 
+  it('handleDone marks background conversation awaiting view', () => {
+    const convA = sampleConversation('convA')
+    const markConversationAwaitingView = vi.fn()
+    const ctx = createMockStreamHandlerContext([convA], {
+      currentId: ref('convB'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn(),
+      isConversationGenerating: (id: string) => id === 'convA',
+      markConversationAwaitingView
+    })
+
+    handleDone(ctx, { kind: 'done', conversationId: 'convA' })
+
+    expect(markConversationAwaitingView).toHaveBeenCalledWith('convA')
+  })
+
+  it('handleDone does not mark awaiting view for the focused conversation', () => {
+    const conv = sampleConversation()
+    const markConversationAwaitingView = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn(),
+      isConversationGenerating: () => true,
+      markConversationAwaitingView
+    })
+
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+
+    expect(markConversationAwaitingView).not.toHaveBeenCalled()
+  })
+
   it('handleStreamError sets assistant error row', () => {
     const conv = sampleConversation()
     const markMetaDirty = vi.fn()

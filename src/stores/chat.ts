@@ -195,6 +195,32 @@ export const useChatStore = defineStore('chat', () => {
    * or clear its generating state.
    */
   const pendingInterruptDoneAt = new Map<string, number>()
+  /** Conversations that finished while not focused — sidebar shows a solid dot until opened. */
+  const awaitingViewIds = ref<Set<string>>(new Set())
+
+  function isConversationAwaitingView(id: string): boolean {
+    const key = id.trim()
+    return !!key && awaitingViewIds.value.has(key)
+  }
+
+  function markConversationAwaitingView(conversationId: string) {
+    const key = conversationId.trim()
+    if (!key) return
+    if (key === (currentId.value?.trim() || '')) return
+    if (awaitingViewIds.value.has(key)) return
+    const next = new Set(awaitingViewIds.value)
+    next.add(key)
+    awaitingViewIds.value = next
+    console.info('[chat] mark conversation awaiting view', key)
+  }
+
+  function clearConversationAwaitingView(conversationId: string) {
+    const key = conversationId.trim()
+    if (!key || !awaitingViewIds.value.has(key)) return
+    const next = new Set(awaitingViewIds.value)
+    next.delete(key)
+    awaitingViewIds.value = next
+  }
 
   function outboundQueueItems(conversationId: string): OutboundQueueItem[] {
     const key = conversationId.trim()
@@ -570,6 +596,7 @@ export const useChatStore = defineStore('chat', () => {
     const turnId = [...conv.messages].reverse().find(message => message.role === 'user')?.id
     if (turnId) recordTurnStart(conv.id, turnId)
     patchRunState(conv.id, { generating: true, activeMessageId: null })
+    clearConversationAwaitingView(conv.id)
     await flushPersistMeta()
     await refreshTaskBoard(conv.id)
 
@@ -1621,12 +1648,14 @@ export const useChatStore = defineStore('chat', () => {
     const needsHydration = conversationNeedsMessageHydration(conv)
     if (currentId.value === id && !needsHydration) {
       touchConversation(id)
+      clearConversationAwaitingView(id)
       return
     }
     // Persist the previous composer draft before switching selection.
     flushActiveComposerDraft()
     // Commit selection first so the sidebar can paint is-active before heavy UI work.
     currentId.value = id
+    clearConversationAwaitingView(id)
     touchConversation(id)
 
     const selectedId = id
@@ -1669,6 +1698,7 @@ export const useChatStore = defineStore('chat', () => {
     const i = conversations.value.findIndex(c => c.id === id)
     if (i >= 0) conversations.value.splice(i, 1)
     hydratedIds.value.delete(id)
+    clearConversationAwaitingView(id)
     clearPersistedMessageIds(id)
     clearOutboundQueue(id)
     const nextRuns = { ...runByConversation.value }
@@ -1999,6 +2029,7 @@ export const useChatStore = defineStore('chat', () => {
 
   watch(currentId, (id, previousId) => {
     if (id !== previousId) flushStreamDeltaBuffers()
+    if (id) clearConversationAwaitingView(id)
   }, { flush: 'sync' })
 
   watch(composerText, () => {
@@ -2074,7 +2105,8 @@ export const useChatStore = defineStore('chat', () => {
       refreshConversationMessages: (conversationId: string) => {
         void ensureMessagesLoaded(conversationId, { force: true })
       },
-      consumeStaleDoneAfterInterrupt
+      consumeStaleDoneAfterInterrupt,
+      markConversationAwaitingView
     }
   }
 
@@ -2353,13 +2385,14 @@ export const useChatStore = defineStore('chat', () => {
     composerDraftByConvId.value = {}
     clearActiveComposer()
     clearAllRunStates()
+    awaitingViewIds.value = new Set()
     outboundQueues.value = {}
     taskBoards.value = {}
     newConversation()
   }
 
   return {
-    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
+    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
     init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

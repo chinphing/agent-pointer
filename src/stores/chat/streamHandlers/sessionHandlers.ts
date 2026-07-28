@@ -315,6 +315,10 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
     // Chime must not depend on persist/normalize succeeding.
     if (wasGenerating || hadActiveTurn) {
       playTaskCompleteSoundIfEnabled()
+      // Background finish: solid-dot on sidebar until the user opens this conversation.
+      if (convId && convId !== (ctx.currentId.value?.trim() || '')) {
+        ctx.markConversationAwaitingView(convId)
+      }
     } else {
       console.info('[sound] skip task-complete chime (no generating / active turn)', {
         conversationId: convId || null

@@ -78,6 +78,7 @@ export function createMockStreamHandlerContext(
     loadActiveComposerDraft: noop,
     refreshConversationMessages: noop,
     consumeStaleDoneAfterInterrupt: () => false,
+    markConversationAwaitingView: noop,
     ...overrides
   }
 }

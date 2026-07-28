@@ -84,4 +84,6 @@ export interface StreamHandlerContext {
    * run while a newer turn is already active (skip timing close + clearRunState).
    */
   consumeStaleDoneAfterInterrupt(conversationId: string): boolean
+  /** Mark a finished background conversation as awaiting user view (sidebar solid dot). */
+  markConversationAwaitingView(conversationId: string): void
 }

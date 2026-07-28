@@ -861,6 +861,12 @@ watch(searchQuery, q => {
                         v-if="chat.isConversationGenerating(conversation.id)"
                         class="w-3.5 h-3.5 shrink-0 animate-spin"
                       />
+                      <span
+                        v-else-if="chat.isConversationAwaitingView(conversation.id)"
+                        class="sidebar-awaiting-dot"
+                        title="有新完成"
+                        aria-label="有新完成"
+                      />
                       <MessageSquare v-else class="w-3.5 h-3.5 shrink-0" />
                       <input
                         v-if="editingId === conversation.id"
@@ -1014,6 +1020,12 @@ watch(searchQuery, q => {
                 v-if="chat.isConversationGenerating(c.id)"
                 class="w-3.5 h-3.5 shrink-0 animate-spin"
                 :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+              />
+              <span
+                v-else-if="chat.isConversationAwaitingView(c.id)"
+                class="sidebar-awaiting-dot"
+                title="有新完成"
+                aria-label="有新完成"
               />
               <MessageSquare
                 v-else
@@ -1368,5 +1380,28 @@ watch(searchQuery, q => {
 
 .project-context-menu button :deep(svg) {
   @apply w-3.5 h-3.5 text-muted;
+}
+
+.sidebar-awaiting-dot {
+  @apply inline-block h-2 w-2 shrink-0 rounded-full bg-accent;
+  animation: sidebar-awaiting-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sidebar-awaiting-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-awaiting-dot {
+    animation: none;
+  }
 }
 </style>

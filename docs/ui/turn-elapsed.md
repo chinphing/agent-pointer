@@ -1,0 +1,28 @@
+# 回合工作耗时（「工作 X m YY s」）
+
+折叠回合时，按钮旁展示该 user turn 的工作耗时。
+
+## 计时口径
+
+| 来源 | 含义 |
+|------|------|
+| **主路径** | `recordTurnStart`（`dispatchChatTurn`）→ `recordTurnDone`（`Done` / 中断结算） |
+| **回退** | 同 turn 内首条 user 与末条消息的 `createdAt` 差（无本地计时记录时） |
+
+展示优先用主路径（`resolveTurnElapsedMs`），避免被消息时间戳噪声污染。
+
+## 出站队列 /「立即发送」
+
+- 队列项入队时的 `createdAt` 只表示**入队时刻**（队列面板用）。
+- **真正写入会话**时必须用**派发时刻** `Date.now()`，不得沿用入队时间。
+  否则回退口径会把排队等待算进「工作耗时」。
+- 「立即发送」会 `interruptActiveTurn`：先 `recordTurnDone` 结算被打断的回合，再 drain 下一轮；
+  `recordTurnStart` 在 turnId 变化时也会结算上一轮（双保险）。
+- 被取消 run 的迟到 `Done` 不得关掉新回合的计时 / `generating`（`consumeStaleDoneAfterInterrupt`）。
+
+## 实现位置
+
+- `src/lib/turnElapsed.ts`
+- `src/stores/chat.ts`（`dispatchChatTurn` / `drainOutboundQueue` / `interruptActiveTurn`）
+- `src/components/chat/MessageList.vue`（`turnElapsedLabel`）
+- `src/stores/chat/streamHandlers/sessionHandlers.ts`（`handleDone`）

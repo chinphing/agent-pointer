@@ -42,7 +42,7 @@ import {
   messagesForPersistAppend,
   persistedCandidateMessageIds
 } from '../lib/chatDispatchHistory'
-import { recordTurnStart } from '../lib/turnElapsed'
+import { hasActiveTurn, peekActiveTurn, recordTurnDone, recordTurnStart } from '../lib/turnElapsed'
 import {
   clearStreamDeltaBuffers,
   flushStreamDeltaBuffers,
@@ -189,6 +189,12 @@ export const useChatStore = defineStore('chat', () => {
 
   /** FIFO outbound sends waiting while the session turn is still running (Hermes-style). */
   const outboundQueues = ref<Record<string, OutboundQueueItem[]>>({})
+  /**
+   * After interrupt / force-send, the cancelled run may still emit a late `Done`.
+   * First Done while a newer turn is already active must not close that turn's timing
+   * or clear its generating state.
+   */
+  const pendingInterruptDoneAt = new Map<string, number>()
 
   function outboundQueueItems(conversationId: string): OutboundQueueItem[] {
     const key = conversationId.trim()
@@ -292,6 +298,13 @@ export const useChatStore = defineStore('chat', () => {
       terminalLive.clear()
     }
 
+    // Close work-time for the interrupted turn before the next dispatch overwrites it.
+    if (hasActiveTurn(key)) {
+      recordTurnDone(key)
+    }
+    const interruptAt = Date.now()
+    pendingInterruptDoneAt.set(key, interruptAt)
+
     // Optimistic UI: hide stop button / show cancelled while host cancel runs.
     patchRunState(key, { generating: false, activeMessageId: null })
 
@@ -323,6 +336,14 @@ export const useChatStore = defineStore('chat', () => {
     // Host cancel is signaled; keep UI stopped even if a late stream event raced.
     patchRunState(key, { generating: false, activeMessageId: null })
     await drainOutboundQueue(key)
+
+    // If the cancelled run never emitted Done, drop the watch so the next turn's Done is kept.
+    window.setTimeout(() => {
+      if (pendingInterruptDoneAt.get(key) === interruptAt) {
+        pendingInterruptDoneAt.delete(key)
+        console.info('[chat] interrupt Done watch expired', key)
+      }
+    }, 3000)
   }
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
@@ -523,12 +544,14 @@ export const useChatStore = defineStore('chat', () => {
 
     drainingOutbound.add(convId)
     try {
+      // Use dispatch time, not enqueue time — otherwise turn elapsed / time chips
+      // include queue wait (especially visible after「立即发送」).
       const userMsg: ChatMessage = {
         id: item.id,
         role: 'user',
         content: item.content,
         status: 'done',
-        createdAt: item.createdAt,
+        createdAt: Date.now(),
         ...(item.attachments?.length ? { attachments: item.attachments } : {})
       }
       conv.messages.push(userMsg)
@@ -1997,6 +2020,20 @@ export const useChatStore = defineStore('chat', () => {
     }, 4500)
   }
 
+  function consumeStaleDoneAfterInterrupt(conversationId: string): boolean {
+    const key = conversationId.trim()
+    if (!key) return false
+    const interruptAt = pendingInterruptDoneAt.get(key)
+    if (interruptAt == null) return false
+    pendingInterruptDoneAt.delete(key)
+    const active = peekActiveTurn(key)
+    // Newer turn already opened after interrupt → this Done is from the cancelled run.
+    if (active && active.startedAt >= interruptAt) {
+      return true
+    }
+    return false
+  }
+
   function streamHandlerContext(): StreamHandlerContext {
     return {
       conversations,
@@ -2027,7 +2064,8 @@ export const useChatStore = defineStore('chat', () => {
       loadActiveComposerDraft,
       refreshConversationMessages: (conversationId: string) => {
         void ensureMessagesLoaded(conversationId, { force: true })
-      }
+      },
+      consumeStaleDoneAfterInterrupt
     }
   }
 

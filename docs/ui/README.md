@@ -4,6 +4,7 @@
 |------|------|
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换 |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
+| [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」口径；队列立即发送不得把排队等待算进去 |
 | 设置 → **平台账户 / 管理员账户** | 登录状态、「退出登录」；完成提示音开关 |
 | [assistant-message-ui.md](assistant-message-ui.md) | 助手消息 `thoughts` / reasoning / 原始输出面板等约定 |
 | [message-list-layout-cache.md](message-list-layout-cache.md) | 消息列表已完成 turn 结构指纹缓存，流式时只重算尾部 |

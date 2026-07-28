@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import { handleDone, handleStreamError } from './sessionHandlers'
-import { recordTurnStart, turnElapsedMs } from '../../../lib/turnElapsed'
+import { recordTurnStart, turnElapsedMs, hasActiveTurn } from '../../../lib/turnElapsed'
 import { createMockStreamHandlerContext, sampleConversation } from './testUtils'
 
 describe('sessionHandlers', () => {
@@ -44,6 +44,25 @@ describe('sessionHandlers', () => {
 
     expect(turnElapsedMs('conv1', 'user-1')).toBe(65_500)
     vi.restoreAllMocks()
+  })
+
+  it('handleDone ignores stale Done after interrupt when a newer turn is active', () => {
+    const conv = sampleConversation()
+    const clearRunState = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState,
+      persistAppend: vi.fn(),
+      isConversationGenerating: () => true,
+      consumeStaleDoneAfterInterrupt: () => true
+    })
+    recordTurnStart('conv1', 'user-force-sent', 50_000)
+
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+
+    expect(clearRunState).not.toHaveBeenCalled()
+    expect(hasActiveTurn('conv1')).toBe(true)
+    expect(turnElapsedMs('conv1', 'user-force-sent')).toBeNull()
   })
 
   it('handleDone clears only the finished conversation when another is still generating', () => {

@@ -79,4 +79,9 @@ export interface StreamHandlerContext {
   ): void
   loadActiveComposerDraft(conversationId: string | null): void
   refreshConversationMessages(conversationId: string): void
+  /**
+   * After force-send / stop interrupt: true when this Done belongs to the cancelled
+   * run while a newer turn is already active (skip timing close + clearRunState).
+   */
+  consumeStaleDoneAfterInterrupt(conversationId: string): boolean
 }

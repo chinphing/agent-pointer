@@ -7,6 +7,7 @@ import {
   hasActiveTurn,
   recordTurnDone,
   recordTurnStart,
+  resolveTurnElapsedMs,
   turnElapsedMs
 } from './turnElapsed'
 
@@ -35,10 +36,46 @@ describe('turn elapsed', () => {
     expect(recordTurnDone('conv-2', 14_000)).toBe(4_000)
   })
 
+  it('finalizes the interrupted turn when force-send starts the next turn', () => {
+    recordTurnStart('conv-1', 'user-a', 1_000)
+    recordTurnStart('conv-1', 'user-b', 4_000)
+
+    expect(turnElapsedMs('conv-1', 'user-a')).toBe(3_000)
+    expect(hasActiveTurn('conv-1')).toBe(true)
+    expect(recordTurnDone('conv-1', 9_000)).toBe(5_000)
+    expect(turnElapsedMs('conv-1', 'user-b')).toBe(5_000)
+  })
+
   it('derives elapsed time from persisted message timestamps', () => {
     expect(elapsedBetweenTimestamps(10_000, 75_400)).toBe(65_400)
     expect(elapsedBetweenTimestamps(75_400, 10_000)).toBeNull()
     expect(elapsedBetweenTimestamps(Number.NaN, 10_000)).toBeNull()
+  })
+
+  it('prefers recorded dispatch→Done timing over message createdAt span', () => {
+    recordTurnStart('conv-1', 'user-1', 1_000)
+    recordTurnDone('conv-1', 61_000)
+
+    // createdAt span includes queue wait (enqueue at 0, last msg at 70s) — must not win.
+    expect(
+      resolveTurnElapsedMs({
+        conversationId: 'conv-1',
+        turnId: 'user-1',
+        userCreatedAt: 0,
+        lastMessageCreatedAt: 70_000
+      })
+    ).toBe(60_000)
+  })
+
+  it('falls back to createdAt span when no recorded timing exists', () => {
+    expect(
+      resolveTurnElapsedMs({
+        conversationId: 'conv-1',
+        turnId: 'user-missing',
+        userCreatedAt: 10_000,
+        lastMessageCreatedAt: 25_000
+      })
+    ).toBe(15_000)
   })
 
   it('formats Cursor-style minutes and zero-padded seconds with an honest fallback', () => {

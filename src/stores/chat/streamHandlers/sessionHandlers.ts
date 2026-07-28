@@ -285,6 +285,13 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
   // a real user turn so the chime is not skipped after a few minutes of streaming.
   const wasGenerating = !!convId && ctx.isConversationGenerating(convId)
   const hadActiveTurn = !!convId && hasActiveTurn(convId)
+
+  // Force-send / interrupt: cancelled run's Done can arrive after the next turn started.
+  if (convId && ctx.consumeStaleDoneAfterInterrupt(convId)) {
+    console.info('[chat] ignore stale Done after interrupt', { conversationId: convId })
+    return
+  }
+
   try {
     if (convId) recordTurnDone(convId)
     if (convId) ctx.clearRunState(convId)

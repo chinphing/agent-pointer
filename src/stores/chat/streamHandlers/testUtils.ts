@@ -77,6 +77,7 @@ export function createMockStreamHandlerContext(
     applySessionAgentToConversation: noop,
     loadActiveComposerDraft: noop,
     refreshConversationMessages: noop,
+    consumeStaleDoneAfterInterrupt: () => false,
     ...overrides
   }
 }

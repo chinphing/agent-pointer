@@ -40,17 +40,33 @@ function writeState(state: TurnElapsedState) {
   }
 }
 
+export function peekActiveTurn(conversationId: string): ActiveTurnTiming | null {
+  const id = conversationId.trim()
+  if (!id) return null
+  const active = readState().active[id]
+  return active ?? null
+}
+
 export function recordTurnStart(conversationId: string, turnId: string, startedAt = Date.now()) {
   const state = readState()
+  const prev = state.active[conversationId]
+  // Force-send / interrupt starts the next turn before the previous Done arrives.
+  // Finalize the interrupted turn so its elapsed is not lost or attributed later.
+  if (
+    prev &&
+    prev.turnId !== turnId &&
+    Number.isFinite(prev.startedAt) &&
+    startedAt >= prev.startedAt
+  ) {
+    state.completed[completedKey(conversationId, prev.turnId)] = startedAt - prev.startedAt
+  }
   state.active[conversationId] = { turnId, startedAt }
   writeState(state)
 }
 
 /** True while a turn is open for this conversation (survives UI generating being cleared early). */
 export function hasActiveTurn(conversationId: string): boolean {
-  const id = conversationId.trim()
-  if (!id) return false
-  return !!readState().active[id]
+  return peekActiveTurn(conversationId) != null
 }
 
 export function recordTurnDone(conversationId: string, finishedAt = Date.now()): number | null {
@@ -72,6 +88,26 @@ export function turnElapsedMs(conversationId: string, turnId: string): number | 
 export function elapsedBetweenTimestamps(startedAt: number, finishedAt: number): number | null {
   if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) return null
   return finishedAt - startedAt
+}
+
+/**
+ * Prefer dispatch→Done timing when present.
+ * Message `createdAt` span is only a fallback (e.g. history without local timing);
+ * outbound-queue items must use dispatch-time `createdAt` or this fallback includes queue wait.
+ */
+export function resolveTurnElapsedMs(options: {
+  conversationId: string | null | undefined
+  turnId: string
+  userCreatedAt: number | null | undefined
+  lastMessageCreatedAt: number | null | undefined
+}): number | null {
+  const conversationId = options.conversationId?.trim()
+  if (conversationId) {
+    const recorded = turnElapsedMs(conversationId, options.turnId)
+    if (recorded != null) return recorded
+  }
+  if (options.userCreatedAt == null || options.lastMessageCreatedAt == null) return null
+  return elapsedBetweenTimestamps(options.userCreatedAt, options.lastMessageCreatedAt)
 }
 
 export function formatTurnElapsed(elapsedMs: number | null): string {

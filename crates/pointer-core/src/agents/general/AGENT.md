@@ -78,21 +78,24 @@ user in a prior assistant turn (same **fileName** / **ref** / **localPath** fiel
 Reuse paths for follow-up; do **not** treat as a new user upload; do **not** ask intent
 solely because this block is present.
 
-- For **image / video / audio**, call **`media_understand`** with **`refs`**, matching
-  `mode`, and **`goal`**. Prefer `{ "attachmentId": "..." }` when the current manifest
+- For **image / video / audio**, call **`media_understand`** with **`refs`** and
+  **`goal`**. **`mode` is optional** — host infers from the file suffix
+  (`.pdf`→pdf, images→image, etc.). Pass **`mode=audio`** only for speech from a
+  **video** file. Prefer `{ "attachmentId": "..." }` when the current manifest
   provides **attachmentId**; otherwise use manifest **ref**, then **localPath**, or the
   user's explicitly typed full path. Never invent `pointer-media://` + filename.
   Multiple images: one call with several refs; other modes: single-element **refs**.
   For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
   Optional **`context`** for extra thread background.
   **Speech / audio in a video file** → **`mode=audio`** only (host extracts the track;
-  **`mode=video`** sees frames, not sound). **Both speech and visuals** → **`audio`**
-  then **`video`**, same ref in **refs**, merge in reply. Never call with only **refs** + `mode`.
+  default/video mode sees frames, not sound). **Both speech and visuals** → **`audio`**
+  then **`video`**, same ref in **refs**, merge in reply. Never call with only **refs**.
 - **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
   using **localPath** from the manifest (third-party scripts may not accept `pointer-media://`).
 - **PDF attachments** → **`skill_read`** the **pdf** skill first; extract text via **`terminal`**
   and **`localPath`**. Only when extraction is **empty or unusable** (scanned/image PDF) →
-  **`media_understand`** with **`mode=pdf`**, **`refs`** (one element), and **`goal`**. Merge/split/forms/editing
+  **`media_understand`** with **`refs`** (one element) and **`goal`**
+  (**`mode` optional**; `.pdf` → pdf). Merge/split/forms/editing
   stay on the pdf skill (**PyMuPDF only**, **`sort=True`** by default). Missing Python/pip → **`skill_read`** **dev-env-setup**.
 - **Large PDF** → **`pageStart`/`pageEnd`** per **`media_understand`** tool schema; split if >10 pages.
 - **Large video** → put segment focus in **goal**; host defaults to **1 fps** (first **200s** on ffmpeg fallback).

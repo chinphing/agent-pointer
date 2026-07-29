@@ -11,6 +11,9 @@
 - **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`
 - **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）；用户附件用 `<!-- pointer-user-attachments -->`，助手 `MEDIA:` 交付附件用 `<!-- pointer-delivered-attachments -->`（均为 API-only，不写回 `content`）
 - **按需理解**：`media_understand`（image/video/audio/pdf 扫描件回退）
+  - **`mode` 可选**：默认按 `refs` 后缀推断（`.pdf`→pdf、图片→image、音视频容器→audio/video）；
+    明显写错（如 `mode=image` + `.pdf`）由宿主纠正。
+  - 例外：视频文件要**听声音/转写**时必须显式 **`mode=audio`**（默认推断为 video，只看画面）。
 - Office / PDF：**docx** / **xlsx** / **pptx** / **pdf** Skill + terminal（`localPath`）；PDF 阅读优先 skill，扫描件才 `media_understand`
 - App（Tauri）与 Web 端行为一致
 
@@ -137,7 +140,7 @@ mediaModelOverrides: {
 | 用户指定页码 | Agent 传 **`pageStart` / `pageEnd`**（1-based，含首尾）；未指定则不传 |
 | 单次上限 | 每 call 最多 **10 页**；更多页码须**多次** `media_understand` |
 | 文本型 PDF | **pdf** Skill 抽文本（Python/`terminal`） |
-| 扫描/图片型 PDF | pdf Skill 判定无可用文本 → **`media_understand` `mode=pdf`**（Pdfium 逐页渲染 → 视觉模型） |
+| 扫描/图片型 PDF | pdf Skill 判定无可用文本 → **`media_understand`**（后缀推断 `pdf`；也可显式 `mode=pdf`；Pdfium 逐页渲染 → 视觉模型） |
 
 **Agent 策略**
 
@@ -181,7 +184,7 @@ mediaModelOverrides: {
 |------|------|
 | **大图片** | 自动缩放到 ≤ **6 MB** JPEG 再 vision |
 | **长音频** | ASR 模型有上下文上限；超长录音在 `goal` 中说明「只要结论/某段」；必要时分段转写 |
-| **pdf** | **pdf** Skill 优先（`terminal` + `localPath` 抽文本）；**扫描件**才 **`media_understand` `mode=pdf`** |
+| **pdf** | **pdf** Skill 优先（`terminal` + `localPath` 抽文本）；**扫描件**才 **`media_understand`**（`mode` 可省略，按后缀推断） |
 | **docx / pptx** | **docx** / **pptx** Skill，不用 `media_understand` |
 | **zip / 二进制** | 不支持内联；`skill_read` 或追问用户要提取什么 |
 | **多附件** | 统一 **refs** 数组；图片可多个，音视频/PDF 仅单元素 |

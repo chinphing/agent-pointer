@@ -61,7 +61,9 @@ When the user **attaches a PDF** and wants content read, summarized, or transcri
 
 ### When the PDF is scanned (then use `media_understand`)
 
-Call **`media_understand`** with **`mode=pdf`**, **`refs`** (one attachment ref), and a clear **`goal`** **only after** PyMuPDF text extraction shows the file is **image-based / scanned**, for example:
+Call **`media_understand`** with **`refs`** (one attachment ref) and a clear **`goal`**
+(**`mode` optional** — `.pdf` is inferred as pdf; you may still pass **`mode=pdf`**)
+**only after** PyMuPDF text extraction shows the file is **image-based / scanned**, for example:
 
 - Per-page text is **empty**, or only page numbers / watermarks (&lt; ~48 meaningful characters per page).
 - Text is **garbled** (CID mojibake, high replacement-char ratio) even after retrying unsorted extraction.
@@ -69,7 +71,8 @@ Call **`media_understand`** with **`mode=pdf`**, **`refs`** (one attachment ref)
 
 Then:
 
-1. Call **`media_understand`** with **`mode=pdf`**, **`refs`**, and **`goal`** (host: **Pdfium** renders each page to JPEG, then vision model).
+1. Call **`media_understand`** with **`refs`**, and **`goal`**
+   (host: **Pdfium** renders each page to JPEG, then vision model; **`mode` optional**).
 2. **`pageStart` / `pageEnd`:** per **`media_understand`** tool schema (max **10** pages/call).
 
 Do **not** use local Tesseract or other OCR CLIs for chat attachments when `media_understand` is available.
@@ -378,7 +381,8 @@ Form workflow details: **forms.md**.
 
 After PyMuPDF extraction is **empty or unusable** (see **Pointer: reading attached PDFs**):
 
-1. Call **`media_understand`** with **`mode=pdf`**, the attachment in **`refs`**, and a **`goal`**.
+1. Call **`media_understand`** with the attachment in **`refs`** and a **`goal`**
+   (**`mode` optional**; `.pdf` → pdf).
 2. **`pageStart` / `pageEnd`:** per **`media_understand`** tool schema (max **10** pages/call).
 
 ## Quick reference
@@ -387,7 +391,7 @@ After PyMuPDF extraction is **empty or unusable** (see **Pointer: reading attach
 |------|----------|
 | Extract text (attached PDF) | `pymupdf.open` + `get_text("text", sort=True)` |
 | Extract tables | `page.find_tables()` → `.extract()` |
-| Read scanned attachment | **`media_understand` `mode=pdf`** (after empty/garbled text) |
+| Read scanned attachment | **`media_understand`** (after empty/garbled text; mode optional) |
 | Merge / split / rotate | `insert_pdf`, `set_toc`, `set_rotation` |
 | Standardize A4 portrait | `standardize_a4_portrait.py` or `show_pdf_page` + rotate when `width > height` |
 | Images / render pages | **`pymupdf.Pixmap`**, **`pymupdf.Matrix`**, `get_pixmap()` |

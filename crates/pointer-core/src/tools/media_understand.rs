@@ -11,17 +11,127 @@ use std::sync::Arc;
 
 const DOC: &str = include_str!("prompts/media_understand.md");
 
-pub fn parse_mode(args: &Value) -> Result<String> {
-    let mode = args
+fn normalize_mode(raw: &str) -> Result<String> {
+    let mode = raw.trim().to_ascii_lowercase();
+    match mode.as_str() {
+        "image" | "video" | "audio" | "pdf" => Ok(mode),
+        _ => Err(anyhow!("mode must be image, video, audio, or pdf")),
+    }
+}
+
+/// Optional explicit `mode` from tool args (empty / missing → None).
+pub fn parse_mode_optional(args: &Value) -> Result<Option<String>> {
+    let Some(raw) = args
         .get("mode")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_ascii_lowercase())
-        .ok_or_else(|| anyhow!("missing or empty mode"))?;
-    match mode.as_str() {
-        "image" | "video" | "audio" | "pdf" => Ok(mode),
-        _ => Err(anyhow!("mode must be image, video, audio, or pdf")),
+    else {
+        return Ok(None);
+    };
+    Ok(Some(normalize_mode(raw)?))
+}
+
+/// Legacy helper: requires `mode` (prefer [`resolve_mode`] for new call sites).
+pub fn parse_mode(args: &Value) -> Result<String> {
+    parse_mode_optional(args)?.ok_or_else(|| anyhow!("missing or empty mode"))
+}
+
+/// Infer `image` / `video` / `audio` / `pdf` from a path or file name.
+/// Returns None when the suffix is unknown (caller must pass explicit mode).
+pub fn infer_mode_from_name(name: &str) -> Option<&'static str> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let ext = std::path::Path::new(&lower)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    match ext {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "heic" | "heif" => Some("image"),
+        "pdf" => Some("pdf"),
+        "mp3" | "wav" | "m4a" | "aac" | "ogg" | "flac" | "opus" | "wma" => Some("audio"),
+        "mp4" | "m4v" | "mov" | "webm" | "mkv" | "mpeg" | "mpg" | "avi" => Some("video"),
+        _ => None,
+    }
+}
+
+fn infer_mode_from_hints(name_hints: &[String]) -> Result<Option<String>> {
+    if name_hints.is_empty() {
+        return Ok(None);
+    }
+    if name_hints.len() > 1 {
+        for hint in name_hints {
+            match infer_mode_from_name(hint) {
+                Some("image") => {}
+                Some(other) => {
+                    anyhow::bail!(
+                        "multi-ref media_understand only supports image files; got {other} from {hint}"
+                    )
+                }
+                None => anyhow::bail!(
+                    "cannot infer mode for multi-ref entry {hint}; use image files or pass mode=image"
+                ),
+            }
+        }
+        return Ok(Some("image".into()));
+    }
+
+    let hint = name_hints[0].trim();
+    if let Ok(path) = crate::media::resolve_media_ref(hint) {
+        if path.is_dir() {
+            return Ok(Some("image".into()));
+        }
+        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+            if let Some(mode) = infer_mode_from_name(name) {
+                return Ok(Some(mode.into()));
+            }
+        }
+    }
+    Ok(infer_mode_from_name(hint).map(str::to_string))
+}
+
+/// Resolve understanding mode: optional explicit `mode`, else infer from refs' suffixes.
+///
+/// Video files default to **video**. Pass **mode=audio** only when the goal is speech
+/// from a video/audio file. Clear mismatches (e.g. mode=image on `.pdf`) are corrected
+/// to the inferred mode with a warning log.
+pub fn resolve_mode(args: &Value, name_hints: &[String]) -> Result<String> {
+    let explicit = parse_mode_optional(args)?;
+    let inferred = infer_mode_from_hints(name_hints)?;
+
+    let mode = match (explicit.as_deref(), inferred.as_deref()) {
+        (None, Some(inf)) => inf.to_string(),
+        (Some(m), None) => m.to_string(),
+        (None, None) => {
+            anyhow::bail!(
+                "cannot infer media_understand mode from refs; pass mode=image|video|audio|pdf"
+            )
+        }
+        // Intentional: speech from a video container.
+        (Some("audio"), Some("video")) => "audio".into(),
+        (Some(m), Some(inf)) if m == inf => m.to_string(),
+        (Some(m), Some(inf)) if should_prefer_inferred_mode(m, inf) => {
+            log::warn!(
+                "media_understand mode={m} mismatches refs (inferred={inf}); using {inf}"
+            );
+            inf.to_string()
+        }
+        (Some(m), Some(_)) => m.to_string(),
+    };
+    normalize_mode(&mode)
+}
+
+fn should_prefer_inferred_mode(explicit: &str, inferred: &str) -> bool {
+    match (explicit, inferred) {
+        // Common agent mistake: mode=image on a PDF path.
+        ("image", "pdf") | ("video", "pdf") | ("audio", "pdf") => true,
+        ("pdf", "image") | ("video", "image") | ("audio", "image") => true,
+        ("image", "video") | ("pdf", "video") => true,
+        ("image", "audio") | ("pdf", "audio") | ("video", "audio") => true,
+        _ => false,
     }
 }
 
@@ -31,12 +141,11 @@ pub enum MediaRefInput {
     AttachmentId(String),
 }
 
-pub fn parse_ref_inputs(args: &Value, mode: &str) -> Result<Vec<MediaRefInput>> {
-    use crate::media::image_dir::MAX_IMAGES_PER_CALL;
-
+/// Parse `refs` without mode-specific count checks (needed before mode inference).
+pub fn parse_ref_inputs_loose(args: &Value) -> Result<Vec<MediaRefInput>> {
     if args.get("ref").is_some() {
         return Err(anyhow!(
-            "media_understand: parameter ref was removed; use refs (array). For {mode}, pass exactly one element."
+            "media_understand: parameter ref was removed; use refs (array)."
         ));
     }
 
@@ -65,6 +174,14 @@ pub fn parse_ref_inputs(args: &Value, mode: &str) -> Result<Vec<MediaRefInput>> 
     if parsed.is_empty() {
         anyhow::bail!("missing or empty refs");
     }
+    Ok(parsed)
+}
+
+pub fn validate_ref_inputs_for_mode(
+    parsed: Vec<MediaRefInput>,
+    mode: &str,
+) -> Result<Vec<MediaRefInput>> {
+    use crate::media::image_dir::MAX_IMAGES_PER_CALL;
 
     match mode {
         "image" if parsed.len() > MAX_IMAGES_PER_CALL => anyhow::bail!(
@@ -79,6 +196,10 @@ pub fn parse_ref_inputs(args: &Value, mode: &str) -> Result<Vec<MediaRefInput>> 
         "audio" | "video" | "pdf" => Ok(parsed),
         other => Err(anyhow!("unsupported media_understand mode: {other}")),
     }
+}
+
+pub fn parse_ref_inputs(args: &Value, mode: &str) -> Result<Vec<MediaRefInput>> {
+    validate_ref_inputs_for_mode(parse_ref_inputs_loose(args)?, mode)
 }
 
 pub fn parse_refs(args: &Value, mode: &str) -> Result<Vec<String>> {
@@ -253,8 +374,58 @@ mod tests {
             .contains_key("timeStartSec"));
         let required = schema["required"].as_array().unwrap();
         assert!(required.contains(&json!("goal")));
-        assert!(required.contains(&json!("mode")));
         assert!(required.contains(&json!("refs")));
+        assert!(!required.contains(&json!("mode")));
+    }
+
+    #[test]
+    fn resolve_mode_infers_pdf_from_suffix() {
+        let args = json!({
+            "refs": ["/tmp/M001-approval.pdf"],
+            "goal": "extract title and names"
+        });
+        assert_eq!(
+            resolve_mode(&args, &["/tmp/M001-approval.pdf".into()]).unwrap(),
+            "pdf"
+        );
+    }
+
+    #[test]
+    fn resolve_mode_corrects_image_on_pdf() {
+        let args = json!({
+            "refs": ["/tmp/M001.pdf"],
+            "mode": "image",
+            "goal": "read"
+        });
+        assert_eq!(
+            resolve_mode(&args, &["/tmp/M001.pdf".into()]).unwrap(),
+            "pdf"
+        );
+    }
+
+    #[test]
+    fn resolve_mode_keeps_audio_on_video() {
+        let args = json!({
+            "refs": ["/tmp/demo.mp4"],
+            "mode": "audio",
+            "goal": "transcribe"
+        });
+        assert_eq!(
+            resolve_mode(&args, &["/tmp/demo.mp4".into()]).unwrap(),
+            "audio"
+        );
+    }
+
+    #[test]
+    fn resolve_mode_infers_video_when_omitted() {
+        let args = json!({
+            "refs": ["/tmp/demo.mp4"],
+            "goal": "describe scenes"
+        });
+        assert_eq!(
+            resolve_mode(&args, &["/tmp/demo.mp4".into()]).unwrap(),
+            "video"
+        );
     }
 
     #[test]
@@ -368,6 +539,7 @@ mod tests {
     fn parse_mode_rejects_bad_mode() {
         let args = json!({"refs": ["x"], "mode": "zip", "goal": "x"});
         assert!(parse_mode(&args).is_err());
+        assert!(parse_mode_optional(&args).is_err());
     }
 
     #[test]

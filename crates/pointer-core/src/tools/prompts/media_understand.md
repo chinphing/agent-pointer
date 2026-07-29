@@ -26,9 +26,10 @@ schema:
         - video
         - audio
         - pdf
-      description: Understanding mode. Use **audio** for speech from an audio or **video**
-        ref (host extracts the track). Use **video** for **visual** content only — scenes,
-        UI, actions; it does **not** process the audio track. Must match the user task.
+      description: >
+        Optional understanding mode.
+        Omit to infer from the file suffix in refs.
+        Pass mode=audio when the task is speech/transcript from a video file.
     goal:
       type: string
       description: >
@@ -55,7 +56,6 @@ schema:
         PDF max 10 pages/call; image directory max 200/call.
   required:
     - refs
-    - mode
     - goal
   additionalProperties: false
 ---
@@ -64,11 +64,14 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 
 ## Parameters
 
-- **refs** + **mode** — when the current conversation manifest provides
+- **refs** — when the current conversation manifest provides
   **attachmentId**, pass `{attachmentId: "..."}`. Otherwise fall back to manifest **ref**,
   then **localPath**; a user's explicitly typed full path is also accepted.
   Never construct `pointer-media://` + filename yourself.
   Image mode: one directory path allowed. Other modes: exactly one ref.
+- **mode** (optional) — omit when the file suffix is enough
+  (`.pdf` / image / audio / video extensions).
+  Pass **mode=audio** on a **video** ref only for speech/transcript.
 - **goal** (required) — user's analysis goal in their language.
 - **context** (optional) — extra thread background not already in **goal**.
 
@@ -88,6 +91,9 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
   Pass the attachment in **refs**; for video files the host **extracts the audio
   track** then runs ASR. **Does not see the picture.**
 - **pdf**: **scanned-PDF fallback only** — Pdfium renders each page to JPEG, then vision model. Use the **pdf** skill + `terminal` first for text-native PDFs.
+
+Host infers mode from the file suffix when **mode** is omitted.
+Clear mismatches (e.g. **mode=image** on `.pdf`) are corrected to the inferred mode.
 
 ## Video attachments: vision vs speech
 

@@ -18,9 +18,9 @@ use crate::media::{
 use crate::mode_llm::resolve_media_mode_llm;
 use crate::models::ModelSettings;
 use crate::tools::media_understand::{
-    format_goal_block, parse_context, parse_goal, parse_image_dir_range, parse_mode,
-    parse_pdf_page_range, parse_ref_inputs, parse_video_time_range, prepend_scope_notice,
-    MediaRefInput,
+    format_goal_block, parse_context, parse_goal, parse_image_dir_range,
+    parse_pdf_page_range, parse_ref_inputs_loose, parse_video_time_range, prepend_scope_notice,
+    resolve_mode, validate_ref_inputs_for_mode, MediaRefInput,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
@@ -104,8 +104,36 @@ fn attachment_candidates(conversation_id: &str, raw: &str) -> String {
     }
 }
 
+fn mode_name_hints(conversation_id: &str, inputs: &[MediaRefInput]) -> Result<Vec<String>> {
+    let mut hints = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        match input {
+            MediaRefInput::Ref(raw) => hints.push(raw.clone()),
+            MediaRefInput::AttachmentId(id) => {
+                let attachment = find_attachment_by_id(conversation_id, id)?.ok_or_else(|| {
+                    anyhow!(
+                        "attachmentId not found in current conversation: {id}{}",
+                        attachment_candidates(conversation_id, id)
+                    )
+                })?;
+                let mut hint = attachment.file_name.clone();
+                if hint.trim().is_empty() {
+                    if let Some(path) = attachment_local_abs_path(&attachment) {
+                        hint = path;
+                    } else if let Some(rel) = attachment.storage_rel_path.as_deref() {
+                        hint = rel.to_string();
+                    }
+                }
+                hints.push(hint);
+            }
+        }
+    }
+    Ok(hints)
+}
+
 fn resolve_ref_inputs(conversation_id: &str, args: &Value, mode: &str) -> Result<Vec<String>> {
-    parse_ref_inputs(args, mode)?
+    let inputs = validate_ref_inputs_for_mode(parse_ref_inputs_loose(args)?, mode)?;
+    inputs
         .into_iter()
         .map(|input| match input {
             MediaRefInput::AttachmentId(id) => {
@@ -498,7 +526,9 @@ async fn understand_pdf(
 pub async fn dispatch_media_understand_async(
     ctx: MediaUnderstandDispatchContext<'_>,
 ) -> Result<(String, bool, Option<String>)> {
-    let mode = parse_mode(&ctx.args)?;
+    let loose_inputs = parse_ref_inputs_loose(&ctx.args)?;
+    let name_hints = mode_name_hints(ctx.conversation_id, &loose_inputs)?;
+    let mode = resolve_mode(&ctx.args, &name_hints)?;
     let goal = parse_goal(&ctx.args)?;
     let context = parse_context(&ctx.args);
     let goal_block = format_goal_block(&goal, context.as_deref());

@@ -79,7 +79,8 @@ Reuse paths for follow-up; do **not** treat as a new user upload; do **not** ask
 solely because this block is present.
 
 - For **image / video / audio**, call **`media_understand`** with **`refs`** and
-  **`goal`**. **`mode` is optional** — host infers from the file suffix
+  **`goal`** (when to call / skip: that tool schema).
+  **`mode` is optional** — host infers from the file suffix
   (`.pdf`→pdf, images→image, etc.). Pass **`mode=audio`** only for speech from a
   **video** file. Prefer `{ "attachmentId": "..." }` when the current manifest
   provides **attachmentId**; otherwise use manifest **ref**, then **localPath**, or the

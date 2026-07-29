@@ -10,10 +10,9 @@
 - 主模型保持用户所选 agent 模型不变
 - **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`
 - **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）；用户附件用 `<!-- pointer-user-attachments -->`，助手 `MEDIA:` 交付附件用 `<!-- pointer-delivered-attachments -->`（均为 API-only，不写回 `content`）
-- **按需理解**：`media_understand`（image/video/audio/pdf 扫描件回退）
-  - **`mode` 可选**：默认按 `refs` 后缀推断（`.pdf`→pdf、图片→image、音视频容器→audio/video）；
-    明显写错（如 `mode=image` + `.pdf`）由宿主纠正。
-  - 例外：视频文件要**听声音/转写**时必须显式 **`mode=audio`**（默认推断为 video，只看画面）。
+- **按需理解**：`media_understand`（image/video/audio/pdf 扫描件回退）。
+  何时调用 / 用户指定其他读取方式：以工具提示词 **When to call** 为准（此处不重复）。
+  **`mode` 可选**（按后缀推断；视频转写显式 `audio`）。
 - Office / PDF：**docx** / **xlsx** / **pptx** / **pdf** Skill + terminal（`localPath`）；PDF 阅读优先 skill，扫描件才 `media_understand`
 - App（Tauri）与 Web 端行为一致
 

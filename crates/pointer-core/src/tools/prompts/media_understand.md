@@ -62,6 +62,14 @@ schema:
 
 Understand image, video, audio, or PDF files on demand via host-managed models.
 
+## When to call
+
+Default when the user wants the file understood and did **not** name another
+read method. **Do not** call just because an attachment appears.
+If the user named a skill script, PyMuPDF/`terminal`, OCR CLI, or other
+extractor — follow that; skip this tool unless they ask for this path
+(or the named path fails and they want a fallback).
+
 ## Parameters
 
 - **refs** — when the current conversation manifest provides

@@ -933,11 +933,14 @@ export const useChatStore = defineStore('chat', () => {
     conversations.value = shells
     sortConversationsInPlace()
     nextCursor.value = firstPage.nextCursor
+    // 置顶 section renders every pinned meta (5-row scroll viewport only).
+    // Drain further pages while the trailing row is still pinned.
+    await ensureAllPinnedMetasLoaded()
     // IM conversations can derive a title purely from their id (no messages
     // needed); persist any such title fixes as targeted delta writes. Desktop
     // blank pruning needs no upsert here — pruned blanks are deleted explicitly
     // below via deleteConversationApi, and retained conversations are unchanged.
-    for (const conv of shells) {
+    for (const conv of conversations.value) {
       if (maybeUpdateConversationTitle(conv)) markMetaDirty(conv.id)
     }
     // Explicitly delete any duplicate blank conversations pruned above (only
@@ -1270,6 +1273,33 @@ export const useChatStore = defineStore('chat', () => {
       console.error('[chat] loadMoreConversations failed', err)
     } finally {
       loadingMoreConversations.value = false
+    }
+  }
+
+  /**
+   * Pinned metas sort first. Keep fetching pages until the trailing loaded row
+   * is unpinned (or there is no next page), so the 置顶 section always has the
+   * full pinned set even when it spans more than META_PAGE_SIZE.
+   */
+  async function ensureAllPinnedMetasLoaded(): Promise<void> {
+    const maxPages = 100
+    let pages = 0
+    while (nextCursor.value && pages < maxPages) {
+      const last = conversations.value[conversations.value.length - 1]
+      if (!last?.isPinned) break
+      pages += 1
+      await loadMoreConversations()
+    }
+    const pinnedCount = conversations.value.filter(c => c.isPinned).length
+    if (pages >= maxPages && nextCursor.value) {
+      console.warn(
+        '[chat] ensureAllPinnedMetasLoaded: stopped at page guard',
+        maxPages,
+        'pinned=',
+        pinnedCount
+      )
+    } else {
+      console.info('[chat] ensureAllPinnedMetasLoaded: pinned=', pinnedCount, 'extraPages=', pages)
     }
   }
 

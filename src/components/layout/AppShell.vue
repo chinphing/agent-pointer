@@ -145,6 +145,7 @@ const projectSearchExpanded = ref(false)
 const projectSearchInputRef = ref<HTMLInputElement | null>(null)
 const conversationSearchExpanded = ref(false)
 const conversationSearchInputRef = ref<HTMLInputElement | null>(null)
+const pinnedSectionCollapsed = ref(false)
 const projectsSectionCollapsed = ref(false)
 const conversationsSectionCollapsed = ref(false)
 const showProjectCreator = ref(false)
@@ -350,6 +351,10 @@ function openConversationSearch() {
 function closeConversationSearch() {
   conversationSearchExpanded.value = false
   searchQuery.value = ''
+}
+
+function togglePinnedSection() {
+  pinnedSectionCollapsed.value = !pinnedSectionCollapsed.value
 }
 
 function toggleProjectsSection() {
@@ -830,82 +835,97 @@ watch(searchQuery, q => {
 
           <section
             v-if="pinnedConversations.length"
-            class="sidebar-pinned-section shrink-0 px-2 pb-4"
+            class="sidebar-pinned-section group/pinned-section shrink-0 px-2 pb-4"
           >
-            <div class="mb-1.5 flex h-6 items-center px-1">
-              <h2 class="sidebar-section-title">置顶</h2>
-            </div>
-            <div class="space-y-0.5">
-              <div
-                v-for="c in pinnedConversations"
-                :key="c.id"
-                class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition border"
-                :class="chat.currentId === c.id
-                  ? 'bg-accent-muted border-accent/40'
-                  : 'hover:bg-hover border-transparent'"
-                @click="onRowClick(c)"
-                @contextmenu="openConversationMenu($event, c)"
+            <div class="group/section-header mb-1.5 flex h-6 items-center px-1">
+              <button
+                type="button"
+                class="sidebar-section-collapse mr-auto"
+                :aria-expanded="!pinnedSectionCollapsed"
+                :title="pinnedSectionCollapsed ? '展开置顶' : '收起置顶'"
+                @click="togglePinnedSection"
               >
-                <Loader2
-                  v-if="chat.isConversationGenerating(c.id)"
-                  class="w-3.5 h-3.5 shrink-0 animate-spin"
-                  :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                <h2 class="sidebar-section-title">置顶</h2>
+                <component
+                  :is="pinnedSectionCollapsed ? ChevronRight : ChevronDown"
+                  class="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100"
                 />
-                <span
-                  v-else-if="chat.isConversationAwaitingView(c.id)"
-                  class="sidebar-awaiting-dot"
-                  title="有新完成"
-                  aria-label="有新完成"
-                />
-                <MessageSquare
-                  v-else
-                  class="w-3.5 h-3.5 shrink-0"
-                  :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
-                />
-                <div class="flex-1 min-w-0">
+              </button>
+            </div>
+            <div
+              v-show="!pinnedSectionCollapsed"
+              class="sidebar-auto-scrollbar -mr-2 max-h-[11.75rem] overflow-y-auto pr-2"
+              @scroll.passive="showScrollbarWhileScrolling"
+            >
+              <div class="space-y-0.5">
+                <div
+                  v-for="c in pinnedConversations"
+                  :key="c.id"
+                  class="group flex h-9 items-center gap-2 px-3 rounded-lg cursor-pointer transition border"
+                  :class="chat.currentId === c.id
+                    ? 'bg-accent-muted border-accent/40'
+                    : 'hover:bg-hover border-transparent'"
+                  @click="onRowClick(c)"
+                  @contextmenu="openConversationMenu($event, c)"
+                >
+                  <Loader2
+                    v-if="chat.isConversationGenerating(c.id)"
+                    class="w-3.5 h-3.5 shrink-0 animate-spin"
+                    :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                  />
+                  <span
+                    v-else-if="chat.isConversationAwaitingView(c.id)"
+                    class="sidebar-awaiting-dot"
+                    title="有新完成"
+                    aria-label="有新完成"
+                  />
+                  <MessageSquare
+                    v-else
+                    class="w-3.5 h-3.5 shrink-0"
+                    :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                  />
                   <div
-                    class="text-[13px] text-foreground truncate"
+                    class="flex-1 min-w-0 text-[13px] text-foreground truncate"
                     :title="c.title"
                     @dblclick.stop="startEdit(c)"
                   >{{ c.title }}</div>
-                  <div class="text-[10px] text-muted">{{ new Date(c.updatedAt).toLocaleString() }}</div>
+                  <template v-if="pendingDeleteId === c.id">
+                    <button
+                      type="button"
+                      class="p-1 rounded hover:bg-hover cursor-pointer"
+                      title="取消"
+                      @click.stop="cancelDeleteConversation()"
+                    >
+                      <X class="w-3.5 h-3.5 text-muted" />
+                    </button>
+                    <button
+                      type="button"
+                      class="p-1 rounded hover:bg-danger/15 cursor-pointer"
+                      title="确认删除"
+                      @click.stop="confirmDeleteConversation(c)"
+                    >
+                      <Check class="w-3.5 h-3.5 text-danger" />
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button
+                      type="button"
+                      class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
+                      title="取消置顶"
+                      @click.stop="toggleConversationPin(c)"
+                    >
+                      <PinOff class="w-3.5 h-3.5 text-muted" />
+                    </button>
+                    <button
+                      type="button"
+                      class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
+                      title="删除"
+                      @click.stop="askDeleteConversation(c)"
+                    >
+                      <Trash2 class="w-3.5 h-3.5 text-muted" />
+                    </button>
+                  </template>
                 </div>
-                <template v-if="pendingDeleteId === c.id">
-                  <button
-                    type="button"
-                    class="p-1 rounded hover:bg-hover cursor-pointer"
-                    title="取消"
-                    @click.stop="cancelDeleteConversation()"
-                  >
-                    <X class="w-3.5 h-3.5 text-muted" />
-                  </button>
-                  <button
-                    type="button"
-                    class="p-1 rounded hover:bg-danger/15 cursor-pointer"
-                    title="确认删除"
-                    @click.stop="confirmDeleteConversation(c)"
-                  >
-                    <Check class="w-3.5 h-3.5 text-danger" />
-                  </button>
-                </template>
-                <template v-else>
-                  <button
-                    type="button"
-                    class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                    title="取消置顶"
-                    @click.stop="toggleConversationPin(c)"
-                  >
-                    <PinOff class="w-3.5 h-3.5 text-muted" />
-                  </button>
-                  <button
-                    type="button"
-                    class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                    title="删除"
-                    @click.stop="askDeleteConversation(c)"
-                  >
-                    <Trash2 class="w-3.5 h-3.5 text-muted" />
-                  </button>
-                </template>
               </div>
             </div>
           </section>

@@ -51,9 +51,14 @@ see every user's rows; other users only see their own `session_user_id`.
 - **Scheduled tasks** opens the existing Automation settings section;
   **Skills** opens the skill manager; **Connections** opens channel settings.
 - Pinned conversations appear in a dedicated **置顶** section above projects.
-  The section is hidden when there are no pinned conversations. Pinning does
-  not bump `updatedAt`. Pinned rows are excluded from the recent list and from
-  nested project task lists to avoid duplicates.
+  The section is hidden when there are no pinned conversations. The section
+  header can collapse independently (same pattern as Projects / Recent).
+  Pinned rows show title only (no timestamp). **All** pinned metas are loaded
+  at boot (meta pages continue while the trailing row is still pinned); the
+  list viewport is five rows tall (`max-h` matching project rows) and scrolls
+  internally when there are more than five. Pinning does not bump `updatedAt`.
+  Pinned rows are excluded from the recent list and from nested project task
+  lists to avoid duplicates.
 - Conversation rows support a right-click menu: pin/unpin, rename, copy session
   id, copy workspace directory, and (desktop only) reveal workspace in Finder.
   Empty workspace actions are disabled. Web hides the Finder action.
@@ -70,8 +75,8 @@ see every user's rows; other users only see their own `session_user_id`.
   insert or highlight the project in the sidebar.
 - Conversation search is collapsed by default on the right side of the
   **Recent conversations** header, matching project search behavior.
-- The **Projects** and **Recent conversations** sections can each be collapsed
-  independently from their header.
+- The **Pinned**, **Projects**, and **Recent conversations** sections can each
+  be collapsed independently from their header.
 
 Deleting a project is rejected while it owns conversations, so no operation can
 silently orphan conversation history. The default project cannot be deleted.

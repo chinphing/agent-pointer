@@ -1067,6 +1067,9 @@ async fn api_version() -> Json<serde_json::Value> {
 struct ChatMediaQuery {
     #[serde(rename = "storageRelPath")]
     storage_rel_path: String,
+    /// Optional display name for Content-Disposition (UTF-8 via filename*).
+    #[serde(default, rename = "fileName")]
+    file_name: Option<String>,
 }
 
 async fn preview_chat_media(
@@ -1084,6 +1087,9 @@ async fn preview_chat_media(
 struct MediaRefQuery {
     #[serde(rename = "mediaRef")]
     media_ref: String,
+    /// Optional display name for Content-Disposition (UTF-8 via filename*).
+    #[serde(default, rename = "fileName")]
+    file_name: Option<String>,
 }
 
 async fn preview_media_ref(
@@ -1101,22 +1107,16 @@ async fn download_media_ref(
     Query(q): Query<MediaRefQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
-    let (path, mime_type, file_name) =
+    let (path, mime_type, stored_name) =
         pointer_core::media::chat_media_ref_file_meta(&q.media_ref).map_err(ApiError::from)?;
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
-    let mut response = Response::new(bytes.into());
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
+    log::info!(
+        "media-ref-download start ref={} file={} path={}",
+        q.media_ref,
+        file_name,
+        path.display()
     );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        attachment_content_disposition(&file_name, false),
-    );
-    Ok(response)
+    stream_media_file_response(&path, &mime_type, &file_name, false).await
 }
 
 #[derive(Deserialize)]
@@ -1133,28 +1133,27 @@ async fn public_media_download(
         log::warn!("public media download rejected: {msg}");
         ApiError(e)
     })?;
-    let bytes = tokio::fs::read(&verified.path)
-        .await
-        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
     log::info!(
-        "public media download ok file={} bytes={}",
+        "public media download stream file={} path={}",
         verified.file_name,
-        bytes.len()
+        verified.path.display()
     );
-    let mut response = Response::new(bytes.into());
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&verified.mime_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        attachment_content_disposition(&verified.file_name, false),
-    );
+    let mut response = stream_media_file_response(
+        &verified.path,
+        &verified.mime_type,
+        &verified.file_name,
+        false,
+    )
+    .await?;
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
+}
+
+fn preferred_download_file_name(preferred: Option<&str>, stored: &str) -> String {
+    let preferred = preferred.map(str::trim).filter(|s| !s.is_empty());
+    preferred.unwrap_or(stored).to_string()
 }
 
 fn attachment_content_disposition(file_name: &str, inline: bool) -> HeaderValue {
@@ -1174,8 +1173,50 @@ fn attachment_content_disposition(file_name: &str, inline: bool) -> HeaderValue 
     } else {
         safe
     };
-    HeaderValue::from_str(&format!("{kind}; filename=\"{fallback}\""))
+    // RFC 5987 so browsers keep original UTF-8 names (e.g. Chinese filenames).
+    let encoded = urlencoding::encode(file_name);
+    let value = format!("{kind}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}");
+    HeaderValue::from_str(&value)
         .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+}
+
+/// Stream a file body so large downloads start before the whole file is in RAM.
+async fn stream_media_file_response(
+    path: &std::path::Path,
+    mime_type: &str,
+    file_name: &str,
+    inline: bool,
+) -> Result<Response, ApiError> {
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("open media {}: {e}", path.display())))?;
+    let len = match file.metadata().await {
+        Ok(meta) => Some(meta.len()),
+        Err(e) => {
+            log::warn!(
+                "media metadata failed path={} err={e}; streaming without Content-Length",
+                path.display()
+            );
+            None
+        }
+    };
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file));
+    let mut response = Response::new(body);
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        attachment_content_disposition(file_name, inline),
+    );
+    if let Some(len) = len {
+        if let Ok(v) = HeaderValue::from_str(&len.to_string()) {
+            response.headers_mut().insert(header::CONTENT_LENGTH, v);
+        }
+    }
+    Ok(response)
 }
 
 async fn download_chat_media(
@@ -1183,22 +1224,15 @@ async fn download_chat_media(
     Query(q): Query<ChatMediaQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
-    let (path, mime_type, file_name) =
+    let (path, mime_type, stored_name) =
         pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
-    let mut response = Response::new(bytes.into());
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
+    log::info!(
+        "chat media download stream path={} file={}",
+        path.display(),
+        file_name
     );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        attachment_content_disposition(&file_name, false),
-    );
-    Ok(response)
+    stream_media_file_response(&path, &mime_type, &file_name, false).await
 }
 
 async fn stream_chat_media(
@@ -1206,22 +1240,10 @@ async fn stream_chat_media(
     Query(q): Query<ChatMediaQuery>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
-    let (path, mime_type, file_name) =
+    let (path, mime_type, stored_name) =
         pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
-    let mut response = Response::new(bytes.into());
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        attachment_content_disposition(&file_name, true),
-    );
-    Ok(response)
+    let file_name = preferred_download_file_name(q.file_name.as_deref(), &stored_name);
+    stream_media_file_response(&path, &mime_type, &file_name, true).await
 }
 
 #[derive(Deserialize)]

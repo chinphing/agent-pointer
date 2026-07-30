@@ -5187,6 +5187,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower-http",
+ "urlencoding",
 ]
 
 [[package]]

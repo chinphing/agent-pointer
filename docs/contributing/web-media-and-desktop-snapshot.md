@@ -33,7 +33,11 @@ Composer 支持三种添加方式：回形针选择、粘贴图片、拖入文�
 | 文档 / 其他文件 | OS 默认应用打开 | `GET /api/chat/media-download` 或 `media-ref-download`（需登录） |
 | IM 大文件外链 | — | `GET /api/media/public-download?token=…`（HMAC 限时，**无需登录**） |
 
-Web 端点击附件时，`openAttachmentWithSystemDefault` 对 `storageRelPath` 走带 cookie 的 `fetch` 下载。
+Web 端点击附件下载时，走浏览器原生导航（`<a href>` + session cookie），由
+`Content-Disposition: attachment` 立刻弹出下载栏，响应体服务端流式读盘，
+**不要**再 `fetch` 整文件进 Blob 后再触发下载（大文件会长时间无反馈，且会撞
+上通用请求 12s 超时）。可选查询参数 `fileName` 用于保留原始显示名（含中文，
+`filename*`）。
 
 IM 出站超过直传上限时，服务端签发 `public-download` 链接，以 Markdown 形式写入通道文本（见 [channel-integration.md](../developer/channel-integration.md)）。
 

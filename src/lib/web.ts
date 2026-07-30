@@ -108,14 +108,20 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   return await res.blob()
 }
 
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
+/**
+ * Start a browser-native download immediately (progress UI + streaming).
+ * Prefer this over fetch→blob for large files: cookies are sent on same-site
+ * navigation, and the download bar appears before the body finishes.
+ */
+function triggerNativeDownload(url: string, fileName?: string) {
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = fileName || 'attachment'
+  const name = fileName?.trim()
+  if (name) anchor.download = name
   anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
   anchor.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  anchor.remove()
 }
 
 export async function sendChat(payload: SendChatPayload): Promise<void> {
@@ -390,20 +396,32 @@ export async function openChatMedia(storageRelPath: string, fileName?: string): 
   await downloadChatMedia(storageRelPath, fileName)
 }
 
-/** Authenticated download (includes session cookie; plain `<a href>` does not). */
+/**
+ * Authenticated chat media download via browser navigation (session cookie).
+ * Do not use fetch→blob here: large files would only show a download after the
+ * entire body was buffered (and the 12s request timeout would abort them).
+ */
 export async function downloadChatMedia(
   storageRelPath: string,
   fileName?: string
 ): Promise<void> {
-  const q = new URLSearchParams({ storageRelPath: storageRelPath.trim() })
-  const blob = await requestBlob(`/api/chat/media-download?${q}`)
-  downloadBlob(blob, fileName?.trim() || 'attachment')
+  const params = new URLSearchParams({ storageRelPath: storageRelPath.trim() })
+  const name = fileName?.trim()
+  if (name) params.set('fileName', name)
+  triggerNativeDownload(
+    `${WEB_API_BASE}/api/chat/media-download?${params}`,
+    name || 'attachment'
+  )
 }
 
 export async function downloadChatMediaRef(mediaRef: string, fileName?: string): Promise<void> {
-  const q = new URLSearchParams({ mediaRef: mediaRef.trim() })
-  const blob = await requestBlob(`/api/chat/media-ref-download?${q}`)
-  downloadBlob(blob, fileName?.trim() || 'attachment')
+  const params = new URLSearchParams({ mediaRef: mediaRef.trim() })
+  const name = fileName?.trim()
+  if (name) params.set('fileName', name)
+  triggerNativeDownload(
+    `${WEB_API_BASE}/api/chat/media-ref-download?${params}`,
+    name || 'attachment'
+  )
 }
 
 /** Inline video preview URL with auth (object URL; revoke when the element unmounts). */
@@ -413,9 +431,11 @@ export async function chatMediaStreamObjectUrl(storageRelPath: string): Promise<
   return URL.createObjectURL(blob)
 }
 
-export function chatMediaDownloadUrl(storageRelPath: string): string {
-  const q = encodeURIComponent(storageRelPath.trim())
-  return `${WEB_API_BASE}/api/chat/media-download?storageRelPath=${q}`
+export function chatMediaDownloadUrl(storageRelPath: string, fileName?: string): string {
+  const params = new URLSearchParams({ storageRelPath: storageRelPath.trim() })
+  const name = fileName?.trim()
+  if (name) params.set('fileName', name)
+  return `${WEB_API_BASE}/api/chat/media-download?${params}`
 }
 
 export function chatMediaStreamUrl(storageRelPath: string): string {
@@ -423,9 +443,11 @@ export function chatMediaStreamUrl(storageRelPath: string): string {
   return `${WEB_API_BASE}/api/chat/media-stream?storageRelPath=${q}`
 }
 
-export function chatMediaRefDownloadUrl(mediaRef: string): string {
-  const q = new URLSearchParams({ mediaRef: mediaRef.trim() })
-  return `${WEB_API_BASE}/api/chat/media-ref-download?${q}`
+export function chatMediaRefDownloadUrl(mediaRef: string, fileName?: string): string {
+  const params = new URLSearchParams({ mediaRef: mediaRef.trim() })
+  const name = fileName?.trim()
+  if (name) params.set('fileName', name)
+  return `${WEB_API_BASE}/api/chat/media-ref-download?${params}`
 }
 
 export async function captureManualDesktopSnapshot(): Promise<Blob> {

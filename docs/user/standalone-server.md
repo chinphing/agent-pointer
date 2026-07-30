@@ -249,7 +249,7 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 | `POINTER_SERVER_ADMIN_PASSWORD_HMAC` | 密码 HMAC-SHA256 hex | 无 |
 | `POINTER_SERVER_AUTH_HMAC_SECRET` | 计算 password_hmac 的密钥 | 无 |
 | `POINTER_LICENSE_KEY` | License key 字符串 | 无 |
-| `POINTER_LICENSE_PUBLIC_KEY` | 覆盖编译嵌入的公钥 | 无 |
+| `POINTER_LICENSE_PUBLIC_KEY` | **仅 debug 二进制**可覆盖编译嵌入的公钥；正式 release 包忽略此变量 | 无 |
 | `POINTER_USAGE_REPORT_ENABLED` | 是否上报用量 | `false`（standalone） |
 | `POINTER_SERVER_PUBLIC_URL` | 服务公网地址 | 自动推断 |
 | `POINTER_APP_DATA_DIR` | 数据目录 | OS 默认 |

@@ -11,6 +11,57 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const ENV_LICENSE_KEY: &str = "POINTER_LICENSE_KEY";
 const ENV_LICENSE_PUBLIC_KEY: &str = "POINTER_LICENSE_PUBLIC_KEY";
 
+/// Resolve the Ed25519 verify key (base64).
+///
+/// - **debug** (`debug_assertions`): `POINTER_LICENSE_PUBLIC_KEY` env may override
+///   the embedded key (local / e2e ephemeral keypairs).
+/// - **release**: env override is ignored; only the compile-embedded `license.pub`
+///   is used so customers cannot self-sign by swapping the public key at runtime.
+fn resolve_license_public_key_b64() -> Result<String> {
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(raw) = std::env::var(ENV_LICENSE_PUBLIC_KEY) {
+            let trimmed = raw.trim().to_string();
+            if !trimmed.is_empty() {
+                log::info!(
+                    "license: using {ENV_LICENSE_PUBLIC_KEY} override (debug builds only)"
+                );
+                return Ok(trimmed);
+            }
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        if std::env::var_os(ENV_LICENSE_PUBLIC_KEY).is_some_and(|v| !v.is_empty()) {
+            log::warn!(
+                "license: ignoring {ENV_LICENSE_PUBLIC_KEY} in release builds; \
+                 using embedded public key only"
+            );
+        }
+    }
+
+    option_env!("POINTER_LICENSE_PUBLIC_KEY")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            #[cfg(debug_assertions)]
+            {
+                anyhow!(
+                    "license public key not embedded; set {ENV_LICENSE_PUBLIC_KEY} \
+                     (debug) or embed crates/pointer-core/license.pub"
+                )
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                anyhow!(
+                    "license public key not embedded in this release binary \
+                     (expected crates/pointer-core/license.pub at build time)"
+                )
+            }
+        })
+}
+
 /// Claims embedded in a signed license payload (JSON, canonical UTF-8 bytes signed).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LicenseClaims {
@@ -64,22 +115,13 @@ pub struct LicenseVerifier {
 }
 
 impl LicenseVerifier {
-    /// Build verifier from compile-time embedded key, overridable via env.
+    /// Build verifier from the compile-time embedded public key (`license.pub`).
+    ///
+    /// Debug builds may override via `POINTER_LICENSE_PUBLIC_KEY` for local / e2e
+    /// self-signed licenses. Release builds ignore that env var and only accept
+    /// the embedded key (customers cannot swap the verify key through process env).
     pub fn from_embedded() -> Result<Self> {
-        let raw = std::env::var(ENV_LICENSE_PUBLIC_KEY)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .or_else(|| {
-                option_env!("POINTER_LICENSE_PUBLIC_KEY")
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-            })
-            .ok_or_else(|| {
-                anyhow!("license public key not embedded and {ENV_LICENSE_PUBLIC_KEY} unset")
-            })?;
-        Self::from_base64_public_key(&raw)
+        Self::from_base64_public_key(&resolve_license_public_key_b64()?)
     }
 
     /// Optional constructor for license-gen / tests (32-byte Ed25519 public key, base64).
@@ -362,5 +404,36 @@ mod tests {
             &reinstalled,
         )
         .expect("drift anchors should accept reinstalled os_id");
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    fn debug_env_public_key_overrides_embedded() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let mut csprng = OsRng;
+        let signing = SigningKey::generate(&mut csprng);
+        let verifying = signing.verifying_key();
+        let b64 = URL_SAFE_NO_PAD.encode(verifying.to_bytes());
+        let prev = std::env::var(ENV_LICENSE_PUBLIC_KEY).ok();
+        std::env::set_var(ENV_LICENSE_PUBLIC_KEY, &b64);
+        let verifier = LicenseVerifier::from_embedded().expect("from_embedded with env");
+        let claims = LicenseClaims {
+            customer_id: "debug-override".into(),
+            expires_at: i64::MAX / 2,
+            features: vec!["chat".into()],
+            max_seats: None,
+            machine_id: None,
+            machine_board_fp: None,
+            machine_cloud_fp: None,
+        };
+        let key = sign_claims(&signing, &claims);
+        assert_eq!(verifier.verify(&key).unwrap(), claims);
+        match prev {
+            Some(v) => std::env::set_var(ENV_LICENSE_PUBLIC_KEY, v),
+            None => std::env::remove_var(ENV_LICENSE_PUBLIC_KEY),
+        }
     }
 }

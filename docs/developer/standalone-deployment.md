@@ -139,13 +139,16 @@ main()
   → deployment_mode == standalone?
     → 读取 POINTER_LICENSE_KEY / [license].key
     → base64url 解码 payload 和 signature
-    → Ed25519 验签（公钥编译嵌入 license.pub, 可被 POINTER_LICENSE_PUBLIC_KEY 覆盖）
+    → Ed25519 验签（公钥编译嵌入 license.pub；仅 debug 构建允许 POINTER_LICENSE_PUBLIC_KEY 覆盖，release 忽略）
     → 检查 expiry
     → 如果 claims.machine_id 不为空，校验 v2 指纹或 legacy os id
     → v2：strict match 或 board/cloud 漂移锚点通过
     → 缓存 claims → 运行
 ```
 
+**公钥约定：** 正式 release 二进制只认编译嵌入的 `license.pub`。
+`POINTER_LICENSE_PUBLIC_KEY` 仅在 **debug**（`debug_assertions`）下可覆盖，供本地/e2e 自签；
+release 若设置该变量会打 warn 并忽略。
 
 
 ### 机器绑定（v2 指纹）

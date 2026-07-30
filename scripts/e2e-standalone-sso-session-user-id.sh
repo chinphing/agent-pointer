@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end: standalone SSO → conversation.sessionUserId (feeds terminal SESSION_USER_ID).
 # Spawns a temporary pointer-server and logs in two users with distinct `sub` values.
+# Uses debug pointer-server + POINTER_LICENSE_PUBLIC_KEY (release ignores that env).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

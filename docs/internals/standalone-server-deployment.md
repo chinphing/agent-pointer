@@ -424,7 +424,7 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_SERVER_ADMIN_PASSWORD_HMAC` | 密码 HMAC hex | 与 TOML `password_hmac` 一致 |
 | `POINTER_SERVER_AUTH_HMAC_SECRET` | HMAC 密钥 | 与 TOML `hmac_secret` 一致 |
 | `POINTER_LICENSE_KEY` | License 字符串 | 与 TOML `[license].key` 一致 |
-| `POINTER_LICENSE_PUBLIC_KEY` | 覆盖编译嵌入公钥 | 通常不设置 |
+| `POINTER_LICENSE_PUBLIC_KEY` | 仅 debug 可覆盖嵌入公钥；release 忽略 | 正式包勿依赖 |
 | `POINTER_SERVER_ADDR` | 监听地址 | `0.0.0.0:8787` |
 | `POINTER_SERVER_STATIC_DIR` | 静态资源目录 | `dist` 或 `/usr/share/pointer-server/dist`（TOML `[server].static_dir`） |
 | `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | `skills` 或 `/usr/share/pointer-server/skills`（TOML `[server].skills_dir`） |

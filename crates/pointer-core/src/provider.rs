@@ -1365,6 +1365,8 @@ impl OpenAIProvider {
         let stream_raw_to_console = raw_llm_stream_to_console_enabled();
         let mut last_console_lane: Option<ConsoleStreamLane> = None;
         let mut last_usage: Option<LlmUsageSnapshot> = None;
+        // Client TTFT: POST start → first non-empty content / reasoning / tool_calls delta.
+        let mut first_token_logged = false;
 
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
@@ -1400,6 +1402,13 @@ impl OpenAIProvider {
                 for ch in parsed.choices.iter() {
                     if let Some(ref c) = ch.delta.content {
                         if !c.is_empty() {
+                            log_stream_first_token(
+                                &mut first_token_logged,
+                                t_http,
+                                http_until_headers_ms,
+                                "content",
+                                dump_label,
+                            );
                             if stream_raw_to_console {
                                 write_llm_stream_chunk_to_stderr(
                                     c,
@@ -1412,6 +1421,15 @@ impl OpenAIProvider {
                         }
                     }
                     if let Some(r) = ch.delta.reasoning_text() {
+                        if !r.is_empty() {
+                            log_stream_first_token(
+                                &mut first_token_logged,
+                                t_http,
+                                http_until_headers_ms,
+                                "reasoning",
+                                dump_label,
+                            );
+                        }
                         if stream_raw_to_console {
                             write_llm_stream_chunk_to_stderr(
                                 r,
@@ -1422,6 +1440,15 @@ impl OpenAIProvider {
                         let _ = tx.send(ProviderEvent::ReasoningDelta(r.to_string())).await;
                     }
                     if let Some(ref calls) = ch.delta.tool_calls {
+                        if !calls.is_empty() {
+                            log_stream_first_token(
+                                &mut first_token_logged,
+                                t_http,
+                                http_until_headers_ms,
+                                "tool_calls",
+                                dump_label,
+                            );
+                        }
                         for call in calls {
                             let idx = call.index;
                             let state = tool_states.entry(idx).or_default();
@@ -1513,6 +1540,27 @@ impl OpenAIProvider {
             .await;
         Ok(())
     }
+}
+
+/// Log once per stream: client TTFT from HTTP POST start to first useful SSE delta.
+fn log_stream_first_token(
+    logged: &mut bool,
+    t_http: Instant,
+    http_until_headers_ms: u128,
+    kind: &str,
+    dump_label: Option<&str>,
+) {
+    if *logged {
+        return;
+    }
+    *logged = true;
+    log::info!(
+        "stream_chat: first_token_ms={} kind={} http_until_headers_ms={} dump_label={:?}",
+        t_http.elapsed().as_millis(),
+        kind,
+        http_until_headers_ms,
+        dump_label
+    );
 }
 
 fn stream_include_usage_enabled() -> bool {

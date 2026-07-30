@@ -1501,6 +1501,10 @@ mod builtin_agent_tests {
             "coder debugging scenario should mention production_debug"
         );
         assert!(
+            prompt.contains("Scenario: skill_change"),
+            "coder should include skill_change scenario playbook"
+        );
+        assert!(
             prompt.contains("G3 evidence gate"),
             "coder should include G3 evidence gate for same-turn verification"
         );

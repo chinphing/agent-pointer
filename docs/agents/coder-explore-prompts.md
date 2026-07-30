@@ -50,6 +50,7 @@ agents/explore/
 | `spec_map` | References + Registration + Test&drift |
 | `design_only` | Key files + Summary |
 | `production_debug` | symptom 向后 Execution paths ≤5 hop |
+| `skill_change` (coder) | 双面：prompt + scripts；Change Spec；勿套用代码 Impact |
 
 修饰符：`Scenario: production_debug+cross_module`。
 

@@ -63,4 +63,7 @@ Senior software engineer agent for implementation, debugging, and refactoring. F
 Broad read-only mapping → **`explore`**, not **`self`**.
 Parallel wave (`self` / `explore`): follow **Parallel wave** in the **`run_subagent`** tool doc.
 
-**User Skills:** when delegated with **`workspaceRoot`** under **`~/.pointer/skills/`**, create or update skill files via **`file_*`** (see **User Skills** in communication appendix and **`skill-manager`**). Prefer **`file_edit`** over whole-file rewrites of **`SKILL.md`**.
+**User Skills:** when delegated with **`workspaceRoot`** under **`~/.pointer/skills/`**,
+use **Scenario: skill_change** (dual-surface prompts + scripts). Create or update
+via **`file_*`**; layering authority is **`skill-manager`** Change Spec.
+Prefer **`file_edit`** over whole-file rewrites of **`SKILL.md`**.

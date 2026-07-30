@@ -179,15 +179,13 @@ Titles should stay task-specific; avoid a generic Recon→Implement→Verify lad
 ## User Skills (`~/.pointer/skills/`)
 
 When **`workspaceRoot`** is a skill directory (typical **coder** sub-agent from **general**):
+use **Scenario: skill_change** — dual-surface Orient / Check / Deliver.
+Load **`skill-manager`** and follow its **Skill Change Spec** (authority for
+layering and File plan). Prefer small **`file_edit`** hunks; preserve
+**`SKILL.md`** frontmatter unless the task changes named fields.
+Do **not** use **`skill_import`** (general lead only).
 
-1. **`skill_read`** **`skill-manager`** if not already loaded — follow Skill Manager layering and Change Spec rules.
-2. **`file_read`** the target file (especially **`SKILL.md`**) before editing.
-3. Prefer **`file_edit`** with **small, uniquely matchable** hunks. **Preserve YAML frontmatter** on **`SKILL.md`** — edit body only unless the task explicitly changes frontmatter fields.
-4. Avoid whole-file **`file_write`** on existing **`SKILL.md`** unless creating a new skill from scratch.
-5. Optional resources: edit under **`references/`**, **`scripts/`**, **`assets/`** with the same read-then-patch discipline.
-6. Do **not** use **`skill_import`** (not available on coder); installing zip packages is **general lead** only.
-
-Deliver in handoff: what changed, paths touched, and any follow-up the user should enable/test.
+Deliver: prompt paths, script paths, and any N/A side with reason.
 
 ---
 

@@ -188,7 +188,15 @@ and follow it. Do not invent a different architecture mid-edit.
 - scripts/ (if any):
 - assets/ (if any):
 
+## Dual-surface (required for behavior changes)
+- Prompt side (`SKILL.md` / `references/`): change | N/A — <one-line reason>
+- Script side (`scripts/`): change | N/A — <one-line reason>
+Default: review **both**. Mark N/A only with a reason
+(e.g. trigger wording only; CLI unchanged).
+
 ## File plan
+List every path to create/edit. Cover both surfaces, or carry the N/A
+reasons above — do not omit a surface silently.
 1. path — action — intent
 2. ...
 

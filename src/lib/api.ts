@@ -361,6 +361,9 @@ export const saveConversationMeta = api.saveConversationMeta
 export const deleteConversation = api.deleteConversation
 export const appendConversationMessages = api.appendConversationMessages
 export const onStream = api.onStream
+export const waitForChatStreamReady = isTauriRuntime()
+  ? tauriApi.waitForChatStreamReady
+  : webApi.waitForChatStreamReady
 
 export type PlatformSessionView = import('./tauri').PlatformSessionView
 export type AuthMode = import('./web').AuthMode

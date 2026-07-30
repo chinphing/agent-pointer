@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch, nextTick } from 'vue'
 import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
+  waitForChatStreamReady,
   loadConversationMetas,
   loadConversationMessages,
   saveConversationMeta,
@@ -625,6 +626,8 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     try {
+      // Web: avoid POST before SSE has receivers (new chat first turn race).
+      await waitForChatStreamReady()
       await sendChat({
         conversationId: conv.id,
         messages: history,
@@ -699,6 +702,13 @@ export const useChatStore = defineStore('chat', () => {
         console.info('[chat] syncRunStateFromDispatcherQueue: active', convId)
       }
 
+      // Run finished on server but UI never saw stream frames (e.g. first message
+      // before SSE connected) — pull DB even on flags-only reconcile.
+      for (const convId of clearedStaleIds) {
+        if (!conversations.value.some(c => c.id === convId)) continue
+        void ensureMessagesLoaded(convId, { force: true, silent: true })
+      }
+
       // Pull messages only after a real SSE disconnect / lag — never on poll / visibility.
       if (mode !== 'catch_up') return
 
@@ -706,6 +716,8 @@ export const useChatStore = defineStore('chat', () => {
       if (currentId.value) reloadIds.add(currentId.value)
       for (const convId of reloadIds) {
         if (!conversations.value.some(c => c.id === convId)) continue
+        // clearedStaleIds already force-hydrated above; still fine to call again
+        // (deduped by messageHydrationPromises / hydrated short-circuit with force).
         void ensureMessagesLoaded(convId, { force: true, silent: true })
       }
       console.info(
@@ -915,6 +927,19 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function init() {
+    // Kick off global SSE immediately so the handshake overlaps project/meta
+    // hydration — otherwise first send waits on a late connect.
+    const streamSetup = !unlisten
+      ? onStream(handleEvent, 'global', reason => resyncAfterStreamGap(reason))
+          .then(fn => {
+            unlisten = fn
+          })
+          .catch(err => {
+            console.error('[chat] onStream failed at boot', err)
+          })
+      : Promise.resolve()
+    wireStreamGapRecovery()
+
     await refreshProjects()
     // Boot path: load only the first page of conversation metas (no messages).
     // The active conversation's messages are hydrated on demand below; other
@@ -962,10 +987,7 @@ export const useChatStore = defineStore('chat', () => {
       loadActiveComposerDraft(currentId.value)
     }
 
-    if (!unlisten) {
-      unlisten = await onStream(handleEvent, 'global', reason => resyncAfterStreamGap(reason))
-    }
-    wireStreamGapRecovery()
+    await streamSetup
     if (currentId.value) {
       void refreshTaskBoard(currentId.value)
       void refreshSubAgentTaskBoards(currentId.value)

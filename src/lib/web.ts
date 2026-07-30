@@ -710,6 +710,9 @@ export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
 /**
  * Subscribe to chat SSE. `onGap(reason)` fires when the browser must catch up
  * (broadcast lag, reconnect after drop, 502/504) — missed frames are not replayed.
+ *
+ * Resolves after the first successful SSE open (or timeout) so callers do not
+ * POST /api/chat while the broadcast still has zero receivers.
  */
 export async function onStream(
   handler: (e: StreamEvent) => void,
@@ -754,6 +757,7 @@ export async function onStream(
     if (stopped) return
     const gen = ++connectGeneration
     abort = new AbortController()
+    setChatStreamReady(false)
     try {
       const res = await fetch(
         `${WEB_API_BASE}/api/chat/${encodeURIComponent(conversationId)}/stream`,
@@ -769,6 +773,7 @@ export async function onStream(
         throw new Error(`stream ${res.status}`)
       }
       console.info('[stream] SSE connected', { conversationId, generation: gen })
+      setChatStreamReady(true)
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -785,6 +790,7 @@ export async function onStream(
           parseSseChunk(part)
         }
       }
+      setChatStreamReady(false)
       if (!stopped && gen === connectGeneration) {
         // Proxy idle timeout / upstream close — catch up even if only keep-alives
         // were seen (Done may have been lost while the body stayed open).
@@ -793,6 +799,7 @@ export async function onStream(
         if (!stopped) void connect()
       }
     } catch (e) {
+      setChatStreamReady(false)
       if (stopped || (e instanceof DOMException && e.name === 'AbortError')) return
       const msg = e instanceof Error ? e.message : String(e)
       console.warn('[stream] SSE error, reconnecting', msg)
@@ -804,10 +811,45 @@ export async function onStream(
   }
 
   void connect()
+  await waitForChatStreamReady(15_000)
   return () => {
     stopped = true
+    setChatStreamReady(false)
     abort?.abort()
   }
+}
+
+/** True once the web SSE body is open (receivers exist for stream broadcast). */
+let chatStreamReady = false
+const chatStreamReadyWaiters: Array<() => void> = []
+
+function setChatStreamReady(ready: boolean) {
+  chatStreamReady = ready
+  if (!ready) return
+  const waiters = chatStreamReadyWaiters.splice(0, chatStreamReadyWaiters.length)
+  for (const resolve of waiters) resolve()
+}
+
+/**
+ * Wait until the global chat SSE is connected (or timeout).
+ * New chats can POST /api/chat before the first SSE open; with zero receivers
+ * the server drops frames and the reply only appears after refresh.
+ */
+export function waitForChatStreamReady(timeoutMs = 12_000): Promise<void> {
+  if (chatStreamReady) return Promise.resolve()
+  return new Promise(resolve => {
+    const timer = window.setTimeout(() => {
+      const idx = chatStreamReadyWaiters.indexOf(onReady)
+      if (idx >= 0) chatStreamReadyWaiters.splice(idx, 1)
+      console.warn('[stream] waitForChatStreamReady timed out', { timeoutMs })
+      resolve()
+    }, timeoutMs)
+    const onReady = () => {
+      window.clearTimeout(timer)
+      resolve()
+    }
+    chatStreamReadyWaiters.push(onReady)
+  })
 }
 
 // ---- Phase 5/6: automation (cron jobs + webhook token) ----

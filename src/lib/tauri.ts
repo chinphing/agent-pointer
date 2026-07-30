@@ -447,6 +447,9 @@ export async function onStream(
   return await listen<StreamEvent>(STREAM_EVENT, ev => handler(ev.payload))
 }
 
+/** Desktop has no SSE connect race — always ready. */
+export async function waitForChatStreamReady(_timeoutMs?: number): Promise<void> {}
+
 export async function revealInFinder(path: string): Promise<void> {
   await invoke('reveal_in_finder', { path })
 }

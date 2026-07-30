@@ -190,6 +190,12 @@
   .composer-shell {
     @apply py-1.5 md:pb-2 md:pt-[18px];
   }
+  /* Prefer native grow; JS autoResize is fallback when unsupported. */
+  .composer-textarea {
+    field-sizing: content;
+    min-height: 36px;
+    max-height: 250px;
+  }
   .composer-dropdown {
     @apply absolute z-50 overflow-hidden rounded-xl
       border border-border bg-[hsl(var(--card-elevated))] shadow-lg;

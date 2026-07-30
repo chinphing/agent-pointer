@@ -65,7 +65,8 @@ function isEphemeralWorkspacePath(path: string): boolean {
 }
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT_PX = 250
-const COMPOSER_TEXTAREA_MIN_HEIGHT_PX = 24
+/** ≈ one line with py-2 + leading-5; must not stay on :style during measure. */
+const COMPOSER_TEXTAREA_MIN_HEIGHT_PX = 36
 
 const props = withDefaults(
   defineProps<{
@@ -1244,13 +1245,14 @@ function selectWorkerAgent(agent: AgentDef) {
 }
 
 let composerResizeRaf: number | null = null
+let textareaResizeObserver: ResizeObserver | null = null
 
 /**
  * Grow/shrink the textarea with content up to COMPOSER_TEXTAREA_MAX_HEIGHT_PX.
- * Use height:0 to measure scrollHeight — `height:auto` inside the mobile flex
- * row often reports a single-line height and stops auto-grow after the
- * single-row Composer layout change. When already capped and still overflowing,
- * skip remounting height (avoids long-text layout thrash).
+ *
+ * Important: on `md:flex-col`, do not use `flex-1` on the textarea — `flex: 1 1 0%`
+ * makes the flex algorithm ignore the JS `height` on the main axis, so the box
+ * never appears to grow. Use `md:flex-none` (see template).
  */
 function autoResize() {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
@@ -1261,19 +1263,46 @@ function autoResize() {
 
     const max = COMPOSER_TEXTAREA_MAX_HEIGHT_PX
     const min = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
-    if (el.offsetHeight >= max - 1 && el.scrollHeight > max) {
-      el.style.height = `${max}px`
+
+    // Native path (Chromium / recent WebKit): let the engine size to content.
+    if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) {
+      el.style.fieldSizing = 'content'
+      el.style.height = 'auto'
+      el.style.minHeight = `${min}px`
+      el.style.maxHeight = `${max}px`
       el.style.overflowY = 'auto'
       return
     }
 
+    el.style.fieldSizing = ''
     el.style.overflowY = 'hidden'
-    el.style.height = '0px'
+    el.style.minHeight = '0'
+    el.style.height = '0'
+    // Force layout before reading scrollHeight.
+    void el.offsetHeight
     const content = el.scrollHeight
     const nextHeight = Math.min(Math.max(content, min), max)
+    el.style.minHeight = `${min}px`
     el.style.height = `${nextHeight}px`
     el.style.overflowY = content > max ? 'auto' : 'hidden'
   })
+}
+
+function setupTextareaResizeObserver() {
+  textareaResizeObserver?.disconnect()
+  textareaResizeObserver = null
+  const el = textareaRef.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  let lastWidth = el.clientWidth
+  textareaResizeObserver = new ResizeObserver(() => {
+    const node = textareaRef.value
+    if (!node) return
+    if (node.clientWidth === lastWidth) return
+    lastWidth = node.clientWidth
+    // Sidebar collapse / window resize changes wrap → re-measure height.
+    autoResize()
+  })
+  textareaResizeObserver.observe(el)
 }
 
 function handleClickOutside(e: MouseEvent) {
@@ -1313,7 +1342,10 @@ watch(composerText, () => {
 })
 
 onMounted(() => {
-  nextTick(autoResize)
+  nextTick(() => {
+    autoResize()
+    setupTextareaResizeObserver()
+  })
   if (!TEAM_MODE_UI_ENABLED && sessionAgentMode.value === 'supervisor') {
     chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
   }
@@ -1331,6 +1363,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
+  textareaResizeObserver?.disconnect()
+  textareaResizeObserver = null
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleDocumentKeydown)
   unlistenTauriDragDrop?.()
@@ -1451,10 +1485,9 @@ onUnmounted(() => {
             ref="textareaRef"
             v-model="composerText"
             rows="1"
-            class="block min-w-0 flex-1 resize-none overflow-hidden bg-transparent border-0 outline-none px-2 py-2 text-[15px] leading-5 text-foreground placeholder:text-muted md:w-full md:px-3 md:pt-[3px] md:pb-2 md:leading-normal"
+            class="composer-textarea block min-w-0 flex-1 resize-none overflow-x-hidden overflow-y-auto bg-transparent border-0 outline-none px-2 py-2 text-[15px] leading-5 text-foreground placeholder:text-muted md:w-full md:flex-none md:px-3 md:pt-[3px] md:pb-2 md:leading-normal"
             :style="{
-              maxHeight: `${COMPOSER_TEXTAREA_MAX_HEIGHT_PX}px`,
-              minHeight: `${COMPOSER_TEXTAREA_MIN_HEIGHT_PX}px`
+              maxHeight: `${COMPOSER_TEXTAREA_MAX_HEIGHT_PX}px`
             }"
             :placeholder="composerPlaceholder"
             :disabled="needsPlatformLogin || tokenQuotaBlocked"

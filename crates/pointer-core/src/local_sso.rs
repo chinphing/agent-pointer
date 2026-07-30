@@ -358,4 +358,71 @@ mod tests {
         assert_eq!(id.user_id, "u1");
         clear_sso_env();
     }
+
+    #[test]
+    fn sso_sub_flows_to_terminal_session_user_id_env() {
+        let _guard = env_guard();
+        clear_sso_env();
+        std::env::set_var(ENV_SSO_SECRET, "e2e-sso-secret");
+        std::env::set_var(ENV_SSO_AUDIENCE, "http://127.0.0.1:18787");
+
+        let now = chrono::Utc::now().timestamp();
+        let store = SsoNonceStore::new();
+
+        for (sub, nick) in [("e2e-zhangsan", "ZhangSan"), ("e2e-lisi", "LiSi")] {
+            let ticket = mint_sso_ticket(
+                "e2e-sso-secret",
+                "http://127.0.0.1:18787",
+                sub,
+                Some(nick),
+                120,
+                now,
+            )
+            .expect("mint");
+            let identity = verify_sso_ticket(&ticket, &store, now).expect("verify");
+            assert_eq!(identity.user_id, sub);
+
+            // Same as complete_standalone_sso → PlatformSession.user.id
+            let auth = crate::local_auth::create_local_auth_manager_for_user(
+                &identity.user_id,
+                identity.nickname.clone(),
+                false,
+            );
+            let uid = auth.platform_user_id().expect("platform user id");
+            assert_eq!(uid, sub);
+
+            // Same as run_chat SessionUserIdGuard + terminal child env
+            let _user_guard = crate::session_user_env::SessionUserIdGuard::enter(uid.clone());
+            let map = crate::dotenv::build_terminal_child_environment(&[]);
+            assert_eq!(
+                map.get("SESSION_USER_ID").map(String::as_str),
+                Some(sub),
+                "env map for {sub}"
+            );
+
+            // Real subprocess like `terminal` tool (unix)
+            #[cfg(unix)]
+            {
+                let out = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg("printf %s \"$SESSION_USER_ID\"")
+                    .env_clear()
+                    .envs(map.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+                    .output()
+                    .expect("spawn sh");
+                assert!(
+                    out.status.success(),
+                    "stderr={}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                assert_eq!(
+                    String::from_utf8_lossy(&out.stdout),
+                    sub,
+                    "shell SESSION_USER_ID for {sub}"
+                );
+            }
+        }
+
+        clear_sso_env();
+    }
 }

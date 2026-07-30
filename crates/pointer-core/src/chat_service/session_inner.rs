@@ -181,15 +181,13 @@ pub(super) async fn run_chat_inner(
     }
 
     if platform_logged_in || is_local_session {
-        let uid = if is_local_session {
-            crate::local_auth::local_user_id().to_string()
-        } else {
-            state
-                .active_platform_auth()
-                .platform_user_id()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_default()
-        };
+        // Prefer the logged-in session user id (SSO `sub`, OAuth id, or password `local-admin`).
+        // Do not force `local-admin` for all Local Cookie sessions — that collapses multi-user SSO.
+        let uid = state
+            .active_platform_auth()
+            .platform_user_id()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_default();
         if !uid.is_empty() {
             if let Err(e) = state
                 .session_index

@@ -1242,18 +1242,12 @@ async fn save_chat_attachment(
     Json(payload): Json<SaveChatAttachmentPayload>,
 ) -> Result<Json<SaveChatAttachmentResponse>, ApiError> {
     require_platform_access(&state)?;
-    let uid = if pointer_core::deployment_mode::is_standalone()
-        && pointer_core::web_request_auth::is_local_scoped_session()
-    {
-        pointer_core::local_auth::local_user_id().to_string()
-    } else {
-        state
-            .core
-            .active_platform_auth()
-            .platform_user_id()
-            .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| ApiError(anyhow::anyhow!("platform_login_required")))?
-    };
+    let uid = state
+        .core
+        .active_platform_auth()
+        .platform_user_id()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ApiError(anyhow::anyhow!("platform_login_required")))?;
     state
         .core
         .session_index

@@ -7,8 +7,8 @@ Each conversation row stores `session_user_id` (API field `sessionUserId`).
 | Source | Value |
 | --- | --- |
 | Desktop / web chat | Platform OAuth user id on first `save_conversation_meta` (new session), `save_chat_attachment`, or `run_chat` when empty |
-| Standalone password login | Fixed `local-admin` |
-| Standalone SSO (`?sso=`) | Ticket claim `sub` (third-party user id) |
+| Standalone password login | Fixed `local-admin` (single ops identity — not for multi-user isolation) |
+| Standalone SSO (`?sso=`) | Ticket claim `sub` (use distinct `sub` per person for different `SESSION_USER_ID`) |
 | IM direct message | Channel `sender_id` (e.g. WeCom `userid`, Feishu `open_id`) |
 | IM shared group session | Fixed `conversation_key` (e.g. `wecom:group:{chatId}`) |
 

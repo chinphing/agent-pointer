@@ -30,6 +30,10 @@ pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 
 Web：`POST /api/auth/local/login` → Cookie `pointer_web_session`。用户 id 固定为 `local-admin`。
 
+**多人隔离不要用密码登录。** 账号密码只有一个运维身份（`local-admin`），
+所有人登录后 `SESSION_USER_ID` 相同。要让不同人在 **`terminal`** 里看到不同的
+`SESSION_USER_ID`，请用下方 **第三方 SSO**，每人票里带不同的稳定 `sub`。
+
 ## 第三方 SSO（独立，与官网无关）
 
 第三方用共享密钥签发短时 JWT（HS256），浏览器打开：
@@ -77,6 +81,14 @@ Payload：
 | `jti` | 随机一次性 id（服务端内存防重放） |
 | `name` | 可选昵称 |
 
+每人一个稳定、不复用的 `sub`（工号 / 邮箱 / IdP subject）。验签登录后：
+
+1. Cookie 会话里的 `user.id` = `sub`
+2. 新对话 `ensure_session_user_id` 写入该值（已有值不覆盖）
+3. `run_chat` 时线程局部注入；`terminal` 子进程环境变量 `SESSION_USER_ID=<sub>`
+
+同一浏览器换人：先退出再打开新的 `?sso=` 票，否则仍用原 Cookie。
+
 签发示例（运维调试）：
 
 ```bash
@@ -98,6 +110,14 @@ pointer-server --mint-sso-ticket --sub 'user-42' --name 'Alice' --ttl 120
 | Standalone | 仅 `?sso=` + 密码登录 |
 
 详见 [standalone-deployment.md](standalone-deployment.md)、[../user/standalone-server.md](../user/standalone-server.md)、[session-user-id.md](session-user-id.md)。
+
+## 本地端到端自检
+
+```bash
+# SSO 登录两人 → 校验会话 sessionUserId；另跑库内测试验证 terminal 子进程 env
+bash scripts/e2e-standalone-sso-session-user-id.sh
+cargo test -p pointer-core --lib local_sso::tests::sso_sub_flows_to_terminal_session_user_id_env -- --exact --nocapture
+```
 
 ## 签发 ticket 示例（最短）
 

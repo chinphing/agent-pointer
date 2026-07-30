@@ -6,7 +6,11 @@ import {
   isGenerationCancelledMessage
 } from '../../../lib/assistantMessageKind'
 import { flushStreamDeltaBuffers } from '../../../lib/reasoningDeltaBatch'
-import { hasActiveTurn, recordTurnDone } from '../../../lib/turnElapsed'
+import {
+  disarmTaskCompleteAudio,
+  playTaskCompleteSoundIfEnabled
+} from '../../../lib/taskCompleteSound'
+import { hasActiveTurn, peekActiveTurn, recordTurnDone } from '../../../lib/turnElapsed'
 import { useSkillsStore } from '../../skills'
 import { useSettingsStore } from '../../settings'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
@@ -17,7 +21,6 @@ import {
   removeTrailingDiscardableEmptyAssistant,
   uid
 } from '../helpers'
-import { playTaskCompleteSoundIfEnabled } from '../../../lib/taskCompleteSound'
 import type { StreamHandlerContext } from './types'
 
 type UiToast = Extract<StreamEvent, { kind: 'ui_toast' }>
@@ -275,7 +278,15 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
     if (fallbackConvId) ctx.clearRunState(fallbackConvId)
     else ctx.clearAllRunStates()
   }
-  if (affectedId) ctx.markMetaDirty(affectedId)
+  if (affectedId) {
+    // Close turn timing here so a trailing StreamEvent::Done does not chime
+    // after cancel / error (docs: no sound on stop or failure).
+    if (hasActiveTurn(affectedId)) {
+      recordTurnDone(affectedId)
+    }
+    disarmTaskCompleteAudio()
+    ctx.markMetaDirty(affectedId)
+  }
 }
 
 export function handleDone(ctx: StreamHandlerContext, e: Done) {
@@ -284,7 +295,9 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
   // Poll/resync may clear `generating` before Done arrives; turn timing still marks
   // a real user turn so the chime is not skipped after a few minutes of streaming.
   const wasGenerating = !!convId && ctx.isConversationGenerating(convId)
-  const hadActiveTurn = !!convId && hasActiveTurn(convId)
+  const activeTurn = convId ? peekActiveTurn(convId) : null
+  const hadActiveTurn = !!activeTurn
+  const turnId = activeTurn?.turnId ?? null
 
   // Force-send / interrupt: cancelled run's Done can arrive after the next turn started.
   if (convId && ctx.consumeStaleDoneAfterInterrupt(convId)) {
@@ -314,7 +327,7 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
   } finally {
     // Chime must not depend on persist/normalize succeeding.
     if (wasGenerating || hadActiveTurn) {
-      playTaskCompleteSoundIfEnabled()
+      playTaskCompleteSoundIfEnabled(convId, turnId)
       // Background finish: solid-dot on sidebar until the user opens this conversation.
       if (convId && convId !== (ctx.currentId.value?.trim() || '')) {
         ctx.markConversationAwaitingView(convId)

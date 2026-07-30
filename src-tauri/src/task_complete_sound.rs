@@ -12,7 +12,8 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Match typical AudioContext sample rate used by the original Web Audio path.
 const SAMPLE_RATE: u32 = 44_100;
@@ -287,8 +288,28 @@ fn play_wav_file(path: &PathBuf) -> Result<(), String> {
 }
 
 /// Play the task-complete chime through the OS audio stack (not the WebView).
+/// Debounced so a duplicate invoke (e.g. two Done handlers) cannot spawn two players.
 #[tauri::command]
 pub fn play_task_complete_chime() -> Result<(), String> {
+    static LAST_PLAY: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    const DEBOUNCE: Duration = Duration::from_millis(1500);
+    let lock = LAST_PLAY.get_or_init(|| Mutex::new(None));
+    {
+        let mut guard = lock
+            .lock()
+            .map_err(|_| "task_complete_sound: debounce lock poisoned".to_string())?;
+        if let Some(prev) = *guard {
+            if prev.elapsed() < DEBOUNCE {
+                log::info!(
+                    "task_complete_sound: skip native chime (debounced {}ms)",
+                    prev.elapsed().as_millis()
+                );
+                return Ok(());
+            }
+        }
+        *guard = Some(Instant::now());
+    }
+
     let path = ensure_chime_wav_path()?;
     play_wav_file(&path)?;
     log::info!(

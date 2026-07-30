@@ -1,10 +1,22 @@
 import { ref } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleDone, handleStreamError } from './sessionHandlers'
 import { recordTurnStart, turnElapsedMs, hasActiveTurn } from '../../../lib/turnElapsed'
 import { createMockStreamHandlerContext, sampleConversation } from './testUtils'
 
+const playTaskCompleteSoundIfEnabled = vi.hoisted(() => vi.fn())
+const disarmTaskCompleteAudio = vi.hoisted(() => vi.fn())
+
+vi.mock('../../../lib/taskCompleteSound', () => ({
+  playTaskCompleteSoundIfEnabled,
+  disarmTaskCompleteAudio
+}))
+
 describe('sessionHandlers', () => {
+  beforeEach(() => {
+    playTaskCompleteSoundIfEnabled.mockClear()
+    disarmTaskCompleteAudio.mockClear()
+  })
   it('handleDone clears run state and persists meta', () => {
     const conv = sampleConversation()
     conv.toolRoundsUsed = 2
@@ -249,5 +261,71 @@ describe('sessionHandlers', () => {
     expect(clearRunState).toHaveBeenCalledWith('convA')
     expect(clearAllRunStates).not.toHaveBeenCalled()
     expect(markMetaDirty).toHaveBeenCalledWith('convA')
+  })
+
+  it('handleDone plays chime once with turn id when generating', () => {
+    const conv = sampleConversation()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn(),
+      isConversationGenerating: () => true
+    })
+    recordTurnStart('conv1', 'user-turn-1', 10_000)
+
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+
+    expect(playTaskCompleteSoundIfEnabled).toHaveBeenCalledTimes(1)
+    expect(playTaskCompleteSoundIfEnabled).toHaveBeenCalledWith('conv1', 'user-turn-1')
+  })
+
+  it('handleStreamError closes active turn so trailing Done does not chime', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: Date.now()
+    })
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      markMetaDirty: vi.fn(),
+      clearRunState: vi.fn(),
+      isConversationGenerating: () => false
+    })
+    recordTurnStart('conv1', 'user-err', 10_000)
+
+    handleStreamError(ctx, {
+      kind: 'error',
+      conversationId: 'conv1',
+      messageId: 'a1',
+      message: 'boom'
+    })
+    expect(hasActiveTurn('conv1')).toBe(false)
+    expect(disarmTaskCompleteAudio).toHaveBeenCalled()
+
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+    expect(playTaskCompleteSoundIfEnabled).not.toHaveBeenCalled()
+  })
+
+  it('handleDone does not chime twice for duplicate Done on the same turn', () => {
+    const conv = sampleConversation()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn(),
+      isConversationGenerating: vi
+        .fn()
+        .mockReturnValueOnce(true)
+        .mockReturnValue(false)
+    })
+    recordTurnStart('conv1', 'user-dup', 10_000)
+
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+
+    // Second Done has no generating / active turn → handler skips before play.
+    expect(playTaskCompleteSoundIfEnabled).toHaveBeenCalledTimes(1)
   })
 })

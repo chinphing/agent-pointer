@@ -18,7 +18,8 @@
 | **网页** | 同款合成 WAV + `HTMLAudioElement`；发送时 `primeTaskCompleteAudio` 静音解锁 |
 | 触发 | **仅** `handleDone`（`StreamEvent::Done`）；在 `finally` 中播放 |
 | 条件 | Done 前仍为 `generating`，**或**仍有未关闭的 turn timing（`hasActiveTurn`） |
-| 不触发 | 用户停止生成、流错误取消等；重复 Done（debounced） |
+| 去重 | **同一 user turn 只响一次**（`conversationId` + `turnId`）；前端与原生层各有约 **1.5s** debounce，防止重复 Done / 双 listener |
+| 不触发 | 用户停止生成、流错误（`handleStreamError` 会先 `recordTurnDone`）；重复 Done |
 
 取消 / 报错结束不会播放提示音。
 

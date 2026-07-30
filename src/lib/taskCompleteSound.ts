@@ -3,9 +3,15 @@ import { getActivePinia } from 'pinia'
 import { useSettingsStore } from '../stores/settings'
 import { isTauriRuntime } from './runtime'
 
-/** Avoid double chime when two Done events race (e.g. reconnect replay). */
+/**
+ * Avoid double chime when two Done events race (reconnect replay, duplicate
+ * listeners, Error+Done with late second Done, etc.).
+ * Window covers one full chime (~0.55s) plus slack.
+ */
 let lastPlayAtMs = 0
-const PLAY_DEBOUNCE_MS = 800
+const PLAY_DEBOUNCE_MS = 1500
+/** Last turn that already chimed — same turn must not ring again even after debounce. */
+let lastChimedTurnKey = ''
 
 /** Web-only HTMLAudio unlock / keep-warm (desktop uses native OS playback). */
 let webAudioEl: HTMLAudioElement | null = null
@@ -197,6 +203,19 @@ export function disarmTaskCompleteAudio(): void {
   stopWebKeepWarm()
 }
 
+/** @internal vitest only — clears debounce / per-turn guards. */
+export function resetTaskCompleteSoundStateForTests(): void {
+  lastPlayAtMs = 0
+  lastChimedTurnKey = ''
+  stopWebKeepWarm()
+}
+
+function turnChimeKey(conversationId: string, turnId: string | null | undefined): string {
+  const conv = conversationId.trim()
+  const turn = turnId?.trim() || ''
+  return turn ? `${conv}\0${turn}` : conv
+}
+
 export async function playTaskCompleteSound(): Promise<void> {
   const nowMs = Date.now()
   if (nowMs - lastPlayAtMs < PLAY_DEBOUNCE_MS) {
@@ -223,14 +242,32 @@ export async function playTaskCompleteSound(): Promise<void> {
   }
 }
 
-/** Honor user preference; no-op when Pinia is unavailable (unit tests). */
-export function playTaskCompleteSoundIfEnabled(): void {
+/**
+ * Honor user preference and play at most once per user turn.
+ * `turnId` should be captured before `recordTurnDone` clears active timing.
+ */
+export function playTaskCompleteSoundIfEnabled(
+  conversationId?: string,
+  turnId?: string | null
+): void {
   if (!getActivePinia()) return
   const settings = useSettingsStore()
   if (settings.userSettings.playSoundOnFinish === false) {
     console.info('[sound] skip task-complete chime (disabled in settings)')
     stopWebKeepWarm()
     return
+  }
+  const conv = conversationId?.trim() || ''
+  if (conv) {
+    const key = turnChimeKey(conv, turnId)
+    if (key && key === lastChimedTurnKey) {
+      console.info('[sound] skip task-complete chime (same turn)', {
+        conversationId: conv,
+        turnId: turnId ?? null
+      })
+      return
+    }
+    lastChimedTurnKey = key
   }
   void playTaskCompleteSound()
 }

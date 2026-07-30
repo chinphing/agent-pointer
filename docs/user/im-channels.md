@@ -27,5 +27,6 @@
 
 - **dmPolicy**：控制谁可以给机器人发私信（如 `open` / `pairing`）
 - **pairing**：仅允许配对名单中的用户 ID（精确匹配）
+- 有人申请配对时，桌面端会弹出审批提示；无待配对时不会持续请求接口
 
 各平台逐步配置、事件订阅顺序、日志关键字与故障排查见完整指南 **[`../developer/channel-integration.md`](../developer/channel-integration.md)**。

@@ -6,6 +6,7 @@ import {
   isGenerationCancelledMessage
 } from '../../../lib/assistantMessageKind'
 import { flushStreamDeltaBuffers } from '../../../lib/reasoningDeltaBatch'
+import { notifyChannelPairingPending } from '../../../lib/channelPairingPendingBus'
 import {
   disarmTaskCompleteAudio,
   playTaskCompleteSoundIfEnabled
@@ -24,6 +25,7 @@ import {
 import type { StreamHandlerContext } from './types'
 
 type UiToast = Extract<StreamEvent, { kind: 'ui_toast' }>
+type ChannelPairingPending = Extract<StreamEvent, { kind: 'channel_pairing_pending' }>
 type ToolRoundsExhausted = Extract<StreamEvent, { kind: 'tool_rounds_exhausted' }>
 type WorkspaceUpdated = Extract<StreamEvent, { kind: 'workspace_updated' }>
 type ComputerMonitorPickRequired = Extract<StreamEvent, { kind: 'computer_monitor_pick_required' }>
@@ -45,6 +47,15 @@ export function handleUiToast(ctx: StreamHandlerContext, e: UiToast) {
   const level: 'success' | 'warning' | 'error' =
     lv === 'error' ? 'error' : lv === 'warning' ? 'warning' : 'success'
   ctx.showUiToast(e.message, level)
+}
+
+export function handleChannelPairingPending(e: ChannelPairingPending) {
+  notifyChannelPairingPending({
+    channel: e.channel,
+    code: e.code,
+    senderId: e.senderId,
+    issuedAt: e.issuedAt
+  })
 }
 
 export function handleToolRoundsExhausted(ctx: StreamHandlerContext, e: ToolRoundsExhausted) {

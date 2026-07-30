@@ -19,6 +19,7 @@ import {
   handleComputerMonitorPickRequired,
   handleComputerMonitorUpdated,
   handleDone,
+  handleChannelPairingPending,
   handleImSessionAgentChanged,
   handleImSessionForked,
   handleInjectedAssistantMessage,
@@ -56,6 +57,9 @@ export function dispatchStreamEvent(ctx: StreamHandlerContext, e: StreamEvent): 
       break
     case 'ui_toast':
       handleUiToast(ctx, e)
+      break
+    case 'channel_pairing_pending':
+      handleChannelPairingPending(e)
       break
     case 'tool_rounds_exhausted':
       handleToolRoundsExhausted(ctx, e)

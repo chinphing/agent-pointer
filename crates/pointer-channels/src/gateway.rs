@@ -218,9 +218,18 @@ impl ChannelGateway {
                 return Ok(());
             }
             crate::pairing::PairingDecision::NeedPairing => {
-                let code = self
+                let (code, issued_at) = self
                     .pairing
                     .issue_code(&msg.channel, &msg.account_id, &msg.sender_id);
+                pointer_core::stream_broadcast::broadcast_stream(
+                    &pointer_core::models::StreamEvent::ChannelPairingPending {
+                        channel: msg.channel.clone(),
+                        account_id: msg.account_id.clone(),
+                        code: code.clone(),
+                        sender_id: msg.sender_id.clone(),
+                        issued_at,
+                    },
+                );
                 let plugin = self
                     .registry
                     .get(&msg.channel)

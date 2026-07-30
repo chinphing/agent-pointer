@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const PAIRING_CHANNELS: &[&str] = &["feishu", "dingtalk", "wecom", "weixin"];
 
-const PENDING_TTL: Duration = Duration::from_secs(30 * 60);
+const PENDING_TTL: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingRecord {
@@ -230,7 +230,7 @@ impl PairingStore {
         PairingDecision::NeedPairing
     }
 
-    pub fn issue_code(&self, channel: &str, account_id: &str, sender_id: &str) -> String {
+    pub fn issue_code(&self, channel: &str, account_id: &str, sender_id: &str) -> (String, i64) {
         let code: String = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
             .take(8)
@@ -258,7 +258,7 @@ impl PairingStore {
         log::info!(
             "pairing issued channel={channel} account={account_id} sender={sender_id} code={code}"
         );
-        code
+        (code, now)
     }
 
     pub fn approve(&self, channel: &str, account_id: &str, code: &str) -> Result<bool> {

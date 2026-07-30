@@ -3061,6 +3061,7 @@ async fn chat_stream(
                         StreamEvent::UiToast { conversation_id: id, .. } => {
                             id.is_empty() || id == &conversation_id
                         }
+                        StreamEvent::ChannelPairingPending { .. } => true,
                         StreamEvent::InjectedUserMessage { conversation_id: id, .. } => {
                             id == &conversation_id
                         }

@@ -414,6 +414,18 @@ pub enum StreamEvent {
         /// e.g. `success`, `error`, `warning`
         level: String,
     },
+    /// IM DM pairing code issued; UI may prompt admin approval (no continuous idle poll).
+    ChannelPairingPending {
+        channel: String,
+        #[serde(rename = "accountId")]
+        account_id: String,
+        code: String,
+        #[serde(rename = "senderId")]
+        sender_id: String,
+        /// Unix seconds.
+        #[serde(rename = "issuedAt")]
+        issued_at: i64,
+    },
     /// Annotated screen for a specific assistant message (this LLM round’s inject).
     AssistantRoundScreen {
         #[serde(rename = "conversationId")]

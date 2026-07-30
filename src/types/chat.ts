@@ -946,6 +946,15 @@ export type StreamEvent =
   | { kind: 'tool_rounds_exhausted'; conversationId: string; maxRounds: number; message: string; willRetryAfterCompress: boolean }
   /** Ephemeral UI only; not saved as a chat message or sent to the model. */
   | { kind: 'ui_toast'; conversationId: string; message: string; level: string }
+  /** IM DM pairing code issued — UI may prompt approval (poll only while armed). */
+  | {
+      kind: 'channel_pairing_pending'
+      channel: string
+      accountId: string
+      code: string
+      senderId: string
+      issuedAt: number
+    }
   /** Annotated screen for one assistant message (path under computer-captures/). */
   | { kind: 'assistant_round_screen'; conversationId: string; messageId: string; annotatedRelPath: string }
   | { kind: 'supervisor_plan'; conversationId: string; messageId: string; tasks: SupervisorPlanTask[] }

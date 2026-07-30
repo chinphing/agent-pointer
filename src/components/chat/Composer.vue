@@ -1001,6 +1001,7 @@ function onKeydown(e: KeyboardEvent) {
 function onCompositionEnd() {
   setTimeout(() => {
     composing.value = false
+    autoResize()
   }, 50)
 }
 
@@ -1011,6 +1012,13 @@ function selectWorkerAgent(agent: AgentDef) {
 
 let composerResizeRaf: number | null = null
 
+/**
+ * Grow/shrink the textarea with content up to COMPOSER_TEXTAREA_MAX_HEIGHT_PX.
+ * Use height:0 to measure scrollHeight — `height:auto` inside the mobile flex
+ * row often reports a single-line height and stops auto-grow after the
+ * single-row Composer layout change. When already capped and still overflowing,
+ * skip remounting height (avoids long-text layout thrash).
+ */
 function autoResize() {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
   composerResizeRaf = requestAnimationFrame(() => {
@@ -1019,23 +1027,19 @@ function autoResize() {
     if (!el) return
 
     const max = COMPOSER_TEXTAREA_MAX_HEIGHT_PX
-    const atMax =
-      el.offsetHeight >= max - 1 && el.scrollHeight > max
-
-    if (atMax) {
+    const min = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
+    if (el.offsetHeight >= max - 1 && el.scrollHeight > max) {
       el.style.height = `${max}px`
       el.style.overflowY = 'auto'
       return
     }
 
     el.style.overflowY = 'hidden'
-    el.style.height = 'auto'
-    const nextHeight = Math.min(
-      Math.max(el.scrollHeight, COMPOSER_TEXTAREA_MIN_HEIGHT_PX),
-      max
-    )
+    el.style.height = '0px'
+    const content = el.scrollHeight
+    const nextHeight = Math.min(Math.max(content, min), max)
     el.style.height = `${nextHeight}px`
-    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+    el.style.overflowY = content > max ? 'auto' : 'hidden'
   })
 }
 
@@ -1068,6 +1072,11 @@ watch(composerPrefill, (draft) => {
     autoResize()
     textareaRef.value?.focus()
   })
+})
+
+// Draft restore / clear from the store does not always emit textarea @input.
+watch(composerText, () => {
+  nextTick(autoResize)
 })
 
 onMounted(() => {
@@ -1196,10 +1205,10 @@ onUnmounted(() => {
         >
           {{ attachmentHint }}
         </p>
-        <div class="composer-body flex items-center gap-1 md:flex-col md:items-stretch md:gap-0">
+        <div class="composer-body flex items-end gap-1 md:flex-col md:items-stretch md:gap-0">
           <button
             type="button"
-            class="composer-agent-trigger shrink-0 cursor-pointer md:hidden"
+            class="composer-agent-trigger mb-0.5 shrink-0 self-end cursor-pointer md:hidden"
             title="添加附件"
             @click="openAttachmentPicker"
           >
@@ -1209,7 +1218,7 @@ onUnmounted(() => {
             ref="textareaRef"
             v-model="composerText"
             rows="1"
-            class="block min-w-0 flex-1 resize-none bg-transparent border-0 outline-none px-2 py-2 text-[15px] leading-5 text-foreground placeholder:text-muted md:w-full md:px-3 md:pt-[3px] md:pb-2 md:leading-normal"
+            class="block min-w-0 flex-1 resize-none overflow-hidden bg-transparent border-0 outline-none px-2 py-2 text-[15px] leading-5 text-foreground placeholder:text-muted md:w-full md:px-3 md:pt-[3px] md:pb-2 md:leading-normal"
             :style="{
               maxHeight: `${COMPOSER_TEXTAREA_MAX_HEIGHT_PX}px`,
               minHeight: `${COMPOSER_TEXTAREA_MIN_HEIGHT_PX}px`
@@ -1222,7 +1231,7 @@ onUnmounted(() => {
             @compositionstart="composing = true"
             @compositionend="onCompositionEnd"
           />
-          <div class="flex shrink-0 items-center gap-2 md:w-full">
+          <div class="flex shrink-0 items-end gap-2 self-end md:w-full md:items-center md:self-auto">
             <div class="relative hidden min-w-0 flex-1 items-center gap-x-3 px-1 md:flex md:flex-wrap md:gap-y-0">
               <button
                 type="button"

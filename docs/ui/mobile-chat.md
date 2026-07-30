@@ -9,7 +9,9 @@
 
 ## Composer
 
-- 窄屏为**单行**：`[附件] [输入框] [发送]`；宽屏仍为「输入在上、工具栏在下」。
+- 窄屏为**单行控件布局**：`[附件] [输入框] [发送]`（控件横排，不是固定单行高度）；宽屏仍为「输入在上、工具栏在下」。
+- 输入框默认一行高，多行时**仅输入区向上增高**（上限约 250px）；附件 / 发送按钮底对齐，贴在输入区底部，不悬在中间。
+- 测量时用 `height: 0` 再读 `scrollHeight`，避免窄屏 flex 横排下 `height: auto` 量不到换行高度。
 - **智能体选择**与**项目选择**仅在 `md+` 工具栏显示；窄屏隐藏，沿用当前会话已选智能体 / 项目（或默认）。
 - 默认提示文案可由服务端配置（`[server].composer_placeholder` / `POINTER_SERVER_COMPOSER_PLACEHOLDER`），写入 `index.html` meta `pointer-composer-placeholder`；前端 `resolveComposerPlaceholder()` 读取。登录态 / 余额 / Key 缺失时仍用固定提示覆盖。
 

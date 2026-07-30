@@ -1195,10 +1195,10 @@ onUnmounted(() => {
         >
           {{ attachmentHint }}
         </p>
-        <div class="composer-body flex items-end gap-1 md:flex-col md:items-stretch md:gap-0">
+        <div class="composer-body flex items-center gap-1 md:flex-col md:items-stretch md:gap-0">
           <button
             type="button"
-            class="composer-agent-trigger mb-0.5 shrink-0 cursor-pointer md:hidden"
+            class="composer-agent-trigger shrink-0 cursor-pointer md:hidden"
             title="添加附件"
             @click="openAttachmentPicker"
           >

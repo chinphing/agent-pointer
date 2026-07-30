@@ -868,7 +868,7 @@ watch(searchQuery, q => {
             </div>
             <div
               v-show="!pinnedSectionCollapsed"
-              class="sidebar-auto-scrollbar -mr-2 max-h-[11.75rem] overflow-y-auto pr-2"
+              class="sidebar-auto-scrollbar sidebar-section-scroll max-h-[11.75rem] overflow-y-auto"
               @scroll.passive="showScrollbarWhileScrolling"
             >
               <div class="space-y-0.5">
@@ -946,7 +946,7 @@ watch(searchQuery, q => {
 
           <section
             v-if="sidebarProjects.length"
-            class="sidebar-project-section group/project-section shrink-0 px-3 pb-4"
+            class="sidebar-project-section group/project-section shrink-0 px-2 pb-4"
           >
             <div class="group/section-header mb-2 flex h-6 items-center gap-1">
               <button
@@ -1046,7 +1046,7 @@ watch(searchQuery, q => {
             </Teleport>
             <div
               v-show="!projectsSectionCollapsed"
-              class="sidebar-auto-scrollbar -mr-3 max-h-[11.75rem] overflow-y-auto pr-3"
+              class="sidebar-auto-scrollbar sidebar-section-scroll max-h-[11.75rem] overflow-y-auto"
               @scroll.passive="showScrollbarWhileScrolling"
             >
               <p v-if="projectError" class="mb-1 px-1 text-[11px] text-danger">{{ projectError }}</p>
@@ -1266,7 +1266,7 @@ watch(searchQuery, q => {
             </div>
             <div
               ref="listScroller"
-              class="sidebar-auto-scrollbar min-h-0 flex-1 overflow-y-auto"
+              class="sidebar-auto-scrollbar sidebar-section-scroll min-h-0 flex-1 overflow-y-auto"
               style="overflow-anchor: none"
               @scroll.passive="showScrollbarWhileScrolling"
             >
@@ -1590,6 +1590,12 @@ watch(searchQuery, q => {
 .sidebar-auto-scrollbar {
   scrollbar-color: transparent transparent;
   scrollbar-width: thin;
+}
+
+/* Flush scrollbars to the sidebar right edge; keep row content inset via section px-*. */
+.sidebar-section-scroll {
+  margin-right: -0.5rem; /* match section px-2 */
+  padding-right: 0.5rem;
 }
 
 .sidebar-auto-scrollbar::-webkit-scrollbar-thumb {

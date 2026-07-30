@@ -66,7 +66,7 @@ async function forceSend(itemId: string) {
         {{ count }}
       </span>
       <span class="hidden sm:inline text-[10px] text-muted shrink-0">
-        当前任务结束后按序发送
+        Enter 立即发送队首 · ⌘/Ctrl+Enter 停止并发送
       </span>
       <ChevronDown
         class="w-3.5 h-3.5 text-muted shrink-0 transition-transform duration-200"
@@ -100,7 +100,7 @@ async function forceSend(itemId: string) {
           <button
             type="button"
             class="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted hover:text-accent hover:bg-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title="强制发送：暂停当前任务并立即发送"
+            title="强制发送：暂停当前任务并立即发送（⌘/Ctrl+Enter）"
             aria-label="强制发送"
             :disabled="forcingId !== null"
             @click.stop="forceSend(item.id)"

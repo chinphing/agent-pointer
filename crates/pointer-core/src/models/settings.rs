@@ -752,6 +752,9 @@ pub struct ModelSettings {
         rename = "debugDumpLlmPrompts"
     )]
     pub debug_dump_llm_prompts: bool,
+    /// Debug: KEY→VALUE overlays for `terminal` child env (override process / `.env`).
+    #[serde(default, rename = "terminalEnvOverrides")]
+    pub terminal_env_overrides: HashMap<String, String>,
     /// When true, settings UI exposes debug sections (independent of raw wire / prompt dump toggles).
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
@@ -1183,6 +1186,7 @@ impl Default for ModelSettings {
             max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
+            terminal_env_overrides: HashMap::new(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
@@ -1607,6 +1611,9 @@ pub struct PlatformSettings {
         rename = "debugDumpLlmPrompts"
     )]
     pub debug_dump_llm_prompts: bool,
+    /// Debug: KEY→VALUE overlays for `terminal` child env (override process / `.env`).
+    #[serde(default, rename = "terminalEnvOverrides")]
+    pub terminal_env_overrides: HashMap<String, String>,
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
     #[serde(
@@ -2203,6 +2210,7 @@ impl Default for PlatformSettings {
             max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
+            terminal_env_overrides: HashMap::new(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
@@ -2261,6 +2269,7 @@ const DATI_SETTINGS_JSON_KEYS: &[&str] =
 const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "rawContentViewEnabled",
     "debugDumpLlmPrompts",
+    "terminalEnvOverrides",
     "debugMenusEnabled",
     "taskBoardShowChildBoards",
     "computerAnnotatedScreenViewEnabled",
@@ -2378,6 +2387,7 @@ pub fn preserve_platform_debug_settings_in_model(
 ) {
     incoming.raw_content_view_enabled = platform.raw_content_view_enabled;
     incoming.debug_dump_llm_prompts = platform.debug_dump_llm_prompts;
+    incoming.terminal_env_overrides = platform.terminal_env_overrides.clone();
     incoming.debug_menus_enabled = platform.debug_menus_enabled;
     incoming.task_board_show_child_boards = platform.task_board_show_child_boards;
     incoming.computer_annotated_screen_view_enabled =
@@ -2439,6 +2449,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         max_sub_agent_spawn_depth: platform.max_sub_agent_spawn_depth,
         raw_content_view_enabled: platform.raw_content_view_enabled,
         debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
+        terminal_env_overrides: platform.terminal_env_overrides.clone(),
         debug_menus_enabled: platform.debug_menus_enabled,
         task_board_show_child_boards: platform.task_board_show_child_boards,
         user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,

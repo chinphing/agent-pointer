@@ -601,6 +601,12 @@ export interface PlatformSettings {
   rawContentViewEnabled: boolean
   /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
   debugDumpLlmPrompts?: boolean
+  /**
+   * Debug: env KEY→VALUE overlays for `terminal` child processes.
+   * Overrides process / `.env` / session values; `PATH` is prepended like `.env`.
+   * Applied only while debug menus are enabled.
+   */
+  terminalEnvOverrides?: Record<string, string>
   /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */
@@ -673,6 +679,8 @@ export interface ModelSettings {
   rawContentViewEnabled: boolean
   /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
   debugDumpLlmPrompts?: boolean
+  /** Debug: KEY→VALUE overlays for `terminal` child env (session memory). */
+  terminalEnvOverrides?: Record<string, string>
   /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */

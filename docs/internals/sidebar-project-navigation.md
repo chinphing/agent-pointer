@@ -31,8 +31,11 @@ see every user's rows; other users only see their own `session_user_id`.
 
 - The existing **+** is the sole new-task action. It attaches a task to the
   current project when one is active, otherwise to the default project.
-- Selecting a project header only expands or collapses it; it never opens or
-  creates a conversation.
+- Selecting a project **name** activates the project and expands it when collapsed;
+  it does not collapse an already-expanded project. The **chevron** alone toggles
+  expand/collapse. Expand state is remembered in `localStorage`
+  (`pointer.sidebar.expandedProjectIds`) across reloads; deleted project ids are
+  pruned from that set.
 - Expanded projects query only their own conversations, with the same
   cursor-based paging model as recent conversations.
 - Sidebar projects are queried separately from recent conversations. Initial
@@ -68,6 +71,7 @@ see every user's rows; other users only see their own `session_user_id`.
   own `session_user_id`). The section title
   (and search / new-task actions) stays **outside** the scroll container so it
   does not scroll away; only the conversation rows scroll.
+  Recent rows show title and optional snippet only (no timestamp).
   Conversation pin state is persisted on the conversation meta row (`isPinned`).
   Double-click a title to rename in a dialog.
 - Opening a recent conversation whose project is outside the loaded sidebar

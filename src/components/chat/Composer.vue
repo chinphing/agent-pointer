@@ -151,6 +151,9 @@ const isMacDesktop = computed(
   () => isTauriRuntime() && detectDesktopOs() === 'macos'
 )
 
+/** Shortcut labels: prefer OS (incl. web), not only Tauri desktop. */
+const isMacOs = computed(() => detectDesktopOs() === 'macos')
+
 const showWorkspacePicker = computed(() => true)
 const projectLocked = computed(() => !!chat.current?.projectId || (chat.current?.messages.length ?? 0) > 0)
 const selectedProject = computed(() =>
@@ -307,6 +310,69 @@ function onWorkspaceInput(e: Event) {
 function send() {
   if (!canSend.value) return
   void sendWithOptionalComputerScreenPick()
+}
+
+function hasComposerDraft(): boolean {
+  return (
+    (composerText.value.length > 0 && composerText.value.trim().length > 0) ||
+    composerAttachments.value.length > 0
+  )
+}
+
+/**
+ * Cursor-style stop & send: interrupt the active turn and dispatch immediately.
+ * - With draft text/attachments: enqueue then force-send that item.
+ * - Empty draft + non-empty queue: force-send the first queued item.
+ */
+async function stopAndSendNow() {
+  const conv = chat.current || chat.newConversation()
+  const convId = conv.id
+  const wasGenerating = !!generating.value || chat.isConversationGenerating(convId)
+  const queueBefore = chat.outboundQueueItems(convId)
+
+  if (hasComposerDraft()) {
+    if (!canSend.value) return
+    // Bypass screen-pick flow: stop-and-send must interrupt immediately like Cursor.
+    const text = composerText.value
+    const attachments = cloneComposerAttachmentsForSend(composerAttachments.value)
+    chat.clearActiveComposer()
+    await chat.sendUserMessage(text, attachments)
+    if (!wasGenerating) return
+    const queue = chat.outboundQueueItems(convId)
+    const newlyQueued =
+      queue.find(item => !queueBefore.some(prev => prev.id === item.id)) ??
+      queue[queue.length - 1]
+    if (newlyQueued) {
+      await chat.forceSendOutbound(convId, newlyQueued.id)
+    }
+    return
+  }
+
+  if (queueBefore.length > 0) {
+    await chat.forceSendOutbound(convId, queueBefore[0]!.id)
+  }
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.isComposing || composing.value) return
+  if (e.key !== 'Enter' || e.shiftKey) return
+
+  // Cursor: Cmd/Ctrl+Enter → stop current turn and send immediately.
+  if (e.metaKey || e.ctrlKey) {
+    e.preventDefault()
+    void stopAndSendNow()
+    return
+  }
+
+  e.preventDefault()
+
+  // Cursor: plain Enter with empty input while queue has items → send queue head now.
+  if (!hasComposerDraft() && outboundQueueList.value.length > 0) {
+    void stopAndSendNow()
+    return
+  }
+
+  send()
 }
 
 const showScreenPicker = ref(false)
@@ -990,14 +1056,6 @@ async function onPickScreen(monitorId: string) {
   nextTick(() => autoResize())
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.isComposing || composing.value) return
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    send()
-  }
-}
-
 function onCompositionEnd() {
   setTimeout(() => {
     composing.value = false
@@ -1369,7 +1427,11 @@ onUnmounted(() => {
                 ? 'bg-accent text-white hover:opacity-90 cursor-pointer'
                 : 'bg-hover text-muted cursor-not-allowed'"
               :disabled="!canSend"
-              :title="generating ? '加入发送队列' : '发送'"
+              :title="generating
+                ? (isMacOs
+                  ? '加入发送队列 (↩)。空输入再 ↩ 立即发送队首。⌘↩ 停止并立即发送'
+                  : '加入发送队列 (Enter)。空输入再 Enter 立即发送队首。Ctrl+Enter 停止并立即发送')
+                : (isMacOs ? '发送 (↩)' : '发送 (Enter)')"
               @click="send"
             ><Send class="w-4 h-4" /></button>
           </div>

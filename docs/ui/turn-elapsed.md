@@ -20,6 +20,17 @@
   `recordTurnStart` 在 turnId 变化时也会结算上一轮（双保险）。
 - 被取消 run 的迟到 `Done` 不得关掉新回合的计时 / `generating`（`consumeStaleDoneAfterInterrupt`）。
 
+### Composer 快捷键（对齐 Cursor）
+
+| 按键 | 行为 |
+|------|------|
+| **Enter**（有草稿） | 空闲则发送；生成中则入队 |
+| **Enter**（空草稿 + 队列非空） | 立即发送队首（打断当前回合） |
+| **⌘/Ctrl+Enter** | 停止当前回合并立即发送：有草稿则先入队再 force-send；无草稿则 force-send 队首 |
+| **Shift+Enter** | 换行 |
+
+实现：`Composer.vue`（`onKeydown` / `stopAndSendNow`）→ `forceSendOutbound`。
+
 ## 实现位置
 
 - `src/lib/turnElapsed.ts`

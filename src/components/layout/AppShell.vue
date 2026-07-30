@@ -36,6 +36,7 @@ import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
 import { applyProjectCreationResult } from '../../lib/projectCreation'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
+import { useSidebarProjectExpand } from '../../composables/useSidebarProjectExpand'
 import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
 import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
@@ -52,6 +53,12 @@ const emit = defineEmits<{
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
+const {
+  isExpanded: isProjectExpanded,
+  setExpanded: setProjectExpanded,
+  toggleExpanded: toggleProjectIdExpanded,
+  forgetProject: forgetExpandedProject
+} = useSidebarProjectExpand()
 const workspacePanelOpen = computed(() => workspacePanel.open)
 
 function setWorkspacePanelOpen(open: boolean) {
@@ -158,7 +165,6 @@ const sidebarProjects = computed(() => {
       || project.workspaceRoot.toLocaleLowerCase().includes(query))
   )
 })
-const expandedProjectIds = ref(new Set<string>())
 const projectCursors = ref<Record<string, import('../../types/chat').ConversationCursor | null>>({})
 const projectLoading = ref(new Set<string>())
 const projectName = ref('')
@@ -256,6 +262,7 @@ async function confirmProjectDeletion() {
   if (!project) return
   try {
     await chat.deleteProject(project.id)
+    forgetExpandedProject(project.id)
     projectPendingDeletion.value = null
   } catch (err) {
     projectError.value = String(err)
@@ -292,17 +299,24 @@ function projectConversations(project: Project) {
     .sort(compareUnpinnedByActivity)
 }
 
-async function toggleProject(project: Project) {
-  const expanded = new Set(expandedProjectIds.value)
-  if (expanded.has(project.id)) {
-    expanded.delete(project.id)
-  } else {
-    expanded.add(project.id)
-    if (!projectCursors.value[project.id] && projectConversations(project).length === 0) {
-      await loadMoreProjectConversations(project)
-    }
+async function ensureProjectConversationsLoaded(project: Project) {
+  if (!projectCursors.value[project.id] && projectConversations(project).length === 0) {
+    await loadMoreProjectConversations(project)
   }
-  expandedProjectIds.value = expanded
+}
+
+/** Chevron only: expand / collapse without changing the active project. */
+async function onProjectChevronClick(project: Project) {
+  const expanded = toggleProjectIdExpanded(project.id)
+  if (expanded) await ensureProjectConversationsLoaded(project)
+}
+
+/** Row body: select project; expand if currently collapsed, never collapse. */
+async function selectProject(project: Project) {
+  if (!isProjectExpanded(project.id)) {
+    setProjectExpanded(project.id, true)
+    await ensureProjectConversationsLoaded(project)
+  }
   await chat.switchProject(project.id)
 }
 
@@ -1042,21 +1056,33 @@ watch(searchQuery, q => {
                   :key="project.id"
                   class="relative space-y-1 group/project"
                 >
-                <button
-                  type="button"
+                <div
                   class="sidebar-project-row"
                   :class="chat.current?.projectId === project.id && 'is-active'"
-                  :title="project.workspaceRoot"
-                  :aria-expanded="expandedProjectIds.has(project.id)"
-                  @click="toggleProject(project)"
                 >
-                  <component
-                    :is="expandedProjectIds.has(project.id) ? ChevronDown : ChevronRight"
-                    class="w-3.5 h-3.5 shrink-0"
-                  />
-                  <FolderGit2 class="w-3.5 h-3.5 shrink-0" />
-                  <span class="truncate">{{ displayProjectName(project) }}</span>
-                </button>
+                  <button
+                    type="button"
+                    class="sidebar-project-expand"
+                    :title="isProjectExpanded(project.id) ? '收起' : '展开'"
+                    :aria-expanded="isProjectExpanded(project.id)"
+                    :aria-label="isProjectExpanded(project.id) ? '收起项目' : '展开项目'"
+                    @click="onProjectChevronClick(project)"
+                  >
+                    <component
+                      :is="isProjectExpanded(project.id) ? ChevronDown : ChevronRight"
+                      class="w-3.5 h-3.5 shrink-0"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    class="sidebar-project-select"
+                    :title="project.workspaceRoot"
+                    @click="selectProject(project)"
+                  >
+                    <FolderGit2 class="w-3.5 h-3.5 shrink-0" />
+                    <span class="truncate">{{ displayProjectName(project) }}</span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   class="project-menu-trigger opacity-0 group-hover/project:opacity-100"
@@ -1083,7 +1109,7 @@ watch(searchQuery, q => {
                   </div>
                 </Teleport>
                 <div
-                  v-if="expandedProjectIds.has(project.id)"
+                  v-if="isProjectExpanded(project.id)"
                   class="ml-4 border-l border-border pl-1 space-y-0.5"
                 >
                   <div
@@ -1282,7 +1308,6 @@ watch(searchQuery, q => {
                   class="text-[10px] text-muted truncate"
                   :title="c.snippet"
                 >{{ c.snippet }}</div>
-                <div v-else class="text-[10px] text-muted">{{ new Date(c.updatedAt).toLocaleString() }}</div>
               </div>
               <template v-if="pendingDeleteId === c.id">
                 <button
@@ -1651,11 +1676,19 @@ watch(searchQuery, q => {
 }
 
 .sidebar-project-row {
-  @apply w-full h-9 pl-2 pr-8 rounded-lg inline-flex items-center gap-2 text-[13px] text-muted text-left hover:bg-hover hover:text-foreground transition-colors;
+  @apply w-full h-9 pl-1 pr-8 rounded-lg inline-flex items-center gap-0.5 text-[13px] text-muted text-left hover:bg-hover hover:text-foreground transition-colors;
 }
 
 .sidebar-project-row.is-active {
   @apply bg-accent-muted text-accent;
+}
+
+.sidebar-project-expand {
+  @apply h-7 w-7 shrink-0 rounded-md inline-flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition-colors cursor-pointer;
+}
+
+.sidebar-project-select {
+  @apply min-w-0 flex-1 h-9 pr-1 rounded-md inline-flex items-center gap-2 text-[13px] text-inherit text-left cursor-pointer;
 }
 
 .sidebar-project-conversation {

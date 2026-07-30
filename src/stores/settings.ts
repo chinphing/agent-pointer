@@ -97,6 +97,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   maxSubAgentSpawnDepth: 2,
   rawContentViewEnabled: false,
   debugDumpLlmPrompts: false,
+  terminalEnvOverrides: {},
   debugMenusEnabled: false,
   taskBoardShowChildBoards: false,
   agentDefaultModels: {},
@@ -175,6 +176,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     maxSubAgentSpawnDepth: s.maxSubAgentSpawnDepth ?? 2,
     rawContentViewEnabled: s.rawContentViewEnabled === true,
     debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
+    terminalEnvOverrides: { ...(s.terminalEnvOverrides ?? {}) },
     debugMenusEnabled: s.debugMenusEnabled === true,
     taskBoardShowChildBoards: migrated.taskBoardShowChildBoards === true,
     agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
@@ -206,6 +208,23 @@ function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxToke
     temperature: () => st?.temperature ?? 0.3,
     maxTokens: () => st?.maxTokens ?? 64_000
   }
+}
+
+/**
+ * WEB non-admin responses omit `terminalEnvOverrides`. Keep the in-memory map when
+ * the field is absent. Empty `{}` from an authoritative session save is kept as-is
+ * (callers clear the local draft before save when deleting all rows).
+ */
+function retainTerminalEnvOverrides(
+  mergedIn?: Record<string, string>,
+  platformIn?: Record<string, string>,
+  prevMerged?: Record<string, string>,
+  prevPlatform?: Record<string, string>
+): Record<string, string> {
+  const incoming = mergedIn ?? platformIn
+  const previous = prevMerged ?? prevPlatform ?? {}
+  if (incoming === undefined) return { ...previous }
+  return { ...incoming }
 }
 
 const defaultProviders: ProviderConfig[] = [
@@ -341,25 +360,34 @@ export const useSettingsStore = defineStore('settings', () => {
     // back to built-in defaults (admins now receive these fields from the API).
     const platformIn = view.platform ?? ({} as PlatformSettings)
     const mergedIn = view.merged ?? ({} as ModelSettings)
+    const prevPlatform = platformSettings.value
+    const prevMerged = settings.value
+    const retainedTerminalEnv = retainTerminalEnvOverrides(
+      mergedIn.terminalEnvOverrides,
+      platformIn.terminalEnvOverrides,
+      prevMerged.terminalEnvOverrides,
+      prevPlatform.terminalEnvOverrides
+    )
     platformSettings.value = {
       ...defaultPlatformSettings(),
       ...platformIn,
       providers: normalizeProviders(platformIn.providers, undefined, globalGenFallbackFrom(mergedIn)),
+      terminalEnvOverrides: { ...retainedTerminalEnv },
       computerTierLlm: {
         ...defaultPlatformSettings().computerTierLlm,
-        ...(platformIn.computerTierLlm ?? platformSettings.value.computerTierLlm ?? {})
+        ...(platformIn.computerTierLlm ?? prevPlatform.computerTierLlm ?? {})
       },
       computerPipelineLlm: {
         ...defaultPlatformSettings().computerPipelineLlm,
-        ...(platformIn.computerPipelineLlm ?? platformSettings.value.computerPipelineLlm ?? {})
+        ...(platformIn.computerPipelineLlm ?? prevPlatform.computerPipelineLlm ?? {})
       },
       agentModeLlm: {
         ...defaultAgentModeLlm(),
-        ...(platformIn.agentModeLlm ?? platformSettings.value.agentModeLlm ?? {})
+        ...(platformIn.agentModeLlm ?? prevPlatform.agentModeLlm ?? {})
       },
       mediaModeLlm: {
         ...defaultMediaModeLlm(),
-        ...(platformIn.mediaModeLlm ?? platformSettings.value.mediaModeLlm ?? {})
+        ...(platformIn.mediaModeLlm ?? prevPlatform.mediaModeLlm ?? {})
       }
     }
     canEditPlatform.value = view.canEditPlatform
@@ -369,18 +397,19 @@ export const useSettingsStore = defineStore('settings', () => {
       ...mergedIn,
       // Keep session debug toggles when WEB omitted them from the response.
       debugMenusEnabled:
-        mergedIn.debugMenusEnabled ?? settings.value.debugMenusEnabled,
+        mergedIn.debugMenusEnabled ?? prevMerged.debugMenusEnabled,
       rawContentViewEnabled:
-        mergedIn.rawContentViewEnabled ?? settings.value.rawContentViewEnabled,
+        mergedIn.rawContentViewEnabled ?? prevMerged.rawContentViewEnabled,
       debugDumpLlmPrompts:
-        mergedIn.debugDumpLlmPrompts ?? settings.value.debugDumpLlmPrompts,
+        mergedIn.debugDumpLlmPrompts ?? prevMerged.debugDumpLlmPrompts,
+      terminalEnvOverrides: { ...retainedTerminalEnv },
       taskBoardShowChildBoards:
-        mergedIn.taskBoardShowChildBoards ?? settings.value.taskBoardShowChildBoards,
+        mergedIn.taskBoardShowChildBoards ?? prevMerged.taskBoardShowChildBoards,
       computerAnnotatedScreenViewEnabled:
         mergedIn.computerAnnotatedScreenViewEnabled ??
-        settings.value.computerAnnotatedScreenViewEnabled,
+        prevMerged.computerAnnotatedScreenViewEnabled,
       agentUiOverrides:
-        mergedIn.agentUiOverrides ?? settings.value.agentUiOverrides,
+        mergedIn.agentUiOverrides ?? prevMerged.agentUiOverrides,
       agentModeLlm: platformSettings.value.agentModeLlm,
       mediaModeLlm: platformSettings.value.mediaModeLlm,
       computerTierLlm: platformSettings.value.computerTierLlm,
@@ -510,7 +539,19 @@ export const useSettingsStore = defineStore('settings', () => {
   async function saveUserSnapshot(snapshot: UserSettings) {
     if (snapshot.theme !== undefined) applyTheme(snapshot.theme)
     const view = await updateUserSettings(cloneJson(snapshot))
-    applyEffectiveView(view)
+    // Only refresh the user slice. A full applyEffectiveView would re-apply the
+    // still-stale platform map (often `terminalEnvOverrides: {}`) and wipe session
+    // debug drafts captured earlier in the same settings-footer save.
+    const user = {
+      ...view.user,
+      theme: (view.user.theme as ThemePreference) ?? 'system'
+    }
+    userSettings.value = user
+    settings.value = {
+      ...settings.value,
+      theme: user.theme
+    }
+    applyTheme(user.theme)
   }
 
   async function saveUser(patch: Partial<UserSettings>) {

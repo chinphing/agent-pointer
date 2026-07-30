@@ -30,6 +30,7 @@ import type {
 import { COMPUTER_INITIAL_TIER_OPTIONS, PERFORMANCE_MODE_OPTIONS } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { applyTheme } from '../lib/theme'
+import { randomUuid } from '../lib/randomUuid'
 import { resolveAgentUi, composerAgentLabel } from '../lib/agentUi'
 import { sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../lib/agentIcons'
 import { listAgents, checkMediaDeps } from '../lib/api'
@@ -223,6 +224,7 @@ function createSettingsDialogForm(deps: {
   const maxSubAgentSpawnDepth = ref(2)
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
+  const terminalEnvRows = ref<Array<{ id: string; key: string; value: string }>>([])
   const taskBoardShowChildBoards = ref(false)
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
@@ -428,6 +430,11 @@ function createSettingsDialogForm(deps: {
   maxSubAgentSpawnDepth.value = s.settings.maxSubAgentSpawnDepth ?? 2
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
+  terminalEnvRows.value = Object.entries(s.settings.terminalEnvOverrides ?? {}).map(([key, value]) => ({
+    id: randomUuid(),
+    key,
+    value
+  }))
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
@@ -684,14 +691,40 @@ function createSettingsDialogForm(deps: {
       }
     : stripDebugAgentUiOverrides(baseOverrides)
 
+  // Keep terminalEnvOverrides across debug toggle; they only apply while debug is on.
+  const terminalEnvOverrides = terminalEnvOverridesFromRows()
+  s.settings.terminalEnvOverrides = terminalEnvOverrides
+
   await s.save({
     debugMenusEnabled: next,
     rawContentViewEnabled: next,
     computerAnnotatedScreenViewEnabled: next,
     debugDumpLlmPrompts: next ? debugDumpLlmPrompts.value : false,
     taskBoardShowChildBoards: next ? taskBoardShowChildBoards.value : false,
+    terminalEnvOverrides,
     agentUiOverrides
   })
+  }
+
+  function terminalEnvOverridesFromRows(): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const row of terminalEnvRows.value) {
+      const key = row.key.trim()
+      if (!key) continue
+      out[key] = row.value
+    }
+    return out
+  }
+
+  function addTerminalEnvRow() {
+    terminalEnvRows.value = [
+      ...terminalEnvRows.value,
+      { id: randomUuid(), key: '', value: '' }
+    ]
+  }
+
+  function removeTerminalEnvRow(id: string) {
+    terminalEnvRows.value = terminalEnvRows.value.filter(row => row.id !== id)
   }
 
   function optionalParallelLimit(v: number | ''): number | null {
@@ -736,6 +769,10 @@ function createSettingsDialogForm(deps: {
   }
 
   function getDebugRuntimeSavePayload() {
+  const terminalEnvOverrides = terminalEnvOverridesFromRows()
+  // Optimistic local write so later applyEffectiveView (theme / debug-session)
+  // preserves overrides when the response omits or defaults the field.
+  s.settings.terminalEnvOverrides = terminalEnvOverrides
   return {
     agentMode: agentMode.value,
     leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
@@ -743,6 +780,7 @@ function createSettingsDialogForm(deps: {
     maxSubAgentSpawnDepth: Number(maxSubAgentSpawnDepth.value),
     rawContentViewEnabled: rawContentViewEnabled.value,
     debugDumpLlmPrompts: debugDumpLlmPrompts.value,
+    terminalEnvOverrides,
     debugMenusEnabled: debugMenusEnabled.value,
     taskBoardShowChildBoards: taskBoardShowChildBoards.value,
     computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
@@ -786,6 +824,9 @@ function createSettingsDialogForm(deps: {
     maxSubAgentSpawnDepth,
     rawContentViewEnabled,
     debugDumpLlmPrompts,
+    terminalEnvRows,
+    addTerminalEnvRow,
+    removeTerminalEnvRow,
     taskBoardShowChildBoards,
     agentTaskBoardHistoryTrim,
     computerHumanLike,

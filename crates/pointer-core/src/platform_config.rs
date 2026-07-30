@@ -22,6 +22,16 @@ pub fn register_global_platform_config(cfg: SharedPlatformConfig) {
     let _ = GLOBAL_PLATFORM_CONFIG.set(cfg);
 }
 
+/// Test helper: replace the process-wide platform config (OnceLock may already be set).
+#[cfg(test)]
+pub fn replace_global_platform_config_for_test(platform: PlatformSettings) {
+    if let Some(cfg) = GLOBAL_PLATFORM_CONFIG.get() {
+        *cfg.write() = platform;
+        return;
+    }
+    let _ = GLOBAL_PLATFORM_CONFIG.set(Arc::new(RwLock::new(platform)));
+}
+
 /// Effective settings when only user persistence + optional global platform config exist.
 pub fn effective_settings_global() -> ModelSettings {
     let user = storage::load_user_settings().unwrap_or_default();
@@ -114,6 +124,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         max_sub_agent_spawn_depth: s.max_sub_agent_spawn_depth,
         raw_content_view_enabled: s.raw_content_view_enabled,
         debug_dump_llm_prompts: s.debug_dump_llm_prompts,
+        terminal_env_overrides: s.terminal_env_overrides.clone(),
         debug_menus_enabled: s.debug_menus_enabled,
         task_board_show_child_boards: s.task_board_show_child_boards,
         user_dynamic_inject_enabled: s.user_dynamic_inject_enabled,

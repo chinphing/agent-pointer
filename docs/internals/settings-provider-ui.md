@@ -2,7 +2,7 @@
 
 > **可见性**：设置侧栏「模型服务」仅在 **平台管理员 + 调试模式** 下显示（`canEditPlatform && debugMenusEnabled`）。普通用户通过平台账户 OAuth 注入 API Key，不可编辑服务商列表。
 
-> **关闭调试**：Bug 按钮再次点击会同步关闭 `rawContentViewEnabled`、`computerAnnotatedScreenViewEnabled`、`debugDumpLlmPrompts`、`taskBoardShowChildBoards`，并清除各智能体 `agentUiOverrides` 中的 `showSidecarToolCalls` / `showToolCallResults` / `showReasoning`（恢复 profile 默认）。
+> **关闭调试**：Bug 按钮再次点击会同步关闭 `rawContentViewEnabled`、`computerAnnotatedScreenViewEnabled`、`debugDumpLlmPrompts`、`taskBoardShowChildBoards`，并清除各智能体 `agentUiOverrides` 中的 `showSidecarToolCalls` / `showToolCallResults` / `showReasoning`（恢复 profile 默认）。`terminalEnvOverrides` 保留在内存中，关闭调试后不再注入 terminal；再次开启调试可继续编辑。
 
 > 配置写入内存，重启后恢复默认；底部「保存(本次会话)」通过专用的
 > `DebugSessionSettings` 边界更新当前进程配置。

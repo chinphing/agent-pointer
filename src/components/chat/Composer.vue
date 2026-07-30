@@ -1266,7 +1266,7 @@ function autoResize() {
 
     // Native path (Chromium / recent WebKit): let the engine size to content.
     if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) {
-      el.style.fieldSizing = 'content'
+      el.style.setProperty('field-sizing', 'content')
       el.style.height = 'auto'
       el.style.minHeight = `${min}px`
       el.style.maxHeight = `${max}px`
@@ -1274,7 +1274,7 @@ function autoResize() {
       return
     }
 
-    el.style.fieldSizing = ''
+    el.style.setProperty('field-sizing', '')
     el.style.overflowY = 'hidden'
     el.style.minHeight = '0'
     el.style.height = '0'

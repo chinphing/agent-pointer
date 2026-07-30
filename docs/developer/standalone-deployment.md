@@ -345,6 +345,8 @@ models = ["qwen3.5-plus"]
 [server]
 addr = "0.0.0.0:8787"
 public_url = "https://pointer.example.com"
+# page_title = "Acme · AI 助手"   # browser tab; env POINTER_SERVER_PAGE_TITLE
+# composer_placeholder = "有什么可以帮你？"  # composer hint; env POINTER_SERVER_COMPOSER_PLACEHOLDER
 app_data_dir = "/var/lib/pointer"
 # zip: skills beside binary; deb:
 # static_dir = "/usr/share/pointer-server/dist"

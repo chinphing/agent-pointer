@@ -111,6 +111,14 @@ struct ServerSection {
     /// explicitly for production behind a public domain or reverse proxy.
     #[serde(default)]
     public_url: String,
+    /// Browser tab title for the served Web UI (`<title>` in `index.html`).
+    /// Maps to `POINTER_SERVER_PAGE_TITLE`. Empty → default `Pointer · AI 工作台`.
+    #[serde(default)]
+    page_title: String,
+    /// Default composer input placeholder (when logged in and API key present).
+    /// Maps to `POINTER_SERVER_COMPOSER_PLACEHOLDER`. Empty → `告诉我你想做什么`.
+    #[serde(default)]
+    composer_placeholder: String,
     /// Platform user ids allowed to log in (maps to `POINTER_SERVER_ALLOWED_USER_IDS`).
     #[serde(default)]
     allowed_user_ids: Vec<String>,
@@ -414,6 +422,20 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         &mut pairs,
         "POINTER_SERVER_PUBLIC_URL",
         &parsed.server.public_url,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_PAGE_TITLE",
+        &parsed.server.page_title,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_COMPOSER_PLACEHOLDER",
+        &parsed.server.composer_placeholder,
         base_dir,
         false,
     );
@@ -792,6 +814,32 @@ public_url = "https://pointer.example.com"
         assert_eq!(
             map.get("POINTER_SERVER_PUBLIC_URL").map(String::as_str),
             Some("https://pointer.example.com")
+        );
+    }
+
+    #[test]
+    fn toml_maps_page_title_to_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[server]
+page_title = "Acme · AI 助手"
+composer_placeholder = "有什么可以帮你？"
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_PAGE_TITLE").map(String::as_str),
+            Some("Acme · AI 助手")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_COMPOSER_PLACEHOLDER")
+                .map(String::as_str),
+            Some("有什么可以帮你？")
         );
     }
 

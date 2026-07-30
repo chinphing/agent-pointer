@@ -771,6 +771,11 @@ async fn main() -> anyhow::Result<()> {
         .parse()?;
     log::info!("pointer-server: bind address {addr} (POINTER_SERVER_ADDR)");
     if static_dir.is_some() {
+        log::info!(
+            "pointer-server: web branding title={:?} composer_placeholder={:?}",
+            resolve_web_page_title(),
+            resolve_composer_placeholder()
+        );
         println!("Pointer web server listening on http://{addr} (API + static UI)");
     } else {
         println!(
@@ -3578,9 +3583,12 @@ fn urlencoding_encode(s: &str) -> String {
 }
 
 async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCode> {
-    let bytes = tokio::fs::read(path)
+    let mut bytes = tokio::fs::read(path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
+    if path.file_name().and_then(|n| n.to_str()) == Some("index.html") {
+        bytes = apply_web_branding(&bytes).into_bytes();
+    }
     let mut response = Response::new(bytes.into());
     if let Ok(value) = HeaderValue::from_str(static_content_type(path)) {
         response.headers_mut().insert(header::CONTENT_TYPE, value);
@@ -3591,6 +3599,109 @@ async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCod
             .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     }
     Ok(response)
+}
+
+const DEFAULT_WEB_PAGE_TITLE: &str = "Pointer · AI 工作台";
+const DEFAULT_COMPOSER_PLACEHOLDER: &str = "告诉我你想做什么";
+const COMPOSER_PLACEHOLDER_META: &str = "pointer-composer-placeholder";
+
+/// Browser tab title from `POINTER_SERVER_PAGE_TITLE` / `[server].page_title`.
+fn resolve_web_page_title() -> String {
+    std::env::var("POINTER_SERVER_PAGE_TITLE")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_WEB_PAGE_TITLE.to_string())
+}
+
+/// Composer placeholder from `POINTER_SERVER_COMPOSER_PLACEHOLDER` /
+/// `[server].composer_placeholder`.
+fn resolve_composer_placeholder() -> String {
+    std::env::var("POINTER_SERVER_COMPOSER_PLACEHOLDER")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_COMPOSER_PLACEHOLDER.to_string())
+}
+
+fn html_escape_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+fn replace_html_title(html: &str, title: &str) -> String {
+    let replacement = format!("<title>{title}</title>");
+    if let Some(start) = html.find("<title>") {
+        if let Some(end_rel) = html[start..].find("</title>") {
+            let end = start + end_rel + "</title>".len();
+            let mut out = String::with_capacity(html.len() + title.len());
+            out.push_str(&html[..start]);
+            out.push_str(&replacement);
+            out.push_str(&html[end..]);
+            return out;
+        }
+    }
+    log::warn!("pointer-server: index.html missing <title>; injecting before </head>");
+    if let Some(head_end) = html.find("</head>") {
+        let mut out = String::with_capacity(html.len() + replacement.len() + 1);
+        out.push_str(&html[..head_end]);
+        out.push_str(&replacement);
+        out.push('\n');
+        out.push_str(&html[head_end..]);
+        return out;
+    }
+    html.to_string()
+}
+
+fn composer_placeholder_meta_tag(placeholder: &str) -> String {
+    format!(r#"<meta name="{COMPOSER_PLACEHOLDER_META}" content="{placeholder}" />"#)
+}
+
+fn replace_or_inject_composer_placeholder_meta(html: &str, placeholder: &str) -> String {
+    let meta = composer_placeholder_meta_tag(placeholder);
+    let needle = format!(r#"name="{COMPOSER_PLACEHOLDER_META}""#);
+    if let Some(name_idx) = html.find(&needle) {
+        // Rewrite content="…" on the existing meta tag.
+        let tag_start = html[..name_idx].rfind('<').unwrap_or(0);
+        if let Some(tag_end_rel) = html[name_idx..].find('>') {
+            let tag_end = name_idx + tag_end_rel + 1;
+            let mut out = String::with_capacity(html.len() + meta.len());
+            out.push_str(&html[..tag_start]);
+            out.push_str(&meta);
+            out.push_str(&html[tag_end..]);
+            return out;
+        }
+    }
+    if let Some(head_end) = html.find("</head>") {
+        let mut out = String::with_capacity(html.len() + meta.len() + 1);
+        out.push_str(&html[..head_end]);
+        out.push_str(&meta);
+        out.push('\n');
+        out.push_str(&html[head_end..]);
+        return out;
+    }
+    log::warn!("pointer-server: index.html missing </head>; cannot inject composer placeholder meta");
+    html.to_string()
+}
+
+/// Rewrite SPA shell branding: tab `<title>` and composer placeholder meta.
+fn apply_web_branding(html_bytes: &[u8]) -> String {
+    let html = String::from_utf8_lossy(html_bytes);
+    let titled = replace_html_title(&html, &html_escape_text(&resolve_web_page_title()));
+    replace_or_inject_composer_placeholder_meta(
+        &titled,
+        &html_escape_text(&resolve_composer_placeholder()),
+    )
 }
 
 fn static_content_type(path: &std::path::Path) -> &'static str {
@@ -3646,4 +3757,77 @@ impl IntoResponse for ApiError {
 /// where a specific HTTP status is required without touching `ApiError`).
 fn status_text(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
     (status, msg.into()).into_response()
+}
+
+#[cfg(test)]
+mod page_title_tests {
+    use super::{
+        apply_web_branding, html_escape_text, DEFAULT_COMPOSER_PLACEHOLDER, DEFAULT_WEB_PAGE_TITLE,
+    };
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_guard() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn clear_branding_env() {
+        std::env::remove_var("POINTER_SERVER_PAGE_TITLE");
+        std::env::remove_var("POINTER_SERVER_COMPOSER_PLACEHOLDER");
+    }
+
+    #[test]
+    fn rewrites_existing_title_and_injects_placeholder_meta() {
+        let _guard = env_guard();
+        std::env::set_var("POINTER_SERVER_PAGE_TITLE", "Acme · AI");
+        std::env::set_var("POINTER_SERVER_COMPOSER_PLACEHOLDER", "有什么可以帮你？");
+        let html = "<!doctype html><html><head><title>Pointer · AI 工作台</title></head><body></body></html>";
+        let out = apply_web_branding(html.as_bytes());
+        assert!(out.contains("<title>Acme · AI</title>"), "{out}");
+        assert!(!out.contains("Pointer · AI 工作台"), "{out}");
+        assert!(
+            out.contains(r#"name="pointer-composer-placeholder" content="有什么可以帮你？""#),
+            "{out}"
+        );
+        clear_branding_env();
+    }
+
+    #[test]
+    fn defaults_when_env_empty() {
+        let _guard = env_guard();
+        clear_branding_env();
+        let html = "<head><title>old</title></head>";
+        let out = apply_web_branding(html.as_bytes());
+        assert!(
+            out.contains(&format!("<title>{DEFAULT_WEB_PAGE_TITLE}</title>")),
+            "{out}"
+        );
+        assert!(
+            out.contains(&format!(
+                r#"name="pointer-composer-placeholder" content="{DEFAULT_COMPOSER_PLACEHOLDER}""#
+            )),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn rewrites_existing_placeholder_meta() {
+        let _guard = env_guard();
+        clear_branding_env();
+        std::env::set_var("POINTER_SERVER_COMPOSER_PLACEHOLDER", "定制提示");
+        let html = r#"<head><title>t</title><meta name="pointer-composer-placeholder" content="告诉我你想做什么" /></head>"#;
+        let out = apply_web_branding(html.as_bytes());
+        assert!(
+            out.contains(r#"name="pointer-composer-placeholder" content="定制提示""#),
+            "{out}"
+        );
+        assert!(!out.contains("告诉我你想做什么"), "{out}");
+        clear_branding_env();
+    }
+
+    #[test]
+    fn escapes_html_in_title() {
+        assert_eq!(html_escape_text("A <B> & \"C\""), "A &lt;B&gt; &amp; &quot;C&quot;");
+    }
 }

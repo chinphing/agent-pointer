@@ -52,6 +52,7 @@ import { primaryComputerMonitor } from '../../lib/computerMonitorLayout'
 import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from '../../lib/projectCreation'
+import { resolveComposerPlaceholder } from '../../lib/webBranding'
 
 function isEphemeralWorkspacePath(path: string): boolean {
   const normalized = path.replace(/\\/g, '/')
@@ -86,7 +87,7 @@ const composerPlaceholder = computed(() => {
   if (tokenQuotaBlocked.value) {
     return '账户余额已用尽'
   }
-  return settings.settings.hasKey ? '告诉我你想做什么' : '请先在设置中配置 API Key'
+  return settings.settings.hasKey ? resolveComposerPlaceholder() : '请先在设置中配置 API Key'
 })
 
 const composing = ref(false)
@@ -1162,7 +1163,7 @@ onUnmounted(() => {
       <!-- Web: HTML5 file drop on this zone. Desktop: drag highlight only; file intake is setupTauriComposerDragDrop. -->
       <div
         ref="composerDropZoneRef"
-        class="panel-elevated rounded-2xl border overflow-visible px-2 pb-2 pt-[18px] transition-colors"
+        class="panel-elevated composer-shell rounded-2xl border overflow-visible px-2 transition-colors"
         :class="isComposerDragOver ? 'border-accent/50 bg-accent-muted/15' : 'border-border'"
         @dragenter.capture="onComposerDragEnter"
         @dragover.capture="onComposerDragOver"
@@ -1179,7 +1180,7 @@ onUnmounted(() => {
         />
         <div
           v-if="composerAttachments.length"
-          class="flex flex-wrap gap-2 px-3 pb-2"
+          class="flex flex-wrap gap-2 px-3 pb-2 pt-2 md:pt-0"
         >
           <AttachmentChip
             v-for="att in composerAttachments"
@@ -1194,72 +1195,80 @@ onUnmounted(() => {
         >
           {{ attachmentHint }}
         </p>
-        <textarea
-          ref="textareaRef"
-          v-model="composerText"
-          rows="1"
-          class="block w-full resize-none bg-transparent border-0 outline-none px-3 pt-[3px] pb-2 text-[15px] text-foreground placeholder:text-muted"
-          :style="{
-            maxHeight: `${COMPOSER_TEXTAREA_MAX_HEIGHT_PX}px`,
-            minHeight: `${COMPOSER_TEXTAREA_MIN_HEIGHT_PX}px`
-          }"
-          :placeholder="composerPlaceholder"
-          :disabled="needsPlatformLogin || tokenQuotaBlocked"
-          @keydown="onKeydown"
-          @input="autoResize"
-          @paste="onPasteAttachments"
-          @compositionstart="composing = true"
-          @compositionend="onCompositionEnd"
-        />
-
-        <div class="flex items-center gap-2">
-          <div class="relative flex flex-1 flex-wrap items-center gap-x-3 gap-y-0 min-w-0 px-1">
-            <button
-              type="button"
-              class="composer-agent-trigger cursor-pointer"
-              title="添加附件"
-              @click="openAttachmentPicker"
-            >
-              <Paperclip class="w-3 h-3 shrink-0 text-muted" />
-            </button>
-            <div class="relative">
+        <div class="composer-body flex items-end gap-1 md:flex-col md:items-stretch md:gap-0">
+          <button
+            type="button"
+            class="composer-agent-trigger mb-0.5 shrink-0 cursor-pointer md:hidden"
+            title="添加附件"
+            @click="openAttachmentPicker"
+          >
+            <Paperclip class="w-3.5 h-3.5 shrink-0 text-muted" />
+          </button>
+          <textarea
+            ref="textareaRef"
+            v-model="composerText"
+            rows="1"
+            class="block min-w-0 flex-1 resize-none bg-transparent border-0 outline-none px-2 py-2 text-[15px] leading-5 text-foreground placeholder:text-muted md:w-full md:px-3 md:pt-[3px] md:pb-2 md:leading-normal"
+            :style="{
+              maxHeight: `${COMPOSER_TEXTAREA_MAX_HEIGHT_PX}px`,
+              minHeight: `${COMPOSER_TEXTAREA_MIN_HEIGHT_PX}px`
+            }"
+            :placeholder="composerPlaceholder"
+            :disabled="needsPlatformLogin || tokenQuotaBlocked"
+            @keydown="onKeydown"
+            @input="autoResize"
+            @paste="onPasteAttachments"
+            @compositionstart="composing = true"
+            @compositionend="onCompositionEnd"
+          />
+          <div class="flex shrink-0 items-center gap-2 md:w-full">
+            <div class="relative hidden min-w-0 flex-1 items-center gap-x-3 px-1 md:flex md:flex-wrap md:gap-y-0">
               <button
-                ref="agentBtnRef"
                 type="button"
                 class="composer-agent-trigger cursor-pointer"
-                @click="showAgentPicker = !showAgentPicker"
+                title="添加附件"
+                @click="openAttachmentPicker"
               >
-                <component :is="currentAgentIcon" class="w-3 h-3 shrink-0 text-accent" />
-                <span class="whitespace-nowrap">{{ currentAgentLabel }}</span>
-                <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
+                <Paperclip class="w-3 h-3 shrink-0 text-muted" />
               </button>
+              <div class="relative">
+                <button
+                  ref="agentBtnRef"
+                  type="button"
+                  class="composer-agent-trigger cursor-pointer"
+                  @click="showAgentPicker = !showAgentPicker"
+                >
+                  <component :is="currentAgentIcon" class="w-3 h-3 shrink-0 text-accent" />
+                  <span class="whitespace-nowrap">{{ currentAgentLabel }}</span>
+                  <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
+                </button>
 
-              <div
-                v-if="showAgentPicker"
-                ref="agentPickerRef"
-                class="composer-dropdown composer-dropdown--fit"
-                :class="props.placement === 'inline' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
-              >
-                <div class="px-2 py-1.5 border-b border-border">
-                  <div class="text-[11px] text-muted font-medium whitespace-nowrap">执行智能体</div>
-                </div>
-                <div class="p-1 space-y-0.5 max-h-60 overflow-y-auto">
-                  <button
-                    v-for="w in workers"
-                    :key="w.id"
-                    type="button"
-                    class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-                    :class="isLeadAgentSelected(w.id) ? 'composer-dropdown-item-active' : ''"
-                    @click="selectWorkerAgent(w)"
-                  >
-                    <component :is="iconForAgent(w, settings.settings)" class="w-3 h-3 shrink-0" />
-                    <span class="whitespace-nowrap">{{ composerAgentLabel(w, settings.settings) }}</span>
-                  </button>
+                <div
+                  v-if="showAgentPicker"
+                  ref="agentPickerRef"
+                  class="composer-dropdown composer-dropdown--fit"
+                  :class="props.placement === 'inline' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
+                >
+                  <div class="px-2 py-1.5 border-b border-border">
+                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">执行智能体</div>
+                  </div>
+                  <div class="p-1 space-y-0.5 max-h-60 overflow-y-auto">
+                    <button
+                      v-for="w in workers"
+                      :key="w.id"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      :class="isLeadAgentSelected(w.id) ? 'composer-dropdown-item-active' : ''"
+                      @click="selectWorkerAgent(w)"
+                    >
+                      <component :is="iconForAgent(w, settings.settings)" class="w-3 h-3 shrink-0" />
+                      <span class="whitespace-nowrap">{{ composerAgentLabel(w, settings.settings) }}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
 
-              <div v-if="showWorkspacePicker" class="relative flex items-center gap-1 min-w-0">
+              <div v-if="showWorkspacePicker" class="relative flex min-w-0 items-center gap-1">
                 <button
                   ref="projectPickerButtonRef"
                   type="button"
@@ -1336,23 +1345,24 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
-          </div>
+            </div>
 
-          <button
-            v-if="generating"
-            class="h-10 w-10 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition"
-            @click="chat.stop()"
-            title="停止当前任务"
-          ><Square class="w-4 h-4" /></button>
-          <button
-            class="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center transition"
-            :class="canSend
-              ? 'bg-accent text-white hover:opacity-90 cursor-pointer'
-              : 'bg-hover text-muted cursor-not-allowed'"
-            :disabled="!canSend"
-            :title="generating ? '加入发送队列' : '发送'"
-            @click="send"
-          ><Send class="w-4 h-4" /></button>
+            <button
+              v-if="generating"
+              class="h-9 w-9 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition md:h-10 md:w-10"
+              @click="chat.stop()"
+              title="停止当前任务"
+            ><Square class="w-4 h-4" /></button>
+            <button
+              class="h-9 w-9 shrink-0 rounded-xl flex items-center justify-center transition md:h-10 md:w-10"
+              :class="canSend
+                ? 'bg-accent text-white hover:opacity-90 cursor-pointer'
+                : 'bg-hover text-muted cursor-not-allowed'"
+              :disabled="!canSend"
+              :title="generating ? '加入发送队列' : '发送'"
+              @click="send"
+            ><Send class="w-4 h-4" /></button>
+          </div>
         </div>
       </div>
 

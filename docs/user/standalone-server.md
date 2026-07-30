@@ -71,6 +71,10 @@ report_enabled = false
 [server]
 addr = "0.0.0.0:8787"
 public_url = "https://pointer.example.com"
+# Browser tab title (optional; default Pointer · AI 工作台)
+# page_title = "Acme · AI 助手"
+# Composer placeholder (optional; default 告诉我你想做什么)
+# composer_placeholder = "有什么可以帮你？"
 app_data_dir = "/var/lib/pointer"
 ```
 
@@ -252,6 +256,8 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 | `POINTER_LICENSE_PUBLIC_KEY` | **仅 debug 二进制**可覆盖编译嵌入的公钥；正式 release 包忽略此变量 | 无 |
 | `POINTER_USAGE_REPORT_ENABLED` | 是否上报用量 | `false`（standalone） |
 | `POINTER_SERVER_PUBLIC_URL` | 服务公网地址 | 自动推断 |
+| `POINTER_SERVER_PAGE_TITLE` | 浏览器标签页标题（`index.html` `<title>`） | `Pointer · AI 工作台` |
+| `POINTER_SERVER_COMPOSER_PLACEHOLDER` | 输入框默认提示文案（写入 `pointer-composer-placeholder` meta） | `告诉我你想做什么` |
 | `POINTER_APP_DATA_DIR` | 数据目录 | OS 默认 |
 | `POINTER_SERVER_STATIC_DIR` | Web UI `dist/` 目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/dist`） |
 | `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/skills`） |

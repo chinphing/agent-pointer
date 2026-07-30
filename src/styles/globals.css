@@ -187,6 +187,9 @@
   .composer-agent-trigger > * {
     pointer-events: none;
   }
+  .composer-shell {
+    @apply py-1.5 md:pb-2 md:pt-[18px];
+  }
   .composer-dropdown {
     @apply absolute z-50 overflow-hidden rounded-xl
       border border-border bg-[hsl(var(--card-elevated))] shadow-lg;
@@ -243,7 +246,7 @@
     @apply p-1 rounded-md hover:bg-hover cursor-pointer transition-colors;
   }
   .chat-shell {
-    @apply px-6 md:px-10;
+    @apply px-3 md:px-10;
   }
   .chat-column {
     @apply max-w-3xl mx-auto w-full;
@@ -294,12 +297,8 @@
   .assistant-message-unit .message-footer-actions {
     @apply !mt-0;
   }
+  /* Touch / narrow: keep footer collapsed (no always-on timestamp/copy chrome). */
   @media (hover: none) {
-    .message-footer-actions {
-      opacity: 1;
-      max-height: 2rem;
-      @apply mt-0.5;
-    }
     .tool-call-chevron {
       display: inline-flex;
     }
@@ -310,9 +309,10 @@
   .chat-hover-root:hover .message-avatar-slot {
     @apply opacity-100 pointer-events-auto;
   }
-  @media (hover: none) {
+  /* Mobile / touch: hide role avatars to avoid overflow borders beside the column. */
+  @media (hover: none), (max-width: 767px) {
     .message-avatar-slot {
-      @apply opacity-100 pointer-events-auto;
+      display: none !important;
     }
   }
 }

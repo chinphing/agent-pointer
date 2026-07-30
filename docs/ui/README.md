@@ -9,6 +9,7 @@
 | [sidebar-awaiting-view.md](sidebar-awaiting-view.md) | 后台完成未查看：侧栏实心圆点 |
 | 设置 → **平台账户 / 管理员账户** | 登录状态、「退出登录」；完成提示音开关 |
 | [assistant-message-ui.md](assistant-message-ui.md) | 助手消息 `thoughts` / reasoning / 原始输出面板等约定 |
+| [mobile-chat.md](mobile-chat.md) | 移动端：隐藏头像与常显时间/复制；Composer 仅附件+发送 |
 | [message-list-layout-cache.md](message-list-layout-cache.md) | 消息列表已完成 turn 结构指纹缓存，流式时只重算尾部 |
 | [message-list-scroll-follow.md](message-list-scroll-follow.md) | 流式输出贴底跟随：上滑脱离、贴底/按钮恢复 |
 | [streaming-markdown-throttle.md](streaming-markdown-throttle.md) | 流式 Markdown 渲染节流：默认 100ms，长文 250ms |

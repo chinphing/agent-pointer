@@ -60,6 +60,14 @@ skills_dir = "skills"
 # for signing IM public download tokens (default TTL 7 days).
 # public_url = "https://pointer.example.com"
 #
+# Browser tab title for the served Web UI (`<title>`). Default: Pointer · AI 工作台
+# page_title = "Acme · AI 助手"
+# Env override: POINTER_SERVER_PAGE_TITLE
+#
+# Composer empty-state placeholder (logged-in + API key). Default: 告诉我你想做什么
+# composer_placeholder = "有什么可以帮你？"
+# Env override: POINTER_SERVER_COMPOSER_PLACEHOLDER
+#
 # Restrict platform OAuth to specific user ids (platform account id).
 # Leave empty to allow any platform user (development / trusted intranet only).
 # allowed_user_ids = ["your-platform-user-id"]

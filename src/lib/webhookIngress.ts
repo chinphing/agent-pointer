@@ -1,4 +1,6 @@
 /** Generic webhook ingress URL template (`POST /api/webhooks/:src`). */
+import { randomUuid } from './randomUuid'
+
 export const WEBHOOK_URL_TEMPLATE = 'http://{host}:{port}/api/webhooks/{src}'
 
 const WEBHOOK_SESSION_RESET_AT_HOUR = 4
@@ -47,7 +49,7 @@ export function webhookIngressUrl(src: string): string {
 
 /** 32-char hex token (UUID without hyphens). */
 export function generateWebhookToken(): string {
-  return crypto.randomUUID().replace(/-/g, '')
+  return randomUuid().replace(/-/g, '')
 }
 
 export function webhookIngressCurl(

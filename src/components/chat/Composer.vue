@@ -53,6 +53,7 @@ import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from '../../lib/projectCreation'
 import { resolveComposerPlaceholder } from '../../lib/webBranding'
+import { randomUuid } from '../../lib/randomUuid'
 
 function isEphemeralWorkspacePath(path: string): boolean {
   const normalized = path.replace(/\\/g, '/')
@@ -327,7 +328,7 @@ function macosComputerPermissionsAllowSend(perms: MacosComputerPermissionsStatus
 }
 
 function uid() {
-  return crypto.randomUUID?.() ?? `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return randomUuid()
 }
 
 async function readFileAsDataUrl(file: File): Promise<string> {

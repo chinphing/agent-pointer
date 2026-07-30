@@ -1,11 +1,12 @@
 import {
   isDiscardableEmptyAssistant
 } from '../../lib/assistantMessageKind'
+import { randomUuid } from '../../lib/randomUuid'
 import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
 /** Conversation / message client ids — UUID v4 (stable opaque segment for media paths). */
 export function uid() {
-  return crypto.randomUUID()
+  return randomUuid()
 }
 
 function excludedContextState(reason: ExcludedReason): ChatMessage['contextState'] {

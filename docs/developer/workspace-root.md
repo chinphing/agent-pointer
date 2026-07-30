@@ -20,7 +20,13 @@ Implementation: `chat_service/session_inner.rs` (`resolve_run_workspace`, `ensur
 
 ## Desktop conversation ids
 
-Frontend `newConversation` / message client ids use **UUID v4** (`crypto.randomUUID()` in `src/stores/chat/helpers.ts`). Media dirs under `conversation-media/` use the same id after `sanitize_storage_dir_segment` (hyphens kept). Do not use `Math.random().toString(36)` for new session ids — opaque base36 strings are easy for models to mistype in tool args.
+Frontend `newConversation` / message client ids use **UUID v4** via `randomUuid()` in
+`src/lib/randomUuid.ts` (chat helpers call it as `uid()`). Prefer `crypto.randomUUID()`;
+fall back to `crypto.getRandomValues` (and last-resort Math.random) when the browser /
+WebView lacks `randomUUID` — otherwise boot and send crash with
+`TypeError: crypto.randomUUID is not a function`. Media dirs under `conversation-media/`
+use the same id after `sanitize_storage_dir_segment` (hyphens kept). Do not invent ad-hoc
+base36 session ids — opaque non-UUID strings are easy for models to mistype in tool args.
 
 ## Session sandbox layout
 

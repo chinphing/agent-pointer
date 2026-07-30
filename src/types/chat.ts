@@ -562,6 +562,9 @@ export interface ComputerPipelineLlmSettings {
   decision?: string
   position?: string
   verify?: string
+  decisionProviderId?: string
+  positionProviderId?: string
+  verifyProviderId?: string
   positionThinkingBudget?: number
   verifyThinkingBudget?: number
 }

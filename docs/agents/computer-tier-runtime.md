@@ -211,13 +211,13 @@ config:
 
 ```json
 {
-  "primary":      { "model": "qwen3.5-flash", "enable_thinking": true,  "thinking_budget": 2048 },
-  "intermediate": { "model": "qwen3.5-plus",  "enable_thinking": true,  "thinking_budget": 2048 },
-  "advanced":     { "model": "qwen3.6-plus",  "enable_thinking": true,  "thinking_budget": 8192 }
+  "primary":      { "providerId": "qwen", "model": "qwen3.5-flash", "enableThinking": true,  "thinkingBudget": 2048 },
+  "intermediate": { "providerId": "qwen", "model": "qwen3.5-plus",  "enableThinking": true,  "thinkingBudget": 2048 },
+  "advanced":     { "providerId": "deepseek", "model": "deepseek-v4-pro", "enableThinking": true,  "thinkingBudget": 8192 }
 }
 ```
 
-平台配置完全覆盖默认模型名，`enable_thinking` 和 `thinking_budget` 用于运行时动态选择。
+平台配置覆盖默认 **provider + 模型名**；`enableThinking` / `thinkingBudget` 用于运行时动态选择。调试 UI 从全部已配置服务商的模型列表选择（`providerId:model`）。
 
 ### 6.5 合并链路
 
@@ -248,12 +248,13 @@ let round_settings = if lead_profile == AgentProfile::Computer {
 
 ### 7.2 apply_round_settings()
 
-代码：`state/mod.rs:290-299`
+代码：`state/mod.rs`（`apply_round_settings`）
 
 ```rust
 pub fn apply_round_settings(&self, conversation_id: &str, settings: &ModelSettings) -> ModelSettings {
     let o = self.round_llm_overrides(conversation_id);    // 从会话取当前 tier → 生成 overrides
     let mut s = settings.clone();
+    s.active_provider_id = o.provider_id;                  // ★ 覆盖服务商
     s.model = o.model;                                     // ★ 覆盖模型名
     s.round_enable_thinking = Some(o.enable_thinking);     // ★ 覆盖 thinking 开关
     s.round_thinking_budget = o.thinking_budget;           // ★ 覆盖 thinking budget
@@ -263,15 +264,20 @@ pub fn apply_round_settings(&self, conversation_id: &str, settings: &ModelSettin
 
 ### 7.3 for_tier() — 按 tier 生成 overrides
 
-代码：`tier/mod.rs:787-805`
+代码：`tier/mod.rs`（`ComputerRoundLlmOverrides::for_tier`）
 
 ```rust
 pub fn for_tier(tier: ComputerTier, config: &ComputerTierConfig) -> Self {
-    // 1. 优先查平台端 tier_llm map (contains enable_thinking + thinking_budget 覆盖)
+    // 1. 优先查平台端 tier_llm map (providerId + model + thinking)
     if let Some(t) = config.tier_llm.get(tier.label()) {
-        return Self { model: t.model.clone(), enable_thinking: t.enable_thinking, thinking_budget: t.thinking_budget };
+        return Self {
+            provider_id: t.provider_id.clone(),
+            model: t.model.clone(),
+            enable_thinking: t.enable_thinking,
+            thinking_budget: t.thinking_budget,
+        };
     }
-    // 2. 无平台覆盖时，fallback 到硬编码默认
+    // 2. 无平台覆盖时，fallback 到硬编码默认（provider = qwen）
     match tier {
         Primary     → model_primary      + thinking_budget=2048
         Intermediate→ model_intermediate + thinking_budget=2048
@@ -280,7 +286,7 @@ pub fn for_tier(tier: ComputerTier, config: &ComputerTierConfig) -> Self {
 }
 ```
 
-**关键点**：每一轮循环都通过 `round_llm_overrides()` 动态读取当前会话的 tier，所以 tier 自动升级后下一轮立即生效新模型。
+**关键点**：每一轮循环都通过 `round_llm_overrides()` 动态读取当前会话的 tier，所以 tier 自动升级后下一轮立即生效新模型（含服务商切换）。
 
 ---
 

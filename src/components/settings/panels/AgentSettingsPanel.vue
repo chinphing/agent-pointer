@@ -34,9 +34,12 @@ const {
   COMPUTER_TIER_UI,
   computerTierLlm,
   patchComputerTierLlm,
+  computerTierModelValue,
+  selectComputerTierModel,
   computerPipelineLlm,
   patchComputerPipelineLlm,
-  qwenModelOptions,
+  computerPipelineVerifyValue,
+  selectComputerPipelineVerify,
   MEDIA_DEBUG_KINDS,
   mediaModeLlm,
   selectMediaModeModel,
@@ -225,11 +228,11 @@ function skillLabel(skillId: string): string {
                       >
                         <span class="text-[11px] text-muted font-medium">{{ tier.label }}</span>
                         <select
-                          :value="computerTierLlm(tier.key).model"
+                          :value="computerTierModelValue(tier.key)"
                           class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                          @change="patchComputerTierLlm(tier.key, { model: ($event.target as HTMLSelectElement).value })"
+                          @change="selectComputerTierModel(tier.key, ($event.target as HTMLSelectElement).value)"
                         >
-                          <option v-for="m in qwenModelOptions" :key="m" :value="m">{{ m }}</option>
+                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
                         <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
                           <input
@@ -258,11 +261,11 @@ function skillLabel(skillId: string): string {
                         <div class="grid grid-cols-[4.5rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5">
                           <span class="text-[11px] text-muted font-medium">Verify</span>
                           <select
-                            :value="computerPipelineLlm().verify"
+                            :value="computerPipelineVerifyValue()"
                             class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                            @change="patchComputerPipelineLlm({ verify: ($event.target as HTMLSelectElement).value })"
+                            @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
                           >
-                            <option v-for="m in qwenModelOptions" :key="'verify-' + m" :value="m">{{ m }}</option>
+                            <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                           </select>
                           <span class="text-[11px] text-muted whitespace-nowrap">推理预算</span>
                           <input

@@ -309,14 +309,18 @@ impl ComputerState {
         let o = ComputerRoundLlmOverrides::for_tier(tier, &self.effective_tier_config());
         if crate::logging::internal_runtime_log_enabled() {
             log::debug!(
-                "computer_llm_round: conversation_id={conversation_id} tier={} model={} enable_thinking={} thinking_budget={:?}",
+                "computer_llm_round: conversation_id={conversation_id} tier={} provider={} model={} enable_thinking={} thinking_budget={:?}",
                 tier.label(),
+                o.provider_id,
                 o.model,
                 o.enable_thinking,
                 o.thinking_budget
             );
         }
         let mut s = settings.clone();
+        if !o.provider_id.trim().is_empty() {
+            s.active_provider_id = o.provider_id.trim().to_string();
+        }
         s.model = o.model;
         s.round_enable_thinking = Some(o.enable_thinking);
         s.round_thinking_budget = o.thinking_budget;
@@ -333,7 +337,11 @@ impl ComputerState {
         let tier = self.tier_for_conversation(conversation_id);
         let cfg = self.effective_tier_config();
         let model = cfg.pipeline_llm.model_for_phase(phase).to_string();
+        let provider = cfg.pipeline_llm.provider_for_phase(phase).to_string();
         let mut s = settings.clone();
+        if !provider.trim().is_empty() {
+            s.active_provider_id = provider.trim().to_string();
+        }
         s.model = model;
         match phase {
             PipelineLlmPhase::Decision => {
@@ -349,9 +357,10 @@ impl ComputerState {
         }
         if crate::logging::internal_runtime_log_enabled() {
             log::debug!(
-                "computer_pipeline_llm: conversation_id={conversation_id} phase={} model={} \
+                "computer_pipeline_llm: conversation_id={conversation_id} phase={} provider={} model={} \
                  enable_thinking={:?} thinking_budget={:?}",
                 phase.label(),
+                s.active_provider_id,
                 s.model,
                 s.round_enable_thinking,
                 s.round_thinking_budget

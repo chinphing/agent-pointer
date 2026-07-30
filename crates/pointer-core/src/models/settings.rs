@@ -3,8 +3,8 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 
 use crate::agents::computer::tier::{
-    ADVANCED_THINKING_BUDGET, DEFAULT_MODEL_ADVANCED, DEFAULT_MODEL_INTERMEDIATE,
-    DEFAULT_MODEL_PIPELINE_DECISION, DEFAULT_MODEL_PIPELINE_POSITION,
+    ADVANCED_THINKING_BUDGET, DEFAULT_COMPUTER_LLM_PROVIDER, DEFAULT_MODEL_ADVANCED,
+    DEFAULT_MODEL_INTERMEDIATE, DEFAULT_MODEL_PIPELINE_DECISION, DEFAULT_MODEL_PIPELINE_POSITION,
     DEFAULT_MODEL_PIPELINE_VERIFY, DEFAULT_MODEL_PRIMARY,
     DEFAULT_PIPELINE_POSITION_THINKING_BUDGET, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
     PRIMARY_INTERMEDIATE_THINKING_BUDGET,
@@ -1507,6 +1507,21 @@ pub struct ComputerPipelineLlmSettings {
     #[serde(default = "default_pipeline_model_verify")]
     pub verify: String,
     #[serde(
+        default = "default_computer_llm_provider",
+        rename = "decisionProviderId"
+    )]
+    pub decision_provider_id: String,
+    #[serde(
+        default = "default_computer_llm_provider",
+        rename = "positionProviderId"
+    )]
+    pub position_provider_id: String,
+    #[serde(
+        default = "default_computer_llm_provider",
+        rename = "verifyProviderId"
+    )]
+    pub verify_provider_id: String,
+    #[serde(
         default = "default_pipeline_thinking_budget_position",
         rename = "positionThinkingBudget"
     )]
@@ -1524,6 +1539,9 @@ impl Default for ComputerPipelineLlmSettings {
             decision: default_pipeline_model_decision(),
             position: default_pipeline_model_position(),
             verify: default_pipeline_model_verify(),
+            decision_provider_id: default_computer_llm_provider(),
+            position_provider_id: default_computer_llm_provider(),
+            verify_provider_id: default_computer_llm_provider(),
             position_thinking_budget: default_pipeline_thinking_budget_position(),
             verify_thinking_budget: default_pipeline_thinking_budget_verify(),
         }
@@ -1540,6 +1558,10 @@ fn default_pipeline_model_position() -> String {
 
 fn default_pipeline_model_verify() -> String {
     DEFAULT_MODEL_PIPELINE_VERIFY.into()
+}
+
+fn default_computer_llm_provider() -> String {
+    DEFAULT_COMPUTER_LLM_PROVIDER.into()
 }
 
 fn default_pipeline_thinking_budget_position() -> u32 {

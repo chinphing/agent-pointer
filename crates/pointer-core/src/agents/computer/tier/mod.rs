@@ -27,6 +27,8 @@ pub const DEFAULT_MODEL_ADVANCED: &str = "qwen3.7-plus";
 pub const DEFAULT_MODEL_PIPELINE_DECISION: &str = "qwen3.5-flash";
 pub const DEFAULT_MODEL_PIPELINE_POSITION: &str = "qwen3.5-plus";
 pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "qwen3.5-flash";
+/// Default LLM provider id for computer tier / pipeline overrides.
+pub const DEFAULT_COMPUTER_LLM_PROVIDER: &str = "qwen";
 /// Qwen `thinking_budget` for Advanced pipeline Position phase (`qwen3.5-plus`).
 pub const DEFAULT_PIPELINE_POSITION_THINKING_BUDGET: u32 = 1024;
 /// Qwen `thinking_budget` for Advanced pipeline Verify phase (`qwen3.5-flash`).
@@ -103,6 +105,9 @@ pub struct ComputerPipelineLlmConfig {
     pub model_decision: String,
     pub model_position: String,
     pub model_verify: String,
+    pub provider_decision: String,
+    pub provider_position: String,
+    pub provider_verify: String,
     pub thinking_budget_position: u32,
     pub thinking_budget_verify: u32,
 }
@@ -113,6 +118,9 @@ impl Default for ComputerPipelineLlmConfig {
             model_decision: DEFAULT_MODEL_PIPELINE_DECISION.into(),
             model_position: DEFAULT_MODEL_PIPELINE_POSITION.into(),
             model_verify: DEFAULT_MODEL_PIPELINE_VERIFY.into(),
+            provider_decision: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
+            provider_position: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
+            provider_verify: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
             thinking_budget_position: DEFAULT_PIPELINE_POSITION_THINKING_BUDGET,
             thinking_budget_verify: DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
         }
@@ -143,6 +151,14 @@ impl ComputerPipelineLlmConfig {
             PipelineLlmPhase::Decision => &self.model_decision,
             PipelineLlmPhase::Position => &self.model_position,
             PipelineLlmPhase::Verify => &self.model_verify,
+        }
+    }
+
+    pub fn provider_for_phase(&self, phase: PipelineLlmPhase) -> &str {
+        match phase {
+            PipelineLlmPhase::Decision => &self.provider_decision,
+            PipelineLlmPhase::Position => &self.provider_position,
+            PipelineLlmPhase::Verify => &self.provider_verify,
         }
     }
 
@@ -287,6 +303,15 @@ impl ComputerTierConfig {
         }
         if !p.verify.trim().is_empty() {
             self.pipeline_llm.model_verify = p.verify.trim().to_string();
+        }
+        if !p.decision_provider_id.trim().is_empty() {
+            self.pipeline_llm.provider_decision = p.decision_provider_id.trim().to_string();
+        }
+        if !p.position_provider_id.trim().is_empty() {
+            self.pipeline_llm.provider_position = p.position_provider_id.trim().to_string();
+        }
+        if !p.verify_provider_id.trim().is_empty() {
+            self.pipeline_llm.provider_verify = p.verify_provider_id.trim().to_string();
         }
         if p.position_thinking_budget > 0 {
             self.pipeline_llm.thinking_budget_position = p.position_thinking_budget;
@@ -1027,6 +1052,7 @@ fn compact_non_coord_args(args: &Value) -> String {
 /// Per-round LLM overrides for computer tier.
 #[derive(Debug, Clone)]
 pub struct ComputerRoundLlmOverrides {
+    pub provider_id: String,
     pub model: String,
     pub enable_thinking: bool,
     pub thinking_budget: Option<u32>,
@@ -1036,7 +1062,13 @@ impl ComputerRoundLlmOverrides {
     pub fn for_tier(tier: ComputerTier, config: &ComputerTierConfig) -> Self {
         let key = tier.label();
         if let Some(t) = config.tier_llm.get(key) {
+            let provider_id = if t.provider_id.trim().is_empty() {
+                DEFAULT_COMPUTER_LLM_PROVIDER.to_string()
+            } else {
+                t.provider_id.clone()
+            };
             return Self {
+                provider_id,
                 model: t.model.clone(),
                 enable_thinking: t.enable_thinking,
                 thinking_budget: t.thinking_budget,
@@ -1044,16 +1076,19 @@ impl ComputerRoundLlmOverrides {
         }
         match tier {
             ComputerTier::Primary => Self {
+                provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
                 model: config.model_primary.clone(),
                 enable_thinking: true,
                 thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
             },
             ComputerTier::Intermediate => Self {
+                provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
                 model: config.model_intermediate.clone(),
                 enable_thinking: true,
                 thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
             },
             ComputerTier::Advanced => Self {
+                provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
                 model: config.model_advanced.clone(),
                 enable_thinking: true,
                 thinking_budget: Some(ADVANCED_THINKING_BUDGET),

@@ -129,6 +129,9 @@ const defaultPlatformSettings = (): PlatformSettings => ({
     decision: 'qwen3.5-flash',
     position: 'qwen3.5-plus',
     verify: 'qwen3.5-flash',
+    decisionProviderId: 'qwen',
+    positionProviderId: 'qwen',
+    verifyProviderId: 'qwen',
     positionThinkingBudget: 1024,
     verifyThinkingBudget: 256
   },

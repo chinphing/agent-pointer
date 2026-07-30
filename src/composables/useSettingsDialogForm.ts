@@ -169,11 +169,6 @@ function createSettingsDialogForm(deps: {
   }
   }
 
-  const qwenModelOptions = computed(() => {
-  const q = s.settings.providers.find(p => p.id === 'qwen')
-  return q?.models?.length ? q.models : ['qwen3.5-plus', 'qwen3.7-plus', 'qwen3.7-max']
-  })
-
   function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
   const m = s.platformSettings.computerTierLlm?.[key]
   return (
@@ -192,11 +187,32 @@ function createSettingsDialogForm(deps: {
   s.platformSettings.computerTierLlm = next
   }
 
+  function computerTierModelValue(key: ComputerTierKey): string {
+  const c = computerTierLlm(key)
+  return `${c.providerId}:${c.model}`
+  }
+
+  function selectComputerTierModel(key: ComputerTierKey, value: string) {
+  const i = value.indexOf(':')
+  if (i > 0 && i < value.length - 1) {
+    const providerId = value.slice(0, i).trim()
+    const model = value.slice(i + 1).trim()
+    if (providerId && model) {
+      patchComputerTierLlm(key, { providerId, model })
+      return
+    }
+  }
+  console.warn('[settings] selectComputerTierModel: invalid value', value)
+  }
+
   function computerPipelineLlm(): ComputerPipelineLlmSettings {
   const defaults = {
     decision: 'qwen3.5-flash',
     position: 'qwen3.5-plus',
     verify: 'qwen3.5-flash',
+    decisionProviderId: 'qwen',
+    positionProviderId: 'qwen',
+    verifyProviderId: 'qwen',
     positionThinkingBudget: 1024,
     verifyThinkingBudget: 256
   }
@@ -205,6 +221,24 @@ function createSettingsDialogForm(deps: {
 
   function patchComputerPipelineLlm(patch: Partial<ComputerPipelineLlmSettings>) {
   s.platformSettings.computerPipelineLlm = { ...computerPipelineLlm(), ...patch }
+  }
+
+  function computerPipelineVerifyValue(): string {
+  const p = computerPipelineLlm()
+  return `${p.verifyProviderId ?? 'qwen'}:${p.verify ?? 'qwen3.5-flash'}`
+  }
+
+  function selectComputerPipelineVerify(value: string) {
+  const i = value.indexOf(':')
+  if (i > 0 && i < value.length - 1) {
+    const verifyProviderId = value.slice(0, i).trim()
+    const verify = value.slice(i + 1).trim()
+    if (verifyProviderId && verify) {
+      patchComputerPipelineLlm({ verifyProviderId, verify })
+      return
+    }
+  }
+  console.warn('[settings] selectComputerPipelineVerify: invalid value', value)
   }
 
   const toolApprovalMode = ref<'auto' | 'manual'>('auto')
@@ -882,9 +916,12 @@ function createSettingsDialogForm(deps: {
     patchMediaModeLlm,
     computerTierLlm,
     patchComputerTierLlm,
+    computerTierModelValue,
+    selectComputerTierModel,
     computerPipelineLlm,
     patchComputerPipelineLlm,
-    qwenModelOptions,
+    computerPipelineVerifyValue,
+    selectComputerPipelineVerify,
     isModeAgent,
     toggleDebugMenus,
     logoutPlatformAccount,

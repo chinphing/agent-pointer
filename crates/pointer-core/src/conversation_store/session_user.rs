@@ -35,6 +35,33 @@ pub fn normalize_session_user_id(user_id: &str) -> &str {
     user_id.trim()
 }
 
+/// Sidebar / project list visibility for the current browser session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListScope {
+    /// Platform admin: no `session_user_id` filter.
+    All,
+    /// Only rows owned by this `session_user_id` (empty matches empty).
+    User(String),
+}
+
+impl ListScope {
+    pub fn from_viewer(is_platform_admin: bool, session_user_id: &str) -> Self {
+        if is_platform_admin {
+            Self::All
+        } else {
+            Self::User(normalize_session_user_id(session_user_id).to_string())
+        }
+    }
+
+    /// `None` = no SQL filter (admin). `Some(uid)` = equality filter.
+    pub fn filter_uid(&self) -> Option<&str> {
+        match self {
+            Self::All => None,
+            Self::User(uid) => Some(uid.as_str()),
+        }
+    }
+}
+
 #[cfg(test)]
 fn session_user_ids_match(stored: &str, filter: &str) -> bool {
     normalize_session_user_id(stored) == normalize_session_user_id(filter)

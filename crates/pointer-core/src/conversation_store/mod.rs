@@ -15,6 +15,8 @@ mod tests;
 pub mod webhook_sources;
 mod write;
 
+pub use session_user::ListScope;
+
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
@@ -78,11 +80,12 @@ impl ConversationStore {
     /// `(is_pinned DESC, updated_at_ms DESC, id DESC)`. Pass `None` for the first page.
     pub fn load_metas(
         &self,
+        scope: &ListScope,
         cursor: Option<persist::MetaCursor>,
         limit: i64,
     ) -> Result<Vec<ConversationMeta>> {
         let conn = self.db.conn.lock();
-        persist::load_metas_from_conn(&conn, cursor, limit)
+        persist::load_metas_from_conn(&conn, scope, cursor, limit)
     }
 
     /// Load one conversation's meta by id (no messages). O(log n) via PK.
@@ -91,35 +94,47 @@ impl ConversationStore {
         persist::load_meta_from_conn(&conn, id)
     }
 
-    pub fn load_projects(&self, cursor: Option<ProjectCursor>, limit: i64) -> Result<ProjectPage> {
+    pub fn load_projects(
+        &self,
+        scope: &ListScope,
+        cursor: Option<ProjectCursor>,
+        limit: i64,
+    ) -> Result<ProjectPage> {
         let conn = self.db.conn.lock();
-        persist::load_project_page_from_conn(&conn, cursor, limit)
+        persist::load_project_page_from_conn(&conn, scope, cursor, limit)
     }
 
-    pub fn load_sidebar_projects(&self) -> Result<Vec<Project>> {
+    pub fn load_sidebar_projects(&self, scope: &ListScope) -> Result<Vec<Project>> {
         let conn = self.db.conn.lock();
-        persist::load_sidebar_projects_from_conn(&conn)
+        persist::load_sidebar_projects_from_conn(&conn, scope)
     }
 
-    pub fn load_project(&self, id: &str) -> Result<Option<Project>> {
+    pub fn load_project(&self, id: &str, scope: &ListScope) -> Result<Option<Project>> {
         let conn = self.db.conn.lock();
-        persist::load_project_from_conn(&conn, id)
+        persist::load_project_from_conn(&conn, id, scope)
     }
 
     pub fn load_project_metas(
         &self,
         project_id: &str,
+        scope: &ListScope,
         cursor: Option<persist::MetaCursor>,
         limit: i64,
     ) -> Result<Vec<ConversationMeta>> {
         let conn = self.db.conn.lock();
-        persist::load_project_metas_from_conn(&conn, project_id, cursor, limit)
+        if persist::load_project_from_conn(&conn, project_id, scope)?.is_none() {
+            anyhow::bail!("project not found");
+        }
+        // Project conversations: admin sees all under the project; user scope
+        // still filters by session_user_id so mixed-owner legacy rows stay hidden.
+        persist::load_project_metas_from_conn(&conn, project_id, scope, cursor, limit)
     }
 
     pub fn create_project(
         &self,
         name: &str,
         workspace_root: &str,
+        session_user_id: &str,
     ) -> Result<ProjectCreationResult> {
         let name = name.trim();
         if name.is_empty() {
@@ -129,6 +144,7 @@ impl ConversationStore {
         if workspace_root.is_empty() {
             anyhow::bail!("project workspace root is required");
         }
+        let uid = session_user::normalize_session_user_id(session_user_id).to_string();
         let now = chrono::Utc::now().timestamp_millis();
         let project = Project {
             id: uuid::Uuid::new_v4().to_string(),
@@ -140,40 +156,60 @@ impl ConversationStore {
             created_at: now,
             updated_at: now,
             last_activity_at: now,
+            session_user_id: uid.clone(),
         };
         let mut result = self.db.execute_write(|conn| {
-            let existing = conn.query_row(
-                "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
-                        created_at_ms, updated_at_ms
-                 FROM projects
-                 WHERE rtrim(trim(workspace_root), '/\\') = ?1
-                 ORDER BY is_archived ASC, updated_at_ms DESC, id DESC
-                 LIMIT 1",
-                params![workspace_root],
-                project_from_row,
-            ).optional()?;
+            let existing = conn
+                .query_row(
+                    "SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
+                            created_at_ms, updated_at_ms, session_user_id
+                     FROM projects
+                     WHERE session_user_id = ?1
+                       AND rtrim(trim(workspace_root), '/\\') = ?2
+                     ORDER BY is_archived ASC, updated_at_ms DESC, id DESC
+                     LIMIT 1",
+                    params![uid, workspace_root],
+                    project_from_row,
+                )
+                .optional()?;
             if let Some(existing) = existing {
-                return Ok(ProjectCreationResult { project: existing, reused_existing: true });
+                return Ok(ProjectCreationResult {
+                    project: existing,
+                    reused_existing: true,
+                });
             }
             conn.execute(
-                "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms)
-                 VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4)",
-                params![project.id, project.name, project.workspace_root, now],
+                "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived,
+                                      created_at_ms, updated_at_ms, session_user_id)
+                 VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4, ?5)",
+                params![
+                    project.id,
+                    project.name,
+                    project.workspace_root,
+                    now,
+                    uid
+                ],
             )?;
-            Ok(ProjectCreationResult { project: project.clone(), reused_existing: false })
+            Ok(ProjectCreationResult {
+                project: project.clone(),
+                reused_existing: false,
+            })
         })?;
         if result.reused_existing {
             let conn = self.db.conn.lock();
-            if let Some(project) = persist::load_project_from_conn(&conn, &result.project.id)? {
+            let scope = ListScope::User(uid.clone());
+            if let Some(project) =
+                persist::load_project_from_conn(&conn, &result.project.id, &scope)?
+            {
                 result.project = project;
             }
             log::info!(
-                "conversation_store: reused project id={}",
+                "conversation_store: reused project id={} session_user_id={uid}",
                 result.project.id
             );
         } else {
             log::info!(
-                "conversation_store: created project id={}",
+                "conversation_store: created project id={} session_user_id={uid}",
                 result.project.id
             );
         }
@@ -183,22 +219,27 @@ impl ConversationStore {
     pub fn update_project(
         &self,
         id: &str,
+        session_user_id: &str,
         name: Option<&str>,
         workspace_root: Option<&str>,
         is_pinned: Option<bool>,
         is_archived: Option<bool>,
     ) -> Result<Project> {
+        let uid = session_user::normalize_session_user_id(session_user_id).to_string();
         if is_archived == Some(true) {
             let conn = self.db.conn.lock();
             let is_default: Option<i64> = conn
                 .query_row(
-                    "SELECT is_default FROM projects WHERE id = ?1",
-                    params![id],
+                    "SELECT is_default FROM projects WHERE id = ?1 AND session_user_id = ?2",
+                    params![id, uid],
                     |row| row.get(0),
                 )
                 .optional()?;
             if is_default == Some(1) {
                 anyhow::bail!("default project cannot be archived");
+            }
+            if is_default.is_none() {
+                anyhow::bail!("project not found");
             }
         }
         let now = chrono::Utc::now().timestamp_millis();
@@ -207,14 +248,16 @@ impl ConversationStore {
                 "UPDATE projects SET
                    name = COALESCE(?2, name), workspace_root = COALESCE(?3, workspace_root),
                    is_pinned = COALESCE(?4, is_pinned), is_archived = COALESCE(?5, is_archived),
-                   updated_at_ms = ?6 WHERE id = ?1",
+                   updated_at_ms = ?6
+                 WHERE id = ?1 AND session_user_id = ?7",
                 params![
                     id,
                     name.map(str::trim),
                     workspace_root.map(str::trim),
                     is_pinned.map(i64::from),
                     is_archived.map(i64::from),
-                    now
+                    now,
+                    uid
                 ],
             )?;
             if changed == 0 {
@@ -223,16 +266,18 @@ impl ConversationStore {
             Ok(())
         })?;
         let conn = self.db.conn.lock();
-        persist::load_project_from_conn(&conn, id)?
+        let scope = ListScope::User(uid);
+        persist::load_project_from_conn(&conn, id, &scope)?
             .ok_or_else(|| anyhow::anyhow!("project not found"))
     }
 
-    pub fn delete_project(&self, id: &str) -> Result<()> {
+    pub fn delete_project(&self, id: &str, session_user_id: &str) -> Result<()> {
+        let uid = session_user::normalize_session_user_id(session_user_id).to_string();
         self.db.execute_write(|conn| {
             let default: Option<i64> = conn
                 .query_row(
-                    "SELECT is_default FROM projects WHERE id = ?1",
-                    params![id],
+                    "SELECT is_default FROM projects WHERE id = ?1 AND session_user_id = ?2",
+                    params![id, uid],
                     |r| r.get(0),
                 )
                 .optional()?;
@@ -252,8 +297,13 @@ impl ConversationStore {
                 "DELETE FROM conversations WHERE project_id = ?1",
                 params![id],
             )?;
-            conn.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
-            log::info!("conversation_store: deleted project id={id} conversations={count}");
+            conn.execute(
+                "DELETE FROM projects WHERE id = ?1 AND session_user_id = ?2",
+                params![id, uid],
+            )?;
+            log::info!(
+                "conversation_store: deleted project id={id} session_user_id={uid} conversations={count}"
+            );
             Ok(())
         })?;
         Ok(())
@@ -392,7 +442,10 @@ impl ConversationStore {
             // workspace event arrives. Reconcile again on every meta save so
             // that first resolved sandbox becomes that user's default project
             // without requiring an application restart.
-            reconcile_default_project_from_sandbox(conn)
+            if let Some(uid) = platform_user_id.filter(|s| !s.trim().is_empty()) {
+                reconcile_default_project_for_user(conn, uid)?;
+            }
+            Ok(())
         })?;
         Ok(())
     }
@@ -692,10 +745,11 @@ impl ConversationStore {
     /// Sidebar search: FTS over full message bodies (+ title/preview supplement).
     pub fn search_conversations(
         &self,
+        scope: &ListScope,
         query: &str,
         limit: i64,
     ) -> Result<Vec<ConversationSearchHit>> {
-        search::search_conversations_for_ui(&self.db, query, limit)
+        search::search_conversations_for_ui(&self.db, scope, query, limit)
     }
 
     /// Alias for tool registration / tests.
@@ -977,7 +1031,8 @@ fn ensure_projects_schema(conn: &Connection) -> Result<()> {
                is_pinned INTEGER NOT NULL DEFAULT 0,
                is_archived INTEGER NOT NULL DEFAULT 0,
                created_at_ms INTEGER NOT NULL,
-               updated_at_ms INTEGER NOT NULL
+               updated_at_ms INTEGER NOT NULL,
+               session_user_id TEXT NOT NULL DEFAULT ''
              );",
         )?;
         log::info!("conversation_store: created projects table");
@@ -988,6 +1043,12 @@ fn ensure_projects_schema(conn: &Connection) -> Result<()> {
         "projects",
         "is_archived",
         "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "projects",
+        "session_user_id",
+        "TEXT NOT NULL DEFAULT ''",
     )?;
     // Recover databases opened by an intermediate build that created the table
     // before project backfill existed. A populated table is authoritative and
@@ -1000,137 +1061,229 @@ fn ensure_projects_schema(conn: &Connection) -> Result<()> {
         );
         migrate_projects_from_conversations(conn)?;
     }
-    reconcile_default_project_from_sandbox(conn)?;
+    reconcile_defaults_for_known_users(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
-           ON conversations(project_id, updated_at_ms DESC);",
+           ON conversations(project_id, updated_at_ms DESC);
+         CREATE INDEX IF NOT EXISTS idx_projects_session_user
+           ON projects(session_user_id, is_archived, is_pinned DESC, updated_at_ms DESC);",
     )?;
     Ok(())
 }
 
 fn migrate_projects_from_conversations(conn: &Connection) -> Result<()> {
-    let default_root = default_sandbox_root_from_conversations(conn)?;
     let now = chrono::Utc::now().timestamp_millis();
-    let default_id = uuid::Uuid::new_v4().to_string();
-    let default_name = "默认项目".to_string();
-    conn.execute(
-        "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms)
-         VALUES (?1, ?2, ?3, 1, 0, 0, ?4, ?4)",
-        params![default_id, default_name, default_root, now],
-    )?;
-    let mut roots = std::collections::BTreeSet::new();
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT trim(workspace_root) FROM conversations
-         WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
-           AND trim(workspace_root) != '' AND trim(workspace_root) != ?1",
-    )?;
-    for root in stmt.query_map(params![default_root], |row| row.get::<_, String>(0))? {
-        roots.insert(root?);
+    let mut uids = std::collections::BTreeSet::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT trim(session_user_id) FROM conversations
+             WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'",
+        )?;
+        for uid in stmt.query_map([], |row| row.get::<_, String>(0))? {
+            uids.insert(uid?);
+        }
     }
-    let additional_projects = roots.len();
-    for root in roots {
-        let id = uuid::Uuid::new_v4().to_string();
+    if uids.is_empty() {
+        uids.insert(String::new());
+    }
+
+    let mut project_total = 0usize;
+    let mut assigned_total = 0usize;
+    for uid in uids {
+        let default_root = if uid.is_empty() {
+            String::new()
+        } else {
+            crate::session_sandbox::SessionSandbox::default_path("", &uid)?
+                .to_string_lossy()
+                .into_owned()
+        };
+        let default_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived, created_at_ms, updated_at_ms)
-             VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4)",
-            params![id, project_name_for_root(&root), root, now],
+            "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived,
+                                  created_at_ms, updated_at_ms, session_user_id)
+             VALUES (?1, '默认项目', ?2, 1, 0, 0, ?3, ?3, ?4)",
+            params![default_id, default_root, now, uid],
+        )?;
+        project_total += 1;
+
+        let mut roots = std::collections::BTreeSet::new();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT trim(workspace_root) FROM conversations
+                 WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
+                   AND trim(session_user_id) = ?1
+                   AND trim(workspace_root) != '' AND trim(workspace_root) != ?2",
+            )?;
+            for root in stmt.query_map(params![uid, default_root], |row| row.get::<_, String>(0))? {
+                roots.insert(root?);
+            }
+        }
+        for root in roots {
+            let id = uuid::Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned, is_archived,
+                                      created_at_ms, updated_at_ms, session_user_id)
+                 VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4, ?5)",
+                params![id, project_name_for_root(&root), root, now, uid],
+            )?;
+            project_total += 1;
+        }
+
+        assigned_total += conn.execute(
+            "UPDATE conversations SET project_id = ?1
+             WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
+               AND trim(session_user_id) = ?3
+               AND (trim(workspace_root) = '' OR trim(workspace_root) = ?2)",
+            params![default_id, default_root, uid],
+        )?;
+        assigned_total += conn.execute(
+            "UPDATE conversations SET project_id = (
+               SELECT id FROM projects p
+               WHERE p.session_user_id = trim(conversations.session_user_id)
+                 AND p.workspace_root = trim(conversations.workspace_root)
+               LIMIT 1
+             )
+             WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
+               AND trim(session_user_id) = ?1
+               AND trim(workspace_root) != '' AND trim(workspace_root) != ?2",
+            params![uid, default_root],
         )?;
     }
-    let assigned_default = conn.execute(
-        "UPDATE conversations SET project_id = ?1
-         WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
-           AND (trim(workspace_root) = '' OR trim(workspace_root) = ?2)",
-        params![default_id, default_root],
-    )?;
-    let assigned_other = conn.execute(
-        "UPDATE conversations SET project_id = (
-           SELECT id FROM projects p WHERE p.workspace_root = trim(conversations.workspace_root)
-         )
-         WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
-           AND trim(workspace_root) != '' AND trim(workspace_root) != ?1",
-        params![default_root],
-    )?;
     log::info!(
-        "conversation_store: project migration default_root={} projects={} assigned_default={} assigned_other={}",
-        default_root, additional_projects + 1, assigned_default, assigned_other
+        "conversation_store: project migration projects={project_total} assigned={assigned_total}"
     );
     Ok(())
 }
 
-/// Derive the active user's default workspace from persisted session identity,
-/// never from the global workspace preference. A signed-in user shares
-/// `{session-sandboxes}/{session_user_id}` across their default conversations.
-fn default_sandbox_root_from_conversations(conn: &Connection) -> Result<String> {
-    let session_user_id: Option<String> = conn
-        .query_row(
-            "SELECT trim(session_user_id) FROM conversations
+fn reconcile_defaults_for_known_users(conn: &Connection) -> Result<()> {
+    let mut uids = std::collections::BTreeSet::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT trim(session_user_id) FROM conversations
              WHERE trim(session_user_id) != ''
-               AND id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'
-             ORDER BY updated_at_ms DESC LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
-        .optional()?;
-    let Some(session_user_id) = session_user_id else {
-        return Ok(String::new());
-    };
-    Ok(
-        crate::session_sandbox::SessionSandbox::default_path("", &session_user_id)?
-            .to_string_lossy()
-            .into_owned(),
-    )
+               AND id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%' AND id NOT LIKE 'im:%'",
+        )?;
+        for uid in stmt.query_map([], |row| row.get::<_, String>(0))? {
+            uids.insert(uid?);
+        }
+    }
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT trim(session_user_id) FROM projects
+             WHERE trim(session_user_id) != ''",
+        )?;
+        for uid in stmt.query_map([], |row| row.get::<_, String>(0))? {
+            uids.insert(uid?);
+        }
+    }
+    for uid in uids {
+        reconcile_default_project_for_user(conn, &uid)?;
+    }
+    Ok(())
 }
 
-/// Repair projects created by early builds that treated the default user
-/// sandbox as an ordinary directory project. This is idempotent and preserves
-/// all conversations and local files.
-fn reconcile_default_project_from_sandbox(conn: &Connection) -> Result<()> {
-    let root = default_sandbox_root_from_conversations(conn)?;
+/// Ensure the signed-in user has exactly one default project pointing at their
+/// `{session-sandboxes}/{session_user_id}` directory.
+fn reconcile_default_project_for_user(conn: &Connection, session_user_id: &str) -> Result<()> {
+    let uid = session_user::normalize_session_user_id(session_user_id);
+    if uid.is_empty() {
+        return Ok(());
+    }
+    let root = crate::session_sandbox::SessionSandbox::default_path("", uid)?
+        .to_string_lossy()
+        .into_owned();
     if root.is_empty() {
         return Ok(());
     }
     let now = chrono::Utc::now().timestamp_millis();
-    let project_id: Option<String> = conn
+
+    let by_root: Option<String> = conn
         .query_row(
-            "SELECT id FROM projects WHERE workspace_root = ?1 LIMIT 1",
-            params![root],
+            "SELECT id FROM projects
+             WHERE session_user_id = ?1 AND workspace_root = ?2
+             ORDER BY is_default DESC, updated_at_ms DESC, id DESC
+             LIMIT 1",
+            params![uid, root],
             |row| row.get(0),
         )
         .optional()?;
-    let project_id = match project_id {
+
+    let project_id = match by_root {
         Some(id) => id,
         None => {
-            let existing_default: Option<String> = conn
+            // Claim legacy unowned project that already points at this sandbox.
+            let orphan: Option<String> = conn
                 .query_row(
-                    "SELECT id FROM projects WHERE is_default != 0 LIMIT 1",
-                    [],
+                    "SELECT id FROM projects
+                     WHERE session_user_id = '' AND workspace_root = ?1
+                     ORDER BY is_default DESC, updated_at_ms DESC, id DESC
+                     LIMIT 1",
+                    params![root],
                     |row| row.get(0),
                 )
                 .optional()?;
-            let Some(id) = existing_default else {
-                return Ok(());
-            };
-            conn.execute(
-                "UPDATE projects SET name = '默认项目', workspace_root = ?2, updated_at_ms = ?3 WHERE id = ?1",
-                params![id, root, now],
-            )?;
-            id
+            if let Some(id) = orphan {
+                conn.execute(
+                    "UPDATE projects SET session_user_id = ?2, name = '默认项目', updated_at_ms = ?3
+                     WHERE id = ?1",
+                    params![id, uid, now],
+                )?;
+                log::info!(
+                    "conversation_store: claimed legacy default project id={id} for session_user_id={uid}"
+                );
+                id
+            } else {
+                let existing_default: Option<String> = conn
+                    .query_row(
+                        "SELECT id FROM projects
+                         WHERE session_user_id = ?1 AND is_default != 0
+                         LIMIT 1",
+                        params![uid],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                match existing_default {
+                    Some(id) => {
+                        conn.execute(
+                            "UPDATE projects SET name = '默认项目', workspace_root = ?2, updated_at_ms = ?3
+                             WHERE id = ?1",
+                            params![id, root, now],
+                        )?;
+                        id
+                    }
+                    None => {
+                        let id = uuid::Uuid::new_v4().to_string();
+                        conn.execute(
+                            "INSERT INTO projects (id, name, workspace_root, is_default, is_pinned,
+                                                  is_archived, created_at_ms, updated_at_ms, session_user_id)
+                             VALUES (?1, '默认项目', ?2, 1, 0, 0, ?3, ?3, ?4)",
+                            params![id, root, now, uid],
+                        )?;
+                        id
+                    }
+                }
+            }
         }
     };
+
     conn.execute(
-        "UPDATE projects SET is_default = 0 WHERE is_default != 0",
-        [],
+        "UPDATE projects SET is_default = 0
+         WHERE session_user_id = ?1 AND is_default != 0 AND id != ?2",
+        params![uid, project_id],
     )?;
     conn.execute(
-        "UPDATE projects SET name = '默认项目', is_default = 1, updated_at_ms = ?2 WHERE id = ?1",
-        params![project_id, now],
+        "UPDATE projects SET name = '默认项目', is_default = 1, workspace_root = ?2, updated_at_ms = ?3
+         WHERE id = ?1",
+        params![project_id, root, now],
     )?;
     conn.execute(
         "UPDATE conversations SET project_id = ?1
-         WHERE workspace_root = ?2",
-        params![project_id, root],
+         WHERE workspace_root = ?2 AND trim(session_user_id) = ?3",
+        params![project_id, root, uid],
     )?;
-    log::info!("conversation_store: reconciled default project sandbox={root}");
+    log::info!(
+        "conversation_store: reconciled default project session_user_id={uid} sandbox={root}"
+    );
     Ok(())
 }
 
@@ -1145,6 +1298,7 @@ fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         is_archived: row.get::<_, i64>(5)? != 0,
         created_at: row.get(6)?,
         updated_at,
+        session_user_id: row.get(8).unwrap_or_default(),
         last_activity_at: updated_at,
     })
 }

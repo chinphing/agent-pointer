@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::conversation_store::persist::sample_conv;
-    use crate::conversation_store::ConversationStore;
+    use crate::conversation_store::{ConversationStore, ListScope};
     use serde_json::{json, Value};
     use tempfile::TempDir;
 
@@ -11,10 +11,10 @@ mod tests {
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
 
         let created = store
-            .create_project("Original", "/workspace/example/")
+            .create_project("Original", "/workspace/example/", "")
             .unwrap();
         let reused = store
-            .create_project("Duplicate name", "  /workspace/example  ")
+            .create_project("Duplicate name", "  /workspace/example  ", "")
             .unwrap();
 
         assert!(!created.reused_existing);
@@ -23,7 +23,7 @@ mod tests {
         assert_eq!(reused.project.name, "Original");
         assert_eq!(reused.project.workspace_root, "/workspace/example");
         let matching: Vec<_> = store
-            .load_sidebar_projects()
+            .load_sidebar_projects(&ListScope::User("".into()))
             .unwrap()
             .into_iter()
             .filter(|project| project.workspace_root == "/workspace/example")
@@ -35,8 +35,70 @@ mod tests {
     fn create_project_requires_non_empty_workspace_root() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
-        let error = store.create_project("Invalid", "  /  ").unwrap_err();
+        let error = store.create_project("Invalid", "  /  ", "").unwrap_err();
         assert!(error.to_string().contains("workspace root is required"));
+    }
+
+    #[test]
+    fn create_project_does_not_reuse_across_users() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let a = store
+            .create_project("Shared path A", "/workspace/shared", "user-a")
+            .unwrap();
+        let b = store
+            .create_project("Shared path B", "/workspace/shared", "user-b")
+            .unwrap();
+        assert!(!a.reused_existing);
+        assert!(!b.reused_existing);
+        assert_ne!(a.project.id, b.project.id);
+        assert_eq!(a.project.session_user_id, "user-a");
+        assert_eq!(b.project.session_user_id, "user-b");
+        assert_eq!(store.load_sidebar_projects(&ListScope::User("user-a".into())).unwrap().len(), 1);
+        assert_eq!(store.load_sidebar_projects(&ListScope::User("user-b".into())).unwrap().len(), 1);
+        assert!(store.load_project(&a.project.id, &ListScope::User("user-b".into())).unwrap().is_none());
+        // Platform admin list scope sees every user's projects.
+        let admin_sidebar = store.load_sidebar_projects(&ListScope::All).unwrap();
+        assert!(admin_sidebar.iter().any(|p| p.id == a.project.id));
+        assert!(admin_sidebar.iter().any(|p| p.id == b.project.id));
+        assert!(store
+            .load_project(&a.project.id, &ListScope::All)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn list_scope_admin_sees_all_conversations_user_only_own() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut a = sample_conv("conv-a", "User A", "hello from a");
+        a.session_user_id = "user-a".into();
+        a.updated_at = 200;
+        let mut b = sample_conv("conv-b", "User B", "hello from b");
+        b.session_user_id = "user-b".into();
+        b.updated_at = 100;
+        store.sync_conversations(&[a, b]).unwrap();
+
+        let admin = store
+            .load_metas(&ListScope::All, None, 50)
+            .unwrap();
+        assert_eq!(admin.len(), 2);
+
+        let only_a = store
+            .load_metas(&ListScope::User("user-a".into()), None, 50)
+            .unwrap();
+        assert_eq!(only_a.len(), 1);
+        assert_eq!(only_a[0].id, "conv-a");
+
+        let hits_all = store
+            .search_conversations(&ListScope::All, "hello", 10)
+            .unwrap();
+        assert_eq!(hits_all.len(), 2);
+        let hits_a = store
+            .search_conversations(&ListScope::User("user-a".into()), "hello", 10)
+            .unwrap();
+        assert_eq!(hits_a.len(), 1);
+        assert_eq!(hits_a[0].id, "conv-a");
     }
 
     #[test]
@@ -49,6 +111,7 @@ mod tests {
                     .create_project(
                         &format!("Project {index}"),
                         &format!("/workspace/project-{index}"),
+                        "user-a",
                     )
                     .unwrap()
                     .project
@@ -56,20 +119,20 @@ mod tests {
             .collect::<Vec<_>>();
         for project in projects.iter().take(6) {
             store
-                .update_project(&project.id, None, None, Some(true), None)
+                .update_project(&project.id, "user-a", None, None, Some(true), None)
                 .unwrap();
         }
 
-        let sidebar = store.load_sidebar_projects().unwrap();
+        let sidebar = store.load_sidebar_projects(&ListScope::User("user-a".into())).unwrap();
         let cursor = sidebar.last().map(|project| crate::models::ProjectCursor {
             last_activity_at: project.last_activity_at,
             id: project.id.clone(),
         });
-        let next_page = store.load_projects(cursor, 5).unwrap();
+        let next_page = store.load_projects(&ListScope::User("user-a".into()), cursor, 5).unwrap();
 
         assert_eq!(sidebar.len(), 5);
         assert!(sidebar.iter().all(|project| project.is_pinned));
-        assert_eq!(next_page.items.len(), 4);
+        assert_eq!(next_page.items.len(), 3);
         assert!(next_page.items[0].is_pinned);
         assert!(next_page.items[1..]
             .iter()
@@ -81,11 +144,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         let older = store
-            .create_project("Older", "/workspace/older")
+            .create_project("Older", "/workspace/older", "")
             .unwrap()
             .project;
         let newer = store
-            .create_project("Newer", "/workspace/newer")
+            .create_project("Newer", "/workspace/newer", "")
             .unwrap()
             .project;
         let mut older_conversation = sample_conv("older-conv", "Older", "older");
@@ -100,13 +163,13 @@ mod tests {
             .sync_conversations(&[older_conversation, newer_conversation])
             .unwrap();
 
-        let projects = store.load_projects(None, 20).unwrap().items;
+        let projects = store.load_projects(&ListScope::User("".into()), None, 20).unwrap().items;
         let older_index = projects.iter().position(|p| p.id == older.id).unwrap();
         let newer_index = projects.iter().position(|p| p.id == newer.id).unwrap();
         assert!(newer_index < older_index);
         assert_eq!(
             store
-                .load_project(&newer.id)
+                .load_project(&newer.id, &ListScope::User("".into()))
                 .unwrap()
                 .unwrap()
                 .last_activity_at,
@@ -114,12 +177,47 @@ mod tests {
         );
 
         store
-            .update_project(&older.id, None, None, Some(true), None)
+            .update_project(&older.id, "", None, None, Some(true), None)
             .unwrap();
-        let projects = store.load_projects(None, 20).unwrap().items;
+        let projects = store.load_projects(&ListScope::User("".into()), None, 20).unwrap().items;
         let older_index = projects.iter().position(|p| p.id == older.id).unwrap();
         let newer_index = projects.iter().position(|p| p.id == newer.id).unwrap();
         assert!(older_index < newer_index);
+    }
+
+    #[test]
+    fn reconcile_default_project_is_per_session_user() {
+        let dir = TempDir::new().unwrap();
+        std::env::set_var("POINTER_APP_DATA_DIR", dir.path());
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+
+        let mut a = sample_conv("conv-a", "A", "a");
+        a.session_user_id = "user-a".into();
+        a.updated_at = 100;
+        let mut b = sample_conv("conv-b", "B", "b");
+        b.session_user_id = "user-b".into();
+        b.updated_at = 200;
+        store
+            .save_meta_all_with_platform_user(&[(&a).into()], Some("user-a"))
+            .unwrap();
+        store
+            .save_meta_all_with_platform_user(&[(&b).into()], Some("user-b"))
+            .unwrap();
+
+        let projects_a = store.load_projects(&ListScope::User("user-a".into()), None, 20).unwrap().items;
+        let projects_b = store.load_projects(&ListScope::User("user-b".into()), None, 20).unwrap().items;
+        assert_eq!(projects_a.len(), 1);
+        assert_eq!(projects_b.len(), 1);
+        assert!(projects_a[0].is_default);
+        assert!(projects_b[0].is_default);
+        assert_ne!(projects_a[0].id, projects_b[0].id);
+        assert_ne!(projects_a[0].workspace_root, projects_b[0].workspace_root);
+        assert!(projects_a[0].workspace_root.contains("user-a"));
+        assert!(projects_b[0].workspace_root.contains("user-b"));
+        assert!(store
+            .load_project(&projects_a[0].id, &ListScope::User("user-b".into()))
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -200,7 +298,7 @@ mod tests {
         ];
         store.sync_conversations(&convs).unwrap();
 
-        let hits = store.search_conversations("auth refactor", 10).unwrap();
+        let hits = store.search_conversations(&ListScope::All, "auth refactor", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c1");
         assert!(!hits[0].snippet.is_empty());
@@ -209,7 +307,7 @@ mod tests {
             "body hit should return the matched message id"
         );
 
-        let title_hits = store.search_conversations("Cooking", 10).unwrap();
+        let title_hits = store.search_conversations(&ListScope::All, "Cooking", 10).unwrap();
         assert!(title_hits.iter().any(|h| h.id == "c2"));
     }
 
@@ -225,7 +323,7 @@ mod tests {
             .sync_conversations(&[sample_conv("c1", "案件ID: 778508", &body)])
             .unwrap();
 
-        let hits = store.search_conversations("北京", 10).unwrap();
+        let hits = store.search_conversations(&ListScope::All, "北京", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert!(
             hits[0].snippet.contains("北京"),
@@ -285,7 +383,7 @@ mod tests {
         };
         store.sync_conversations(&[conv]).unwrap();
 
-        let hits = store.search_conversations("北京", 10).unwrap();
+        let hits = store.search_conversations(&ListScope::All, "北京", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert!(
             hits[0].snippet.contains("北京"),
@@ -380,7 +478,7 @@ mod tests {
             .unwrap();
         }
 
-        let hits = store.search_conversations("推送吧", 10).unwrap();
+        let hits = store.search_conversations(&ListScope::All, "推送吧", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].message_id, "user-hit");
         assert!(hits[0].snippet.contains("推送吧"));
@@ -398,7 +496,7 @@ mod tests {
             )])
             .unwrap();
 
-        let hits = store.search_conversations("北京", 10).unwrap();
+        let hits = store.search_conversations(&ListScope::All, "北京", 10).unwrap();
         assert!(hits.iter().any(|h| h.id == "c1"));
         let hit = hits.iter().find(|h| h.id == "c1").unwrap();
         assert!(
@@ -421,7 +519,7 @@ mod tests {
         conv.session_user_id = "user-a".into();
         store.sync_conversations(&[conv]).unwrap();
 
-        let hits = store.search_conversations("secret keyword", 10).unwrap();
+        let hits = store.search_conversations(&ListScope::All, "secret keyword", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c1");
     }
@@ -583,14 +681,14 @@ mod tests {
             .unwrap();
 
         // First page (limit 2): c3, c2.
-        let page1 = store.load_metas(None, 2).unwrap();
+        let page1 = store.load_metas(&ListScope::All, None, 2).unwrap();
         assert_eq!(page1.len(), 2);
         assert_eq!(page1[0].id, "c3");
         assert_eq!(page1[1].id, "c2");
 
         // Second page using cursor = last row of page1 (c2).
         let cursor = (page1[1].updated_at, page1[1].id.clone());
-        let page2 = store.load_metas(Some(cursor), 2).unwrap();
+        let page2 = store.load_metas(&ListScope::All, Some(cursor), 2).unwrap();
         assert_eq!(page2.len(), 1);
         assert_eq!(page2[0].id, "c1");
     }
@@ -609,14 +707,14 @@ mod tests {
             ])
             .unwrap();
 
-        let page1 = store.load_metas(None, 2).unwrap();
+        let page1 = store.load_metas(&ListScope::All, None, 2).unwrap();
         assert_eq!(page1[0].id, "pinned-old");
         assert!(page1[0].is_pinned);
         assert_eq!(page1[1].id, "fresh");
         assert!(!page1[1].is_pinned);
 
         let cursor = (page1[1].updated_at, page1[1].id.clone());
-        let page2 = store.load_metas(Some(cursor), 2).unwrap();
+        let page2 = store.load_metas(&ListScope::All, Some(cursor), 2).unwrap();
         assert_eq!(page2.len(), 1);
         assert_eq!(page2[0].id, "mid");
     }
@@ -627,7 +725,7 @@ mod tests {
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         store.save_all(&[conv_with("c1", "T1", 1_000, "")]).unwrap();
 
-        let metas = store.load_metas(None, 50).unwrap();
+        let metas = store.load_metas(&ListScope::All, None, 50).unwrap();
         assert_eq!(metas.len(), 1);
         // sample_conv writes a user "hello world" + assistant "Acknowledged.".
         assert_eq!(metas[0].message_count, 2);
@@ -702,7 +800,7 @@ mod tests {
             ])
             .unwrap();
         // Simulate a paginated boot that only loaded the first two metas.
-        let metas = store.load_metas(None, 2).unwrap();
+        let metas = store.load_metas(&ListScope::All, None, 2).unwrap();
         assert_eq!(metas.len(), 2);
         store.save_meta_all(&metas).unwrap();
         // All three conversations must still exist.
@@ -841,7 +939,7 @@ mod tests {
         }
 
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
-        let metas = store.load_metas(None, 50).unwrap();
+        let metas = store.load_metas(&ListScope::All, None, 50).unwrap();
         assert_eq!(metas.len(), 1);
         assert_eq!(metas[0].id, "legacy-1");
 

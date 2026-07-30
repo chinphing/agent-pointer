@@ -21,6 +21,14 @@ use tauri::{AppHandle, Emitter, State};
 
 pub const STREAM_EVENT: &str = "chat://stream";
 
+fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::ListScope {
+    let auth = state.active_platform_auth();
+    pointer_core::conversation_store::ListScope::from_viewer(
+        auth.is_platform_admin(),
+        &auth.platform_user_id().unwrap_or_default(),
+    )
+}
+
 #[tauri::command]
 pub fn list_workspace_directory(
     workspace_root: String,
@@ -900,6 +908,7 @@ pub fn load_conversations() -> Result<Vec<Conversation>, String> {
 /// pass the last row of the previous page to fetch the next.
 #[tauri::command]
 pub fn load_conversation_metas(
+    state: State<'_, Arc<AppState>>,
     cursor_updated_at: Option<i64>,
     cursor_id: Option<String>,
     limit: Option<i64>,
@@ -912,15 +921,18 @@ pub fn load_conversation_metas(
         (None, None) => None,
     };
     let limit = limit.unwrap_or(50);
-    storage::load_conversation_metas(cursor, limit).map_err(|e| e.to_string())
+    let scope = platform_list_scope(&state);
+    storage::load_conversation_metas(&scope, cursor, limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn load_projects(
+    state: State<'_, Arc<AppState>>,
     cursor_last_activity_at: Option<i64>,
     cursor_id: Option<String>,
     limit: Option<i64>,
 ) -> Result<ProjectPage, String> {
+    let scope = platform_list_scope(&state);
     let cursor = match (cursor_last_activity_at, cursor_id) {
         (Some(last_activity_at), Some(id)) => Some(ProjectCursor {
             last_activity_at,
@@ -929,41 +941,53 @@ pub fn load_projects(
         (None, None) => None,
         _ => return Err("project cursor fields must both be set or omitted".into()),
     };
-    storage::load_projects(cursor, limit.unwrap_or(20)).map_err(|e| e.to_string())
+    storage::load_projects(&scope, cursor, limit.unwrap_or(20)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn load_sidebar_projects() -> Result<Vec<Project>, String> {
-    storage::load_sidebar_projects().map_err(|e| e.to_string())
+pub fn load_sidebar_projects(state: State<'_, Arc<AppState>>) -> Result<Vec<Project>, String> {
+    let scope = platform_list_scope(&state);
+    storage::load_sidebar_projects(&scope).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn load_project(project_id: String) -> Result<Option<Project>, String> {
-    storage::load_project(&project_id).map_err(|e| e.to_string())
+pub fn load_project(
+    state: State<'_, Arc<AppState>>,
+    project_id: String,
+) -> Result<Option<Project>, String> {
+    let scope = platform_list_scope(&state);
+    storage::load_project(&project_id, &scope).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn load_project_conversation_metas(
+    state: State<'_, Arc<AppState>>,
     project_id: String,
     cursor_updated_at: Option<i64>,
     cursor_id: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<pointer_core::models::ConversationMeta>, String> {
+    let scope = platform_list_scope(&state);
     let cursor = match (cursor_updated_at, cursor_id) {
         (Some(updated_at), Some(id)) => Some((updated_at, id)),
         (None, None) => None,
         _ => return Err("conversation cursor fields must both be set or omitted".into()),
     };
-    storage::load_project_conversation_metas(&project_id, cursor, limit.unwrap_or(20))
+    storage::load_project_conversation_metas(&project_id, &scope, cursor, limit.unwrap_or(20))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn create_project(
+    state: State<'_, Arc<AppState>>,
     name: String,
     workspace_root: String,
 ) -> Result<ProjectCreationResult, String> {
-    storage::create_project(&name, &workspace_root).map_err(|e| e.to_string())
+    let uid = state
+        .active_platform_auth()
+        .platform_user_id()
+        .unwrap_or_default();
+    storage::create_project(&name, &workspace_root, &uid).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -988,14 +1012,20 @@ pub fn create_directory(parent_path: String, name: String) -> Result<String, Str
 
 #[tauri::command]
 pub fn update_project(
+    state: State<'_, Arc<AppState>>,
     id: String,
     name: Option<String>,
     workspace_root: Option<String>,
     is_pinned: Option<bool>,
     is_archived: Option<bool>,
 ) -> Result<Project, String> {
+    let uid = state
+        .active_platform_auth()
+        .platform_user_id()
+        .unwrap_or_default();
     storage::update_project(
         &id,
+        &uid,
         name.as_deref(),
         workspace_root.as_deref(),
         is_pinned,
@@ -1005,17 +1035,23 @@ pub fn update_project(
 }
 
 #[tauri::command]
-pub fn delete_project(id: String) -> Result<(), String> {
-    storage::delete_project(&id).map_err(|e| e.to_string())
+pub fn delete_project(state: State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
+    let uid = state
+        .active_platform_auth()
+        .platform_user_id()
+        .unwrap_or_default();
+    storage::delete_project(&id, &uid).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn search_conversations(
+    state: State<'_, Arc<AppState>>,
     query: String,
     limit: Option<i64>,
 ) -> Result<Vec<ConversationSearchHit>, String> {
     let limit = limit.unwrap_or(50);
-    storage::search_conversations(&query, limit).map_err(|e| e.to_string())
+    let scope = platform_list_scope(&state);
+    storage::search_conversations(&scope, &query, limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

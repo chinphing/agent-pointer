@@ -6,6 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::{
     ChatMessage, Conversation, ConversationMeta, Project, ProjectCursor, ProjectPage, Role,
 };
+use super::ListScope;
 
 pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
@@ -124,23 +125,35 @@ fn cursor_pinned_from_conn(conn: &Connection, cursor: Option<&MetaCursor>) -> Re
 
 pub fn load_project_page_from_conn(
     conn: &Connection,
+    scope: &ListScope,
     cursor: Option<ProjectCursor>,
     limit: i64,
 ) -> Result<ProjectPage> {
     let limit = limit.clamp(1, 100);
+    let filter_uid = scope.filter_uid();
     let (cursor_at, cursor_id) = cursor
         .as_ref()
         .map(|c| (Some(c.last_activity_at), Some(c.id.as_str())))
         .unwrap_or((None, None));
     let cursor_pinned = match cursor.as_ref() {
-        Some(cursor) => conn
-            .query_row(
-                "SELECT is_pinned FROM projects WHERE id = ?1",
-                params![cursor.id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .unwrap_or(0),
+        Some(cursor) => {
+            let pinned: Option<i64> = if let Some(uid) = filter_uid {
+                conn.query_row(
+                    "SELECT is_pinned FROM projects WHERE id = ?1 AND session_user_id = ?2",
+                    params![cursor.id, uid],
+                    |row| row.get(0),
+                )
+                .optional()?
+            } else {
+                conn.query_row(
+                    "SELECT is_pinned FROM projects WHERE id = ?1",
+                    params![cursor.id],
+                    |row| row.get(0),
+                )
+                .optional()?
+            };
+            pinned.unwrap_or(0)
+        }
         None => 0,
     };
     let mut stmt = conn.prepare(
@@ -156,9 +169,10 @@ pub fn load_project_page_from_conn(
                   ) AS last_activity_at_ms
            FROM projects p
            WHERE p.is_archived = 0
+             AND (?5 IS NULL OR p.session_user_id = ?5)
          )
          SELECT id, name, workspace_root, is_default, is_pinned, is_archived,
-                created_at_ms, updated_at_ms, last_activity_at_ms
+                created_at_ms, updated_at_ms, session_user_id, last_activity_at_ms
          FROM project_activity
          WHERE 1 = 1
            AND (?1 IS NULL
@@ -170,7 +184,7 @@ pub fn load_project_page_from_conn(
          LIMIT ?4",
     )?;
     let rows = stmt.query_map(
-        params![cursor_at, cursor_id, cursor_pinned, limit + 1],
+        params![cursor_at, cursor_id, cursor_pinned, limit + 1, filter_uid],
         project_from_row,
     )?;
     let mut items = rows.collect::<std::result::Result<Vec<_>, _>>()?;
@@ -189,10 +203,14 @@ pub fn load_project_page_from_conn(
     Ok(ProjectPage { items, next_cursor })
 }
 
-pub fn load_sidebar_projects_from_conn(conn: &Connection) -> Result<Vec<Project>> {
+pub fn load_sidebar_projects_from_conn(
+    conn: &Connection,
+    scope: &ListScope,
+) -> Result<Vec<Project>> {
+    let filter_uid = scope.filter_uid();
     let mut stmt = conn.prepare(
         "SELECT p.id, p.name, p.workspace_root, p.is_default, p.is_pinned, p.is_archived,
-                p.created_at_ms, p.updated_at_ms,
+                p.created_at_ms, p.updated_at_ms, p.session_user_id,
                 COALESCE(
                   (SELECT c.updated_at_ms
                    FROM conversations c
@@ -203,18 +221,24 @@ pub fn load_sidebar_projects_from_conn(conn: &Connection) -> Result<Vec<Project>
                 ) AS last_activity_at_ms
          FROM projects p
          WHERE p.is_archived = 0
+           AND (?1 IS NULL OR p.session_user_id = ?1)
          ORDER BY p.is_pinned DESC, last_activity_at_ms DESC, p.id DESC
          LIMIT 5",
     )?;
-    let rows = stmt.query_map([], project_from_row)?;
+    let rows = stmt.query_map(params![filter_uid], project_from_row)?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(Into::into)
 }
 
-pub fn load_project_from_conn(conn: &Connection, id: &str) -> Result<Option<Project>> {
+pub fn load_project_from_conn(
+    conn: &Connection,
+    id: &str,
+    scope: &ListScope,
+) -> Result<Option<Project>> {
+    let filter_uid = scope.filter_uid();
     conn.query_row(
         "SELECT p.id, p.name, p.workspace_root, p.is_default, p.is_pinned, p.is_archived,
-                p.created_at_ms, p.updated_at_ms,
+                p.created_at_ms, p.updated_at_ms, p.session_user_id,
                 COALESCE(
                   (SELECT c.updated_at_ms
                    FROM conversations c
@@ -224,8 +248,9 @@ pub fn load_project_from_conn(conn: &Connection, id: &str) -> Result<Option<Proj
                   p.created_at_ms
                 ) AS last_activity_at_ms
          FROM projects p
-         WHERE p.id = ?1",
-        params![id],
+         WHERE p.id = ?1
+           AND (?2 IS NULL OR p.session_user_id = ?2)",
+        params![id, filter_uid],
         project_from_row,
     )
     .optional()
@@ -243,17 +268,20 @@ fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         is_archived: row.get::<_, i64>(5)? != 0,
         created_at: row.get(6)?,
         updated_at,
-        last_activity_at: row.get(8).unwrap_or(updated_at),
+        session_user_id: row.get(8).unwrap_or_default(),
+        last_activity_at: row.get(9).unwrap_or(updated_at),
     })
 }
 
 pub fn load_project_metas_from_conn(
     conn: &Connection,
     project_id: &str,
+    scope: &ListScope,
     cursor: Option<MetaCursor>,
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
     let limit = limit.clamp(1, 500);
+    let filter_uid = scope.filter_uid();
     let (cur_ts, cur_id): (Option<i64>, Option<&str>) = match &cursor {
         Some((ts, id)) => (Some(*ts), Some(id.as_str())),
         None => (None, None),
@@ -268,6 +296,7 @@ pub fn load_project_metas_from_conn(
          FROM conversations
          WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%'
            AND project_id = ?3
+           AND (?6 IS NULL OR session_user_id = ?6)
            AND (?1 IS NULL
              OR is_pinned < ?5
              OR (is_pinned = ?5
@@ -276,7 +305,7 @@ pub fn load_project_metas_from_conn(
          ORDER BY is_pinned DESC, updated_at_ms DESC, id DESC LIMIT ?4",
     )?;
     let rows = stmt.query_map(
-        params![cur_ts, cur_id, project_id, limit, cursor_pinned],
+        params![cur_ts, cur_id, project_id, limit, cursor_pinned, filter_uid],
         |row| {
             Ok(MetaRow {
                 id: row.get(0)?,
@@ -314,12 +343,17 @@ pub fn load_project_metas_from_conn(
 /// is clamped to `[1, 500]` for safety. Logs an `info` line per call with the
 /// row count and a `warn` per row with corrupt `skill_ids_json` (falls back
 /// to `[]`).
+///
+/// `scope`: platform admin (`ListScope::All`) sees every user; otherwise only
+/// conversations owned by that `session_user_id`.
 pub fn load_metas_from_conn(
     conn: &Connection,
+    scope: &ListScope,
     cursor: Option<MetaCursor>,
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
     let limit = limit.clamp(1, 500);
+    let filter_uid = scope.filter_uid();
     let cursor_pinned = cursor_pinned_from_conn(conn, cursor.as_ref())?;
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
@@ -330,6 +364,7 @@ pub fn load_metas_from_conn(
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
            AND id NOT LIKE 'webhook:%'
+           AND (?5 IS NULL OR session_user_id = ?5)
            AND (?1 IS NULL
              OR is_pinned < ?4
              OR (is_pinned = ?4
@@ -342,64 +377,37 @@ pub fn load_metas_from_conn(
         Some((ts, id)) => (Some(*ts), Some(id.as_str())),
         None => (None, None),
     };
-    let rows = stmt.query_map(params![cur_ts, cur_id, limit, cursor_pinned], |row| {
-        Ok(MetaRow {
-            id: row.get(0)?,
-            title: row.get(1)?,
-            created_at: row.get(2)?,
-            updated_at: row.get(3)?,
-            message_count: row.get::<_, i64>(4)? as u32,
-            preview: row.get(5)?,
-            skill_ids_json: row.get(6)?,
-            tool_rounds_used: row.get(7)?,
-            tool_rounds_used_supervisor: row.get(8)?,
-            computer_monitor_id: row.get(9)?,
-            project_id: row.get(10)?,
-            workspace_root: row.get(11)?,
-            workspace_user_set: row.get::<_, i64>(12)? != 0,
-            workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
-            lead_agent_id: row.get(14)?,
-            agent_mode: row.get(15)?,
-            session_user_id: row.get(16)?,
-            is_pinned: row.get::<_, i64>(17)? != 0,
-        })
-    })?;
+    let rows = stmt.query_map(
+        params![cur_ts, cur_id, limit, cursor_pinned, filter_uid],
+        |row| {
+            Ok(MetaRow {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+                message_count: row.get::<_, i64>(4)? as u32,
+                preview: row.get(5)?,
+                skill_ids_json: row.get(6)?,
+                tool_rounds_used: row.get(7)?,
+                tool_rounds_used_supervisor: row.get(8)?,
+                computer_monitor_id: row.get(9)?,
+                project_id: row.get(10)?,
+                workspace_root: row.get(11)?,
+                workspace_user_set: row.get::<_, i64>(12)? != 0,
+                workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
+                lead_agent_id: row.get(14)?,
+                agent_mode: row.get(15)?,
+                session_user_id: row.get(16)?,
+                is_pinned: row.get::<_, i64>(17)? != 0,
+            })
+        },
+    )?;
     let mut out = Vec::new();
     for row in rows {
-        let r = row?;
-        let skill_ids: Vec<String> = match serde_json::from_str(&r.skill_ids_json) {
-            Ok(v) => v,
-            Err(e) => {
-                log::warn!(
-                    "conversation_store: skip corrupt skill_ids_json for {}: {e}",
-                    r.id
-                );
-                Vec::new()
-            }
-        };
-        out.push(ConversationMeta {
-            id: r.id,
-            title: r.title,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
-            is_pinned: r.is_pinned,
-            skill_ids,
-            tool_rounds_used: r.tool_rounds_used,
-            tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
-            computer_monitor_id: r.computer_monitor_id,
-            project_id: r.project_id,
-            workspace_root: r.workspace_root,
-            workspace_user_set: r.workspace_user_set,
-            workspace_inherit_disabled: r.workspace_inherit_disabled,
-            lead_agent_id: r.lead_agent_id,
-            agent_mode: r.agent_mode,
-            message_count: r.message_count,
-            preview: r.preview,
-            session_user_id: r.session_user_id,
-        });
+        out.push(meta_from_row(row?)?);
     }
     log::info!(
-        "conversation_store: load_metas cursor={:?} limit={} returned {} rows",
+        "conversation_store: load_metas scope={scope:?} cursor={:?} limit={} returned {} rows",
         cursor,
         limit,
         out.len()

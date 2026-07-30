@@ -10,6 +10,7 @@ use crate::models::{ChatMessage, ConversationSearchHit};
 use crate::text_util::{match_centered_snippet, text_contains_query};
 
 use super::db::DbHandle;
+use super::ListScope;
 
 const DEFAULT_WINDOW: i64 = 5;
 const MAX_WINDOW: i64 = 20;
@@ -27,6 +28,7 @@ const TOOL_SNIPPET_RADIUS: usize = 48;
 /// title/preview substring match as a supplement (same scope as the sidebar list).
 pub fn search_conversations_for_ui(
     db: &DbHandle,
+    scope: &ListScope,
     query: &str,
     limit: i64,
 ) -> Result<Vec<ConversationSearchHit>> {
@@ -35,13 +37,14 @@ pub fn search_conversations_for_ui(
         return Ok(Vec::new());
     }
     let limit = limit.clamp(1, UI_SEARCH_MAX_LIMIT);
+    let filter_uid = scope.filter_uid();
     let conn = db.conn.lock();
     let mut hits: std::collections::HashMap<String, ConversationSearchHit> =
         std::collections::HashMap::new();
 
     let fts_query = build_fts_query(query);
     if !fts_query.is_empty() {
-        match collect_fts_hits(&conn, query, &fts_query, limit) {
+        match collect_fts_hits(&conn, query, &fts_query, limit, filter_uid) {
             Ok(fts_hits) => {
                 for hit in fts_hits {
                     hits.insert(hit.id.clone(), hit);
@@ -59,12 +62,13 @@ pub fn search_conversations_for_ui(
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
            AND id NOT LIKE 'webhook:%'
+           AND (?3 IS NULL OR session_user_id = ?3)
            AND (lower(title) LIKE ?1 OR lower(preview) LIKE ?1)
          ORDER BY updated_at_ms DESC
          LIMIT ?2",
     )?;
     let title_cap = limit * 2;
-    let mapped = stmt.query_map(params![like, title_cap], |row| {
+    let mapped = stmt.query_map(params![like, title_cap, filter_uid], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -100,6 +104,7 @@ fn collect_fts_hits(
     raw_query: &str,
     fts_query: &str,
     limit: i64,
+    filter_uid: Option<&str>,
 ) -> Result<Vec<ConversationSearchHit>> {
     // Join `messages` for body text: FTS5 external-content can leave `mf.content`
     // awkward to rely on; always read the canonical row.
@@ -118,11 +123,12 @@ fn collect_fts_hits(
                WHERE messages_fts MATCH ?1
                  AND c.id NOT LIKE 'cron:%'
                  AND c.id NOT LIKE 'webhook:%'
+                 AND (?3 IS NULL OR c.session_user_id = ?3)
                ORDER BY bm25(messages_fts)
                LIMIT ?2";
     let cap = limit * 24;
     let mut stmt = conn.prepare(sql)?;
-    let mapped = stmt.query_map(params![fts_query, cap], |row| {
+    let mapped = stmt.query_map(params![fts_query, cap, filter_uid], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,

@@ -29,6 +29,9 @@ Frontend `newConversation` / message client ids use **UUID v4** (`crypto.randomU
 | Logged-in / IM user id present | `{app_data}/session-sandboxes/{session_user_id}/` |
 | Anonymous (no `session_user_id`) | `{app_data}/session-sandboxes/_anonymous/{conversation_id}/` |
 
+That logged-in sandbox path is also the **默认项目** `workspaceRoot` for that user
+(see [session-user-id.md](session-user-id.md) Projects section).
+
 - Multiple conversations for the same user **share** one sandbox directory.
 - Sandbox directories are created on **first chat run**, not when clearing workspace in the UI.
 - **Legacy** `{session-sandboxes}/{conversation_id}/` dirs are deleted on conversation delete only; new runs do not use them.

@@ -762,38 +762,63 @@ pub fn load_conversations() -> Result<Vec<Conversation>> {
 /// `(updated_at_ms DESC, id DESC)`. Pass `None` for the first page; pass the
 /// last row of the previous page as the cursor to fetch the next.
 pub fn load_conversation_metas(
+    scope: &crate::conversation_store::ListScope,
     cursor: Option<(i64, String)>,
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
-    crate::conversation_store::global_store()?.load_metas(cursor, limit)
+    crate::conversation_store::global_store()?.load_metas(scope, cursor, limit)
 }
 
-pub fn load_projects(cursor: Option<ProjectCursor>, limit: i64) -> Result<ProjectPage> {
-    crate::conversation_store::global_store()?.load_projects(cursor, limit)
+pub fn load_projects(
+    scope: &crate::conversation_store::ListScope,
+    cursor: Option<ProjectCursor>,
+    limit: i64,
+) -> Result<ProjectPage> {
+    crate::conversation_store::global_store()?.load_projects(scope, cursor, limit)
 }
 
-pub fn load_sidebar_projects() -> Result<Vec<Project>> {
-    crate::conversation_store::global_store()?.load_sidebar_projects()
+pub fn load_sidebar_projects(
+    scope: &crate::conversation_store::ListScope,
+) -> Result<Vec<Project>> {
+    crate::conversation_store::global_store()?.load_sidebar_projects(scope)
 }
 
-pub fn load_project(id: &str) -> Result<Option<Project>> {
-    crate::conversation_store::global_store()?.load_project(id)
+pub fn load_project(
+    id: &str,
+    scope: &crate::conversation_store::ListScope,
+) -> Result<Option<Project>> {
+    crate::conversation_store::global_store()?.load_project(id, scope)
 }
 
 pub fn load_project_conversation_metas(
     project_id: &str,
+    scope: &crate::conversation_store::ListScope,
     cursor: Option<(i64, String)>,
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
-    crate::conversation_store::global_store()?.load_project_metas(project_id, cursor, limit)
+    crate::conversation_store::global_store()?.load_project_metas(
+        project_id,
+        scope,
+        cursor,
+        limit,
+    )
 }
 
-pub fn create_project(name: &str, workspace_root: &str) -> Result<ProjectCreationResult> {
-    crate::conversation_store::global_store()?.create_project(name, workspace_root)
+pub fn create_project(
+    name: &str,
+    workspace_root: &str,
+    session_user_id: &str,
+) -> Result<ProjectCreationResult> {
+    crate::conversation_store::global_store()?.create_project(
+        name,
+        workspace_root,
+        session_user_id,
+    )
 }
 
 pub fn update_project(
     id: &str,
+    session_user_id: &str,
     name: Option<&str>,
     workspace_root: Option<&str>,
     is_pinned: Option<bool>,
@@ -801,6 +826,7 @@ pub fn update_project(
 ) -> Result<Project> {
     crate::conversation_store::global_store()?.update_project(
         id,
+        session_user_id,
         name,
         workspace_root,
         is_pinned,
@@ -808,13 +834,17 @@ pub fn update_project(
     )
 }
 
-pub fn delete_project(id: &str) -> Result<()> {
-    crate::conversation_store::global_store()?.delete_project(id)
+pub fn delete_project(id: &str, session_user_id: &str) -> Result<()> {
+    crate::conversation_store::global_store()?.delete_project(id, session_user_id)
 }
 
 /// FTS-backed sidebar search (full message bodies + title/preview supplement).
-pub fn search_conversations(query: &str, limit: i64) -> Result<Vec<ConversationSearchHit>> {
-    crate::conversation_store::global_store()?.search_conversations(query, limit)
+pub fn search_conversations(
+    scope: &crate::conversation_store::ListScope,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<ConversationSearchHit>> {
+    crate::conversation_store::global_store()?.search_conversations(scope, query, limit)
 }
 
 pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessage>> {

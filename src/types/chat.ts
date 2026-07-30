@@ -399,6 +399,8 @@ export interface Project {
   updatedAt: number
   /** Newest owned conversation activity, or createdAt when the project is empty. */
   lastActivityAt: number
+  /** Owner (`SSO sub` / OAuth id / local-admin). Empty = legacy/anonymous. */
+  sessionUserId?: string
 }
 
 export interface ProjectPage {

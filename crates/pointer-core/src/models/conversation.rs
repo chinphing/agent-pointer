@@ -22,6 +22,9 @@ pub struct Project {
     /// Newest owned conversation activity, or `created_at` when none exists.
     #[serde(rename = "lastActivityAt")]
     pub last_activity_at: i64,
+    /// Owner identity (`SSO sub` / OAuth id / `local-admin`). Empty = legacy/anonymous.
+    #[serde(rename = "sessionUserId", default)]
+    pub session_user_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

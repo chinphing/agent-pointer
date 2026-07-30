@@ -28,11 +28,12 @@ pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 
 旧字段 `admin_token` / `POINTER_SERVER_ADMIN_TOKEN` 已废弃（启动 warn，忽略）。
 
-Web：`POST /api/auth/local/login` → Cookie `pointer_web_session`。用户 id 固定为 `local-admin`。
+Web：`POST /api/auth/local/login` → Cookie `pointer_web_session`。用户 id 固定为 `local-admin`，
+且带平台管理员标志：侧栏可看到**所有用户**的会话与项目（见 [session-user-id.md](session-user-id.md) `ListScope`）。
 
 **多人隔离不要用密码登录。** 账号密码只有一个运维身份（`local-admin`），
 所有人登录后 `SESSION_USER_ID` 相同。要让不同人在 **`terminal`** 里看到不同的
-`SESSION_USER_ID`，请用下方 **第三方 SSO**，每人票里带不同的稳定 `sub`。
+`SESSION_USER_ID`，请用下方 **第三方 SSO**，每人票里带不同的稳定 `sub`（非管理员，只看自己的会话）。
 
 ## 第三方 SSO（独立，与官网无关）
 
@@ -86,6 +87,8 @@ Payload：
 1. Cookie 会话里的 `user.id` = `sub`
 2. 新对话 `ensure_session_user_id` 写入该值（已有值不覆盖）
 3. `run_chat` 时线程局部注入；`terminal` 子进程环境变量 `SESSION_USER_ID=<sub>`
+4. 侧栏 **项目**（含默认项目与工作目录）按 `sub` 隔离；每人各自的
+   `{session-sandboxes}/{sub}/` 默认项目
 
 同一浏览器换人：先退出再打开新的 `?sso=` 票，否则仍用原 Cookie。
 

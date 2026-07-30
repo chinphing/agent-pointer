@@ -1478,6 +1478,24 @@ fn require_platform_access(state: &ServerState) -> Result<(), ApiError> {
     require_allowed_platform_user(state)
 }
 
+/// Current browser session user id (SSO `sub` / OAuth id / `local-admin`), or empty.
+fn platform_session_user_id(state: &ServerState) -> String {
+    state
+        .core
+        .active_platform_auth()
+        .platform_user_id()
+        .unwrap_or_default()
+}
+
+/// Sidebar / project list visibility: platform admin sees all users' rows.
+fn platform_list_scope(state: &ServerState) -> pointer_core::conversation_store::ListScope {
+    let auth = state.core.active_platform_auth();
+    pointer_core::conversation_store::ListScope::from_viewer(
+        auth.is_platform_admin(),
+        &auth.platform_user_id().unwrap_or_default(),
+    )
+}
+
 pub(crate) fn require_platform_access_status(state: &ServerState) -> Result<(), StatusCode> {
     require_platform_access(state).map_err(|e| {
         let msg = e.0.to_string();
@@ -1528,7 +1546,8 @@ async fn load_conversation_metas(
         Some((ts, id)) => format!("({}, {})", ts, id),
         None => "none".to_string(),
     };
-    let metas = storage::load_conversation_metas(cursor, limit)?;
+    let scope = platform_list_scope(&state);
+    let metas = storage::load_conversation_metas(&scope, cursor, limit)?;
     log::info!(
         "server: load_conversation_metas cursor={} limit={} returned {} rows",
         cursor_dbg,
@@ -1549,7 +1568,8 @@ async fn load_sidebar_projects(
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<pointer_core::models::Project>>, ApiError> {
     require_platform_access(&state)?;
-    Ok(Json(storage::load_sidebar_projects()?))
+    let scope = platform_list_scope(&state);
+    Ok(Json(storage::load_sidebar_projects(&scope)?))
 }
 
 async fn load_projects(
@@ -1557,6 +1577,7 @@ async fn load_projects(
     Query(q): Query<ProjectsQuery>,
 ) -> Result<Json<pointer_core::models::ProjectPage>, ApiError> {
     require_platform_access(&state)?;
+    let scope = platform_list_scope(&state);
     let cursor = match (q.cursor_last_activity_at, q.cursor_id) {
         (Some(last_activity_at), Some(id)) => Some(pointer_core::models::ProjectCursor {
             last_activity_at,
@@ -1569,7 +1590,11 @@ async fn load_projects(
             )))
         }
     };
-    Ok(Json(storage::load_projects(cursor, q.limit.unwrap_or(20))?))
+    Ok(Json(storage::load_projects(
+        &scope,
+        cursor,
+        q.limit.unwrap_or(20),
+    )?))
 }
 
 #[derive(Deserialize)]
@@ -1583,9 +1608,11 @@ async fn create_project(
     Json(input): Json<CreateProjectRequest>,
 ) -> Result<Json<pointer_core::models::ProjectCreationResult>, ApiError> {
     require_platform_access(&state)?;
+    let uid = platform_session_user_id(&state);
     Ok(Json(storage::create_project(
         &input.name,
         &input.workspace_root,
+        &uid,
     )?))
 }
 
@@ -1594,7 +1621,8 @@ async fn load_project(
     Path(project_id): Path<String>,
 ) -> Result<Json<Option<pointer_core::models::Project>>, ApiError> {
     require_platform_access(&state)?;
-    Ok(Json(storage::load_project(&project_id)?))
+    let scope = platform_list_scope(&state);
+    Ok(Json(storage::load_project(&project_id, &scope)?))
 }
 
 #[derive(Deserialize)]
@@ -1611,8 +1639,10 @@ async fn update_project(
     Json(input): Json<UpdateProjectRequest>,
 ) -> Result<Json<pointer_core::models::Project>, ApiError> {
     require_platform_access(&state)?;
+    let uid = platform_session_user_id(&state);
     Ok(Json(storage::update_project(
         &project_id,
+        &uid,
         input.name.as_deref(),
         input.workspace_root.as_deref(),
         input.is_pinned,
@@ -1625,7 +1655,8 @@ async fn delete_project(
     Path(project_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
-    storage::delete_project(&project_id)?;
+    let uid = platform_session_user_id(&state);
+    storage::delete_project(&project_id, &uid)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1635,6 +1666,7 @@ async fn load_project_conversation_metas(
     Query(q): Query<ConversationMetasQuery>,
 ) -> Result<Json<Vec<pointer_core::models::ConversationMeta>>, ApiError> {
     require_platform_access(&state)?;
+    let scope = platform_list_scope(&state);
     let cursor = match (q.cursor_updated_at, q.cursor_id) {
         (Some(ts), Some(id)) => Some((ts, id)),
         (None, None) => None,
@@ -1646,6 +1678,7 @@ async fn load_project_conversation_metas(
     };
     Ok(Json(storage::load_project_conversation_metas(
         &project_id,
+        &scope,
         cursor,
         q.limit.unwrap_or(20),
     )?))
@@ -1664,7 +1697,8 @@ async fn search_conversations_handler(
 ) -> Result<Json<Vec<pointer_core::models::ConversationSearchHit>>, ApiError> {
     require_platform_access(&state)?;
     let limit = q.limit.unwrap_or(50);
-    let hits = storage::search_conversations(&q.q, limit)?;
+    let scope = platform_list_scope(&state);
+    let hits = storage::search_conversations(&scope, &q.q, limit)?;
     log::info!(
         "server: search_conversations q={:?} limit={} returned {} rows",
         q.q.trim(),

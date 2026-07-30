@@ -14,11 +14,18 @@ message is dispatched. Desktop uses the directory picker; Web confirms a
 typed directory with Enter.
 
 On first startup after this feature is introduced, migration is gated by the
-absence of the `projects` table, not by `schema_version`. It creates one
-default project from the global workspace root, attaches historical desktop
-conversations with an empty or matching root to it, and deduplicates all other
-workspace roots into projects. Cron, webhook, and IM-generated sessions remain
+absence of the `projects` table, not by `schema_version`. It creates **per-user**
+default projects from each distinct non-empty `conversations.session_user_id`
+(sandbox `{session-sandboxes}/{session_user_id}/`), plus a legacy empty-owner
+default when needed, attaches historical conversations by matching owner +
+workspace root, and deduplicates other roots into projects. Cron, webhook, and IM-generated sessions remain
 outside project navigation.
+
+## Visibility (multi-user)
+
+Conversation metas, sidebar search, and project list/get use `ListScope`
+(see [session-user-id.md](../developer/session-user-id.md)): platform admins
+see every user's rows; other users only see their own `session_user_id`.
 
 ## Sidebar behavior
 
@@ -50,8 +57,10 @@ outside project navigation.
 - Conversation rows support a right-click menu: pin/unpin, rename, copy session
   id, copy workspace directory, and (desktop only) reveal workspace in Finder.
   Empty workspace actions are disabled. Web hides the Finder action.
-- The conversation list (**最近**) remains global below the project list and is
-  ordered by `updatedAt` descending (stable id tie-break). The section title
+- The conversation list (**最近**) sits below the project list and is
+  ordered by `updatedAt` descending (stable id tie-break). Like projects and
+  search, it is scoped by `ListScope` (admin sees all users; others only their
+  own `session_user_id`). The section title
   (and search / new-task actions) stays **outside** the scroll container so it
   does not scroll away; only the conversation rows scroll.
   Conversation pin state is persisted on the conversation meta row (`isPinned`).

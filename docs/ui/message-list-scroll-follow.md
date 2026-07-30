@@ -17,6 +17,18 @@
 
 程序化 `toBottom` 期间用 `programmaticScrollDepth` 忽略滚动事件，避免把跟随状态写乱。
 
+贴底实现要点：
+
+1. **真底部**：`scrollToIndex(align: 'end')` 只对齐最后一行，不会把
+   virtualizer `paddingEnd` / scroller `pb-*` 滚进视口；随后必须
+   `scrollTop = scrollHeight - clientHeight`。
+2. **切换/挂载 settle**：会话切换会 remount 列表，行高先用估算值；
+   `toBottom({ settle: true })` 在随后两帧再贴一次，减少测量校正后的下跳与裁切。
+3. **视口变矮**：`ResizeObserver` 在跟随态下侦测 scroller `clientHeight`
+   （Composer / ChangeSummary / 草稿增高），再 `scheduleToBottom`。
+4. **总高度变化**：跟随态下 virtualizer `getTotalSize()` 变化时再贴一次真底部
+   （覆盖切换后 estimate→measure 与末轮展开）。
+
 同约定也用于：
 
 - 终端实时输出弹层（`TerminalLiveOutputModal.vue`）

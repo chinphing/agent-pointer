@@ -1,7 +1,8 @@
 export const MESSAGE_VIRTUAL_ROW_ESTIMATE = 180
 export const MESSAGE_VIRTUAL_OVERSCAN = 8
 export const MESSAGE_VIRTUAL_PADDING_START = 24
-export const MESSAGE_VIRTUAL_PADDING_END = 40
+/** Extra space below the last turn so the bubble clears the composer edge. */
+export const MESSAGE_VIRTUAL_PADDING_END = 56
 
 export function messageVirtualizerBaseOptions(
   count: number,

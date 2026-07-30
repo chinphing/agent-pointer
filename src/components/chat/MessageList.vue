@@ -86,6 +86,9 @@ const ATTACH_BOTTOM_PX = 8
 const DETACH_BOTTOM_PX = 48
 let lastScrollTs = 0
 let touchStartY: number | null = null
+/** Last observed scroller clientHeight; re-stick when chrome shrinks the viewport. */
+let lastScrollerClientHeight = 0
+let scrollerResizeObserver: ResizeObserver | null = null
 
 function distanceFromBottom(): number {
   const el = scroller.value
@@ -111,6 +114,22 @@ function shouldFollowOutput(): boolean {
   return followOutput && !locatingFocus.value
 }
 
+/**
+ * Align to the last turn, then force true scroll bottom so virtualizer
+ * `paddingEnd` and scroller `pb-*` are actually visible (scrollToIndex align:end
+ * only lines up the last item, leaving bottom padding below the fold).
+ */
+function stickScrollerToBottom() {
+  if (conversationTurns.value.length === 0) return
+  rowVirtualizer.value.scrollToIndex(conversationTurns.value.length - 1, {
+    align: 'end',
+    behavior: 'auto'
+  })
+  const el = scroller.value
+  if (!el) return
+  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+}
+
 function scheduleToBottom() {
   if (!shouldFollowOutput()) return
   if (scrollFrame != null) return
@@ -124,18 +143,29 @@ function scheduleToBottom() {
   })
 }
 
-function toBottom() {
+function toBottom(options?: { settle?: boolean }) {
   if (locatingFocus.value || conversationTurns.value.length === 0) return
   followOutput = true
   showScrollButton.value = false
+  const settle = options?.settle === true
   beginProgrammaticScroll()
-  void nextTick(() => {
-    rowVirtualizer.value.scrollToIndex(conversationTurns.value.length - 1, {
-      align: 'end',
-      behavior: 'auto'
-    })
-    endProgrammaticScroll()
-  })
+  void (async () => {
+    try {
+      await nextTick()
+      stickScrollerToBottom()
+      // Switch/mount: row heights start as estimates; measureElement then
+      // corrects totalSize and would otherwise leave a visible jump or clip
+      // the last bubble against the composer edge.
+      if (settle) {
+        await nextAnimationFrame()
+        stickScrollerToBottom()
+        await nextAnimationFrame()
+        stickScrollerToBottom()
+      }
+    } finally {
+      endProgrammaticScroll()
+    }
+  })()
 }
 
 function unpinFollowOutput() {
@@ -166,8 +196,22 @@ function onTouchEnd() {
 }
 
 onMounted(() => {
+  const el = scroller.value
+  if (el && typeof ResizeObserver !== 'undefined') {
+    lastScrollerClientHeight = el.clientHeight
+    scrollerResizeObserver = new ResizeObserver(() => {
+      const scrollerEl = scroller.value
+      if (!scrollerEl || !shouldFollowOutput()) return
+      if (scrollerEl.clientHeight === lastScrollerClientHeight) return
+      lastScrollerClientHeight = scrollerEl.clientHeight
+      // Composer / ChangeSummary / draft chrome changing height shrinks the list
+      // viewport after the first stick — re-pin while following.
+      scheduleToBottom()
+    })
+    scrollerResizeObserver.observe(el)
+  }
   void nextTick(() => {
-    toBottom()
+    toBottom({ settle: true })
     // Sidebar search focus can already be pending when this component is mounted
     // after the hydration skeleton was replaced. In that case the watcher below
     // registered too late to observe the state change, so retry from mounted.
@@ -180,6 +224,8 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(scrollFrame)
     scrollFrame = null
   }
+  scrollerResizeObserver?.disconnect()
+  scrollerResizeObserver = null
   if (focusHighlightTimer != null) {
     clearTimeout(focusHighlightTimer)
     focusHighlightTimer = null
@@ -195,7 +241,7 @@ watch(() => chat.currentId, async () => {
   followOutput = true
   await nextTick()
   rowVirtualizer.value.measure()
-  toBottom()
+  toBottom({ settle: true })
 })
 
 watch(() => chat.current?.messages.length, () => {
@@ -648,6 +694,20 @@ const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>(computed((
   getScrollElement: () => scroller.value
 })))
 
+// Estimate → measure (and late-expanding last turns) change totalSize after the
+// first stick on conversation switch. Re-pin while the user is still following.
+watch(
+  () => rowVirtualizer.value.getTotalSize(),
+  () => {
+    if (!shouldFollowOutput()) return
+    beginProgrammaticScroll()
+    void nextTick(() => {
+      stickScrollerToBottom()
+      endProgrammaticScroll()
+    })
+  }
+)
+
 watch(
   () => conversationTurns.value.map(turn => turn.id),
   (turnIds, previousTurnIds) => {
@@ -897,7 +957,7 @@ function entrySpacing(
       v-if="showScrollButton"
       type="button"
       class="absolute bottom-4 right-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
-      @click="toBottom"
+      @click="toBottom({ settle: true })"
       title="滚动到底部"
     >
       <ArrowDown class="w-5 h-5 text-foreground" />

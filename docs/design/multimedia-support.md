@@ -139,7 +139,7 @@ mediaModelOverrides: {
 | 用户指定页码 | Agent 传 **`pageStart` / `pageEnd`**（1-based，含首尾）；未指定则不传 |
 | 单次上限 | 每 call 最多 **10 页**；更多页码须**多次** `media_understand` |
 | 文本型 PDF | **pdf** Skill 抽文本（Python/`terminal`） |
-| 扫描/图片型 PDF | pdf Skill 判定无可用文本 → **`media_understand`**（后缀推断 `pdf`；也可显式 `mode=pdf`；Pdfium 逐页渲染 → 视觉模型） |
+| 扫描/图片型 PDF | pdf Skill 判定无可用文本 → **`media_understand`**（**真实后缀优先**推断 `pdf`，显式 `mode` 冲突时以后缀为准；Pdfium 逐页渲染 → 视觉模型） |
 
 **Agent 策略**
 
@@ -183,10 +183,10 @@ mediaModelOverrides: {
 |------|------|
 | **大图片** | 自动缩放到 ≤ **6 MB** JPEG 再 vision |
 | **长音频** | ASR 模型有上下文上限；超长录音在 `goal` 中说明「只要结论/某段」；必要时分段转写 |
-| **pdf** | **pdf** Skill 优先（`terminal` + `localPath` 抽文本）；**扫描件**才 **`media_understand`**（`mode` 可省略，按后缀推断） |
+| **pdf** | **pdf** Skill 优先（`terminal` + `localPath` 抽文本）；**扫描件**才 **`media_understand`**（`mode` 可省略；能识别后缀时以后缀为准） |
 | **docx / pptx** | **docx** / **pptx** Skill，不用 `media_understand` |
 | **zip / 二进制** | 不支持内联；`skill_read` 或追问用户要提取什么 |
-| **多附件** | 统一 **refs** 数组；图片可多个，音视频/PDF 仅单元素 |
+| **多附件** | 统一 **refs** 数组；仅同后缀类型可批量（图片可多个）；音视频/PDF 仍仅单元素；混类型须拆 call |
 | **超大附件已落盘但理解失败** | 工具结果会含截断/页数说明；向用户解释限制并给出替代（指定范围、拆文件、用 Skill） |
 
 ---

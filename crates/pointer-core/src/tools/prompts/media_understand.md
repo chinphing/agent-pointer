@@ -79,6 +79,8 @@ extractor — follow that; skip this tool unless they ask for this path
   Image mode: one directory path allowed. Other modes: exactly one ref.
 - **mode** (optional) — omit when the file suffix is enough
   (`.pdf` / image / audio / video extensions).
+  When the real suffix is known, the host **always uses that type** even if
+  **mode** disagrees (except **mode=audio** on a **video** file for speech).
   Pass **mode=audio** on a **video** ref only for speech/transcript.
 - **goal** (required) — user's analysis goal in their language.
 - **context** (optional) — extra thread background not already in **goal**.
@@ -90,6 +92,9 @@ extractor — follow that; skip this tool unless they ask for this path
 | **image** | 1–200 refs; multi-ref for compare/batch in one call |
 | **video** / **audio** / **pdf** | **exactly one** ref (single-element array) |
 
+Multi-ref requires **the same real suffix type** for every entry (batch images
+only). Do not mix `.pdf` with images in one call — split by type.
+
 ## Modes
 
 - **image** / **video**: vision model (frame sampling). **video** = scenes, UI, actions,
@@ -100,8 +105,8 @@ extractor — follow that; skip this tool unless they ask for this path
   track** then runs ASR. **Does not see the picture.**
 - **pdf**: **scanned-PDF fallback only** — Pdfium renders each page to JPEG, then vision model. Use the **pdf** skill + `terminal` first for text-native PDFs.
 
-Host infers mode from the file suffix when **mode** is omitted.
-Clear mismatches (e.g. **mode=image** on `.pdf`) are corrected to the inferred mode.
+Host infers mode from the **real file suffix** when possible.
+Explicit **mode** is ignored on mismatch (except **audio** on video for speech).
 
 ## Video attachments: vision vs speech
 

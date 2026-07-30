@@ -63,20 +63,40 @@ fn infer_mode_from_hints(name_hints: &[String]) -> Result<Option<String>> {
         return Ok(None);
     }
     if name_hints.len() > 1 {
+        let mut modes: Vec<&'static str> = Vec::with_capacity(name_hints.len());
         for hint in name_hints {
-            match infer_mode_from_name(hint) {
-                Some("image") => {}
-                Some(other) => {
-                    anyhow::bail!(
-                        "multi-ref media_understand only supports image files; got {other} from {hint}"
-                    )
+            let mode = if let Ok(path) = crate::media::resolve_media_ref(hint) {
+                if path.is_dir() {
+                    Some("image")
+                } else {
+                    path.file_name()
+                        .and_then(|s| s.to_str())
+                        .and_then(infer_mode_from_name)
+                        .or_else(|| infer_mode_from_name(hint))
                 }
-                None => anyhow::bail!(
-                    "cannot infer mode for multi-ref entry {hint}; use image files or pass mode=image"
-                ),
-            }
+            } else {
+                infer_mode_from_name(hint)
+            };
+            let Some(mode) = mode else {
+                anyhow::bail!(
+                    "cannot infer mode for multi-ref entry {hint}; use a known image/pdf/audio/video suffix or pass one ref with explicit mode"
+                );
+            };
+            modes.push(mode);
         }
-        return Ok(Some("image".into()));
+        let first = modes[0];
+        if modes.iter().any(|m| *m != first) {
+            let detail = name_hints
+                .iter()
+                .zip(modes.iter())
+                .map(|(h, m)| format!("{h}→{m}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!(
+                "multi-ref media_understand requires the same media type for every entry (by real file suffix); got mixed types: {detail}. Call once per pdf/video/audio file; batch only image files together."
+            );
+        }
+        return Ok(Some(first.to_string()));
     }
 
     let hint = name_hints[0].trim();
@@ -93,11 +113,11 @@ fn infer_mode_from_hints(name_hints: &[String]) -> Result<Option<String>> {
     Ok(infer_mode_from_name(hint).map(str::to_string))
 }
 
-/// Resolve understanding mode: optional explicit `mode`, else infer from refs' suffixes.
+/// Resolve understanding mode: **real file suffix wins** when it can be inferred.
 ///
-/// Video files default to **video**. Pass **mode=audio** only when the goal is speech
-/// from a video/audio file. Clear mismatches (e.g. mode=image on `.pdf`) are corrected
-/// to the inferred mode with a warning log.
+/// Explicit `mode` is used only when the suffix is unknown, or for the intentional
+/// case **mode=audio** on a **video** file (speech/transcript). Clear mismatches
+/// (e.g. mode=image on `.pdf`) are corrected to the inferred mode with a warning.
 pub fn resolve_mode(args: &Value, name_hints: &[String]) -> Result<String> {
     let explicit = parse_mode_optional(args)?;
     let inferred = infer_mode_from_hints(name_hints)?;
@@ -110,29 +130,17 @@ pub fn resolve_mode(args: &Value, name_hints: &[String]) -> Result<String> {
                 "cannot infer media_understand mode from refs; pass mode=image|video|audio|pdf"
             )
         }
-        // Intentional: speech from a video container.
+        // Intentional: speech from a video container (suffix alone would be video).
         (Some("audio"), Some("video")) => "audio".into(),
         (Some(m), Some(inf)) if m == inf => m.to_string(),
-        (Some(m), Some(inf)) if should_prefer_inferred_mode(m, inf) => {
+        (Some(m), Some(inf)) => {
             log::warn!(
-                "media_understand mode={m} mismatches refs (inferred={inf}); using {inf}"
+                "media_understand mode={m} mismatches refs (inferred={inf} from real suffix); using {inf}"
             );
             inf.to_string()
         }
-        (Some(m), Some(_)) => m.to_string(),
     };
     normalize_mode(&mode)
-}
-
-fn should_prefer_inferred_mode(explicit: &str, inferred: &str) -> bool {
-    match (explicit, inferred) {
-        // Common agent mistake: mode=image on a PDF path.
-        ("image", "pdf") | ("video", "pdf") | ("audio", "pdf") => true,
-        ("pdf", "image") | ("video", "image") | ("audio", "image") => true,
-        ("image", "video") | ("pdf", "video") => true,
-        ("image", "audio") | ("pdf", "audio") | ("video", "audio") => true,
-        _ => false,
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -400,6 +408,59 @@ mod tests {
         assert_eq!(
             resolve_mode(&args, &["/tmp/M001.pdf".into()]).unwrap(),
             "pdf"
+        );
+    }
+
+    #[test]
+    fn resolve_mode_multi_ref_images_ignores_wrong_mode() {
+        let args = json!({
+            "refs": ["/tmp/a.png", "/tmp/b.jpg"],
+            "mode": "pdf",
+            "goal": "compare"
+        });
+        assert_eq!(
+            resolve_mode(
+                &args,
+                &["/tmp/a.png".into(), "/tmp/b.jpg".into()]
+            )
+            .unwrap(),
+            "image"
+        );
+    }
+
+    #[test]
+    fn resolve_mode_multi_ref_all_pdf_infers_pdf() {
+        let args = json!({
+            "refs": ["/tmp/a.pdf", "/tmp/b.pdf"],
+            "mode": "image",
+            "goal": "extract"
+        });
+        assert_eq!(
+            resolve_mode(
+                &args,
+                &["/tmp/a.pdf".into(), "/tmp/b.pdf".into()]
+            )
+            .unwrap(),
+            "pdf"
+        );
+    }
+
+    #[test]
+    fn resolve_mode_multi_ref_mixed_types_errors() {
+        let args = json!({
+            "refs": ["/tmp/a.png", "/tmp/b.pdf"],
+            "mode": "image",
+            "goal": "extract"
+        });
+        let err = resolve_mode(
+            &args,
+            &["/tmp/a.png".into(), "/tmp/b.pdf".into()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("mixed types"),
+            "unexpected error: {err}"
         );
     }
 

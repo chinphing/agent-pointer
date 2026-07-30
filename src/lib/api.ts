@@ -34,8 +34,17 @@ import { isTauriRuntime } from './runtime'
 export interface SaveChatAttachmentPayload {
   conversationId: string
   attachmentId: string
-  contentBase64: string
   fileName: string
+  /** Desktop invoke / legacy: base64 wire. Prefer `file` on web. */
+  contentBase64?: string
+  /** Web: raw file for multipart/form-data upload. */
+  file?: File
+}
+
+export type AttachmentUploadProgress = {
+  loaded: number
+  total: number
+  percent: number
 }
 
 export interface LocalFileAttachmentPayload {
@@ -173,7 +182,10 @@ export interface RuntimeApi {
   previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview>
   getChatMediaLocalPath?(storageRelPath: string): Promise<string>
   previewMediaRef(mediaRef: string): Promise<ChatMediaPreview>
-  saveChatAttachment(payload: SaveChatAttachmentPayload): Promise<string>
+  saveChatAttachment(
+    payload: SaveChatAttachmentPayload,
+    onProgress?: (p: AttachmentUploadProgress) => void
+  ): Promise<string>
   checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerCompactChrome(compact: boolean): Promise<void>

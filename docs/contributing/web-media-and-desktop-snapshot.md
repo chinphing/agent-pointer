@@ -39,6 +39,21 @@ Web 端点击附件下载时，走浏览器原生导航（`<a href>` + session c
 上通用请求 12s 超时）。可选查询参数 `fileName` 用于保留原始显示名（含中文，
 `filename*`）。
 
+Web 端**上传**走 `POST /api/chat/save-attachment`（**multipart/form-data**，字段
+`conversationId` / `attachmentId` / `fileName` / `file`），与视频 OSS 上传一样用
+XHR 以便显示进度。通用 JSON API 仍为 12s 超时；附件上传超时 **120s**。
+
+交互约定：
+
+1. 选文件后立刻用 `URL.createObjectURL` 出芯片缩略图（不必等读盘/上传）。
+2. 添加时即开始上传（大图可先客户端压缩），芯片显示进度；发送时只带
+   `storageRelPath`，不再重复传文件/base64。
+3. 多文件并行添加与上传；未完成或失败时禁用发送。
+4. 上传 / 发送遇网络或短暂服务端错误时自动重试最多 **3** 次（间隔约 0.8s、1.6s）；
+   登录失效、余额不足、缺文件等不重试。芯片上会短暂显示「重试中 n/3…」。
+
+桌面端仍通过 Tauri invoke 落盘（本地 base64/路径），同样在添加时上传并显示状态。
+
 IM 出站超过直传上限时，服务端签发 `public-download` 链接，以 Markdown 形式写入通道文本（见 [channel-integration.md](../developer/channel-integration.md)）。
 
 ## 桌面截图（Web）

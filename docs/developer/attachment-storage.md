@@ -34,8 +34,24 @@ ID is a random 48-bit value; a collision advances to the next hexadecimal
 value until an unused filename is reserved. This works across concurrent
 desktop, web, and channel writes sharing the same sandbox filesystem.
 
+## Web upload
+
+`POST /api/chat/save-attachment` accepts **multipart/form-data**:
+
+| Field | Required | Notes |
+|-------|----------|--------|
+| `conversationId` | yes | Session id |
+| `attachmentId` | yes | Client attachment id (short id assigned on save) |
+| `fileName` | yes* | Optional if multipart filename is present |
+| `file` | yes | Raw file bytes |
+
+Body limit on this route: **32 MiB**. Prefer uploading when the user adds the
+file (Composer), then send chat with `storageRelPath` only. Composer and
+`sendChat` auto-retry transient failures up to 3 attempts.
+
 ## Compatibility
 
 Historical `conversation-media/` and `generated-media/` files remain
 readable. They are not moved automatically. New writes must use the sandbox
 attachment layout through `media::store::save_attachment_bytes`.
+

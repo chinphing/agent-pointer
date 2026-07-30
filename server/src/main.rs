@@ -38,7 +38,6 @@ mod web_session;
 
 use web_session::WebSessionStore;
 
-use base64::Engine;
 use channels::{
     approve_channel_pairing, channel_registration_status, channel_webhook, get_channel_webhook_url,
     get_channels_config, list_channel_pairing_pending, list_channels, start_channel_registration,
@@ -654,7 +653,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/chat/media-ref-preview", get(preview_media_ref))
         .route("/api/chat/media-ref-download", get(download_media_ref))
         .route("/api/media/public-download", get(public_media_download))
-        .route("/api/chat/save-attachment", post(save_chat_attachment))
+        .route(
+            "/api/chat/save-attachment",
+            post(save_chat_attachment).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
         .route(
             "/api/chat/upload-video-oss",
             post(upload_composer_video_oss),
@@ -1246,29 +1248,83 @@ async fn stream_chat_media(
     stream_media_file_response(&path, &mime_type, &file_name, true).await
 }
 
-#[derive(Deserialize)]
-struct SaveChatAttachmentPayload {
-    #[serde(rename = "conversationId")]
-    conversation_id: String,
-    #[serde(rename = "attachmentId")]
-    attachment_id: String,
-    #[serde(rename = "contentBase64")]
-    content_base64: String,
-    #[serde(rename = "fileName")]
-    file_name: String,
-}
-
 #[derive(serde::Serialize)]
 struct SaveChatAttachmentResponse {
     #[serde(rename = "storageRelPath")]
     storage_rel_path: String,
 }
 
+/// `POST /api/chat/save-attachment` — multipart fields:
+/// `conversationId`, `attachmentId`, `fileName` (optional if file has filename), `file`.
 async fn save_chat_attachment(
     State(state): State<ServerState>,
-    Json(payload): Json<SaveChatAttachmentPayload>,
+    mut multipart: Multipart,
 ) -> Result<Json<SaveChatAttachmentResponse>, ApiError> {
     require_platform_access(&state)?;
+    let mut conversation_id = String::new();
+    let mut attachment_id = String::new();
+    let mut file_name = String::new();
+    let mut file_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("multipart: {e}")))?
+    {
+        match field.name() {
+            Some("conversationId") => {
+                conversation_id = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("conversationId: {e}")))?
+                    .trim()
+                    .to_string();
+            }
+            Some("attachmentId") => {
+                attachment_id = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("attachmentId: {e}")))?
+                    .trim()
+                    .to_string();
+            }
+            Some("fileName") => {
+                file_name = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("fileName: {e}")))?
+                    .trim()
+                    .to_string();
+            }
+            Some("file") => {
+                if file_name.is_empty() {
+                    if let Some(name) = field.file_name().map(str::to_string) {
+                        file_name = name;
+                    }
+                }
+                file_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| ApiError(anyhow::anyhow!("file bytes: {e}")))?
+                        .to_vec(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    if conversation_id.is_empty() || attachment_id.is_empty() {
+        return Err(ApiError(anyhow::anyhow!(
+            "conversationId and attachmentId required"
+        )));
+    }
+    if file_name.is_empty() {
+        return Err(ApiError(anyhow::anyhow!(
+            "fileName required (field or multipart filename)"
+        )));
+    }
+    let bytes = file_bytes.ok_or_else(|| ApiError(anyhow::anyhow!("file field required")))?;
     let uid = state
         .core
         .active_platform_auth()
@@ -1278,16 +1334,20 @@ async fn save_chat_attachment(
     state
         .core
         .session_index
-        .ensure_session_user_id(&payload.conversation_id, &uid)
+        .ensure_session_user_id(&conversation_id, &uid)
         .map_err(ApiError::from)?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(payload.content_base64.trim())
-        .map_err(|e| ApiError(anyhow::anyhow!("decode attachment base64: {e}")))?;
+    log::info!(
+        "save-attachment multipart conv={} id={} name={} bytes={}",
+        conversation_id,
+        attachment_id,
+        file_name,
+        bytes.len()
+    );
     let storage_rel_path = pointer_core::media::save_attachment_bytes(
-        &payload.conversation_id,
-        &payload.attachment_id,
+        &conversation_id,
+        &attachment_id,
         &bytes,
-        &payload.file_name,
+        &file_name,
     )
     .map_err(ApiError::from)?;
     Ok(Json(SaveChatAttachmentResponse { storage_rel_path }))

@@ -38,6 +38,19 @@ import { WEB_API_BASE } from './runtime'
 
 /** Windows 上连接未监听端口时，fetch 可能长时间挂起；超时后尽快失败以便界面可用。 */
 const REQUEST_TIMEOUT_MS = 12_000
+/** 大附件 base64 JSON 上传 / 含附件的发消息体，避免误用短超时。 */
+const UPLOAD_TIMEOUT_MS = 120_000
+
+type WebRequestInit = RequestInit & {
+  /** Override default 12s abort; use for large body uploads. */
+  timeoutMs?: number
+  /** Shown on AbortError instead of the generic “server not running” hint. */
+  timeoutMessage?: string
+}
+
+function defaultTimeoutMessage(timeoutMs: number): string {
+  return `请求超时（>${timeoutMs / 1000}s）：${WEB_API_BASE} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）或设置 VITE_WEB_API_BASE。`
+}
 
 export interface SendChatPayload {
   conversationId: string
@@ -51,27 +64,33 @@ export interface SendChatPayload {
   workspaceInheritDisabled?: boolean
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers)
-  if (init?.body && !(init.body instanceof FormData) && !(init.body instanceof Blob) && !(init.body instanceof ArrayBuffer)) {
+async function request<T>(path: string, init?: WebRequestInit): Promise<T> {
+  const timeoutMs = init?.timeoutMs ?? REQUEST_TIMEOUT_MS
+  const timeoutMessage = init?.timeoutMessage ?? defaultTimeoutMessage(timeoutMs)
+  const { timeoutMs: _t, timeoutMessage: _m, ...fetchInit } = init ?? {}
+  const headers = new Headers(fetchInit.headers)
+  if (
+    fetchInit.body &&
+    !(fetchInit.body instanceof FormData) &&
+    !(fetchInit.body instanceof Blob) &&
+    !(fetchInit.body instanceof ArrayBuffer)
+  ) {
     headers.set('Content-Type', 'application/json')
   }
 
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
   try {
     res = await fetch(`${WEB_API_BASE}${path}`, {
-      ...init,
+      ...fetchInit,
       headers,
       credentials: 'include',
-      signal: init?.signal ?? controller.signal
+      signal: fetchInit.signal ?? controller.signal
     })
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error(
-        `请求超时（>${REQUEST_TIMEOUT_MS / 1000}s）：${WEB_API_BASE} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）或设置 VITE_WEB_API_BASE。`
-      )
+      throw new Error(timeoutMessage)
     }
     throw e
   } finally {
@@ -83,21 +102,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return await res.json()
 }
 
-async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+async function requestBlob(path: string, init?: WebRequestInit): Promise<Blob> {
+  const timeoutMs = init?.timeoutMs ?? REQUEST_TIMEOUT_MS
+  const timeoutMessage = init?.timeoutMessage ?? defaultTimeoutMessage(timeoutMs)
+  const { timeoutMs: _t, timeoutMessage: _m, ...fetchInit } = init ?? {}
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
   try {
     res = await fetch(`${WEB_API_BASE}${path}`, {
-      ...init,
+      ...fetchInit,
       credentials: 'include',
-      signal: init?.signal ?? controller.signal
+      signal: fetchInit.signal ?? controller.signal
     })
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error(
-        `请求超时（>${REQUEST_TIMEOUT_MS / 1000}s）：${WEB_API_BASE} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）或设置 VITE_WEB_API_BASE。`
-      )
+      throw new Error(timeoutMessage)
     }
     throw e
   } finally {
@@ -125,7 +145,13 @@ function triggerNativeDownload(url: string, fileName?: string) {
 }
 
 export async function sendChat(payload: SendChatPayload): Promise<void> {
-  await request('/api/chat', { method: 'POST', body: JSON.stringify(payload) })
+  await request('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    // History may still carry large attachment payloads on the wire.
+    timeoutMs: UPLOAD_TIMEOUT_MS,
+    timeoutMessage: `发送超时（>${UPLOAD_TIMEOUT_MS / 1000}s）。若含大附件请稍后重试或压缩图片；确认 pointer-server 正常后再试。`
+  })
 }
 
 export async function cancelChat(conversationId: string): Promise<void> {
@@ -370,12 +396,27 @@ export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPrevie
 }
 
 export async function saveChatAttachment(
-  payload: import('./api').SaveChatAttachmentPayload
+  payload: import('./api').SaveChatAttachmentPayload,
+  onProgress?: (p: import('./api').AttachmentUploadProgress) => void
 ): Promise<string> {
-  const res = await request<{ storageRelPath: string }>('/api/chat/save-attachment', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  })
+  if (!payload.file) {
+    throw new Error('web saveChatAttachment requires File (multipart)')
+  }
+  const form = new FormData()
+  form.append('conversationId', payload.conversationId)
+  form.append('attachmentId', payload.attachmentId)
+  form.append('fileName', payload.fileName || payload.file.name)
+  form.append('file', payload.file, payload.fileName || payload.file.name)
+
+  const { postMultipartJson } = await import('./multipartUpload')
+  const res = await postMultipartJson<{ storageRelPath: string }>(
+    '/api/chat/save-attachment',
+    form,
+    {
+      timeoutMs: UPLOAD_TIMEOUT_MS,
+      onProgress
+    }
+  )
   return res.storageRelPath
 }
 

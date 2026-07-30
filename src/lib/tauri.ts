@@ -257,13 +257,23 @@ export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPrevie
   return await invoke<ChatMediaPreview>('preview_media_ref', { mediaRef })
 }
 
-export async function saveChatAttachment(payload: import('./api').SaveChatAttachmentPayload): Promise<string> {
-  return await invoke<string>('save_chat_attachment', {
+export async function saveChatAttachment(
+  payload: import('./api').SaveChatAttachmentPayload,
+  onProgress?: (p: import('./api').AttachmentUploadProgress) => void
+): Promise<string> {
+  const b64 = payload.contentBase64?.trim()
+  if (!b64) {
+    throw new Error('desktop saveChatAttachment requires contentBase64')
+  }
+  onProgress?.({ loaded: 0, total: 1, percent: 0 })
+  const rel = await invoke<string>('save_chat_attachment', {
     conversationId: payload.conversationId,
     attachmentId: payload.attachmentId,
-    contentBase64: payload.contentBase64,
+    contentBase64: b64,
     fileName: payload.fileName
   })
+  onProgress?.({ loaded: 1, total: 1, percent: 100 })
+  return rel
 }
 
 export async function checkMediaDeps(): Promise<MediaDepsStatus> {

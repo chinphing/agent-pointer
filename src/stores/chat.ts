@@ -34,6 +34,7 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
 import { promoteOutboundQueueItem } from '../lib/outboundQueue'
 import { getTaskBoardSnapshot } from '../lib/api'
+import { withRetries } from '../lib/retry'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
@@ -628,18 +629,26 @@ export const useChatStore = defineStore('chat', () => {
     try {
       // Web: avoid POST before SSE has receivers (new chat first turn race).
       await waitForChatStreamReady()
-      await sendChat({
-        conversationId: conv.id,
-        messages: history,
-        // Skills resolve on the backend from user_settings.agentSkillOverrides.
-        enabledSkillIds: [],
-        agentMode: effectiveConversationAgentMode(conv),
-        leadAgentId: effectiveConversationLeadAgentId(conv),
-        toolRoundsUsed: 0,
-        toolRoundsUsedSupervisor: 0,
-        workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
-        ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
-      })
+      await withRetries(
+        async () =>
+          await sendChat({
+            conversationId: conv.id,
+            messages: history,
+            // Skills resolve on the backend from user_settings.agentSkillOverrides.
+            enabledSkillIds: [],
+            agentMode: effectiveConversationAgentMode(conv),
+            leadAgentId: effectiveConversationLeadAgentId(conv),
+            toolRoundsUsed: 0,
+            toolRoundsUsedSupervisor: 0,
+            workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
+            ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
+          }),
+        {
+          onRetry: (err, nextAttempt, delayMs) => {
+            console.warn('[chat] sendChat retry', { nextAttempt, delayMs, err })
+          }
+        }
+      )
       // begin() appends these ids before the stream runs; keep the watermark in sync.
       addPersistedMessageIds(conv.id, history.map(m => m.id))
     } catch (err) {
@@ -2313,24 +2322,48 @@ export const useChatStore = defineStore('chat', () => {
     for (const a of attachments) {
       const isOssVideo = a.kind === 'video' && !!a.remoteUrl?.trim()
       const contentBase64 = isOssVideo ? undefined : getComposerAttachmentContentBase64(a) ?? undefined
-      const previewUrl = getComposerAttachmentDataUrl(a) ?? undefined
-      let storageRelPath = a.storageRelPath
-      if (contentBase64 && !storageRelPath) {
+      const previewRaw = getComposerAttachmentDataUrl(a) ?? a.previewUrl
+      const previewUrl =
+        previewRaw &&
+        (previewRaw.startsWith('data:') ||
+          previewRaw.startsWith('http://') ||
+          previewRaw.startsWith('https://'))
+          ? previewRaw
+          : undefined
+      let storageRelPath = a.storageRelPath?.trim() || undefined
+      // Composer should already persist on add; keep a last-chance save for older drafts.
+      if (!isOssVideo && !storageRelPath) {
         try {
-          storageRelPath = await saveChatAttachment({
-            conversationId: conv.id,
-            attachmentId: a.id,
-            contentBase64,
-            fileName: a.fileName
-          })
+          if (contentBase64) {
+            storageRelPath = await withRetries(async () =>
+              await saveChatAttachment({
+                conversationId: conv.id,
+                attachmentId: a.id,
+                contentBase64,
+                fileName: a.fileName
+              })
+            )
+          } else {
+            throw new Error(`附件「${a.fileName}」尚未上传完成`)
+          }
         } catch (e) {
           console.warn('[chat] saveChatAttachment failed', e)
+          const errText = e instanceof Error ? e.message : String(e)
+          conv.messages.push({
+            id: uid(),
+            role: 'assistant',
+            content: '',
+            status: 'error',
+            createdAt: Date.now(),
+            errorMessage: errText
+          })
+          return
         }
       }
       const { previewUrl: _p, contentBase64: _c, uploadState: _u, uploadProgress: _up, uploadError: _ue, localSourcePath: _lp, ...rest } = a
       wireAttachments.push({
         ...rest,
-        ...(contentBase64 ? { contentBase64 } : {}),
+        ...(!storageRelPath && contentBase64 ? { contentBase64 } : {}),
         ...(previewUrl ? { previewUrl } : {}),
         ...(storageRelPath ? { storageRelPath } : {}),
         ...(a.remoteUrl ? { remoteUrl: a.remoteUrl } : {}),

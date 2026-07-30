@@ -42,15 +42,19 @@ function previewUrl(att: ComposerAttachment): string | null {
 }
 
 function uploadLabel(att: ComposerAttachment): string | null {
-  if (att.kind !== 'video') return null
   if (att.uploadState === 'compressing') return '压缩中…'
   if (att.uploadState === 'uploading' || att.uploadState === 'pending') {
+    if (att.uploadError?.startsWith('重试')) return att.uploadError
     const pct = att.uploadProgress ?? 0
     return `上传中 ${pct}%`
   }
   if (att.uploadState === 'error') return att.uploadError || '上传失败'
-  if (att.uploadState === 'done' || att.remoteUrl) return '已上传'
-  return '等待上传'
+  if (att.uploadState === 'done') {
+    if (att.kind === 'video' && att.remoteUrl) return '已上传'
+    if (att.storageRelPath) return '已上传'
+  }
+  if (att.kind === 'video' && att.remoteUrl) return '已上传'
+  return null
 }
 </script>
 
@@ -101,7 +105,7 @@ function uploadLabel(att: ComposerAttachment): string | null {
       </button>
     </div>
     <div
-      v-if="attachment.kind === 'video' && uploadLabel(attachment)"
+      v-if="uploadLabel(attachment)"
       class="w-full"
     >
       <div

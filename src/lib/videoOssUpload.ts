@@ -105,33 +105,15 @@ async function uploadViaWebApi(
   form.append('compress', compress ? 'true' : 'false')
   form.append('file', file)
 
-  return await new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', '/api/chat/upload-video-oss')
-    xhr.upload.onprogress = ev => {
-      if (!ev.lengthComputable) return
-      const percent = Math.min(100, Math.round((ev.loaded / ev.total) * 100))
+  const { postMultipartJson } = await import('./multipartUpload')
+  return await postMultipartJson<VideoOssUploadResult>('/api/chat/upload-video-oss', form, {
+    onProgress: p =>
       onProgress({
         attachmentId,
-        loaded: ev.loaded,
-        total: ev.total,
-        percent
+        loaded: p.loaded,
+        total: p.total,
+        percent: p.percent
       })
-    }
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error(xhr.responseText || `上传失败 (${xhr.status})`))
-        return
-      }
-      try {
-        const parsed = JSON.parse(xhr.responseText) as VideoOssUploadResult
-        resolve(parsed)
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error('解析上传响应失败'))
-      }
-    }
-    xhr.onerror = () => reject(new Error('网络错误，视频上传失败'))
-    xhr.send(form)
   })
 }
 

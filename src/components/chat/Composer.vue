@@ -15,6 +15,7 @@ import {
   getMacosComputerPermissions,
   listComputerMonitors,
   readLocalFileForAttachment,
+  saveChatAttachment,
   setComputerConversationMonitor,
   confirmComputerMonitorPick,
   cancelComputerMonitorPick,
@@ -40,9 +41,12 @@ import {
 } from '../../lib/attachmentSupport'
 import {
   cloneComposerAttachmentsForSend,
+  registerComposerAttachmentFile,
   registerComposerAttachmentPayload,
   releaseComposerAttachment
 } from '../../lib/attachmentPayloadStore'
+import { maybeCompressImageFile } from '../../lib/imageCompress'
+import { withRetries } from '../../lib/retry'
 import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
 import OutboundQueuePanel from './OutboundQueuePanel.vue'
 import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
@@ -191,22 +195,25 @@ const workspaceNeedsAttention = computed(() => {
 
 const canSend = computed(() => {
   const attachments = composerAttachments.value
-  const videoBlocked = attachments.some(
-    a =>
-      a.kind === 'video' &&
-      (a.uploadState === 'compressing' ||
-        a.uploadState === 'uploading' ||
-        a.uploadState === 'pending' ||
-        a.uploadState === 'error' ||
-        !a.remoteUrl?.trim())
-  )
+  const uploadBlocked = attachments.some(a => {
+    if (
+      a.uploadState === 'compressing' ||
+      a.uploadState === 'uploading' ||
+      a.uploadState === 'pending' ||
+      a.uploadState === 'error'
+    ) {
+      return true
+    }
+    if (a.kind === 'video') return !a.remoteUrl?.trim()
+    return !a.storageRelPath?.trim()
+  })
   return (
     ((composerText.value.length > 0 && composerText.value.trim().length > 0) ||
       attachments.length > 0) &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
     settings.settings.hasKey &&
-    !videoBlocked
+    !uploadBlocked
   )
 })
 
@@ -406,27 +413,245 @@ async function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-function pushComposerAttachment(
-  file: File,
-  dataUrl: string,
-  contentBase64: string,
-  meta: Pick<ComposerAttachment, 'kind' | 'mimeType' | 'fileName' | 'sizeBytes'>
-) {
-  const attachment: ComposerAttachment = {
-    id: uid(),
-    kind: meta.kind,
-    mimeType: meta.mimeType,
-    fileName: meta.fileName,
-    sizeBytes: meta.sizeBytes
-  }
-  composerAttachments.value.push(
-    registerComposerAttachmentPayload({ attachment, dataUrl, contentBase64, file })
-  )
-}
-
 function updateComposerAttachment(id: string, patch: Partial<ComposerAttachment>) {
   composerAttachments.value = composerAttachments.value.map(a =>
     a.id === id ? { ...a, ...patch } : a
+  )
+}
+
+function ensureComposerConversationId(): string {
+  if (!chat.current) chat.newConversation()
+  const id = chat.current?.id?.trim()
+  if (!id) throw new Error('无法创建会话，附件上传中止')
+  return id
+}
+
+/** Persist non-video attachment (multipart on web; invoke+base64 on desktop). */
+async function persistComposerAttachment(
+  attachmentId: string,
+  source: { file?: File; contentBase64?: string }
+) {
+  const row = composerAttachments.value.find(a => a.id === attachmentId)
+  if (!row || row.kind === 'video') return
+  updateComposerAttachment(attachmentId, {
+    uploadState: 'pending',
+    uploadProgress: 0,
+    uploadError: undefined
+  })
+  try {
+    const conversationId = ensureComposerConversationId()
+    let uploadFile = source.file
+    let contentBase64 = source.contentBase64
+    if (row.kind === 'image' && uploadFile && !isTauriRuntime()) {
+      updateComposerAttachment(attachmentId, { uploadState: 'compressing', uploadProgress: 0 })
+      uploadFile = await maybeCompressImageFile(uploadFile)
+      if (uploadFile.type === 'image/jpeg' && uploadFile.name.endsWith('.jpg')) {
+        updateComposerAttachment(attachmentId, {
+          mimeType: uploadFile.type,
+          fileName: uploadFile.name,
+          sizeBytes: uploadFile.size
+        })
+      }
+    }
+    updateComposerAttachment(attachmentId, { uploadState: 'uploading', uploadProgress: 0 })
+    if (!isTauriRuntime()) {
+      if (!uploadFile) throw new Error('缺少上传文件')
+      const fileForUpload = uploadFile
+      const storageRelPath = await withRetries(
+        async () =>
+          await saveChatAttachment(
+            {
+              conversationId,
+              attachmentId,
+              fileName: fileForUpload.name || row.fileName,
+              file: fileForUpload
+            },
+            p => {
+              updateComposerAttachment(attachmentId, {
+                uploadProgress: p.percent,
+                uploadState: 'uploading',
+                uploadError: undefined
+              })
+            }
+          ),
+        {
+          onRetry: (_err, nextAttempt, _delayMs) => {
+            updateComposerAttachment(attachmentId, {
+              uploadState: 'uploading',
+              uploadProgress: 0,
+              uploadError: `重试中 ${nextAttempt}/3…`
+            })
+          }
+        }
+      )
+      updateComposerAttachment(attachmentId, {
+        storageRelPath,
+        uploadState: 'done',
+        uploadProgress: 100,
+        uploadError: undefined
+      })
+      return
+    }
+    if (!contentBase64?.trim()) {
+      if (!uploadFile) throw new Error('缺少附件内容')
+      const dataUrl = await readFileAsDataUrl(uploadFile)
+      contentBase64 = dataUrlToBase64(dataUrl)
+    }
+    const b64 = contentBase64
+    const storageRelPath = await withRetries(
+      async () =>
+        await saveChatAttachment(
+          {
+            conversationId,
+            attachmentId,
+            fileName: row.fileName,
+            contentBase64: b64
+          },
+          p => {
+            updateComposerAttachment(attachmentId, {
+              uploadProgress: p.percent,
+              uploadState: 'uploading',
+              uploadError: undefined
+            })
+          }
+        ),
+      {
+        onRetry: (_err, nextAttempt) => {
+          updateComposerAttachment(attachmentId, {
+            uploadState: 'uploading',
+            uploadProgress: 0,
+            uploadError: `重试中 ${nextAttempt}/3…`
+          })
+        }
+      }
+    )
+    updateComposerAttachment(attachmentId, {
+      storageRelPath,
+      uploadState: 'done',
+      uploadProgress: 100,
+      uploadError: undefined
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[composer] attachment persist failed', err)
+    updateComposerAttachment(attachmentId, {
+      uploadState: 'error',
+      uploadError: message || '上传失败'
+    })
+    attachmentHint.value = message || '附件上传失败'
+  }
+}
+
+async function addNonVideoFileOptimistic(file: File) {
+  const kind = mediaKindFromFile(file)
+  const attachment: ComposerAttachment = {
+    id: uid(),
+    kind,
+    mimeType: file.type || 'application/octet-stream',
+    fileName: file.name,
+    sizeBytes: file.size,
+    uploadState: 'pending',
+    uploadProgress: 0
+  }
+  composerAttachments.value.push(registerComposerAttachmentFile({ attachment, file }))
+  void persistComposerAttachment(attachment.id, { file })
+}
+
+async function addAttachmentFile(file: File) {
+  attachmentHint.value = null
+  if (!isSupportedChatAttachmentFile(file)) {
+    attachmentHint.value = `无法添加附件：${file.name}`
+    console.warn('unsupported attachment', file.name, file.type)
+    return
+  }
+  if (isVideoAttachmentFile(file)) {
+    if (isTauriRuntime()) {
+      attachmentHint.value = '请使用附件按钮（回形针）选择视频文件'
+      return
+    }
+    await addVideoAttachment(file)
+    return
+  }
+  // Instant chip via object URL; persist in background (multipart on web).
+  await addNonVideoFileOptimistic(file)
+}
+
+async function addAttachmentFromLocalPath(path: string) {
+  attachmentHint.value = null
+  const name = path.split(/[/\\]/).pop() || 'attachment'
+  const fileLike = { name, type: '', size: 0 }
+  if (!isSupportedChatAttachmentFile(fileLike)) {
+    attachmentHint.value = `无法添加附件：${name}`
+    return
+  }
+  if (isVideoAttachmentFile(fileLike)) {
+    const placeholder = new File([], name)
+    await addVideoAttachment(placeholder, path)
+    return
+  }
+  const attachmentId = uid()
+  const pending: ComposerAttachment = {
+    id: attachmentId,
+    kind: mediaKindFromFile(fileLike),
+    mimeType: 'application/octet-stream',
+    fileName: name,
+    sizeBytes: 0,
+    uploadState: 'pending',
+    uploadProgress: 0,
+    localSourcePath: path
+  }
+  composerAttachments.value.push(pending)
+  try {
+    const payload = await readLocalFileForAttachment(path)
+    const loaded = {
+      name: payload.fileName,
+      type: payload.mimeType,
+      size: payload.sizeBytes
+    }
+    const kind = mediaKindFromFile(loaded)
+    const mime = payload.mimeType || 'application/octet-stream'
+    const dataUrl = `data:${mime};base64,${payload.contentBase64}`
+    registerComposerAttachmentPayload({
+      attachment: {
+        id: attachmentId,
+        kind,
+        mimeType: mime,
+        fileName: payload.fileName || name,
+        sizeBytes: payload.sizeBytes
+      },
+      dataUrl,
+      contentBase64: payload.contentBase64
+    })
+    updateComposerAttachment(attachmentId, {
+      kind,
+      mimeType: mime,
+      fileName: payload.fileName || name,
+      sizeBytes: payload.sizeBytes,
+      previewUrl: dataUrl
+    })
+    await persistComposerAttachment(attachmentId, { contentBase64: payload.contentBase64 })
+  } catch (err) {
+    console.error('attachment from path failed', path, err)
+    updateComposerAttachment(attachmentId, {
+      uploadState: 'error',
+      uploadError: err instanceof Error ? err.message : String(err)
+    })
+    attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
+  }
+}
+
+async function onAttachmentFiles(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files ? Array.from(input.files) : []
+  input.value = ''
+  await Promise.all(
+    files.map(async file => {
+      try {
+        await addAttachmentFile(file)
+      } catch (err) {
+        console.error('attachment add failed', err)
+      }
+    })
   )
 }
 
@@ -457,17 +682,30 @@ async function startVideoOssUpload(
     uploadError: undefined
   })
   try {
-    const result = await uploadComposerVideoToOss(
-      attachment.id,
-      file,
-      localPath,
-      progress => {
-        updateComposerAttachment(attachment.id, {
-          uploadProgress: progress.percent,
-          uploadState: 'uploading'
-        })
-      },
-      { compress, conversationId: chat.current?.id }
+    const result = await withRetries(
+      async () =>
+        await uploadComposerVideoToOss(
+          attachment.id,
+          file,
+          localPath,
+          progress => {
+            updateComposerAttachment(attachment.id, {
+              uploadProgress: progress.percent,
+              uploadState: 'uploading',
+              uploadError: undefined
+            })
+          },
+          { compress, conversationId: chat.current?.id }
+        ),
+      {
+        onRetry: (_err, nextAttempt) => {
+          updateComposerAttachment(attachment.id, {
+            uploadState: 'uploading',
+            uploadProgress: 0,
+            uploadError: `重试中 ${nextAttempt}/3…`
+          })
+        }
+      }
     )
     const previewUrl = await resolveComposerVideoPreviewUrl(
       result.storageRelPath,
@@ -564,80 +802,6 @@ async function addVideoAttachment(file: File, localPath?: string) {
   )
 }
 
-async function addAttachmentFile(file: File) {
-  attachmentHint.value = null
-  if (!isSupportedChatAttachmentFile(file)) {
-    attachmentHint.value = `无法添加附件：${file.name}`
-    console.warn('unsupported attachment', file.name, file.type)
-    return
-  }
-  if (isVideoAttachmentFile(file)) {
-    if (isTauriRuntime()) {
-      attachmentHint.value = '请使用附件按钮（回形针）选择视频文件'
-      return
-    }
-    await addVideoAttachment(file)
-    return
-  }
-  const dataUrl = await readFileAsDataUrl(file)
-  const contentBase64 = dataUrlToBase64(dataUrl)
-  pushComposerAttachment(file, dataUrl, contentBase64, {
-    kind: mediaKindFromFile(file),
-    mimeType: file.type || 'application/octet-stream',
-    fileName: file.name,
-    sizeBytes: file.size
-  })
-}
-
-async function addAttachmentFromLocalPath(path: string) {
-  attachmentHint.value = null
-  const name = path.split(/[/\\]/).pop() || 'attachment'
-  const fileLike = { name, type: '', size: 0 }
-  if (!isSupportedChatAttachmentFile(fileLike)) {
-    attachmentHint.value = `无法添加附件：${name}`
-    return
-  }
-  if (isVideoAttachmentFile(fileLike)) {
-    const placeholder = new File([], name)
-    await addVideoAttachment(placeholder, path)
-    return
-  }
-  const payload = await readLocalFileForAttachment(path)
-  const loaded = {
-    name: payload.fileName,
-    type: payload.mimeType,
-    size: payload.sizeBytes
-  }
-  if (!isSupportedChatAttachmentFile(loaded)) {
-    attachmentHint.value = `无法添加附件：${payload.fileName}`
-    return
-  }
-  const mime = payload.mimeType || 'application/octet-stream'
-  const bytes = Uint8Array.from(atob(payload.contentBase64), c => c.charCodeAt(0))
-  const blob = new Blob([bytes], { type: mime })
-  const file = new File([blob], payload.fileName, { type: mime })
-  const dataUrl = `data:${mime};base64,${payload.contentBase64}`
-  pushComposerAttachment(file, dataUrl, payload.contentBase64, {
-    kind: mediaKindFromFile(loaded),
-    mimeType: mime,
-    fileName: payload.fileName,
-    sizeBytes: payload.sizeBytes
-  })
-}
-
-async function onAttachmentFiles(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = input.files ? Array.from(input.files) : []
-  input.value = ''
-  for (const file of files) {
-    try {
-      await addAttachmentFile(file)
-    } catch (err) {
-      console.error('attachment add failed', err)
-    }
-  }
-}
-
 function canAcceptComposerAttachments(): boolean {
   return !needsPlatformLogin.value && !tokenQuotaBlocked.value && settings.settings.hasKey
 }
@@ -691,14 +855,16 @@ async function ingestDroppedPaths(paths: string[]) {
     return
   }
   attachmentHint.value = null
-  for (const path of paths) {
-    try {
-      await addAttachmentFromLocalPath(path)
-    } catch (err) {
-      console.error('drop attachment from path failed', path, err)
-      attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
-    }
-  }
+  await Promise.all(
+    paths.map(async path => {
+      try {
+        await addAttachmentFromLocalPath(path)
+      } catch (err) {
+        console.error('drop attachment from path failed', path, err)
+        attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
+      }
+    })
+  )
   nextTick(() => textareaRef.value?.focus())
 }
 
@@ -709,13 +875,15 @@ async function ingestDroppedFiles(files: File[]) {
     return
   }
   attachmentHint.value = null
-  for (const file of files) {
-    try {
-      await addDroppedAttachmentFile(file)
-    } catch (err) {
-      console.error('drop attachment failed', err)
-    }
-  }
+  await Promise.all(
+    files.map(async file => {
+      try {
+        await addDroppedAttachmentFile(file)
+      } catch (err) {
+        console.error('drop attachment failed', err)
+      }
+    })
+  )
   nextTick(() => textareaRef.value?.focus())
 }
 
@@ -848,17 +1016,24 @@ async function openAttachmentPicker() {
 async function onPasteAttachments(e: ClipboardEvent) {
   const items = e.clipboardData?.items
   if (!items?.length) return
+  const files: File[] = []
   for (const item of items) {
     if (item.kind !== 'file' || !item.type.startsWith('image/')) continue
     const file = item.getAsFile()
     if (!file) continue
-    e.preventDefault()
-    try {
-      await addAttachmentFile(file)
-    } catch (err) {
-      console.error('paste attachment failed', err)
-    }
+    files.push(file)
   }
+  if (!files.length) return
+  e.preventDefault()
+  await Promise.all(
+    files.map(async file => {
+      try {
+        await addAttachmentFile(file)
+      } catch (err) {
+        console.error('paste attachment failed', err)
+      }
+    })
+  )
 }
 
 function dispatchSend(textValue: string) {

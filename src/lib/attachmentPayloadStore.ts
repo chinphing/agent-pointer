@@ -4,6 +4,7 @@ type AttachmentPayload = {
   dataUrl?: string
   previewUrl?: string
   contentBase64?: string
+  file?: File
 }
 
 const payloads = new Map<string, AttachmentPayload>()
@@ -22,10 +23,32 @@ function revokeObjectUrl(url: string | undefined): void {
   URL.revokeObjectURL(url)
 }
 
+/** Register bytes payload (desktop path load / legacy). */
 export function registerComposerAttachmentPayload(params: {
   attachment: ComposerAttachment
   dataUrl: string
   contentBase64: string
+  file?: File
+}): ComposerAttachment {
+  const previous = payloads.get(params.attachment.id)
+  revokeObjectUrl(previous?.previewUrl)
+  const objectUrl = params.file ? createObjectUrl(params.file) : undefined
+  const previewUrl = objectUrl ?? params.attachment.previewUrl
+  payloads.set(params.attachment.id, {
+    dataUrl: params.dataUrl,
+    contentBase64: params.contentBase64,
+    ...(params.file ? { file: params.file } : {}),
+    ...(previewUrl ? { previewUrl } : {})
+  })
+  return {
+    ...params.attachment,
+    ...(previewUrl ? { previewUrl } : {})
+  }
+}
+
+/** Optimistic chip: preview immediately from File; upload later. */
+export function registerComposerAttachmentFile(params: {
+  attachment: ComposerAttachment
   file: File
 }): ComposerAttachment {
   const previous = payloads.get(params.attachment.id)
@@ -33,14 +56,19 @@ export function registerComposerAttachmentPayload(params: {
   const objectUrl = createObjectUrl(params.file)
   const previewUrl = objectUrl ?? params.attachment.previewUrl
   payloads.set(params.attachment.id, {
-    dataUrl: params.dataUrl,
-    contentBase64: params.contentBase64,
-    ...(previewUrl ? { previewUrl } : {})
+    file: params.file,
+    ...(previewUrl ? { previewUrl } : {}),
+    ...(previous?.dataUrl ? { dataUrl: previous.dataUrl } : {}),
+    ...(previous?.contentBase64 ? { contentBase64: previous.contentBase64 } : {})
   })
   return {
     ...params.attachment,
     ...(previewUrl ? { previewUrl } : {})
   }
+}
+
+export function getComposerAttachmentFile(attachment: ComposerAttachment): File | null {
+  return payloads.get(attachment.id)?.file ?? null
 }
 
 export function getComposerAttachmentContentBase64(attachment: ComposerAttachment): string | null {

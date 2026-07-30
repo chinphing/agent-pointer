@@ -263,6 +263,7 @@ export interface ComposerAttachment extends MediaAttachment {
   previewUrl?: string
   /** Absolute source path while OSS upload runs (desktop file picker). */
   localSourcePath?: string
+  /** Persist/upload progress (images/files and video OSS). */
   uploadState?: VideoUploadState
   uploadProgress?: number
   uploadError?: string

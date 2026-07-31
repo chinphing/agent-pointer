@@ -3102,8 +3102,8 @@ async fn chat_stream(
     require_platform_access(&state)?;
     let mut rx = state.events.subscribe();
     let stream = async_stream::stream! {
-        // 1KB 注释帧：触发中间代理/防火墙 flush 响应头（实验值，后续按需调整）
-        yield Ok(Event::default().comment("x".repeat(1024)));
+        // 100KB 注释帧：触发中间代理/防火墙 flush 响应头（实验值，后续按需调整）
+        yield Ok(Event::default().comment("x".repeat(102_400)));
         loop {
             match rx.recv().await {
                 Ok(ev) => {

@@ -6,6 +6,7 @@ import type {
   WeixinQrLoginSession
 } from '../types/channels'
 import { isTauriRuntime, WEB_API_BASE } from './runtime'
+import { summarizeErrorResponse } from './httpError'
 
 const TIMEOUT_MS = 12_000
 
@@ -24,8 +25,7 @@ async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
       signal: init?.signal ?? controller.signal
     })
     if (!res.ok) {
-      const text = await res.text()
-      throw new Error(text || `请求失败 (${res.status})`)
+      throw new Error(await summarizeErrorResponse(res))
     }
     if (res.status === 204 || res.status === 202) return undefined as T
     return await res.json()

@@ -539,7 +539,6 @@ async function persistComposerAttachment(
       uploadState: 'error',
       uploadError: message || '上传失败'
     })
-    attachmentHint.value = message || '附件上传失败'
   }
 }
 
@@ -637,7 +636,6 @@ async function addAttachmentFromLocalPath(path: string) {
       uploadState: 'error',
       uploadError: err instanceof Error ? err.message : String(err)
     })
-    attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
   }
 }
 
@@ -728,7 +726,6 @@ async function startVideoOssUpload(
       uploadState: 'error',
       uploadError: message
     })
-    attachmentHint.value = message
   }
 }
 

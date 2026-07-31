@@ -35,6 +35,7 @@ import type {
 } from '../types/automation'
 
 import { WEB_API_BASE } from './runtime'
+import { summarizeErrorResponse } from './httpError'
 
 /** Windows 上连接未监听端口时，fetch 可能长时间挂起；超时后尽快失败以便界面可用。 */
 const REQUEST_TIMEOUT_MS = 12_000
@@ -97,7 +98,7 @@ async function request<T>(path: string, init?: WebRequestInit): Promise<T> {
     window.clearTimeout(timeoutId)
   }
 
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw new Error(await summarizeErrorResponse(res))
   if (res.status === 204 || res.status === 202) return undefined as T
   return await res.json()
 }
@@ -124,7 +125,7 @@ async function requestBlob(path: string, init?: WebRequestInit): Promise<Blob> {
     window.clearTimeout(timeoutId)
   }
 
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) throw new Error(await summarizeErrorResponse(res))
   return await res.blob()
 }
 

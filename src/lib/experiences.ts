@@ -7,6 +7,7 @@ import { truncateExperienceCardExcerpt } from './experienceCardLimits'
 import { isTauriRuntime } from './runtime'
 import { invoke } from '@tauri-apps/api/core'
 import { WEB_API_BASE } from './runtime'
+import { summarizeErrorResponse } from './httpError'
 
 export { EXPERIENCE_CARD_NARRATIVE_MAX, EXPERIENCE_CARD_TITLE_MAX } from './experienceCardLimits'
 export { truncateExperienceCardExcerpt, truncateExperienceCardTitle } from './experienceCardLimits'
@@ -30,7 +31,7 @@ async function webRequest<T>(path: string): Promise<T> {
       credentials: 'include',
       signal: controller.signal
     })
-    if (!res.ok) throw new Error(await res.text())
+    if (!res.ok) throw new Error(await summarizeErrorResponse(res))
     return await res.json()
   } finally {
     window.clearTimeout(timeoutId)

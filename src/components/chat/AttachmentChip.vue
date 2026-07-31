@@ -120,6 +120,7 @@ function uploadLabel(att: ComposerAttachment): string | null {
       <p
         class="truncate text-[10px]"
         :class="attachment.uploadState === 'error' ? 'text-red-500' : 'text-muted'"
+        :title="uploadLabel(attachment)"
       >
         {{ uploadLabel(attachment) }}
       </p>

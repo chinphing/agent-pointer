@@ -2007,7 +2007,7 @@ async fn get_run(
 async fn run_events(
     State(state): State<ServerState>,
     Path(run_id): Path<String>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
     let dispatcher = state.dispatcher.clone();
     let run_id_for_stream = run_id.clone();
@@ -2049,7 +2049,9 @@ async fn run_events(
         }
     };
 
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    Ok(sse_with_proxy_hints(
+        Sse::new(stream).keep_alive(KeepAlive::default()),
+    ))
 }
 
 /// Build a synthetic terminal `AgentEvent` from a persisted terminal
@@ -3096,7 +3098,7 @@ async fn dismiss_terminal_input(
 async fn chat_stream(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
     let mut rx = state.events.subscribe();
     let stream = async_stream::stream! {
@@ -3159,11 +3161,29 @@ async fn chat_stream(
             }
         }
     };
-    Ok(Sse::new(stream).keep_alive(
+    Ok(sse_with_proxy_hints(Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
-    ))
+    )))
+}
+
+/// Attach reverse-proxy hints that nginx/OpenResty honor for long-lived SSE.
+///
+/// `X-Accel-Buffering: no` disables nginx response buffering for this response
+/// even when the location did not set `proxy_buffering off` (see nginx
+/// `X-Accel-Buffering`). Timeouts (`proxy_read_timeout`) still must be
+/// configured on the proxy — the origin cannot override them.
+fn sse_with_proxy_hints<S>(sse: Sse<S>) -> Response
+where
+    S: Stream<Item = Result<Event, Infallible>> + Send + 'static,
+{
+    let mut res = sse.into_response();
+    res.headers_mut().insert(
+        header::HeaderName::from_static("x-accel-buffering"),
+        HeaderValue::from_static("no"),
+    );
+    res
 }
 
 #[derive(Deserialize)]

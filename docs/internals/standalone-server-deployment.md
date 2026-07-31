@@ -458,13 +458,16 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        # SSE / 流式对话
+        # SSE / 流式对话（聊天事件流路径为 /api/chat/*/stream，不是 /sse）
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
 }
 ```
+
+`pointer-server` 的 SSE 响应会带 `X-Accel-Buffering: no`，在未写 `proxy_buffering off` 的 location 上也可让 Nginx 对本响应关闭缓冲；**`proxy_read_timeout` 仍须在反代侧配置**（应用无法改写网关超时）。直连 `pointer-server`（无反代）无需这些项。
 
 `pointer-server.toml` 中 `public_url` 必须与浏览器地址一致：
 

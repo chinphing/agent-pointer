@@ -126,6 +126,14 @@ struct ServerSection {
     /// (`POINTER_SERVER_REQUIRE_ALLOWED_USERS`).
     #[serde(default)]
     require_allowed_users: bool,
+    /// SSE initial padding comment (flush proxy buffers before first event).
+    /// Maps to `POINTER_SERVER_SSE_PADDING_ENABLED`. Default true (enabled).
+    #[serde(default)]
+    sse_padding_enabled: Option<bool>,
+    /// SSE padding comment size in bytes. Maps to `POINTER_SERVER_SSE_PADDING_BYTES`.
+    /// Default 10_240 (10 KB). Ignored when padding is disabled or zero.
+    #[serde(default)]
+    sse_padding_bytes: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -458,6 +466,18 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
             "true".to_string(),
         ));
     }
+    if let Some(enabled) = parsed.server.sse_padding_enabled {
+        pairs.push((
+            "POINTER_SERVER_SSE_PADDING_ENABLED".to_string(),
+            if enabled { "true" } else { "false" }.to_string(),
+        ));
+    }
+    if let Some(bytes) = parsed.server.sse_padding_bytes {
+        pairs.push((
+            "POINTER_SERVER_SSE_PADDING_BYTES".to_string(),
+            bytes.to_string(),
+        ));
+    }
     push_mapped(
         &mut pairs,
         "POINTER_API_BASE",
@@ -705,6 +725,23 @@ fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
     }
     sync_active_model_to_provider_list(platform);
     sync_mode_llm_maps_to_active(platform);
+}
+
+/// Whether SSE initial padding is enabled (flush proxy buffers).
+/// Reads `POINTER_SERVER_SSE_PADDING_ENABLED`; defaults to `true`.
+pub fn sse_padding_enabled() -> bool {
+    std::env::var("POINTER_SERVER_SSE_PADDING_ENABLED")
+        .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
+        .unwrap_or(true)
+}
+
+/// SSE initial padding size in bytes.
+/// Reads `POINTER_SERVER_SSE_PADDING_BYTES`; defaults to `10_240`.
+pub fn sse_padding_bytes() -> usize {
+    std::env::var("POINTER_SERVER_SSE_PADDING_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10_240)
 }
 
 fn push_mapped(

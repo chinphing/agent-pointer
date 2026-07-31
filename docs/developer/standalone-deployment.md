@@ -347,6 +347,9 @@ addr = "0.0.0.0:8787"
 public_url = "https://pointer.example.com"
 # page_title = "Acme · AI 助手"   # browser tab; env POINTER_SERVER_PAGE_TITLE
 # composer_placeholder = "有什么可以帮你？"  # composer hint; env POINTER_SERVER_COMPOSER_PLACEHOLDER
+# SSE 首帧 padding 注释帧（穿透缓冲型防火墙；默认启用 10KB）
+# sse_padding_enabled = true   # env POINTER_SERVER_SSE_PADDING_ENABLED
+# sse_padding_bytes = 10240    # env POINTER_SERVER_SSE_PADDING_BYTES
 app_data_dir = "/var/lib/pointer"
 # zip: skills beside binary; deb:
 # static_dir = "/usr/share/pointer-server/dist"

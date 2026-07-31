@@ -75,8 +75,8 @@ public_url = "https://pointer.example.com"
 # page_title = "Acme · AI 助手"
 # Composer placeholder (optional; default 告诉我你想做什么)
 # composer_placeholder = "有什么可以帮你？"
-# SSE 首帧 padding 注释帧（穿透缓冲型防火墙/反向代理；默认启用 10KB）
-# sse_padding_enabled = true
+# SSE 首帧 padding 注释帧（穿透缓冲型防火墙/反向代理；默认关闭，需要时显式开启 sse_padding_enabled = true）
+# sse_padding_enabled = false
 # sse_padding_bytes = 10240
 app_data_dir = "/var/lib/pointer"
 ```

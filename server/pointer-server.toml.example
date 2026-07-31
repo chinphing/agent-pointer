@@ -75,9 +75,9 @@ skills_dir = "skills"
 #
 # SSE 首帧 padding（chat_stream 连接建立后立即发送的注释帧）：
 # 用于穿透缓冲型防火墙/反向代理，避免 SSE 流长期 (pending) 不落地。
-# 默认启用 10KB（10240 字节）；正常网络环境可设为 false 关闭以省带宽，
+# 默认关闭；需要时显式开启 sse_padding_enabled = true（10KB / 10240 字节），
 # 或调大/调小 bytes 匹配防火墙缓冲阈值（实验值，按需调整）。
-# sse_padding_enabled = true
+# sse_padding_enabled = false
 # sse_padding_bytes = 10240
 # Env override: POINTER_SERVER_SSE_PADDING_ENABLED / POINTER_SERVER_SSE_PADDING_BYTES
 #

@@ -127,7 +127,7 @@ struct ServerSection {
     #[serde(default)]
     require_allowed_users: bool,
     /// SSE initial padding comment (flush proxy buffers before first event).
-    /// Maps to `POINTER_SERVER_SSE_PADDING_ENABLED`. Default true (enabled).
+    /// Maps to `POINTER_SERVER_SSE_PADDING_ENABLED`. Default false (disabled).
     #[serde(default)]
     sse_padding_enabled: Option<bool>,
     /// SSE padding comment size in bytes. Maps to `POINTER_SERVER_SSE_PADDING_BYTES`.
@@ -728,11 +728,11 @@ fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
 }
 
 /// Whether SSE initial padding is enabled (flush proxy buffers).
-/// Reads `POINTER_SERVER_SSE_PADDING_ENABLED`; defaults to `true`.
+/// Reads `POINTER_SERVER_SSE_PADDING_ENABLED`; defaults to `false`.
 pub fn sse_padding_enabled() -> bool {
     std::env::var("POINTER_SERVER_SSE_PADDING_ENABLED")
         .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 /// SSE initial padding size in bytes.

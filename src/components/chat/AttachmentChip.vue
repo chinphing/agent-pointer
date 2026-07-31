@@ -41,7 +41,7 @@ function previewUrl(att: ComposerAttachment): string | null {
   return resolvedPreview.value ?? getComposerAttachmentPreviewUrl(att)
 }
 
-function uploadLabel(att: ComposerAttachment): string | null {
+function uploadLabel(att: ComposerAttachment): string | undefined {
   if (att.uploadState === 'compressing') return '压缩中…'
   if (att.uploadState === 'uploading' || att.uploadState === 'pending') {
     if (att.uploadError?.startsWith('重试')) return att.uploadError
@@ -54,7 +54,7 @@ function uploadLabel(att: ComposerAttachment): string | null {
     if (att.storageRelPath) return '已上传'
   }
   if (att.kind === 'video' && att.remoteUrl) return '已上传'
-  return null
+  return undefined
 }
 </script>
 

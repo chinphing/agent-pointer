@@ -724,11 +724,13 @@ export interface SkillDef {
   name: string
   description: string
   tags: string[]
-  systemPrompt: string
+  /** Catalog responses omit body; instructions load via skill_read. */
+  systemPrompt?: string
   toolNames: string[]
   scenario: string
   builtin: boolean
-  resourceFiles: string[]
+  /** Always empty in catalog responses; resources read on demand via skill_read. */
+  resourceFiles?: string[]
   source?: string
   /** `system` = app data bundled; `user` = ~/.pointer/skills */
   provenance?: string

@@ -570,12 +570,13 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
         name: manifest.name,
         description: manifest.description.clone(),
         tags: merge_tags(&manifest.tags, &manifest.metadata),
-        // Body is not cached (Hermes-aligned): `skill_read` re-reads SKILL.md from disk.
+        // Catalog metadata only: body and resource paths load on demand via skill_read.
         system_prompt: String::new(),
         tool_names: manifest.allowed_tools,
         scenario: manifest.description,
         builtin: false,
-        resource_files: collect_resource_files(dir)?,
+        // Do not walk the skill tree (scripts/, venv/, cases/ can be huge).
+        resource_files: Vec::new(),
         source: Some(dir.to_string_lossy().to_string()),
         provenance: provenance.as_str().to_string(),
         mutable,
@@ -777,24 +778,6 @@ fn is_manifest_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|file_name| file_name.to_str())
         .is_some_and(is_manifest_basename)
-}
-
-fn collect_resource_files(dir: &Path) -> Result<Vec<String>> {
-    let mut out = Vec::new();
-    for entry in walkdir::WalkDir::new(dir).follow_links(false) {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            continue;
-        }
-        let rel = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
-        if is_manifest_file(path) {
-            continue;
-        }
-        out.push(rel);
-    }
-    out.sort();
-    Ok(out)
 }
 
 fn is_manifest_path(name: &str) -> bool {
@@ -1088,5 +1071,40 @@ mod tests {
         assert!(target.join("assets/icon.svg").is_file());
         let script = fs::read_to_string(target.join("scripts/helper.py")).unwrap();
         assert!(script.contains("print('hi')"));
+    }
+
+    #[test]
+    fn catalog_load_skips_resource_file_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("fat-skill");
+        fs::create_dir_all(skill_dir.join("scripts/venv/lib")).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: fat-skill\ndescription: Has many files under scripts.\n---\nBody\n",
+        )
+        .unwrap();
+        for i in 0..200 {
+            fs::write(
+                skill_dir.join(format!("scripts/venv/lib/mod_{i}.py")),
+                "# junk\n",
+            )
+            .unwrap();
+        }
+        let skill = load_skill_from_dir(&skill_dir).expect("load fat skill");
+        assert_eq!(skill.id, "fat-skill");
+        assert!(
+            skill.resource_files.is_empty(),
+            "catalog must not index skill-tree files"
+        );
+        assert!(skill.system_prompt.is_empty());
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(
+            !json.contains("resourceFiles"),
+            "empty resourceFiles should be omitted from JSON: {json}"
+        );
+        assert!(
+            !json.contains("systemPrompt"),
+            "empty systemPrompt should be omitted from JSON: {json}"
+        );
     }
 }

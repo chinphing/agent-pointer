@@ -37,9 +37,9 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 **`skill_read` 实时读磁盘**（Hermes `skill_view` 同型）：`path` 必填，且必须在 skill 根目录内（禁止 `..` 穿越）。
 
 - **`path=SKILL.md`**：每次从磁盘重读正文，**不**使用注册表里的正文缓存；改文件后无需 `reload_meta` / 重启即可生效。
-- **资源路径**（`references/` 等）：同样每次读盘；不要求事先出现在启动时扫描的 `resource_files` 索引里。
+- **资源路径**（`references/` 等）：同样每次读盘；**不会**在启动扫描时把整棵 skill 树索引进 `resourceFiles`（避免 venv / cases 等把 `/api/skills` 打到数 MB）。
 
-注册表在启动 / `reload_meta` 时只保留目录元数据（name、description、`source` 等）。Agent 用 `file_*` 新增 reference 或改 `SKILL.md` 后无需重启即可 `skill_read`。
+注册表与 `/api/skills` 只保留目录元数据（id、name、description、tags、toolNames、source、provenance 等）。Agent 用 `file_*` 新增 reference 或改 `SKILL.md` 后无需重启即可 `skill_read`。
 
 **说明**：`<available_skills>` 里的 description 仍来自上次扫描；改 frontmatter 描述后需刷新技能列表才会更新目录摘要。
 

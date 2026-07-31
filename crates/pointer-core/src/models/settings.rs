@@ -2522,13 +2522,18 @@ pub struct SkillDef {
     pub name: String,
     pub description: String,
     pub tags: Vec<String>,
-    #[serde(rename = "systemPrompt")]
+    #[serde(default, rename = "systemPrompt", skip_serializing_if = "String::is_empty")]
     pub system_prompt: String,
     #[serde(rename = "toolNames")]
     pub tool_names: Vec<String>,
     pub scenario: String,
     pub builtin: bool,
-    #[serde(default, rename = "resourceFiles")]
+    /// Legacy field; catalog load no longer indexes skill-tree files (use `skill_read`).
+    #[serde(
+        default,
+        rename = "resourceFiles",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub resource_files: Vec<String>,
     #[serde(default)]
     pub source: Option<String>,

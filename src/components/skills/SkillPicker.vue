@@ -191,9 +191,6 @@ async function onImportFile(e: Event) {
               <Wrench class="w-3 h-3 text-accent shrink-0" />
               <span class="truncate">{{ s.toolNames.join(' · ') }}</span>
             </div>
-            <div v-if="s.resourceFiles.length" class="mt-1 text-[11px] text-muted">
-              资源文件：{{ s.resourceFiles.length }} 个，按需读取
-            </div>
           </div>
           <div v-if="!filtered.length" class="col-span-full text-center text-muted py-12 text-sm">
             没有匹配的技能

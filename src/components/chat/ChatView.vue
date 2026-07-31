@@ -10,6 +10,7 @@ import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
 import { findCurrentConversationMatches } from '../../lib/currentConversationSearch'
+import { shouldShowMessageListPlaceholder, shouldShowWelcomeHome } from '../../lib/chatMainPane'
 
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 
@@ -63,16 +64,21 @@ watch(
     })
   }
 )
-const showMessageListPlaceholder = computed(
-  () => isHydratingMessages.value || deferMainPane.value
+const showMessageListPlaceholder = computed(() =>
+  shouldShowMessageListPlaceholder(
+    chat.current !== null,
+    isHydratingMessages.value,
+    deferMainPane.value
+  )
 )
 const conversationMessages = computed(() => chat.current?.messages ?? [])
-const showWelcomeHome = computed(() => {
-  if (showMessageListPlaceholder.value) return false
-  const cur = chat.current
-  if (!cur) return true
-  return cur.messages.length === 0
-})
+const showWelcomeHome = computed(() =>
+  shouldShowWelcomeHome(
+    chat.current !== null,
+    chat.current?.messages.length ?? 0,
+    showMessageListPlaceholder.value
+  )
+)
 const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const experienceSectionExpanded = ref(false)
 const pageSearchOpen = ref(false)

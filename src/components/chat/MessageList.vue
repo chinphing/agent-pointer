@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { ArrowDown, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { ArrowDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
 import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
@@ -29,6 +29,7 @@ import {
 import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
 import { formatTurnElapsed, resolveTurnElapsedMs } from '../../lib/turnElapsed'
 import { shouldStickActiveTaskBoard } from '../../lib/taskBoardSticky'
+import { shouldShowMobileNewConversationButton } from '../../lib/mobileChat'
 import {
   PAGE_SEARCH_MARK_CLASS,
   clearSearchTextMarks,
@@ -56,6 +57,8 @@ const settings = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
+const newConversationConfirmOpen = ref(false)
+const isMobileViewport = ref(false)
 const activeBoardInlineScrollTop = ref<number | null>(null)
 const activeBoardIsSticky = ref(false)
 /** Temporary highlight after sidebar search locate. */
@@ -89,6 +92,7 @@ let touchStartY: number | null = null
 /** Last observed scroller clientHeight; re-stick when chrome shrinks the viewport. */
 let lastScrollerClientHeight = 0
 let scrollerResizeObserver: ResizeObserver | null = null
+let mobileMediaQuery: MediaQueryList | null = null
 
 function distanceFromBottom(): number {
   const el = scroller.value
@@ -195,7 +199,37 @@ function onTouchEnd() {
   touchStartY = null
 }
 
+function updateMobileViewport() {
+  isMobileViewport.value = window.matchMedia('(max-width: 767.98px)').matches
+}
+
+const showMobileNewConversationButton = computed(() =>
+  shouldShowMobileNewConversationButton(isMobileViewport.value, conversationTurns.value.length)
+)
+
+function openNewConversationConfirmation() {
+  newConversationConfirmOpen.value = true
+  document.addEventListener('keydown', onNewConversationConfirmationKeydown)
+}
+
+function closeNewConversationConfirmation() {
+  newConversationConfirmOpen.value = false
+  document.removeEventListener('keydown', onNewConversationConfirmationKeydown)
+}
+
+function confirmNewConversation() {
+  chat.newConversation()
+  closeNewConversationConfirmation()
+}
+
+function onNewConversationConfirmationKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeNewConversationConfirmation()
+}
+
 onMounted(() => {
+  mobileMediaQuery = window.matchMedia('(max-width: 767.98px)')
+  updateMobileViewport()
+  mobileMediaQuery.addEventListener('change', updateMobileViewport)
   const el = scroller.value
   if (el && typeof ResizeObserver !== 'undefined') {
     lastScrollerClientHeight = el.clientHeight
@@ -220,6 +254,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onNewConversationConfirmationKeydown)
+  mobileMediaQuery?.removeEventListener('change', updateMobileViewport)
+  mobileMediaQuery = null
   if (scrollFrame != null) {
     cancelAnimationFrame(scrollFrame)
     scrollFrame = null
@@ -954,7 +991,51 @@ function entrySpacing(
   </div>
 
     <button
-      v-if="showScrollButton"
+      v-if="showMobileNewConversationButton"
+      type="button"
+      class="absolute bottom-4 left-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition md:hidden"
+      title="新建会话"
+      aria-label="新建会话"
+      @click="openNewConversationConfirmation"
+    >
+      <Plus class="w-5 h-5 text-foreground" />
+    </button>
+
+    <Teleport to="body">
+      <div
+        v-if="newConversationConfirmOpen"
+        class="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-conversation-confirm-title"
+        @click.self="closeNewConversationConfirmation"
+      >
+        <div class="w-full max-w-md rounded-2xl border border-border bg-[hsl(var(--card-elevated))] p-5 shadow-2xl">
+          <h2 id="new-conversation-confirm-title" class="text-base font-semibold text-foreground">新建会话？</h2>
+          <p class="mt-2 text-[13px] leading-relaxed text-muted">
+            将切换到一个新的会话。当前会话会保留在历史记录中，不会丢失。
+          </p>
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              class="h-9 rounded-lg bg-hover px-4 text-sm text-foreground transition-opacity hover:opacity-90"
+              @click="closeNewConversationConfirmation"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="h-9 rounded-lg bg-accent px-4 text-sm font-medium text-white transition-opacity hover:opacity-95"
+              @click="confirmNewConversation"
+            >
+              确认新建
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <button
       type="button"
       class="absolute bottom-4 right-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
       @click="toBottom({ settle: true })"

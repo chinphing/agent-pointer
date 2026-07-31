@@ -29,7 +29,10 @@ import {
 import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
 import { formatTurnElapsed, resolveTurnElapsedMs } from '../../lib/turnElapsed'
 import { shouldStickActiveTaskBoard } from '../../lib/taskBoardSticky'
-import { shouldShowMobileNewConversationButton } from '../../lib/mobileChat'
+import {
+  countLlmInvocationRounds,
+  shouldShowMobileNewConversationButton
+} from '../../lib/mobileChat'
 import {
   PAGE_SEARCH_MARK_CLASS,
   clearSearchTextMarks,
@@ -204,7 +207,10 @@ function updateMobileViewport() {
 }
 
 const showMobileNewConversationButton = computed(() =>
-  shouldShowMobileNewConversationButton(isMobileViewport.value, conversationTurns.value.length)
+  shouldShowMobileNewConversationButton(
+    isMobileViewport.value,
+    countLlmInvocationRounds(chat.current?.messages ?? [])
+  )
 )
 
 function openNewConversationConfirmation() {

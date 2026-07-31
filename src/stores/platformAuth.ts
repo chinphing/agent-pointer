@@ -249,6 +249,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
           try {
             session.value = await api.refreshPlatformSession()
             await settings.load()
+            window.location.reload()
           } catch (e) {
             console.warn('platformAuth: post-login refresh failed', e)
           }
@@ -279,6 +280,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
       error.value = null
       const settings = useSettingsStore()
       await settings.load()
+      window.location.reload()
     } catch (e) {
       error.value = formatPlatformAuthError(e)
       throw e

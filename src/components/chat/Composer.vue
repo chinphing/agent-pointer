@@ -1465,7 +1465,7 @@ onUnmounted(() => {
         </div>
         <p
           v-if="attachmentHint"
-          class="px-3 pb-2 text-[11px] text-amber-600"
+          class="hidden md:block px-3 pb-2 text-[11px] text-amber-600"
         >
           {{ attachmentHint }}
         </p>

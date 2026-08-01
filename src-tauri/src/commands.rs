@@ -825,21 +825,15 @@ pub fn preview_media_ref(media_ref: String) -> Result<ChatMediaPreview, String> 
 }
 
 #[tauri::command]
-pub fn save_chat_attachment(
+pub async fn save_chat_attachment(
     state: State<'_, Arc<AppState>>,
     conversation_id: String,
     attachment_id: String,
     content_base64: String,
     file_name: String,
 ) -> Result<String, String> {
-    if !state.active_platform_auth().session_view().logged_in {
-        return Err("请先登录 Pointer 账户".into());
-    }
-    let uid = state
-        .active_platform_auth()
-        .platform_user_id()
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "请先登录 Pointer 账户".to_string())?;
+    // Access may have expired while the UI still shows the last session snapshot.
+    let uid = crate::platform_auth_gate::require_platform_user_id(state.inner()).await?;
     state
         .session_index
         .ensure_session_user_id(&conversation_id, &uid)

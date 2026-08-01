@@ -44,7 +44,16 @@ export function postMultipartJson<T>(
     xhr.onload = () => {
       clearTimer()
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error(xhr.responseText || `上传失败 (${xhr.status})`))
+        const body = (xhr.responseText || '').trim()
+        if (body.includes('platform_login_required') || xhr.status === 401) {
+          reject(new Error('platform_login_required'))
+          return
+        }
+        if (body.includes('local_login_required')) {
+          reject(new Error('local_login_required'))
+          return
+        }
+        reject(new Error(body || `上传失败 (${xhr.status})`))
         return
       }
       if (!xhr.responseText?.trim()) {

@@ -3,6 +3,7 @@ mod channel_monitor;
 mod cloud_commands;
 mod cloud_webview;
 mod commands;
+mod platform_auth_gate;
 #[cfg(target_os = "macos")]
 mod macos_computer_permissions;
 #[cfg(target_os = "macos")]

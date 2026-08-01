@@ -88,7 +88,7 @@ const showLoginBanner = computed(
 )
 const composerPlaceholder = computed(() => {
   if (needsPlatformLogin.value) {
-    return platformAuth.isStandalone ? '请先登录' : '请先登录 Pointer 账户'
+    return platformAuth.loginHint()
   }
   if (tokenQuotaBlocked.value) {
     return '账户余额已用尽'
@@ -427,6 +427,11 @@ function ensureComposerConversationId(): string {
   return id
 }
 
+function formatAttachmentPersistError(err: unknown): string {
+  const mapped = platformAuth.formatLoginGateError(err, 'attachment')
+  return mapped || '上传失败'
+}
+
 /** Persist non-video attachment (multipart on web; invoke+base64 on desktop). */
 async function persistComposerAttachment(
   attachmentId: string,
@@ -440,6 +445,7 @@ async function persistComposerAttachment(
     uploadError: undefined
   })
   try {
+    await platformAuth.requireSession({ purpose: 'attachment', onTransient: 'allow' })
     const conversationId = ensureComposerConversationId()
     let uploadFile = source.file
     let contentBase64 = source.contentBase64
@@ -533,11 +539,10 @@ async function persistComposerAttachment(
       uploadError: undefined
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
     console.error('[composer] attachment persist failed', err)
     updateComposerAttachment(attachmentId, {
       uploadState: 'error',
-      uploadError: message || '上传失败'
+      uploadError: formatAttachmentPersistError(err)
     })
   }
 }
@@ -634,7 +639,7 @@ async function addAttachmentFromLocalPath(path: string) {
     console.error('attachment from path failed', path, err)
     updateComposerAttachment(attachmentId, {
       uploadState: 'error',
-      uploadError: err instanceof Error ? err.message : String(err)
+      uploadError: formatAttachmentPersistError(err)
     })
   }
 }
@@ -806,7 +811,7 @@ function canAcceptComposerAttachments(): boolean {
 
 function composerAttachmentBlockedHint(): string {
   if (needsPlatformLogin.value) {
-    return platformAuth.isStandalone ? '请先登录后再添加附件' : '请先登录 Pointer 账户后再添加附件'
+    return platformAuth.loginHint('attachment')
   }
   if (tokenQuotaBlocked.value) return '账户余额已用尽，暂无法添加附件'
   if (!settings.settings.hasKey) return '请先在设置中配置 API Key'
@@ -989,6 +994,10 @@ function removePendingAttachment(id: string) {
 }
 
 async function openAttachmentPicker() {
+  if (!canAcceptComposerAttachments()) {
+    attachmentHint.value = composerAttachmentBlockedHint()
+    return
+  }
   if (isTauriRuntime()) {
     try {
       const { open } = await import('@tauri-apps/plugin-dialog')
@@ -1022,6 +1031,11 @@ async function onPasteAttachments(e: ClipboardEvent) {
     files.push(file)
   }
   if (!files.length) return
+  if (!canAcceptComposerAttachments()) {
+    e.preventDefault()
+    attachmentHint.value = composerAttachmentBlockedHint()
+    return
+  }
   e.preventDefault()
   await Promise.all(
     files.map(async file => {

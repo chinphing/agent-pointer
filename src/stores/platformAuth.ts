@@ -2,8 +2,16 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import * as api from '../lib/api'
 import type { AuthMode } from '../lib/api'
+import {
+  loginRequiredMessage,
+  mapLoginGateError,
+  type LoginRequiredPurpose
+} from '../lib/platformAuthMessages'
 import { isTauriRuntime } from '../lib/runtime'
 import { useSettingsStore } from './settings'
+
+export type { LoginRequiredPurpose }
+export { loginRequiredMessage, mapLoginGateError }
 
 export interface PlatformSessionView {
   logged_in: boolean
@@ -76,7 +84,17 @@ export function isPlatformAuthTransientError(message: string): boolean {
   )
 }
 
-function formatPlatformAuthError(e: unknown): string {
+export type RequireSessionOptions = {
+  purpose?: LoginRequiredPurpose
+  /**
+   * When refresh fails transiently but UI still has a prior logged-in session:
+   * - `error` (default): throw the network/auth message (chat send)
+   * - `allow`: proceed with the prior session (Composer attach)
+   */
+  onTransient?: 'error' | 'allow'
+}
+
+export function formatPlatformAuthError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
   if (msg.includes('oauth callback timeout')) return '登录超时，请重试'
   if (msg.includes('platform_login_cancelled')) return '已取消登录'
@@ -234,6 +252,50 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     }
   }
 
+  /**
+   * Single entry for “must be logged in before this action”.
+   * Refreshes session first; throws a stable user-facing message when not logged in.
+   */
+  async function requireSession(
+    options: RequireSessionOptions = {}
+  ): Promise<PlatformSessionView> {
+    const purpose = options.purpose ?? 'default'
+    const onTransient = options.onTransient ?? 'error'
+    const hint = loginRequiredMessage(isStandalone.value, purpose)
+    try {
+      await ensureFreshSession()
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e)
+      if (onTransient === 'allow' && isPlatformAuthTransientError(raw) && session.value.logged_in) {
+        console.warn('[platformAuth] requireSession: transient refresh; keeping session', raw)
+        return session.value
+      }
+      if (!session.value.logged_in) {
+        throw new Error(
+          raw && isPlatformAuthTransientError(raw) ? raw : error.value || hint
+        )
+      }
+      throw e instanceof Error ? e : new Error(String(e))
+    }
+    if (!session.value.logged_in) {
+      throw new Error(error.value || hint)
+    }
+    return session.value
+  }
+
+  function loginHint(purpose: LoginRequiredPurpose = 'default'): string {
+    return loginRequiredMessage(isStandalone.value, purpose)
+  }
+
+  /** Prefer standard login copy for gate errors; otherwise return the original message. */
+  function formatLoginGateError(
+    err: unknown,
+    purpose: LoginRequiredPurpose = 'default'
+  ): string {
+    const raw = err instanceof Error ? err.message : String(err)
+    return mapLoginGateError(raw, isStandalone.value, purpose) || raw
+  }
+
   async function login() {
     loading.value = true
     error.value = null
@@ -315,6 +377,9 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     load,
     loadAuthMode,
     ensureFreshSession,
+    requireSession,
+    loginHint,
+    formatLoginGateError,
     login,
     loginLocal,
     cancelLogin,

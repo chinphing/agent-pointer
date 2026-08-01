@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { loginRequiredMessage } from './platformAuthMessages'
 
 export type PackageKind = 'hourly_trial' | 'hourly_spot' | 'monthly' | 'yearly'
 export type AgentStatusFilter = 'running' | 'starting' | 'released' | 'all'
@@ -205,7 +206,7 @@ export function formatApiError(e: unknown): string {
   if (msg.includes('token_quota_exhausted')) return '账户余额已用尽'
   if (msg.includes('insufficient_balance')) return '账户余额不足'
   if (msg.includes('platform_login_required') || msg.includes('请先登录')) {
-    return '请先登录 Pointer 平台账户'
+    return loginRequiredMessage(false, 'cloud')
   }
   if (msg.includes('Invalid token') || msg.includes('invalid_refresh_token')) {
     return '平台登录已失效，请在「平台账户」重新登录后再试'

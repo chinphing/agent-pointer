@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { loginRequiredMessage, mapLoginGateError } from '../lib/platformAuthMessages'
 import {
   extractPlatformAuthHttpStatus,
   isPlatformAuthTransientError
@@ -61,5 +62,23 @@ describe('platformAuth error classification', () => {
     expect(
       isPlatformAuthTransientError('token exchange failed http_status=400 (400 Bad Request): bad')
     ).toBe(false)
+  })
+})
+
+describe('loginRequiredMessage / mapLoginGateError', () => {
+  it('returns purpose-specific copy for platform and standalone', () => {
+    expect(loginRequiredMessage(false, 'default')).toBe('请先登录 Pointer 账户')
+    expect(loginRequiredMessage(true, 'default')).toBe('请先登录')
+    expect(loginRequiredMessage(false, 'attachment')).toBe('请先登录 Pointer 账户后再添加附件')
+    expect(loginRequiredMessage(true, 'attachment')).toBe('请先登录后再添加附件')
+    expect(loginRequiredMessage(false, 'cloud')).toBe('请先登录 Pointer 平台账户')
+  })
+
+  it('maps backend login-gate errors to the standard hint', () => {
+    expect(mapLoginGateError('platform_login_required', false, 'attachment')).toBe(
+      '请先登录 Pointer 账户后再添加附件'
+    )
+    expect(mapLoginGateError('local_login_required', true, 'default')).toBe('请先登录')
+    expect(mapLoginGateError('something else', false, 'default')).toBeNull()
   })
 })

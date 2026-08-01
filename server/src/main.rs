@@ -44,6 +44,13 @@ use channels::{
     start_weixin_login, update_channels, weixin_login_status,
 };
 use serde::Deserialize;
+use tower_http::{
+    compression::{
+        predicate::{NotForContentType, Predicate, SizeAbove},
+        CompressionLayer,
+    },
+    cors::CorsLayer,
+};
 
 #[derive(Deserialize)]
 struct ConversationPreviewQuery {
@@ -178,7 +185,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::broadcast;
-use tower_http::cors::CorsLayer;
 
 /// Lifetime of a pending PKCE login entry. The user must complete the
 /// browser OAuth flow within this window or the callback will reject it.
@@ -758,8 +764,27 @@ async fn main() -> anyhow::Result<()> {
             get(list_channel_pairing_pending),
         );
 
+    let compression = CompressionLayer::new().compress_when(
+        SizeAbove::new(1024)
+            .and(NotForContentType::GRPC)
+            .and(NotForContentType::IMAGES)
+            .and(NotForContentType::SSE)
+            // Media and archives are already compressed; skip redundant CPU work.
+            .and(NotForContentType::const_new("application/pdf"))
+            .and(NotForContentType::const_new("application/zip"))
+            .and(NotForContentType::const_new("application/gzip"))
+            .and(NotForContentType::const_new("application/x-gzip"))
+            .and(NotForContentType::const_new("application/x-7z-compressed"))
+            .and(NotForContentType::const_new("application/x-rar-compressed"))
+            .and(NotForContentType::const_new("audio/"))
+            .and(NotForContentType::const_new("video/")),
+    );
+
     let static_dir = resolve_static_dir();
     let app = maybe_with_static_files(app, static_dir.clone())
+        // `CompressionLayer` honors `Accept-Encoding`; event streams and already
+        // compressed media are explicitly excluded above.
+        .layer(compression)
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .layer(middleware::from_fn_with_state(

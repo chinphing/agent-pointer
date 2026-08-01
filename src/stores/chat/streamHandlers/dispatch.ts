@@ -3,6 +3,7 @@ import { handleAgentStep, handleSupervisorPlan } from './agentHandlers'
 import {
   handleContextCompressed,
   handleContextCompressionApplied,
+  handleContextCompressionStarted,
   handleContextTrimApplied
 } from './contextHandlers'
 import { handleSubMessageStart } from './subMessageHandlers'
@@ -48,6 +49,9 @@ export function dispatchStreamEvent(ctx: StreamHandlerContext, e: StreamEvent): 
   switch (e.kind) {
     case 'context_trim_applied':
       handleContextTrimApplied(ctx, e)
+      break
+    case 'context_compression_started':
+      handleContextCompressionStarted(ctx, e)
       break
     case 'context_compression_applied':
       handleContextCompressionApplied(ctx, e)

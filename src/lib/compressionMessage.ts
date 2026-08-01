@@ -30,3 +30,15 @@ export function buildCompressionNoticeContent(info: ContextCompressionInfo): str
   }
   return `【压缩】已将较早 ${dropped} 条对话摘要为 1 条，保留最近 ${keep} 轮用户消息。`
 }
+
+/** In-thread tool-row label while compression LLM is running. */
+export function buildCompressionProgressLabel(info: {
+  scope?: string
+  subAgentName?: string | null
+}): string {
+  if (info.scope === 'sub_agent') {
+    const name = info.subAgentName?.trim() || '子 Agent'
+    return `${name} 子任务内正在压缩较早记录`
+  }
+  return '正在压缩较早记录'
+}

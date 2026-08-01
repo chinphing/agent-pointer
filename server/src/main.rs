@@ -3234,7 +3234,13 @@ async fn chat_stream(
                         StreamEvent::ContextTrimApplied { conversation_id: id, .. } => {
                             id == &conversation_id
                         }
+                        StreamEvent::ContextCompressionStarted { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
                         StreamEvent::ContextCompressionApplied { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
+                        StreamEvent::ContextCompressed { conversation_id: id, .. } => {
                             id == &conversation_id
                         }
                         StreamEvent::ToolRoundsExhausted { conversation_id: id, .. } => {

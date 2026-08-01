@@ -9,9 +9,18 @@ import type {
   ToolCall
 } from '../../../types/chat'
 
+export interface ContextCompressingState {
+  scope: string
+  messageId?: string
+  subAgentId?: string
+  subAgentName?: string
+  startedAt: number
+}
+
 export interface ConversationRunStatePatch {
   generating?: boolean
   activeMessageId?: string | null
+  contextCompressing?: ContextCompressingState | null
 }
 
 export interface StreamHandlerContext {

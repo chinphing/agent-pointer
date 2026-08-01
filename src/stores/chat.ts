@@ -170,9 +170,19 @@ function isPlatformLoginErrorMessage(msg: ChatMessage): boolean {
   )
 }
 
+interface ContextCompressingState {
+  scope: string
+  messageId?: string
+  subAgentId?: string
+  subAgentName?: string
+  startedAt: number
+}
+
 interface ConversationRunState {
   generating: boolean
   activeMessageId: string | null
+  /** Ephemeral in-thread marker while context compression LLM runs. */
+  contextCompressing: ContextCompressingState | null
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -334,7 +344,11 @@ export const useChatStore = defineStore('chat', () => {
     pendingInterruptDoneAt.set(key, interruptAt)
 
     // Optimistic UI: hide stop button / show cancelled while host cancel runs.
-    patchRunState(key, { generating: false, activeMessageId: null })
+    patchRunState(key, {
+      generating: false,
+      activeMessageId: null,
+      contextCompressing: null
+    })
 
     if (conv && msgId) {
       const row = conv.messages.find(m => m.id === msgId)
@@ -362,7 +376,11 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     // Host cancel is signaled; keep UI stopped even if a late stream event raced.
-    patchRunState(key, { generating: false, activeMessageId: null })
+    patchRunState(key, {
+      generating: false,
+      activeMessageId: null,
+      contextCompressing: null
+    })
     disarmTaskCompleteAudio()
     await drainOutboundQueue(key)
 
@@ -526,13 +544,23 @@ export const useChatStore = defineStore('chat', () => {
   const hasMoreConversations = computed(() => nextCursor.value !== null)
 
   function runStateFor(id: string): ConversationRunState {
-    return runByConversation.value[id] ?? { generating: false, activeMessageId: null }
+    return (
+      runByConversation.value[id] ?? {
+        generating: false,
+        activeMessageId: null,
+        contextCompressing: null
+      }
+    )
   }
 
   function clearRunState(id: string) {
     const key = id.trim()
     if (!key) return
-    patchRunState(key, { generating: false, activeMessageId: null })
+    patchRunState(key, {
+      generating: false,
+      activeMessageId: null,
+      contextCompressing: null
+    })
     queueMicrotask(() => {
       void drainOutboundQueue(key)
     })
@@ -597,7 +625,11 @@ export const useChatStore = defineStore('chat', () => {
     primeTaskCompleteAudio()
     const turnId = [...conv.messages].reverse().find(message => message.role === 'user')?.id
     if (turnId) recordTurnStart(conv.id, turnId)
-    patchRunState(conv.id, { generating: true, activeMessageId: null })
+    patchRunState(conv.id, {
+      generating: true,
+      activeMessageId: null,
+      contextCompressing: null
+    })
     clearConversationAwaitingView(conv.id)
     await flushPersistMeta()
     await refreshTaskBoard(conv.id)
@@ -807,6 +839,12 @@ export const useChatStore = defineStore('chat', () => {
   const activeGeneratingMessageId = computed(() => {
     const id = currentId.value
     return id ? runStateFor(id).activeMessageId : null
+  })
+
+  /** Current conversation's ephemeral context-compression marker (auto-clears when done). */
+  const contextCompressing = computed(() => {
+    const id = currentId.value
+    return id ? runStateFor(id).contextCompressing : null
   })
 
   function effectiveConversationAgentMode(conv?: Conversation | null): AgentMode {
@@ -2490,7 +2528,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
+    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
     init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, toggleConversationPin, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

@@ -394,6 +394,19 @@ pub enum StreamEvent {
         #[serde(rename = "excludedMessageIds")]
         excluded_message_ids: Vec<String>,
     },
+    /// Ephemeral: compression LLM is running (UI marker only; not persisted).
+    ContextCompressionStarted {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        /// `main` or `sub_agent`
+        scope: String,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
+        message_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentId")]
+        sub_agent_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentName")]
+        sub_agent_name: Option<String>,
+    },
     /// Main-thread context compression: soft-exclude prefix + insert summary user row.
     ContextCompressionApplied {
         #[serde(rename = "conversationId")]

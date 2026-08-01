@@ -51,4 +51,11 @@
 - 选中态只用主题语义色：`foreground` / `background` / `border` / `hover` / `muted`（随浅色/深色翻转）。
   勾选填充为 `bg-foreground/55 text-background`，不要写死灰阶、紫色或未定义的 `muted-foreground`。
 
+## 上下文压缩进行中标记
+
+- 事件：`context_compression_started` → 会话 run state 的 `contextCompressing`。
+- 展示：消息列表底部工具行样式（`ContextCompressingMarker`），含旋转「压缩中」。
+- 隐藏：`context_compression_applied` / `context_compressed`，或停止 / `done` / `error` 清 run state。
+- **不**写入聊天记录，**不**进入模型上下文。详见 [`../internals/context-compression.md`](../internals/context-compression.md)。
+
 修改 `AssistantModelMessage.vue`、`AgentMessageBody.vue`、`SubAgentFrame.vue`、`ModelThoughtPanels.vue` 或 `chat.ts` 中 `traceId` 路由前，请先对照本文。

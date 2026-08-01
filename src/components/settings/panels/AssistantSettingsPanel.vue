@@ -33,7 +33,6 @@ const {
   contextCompressionEnabled,
   contextBudgetTokens,
   contextKeepRecentUserTurns,
-  contextSummaryMaxTokens,
   maxToolRounds,
   parallelToolExecutionEnabled,
   maxParallelToolCalls,
@@ -536,7 +535,7 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
               </div>
               <p class="text-[11px] text-muted">当历史消息超过预算时，自动生成摘要并保留最近若干轮对话原文。</p>
 
-              <div v-if="contextCompressionEnabled" class="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+              <div v-if="contextCompressionEnabled" class="grid grid-cols-3 gap-3 pt-2 border-t border-border">
                 <div>
                   <label class="block text-[12px] text-muted mb-1.5">触发预算（tokens）</label>
                   <input v-model.number="contextBudgetTokens" type="number" min="4096" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
@@ -544,10 +543,6 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                 <div>
                   <label class="block text-[12px] text-muted mb-1.5">保留最近用户轮数</label>
                   <input v-model.number="contextKeepRecentUserTurns" type="number" min="1" max="50" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">摘要最大 tokens</label>
-                  <input v-model.number="contextSummaryMaxTokens" type="number" min="128" max="8192" step="64" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
                 </div>
                 <div>
                   <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>

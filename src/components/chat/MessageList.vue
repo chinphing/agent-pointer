@@ -6,8 +6,10 @@ import { ArrowDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
 import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
+import ContextCompressingMarker from './message/ContextCompressingMarker.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
 import { useChatStore } from '../../stores/chat'
+import { buildCompressionProgressLabel } from '../../lib/compressionMessage'
 import { useSettingsStore } from '../../stores/settings'
 import { uiForMessageAgent, useAgentsCatalog } from '../../composables/useAgentUi'
 import { visibleToolCalls } from '../../lib/messageTooling'
@@ -73,6 +75,12 @@ const locatingFocus = ref(false)
 
 provide('currentConversationSearchToolCallIds', computed(() => props.searchMatchToolCallIds))
 provide('currentConversationActiveToolCallId', computed(() => props.activeSearchToolCallId))
+
+const contextCompressingLabel = computed(() => {
+  const state = chat.contextCompressing
+  if (!state) return ''
+  return buildCompressionProgressLabel(state)
+})
 
 // ── Bidirectional virtual rendering ──
 // Rows are variable-height and measured after mount. Only visible rows plus overscan
@@ -999,6 +1007,13 @@ function entrySpacing(
           </div>
         </template>
       </div>
+    </div>
+
+    <div
+      v-if="contextCompressingLabel"
+      class="chat-column tool-segments pt-1"
+    >
+      <ContextCompressingMarker :label="contextCompressingLabel" />
     </div>
   </div>
 

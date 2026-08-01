@@ -942,6 +942,15 @@ export type StreamEvent =
   | { kind: 'error'; conversationId?: string; messageId?: string; message: string }
   | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number }
   | { kind: 'context_trim_applied'; conversationId: string; excludedMessageIds: string[] }
+  /** Ephemeral: compression in progress (tool-row marker); not persisted. */
+  | {
+      kind: 'context_compression_started'
+      conversationId: string
+      scope: 'main' | 'sub_agent' | string
+      messageId?: string
+      subAgentId?: string
+      subAgentName?: string
+    }
   | {
       kind: 'context_compression_applied'
       conversationId: string

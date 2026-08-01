@@ -21,7 +21,32 @@ pub const SUMMARY_PREFIX_BUDGET: &str = "[Conversation summary (auto-compression
 pub const SUMMARY_PREFIX_TOOL_LIMIT: &str =
     "[Conversation summary (auto-compression after tool rounds)]";
 
+/// Summary output budget: `content_tokens × ratio`, clamped.
+const SUMMARY_TOKEN_RATIO: f64 = 0.10;
+const MIN_SUMMARY_TOKENS: u32 = 2_000;
+/// Absolute ceiling for the first summary attempt (Hermes uses 12k; Pointer uses 16k).
+const SUMMARY_TOKENS_CEILING: u32 = 16_000;
+/// Retry may exceed the first-attempt ceiling by the same 1.5× factor.
+const SUMMARY_RETRY_TOKENS_CEILING: u32 = 24_000;
+const SUMMARY_RETRY_TOKEN_MULTIPLIER: f64 = 1.5;
+
 type StreamTx = UnboundedSender<StreamEvent>;
+
+/// Dynamic summary `max_tokens`: `content × 0.10`, floored at
+/// [`MIN_SUMMARY_TOKENS`], capped at [`SUMMARY_TOKENS_CEILING`].
+pub fn compute_summary_max_tokens(content_tokens: usize) -> u32 {
+    let by_content = ((content_tokens as f64) * SUMMARY_TOKEN_RATIO).ceil() as u32;
+    by_content.clamp(MIN_SUMMARY_TOKENS, SUMMARY_TOKENS_CEILING)
+}
+
+/// Retry budget: first attempt × 1.5, capped at [`SUMMARY_RETRY_TOKENS_CEILING`].
+pub fn compute_summary_retry_max_tokens(first_max_tokens: u32) -> u32 {
+    let scaled = ((first_max_tokens as f64) * SUMMARY_RETRY_TOKEN_MULTIPLIER).ceil() as u32;
+    scaled
+        .max(first_max_tokens)
+        .min(SUMMARY_RETRY_TOKENS_CEILING)
+        .max(MIN_SUMMARY_TOKENS)
+}
 
 /// Whether compression UI/events target the main thread or an isolated sub-agent loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -90,18 +115,21 @@ fn emit_ui_toast(stream: &StreamTx, conversation_id: &str, message: &str, level:
     );
 }
 
-fn compression_start_toast(ui: &CompressionUiContext) -> String {
-    match ui.scope {
-        CompressionScope::Main => "对话较长，正在压缩较早记录…".to_string(),
-        CompressionScope::SubAgent => {
-            let name = ui
-                .sub_agent_name
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .unwrap_or("子 Agent");
-            format!("{name} 子任务内正在压缩较早记录…")
-        }
-    }
+fn emit_compression_started(stream: &StreamTx, conversation_id: &str, ui: &CompressionUiContext) {
+    let scope = match ui.scope {
+        CompressionScope::Main => "main",
+        CompressionScope::SubAgent => "sub_agent",
+    };
+    crate::stream_broadcast::publish_stream(
+        stream,
+        StreamEvent::ContextCompressionStarted {
+            conversation_id: conversation_id.to_string(),
+            scope: scope.to_string(),
+            message_id: ui.message_id.clone(),
+            sub_agent_id: ui.sub_agent_id.clone(),
+            sub_agent_name: ui.sub_agent_name.clone(),
+        },
+    );
 }
 
 fn compression_done_toast(
@@ -560,20 +588,24 @@ fn record_summary_usage(
     }
 }
 
-fn compression_failed_toast(ui: &CompressionUiContext) -> String {
-    match ui.scope {
-        CompressionScope::Main => {
-            "摘要生成不完整，已保留原对话；请稍后重试或提高摘要 token 上限".into()
-        }
-        CompressionScope::SubAgent => {
-            let name = ui
-                .sub_agent_name
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .unwrap_or("子 Agent");
-            format!("{name} 子任务摘要生成不完整，已保留原记录")
-        }
-    }
+fn build_drop_without_summary_body(summary_prefix: &str, dropped_count: u32) -> String {
+    // Hermes inserts a deterministic handoff when the LLM summarizer fails;
+    // keep a short structured notice so the lead knows older turns were dropped.
+    build_persisted_summary(
+        summary_prefix,
+        &format!(
+            "## Goal\n\
+             [Summary unavailable — compression summary failed after retry.]\n\n\
+             ## Progress\n\
+             ### Done\n\
+             Dropped {dropped_count} earlier message(s) that could not be summarized.\n\n\
+             ## Next Steps\n\
+             Continue only from the newer messages that follow this notice. \
+             Do not assume details from the dropped turns.\n\n\
+             ## Critical Context\n\
+             Earlier tool outputs and intermediate decisions in the dropped window are unavailable."
+        ),
+    )
 }
 
 fn mark_compressed_prefix_excluded(history: &mut [ChatMessage]) -> Vec<String> {
@@ -691,12 +723,8 @@ async fn compress_history_inner(
         return false;
     }
 
-    emit_ui_toast(
-        stream,
-        conversation_id,
-        &compression_start_toast(ui),
-        "warning",
-    );
+    // In-thread tool-row marker (frontend); completion still uses UiToast.
+    emit_compression_started(stream, conversation_id, ui);
 
     let dropped_count = history[..split]
         .iter()
@@ -740,7 +768,8 @@ async fn compress_history_inner(
         spawn_depth: None,
     };
 
-    let max_tok = settings.context_summary_max_tokens.max(128);
+    let content_tokens = estimate_text_tokens_heuristic(&formatted);
+    let max_tok = compute_summary_max_tokens(content_tokens);
     let summary_prefix = if force_ignore_char_budget {
         SUMMARY_PREFIX_TOOL_LIMIT
     } else {
@@ -759,6 +788,14 @@ async fn compress_history_inner(
         } else {
             "budget"
         }
+    );
+    log::info!(
+        "context_compress: summary_budget conversation_id={} content_tokens={} floor={} max_tokens={} ceiling={}",
+        conversation_id,
+        content_tokens,
+        MIN_SUMMARY_TOKENS,
+        max_tok,
+        SUMMARY_TOKENS_CEILING
     );
     let t_llm = Instant::now();
     let summary_system = build_summary_system_prompt(ui, keep_users);
@@ -782,12 +819,13 @@ async fn compress_history_inner(
                 Err(reason) => {
                     let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
                     log::warn!(
-                        "context summary rejected conversation_id={} attempt=initial reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} summary_llm_ms={}",
+                        "context summary rejected conversation_id={} attempt=initial reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} max_tokens={} summary_llm_ms={}",
                         conversation_id,
                         reason,
                         out.finish_reason,
                         out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
                         out.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                        max_tok,
                         t_llm.elapsed().as_millis(),
                     );
                     None
@@ -796,28 +834,37 @@ async fn compress_history_inner(
         }
         Err(e) => {
             log::warn!(
-                "context summary LLM call failed conversation_id={} attempt=initial error={e:#} summary_llm_ms={}",
+                "context summary LLM call failed conversation_id={} attempt=initial error={e:#} max_tokens={} summary_llm_ms={}",
                 conversation_id,
+                max_tok,
                 t_llm.elapsed().as_millis()
             );
             None
         }
     };
 
+    let mut summary_failed = false;
     if summary_text.is_none() && !cancel.is_cancelled() {
+        let retry_max = compute_summary_retry_max_tokens(max_tok);
         let retry_label = format!("{dump_lbl}_retry_no_thinking");
         let retry_system = format!(
             "{summary_system}\n\nRetry requirement: produce every required heading, keep each section concise, \
-             and finish the complete summary within the output budget."
+             and finish the complete summary within the enlarged output budget ({retry_max} tokens)."
         );
         let retry_sections = crate::models::SystemPromptSections::all_cacheable(vec![retry_system]);
+        log::info!(
+            "context_compress: summary_retry_budget conversation_id={} first_max_tokens={} retry_max_tokens={}",
+            conversation_id,
+            max_tok,
+            retry_max
+        );
         match provider
             .chat_once_without_thinking(
                 std::slice::from_ref(&input),
                 &retry_sections,
                 Vec::new(),
                 cancel.clone(),
-                Some(max_tok),
+                Some(retry_max),
                 Some(retry_label.as_str()),
             )
             .await
@@ -829,12 +876,13 @@ async fn compress_history_inner(
                     Err(reason) => {
                         let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
                         log::warn!(
-                            "context summary rejected conversation_id={} attempt=retry_no_thinking reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} summary_llm_ms={}",
+                            "context summary rejected conversation_id={} attempt=retry_no_thinking reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} max_tokens={} summary_llm_ms={}",
                             conversation_id,
                             reason,
                             out.finish_reason,
                             out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
                             out.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                            retry_max,
                             t_llm.elapsed().as_millis(),
                         );
                     }
@@ -842,8 +890,9 @@ async fn compress_history_inner(
             }
             Err(e) => {
                 log::warn!(
-                    "context summary LLM call failed conversation_id={} attempt=retry_no_thinking error={e:#} summary_llm_ms={}",
+                    "context summary LLM call failed conversation_id={} attempt=retry_no_thinking error={e:#} max_tokens={} summary_llm_ms={}",
                     conversation_id,
+                    retry_max,
                     t_llm.elapsed().as_millis()
                 );
             }
@@ -859,24 +908,34 @@ async fn compress_history_inner(
         );
         return false;
     }
-    let Some(summary_text) = summary_text else {
-        log::warn!(
-            "context_compress: abort_invalid_summary conversation_id={} scope={:?} messages={} split_at={} wall_ms={}",
-            conversation_id,
-            ui.scope,
-            messages_before,
-            split,
-            wall.elapsed().as_millis()
-        );
-        emit_ui_toast(
-            stream,
-            conversation_id,
-            &compression_failed_toast(ui),
-            "warning",
-        );
-        return false;
+
+    let summary_body = match summary_text {
+        Some(text) => build_persisted_summary(summary_prefix, &text),
+        None => {
+            // Hermes default: drop the middle window with a deterministic handoff
+            // instead of leaving an over-budget transcript unchanged.
+            summary_failed = true;
+            log::warn!(
+                "context_compress: drop_without_summary conversation_id={} scope={:?} messages={} split_at={} dropped={} wall_ms={}",
+                conversation_id,
+                ui.scope,
+                messages_before,
+                split,
+                dropped_count,
+                wall.elapsed().as_millis()
+            );
+            build_drop_without_summary_body(summary_prefix, dropped_count)
+        }
     };
-    let summary_body = build_persisted_summary(summary_prefix, &summary_text);
+    let apply_reason = if summary_failed {
+        if force_ignore_char_budget {
+            "tool_limit_drop"
+        } else {
+            "budget_drop"
+        }
+    } else {
+        reason
+    };
 
     let insert_before_message_id = history.get(split).map(|m| m.id.clone()).unwrap_or_default();
     let excluded_message_ids = mark_compressed_prefix_excluded(&mut history[..split]);
@@ -920,7 +979,7 @@ async fn compress_history_inner(
 
     let compression = build_compression_info(
         ui,
-        reason,
+        apply_reason,
         messages_before,
         messages_after,
         dropped_count,
@@ -928,10 +987,11 @@ async fn compress_history_inner(
     );
 
     log::info!(
-        "context_compress: applied conversation_id={} scope={:?} reason={} messages_before={} messages_after={} split_at={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
+        "context_compress: applied conversation_id={} scope={:?} reason={} summary_failed={} messages_before={} messages_after={} split_at={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} summary_max_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
         conversation_id,
         ui.scope,
-        reason,
+        apply_reason,
+        summary_failed,
         messages_before,
         messages_after,
         split,
@@ -940,12 +1000,14 @@ async fn compress_history_inner(
         payload_est,
         api_prompt,
         budget_tokens,
+        max_tok,
         format_prefix_ms,
         t_llm.elapsed().as_millis(),
         wall.elapsed().as_millis()
     );
 
-    let (done_msg, done_level) = compression_done_toast(ui, dropped_count, keep_users, false);
+    let (done_msg, done_level) =
+        compression_done_toast(ui, dropped_count, keep_users, summary_failed);
     emit_ui_toast(stream, conversation_id, &done_msg, done_level);
 
     match ui.scope {
@@ -1157,6 +1219,23 @@ mod tests {
         assert_eq!(estimate_text_tokens_heuristic(&"x".repeat(4000)), 1000);
         // 1500 CJK unified → 1000 tokens (cjk/1.5)
         assert_eq!(estimate_text_tokens_heuristic(&"中".repeat(1500)), 1000);
+    }
+
+    #[test]
+    fn summary_max_tokens_scales_with_content_and_caps_at_16k() {
+        // Small content still gets the 2k floor.
+        assert_eq!(compute_summary_max_tokens(1_000), 2_000);
+        // 40k content → 4k budget (×0.10).
+        assert_eq!(compute_summary_max_tokens(40_000), 4_000);
+        // Huge content caps at 16k.
+        assert_eq!(compute_summary_max_tokens(500_000), 16_000);
+    }
+
+    #[test]
+    fn summary_retry_max_tokens_is_one_point_five_x_with_24k_cap() {
+        assert_eq!(compute_summary_retry_max_tokens(8_000), 12_000);
+        assert_eq!(compute_summary_retry_max_tokens(16_000), 24_000);
+        assert_eq!(compute_summary_retry_max_tokens(20_000), 24_000);
     }
 
     #[test]

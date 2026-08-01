@@ -31,7 +31,8 @@ web_search_model = ""
 context_compression_enabled = true
 context_budget_tokens = 100000
 context_keep_recent_user_turns = 3
-context_summary_max_tokens = 1024
+# Used by background memory review (not context-compression summary budget)
+context_summary_max_tokens = 2048
 max_tool_rounds = 200
 max_sub_agent_tool_rounds = 200
 

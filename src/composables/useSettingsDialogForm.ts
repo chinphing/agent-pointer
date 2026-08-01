@@ -247,7 +247,6 @@ function createSettingsDialogForm(deps: {
   const contextCompressionEnabled = ref(true)
   const contextBudgetTokens = ref(120_000)
   const contextKeepRecentUserTurns = ref(6)
-  const contextSummaryMaxTokens = ref(2048)
   const maxToolRounds = ref(100)
   const maxSubAgentToolRounds = ref(100)
   const parallelToolExecutionEnabled = ref(true)
@@ -453,7 +452,6 @@ function createSettingsDialogForm(deps: {
     (s.settings as { contextBudgetChars?: number }).contextBudgetChars ??
     120_000
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
-  contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 2048
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
   parallelToolExecutionEnabled.value = s.settings.parallelToolExecutionEnabled !== false
   maxParallelToolCalls.value = s.settings.maxParallelToolCalls ?? ''
@@ -791,7 +789,6 @@ function createSettingsDialogForm(deps: {
     contextCompressionEnabled: contextCompressionEnabled.value,
     contextBudgetTokens: Number(contextBudgetTokens.value),
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
-    contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
     maxToolRounds: Number(maxToolRounds.value),
     agentPerformanceModes: { ...agentPerformanceModesLocal.value },
     mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
@@ -847,7 +844,6 @@ function createSettingsDialogForm(deps: {
     contextCompressionEnabled,
     contextBudgetTokens,
     contextKeepRecentUserTurns,
-    contextSummaryMaxTokens,
     maxToolRounds,
     parallelToolExecutionEnabled,
     maxParallelToolCalls,

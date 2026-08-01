@@ -36,3 +36,12 @@
 3. 需要多个环境或进程时，点击 `+` 新建独立 Shell 标签。
 4. 在标签中执行 `npm run dev`、`cargo test` 等命令；使用 `Ctrl+C` 停止该标签的前台程序。
 5. 鼠标悬停标签查看绝对路径；右键复制路径或关闭标签。
+
+## 选中交互
+
+截图里那种大块浅紫色矩形，是 xterm 的划词选区（`selectionBackground`），不是标签选中。
+
+- 正常 **按住拖动划词**、双击选词、三击选行保持可用。
+- 额外防护：若 `mouseup` 丢失（例如在 webview 外松开），xterm 仍挂着 `document mousemove`，会出现「点击后鼠标已松开，再移动仍继续选中」。检测到 `selectionPressing` 且 `buttons` 已无主键时，补发 `mouseup` 结束拖选。
+- 开启 `macOptionClickForcesSelection`，避免 macOS 上 Option 进入 column-select。
+- 标签栏使用 `user-select: none`，避免拖动时误选标签文字。

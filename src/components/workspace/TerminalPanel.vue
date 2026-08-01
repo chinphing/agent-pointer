@@ -3,16 +3,27 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Copy, FolderPlus, Loader2, RotateCcw, SquareTerminal, X } from 'lucide-vue-next'
 import { useConsoleStore, type WorkspaceConsoleTab } from '../../stores/console'
 
-const props = defineProps<{ workspaceRoot: string; active: boolean }>()
+const props = defineProps<{ workspaceRoot: string; conversationId: string; active: boolean }>()
 
 const consoleStore = useConsoleStore()
 const host = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const error = ref('')
 const contextMenu = ref<{ tab: WorkspaceConsoleTab; x: number; y: number } | null>(null)
+const workspaceTabs = computed(() =>
+  consoleStore.tabs.filter(tab =>
+    tab.workspaceRoot === props.workspaceRoot &&
+    tab.conversationId === props.conversationId
+  )
+)
+// Conversation-scoped active tab: the global store keeps one activeSessionId,
+// so after switching conversations the stored id can still point at a tab from
+// another conversation. Treat it as no tab for this panel.
+const activeTab = computed(() =>
+  workspaceTabs.value.find(tab => tab.id === consoleStore.activeSessionId) ?? null
+)
 const hasActiveTab = computed(() => !!activeTab.value)
 const hasWorkspace = computed(() => !!props.workspaceRoot.trim())
-const activeTab = computed(() => consoleStore.activeTab)
 let terminal: import('@xterm/xterm').Terminal | null = null
 let fitAddon: import('@xterm/addon-fit').FitAddon | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -21,10 +32,9 @@ let opening: Promise<void> | null = null
 let renderedSessionId = ''
 let renderedOutputLength = 0
 let removeOutsideMenuListeners: (() => void) | null = null
-let pointerDown: { x: number; y: number } | null = null
-// A 4px threshold is smaller than one terminal character cell, so ordinary
-// click jitter can cross a cell boundary and make xterm retain a selection.
-const SELECTION_DRAG_THRESHOLD_PX = 12
+let removeSelectionGuard: (() => void) | null = null
+/** True between primary-button mousedown and mouseup on the terminal. */
+let selectionPressing = false
 
 async function settleTerminalLayout() {
   // The TerminalPanel is async-mounted beneath a view switch. The first
@@ -71,11 +81,15 @@ async function ensureTerminal() {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: 12,
     scrollback: 5_000,
+    // On macOS, Option+drag otherwise enters column-select (tall rectangle over
+    // empty cells). Force Option to mean "selection", not column mode.
+    macOptionClickForcesSelection: true,
     theme: terminalTheme()
   })
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
   terminal.open(host.value)
+  installSelectionGuard(terminal.element)
   terminal.onData(data => {
     const id = consoleStore.activeSessionId
     if (!id) return
@@ -90,34 +104,57 @@ async function ensureTerminal() {
   fitAddon.fit()
 }
 
-function handleTerminalPointerDown(event: PointerEvent) {
-  pointerDown = { x: event.clientX, y: event.clientY }
-  // Clear a previous xterm selection before routing the click to the PTY.
-  // This must happen on pointerdown: xterm's own mousedown handler starts a
-  // new selection during the same gesture, so clearing only on pointerup
-  // cannot distinguish a focus click with minor mouse movement from a drag.
-  terminal?.clearSelection()
-  // Mouse pointers are not implicitly captured. Capture the original xterm
-  // target so a release outside the host still bubbles a pointerup here.
-  // Capturing the target also leaves xterm's scrollbar capture untouched.
-  const target = event.target as Element | null
-  if (target?.setPointerCapture && !target.hasPointerCapture?.(event.pointerId)) {
-    target.setPointerCapture(event.pointerId)
+/**
+ * Keep normal click-drag selection. Only guard the stuck-drag case: if mouseup
+ * is lost (common when releasing outside the webview), xterm still has its
+ * document mousemove hook and will keep painting a selection while the button
+ * is already up — that looks like "click, then move anywhere selects".
+ */
+function installSelectionGuard(element: HTMLElement | undefined | null) {
+  removeSelectionGuard?.()
+  removeSelectionGuard = null
+  selectionPressing = false
+  if (!element) return
+
+  const onMouseDownCapture = (event: MouseEvent) => {
+    if (event.button !== 0) return
+    selectionPressing = true
   }
-}
 
-function handleTerminalPointerUp(event: PointerEvent) {
-  if (!pointerDown) return
-  const distance = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y)
-  pointerDown = null
-  // Keep a clear intent boundary for drag-to-select. A terminal character is
-  // roughly 7px wide at the configured font; 12px avoids treating click
-  // jitter that crossed one cell as an intentional text selection.
-  if (distance < SELECTION_DRAG_THRESHOLD_PX) terminal?.clearSelection()
-}
+  const onMouseUpCapture = (event: MouseEvent) => {
+    if (event.button !== 0) return
+    selectionPressing = false
+  }
 
-function handleTerminalPointerCancel() {
-  pointerDown = null
+  const onMouseMoveCapture = (event: MouseEvent) => {
+    if (!selectionPressing) return
+    if (event.buttons & 1) return
+    // Button is up but we never saw mouseup — stop extending and finalize.
+    selectionPressing = false
+    event.stopImmediatePropagation()
+    document.dispatchEvent(
+      new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        button: 0,
+        buttons: 0,
+        clientX: event.clientX,
+        clientY: event.clientY
+      })
+    )
+  }
+
+  element.addEventListener('mousedown', onMouseDownCapture, true)
+  document.addEventListener('mouseup', onMouseUpCapture, true)
+  document.addEventListener('mousemove', onMouseMoveCapture, true)
+
+  removeSelectionGuard = () => {
+    element.removeEventListener('mousedown', onMouseDownCapture, true)
+    document.removeEventListener('mouseup', onMouseUpCapture, true)
+    document.removeEventListener('mousemove', onMouseMoveCapture, true)
+    selectionPressing = false
+  }
 }
 
 function closeContextMenu() {
@@ -174,7 +211,7 @@ async function createTab(cwd?: string) {
       await ensureTerminal()
       await settleTerminalLayout()
       const { cols, rows } = terminalSize()
-      await consoleStore.create(props.workspaceRoot, cols, rows, cwd)
+      await consoleStore.create(props.workspaceRoot, props.conversationId, cols, rows, cwd)
       await renderActiveTab()
       await syncSize()
       terminal?.focus()
@@ -190,13 +227,14 @@ async function createTab(cwd?: string) {
 
 async function renderActiveTab() {
   if (!terminal) return
+  // activeTab is already scoped to this panel's workspace + conversation.
   const tab = activeTab.value
   if (!tab) {
     // xterm 6.0.0 queues writes (parsed via setTimeout); clear() is
     // synchronous and does not drain the queue, so pending bytes from
     // the previous tab can be parsed into the view after the wipe.
-    // Erase through the write queue so the wipe is ordered after any
-    // pending writes.
+    // Write the ANSI erase through the queue so it is ordered after
+    // any pending writes from the old tab.
     terminal.write('\x1b[2J\x1b[3J\x1b[H')
     renderedSessionId = ''
     renderedOutputLength = 0
@@ -255,9 +293,19 @@ watch(contextMenu, menu => {
   if (menu) installOutsideMenuListeners()
   else removeOutsideMenuListeners?.()
 })
-watch(() => props.workspaceRoot, () => {
-  // Console sessions are independent user-owned processes. Changing the active
-  // workspace must not terminate a Shell from the previous workspace.
+watch(() => props.workspaceRoot, (newRoot) => {
+  if (newRoot && props.active) {
+    void createTab()
+  }
+})
+watch(() => props.conversationId, async () => {
+  // A conversation can already own tabs; pick the first one so the panel
+  // shows its Shell instead of the empty state.
+  const tabs = workspaceTabs.value
+  if (tabs.length > 0 && !tabs.some(tab => tab.id === consoleStore.activeSessionId)) {
+    consoleStore.select(tabs[0].id)
+  }
+  await renderActiveTab()
 })
 
 onMounted(() => {
@@ -277,6 +325,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  removeSelectionGuard?.()
+  removeSelectionGuard = null
   removeOutsideMenuListeners?.()
   removeOutsideMenuListeners = null
   resizeObserver?.disconnect()
@@ -291,11 +341,11 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="terminal-panel flex min-h-0 flex-1 flex-col bg-card text-foreground" @click.self="closeContextMenu">
-    <header class="flex h-8 shrink-0 items-center gap-1 border-b border-border px-2 text-[11px]">
+    <header class="console-chrome flex h-8 shrink-0 items-center gap-1 border-b border-border px-2 text-[11px]">
       <SquareTerminal class="h-3.5 w-3.5 shrink-0 text-accent" />
       <div class="console-tabs min-w-0 flex-1" role="tablist" aria-label="终端标签">
         <button
-          v-for="tab in consoleStore.tabs"
+          v-for="tab in workspaceTabs"
           :key="tab.id"
           type="button"
           role="tab"
@@ -347,9 +397,6 @@ onBeforeUnmount(() => {
       ref="host"
       class="terminal-host min-h-0 flex-1 p-2"
       data-workspace-terminal
-      @pointerdown="handleTerminalPointerDown"
-      @pointerup="handleTerminalPointerUp"
-      @pointercancel="handleTerminalPointerCancel"
     />
   </section>
 </template>
@@ -359,6 +406,11 @@ onBeforeUnmount(() => {
 .terminal-panel :deep(.xterm-screen) { user-select: none; }
 .terminal-host { scrollbar-gutter: stable; user-select: none; }
 .terminal-panel :deep(.xterm-viewport) { overflow-y: auto !important; }
+.console-chrome,
+.console-tabs,
+.console-tab,
+.console-new-tab,
+.terminal-action { @apply select-none; }
 .console-tabs { @apply flex min-w-0 items-center gap-1 overflow-x-auto; }
 .console-tab { @apply flex max-w-32 items-center gap-1 rounded px-1.5 py-1 text-muted; }
 .console-tab:hover { background: hsl(var(--hover)); color: hsl(var(--foreground)); }

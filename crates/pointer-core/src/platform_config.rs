@@ -458,6 +458,7 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+        extra_body: None,
         });
         platform.active_provider_id = "qwen".into();
         platform.model = "qwen3.5-plus".into();

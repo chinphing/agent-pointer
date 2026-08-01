@@ -191,6 +191,7 @@ mod tests {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                extra_body: None,
                 }],
                 ..Default::default()
             },

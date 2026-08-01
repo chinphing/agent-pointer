@@ -54,7 +54,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
   {
     id: 'openai_compatible',
     label: 'OpenAI 兼容',
-    hint: '其它 OpenAI 格式端点；最大输出、创造性、回传推理',
+    hint: '其它 OpenAI 格式端点；可配 extra_body（如 repetition_penalty）',
     defaultId: '',
     defaultName: '',
     defaultBaseUrl: 'https://api.openai.com/v1',

@@ -37,6 +37,45 @@ export interface RuntimeParamsApi {
   setThinkingBudget: (value: number) => void
   reasoningEffort: () => '' | ReasoningEffort
   setReasoningEffort: (value: string) => void
+  /** Pretty JSON for Hermes-style `extraBody` (empty string = unset). */
+  extraBodyJson: () => string
+  /** Parse JSON object into `extraBody`; empty clears. */
+  setExtraBodyJson: (text: string) => { ok: true } | { ok: false; error: string }
+}
+
+/** Normalize a JSON object for `extraBody`; empty / non-object → undefined. */
+export function normalizeExtraBody(v: unknown): Record<string, unknown> | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+  const keys = Object.keys(v as object)
+  if (keys.length === 0) return undefined
+  return { ...(v as Record<string, unknown>) }
+}
+
+export function formatExtraBodyJson(v: unknown): string {
+  const obj = normalizeExtraBody(v)
+  if (!obj) return ''
+  try {
+    return JSON.stringify(obj, null, 2)
+  } catch {
+    return ''
+  }
+}
+
+export function parseExtraBodyJson(
+  text: string
+): { ok: true; value?: Record<string, unknown> } | { ok: false; error: string } {
+  const t = text.trim()
+  if (!t) return { ok: true, value: undefined }
+  try {
+    const parsed = JSON.parse(t) as unknown
+    const obj = normalizeExtraBody(parsed)
+    if (!obj) {
+      return { ok: false, error: '须为 JSON 对象，例如 { "repetition_penalty": 1.1 }' }
+    }
+    return { ok: true, value: obj }
+  } catch {
+    return { ok: false, error: 'JSON 无效' }
+  }
 }
 
 export function useRuntimeParams(
@@ -239,6 +278,37 @@ export function useRuntimeParams(
     }
   }
 
+  function extraBodyJson(): string {
+    const p = provider.value
+    if (!p) return ''
+    const mid = modelId.value
+    if (mid) {
+      return formatExtraBodyJson(p.modelConfigs?.[mid]?.extraBody)
+    }
+    return formatExtraBodyJson(p.extraBody)
+  }
+
+  function setExtraBodyJson(text: string): { ok: true } | { ok: false; error: string } {
+    const p = provider.value
+    if (!p) return { ok: false, error: '无服务商' }
+    const parsed = parseExtraBodyJson(text)
+    if (!parsed.ok) return parsed
+    const mid = modelId.value
+    if (mid) {
+      patchModel(mid, prev => {
+        const next = { ...prev }
+        if (parsed.value) next.extraBody = parsed.value
+        else delete next.extraBody
+        return next
+      })
+    } else if (parsed.value) {
+      p.extraBody = parsed.value
+    } else {
+      delete p.extraBody
+    }
+    return { ok: true }
+  }
+
   return {
     get variant() {
       return variant()
@@ -254,7 +324,9 @@ export function useRuntimeParams(
     thinkingBudget,
     setThinkingBudget,
     reasoningEffort,
-    setReasoningEffort
+    setReasoningEffort,
+    extraBodyJson,
+    setExtraBodyJson
   }
 }
 
@@ -324,6 +396,9 @@ export function hasEffectiveModelOverride(
   ) {
     return true
   }
+  if (normalizeExtraBody(o.extraBody)) {
+    return true
+  }
   return false
 }
 
@@ -370,6 +445,8 @@ export function sanitizeProviderModelConfigs(
     if (o.supportsVision !== undefined) clean.supportsVision = o.supportsVision
     if (o.canGenerateImage !== undefined) clean.canGenerateImage = o.canGenerateImage
     if (o.canGenerateVideo !== undefined) clean.canGenerateVideo = o.canGenerateVideo
+    const extra = normalizeExtraBody(o.extraBody)
+    if (extra) clean.extraBody = extra
     if (
       Object.keys(clean).length
       && hasEffectiveModelOverride(clean, provider, globalFallback, id)

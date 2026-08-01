@@ -93,7 +93,7 @@ pub enum ProviderEvent {
 /// chat/completions 请求**不**携带 `tools` / `tool_choice`（部分网关拒绝空 `tools: []`）。
 /// 本应用默认使用 provider 原生 `tools` / `tool_calls`；当工具列表为空时不发送 `tools`。
 ///
-/// 扩展参数（千问/DeepSeek 等）在配置侧为结构化字段，序列化后展平到请求体根级。
+/// 扩展参数（结构化 thinking / Hermes `extraBody`）序列化后一律展平到请求体根级。
 fn skip_extra_body(v: &Option<Value>) -> bool {
     match v {
         None => true,

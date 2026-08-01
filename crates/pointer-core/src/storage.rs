@@ -470,17 +470,51 @@ fn ensure_local_platform_imported() -> Result<()> {
     Ok(())
 }
 
+/// Keep free-form `extraBody` keys after absorbing structured thinking fields.
+fn leftover_extra_body(extra: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    let Some(serde_json::Value::Object(map)) = extra else {
+        return None;
+    };
+    let mut out = serde_json::Map::new();
+    for (k, v) in map {
+        if matches!(
+            k.as_str(),
+            "enable_thinking" | "thinking_budget" | "reasoning_effort"
+        ) {
+            continue;
+        }
+        out.insert(k.clone(), v.clone());
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(out))
+    }
+}
+
 fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOverrides {
+    let mut enable_thinking = v.enable_thinking.or(v.thinking_enabled);
+    let mut thinking_budget = v.thinking_budget;
+    let mut reasoning_effort = v.reasoning_effort.clone();
+    crate::models::absorb_legacy_extension_config(
+        &mut enable_thinking,
+        &mut thinking_budget,
+        &mut reasoning_effort,
+        None,
+        None,
+        v.extra_body.clone(),
+    );
     ModelRuntimeOverrides {
         reasoning_in_messages: v.reasoning_in_messages,
         temperature: v.temperature,
         max_tokens: v.max_tokens,
-        enable_thinking: v.enable_thinking.or(v.thinking_enabled),
-        thinking_budget: v.thinking_budget,
-        reasoning_effort: v.reasoning_effort.clone(),
+        enable_thinking,
+        thinking_budget,
+        reasoning_effort,
         supports_vision: None,
         can_generate_image: None,
         can_generate_video: None,
+        extra_body: leftover_extra_body(v.extra_body.as_ref()),
     }
 }
 
@@ -488,6 +522,17 @@ fn stored_provider_to_platform(
     p: &StoredProvider,
     legacy_reasoning: Option<bool>,
 ) -> ProviderConfig {
+    let mut enable_thinking = p.enable_thinking.or(p.thinking_enabled);
+    let mut thinking_budget = p.thinking_budget;
+    let mut reasoning_effort = p.reasoning_effort.clone();
+    crate::models::absorb_legacy_extension_config(
+        &mut enable_thinking,
+        &mut thinking_budget,
+        &mut reasoning_effort,
+        None,
+        None,
+        p.extra_body.clone(),
+    );
     ProviderConfig {
         id: p.id.clone(),
         name: p.name.clone(),
@@ -502,9 +547,10 @@ fn stored_provider_to_platform(
             .iter()
             .map(|(k, v)| (k.clone(), stored_model_overrides_to_runtime(v)))
             .collect(),
-        enable_thinking: p.enable_thinking.or(p.thinking_enabled),
-        thinking_budget: p.thinking_budget,
-        reasoning_effort: p.reasoning_effort.clone(),
+        enable_thinking,
+        thinking_budget,
+        reasoning_effort,
+        extra_body: leftover_extra_body(p.extra_body.as_ref()),
     }
 }
 
@@ -675,7 +721,7 @@ impl Default for StoredSettings {
                                     enable_thinking: v.enable_thinking,
                                     thinking_budget: v.thinking_budget,
                                     reasoning_effort: v.reasoning_effort.clone(),
-                                    extra_body: None,
+                                    extra_body: v.extra_body.clone(),
                                     thinking_enabled: None,
                                 },
                             )
@@ -684,7 +730,7 @@ impl Default for StoredSettings {
                     enable_thinking: p.enable_thinking,
                     thinking_budget: p.thinking_budget,
                     reasoning_effort: p.reasoning_effort.clone(),
-                    extra_body: None,
+                    extra_body: p.extra_body.clone(),
                     thinking_enabled: None,
                 })
                 .collect(),

@@ -311,6 +311,11 @@ api_key = "sk-REPLACE-ME"
 base_url = "https://your-openai-compatible-gateway.example.com/v1"
 name = "OpenAI Compatible"
 models = ["gpt-4o", "gpt-4o-mini"]
+# 可选：Hermes 风格扩展参数，发请求时展平到根级（与 temperature 同级）
+# extra_body = { repetition_penalty = 1.1, top_p = 0.8 }
+# 可选：按模型覆盖（写入 modelConfigs[model].extraBody）
+# [llm.providers.openai-compatible.model_extra_body."gpt-4o"]
+# top_p = 0.9
 
 [server]
 addr = "0.0.0.0:8787"

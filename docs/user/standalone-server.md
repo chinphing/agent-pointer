@@ -229,6 +229,28 @@ models = ["qwen3.5-plus", "qwen3.5-turbo"]
 
 `models` 第一项会在当前活跃模型不在列表内时作为默认对话模型（本地/自建模型名也适用）。
 
+### 扩展参数 `extra_body`（本地 / vLLM 等）
+
+部分 OpenAI 兼容端点需要根级采样参数（如 `repetition_penalty`）。可在服务商下配置，启动后写入内存，发请求时与 `temperature` 同级：
+
+```toml
+[llm]
+active_provider = "local"
+
+[llm.providers.local]
+api_key = "no-key"
+base_url = "http://127.0.0.1:8000/v1"
+name = "本地"
+models = ["Qwen3.6-27B-AWQ-INT4"]
+extra_body = { repetition_penalty = 1.1, top_p = 0.8 }
+
+# 可选：按模型覆盖（覆盖服务商 extra_body 中的同名键）
+[llm.providers.local.model_extra_body."Qwen3.6-27B-AWQ-INT4"]
+top_p = 0.9
+```
+
+修改后需重启 `pointer-server`。更多说明见 [`../llm/model-thinking-api.md`](../llm/model-thinking-api.md)。
+
 ---
 
 ## 数据目录

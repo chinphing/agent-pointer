@@ -454,6 +454,7 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+        extra_body: None,
         };
         let wired = wire_audio_data_for_provider(&provider, "wav", "abc123");
         assert_eq!(wired, "data:audio/wav;base64,abc123");
@@ -474,6 +475,7 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+        extra_body: None,
         };
         let wired = wire_audio_data_for_provider(&provider, "wav", "abc123");
         assert_eq!(wired, "abc123");

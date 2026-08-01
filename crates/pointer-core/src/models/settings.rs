@@ -65,6 +65,9 @@ pub struct ModelRuntimeOverrides {
         rename = "canGenerateVideo"
     )]
     pub can_generate_video: Option<bool>,
+    /// Hermes-style free-form chat/completions fields (merged into request root on wire).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
+    pub extra_body: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +116,10 @@ pub struct ProviderConfig {
         rename = "reasoningEffort"
     )]
     pub reasoning_effort: Option<String>,
+    /// Hermes-style free-form chat/completions fields for all models under this provider
+    /// (per-model `extraBody` overlays). Flattened to request root on wire.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
+    pub extra_body: Option<Value>,
 }
 /// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -545,11 +552,36 @@ fn effective_reasoning_effort(
 }
 
 /// Extension fields for **active** provider + **current** `settings.model` (per-model overrides win).
+///
+/// Merge order (later wins): provider `extraBody` → model `extraBody` → structured
+/// UI fields (`enable_thinking` / `thinking_budget` / `reasoning_effort`). Aligned with
+/// Hermes `custom_providers[].extra_body` + OpenAI SDK root-level merge.
 pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
     let (provider, model) = active_provider_and_model(settings)?;
     let model_over = provider.model_configs.get(model);
-    let mut m = Map::new();
 
+    let mut m = match merge_shallow_json_objects(
+        provider.extra_body.as_ref(),
+        model_over.and_then(|o| o.extra_body.as_ref()),
+    ) {
+        Some(Value::Object(map)) => map,
+        Some(_) => Map::new(),
+        None => Map::new(),
+    };
+    fill_structured_chat_extra_fields(settings, provider, model_over, &mut m);
+    if m.is_empty() {
+        None
+    } else {
+        Some(Value::Object(m))
+    }
+}
+
+fn fill_structured_chat_extra_fields(
+    settings: &ModelSettings,
+    provider: &ProviderConfig,
+    model_over: Option<&ModelRuntimeOverrides>,
+    m: &mut Map<String, Value>,
+) {
     if provider_uses_dashscope_compatible_api(provider) {
         let enable = settings
             .round_enable_thinking
@@ -561,6 +593,8 @@ pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
                     .round_thinking_budget
                     .unwrap_or_else(|| effective_thinking_budget(provider, model_over));
                 m.insert("thinking_budget".into(), Value::Number(budget.into()));
+            } else {
+                m.remove("thinking_budget");
             }
         }
     }
@@ -569,12 +603,6 @@ pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
         if let Some(effort) = effective_reasoning_effort(provider, model_over) {
             m.insert("reasoning_effort".into(), Value::String(effort));
         }
-    }
-
-    if m.is_empty() {
-        None
-    } else {
-        Some(Value::Object(m))
     }
 }
 
@@ -646,12 +674,9 @@ fn qwen_model_supports_explicit_cache(model: &str) -> bool {
     m.starts_with("qwen")
 }
 
-/// DashScope / DeepSeek：扩展参数写在请求体根级，不用 `extra_body` 包裹。
-pub fn chat_request_flattens_extra_body(settings: &ModelSettings) -> bool {
-    let Some((provider, _)) = active_provider_and_model(settings) else {
-        return false;
-    };
-    provider_uses_dashscope_compatible_api(provider) || provider_uses_deepseek_api(provider)
+/// Always flatten `extra_body` to the chat/completions request root (Hermes / OpenAI SDK).
+pub fn chat_request_flattens_extra_body(_settings: &ModelSettings) -> bool {
+    true
 }
 
 pub fn provider_uses_deepseek_api(provider: &ProviderConfig) -> bool {
@@ -1141,6 +1166,7 @@ impl Default for ModelSettings {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                    extra_body: None,
                 },
                 ProviderConfig {
                     id: "deepseek".into(),
@@ -1155,6 +1181,7 @@ impl Default for ModelSettings {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                    extra_body: None,
                 },
                 ProviderConfig {
                     id: "doubao".into(),
@@ -1169,6 +1196,7 @@ impl Default for ModelSettings {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                    extra_body: None,
                 },
             ],
             active_provider_id: default_active_provider_id(),
@@ -2189,6 +2217,7 @@ impl Default for PlatformSettings {
                     enable_thinking: Some(true),
                     thinking_budget: Some(2048),
                     reasoning_effort: None,
+                    extra_body: None,
                 },
                 ProviderConfig {
                     id: "deepseek".into(),
@@ -2203,6 +2232,7 @@ impl Default for PlatformSettings {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                    extra_body: None,
                 },
                 ProviderConfig {
                     id: "doubao".into(),
@@ -2217,6 +2247,7 @@ impl Default for PlatformSettings {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                    extra_body: None,
                 },
             ],
             active_provider_id: default_active_provider_id(),
@@ -2915,6 +2946,40 @@ mod effective_extra_body_tests {
         assert!(!o.contains_key("extra_body"));
         assert_eq!(o.get("enable_thinking"), Some(&Value::Bool(true)));
         assert_eq!(o.get("thinking_budget"), Some(&Value::Number(100.into())));
+    }
+
+    #[test]
+    fn hermes_style_extra_body_merges_and_flattens_for_openai_compatible() {
+        let mut s = ModelSettings::default();
+        s.active_provider_id = "doubao".into();
+        s.model = "ep-demo".into();
+        s.providers[2].models = vec!["ep-demo".into()];
+        s.providers[2].extra_body = Some(serde_json::json!({
+            "repetition_penalty": 1.1,
+            "top_p": 0.8
+        }));
+        s.providers[2].model_configs.insert(
+            "ep-demo".into(),
+            ModelRuntimeOverrides {
+                extra_body: Some(serde_json::json!({ "top_p": 0.9 })),
+                ..Default::default()
+            },
+        );
+        let v = effective_chat_extra_body(&s).expect("extra");
+        assert_eq!(v.get("repetition_penalty"), Some(&serde_json::json!(1.1)));
+        assert_eq!(v.get("top_p"), Some(&serde_json::json!(0.9)));
+        assert!(chat_request_flattens_extra_body(&s));
+        let body = serde_json::json!({
+            "model": "ep-demo",
+            "temperature": 0.7,
+            "extra_body": v
+        });
+        let out = flatten_chat_extra_body_on_wire(body, &s);
+        let o = out.as_object().unwrap();
+        assert!(!o.contains_key("extra_body"));
+        assert_eq!(o.get("temperature"), Some(&serde_json::json!(0.7)));
+        assert_eq!(o.get("repetition_penalty"), Some(&serde_json::json!(1.1)));
+        assert_eq!(o.get("top_p"), Some(&serde_json::json!(0.9)));
     }
 
     #[test]

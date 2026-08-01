@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { RuntimeParamsApi } from '../../composables/useRuntimeParams'
 
 const props = defineProps<{
@@ -7,6 +7,29 @@ const props = defineProps<{
 }>()
 
 const variant = computed(() => props.api.variant)
+
+const extraBodyDraft = ref('')
+const extraBodyError = ref('')
+
+watch(
+  () => props.api.extraBodyJson(),
+  value => {
+    extraBodyDraft.value = value
+    extraBodyError.value = ''
+  },
+  { immediate: true }
+)
+
+function commitExtraBody() {
+  const result = props.api.setExtraBodyJson(extraBodyDraft.value)
+  if (!result.ok) {
+    extraBodyError.value = result.error
+    console.warn('[settings] extraBody JSON invalid', result.error)
+    return
+  }
+  extraBodyError.value = ''
+  extraBodyDraft.value = props.api.extraBodyJson()
+}
 </script>
 
 <template>
@@ -114,6 +137,24 @@ const variant = computed(() => props.api.variant)
           />
         </label>
       </div>
+    </div>
+
+    <!-- Hermes-style extra_body: flattened to request root on wire -->
+    <div class="space-y-1.5">
+      <div class="flex items-baseline justify-between gap-2">
+        <span class="text-[12px] text-muted">扩展参数 (extra_body)</span>
+        <span class="text-[10px] text-muted/80">JSON 对象，发请求时与 temperature 同级</span>
+      </div>
+      <textarea
+        v-model="extraBodyDraft"
+        rows="4"
+        spellcheck="false"
+        placeholder='{ "repetition_penalty": 1.1, "top_p": 0.8 }'
+        class="w-full min-h-[5.5rem] px-2.5 py-2 rounded-lg bg-card border border-border text-foreground text-[11px] font-mono leading-relaxed outline-none focus:border-accent/50 resize-y"
+        :class="extraBodyError ? 'border-danger/60' : ''"
+        @blur="commitExtraBody"
+      />
+      <p v-if="extraBodyError" class="text-[11px] text-danger">{{ extraBodyError }}</p>
     </div>
   </div>
 </template>

@@ -70,6 +70,8 @@
 
 - `RuntimeParamsForm` + `useRuntimeParams`：服务商级用 `providerScopeModelId === null`，模型定制用 `modelConfigModalId`。
 - 改 `modelConfigs` 时替换顶层对象引用（见 `useRuntimeParams.patchModel`）。
+- **扩展参数 `extraBody`**：JSON 对象；失焦时解析写入。服务商级与模型级均可配；模型覆盖浅合并服务商。
+  请求时一律展平到 chat/completions 根级（对齐 Hermes）。详见 [`../llm/model-thinking-api.md`](../llm/model-thinking-api.md)。
 
 ## 新增服务商与千问/深度求索一致
 

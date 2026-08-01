@@ -457,6 +457,11 @@ export interface ModelRuntimeOverrides {
   canGenerateImage?: boolean
   /** Whether the model can generate videos (`video_generate`). */
   canGenerateVideo?: boolean
+  /**
+   * Hermes-style free-form chat/completions fields (JSON object).
+   * Flattened to request root on wire (same level as temperature).
+   */
+  extraBody?: Record<string, unknown>
 }
 
 /** User-facing performance tier for chat / media understanding agents. */
@@ -508,6 +513,11 @@ export interface ProviderConfig {
   thinkingBudget?: number
   /** DeepSeek: `reasoning_effort` — `high` | `max`. */
   reasoningEffort?: 'high' | 'max'
+  /**
+   * Hermes-style free-form chat/completions fields for this provider.
+   * Per-model `extraBody` overlays; flattened to request root on wire.
+   */
+  extraBody?: Record<string, unknown>
 }
 
 export interface AgentModelRef {

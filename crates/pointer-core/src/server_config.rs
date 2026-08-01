@@ -64,6 +64,54 @@ struct LlmProviderToml {
     name: String,
     #[serde(default)]
     models: Vec<String>,
+    /// Hermes-style free-form chat/completions fields (flattened to request root).
+    /// Example: `extra_body = { repetition_penalty = 1.1, top_p = 0.8 }`
+    #[serde(default)]
+    extra_body: Option<serde_json::Value>,
+    /// Per-model `extraBody` overlays (`modelConfigs[model].extraBody`).
+    /// Example:
+    /// ```toml
+    /// [llm.providers.local.model_extra_body."Qwen3.6-27B-AWQ-INT4"]
+    /// repetition_penalty = 1.1
+    /// ```
+    #[serde(default)]
+    model_extra_body: HashMap<String, serde_json::Value>,
+}
+
+/// Keep non-empty JSON objects only (same shape as runtime `ProviderConfig.extra_body`).
+fn normalize_llm_toml_extra_body(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
+    match value {
+        Some(serde_json::Value::Object(map)) if !map.is_empty() => {
+            Some(serde_json::Value::Object(map.clone()))
+        }
+        _ => None,
+    }
+}
+
+fn apply_llm_provider_extra_body(provider: &mut ProviderConfig, cfg: &LlmProviderToml) {
+    provider.extra_body = normalize_llm_toml_extra_body(cfg.extra_body.as_ref());
+    for (model, body) in &cfg.model_extra_body {
+        let model = model.trim();
+        if model.is_empty() {
+            continue;
+        }
+        let Some(body) = normalize_llm_toml_extra_body(Some(body)) else {
+            continue;
+        };
+        let entry = provider.model_configs.entry(model.to_string()).or_default();
+        entry.extra_body = Some(body);
+        log::info!(
+            "server_config: applied model_extra_body provider={} model={}",
+            provider.id,
+            model
+        );
+    }
+    if provider.extra_body.is_some() {
+        log::info!(
+            "server_config: applied provider extra_body provider={}",
+            provider.id
+        );
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -700,9 +748,10 @@ fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
             if !cfg.models.is_empty() {
                 existing.models = cfg.models.clone();
             }
+            apply_llm_provider_extra_body(existing, cfg);
             log::info!("server_config: injected llm api_key for provider {pid}");
         } else {
-            platform.providers.push(ProviderConfig {
+            let mut provider = ProviderConfig {
                 id: pid.to_string(),
                 name: if cfg.name.trim().is_empty() {
                     pid.to_string()
@@ -719,7 +768,10 @@ fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
                 enable_thinking: None,
                 thinking_budget: None,
                 reasoning_effort: None,
-            });
+                extra_body: None,
+            };
+            apply_llm_provider_extra_body(&mut provider, cfg);
+            platform.providers.push(provider);
             log::info!("server_config: added llm provider {pid} from config");
         }
     }
@@ -987,6 +1039,7 @@ api_base = "https://legacy.example.com"
                 base_url: "http://127.0.0.1:8000/v1".into(),
                 name: "xiaohe".into(),
                 models: vec!["qwen3.6-27b".into()],
+                ..Default::default()
             },
         );
 
@@ -1021,6 +1074,7 @@ api_base = "https://legacy.example.com"
                 base_url: String::new(),
                 name: String::new(),
                 models: vec!["qwen3.5-plus".into(), "qwen3.5-turbo".into()],
+                ..Default::default()
             },
         );
 
@@ -1028,5 +1082,55 @@ api_base = "https://legacy.example.com"
 
         assert_eq!(platform.active_provider_id, "qwen");
         assert_eq!(platform.model, "qwen3.5-turbo");
+    }
+
+    #[test]
+    fn apply_llm_section_injects_extra_body_and_model_extra_body() {
+        let _guard = env_guard();
+        std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
+
+        let mut platform = PlatformSettings::default();
+        let mut llm = LlmSection::default();
+        llm.active_provider = "local".into();
+        let mut model_extra = HashMap::new();
+        model_extra.insert(
+            "Qwen3.6-27B-AWQ-INT4".into(),
+            serde_json::json!({ "top_p": 0.9 }),
+        );
+        llm.providers.insert(
+            "local".into(),
+            LlmProviderToml {
+                api_key: "no-key".into(),
+                base_url: "http://127.0.0.1:8000/v1".into(),
+                name: "local".into(),
+                models: vec!["Qwen3.6-27B-AWQ-INT4".into()],
+                extra_body: Some(serde_json::json!({
+                    "repetition_penalty": 1.1,
+                    "top_p": 0.8
+                })),
+                model_extra_body: model_extra,
+            },
+        );
+
+        apply_llm_section(&mut platform, &llm);
+
+        let p = platform
+            .providers
+            .iter()
+            .find(|p| p.id == "local")
+            .expect("local provider");
+        assert_eq!(
+            p.extra_body,
+            Some(serde_json::json!({
+                "repetition_penalty": 1.1,
+                "top_p": 0.8
+            }))
+        );
+        assert_eq!(
+            p.model_configs
+                .get("Qwen3.6-27B-AWQ-INT4")
+                .and_then(|o| o.extra_body.as_ref()),
+            Some(&serde_json::json!({ "top_p": 0.9 }))
+        );
     }
 }

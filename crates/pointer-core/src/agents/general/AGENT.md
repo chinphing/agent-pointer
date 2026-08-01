@@ -103,7 +103,7 @@ solely because this block is present.
   Split across calls when needed.
 - **Re-process** when the user is unsatisfied → reuse the same **refs** / **localPath**;
   they need **not** resend the file.
-- Do **not** show absolute paths in user-facing replies.
+- Do **not** show bare absolute paths in user-facing prose. `MEDIA:<absolute-path>` is required for file delivery and is exempt: the host extracts the marker rather than displaying the path to the user.
 
 **Legacy saved attachment blocks:** When a user message includes `Saved attachment:` /
 `pointer-media://` / `Local path:` (older sessions), same rules apply.

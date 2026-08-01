@@ -236,7 +236,10 @@ pub fn format_delivered_attachments_api_manifest(attachments: &[MediaAttachment]
     if attachments.is_empty() {
         return String::new();
     }
-    let mut lines = vec![DELIVERED_ATTACHMENTS_MARKER.to_string()];
+    let mut lines = vec![
+        DELIVERED_ATTACHMENTS_MARKER.to_string(),
+        "Input metadata only — these files were already delivered. Do not echo this list; when the user asks to receive a file, deliver it with `MEDIA:<localPath>` or `MEDIA:<ref>` instead.".to_string(),
+    ];
     for (i, att) in attachments.iter().enumerate() {
         lines.push(format_attachment_entry(i + 1, att));
     }
@@ -388,6 +391,8 @@ mod tests {
         };
         let m = format_delivered_attachments_api_manifest(&[att]);
         assert!(m.contains(DELIVERED_ATTACHMENTS_MARKER));
+        assert!(m.contains("Input metadata only"));
+        assert!(m.contains("MEDIA:<localPath>"));
         assert!(!m.contains(USER_ATTACHMENTS_MARKER));
         assert!(!m.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
         assert!(m.contains("**out.png**"));

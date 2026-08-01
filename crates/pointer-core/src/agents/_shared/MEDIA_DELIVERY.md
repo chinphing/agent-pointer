@@ -4,6 +4,12 @@ Write the **final** reply in **assistant message content** — there is no separ
 
 The `MEDIA:` marker works for **any local file** (images, video, audio, HTML, PDF, archives, source code, etc.) — not only media.
 
+### File delivery intent (mandatory)
+
+When the user asks to receive a file — including “send it”, “give me the file”, “download/export it”, “发我”, “给我”, or equivalent wording — treat the requested outcome as an attachment delivery by default. Do **not** require the user to say “MEDIA”, “attachment”, or “direct download”.
+
+If a real local file exists or is produced for that request, the final reply **must** include one `MEDIA:<absolute-path>` or `MEDIA:<pointer-media://…>` line for each requested file. A filename, bare path, `localPath`/`ref` metadata list, or `scp`/shell command is **not** file delivery. Provide a path or transfer command instead only when the user explicitly asks for that representation rather than the file itself.
+
 ### Format
 
 - Optional short caption, then **one line per file at the end**:

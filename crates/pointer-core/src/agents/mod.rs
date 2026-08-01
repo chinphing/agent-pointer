@@ -1756,7 +1756,7 @@ mod builtin_agent_tests {
                 .any(|id| id == "agent-browser"),
             "coder defaultSkillIds should include agent-browser"
         );
-        for tool in ["skill_read"] {
+        for tool in ["skill_read", "session_search"] {
             assert!(
                 agent
                     .def

@@ -37,6 +37,7 @@ accessPolicy:
     - web_search
     - web_fetch
     - skill_read
+    - session_search
     - media_understand
     - im_send
     - ask_user

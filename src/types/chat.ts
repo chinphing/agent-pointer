@@ -869,6 +869,8 @@ export type StreamEvent =
       scopedMessageId?: string
     }
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string; scopedMessageId?: string }
+  | { kind: 'console_output_delta'; sessionId: string; workspaceRoot: string; cwd: string; output: string }
+  | { kind: 'console_session_exited'; sessionId: string; workspaceRoot: string; cwd: string; exitCode?: number }
   | {
       kind: 'terminal_needs_input'
       messageId: string

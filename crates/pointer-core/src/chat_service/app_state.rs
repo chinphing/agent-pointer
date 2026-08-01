@@ -275,6 +275,8 @@ pub struct AppState {
             std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>,
         >,
     >,
+    /// Long-lived user-owned PTY sessions shown by the workspace console.
+    pub console_sessions: Arc<crate::console_session::ConsoleSessionManager>,
     /// Active main-agent task board key per conversation.
     pub active_main_task_boards: Mutex<HashMap<String, String>>,
     /// Main task board anchor bindings: conversation -> (store_key -> user_message_id).
@@ -387,6 +389,7 @@ impl AppState {
             im_ask_user: Arc::new(crate::im_ask_user::ImAskUserRegistry::new()),
             monitor_picks: Mutex::new(HashMap::new()),
             terminal_input_pending: Mutex::new(HashMap::new()),
+            console_sessions: Arc::new(crate::console_session::ConsoleSessionManager::default()),
             active_main_task_boards: Mutex::new(HashMap::new()),
             task_board_anchor_by_store_key: Mutex::new(HashMap::new()),
             last_activity_at: Mutex::new(Instant::now()),

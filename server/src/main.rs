@@ -669,6 +669,19 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/media/deps", get(check_media_deps))
         .route("/api/chat", post(send_chat))
+        .route("/api/console/sessions", post(create_console_session))
+        .route(
+            "/api/console/sessions/:session_id",
+            delete(close_console_session),
+        )
+        .route(
+            "/api/console/sessions/:session_id/input",
+            post(write_console_session),
+        )
+        .route(
+            "/api/console/sessions/:session_id/resize",
+            post(resize_console_session),
+        )
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
         .route(
             "/api/chat/:conversation_id/abort-terminal",
@@ -3030,6 +3043,83 @@ async fn cancel_chat(
     require_platform_access(&state)?;
     state.dispatcher.cancel_conversation(&conversation_id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct ConsoleSessionCreatePayload {
+    #[serde(rename = "workspaceRoot")]
+    workspace_root: String,
+    #[serde(default)]
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+}
+
+#[derive(Deserialize)]
+struct ConsoleSessionInputPayload {
+    data: String,
+}
+
+#[derive(Deserialize)]
+struct ConsoleSessionResizePayload {
+    cols: u16,
+    rows: u16,
+}
+
+async fn create_console_session(
+    State(state): State<ServerState>,
+    Json(payload): Json<ConsoleSessionCreatePayload>,
+) -> Result<Json<pointer_core::console_session::ConsoleSessionInfo>, ApiError> {
+    require_platform_access(&state)?;
+    state
+        .core
+        .console_sessions
+        .create(
+            &payload.workspace_root,
+            payload.cwd.as_deref(),
+            payload.cols,
+            payload.rows,
+        )
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+async fn write_console_session(
+    State(state): State<ServerState>,
+    Path(session_id): Path<String>,
+    Json(payload): Json<ConsoleSessionInputPayload>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    state
+        .core
+        .console_sessions
+        .write(&session_id, &payload.data)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn resize_console_session(
+    State(state): State<ServerState>,
+    Path(session_id): Path<String>,
+    Json(payload): Json<ConsoleSessionResizePayload>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    state
+        .core
+        .console_sessions
+        .resize(&session_id, payload.cols, payload.rows)
+        .map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn close_console_session(
+    State(state): State<ServerState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(serde_json::json!({
+        "closed": state.core.console_sessions.close(&session_id)
+    })))
 }
 
 async fn abort_terminal_command(

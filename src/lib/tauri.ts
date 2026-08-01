@@ -123,6 +123,29 @@ export async function getTurnFileDiff(
   })
 }
 
+export async function createConsoleSession(
+  input: import('./api').ConsoleSessionCreateInput
+): Promise<import('./api').ConsoleSessionInfo> {
+  return await invoke<import('./api').ConsoleSessionInfo>('create_console_session', {
+    workspaceRoot: input.workspaceRoot,
+    cwd: input.cwd,
+    cols: input.cols,
+    rows: input.rows
+  })
+}
+
+export async function writeConsoleSession(sessionId: string, data: string): Promise<void> {
+  await invoke('write_console_session', { sessionId, data })
+}
+
+export async function resizeConsoleSession(sessionId: string, cols: number, rows: number): Promise<void> {
+  await invoke('resize_console_session', { sessionId, cols, rows })
+}
+
+export async function closeConsoleSession(sessionId: string): Promise<boolean> {
+  return await invoke<boolean>('close_console_session', { sessionId })
+}
+
 export async function abortTerminalCommand(
   conversationId: string,
   toolCallId?: string

@@ -23,6 +23,13 @@ pub fn broadcast_stream(ev: &StreamEvent) {
     }
 }
 
+/// Deliver a non-chat event (such as a persistent console PTY update) to every
+/// host subscriber. Unlike [`publish_stream`], this does not require an active
+/// chat run or its per-run mpsc sender.
+pub fn publish_global_stream(ev: StreamEvent) {
+    broadcast_stream(&ev);
+}
+
 /// Deliver a stream event to UI subscribers and the per-run mpsc sink (web SSE forward).
 pub fn publish_stream(tx: &ChatStreamSender, ev: StreamEvent) {
     broadcast_stream(&ev);

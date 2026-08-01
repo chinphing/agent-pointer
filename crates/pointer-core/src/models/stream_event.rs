@@ -201,6 +201,23 @@ pub enum StreamEvent {
         )]
         scoped_message_id: Option<String>,
     },
+    ConsoleOutputDelta {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "workspaceRoot")]
+        workspace_root: String,
+        cwd: String,
+        output: String,
+    },
+    ConsoleSessionExited {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "workspaceRoot")]
+        workspace_root: String,
+        cwd: String,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "exitCode")]
+        exit_code: Option<i32>,
+    },
     TerminalNeedsInput {
         #[serde(rename = "messageId")]
         message_id: String,

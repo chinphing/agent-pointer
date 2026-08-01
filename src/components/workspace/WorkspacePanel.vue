@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   ArrowDown,
@@ -13,6 +13,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  SquareTerminal,
   Trash2,
   X
 } from 'lucide-vue-next'
@@ -30,6 +31,8 @@ import {
 import type { DiffLine } from '../chat/DiffView.vue'
 import type { GitChange, WorkspaceEntry, WorkspaceFilePreview as WorkspaceFilePreviewData } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
+import { lastTurnFileChanges } from '../../lib/lastTurnFileChanges'
+import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 import { workspaceRelativeDisplayPath } from '../../lib/toolCallDisplay'
 import {
@@ -56,6 +59,8 @@ import DiffView from '../chat/DiffView.vue'
 import WorkspaceFilePreview from './WorkspaceFilePreview.vue'
 import WorkspaceTreeNode from './WorkspaceTreeNode.vue'
 import type { WorkspaceTreeNodeModel } from './WorkspaceTreeNode.vue'
+
+const TerminalPanel = defineAsyncComponent(() => import('./TerminalPanel.vue'))
 
 const props = defineProps<{
   workspaceRoot: string
@@ -97,21 +102,25 @@ type TurnDiffPreviewTab = BasePreviewTab & {
   baselineMissing: boolean
 }
 type PreviewTab = FilePreviewTab | DiffPreviewTab | TurnDiffPreviewTab
-type PrimaryView = 'files' | 'changes'
+type PrimaryView = 'terminal' | 'files' | 'changes'
 type ContextMenuState =
   | { kind: 'tree'; node: TreeNode; left: number; top: number }
   | { kind: 'change'; change: GitChange; left: number; top: number }
   | { kind: 'tab'; tabId: string; left: number; top: number }
 
 const workspacePanelStore = useWorkspacePanelStore()
+const chat = useChatStore()
 const WIDTH_STORAGE_KEY = 'pointer.workspacePanel.width'
+const CHANGES_REFRESH_TTL_MS = 1_500
 const activeView = ref<PrimaryView | string>('files')
 const previewTabs = ref<PreviewTab[]>([])
 const roots = ref<TreeNode[]>([])
 const changes = ref<GitChange[]>([])
 const loadingFiles = ref(false)
 const loadingChanges = ref(false)
+const workspaceTransitioning = ref(false)
 const error = ref('')
+const refreshWarning = ref('')
 const gitError = ref<import('../../lib/api').GitErrorInfo | null>(null)
 const panelWidth = ref(readWorkspacePanelWidth(typeof localStorage === 'undefined' ? null : localStorage.getItem(WIDTH_STORAGE_KEY)))
 const resizing = ref(false)
@@ -173,6 +182,9 @@ function changeRowKey(change: GitChange): string {
 /** Drop stale async results when the user switches workspace / tabs quickly. */
 let rootLoadSeq = 0
 let changesLoadSeq = 0
+let changesRefreshInFlight: Promise<void> | null = null
+let changesRefreshStartedAt = 0
+let changesRefreshQueued = false
 
 /**
  * Load the file tree.
@@ -184,6 +196,7 @@ async function loadRoot(options?: { silent?: boolean }) {
   const workspaceRoot = props.workspaceRoot
   if (!hasWorkspace.value) {
     roots.value = []
+    workspaceTransitioning.value = false
     return
   }
   if (!silent) {
@@ -197,11 +210,14 @@ async function loadRoot(options?: { silent?: boolean }) {
     roots.value = silent
       ? mergeWorkspaceTreePreserveState(roots.value, entries)
       : entries.map(entry => ({ ...entry }))
+    workspaceTransitioning.value = false
+    refreshWarning.value = ''
   } catch (err) {
     if (seq !== rootLoadSeq || props.workspaceRoot !== workspaceRoot) return
     const message = err instanceof Error ? err.message : String(err)
     if (silent) {
       console.warn('[WorkspacePanel] background file tree failed', message)
+      refreshWarning.value = '工作区刷新失败，显示的可能不是最新内容'
     } else {
       error.value = message
       roots.value = []
@@ -252,11 +268,13 @@ async function loadChanges(options?: { silent?: boolean }) {
     if (seq !== changesLoadSeq || props.workspaceRoot !== workspaceRoot) return
     changes.value = result.changes
     gitError.value = result.error ?? null
+    refreshWarning.value = ''
   } catch (err) {
     if (seq !== changesLoadSeq || props.workspaceRoot !== workspaceRoot) return
     const message = err instanceof Error ? err.message : String(err)
     if (silent) {
       console.warn('[WorkspacePanel] background git status failed', message)
+      refreshWarning.value = 'Git 变更刷新失败，显示的可能不是最新内容'
     } else {
       changes.value = []
       error.value = message
@@ -266,9 +284,24 @@ async function loadChanges(options?: { silent?: boolean }) {
   }
 }
 
-/** Keep the Changes badge current even when the Files tab is active. */
-function refreshChangesBadge() {
-  void loadChanges({ silent: true })
+/** Keep the Changes badge current without overlapping or rapid duplicate git-status requests. */
+function refreshChangesBadge(options?: { force?: boolean }) {
+  const force = options?.force === true
+  const now = Date.now()
+  if (changesRefreshInFlight) {
+    changesRefreshQueued = changesRefreshQueued || force
+    return changesRefreshInFlight
+  }
+  if (!force && now - changesRefreshStartedAt < CHANGES_REFRESH_TTL_MS) return Promise.resolve()
+
+  changesRefreshStartedAt = now
+  changesRefreshInFlight = loadChanges({ silent: true }).finally(() => {
+    changesRefreshInFlight = null
+    if (!changesRefreshQueued) return
+    changesRefreshQueued = false
+    void refreshChangesBadge({ force: true })
+  })
+  return changesRefreshInFlight
 }
 
 /** Switch primary nav immediately; do not reload the file tree (keeps scroll + expanded folders). */
@@ -283,7 +316,7 @@ function activatePrimaryView(nextView: PrimaryView) {
   }
   // First open of Changes may still need data; later switches keep the list.
   if (!changes.value.length && !loadingChanges.value) {
-    void loadChanges({ silent: true })
+    void refreshChangesBadge({ force: true })
   }
 }
 
@@ -394,45 +427,31 @@ function openTurnDiff(conversationId: string, turnId: string, path: string) {
   const reactiveTab = previewTabs.value[previewTabs.value.length - 1] as TurnDiffPreviewTab
   activeView.value = id
   void loadTurnDiffTab(reactiveTab)
-  refreshChangesBadge()
 }
 
 /** Explicit toolbar refresh — shows loading; still non-blocking for the click handler. */
 function refreshActiveTab() {
+  if (activeView.value === 'terminal') {
+    return
+  }
   if (activeView.value === 'files') {
     void loadRoot()
-    refreshChangesBadge()
+    void refreshChangesBadge({ force: true })
   } else if (activeView.value === 'changes') {
     void loadChanges()
   } else if (activeFileTab.value) {
     void loadFileTab(activeFileTab.value)
-    refreshChangesBadge()
   } else if (activeDiffTab.value) {
     void loadDiffTab(activeDiffTab.value)
-    refreshChangesBadge()
   } else if (activeTurnDiffTab.value) {
     void loadTurnDiffTab(activeTurnDiffTab.value)
-    refreshChangesBadge()
   }
 }
 
-/** Conversation / workspace switch: keep current UI, refresh quietly in background. */
-function refreshActiveTabInBackground() {
-  if (activeView.value === 'files') {
-    void loadRoot({ silent: true })
-    refreshChangesBadge()
-  } else if (activeView.value === 'changes') {
-    void loadChanges({ silent: true })
-  } else if (activeFileTab.value) {
-    void loadFileTab(activeFileTab.value)
-    refreshChangesBadge()
-  } else if (activeDiffTab.value) {
-    void loadDiffTab(activeDiffTab.value)
-    refreshChangesBadge()
-  } else if (activeTurnDiffTab.value) {
-    void loadTurnDiffTab(activeTurnDiffTab.value)
-    refreshChangesBadge()
-  }
+/** Refresh file tree and change badge after a completed workspace mutation. */
+function refreshWorkspaceAfterMutation() {
+  void loadRoot({ silent: true })
+  void refreshChangesBadge({ force: true })
 }
 
 function selectFile(node: Pick<TreeNode, 'kind' | 'name' | 'path'> & { sizeBytes?: number }) {
@@ -561,7 +580,8 @@ function closePreviewTabs(targetId: string, action: WorkspaceTabCloseAction = 'c
   const ids = previewTabs.value.map(item => item.id)
   const closingIds = workspaceTabIdsToClose(ids, targetId, action)
   const target = previewTabs.value.find(item => item.id === targetId)
-  const fallback: PrimaryView = target?.kind === 'diff' || target?.kind === 'turn-diff' ? 'changes' : 'files'
+  const defaultView: PrimaryView = 'terminal'
+  const fallback: PrimaryView = target?.kind === 'diff' || target?.kind === 'turn-diff' ? 'changes' : defaultView
   activeView.value = workspaceActiveAfterClose(ids, activeView.value, closingIds, targetId, fallback)
   previewTabs.value = previewTabs.value.filter(item => !closingIds.includes(item.id))
 }
@@ -704,7 +724,7 @@ async function confirmPendingDelete() {
       await loadRoot({ silent: true })
     }
     pendingDelete.value = null
-    refreshChangesBadge()
+    void refreshChangesBadge({ force: true })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[WorkspacePanel] delete workspace path failed', message)
@@ -918,13 +938,16 @@ let loadedWorkspaceRoot = ''
 let loadedConversationId = ''
 
 function resetWorkspaceSurface(nextRoot: string, nextConversationId: string) {
+  const previousRoot = loadedWorkspaceRoot
   loadedWorkspaceRoot = nextRoot
   loadedConversationId = nextConversationId
   previewTabs.value = []
   roots.value = []
   changes.value = []
+  workspaceTransitioning.value = Boolean(nextRoot)
   gitError.value = null
   error.value = ''
+  refreshWarning.value = ''
   activeView.value = 'files'
   closeTreeSearch()
   closeContextMenu()
@@ -932,7 +955,7 @@ function resetWorkspaceSurface(nextRoot: string, nextConversationId: string) {
   rootLoadSeq++
   changesLoadSeq++
   void loadRoot({ silent: true })
-  refreshChangesBadge()
+  void refreshChangesBadge({ force: true })
 }
 
 function onConversationChanged(nextConversationId: string) {
@@ -940,14 +963,14 @@ function onConversationChanged(nextConversationId: string) {
   // Turn-diff tabs are conversation-scoped; keep file/git tabs for the same workspace.
   previewTabs.value = filterPreviewTabsForConversation(previewTabs.value, nextConversationId)
   if (
-    activeView.value !== 'files'
+    activeView.value !== 'terminal'
+    && activeView.value !== 'files'
     && activeView.value !== 'changes'
     && !previewTabs.value.some(tab => tab.id === activeView.value)
   ) {
-    activeView.value = 'files'
+    activeView.value = 'terminal'
   }
   closeContextMenu()
-  refreshActiveTabInBackground()
 }
 
 watch(
@@ -971,6 +994,16 @@ watch(
     onConversationChanged(nextConversationId)
   },
   { immediate: true }
+)
+
+watch(
+  () => chat.generating,
+  (generating, wasGenerating) => {
+    if (!wasGenerating || generating || !hasWorkspace.value) return
+    const current = chat.current
+    if (current?.id !== props.conversationId || !lastTurnFileChanges(current?.messages)) return
+    refreshWorkspaceAfterMutation()
+  }
 )
 
 watch(
@@ -1014,7 +1047,7 @@ onBeforeUnmount(() => {
 <template>
   <aside
     ref="panelRoot"
-    class="workspace-panel hidden lg:flex shrink-0 flex-col min-h-0 border-l border-border bg-card relative"
+    class="workspace-panel hidden lg:flex shrink-0 flex-col min-h-0 overflow-hidden border-l border-border bg-card relative"
     data-workspace-panel
     :class="resizing && 'is-resizing'"
     :style="panelStyle"
@@ -1030,6 +1063,16 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="workspace-tabs-bar">
+      <button
+        type="button"
+        class="workspace-tab workspace-tab-icon shrink-0"
+        :class="activeView === 'terminal' && 'is-active'"
+        title="调试终端"
+        aria-label="调试终端"
+        @click="activatePrimaryView('terminal')"
+      >
+        <SquareTerminal class="w-3.5 h-3.5" />
+      </button>
       <button
         type="button"
         class="workspace-tab workspace-tab-icon shrink-0"
@@ -1079,11 +1122,17 @@ onBeforeUnmount(() => {
     <div v-else-if="error" class="p-4 text-xs text-danger break-words">{{ error }}</div>
 
     <template v-else>
+      <TerminalPanel
+        v-if="activeView === 'terminal'"
+        :workspace-root="workspaceRoot"
+        active
+      />
+      <div v-if="refreshWarning" class="workspace-refresh-warning" role="status">{{ refreshWarning }}</div>
       <!-- Keep Files / Changes mounted so scroll + expanded folders survive tab switches. -->
       <div
         v-show="activeView === 'files'"
         ref="filesScroller"
-        class="relative flex-1 min-h-0 overflow-auto py-2 outline-none"
+        class="workspace-scroll-area relative flex-1 min-h-0 overflow-auto p-2 outline-none"
         tabindex="-1"
       >
         <div
@@ -1132,7 +1181,7 @@ onBeforeUnmount(() => {
             <X class="h-3.5 w-3.5" />
           </button>
         </div>
-        <div v-if="loadingFiles" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载中…</div>
+        <div v-if="loadingFiles || workspaceTransitioning" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载工作区…</div>
         <div v-else-if="!roots.length" class="workspace-empty">目录为空</div>
         <WorkspaceTreeNode
           v-for="node in roots"
@@ -1145,7 +1194,7 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <div v-show="activeView === 'changes'" class="flex-1 min-h-0 overflow-auto py-2">
+      <div v-show="activeView === 'changes'" class="workspace-scroll-area flex-1 min-h-0 overflow-auto p-2">
         <div v-if="loadingChanges" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载中…</div>
         <div v-else-if="gitError" class="workspace-empty flex-col text-center">
           <GitBranch class="w-4 h-4" />
@@ -1216,7 +1265,7 @@ onBeforeUnmount(() => {
         <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
       </div>
       <div
-        v-else-if="activeView !== 'files' && activeView !== 'changes'"
+        v-else-if="activeView !== 'terminal' && activeView !== 'files' && activeView !== 'changes'"
         class="workspace-empty"
       >预览标签已关闭</div>
     </template>
@@ -1305,6 +1354,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .workspace-panel.is-resizing { @apply select-none; }
+.workspace-scroll-area { scrollbar-gutter: stable; }
 .workspace-tabs-bar { @apply flex shrink-0 min-w-0 border-b border-border; }
 .workspace-preview-tabs { @apply flex min-w-0 flex-1 overflow-x-auto; scrollbar-width: thin; }
 .workspace-preview-tab { @apply min-w-0 shrink-0 flex items-center gap-1; }
@@ -1320,6 +1370,7 @@ onBeforeUnmount(() => {
   @apply absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-accent px-1 text-[9px] leading-3 text-white;
 }
 .workspace-empty { @apply p-4 text-xs text-muted flex items-center justify-center gap-2; }
+.workspace-refresh-warning { @apply shrink-0 border-b border-amber-300/40 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200; }
 .workspace-action-btn { @apply rounded border border-border px-2.5 py-1.5 text-xs text-foreground hover:bg-hover disabled:opacity-50; }
 .change-row { @apply w-full flex items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-hover; }
 .change-row.is-selected { @apply bg-accent/10 text-foreground; }

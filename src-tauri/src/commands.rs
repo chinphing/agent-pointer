@@ -157,6 +157,53 @@ pub fn cancel_chat(
     Ok(())
 }
 
+#[tauri::command]
+pub fn create_console_session(
+    state: State<'_, Arc<AppState>>,
+    workspace_root: String,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+) -> Result<pointer_core::console_session::ConsoleSessionInfo, String> {
+    state
+        .console_sessions
+        .create(&workspace_root, cwd.as_deref(), cols, rows)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn write_console_session(
+    state: State<'_, Arc<AppState>>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    state
+        .console_sessions
+        .write(&session_id, &data)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn resize_console_session(
+    state: State<'_, Arc<AppState>>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    state
+        .console_sessions
+        .resize(&session_id, cols, rows)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn close_console_session(
+    state: State<'_, Arc<AppState>>,
+    session_id: String,
+) -> Result<bool, String> {
+    Ok(state.console_sessions.close(&session_id))
+}
+
 /// Kill only the in-flight **`terminal`** subprocess for this conversation (does not stop the LLM turn).
 #[tauri::command]
 pub fn abort_terminal_command(

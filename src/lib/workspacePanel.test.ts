@@ -21,7 +21,8 @@ describe('workspacePanel helpers', () => {
 
   it('clamps persisted panel widths against fixed and viewport limits', () => {
     expect(clampWorkspacePanelWidth(100, 1440)).toBe(280)
-    expect(clampWorkspacePanelWidth(900, 1440)).toBe(720)
+    expect(clampWorkspacePanelWidth(900, 1440)).toBe(900)
+    expect(clampWorkspacePanelWidth(3_000, 1440)).toBe(1_120)
     expect(clampWorkspacePanelWidth(600, 800)).toBe(480)
     expect(readWorkspacePanelWidth('invalid', 1440)).toBe(360)
     expect(readWorkspacePanelWidth('420', 1440)).toBe(420)

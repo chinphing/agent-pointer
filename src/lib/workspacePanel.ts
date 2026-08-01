@@ -2,7 +2,9 @@ export const GIT_INITIALIZATION_TASK = '请为当前工作区初始化 Git 仓�
 
 export const WORKSPACE_PANEL_MIN_WIDTH = 280
 export const WORKSPACE_PANEL_DEFAULT_WIDTH = 360
-export const WORKSPACE_PANEL_MAX_WIDTH = 720
+// Keep the fixed cap deliberately above normal desktop widths. The actual limit
+// is viewport width minus the left-side chat/navigation area below.
+export const WORKSPACE_PANEL_MAX_WIDTH = 2_000
 
 export function clampWorkspacePanelWidth(
   width: number,

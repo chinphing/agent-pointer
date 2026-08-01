@@ -238,6 +238,36 @@ export async function getTurnFileDiff(
   return await request(`/api/workspace/turn-file-diff?${params}`)
 }
 
+export async function createConsoleSession(
+  input: import('./api').ConsoleSessionCreateInput
+): Promise<import('./api').ConsoleSessionInfo> {
+  return await request('/api/console/sessions', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+}
+
+export async function writeConsoleSession(sessionId: string, data: string): Promise<void> {
+  await request(`/api/console/sessions/${encodeURIComponent(sessionId)}/input`, {
+    method: 'POST',
+    body: JSON.stringify({ data })
+  })
+}
+
+export async function resizeConsoleSession(sessionId: string, cols: number, rows: number): Promise<void> {
+  await request(`/api/console/sessions/${encodeURIComponent(sessionId)}/resize`, {
+    method: 'POST',
+    body: JSON.stringify({ cols, rows })
+  })
+}
+
+export async function closeConsoleSession(sessionId: string): Promise<boolean> {
+  const result = await request<{ closed: boolean }>(`/api/console/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE'
+  })
+  return result.closed
+}
+
 export async function abortTerminalCommand(
   conversationId: string,
   toolCallId?: string

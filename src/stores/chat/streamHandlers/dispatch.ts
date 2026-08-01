@@ -115,6 +115,11 @@ export function dispatchStreamEvent(ctx: StreamHandlerContext, e: StreamEvent): 
     case 'terminal_output_delta':
       handleTerminalOutputDelta(ctx, e)
       break
+    case 'console_output_delta':
+    case 'console_session_exited':
+      // Persistent workspace console owns these events in useConsoleStore;
+      // they are intentionally isolated from chat message state.
+      break
     case 'terminal_needs_input':
       handleTerminalNeedsInput(ctx, e)
       break

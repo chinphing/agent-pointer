@@ -130,6 +130,20 @@ export interface SendChatPayload {
   leadAgentId?: string
 }
 
+export interface ConsoleSessionInfo {
+  id: string
+  workspaceRoot: string
+  cwd: string
+  label: string
+}
+
+export interface ConsoleSessionCreateInput {
+  workspaceRoot: string
+  cwd?: string
+  cols: number
+  rows: number
+}
+
 export interface RuntimeApi {
   sendChat(payload: SendChatPayload): Promise<string | void>
   cancelChat(conversationId: string): Promise<void>
@@ -155,6 +169,10 @@ export interface RuntimeApi {
   ): Promise<TurnFileDiff>
   /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
   abortTerminalCommand(conversationId: string, toolCallId?: string): Promise<boolean>
+  createConsoleSession(input: ConsoleSessionCreateInput): Promise<ConsoleSessionInfo>
+  writeConsoleSession(sessionId: string, data: string): Promise<void>
+  resizeConsoleSession(sessionId: string, cols: number, rows: number): Promise<void>
+  closeConsoleSession(sessionId: string): Promise<boolean>
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
   submitAskUser(toolCallId: string, selected: string[]): Promise<void>
   submitTerminalInput(requestId: string, text: string): Promise<void>
@@ -263,6 +281,10 @@ export const getWorkspaceGitStatus = api.getWorkspaceGitStatus
 export const getWorkspaceGitDiff = api.getWorkspaceGitDiff
 export const getTurnFileDiff = api.getTurnFileDiff
 export const abortTerminalCommand = api.abortTerminalCommand
+export const createConsoleSession = api.createConsoleSession
+export const writeConsoleSession = api.writeConsoleSession
+export const resizeConsoleSession = api.resizeConsoleSession
+export const closeConsoleSession = api.closeConsoleSession
 export const approveToolCall = api.approveToolCall
 export const submitAskUser = api.submitAskUser
 export const submitTerminalInput = api.submitTerminalInput

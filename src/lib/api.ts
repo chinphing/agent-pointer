@@ -133,12 +133,14 @@ export interface SendChatPayload {
 export interface ConsoleSessionInfo {
   id: string
   workspaceRoot: string
+  conversationId: string
   cwd: string
   label: string
 }
 
 export interface ConsoleSessionCreateInput {
   workspaceRoot: string
+  conversationId: string
   cwd?: string
   cols: number
   rows: number

@@ -44,9 +44,9 @@ export const useConsoleStore = defineStore('workspaceConsole', () => {
     if (!unlisten) unlisten = await onStream(handleStream, 'global')
   }
 
-  async function create(workspaceRoot: string, cols: number, rows: number, cwd?: string) {
+  async function create(workspaceRoot: string, conversationId: string, cols: number, rows: number, cwd?: string) {
     await ensureStream()
-    const info = await createConsoleSession({ workspaceRoot, cwd, cols, rows })
+    const info = await createConsoleSession({ workspaceRoot, conversationId, cwd, cols, rows })
     const tab: WorkspaceConsoleTab = { ...info, output: '', exited: false, error: '' }
     tabs.value.push(tab)
     activeSessionId.value = tab.id

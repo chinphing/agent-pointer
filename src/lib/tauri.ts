@@ -128,6 +128,7 @@ export async function createConsoleSession(
 ): Promise<import('./api').ConsoleSessionInfo> {
   return await invoke<import('./api').ConsoleSessionInfo>('create_console_session', {
     workspaceRoot: input.workspaceRoot,
+    conversationId: input.conversationId,
     cwd: input.cwd,
     cols: input.cols,
     rows: input.rows

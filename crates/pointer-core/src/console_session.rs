@@ -29,6 +29,8 @@ pub struct ConsoleSessionInfo {
     pub workspace_root: String,
     pub cwd: String,
     pub label: String,
+    #[serde(rename = "conversationId")]
+    pub conversation_id: String,
 }
 
 struct ConsoleSession {
@@ -61,7 +63,7 @@ pub struct ConsoleSessionManager {
 }
 
 impl ConsoleSessionManager {
-    pub fn create(&self, workspace_root: &str, cwd: Option<&str>, cols: u16, rows: u16) -> Result<ConsoleSessionInfo> {
+    pub fn create(&self, workspace_root: &str, conversation_id: &str, cwd: Option<&str>, cols: u16, rows: u16) -> Result<ConsoleSessionInfo> {
         let workspace_root = normalize_directory(workspace_root, "工作区目录")?;
         let cwd = match cwd.map(str::trim).filter(|value| !value.is_empty()) {
             Some(value) => normalize_directory(value, "终端目录")?,
@@ -70,6 +72,7 @@ impl ConsoleSessionManager {
         let info = ConsoleSessionInfo {
             id: Uuid::new_v4().to_string(),
             workspace_root,
+            conversation_id: conversation_id.to_string(),
             label: directory_label(&cwd),
             cwd,
         };
@@ -251,10 +254,10 @@ mod tests {
         let root = tempfile::tempdir().expect("workspace");
         let manager = ConsoleSessionManager::default();
         let first = manager
-            .create(root.path().to_str().expect("utf8 path"), None, 100, 40)
+            .create(root.path().to_str().expect("utf8 path"), "test-conversation", None, 100, 40)
             .expect("create first shell");
         let second = manager
-            .create(root.path().to_str().expect("utf8 path"), None, 80, 24)
+            .create(root.path().to_str().expect("utf8 path"), "test-conversation", None, 80, 24)
             .expect("create second shell");
         assert_ne!(first.id, second.id);
         assert_eq!(first.cwd, second.cwd);

@@ -1125,6 +1125,7 @@ onBeforeUnmount(() => {
       <TerminalPanel
         v-if="activeView === 'terminal'"
         :workspace-root="workspaceRoot"
+        :conversation-id="conversationId ?? ''"
         active
       />
       <div v-if="refreshWarning" class="workspace-refresh-warning" role="status">{{ refreshWarning }}</div>

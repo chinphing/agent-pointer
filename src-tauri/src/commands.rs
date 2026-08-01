@@ -161,13 +161,14 @@ pub fn cancel_chat(
 pub fn create_console_session(
     state: State<'_, Arc<AppState>>,
     workspace_root: String,
+    conversation_id: String,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
 ) -> Result<pointer_core::console_session::ConsoleSessionInfo, String> {
     state
         .console_sessions
-        .create(&workspace_root, cwd.as_deref(), cols, rows)
+        .create(&workspace_root, &conversation_id, cwd.as_deref(), cols, rows)
         .map_err(|error| error.to_string())
 }
 

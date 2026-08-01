@@ -242,11 +242,17 @@ onMounted(() => {
     scrollerResizeObserver = new ResizeObserver(() => {
       const scrollerEl = scroller.value
       if (!scrollerEl || !shouldFollowOutput()) return
-      if (scrollerEl.clientHeight === lastScrollerClientHeight) return
-      lastScrollerClientHeight = scrollerEl.clientHeight
-      // Composer / ChangeSummary / draft chrome changing height shrinks the list
-      // viewport after the first stick — re-pin while following.
-      scheduleToBottom()
+      const previousHeight = lastScrollerClientHeight
+      const nextHeight = scrollerEl.clientHeight
+      if (nextHeight === previousHeight) return
+      lastScrollerClientHeight = nextHeight
+      if (nextHeight >= previousHeight) return
+      // Keep the same visual messages in place while the composer grows. Unlike
+      // scrollToIndex(), this compensates only for the viewport-height delta and
+      // never remeasures or jumps to a virtualized row.
+      beginProgrammaticScroll()
+      scrollerEl.scrollTop += previousHeight - nextHeight
+      endProgrammaticScroll()
     })
     scrollerResizeObserver.observe(el)
   }

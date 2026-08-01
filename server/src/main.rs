@@ -3049,6 +3049,8 @@ async fn cancel_chat(
 struct ConsoleSessionCreatePayload {
     #[serde(rename = "workspaceRoot")]
     workspace_root: String,
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
     #[serde(default)]
     cwd: Option<String>,
     cols: u16,
@@ -3076,6 +3078,7 @@ async fn create_console_session(
         .console_sessions
         .create(
             &payload.workspace_root,
+            &payload.conversation_id,
             payload.cwd.as_deref(),
             payload.cols,
             payload.rows,

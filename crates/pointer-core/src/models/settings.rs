@@ -232,6 +232,10 @@ pub struct MediaModelOverrides {
 }
 /// Whether to persist/stream reasoning and send `reasoning_content` on the next request,
 /// for the **active** provider + **current** `settings.model`.
+///
+/// Default is **off**: reasoning is only carried when a provider (or per-model
+/// override) explicitly opts in via `reasoningInMessages: true`. DeepSeek-style
+/// thinking models that require `reasoning_content` round-trip must set it explicitly.
 pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
     let provider = settings
         .providers
@@ -239,7 +243,7 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
         .find(|p| p.id == settings.active_provider_id)
         .or_else(|| settings.providers.first());
     let Some(p) = provider else {
-        return true;
+        return false;
     };
     let model = settings.model.trim();
     if let Some(over) = p.model_configs.get(model) {
@@ -247,7 +251,7 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
             return v;
         }
     }
-    p.reasoning_in_messages.unwrap_or(true)
+    p.reasoning_in_messages.unwrap_or(false)
 }
 
 pub const DEFAULT_MODEL_TEMPERATURE: f32 = 0.7;
@@ -2643,9 +2647,9 @@ mod effective_reasoning_tests {
     use super::*;
 
     #[test]
-    fn effective_reasoning_defaults_true() {
+    fn effective_reasoning_defaults_false() {
         let s = ModelSettings::default();
-        assert!(effective_reasoning_in_messages(&s));
+        assert!(!effective_reasoning_in_messages(&s));
     }
 
     #[test]

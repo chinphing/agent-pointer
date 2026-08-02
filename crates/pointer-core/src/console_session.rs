@@ -247,6 +247,8 @@ fn spawn_output_reader(session: Arc<ConsoleSession>) {
 #[cfg(test)]
 mod tests {
     use super::ConsoleSessionManager;
+    use super::{spawn_console_session, ConsoleSessionInfo};
+    use std::io::{Read, Write};
 
     #[cfg(unix)]
     #[test]
@@ -266,5 +268,58 @@ mod tests {
         assert!(manager.close(&first.id));
         manager.write(&second.id, "echo second\r").expect("second remains alive");
         assert!(manager.close(&second.id));
+    }
+
+    /// Verifies the PTY input path accepts UTF-8 CJK: write a Chinese echo and
+    /// assert the shell echoes it back. Guards against silent loss in the
+    /// `write` → master writer chain (frontend onData → invoke → this writer).
+    #[cfg(unix)]
+    #[test]
+    fn console_session_roundtrips_utf8_input() {
+        let dir = tempfile::tempdir().expect("workspace");
+        let info = ConsoleSessionInfo {
+            id: "utf8-test".into(),
+            workspace_root: dir.path().to_str().expect("utf8 path").into(),
+            cwd: dir.path().to_str().expect("utf8 path").into(),
+            label: "utf8-test".into(),
+            conversation_id: "test-conversation".into(),
+        };
+        let session = spawn_console_session(info, 100, 40).expect("spawn shell");
+        let mut reader = session.master.lock().try_clone_reader().expect("clone reader");
+        let mut sink = String::new();
+        {
+            let mut writer = session.writer.lock();
+            // Drain the initial prompt so the assertion below only matches our echo.
+            let mut buf = [0u8; 4096];
+            for _ in 0..20 {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(count) => sink.push_str(&String::from_utf8_lossy(&buf[..count])),
+                    Err(_) => break,
+                }
+                if sink.contains('$') || sink.contains('%') || sink.contains('#') {
+                    break;
+                }
+            }
+            writer.write_all("echo 中文往返测试\r".as_bytes()).expect("write utf8");
+            writer.flush().expect("flush writer");
+        }
+        let mut echoed = String::new();
+        let mut buf = [0u8; 4096];
+        for _ in 0..50 {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(count) => echoed.push_str(&String::from_utf8_lossy(&buf[..count])),
+                Err(_) => break,
+            }
+            if echoed.contains("中文往返测试") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(
+            echoed.contains("中文往返测试"),
+            "PTY did not echo CJK input; read back: {echoed:?}"
+        );
     }
 }

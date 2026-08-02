@@ -45,3 +45,15 @@
 - 额外防护：若 `mouseup` 丢失（例如在 webview 外松开），xterm 仍挂着 `document mousemove`，会出现「点击后鼠标已松开，再移动仍继续选中」。检测到 `selectionPressing` 且 `buttons` 已无主键时，补发 `mouseup` 结束拖选。
 - 开启 `macOptionClickForcesSelection`，避免 macOS 上 Option 进入 column-select。
 - 标签栏使用 `user-select: none`，避免拖动时误选标签文字。
+
+## macOS 中文输入与粘贴
+
+桌面端（Tauri）在 macOS 上使用 WKWebView；Linux 部署的网页端通常是 Chromium。两者对 xterm 隐藏输入框的行为不同：
+
+| 问题 | 原因 | 处理 |
+| --- | --- | --- |
+| 中文输入法候选框不出现 / 输入无效 | xterm helper textarea 默认 `opacity: 0` + `z-index: -5`，WebKit 不为其建立 IME | CSS/样式让 textarea 对引擎可见但内容透明（`TerminalPanel` + `terminalIme`） |
+| 首键被吃掉 / 全角标点偶发丢失 | Safari 首键可能是 `keyCode 0` / `Process` / `Dead`；部分 `insertText` 在按键未抬起时被 xterm 丢弃 | `attachCustomKeyEventHandler` 把 IME 键交给浏览器；WebKit 下挂 `createTerminalImeGuard` 补发 |
+| 粘贴中文看不见（英文正常） | macOS 等宽字体缺 CJK 字形，WKWebView 字体回退弱 | `fontFamily` 显式追加 PingFang / Hiragino / Noto CJK |
+
+网页端 Chromium 不启用 IME guard，避免重复投递。后端 PTY 写路径本身支持 UTF-8（见 `console_session` 往返测试）。

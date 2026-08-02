@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Copy, FolderPlus, Loader2, RotateCcw, SquareTerminal, X } from 'lucide-vue-next'
+import {
+  applyImeFriendlyTextareaStyles,
+  createTerminalImeGuard,
+  isWebKitTerminalHost,
+  shouldDeferKeyToIme,
+  TERMINAL_CJK_FONT_FAMILY,
+  type TerminalImeGuard
+} from '../../lib/terminalIme'
 import { useConsoleStore, type WorkspaceConsoleTab } from '../../stores/console'
 
 const props = defineProps<{ workspaceRoot: string; conversationId: string; active: boolean }>()
@@ -33,8 +41,15 @@ let renderedSessionId = ''
 let renderedOutputLength = 0
 let removeOutsideMenuListeners: (() => void) | null = null
 let removeSelectionGuard: (() => void) | null = null
+let imeGuard: TerminalImeGuard | null = null
 /** True between primary-button mousedown and mouseup on the terminal. */
 let selectionPressing = false
+
+function writeActiveSession(data: string) {
+  const id = consoleStore.activeSessionId
+  if (!id || !data) return
+  void consoleStore.write(id, data).catch(showError)
+}
 
 async function settleTerminalLayout() {
   // The TerminalPanel is async-mounted beneath a view switch. The first
@@ -78,7 +93,9 @@ async function ensureTerminal() {
     cols: 30,
     cursorBlink: true,
     convertEol: false,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+    // macOS monospace stacks omit CJK glyphs; WKWebView font fallback is weaker
+    // than Chromium, so Chinese paste/echo renders blank without explicit faces.
+    fontFamily: TERMINAL_CJK_FONT_FAMILY,
     fontSize: 12,
     scrollback: 5_000,
     // On macOS, Option+drag otherwise enters column-select (tall rectangle over
@@ -86,14 +103,27 @@ async function ensureTerminal() {
     macOptionClickForcesSelection: true,
     theme: terminalTheme()
   })
+  const webkitIme = isWebKitTerminalHost()
+  if (webkitIme) {
+    imeGuard = createTerminalImeGuard(writeActiveSession)
+  }
+  // Let the browser/IME own composition keys (Safari may use 0 / Process / Dead
+  // instead of keyCode 229 on the first stroke).
+  terminal.attachCustomKeyEventHandler(e => {
+    imeGuard?.observeKeyEvent(e)
+    return !shouldDeferKeyToIme(e)
+  })
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
   terminal.open(host.value)
   installSelectionGuard(terminal.element)
+  const ta = terminal.textarea
+  if (ta) {
+    applyImeFriendlyTextareaStyles(ta)
+    imeGuard?.attach(ta)
+  }
   terminal.onData(data => {
-    const id = consoleStore.activeSessionId
-    if (!id) return
-    void consoleStore.write(id, data).catch(showError)
+    writeActiveSession(imeGuard ? imeGuard.filterData(data) : data)
   })
   themeObserver = new MutationObserver(syncTerminalTheme)
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
@@ -329,6 +359,8 @@ onBeforeUnmount(() => {
   removeSelectionGuard = null
   removeOutsideMenuListeners?.()
   removeOutsideMenuListeners = null
+  imeGuard?.detach()
+  imeGuard = null
   resizeObserver?.disconnect()
   resizeObserver = null
   themeObserver?.disconnect()
@@ -405,6 +437,24 @@ onBeforeUnmount(() => {
 .terminal-panel :deep(.xterm) { height: 100%; }
 .terminal-panel :deep(.xterm-screen) { user-select: none; }
 .terminal-host { scrollbar-gutter: stable; user-select: none; }
+/*
+ * WKWebView / Safari: xterm's helper textarea defaults to opacity:0 and
+ * z-index:-5 (css + runtime inline). WebKit will not open a system IME for
+ * that "invisible" field, so Chinese composition never starts (Chromium is
+ * fine). Keep the field engine-visible but visually transparent; xterm still
+ * positions/sizes it under the cursor.
+ */
+.terminal-panel :deep(.xterm-helper-textarea) {
+  opacity: 1 !important;
+  z-index: 1 !important;
+  color: transparent !important;
+  background: transparent !important;
+  caret-color: transparent !important;
+  text-shadow: none !important;
+  -webkit-text-fill-color: transparent !important;
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
 .terminal-panel :deep(.xterm-viewport) { overflow-y: auto !important; }
 .console-chrome,
 .console-tabs,

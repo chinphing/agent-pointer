@@ -1,7 +1,7 @@
 //! Single-agent streaming loop: prompt hooks per round, then `single_agent_stream` + tools.
 
 use crate::agents::AgentProfile;
-use crate::models::{ChatMessage, StreamEvent};
+use crate::models::StreamEvent;
 use anyhow::{anyhow, Result};
 use std::time::Duration;
 

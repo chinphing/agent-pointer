@@ -265,20 +265,21 @@
     container-name: chat;
   }
   .chat-shell {
-    @apply px-3;
+    /* Always keep a side gutter from the middle-pane edges (sidebars). */
+    @apply px-8;
   }
   @container chat (min-width: 720px) {
     .chat-shell {
-      padding-left: 2.5rem;
-      padding-right: 2.5rem;
+      padding-left: 6rem;
+      padding-right: 6rem;
     }
   }
   .chat-column {
     @apply mx-auto w-full;
-    /* Fallback ≈ former max-w-3xl when cqi is unavailable. */
+    /* Fallback ≈ former max-w-3xl when min() is unavailable. */
     max-width: 48rem;
-    /* Floor ~3xl on mid panes; grow toward 1440px when the middle pane is wide. */
-    max-width: min(1440px, max(48rem, 85cqi));
+    /* Fill the padded shell up to 1024px; side spacing comes from .chat-shell. */
+    max-width: min(1024px, 100%);
   }
   .chat-scroll-area {
     scroll-padding-bottom: 2.5rem;

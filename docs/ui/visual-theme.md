@@ -31,10 +31,10 @@ viewport, so it stays in sync when the left sidebar collapses or the right
 workspace panel is resized:
 
 - `AppShell` middle pane is `.chat-main` with `container-type: inline-size`
-- `.chat-column` max width: `min(1440px, max(48rem, 85cqi))` — ~768px floor on
-  mid panes, up to 1440px when the middle pane is wide
-- `.chat-shell` horizontal padding: `px-3` by default; `px-10` when the chat
-  container is ≥720px (container query, not `md:` viewport)
+- `.chat-column` max width: `min(1024px, 100%)` — grows with the padded middle
+  pane, capped at 1024px
+- `.chat-shell` horizontal padding (side gutters): `px-8` by default; `6rem`
+  when the chat container is ≥720px (container query, not `md:` viewport)
 
 Do not switch this back to viewport-only `max-w-3xl` / `md:px-*` — that drifts
 from available width while the workspace panel is open.

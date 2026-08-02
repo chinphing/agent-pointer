@@ -11,6 +11,10 @@ import { usePlatformAuthStore } from '../../stores/platformAuth'
 import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
 import { findCurrentConversationMatches } from '../../lib/currentConversationSearch'
 import { shouldShowMessageListPlaceholder, shouldShowWelcomeHome } from '../../lib/chatMainPane'
+import {
+  MOBILE_VIEWPORT_MEDIA_QUERY,
+  shouldShowFooterComposer
+} from '../../lib/mobileChat'
 
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 
@@ -79,8 +83,23 @@ const showWelcomeHome = computed(() =>
     showMessageListPlaceholder.value
   )
 )
+const isMobileViewport = ref(
+  typeof window !== 'undefined' && window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY).matches
+)
+const showFooterComposer = computed(() =>
+  shouldShowFooterComposer(
+    showWelcomeHome.value,
+    isMobileViewport.value,
+    isHydratingMessages.value
+  )
+)
 const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const experienceSectionExpanded = ref(false)
+let mobileMediaQuery: MediaQueryList | null = null
+
+function updateMobileViewport() {
+  isMobileViewport.value = window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY).matches
+}
 const pageSearchOpen = ref(false)
 const pageSearchQuery = ref('')
 const debouncedPageSearchQuery = ref('')
@@ -178,9 +197,16 @@ watch(pageSearchMatches, matches => {
 
 watch(() => chat.currentId, () => closePageSearch())
 
-onMounted(() => window.addEventListener('keydown', onGlobalFindShortcut))
+onMounted(() => {
+  window.addEventListener('keydown', onGlobalFindShortcut)
+  mobileMediaQuery = window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY)
+  updateMobileViewport()
+  mobileMediaQuery.addEventListener('change', updateMobileViewport)
+})
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalFindShortcut)
+  mobileMediaQuery?.removeEventListener('change', updateMobileViewport)
+  mobileMediaQuery = null
   if (pageSearchDebounceTimer != null) window.clearTimeout(pageSearchDebounceTimer)
 })
 
@@ -283,26 +309,35 @@ const toastClass = computed(() => {
       </div>
 
       <div v-else-if="showWelcomeHome" class="chat-scroll-area h-full overflow-y-auto chat-shell">
-        <div class="chat-column w-full translate-y-[90px] pb-10">
-          <div class="mx-auto flex w-full max-w-[42rem] min-h-[clamp(7rem,calc(50vh-4.5rem),14rem)] flex-col items-center justify-end">
-            <h1 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]">
-              <span class="brand-text">Pointer</span>：你说，我做，就这么简单！
-            </h1>
-          </div>
+        <div
+          class="chat-column w-full pb-10"
+          :class="isMobileViewport ? 'pt-4' : 'translate-y-[90px]'"
+        >
+          <!-- Desktop hero: slogan + inline composer. Mobile uses the footer composer. -->
+          <template v-if="!isMobileViewport">
+            <div class="mx-auto flex w-full max-w-[42rem] min-h-[clamp(7rem,calc(50vh-4.5rem),14rem)] flex-col items-center justify-end">
+              <h1 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]">
+                <span class="brand-text">Pointer</span>：你说，我做，就这么简单！
+              </h1>
+            </div>
 
-          <div class="w-full shrink-0">
-            <Composer placement="inline" />
-          </div>
+            <div class="w-full shrink-0">
+              <Composer placement="inline" />
+            </div>
+          </template>
 
           <div
+            v-if="!isMobileViewport || needsPlatformLogin"
             class="flex w-full flex-col"
             :class="
-              !platformAuth.isStandalone && experienceSectionExpanded
-                ? 'min-h-[clamp(8rem,calc(50vh-4.5rem),16rem)] pt-12'
-                : 'pt-10'
+              isMobileViewport
+                ? 'pt-2'
+                : !platformAuth.isStandalone && experienceSectionExpanded
+                  ? 'min-h-[clamp(8rem,calc(50vh-4.5rem),16rem)] pt-12'
+                  : 'pt-10'
             "
           >
-            <template v-if="!platformAuth.isStandalone">
+            <template v-if="!isMobileViewport && !platformAuth.isStandalone">
               <div class="mb-3 flex items-center gap-2">
                 <div class="min-w-0 flex-1">
                   <ExperienceHotPreview />
@@ -361,7 +396,7 @@ const toastClass = computed(() => {
         <ChangeSummary :messages="conversationMessages" />
       </div>
     </div>
-    <Composer v-if="!showWelcomeHome && !isHydratingMessages" />
+    <Composer v-if="showFooterComposer" />
   </div>
 </template>
 

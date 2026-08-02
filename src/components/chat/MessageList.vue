@@ -33,6 +33,7 @@ import { formatTurnElapsed, resolveTurnElapsedMs } from '../../lib/turnElapsed'
 import { shouldStickActiveTaskBoard } from '../../lib/taskBoardSticky'
 import {
   countLlmInvocationRounds,
+  MOBILE_VIEWPORT_MEDIA_QUERY,
   shouldShowMobileNewConversationButton
 } from '../../lib/mobileChat'
 import {
@@ -211,7 +212,7 @@ function onTouchEnd() {
 }
 
 function updateMobileViewport() {
-  isMobileViewport.value = window.matchMedia('(max-width: 767.98px)').matches
+  isMobileViewport.value = window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY).matches
 }
 
 const showMobileNewConversationButton = computed(() =>
@@ -241,7 +242,7 @@ function onNewConversationConfirmationKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
-  mobileMediaQuery = window.matchMedia('(max-width: 767.98px)')
+  mobileMediaQuery = window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY)
   updateMobileViewport()
   mobileMediaQuery.addEventListener('change', updateMobileViewport)
   const el = scroller.value

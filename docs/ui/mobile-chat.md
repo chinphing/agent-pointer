@@ -16,6 +16,7 @@
 - 侧栏折叠 / 窗口变宽会改变换行：对 textarea 做 `ResizeObserver`，宽度变化时重测。
 - MessageList 已对 scroller 高度变化 `ResizeObserver` 贴底（Composer 增高时列表视口变矮），无需额外接线。
 - footer / welcome `inline` 共用同一 Composer；草稿清空、发送后、IME 结束、prefill 都会触发 `autoResize`。
+- **欢迎页（空会话）**：桌面仍为居中 hero（slogan + `placement="inline"` + 经验区）。窄屏**不显示 slogan 与经验区**，输入框与有消息会话相同，使用底部 footer Composer（`shouldShowFooterComposer`）；未登录时仍可显示登录入口。
 - **智能体选择**与**项目选择**仅在 `md+` 工具栏显示；窄屏隐藏，沿用当前会话已选智能体 / 项目（或默认）。
 - 默认提示文案可由服务端配置（`[server].composer_placeholder` / `POINTER_SERVER_COMPOSER_PLACEHOLDER`），写入 `index.html` meta `pointer-composer-placeholder`；前端 `resolveComposerPlaceholder()` 读取。登录态 / 余额 / Key 缺失时仍用固定提示覆盖。
 
@@ -23,5 +24,7 @@
 
 - `src/styles/globals.css` — 头像 / 页脚可见性、`.composer-shell` 内边距
 - `src/components/chat/Composer.vue` — 窄屏单行布局
+- `src/components/chat/ChatView.vue` — 窄屏欢迎页 footer Composer、隐藏 slogan
+- `src/lib/mobileChat.ts` — `MOBILE_VIEWPORT_MEDIA_QUERY`、`shouldShowFooterComposer`
 - `src/lib/webBranding.ts` — 提示文案解析
 - `server/src/main.rs` — `apply_web_branding` 改写 title + meta

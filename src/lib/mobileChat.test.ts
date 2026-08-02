@@ -3,6 +3,7 @@ import type { ChatMessage } from '../types/chat'
 import {
   countLlmInvocationRounds,
   MOBILE_NEW_CONVERSATION_TURN_THRESHOLD,
+  shouldShowFooterComposer,
   shouldShowMobileNewConversationButton
 } from './mobileChat'
 
@@ -39,5 +40,19 @@ describe('mobile new conversation entry', () => {
     expect(
       shouldShowMobileNewConversationButton(false, MOBILE_NEW_CONVERSATION_TURN_THRESHOLD + 1)
     ).toBe(false)
+  })
+})
+
+describe('mobile welcome footer composer', () => {
+  it('uses the bottom footer on mobile welcome, inline hero on desktop welcome', () => {
+    expect(shouldShowFooterComposer(true, true, false)).toBe(true)
+    expect(shouldShowFooterComposer(true, false, false)).toBe(false)
+    expect(shouldShowFooterComposer(false, true, false)).toBe(true)
+    expect(shouldShowFooterComposer(false, false, false)).toBe(true)
+  })
+
+  it('hides the footer while messages are hydrating', () => {
+    expect(shouldShowFooterComposer(true, true, true)).toBe(false)
+    expect(shouldShowFooterComposer(false, false, true)).toBe(false)
   })
 })

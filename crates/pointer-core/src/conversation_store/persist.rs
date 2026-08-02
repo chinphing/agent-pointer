@@ -86,19 +86,65 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
 
 pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<ChatMessage>> {
     let mut stmt = conn.prepare(
-        "SELECT payload FROM messages
+        "SELECT message_id, position, payload FROM messages
          WHERE conversation_id = ?1
          ORDER BY position ASC",
     )?;
-    let rows = stmt.query_map(params![conversation_id], |row| row.get::<_, String>(0))?;
+    let rows = stmt.query_map(params![conversation_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
     let mut out = Vec::new();
-    for payload in rows {
-        let payload = payload?;
+    let mut scrub: Vec<(String, i64, ChatMessage)> = Vec::new();
+    for row in rows {
+        let (message_id, position, payload) = row?;
         match serde_json::from_str::<ChatMessage>(&payload) {
-            Ok(msg) => out.push(msg),
+            Ok(mut msg) => {
+                if msg.strip_tool_raw_output() {
+                    scrub.push((message_id, position, msg.clone()));
+                }
+                out.push(msg);
+            }
             Err(e) => {
                 log::warn!("conversation_store: skip corrupt message in {conversation_id}: {e}")
             }
+        }
+    }
+    // Lazy migration: drop legacy multi‑MB toolRawOutput blobs so the next load is cheap.
+    for (message_id, position, msg) in scrub {
+        let content = message_index_content(&msg);
+        let payload = match msg.to_store_payload_json() {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!(
+                    "conversation_store: scrub toolRawOutput serialize failed conversation_id={conversation_id} message_id={message_id}: {e}"
+                );
+                continue;
+            }
+        };
+        if let Err(e) = conn.execute(
+            "UPDATE messages SET role = ?1, content = ?2, payload = ?3, created_at_ms = ?4, position = ?5
+             WHERE conversation_id = ?6 AND message_id = ?7",
+            params![
+                role_str(&msg.role),
+                content,
+                payload,
+                msg.created_at,
+                position,
+                conversation_id,
+                message_id,
+            ],
+        ) {
+            log::warn!(
+                "conversation_store: scrub toolRawOutput rewrite failed conversation_id={conversation_id} message_id={message_id}: {e:#}"
+            );
+        } else {
+            log::info!(
+                "conversation_store: scrubbed toolRawOutput conversation_id={conversation_id} message_id={message_id}"
+            );
         }
     }
     Ok(out)
@@ -658,7 +704,7 @@ pub fn upsert_conversation(
         )?;
         for (pos, msg) in conv.messages.iter().enumerate() {
             let content = message_index_content(msg);
-            let payload = serde_json::to_string(msg)?;
+            let payload = msg.to_store_payload_json()?;
             conn.execute(
                 "INSERT INTO messages (
                    conversation_id, message_id, role, content, payload, created_at_ms, position

@@ -1,4 +1,4 @@
-use crate::models::{ChatMessage, Role};
+use crate::models::ChatMessage;
 
 use super::context::TranscriptPersist;
 use super::sub_message::{self};
@@ -11,6 +11,8 @@ pub(crate) fn strip_images_from_history(history: &mut [ChatMessage]) {
     for m in history.iter_mut() {
         m.images_base64 = None;
         m.image_slot_labels = None;
+        // Same class of bloat as screen inject base64 — never keep across turns.
+        m.tool_raw_output = None;
     }
 }
 
@@ -126,18 +128,18 @@ pub(crate) fn push_tool_result(
     }
 }
 
+/// Debug-only tool dump. Does **not** attach to `ChatMessage.tool_raw_output`:
+/// that field must stay off the wire/UI/DB path (large skill/terminal dumps made
+/// conversation load pathologically slow when carried across assistant rounds).
 pub(crate) fn append_assistant_tool_raw_output(
-    history: &mut [ChatMessage],
+    _history: &mut [ChatMessage],
     message_id: &str,
     tool_name: &str,
     tool_call_id: &str,
     tool_args: &serde_json::Value,
     raw_output: &str,
 ) {
-    let Some(msg) = history.iter_mut().find(|m| m.id == message_id) else {
-        return;
-    };
-    if !matches!(msg.role, Role::Assistant) {
+    if !crate::logging::internal_runtime_log_enabled() {
         return;
     }
     let output = raw_output.trim();
@@ -146,15 +148,9 @@ pub(crate) fn append_assistant_tool_raw_output(
     }
     let args_text = compact_tool_log_text(tool_args.to_string().trim(), 1200);
     let output_text = compact_tool_log_text(output, 12000);
-    let block = format!(
-        "[tool:{} id:{}]\n[args]\n{}\n[output]\n{}",
-        tool_name, tool_call_id, args_text, output_text
+    log::debug!(
+        "tool_raw_output message_id={message_id}\n[tool:{tool_name} id:{tool_call_id}]\n[args]\n{args_text}\n[output]\n{output_text}"
     );
-    let buf = msg.tool_raw_output.get_or_insert_with(String::new);
-    if !buf.is_empty() {
-        buf.push_str("\n\n");
-    }
-    buf.push_str(&block);
 }
 
 fn compact_tool_log_text(s: &str, max_chars: usize) -> String {

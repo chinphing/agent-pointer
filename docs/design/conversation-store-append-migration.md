@@ -24,6 +24,20 @@
 
 **不要**在磁盘上依赖 inline `toolCalls[].result` 作为 tool 结果主存储；wire 展开以有序 `role: tool` 行为准。
 
+### 2.1 `toolRawOutput`（勿落入存储 / UI）
+
+`ChatMessage.toolRawOutput` 仅为内部调试旁路，**不是**模型上下文，也**不是** UI 展示字段。
+
+| 规则 | 说明 |
+|------|------|
+| 不写入 `messages.payload` | `ChatMessage::to_store_payload_json` 始终省略该键 |
+| 不下发 `message_end` | 流式结束事件不带该字段，避免前端消息膨胀 |
+| 不跨轮拷贝 | 禁止把上一轮助手的 dump 带到新助手消息 |
+| 加载时 scrub | `load_messages` 发现历史脏数据会清掉并 rewrite 行（下一轮打开即快） |
+| Computer verify | 只读 `role: tool`；不读写 `toolRawOutput` |
+
+工具结果以 `role: tool` 行 / `toolCalls[].result` 为准。
+
 ## 3. 架构：`ConversationTranscript`
 
 `run_chat` 期间每个活跃 `conversation_id` 注册一个会话级协调器，作为 **transcript 变更的唯一写入口**（与 `cancels` 同生命周期假设：同会话单活跃 run）。

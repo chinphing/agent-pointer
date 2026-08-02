@@ -283,7 +283,8 @@ pub(super) fn commit_sub_assistant_turn(
             message_id: linkage.anchor_message_id.clone(),
             content: Some(assistant_msg.content.clone()),
             raw_content: assistant_msg.raw_content.clone(),
-            tool_raw_output: assistant_msg.tool_raw_output.clone(),
+            // Never stream toolRawOutput to the UI (can be multi‑MB).
+            tool_raw_output: None,
             thoughts: assistant_msg.thoughts.clone(),
             headline: assistant_msg.headline.clone(),
             trace_id: Some(linkage.trace_id.clone()),
@@ -320,7 +321,8 @@ pub(super) fn commit_lead_assistant_turn(
             message_id: assistant_id.to_string(),
             content: Some(assistant_msg.content.clone()),
             raw_content: assistant_msg.raw_content.clone(),
-            tool_raw_output: assistant_msg.tool_raw_output.clone(),
+            // Never stream toolRawOutput to the UI (can be multi‑MB).
+            tool_raw_output: None,
             thoughts: assistant_msg.thoughts.clone(),
             headline: assistant_msg.headline.clone(),
             trace_id: None,

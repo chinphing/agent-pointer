@@ -237,6 +237,9 @@ pub struct ChatMessage {
     pub headline: Option<String>,
     #[serde(default, rename = "rawContent")]
     pub raw_content: Option<String>,
+    /// Ephemeral debug / host-verify side channel. **Not** model context, **not**
+    /// streamed to the UI, and stripped from conversation-store payloads (large
+    /// dumps historically made `load_conversation_messages` very slow).
     #[serde(
         default,
         rename = "toolRawOutput",
@@ -316,6 +319,26 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
+    /// JSON payload for SQLite `messages.payload`. Always omits `toolRawOutput`
+    /// so skill/terminal dumps never bloat the conversation store.
+    pub fn to_store_payload_json(&self) -> Result<String, serde_json::Error> {
+        if self.tool_raw_output.is_none() {
+            return serde_json::to_string(self);
+        }
+        // Avoid cloning the (possibly multi‑MB) dump: take via Value and drop the key.
+        let mut value = serde_json::to_value(self)?;
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("toolRawOutput");
+        }
+        serde_json::to_string(&value)
+    }
+
+    /// Drop persisted/legacy `toolRawOutput` after load. Returns whether the
+    /// field was present (caller may rewrite the row).
+    pub fn strip_tool_raw_output(&mut self) -> bool {
+        self.tool_raw_output.take().is_some_and(|s| !s.is_empty())
+    }
+
     /// Minimal user-text message for trigger sources (webhook / cron / API)
     /// that supply a plain-text prompt without full UI metadata. Fills
     /// required bookkeeping fields with sensible defaults.
@@ -425,4 +448,28 @@ pub struct ChatMediaPreview {
     pub data_base64: String,
     pub mime_type: String,
     pub file_name: String,
+}
+
+#[cfg(test)]
+mod tool_raw_output_store_tests {
+    use super::*;
+
+    #[test]
+    fn store_payload_omits_tool_raw_output() {
+        let mut msg = ChatMessage::user_text("hi");
+        msg.role = Role::Assistant;
+        msg.tool_raw_output = Some("x".repeat(8_000));
+        let json = msg.to_store_payload_json().expect("serialize");
+        assert!(!json.contains("toolRawOutput"));
+        assert!(!json.contains(&"x".repeat(32)));
+    }
+
+    #[test]
+    fn strip_tool_raw_output_clears_nonempty() {
+        let mut msg = ChatMessage::user_text("hi");
+        msg.tool_raw_output = Some("dump".into());
+        assert!(msg.strip_tool_raw_output());
+        assert!(msg.tool_raw_output.is_none());
+        assert!(!msg.strip_tool_raw_output());
+    }
 }

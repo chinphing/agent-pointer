@@ -55,25 +55,6 @@ pub fn tool_result_text_for_call(
         }
         j += 1;
     }
-    history
-        .get(idx)
-        .and_then(|m| m.tool_raw_output.as_deref())
-        .and_then(|blob| parse_tool_raw_output_block(blob, tool_call_id))
-}
-
-fn parse_tool_raw_output_block(blob: &str, tool_call_id: &str) -> Option<String> {
-    let id_marker = format!("id:{tool_call_id}]");
-    for block in blob.split("\n\n") {
-        if !block.contains(&id_marker) {
-            continue;
-        }
-        if let Some((_pre, output)) = block.split_once("[output]\n") {
-            let text = output.trim();
-            if !text.is_empty() {
-                return Some(text.to_string());
-            }
-        }
-    }
     None
 }
 
@@ -535,9 +516,6 @@ pub fn apply_pipeline_verify_to_tool_card(
     );
 
     if family == OperationFamily::AppAccess {
-        if let Some(msg) = history.iter_mut().find(|m| m.id == message_id) {
-            msg.tool_raw_output = Some(format!("[tool:verify id:verify]\n[output]\n{}", card_text));
-        }
         emit(
             stream,
             StreamEvent::ToolCallStatus {

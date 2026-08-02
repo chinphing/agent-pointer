@@ -162,7 +162,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
       scopedTarget.contentStreaming = false
       if (e.content != null) scopedTarget.content = e.content
       if (e.rawContent != null) scopedTarget.rawContent = e.rawContent
-      if (e.toolRawOutput != null) scopedTarget.toolRawOutput = e.toolRawOutput
+      // toolRawOutput is debug-only and must not accumulate on UI messages.
       if (e.attachments?.length) scopedTarget.attachments = e.attachments
       if (e.thoughts != null && e.thoughts.trim() !== '') scopedTarget.thoughts = e.thoughts
       delete scopedTarget.toolNamePreview
@@ -203,7 +203,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     if (e.content != null) r.msg.content = e.content
     if (e.attachments?.length) r.msg.attachments = e.attachments
     if (e.rawContent != null) r.msg.rawContent = e.rawContent
-    if (e.toolRawOutput != null) r.msg.toolRawOutput = e.toolRawOutput
+    // toolRawOutput is debug-only and must not accumulate on UI messages.
     delete r.msg.responseTextDraft
     if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
     r.conv.updatedAt = Date.now()

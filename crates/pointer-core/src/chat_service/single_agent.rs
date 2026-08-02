@@ -13,25 +13,6 @@ use super::computer_pipeline_loop::{
 use super::emit::emit;
 use super::util::new_id;
 
-fn latest_round_tool_raw_output(history: &[ChatMessage]) -> Option<String> {
-    history
-        .iter()
-        .rev()
-        .find(|m| matches!(m.role, crate::models::Role::Assistant))
-        .and_then(|m| {
-            if m.status == "streaming" {
-                m.tool_raw_output
-                    .as_ref()
-                    .map(String::as_str)
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-            } else {
-                None
-            }
-        })
-}
-
 pub(super) async fn run_single_agent_loop(
     ctx: &mut super::context::LeadAgentLoopContext<'_>,
 ) -> Result<()> {
@@ -333,9 +314,9 @@ pub(super) async fn run_single_agent_loop(
                 &agent_trace,
                 state.as_ref(),
             );
-        if assistant_msg.tool_raw_output.is_none() {
-            assistant_msg.tool_raw_output = latest_round_tool_raw_output(ctx.history);
-        }
+        // Never copy prior-round `tool_raw_output` onto this message: it is
+        // ephemeral/debug-only and must not accumulate across the agent loop.
+        assistant_msg.tool_raw_output = None;
         super::single_agent_post_stream::commit_assistant_turn(
             &stream,
             conversation_id,

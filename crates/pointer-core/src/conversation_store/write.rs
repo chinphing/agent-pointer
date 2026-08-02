@@ -204,7 +204,7 @@ fn insert_message_at(
     position: i64,
 ) -> Result<()> {
     let content = message_index_content(msg);
-    let payload = serde_json::to_string(msg)?;
+    let payload = msg.to_store_payload_json()?;
     conn.execute(
         "INSERT INTO messages (
            conversation_id, message_id, role, content, payload, created_at_ms, position

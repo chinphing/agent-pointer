@@ -1257,6 +1257,8 @@ function selectWorkerAgent(agent: AgentDef) {
 
 let composerResizeRaf: number | null = null
 let textareaResizeObserver: ResizeObserver | null = null
+/** Last height we wrote on the textarea in the non-field-sizing fallback. */
+let composerTextareaHeight = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
 
 /**
  * Grow/shrink the textarea with content up to COMPOSER_TEXTAREA_MAX_HEIGHT_PX.
@@ -1264,8 +1266,11 @@ let textareaResizeObserver: ResizeObserver | null = null
  * Important: on `md:flex-col`, do not use `flex-1` on the textarea — `flex: 1 1 0%`
  * makes the flex algorithm ignore the JS `height` on the main axis, so the box
  * never appears to grow. Use `md:flex-none` (see template).
+ *
+ * `force` bypasses the single-line fast path (used when the textarea width
+ * changes and soft-wraps may have appeared).
  */
-function autoResize() {
+function autoResize(force = false) {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
   composerResizeRaf = requestAnimationFrame(() => {
     composerResizeRaf = null
@@ -1276,26 +1281,45 @@ function autoResize() {
     const min = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
 
     // Native path (Chromium / recent WebKit): let the engine size to content.
+    // CSS already declares field-sizing: content (globals.css), so only apply
+    // the inline styles once. Rewriting identical styles on EVERY keystroke
+    // marks the textarea style-dirty and forces a layout pass, which can flush
+    // pending virtualizer row measurements mid-stream → visible list jump.
     if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) {
-      el.style.setProperty('field-sizing', 'content')
-      el.style.height = 'auto'
-      el.style.minHeight = `${min}px`
-      el.style.maxHeight = `${max}px`
-      el.style.overflowY = 'auto'
+      if (el.dataset.fieldSizingApplied !== '1') {
+        el.style.setProperty('field-sizing', 'content')
+        el.style.height = 'auto'
+        el.style.minHeight = `${min}px`
+        el.style.maxHeight = `${max}px`
+        el.style.overflowY = 'auto'
+        el.dataset.fieldSizingApplied = '1'
+      }
       return
     }
 
     el.style.setProperty('field-sizing', '')
+    // Fast path: single-line text that never left the min height does NOT need a
+    // layout read. Reading scrollHeight/offsetHeight while the streaming list is
+    // mid-measure forces a synchronous reflow in the keystroke frame, flushes the
+    // virtualizer's pending row measurements, and fires watch(getTotalSize) →
+    // stickScrollerToBottom immediately → the output "jumps" on every keystroke.
+    if (!force && !el.value.includes('\n') && composerTextareaHeight === min) {
+      return
+    }
     el.style.overflowY = 'hidden'
+    // Classic height:0 measurement is the only reliable way to read the real
+    // content height (scrollHeight is clamped to clientHeight when the box is
+    // taller than the content, so direct reads cannot shrink). We only pay the
+    // reflow when the height actually needs to change.
     el.style.minHeight = '0'
     el.style.height = '0'
-    // Force layout before reading scrollHeight.
     void el.offsetHeight
     const content = el.scrollHeight
     const nextHeight = Math.min(Math.max(content, min), max)
     el.style.minHeight = `${min}px`
     el.style.height = `${nextHeight}px`
     el.style.overflowY = content > max ? 'auto' : 'hidden'
+    composerTextareaHeight = nextHeight
   })
 }
 
@@ -1311,7 +1335,9 @@ function setupTextareaResizeObserver() {
     if (node.clientWidth === lastWidth) return
     lastWidth = node.clientWidth
     // Sidebar collapse / window resize changes wrap → re-measure height.
-    autoResize()
+    // force: width change can introduce soft wraps even for single-line text,
+    // which the fast path would otherwise skip.
+    autoResize(true)
   })
   textareaResizeObserver.observe(el)
 }
@@ -1503,7 +1529,7 @@ onUnmounted(() => {
             :placeholder="composerPlaceholder"
             :disabled="needsPlatformLogin || tokenQuotaBlocked"
             @keydown="onKeydown"
-            @input="autoResize"
+            @input="autoResize()"
             @paste="onPasteAttachments"
             @compositionstart="composing = true"
             @compositionend="onCompositionEnd"

@@ -3,6 +3,7 @@ pub mod apply;
 pub mod attachment_lookup;
 pub mod audio;
 pub mod capabilities;
+pub mod chart_render_context;
 pub mod dashscope_audio;
 pub mod dashscope_video;
 pub mod delegation;
@@ -49,6 +50,9 @@ pub use filename::{
 pub use image_dir::{
     format_image_dir_scope_notice, format_multi_refs_scope_notice, list_image_files_in_dir,
     ImageDirRange, DEFAULT_IMAGE_BATCH, MAX_IMAGES_PER_CALL,
+};
+pub use chart_render_context::{
+    append_chart_render_api_context, format_chart_render_api_manifest, CHART_RENDER_MARKER,
 };
 pub use manifest::{
     append_delivered_attachments_api_context, append_user_attachments_api_context,

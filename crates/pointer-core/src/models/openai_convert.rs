@@ -335,6 +335,8 @@ pub fn make_openai_messages_with_inject(
                     &m.content,
                     m.attachments.as_deref().unwrap_or(&[]),
                 );
+                // Host palette / custom colors actually used when rendering charts (API-only).
+                let api_content = crate::media::append_chart_render_api_context(&api_content);
                 let mut obj = serde_json::Map::new();
                 obj.insert("role".into(), "assistant".into());
                 obj.insert("content".into(), serde_json::Value::String(api_content));
@@ -602,6 +604,27 @@ mod make_openai_messages_tests {
         assert!(content.contains("pointer-media://conv/out.png"));
         assert!(!content.contains(USER_ATTACHMENTS_MARKER));
         assert!(!content.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
+    }
+
+    #[test]
+    fn assistant_chart_fence_injects_render_note_on_wire_only() {
+        use crate::media::CHART_RENDER_MARKER;
+
+        let mut a = msg(Role::Assistant);
+        a.content = "trend:\n\n```chartjs\n{\"type\":\"bar\",\"data\":{\"labels\":[\"A\"],\"datasets\":[{\"label\":\"Count\",\"data\":[3]}]}}\n```\n".into();
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
+        let content = out[0]["content"].as_str().expect("text content");
+        assert!(content.contains("```chartjs"));
+        assert!(content.contains(CHART_RENDER_MARKER));
+        assert!(content.contains("#4C8DDA"));
+        assert!(content.contains("Count"));
     }
 
     #[test]

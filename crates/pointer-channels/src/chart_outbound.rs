@@ -22,8 +22,8 @@ const CHART_DIR: &str = "im-charts";
 const DEFAULT_WIDTH: f64 = 800.0;
 const DEFAULT_HEIGHT: f64 = 450.0;
 const PNG_SCALE: f32 = 2.0;
-/// Bump when palette / prep rules change so cached PNGs are not reused.
-const STYLE_VERSION: &str = "pointer-im-chart-v2";
+/// Bump when palette / prep / font source rules change so cached PNGs are not reused.
+const STYLE_VERSION: &str = "pointer-im-chart-v3";
 
 /// Same soft palette as `src/lib/markdownChart.ts` (`CHART_SERIES_PALETTE`).
 const SERIES_PALETTE: &[(&str, &str, &str)] = &[
@@ -293,13 +293,15 @@ fn render_chart_fence_to_media_line(json_body: &str) -> Result<String> {
         a: 1.0,
     });
 
-    let path = im_chart_png_path(&prepared)?;
+    // System CJK font — do not call render_chart_to_png_default (embeds Noto JP ~4.3MB).
+    let font = crate::im_chart_font::im_chart_font()?;
+    let path = im_chart_png_path(&prepared, &font.identity)?;
     if path.is_file() {
         log::info!("chart_outbound: reuse {}", path.display());
         return Ok(format!("MEDIA:{}", path.display()));
     }
 
-    let png = fulgur_chart::raster_direct::render_chart_to_png_default(&spec, PNG_SCALE)
+    let png = fulgur_chart::raster_direct::render_chart_to_png(&spec, PNG_SCALE, &font.bytes)
         .map_err(|e| anyhow::anyhow!("chart png: {e}"))?;
     if png.is_empty() {
         anyhow::bail!("chart png empty");
@@ -310,14 +312,20 @@ fn render_chart_fence_to_media_line(json_body: &str) -> Result<String> {
             .with_context(|| format!("create chart dir {}", parent.display()))?;
     }
     fs::write(&path, &png).with_context(|| format!("write chart png {}", path.display()))?;
-    log::info!("chart_outbound: wrote {}", path.display());
+    log::info!(
+        "chart_outbound: wrote {} (font={})",
+        path.display(),
+        font.path.display()
+    );
     Ok(format!("MEDIA:{}", path.display()))
 }
 
-fn im_chart_png_path(prepared_json: &str) -> Result<PathBuf> {
+fn im_chart_png_path(prepared_json: &str, font_identity: &str) -> Result<PathBuf> {
     let root = app_data_dir().context("app data dir")?;
     let mut hasher = Sha256::new();
     hasher.update(STYLE_VERSION.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(font_identity.as_bytes());
     hasher.update(b"\n");
     hasher.update(prepared_json.as_bytes());
     let digest = hasher.finalize();
@@ -345,6 +353,10 @@ mod tests {
 
     #[test]
     fn materializes_chartjs_fence_to_media_line() {
+        if crate::im_chart_font::im_chart_font().is_err() {
+            eprintln!("skip materialize test: no system CJK font");
+            return;
+        }
         let src = r#"Compare:
 
 ```chartjs
@@ -373,6 +385,24 @@ Done."#;
     }
 
     #[test]
+    fn materializes_chinese_labels_with_system_font() {
+        if crate::im_chart_font::im_chart_font().is_err() {
+            eprintln!("skip chinese label test: no system CJK font");
+            return;
+        }
+        let src = r##"
+```chartjs
+{"type":"bar","data":{"labels":["甲","乙"],"datasets":[{"label":"人数","data":[3,5]}]},"options":{"plugins":{"title":{"display":true,"text":"测试"}}}}
+```
+"##;
+        let out = materialize_chartjs_fences_for_im(src);
+        assert!(out.contains("MEDIA:"), "{out}");
+        let (_, media) = split_reply_media(&out);
+        assert_eq!(media.len(), 1);
+        let _ = fs::remove_file(&media[0]);
+    }
+
+    #[test]
     fn keeps_invalid_fence() {
         let src = "```chartjs\n{not-json\n```";
         let out = materialize_chartjs_fences_for_im(src);
@@ -382,6 +412,10 @@ Done."#;
 
     #[test]
     fn accepts_chart_lang_alias() {
+        if crate::im_chart_font::im_chart_font().is_err() {
+            eprintln!("skip chart alias test: no system CJK font");
+            return;
+        }
         let src = "```chart\n{\"type\":\"pie\",\"data\":{\"labels\":[\"x\"],\"datasets\":[{\"data\":[1]}]}}\n```";
         let out = materialize_chartjs_fences_for_im(src);
         assert!(out.contains("MEDIA:"), "{out}");

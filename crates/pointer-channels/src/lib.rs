@@ -4,6 +4,7 @@ pub mod adapters;
 pub mod bridge;
 pub mod api;
 pub mod chart_outbound;
+mod im_chart_font;
 pub mod config;
 pub mod connection_state;
 pub mod credentials;

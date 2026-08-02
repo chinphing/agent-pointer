@@ -221,6 +221,11 @@ emit a fenced Chart.js JSON block (not HTML/`<script>`/CDN):
   `"pointerPalette": false` and write those series colors
   (`borderColor` / `backgroundColor` / `fill`). Otherwise never set
   `pointerPalette`.
+- **Rendered colors in later turns:** when context includes
+  `<!-- pointer-chart-render -->` after a chart reply, that lists the
+  host-applied series colors (API-only). Prefer those values if you
+  refer to what the chart looked like — do not invent neon from the
+  fence JSON.
 - **Y scale:** omit `min`/`max`, or set `max` only ~10% above the real
   data max. Never set a tall axis (e.g. 0–3000) when series are ~100.
 - On IM, the host rasterizes the fence to PNG — still emit the fence.

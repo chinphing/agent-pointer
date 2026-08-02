@@ -35,6 +35,7 @@ Example:
   PNG export composites the chart onto the card background so it matches the on-screen look (raw canvas is transparent).
 - Theme: axis/legend colors follow CSS variables (`--foreground`, `--muted`, `--border`).
 - Series colors: by default the host applies a soft coordinated palette of 8 hues (blue → peach → teal → sand → sage → slate → mauve → olive; cycles if more series), overriding model neon colors. With root `"pointerPalette": false`, model series colors are kept (user-requested).
+- **LLM context (API-only):** when building the next model request, assistant messages that contain chart fences get an appended `<!-- pointer-chart-render -->` block listing the host-applied (or custom) series colors. This is not stored in `msg.content` and is not shown in the UI — same pattern as delivered-attachment manifests.
 - Hover tooltips are enabled (`interaction.mode: index`). Do **not** force CSS width/height on the `<canvas>` — that breaks hit-testing.
 - Plot area height is fixed (`360px` inner box); `maintainAspectRatio` is forced off so model `aspectRatio` cannot flatten the chart.
 - Cartesian series are flattened to primitive number arrays (`parseFloat`); `parsing: false` object points are avoided because they mis-scale on macOS WKWebView.
@@ -54,12 +55,12 @@ Platforms cannot run interactive Chart.js. On outbound delivery the host:
 
 1. Finds `chartjs` / `chart` fences in the assistant reply
 2. **Normalizes** the JSON to match App styling (soft blue/peach palette unless `pointerPalette: false`, white card background, strip function-looking strings / `annotation`)
-3. Renders to a PNG (`fulgur-chart`, Chart.js–compatible subset)
+3. Renders to a PNG (`fulgur-chart`, Chart.js–compatible subset) using a **system CJK font** (not fulgur’s bundled Noto Sans JP). Candidates differ by OS (e.g. Hiragino Sans GB / YaHei / Noto CJK). Override with env `POINTER_IM_CHART_FONT=/path/to/font.ttf`.
 4. Replaces the fence with `MEDIA:<absolute-path>` under `{app_data}/generated-media/im-charts/`
 5. Sends caption text + image attachment via the existing IM media pipeline
 
-Render failures keep the original fence (JSON fallback) and log a warning. Cache key includes a style version + normalized JSON so palette updates invalidate old PNGs.
+Render failures (including missing system CJK font) keep the original fence (JSON fallback) and log a warning. Cache key includes a style version + font identity + normalized JSON so palette/font updates invalidate old PNGs.
 
-Desktop/Web chat is unchanged (interactive canvas). Negative-segment dashes (same series soft color) are App-only; IM gets the same colors without per-segment dash.
+Desktop/Web chat is unchanged (interactive canvas; Chart.js uses its default Latin stack with OS CJK fallback). Negative-segment dashes (same series soft color) are App-only; IM gets the same colors without per-segment dash.
 
 Implementation: [`src/lib/markdownConfig.ts`](../../src/lib/markdownConfig.ts), [`src/lib/markdownChart.ts`](../../src/lib/markdownChart.ts), [`src/composables/useMarkdownCharts.ts`](../../src/composables/useMarkdownCharts.ts), [`crates/pointer-channels/src/chart_outbound.rs`](../../crates/pointer-channels/src/chart_outbound.rs).

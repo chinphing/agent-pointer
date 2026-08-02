@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Check, ChevronDown, FolderOpen, FolderPlus, Paperclip, Send, Square, X } from 'lucide-vue-next'
+import { Check, ChevronDown, FolderOpen, FolderPlus, Paperclip, Send, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
@@ -58,6 +58,7 @@ import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from '../../lib/projectCreation'
 import { resolveComposerPlaceholder } from '../../lib/webBranding'
 import { randomUuid } from '../../lib/randomUuid'
+import SkillDirectoryPicker from '../skills/SkillDirectoryPicker.vue'
 
 function isEphemeralWorkspacePath(path: string): boolean {
   const normalized = path.replace(/\\/g, '/')
@@ -168,6 +169,28 @@ const projectPickerOpen = ref(false)
 const projectPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const projectPickerRef = ref<HTMLElement | null>(null)
 const projectCreationPending = ref(false)
+const projectDropdownDirection = ref<'up' | 'down'>('up')
+const projectDropdownMaxHeight = ref<number | null>(null)
+
+/** 项目选择弹窗内容较多，打开时按按钮上下可用空间动态选方向并限制高度，避免超出视口。 */
+function updateProjectDropdownPlacement() {
+  const btn = projectPickerButtonRef.value
+  if (!btn) return
+  const rect = btn.getBoundingClientRect()
+  const viewportHeight = window.innerHeight
+  const spaceAbove = rect.top
+  const spaceBelow = viewportHeight - rect.bottom
+  const preferUp = spaceAbove >= spaceBelow
+  projectDropdownDirection.value = preferUp ? 'up' : 'down'
+  const available = Math.max(120, preferUp ? spaceAbove : spaceBelow)
+  projectDropdownMaxHeight.value = Math.min(available - 8, 416)
+}
+
+watch(projectPickerOpen, open => {
+  if (open) {
+    void nextTick(updateProjectDropdownPlacement)
+  }
+})
 
 const supervisorRoundsLabel = computed(() => {
   if (sessionAgentMode.value !== 'supervisor' || !chat.current) return ''
@@ -186,8 +209,6 @@ const workspaceTooltip = computed(() => {
 const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value, sessionAgentSettings.value))
 
 const currentAgentIcon = computed(() => iconForAgent(selectedWorker.value, sessionAgentSettings.value))
-
-const hasWorkspace = computed(() => !!(chat.current?.workspaceRoot?.trim()))
 
 const workspaceNeedsAttention = computed(() => {
   const p = chat.current?.workspaceRoot?.trim() ?? ''
@@ -248,6 +269,12 @@ async function onOpenBilling() {
 
 function selectProject(projectId: string) {
   if (projectLocked.value) return
+  const currentProjectId = chat.current?.projectId ?? chat.current?.pendingProjectId
+  // 点击已选中的目录 → 自动取消选择，且不退出下拉框
+  if (projectId === currentProjectId) {
+    clearWorkspace()
+    return
+  }
   if (chat.setConversationProject(projectId)) projectPickerOpen.value = false
 }
 
@@ -274,6 +301,14 @@ async function createOrSelectWorkspaceProject(workspaceRoot: string): Promise<bo
     return false
   } finally {
     projectCreationPending.value = false
+  }
+}
+
+async function onSkillDirectorySelect(dir: { name: string; path: string }) {
+  const ok = await createOrSelectWorkspaceProject(dir.path)
+  // 技能目录项目默认使用 coder agent（技能脚本/代码工程类任务）
+  if (ok && !projectLocked.value) {
+    chat.setConversationAgent('coder', 'single')
   }
 }
 
@@ -1599,38 +1634,14 @@ onUnmounted(() => {
                 <div
                   v-if="projectPickerOpen && !projectLocked"
                   ref="projectPickerRef"
-                  class="composer-dropdown composer-project-dropdown composer-dropdown--up"
+                  class="composer-dropdown composer-project-dropdown flex flex-col"
+                  :class="projectDropdownDirection === 'down' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
+                  :style="projectDropdownMaxHeight != null ? { maxHeight: `${projectDropdownMaxHeight}px` } : undefined"
                 >
-                  <div class="px-3 pb-1 pt-2">
-                    <div class="text-[10px] text-muted font-medium whitespace-nowrap">已有项目</div>
-                  </div>
-                  <div class="max-h-44 space-y-0.5 overflow-y-auto p-1">
-                    <button
-                      v-for="project in chat.projects.filter(p => !p.isArchived)"
-                      :key="project.id"
-                      type="button"
-                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-                      :class="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId) ? 'composer-dropdown-item-active' : ''"
-                      @click="selectProject(project.id)"
-                    >
-                      <FolderOpen class="w-3 h-3 shrink-0" />
-                      <span class="flex-1 truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
-                      <Check
-                        v-if="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)"
-                        class="h-3 w-3 shrink-0 text-accent"
-                      />
-                    </button>
-                    <button
-                      v-if="hasWorkspace"
-                      type="button"
-                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer text-muted"
-                      @click="clearWorkspace(); projectPickerOpen = false"
-                    >
-                      <X class="w-3 h-3 shrink-0" />
-                      <span class="whitespace-nowrap">清除选择</span>
-                    </button>
-                  </div>
-                  <div class="border-t border-border p-1.5">
+                  <div
+                    class="p-1.5"
+                    :class="projectDropdownDirection === 'down' ? 'order-0 border-b border-border' : 'order-last border-t border-border'"
+                  >
                     <button
                       v-if="isTauriRuntime()"
                       type="button"
@@ -1654,6 +1665,34 @@ onUnmounted(() => {
                       :title="workspaceTooltip"
                       @input="onWorkspaceInput"
                       @keydown.enter.prevent="commitWorkspaceInput"
+                    />
+                  </div>
+                  <div class="px-3 pb-1 pt-2">
+                    <div class="text-[10px] text-muted font-medium whitespace-nowrap">已有项目</div>
+                  </div>
+                  <div class="max-h-44 space-y-0.5 overflow-y-auto p-1">
+                    <button
+                      v-for="project in chat.projects.filter(p => !p.isArchived)"
+                      :key="project.id"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      :class="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId) ? 'composer-dropdown-item-active' : ''"
+                      @click="selectProject(project.id)"
+                    >
+                      <FolderOpen class="w-3 h-3 shrink-0" />
+                      <span class="flex-1 truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
+                      <Check
+                        v-if="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)"
+                        class="h-3 w-3 shrink-0 text-accent"
+                      />
+                    </button>
+                  </div>
+                  <div class="border-t border-border p-1.5">
+                    <SkillDirectoryPicker
+                      title="技能目录"
+                      variant="list"
+                      :disabled="projectCreationPending"
+                      @select="onSkillDirectorySelect"
                     />
                   </div>
                 </div>

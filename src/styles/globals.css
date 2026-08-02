@@ -209,6 +209,11 @@
   .composer-dropdown--down {
     @apply top-full left-0 mt-1;
   }
+  /* Project picker can grow tall/wide (projects + skill dirs + create action).
+     Bound it to the viewport so the popup never overflows the window edge. */
+  .composer-project-dropdown {
+    @apply max-h-[min(70vh,26rem)] max-w-[min(20rem,calc(100vw-2rem))] overflow-y-auto;
+  }
   .composer-dropdown-item {
     @apply flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm
       text-foreground hover:bg-hover cursor-pointer transition-colors;

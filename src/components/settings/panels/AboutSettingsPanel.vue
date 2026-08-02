@@ -4,6 +4,14 @@ import { Info, ArrowUpRight, Loader2 } from 'lucide-vue-next'
 import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { APP_VERSION } from '../../../lib/appVersion'
+import { openExternalUrl } from '../../../lib/openExternalUrl'
+
+const DOWNLOAD_URL = 'https://pointer-app.readflowai.com/download'
+
+function openDownloadPage(e: MouseEvent) {
+  e.preventDefault()
+  void openExternalUrl(DOWNLOAD_URL)
+}
 
 const {
   updateAvailable,
@@ -181,9 +189,9 @@ function handleCheckUpdate() {
       >
         {{ error }}
         <a
-          href="https://pointer-app.readflowai.com/download"
-          target="_blank"
+          :href="DOWNLOAD_URL"
           class="ml-1 inline-flex items-center gap-0.5 underline underline-offset-2"
+          @click="openDownloadPage"
         >
           前往官网<ArrowUpRight class="w-3 h-3" />
         </a>

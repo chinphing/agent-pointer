@@ -3,6 +3,7 @@
 | 文档 | 说明 |
 |------|------|
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换 |
+| [external-links.md](external-links.md) | 应用内 http(s) 链接用系统默认浏览器打开（桌面）/ 新标签（Web） |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
 | [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」口径；队列立即发送不得把排队等待算进去 |
 | [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选：先提交 `currentId`，主区异步加载 |

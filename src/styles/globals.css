@@ -404,6 +404,22 @@
   background: hsl(var(--card));
   color: hsl(var(--foreground));
 }
+/* First column as row label (slightly heavier). */
+.md-body tbody td:first-child {
+  @apply font-medium;
+}
+.md-body th.md-align-left,
+.md-body td.md-align-left {
+  text-align: left;
+}
+.md-body th.md-align-center,
+.md-body td.md-align-center {
+  text-align: center;
+}
+.md-body th.md-align-right,
+.md-body td.md-align-right {
+  text-align: right;
+}
 .md-body tbody td:last-child {
   border-right-width: 0;
 }

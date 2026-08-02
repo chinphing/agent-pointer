@@ -12,12 +12,27 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+function tableAlignClass(align: string | null | undefined): string | null {
+  if (align === 'right') return 'md-align-right'
+  if (align === 'center') return 'md-align-center'
+  if (align === 'left') return 'md-align-left'
+  return null
+}
+
+function tableCellHtml(tag: 'th' | 'td', text: string, align: string | null | undefined): string {
+  const cls = tableAlignClass(align)
+  const attr = cls ? ` class="${cls}"` : ''
+  return `<${tag}${attr}>` + marked.parseInline(text) + `</${tag}>`
+}
+
 marked.use({
   renderer: {
-    table({ header, rows }) {
-      const h = header.map(c => '<th>' + marked.parseInline(c.text ?? '') + '</th>').join('')
+    table({ header, rows, align }) {
+      const h = header
+        .map((c, i) => tableCellHtml('th', c.text ?? '', c.align ?? align?.[i]))
+        .join('')
       const body = rows
-        .map(r => '<tr>' + r.map(c => '<td>' + marked.parseInline(c.text ?? '') + '</td>').join('') + '</tr>')
+        .map(r => '<tr>' + r.map((c, i) => tableCellHtml('td', c.text ?? '', c.align ?? align?.[i])).join('') + '</tr>')
         .join('')
       return (
         '<div class="table-wrapper"><table><thead><tr>' +

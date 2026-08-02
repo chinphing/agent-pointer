@@ -3,6 +3,15 @@ import { marked } from 'marked'
 // Configure marked once at module load — all importers share this instance.
 marked.setOptions({ breaks: true, gfm: true })
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 marked.use({
   renderer: {
     table({ header, rows }) {
@@ -17,8 +26,17 @@ marked.use({
         body +
         '</tbody></table></div>'
       )
-    }
-  }
+    },
+    code({ text, lang, escaped }) {
+      const langString = (lang || '').match(/^\S*/)?.[0] || ''
+      const code = text.replace(/\n$/, '') + '\n'
+      const body = escaped ? code : escapeHtml(code)
+      const langClass = langString ? ` class="language-${escapeHtml(langString)}"` : ''
+      return (
+        `<div class="code-block"><pre><code${langClass}>${body}</code></pre></div>\n`
+      )
+    },
+  },
 })
 
 /**

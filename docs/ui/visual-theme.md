@@ -27,6 +27,8 @@ the neon-purple feel in light chat.
 - `.panel` — flat card (`bg-card` + `border-border`)
 - `.panel-elevated` — slightly raised surface
 - `.brand-text` — accent-colored title text
+- Markdown GFM tables (`.md-body .table-wrapper`): rounded outer border, header `bg` from `--hover`, body cells `bg` from `--card`, cell grid with row + column rules; see `globals.css`
+- Markdown fenced code (`.md-body .code-block`): same rounded outer border; whole block uses `--card` (same white fill as table body); copy button stays top-right and appears on hover (same as before); see `markdownConfig.ts` / `useMarkdownCodeCopy`
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`
 - Interactive chat controls (e.g. `ask_user`): selected state should derive from `foreground` / `background` (opacity OK) so light and dark both stay readable — avoid fixed gray hex and accent purple fills in light chat
 - Sub-agent frame (`SubAgentFrame`): default `border-border` + `bg-card`; failed → `border-danger/35` + `bg-danger/5`; chevrons `text-muted` — not accent purple

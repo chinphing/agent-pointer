@@ -340,16 +340,40 @@
   background: hsl(var(--code-bg));
   color: hsl(var(--accent));
 }
-.md-body pre {
-  @apply my-3 p-4 rounded-lg overflow-x-auto text-[13px] relative border border-border;
-  background: hsl(var(--code-bg));
+/* Fenced code: rounded frame + same white/card fill as table body. */
+.md-body .code-block {
+  @apply my-3 relative overflow-hidden rounded-lg border border-border;
+  background: hsl(var(--card));
 }
-.md-body pre .code-copy-btn {
+.md-body .code-block pre {
+  @apply my-0 border-0 rounded-none p-4 overflow-x-auto text-[13px];
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+.md-body .code-block pre code {
+  @apply font-mono text-[13px] leading-6;
+  background: transparent;
+  color: inherit;
+}
+.md-body .code-block .code-copy-btn,
+.md-body pre:not(.code-block pre) .code-copy-btn {
   @apply absolute top-2 right-2 p-1.5 rounded-lg transition opacity-0 group-hover:opacity-100 cursor-pointer;
   background: hsl(var(--hover));
   color: hsl(var(--muted));
 }
-.md-body pre:hover .code-copy-btn { @apply opacity-100; }
+.md-body .code-block:hover .code-copy-btn,
+.md-body pre:not(.code-block pre):hover .code-copy-btn {
+  @apply opacity-100;
+}
+.md-body .code-block .code-copy-btn:hover,
+.md-body pre:not(.code-block pre) .code-copy-btn:hover {
+  color: hsl(var(--foreground));
+}
+/* Legacy bare `<pre>` outside `.code-block`. */
+.md-body pre:not(.code-block pre) {
+  @apply my-3 p-4 rounded-lg overflow-x-auto text-[13px] relative border border-border;
+  background: hsl(var(--card));
+}
 .md-body ul { @apply list-disc pl-6 my-3; }
 .md-body ol { @apply list-decimal pl-6 my-3; }
 .md-body li + li { @apply mt-1; }
@@ -360,9 +384,32 @@
   margin-bottom: 0 !important;
 }
 .md-body a { color: hsl(var(--accent)); @apply underline underline-offset-2 cursor-pointer; }
-.md-body table { @apply my-3 border-collapse w-full table-auto; }
-.md-body th, .md-body td { @apply border border-border px-3 py-1.5 break-words; }
-.md-body .table-wrapper { @apply overflow-x-auto max-w-full; }
+/* GFM tables: rounded outer frame, header tint, full cell grid (row + column rules). */
+.md-body .table-wrapper {
+  @apply my-3 max-w-full overflow-x-auto rounded-lg border border-border;
+}
+.md-body table {
+  @apply my-0 w-full table-auto border-collapse;
+}
+.md-body thead th {
+  @apply px-3 py-2.5 text-left text-sm font-semibold border-b border-r border-border;
+  background: hsl(var(--hover));
+  color: hsl(var(--foreground));
+}
+.md-body thead th:last-child {
+  border-right-width: 0;
+}
+.md-body tbody td {
+  @apply px-3 py-2.5 text-left text-sm border-b border-r border-border break-words;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+.md-body tbody td:last-child {
+  border-right-width: 0;
+}
+.md-body tbody tr:last-child td {
+  border-bottom-width: 0;
+}
 
 .sidebar-search-text-mark {
   color: inherit;

@@ -31,6 +31,12 @@ Values are normalized on write (`trim`); discovery joins `conversations` on `id`
 When the stored id is non-empty, Pointer injects `SESSION_USER_ID` into **`terminal`** child processes.
 See [terminal-environment-variables.md](terminal-environment-variables.md) for injection rules, thread-local guards, and script usage.
 
+On **pointer-server**, operators may enable
+`[server].forbid_session_user_id_in_terminal` so the Agent **`terminal`** tool
+rejects `command` / `stdin` containing the literal `SESSION_USER_ID` string.
+Default off; desktop client has no such setting. Not a hard security boundary —
+identity-sensitive logic must still trust the conversation row / host injection.
+
 **Requires a non-empty stored id:** desktop/Web platform OAuth, standalone SSO `sub`, or IM sender/group key. Standalone password-only sessions use `local-admin`. API-key-only chats without login leave `session_user_id` empty and the variable unset.
 
 ## On-disk layout (user-scoped)

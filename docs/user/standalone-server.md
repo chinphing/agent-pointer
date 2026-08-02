@@ -78,6 +78,8 @@ public_url = "https://pointer.example.com"
 # SSE 首帧 padding 注释帧（穿透缓冲型防火墙/反向代理；默认关闭，需要时显式开启 sse_padding_enabled = true）
 # sse_padding_enabled = false
 # sse_padding_bytes = 10240
+# Agent terminal：禁止 command/stdin 出现 SESSION_USER_ID（默认关闭）
+# forbid_session_user_id_in_terminal = true
 app_data_dir = "/var/lib/pointer"
 ```
 

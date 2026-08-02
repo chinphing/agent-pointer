@@ -92,6 +92,12 @@ skills_dir = "skills"
 # sse_padding_bytes = 10240
 # Env override: POINTER_SERVER_SSE_PADDING_ENABLED / POINTER_SERVER_SSE_PADDING_BYTES
 #
+# Agent `terminal` only: reject command/stdin that contain the literal
+# SESSION_USER_ID (blocks common SESSION_USER_ID=… overrides). Default off.
+# Desktop client ignores this. Not a hard security boundary.
+# forbid_session_user_id_in_terminal = true
+# Env override: POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL
+#
 # Auth: pointer-server does NOT write auth.dat. Each browser gets its own
 # in-memory OAuth session via the HttpOnly cookie `pointer_web_session`.
 # Visitors without that cookie see logged-out state. After upgrading, delete

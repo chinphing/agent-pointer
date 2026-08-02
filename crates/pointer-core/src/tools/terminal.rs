@@ -17,7 +17,7 @@ pub use super::terminal_prompt::InputClass;
 use crate::dotenv::{
     apply_supplemental_env_files, default_user_env_file, parse_env_file_args, resolve_env_file_path,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use log::{info, warn};
 use serde::Serialize;
 use std::io::Read;
@@ -225,6 +225,12 @@ pub fn run_terminal_command_streaming(
     run_abort: Option<Arc<AtomicBool>>,
     input_hooks: Option<TerminalInputHooks>,
 ) -> Result<TerminalStreamingResult> {
+    // Server-only optional guard (pointer-server.toml). Desktop leaves this off.
+    // Workspace Console PTY is a separate path and is never checked here.
+    if crate::server_config::forbid_session_user_id_in_terminal() {
+        reject_session_user_id_keyword_in_terminal_args(&args)?;
+    }
+
     if terminal_requests_elevation(&args) {
         return run_terminal_command_elevated(
             args,
@@ -1100,9 +1106,62 @@ pub(crate) fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) 
     (text, true)
 }
 
+/// Host-injected identity. Agent `terminal` must not mention this name in
+/// `command` / `stdin` (blocks `SESSION_USER_ID=…` overrides and related probes).
+const TERMINAL_FORBIDDEN_SESSION_USER_ID_KEYWORD: &str = "SESSION_USER_ID";
+
+fn reject_session_user_id_keyword_in_terminal_args(args: &serde_json::Value) -> Result<()> {
+    let keyword = TERMINAL_FORBIDDEN_SESSION_USER_ID_KEYWORD;
+    if let Some(command) = args.get("command").and_then(|v| v.as_str()) {
+        if command.contains(keyword) {
+            warn!("terminal: rejected command containing {keyword}");
+            bail!(
+                "terminal 命令不得包含 {keyword}；该变量由 Host 注入，禁止在命令中设置或改写"
+            );
+        }
+    }
+    if let Some(stdin) = args.get("stdin").and_then(|v| v.as_str()) {
+        if stdin.contains(keyword) {
+            warn!("terminal: rejected stdin containing {keyword}");
+            bail!(
+                "terminal stdin 不得包含 {keyword}；该变量由 Host 注入，禁止通过输入设置或改写"
+            );
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod cwd_tests {
     use super::*;
+
+    #[test]
+    fn rejects_session_user_id_keyword_in_command() {
+        let err = reject_session_user_id_keyword_in_terminal_args(&serde_json::json!({
+            "command": "SESSION_USER_ID=fanwei1 bash -c 'echo hi'"
+        }))
+        .unwrap_err();
+        assert!(err.to_string().contains("SESSION_USER_ID"));
+    }
+
+    #[test]
+    fn rejects_session_user_id_keyword_in_stdin() {
+        let err = reject_session_user_id_keyword_in_terminal_args(&serde_json::json!({
+            "command": "bash",
+            "stdin": "export SESSION_USER_ID=other\n"
+        }))
+        .unwrap_err();
+        assert!(err.to_string().contains("SESSION_USER_ID"));
+    }
+
+    #[test]
+    fn allows_commands_without_session_user_id_keyword() {
+        reject_session_user_id_keyword_in_terminal_args(&serde_json::json!({
+            "command": "python3 scripts/cwpt_platform_cli.py login",
+            "stdin": "ok\n"
+        }))
+        .unwrap();
+    }
 
     #[test]
     fn effective_terminal_cwd_defaults_to_workspace_root() {

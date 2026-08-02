@@ -437,6 +437,7 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_APP_DATA_DIR` | 数据目录 | `/var/lib/pointer-server` |
 | `POINTER_LLM_ACTIVE_PROVIDER` | 默认 LLM provider id | `qwen` |
 | `POINTER_USAGE_REPORT_ENABLED` | 用量上报 | `false` |
+| `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | Agent `terminal` 禁止 command/stdin 含 `SESSION_USER_ID`（TOML `[server].forbid_session_user_id_in_terminal`） | 默认关闭；需要时 `true` |
 
 TOML `[env]` 段可批量注入上述变量（见 `server/pointer-server.toml.example`）。
 

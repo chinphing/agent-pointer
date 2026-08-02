@@ -44,6 +44,15 @@ Enable **调试模式** → 设置 → **界面配置** → **终端环境变量
 
 See [session-user-id.md](session-user-id.md) for how the id is chosen and persisted.
 
+**Server optional guard (Agent `terminal` only):** set
+`[server].forbid_session_user_id_in_terminal = true` in `pointer-server.toml`
+(or `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL=true`). When enabled, the
+server rejects tool calls whose `command` / `stdin` contain the literal
+`SESSION_USER_ID` string. Default **off**. Desktop / Tauri does not use this
+option. Workspace Console PTY is unaffected. This is a weak tool-path guard, not
+a security boundary — identity-sensitive logic must still trust the conversation
+row / host injection.
+
 ## Thread-local guards
 
 During an agent run, Pointer sets thread-local `WORKING_DIR` / `SESSION_USER_ID` context on:

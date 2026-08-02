@@ -182,6 +182,12 @@ struct ServerSection {
     /// Default 10_240 (10 KB). Ignored when padding is disabled or zero.
     #[serde(default)]
     sse_padding_bytes: Option<usize>,
+    /// When true, Agent `terminal` rejects `command` / `stdin` containing the
+    /// literal `SESSION_USER_ID` (blocks common env overrides). Desktop client
+    /// ignores this — server-only. Maps to
+    /// `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL`. Default false.
+    #[serde(default)]
+    forbid_session_user_id_in_terminal: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -526,6 +532,12 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
             bytes.to_string(),
         ));
     }
+    if let Some(enabled) = parsed.server.forbid_session_user_id_in_terminal {
+        pairs.push((
+            "POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL".to_string(),
+            if enabled { "true" } else { "false" }.to_string(),
+        ));
+    }
     push_mapped(
         &mut pairs,
         "POINTER_API_BASE",
@@ -796,6 +808,14 @@ pub fn sse_padding_bytes() -> usize {
         .unwrap_or(10_240)
 }
 
+/// Whether Agent `terminal` rejects `command` / `stdin` containing `SESSION_USER_ID`.
+/// Server-only (`pointer-server.toml` / env). Defaults to `false` (desktop never sets this).
+pub fn forbid_session_user_id_in_terminal() -> bool {
+    std::env::var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL")
+        .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
+        .unwrap_or(false)
+}
+
 fn push_mapped(
     pairs: &mut Vec<(String, String)>,
     env_key: &str,
@@ -930,6 +950,39 @@ composer_placeholder = "有什么可以帮你？"
                 .map(String::as_str),
             Some("有什么可以帮你？")
         );
+    }
+
+    #[test]
+    fn toml_maps_forbid_session_user_id_in_terminal() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[server]
+forbid_session_user_id_in_terminal = true
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL")
+                .map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn forbid_session_user_id_in_terminal_defaults_off() {
+        let _guard = env_guard();
+        std::env::remove_var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL");
+        assert!(!forbid_session_user_id_in_terminal());
+        std::env::set_var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL", "true");
+        assert!(forbid_session_user_id_in_terminal());
+        std::env::set_var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL", "false");
+        assert!(!forbid_session_user_id_in_terminal());
+        std::env::remove_var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL");
     }
 
     #[test]

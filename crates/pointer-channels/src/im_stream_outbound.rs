@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use pointer_core::models::StreamEvent;
 
+use crate::chart_outbound::materialize_chartjs_fences_for_im;
 use crate::config::ImOutboundConfig;
 use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
 use crate::outbound_resolve::{
@@ -80,7 +81,8 @@ impl<'a> ImStreamOutbound<'a> {
 
     /// Send any reply text/media not already pushed during the stream.
     pub async fn finish(&mut self, reply_text: &str) -> Result<bool> {
-        let (visible_text, media_refs) = split_reply_media(reply_text);
+        let reply_text = materialize_chartjs_fences_for_im(reply_text);
+        let (visible_text, media_refs) = split_reply_media(&reply_text);
         let mut sent_any = false;
 
         if !visible_text.trim().is_empty() {
@@ -180,7 +182,8 @@ impl<'a> ImStreamOutbound<'a> {
     }
 
     async fn send_visible_chunk(&mut self, raw: &str) -> Result<bool> {
-        let (visible, media_refs) = split_reply_media(raw);
+        let raw = materialize_chartjs_fences_for_im(raw);
+        let (visible, media_refs) = split_reply_media(&raw);
         let mut sent_any = false;
         if !visible.trim().is_empty() {
             self.plugin

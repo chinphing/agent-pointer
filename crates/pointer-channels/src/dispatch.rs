@@ -21,6 +21,7 @@ use crate::session::{
 use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
 use crate::session_agent::{agent_switch_ack, detect_agent_switch, AgentSwitchAction};
 use crate::session_reset::{self, ManualResetAction, MANUAL_RESET_ACK};
+use crate::chart_outbound::materialize_chartjs_fences_for_im;
 use crate::im_stream_outbound::ImStreamOutbound;
 use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
 use crate::traits::{ChannelPlugin, InboundMessage, OutboundContext};
@@ -463,6 +464,7 @@ impl DispatchService {
             return Err(e);
         }
 
+        let reply_text = materialize_chartjs_fences_for_im(&reply_text);
         let (visible_text, media_refs) = split_reply_media(&reply_text);
         if visible_text.trim().is_empty() && media_refs.is_empty() {
             log::warn!("channel dispatch empty reply conv={conv_id}");

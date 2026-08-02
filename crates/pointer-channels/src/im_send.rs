@@ -23,8 +23,10 @@ use serde_json::{json, Value};
 
 use pointer_core::tools::{ToolEntry, ToolHandler, ToolRegistry};
 
+use crate::chart_outbound::materialize_chartjs_fences_for_im;
 use crate::gateway::ChannelGateway;
 use crate::im_delivery::resolve_delivery_targets;
+use crate::outbound_reply::split_reply_media;
 
 const IM_SEND_MD: &str = include_str!("prompts/im_send.md");
 const IM_SEND_DOC_SOURCE: &str = "tools/im_send/prompts/im_send.md";
@@ -79,21 +81,36 @@ fn dispatch(gateway: Arc<ChannelGateway>, args: &Value) -> Result<String> {
         ));
     }
 
+    // Chart fences → PNG MEDIA lines, then split like other IM outbound paths.
+    let body = materialize_chartjs_fences_for_im(text);
+    let (visible, media_refs) = split_reply_media(&body);
+    if visible.trim().is_empty() && media_refs.is_empty() {
+        return Err(anyhow!("im_send: empty message after chart/media processing"));
+    }
+
     // Bridge sync handler → async outbound send. `block_in_place` parks the
     // current worker thread and runs the future on the runtime; safe on the
     // multi-threaded schedulers used by both hosts.
     let targets_clone: Vec<_> = targets
         .iter()
-        .map(|t| (t.channel.clone(), t.account_id.clone(), t.clone(), text.to_string()))
+        .map(|t| {
+            (
+                t.channel.clone(),
+                t.account_id.clone(),
+                t.clone(),
+                visible.clone(),
+                media_refs.clone(),
+            )
+        })
         .collect();
     let outcome = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async move {
             let total = targets_clone.len();
             let mut ok = 0usize;
             let mut errors: Vec<String> = Vec::new();
-            for (channel, account, ctx, body) in targets_clone {
+            for (channel, account, ctx, body, media) in targets_clone {
                 match gateway
-                    .send_outbound_explicit(&ctx, Some(&body), &[])
+                    .send_outbound_explicit(&ctx, Some(&body), &media)
                     .await
                 {
                     Ok(()) => {

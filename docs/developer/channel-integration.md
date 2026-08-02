@@ -152,6 +152,8 @@ IM 入站触发 `run_chat` 时，流式事件（工具调用、推理、子 Agen
 
 四个 IM 通道均支持 Agent 向用户发送图片或文件。模型在回复末尾附加媒体路径行（对齐 OpenClaw `MEDIA:` 约定），dispatch 会自动解析并上传发送；这些行**不会**展示给用户。
 
+**图表：** 回复中的 Markdown ` ```chartjs ` / ` ```chart ` fence（Chart.js JSON）在出站前由主机规范化（与 App 相同的柔和色板 + 白底，去掉非法回调字符串）后渲染为 PNG（`generated-media/im-charts/`），并改写为 `MEDIA:` 附件发送。桌面/Web 仍为交互式图表。实现见 `chart_outbound.rs`；说明见 [`../ui/markdown-charts.md`](../ui/markdown-charts.md)。
+
 支持的写法：
 
 ```

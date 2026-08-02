@@ -40,7 +40,10 @@ export function useThrottledMarkdown(
 
   function renderPending() {
     clearTimer()
-    html.value = parse(pendingSource)
+    const next = parse(pendingSource)
+    // Identical HTML (e.g. stable streaming chart placeholder) — skip v-html churn.
+    if (next === html.value) return
+    html.value = next
   }
 
   watch(

@@ -10,6 +10,7 @@ import ZoomableImage from './ZoomableImage.vue'
 import { userMessageDisplayContent } from '../../../lib/messageNormalizer'
 import MessageFooterActions from './MessageFooterActions.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
+import { useMarkdownCharts } from '../../../composables/useMarkdownCharts'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 import { attachmentsForMessageRender } from '../../../lib/messageNormalizer'
 import { showsWebDownloadOnly } from '../../../lib/chatAttachmentLoad'
@@ -39,6 +40,7 @@ const {
 } = useChatAttachmentDisplay(attachments)
 
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
+useMarkdownCharts(bodyRef, () => props.message.content)
 useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
 async function onOpenAttachment(att: RenderableAttachment) {

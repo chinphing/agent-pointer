@@ -37,6 +37,10 @@ Use `MEDIA:` + absolute path, `MEDIA:pointer-media://…`, or a bare
 
 Same `MEDIA:` lines at the end of assistant content. The host sends the text to the channel and delivers files as IM attachments (`MEDIA:` lines are not shown as raw path text).
 
+**Charts:** a `chartjs` / `chart` Markdown fence in the reply is converted by the
+host into a PNG under app data and attached as `MEDIA:` (interactive Chart.js
+runs only in the Pointer app/web client). Prefer the fence; do not emit CDN HTML.
+
 ### Final-reply tools (`image_generate`, `video_generate`)
 
 On success the host **ends the turn** and delivers output automatically (inline player/gallery). **Do not** send a follow-up message repeating paths.

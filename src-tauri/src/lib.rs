@@ -508,6 +508,7 @@ pub fn run() {
             commands::preview_media_ref,
             commands::save_chat_attachment,
             commands::check_media_deps,
+            commands::save_bytes_to_path,
             commands::reveal_in_finder,
             commands::open_path_with_default_app,
             commands::open_chat_media,

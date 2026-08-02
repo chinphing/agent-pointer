@@ -17,6 +17,7 @@ use anyhow::Result;
 use pointer_core::dispatcher::hooks::{HookIdentity, OnRunFinishedHook, RunFinishedContext};
 use pointer_core::dispatcher::TriggerMeta;
 
+use crate::chart_outbound::materialize_chartjs_fences_for_im;
 use crate::gateway::ChannelGateway;
 use crate::im_delivery::{
     is_silence_narration, resolve_delivery_targets, truncate_for_platform, MAX_PLATFORM_OUTPUT,
@@ -106,6 +107,7 @@ impl ImDeliverHook {
             return Ok(());
         }
 
+        let content = materialize_chartjs_fences_for_im(&content);
         let (visible, media_refs) = split_reply_media(&content);
         if visible.trim().is_empty() && media_refs.is_empty() {
             log::info!(

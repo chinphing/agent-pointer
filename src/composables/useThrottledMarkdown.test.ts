@@ -62,4 +62,26 @@ describe('useThrottledMarkdown', () => {
     expect(parse).toHaveBeenCalledTimes(2)
     scope.stop()
   })
+
+  it('does not bump the html ref when parse returns an identical string', () => {
+    vi.useFakeTimers()
+    const scope = effectScope()
+    const source = ref('a')
+    const streaming = ref(true)
+    const parse = vi.fn(() => '<p>stable</p>')
+
+    const html = scope.run(() => useThrottledMarkdown(
+      () => source.value,
+      () => streaming.value,
+      parse
+    ))!
+
+    const first = html.value
+    source.value = 'ab'
+    vi.advanceTimersByTime(STREAMING_MARKDOWN_THROTTLE_MS)
+    expect(html.value).toBe(first)
+    expect(html.value).toBe('<p>stable</p>')
+    expect(parse).toHaveBeenCalledTimes(2)
+    scope.stop()
+  })
 })

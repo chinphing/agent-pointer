@@ -13,6 +13,7 @@ import {
 import { convertFileSrc } from '@tauri-apps/api/core'
 import type { WorkspaceFilePreview } from '../../lib/api'
 import { parseMarkdown } from '../../lib/markdownConfig'
+import { useMarkdownCharts } from '../../composables/useMarkdownCharts'
 import {
   clearSearchTextMarks,
   highlightSearchText
@@ -44,6 +45,8 @@ const searchOpen = ref(false)
 const searchQuery = ref('')
 const activeMatchIndex = ref(0)
 const markdownMatchCount = ref(0)
+
+useMarkdownCharts(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
 const ext = computed(() => (props.absolutePath.split('.').pop()?.toLowerCase() || ''))

@@ -426,6 +426,63 @@
 .md-body tbody tr:last-child td {
   border-bottom-width: 0;
 }
+/* Chart.js hosts from ```chartjs / ```chart fences */
+.md-body .md-chart {
+  @apply my-3 relative rounded-lg border border-border;
+  /* visible: do not clip canvas tooltips / hover affordances */
+  overflow: visible;
+  background: hsl(var(--card));
+}
+.md-body .md-chart-toolbar {
+  @apply absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg p-0.5;
+  background: hsl(var(--card) / 0.92);
+  color: hsl(var(--muted));
+  box-shadow: 0 0 0 1px hsl(var(--border));
+}
+.md-body .md-chart-toolbar[hidden] {
+  display: none !important;
+}
+.md-body .md-chart-btn {
+  @apply inline-flex items-center justify-center rounded-md p-1.5 transition cursor-pointer;
+  color: hsl(var(--muted));
+  background: transparent;
+}
+.md-body .md-chart-btn:hover,
+.md-body .md-chart-btn-active {
+  background: hsl(var(--hover));
+  color: hsl(var(--foreground));
+}
+.md-body .md-chart-canvas-wrap {
+  @apply w-full px-3 pt-3 pb-2;
+  overflow: hidden;
+  border-radius: inherit;
+}
+/* Chart.js owns canvas pixel size — never force CSS width/height on <canvas>
+   or hover hit-testing drifts away from the drawn points. */
+.md-body .md-chart-canvas-box {
+  position: relative;
+  width: 100%;
+  height: 360px;
+}
+.md-body .md-chart-canvas-box > canvas {
+  display: block;
+  cursor: crosshair;
+}
+.md-body .md-chart-status {
+  @apply flex w-full items-center justify-center text-xs;
+  height: 360px;
+  color: hsl(var(--muted));
+}
+.md-body .md-chart-status-error {
+  color: hsl(var(--danger));
+}
+.md-body .md-chart-source {
+  @apply m-0 max-h-56 overflow-auto border-t border-border px-3 py-2 text-[12px] font-mono leading-5;
+  background: hsl(var(--hover));
+  color: hsl(var(--foreground));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 .sidebar-search-text-mark {
   color: inherit;

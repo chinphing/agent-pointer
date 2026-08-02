@@ -473,6 +473,40 @@ pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, Str
     Ok(path.to_string_lossy().to_string())
 }
 
+/// Write raw bytes (base64) to an absolute path chosen by the user (e.g. chart PNG export).
+#[tauri::command]
+pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("保存路径为空".into());
+    }
+    let path_buf =
+        pointer_core::media::access::normalize_user_path(trimmed).map_err(|e| e.to_string())?;
+    if path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .is_empty()
+    {
+        return Err("保存路径无效".into());
+    }
+    if let Some(parent) = path_buf.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(content_base64.trim())
+        .map_err(|e| format!("decode base64: {e}"))?;
+    if bytes.is_empty() {
+        return Err("文件内容为空".into());
+    }
+    std::fs::write(&path_buf, &bytes).map_err(|e| format!("写入失败: {e}"))?;
+    log::info!("save_bytes_to_path: wrote {} bytes to {}", bytes.len(), path_buf.display());
+    Ok(())
+}
+
 /// Reveal a local file in Finder (macOS) or file manager (other platforms).
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {

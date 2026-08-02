@@ -1066,16 +1066,6 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="workspace-tab workspace-tab-icon shrink-0"
-        :class="activeView === 'terminal' && 'is-active'"
-        title="调试终端"
-        aria-label="调试终端"
-        @click="activatePrimaryView('terminal')"
-      >
-        <SquareTerminal class="w-3.5 h-3.5" />
-      </button>
-      <button
-        type="button"
-        class="workspace-tab workspace-tab-icon shrink-0"
         :class="activeView === 'files' && 'is-active'"
         title="工作区文件"
         aria-label="工作区文件"
@@ -1093,6 +1083,16 @@ onBeforeUnmount(() => {
       >
         <GitBranch class="w-3.5 h-3.5" />
         <span v-if="changes.length" class="workspace-tab-badge">{{ changes.length }}</span>
+      </button>
+      <button
+        type="button"
+        class="workspace-tab workspace-tab-icon shrink-0"
+        :class="activeView === 'terminal' && 'is-active'"
+        title="调试终端"
+        aria-label="调试终端"
+        @click="activatePrimaryView('terminal')"
+      >
+        <SquareTerminal class="w-3.5 h-3.5" />
       </button>
       <div class="workspace-preview-tabs">
         <button

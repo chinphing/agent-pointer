@@ -188,7 +188,7 @@
     pointer-events: none;
   }
   .composer-shell {
-    @apply py-1.5 md:pb-2 md:pt-[18px];
+    @apply py-1.5 md:pb-2 md:pt-[18px] border border-border bg-[hsl(var(--composer-bg))];
   }
   /* Prefer native grow; JS autoResize is fallback when unsupported. */
   .composer-textarea {
@@ -256,11 +256,29 @@
   .message-bubble-copy-btn {
     @apply p-1 rounded-md hover:bg-hover cursor-pointer transition-colors;
   }
+  /*
+   * Chat column width tracks the middle pane (sidebar / workspace), not the
+   * viewport — so dragging the workspace panel reflows the conversation column.
+   */
+  .chat-main {
+    container-type: inline-size;
+    container-name: chat;
+  }
   .chat-shell {
-    @apply px-3 md:px-10;
+    @apply px-3;
+  }
+  @container chat (min-width: 720px) {
+    .chat-shell {
+      padding-left: 2.5rem;
+      padding-right: 2.5rem;
+    }
   }
   .chat-column {
-    @apply max-w-3xl mx-auto w-full;
+    @apply mx-auto w-full;
+    /* Fallback ≈ former max-w-3xl when cqi is unavailable. */
+    max-width: 48rem;
+    /* Floor ~3xl on mid panes; grow toward 1440px when the middle pane is wide. */
+    max-width: min(1440px, max(48rem, 85cqi));
   }
   .chat-scroll-area {
     scroll-padding-bottom: 2.5rem;

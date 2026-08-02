@@ -1403,7 +1403,7 @@ watch(searchQuery, q => {
         </div>
       </aside>
 
-      <div class="flex-1 min-w-0 flex flex-col">
+      <div class="chat-main flex-1 min-w-0 flex flex-col">
         <!-- D: 主区顶栏 -->
         <WindowDragRegion
           v-if="chromeEnabled && !sidebarCollapsed"

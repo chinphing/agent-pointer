@@ -6,6 +6,7 @@ CSS variables in `src/styles/globals.css`:
 
 - `--background`, `--foreground`, `--card`, `--card-elevated`, `--border`
 - `--accent`, `--accent-muted`, `--hover`, `--composer-bg`, `--code-bg`
+  (`--composer-bg` fills `.composer-shell`; light = white, not `--card-elevated`)
 - Semantic: `--success`, `--danger`, `--warning`, `--info`
 
 `html.dark` and default (`:root`) define light; dark overrides on `html.dark`.
@@ -21,6 +22,22 @@ consumer-purple product, especially in light mode:
 Keep saturation ≤ ~50% in light; raise lightness in dark so `text-accent` stays
 readable on `--card`. Do not bump saturation back to 80%+ — that reintroduces
 the neon-purple feel in light chat.
+
+## Chat column width
+
+Conversation content (messages, composer, change summary) uses a centered
+`.chat-column` inside `.chat-shell`. Width follows the **middle pane**, not the
+viewport, so it stays in sync when the left sidebar collapses or the right
+workspace panel is resized:
+
+- `AppShell` middle pane is `.chat-main` with `container-type: inline-size`
+- `.chat-column` max width: `min(1440px, max(48rem, 85cqi))` — ~768px floor on
+  mid panes, up to 1440px when the middle pane is wide
+- `.chat-shell` horizontal padding: `px-3` by default; `px-10` when the chat
+  container is ≥720px (container query, not `md:` viewport)
+
+Do not switch this back to viewport-only `max-w-3xl` / `md:px-*` — that drifts
+from available width while the workspace panel is open.
 
 ## UI classes
 

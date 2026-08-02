@@ -1512,8 +1512,8 @@ onUnmounted(() => {
       <!-- Web: HTML5 file drop on this zone. Desktop: drag highlight only; file intake is setupTauriComposerDragDrop. -->
       <div
         ref="composerDropZoneRef"
-        class="panel-elevated composer-shell rounded-2xl border overflow-visible px-2 transition-colors"
-        :class="isComposerDragOver ? 'border-accent/50 bg-accent-muted/15' : 'border-border'"
+        class="composer-shell rounded-2xl overflow-visible px-2 transition-colors"
+        :class="isComposerDragOver ? 'border-accent/50 bg-accent-muted/15' : ''"
         @dragenter.capture="onComposerDragEnter"
         @dragover.capture="onComposerDragOver"
         @dragleave.capture="onComposerDragLeave"

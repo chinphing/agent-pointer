@@ -45,7 +45,7 @@ The host shows the user **only** assistant message **`content`**. Reasoning is i
 - **G1 clarify** — questions or stated assumptions when you cannot proceed safely.
 - **Any turn that ends the run** with **no** **`tool_calls`**.
 
-**Do not** finish with reasoning-only output. Internal Impact map and compact plans belong in **internal notes** by default; use **`task_board_init`** only when scope is **≥3 files** or **cross-module** (see **Task board** complexity gate)—not as a substitute for **Deliver** in **`content`**.
+**Do not** finish with reasoning-only output. Internal Impact map and compact plans belong in **internal notes** by default—not as a substitute for **Deliver** in **`content`**.
 
 ## In-repo design and UX proposals
 

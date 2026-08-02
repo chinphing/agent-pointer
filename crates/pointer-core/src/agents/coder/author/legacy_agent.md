@@ -141,7 +141,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
    If the map reveals extra files, **update Plan before editing**. See **Change impact scan** below for patterns.
 
-   **Task board (complexity gate):** After Explore + Impact scan, initialize only when expected scope is **>=2 files** or **cross-module**. For narrow single-file work, skip init by default and proceed directly. If exploration reveals wider scope than expected, initialize immediately before heavy implementation. When initialized, map **3–6** rows in **`global_milestones`** (include **Impact scan** and **Unit tests**) and keep **`plan`**, **`done_when`**, and **`remark`** current (see **Task board (v4 fields)**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**.
+   **Task board:** When you use a board, map **3–6** rows in **`global_milestones`** and keep **`plan`**, **`done_when`**, and **`remark`** current (see **Task board (v4 fields)**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**.
 
    **Plan contents (keep compact):** goal in one line; **Impact map** summary; **ordered** steps; **files/modules** you expect to touch; known **risks** or unknowns. If the user asked for a specific approach, reflect it explicitly.
 
@@ -225,10 +225,8 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
 Use **`task_board`** as the **visible plan and progress surface** for behavior-changing work. Evidence for **`done`** comes from **commands, tests, and file reads** captured in **`remark`**. User delivery stays in assistant **`content`**.
 
-**When to initialize (complexity gate)**
+**Board cadence**
 
-- Initialize in **Plan** after Explore + Impact scan when expected scope is **>=2 files** or **cross-module**.
-- For narrow single-file work, skip `init` by default; escalate to `init` once scope expands.
 - If **`[TASK_BOARD]`** already has rows, keep **`patch`**ing—do not skip updates.
 
 **Turn cadence**

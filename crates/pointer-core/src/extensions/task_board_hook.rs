@@ -1,7 +1,6 @@
 //! Legacy dynamic `[TASK_BOARD]` system inject path used for rollback compatibility.
 
 use super::{BeforeMainLlmCallContext, BeforeMainLlmCallHook};
-use crate::task_board::sub_agent_hint::task_board_init_hint;
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -11,8 +10,8 @@ pub fn append_task_board_dynamic_block(
     system_prompts_dynamic: &mut Vec<String>,
     task_board_store: &crate::task_board::TaskBoardStore,
     task_board_store_key: &str,
-    conversation_id: &str,
-    lead_agent_profile: &crate::agents::AgentProfile,
+    _conversation_id: &str,
+    _lead_agent_profile: &crate::agents::AgentProfile,
 ) {
     let doc = task_board_store.document(task_board_store_key);
     if matches!(
@@ -21,19 +20,9 @@ pub fn append_task_board_dynamic_block(
     ) {
         return;
     }
+    // Empty-board `[TASK_BOARD_HINT]` inject removed (see `init_policy`).
     if let Some(block) = task_board_store.snapshot_for_prompt(task_board_store_key) {
         system_prompts_dynamic.push(block);
-        return;
-    }
-    if let Some(hint) =
-        task_board_init_hint(task_board_store, task_board_store_key, lead_agent_profile)
-    {
-        crate::task_board::observability::log_main_agent_init_hint(
-            conversation_id,
-            task_board_store_key,
-            lead_agent_profile,
-        );
-        system_prompts_dynamic.push(hint);
     }
 }
 

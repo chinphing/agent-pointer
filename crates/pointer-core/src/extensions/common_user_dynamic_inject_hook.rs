@@ -6,7 +6,6 @@ use crate::extensions::{
 };
 use crate::models::{ChatMessage, Role};
 use crate::task_board::snapshot::markdown_runtime_block_for_inject;
-use crate::task_board::sub_agent_hint::{should_inject_task_board_init_hint, task_board_init_hint};
 use crate::task_board::MetaStatus;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -32,24 +31,14 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
         let terminal_board = matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed);
         let has_board_content = !terminal_board
             && (!doc.meta.goal.trim().is_empty() || !doc.global_milestones.is_empty());
+        // Empty-board `[TASK_BOARD_HINT]` inject removed: it lived in ephemeral
+        // `injected_tail` and re-fired every tool round. Model decides init from
+        // static prompts; only live board snapshots are injected here.
         let board_block = if has_board_content {
             Some(markdown_runtime_block_for_inject(
                 &doc,
                 ctx.task_board_store_key,
             ))
-        } else if should_show_init_hint(ctx) {
-            task_board_init_hint(
-                ctx.task_board_store.as_ref(),
-                ctx.task_board_store_key,
-                &ctx.lead_agent_profile,
-            )
-            .inspect(|_| {
-                crate::task_board::observability::log_main_agent_init_hint(
-                    ctx.conversation_id,
-                    ctx.task_board_store_key,
-                    &ctx.lead_agent_profile,
-                );
-            })
         } else {
             None
         };
@@ -107,18 +96,4 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
         }
         Ok(())
     }
-}
-
-fn should_show_init_hint(ctx: &MessageLoopPromptsAfterContext<'_>) -> bool {
-    // Init hints are ephemeral API rows; cadence checks session history (base).
-    // Also skip if an earlier hook already queued a hint in this round's tail.
-    use crate::task_board::sub_agent_hint::TASK_BOARD_HINT_TAG;
-    if ctx
-        .injected_tail
-        .iter()
-        .any(|m| m.content.contains(TASK_BOARD_HINT_TAG))
-    {
-        return false;
-    }
-    should_inject_task_board_init_hint(&ctx.lead_agent_profile, ctx.base_messages)
 }

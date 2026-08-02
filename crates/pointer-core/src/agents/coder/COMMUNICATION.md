@@ -131,12 +131,11 @@ Issue **separate** **`file_read`** / **`file_edit`** calls in the **same** turn 
 
 ## Task board (plan and tracking)
 
-Policy and complexity gates: see **Task board** in composed primary instructions.
+Board usage: see **Task board** in composed primary instructions and the **`task_board`** tool doc.
 This section keeps **JSON examples** only.
 
-### Example — init for cross-module / multi-file work only
+### Example — init
 
-Do **not** copy this for 1–2 file narrow fixes (skip `task_board_init`).
 Titles should stay task-specific; avoid a generic Recon→Implement→Verify ladder.
 
 ```json

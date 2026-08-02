@@ -219,10 +219,9 @@ Confirm **`in_progress_id`** matches **Current task** before patching.
 
 ## Core rules
 
-- **Init:** follow injected **`[TASK_BOARD_HINT]`** — default skip.
 - During execution, **`task_board_patch` every row transition** — do not rely on inject alone; finalize or prune when appropriate.
 - **Linear:** 3–8 milestones; **loop:** only when batch signals (N≥5 enumerated targets or goal asks 汇总/逐条/批量/每个).
-- User switched tasks on a running board: **`task_board_abandon`**, then **`task_board_init`** when the new scope meets your profile gate.
+- User switched tasks on a running board: **`task_board_abandon`**, then **`task_board_init`** for the new scope.
 - Cancel obsolete rows with **`task_board_prune`**.
 - Finalize in the same turn as final user delivery.
 

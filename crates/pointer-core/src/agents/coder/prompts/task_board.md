@@ -4,17 +4,12 @@ Multi-step work is tracked with **`task_board`**, not by pasting the full plan o
 
 **User-visible replies** go in assistant **`content`**. **`task_board`** holds milestones in **`global_milestones`**.
 
-### Init gate
-
-Follow injected **`[TASK_BOARD_HINT]`** when present — **default skip `task_board_init`**.
-Same gate for lead and sub-agents.
-Do not duplicate or expand its gate here.
-
 ### When you do init — row shape
 
 Use **3–8 task-specific** titles tied to this goal
 (e.g. "Locate empty-response path", "Raise vision max_tokens", "Add truncation test").
-Follow **`[TASK_BOARD_HINT]`** for row granularity.
+Keep rows at task-unit granularity — not a Recon→Implement→Verify ladder.
+Lead and sub-agents share the same **`task_board`** tool rules.
 
 If you need a verification milestone on a justified board, set **`done_when`** to the
 exact command, and on **`done`** put **`remark`**: `<command> — <outcome>` or `SKIP: <reason>`.

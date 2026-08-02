@@ -27,7 +27,7 @@ Child boards never write to the parent board. A child's findings reach the lead 
 ## Prompt injection
 
 - Child rounds: `[TASK_BOARD]` (local) + `[TASK_BOARD_PARENT]` (read-only), see `sub_agent_prompt.rs`.
-- Lead / sub-agent rounds: `[TASK_BOARD_HINT]` via **`CommonUserDynamicInjectHook`** when board empty (see `task_board/init_policy.rs`). Sub-agents use the same gate as lead; no per-session system hint duplication.
+- Lead / sub-agent rounds: empty-board `[TASK_BOARD_HINT]` inject is **disabled** (see `task_board/init_policy.rs`). Live `[TASK_BOARD]` snapshots still inject when the board has content.
 - Compact snapshots: `task_board/snapshot.rs`.
 
 ## Observability

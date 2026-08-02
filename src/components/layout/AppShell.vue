@@ -33,7 +33,8 @@ import {
   createProject, searchConversations, updateProject, revealInFinder
 } from '../../lib/api'
 import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
-import { applyProjectCreationResult } from '../../lib/projectCreation'
+import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from '../../lib/projectCreation'
+import SkillDirectoryPicker from '../skills/SkillDirectoryPicker.vue'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import { useSidebarProjectExpand } from '../../composables/useSidebarProjectExpand'
@@ -228,6 +229,23 @@ async function addProject() {
     projectError.value = String(err)
   }
 }
+
+/** 点击技能目录卡片：直接以技能名+目录创建项目，几乎零思考。 */
+async function createProjectFromSkill(dir: { name: string; path: string }) {
+  projectName.value = dir.name
+  projectRoot.value = dir.path
+  projectError.value = ''
+  await addProject()
+}
+
+/** 粘贴路径时自动补全项目名称（若名称仍为空），让创建按钮可直接点击。 */
+watch(projectRoot, root => {
+  const trimmed = root.trim()
+  if (!trimmed || projectName.value.trim()) return
+  if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.startsWith('~')) {
+    projectName.value = projectNameFromWorkspaceRoot(trimmed)
+  }
+})
 
 async function persistProject(project: Project) {
   try {
@@ -1032,6 +1050,14 @@ watch(searchQuery, q => {
                         <div class="mt-1 flex gap-2">
                           <input v-model="projectRoot" class="project-dialog-input min-w-0 flex-1" placeholder="选择已有目录">
                           <button type="button" class="project-dialog-secondary shrink-0" title="选择已有目录" @click="pickProjectDirectory"><FolderGit2 class="w-3.5 h-3.5" />选择目录</button>
+                        </div>
+                        <div class="mt-2">
+                          <SkillDirectoryPicker
+                            title="技能目录"
+                            variant="grid"
+                            searchable
+                            @select="createProjectFromSkill"
+                          />
                         </div>
                       </div>
                     </div>

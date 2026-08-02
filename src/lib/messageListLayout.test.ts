@@ -36,6 +36,20 @@ describe('splitMessageTurnSegments', () => {
     expect(splitMessageTurnSegments(messages)[0]).toMatchObject({ start: 0, end: 2 })
     expect(splitMessageTurnSegments(messages)[1]).toMatchObject({ start: 2, end: 4 })
   })
+
+  it('does not anchor empty-response retry injects as a new turn', () => {
+    const messages = [
+      user('u1', 'task'),
+      assistant('a1', '', 'done'),
+      user(
+        'fmt_retry_abc',
+        '你的上一次回复为空，既没有文本内容也没有工具调用。（异常重试 1/3）'
+      ),
+      assistant('a2', 'ok')
+    ]
+    expect(splitMessageTurnSegments(messages).map(s => s.id)).toEqual(['u1'])
+    expect(splitMessageTurnSegments(messages)[0]).toMatchObject({ start: 0, end: 4 })
+  })
 })
 
 describe('messageStructureFingerprint', () => {

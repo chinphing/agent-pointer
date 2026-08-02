@@ -11,7 +11,7 @@ import {
   type ConversationTurn
 } from './conversationTurns'
 import { isScopedSubMessage } from './subAgentMessages'
-import { isToolRunContinuityGlue } from './threadLayoutGlue'
+import { isRealUserTaskMessage, isToolRunContinuityGlue } from './threadLayoutGlue'
 
 export type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMessage }
 
@@ -92,7 +92,8 @@ export function splitMessageTurnSegments(messages: readonly ChatMessage[]): Turn
 
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]!
-    const isUserAnchor = message.role === 'user' && !isScopedSubMessage(message)
+    // Skip screen-inject / empty-response retry injects — they are wire-only.
+    const isUserAnchor = isRealUserTaskMessage(message) && !isScopedSubMessage(message)
     if (isUserAnchor) {
       if (current) segments.push(current)
       current = { id: message.id, start: i, end: i + 1 }

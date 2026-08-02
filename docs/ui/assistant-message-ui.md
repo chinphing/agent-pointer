@@ -58,4 +58,12 @@
 - 隐藏：`context_compression_applied` / `context_compressed`，或停止 / `done` / `error` 清 run state。
 - **不**写入聊天记录，**不**进入模型上下文。详见 [`../internals/context-compression.md`](../internals/context-compression.md)。
 
+## 空回复 / 环境恢复重试提示（对用户隐藏）
+
+模型偶发返回空内容（无正文、无工具调用）时，后端会注入一条 user 行（如「你的上一次回复为空…（异常重试 1/3）」）并自动重试；限流 / 网关异常 / 输出截断的 `【环境反馈】`、`【输出长度】` 同类。
+
+- **对模型**：仍进入 history（`push_injected_format_retry_turn`），用于纠偏下一轮。
+- **对用户**：不展示为聊天气泡；`isInternalRetryUserMessage` / silent glue 处理，也不作为 turn 锚点或会话标题来源。
+- 重试耗尽后的真正错误文案仍会正常展示。
+
 修改 `AssistantModelMessage.vue`、`AgentMessageBody.vue`、`SubAgentFrame.vue`、`ModelThoughtPanels.vue` 或 `chat.ts` 中 `traceId` 路由前，请先对照本文。

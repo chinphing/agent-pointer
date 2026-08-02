@@ -28,6 +28,23 @@ export function isScreenInjectUserMessage(message: ChatMessage): boolean {
   return message.content.trimStart().startsWith('[CUR_SCREEN]')
 }
 
+/**
+ * Backend-injected format / empty-response / provider-recovery turns
+ * (`push_injected_format_retry_turn`). Kept in model history; never show as
+ * user chat bubbles. Aligns with `is_synthetic_user_content` retry prefixes
+ * (not compression/trim placeholders, which still render).
+ */
+export function isInternalRetryUserMessage(message: ChatMessage): boolean {
+  if (message.role !== 'user') return false
+  if (message.id.startsWith('fmt_retry_')) return true
+  const t = message.content.trimStart()
+  return (
+    t.startsWith('你的上一次回复为空') ||
+    t.startsWith('【环境反馈】') ||
+    t.startsWith('【输出长度】')
+  )
+}
+
 /** Sidecar-only assistant round (task_board, …) — no user-visible tool card. */
 export function isSidecarOnlyAssistantMessage(message: ChatMessage): boolean {
   if (message.role !== 'assistant') return false
@@ -55,12 +72,15 @@ export function isInternalThreadWireMessage(message: ChatMessage): boolean {
   return false
 }
 
-/** Screen inject only — compression / trim placeholders use normal message bubbles. */
+/**
+ * Synthetic user rows that must not render as chat text.
+ * Compression / trim placeholders still use normal message bubbles.
+ */
 export function isSyntheticThreadUserMessage(message: ChatMessage): boolean {
-  return isScreenInjectUserMessage(message)
+  return isScreenInjectUserMessage(message) || isInternalRetryUserMessage(message)
 }
 
-/** Real user task turn (not screen inject / compression / trim placeholder). */
+/** Real user task turn (not screen inject / internal retry inject). */
 export function isRealUserTaskMessage(message: ChatMessage): boolean {
   if (message.role !== 'user') return false
   return !isSyntheticThreadUserMessage(message)

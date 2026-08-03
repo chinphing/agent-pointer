@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { FileText, Image as ImageIcon, Mic, Video, X } from 'lucide-vue-next'
 import type { ComposerAttachment } from '../../types/chat'
 import { getComposerAttachmentPreviewUrl } from '../../lib/attachmentPayloadStore'
@@ -11,6 +11,8 @@ const props = defineProps<{
 
 defineEmits<{
   remove: []
+  cancel: []
+  retry: []
 }>()
 
 const resolvedPreview = ref<string | null>(getComposerAttachmentPreviewUrl(props.attachment))
@@ -46,6 +48,8 @@ function uploadLabel(att: ComposerAttachment): string | undefined {
   if (att.uploadState === 'uploading' || att.uploadState === 'pending') {
     if (att.uploadError?.startsWith('重试')) return att.uploadError
     const pct = att.uploadProgress ?? 0
+    // 100% = bytes sent; server may still be saving / OSS — keep 100% visible.
+    if (pct >= 100) return '处理中 100%'
     return `上传中 ${pct}%`
   }
   if (att.uploadState === 'error') return att.uploadError || '上传失败'
@@ -56,6 +60,13 @@ function uploadLabel(att: ComposerAttachment): string | undefined {
   if (att.kind === 'video' && att.remoteUrl) return '已上传'
   return undefined
 }
+
+const canCancelUpload = computed(() => {
+  const s = props.attachment.uploadState
+  return s === 'pending' || s === 'compressing' || s === 'uploading'
+})
+
+const canRetryUpload = computed(() => props.attachment.uploadState === 'error')
 </script>
 
 <template>
@@ -117,13 +128,31 @@ function uploadLabel(att: ComposerAttachment): string | undefined {
           :style="{ width: `${attachment.uploadProgress ?? 0}%` }"
         />
       </div>
-      <p
-        class="truncate text-[10px]"
-        :class="attachment.uploadState === 'error' ? 'text-red-500' : 'text-muted'"
-        :title="uploadLabel(attachment)"
-      >
-        {{ uploadLabel(attachment) }}
-      </p>
+      <div class="flex items-center gap-2">
+        <p
+          class="min-w-0 flex-1 truncate text-[10px]"
+          :class="attachment.uploadState === 'error' ? 'text-red-500' : 'text-muted'"
+          :title="uploadLabel(attachment)"
+        >
+          {{ uploadLabel(attachment) }}
+        </p>
+        <button
+          v-if="canCancelUpload"
+          type="button"
+          class="shrink-0 text-[10px] text-muted underline-offset-2 hover:text-foreground hover:underline"
+          @click="$emit('cancel')"
+        >
+          取消
+        </button>
+        <button
+          v-if="canRetryUpload"
+          type="button"
+          class="shrink-0 text-[10px] text-primary underline-offset-2 hover:underline"
+          @click="$emit('retry')"
+        >
+          重传
+        </button>
+      </div>
     </div>
   </div>
 </template>

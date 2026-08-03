@@ -17,6 +17,7 @@ export type VideoOssProgress = {
 export type VideoOssUploadOptions = {
   compress?: boolean
   conversationId?: string
+  signal?: AbortSignal
 }
 
 export function isMediaOssConfigured(settings: ModelSettings): boolean {
@@ -62,11 +63,16 @@ async function uploadViaTauriPath(
   fileName: string,
   mimeType: string,
   compress: boolean,
-  onProgress: (p: VideoOssProgress) => void
+  onProgress: (p: VideoOssProgress) => void,
+  signal?: AbortSignal
 ): Promise<VideoOssUploadResult> {
+  if (signal?.aborted) {
+    throw new Error('上传已取消')
+  }
   const { invoke } = await import('@tauri-apps/api/core')
   const { listen } = await import('@tauri-apps/api/event')
   const unlisten = await listen<VideoOssProgress>('composer-video-oss-progress', ev => {
+    if (signal?.aborted) return
     if (ev.payload.attachmentId === attachmentId) {
       onProgress(ev.payload)
     }
@@ -80,6 +86,9 @@ async function uploadViaTauriPath(
       mimeType,
       compress
     })
+    if (signal?.aborted) {
+      throw new Error('上传已取消')
+    }
     return {
       remoteUrl: result.remoteUrl,
       ossObjectKey: result.ossObjectKey,
@@ -95,7 +104,8 @@ async function uploadViaWebApi(
   conversationId: string | undefined,
   file: File,
   compress: boolean,
-  onProgress: (p: VideoOssProgress) => void
+  onProgress: (p: VideoOssProgress) => void,
+  signal?: AbortSignal
 ): Promise<VideoOssUploadResult> {
   const form = new FormData()
   if (conversationId?.trim()) form.append('conversationId', conversationId.trim())
@@ -107,6 +117,7 @@ async function uploadViaWebApi(
 
   const { postMultipartJson } = await import('./multipartUpload')
   return await postMultipartJson<VideoOssUploadResult>('/api/chat/upload-video-oss', form, {
+    signal,
     onProgress: p =>
       onProgress({
         attachmentId,
@@ -126,6 +137,10 @@ export async function uploadComposerVideoToOss(
 ): Promise<VideoOssUploadResult> {
   const compress = options.compress === true
   const conversationId = options.conversationId
+  const signal = options.signal
+  if (signal?.aborted) {
+    throw new Error('上传已取消')
+  }
   onProgress({ attachmentId, loaded: 0, total: file.size, percent: 0 })
   if (isTauriRuntime()) {
     if (localPath?.trim()) {
@@ -136,12 +151,13 @@ export async function uploadComposerVideoToOss(
         file.name,
         file.type || 'video/mp4',
         compress,
-        onProgress
+        onProgress,
+        signal
       )
     }
     throw new Error(
       '请使用附件按钮（回形针）选择视频文件。桌面端不支持通过网页式文件选择器上传大视频。'
     )
   }
-  return await uploadViaWebApi(attachmentId, conversationId, file, compress, onProgress)
+  return await uploadViaWebApi(attachmentId, conversationId, file, compress, onProgress, signal)
 }

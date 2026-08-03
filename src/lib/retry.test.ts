@@ -31,4 +31,10 @@ describe('withRetries', () => {
     await expect(withRetries(fn, { maxAttempts: 3, baseDelayMs: 10 })).rejects.toThrow(/请先登录/)
     expect(fn).toHaveBeenCalledTimes(1)
   })
+
+  it('does not retry user-cancelled uploads', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('上传已取消'))
+    await expect(withRetries(fn, { maxAttempts: 3, baseDelayMs: 10 })).rejects.toThrow(/上传已取消/)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
 })

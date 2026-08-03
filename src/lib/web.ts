@@ -428,7 +428,8 @@ export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPrevie
 
 export async function saveChatAttachment(
   payload: import('./api').SaveChatAttachmentPayload,
-  onProgress?: (p: import('./api').AttachmentUploadProgress) => void
+  onProgress?: (p: import('./api').AttachmentUploadProgress) => void,
+  options?: { signal?: AbortSignal }
 ): Promise<string> {
   if (!payload.file) {
     throw new Error('web saveChatAttachment requires File (multipart)')
@@ -445,7 +446,8 @@ export async function saveChatAttachment(
     form,
     {
       timeoutMs: UPLOAD_TIMEOUT_MS,
-      onProgress
+      onProgress,
+      signal: options?.signal
     }
   )
   return res.storageRelPath

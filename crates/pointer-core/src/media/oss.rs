@@ -28,6 +28,8 @@ const UPLOAD_CHUNK_BYTES: usize = 512 * 1024;
 
 /// Progress denominator — `loaded`/`total` map directly to 0–100% in the UI.
 const PROGRESS_TOTAL: u64 = 100;
+/// PutObject / compress phases stay at or below this; 100% only after presign succeeds.
+const PUT_PHASE_END: u64 = 99;
 
 struct ChunkUploadStream {
     chunks: Vec<Bytes>,
@@ -401,7 +403,7 @@ pub async fn upload_composer_video_bytes(
         &upload_bytes,
         mime,
         upload_start,
-        PROGRESS_TOTAL,
+        PUT_PHASE_END,
         on_progress.clone(),
     )
     .await
@@ -411,9 +413,10 @@ pub async fn upload_composer_video_bytes(
             resolved.bucket, object_key
         )
     })?;
-    on_progress(PROGRESS_TOTAL, PROGRESS_TOTAL);
+    on_progress(PUT_PHASE_END, PROGRESS_TOTAL);
 
     let remote_url = presign_composer_read_url(&client, &resolved, &object_key).await?;
+    on_progress(PROGRESS_TOTAL, PROGRESS_TOTAL);
     log::info!("media OSS composer: presigned URL ready for {object_key}");
     Ok(ComposerVideoUploadResult {
         object_key,

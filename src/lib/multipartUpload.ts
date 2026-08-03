@@ -10,6 +10,25 @@ export type MultipartUploadOptions = {
   /** Abort after this many ms (default: no client abort). */
   timeoutMs?: number
   onProgress?: (p: MultipartUploadProgress) => void
+  /** Abort in-flight XHR (user cancel / remove chip). */
+  signal?: AbortSignal
+}
+
+export const UPLOAD_ABORTED_MESSAGE = '上传已取消'
+
+export function isUploadAbortedError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).trim()
+  return msg === UPLOAD_ABORTED_MESSAGE || /upload aborted|aborted/i.test(msg)
+}
+
+/**
+ * Map wire transfer bytes → UI percent.
+ * 100% means bytes have left the browser; the HTTP response (server save / OSS)
+ * may still be pending — chips should label that as processing, not “done”.
+ */
+export function mapUploadTransferPercent(loaded: number, total: number): number {
+  if (!Number.isFinite(loaded) || !Number.isFinite(total) || total <= 0) return 0
+  return Math.min(100, Math.max(0, Math.round((Math.max(0, loaded) / total) * 100)))
 }
 
 /**
@@ -23,6 +42,10 @@ export function postMultipartJson<T>(
 ): Promise<T> {
   const url = path.startsWith('http') ? path : `${WEB_API_BASE}${path}`
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new Error(UPLOAD_ABORTED_MESSAGE))
+      return
+    }
     const xhr = new XMLHttpRequest()
     xhr.open('POST', url)
     xhr.withCredentials = true
@@ -36,13 +59,45 @@ export function postMultipartJson<T>(
     const clearTimer = () => {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId)
     }
+    const onAbortSignal = () => {
+      clearTimer()
+      xhr.abort()
+    }
+    options.signal?.addEventListener('abort', onAbortSignal, { once: true })
+    const cleanupSignal = () => {
+      options.signal?.removeEventListener('abort', onAbortSignal)
+    }
+    let lastLoaded = 0
+    let lastTotal = 0
+    const reportTransfer = (loaded: number, total: number) => {
+      if (!options.onProgress) return
+      lastLoaded = loaded
+      lastTotal = total
+      options.onProgress({
+        loaded,
+        total,
+        percent: mapUploadTransferPercent(loaded, total)
+      })
+    }
     xhr.upload.onprogress = ev => {
-      if (!ev.lengthComputable || !options.onProgress) return
-      const percent = Math.min(100, Math.round((ev.loaded / ev.total) * 100))
-      options.onProgress({ loaded: ev.loaded, total: ev.total, percent })
+      if (!ev.lengthComputable) return
+      reportTransfer(ev.loaded, ev.total)
+    }
+    // Bytes fully sent; UI stays at 100% while waiting for the response body.
+    xhr.upload.onload = () => {
+      if (lastTotal > 0) {
+        reportTransfer(lastTotal, lastTotal)
+      } else {
+        reportTransfer(1, 1)
+      }
     }
     xhr.onload = () => {
       clearTimer()
+      cleanupSignal()
+      if (options.signal?.aborted) {
+        reject(new Error(UPLOAD_ABORTED_MESSAGE))
+        return
+      }
       if (xhr.status < 200 || xhr.status >= 300) {
         const body = (xhr.responseText || '').trim()
         if (body.includes('platform_login_required') || xhr.status === 401) {
@@ -68,11 +123,13 @@ export function postMultipartJson<T>(
     }
     xhr.onerror = () => {
       clearTimer()
+      cleanupSignal()
       reject(new Error('网络错误，上传失败'))
     }
     xhr.onabort = () => {
       clearTimer()
-      reject(new Error('上传已取消'))
+      cleanupSignal()
+      reject(new Error(UPLOAD_ABORTED_MESSAGE))
     }
     xhr.send(form)
   })

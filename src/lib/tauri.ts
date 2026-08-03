@@ -283,11 +283,15 @@ export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPrevie
 
 export async function saveChatAttachment(
   payload: import('./api').SaveChatAttachmentPayload,
-  onProgress?: (p: import('./api').AttachmentUploadProgress) => void
+  onProgress?: (p: import('./api').AttachmentUploadProgress) => void,
+  options?: { signal?: AbortSignal }
 ): Promise<string> {
   const b64 = payload.contentBase64?.trim()
   if (!b64) {
     throw new Error('desktop saveChatAttachment requires contentBase64')
+  }
+  if (options?.signal?.aborted) {
+    throw new Error('上传已取消')
   }
   onProgress?.({ loaded: 0, total: 1, percent: 0 })
   const rel = await invoke<string>('save_chat_attachment', {
@@ -296,6 +300,9 @@ export async function saveChatAttachment(
     contentBase64: b64,
     fileName: payload.fileName
   })
+  if (options?.signal?.aborted) {
+    throw new Error('上传已取消')
+  }
   onProgress?.({ loaded: 1, total: 1, percent: 100 })
   return rel
 }

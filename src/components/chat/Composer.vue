@@ -41,11 +41,14 @@ import {
 } from '../../lib/attachmentSupport'
 import {
   cloneComposerAttachmentsForSend,
+  getComposerAttachmentContentBase64,
+  getComposerAttachmentFile,
   registerComposerAttachmentFile,
   registerComposerAttachmentPayload,
   releaseComposerAttachment
 } from '../../lib/attachmentPayloadStore'
 import { maybeCompressImageFile } from '../../lib/imageCompress'
+import { isUploadAbortedError, UPLOAD_ABORTED_MESSAGE } from '../../lib/multipartUpload'
 import { withRetries } from '../../lib/retry'
 import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
 import OutboundQueuePanel from './OutboundQueuePanel.vue'
@@ -455,6 +458,38 @@ function updateComposerAttachment(id: string, patch: Partial<ComposerAttachment>
   )
 }
 
+/** In-flight upload abort + video compress choice for retry. */
+const attachmentUploadControllers = new Map<string, AbortController>()
+const videoCompressByAttachmentId = new Map<string, boolean>()
+
+function beginAttachmentUpload(attachmentId: string): AbortSignal {
+  attachmentUploadControllers.get(attachmentId)?.abort()
+  const controller = new AbortController()
+  attachmentUploadControllers.set(attachmentId, controller)
+  return controller.signal
+}
+
+function endAttachmentUpload(attachmentId: string, signal?: AbortSignal) {
+  const current = attachmentUploadControllers.get(attachmentId)
+  if (!current) return
+  if (signal && current.signal !== signal) return
+  attachmentUploadControllers.delete(attachmentId)
+}
+
+function isActiveAttachmentUpload(attachmentId: string, signal: AbortSignal): boolean {
+  const current = attachmentUploadControllers.get(attachmentId)
+  // No controller: cancelled via abortAttachmentUpload (still apply terminal error).
+  if (!current) return true
+  return current.signal === signal
+}
+
+function abortAttachmentUpload(attachmentId: string) {
+  const controller = attachmentUploadControllers.get(attachmentId)
+  if (!controller) return
+  controller.abort()
+  attachmentUploadControllers.delete(attachmentId)
+}
+
 function ensureComposerConversationId(): string {
   if (!chat.current) chat.newConversation()
   const id = chat.current?.id?.trim()
@@ -463,6 +498,7 @@ function ensureComposerConversationId(): string {
 }
 
 function formatAttachmentPersistError(err: unknown): string {
+  if (isUploadAbortedError(err)) return UPLOAD_ABORTED_MESSAGE
   const mapped = platformAuth.formatLoginGateError(err, 'attachment')
   return mapped || '上传失败'
 }
@@ -474,6 +510,7 @@ async function persistComposerAttachment(
 ) {
   const row = composerAttachments.value.find(a => a.id === attachmentId)
   if (!row || row.kind === 'video') return
+  const signal = beginAttachmentUpload(attachmentId)
   updateComposerAttachment(attachmentId, {
     uploadState: 'pending',
     uploadProgress: 0,
@@ -481,12 +518,14 @@ async function persistComposerAttachment(
   })
   try {
     await platformAuth.requireSession({ purpose: 'attachment', onTransient: 'allow' })
+    if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
     const conversationId = ensureComposerConversationId()
     let uploadFile = source.file
     let contentBase64 = source.contentBase64
     if (row.kind === 'image' && uploadFile && !isTauriRuntime()) {
       updateComposerAttachment(attachmentId, { uploadState: 'compressing', uploadProgress: 0 })
       uploadFile = await maybeCompressImageFile(uploadFile)
+      if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
       if (uploadFile.type === 'image/jpeg' && uploadFile.name.endsWith('.jpg')) {
         updateComposerAttachment(attachmentId, {
           mimeType: uploadFile.type,
@@ -509,15 +548,18 @@ async function persistComposerAttachment(
               file: fileForUpload
             },
             p => {
+              if (signal.aborted) return
               updateComposerAttachment(attachmentId, {
                 uploadProgress: p.percent,
                 uploadState: 'uploading',
                 uploadError: undefined
               })
-            }
+            },
+            { signal }
           ),
         {
           onRetry: (_err, nextAttempt, _delayMs) => {
+            if (signal.aborted) return
             updateComposerAttachment(attachmentId, {
               uploadState: 'uploading',
               uploadProgress: 0,
@@ -526,6 +568,8 @@ async function persistComposerAttachment(
           }
         }
       )
+      if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
+      if (!isActiveAttachmentUpload(attachmentId, signal)) return
       updateComposerAttachment(attachmentId, {
         storageRelPath,
         uploadState: 'done',
@@ -539,6 +583,7 @@ async function persistComposerAttachment(
       const dataUrl = await readFileAsDataUrl(uploadFile)
       contentBase64 = dataUrlToBase64(dataUrl)
     }
+    if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
     const b64 = contentBase64
     const storageRelPath = await withRetries(
       async () =>
@@ -550,15 +595,18 @@ async function persistComposerAttachment(
             contentBase64: b64
           },
           p => {
+            if (signal.aborted) return
             updateComposerAttachment(attachmentId, {
               uploadProgress: p.percent,
               uploadState: 'uploading',
               uploadError: undefined
             })
-          }
+          },
+          { signal }
         ),
       {
         onRetry: (_err, nextAttempt) => {
+          if (signal.aborted) return
           updateComposerAttachment(attachmentId, {
             uploadState: 'uploading',
             uploadProgress: 0,
@@ -567,6 +615,8 @@ async function persistComposerAttachment(
         }
       }
     )
+    if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
+    if (!isActiveAttachmentUpload(attachmentId, signal)) return
     updateComposerAttachment(attachmentId, {
       storageRelPath,
       uploadState: 'done',
@@ -574,11 +624,19 @@ async function persistComposerAttachment(
       uploadError: undefined
     })
   } catch (err) {
-    console.error('[composer] attachment persist failed', err)
+    if (isUploadAbortedError(err)) {
+      console.info('[composer] attachment upload cancelled', attachmentId)
+    } else {
+      console.error('[composer] attachment persist failed', err)
+    }
+    if (!composerAttachments.value.some(a => a.id === attachmentId)) return
+    if (!isActiveAttachmentUpload(attachmentId, signal)) return
     updateComposerAttachment(attachmentId, {
       uploadState: 'error',
       uploadError: formatAttachmentPersistError(err)
     })
+  } finally {
+    endAttachmentUpload(attachmentId, signal)
   }
 }
 
@@ -715,6 +773,8 @@ async function startVideoOssUpload(
   localPath: string | undefined,
   compress: boolean
 ) {
+  videoCompressByAttachmentId.set(attachment.id, compress)
+  const signal = beginAttachmentUpload(attachment.id)
   updateComposerAttachment(attachment.id, {
     uploadState: compress ? 'compressing' : 'uploading',
     uploadProgress: 0,
@@ -728,16 +788,18 @@ async function startVideoOssUpload(
           file,
           localPath,
           progress => {
+            if (signal.aborted) return
             updateComposerAttachment(attachment.id, {
               uploadProgress: progress.percent,
               uploadState: 'uploading',
               uploadError: undefined
             })
           },
-          { compress, conversationId: chat.current?.id }
+          { compress, conversationId: chat.current?.id, signal }
         ),
       {
         onRetry: (_err, nextAttempt) => {
+          if (signal.aborted) return
           updateComposerAttachment(attachment.id, {
             uploadState: 'uploading',
             uploadProgress: 0,
@@ -746,10 +808,14 @@ async function startVideoOssUpload(
         }
       }
     )
+    if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
+    if (!isActiveAttachmentUpload(attachment.id, signal)) return
     const previewUrl = await resolveComposerVideoPreviewUrl(
       result.storageRelPath,
       localPath
     )
+    if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
+    if (!isActiveAttachmentUpload(attachment.id, signal)) return
     updateComposerAttachment(attachment.id, {
       remoteUrl: result.remoteUrl,
       ossObjectKey: result.ossObjectKey,
@@ -760,12 +826,21 @@ async function startVideoOssUpload(
       uploadError: undefined
     })
   } catch (err) {
-    const message = formatVideoOssInvokeError(err)
-    console.error('video OSS upload failed', err)
+    if (isUploadAbortedError(err)) {
+      console.info('[composer] video upload cancelled', attachment.id)
+    } else {
+      console.error('video OSS upload failed', err)
+    }
+    if (!composerAttachments.value.some(a => a.id === attachment.id)) return
+    if (!isActiveAttachmentUpload(attachment.id, signal)) return
     updateComposerAttachment(attachment.id, {
       uploadState: 'error',
-      uploadError: message
+      uploadError: isUploadAbortedError(err)
+        ? UPLOAD_ABORTED_MESSAGE
+        : formatVideoOssInvokeError(err)
     })
+  } finally {
+    endAttachmentUpload(attachment.id, signal)
   }
 }
 
@@ -813,6 +888,7 @@ async function addVideoAttachment(file: File, localPath?: string) {
     attachmentHint.value = null
   }
 
+  const uploadFile = file.size > 0 ? file : new File([], fileName)
   const attachment: ComposerAttachment = {
     id: uid(),
     kind: 'video',
@@ -823,21 +899,55 @@ async function addVideoAttachment(file: File, localPath?: string) {
     uploadProgress: 0,
     ...(localPath?.trim() ? { localSourcePath: localPath.trim() } : {})
   }
-  const previewUrl =
-    (await resolveComposerVideoPreviewUrl(undefined, localPath)) ??
-    (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function' && file.size > 0
-      ? URL.createObjectURL(file)
-      : undefined)
+  const previewFromPath = await resolveComposerVideoPreviewUrl(undefined, localPath)
+  const registered = registerComposerAttachmentFile({ attachment, file: uploadFile })
   composerAttachments.value.push({
-    ...attachment,
-    ...(previewUrl ? { previewUrl } : {})
+    ...registered,
+    ...(previewFromPath ? { previewUrl: previewFromPath } : {})
   })
-  await startVideoOssUpload(
-    attachment,
-    file.size > 0 ? file : new File([], fileName),
-    localPath,
-    compress
-  )
+  await startVideoOssUpload(attachment, uploadFile, localPath, compress)
+}
+
+function cancelComposerAttachmentUpload(attachmentId: string) {
+  const row = composerAttachments.value.find(a => a.id === attachmentId)
+  if (!row) return
+  if (
+    row.uploadState !== 'pending' &&
+    row.uploadState !== 'compressing' &&
+    row.uploadState !== 'uploading'
+  ) {
+    return
+  }
+  abortAttachmentUpload(attachmentId)
+  updateComposerAttachment(attachmentId, {
+    uploadState: 'error',
+    uploadError: UPLOAD_ABORTED_MESSAGE
+  })
+  console.info('[composer] user cancelled attachment upload', attachmentId)
+}
+
+async function retryComposerAttachmentUpload(attachmentId: string) {
+  const row = composerAttachments.value.find(a => a.id === attachmentId)
+  if (!row || row.uploadState !== 'error') return
+  if (row.kind === 'video') {
+    const file = getComposerAttachmentFile(row) ?? new File([], row.fileName)
+    const compress = videoCompressByAttachmentId.get(attachmentId) === true
+    console.info('[composer] user retry video upload', attachmentId)
+    await startVideoOssUpload(row, file, row.localSourcePath, compress)
+    return
+  }
+  const file = getComposerAttachmentFile(row) ?? undefined
+  const contentBase64 = getComposerAttachmentContentBase64(row) ?? undefined
+  if (!file && !contentBase64?.trim()) {
+    updateComposerAttachment(attachmentId, {
+      uploadState: 'error',
+      uploadError: '无法重传：缺少本地文件'
+    })
+    console.warn('[composer] retry missing payload', attachmentId)
+    return
+  }
+  console.info('[composer] user retry attachment upload', attachmentId)
+  await persistComposerAttachment(attachmentId, { file, contentBase64 })
 }
 
 function canAcceptComposerAttachments(): boolean {
@@ -1024,6 +1134,8 @@ async function setupTauriComposerDragDrop() {
 }
 
 function removePendingAttachment(id: string) {
+  abortAttachmentUpload(id)
+  videoCompressByAttachmentId.delete(id)
   composerAttachments.value = composerAttachments.value.filter(a => a.id !== id)
   releaseComposerAttachment(id)
 }
@@ -1536,6 +1648,8 @@ onUnmounted(() => {
             :key="att.id"
             :attachment="att"
             @remove="removePendingAttachment(att.id)"
+            @cancel="cancelComposerAttachmentUpload(att.id)"
+            @retry="retryComposerAttachmentUpload(att.id)"
           />
         </div>
         <p

@@ -204,7 +204,8 @@ export interface RuntimeApi {
   previewMediaRef(mediaRef: string): Promise<ChatMediaPreview>
   saveChatAttachment(
     payload: SaveChatAttachmentPayload,
-    onProgress?: (p: AttachmentUploadProgress) => void
+    onProgress?: (p: AttachmentUploadProgress) => void,
+    options?: { signal?: AbortSignal }
   ): Promise<string>
   checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>

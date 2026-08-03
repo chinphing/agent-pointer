@@ -12,6 +12,8 @@ defineProps<{
   message: ChatMessage
   compact?: boolean
   trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
+  /** Collapsed turn: final reply body only (no process chrome). */
+  contentOnly?: boolean
 }>()
 </script>
 
@@ -24,6 +26,7 @@ defineProps<{
     :message="message"
     :compact="compact"
     :trailing-tool-groups="trailingToolGroups"
+    :content-only="contentOnly"
   />
   <template v-else-if="message.role === 'tool'" />
   <!-- Cancelled before first token: message may linger briefly; do not show debug fallback. -->

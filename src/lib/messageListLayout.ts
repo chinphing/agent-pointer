@@ -10,6 +10,7 @@ import {
   buildConversationTurns,
   type ConversationTurn
 } from './conversationTurns'
+import { isInteractiveToolCall } from './messageTooling'
 import { isScopedSubMessage } from './subAgentMessages'
 import { isRealUserTaskMessage, isToolRunContinuityGlue } from './threadLayoutGlue'
 
@@ -20,7 +21,14 @@ export type ToolRunItem =
   | { kind: 'glue'; message: ChatMessage }
 
 export type FlatEntry =
-  | { type: 'message'; message: ChatMessage; trailingToolGroups?: ToolRunGroup[]; compact?: boolean }
+  | {
+      type: 'message'
+      message: ChatMessage
+      trailingToolGroups?: ToolRunGroup[]
+      compact?: boolean
+      /** Collapsed projection: render reply body only (no process tools / thoughts). */
+      contentOnly?: boolean
+    }
   | { type: 'tool_run'; items: ToolRunItem[] }
   | {
       type: 'task_board'
@@ -299,7 +307,8 @@ function rebindFlatEntry(
       type: 'message',
       message,
       ...(trailingToolGroups ? { trailingToolGroups } : {}),
-      ...(entry.compact ? { compact: true } : {})
+      ...(entry.compact ? { compact: true } : {}),
+      ...(entry.contentOnly ? { contentOnly: true } : {})
     }
   }
   if (entry.type === 'tool_run') {
@@ -402,6 +411,110 @@ function entryIsDelivery(entry: FlatEntry): boolean {
     && !isToolRunContinuityGlue(entry.message)
 }
 
+function toolCallsAreInteractive(toolCalls: readonly ToolCall[] | undefined): boolean {
+  return (toolCalls ?? []).some(isInteractiveToolCall)
+}
+
+function entryIsInteractive(entry: FlatEntry): boolean {
+  if (entry.type === 'tool_run') {
+    return entry.items.some(
+      item => item.kind === 'tools' && toolCallsAreInteractive(item.group.toolCalls)
+    )
+  }
+  if (entry.type === 'message') {
+    if (toolCallsAreInteractive(entry.message.toolCalls)) return true
+    return (entry.trailingToolGroups ?? []).some(group => toolCallsAreInteractive(group.toolCalls))
+  }
+  return false
+}
+
+function filterInteractiveToolGroups(
+  groups: ToolRunGroup[] | undefined
+): ToolRunGroup[] | undefined {
+  if (!groups?.length) return undefined
+  const next = groups
+    .map(group => ({
+      ...group,
+      toolCalls: group.toolCalls.filter(isInteractiveToolCall)
+    }))
+    .filter(group => group.toolCalls.length > 0)
+  return next.length > 0 ? next : undefined
+}
+
+/** True when projecting this kept entry will hide process UI (not just interactive tools). */
+function entryContributesHiddenProcess(entry: FlatEntry): boolean {
+  if (entry.type === 'tool_run') {
+    return entry.items.some(
+      item => item.kind === 'tools'
+        && item.group.toolCalls.some(tc => !isInteractiveToolCall(tc))
+    )
+  }
+  if (entry.type !== 'message') return false
+  if ((entry.trailingToolGroups ?? []).some(group =>
+    group.toolCalls.some(tc => !isInteractiveToolCall(tc))
+  )) {
+    return true
+  }
+  if ((entry.message.toolCalls ?? []).some(tc => !isInteractiveToolCall(tc))) return true
+  if ((entry.message.agentTrace?.length ?? 0) > 0) return true
+  if (entry.message.thoughts?.trim() || entry.message.reasoning?.trim()) return true
+  return false
+}
+
+/**
+ * Collapsed projection: keep reply body only. Strip process tools attached to
+ * the delivery entry (trailingToolGroups / non-interactive toolCalls) so they
+ * do not leak under the final content. Interactive tools stay.
+ */
+function projectCollapsedEntry(entry: FlatEntry): FlatEntry {
+  if (entry.type === 'tool_run') {
+    return {
+      type: 'tool_run',
+      items: entry.items
+        .map(item => {
+          if (item.kind !== 'tools') return item
+          const toolCalls = item.group.toolCalls.filter(isInteractiveToolCall)
+          if (toolCalls.length === 0) return null
+          return {
+            kind: 'tools' as const,
+            group: { ...item.group, toolCalls }
+          }
+        })
+        .filter((item): item is ToolRunItem => item != null)
+    }
+  }
+  if (entry.type !== 'message') return entry
+  if (entry.message.role !== 'assistant') return entry
+  if (entry.compact || isCompressionSummaryMessage(entry.message)) return entry
+  if (isEphemeralDesktopNoticeMessage(entry.message)) return entry
+
+  const trailingToolGroups = filterInteractiveToolGroups(entry.trailingToolGroups)
+  return {
+    type: 'message',
+    message: entry.message,
+    contentOnly: true,
+    ...(trailingToolGroups ? { trailingToolGroups } : {}),
+    ...(entry.compact ? { compact: true } : {})
+  }
+}
+
+function projectCollapsedTurn(turn: ConversationTurn<FlatEntry>): ConversationTurn<FlatEntry> {
+  let extraHidden = 0
+  const collapsedEntries = turn.collapsedEntries.map(entry => {
+    if (entryContributesHiddenProcess(entry)) extraHidden += 1
+    return projectCollapsedEntry(entry)
+  })
+  // Drop tool_run shells that lost every tool after interactive filtering.
+  const filtered = collapsedEntries.filter(entry =>
+    entry.type !== 'tool_run' || entry.items.some(item => item.kind === 'tools')
+  )
+  return {
+    ...turn,
+    collapsedEntries: filtered,
+    hiddenCount: turn.hiddenCount + extraHidden + (turn.collapsedEntries.length - filtered.length)
+  }
+}
+
 function findActiveBoard(entries: readonly FlatEntry[]): Extract<FlatEntry, { type: 'task_board' }> | null {
   return entries.find(
     (entry): entry is Extract<FlatEntry, { type: 'task_board' }> =>
@@ -427,8 +540,16 @@ function buildTurnsForEntries(
     isCancelled: entry => entryHasStatus(entry, ['cancelled'])
       || (entry.type === 'task_board' && entry.document.meta?.status === 'cancelled'),
     isSummary: entryIsSummary,
-    isDelivery: entryIsDelivery
-  }, { collapseActiveTurns })
+    isDelivery: entryIsDelivery,
+    isInteractive: entryIsInteractive
+  }, {
+    collapseActiveTurns,
+    omitDeliveryWhileActive: true
+  }).map(turn => {
+    // Early-return full turns share the same array ref — leave them untouched.
+    if (turn.collapsedEntries === turn.entries) return turn
+    return projectCollapsedTurn(turn)
+  })
 }
 
 /**

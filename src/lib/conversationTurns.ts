@@ -16,6 +16,8 @@ export interface ConversationTurnClassifier<T> {
   isCancelled(entry: T): boolean
   isSummary(entry: T): boolean
   isDelivery(entry: T): boolean
+  /** Pending ask_user / approval — keep visible even while the turn is active. */
+  isInteractive?(entry: T): boolean
 }
 
 export type BuildConversationTurnsOptions = {
@@ -25,6 +27,11 @@ export type BuildConversationTurnsOptions = {
    * visible (hiddenCount = 0) so the elapsed chip does not appear mid-run.
    */
   collapseActiveTurns?: boolean
+  /**
+   * When true, active turns omit the last delivery from the compact projection
+   * so intermediate narration is not shown as “final output” mid-run.
+   */
+  omitDeliveryWhileActive?: boolean
 }
 
 /**
@@ -53,6 +60,8 @@ export function buildConversationTurns<T>(
     }
   }
 
+  const omitDeliveryWhileActive = options?.omitDeliveryWhileActive === true
+
   return groups.map(group => {
     const state: ConversationTurnState = group.entries.some(classifier.isActive)
       ? 'active'
@@ -79,11 +88,19 @@ export function buildConversationTurns<T>(
     for (const entry of group.entries) {
       if (classifier.isSummary(entry)) keep.add(entry)
     }
-    for (let index = group.entries.length - 1; index > 0; index--) {
-      const entry = group.entries[index]!
-      if (classifier.isDelivery(entry)) {
-        keep.add(entry)
-        break
+    const omitDelivery = state === 'active' && omitDeliveryWhileActive
+    if (!omitDelivery) {
+      for (let index = group.entries.length - 1; index > 0; index--) {
+        const entry = group.entries[index]!
+        if (classifier.isDelivery(entry)) {
+          keep.add(entry)
+          break
+        }
+      }
+    }
+    if (classifier.isInteractive) {
+      for (const entry of group.entries) {
+        if (classifier.isInteractive(entry)) keep.add(entry)
       }
     }
     const collapsedEntries = group.entries.filter(entry => keep.has(entry))

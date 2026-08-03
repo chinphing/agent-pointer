@@ -14,9 +14,12 @@
 
 实现要点：
 
-- `buildConversationTurns(..., { collapseActiveTurns })`：仅开启时对 `active` 回合计算 `hiddenCount`
+- `buildConversationTurns(..., { collapseActiveTurns, omitDeliveryWhileActive })`：仅开启时对 `active` 回合计算 `hiddenCount`；进行中不挂最终 delivery，避免中间叙述当「最终输出」
+- 收缩投影（`messageListLayout.projectCollapsedTurn`）：保留的 delivery 标 `contentOnly`，去掉 `trailingToolGroups` 与非交互工具行；`ask_user` / `pending_approval` 仍可见
 - `MessageList` 传入 `collapseActiveTurns: collapseProcessByDefault`
 - 未开启时 `shouldAutoExpandTurn` 仍要求 `state !== 'active'`
+
+收缩态可见内容：**用户问题 + 回合结束后的最后一次 assistant content**（及压缩 summary）。工具过程、子 Agent、thoughts 仅在展开后显示。
 
 ## 计时口径
 

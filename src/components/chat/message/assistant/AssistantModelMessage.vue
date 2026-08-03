@@ -21,6 +21,7 @@ const props = defineProps<{
   message: ChatMessage
   toolOnly?: boolean
   trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
+  contentOnly?: boolean
 }>()
 
 const settingsStore = useSettingsStore()
@@ -134,10 +135,13 @@ const leadBody = computed((): AgentMessageBodyModel => ({
 
 const showSupervisorPlan = computed(
   () =>
+    !props.contentOnly &&
     showSubAgentTrace.value &&
     (props.message.supervisorPlanTasks?.length ?? 0) > 0 &&
     subTraces.value.length === 0
 )
+
+const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrace.value)
 </script>
 
 <template>
@@ -160,8 +164,9 @@ const showSupervisorPlan = computed(
       :is-active-generation-message="isActiveGenerationMessage"
       :tool-only="toolOnly"
       :trailing-tool-groups="trailingToolGroups"
+      :content-only="contentOnly"
     >
-      <template #after-tool="{ toolCall }">
+      <template v-if="showSubAgentFrames" #after-tool="{ toolCall }">
         <SubAgentFrame
           v-for="trace in tracesUnderTool(toolCall)"
           v-show="showSubAgentTrace"
@@ -184,7 +189,7 @@ const showSupervisorPlan = computed(
     <!-- Legacy / unmatched traces (no parentToolCallId or tool row missing). -->
     <SubAgentFrame
       v-for="trace in orphanTraces"
-      v-show="showSubAgentTrace"
+      v-show="showSubAgentFrames"
       :key="trace.id"
       :trace="trace"
       :anchor-message-id="message.id"

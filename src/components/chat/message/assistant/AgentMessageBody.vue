@@ -7,7 +7,7 @@ import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy
 import { useMarkdownCharts } from '../../../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../../../composables/useMarkdownSvgs'
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
-import { visibleToolCalls, toolCallBaseName } from '../../../../lib/messageTooling'
+import { isInteractiveToolCall, visibleToolCalls, toolCallBaseName } from '../../../../lib/messageTooling'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { isGenerationCancelledMessage, isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
@@ -44,6 +44,8 @@ const props = defineProps<{
   isActiveGenerationMessage: boolean
   toolOnly?: boolean
   trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
+  /** Collapsed turn: reply body only; hide process tools / thoughts / reasoning. */
+  contentOnly?: boolean
 }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
@@ -178,16 +180,16 @@ useMarkdownSvgs(bodyRef, () => markdownSource.value, {
 })
 useMarkdownExternalLinks(bodyRef, () => markdownSource.value)
 
-const tools = computed(() =>
-  props.messageUi.showToolCalls
-    ? visibleToolCalls(
-      props.body.toolCalls,
-      props.messageUi.hideToolNames,
-      props.messageUi.showSidecarToolCalls === true,
-      props.messageUi.showNonSidecarToolCalls !== false
-    )
-    : []
-)
+const tools = computed(() => {
+  if (!props.messageUi.showToolCalls) return []
+  const visible = visibleToolCalls(
+    props.body.toolCalls,
+    props.messageUi.hideToolNames,
+    props.messageUi.showSidecarToolCalls === true,
+    props.messageUi.showNonSidecarToolCalls !== false
+  )
+  return props.contentOnly ? visible.filter(isInteractiveToolCall) : visible
+})
 
 const footerMessage = computed((): ChatMessage | undefined => {
   if (props.leadMessage) return props.leadMessage
@@ -245,17 +247,17 @@ const showToolSegments = computed(
 )
 
 function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMessage }): ToolCall[] {
-  return props.messageUi.showToolCalls
-    ? visibleToolCalls(
-      group.toolCalls,
-      props.messageUi.hideToolNames,
-      props.messageUi.showSidecarToolCalls === true,
-      props.messageUi.showNonSidecarToolCalls !== false
-    )
-    : []
+  if (!props.messageUi.showToolCalls) return []
+  const visible = visibleToolCalls(
+    group.toolCalls,
+    props.messageUi.hideToolNames,
+    props.messageUi.showSidecarToolCalls === true,
+    props.messageUi.showNonSidecarToolCalls !== false
+  )
+  return props.contentOnly ? visible.filter(isInteractiveToolCall) : visible
 }
 
-const showThoughtPanels = computed(() => showThoughtsPanel.value)
+const showThoughtPanels = computed(() => !props.contentOnly && showThoughtsPanel.value)
 
 const isRunInProgress = computed(
   () => isStreaming.value || (props.generating && props.isActiveGenerationMessage)
@@ -263,6 +265,7 @@ const isRunInProgress = computed(
 
 const showReasoningBlock = computed(
   () =>
+    !props.contentOnly &&
     props.messageUi.showReasoning &&
     !!(props.body.reasoning?.trim()) &&
     !reasoningShownInThoughtsPanel.value

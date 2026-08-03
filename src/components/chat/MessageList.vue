@@ -972,6 +972,7 @@ function entrySpacing(
                 v-else
                 :message="entry.message"
                 :trailing-tool-groups="entry.trailingToolGroups"
+                :content-only="entry.contentOnly"
               />
             </div>
             <div

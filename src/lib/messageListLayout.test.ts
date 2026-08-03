@@ -70,6 +70,101 @@ describe('messageStructureFingerprint', () => {
   })
 })
 
+describe('collapsed turn projection', () => {
+  it('keeps only final content and strips trailing tools on completed turns', () => {
+    const toolOnly: ChatMessage = {
+      id: 't1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 3,
+      toolCalls: [{
+        id: 'tc1',
+        name: 'skill_read',
+        status: 'success',
+        arguments: '{}'
+      }]
+    }
+    const result = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [
+        user('u1', '报销'),
+        assistant('a1', '好的，我先读取技能'),
+        toolOnly
+      ],
+      deps: emptyDeps,
+      cache: null
+    })
+    const turn = result.turns[0]!
+    expect(turn.state).toBe('completed')
+    expect(turn.hiddenCount).toBeGreaterThan(0)
+    const collapsed = turn.collapsedEntries
+    expect(collapsed.map(e => e.type)).toEqual(['message', 'message'])
+    const delivery = collapsed[1]!
+    expect(delivery.type).toBe('message')
+    if (delivery.type !== 'message') return
+    expect(delivery.message.content).toBe('好的，我先读取技能')
+    expect(delivery.contentOnly).toBe(true)
+    expect(delivery.trailingToolGroups).toBeUndefined()
+  })
+
+  it('omits intermediate delivery while the turn is still active', () => {
+    const result = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [
+        user('u1', '报销'),
+        assistant('a1', '好的，我先处理', 'streaming')
+      ],
+      deps: emptyDeps,
+      cache: null,
+      collapseActiveTurns: true
+    })
+    const turn = result.turns[0]!
+    expect(turn.state).toBe('active')
+    expect(turn.collapsedEntries.map(e =>
+      e.type === 'message' ? e.message.id : e.type
+    )).toEqual(['u1'])
+    expect(turn.hiddenCount).toBeGreaterThan(0)
+  })
+
+  it('keeps pending ask_user visible on an active collapsed turn', () => {
+    const ask: ChatMessage = {
+      id: 'ask1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 3,
+      toolCalls: [{
+        id: 'tc-ask',
+        name: 'ask_user',
+        status: 'pending',
+        arguments: '{"prompt":"选哪个？"}'
+      }]
+    }
+    const result = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [
+        user('u1', '报销'),
+        assistant('a1', '请选择经费', 'streaming'),
+        ask
+      ],
+      deps: emptyDeps,
+      cache: null,
+      collapseActiveTurns: true
+    })
+    const turn = result.turns[0]!
+    expect(turn.state).toBe('active')
+    // ask_user is attached as trailingToolGroups on the preceding assistant row.
+    const host = turn.collapsedEntries.find(
+      (e): e is Extract<typeof e, { type: 'message' }> =>
+        e.type === 'message' && e.message.id === 'a1'
+    )
+    expect(host?.contentOnly).toBe(true)
+    expect(host?.trailingToolGroups?.map(g => g.id)).toEqual(['ask1'])
+    expect(host?.trailingToolGroups?.[0]?.toolCalls.map(tc => tc.name)).toEqual(['ask_user'])
+  })
+})
+
 describe('buildMessageListLayout', () => {
   it('reuses completed prefix turns while rebuilding the streaming tail', () => {
     const base = [user('u1'), assistant('a1', 'done reply'), user('u2')]

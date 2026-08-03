@@ -19,6 +19,7 @@ const props = defineProps<{
   message: ChatMessage
   compact?: boolean
   trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
+  contentOnly?: boolean
 }>()
 
 const settings = useSettingsStore()
@@ -71,6 +72,8 @@ const compactShell = computed(() => toolOnly.value || desktopNotice.value)
         :message="message"
         :tool-only="toolOnly"
         :trailing-tool-groups="trailingToolGroups"
-      />    </div>
+        :content-only="contentOnly"
+      />
+    </div>
   </div>
 </template>

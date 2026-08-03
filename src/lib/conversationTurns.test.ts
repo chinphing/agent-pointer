@@ -7,6 +7,7 @@ type Entry = {
   status?: 'done' | 'streaming' | 'error' | 'cancelled'
   summary?: boolean
   delivery?: boolean
+  interactive?: boolean
 }
 
 const classifier = {
@@ -65,6 +66,39 @@ describe('conversation turns', () => {
     const [turn] = buildConversationTurns(entries, classifier, { collapseActiveTurns: true })
     expect(turn?.state).toBe('active')
     expect(turn?.collapsedEntries.map(entry => entry.id)).toEqual(['u1', 'answer'])
+    expect(turn?.hiddenCount).toBe(1)
+  })
+
+  it('omits delivery on active turns when omitDeliveryWhileActive is on', () => {
+    const entries: Entry[] = [
+      { id: 'u1', role: 'user', status: 'done' },
+      { id: 'process', role: 'process', status: 'streaming' },
+      { id: 'draft', role: 'assistant', status: 'done', delivery: true }
+    ]
+    const [turn] = buildConversationTurns(entries, classifier, {
+      collapseActiveTurns: true,
+      omitDeliveryWhileActive: true
+    })
+    expect(turn?.state).toBe('active')
+    expect(turn?.collapsedEntries.map(entry => entry.id)).toEqual(['u1'])
+    expect(turn?.hiddenCount).toBe(2)
+  })
+
+  it('keeps interactive entries on active turns even when delivery is omitted', () => {
+    const entries: Entry[] = [
+      { id: 'u1', role: 'user', status: 'done' },
+      { id: 'draft', role: 'assistant', status: 'done', delivery: true },
+      { id: 'ask', role: 'process', status: 'streaming', interactive: true }
+    ]
+    const interactiveClassifier = {
+      ...classifier,
+      isInteractive: (entry: Entry) => entry.interactive === true
+    }
+    const [turn] = buildConversationTurns(entries, interactiveClassifier, {
+      collapseActiveTurns: true,
+      omitDeliveryWhileActive: true
+    })
+    expect(turn?.collapsedEntries.map(entry => entry.id)).toEqual(['u1', 'ask'])
     expect(turn?.hiddenCount).toBe(1)
   })
 

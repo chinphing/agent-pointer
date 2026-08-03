@@ -5,6 +5,14 @@ export function toolCallBaseName(name: string): string {
   return i === -1 ? name : name.slice(0, i)
 }
 
+/** Tools that must stay visible while a turn is collapsed (user must act). */
+export function isInteractiveToolCall(tc: ToolCall): boolean {
+  if (tc.status === 'pending_approval') return true
+  const base = toolCallBaseName(tc.name)
+  return base === 'ask_user'
+    && (tc.status === 'pending' || tc.status === 'running' || tc.status === 'pending_approval')
+}
+
 /** Assistant row used the `response` tool (final user-visible reply), not an intermediate tool round. */
 export function isResponseAssistantMessage(
   message: Pick<ChatMessage, 'toolCalls' | 'toolNamePreview' | 'responseTextDraft' | 'content'>

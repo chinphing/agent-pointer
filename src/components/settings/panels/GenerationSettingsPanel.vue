@@ -182,3 +182,22 @@ const TERMINAL_ENV_HINT =
               </div>
             </div>
 </template>
+
+<style scoped>
+.input-base {
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  padding: 0 0.625rem;
+  font-size: 0.8125rem;
+  outline: none;
+}
+.input-base:focus {
+  border-color: hsl(var(--accent));
+}
+.input-base::placeholder {
+  color: hsl(var(--muted));
+}
+</style>

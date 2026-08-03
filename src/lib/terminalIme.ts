@@ -13,15 +13,36 @@ const COMMIT_FALLBACK_MS = 80
 /** onData this close before compositionend means xterm already flushed. */
 const SYNC_FLUSH_MS = 30
 
-/** Explicit CJK fallbacks: macOS monospace stacks omit Chinese glyphs in WKWebView. */
-export const TERMINAL_CJK_FONT_FAMILY =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", monospace'
+/**
+ * Chromium falls back per missing glyph, so Latin monospace can lead.
+ * Keep CJK faces later in the stack for paste/echo of Chinese.
+ */
+export const TERMINAL_CJK_FONT_FAMILY_CHROMIUM =
+  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Cascadia Mono", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans Mono CJK SC", "Noto Sans CJK SC", monospace'
+
+/**
+ * WKWebView/Safari canvas text often does **not** fall back when the leading
+ * face lacks CJK (Menlo/SF Mono) — Chinese paste/echo renders as blank boxes
+ * while ASCII looks fine. Put CJK-capable faces first on WebKit.
+ */
+export const TERMINAL_CJK_FONT_FAMILY_WEBKIT =
+  '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans Mono CJK SC", "Noto Sans CJK SC", Menlo, Monaco, Consolas, monospace'
+
+/** @deprecated Prefer {@link terminalFontFamily}; kept for older imports/tests. */
+export const TERMINAL_CJK_FONT_FAMILY = TERMINAL_CJK_FONT_FAMILY_WEBKIT
 
 /** True for WKWebView / Safari / WebKitGTK — not Chromium / WebView2. */
 export function isWebKitTerminalHost(): boolean {
   if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent
   return /AppleWebKit/i.test(ua) && !/Chrome\//i.test(ua) && !/Chromium\//i.test(ua)
+}
+
+/** Font stack for xterm canvas — WebKit needs CJK faces first. */
+export function terminalFontFamily(): string {
+  return isWebKitTerminalHost()
+    ? TERMINAL_CJK_FONT_FAMILY_WEBKIT
+    : TERMINAL_CJK_FONT_FAMILY_CHROMIUM
 }
 
 /**
@@ -150,16 +171,23 @@ export function createTerminalImeGuard(send: (data: string) => void): TerminalIm
 /**
  * Make xterm's helper textarea engine-visible for WebKit IME without painting
  * text/caret. Position/size stay under xterm's cursor sync.
+ * Inline styles beat xterm.css (`opacity: 0`) when load order races in release.
  */
 export function applyImeFriendlyTextareaStyles(textarea: HTMLTextAreaElement): void {
   const s = textarea.style
-  s.opacity = '1'
-  s.color = 'transparent'
-  s.background = 'transparent'
-  s.caretColor = 'transparent'
-  s.textShadow = 'none'
+  s.setProperty('opacity', '1', 'important')
+  s.setProperty('z-index', '1', 'important')
+  s.setProperty('color', 'transparent', 'important')
+  s.setProperty('-webkit-text-fill-color', 'transparent', 'important')
+  s.setProperty('caret-color', 'transparent', 'important')
+  s.setProperty('background', 'transparent', 'important')
+  s.setProperty('text-shadow', 'none', 'important')
   s.outline = 'none'
   s.border = 'none'
   s.padding = '0'
   s.margin = '0'
+  // Keep the field focusable for system IME (some release WKWebView builds
+  // treat readOnly / disabled-looking fields as non-IME).
+  textarea.readOnly = false
+  textarea.disabled = false
 }

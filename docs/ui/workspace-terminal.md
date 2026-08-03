@@ -54,6 +54,7 @@
 | --- | --- | --- |
 | 中文输入法候选框不出现 / 输入无效 | xterm helper textarea 默认 `opacity: 0` + `z-index: -5`，WebKit 不为其建立 IME | CSS/样式让 textarea 对引擎可见但内容透明（`TerminalPanel` + `terminalIme`） |
 | 首键被吃掉 / 全角标点偶发丢失 | Safari 首键可能是 `keyCode 0` / `Process` / `Dead`；部分 `insertText` 在按键未抬起时被 xterm 丢弃 | `attachCustomKeyEventHandler` 把 IME 键交给浏览器；WebKit 下挂 `createTerminalImeGuard` 补发 |
-| 粘贴中文看不见（英文正常） | macOS 等宽字体缺 CJK 字形，WKWebView 字体回退弱 | `fontFamily` 显式追加 PingFang / Hiragino / Noto CJK |
+| 粘贴/回显中文看不见（英文正常） | WKWebView **canvas 不会按缺字回退字体**；若 `Menlo` 等排在栈首，后面的 PingFang 不会被用到（debug/release 均可能，release 更易复现） | `terminalFontFamily()`：WebKit 下 **CJK 字体在前**，Chromium 仍等宽优先 |
+| 生产包 IME 偶发失效 | xterm.css `opacity:0` 在生产 chunk 顺序下盖过 scoped 样式 | `applyImeFriendlyTextareaStyles` 写 inline（含 `z-index`），`fit` 后再断言一次 |
 
 网页端 Chromium 不启用 IME guard，避免重复投递。后端 PTY 写路径本身支持 UTF-8（见 `console_session` 往返测试）。

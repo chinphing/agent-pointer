@@ -6,7 +6,7 @@ import {
   createTerminalImeGuard,
   isWebKitTerminalHost,
   shouldDeferKeyToIme,
-  TERMINAL_CJK_FONT_FAMILY,
+  terminalFontFamily,
   type TerminalImeGuard
 } from '../../lib/terminalIme'
 import { useConsoleStore, type WorkspaceConsoleTab } from '../../stores/console'
@@ -93,9 +93,9 @@ async function ensureTerminal() {
     cols: 30,
     cursorBlink: true,
     convertEol: false,
-    // macOS monospace stacks omit CJK glyphs; WKWebView font fallback is weaker
-    // than Chromium, so Chinese paste/echo renders blank without explicit faces.
-    fontFamily: TERMINAL_CJK_FONT_FAMILY,
+    // WKWebView canvas does not fall back missing glyphs — CJK faces must lead
+    // (see terminalFontFamily). Chromium keeps Latin monospace first.
+    fontFamily: terminalFontFamily(),
     fontSize: 12,
     scrollback: 5_000,
     // On macOS, Option+drag otherwise enters column-select (tall rectangle over
@@ -121,6 +121,8 @@ async function ensureTerminal() {
   if (ta) {
     applyImeFriendlyTextareaStyles(ta)
     imeGuard?.attach(ta)
+    // Release WKWebView: xterm sometimes rewrites helper styles on focus.
+    ta.addEventListener('focus', refreshImeTextarea)
   }
   terminal.onData(data => {
     writeActiveSession(imeGuard ? imeGuard.filterData(data) : data)
@@ -132,6 +134,12 @@ async function ensureTerminal() {
   await nextTick()
   await settleTerminalLayout()
   fitAddon.fit()
+  refreshImeTextarea()
+}
+
+function refreshImeTextarea() {
+  const ta = terminal?.textarea
+  if (ta) applyImeFriendlyTextareaStyles(ta)
 }
 
 /**
@@ -359,6 +367,7 @@ onBeforeUnmount(() => {
   removeSelectionGuard = null
   removeOutsideMenuListeners?.()
   removeOutsideMenuListeners = null
+  terminal?.textarea?.removeEventListener('focus', refreshImeTextarea)
   imeGuard?.detach()
   imeGuard = null
   resizeObserver?.disconnect()

@@ -22,7 +22,7 @@
 ## 工具：`task_board`
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
-- 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v4 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
+- 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存软缓存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。有持久化时：`completed`/`failed` 写后即卸内存；空闲 **120 分钟**卸；缓存上限 **20**，超出 LRU。卸缓存不影响盘上数据与 UI（下次 `ensure_loaded` 回源）。无持久化（单测）不驱逐。v4 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
 - **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v4：`## Task` / `## Global milestones` / `done_when` / `remark` 等，有 board 或 init hint 时）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  

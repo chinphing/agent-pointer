@@ -4,6 +4,7 @@ import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
   waitForChatStreamReady,
   loadConversationMetas,
+  loadConversationMeta,
   loadConversationMessages,
   saveConversationMeta,
   deleteConversation as deleteConversationApi,
@@ -38,6 +39,11 @@ import { withRetries } from '../lib/retry'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
+import {
+  clearLastConversationId,
+  readLastConversationId,
+  writeLastConversationId
+} from '../lib/lastConversation'
 import {
   conversationNeedsHydration,
   messagesForChatDispatch,
@@ -973,6 +979,39 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * Prefer the last selected conversation on boot. If it is outside the first
+   * meta page, fetch its meta and inject a shell; otherwise fall back to the
+   * newest sidebar row.
+   */
+  async function resolveBootConversationId(shells: Conversation[]): Promise<string> {
+    const fallback = shells[0]!.id
+    const lastId = readLastConversationId()
+    if (!lastId) return fallback
+    if (conversations.value.some(c => c.id === lastId)) {
+      console.info('[chat] boot: restore last conversation from loaded metas', lastId)
+      return lastId
+    }
+    try {
+      const meta = await loadConversationMeta(lastId)
+      if (!meta) {
+        console.info('[chat] boot: last conversation missing; using newest', lastId)
+        clearLastConversationId(lastId)
+        return fallback
+      }
+      const shell = metaToConversationShell(meta)
+      if (!shell.leadAgentId?.trim()) shell.leadAgentId = DEFAULT_LEAD_AGENT_ID
+      if (!shell.agentMode?.trim()) shell.agentMode = 'single'
+      conversations.value = [shell, ...conversations.value]
+      sortConversationsInPlace()
+      console.info('[chat] boot: restored last conversation outside first page', lastId)
+      return lastId
+    } catch (err) {
+      console.warn('[chat] boot: loadConversationMeta failed; using newest', lastId, err)
+      return fallback
+    }
+  }
+
   async function init() {
     // Kick off global SSE immediately so the handshake overlaps project/meta
     // hydration — otherwise first send waits on a late connect.
@@ -1018,6 +1057,7 @@ export const useChatStore = defineStore('chat', () => {
     // Explicitly delete any duplicate blank conversations pruned above (only
     // those we actually saw this boot).
     for (const blankId of pruned.prunedBlankIds) {
+      clearLastConversationId(blankId)
       void deleteConversationApi(blankId).catch(err =>
         console.error('[chat] boot prune: deleteConversation failed', blankId, err)
       )
@@ -1026,11 +1066,15 @@ export const useChatStore = defineStore('chat', () => {
     if (shells.length === 0) {
       newConversation()
     } else {
-      currentId.value = shells[0]!.id
-      touchConversation(shells[0]!.id)
-      await ensureConversationProjectLoaded(shells[0]!)
+      const bootId = await resolveBootConversationId(shells)
+      const bootConv =
+        conversations.value.find(c => c.id === bootId) ?? shells[0]!
+      currentId.value = bootConv.id
+      writeLastConversationId(bootConv.id)
+      touchConversation(bootConv.id)
+      await ensureConversationProjectLoaded(bootConv)
       await syncRunStateFromDispatcherQueue()
-      await ensureMessagesLoaded(shells[0]!.id)
+      await ensureMessagesLoaded(bootConv.id)
       loadActiveComposerDraft(currentId.value)
     }
 
@@ -1845,6 +1889,7 @@ export const useChatStore = defineStore('chat', () => {
     await deleteConversationApi(id).catch(err =>
       console.error('[chat] deleteConversation api failed', id, err)
     )
+    clearLastConversationId(id)
     if (currentId.value === id) {
       clearComposerDraft(id)
       currentId.value = conversations.value[0]?.id || null
@@ -2163,7 +2208,10 @@ export const useChatStore = defineStore('chat', () => {
 
   watch(currentId, (id, previousId) => {
     if (id !== previousId) flushStreamDeltaBuffers()
-    if (id) clearConversationAwaitingView(id)
+    if (id) {
+      clearConversationAwaitingView(id)
+      writeLastConversationId(id)
+    }
   }, { flush: 'sync' })
 
   watch(composerText, () => {
@@ -2507,6 +2555,7 @@ export const useChatStore = defineStore('chat', () => {
     projectDetails.value = {}
     projectLoads.clear()
     currentId.value = null
+    clearLastConversationId()
     nextCursor.value = null
     hydratedIds.value = new Set()
     persistedMessageIdsByConv.clear()

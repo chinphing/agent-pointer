@@ -1142,6 +1142,15 @@ pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMes
 }
 
 #[tauri::command]
+pub fn load_conversation_meta(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+) -> Result<Option<pointer_core::models::ConversationMeta>, String> {
+    let scope = platform_list_scope(&state);
+    storage::load_conversation_meta(&scope, &conversation_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn delete_conversation(conversation_id: String) -> Result<(), String> {
     storage::delete_conversation(&conversation_id).map_err(|e| e.to_string())
 }

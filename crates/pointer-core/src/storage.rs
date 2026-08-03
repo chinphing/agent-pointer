@@ -815,6 +815,36 @@ pub fn load_conversation_metas(
     crate::conversation_store::global_store()?.load_metas(scope, cursor, limit)
 }
 
+/// Single conversation meta by id, respecting sidebar [`ListScope`] visibility.
+pub fn load_conversation_meta(
+    scope: &crate::conversation_store::ListScope,
+    id: &str,
+) -> Result<Option<ConversationMeta>> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    let Some(meta) = crate::conversation_store::global_store()?.load_meta(id)? else {
+        return Ok(None);
+    };
+    match scope.filter_uid() {
+        None => Ok(Some(meta)),
+        Some(uid) => {
+            let stored = crate::conversation_store::session_user::normalize_session_user_id(
+                &meta.session_user_id,
+            );
+            if stored == uid {
+                Ok(Some(meta))
+            } else {
+                log::info!(
+                    "storage: load_conversation_meta denied id={id} (out of list scope)"
+                );
+                Ok(None)
+            }
+        }
+    }
+}
+
 pub fn load_projects(
     scope: &crate::conversation_store::ListScope,
     cursor: Option<ProjectCursor>,

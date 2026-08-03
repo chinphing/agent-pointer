@@ -611,6 +611,15 @@ export async function loadConversationMetas(
   return { items, nextCursor }
 }
 
+/** Single conversation meta by id (null when missing or out of list scope). */
+export async function loadConversationMeta(
+  conversationId: string
+): Promise<ConversationMeta | null> {
+  return await request<ConversationMeta | null>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/meta`
+  )
+}
+
 export async function loadProjects(cursor: ProjectCursor | null, limit = 20): Promise<ProjectPage> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (cursor) {

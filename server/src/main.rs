@@ -622,6 +622,10 @@ async fn main() -> anyhow::Result<()> {
             delete(delete_conversation_handler),
         )
         .route(
+            "/api/conversations/:conversation_id/meta",
+            get(load_conversation_meta_handler),
+        )
+        .route(
             "/api/conversations/meta",
             get(load_conversation_metas).put(save_conversation_meta),
         )
@@ -1647,6 +1651,23 @@ struct ConversationMetasQuery {
     cursor_id: Option<String>,
     /// Page size (1..=500, default 50).
     limit: Option<i64>,
+}
+
+/// `GET /api/conversations/:id/meta` — single conversation meta (ListScope-aware).
+/// Returns `null` when missing or outside the caller's sidebar visibility scope.
+async fn load_conversation_meta_handler(
+    State(state): State<ServerState>,
+    Path(conversation_id): Path<String>,
+) -> Result<Json<Option<pointer_core::models::ConversationMeta>>, ApiError> {
+    require_platform_access(&state)?;
+    let scope = platform_list_scope(&state);
+    let meta = storage::load_conversation_meta(&scope, &conversation_id)?;
+    log::info!(
+        "server: load_conversation_meta id={} found={}",
+        conversation_id,
+        meta.is_some()
+    );
+    Ok(Json(meta))
 }
 
 /// `GET /api/conversations/meta` — cursor-paginated meta-only list (no messages).

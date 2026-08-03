@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { ref, watch, type Ref } from 'vue'
 
 const STORAGE_KEY = 'pointer.sidebar.collapsed'
 
@@ -18,11 +18,19 @@ function writeStored(collapsed: boolean) {
   }
 }
 
-/** Persisted left sidebar collapsed state (desktop). */
-export function useSidebarCollapse() {
-  const collapsed = ref(readStored())
+// Module singleton so remount / multiple callers share one persisted value.
+const collapsed: Ref<boolean> = ref(readStored())
+let persistWired = false
 
-  watch(collapsed, writeStored)
+function ensurePersistWatch() {
+  if (persistWired) return
+  persistWired = true
+  watch(collapsed, writeStored, { flush: 'sync' })
+}
+
+/** Persisted left sidebar collapsed state (desktop). Restored on next open. */
+export function useSidebarCollapse() {
+  ensurePersistWatch()
 
   function toggle() {
     collapsed.value = !collapsed.value

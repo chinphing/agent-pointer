@@ -533,6 +533,7 @@ pub fn run() {
             commands::delete_project,
             commands::search_conversations,
             commands::load_conversation_messages,
+            commands::load_conversation_meta,
             commands::delete_conversation,
             commands::save_conversations,
             commands::save_conversation_meta,

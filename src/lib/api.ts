@@ -224,6 +224,8 @@ export interface RuntimeApi {
   loadConversations(): Promise<Conversation[]>
   /** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
   loadConversationMetas(cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
+  /** Single meta by id; null when missing or outside the caller's list scope. */
+  loadConversationMeta(conversationId: string): Promise<ConversationMeta | null>
   loadProjects(cursor: ProjectCursor | null, limit?: number): Promise<ProjectPage>
   loadSidebarProjects(): Promise<Project[]>
   loadProject(projectId: string): Promise<Project | null>
@@ -382,6 +384,7 @@ export const dismissMacosPermissionDragGuide = isTauriRuntime()
 
 export const loadConversations = api.loadConversations
 export const loadConversationMetas = api.loadConversationMetas
+export const loadConversationMeta = api.loadConversationMeta
 export const loadProjects = api.loadProjects
 export const loadSidebarProjects = api.loadSidebarProjects
 export const loadProject = api.loadProject

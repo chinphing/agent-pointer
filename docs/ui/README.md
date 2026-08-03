@@ -10,6 +10,7 @@
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
 | [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」口径；队列立即发送不得把排队等待算进去 |
 | [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选：先提交 `currentId`，主区异步加载 |
+| [last-conversation-restore.md](last-conversation-restore.md) | 启动恢复上次选中会话（`pointer.chat.lastConversationId`） |
 | [sidebar-awaiting-view.md](sidebar-awaiting-view.md) | 后台完成未查看：侧栏实心圆点 |
 | 设置 → **平台账户 / 管理员账户** | 登录状态、「退出登录」；完成提示音开关 |
 | [assistant-message-ui.md](assistant-message-ui.md) | 助手消息 `thoughts` / reasoning / 原始输出面板等约定 |

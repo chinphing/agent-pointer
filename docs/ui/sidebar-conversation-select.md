@@ -13,6 +13,8 @@
 4. **hydrate 与 focus**：未 hydrate 且 `messageCount > 0` 时
    `isCurrentConversationHydrating` 为 true，pending focus 仍会等加载完成。
 
+启动时恢复上次选中会话见 [last-conversation-restore.md](last-conversation-restore.md)。
+
 ## 相关代码
 
 - `src/stores/chat.ts` — `selectConversation`

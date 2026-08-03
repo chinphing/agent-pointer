@@ -38,6 +38,7 @@ import SkillDirectoryPicker from '../skills/SkillDirectoryPicker.vue'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import { useSidebarProjectExpand } from '../../composables/useSidebarProjectExpand'
+import { useSidebarSectionCollapse } from '../../composables/useSidebarSectionCollapse'
 import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
 import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
@@ -60,6 +61,17 @@ const {
   toggleExpanded: toggleProjectIdExpanded,
   forgetProject: forgetExpandedProject
 } = useSidebarProjectExpand()
+const {
+  sectionCollapse,
+  togglePinned: togglePinnedSectionState,
+  toggleProjects: toggleProjectsSectionState,
+  toggleConversations: toggleConversationsSectionState,
+  expandProjects,
+  expandConversations
+} = useSidebarSectionCollapse()
+const pinnedSectionCollapsed = computed(() => sectionCollapse.value.pinned)
+const projectsSectionCollapsed = computed(() => sectionCollapse.value.projects)
+const conversationsSectionCollapsed = computed(() => sectionCollapse.value.conversations)
 const workspacePanelOpen = computed(() => workspacePanel.open)
 
 function setWorkspacePanelOpen(open: boolean) {
@@ -153,9 +165,6 @@ const projectSearchExpanded = ref(false)
 const projectSearchInputRef = ref<HTMLInputElement | null>(null)
 const conversationSearchExpanded = ref(false)
 const conversationSearchInputRef = ref<HTMLInputElement | null>(null)
-const pinnedSectionCollapsed = ref(false)
-const projectsSectionCollapsed = ref(false)
-const conversationsSectionCollapsed = ref(false)
 const showProjectCreator = ref(false)
 const sidebarProjects = computed(() => {
   const query = projectSearchQuery.value.trim().toLocaleLowerCase()
@@ -363,7 +372,7 @@ function openSkills() {
 
 function openProjectSearch() {
   closeConversationSearch()
-  projectsSectionCollapsed.value = false
+  expandProjects()
   projectSearchExpanded.value = true
   nextTick(() => projectSearchInputRef.value?.focus())
 }
@@ -375,7 +384,7 @@ function closeProjectSearch() {
 
 function openConversationSearch() {
   closeProjectSearch()
-  conversationsSectionCollapsed.value = false
+  expandConversations()
   conversationSearchExpanded.value = true
   nextTick(() => conversationSearchInputRef.value?.focus())
 }
@@ -386,17 +395,17 @@ function closeConversationSearch() {
 }
 
 function togglePinnedSection() {
-  pinnedSectionCollapsed.value = !pinnedSectionCollapsed.value
+  togglePinnedSectionState()
 }
 
 function toggleProjectsSection() {
-  projectsSectionCollapsed.value = !projectsSectionCollapsed.value
-  if (projectsSectionCollapsed.value) closeProjectSearch()
+  toggleProjectsSectionState()
+  if (sectionCollapse.value.projects) closeProjectSearch()
 }
 
 function toggleConversationsSection() {
-  conversationsSectionCollapsed.value = !conversationsSectionCollapsed.value
-  if (conversationsSectionCollapsed.value) closeConversationSearch()
+  toggleConversationsSectionState()
+  if (sectionCollapse.value.conversations) closeConversationSearch()
 }
 
 function closeProjectMenuOnOutsideClick(event: MouseEvent) {

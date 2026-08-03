@@ -80,7 +80,13 @@ see every user's rows; other users only see their own `session_user_id`.
 - Conversation search is collapsed by default on the right side of the
   **Recent conversations** header, matching project search behavior.
 - The **Pinned**, **Projects**, and **Recent conversations** sections can each
-  be collapsed independently from their header.
+  be collapsed independently from their header. Section collapse and the whole
+  sidebar collapsed flag are restored from `localStorage` on next open
+  (`pointer.sidebar.sectionCollapse`, `pointer.sidebar.collapsed`); project
+  expand uses `pointer.sidebar.expandedProjectIds`. The last selected
+  conversation id is restored on next open via
+  `pointer.chat.lastConversationId` (see
+  [`../ui/last-conversation-restore.md`](../ui/last-conversation-restore.md)).
 
 Deleting a project is rejected while it owns conversations, so no operation can
 silently orphan conversation history. The default project cannot be deleted.

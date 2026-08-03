@@ -23,7 +23,7 @@ const DEFAULT_WIDTH: f64 = 800.0;
 const DEFAULT_HEIGHT: f64 = 450.0;
 const PNG_SCALE: f32 = 2.0;
 /// Bump when palette / prep / font source rules change so cached PNGs are not reused.
-const STYLE_VERSION: &str = "pointer-im-chart-v3";
+const STYLE_VERSION: &str = "pointer-im-chart-v4";
 
 /// Same soft palette as `src/lib/markdownChart.ts` (`CHART_SERIES_PALETTE`).
 const SERIES_PALETTE: &[(&str, &str, &str)] = &[
@@ -268,7 +268,302 @@ pub(crate) fn prepare_chartjs_json_for_im(json_body: &str) -> Result<String> {
         }
     }
 
+    // fulgur-chart has no dual Y-axis — remap secondary series onto `y` so the
+    // curve shape matches Chart.js (right-axis ticks themselves cannot be drawn).
+    flatten_dual_y_axes_for_im(&mut root);
+
     serde_json::to_string(&root).context("serialize prepared chartjs")
+}
+
+fn json_as_f64(v: &Value) -> Option<f64> {
+    v.as_f64()
+        .or_else(|| v.as_i64().map(|i| i as f64))
+        .or_else(|| v.as_u64().map(|u| u as f64))
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+fn dataset_y_axis_id(ds: &Value) -> String {
+    ds.get("yAxisID")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("y")
+        .to_string()
+}
+
+fn collect_numeric_data(ds: &Value) -> Vec<f64> {
+    ds.get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| arr.iter().filter_map(json_as_f64).collect())
+        .unwrap_or_default()
+}
+
+fn is_secondary_y_axis_key(key: &str) -> bool {
+    key != "x" && key != "y" && key != "r" && (key.starts_with('y') || key.starts_with('Y'))
+}
+
+fn scale_bounds(scale: Option<&Value>, values: &[f64]) -> Option<(f64, f64)> {
+    if values.is_empty() {
+        return None;
+    }
+    let data_min = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let data_max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    if !data_min.is_finite() || !data_max.is_finite() {
+        return None;
+    }
+
+    let scale_obj = scale.and_then(|s| s.as_object());
+    let mut min = scale_obj
+        .and_then(|o| o.get("min"))
+        .and_then(json_as_f64)
+        .or_else(|| {
+            scale_obj
+                .and_then(|o| o.get("suggestedMin"))
+                .and_then(json_as_f64)
+        });
+    let mut max = scale_obj
+        .and_then(|o| o.get("max"))
+        .and_then(json_as_f64)
+        .or_else(|| {
+            scale_obj
+                .and_then(|o| o.get("suggestedMax"))
+                .and_then(json_as_f64)
+        });
+    let begin_at_zero = scale_obj
+        .and_then(|o| o.get("beginAtZero"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if min.is_none() || max.is_none() {
+        let mut lo = data_min;
+        let mut hi = data_max;
+        if begin_at_zero && lo > 0.0 {
+            lo = 0.0;
+        }
+        if (hi - lo).abs() < f64::EPSILON {
+            if lo >= 0.0 {
+                lo = 0.0;
+                hi = if hi == 0.0 { 1.0 } else { hi * 1.1 };
+            } else {
+                hi = 0.0;
+            }
+        }
+        let pad = (hi - lo).abs() * 0.05;
+        if min.is_none() {
+            min = Some(lo - pad);
+        }
+        if max.is_none() {
+            max = Some(hi + pad);
+        }
+    }
+
+    let lo = min.unwrap_or(data_min);
+    let hi = max.unwrap_or(data_max);
+    if hi <= lo {
+        Some((lo, lo + 1.0))
+    } else {
+        Some((lo, hi))
+    }
+}
+
+fn map_axis_value(v: f64, from: (f64, f64), to: (f64, f64)) -> f64 {
+    let (f0, f1) = from;
+    let (t0, t1) = to;
+    if (f1 - f0).abs() < f64::EPSILON {
+        return (t0 + t1) / 2.0;
+    }
+    (v - f0) / (f1 - f0) * (t1 - t0) + t0
+}
+
+fn format_axis_bound(v: f64) -> String {
+    if (v - v.round()).abs() < 1e-9 {
+        format!("{}", v.round() as i64)
+    } else {
+        format!("{v:.4}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
+/// Remap datasets on `y1`/`y2`/… (any non-primary value axis) onto `y`.
+///
+/// fulgur-chart cannot draw secondary axes; without this, those series are
+/// plotted in primary units and the curve shape diverges from App Chart.js.
+fn flatten_dual_y_axes_for_im(root: &mut Value) {
+    let Some(obj) = root.as_object_mut() else {
+        return;
+    };
+
+    let datasets_snapshot = obj
+        .get("data")
+        .and_then(|d| d.as_object())
+        .and_then(|d| d.get("datasets"))
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if datasets_snapshot.is_empty() {
+        return;
+    }
+
+    let scales_snapshot = obj
+        .get("options")
+        .and_then(|o| o.as_object())
+        .and_then(|o| o.get("scales"))
+        .cloned();
+
+    let mut axis_ids: Vec<String> = datasets_snapshot.iter().map(dataset_y_axis_id).collect();
+    if let Some(scales) = scales_snapshot.as_ref().and_then(|s| s.as_object()) {
+        for (key, scale) in scales {
+            if is_secondary_y_axis_key(key) {
+                axis_ids.push(key.clone());
+            } else if key != "x"
+                && scale
+                    .get("position")
+                    .and_then(|p| p.as_str())
+                    .is_some_and(|p| p.eq_ignore_ascii_case("right"))
+            {
+                axis_ids.push(key.clone());
+            }
+        }
+    }
+    axis_ids.sort();
+    axis_ids.dedup();
+
+    let secondary: Vec<String> = axis_ids
+        .into_iter()
+        .filter(|id| id != "y")
+        .collect();
+    if secondary.is_empty() {
+        return;
+    }
+
+    let primary_values: Vec<f64> = datasets_snapshot
+        .iter()
+        .filter(|ds| dataset_y_axis_id(ds) == "y")
+        .flat_map(collect_numeric_data)
+        .collect();
+    let primary_scale = scales_snapshot.as_ref().and_then(|s| s.get("y"));
+    let Some(primary_bounds) = scale_bounds(primary_scale, &primary_values).or_else(|| {
+        if primary_values.is_empty() {
+            Some((0.0, 1.0))
+        } else {
+            None
+        }
+    }) else {
+        log::warn!("chart_outbound: dual-axis flatten skipped (no primary bounds)");
+        return;
+    };
+
+    // (dataset_index, axis_id, sec_bounds) for each secondary series to remap.
+    let mut remap_plan: Vec<(usize, String, (f64, f64))> = Vec::new();
+    for axis_id in &secondary {
+        let sec_values: Vec<f64> = datasets_snapshot
+            .iter()
+            .filter(|ds| dataset_y_axis_id(ds) == *axis_id)
+            .flat_map(collect_numeric_data)
+            .collect();
+        if sec_values.is_empty() {
+            continue;
+        }
+        let sec_scale = scales_snapshot.as_ref().and_then(|s| s.get(axis_id));
+        let Some(sec_bounds) = scale_bounds(sec_scale, &sec_values) else {
+            continue;
+        };
+        for (index, ds) in datasets_snapshot.iter().enumerate() {
+            if dataset_y_axis_id(ds) == *axis_id {
+                remap_plan.push((index, axis_id.clone(), sec_bounds));
+            }
+        }
+    }
+    if remap_plan.is_empty() {
+        return;
+    }
+
+    let Some(datasets_mut) = obj
+        .get_mut("data")
+        .and_then(|d| d.as_object_mut())
+        .and_then(|d| d.get_mut("datasets"))
+        .and_then(|d| d.as_array_mut())
+    else {
+        return;
+    };
+
+    let mut remapped = 0usize;
+    for (index, axis_id, sec_bounds) in remap_plan {
+        let Some(ds_obj) = datasets_mut.get_mut(index).and_then(|d| d.as_object_mut()) else {
+            continue;
+        };
+        if let Some(data) = ds_obj.get_mut("data").and_then(|d| d.as_array_mut()) {
+            for point in data.iter_mut() {
+                if let Some(v) = json_as_f64(point) {
+                    *point = json!(map_axis_value(v, sec_bounds, primary_bounds));
+                }
+            }
+        }
+        ds_obj.remove("yAxisID");
+        let lo = format_axis_bound(sec_bounds.0);
+        let hi = format_axis_bound(sec_bounds.1);
+        let scale_note = format!("{axis_id} 尺度{lo}~{hi}");
+        match ds_obj.get("label").and_then(|v| v.as_str()) {
+            Some(label) if label.contains("尺度") => {}
+            Some(label) => {
+                ds_obj.insert(
+                    "label".into(),
+                    Value::String(format!("{label} · {scale_note}")),
+                );
+            }
+            None => {
+                ds_obj.insert(
+                    "label".into(),
+                    Value::String(format!("系列 · {scale_note}")),
+                );
+            }
+        }
+        remapped += 1;
+    }
+
+    // Pin primary axis so fulgur does not re-autoscale remapped points.
+    if let Some(options) = obj
+        .entry("options")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+    {
+        if let Some(scales) = options
+            .entry("scales")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+        {
+            let y_scale = scales.entry("y".to_string()).or_insert_with(|| json!({}));
+            if let Some(y_obj) = y_scale.as_object_mut() {
+                y_obj.insert("min".into(), json!(primary_bounds.0));
+                y_obj.insert("max".into(), json!(primary_bounds.1));
+                y_obj.remove("suggestedMin");
+                y_obj.remove("suggestedMax");
+            }
+            let drop_keys: Vec<String> = scales
+                .iter()
+                .filter(|(k, scale)| {
+                    is_secondary_y_axis_key(k)
+                        || (k.as_str() != "y"
+                            && scale
+                                .get("position")
+                                .and_then(|p| p.as_str())
+                                .is_some_and(|p| p.eq_ignore_ascii_case("right")))
+                })
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in drop_keys {
+                scales.remove(&key);
+            }
+        }
+    }
+
+    log::info!(
+        "chart_outbound: flattened dual-axis series={remapped} primary=[{}, {}]",
+        format_axis_bound(primary_bounds.0),
+        format_axis_bound(primary_bounds.1)
+    );
 }
 
 fn render_chart_fence_to_media_line(json_body: &str) -> Result<String> {
@@ -508,5 +803,88 @@ Done."#;
         )
         .unwrap();
         assert_eq!(a, b, "palette override should normalize colors");
+    }
+
+    #[test]
+    fn prepare_flattens_dual_y_axis_onto_primary_scale() {
+        // Left 0..16, right -2..6. Value 5 on right → (5+2)/8*16 = 14 on left.
+        let prepared = prepare_chartjs_json_for_im(
+            r##"{
+              "type":"bar",
+              "data":{
+                "labels":["2010","2016"],
+                "datasets":[
+                  {"label":"人口总量 (亿人)","data":[13.4,14.0]},
+                  {"type":"line","label":"自然增长率 (‰, 右轴)","yAxisID":"y1","data":[4.8,5.8]}
+                ]
+              },
+              "options":{
+                "scales":{
+                  "y":{"min":0,"max":16,"position":"left"},
+                  "y1":{"min":-2,"max":6,"position":"right"}
+                }
+              }
+            }"##,
+        )
+        .expect("prepare");
+        let v: Value = serde_json::from_str(&prepared).unwrap();
+        let line = &v["data"]["datasets"][1];
+        assert!(line.get("yAxisID").is_none());
+        assert!(v["options"]["scales"].get("y1").is_none());
+        assert_eq!(v["options"]["scales"]["y"]["min"], 0.0);
+        assert_eq!(v["options"]["scales"]["y"]["max"], 16.0);
+        let mapped: Vec<f64> = line["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(json_as_f64)
+            .collect();
+        assert_eq!(mapped.len(), 2);
+        assert!((mapped[0] - 13.6).abs() < 1e-9, "got {}", mapped[0]);
+        assert!((mapped[1] - 15.6).abs() < 1e-9, "got {}", mapped[1]);
+        let label = line["label"].as_str().unwrap_or("");
+        assert!(label.contains("y1 尺度"), "label should note axis+scale: {label}");
+    }
+
+    #[test]
+    fn prepare_flattens_three_y_axes_independently() {
+        // y: 0..10, y1: 0..100, y2: -1..1
+        // y1 value 50 → 5 on primary; y2 value 0 → 5 on primary.
+        let prepared = prepare_chartjs_json_for_im(
+            r##"{
+              "type":"bar",
+              "data":{
+                "labels":["A"],
+                "datasets":[
+                  {"label":"主轴","data":[8]},
+                  {"type":"line","label":"次轴1","yAxisID":"y1","data":[50]},
+                  {"type":"line","label":"次轴2","yAxisID":"y2","data":[0]}
+                ]
+              },
+              "options":{
+                "scales":{
+                  "y":{"min":0,"max":10},
+                  "y1":{"min":0,"max":100,"position":"right"},
+                  "y2":{"min":-1,"max":1,"position":"right"}
+                }
+              }
+            }"##,
+        )
+        .expect("prepare");
+        let v: Value = serde_json::from_str(&prepared).unwrap();
+        assert!(v["options"]["scales"].get("y1").is_none());
+        assert!(v["options"]["scales"].get("y2").is_none());
+        let d1 = json_as_f64(&v["data"]["datasets"][1]["data"][0]).unwrap();
+        let d2 = json_as_f64(&v["data"]["datasets"][2]["data"][0]).unwrap();
+        assert!((d1 - 5.0).abs() < 1e-9, "y1 map got {d1}");
+        assert!((d2 - 5.0).abs() < 1e-9, "y2 map got {d2}");
+        assert!(v["data"]["datasets"][1]["label"]
+            .as_str()
+            .unwrap_or("")
+            .contains("y1 尺度"));
+        assert!(v["data"]["datasets"][2]["label"]
+            .as_str()
+            .unwrap_or("")
+            .contains("y2 尺度"));
     }
 }

@@ -55,9 +55,10 @@ Platforms cannot run interactive Chart.js. On outbound delivery the host:
 
 1. Finds `chartjs` / `chart` fences in the assistant reply
 2. **Normalizes** the JSON to match App styling (soft blue/peach palette unless `pointerPalette: false`, white card background, strip function-looking strings / `annotation`)
-3. Renders to a PNG (`fulgur-chart`, Chart.js–compatible subset) using a **system CJK font** (not fulgur’s bundled Noto Sans JP). Candidates differ by OS (e.g. Hiragino Sans GB / YaHei / Noto CJK). Override with env `POINTER_IM_CHART_FONT=/path/to/font.ttf`.
-4. Replaces the fence with `MEDIA:<absolute-path>` under `{app_data}/generated-media/im-charts/`
-5. Sends caption text + image attachment via the existing IM media pipeline
+3. **Multi Y-axis (`y1` / `y2` / …):** `fulgur-chart` cannot draw secondary axes. Host linearly remaps each non-primary value axis onto `y` so **curve shapes** match App Chart.js; legend notes `y1 尺度…` / `y2 尺度…`. Secondary tick labels are not drawn.
+4. Renders to a PNG (`fulgur-chart`, Chart.js–compatible subset) using a **system CJK font** (not fulgur’s bundled Noto Sans JP). Candidates differ by OS (e.g. Hiragino Sans GB / YaHei / Noto CJK). Override with env `POINTER_IM_CHART_FONT=/path/to/font.ttf`.
+5. Replaces the fence with `MEDIA:<absolute-path>` under `{app_data}/generated-media/im-charts/`
+6. Sends caption text + image attachment via the existing IM media pipeline
 
 Render failures (including missing system CJK font) keep the original fence (JSON fallback) and log a warning. Cache key includes a style version + font identity + normalized JSON so palette/font updates invalidate old PNGs.
 

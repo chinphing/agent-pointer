@@ -43,7 +43,7 @@ pub fn merged_env_from_files(env_files: &[PathBuf]) -> HashMap<String, String> {
 }
 
 /// Full child environment for the `terminal` tool: Pointer process env + `.env` overlays
-/// + session vars + debug `terminalEnvOverrides` (debug wins last).
+/// + session vars + settings `terminalEnvOverrides` (overrides win last).
 ///
 /// Platform API keys and other sensitive variables are stripped so Skill scripts cannot
 /// read them via `printenv`.
@@ -80,13 +80,10 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
     env
 }
 
-/// Apply debug-session `terminalEnvOverrides` last (after process, `.env`, and session vars).
-/// Only while debug menus are enabled so toggling debug off disables injection without wiping.
+/// Apply settings `terminalEnvOverrides` last (after process, `.env`, and session vars).
+/// Independent of debug menus: closing debug keeps injection; values stay session-memory only.
 fn apply_terminal_env_overrides(env: &mut HashMap<String, String>) {
     let settings = crate::platform_config::effective_settings_global();
-    if !settings.debug_menus_enabled {
-        return;
-    }
     let overrides = settings.terminal_env_overrides;
     if overrides.is_empty() {
         return;
@@ -487,14 +484,14 @@ mod tests {
     }
 
     #[test]
-    fn build_terminal_child_environment_applies_debug_overrides() {
+    fn build_terminal_child_environment_applies_terminal_env_overrides() {
         let _guard = env_test_guard();
         std::env::set_var("POINTER_OVERRIDE_BASE", "from_process");
         let mut p = crate::models::PlatformSettings::default();
-        p.debug_menus_enabled = true;
+        p.debug_menus_enabled = false;
         p.terminal_env_overrides.insert(
             "POINTER_OVERRIDE_BASE".into(),
-            "from_debug".into(),
+            "from_settings".into(),
         );
         p.terminal_env_overrides
             .insert("POINTER_OVERRIDE_NEW".into(), "added".into());
@@ -502,7 +499,7 @@ mod tests {
         let map = build_terminal_child_environment(&[]);
         assert_eq!(
             map.get("POINTER_OVERRIDE_BASE").map(String::as_str),
-            Some("from_debug")
+            Some("from_settings")
         );
         assert_eq!(
             map.get("POINTER_OVERRIDE_NEW").map(String::as_str),
@@ -515,25 +512,25 @@ mod tests {
     }
 
     #[test]
-    fn build_terminal_child_environment_debug_overrides_session_vars() {
+    fn build_terminal_child_environment_overrides_session_vars() {
         let _guard = env_test_guard();
         let _uid = crate::session_user_env::SessionUserIdGuard::enter("session-uid".into());
         let _wd = crate::session_work_dir_env::SessionWorkDirGuard::enter("/session/work".into());
         let mut p = crate::models::PlatformSettings::default();
-        p.debug_menus_enabled = true;
+        p.debug_menus_enabled = false;
         p.terminal_env_overrides
-            .insert("SESSION_USER_ID".into(), "debug-uid".into());
+            .insert("SESSION_USER_ID".into(), "override-uid".into());
         p.terminal_env_overrides
-            .insert("WORKING_DIR".into(), "/debug/work".into());
+            .insert("WORKING_DIR".into(), "/override/work".into());
         crate::platform_config::replace_global_platform_config_for_test(p);
         let map = build_terminal_child_environment(&[]);
         assert_eq!(
             map.get("SESSION_USER_ID").map(String::as_str),
-            Some("debug-uid")
+            Some("override-uid")
         );
         assert_eq!(
             map.get("WORKING_DIR").map(String::as_str),
-            Some("/debug/work")
+            Some("/override/work")
         );
         crate::platform_config::replace_global_platform_config_for_test(
             crate::models::PlatformSettings::default(),
@@ -541,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn build_terminal_child_environment_skips_overrides_when_debug_off() {
+    fn build_terminal_child_environment_applies_overrides_when_debug_off() {
         let _guard = env_test_guard();
         let mut p = crate::models::PlatformSettings::default();
         p.debug_menus_enabled = false;
@@ -549,7 +546,10 @@ mod tests {
             .insert("POINTER_OVERRIDE_NEW".into(), "added".into());
         crate::platform_config::replace_global_platform_config_for_test(p);
         let map = build_terminal_child_environment(&[]);
-        assert!(map.get("POINTER_OVERRIDE_NEW").is_none());
+        assert_eq!(
+            map.get("POINTER_OVERRIDE_NEW").map(String::as_str),
+            Some("added")
+        );
         crate::platform_config::replace_global_platform_config_for_test(
             crate::models::PlatformSettings::default(),
         );

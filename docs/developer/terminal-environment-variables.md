@@ -8,9 +8,9 @@ Child env is built in `build_terminal_child_environment`:
 1. Pointer process env (login-shell / registry `PATH` already merged)
 2. Optional `.env` file overlays (`{app_data_dir}/.env` or tool `envFiles`)
 3. Session `WORKING_DIR` / `SESSION_USER_ID`
-4. **Debug `terminalEnvOverrides`** (settings → 界面配置 → 终端环境变量；本次会话有效)
+4. **Settings `terminalEnvOverrides`** (settings → 界面配置 → 终端环境变量；本次会话有效)
 
-Non-`PATH` keys in steps 2 and 4 **override** earlier values for the child only. `PATH` is **prepended**. Debug overrides in step 4 win last (including over session vars).
+Non-`PATH` keys in steps 2 and 4 **override** earlier values for the child only. `PATH` is **prepended**. Overrides in step 4 win last (including over session vars).
 
 ## Variables
 
@@ -21,14 +21,14 @@ Non-`PATH` keys in steps 2 and 4 **override** earlier values for the child only.
 
 Both are omitted when the corresponding value is empty.
 
-## Debug overrides (`terminalEnvOverrides`)
+## Settings overrides (`terminalEnvOverrides`)
 
 Enable **调试模式** → 设置 → **界面配置** → **终端环境变量**，添加 `KEY` / `VALUE` 后点「保存(本次会话)」。
 
 - 仅影响 `terminal`（含 elevated / PTY）子进程，不改 Pointer 主机进程。
 - 可覆盖进程 / `.env` / 会话注入的键（含 `WORKING_DIR`、`SESSION_USER_ID`）。
 - 敏感键（含 `API_KEY` / `SECRET` 等）会被跳过。
-- 关闭调试模式后停止注入，但保留已配置项；再次开启可继续使用。
+- 关闭调试模式后**仍继续注入**；编辑入口仍在调试「界面配置」中，再次开启可改配置。
 - 不写入磁盘；重启后恢复默认。
 
 ## Resolution

@@ -725,7 +725,7 @@ function createSettingsDialogForm(deps: {
       }
     : stripDebugAgentUiOverrides(baseOverrides)
 
-  // Keep terminalEnvOverrides across debug toggle; they only apply while debug is on.
+  // Keep terminalEnvOverrides across debug toggle; injection stays active either way.
   const terminalEnvOverrides = terminalEnvOverridesFromRows()
   s.settings.terminalEnvOverrides = terminalEnvOverrides
 

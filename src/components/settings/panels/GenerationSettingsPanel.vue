@@ -107,7 +107,7 @@ const TERMINAL_ENV_HINT =
               </div>
             </div>
 
-            <!-- 终端环境变量（开发者） -->
+            <!-- 终端环境变量（会话级；关闭调试后仍注入） -->
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
@@ -120,7 +120,7 @@ const TERMINAL_ENV_HINT =
                       <AlertCircle class="w-3.5 h-3.5 pointer-events-none" />
                     </span>
                   </div>
-                  <p class="mt-0.5 text-xs text-muted">覆盖注入到终端的变量，仅本次会话有效</p>
+                  <p class="mt-0.5 text-xs text-muted">覆盖注入到终端；仅本次会话，关闭调试后仍生效</p>
                 </div>
                 <button
                   v-if="terminalEnvRows.length > 0"

@@ -830,9 +830,8 @@ pub fn load_conversation_meta(
     match scope.filter_uid() {
         None => Ok(Some(meta)),
         Some(uid) => {
-            let stored = crate::conversation_store::session_user::normalize_session_user_id(
-                &meta.session_user_id,
-            );
+            let stored =
+                crate::conversation_store::normalize_session_user_id(&meta.session_user_id);
             if stored == uid {
                 Ok(Some(meta))
             } else {

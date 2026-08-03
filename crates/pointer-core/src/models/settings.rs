@@ -781,7 +781,8 @@ pub struct ModelSettings {
         rename = "debugDumpLlmPrompts"
     )]
     pub debug_dump_llm_prompts: bool,
-    /// Debug: KEY→VALUE overlays for `terminal` child env (override process / `.env`).
+    /// Session KEY→VALUE overlays for `terminal` child env (override process / `.env`).
+    /// Applied regardless of `debug_menus_enabled`; edit UI lives under debug「界面配置」.
     #[serde(default, rename = "terminalEnvOverrides")]
     pub terminal_env_overrides: HashMap<String, String>,
     /// When true, settings UI exposes debug sections (independent of raw wire / prompt dump toggles).
@@ -1678,7 +1679,7 @@ pub struct PlatformSettings {
         rename = "debugDumpLlmPrompts"
     )]
     pub debug_dump_llm_prompts: bool,
-    /// Debug: KEY→VALUE overlays for `terminal` child env (override process / `.env`).
+    /// Session KEY→VALUE overlays for `terminal` child env (override process / `.env`).
     #[serde(default, rename = "terminalEnvOverrides")]
     pub terminal_env_overrides: HashMap<String, String>,
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]

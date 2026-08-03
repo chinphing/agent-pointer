@@ -15,7 +15,7 @@ mod tests;
 pub mod webhook_sources;
 mod write;
 
-pub use session_user::ListScope;
+pub use session_user::{normalize_session_user_id, ListScope};
 
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};

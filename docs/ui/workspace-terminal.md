@@ -68,6 +68,7 @@
 | 中文输入法候选框不出现 / 输入无效 | xterm helper textarea 默认 `opacity: 0` + `z-index: -5`，WebKit 不为其建立 IME | CSS/样式让 textarea 对引擎可见但内容透明（`TerminalPanel` + `terminalIme`） |
 | 首键被吃掉 / 全角标点偶发丢失 | Safari IME 首键可能是 `keyCode 229` / `Process` / `Dead`；部分 `insertText` 在按键未抬起时被 xterm 丢弃 | `attachCustomKeyEventHandler` 只把真正的 IME 键交给浏览器（**不要**把裸 `keyCode 0` 当成 IME，否则 Esc/方向键/vim 无响应）；WebKit 下挂 `createTerminalImeGuard` 补发 |
 | vim / TUI「无响应」 | 误 defer `keyCode 0`、每键 fire-and-forget 乱序、重绘洪泛 | 见上 + 输入串行 + 输出 rAF 合并；终端聚焦时不拦截 Ctrl+F（留给 vim） |
-| 粘贴中文看不见（英文正常） | macOS 等宽字体缺 CJK 字形，WKWebView 字体回退弱 | `fontFamily` 显式追加 PingFang / Hiragino / Noto CJK |
+| `ls` 中文文件名变成 `?`（英文正常） | Dock 启动的 GUI 进程常带 `LANG=C`；**真 PTY** 下 macOS `ls` 会把非 ASCII 打成 `?`（不是缺字体） | `unix_locale::apply_unix_utf8_child_env`：终端子进程补齐/纠正为 UTF-8 `LANG`（优先系统 `AppleLocale`） |
+| 中文粘贴/字形缺字 | 等宽字体缺 CJK 时依赖系统中文 UI 字体回退 | `terminalFontFamily()`：等宽在前，系统默认中文在后（macOS 苹方 / Windows 雅黑）；**不要**把比例中文字体放到栈首 |
 
 网页端 Chromium 不启用 IME guard，避免重复投递。后端 PTY 写路径本身支持 UTF-8（见 `console_session` 往返测试）。

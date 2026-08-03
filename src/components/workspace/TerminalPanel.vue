@@ -6,9 +6,9 @@ import {
   createTerminalImeGuard,
   isWebKitTerminalHost,
   shouldDeferKeyToIme,
-  TERMINAL_CJK_FONT_FAMILY,
   type TerminalImeGuard
 } from '../../lib/terminalIme'
+import { ensureTerminalFontsReady } from '../../lib/terminalFonts'
 import { useConsoleStore, type WorkspaceConsoleTab } from '../../stores/console'
 
 const props = defineProps<{ workspaceRoot: string; conversationId: string; active: boolean }>()
@@ -82,10 +82,10 @@ function syncTerminalTheme() {
 
 async function ensureTerminal() {
   if (terminal || !host.value) return
-  const [{ Terminal }, { FitAddon }] = await Promise.all([
+  const [{ Terminal }, { FitAddon }, fontFamily] = await Promise.all([
     import('@xterm/xterm'),
     import('@xterm/addon-fit'),
-    import('@xterm/xterm/css/xterm.css')
+    import('@xterm/xterm/css/xterm.css').then(() => ensureTerminalFontsReady())
   ])
   terminal = new Terminal({
     // Keep the pre-fit screen within the panel's minimum width. FitAddon
@@ -93,9 +93,8 @@ async function ensureTerminal() {
     cols: 30,
     cursorBlink: true,
     convertEol: false,
-    // macOS monospace stacks omit CJK glyphs; WKWebView font fallback is weaker
-    // than Chromium, so Chinese paste/echo renders blank without explicit faces.
-    fontFamily: TERMINAL_CJK_FONT_FAMILY,
+    // OS system monospace + default Chinese UI font (see terminalFonts.ts).
+    fontFamily,
     fontSize: 12,
     scrollback: 5_000,
     // On macOS, Option+drag otherwise enters column-select (tall rectangle over

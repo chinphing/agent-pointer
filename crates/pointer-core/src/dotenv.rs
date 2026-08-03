@@ -77,6 +77,9 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
     crate::session_user_env::apply_session_user_id(&mut env);
     crate::session_work_dir_env::apply_session_work_dir(&mut env);
     apply_terminal_env_overrides(&mut env);
+    // After overrides: Dock-launched hosts often have LANG=C; PTY `ls` then prints `?`.
+    #[cfg(unix)]
+    crate::unix_locale::apply_unix_utf8_child_env(&mut env);
     env
 }
 

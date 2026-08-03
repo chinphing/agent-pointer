@@ -74,4 +74,5 @@ pub mod tool_envelope;
 pub mod tools;
 pub mod tools_system_appendix;
 pub mod web_request_auth;
+mod unix_locale;
 mod windows_shell_encoding;

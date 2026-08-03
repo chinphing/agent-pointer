@@ -13,9 +13,8 @@ const COMMIT_FALLBACK_MS = 80
 /** onData this close before compositionend means xterm already flushed. */
 const SYNC_FLUSH_MS = 30
 
-/** Explicit CJK fallbacks: macOS monospace stacks omit Chinese glyphs in WKWebView. */
-export const TERMINAL_CJK_FONT_FAMILY =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", monospace'
+/** @deprecated Prefer `terminalFontFamily()` from `./terminalFonts`. */
+export { TERMINAL_CJK_FONT_FAMILY } from './terminalFonts'
 
 /** True for WKWebView / Safari / WebKitGTK — not Chromium / WebView2. */
 export function isWebKitTerminalHost(): boolean {

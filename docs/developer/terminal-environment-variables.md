@@ -7,10 +7,12 @@ Child env is built in `build_terminal_child_environment`:
 
 1. Pointer process env (login-shell / registry `PATH` already merged)
 2. Optional `.env` file overlays (`{app_data_dir}/.env` or tool `envFiles`)
-3. Session `WORKING_DIR` / `SESSION_USER_ID`
-4. **Settings `terminalEnvOverrides`** (settings → 界面配置 → 终端环境变量；本次会话有效)
+3. Windows UTF-8 helpers (`PYTHONUTF8` etc.) when applicable
+4. Session `WORKING_DIR` / `SESSION_USER_ID`
+5. **Settings `terminalEnvOverrides`** (settings → 界面配置 → 终端环境变量；本次会话有效)
+6. Unix UTF-8 locale (`unix_locale`) — Dock-launched apps often inherit `LANG=C`, which makes PTY `ls` print `?` for Chinese names; applied last so overrides cannot leave a non-UTF-8 locale
 
-Non-`PATH` keys in steps 2 and 4 **override** earlier values for the child only. `PATH` is **prepended**. Overrides in step 4 win last (including over session vars).
+Non-`PATH` keys in steps 2 and 5 **override** earlier values for the child only. `PATH` is **prepended**. Step 6 may still correct `LANG` / `LC_*` to UTF-8.
 
 ## Variables
 

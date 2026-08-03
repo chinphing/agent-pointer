@@ -327,15 +327,15 @@ function openSourceUrl(url: string) {
         ? 'rounded-lg bg-accent/5'
         : ''"
   >
-    <div class="flex items-center gap-1.5 min-w-0">
+    <div class="flex max-w-full items-center gap-1.5 min-w-0">
       <button
         type="button"
-        class="tool-call-trigger py-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
+        class="tool-call-trigger py-1 flex max-w-full min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
         @click="open = !open"
       >
         <Wrench class="w-3 h-3 text-muted/70 shrink-0" />
-        <span>{{ displayLabel }}</span>
-        <span v-if="displaySummary">· {{ displaySummary }}</span>
+        <span class="shrink-0">{{ displayLabel }}</span>
+        <span v-if="displaySummary" class="min-w-0 break-words">· {{ displaySummary }}</span>
         <span
           v-if="terminalElevated"
           class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"

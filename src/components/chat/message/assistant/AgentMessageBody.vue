@@ -388,7 +388,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
           >{{ reasoningDisplayText }}</div>
         </div>
 
-        <div v-if="hasMainBody" class="relative w-full break-words overflow-x-auto">
+        <div v-if="hasMainBody" class="relative w-full min-w-0 break-words overflow-x-hidden">
           <ModelThoughtPanels
             v-if="showThoughtPanels"
             :xml-thoughts="thoughtsPanelText"

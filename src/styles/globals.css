@@ -283,6 +283,10 @@
   }
   .chat-scroll-area {
     scroll-padding-bottom: 2.5rem;
+    /* overflow-y:auto makes overflow-x compute to auto; clip sideways so a
+       slightly overhanging avatar / unwrapped tool line cannot spawn a
+       full-pane horizontal scrollbar when the middle pane is narrow. */
+    overflow-x: hidden;
   }
   .message-footer-actions {
     @apply flex items-center gap-2 overflow-hidden transition-all duration-150;
@@ -345,6 +349,16 @@
       display: none !important;
     }
   }
+  /*
+   * Narrow middle pane (workspace open): shell gutter is only px-8 (32px) while
+   * the hover avatar is w-8 + mr-2 (40px) via `right-full`, so it overhangs and
+   * forces a horizontal scrollbar. Hide until container query bumps gutters to 6rem.
+   */
+  @container chat (max-width: 719px) {
+    .message-avatar-slot {
+      display: none !important;
+    }
+  }
 }
 
 /* Markdown */
@@ -358,6 +372,7 @@
   @apply px-1.5 py-0.5 rounded text-[13px];
   background: hsl(var(--code-bg));
   color: hsl(var(--accent));
+  overflow-wrap: anywhere;
 }
 /* Fenced code: rounded frame + same white/card fill as table body. */
 .md-body .code-block {

@@ -71,7 +71,7 @@ const showThinkingIndicator = computed(
 
     <div
       v-if="toolCalls.length"
-      class="px-3"
+      class="min-w-0 max-w-full px-3"
       :class="compactTop ? 'tool-block-shell-compact' : 'tool-block-shell'"
     >
       <ToolCallList

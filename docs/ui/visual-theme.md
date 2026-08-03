@@ -35,6 +35,10 @@ workspace panel is resized:
   pane, capped at 1024px
 - `.chat-shell` horizontal padding (side gutters): `px-8` by default; `6rem`
   when the chat container is ≥720px (container query, not `md:` viewport)
+- `.chat-scroll-area` uses `overflow-x: hidden` so a narrow middle pane cannot
+  grow a full-pane horizontal scrollbar (avatar overhang / long tool lines).
+  Hide `.message-avatar-slot` under `@container chat (max-width: 719px)` for the
+  same reason — see [mobile-chat.md](mobile-chat.md).
 
 Do not switch this back to viewport-only `max-w-3xl` / `md:px-*` — that drifts
 from available width while the workspace panel is open.

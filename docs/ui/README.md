@@ -8,7 +8,7 @@
 | [markdown-svg.md](markdown-svg.md) | Markdown `svg` fence → 消毒后内联流程图/示意图 |
 | [markdown-svg.md](markdown-svg.md) | Markdown `svg` fence → 消毒后挂载的流程图 / 结构图 |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
-| [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」口径；队列立即发送不得把排队等待算进去 |
+| [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」；未开「默认收缩执行过程」时与增设前行为一致 |
 | [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选：先提交 `currentId`，主区异步加载 |
 | [last-conversation-restore.md](last-conversation-restore.md) | 启动恢复上次选中会话（`pointer.chat.lastConversationId`） |
 | [sidebar-awaiting-view.md](sidebar-awaiting-view.md) | 后台完成未查看：侧栏实心圆点 |

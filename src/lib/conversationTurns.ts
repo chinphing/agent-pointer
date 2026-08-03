@@ -18,14 +18,25 @@ export interface ConversationTurnClassifier<T> {
   isDelivery(entry: T): boolean
 }
 
+export type BuildConversationTurnsOptions = {
+  /**
+   * When true (「默认收缩执行过程」), active turns get a compact projection too.
+   * When false/omitted, match pre-setting behavior: active turns stay fully
+   * visible (hiddenCount = 0) so the elapsed chip does not appear mid-run.
+   */
+  collapseActiveTurns?: boolean
+}
+
 /**
  * Groups display entries into user-anchored turns and derives the compact projection.
  * This is view-only: callers keep expansion state separately and never mutate messages.
  */
 export function buildConversationTurns<T>(
   entries: readonly T[],
-  classifier: ConversationTurnClassifier<T>
+  classifier: ConversationTurnClassifier<T>,
+  options?: BuildConversationTurnsOptions
 ): ConversationTurn<T>[] {
+  const collapseActiveTurns = options?.collapseActiveTurns === true
   const groups: Array<{ id: string; entries: T[] }> = []
 
   for (const entry of entries) {
@@ -51,8 +62,11 @@ export function buildConversationTurns<T>(
           ? 'failed'
           : 'completed'
 
-    // Prelude entries (no user message anchor) always show in full.
-    if (!classifier.userMessageId(group.entries[0]!)) {
+    // Prelude always full. Active turns stay full unless collapse-by-default is on.
+    if (
+      (!collapseActiveTurns && state === 'active')
+      || !classifier.userMessageId(group.entries[0]!)
+    ) {
       return {
         ...group,
         state,
@@ -82,12 +96,17 @@ export function buildConversationTurns<T>(
   })
 }
 
+/**
+ * Last completed (non-active) turn with hidden process stays expanded when
+ * collapse-by-default is off. Active turns are never auto-expanded this way.
+ */
 export function shouldAutoExpandTurn<T>(
   turns: readonly ConversationTurn<T>[],
   turnId: string
 ): boolean {
   const lastTurn = turns[turns.length - 1]
   return lastTurn?.id === turnId
+    && lastTurn.state !== 'active'
     && lastTurn.hiddenCount > 0
 }
 

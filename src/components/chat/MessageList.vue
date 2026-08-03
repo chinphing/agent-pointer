@@ -628,7 +628,8 @@ const messageListLayout = computed(() => {
       visibleToolCallsFor: message => visibleToolsForMessage(message, message.toolCalls ?? []),
       shouldShowGlue: shouldShowThreadGlue
     },
-    cache: layoutCacheHold
+    cache: layoutCacheHold,
+    collapseActiveTurns: settings.userSettings.collapseProcessByDefault === true
   })
   layoutCacheHold = result.cache
   return result
@@ -647,6 +648,8 @@ const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
 
 // Live ticking clock for the running turn's elapsed label. The interval runs
 // only while at least one turn is still active; otherwise nothing re-renders.
+// (With collapseProcessByDefault off, active turns have hiddenCount 0 so the
+// chip is absent mid-run — same as before that setting existed.)
 const nowTick = ref(Date.now())
 let elapsedTicker: ReturnType<typeof setInterval> | null = null
 const hasActiveConversationTurn = computed(() =>

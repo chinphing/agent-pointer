@@ -411,7 +411,8 @@ function findActiveBoard(entries: readonly FlatEntry[]): Extract<FlatEntry, { ty
 
 function buildTurnsForEntries(
   entries: readonly FlatEntry[],
-  activeBoard: Extract<FlatEntry, { type: 'task_board' }> | null
+  activeBoard: Extract<FlatEntry, { type: 'task_board' }> | null,
+  collapseActiveTurns: boolean
 ): ConversationTurn<FlatEntry>[] {
   return buildConversationTurns(entries, {
     key: entryKey,
@@ -427,7 +428,7 @@ function buildTurnsForEntries(
       || (entry.type === 'task_board' && entry.document.meta?.status === 'cancelled'),
     isSummary: entryIsSummary,
     isDelivery: entryIsDelivery
-  })
+  }, { collapseActiveTurns })
 }
 
 /**
@@ -439,10 +440,13 @@ export function buildMessageListLayout(options: {
   messages: readonly ChatMessage[]
   deps: FlattenDeps
   cache: MessageListLayoutCache | null
+  /** 「默认收缩执行过程」：进行中回合也可折叠并显示耗时条。 */
+  collapseActiveTurns?: boolean
 }): MessageListLayoutResult {
   const conversationId = options.conversationId?.trim() || ''
   const messages = options.messages
   const deps = options.deps
+  const collapseActiveTurns = options.collapseActiveTurns === true
 
   if (!conversationId || messages.length === 0) {
     const emptyCache: MessageListLayoutCache = {
@@ -479,7 +483,7 @@ export function buildMessageListLayout(options: {
     }
     entries = flattenConversationMessages(messages, deps)
     const activeBoard = findActiveBoard(entries)
-    turns = buildTurnsForEntries(entries, activeBoard)
+    turns = buildTurnsForEntries(entries, activeBoard, collapseActiveTurns)
   } else {
     const prefixEntryCount = options.cache.turns
       .slice(0, reusablePrefixTurns)
@@ -495,7 +499,7 @@ export function buildMessageListLayout(options: {
     const prefixTurns = options.cache.turns
       .slice(0, reusablePrefixTurns)
       .map(turn => rebindTurn(turn, byId, deps))
-    const suffixTurns = buildTurnsForEntries(suffixEntries, activeBoard)
+    const suffixTurns = buildTurnsForEntries(suffixEntries, activeBoard, collapseActiveTurns)
     turns = [...prefixTurns, ...suffixTurns]
   }
 

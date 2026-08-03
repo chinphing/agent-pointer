@@ -1,6 +1,22 @@
 # 回合工作耗时（「工作 X m YY s」）
 
-折叠回合时，按钮旁展示该 user turn 的工作耗时。
+折叠 / 展开切换按钮旁展示该 user turn 的工作耗时。
+展开后文案仍保留（与常规收缩交互一致）。
+
+## 与「默认收缩执行过程」的关系
+
+设置项：`collapseProcessByDefault`（助手设置「默认收缩执行过程」）。
+
+| 设置 | 行为 |
+|------|------|
+| **关**（默认） | 与增加该配置**之前**一致：进行中回合不折叠（无耗时条）；回合结束后，最新一轮有隐藏过程时自动展开并显示耗时条；更早回合折叠显示耗时条。 |
+| **开** | 进行中回合也可折叠并显示实时耗时；已完成轮次默认折叠。 |
+
+实现要点：
+
+- `buildConversationTurns(..., { collapseActiveTurns })`：仅开启时对 `active` 回合计算 `hiddenCount`
+- `MessageList` 传入 `collapseActiveTurns: collapseProcessByDefault`
+- 未开启时 `shouldAutoExpandTurn` 仍要求 `state !== 'active'`
 
 ## 计时口径
 
@@ -9,7 +25,7 @@
 | **主路径** | `recordTurnStart`（`dispatchChatTurn`）→ `recordTurnDone`（`Done` / 中断结算） |
 | **回退** | 同 turn 内首条 user 与末条消息的 `createdAt` 差（无本地计时记录时） |
 
-展示优先用主路径（`resolveTurnElapsedMs`），避免被消息时间戳噪声污染。
+展示优先用主路径（`resolveTurnElapsedMs`）。开启默认收缩且回合进行中时，用 `activeTurnStartedAt` + 1s ticker 实时刷新。
 
 ## 出站队列 /「立即发送」
 
@@ -34,6 +50,8 @@
 ## 实现位置
 
 - `src/lib/turnElapsed.ts`
+- `src/lib/conversationTurns.ts`（`collapseActiveTurns`）
+- `src/lib/messageListLayout.ts`
 - `src/stores/chat.ts`（`dispatchChatTurn` / `drainOutboundQueue` / `interruptActiveTurn`）
 - `src/components/chat/MessageList.vue`（`turnElapsedLabel`）
 - `src/stores/chat/streamHandlers/sessionHandlers.ts`（`handleDone`）

@@ -38,7 +38,7 @@ describe('conversation turns', () => {
   })
 
   it.each(['streaming', 'error', 'cancelled'] as const)(
-    'keeps %s turns expanded',
+    'keeps %s turns expanded when collapseActiveTurns is off',
     status => {
       const entries: Entry[] = [
         { id: 'u1', role: 'user', status: 'done' },
@@ -55,6 +55,18 @@ describe('conversation turns', () => {
       }
     }
   )
+
+  it('collapses active turns when collapseActiveTurns is on', () => {
+    const entries: Entry[] = [
+      { id: 'u1', role: 'user', status: 'done' },
+      { id: 'process', role: 'process', status: 'streaming' },
+      { id: 'answer', role: 'assistant', status: 'done', delivery: true }
+    ]
+    const [turn] = buildConversationTurns(entries, classifier, { collapseActiveTurns: true })
+    expect(turn?.state).toBe('active')
+    expect(turn?.collapsedEntries.map(entry => entry.id)).toEqual(['u1', 'answer'])
+    expect(turn?.hiddenCount).toBe(1)
+  })
 
   it('creates a collapse row for a cancelled turn with completed work entries', () => {
     const entries: Entry[] = [
@@ -98,6 +110,7 @@ describe('conversation turns', () => {
       { id: 'active-2', role: 'assistant', status: 'streaming' }
     ], classifier)
 
+    // Active last turn is never auto-expanded; previous turn is no longer last.
     expect(shouldAutoExpandTurn(nextTurn, 'u1')).toBe(false)
     expect(shouldAutoExpandTurn(nextTurn, 'u2')).toBe(false)
   })

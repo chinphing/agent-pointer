@@ -22,6 +22,7 @@ const {
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
   computerAutoCompact,
+  collapseProcessByDefault,
   userCodingRules,
   computerHumanLike,
   captchaSliderOffsetPx,
@@ -231,6 +232,22 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                       class="sr-only peer"
                       :checked="computerAutoCompact"
                       @change="computerAutoCompact = ($event.target as HTMLInputElement).checked"
+                    />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+
+                <div class="flex items-start justify-between gap-4 py-3">
+                  <div class="min-w-0">
+                    <p class="text-[12px] font-medium text-foreground">默认收缩执行过程</p>
+                    <p class="text-[11px] text-muted mt-0.5">已完成轮次始终折叠，仅显示用户问题和最终输出</p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input
+                      type="checkbox"
+                      class="sr-only peer"
+                      :checked="collapseProcessByDefault"
+                      @change="collapseProcessByDefault = ($event.target as HTMLInputElement).checked"
                     />
                     <div class="settings-toggle-track" />
                   </label>

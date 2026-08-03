@@ -1358,6 +1358,11 @@ fn default_play_sound_on_finish() -> bool {
     true
 }
 
+/// Default: collapse only the last completed turn; intermediate process stays visible.
+fn default_collapse_process_by_default() -> bool {
+    false
+}
+
 fn default_media_oss_key_prefix() -> String {
     "pointer-media-attachments/".to_string()
 }
@@ -1488,6 +1493,13 @@ pub struct UserSettings {
         rename = "playSoundOnFinish"
     )]
     pub play_sound_on_finish: bool,
+    /// Collapse intermediate process entries by default; only show final output
+    /// for completed turns (UI preference).
+    #[serde(
+        default = "default_collapse_process_by_default",
+        rename = "collapseProcessByDefault"
+    )]
+    pub collapse_process_by_default: bool,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
 }
@@ -1512,6 +1524,7 @@ impl Default for UserSettings {
             curator_interval_days: default_curator_interval_days(),
             computer_auto_compact: default_computer_auto_compact(),
             play_sound_on_finish: default_play_sound_on_finish(),
+            collapse_process_by_default: default_collapse_process_by_default(),
             media_oss: MediaOssConfig::default(),
         }
     }
@@ -2931,6 +2944,24 @@ mod effective_extra_body_tests {
             json["agentSkillOverrides"]["coder"],
             serde_json::json!(["skill-manager"])
         );
+    }
+
+    #[test]
+    fn collapse_process_by_default_round_trip_and_default_false() {
+        let default_user = UserSettings::default();
+        assert!(!default_user.collapse_process_by_default);
+
+        let user: UserSettings = serde_json::from_value(serde_json::json!({
+            "collapseProcessByDefault": true
+        }))
+        .unwrap();
+        assert!(user.collapse_process_by_default);
+        let json = serde_json::to_value(user).unwrap();
+        assert_eq!(json["collapseProcessByDefault"], serde_json::json!(true));
+
+        // Missing field falls back to the default (false) instead of erroring.
+        let absent: UserSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(!absent.collapse_process_by_default);
     }
 
     #[test]

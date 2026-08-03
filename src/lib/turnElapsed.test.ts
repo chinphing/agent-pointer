@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  activeTurnStartedAt,
   elapsedBetweenTimestamps,
   formatTurnElapsed,
   hasActiveTurn,
@@ -44,6 +45,19 @@ describe('turn elapsed', () => {
     expect(hasActiveTurn('conv-1')).toBe(true)
     expect(recordTurnDone('conv-1', 9_000)).toBe(5_000)
     expect(turnElapsedMs('conv-1', 'user-b')).toBe(5_000)
+  })
+
+  it('reports the running turn start for live ticking, null otherwise', () => {
+    expect(activeTurnStartedAt('conv-1', 'user-1')).toBeNull()
+
+    recordTurnStart('conv-1', 'user-1', 12_345)
+    expect(activeTurnStartedAt('conv-1', 'user-1')).toBe(12_345)
+    // Another conversation / different turn id does not match the active one.
+    expect(activeTurnStartedAt('conv-2', 'user-1')).toBeNull()
+    expect(activeTurnStartedAt('conv-1', 'user-2')).toBeNull()
+
+    recordTurnDone('conv-1', 20_000)
+    expect(activeTurnStartedAt('conv-1', 'user-1')).toBeNull()
   })
 
   it('derives elapsed time from persisted message timestamps', () => {

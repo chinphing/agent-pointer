@@ -153,6 +153,7 @@ async function saveFromFooter() {
       ? s.createUserSnapshot({
           theme: themeToSave,
           computerAutoCompact: assistantPayload.computerAutoCompact,
+          collapseProcessByDefault: assistantPayload.collapseProcessByDefault,
           userCodingRules: assistantPayload.userCodingRules
         })
       : null

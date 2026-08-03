@@ -263,6 +263,7 @@ function createSettingsDialogForm(deps: {
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
   const computerAutoCompact = ref(true)
+  const collapseProcessByDefault = ref(false)
   const userCodingRules = ref('')
   const computerInitialTier = ref<ComputerInitialTier>('intermediate')
   const computerAnnotatedScreenViewEnabled = ref(false)
@@ -472,6 +473,7 @@ function createSettingsDialogForm(deps: {
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
   computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
+  collapseProcessByDefault.value = s.userSettings.collapseProcessByDefault === true
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
   computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
@@ -769,6 +771,7 @@ function createSettingsDialogForm(deps: {
   function getAssistantSavePayload() {
   return {
     computerAutoCompact: computerAutoCompact.value,
+    collapseProcessByDefault: collapseProcessByDefault.value,
     userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
@@ -862,6 +865,7 @@ function createSettingsDialogForm(deps: {
     computerHumanLike,
     computerAutoSwitchMonitor,
     computerAutoCompact,
+    collapseProcessByDefault,
     userCodingRules,
     computerInitialTier,
     computerAnnotatedScreenViewEnabled,

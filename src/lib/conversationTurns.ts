@@ -51,9 +51,8 @@ export function buildConversationTurns<T>(
           ? 'failed'
           : 'completed'
 
-    // Active turns must stay fully visible while they are still changing.
-    // Failed/cancelled turns are terminal, so their completed work can still collapse.
-    if (state === 'active' || !classifier.userMessageId(group.entries[0]!)) {
+    // Prelude entries (no user message anchor) always show in full.
+    if (!classifier.userMessageId(group.entries[0]!)) {
       return {
         ...group,
         state,
@@ -89,7 +88,6 @@ export function shouldAutoExpandTurn<T>(
 ): boolean {
   const lastTurn = turns[turns.length - 1]
   return lastTurn?.id === turnId
-    && lastTurn.state !== 'active'
     && lastTurn.hiddenCount > 0
 }
 

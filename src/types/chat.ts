@@ -543,6 +543,8 @@ export interface UserSettings {
   userCodingRules?: string
   /** Aliyun OSS for large video understanding (HTTP video_url to DashScope). */
   mediaOss?: MediaOssConfig
+  /** Collapse intermediate process entries by default; only show final output for completed turns. */
+  collapseProcessByDefault?: boolean
 }
 
 /** Aliyun OSS — large video temp upload for native DashScope `video_url`. */

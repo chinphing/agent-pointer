@@ -85,6 +85,21 @@ export function turnElapsedMs(conversationId: string, turnId: string): number | 
   return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : null
 }
 
+/**
+ * When the given turn is currently running, returns its recorded start
+ * timestamp (ms epoch) so callers can render a live ticking duration.
+ * Returns null when the turn is not the active one or timing was cleared.
+ */
+export function activeTurnStartedAt(conversationId: string, turnId: string): number | null {
+  const id = conversationId.trim()
+  if (!id) return null
+  const active = readState().active[id]
+  if (active && active.turnId === turnId && Number.isFinite(active.startedAt)) {
+    return active.startedAt
+  }
+  return null
+}
+
 export function elapsedBetweenTimestamps(startedAt: number, finishedAt: number): number | null {
   if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) return null
   return finishedAt - startedAt

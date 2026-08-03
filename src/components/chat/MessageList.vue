@@ -29,7 +29,7 @@ import {
   type MessageListLayoutCache
 } from '../../lib/messageListLayout'
 import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
-import { formatTurnElapsed, resolveTurnElapsedMs } from '../../lib/turnElapsed'
+import { activeTurnStartedAt, formatTurnElapsed, resolveTurnElapsedMs } from '../../lib/turnElapsed'
 import { shouldStickActiveTaskBoard } from '../../lib/taskBoardSticky'
 import {
   countLlmInvocationRounds,
@@ -275,6 +275,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopElapsedTicker()
   document.removeEventListener('keydown', onNewConversationConfirmationKeydown)
   mobileMediaQuery?.removeEventListener('change', updateMobileViewport)
   mobileMediaQuery = null
@@ -644,10 +645,36 @@ const activeBoard = computed(() => flatMessages.value.find(
 const expandedTurnIds = ref<Set<string>>(new Set())
 const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
 
+// Live ticking clock for the running turn's elapsed label. The interval runs
+// only while at least one turn is still active; otherwise nothing re-renders.
+const nowTick = ref(Date.now())
+let elapsedTicker: ReturnType<typeof setInterval> | null = null
+const hasActiveConversationTurn = computed(() =>
+  conversationTurns.value.some(turn => turn.state === 'active')
+)
+watch(hasActiveConversationTurn, active => {
+  if (active && elapsedTicker == null) {
+    nowTick.value = Date.now()
+    elapsedTicker = setInterval(() => {
+      nowTick.value = Date.now()
+    }, 1000)
+  } else if (!active && elapsedTicker != null) {
+    clearInterval(elapsedTicker)
+    elapsedTicker = null
+  }
+}, { immediate: true })
+
+function stopElapsedTicker() {
+  if (elapsedTicker != null) {
+    clearInterval(elapsedTicker)
+    elapsedTicker = null
+  }
+}
+
 function turnIsExpanded(turnId: string): boolean {
   if (manuallyCollapsedTurnIds.value.has(turnId)) return false
   return expandedTurnIds.value.has(turnId)
-    || shouldAutoExpandTurn(conversationTurns.value, turnId)
+    || (!settings.userSettings.collapseProcessByDefault && shouldAutoExpandTurn(conversationTurns.value, turnId))
 }
 
 function turnHasTaskBoard(turn: (typeof conversationTurns.value)[number]): boolean {
@@ -687,8 +714,14 @@ function displayedTurnEntries(turn: (typeof conversationTurns.value)[number]): F
 }
 
 function turnElapsedLabel(turnId: string): string {
-  const messages = chat.current?.messages ?? []
   const conversationId = chat.currentId?.trim()
+  // Running turn: render a live duration driven by the 1s ticker (reading
+  // nowTick keeps the label reactive even when nothing else changes).
+  const startedAt = conversationId ? activeTurnStartedAt(conversationId, turnId) : null
+  if (startedAt != null) {
+    return formatTurnElapsed(Math.max(0, nowTick.value - startedAt))
+  }
+  const messages = chat.current?.messages ?? []
   const userIndex = messages.findIndex(message => message.id === turnId && message.role === 'user')
   let userCreatedAt: number | null = null
   let lastMessageCreatedAt: number | null = null

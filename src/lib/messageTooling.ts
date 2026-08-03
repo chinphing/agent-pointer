@@ -10,7 +10,7 @@ export function isInteractiveToolCall(tc: ToolCall): boolean {
   if (tc.status === 'pending_approval') return true
   const base = toolCallBaseName(tc.name)
   return base === 'ask_user'
-    && (tc.status === 'pending' || tc.status === 'running' || tc.status === 'pending_approval')
+    && (tc.status === 'pending' || tc.status === 'running')
 }
 
 /** Assistant row used the `response` tool (final user-visible reply), not an intermediate tool round. */

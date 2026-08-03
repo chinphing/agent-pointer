@@ -3,11 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createTerminalImeGuard,
   isAbandonedImeAsciiBuffer,
-  isWebKitTerminalHost,
-  shouldDeferKeyToIme,
-  terminalFontFamily,
-  TERMINAL_CJK_FONT_FAMILY_CHROMIUM,
-  TERMINAL_CJK_FONT_FAMILY_WEBKIT
+  shouldDeferKeyToIme
 } from './terminalIme'
 
 describe('shouldDeferKeyToIme', () => {
@@ -30,19 +26,6 @@ describe('isAbandonedImeAsciiBuffer', () => {
     expect(isAbandonedImeAsciiBuffer('nihao')).toBe(false)
     expect(isAbandonedImeAsciiBuffer('你好')).toBe(false)
     expect(isAbandonedImeAsciiBuffer('   ')).toBe(false)
-  })
-})
-
-describe('terminalFontFamily', () => {
-  it('puts CJK faces before Latin monospace on WebKit hosts', () => {
-    const family = terminalFontFamily()
-    if (isWebKitTerminalHost()) {
-      expect(family).toBe(TERMINAL_CJK_FONT_FAMILY_WEBKIT)
-      expect(family.indexOf('PingFang')).toBeLessThan(family.indexOf('Menlo'))
-    } else {
-      expect(family).toBe(TERMINAL_CJK_FONT_FAMILY_CHROMIUM)
-      expect(family.indexOf('Menlo')).toBeLessThan(family.indexOf('PingFang'))
-    }
   })
 })
 

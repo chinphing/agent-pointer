@@ -96,7 +96,7 @@ keep internal stage templates out of **`content`**.
   - **User Skills** → **`~/.pointer/skills/`** (install: **`skill_import`**;
     edits: **`run_subagent`** → **`coder`**, see that tool doc).
   - **Codex / Agent compatibility** — Pointer also **loads** (read-only) skills from **`~/.agents/skills/`** when present. Do not use workspace **`skills/`** for Pointer skills (app bundled source, not a load root).
-- Deliver files with `MEDIA:<absolute-path>` (see **Delivering local files in chat**).
+- Deliver files with `MEDIA:<absolute-path>` when the user should receive a local file.
 
 ## App data directory
 

@@ -5,6 +5,8 @@
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换；对话列宽跟中间栏（含 Workspace 拖拽）自适应 |
 | [external-links.md](external-links.md) | 应用内 http(s) 链接用系统默认浏览器打开（桌面）/ 新标签（Web） |
 | [markdown-charts.md](markdown-charts.md) | Markdown `chartjs` fence → 本地 Chart.js 交互图表 |
+| [markdown-svg.md](markdown-svg.md) | Markdown `svg` fence → 消毒后内联流程图/示意图 |
+| [markdown-svg.md](markdown-svg.md) | Markdown `svg` fence → 消毒后挂载的流程图 / 结构图 |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
 | [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」口径；队列立即发送不得把排队等待算进去 |
 | [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选：先提交 `currentId`，主区异步加载 |

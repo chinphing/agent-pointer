@@ -64,4 +64,6 @@ Render failures (including missing system CJK font) keep the original fence (JSO
 
 Desktop/Web chat is unchanged (interactive canvas; Chart.js uses its default Latin stack with OS CJK fallback). Negative-segment dashes (same series soft color) are App-only; IM gets the same colors without per-segment dash.
 
+Model prompt (shared inject): [`crates/pointer-core/src/agents/_shared/CHARTS.md`](../../crates/pointer-core/src/agents/_shared/CHARTS.md) — see [`../agents/reply-media-prompts.md`](../agents/reply-media-prompts.md).
+
 Implementation: [`src/lib/markdownConfig.ts`](../../src/lib/markdownConfig.ts), [`src/lib/markdownChart.ts`](../../src/lib/markdownChart.ts), [`src/composables/useMarkdownCharts.ts`](../../src/composables/useMarkdownCharts.ts), [`crates/pointer-channels/src/chart_outbound.rs`](../../crates/pointer-channels/src/chart_outbound.rs).

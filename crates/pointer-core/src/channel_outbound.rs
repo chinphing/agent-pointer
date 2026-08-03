@@ -197,7 +197,7 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
             .to_string(),
     );
     lines.push(
-        "Attachment and `MEDIA:` rules: follow **Delivering local files in chat** in the shared system rules (authoritative)."
+        "For attachments, end the reply with `MEDIA:<absolute-path>` (one file per line)."
             .to_string(),
     );
     lines.push("There is no separate delivery tool — do not expect a desktop chat UI.".to_string());

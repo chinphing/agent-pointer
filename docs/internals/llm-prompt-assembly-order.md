@@ -25,13 +25,15 @@
 | 分区 | 顺序 | 内容 | 稳定性 |
 |------|------|------|--------|
 | **cacheable** | 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` | 固定 |
-| | 2 | **文件交付（`MEDIA:`）** | `rendered_media_delivery_inject()` → [`agents/_shared/MEDIA_DELIVERY.md`](../../crates/pointer-core/src/agents/_shared/MEDIA_DELIVERY.md) | 固定 |
-| | 3 | **Agent 系统提示**：Computer 为 **tier** communication + loop（`push_agent_role_cacheable_prompts`，主轮与子 Agent 共用）；非 Computer 为 `AGENT.md` + profile 通信；子 Agent 另在步骤 3 后追加短 **sub_agent_header** + **skills** | `agent_plan.system_prompts` / tier 运行时 | 会话内固定（`{{workspace_root}}` 随工作区变） |
-| | 4 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定；同一 `ToolEntry::doc_source`（提示词 `.md` 路径）只输出一次 |
-| | 5 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |
-| | 6 | **`[MEMORY]` / `[USER PROFILE]`**（跨会话 frozen snapshot） | `memory::push_memory_to_cacheable` | 会话内冻结；**压缩成功后 reload** |
-| | 7 | **`[USER RULES]`**（用户编码偏好，`userCodingRules`） | `user_rules::push_user_coding_rules_to_cacheable` | 用户改 settings 后下一会话生效 |
-| **dynamic** | 6 | **`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
+| | 2 | **文件交付（`MEDIA:`）** | `rendered_media_delivery_inject()` → [`agents/_shared/MEDIA_DELIVERY.md`](../../crates/pointer-core/src/agents/_shared/MEDIA_DELIVERY.md) | **仅 general / coder / computer** |
+| | 3 | **图表（`chartjs`）** | `rendered_charts_inject()` → [`agents/_shared/CHARTS.md`](../../crates/pointer-core/src/agents/_shared/CHARTS.md) | **仅 general / coder / computer** |
+| | 4 | **SVG 图示（`svg`）** | `rendered_svg_diagrams_inject()` → [`agents/_shared/SVG_DIAGRAMS.md`](../../crates/pointer-core/src/agents/_shared/SVG_DIAGRAMS.md) | **仅 general / coder / computer** |
+| | 5 | **Agent 系统提示**：Computer 为 **tier** communication + loop（`push_agent_role_cacheable_prompts`，主轮与子 Agent 共用）；非 Computer 为 `AGENT.md` + profile 通信；子 Agent 另在步骤 5 后追加短 **sub_agent_header** + **skills** | `agent_plan.system_prompts` / tier 运行时 | 会话内固定（`{{workspace_root}}` 随工作区变） |
+| | 6 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定；同一 `ToolEntry::doc_source`（提示词 `.md` 路径）只输出一次 |
+| | 7 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |
+| | 8 | **`[MEMORY]` / `[USER PROFILE]`**（跨会话 frozen snapshot） | `memory::push_memory_to_cacheable` | 会话内冻结；**压缩成功后 reload** |
+| | 9 | **`[USER RULES]`**（用户编码偏好，`userCodingRules`） | `user_rules::push_user_coding_rules_to_cacheable` | 用户改 settings 后下一会话生效 |
+| **dynamic** | — | **`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
 
 **组装时机**
 
@@ -110,6 +112,9 @@
 | 类型 | 典型位置 | 分区 |
 |------|----------|------|
 | **COMMUNICATION_PUBLIC** | `agents/_shared/COMMUNICATION_PUBLIC.md` | cacheable |
+| **MEDIA_DELIVERY** | `agents/_shared/MEDIA_DELIVERY.md` | cacheable（仅 general / coder / computer） |
+| **CHARTS** | `agents/_shared/CHARTS.md` | cacheable（仅 general / coder / computer；与 agent body 解耦） |
+| **SVG_DIAGRAMS** | `agents/_shared/SVG_DIAGRAMS.md` | cacheable（仅 general / coder / computer；与 agent body 解耦） |
 | **AGENT.md** / **COMMUNICATION.md** | `agents/<id>/` | cacheable |
 | **Coder / Explore compose** | `agents/coder/mod.rs`, `agents/explore/mod.rs` → `composed_system_body()` | cacheable（`load_builtin_agent` 替换 AGENT 正文） |
 | **Tools** | `tools/prompts/*.md` 等 | cacheable |

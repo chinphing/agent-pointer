@@ -4,6 +4,11 @@ import {
   isChartFenceLang,
   tryParseChartConfig,
 } from './markdownChart'
+import {
+  encodeSvgConfigAttr,
+  isSvgFenceLang,
+  tryParseSvgFence,
+} from './markdownSvg'
 
 // Configure marked once at module load — all importers share this instance.
 marked.setOptions({ breaks: true, gfm: true })
@@ -26,8 +31,22 @@ export const STREAMING_CHART_HOST_HTML =
   `<pre class="md-chart-source" hidden></pre>` +
   `</div>\n`
 
-/** Set only for the duration of `parseMarkdown(..., { streamingCharts: true })`. */
+/** Fixed SVG body for streaming placeholders. */
+export const STREAMING_SVG_STUB =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" data-pointer-svg-pending="1"></svg>'
+
+export const STREAMING_SVG_FENCE = '```svg\n' + STREAMING_SVG_STUB + '\n```'
+
+export const STREAMING_SVG_HOST_HTML =
+  `<div class="md-svg group md-svg--pending" data-svg-config="${encodeSvgConfigAttr(STREAMING_SVG_STUB)}">` +
+  `<div class="md-svg-toolbar" hidden></div>` +
+  `<div class="md-svg-frame"><div class="md-svg-status md-svg-status-pending">图示生成中…</div></div>` +
+  `<pre class="md-svg-source" hidden></pre>` +
+  `</div>\n`
+
+/** Set only for the duration of `parseMarkdown(..., { streamingCharts/Svgs: true })`. */
 let parseStreamingCharts = false
+let parseStreamingSvgs = false
 
 function escapeHtml(value: string): string {
   return value
@@ -63,7 +82,20 @@ function chartHostHtml(raw: string, valid: boolean): string {
   )
 }
 
+function svgHostHtml(raw: string, valid: boolean): string {
+  const encoded = encodeSvgConfigAttr(raw.trim() || STREAMING_SVG_STUB)
+  const stateClass = valid ? '' : ' md-svg--invalid'
+  return (
+    `<div class="md-svg group${stateClass}" data-svg-config="${encoded}">` +
+    `<div class="md-svg-toolbar"></div>` +
+    `<div class="md-svg-frame"></div>` +
+    `<pre class="md-svg-source" hidden></pre>` +
+    `</div>\n`
+  )
+}
+
 const CHART_OPEN_RE = /^[ \t]*```(chartjs|chart)[ \t]*$/i
+const SVG_OPEN_RE = /^[ \t]*```svg[ \t]*$/i
 const FENCE_CLOSE_RE = /^[ \t]*```[ \t]*$/
 
 /**
@@ -83,6 +115,32 @@ export function stabilizeStreamingChartFences(src: string): string {
       while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i]!)) i += 1
       if (i < lines.length) i += 1
       out.push('```chartjs', STREAMING_CHART_STUB_JSON, '```')
+      replaced = true
+      continue
+    }
+    out.push(line)
+    i += 1
+  }
+  return replaced ? out.join('\n') : src
+}
+
+/**
+ * Replace open/closed `svg` fences with a fixed stub so streaming re-parses
+ * do not rewrite the SVG card HTML every token.
+ */
+export function stabilizeStreamingSvgFences(src: string): string {
+  if (!src.includes('```')) return src
+  const lines = src.split('\n')
+  const out: string[] = []
+  let i = 0
+  let replaced = false
+  while (i < lines.length) {
+    const line = lines[i]!
+    if (SVG_OPEN_RE.test(line)) {
+      i += 1
+      while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i]!)) i += 1
+      if (i < lines.length) i += 1
+      out.push('```svg', STREAMING_SVG_STUB, '```')
       replaced = true
       continue
     }
@@ -121,6 +179,14 @@ marked.use({
         // Incomplete stream or bad JSON: keep a host so the UI can show pending/error.
         return chartHostHtml(raw, false)
       }
+      if (isSvgFenceLang(langString)) {
+        if (parseStreamingSvgs) return STREAMING_SVG_HOST_HTML
+        const raw = text.replace(/\n$/, '')
+        if (raw.trim() === STREAMING_SVG_STUB) return STREAMING_SVG_HOST_HTML
+        const parsed = tryParseSvgFence(raw)
+        if (parsed.ok) return svgHostHtml(parsed.svg, true)
+        return svgHostHtml(raw, false)
+      }
       const body = escaped ? code : escapeHtml(code)
       const langClass = langString ? ` class="language-${escapeHtml(langString)}"` : ''
       return (
@@ -136,6 +202,11 @@ export type ParseMarkdownOptions = {
    * pending host so `v-html` does not flash on every token.
    */
   streamingCharts?: boolean
+  /**
+   * While the assistant turn is streaming, collapse svg fences to a fixed
+   * pending host so `v-html` does not flash on every token.
+   */
+  streamingSvgs?: boolean
 }
 
 /**
@@ -148,12 +219,17 @@ export type ParseMarkdownOptions = {
 export function parseMarkdown(src: string, options?: ParseMarkdownOptions): string {
   if (!src.trim()) return ''
   const streamingCharts = options?.streamingCharts === true
-  const prepared = streamingCharts ? stabilizeStreamingChartFences(src) : src
+  const streamingSvgs = options?.streamingSvgs === true
+  let prepared = src
+  if (streamingCharts) prepared = stabilizeStreamingChartFences(prepared)
+  if (streamingSvgs) prepared = stabilizeStreamingSvgFences(prepared)
   const fixed = prepared.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
   parseStreamingCharts = streamingCharts
+  parseStreamingSvgs = streamingSvgs
   try {
     return marked.parse(fixed) as string
   } finally {
     parseStreamingCharts = false
+    parseStreamingSvgs = false
   }
 }

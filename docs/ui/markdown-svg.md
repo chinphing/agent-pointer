@@ -1,0 +1,53 @@
+# Markdown SVG diagrams
+
+Chat (and markdown file preview) can render inline diagrams from a fenced SVG block. The model emits SVG markup only; the client sanitizes then mounts it (no arbitrary HTML pages, no scripts).
+
+## Fence format
+
+Language: `svg`.
+
+Body: one self-contained `<svg>…</svg>` document (optional XML declaration before the root is stripped to the SVG root).
+
+Example:
+
+````md
+```svg
+<svg viewBox="0 0 320 120" width="100%" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>Request flow</title>
+  <rect x="20" y="40" width="80" height="40" rx="8" fill="#E6F1FB" stroke="#185FA5"/>
+  <text x="60" y="64" text-anchor="middle" font-size="12" fill="#0C447C">Start</text>
+</svg>
+```
+````
+
+## Security
+
+Before mount the host:
+
+- Caps size (`MAX_SVG_BYTES`)
+- Requires a single `<svg>` root
+- Strips `<script>`, `<foreignObject>`, `<iframe>`, `<embed>`, `<object>`, `<link>`, `<meta>`, `<base>`
+- Removes `on*` event handlers
+- Neutralizes `javascript:` / `vbscript:` / `data:` / remote absolute URLs in `href` / `src` / similar
+- Strips dangerous `style` expressions
+
+Internal fragment refs (`href="#id"`) remain allowed (e.g. markers / `<use>`).
+
+## UI
+
+- Card chrome matches GFM tables / code / charts (`--card`, rounded border).
+- Toolbar: copy source, export `.svg`, toggle source.
+- **Streaming:** do not mount while the assistant turn is still streaming; show “图示生成中…” until the turn settles. While streaming, `parseMarkdown(..., { streamingSvgs: true })` collapses every `svg` fence to a fixed pending host.
+
+## vs charts
+
+| Need | Fence |
+|------|--------|
+| Numeric comparison / trends | `chartjs` / `chart` |
+| Process / architecture / decision flow | `svg` |
+
+## IM channels
+
+Interactive SVG runs in App/Web. IM rasterization is not guaranteed; the model prompt asks for a short textual summary when the diagram is essential.
+
+Implementation: [`src/lib/markdownConfig.ts`](../../src/lib/markdownConfig.ts), [`src/lib/markdownSvg.ts`](../../src/lib/markdownSvg.ts), [`src/composables/useMarkdownSvgs.ts`](../../src/composables/useMarkdownSvgs.ts).

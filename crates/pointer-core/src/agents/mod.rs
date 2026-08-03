@@ -42,6 +42,10 @@ const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
 /// Authoritative rules for assistant `MEDIA:` delivery (App, IM, final-reply tools, terminal output).
 const MEDIA_DELIVERY: &str = include_str!("_shared/MEDIA_DELIVERY.md");
+/// Chart.js fence guidance for numeric replies (assembled separately from agent bodies).
+const CHARTS: &str = include_str!("_shared/CHARTS.md");
+/// SVG diagram fence guidance (assembled separately from agent bodies).
+const SVG_DIAGRAMS: &str = include_str!("_shared/SVG_DIAGRAMS.md");
 const COMPUTER_COMMUNICATION_PRIMARY: &str =
     include_str!("computer/prompts/tiers/primary/communication.md");
 const COMPUTER_UI_DISABLED_CONTROLS: &str =
@@ -81,6 +85,26 @@ pub fn media_delivery_md() -> &'static str {
 
 pub fn rendered_media_delivery_inject() -> Option<String> {
     let md = media_delivery_md();
+    (!md.is_empty()).then(|| md.to_string())
+}
+
+/// Chart.js reply fence rules (injected on every main/sub-agent round).
+pub fn charts_md() -> &'static str {
+    CHARTS.trim()
+}
+
+pub fn rendered_charts_inject() -> Option<String> {
+    let md = charts_md();
+    (!md.is_empty()).then(|| md.to_string())
+}
+
+/// SVG diagram reply fence rules (injected on every main/sub-agent round).
+pub fn svg_diagrams_md() -> &'static str {
+    SVG_DIAGRAMS.trim()
+}
+
+pub fn rendered_svg_diagrams_inject() -> Option<String> {
+    let md = svg_diagrams_md();
     (!md.is_empty()).then(|| md.to_string())
 }
 
@@ -1566,6 +1590,16 @@ mod builtin_agent_tests {
         let block = rendered_media_delivery_inject().expect("media delivery inject");
         assert!(block.contains("Delivering local files in chat"));
         assert!(block.contains("MEDIA:"));
+    }
+
+    #[test]
+    fn charts_and_svg_diagram_injects_non_empty() {
+        let charts = rendered_charts_inject().expect("charts inject");
+        assert!(charts.contains("Charts in replies"));
+        assert!(charts.contains("chartjs"));
+        let svg = rendered_svg_diagrams_inject().expect("svg diagrams inject");
+        assert!(svg.contains("SVG diagrams in replies"));
+        assert!(svg.contains("```svg") || svg.contains("`svg`"));
     }
 
     #[test]

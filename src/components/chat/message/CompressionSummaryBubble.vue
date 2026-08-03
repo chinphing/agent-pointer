@@ -5,6 +5,7 @@ import type { ChatMessage } from '../../../types/chat'
 import { compressionSummaryBody } from '../../../lib/compressionMessage'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownCharts } from '../../../composables/useMarkdownCharts'
+import { useMarkdownSvgs } from '../../../composables/useMarkdownSvgs'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 
 const props = defineProps<{ message: ChatMessage }>()
@@ -18,6 +19,7 @@ const html = computed(() => parseMarkdown(summaryBody.value))
 
 useMarkdownCodeCopy(bodyRef, () => summaryBody.value)
 useMarkdownCharts(bodyRef, () => summaryBody.value)
+useMarkdownSvgs(bodyRef, () => summaryBody.value)
 useMarkdownExternalLinks(bodyRef, () => summaryBody.value)
 </script>
 

@@ -48,7 +48,7 @@ Change provider/model in **Settings → 视频生成**, not in tool args.
 
 ## Output
 
-Returns `MEDIA:<local-path>` for the generated MP4. This is a **final-reply** tool — on success the host delivers the video automatically (see **Delivering local files in chat** in shared system rules).
+Returns `MEDIA:<local-path>` for the generated MP4. This is a **final-reply** tool — on success the host delivers the video automatically. Do **not** send a follow-up message repeating paths.
 
 Do **not** claim local `image` paths are unsupported.
 

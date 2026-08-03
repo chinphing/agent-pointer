@@ -27,12 +27,14 @@ export function isWebKitTerminalHost(): boolean {
 /**
  * Keys that must stay with the browser/IME. Returning false from
  * attachCustomKeyEventHandler skips xterm's keydown processing.
+ *
+ * Do **not** defer bare `keyCode === 0`: WKWebView reports 0 for many normal
+ * keys (Esc, arrows, hjkl in vim). Swallowing those freezes TUI apps.
  */
 export function shouldDeferKeyToIme(event: KeyboardEvent): boolean {
   return (
     event.isComposing ||
     event.keyCode === 229 ||
-    event.keyCode === 0 ||
     event.key === 'Process' ||
     event.key === 'Dead'
   )
@@ -134,7 +136,13 @@ export function createTerminalImeGuard(send: (data: string) => void): TerminalIm
       composing = false
     },
     filterData(data) {
-      if (data.startsWith('\x1b')) return data
+      // Escape / CSI must cancel any pending composition fallback so vim does
+      // not receive a delayed pinyin inject after Esc / arrows.
+      if (data.startsWith('\x1b')) {
+        cancelFallback()
+        pendingStrip = null
+        return data
+      }
       lastDataAt = performance.now()
       cancelFallback()
       const pending = pendingStrip

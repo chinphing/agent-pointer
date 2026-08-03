@@ -173,6 +173,14 @@ function onGlobalFindShortcut(event: KeyboardEvent) {
   if (event.key.toLocaleLowerCase() !== 'f' || (!event.metaKey && !event.ctrlKey)) return
   // Workspace file tree / file preview may claim ⌘/Ctrl+F in the capture phase.
   if (event.defaultPrevented) return
+  // Workspace terminal needs Ctrl+F (vim page-forward); do not open in-page search.
+  const target = event.target as HTMLElement | null
+  if (
+    target?.closest?.('[data-workspace-terminal]') ||
+    document.activeElement?.closest?.('[data-workspace-terminal]')
+  ) {
+    return
+  }
   event.preventDefault()
   openPageSearch()
 }

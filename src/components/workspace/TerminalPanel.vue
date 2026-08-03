@@ -125,6 +125,10 @@ async function ensureTerminal() {
   terminal.onData(data => {
     writeActiveSession(imeGuard ? imeGuard.filterData(data) : data)
   })
+  // Clicking the host (or empty cells) must focus xterm so vim keys reach the PTY.
+  terminal.element?.addEventListener('mousedown', () => {
+    terminal?.focus()
+  })
   themeObserver = new MutationObserver(syncTerminalTheme)
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
   resizeObserver = new ResizeObserver(() => { void syncSize() })

@@ -18,6 +18,12 @@ describe('shouldDeferKeyToIme', () => {
     expect(shouldDeferKeyToIme({ isComposing: false, keyCode: 65, key: 'a' } as KeyboardEvent)).toBe(false)
     expect(shouldDeferKeyToIme({ isComposing: false, keyCode: 13, key: 'Enter' } as KeyboardEvent)).toBe(false)
   })
+
+  it('does not swallow WKWebView keyCode 0 for Esc / vim keys', () => {
+    expect(shouldDeferKeyToIme({ isComposing: false, keyCode: 0, key: 'Escape' } as KeyboardEvent)).toBe(false)
+    expect(shouldDeferKeyToIme({ isComposing: false, keyCode: 0, key: 'h' } as KeyboardEvent)).toBe(false)
+    expect(shouldDeferKeyToIme({ isComposing: false, keyCode: 0, key: 'ArrowUp' } as KeyboardEvent)).toBe(false)
+  })
 })
 
 describe('isAbandonedImeAsciiBuffer', () => {
@@ -73,5 +79,23 @@ describe('createTerminalImeGuard', () => {
     expect(guard.filterData('ni hao')).toBe('nihao')
 
     guard.detach()
+  })
+
+  it('cancels composition fallback when an escape sequence arrives', async () => {
+    vi.useFakeTimers()
+    const send = vi.fn()
+    const guard = createTerminalImeGuard(send)
+    const ta = document.createElement('textarea')
+    guard.attach(ta)
+
+    const end = new CompositionEvent('compositionend')
+    Object.defineProperty(end, 'data', { value: 'ni' })
+    ta.dispatchEvent(end)
+    expect(guard.filterData('\x1b')).toBe('\x1b')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(send).not.toHaveBeenCalled()
+
+    guard.detach()
+    vi.useRealTimers()
   })
 })

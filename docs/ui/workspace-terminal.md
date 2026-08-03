@@ -28,6 +28,9 @@
 - `TerminalPanel.vue` 是异步组件，仅在切换到 Terminal Tab 时加载。
 - xterm 与 fit addon 也使用动态 import；生产构建中它们是独立 chunk，不进入主聊天首屏 chunk。
 - xterm scrollback 限制为 5,000 行；每个标签的前端输出缓冲最多保留 256 KiB，避免长期日志无限增长。
+- **TUI（vim 等）**：`console_output_delta` 按 animation frame 合并后再更新 Vue/xterm，
+  避免全屏重绘把 UI 打挂；按键写入按 session **串行**（避免 invoke/HTTP 乱序）。
+- 截断缓冲时尽量落在换行处，减少半截 CSI 弄坏 alternate screen。
 
 ## 操作说明
 
@@ -53,7 +56,8 @@
 | 问题 | 原因 | 处理 |
 | --- | --- | --- |
 | 中文输入法候选框不出现 / 输入无效 | xterm helper textarea 默认 `opacity: 0` + `z-index: -5`，WebKit 不为其建立 IME | CSS/样式让 textarea 对引擎可见但内容透明（`TerminalPanel` + `terminalIme`） |
-| 首键被吃掉 / 全角标点偶发丢失 | Safari 首键可能是 `keyCode 0` / `Process` / `Dead`；部分 `insertText` 在按键未抬起时被 xterm 丢弃 | `attachCustomKeyEventHandler` 把 IME 键交给浏览器；WebKit 下挂 `createTerminalImeGuard` 补发 |
+| 首键被吃掉 / 全角标点偶发丢失 | Safari IME 首键可能是 `keyCode 229` / `Process` / `Dead`；部分 `insertText` 在按键未抬起时被 xterm 丢弃 | `attachCustomKeyEventHandler` 只把真正的 IME 键交给浏览器（**不要**把裸 `keyCode 0` 当成 IME，否则 Esc/方向键/vim 无响应）；WebKit 下挂 `createTerminalImeGuard` 补发 |
+| vim / TUI「无响应」 | 误 defer `keyCode 0`、每键 fire-and-forget 乱序、重绘洪泛 | 见上 + 输入串行 + 输出 rAF 合并；终端聚焦时不拦截 Ctrl+F（留给 vim） |
 | 粘贴中文看不见（英文正常） | macOS 等宽字体缺 CJK 字形，WKWebView 字体回退弱 | `fontFamily` 显式追加 PingFang / Hiragino / Noto CJK |
 
 网页端 Chromium 不启用 IME guard，避免重复投递。后端 PTY 写路径本身支持 UTF-8（见 `console_session` 往返测试）。

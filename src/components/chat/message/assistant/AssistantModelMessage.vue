@@ -13,11 +13,9 @@ import {
   subTracesForParentToolCall
 } from '../../../../lib/subAgentSession'
 import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
-import { isTaskBoardTerminal } from '../../../../stores/chat/taskBoard'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
-import SubAgentFrame from './SubAgentFrame.vue'
+import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
-import TaskBoardPanel from '../../TaskBoardPanel.vue'
 
 const props = defineProps<{
   message: ChatMessage
@@ -88,27 +86,25 @@ const conversationMessages = computed(() => chatStore.current?.messages ?? [])
 
 const childBoardByTraceId = computed(() => {
   void taskBoards.value
-  const out = new Map<
-    string,
-    { storeKey: string; document: import('../../../../types/chat').TaskBoardDocument; isActive: boolean }
-  >()
+  const out = new Map<string, SubAgentTaskBoardBinding>()
   for (const trace of subTraces.value) {
     const binding = chatStore.childBoardBindingForTrace(
       chatStore.currentId,
       trace.id,
       props.message.id
     )
-    if (binding) out.set(trace.id, binding)
+    if (!binding) continue
+    const taskId = subTaskIdFromTraceId(trace.id)
+    if (!taskId) continue
+    out.set(trace.id, {
+      document: binding.document,
+      isActive: binding.isActive,
+      conversationId: chatStore.currentId,
+      taskId
+    })
   }
   return out
 })
-
-function childBoardStickyClass(trace: AgentTrace): string {
-  const doc = childBoardByTraceId.value.get(trace.id)?.document
-  return isTaskBoardTerminal(doc?.meta?.status)
-    ? ''
-    : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm'
-}
 
 const isActiveGenerationMessage = computed(
   () => props.message.id === activeGeneratingMessageId.value
@@ -166,72 +162,40 @@ const showSupervisorPlan = computed(
       :trailing-tool-groups="trailingToolGroups"
     >
       <template #after-tool="{ toolCall }">
-        <template
+        <SubAgentFrame
           v-for="trace in tracesUnderTool(toolCall)"
+          v-show="showSubAgentTrace"
           :key="trace.id"
-        >
-          <div
-            v-if="childBoardByTraceId.get(trace.id)"
-            v-show="showSubAgentTrace"
-            class="task-board-sticky mb-1 mt-1 flex justify-start py-1"
-            :class="childBoardStickyClass(trace)"
-          >
-            <TaskBoardPanel
-              :document="childBoardByTraceId.get(trace.id)!.document"
-              :is-active="childBoardByTraceId.get(trace.id)!.isActive"
-              :conversation-id="chatStore.currentId"
-              :task-id="subTaskIdFromTraceId(trace.id)"
-            />
-          </div>
-
-          <SubAgentFrame
-            v-show="showSubAgentTrace"
-            class="mt-1 mb-1"
-            :trace="trace"
-            :anchor-message-id="message.id"
-            :messages="conversationMessages"
-            :message-ui="subTraceUi(trace)"
-            :created-at="message.createdAt"
-            :thoughts-debug-enabled="thoughtsDebugEnabled"
-            :generating="generating"
-            :is-active-generation-message="isActiveGenerationMessage"
-            :show-message-actions="showMessageActions"
-          />
-        </template>
+          class="mt-1 mb-1"
+          :trace="trace"
+          :anchor-message-id="message.id"
+          :messages="conversationMessages"
+          :message-ui="subTraceUi(trace)"
+          :created-at="message.createdAt"
+          :thoughts-debug-enabled="thoughtsDebugEnabled"
+          :generating="generating"
+          :is-active-generation-message="isActiveGenerationMessage"
+          :show-message-actions="showMessageActions"
+          :task-board="childBoardByTraceId.get(trace.id) ?? null"
+        />
       </template>
     </AgentMessageBody>
 
     <!-- Legacy / unmatched traces (no parentToolCallId or tool row missing). -->
-    <template
+    <SubAgentFrame
       v-for="trace in orphanTraces"
+      v-show="showSubAgentTrace"
       :key="trace.id"
-    >
-      <div
-        v-if="childBoardByTraceId.get(trace.id)"
-        v-show="showSubAgentTrace"
-        class="task-board-sticky mb-1 flex justify-start py-1"
-        :class="childBoardStickyClass(trace)"
-      >
-        <TaskBoardPanel
-          :document="childBoardByTraceId.get(trace.id)!.document"
-          :is-active="childBoardByTraceId.get(trace.id)!.isActive"
-          :conversation-id="chatStore.currentId"
-          :task-id="subTaskIdFromTraceId(trace.id)"
-        />
-      </div>
-
-      <SubAgentFrame
-        v-show="showSubAgentTrace"
-        :trace="trace"
-        :anchor-message-id="message.id"
-        :messages="conversationMessages"
-        :message-ui="subTraceUi(trace)"
-        :created-at="message.createdAt"
-        :thoughts-debug-enabled="thoughtsDebugEnabled"
-        :generating="generating"
-        :is-active-generation-message="isActiveGenerationMessage"
-        :show-message-actions="showMessageActions"
-      />
-    </template>
+      :trace="trace"
+      :anchor-message-id="message.id"
+      :messages="conversationMessages"
+      :message-ui="subTraceUi(trace)"
+      :created-at="message.createdAt"
+      :thoughts-debug-enabled="thoughtsDebugEnabled"
+      :generating="generating"
+      :is-active-generation-message="isActiveGenerationMessage"
+      :show-message-actions="showMessageActions"
+      :task-board="childBoardByTraceId.get(trace.id) ?? null"
+    />
   </div>
 </template>

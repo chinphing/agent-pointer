@@ -181,7 +181,7 @@ describe('taskBoard logic', () => {
     expect(entry.childBindings[storeKey]).toBe('task_a:computer')
   })
 
-  it('childBoardBindingForTrace returns child board above SubAgentFrame', () => {
+  it('childBoardBindingForTrace returns child board for SubAgentFrame', () => {
     const entry = emptyTaskBoardEntry()
     const storeKey = childStoreKey('conv1', 'task_a')
     applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('open wechat', 'active'), 'task_a:computer', [])

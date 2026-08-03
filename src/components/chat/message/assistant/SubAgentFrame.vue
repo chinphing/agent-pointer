@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight, Code } from 'lucide-vue-next'
-import type { AgentTrace, ChatMessage } from '../../../../types/chat'
+import type { AgentTrace, ChatMessage, TaskBoardDocument } from '../../../../types/chat'
 import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
 import {
   formatSubAgentSummaryLine,
@@ -31,6 +31,14 @@ import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import RawWirePanel from './RawWirePanel.vue'
+import TaskBoardPanel from '../../TaskBoardPanel.vue'
+
+export type SubAgentTaskBoardBinding = {
+  document: TaskBoardDocument
+  isActive: boolean
+  conversationId: string | null
+  taskId: string
+}
 
 const props = defineProps<{
   trace: AgentTrace
@@ -42,6 +50,8 @@ const props = defineProps<{
   generating: boolean
   isActiveGenerationMessage: boolean
   showMessageActions?: boolean
+  /** Child task board always shown above the process UI (collapsed or expanded). */
+  taskBoard?: SubAgentTaskBoardBinding | null
 }>()
 
 const settingsStore = useSettingsStore()
@@ -253,13 +263,26 @@ const statusClass = computed(() =>
 
 <template>
   <div
-    class="rounded-xl my-2 overflow-hidden"
-    :class="collapsed ? 'pt-2 pb-0 px-3' : 'p-3'"
+    class="rounded-xl my-2 overflow-hidden space-y-2"
+    :class="collapsed && !taskBoard ? 'pt-2 pb-0 px-3' : 'p-3'"
     :style="{
       marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`,
       marginBottom: collapsed ? '0' : undefined
     }"
   >
+    <!-- Always above process UI (collapsed summary or expanded tool cards). -->
+    <div
+      v-if="taskBoard"
+      class="flex justify-start"
+    >
+      <TaskBoardPanel
+        :document="taskBoard.document"
+        :is-active="taskBoard.isActive"
+        :conversation-id="taskBoard.conversationId"
+        :task-id="taskBoard.taskId"
+      />
+    </div>
+
     <button
       v-if="collapsed"
       type="button"

@@ -330,7 +330,7 @@ IM 入站**视频**大小策略与 Composer OSS 一致（上限 **5 GB**；**>50
 | item `type` | 解析 | 下载 |
 |-------------|------|------|
 | `1` TEXT | `text_item.text` | — |
-| `2` IMAGE | `image_item.media` + 可选 `aeskey` | CDN AES-128-ECB |
+| `2` IMAGE | `image_item.media` + 可选 `aeskey`；出站 `mid_size`/`hd_size` 必须为**密文**长度，`media.aes_key` 为 `base64(hex key)`（与 OpenClaw/Hermes 一致） | CDN AES-128-ECB |
 | `3` VOICE | `voice_item.text`（微信 ASR，P0）+ `media` | CDN 解密 + SILK→WAV（P2） |
 | `4` FILE | `file_item.media` + `file_name` | CDN 解密 |
 | `5` VIDEO | `video_item.media` | CDN 解密 |

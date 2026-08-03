@@ -23,6 +23,16 @@
 
 创建接口返回 session id、工作区、cwd 和标签名。PTY 输出通过全局流事件 `console_output_delta` 传递；退出时发送 `console_session_exited`。
 
+### 终端能力查询（OSC / DA / CPR）
+
+控制台是「PTY 在后端、xterm 在前端」的拆分架构。若把 `OSC 10/11/12 ?`、
+设备属性（`CSI c` / `CSI >c`）、光标位置（`CSI 6n`）原样转给 xterm，应答要再
+经 IPC 写回 PTY，Ctrl+C 后常落到 shell 输入行（可见 `10;rgb:…` / `0;276;0c` 等）。
+
+**方案**：在 `console_session` 的 PTY 读线程用 `TermQueryFilter`（`console_term_query.rs`）
+拦截上述查询，**当场写回应答**，并不再转发到前端。这样查询/应答与 PTY 同进程，
+避免异步往返。颜色默认与 Pointer 深色卡片主题一致；非查询类 OSC/CSI 仍原样上屏。
+
 ## 性能与包体
 
 - `TerminalPanel.vue` 是异步组件，仅在切换到 Terminal Tab 时加载。

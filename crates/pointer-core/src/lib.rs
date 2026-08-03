@@ -5,6 +5,7 @@ pub mod channel_outbound;
 pub mod chat_service;
 pub mod client_env;
 pub mod console_session;
+pub mod console_term_query;
 pub mod cloud_agent_auth;
 pub mod context_compression;
 pub mod conversation_snapshot;

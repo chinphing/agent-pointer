@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::console_term_query::TermQueryFilter;
 use crate::models::StreamEvent;
 use crate::stream_broadcast::publish_global_stream;
 
@@ -210,6 +211,28 @@ fn spawn_console_session(info: ConsoleSessionInfo, cols: u16, rows: u16) -> Resu
     })
 }
 
+fn write_pty_replies(session: &ConsoleSession, replies: &[Vec<u8>]) {
+    if replies.is_empty() {
+        return;
+    }
+    let mut writer = session.writer.lock();
+    for reply in replies {
+        if let Err(error) = writer.write_all(reply) {
+            log::warn!(
+                "console: failed to write term-query reply session={}: {error}",
+                session.info.id
+            );
+            return;
+        }
+    }
+    if let Err(error) = writer.flush() {
+        log::warn!(
+            "console: failed to flush term-query reply session={}: {error}",
+            session.info.id
+        );
+    }
+}
+
 fn spawn_output_reader(session: Arc<ConsoleSession>) {
     std::thread::spawn(move || {
         let reader = session.master.lock().try_clone_reader();
@@ -217,20 +240,37 @@ fn spawn_output_reader(session: Arc<ConsoleSession>) {
             log::warn!("console: failed to clone PTY reader");
             return;
         };
+        // Answer OSC/DA/CPR beside the PTY so replies never round-trip through xterm.js.
+        let mut query_filter = TermQueryFilter::default();
         let mut carry = Vec::new();
+        let mut forward = Vec::new();
+        let mut replies = Vec::new();
         let mut buf = [0u8; 8192];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(count) => {
-                    let output = crate::windows_shell_encoding::decode_utf8_stream(&mut carry, &buf[..count]);
-                    session.emit_output(output);
+                    forward.clear();
+                    replies.clear();
+                    query_filter.process(&buf[..count], &mut forward, &mut replies);
+                    write_pty_replies(&session, &replies);
+                    if !forward.is_empty() {
+                        let output =
+                            crate::windows_shell_encoding::decode_utf8_stream(&mut carry, &forward);
+                        session.emit_output(output);
+                    }
                 }
                 Err(error) => {
                     log::debug!("console: PTY reader ended: {error}");
                     break;
                 }
             }
+        }
+        forward.clear();
+        query_filter.finish(&mut forward);
+        if !forward.is_empty() {
+            let output = crate::windows_shell_encoding::decode_utf8_stream(&mut carry, &forward);
+            session.emit_output(output);
         }
         let tail = crate::windows_shell_encoding::decode_utf8_finish(&mut carry);
         session.emit_output(tail);

@@ -1234,6 +1234,8 @@ onBeforeUnmount(() => {
           v-else-if="activeFileTab.preview"
           :preview="activeFileTab.preview"
           :absolute-path="workspaceAbsolutePath(workspaceRoot, activeFileTab.path)"
+          :workspace-root="workspaceRoot"
+          :relative-path="activeFileTab.path"
           @open-reference="openMarkdownReference"
         />
         <div v-else class="workspace-empty">无法显示该文件</div>

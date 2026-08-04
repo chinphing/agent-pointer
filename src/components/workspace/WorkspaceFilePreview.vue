@@ -15,6 +15,8 @@ import type { WorkspaceFilePreview } from '../../lib/api'
 import { parseMarkdown } from '../../lib/markdownConfig'
 import { useMarkdownCharts } from '../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../composables/useMarkdownSvgs'
+import { isTauriRuntime } from '../../lib/runtime'
+import { workspaceFileMediaObjectUrl } from '../../lib/web'
 import {
   clearSearchTextMarks,
   highlightSearchText
@@ -30,6 +32,10 @@ const FILE_PREVIEW_SEARCH_MARK_CLASS = 'file-preview-search-mark'
 const props = defineProps<{
   preview: WorkspaceFilePreview
   absolutePath: string
+  /** Workspace root; required on web for image/PDF byte streaming. */
+  workspaceRoot?: string
+  /** Path relative to workspace root; required on web for image/PDF byte streaming. */
+  relativePath?: string
 }>()
 const emit = defineEmits<{
   (e: 'open-reference', href: string): void
@@ -46,16 +52,24 @@ const searchOpen = ref(false)
 const searchQuery = ref('')
 const activeMatchIndex = ref(0)
 const markdownMatchCount = ref(0)
+const mediaUrl = ref('')
+const mediaLoading = ref(false)
+const mediaError = ref('')
+let mediaObjectUrl: string | null = null
+let mediaLoadSeq = 0
 
 useMarkdownCharts(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
 useMarkdownSvgs(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
-const ext = computed(() => (props.absolutePath.split('.').pop()?.toLowerCase() || ''))
+const ext = computed(() => {
+  const fromRelative = props.relativePath?.split('.').pop()?.toLowerCase()
+  if (fromRelative) return fromRelative
+  return props.absolutePath.split('.').pop()?.toLowerCase() || ''
+})
 const isImage = computed(() => IMAGE_EXTS.has(ext.value))
 const isPdf = computed(() => ext.value === 'pdf')
 const isMarkdown = computed(() => ext.value === 'md')
-const mediaUrl = computed(() => convertFileSrc(props.absolutePath))
 const content = computed(() => props.preview.content ?? '')
 const lines = computed(() => content.value.split('\n'))
 const canSearch = computed(() => !props.preview.binary && !isImage.value && !isPdf.value)
@@ -65,6 +79,71 @@ const searchMatches = computed(() =>
     ? findFilePreviewMatches(content.value, searchQuery.value)
     : []
 )
+
+function revokeMediaObjectUrl() {
+  if (!mediaObjectUrl) return
+  URL.revokeObjectURL(mediaObjectUrl)
+  mediaObjectUrl = null
+}
+
+async function refreshMediaUrl() {
+  const seq = ++mediaLoadSeq
+  revokeMediaObjectUrl()
+  mediaUrl.value = ''
+  mediaError.value = ''
+  if (!isImage.value && !isPdf.value) {
+    mediaLoading.value = false
+    return
+  }
+
+  mediaLoading.value = true
+  try {
+    if (isTauriRuntime()) {
+      const url = convertFileSrc(props.absolutePath)
+      if (seq !== mediaLoadSeq) return
+      mediaUrl.value = url
+      console.info('[WorkspaceFilePreview] Desktop media src ready', props.absolutePath)
+      return
+    }
+
+    const root = props.workspaceRoot?.trim() ?? ''
+    const relative = props.relativePath?.trim() ?? ''
+    if (!root || !relative) {
+      throw new Error('缺少工作区路径，无法预览')
+    }
+    const url = await workspaceFileMediaObjectUrl(root, relative)
+    if (seq !== mediaLoadSeq) {
+      URL.revokeObjectURL(url)
+      return
+    }
+    mediaObjectUrl = url
+    mediaUrl.value = url
+    console.info('[WorkspaceFilePreview] Web media object URL ready', relative)
+  } catch (err) {
+    if (seq !== mediaLoadSeq) return
+    const message = err instanceof Error ? err.message : String(err)
+    mediaError.value = message
+    console.warn('[WorkspaceFilePreview] Failed to load media preview', message)
+  } finally {
+    if (seq === mediaLoadSeq) mediaLoading.value = false
+  }
+}
+
+watch(
+  () =>
+    [
+      isImage.value,
+      isPdf.value,
+      props.absolutePath,
+      props.workspaceRoot,
+      props.relativePath
+    ] as const,
+  () => {
+    void refreshMediaUrl()
+  },
+  { immediate: true }
+)
+
 const language = computed(() => {
   const ext = props.preview.path.split('.').pop()?.toLowerCase() || ''
   const names: Record<string, string> = {
@@ -285,6 +364,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  mediaLoadSeq += 1
+  revokeMediaObjectUrl()
   window.removeEventListener('keydown', onGlobalFindShortcut, true)
   window.removeEventListener('keydown', onGlobalEscape)
   clearMarkdownSearchMarks()
@@ -371,11 +452,15 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div v-if="isImage" class="file-preview-media">
-      <img :src="mediaUrl" :alt="preview.path" />
-    </div>
-    <div v-else-if="isPdf" class="file-preview-media">
-      <iframe :src="mediaUrl" class="file-preview-iframe" />
+    <div v-if="isImage || isPdf" class="file-preview-media">
+      <div v-if="mediaLoading" class="file-preview-empty">加载预览…</div>
+      <div v-else-if="mediaError" class="file-preview-empty">
+        <FileWarning class="w-5 h-5" />
+        <strong>无法加载预览</strong>
+        <span>{{ mediaError }}</span>
+      </div>
+      <img v-else-if="isImage && mediaUrl" :src="mediaUrl" :alt="preview.path" />
+      <iframe v-else-if="isPdf && mediaUrl" :src="mediaUrl" class="file-preview-iframe" />
     </div>
     <div v-else-if="preview.binary" class="file-preview-empty">
       <FileWarning class="w-5 h-5" />

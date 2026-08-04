@@ -281,8 +281,40 @@ pub fn delete_path(workspace_root: &Path, relative_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Read a bounded, UTF-8 text preview without following paths outside the workspace.
-pub fn read_file(workspace_root: &Path, relative_path: &str) -> Result<WorkspaceFilePreview> {
+/// Absolute path + MIME for streaming a workspace file (images/PDF inline preview).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMediaFile {
+    pub path: PathBuf,
+    pub mime_type: String,
+    pub file_name: String,
+}
+
+/// Resolve a workspace-relative file for raw byte streaming (same path rules as [`read_file`]).
+pub fn resolve_file_for_media(
+    workspace_root: &Path,
+    relative_path: &str,
+) -> Result<WorkspaceMediaFile> {
+    let file_path = resolve_workspace_file_path(workspace_root, relative_path)?;
+    let file_name = file_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("file")
+        .to_owned();
+    let mime_type = mime_from_path(&file_path);
+    log::info!(
+        "workspace_read: resolve media path={} mime={}",
+        file_path.display(),
+        mime_type
+    );
+    Ok(WorkspaceMediaFile {
+        path: file_path,
+        mime_type,
+        file_name,
+    })
+}
+
+fn resolve_workspace_file_path(workspace_root: &Path, relative_path: &str) -> Result<PathBuf> {
     let root = canonical_workspace(workspace_root)?;
     let relative = safe_relative(relative_path)?;
     if relative.as_os_str().is_empty() {
@@ -298,6 +330,32 @@ pub fn read_file(workspace_root: &Path, relative_path: &str) -> Result<Workspace
     if !file_path.is_file() {
         return Err(anyhow!("workspace path is not a file"));
     }
+    Ok(file_path)
+}
+
+fn mime_from_path(path: &Path) -> String {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png".into(),
+        Some("jpg") | Some("jpeg") => "image/jpeg".into(),
+        Some("gif") => "image/gif".into(),
+        Some("webp") => "image/webp".into(),
+        Some("svg") => "image/svg+xml".into(),
+        Some("bmp") => "image/bmp".into(),
+        Some("ico") => "image/x-icon".into(),
+        Some("pdf") => "application/pdf".into(),
+        _ => "application/octet-stream".into(),
+    }
+}
+
+/// Read a bounded, UTF-8 text preview without following paths outside the workspace.
+pub fn read_file(workspace_root: &Path, relative_path: &str) -> Result<WorkspaceFilePreview> {
+    let file_path = resolve_workspace_file_path(workspace_root, relative_path)?;
+    let relative = safe_relative(relative_path)?;
 
     let size_bytes = fs::metadata(&file_path)?.len();
     let mut bytes = Vec::with_capacity(WORKSPACE_FILE_PREVIEW_MAX_BYTES + 1);
@@ -614,6 +672,19 @@ mod tests {
         assert!(git_diff(root.path(), "/tmp/outside", None).is_err());
         assert!(delete_path(root.path(), "../outside").is_err());
         assert!(delete_path(root.path(), "").is_err());
+        assert!(resolve_file_for_media(root.path(), "../outside").is_err());
+        assert!(resolve_file_for_media(root.path(), "").is_err());
+    }
+
+    #[test]
+    fn resolve_file_for_media_returns_jpeg_mime() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("shot.jpg");
+        fs::write(&file, b"\xff\xd8\xff").unwrap();
+        let media = resolve_file_for_media(root.path(), "shot.jpg").unwrap();
+        assert_eq!(media.mime_type, "image/jpeg");
+        assert_eq!(media.file_name, "shot.jpg");
+        assert_eq!(media.path, file.canonicalize().unwrap());
     }
 
     #[test]

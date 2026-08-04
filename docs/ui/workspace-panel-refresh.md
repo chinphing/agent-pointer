@@ -47,3 +47,12 @@
 ## 跨端
 
 桌面与 Web 共用同一组件与 API；两端行为一致。
+
+### 图片 / PDF 预览
+
+| 端 | 方式 |
+|----|------|
+| **桌面** | `convertFileSrc(绝对路径)` 直接给 `<img>` / `<iframe>` |
+| **Web** | `GET /api/workspace/file-media?workspaceRoot&relativePath` 流式返回原始字节（`Content-Disposition: inline`），前端 `fetch`（带 cookie）后 `URL.createObjectURL` |
+
+`GET /api/workspace/file` 对二进制只返回 JSON 元数据（`binary: true`，无正文），**不能**当作 `<img src>`。路径解析与 `read_file` 相同，禁止 `..` 逃逸。

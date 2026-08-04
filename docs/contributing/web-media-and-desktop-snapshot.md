@@ -29,6 +29,7 @@ Composer 支持三种添加方式：回形针选择、粘贴图片、拖入文�
 | 能力 | 桌面 (Tauri) | Web (pointer-server) |
 |------|--------------|----------------------|
 | 图片预览 | `previewChatMedia` / 本地路径 | 同左（JSON base64 API） |
+| 工作区图片 / PDF | `convertFileSrc` | `GET /api/workspace/file-media` → object URL（见 [workspace-panel-refresh.md](../ui/workspace-panel-refresh.md)） |
 | 视频 / 音频预览 | 本地 `convertFileSrc` 内联播放 | **不预览**，仅显示文件名 + 「下载」 |
 | 文档 / 其他文件 | OS 默认应用打开 | `GET /api/chat/media-download` 或 `media-ref-download`（需登录） |
 | IM 大文件外链 | — | `GET /api/media/public-download?token=…`（HMAC 限时，**无需登录**） |

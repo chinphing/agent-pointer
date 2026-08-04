@@ -114,6 +114,26 @@ async fn read_workspace_file(
     )?))
 }
 
+/// Stream workspace file bytes for inline image/PDF preview in the web UI.
+async fn stream_workspace_file_media(
+    State(state): State<ServerState>,
+    Query(q): Query<WorkspacePathQuery>,
+) -> Result<Response, ApiError> {
+    require_platform_access(&state)?;
+    let relative_path = q.relative_path.as_deref().unwrap_or("");
+    let media = pointer_core::workspace_read::resolve_file_for_media(
+        std::path::Path::new(&q.workspace_root),
+        relative_path,
+    )
+    .map_err(ApiError::from)?;
+    log::info!(
+        "workspace media stream path={} file={}",
+        media.path.display(),
+        media.file_name
+    );
+    stream_media_file_response(&media.path, &media.mime_type, &media.file_name, true).await
+}
+
 async fn delete_workspace_path(
     State(state): State<ServerState>,
     Query(q): Query<WorkspacePathQuery>,
@@ -550,6 +570,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/workspace/directory", get(list_workspace_directory))
         .route("/api/workspace/search", get(search_workspace_entries))
         .route("/api/workspace/file", get(read_workspace_file))
+        .route("/api/workspace/file-media", get(stream_workspace_file_media))
         .route("/api/workspace/path", delete(delete_workspace_path))
         .route("/api/workspace/git/status", get(get_workspace_git_status))
         .route("/api/workspace/git/diff", get(get_workspace_git_diff))

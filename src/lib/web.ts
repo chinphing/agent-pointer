@@ -200,6 +200,24 @@ export async function readWorkspaceFile(
   return await request(`/api/workspace/file?${workspaceQuery(workspaceRoot, relativePath)}`)
 }
 
+/**
+ * Inline image/PDF preview for workspace files (object URL; revoke when the preview unmounts).
+ * `/api/workspace/file` only returns JSON metadata for binaries — use this for raw bytes.
+ */
+export async function workspaceFileMediaObjectUrl(
+  workspaceRoot: string,
+  relativePath: string
+): Promise<string> {
+  const blob = await requestBlob(
+    `/api/workspace/file-media?${workspaceQuery(workspaceRoot, relativePath)}`,
+    {
+      timeoutMs: UPLOAD_TIMEOUT_MS,
+      timeoutMessage: `加载工作区预览超时（>${UPLOAD_TIMEOUT_MS / 1000}s）`
+    }
+  )
+  return URL.createObjectURL(blob)
+}
+
 export async function deleteWorkspacePath(
   workspaceRoot: string,
   relativePath: string

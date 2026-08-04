@@ -21,25 +21,25 @@ pub const SUMMARY_PREFIX_BUDGET: &str = "[Conversation summary (auto-compression
 pub const SUMMARY_PREFIX_TOOL_LIMIT: &str =
     "[Conversation summary (auto-compression after tool rounds)]";
 
-/// Summary output budget: `content_tokens × ratio`, clamped.
-const SUMMARY_TOKEN_RATIO: f64 = 0.10;
+/// Summary output budget: `content_tokens × ratio`, clamped (Hermes uses 0.20).
+const SUMMARY_TOKEN_RATIO: f64 = 0.20;
 const MIN_SUMMARY_TOKENS: u32 = 2_000;
 /// Absolute ceiling for the first summary attempt (Hermes uses 12k; Pointer uses 16k).
 const SUMMARY_TOKENS_CEILING: u32 = 16_000;
-/// Retry may exceed the first-attempt ceiling by the same 1.5× factor.
-const SUMMARY_RETRY_TOKENS_CEILING: u32 = 24_000;
-const SUMMARY_RETRY_TOKEN_MULTIPLIER: f64 = 1.5;
+/// Retry may exceed the first-attempt ceiling by the same 2× factor.
+const SUMMARY_RETRY_TOKENS_CEILING: u32 = 32_000;
+const SUMMARY_RETRY_TOKEN_MULTIPLIER: f64 = 2.0;
 
 type StreamTx = UnboundedSender<StreamEvent>;
 
-/// Dynamic summary `max_tokens`: `content × 0.10`, floored at
+/// Dynamic summary `max_tokens`: `content × 0.20`, floored at
 /// [`MIN_SUMMARY_TOKENS`], capped at [`SUMMARY_TOKENS_CEILING`].
 pub fn compute_summary_max_tokens(content_tokens: usize) -> u32 {
     let by_content = ((content_tokens as f64) * SUMMARY_TOKEN_RATIO).ceil() as u32;
     by_content.clamp(MIN_SUMMARY_TOKENS, SUMMARY_TOKENS_CEILING)
 }
 
-/// Retry budget: first attempt × 1.5, capped at [`SUMMARY_RETRY_TOKENS_CEILING`].
+/// Retry budget: first attempt × 2, capped at [`SUMMARY_RETRY_TOKENS_CEILING`].
 pub fn compute_summary_retry_max_tokens(first_max_tokens: u32) -> u32 {
     let scaled = ((first_max_tokens as f64) * SUMMARY_RETRY_TOKEN_MULTIPLIER).ceil() as u32;
     scaled
@@ -1225,17 +1225,17 @@ mod tests {
     fn summary_max_tokens_scales_with_content_and_caps_at_16k() {
         // Small content still gets the 2k floor.
         assert_eq!(compute_summary_max_tokens(1_000), 2_000);
-        // 40k content → 4k budget (×0.10).
-        assert_eq!(compute_summary_max_tokens(40_000), 4_000);
+        // 40k content → 8k budget (×0.20).
+        assert_eq!(compute_summary_max_tokens(40_000), 8_000);
         // Huge content caps at 16k.
         assert_eq!(compute_summary_max_tokens(500_000), 16_000);
     }
 
     #[test]
-    fn summary_retry_max_tokens_is_one_point_five_x_with_24k_cap() {
-        assert_eq!(compute_summary_retry_max_tokens(8_000), 12_000);
-        assert_eq!(compute_summary_retry_max_tokens(16_000), 24_000);
-        assert_eq!(compute_summary_retry_max_tokens(20_000), 24_000);
+    fn summary_retry_max_tokens_is_double_with_32k_cap() {
+        assert_eq!(compute_summary_retry_max_tokens(8_000), 16_000);
+        assert_eq!(compute_summary_retry_max_tokens(16_000), 32_000);
+        assert_eq!(compute_summary_retry_max_tokens(20_000), 32_000);
     }
 
     #[test]

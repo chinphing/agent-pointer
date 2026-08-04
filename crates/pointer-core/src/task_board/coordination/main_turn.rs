@@ -2,6 +2,8 @@
 
 use crate::message_context::is_synthetic_user_content;
 use crate::models::{ChatMessage, Role};
+use crate::task_board::{BoardDocument, TaskBoardStore};
+use anyhow::Result;
 
 pub const MAIN_TURN_KEY_SEP: &str = "\u{1f}ptr_main_turn\u{1f}";
 
@@ -108,7 +110,7 @@ pub fn fresh_main_turn_store_key_for_init(
 
 /// When execution calls `init` on a non-empty main-turn board, bind init to a fresh user-turn key.
 pub fn resolve_fresh_main_turn_init_store_key(
-    store: &crate::task_board::TaskBoardStore,
+    store: &TaskBoardStore,
     conversation_id: &str,
     current_store_key: &str,
     history: &[ChatMessage],
@@ -121,6 +123,29 @@ pub fn resolve_fresh_main_turn_init_store_key(
     }
     let uid = latest_real_user_message_id(history)?;
     fresh_main_turn_store_key_for_init(conversation_id, current_store_key, &uid)
+}
+
+/// Mark the previous unfinished parent board failed before a fresh `task_board_init`.
+///
+/// Without this, resume-rebound boards stay `running` next to the new active board
+/// and the UI shows two stacked taskboards for the same turn.
+pub fn abandon_previous_board_for_fresh_init(
+    store: &TaskBoardStore,
+    previous_store_key: &str,
+) -> Result<BoardDocument> {
+    let key = previous_store_key.trim();
+    if key.is_empty() {
+        anyhow::bail!("task_board: empty previous store key for fresh-init abandon");
+    }
+    store.apply(key, "abandon", &serde_json::json!({}))?;
+    Ok(store.document(key))
+}
+
+/// Prefer the store-key-embedded originating user message after superseding a board,
+/// so the abandoned board returns to its original anchor instead of stacking on the
+/// current turn (where resume may have rebound it).
+pub fn supersede_anchor_for_previous_board(previous_store_key: &str) -> Option<String> {
+    anchor_message_id_from_main_turn_key(previous_store_key)
 }
 
 #[cfg(test)]
@@ -146,6 +171,31 @@ mod tests {
         assert!(looks_like_resume_intent("继续上次任务"));
         assert!(looks_like_resume_intent("please continue this task"));
         assert!(!looks_like_resume_intent("新建一个独立任务"));
+    }
+
+    #[test]
+    fn abandon_previous_board_for_fresh_init_marks_failed() {
+        use crate::task_board::{BoardItem, ItemStatus, MetaStatus};
+
+        let store = TaskBoardStore::new();
+        let key = main_turn_task_board_store_key("conv-1", "msg-old");
+        let mut doc = BoardDocument::empty_for_store_key(&key);
+        doc.meta.goal = "old goal".into();
+        doc.meta.status = MetaStatus::Running;
+        doc.global_milestones.push(BoardItem {
+            id: "g1".into(),
+            title: "step".into(),
+            status: ItemStatus::InProgress,
+            ..Default::default()
+        });
+        store.save_document(&key, doc);
+
+        let out = abandon_previous_board_for_fresh_init(&store, &key).expect("abandon");
+        assert!(matches!(out.meta.status, MetaStatus::Failed));
+        assert_eq!(
+            supersede_anchor_for_previous_board(&key).as_deref(),
+            Some("msg-old")
+        );
     }
 
     #[test]

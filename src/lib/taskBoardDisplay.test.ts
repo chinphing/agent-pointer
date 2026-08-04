@@ -42,6 +42,6 @@ describe('taskBoardDisplay', () => {
       status: 'done',
       remark: '13812345678 - 用户不存在'
     }
-    expect(milestoneRowLabel(done)).toBe('#1 13812345678 - 用户不存在')
+    expect(milestoneRowLabel(done)).toBe('#1 · 13812345678 - 用户不存在')
   })
 })

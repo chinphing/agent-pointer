@@ -35,14 +35,14 @@
 
 ```
 summary_max_tokens = clamp(
-  content_tokens × 0.10,
+  content_tokens × 0.20,
   floor = 2000,
   ceiling = 16_000
 )
 ```
 
 - `content_tokens`：格式化后待摘要前缀的启发式 token 估算。
-- 第一次失败后重试一次（关闭 thinking），`max_tokens × 1.5`，重试上限 **24_000**。
+- 第一次失败后重试一次（关闭 thinking），`max_tokens × 2`，重试上限 **32_000**。
 
 ## 摘要验收与失败语义
 

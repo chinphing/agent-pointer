@@ -20,5 +20,5 @@ export function milestoneRemark(item: TaskBoardItem, maxChars = 120): string | n
 export function milestoneRowLabel(item: TaskBoardItem, maxChars = 120): string {
   const title = milestoneTitle(item)
   const remark = milestoneRemark(item, maxChars)
-  return remark ? `${title} ${remark}` : title
+  return remark ? `${title} · ${remark}` : title
 }

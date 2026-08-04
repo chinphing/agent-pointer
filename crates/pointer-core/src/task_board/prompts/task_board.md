@@ -221,7 +221,8 @@ Confirm **`in_progress_id`** matches **Current task** before patching.
 
 - During execution, **`task_board_patch` every row transition** — do not rely on inject alone; finalize or prune when appropriate.
 - **Linear:** 3–8 milestones; **loop:** only when batch signals (N≥5 enumerated targets or goal asks 汇总/逐条/批量/每个).
-- User switched tasks on a running board: **`task_board_abandon`**, then **`task_board_init`** for the new scope.
+- Revise the **same** scope (plan / milestones): **`task_board_replace`** or **`task_board_patch`** — do **not** call **`task_board_init`** again.
+- New multi-step scope (or user switched tasks): **`task_board_init`**. Prefer **`task_board_abandon`** then **`task_board_init`**; if you re-init while a board is still running, the host auto-abandons the previous board so only one active parent board remains.
 - Cancel obsolete rows with **`task_board_prune`**.
 - Finalize in the same turn as final user delivery.
 

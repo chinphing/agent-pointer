@@ -244,6 +244,50 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 pass.ctx.task_board_store_key,
                 pass.ctx.transcript.history,
             ) {
+                let previous_key = pass.ctx.task_board_store_key.to_string();
+                let conv = pass.ctx.session.conversation_id;
+                match crate::task_board::abandon_previous_board_for_fresh_init(
+                    pass.ctx.session.state.task_board_store.as_ref(),
+                    &previous_key,
+                ) {
+                    Ok(prev_doc) => {
+                        let restore_anchor =
+                            crate::task_board::supersede_anchor_for_previous_board(&previous_key)
+                                .or_else(|| {
+                                    pass.ctx
+                                        .session
+                                        .state
+                                        .get_main_task_board_anchor(conv, &previous_key)
+                                });
+                        if let Some(ref anchor) = restore_anchor {
+                            pass.ctx.session.state.set_main_task_board_binding(
+                                conv,
+                                &previous_key,
+                                anchor,
+                            );
+                        }
+                        emit_task_board_updated(
+                            pass.ctx.session.stream,
+                            conv,
+                            &previous_key,
+                            restore_anchor,
+                            prev_doc.to_value(),
+                        );
+                        log::info!(
+                            "task_board_exec: auto-abandoned previous board before fresh init conversation_id={} previous_store_key={} fresh_store_key={}",
+                            conv,
+                            previous_key,
+                            fresh
+                        );
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "task_board_exec: auto-abandon previous board failed conversation_id={} previous_store_key={}: {err:#}",
+                            conv,
+                            previous_key
+                        );
+                    }
+                }
                 if let Some(uid) =
                     crate::task_board::latest_real_user_message_id(pass.ctx.transcript.history)
                 {

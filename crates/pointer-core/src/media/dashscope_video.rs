@@ -97,6 +97,7 @@ fn extract_compatible_usage(payload: &Value) -> Option<LlmUsageSnapshot> {
         completion_tokens: output,
         total_tokens: total,
         reasoning_tokens: 0,
+        cached_tokens: 0,
     })
 }
 

@@ -134,8 +134,19 @@ struct StreamUsage {
     completion_tokens: Option<u32>,
     #[serde(default)]
     total_tokens: Option<u32>,
+    /// Legacy / DashScope-native path for some models (part of prompt/input tokens).
+    #[serde(default)]
+    cached_tokens: Option<u32>,
+    #[serde(default)]
+    prompt_tokens_details: Option<PromptTokensDetails>,
     #[serde(default)]
     completion_tokens_details: Option<CompletionTokensDetails>,
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+struct PromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: Option<u32>,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -1588,11 +1599,20 @@ fn snapshot_from_stream_usage(u: &StreamUsage) -> LlmUsageSnapshot {
     if total_tokens == 0 {
         total_tokens = prompt_tokens.saturating_add(completion_tokens);
     }
+    // Prefer OpenAI-compatible details; fall back to top-level `cached_tokens`.
+    let cached_tokens = u
+        .prompt_tokens_details
+        .as_ref()
+        .and_then(|d| d.cached_tokens)
+        .or(u.cached_tokens)
+        .unwrap_or(0)
+        .min(prompt_tokens);
     LlmUsageSnapshot {
         prompt_tokens,
         completion_tokens,
         total_tokens,
         reasoning_tokens: reasoning,
+        cached_tokens,
     }
 }
 
@@ -1746,5 +1766,55 @@ mod native_tool_call_tests {
         )
         .unwrap();
         assert_eq!(msg.reasoning_text(), Some("think"));
+    }
+
+    #[test]
+    fn snapshot_from_stream_usage_reads_prompt_tokens_details_cached_tokens() {
+        let usage: StreamUsage = serde_json::from_str(
+            r#"{
+                "prompt_tokens": 1520,
+                "completion_tokens": 85,
+                "total_tokens": 1605,
+                "prompt_tokens_details": { "cached_tokens": 1480 }
+            }"#,
+        )
+        .unwrap();
+        let snap = snapshot_from_stream_usage(&usage);
+        assert_eq!(snap.prompt_tokens, 1520);
+        assert_eq!(snap.cached_tokens, 1480);
+        assert_eq!(snap.cache_hit_tokens(), 1480);
+        assert_eq!(snap.cache_miss_tokens(), 40);
+    }
+
+    #[test]
+    fn snapshot_from_stream_usage_falls_back_to_top_level_cached_tokens() {
+        let usage: StreamUsage = serde_json::from_str(
+            r#"{
+                "prompt_tokens": 1000,
+                "completion_tokens": 10,
+                "total_tokens": 1010,
+                "cached_tokens": 800
+            }"#,
+        )
+        .unwrap();
+        let snap = snapshot_from_stream_usage(&usage);
+        assert_eq!(snap.cached_tokens, 800);
+        assert_eq!(snap.cache_miss_tokens(), 200);
+    }
+
+    #[test]
+    fn snapshot_from_stream_usage_clamps_cached_tokens_to_prompt() {
+        let usage: StreamUsage = serde_json::from_str(
+            r#"{
+                "prompt_tokens": 100,
+                "completion_tokens": 1,
+                "total_tokens": 101,
+                "prompt_tokens_details": { "cached_tokens": 999 }
+            }"#,
+        )
+        .unwrap();
+        let snap = snapshot_from_stream_usage(&usage);
+        assert_eq!(snap.cached_tokens, 100);
+        assert_eq!(snap.cache_miss_tokens(), 0);
     }
 }

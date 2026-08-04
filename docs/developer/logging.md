@@ -4,8 +4,8 @@ Default console filters are usually `info`. Prefer:
 
 | Level | Use for |
 |-------|---------|
-| **info** | Run lifecycle (`dispatch` / `run_chat start` / run status), balance gate, workspace **policy changes** (user clear / create sandbox), compression **applied** or failures, task-board **new_turn** / invalid drops, **LLM client TTFT** (`stream_chat: first_token_ms=…`) |
-| **debug** | Per-turn noise: credential cache / API key inject, transcript begin, compression skip-under-budget, sandbox **reuse**, task-board **reuse_active**, pre-stream timing (`http_until_response_headers_ms` 等，需 `internal_runtime_log`) |
+| **info** | Run lifecycle (`dispatch` / `run_chat start` / run status), balance gate, workspace **policy changes** (user clear / create sandbox), compression **applied** or failures, task-board **new_turn** / invalid drops, **LLM client TTFT** (`stream_chat: first_token_ms=…`), **LLM token summary** at run end (`cache_hit` / `cache_miss`) |
+| **debug** | Per-turn noise: credential cache / API key inject, transcript begin, compression skip-under-budget, sandbox **reuse**, task-board **reuse_active**, pre-stream timing (`http_until_response_headers_ms` 等，需 `internal_runtime_log`), per-round LLM token lines |
 | **warn** | Recoverable errors that should not silent-fail |
 
 ### LLM 流式延迟

@@ -6,8 +6,8 @@ During each `run_chat` session, pointer-core accumulates OpenAI-compatible `usag
 
 After each streaming or non-streaming model call in the main loop, sub-agents, supervisor planning, or supervisor synthesis:
 
-- `log::debug!` in `llm_token_stats` with round index and token fields when `usage` is present.
-- `log::debug!` when `usage` is missing for that round (`rounds_missing_usage` in the summary).
+- `log::debug!` in `llm_token_stats` with round index and token fields when `usage` is present (`total`, `prompt`, `completion`, `cache_hit`, `cache_miss`).
+- Missing `usage` for that round increments `rounds_missing_usage` (visible in the end-of-session summary).
 
 Enable with a filter that includes debug for the module, for example:
 
@@ -22,10 +22,23 @@ Streaming requests set `stream_options: { "include_usage": true }` by default (O
 When the `ChatLlmTokenSession` guard is dropped at the end of `run_chat_inner`, an `log::info!` line is emitted (if there was at least one LLM round or one tool invocation) with:
 
 - `conversation_id`
-- `tool_invocations` — each tool run after validation (success or failure)
 - `llm_rounds` — model calls (stream rounds + supervisor plan + synthesize + sub-agent stream rounds)
-- `total_tokens`, `prompt_tokens`, `reasoning_tokens`, `output_tokens` (completion minus reasoning, summed over rounds)
-- `avg_tokens_per_tool` — `total_tokens / tool_invocations` when `tool_invocations > 0`
-- `rounds_missing_usage` — stream/non-stream rounds with no `usage` payload
+- `total_tokens`, `prompt_tokens` (summed over rounds)
+- `cache_hit` / `cache_miss` — summed context-cache hit and miss prompt tokens (see below)
+- `tool_invocations` — each tool run after validation (success or failure)
+
+### Context cache fields
+
+Parsed from OpenAI-compatible `usage`:
+
+| Source | Field |
+|--------|--------|
+| Preferred | `usage.prompt_tokens_details.cached_tokens` |
+| Fallback | top-level `usage.cached_tokens` (legacy DashScope) |
+
+- **cache_hit** = reported `cached_tokens` (clamped to that round’s `prompt_tokens`)
+- **cache_miss** = `prompt_tokens - cache_hit` for that round
+
+Providers that omit cache details report `cache_hit=0` and `cache_miss=prompt_tokens`.
 
 Context-compression `chat_once` calls do not add to this session accumulator.

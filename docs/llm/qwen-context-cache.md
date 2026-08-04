@@ -36,6 +36,8 @@
 
 显式缓存与隐式缓存互斥。创建块约输入单价 125%，命中约 10%，最少约 1024 Token，有效期 5 分钟。详见官方文档。
 
+请求结束时的 `LLM token summary`（info）会打印会话累计 `cache_hit` / `cache_miss`（来自 `usage.prompt_tokens_details.cached_tokens`）。见 [`llm-token-usage-logging.md`](./llm-token-usage-logging.md)。
+
 ---
 
 ## 相关代码

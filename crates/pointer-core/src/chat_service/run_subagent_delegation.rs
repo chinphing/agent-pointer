@@ -141,6 +141,8 @@ fn merge_usage(parent: &mut ConversationLlmStats, child: ConversationLlmStats) {
     parent.sum_completion = parent.sum_completion.saturating_add(child.sum_completion);
     parent.sum_total = parent.sum_total.saturating_add(child.sum_total);
     parent.sum_reasoning = parent.sum_reasoning.saturating_add(child.sum_reasoning);
+    parent.sum_cache_hit = parent.sum_cache_hit.saturating_add(child.sum_cache_hit);
+    parent.sum_cache_miss = parent.sum_cache_miss.saturating_add(child.sum_cache_miss);
     parent.tool_invocations = parent
         .tool_invocations
         .saturating_add(child.tool_invocations);
@@ -980,6 +982,8 @@ mod trace_tests {
             sum_completion: 10,
             sum_total: 20,
             sum_reasoning: 3,
+            sum_cache_hit: 6,
+            sum_cache_miss: 4,
             tool_invocations: 4,
             rounds_missing_usage: 1,
             last_round_prompt_tokens: Some(5),
@@ -994,6 +998,8 @@ mod trace_tests {
                 sum_completion: 4,
                 sum_total: 11,
                 sum_reasoning: 2,
+                sum_cache_hit: 5,
+                sum_cache_miss: 2,
                 tool_invocations: 3,
                 rounds_missing_usage: 0,
                 last_round_prompt_tokens: Some(7),
@@ -1021,6 +1027,8 @@ mod trace_tests {
         assert_eq!(stats.sum_completion, 14);
         assert_eq!(stats.sum_total, 31);
         assert_eq!(stats.sum_reasoning, 5);
+        assert_eq!(stats.sum_cache_hit, 11);
+        assert_eq!(stats.sum_cache_miss, 6);
         assert_eq!(stats.tool_invocations, 7);
         assert_eq!(stats.rounds_missing_usage, 1);
         assert_eq!(stats.last_round_prompt_tokens, Some(7));

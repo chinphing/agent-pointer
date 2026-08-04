@@ -103,6 +103,7 @@ impl GenerationUsage {
             completion_tokens: self.completion_tokens.max(self.total_tokens),
             total_tokens: self.total_tokens,
             reasoning_tokens: 0,
+            cached_tokens: 0,
         }
     }
 }

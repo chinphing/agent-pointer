@@ -17,6 +17,7 @@ import {
 } from '../../lib/mobileChat'
 
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
+import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
 const MessageListSkeleton = defineComponent({
@@ -316,7 +317,11 @@ const toastClass = computed(() => {
         <MessageListSkeleton />
       </div>
 
-      <div v-else-if="showWelcomeHome" class="chat-scroll-area h-full overflow-y-auto chat-shell">
+      <div
+        v-else-if="showWelcomeHome"
+        class="chat-scroll-area auto-hide-scrollbar h-full overflow-y-auto chat-shell"
+        @scroll.passive="showScrollbarWhileScrolling"
+      >
         <div
           class="chat-column w-full pb-10"
           :class="isMobileViewport ? 'pt-4' : 'translate-y-[90px]'"

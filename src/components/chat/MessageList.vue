@@ -43,6 +43,7 @@ import {
   highlightSearchText,
   highlightSidebarSearchText
 } from '../../lib/sidebarSearchTextHighlight'
+import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 
 const props = withDefaults(defineProps<{
   searchMatchIds?: string[]
@@ -642,7 +643,8 @@ function maybePrefetchOlder() {
   void loadOlderWithScrollAnchor()
 }
 
-function onScroll() {
+function onScroll(event: Event) {
+  showScrollbarWhileScrolling(event)
   const distance = distanceFromBottom()
   if (programmaticScrollDepth === 0) {
     // Hysteresis: wheel/touch may unpin while still within DETACH_BOTTOM_PX.
@@ -974,7 +976,7 @@ function entrySpacing(
   <div class="relative h-full min-h-0">
     <div
       ref="scroller"
-      class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6"
+      class="chat-scroll-area auto-hide-scrollbar h-full overflow-y-auto chat-shell pb-6"
       style="overflow-anchor: none"
       @scroll="onScroll"
       @wheel="onWheel"
@@ -1188,6 +1190,7 @@ function entrySpacing(
     </Teleport>
 
     <button
+      v-if="showScrollButton"
       type="button"
       class="absolute bottom-4 right-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
       @click="toBottom({ settle: true })"

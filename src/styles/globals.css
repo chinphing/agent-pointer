@@ -288,6 +288,25 @@
        full-pane horizontal scrollbar when the middle pane is narrow. */
     overflow-x: hidden;
   }
+
+  /**
+   * Auto-hide thin scrollbar (sidebar lists + chat transcript).
+   * Add `is-scrolling` via `showScrollbarWhileScrolling` on @scroll.
+   */
+  .auto-hide-scrollbar {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+  .auto-hide-scrollbar::-webkit-scrollbar-thumb {
+    background: transparent;
+    transition: background-color 150ms ease;
+  }
+  .auto-hide-scrollbar.is-scrolling {
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .auto-hide-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+  }
   .message-footer-actions {
     @apply flex items-center gap-2 overflow-hidden transition-all duration-150;
     opacity: 0;

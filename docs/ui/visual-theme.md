@@ -39,6 +39,9 @@ workspace panel is resized:
   grow a full-pane horizontal scrollbar (avatar overhang / long tool lines).
   Hide `.message-avatar-slot` under `@container chat (max-width: 719px)` for the
   same reason — see [mobile-chat.md](mobile-chat.md).
+- Chat transcript / welcome / sidebar lists use `.auto-hide-scrollbar` (global):
+  thumb hidden at rest, visible while scrolling via `showScrollbarWhileScrolling`
+  (`src/lib/autoHideScrollbar.ts`).
 
 Do not switch this back to viewport-only `max-w-3xl` / `md:px-*` — that drifts
 from available width while the workspace panel is open.

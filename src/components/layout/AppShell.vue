@@ -38,6 +38,7 @@ import SkillDirectoryPicker from '../skills/SkillDirectoryPicker.vue'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import { useSidebarProjectExpand } from '../../composables/useSidebarProjectExpand'
+import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import { useSidebarSectionCollapse } from '../../composables/useSidebarSectionCollapse'
 import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
@@ -670,19 +671,6 @@ async function runSidebarSearch(query: string) {
 const listScroller = ref<HTMLElement | null>(null)
 const sentinel = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | null = null
-const scrollbarHideTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>()
-
-function showScrollbarWhileScrolling(event: Event) {
-  const target = event.currentTarget
-  if (!(target instanceof HTMLElement)) return
-  target.classList.add('is-scrolling')
-  const existingTimer = scrollbarHideTimers.get(target)
-  if (existingTimer) clearTimeout(existingTimer)
-  scrollbarHideTimers.set(target, setTimeout(() => {
-    target.classList.remove('is-scrolling')
-    scrollbarHideTimers.delete(target)
-  }, 600))
-}
 
 function maybeLoadMore(entry: IntersectionObserverEntry) {
   if (!entry.isIntersecting) return
@@ -709,8 +697,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', closeProjectOverlaysOnKeydown)
   observer?.disconnect()
   observer = null
-  for (const timer of scrollbarHideTimers.values()) clearTimeout(timer)
-  scrollbarHideTimers.clear()
 })
 
 // When the sidebar expands after being collapsed, the scroll container may
@@ -984,7 +970,7 @@ watch(searchQuery, q => {
             </Teleport>
             <div
               v-show="!projectsSectionCollapsed"
-              class="sidebar-auto-scrollbar sidebar-section-scroll max-h-[11.75rem] overflow-y-auto"
+              class="auto-hide-scrollbar sidebar-section-scroll max-h-[11.75rem] overflow-y-auto"
               @scroll.passive="showScrollbarWhileScrolling"
             >
               <p v-if="projectError" class="mb-1 px-1 text-[11px] text-danger">{{ projectError }}</p>
@@ -1160,7 +1146,7 @@ watch(searchQuery, q => {
             </div>
             <div
               v-show="!pinnedSectionCollapsed"
-              class="sidebar-auto-scrollbar sidebar-section-scroll max-h-[11.75rem] overflow-y-auto"
+              class="auto-hide-scrollbar sidebar-section-scroll max-h-[11.75rem] overflow-y-auto"
               @scroll.passive="showScrollbarWhileScrolling"
             >
               <div class="space-y-0.5">
@@ -1301,7 +1287,7 @@ watch(searchQuery, q => {
             </div>
             <div
               ref="listScroller"
-              class="sidebar-auto-scrollbar sidebar-section-scroll min-h-0 flex-1 overflow-y-auto"
+              class="auto-hide-scrollbar sidebar-section-scroll min-h-0 flex-1 overflow-y-auto"
               style="overflow-anchor: none"
               @scroll.passive="showScrollbarWhileScrolling"
             >
@@ -1622,28 +1608,10 @@ watch(searchQuery, q => {
 </template>
 
 <style scoped>
-.sidebar-auto-scrollbar {
-  scrollbar-color: transparent transparent;
-  scrollbar-width: thin;
-}
-
 /* Flush scrollbars to the sidebar right edge; keep row content inset via section px-*. */
 .sidebar-section-scroll {
   margin-right: -0.5rem; /* match section px-2 */
   padding-right: 0.5rem;
-}
-
-.sidebar-auto-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  transition: background-color 150ms ease;
-}
-
-.sidebar-auto-scrollbar.is-scrolling {
-  scrollbar-color: hsl(var(--border)) transparent;
-}
-
-.sidebar-auto-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
 }
 
 .sidebar-workbench-link {

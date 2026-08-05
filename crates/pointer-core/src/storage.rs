@@ -926,6 +926,13 @@ pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessa
     crate::conversation_store::global_store()?.load_messages(conversation_id)
 }
 
+pub fn load_conversation_messages_page(
+    conversation_id: &str,
+    opts: &crate::conversation_store::LoadMessagesPageOpts,
+) -> Result<crate::conversation_store::MessagePage> {
+    crate::conversation_store::global_store()?.load_messages_page(conversation_id, opts)
+}
+
 pub fn save_conversations(list: &[Conversation]) -> Result<()> {
     crate::conversation_store::global_store()?.save_all(list)
 }

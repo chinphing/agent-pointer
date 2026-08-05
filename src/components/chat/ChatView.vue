@@ -278,8 +278,8 @@ const toastClass = computed(() => {
           v-model="pageSearchQuery"
           class="w-56 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted"
           type="search"
-          placeholder="在当前对话中查找"
-          aria-label="在当前对话中查找"
+          placeholder="在已加载消息中查找"
+          aria-label="在已加载消息中查找"
           @keydown="onPageSearchKeydown"
         />
         <span class="min-w-12 text-center text-xs tabular-nums text-muted">

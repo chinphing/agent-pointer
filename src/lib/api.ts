@@ -54,6 +54,26 @@ export interface LocalFileAttachmentPayload {
   contentBase64: string
 }
 
+/** Options for turn-windowed conversation message loads. */
+export type LoadConversationMessagesPageOpts = {
+  limitTurns?: number
+  beforePosition?: number
+  aroundMessageId?: string
+}
+
+/** Turn-windowed message page from SQLite (UI hydrate only). */
+export type ConversationMessagePage = {
+  messages: ChatMessage[]
+  hasMoreOlder: boolean
+  hasMoreNewer: boolean
+  oldestPosition: number | null
+  newestPosition: number | null
+  messageCount: number
+}
+
+/** Default user-turn window for first paint / load-more / around. */
+export const DEFAULT_MESSAGE_PAGE_TURNS = 8
+
 export interface WorkspaceEntry {
   name: string
   path: string
@@ -237,6 +257,11 @@ export interface RuntimeApi {
   deleteProject(id: string): Promise<void>
   searchConversations(query: string, limit?: number): Promise<ConversationSearchHit[]>
   loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
+  /** Turn-windowed hydrate (tail / before / around). Prefer this over full load for UI. */
+  loadConversationMessagesPage(
+    conversationId: string,
+    opts?: LoadConversationMessagesPageOpts
+  ): Promise<ConversationMessagePage>
   saveConversations(conversations: Conversation[]): Promise<void>
   revealInFinder(path: string): Promise<void>
   openPathWithDefaultApp(path: string): Promise<void>
@@ -396,6 +421,7 @@ export const updateProject = api.updateProject
 export const deleteProject = api.deleteProject
 export const searchConversations = api.searchConversations
 export const loadConversationMessages = api.loadConversationMessages
+export const loadConversationMessagesPage = api.loadConversationMessagesPage
 export const saveConversations = api.saveConversations
 export const saveConversationMeta = api.saveConversationMeta
 export const deleteConversation = api.deleteConversation

@@ -608,6 +608,24 @@ export async function loadConversationMessages(
   )
 }
 
+export async function loadConversationMessagesPage(
+  conversationId: string,
+  opts?: import('./api').LoadConversationMessagesPageOpts
+): Promise<import('./api').ConversationMessagePage> {
+  const params = new URLSearchParams()
+  if (opts?.limitTurns != null) params.set('limitTurns', String(opts.limitTurns))
+  if (opts?.beforePosition != null) params.set('beforePosition', String(opts.beforePosition))
+  if (opts?.aroundMessageId?.trim()) params.set('aroundMessageId', opts.aroundMessageId.trim())
+  // Always send at least limitTurns so the server returns MessagePage (not legacy Vec).
+  if (!params.has('limitTurns') && !params.has('beforePosition') && !params.has('aroundMessageId')) {
+    params.set('limitTurns', '8')
+  }
+  const q = params.toString()
+  return await request(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages?${q}`
+  )
+}
+
 export async function loadConversations(): Promise<Conversation[]> {
   return await request<Conversation[]>('/api/conversations')
 }

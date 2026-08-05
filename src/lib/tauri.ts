@@ -467,6 +467,20 @@ export async function loadConversationMessages(conversationId: string): Promise<
   return await invoke<ChatMessage[]>('load_conversation_messages', { conversationId })
 }
 
+export async function loadConversationMessagesPage(
+  conversationId: string,
+  opts?: import('./api').LoadConversationMessagesPageOpts
+): Promise<import('./api').ConversationMessagePage> {
+  return await invoke('load_conversation_messages_page', {
+    conversationId,
+    opts: {
+      limitTurns: opts?.limitTurns ?? 8,
+      beforePosition: opts?.beforePosition,
+      aroundMessageId: opts?.aroundMessageId
+    }
+  })
+}
+
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
   await invoke('save_conversations', { conversations })
 }

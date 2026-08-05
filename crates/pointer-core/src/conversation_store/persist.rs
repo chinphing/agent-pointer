@@ -85,6 +85,17 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
 }
 
 pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<ChatMessage>> {
+    Ok(load_messages_with_positions(conn, conversation_id)?
+        .into_iter()
+        .map(|(_, msg)| msg)
+        .collect())
+}
+
+/// Load transcript rows with SQLite `position` (ascending). Used by turn paging.
+pub(crate) fn load_messages_with_positions(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Vec<(i64, ChatMessage)>> {
     let mut stmt = conn.prepare(
         "SELECT message_id, position, payload FROM messages
          WHERE conversation_id = ?1
@@ -106,7 +117,7 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
                 if msg.strip_tool_raw_output() {
                     scrub.push((message_id, position, msg.clone()));
                 }
-                out.push(msg);
+                out.push((position, msg));
             }
             Err(e) => {
                 log::warn!("conversation_store: skip corrupt message in {conversation_id}: {e}")

@@ -5,7 +5,8 @@ import {
   waitForChatStreamReady,
   loadConversationMetas,
   loadConversationMeta,
-  loadConversationMessages,
+  loadConversationMessagesPage,
+  DEFAULT_MESSAGE_PAGE_TURNS,
   saveConversationMeta,
   deleteConversation as deleteConversationApi,
   appendConversationMessages,
@@ -438,6 +439,19 @@ export const useChatStore = defineStore('chat', () => {
   /** Conversation ids whose messages have been loaded into memory this session. */
   const hydratedIds = ref<Set<string>>(new Set())
   /**
+   * Turn-page window metadata per conversation (tail / around / prepend).
+   * `hydratedIds` means the current window is ready — not that the full transcript is in RAM.
+   */
+  type MessagePageState = {
+    hasMoreOlder: boolean
+    hasMoreNewer: boolean
+    oldestPosition: number | null
+    newestPosition: number | null
+    loadingOlder: boolean
+  }
+  const messagePageByConv = ref<Record<string, MessagePageState>>({})
+  const olderLoadPromises = new Map<string, Promise<boolean>>()
+  /**
    * Message ids already known to exist in SQLite for a hydrated conversation.
    * Used so `sendChat` only ships rows that still need `append_missing`.
    */
@@ -507,6 +521,9 @@ export const useChatStore = defineStore('chat', () => {
     conv.messages = []
     hydratedIds.value.delete(id)
     clearPersistedMessageIds(id)
+    const nextPages = { ...messagePageByConv.value }
+    delete nextPages[id]
+    messagePageByConv.value = nextPages
     lastAccessed.delete(id)
   }
 
@@ -1279,6 +1296,44 @@ export const useChatStore = defineStore('chat', () => {
     return merged
   }
 
+  function applyMessagePageState(
+    convId: string,
+    page: {
+      hasMoreOlder: boolean
+      hasMoreNewer: boolean
+      oldestPosition: number | null
+      newestPosition: number | null
+    },
+    extra?: Partial<MessagePageState>
+  ) {
+    messagePageByConv.value = {
+      ...messagePageByConv.value,
+      [convId]: {
+        hasMoreOlder: page.hasMoreOlder,
+        hasMoreNewer: page.hasMoreNewer,
+        oldestPosition: page.oldestPosition,
+        newestPosition: page.newestPosition,
+        loadingOlder: false,
+        ...extra
+      }
+    }
+  }
+
+  function messagePageState(convId: string): MessagePageState | null {
+    return messagePageByConv.value[convId] ?? null
+  }
+
+  function prependMessagesById(existing: ChatMessage[], older: ChatMessage[]): ChatMessage[] {
+    if (older.length === 0) return existing
+    const seen = new Set(existing.map(m => m.id))
+    const uniqueOlder = older.filter(m => {
+      if (seen.has(m.id)) return false
+      seen.add(m.id)
+      return true
+    })
+    return uniqueOlder.length ? [...uniqueOlder, ...existing] : existing
+  }
+
   async function ensureMessagesLoaded(
     id: string,
     options?: { force?: boolean; silent?: boolean }
@@ -1316,9 +1371,12 @@ export const useChatStore = defineStore('chat', () => {
         messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
       }
       try {
-        const messages = await loadConversationMessages(convId)
+        // force (stream catch-up): full transcript; otherwise last N user turns.
+        const page = await loadConversationMessagesPage(convId, {
+          limitTurns: options?.force ? 0 : DEFAULT_MESSAGE_PAGE_TURNS
+        })
         const stripped = stripWireAttachmentFields(
-          messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
         )
         const dbPersistedIds = persistedCandidateMessageIds(stripped)
         let next = stripped
@@ -1327,7 +1385,6 @@ export const useChatStore = defineStore('chat', () => {
         }
         if (isConversationGenerating(convId) && conv.messages.length > 0) {
           next = mergeHydratedMessages(conv.messages, next)
-          // Only DB rows are guaranteed on disk; keep live-only stream ids out.
           addPersistedMessageIds(convId, dbPersistedIds)
           console.info(
             '[chat] ensureMessagesLoaded: merged DB rows with in-memory stream',
@@ -1338,12 +1395,24 @@ export const useChatStore = defineStore('chat', () => {
           replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
         }
         conv.messages = next
+        if (typeof page.messageCount === 'number') {
+          conv.messageCount = page.messageCount
+        }
+        applyMessagePageState(convId, page)
         if (!isConversationGenerating(convId)) {
           normalizeInterruptedAssistantStatuses([conv])
         }
         normalizeSubAgentTraces([conv])
         hydratedIds.value.add(convId)
-        console.info('[chat] ensureMessagesLoaded: hydrated', convId, next.length)
+        console.info(
+          '[chat] ensureMessagesLoaded: hydrated',
+          convId,
+          next.length,
+          'of',
+          page.messageCount,
+          'hasMoreOlder',
+          page.hasMoreOlder
+        )
         reconcileRunStateForConversation(convId)
         return true
       } catch (err) {
@@ -1358,6 +1427,168 @@ export const useChatStore = defineStore('chat', () => {
         messageHydrationPromises.delete(convId)
       }
     })()
+    messageHydrationPromises.set(convId, hydration)
+    return hydration
+  }
+
+  /** Prepend older complete user turns. Returns true when rows were added. */
+  async function loadOlderMessages(id?: string): Promise<boolean> {
+    const convId = (id ?? currentId.value ?? '').trim()
+    if (!convId) return false
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv) {
+      console.warn('[chat] loadOlderMessages: missing conversation', convId)
+      return false
+    }
+    const state = messagePageState(convId)
+    if (!state?.hasMoreOlder || state.oldestPosition == null) {
+      console.info('[chat] loadOlderMessages: nothing older', convId)
+      return false
+    }
+    if (state.loadingOlder) {
+      return olderLoadPromises.get(convId) ?? false
+    }
+    const existing = olderLoadPromises.get(convId)
+    if (existing) return existing
+
+    applyMessagePageState(convId, state, { loadingOlder: true })
+    const load = (async (): Promise<boolean> => {
+      try {
+        const page = await loadConversationMessagesPage(convId, {
+          limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
+          beforePosition: state.oldestPosition!
+        })
+        const stripped = stripWireAttachmentFields(
+          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+        )
+        if (stripped.length === 0) {
+          applyMessagePageState(convId, {
+            hasMoreOlder: false,
+            hasMoreNewer: state.hasMoreNewer,
+            oldestPosition: state.oldestPosition,
+            newestPosition: state.newestPosition
+          })
+          return false
+        }
+        const beforeLen = conv.messages.length
+        conv.messages = prependMessagesById(conv.messages, stripped)
+        addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
+        normalizeSubAgentTraces([conv])
+        applyMessagePageState(convId, {
+          hasMoreOlder: page.hasMoreOlder,
+          hasMoreNewer: state.hasMoreNewer,
+          oldestPosition: page.oldestPosition ?? state.oldestPosition,
+          newestPosition: state.newestPosition
+        })
+        console.info(
+          '[chat] loadOlderMessages: prepended',
+          convId,
+          conv.messages.length - beforeLen,
+          'hasMoreOlder',
+          page.hasMoreOlder
+        )
+        return conv.messages.length > beforeLen
+      } catch (err) {
+        console.error('[chat] loadOlderMessages failed', convId, err)
+        applyMessagePageState(convId, state, { loadingOlder: false })
+        return false
+      } finally {
+        olderLoadPromises.delete(convId)
+        const cur = messagePageByConv.value[convId]
+        if (cur) {
+          messagePageByConv.value = {
+            ...messagePageByConv.value,
+            [convId]: { ...cur, loadingOlder: false }
+          }
+        }
+      }
+    })()
+    olderLoadPromises.set(convId, load)
+    return load
+  }
+
+  /** Load a turn window around a message (sidebar FTS jump). */
+  async function ensureMessagesAround(
+    id: string,
+    messageId: string,
+    options?: { silent?: boolean }
+  ): Promise<boolean> {
+    const convId = id.trim()
+    const targetId = messageId.trim()
+    if (!convId || !targetId) return false
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv) {
+      console.warn('[chat] ensureMessagesAround: missing conversation', convId)
+      return false
+    }
+    if (conv.messages.some(m => m.id === targetId) && hydratedIds.value.has(convId)) {
+      console.info('[chat] ensureMessagesAround: target already loaded', convId, targetId)
+      return true
+    }
+
+    const existing = messageHydrationPromises.get(convId)
+    if (existing) {
+      await existing
+      if (conv.messages.some(m => m.id === targetId)) return true
+    }
+
+    const hydration = (async (): Promise<boolean> => {
+      if (!options?.silent) {
+        messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
+      }
+      try {
+        const page = await loadConversationMessagesPage(convId, {
+          limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
+          aroundMessageId: targetId
+        })
+        const stripped = stripWireAttachmentFields(
+          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+        )
+        let next = stripped
+        if (isImConversation(convId)) {
+          next = dedupeImInboundUserMessages(convId, stripped)
+        }
+        if (isConversationGenerating(convId) && conv.messages.length > 0) {
+          next = mergeHydratedMessages(conv.messages, next)
+          addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
+        } else {
+          replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
+        }
+        conv.messages = next
+        if (typeof page.messageCount === 'number') {
+          conv.messageCount = page.messageCount
+        }
+        applyMessagePageState(convId, page)
+        if (!isConversationGenerating(convId)) {
+          normalizeInterruptedAssistantStatuses([conv])
+        }
+        normalizeSubAgentTraces([conv])
+        hydratedIds.value.add(convId)
+        console.info(
+          '[chat] ensureMessagesAround: hydrated',
+          convId,
+          targetId,
+          next.length,
+          'hasMoreOlder',
+          page.hasMoreOlder,
+          'hasMoreNewer',
+          page.hasMoreNewer
+        )
+        reconcileRunStateForConversation(convId)
+        return next.some(m => m.id === targetId)
+      } catch (err) {
+        console.error('[chat] ensureMessagesAround failed', convId, targetId, err)
+        return false
+      } finally {
+        if (!options?.silent) {
+          const next = new Set(messagesLoadingIds.value)
+          next.delete(convId)
+          messagesLoadingIds.value = next
+        }
+        messageHydrationPromises.delete(convId)
+      }
+    })()
+
     messageHydrationPromises.set(convId, hydration)
     return hydration
   }
@@ -1814,6 +2045,12 @@ export const useChatStore = defineStore('chat', () => {
     if (currentId.value === id && !needsHydration) {
       touchConversation(id)
       clearConversationAwaitingView(id)
+      if (focusMessageId && !(conv?.messages.some(m => m.id === focusMessageId))) {
+        queueMicrotask(() => {
+          if (currentId.value !== id) return
+          void ensureMessagesAround(id, focusMessageId)
+        })
+      }
       return
     }
     // Persist the previous composer draft before switching selection.
@@ -1824,6 +2061,7 @@ export const useChatStore = defineStore('chat', () => {
     touchConversation(id)
 
     const selectedId = id
+    const focusIdForHydrate = focusMessageId
     const hydrateOpts =
       needsHydration && (conv?.messageCount ?? 0) > 0 && (conv?.messages.length ?? 0) === 0
         ? { force: true as const }
@@ -1831,7 +2069,11 @@ export const useChatStore = defineStore('chat', () => {
     // Defer transcript hydrate / draft load / boards so they do not block the highlight frame.
     queueMicrotask(() => {
       if (currentId.value !== selectedId) return
-      void ensureMessagesLoaded(selectedId, hydrateOpts)
+      if (focusIdForHydrate) {
+        void ensureMessagesAround(selectedId, focusIdForHydrate)
+      } else {
+        void ensureMessagesLoaded(selectedId, hydrateOpts)
+      }
       reconcileRunStateForConversation(selectedId)
       loadActiveComposerDraft(selectedId)
     })
@@ -1878,6 +2120,9 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value.delete(id)
     clearConversationAwaitingView(id)
     clearPersistedMessageIds(id)
+    const nextPages = { ...messagePageByConv.value }
+    delete nextPages[id]
+    messagePageByConv.value = nextPages
     clearOutboundQueue(id)
     const nextRuns = { ...runByConversation.value }
     delete nextRuns[id]
@@ -2558,6 +2803,8 @@ export const useChatStore = defineStore('chat', () => {
     clearLastConversationId()
     nextCursor.value = null
     hydratedIds.value = new Set()
+    messagePageByConv.value = {}
+    olderLoadPromises.clear()
     persistedMessageIdsByConv.clear()
     messagesLoadingIds.value = new Set()
     messageHydrationPromises.clear()
@@ -2581,6 +2828,10 @@ export const useChatStore = defineStore('chat', () => {
     init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, toggleConversationPin, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
+    loadOlderMessages,
+    ensureMessagesAround,
+    messagePageState,
+    messagePageByConv,
     pendingFocusMessage, clearPendingFocusMessage,
     sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,

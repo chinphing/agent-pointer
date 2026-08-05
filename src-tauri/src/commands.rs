@@ -1141,6 +1141,35 @@ pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMes
     Ok(messages)
 }
 
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadConversationMessagesPageArgs {
+    pub limit_turns: Option<u32>,
+    pub before_position: Option<i64>,
+    pub around_message_id: Option<String>,
+}
+
+#[tauri::command]
+pub fn load_conversation_messages_page(
+    conversation_id: String,
+    opts: Option<LoadConversationMessagesPageArgs>,
+) -> Result<pointer_core::conversation_store::MessagePage, String> {
+    let opts = opts.unwrap_or_default();
+    let page_opts = pointer_core::conversation_store::LoadMessagesPageOpts {
+        limit_turns: opts.limit_turns,
+        before_position: opts.before_position,
+        around_message_id: opts.around_message_id,
+    };
+    let page = storage::load_conversation_messages_page(&conversation_id, &page_opts)
+        .map_err(|e| e.to_string())?;
+    log::info!(
+        "tauri::load_conversation_messages_page: id={conversation_id} returned {} of {}",
+        page.messages.len(),
+        page.message_count
+    );
+    Ok(page)
+}
+
 #[tauri::command]
 pub fn load_conversation_meta(
     state: State<'_, Arc<AppState>>,

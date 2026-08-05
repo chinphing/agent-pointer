@@ -10,6 +10,8 @@ const saveConversationMeta = vi.hoisted(() => vi.fn())
 const sendChat = vi.hoisted(() => vi.fn())
 const getPlatformSession = vi.hoisted(() => vi.fn())
 const getTaskBoardSnapshot = vi.hoisted(() => vi.fn())
+const loadConversationMessagesPage = vi.hoisted(() => vi.fn())
+const waitForChatStreamReady = vi.hoisted(() => vi.fn())
 
 vi.mock('../../lib/api', async importOriginal => {
   const actual = await importOriginal<typeof import('../../lib/api')>()
@@ -21,7 +23,9 @@ vi.mock('../../lib/api', async importOriginal => {
     saveConversationMeta,
     sendChat,
     getPlatformSession,
-    getTaskBoardSnapshot
+    getTaskBoardSnapshot,
+    loadConversationMessagesPage,
+    waitForChatStreamReady
   }
 })
 
@@ -50,6 +54,15 @@ describe('chat project context flow', () => {
     sendChat.mockResolvedValue(undefined)
     getPlatformSession.mockResolvedValue({ logged_in: true })
     getTaskBoardSnapshot.mockResolvedValue({})
+    loadConversationMessagesPage.mockResolvedValue({
+      messages: [],
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      oldestPosition: null,
+      newestPosition: null,
+      messageCount: 0
+    })
+    waitForChatStreamReady.mockResolvedValue(undefined)
   })
 
   it('creates conversations in the selected project and inherits its workspace', () => {

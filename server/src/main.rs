@@ -1875,21 +1875,54 @@ async fn search_conversations_handler(
     Ok(Json(hits))
 }
 
-/// `GET /api/conversations/:id/messages` — full message list for one
-/// conversation, ordered by `position ASC`. Replaces the legacy web pattern of
-/// re-fetching every conversation and filtering client-side.
+/// `GET /api/conversations/:id/messages` — full list when no page query params;
+/// turn window (`MessagePage`) when `limitTurns` / `beforePosition` / `aroundMessageId` set.
+#[derive(Deserialize)]
+struct ConversationMessagesQuery {
+    #[serde(default, rename = "limitTurns")]
+    limit_turns: Option<u32>,
+    #[serde(default, rename = "beforePosition")]
+    before_position: Option<i64>,
+    #[serde(default, rename = "aroundMessageId")]
+    around_message_id: Option<String>,
+}
+
+fn conversation_messages_wants_page(q: &ConversationMessagesQuery) -> bool {
+    q.limit_turns.is_some()
+        || q.before_position.is_some()
+        || q.around_message_id
+            .as_ref()
+            .is_some_and(|s| !s.trim().is_empty())
+}
+
 async fn load_conversation_messages_handler(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
-) -> Result<Json<Vec<pointer_core::models::ChatMessage>>, ApiError> {
+    Query(q): Query<ConversationMessagesQuery>,
+) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    if conversation_messages_wants_page(&q) {
+        let opts = pointer_core::conversation_store::LoadMessagesPageOpts {
+            limit_turns: q.limit_turns,
+            before_position: q.before_position,
+            around_message_id: q.around_message_id,
+        };
+        let page = storage::load_conversation_messages_page(&conversation_id, &opts)?;
+        log::info!(
+            "server: load_conversation_messages_page conversation_id={} returned {} rows total={}",
+            conversation_id,
+            page.messages.len(),
+            page.message_count
+        );
+        return Ok(Json(page).into_response());
+    }
     let messages = storage::load_conversation_messages(&conversation_id)?;
     log::info!(
         "server: load_conversation_messages conversation_id={} returned {} rows",
         conversation_id,
         messages.len()
     );
-    Ok(Json(messages))
+    Ok(Json(messages).into_response())
 }
 
 async fn save_conversations(

@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { ArrowDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-vue-next'
+import { ArrowDown, ChevronDown, ChevronRight, Loader2, Plus, X } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
 import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
@@ -99,12 +99,28 @@ const SCROLL_MIN_INTERVAL_MS = 80
 const ATTACH_BOTTOM_PX = 8
 /** Scroll this far from bottom before onScroll alone detaches follow. */
 const DETACH_BOTTOM_PX = 48
+/** Prefetch older turns when within this distance of the top. */
+const LOAD_OLDER_TOP_PX = 300
+/** Cooldown after an older page lands before auto-prefetch again. */
+const LOAD_OLDER_COOLDOWN_MS = 200
 let lastScrollTs = 0
 let touchStartY: number | null = null
 /** Last observed scroller clientHeight; re-stick when chrome shrinks the viewport. */
 let lastScrollerClientHeight = 0
 let scrollerResizeObserver: ResizeObserver | null = null
 let mobileMediaQuery: MediaQueryList | null = null
+let lastScrollTop = 0
+let olderLoadCooldownUntil = 0
+let olderLoadInFlight = false
+let focusAroundRequestedId: string | null = null
+
+const currentMessagePage = computed(() => {
+  const id = chat.currentId?.trim()
+  if (!id) return null
+  return chat.messagePageState(id)
+})
+const canLoadOlder = computed(() => Boolean(currentMessagePage.value?.hasMoreOlder))
+const loadingOlder = computed(() => Boolean(currentMessagePage.value?.loadingOlder || olderLoadInFlight))
 
 function distanceFromBottom(): number {
   const el = scroller.value
@@ -442,10 +458,24 @@ async function tryLocatePendingFocus() {
   const inMessages = msgs.some(m => m.id === targetId)
   if (!inMessages) {
     if (chat.isCurrentConversationHydrating) return
-    console.warn('[MessageList] focus message not found after hydrate', targetId)
+    if (focusAroundRequestedId !== targetId) {
+      focusAroundRequestedId = targetId
+      console.info('[MessageList] focus target missing; loading around message', targetId)
+      void chat.ensureMessagesAround(pending.conversationId, targetId).then(ok => {
+        if (!ok) {
+          console.warn('[MessageList] focus message not found after around hydrate', targetId)
+          chat.clearPendingFocusMessage()
+          focusAroundRequestedId = null
+        }
+      })
+      return
+    }
+    console.warn('[MessageList] focus message not found after around hydrate', targetId)
     chat.clearPendingFocusMessage()
+    focusAroundRequestedId = null
     return
   }
+  focusAroundRequestedId = null
 
   locatingFocus.value = true
   try {
@@ -570,6 +600,48 @@ function updateActiveBoardStickyState() {
   )
 }
 
+async function loadOlderWithScrollAnchor() {
+  const el = scroller.value
+  if (!el || olderLoadInFlight || locatingFocus.value) return
+  const page = currentMessagePage.value
+  if (!page?.hasMoreOlder || page.loadingOlder) return
+  if (Date.now() < olderLoadCooldownUntil) return
+
+  olderLoadInFlight = true
+  followOutput = false
+  const prevHeight = el.scrollHeight
+  const prevTop = el.scrollTop
+  beginProgrammaticScroll()
+  try {
+    const added = await chat.loadOlderMessages()
+    if (!added) return
+    await nextTick()
+    // Wait a frame so virtualizer can measure prepended rows.
+    await new Promise<void>(resolve => {
+      requestAnimationFrame(() => resolve())
+    })
+    const next = scroller.value
+    if (!next) return
+    const delta = next.scrollHeight - prevHeight
+    next.scrollTop = prevTop + Math.max(0, delta)
+    console.info('[MessageList] restored scroll after older page', { delta, prevTop })
+  } finally {
+    olderLoadCooldownUntil = Date.now() + LOAD_OLDER_COOLDOWN_MS
+    olderLoadInFlight = false
+    endProgrammaticScroll()
+  }
+}
+
+function maybePrefetchOlder() {
+  const el = scroller.value
+  if (!el || programmaticScrollDepth > 0 || locatingFocus.value) return
+  const scrollingUp = el.scrollTop < lastScrollTop - 1
+  lastScrollTop = el.scrollTop
+  if (!scrollingUp && el.scrollTop > LOAD_OLDER_TOP_PX) return
+  if (el.scrollTop > LOAD_OLDER_TOP_PX) return
+  void loadOlderWithScrollAnchor()
+}
+
 function onScroll() {
   const distance = distanceFromBottom()
   if (programmaticScrollDepth === 0) {
@@ -583,6 +655,7 @@ function onScroll() {
   }
   showScrollButton.value = !followOutput
   updateActiveBoardStickyState()
+  maybePrefetchOlder()
 }
 
 function isTaskBoardTerminal(status: string | undefined): boolean {
@@ -910,6 +983,20 @@ function entrySpacing(
       @touchend="onTouchEnd"
       @touchcancel="onTouchEnd"
     >
+    <div
+      v-if="canLoadOlder"
+      class="sticky top-0 z-20 flex justify-center py-2"
+    >
+      <button
+        type="button"
+        class="rounded-full border border-border bg-background/95 px-3 py-1 text-xs text-muted shadow-sm backdrop-blur-sm hover:text-fg disabled:opacity-60"
+        :disabled="loadingOlder"
+        @click="loadOlderWithScrollAnchor"
+      >
+        {{ loadingOlder ? '加载中…' : '加载更早消息' }}
+      </button>
+    </div>
+
     <div
       v-if="activeBoard && activeBoardIsSticky"
       class="sticky top-0 z-30 h-0 overflow-visible"

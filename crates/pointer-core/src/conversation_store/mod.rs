@@ -5,6 +5,7 @@ mod cjk_fts;
 pub mod cron_jobs;
 mod db;
 pub mod im_session;
+mod message_page;
 mod migrate;
 mod persist;
 pub mod runs;
@@ -14,6 +15,10 @@ mod session_user;
 mod tests;
 pub mod webhook_sources;
 mod write;
+
+pub use message_page::{
+    load_messages_page, LoadMessagesPageOpts, MessagePage, DEFAULT_MESSAGE_PAGE_TURNS,
+};
 
 pub use session_user::{normalize_session_user_id, ListScope};
 
@@ -74,6 +79,16 @@ impl ConversationStore {
     pub fn load_messages(&self, conversation_id: &str) -> Result<Vec<ChatMessage>> {
         let conn = self.db.conn.lock();
         persist::load_messages(&conn, conversation_id)
+    }
+
+    /// Turn-windowed messages for UI hydration (`limit_turns` / `before` / `around`).
+    pub fn load_messages_page(
+        &self,
+        conversation_id: &str,
+        opts: &LoadMessagesPageOpts,
+    ) -> Result<MessagePage> {
+        let conn = self.db.conn.lock();
+        load_messages_page(&conn, conversation_id, opts)
     }
 
     /// Cursor-paginated meta-only list (no messages). Sort order is

@@ -1,4 +1,4 @@
-//! Inner orchestration (`run_chat_inner`): settings, compression, supervisor vs single-agent loop.
+//! Inner orchestration (`run_chat_inner`): settings, supervisor vs single-agent loop.
 
 use crate::agents::{
     delegatable_sub_agents_system_block, AgentOrchestrator, AGENT_MODE_SUPERVISOR,
@@ -9,7 +9,6 @@ use crate::models::{effective_reasoning_in_messages, ChatMessage, ModelSettings,
 use crate::provider::OpenAIProvider;
 use crate::tools::file::ConversationWorkspaceGuard;
 use anyhow::{anyhow, Result};
-use std::time::Instant;
 
 use super::app_state::AppState;
 use super::emit::emit;
@@ -376,36 +375,6 @@ pub(super) async fn run_chat_inner(
         conversation_id.to_string(),
         lead_role,
         model_name,
-    );
-    let lead_scope = llm_token_session.lead_scope.clone();
-
-    let last_api_prompt = crate::conversation_store::global_store()
-        .ok()
-        .and_then(|store| {
-            store
-                .get_last_lead_prompt_tokens(conversation_id)
-                .ok()
-                .flatten()
-        });
-
-    let t_compress = Instant::now();
-    crate::context_compression::maybe_compress_history(
-        ctx.history,
-        &settings,
-        &provider,
-        conversation_id,
-        &stream,
-        cancel.clone(),
-        crate::context_compression::CompressionUiContext::main(lead_scope),
-        Some(state.memory_store.as_ref()),
-        last_api_prompt,
-    )
-    .await;
-    log::debug!(
-        "run_chat_inner: maybe_compress_history finished conversation_id={} wall_ms={} history_messages={}",
-        conversation_id,
-        t_compress.elapsed().as_millis(),
-        ctx.history.len(),
     );
 
     let max_cap = settings.max_tool_rounds.clamp(1, 10_000);

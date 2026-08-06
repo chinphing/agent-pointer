@@ -38,6 +38,10 @@ const SUMMARY_RETRY_TOKEN_MULTIPLIER: f64 = 2.0;
 /// Background precompress starts once gate tokens exceed this fraction of the
 /// hard context budget (still compresses when already over budget).
 pub const PRECOMPRESS_GATE_RATIO: f64 = 0.80;
+/// Compress only when the droppable prefix is at least this share of total gate
+/// tokens — avoids "compress then immediately compress again" when mass sits
+/// in the keep-recent user-turn window.
+pub const COMPRESSIBLE_MIN_RATIO: f64 = 0.50;
 
 type StreamTx = UnboundedSender<StreamEvent>;
 
@@ -55,10 +59,76 @@ pub fn precompress_gate_threshold(budget_tokens: usize) -> usize {
         .max(1.0) as usize
 }
 
-/// True when history is large enough that compressing before the next send
-/// will likely avoid a blocking wait on the critical path.
-pub fn should_precompress(gate_tokens: usize, budget_tokens: usize) -> bool {
-    gate_tokens > precompress_gate_threshold(budget_tokens)
+/// Decision for soft/hard compression triggers.
+#[derive(Debug, Clone, Copy)]
+pub struct CompressGateDecision {
+    pub should_trigger: bool,
+    pub total: usize,
+    pub prefix: usize,
+    pub ratio: f64,
+    pub split: usize,
+    pub threshold: usize,
+    pub payload_est: usize,
+    pub api_prompt: Option<u32>,
+    pub gate_source: &'static str,
+}
+
+/// Whether to compress: total over threshold **and** compressible prefix ratio ≥ 50%.
+pub fn evaluate_compress_gate(
+    history: &[ChatMessage],
+    reported_prompt_tokens: Option<u32>,
+    budget_tokens: usize,
+    keep_users: usize,
+    soft: bool,
+) -> CompressGateDecision {
+    let (total, payload_est, api_prompt, gate_source) =
+        compression_gate_tokens(history, reported_prompt_tokens);
+    let threshold = if soft {
+        precompress_gate_threshold(budget_tokens)
+    } else {
+        budget_tokens
+    };
+    let split = find_split_at_user_boundary(history, keep_users.max(1));
+    let prefix = if split > 0 {
+        estimate_message_payload_tokens(&history[..split])
+    } else {
+        0
+    };
+    let ratio = if total == 0 {
+        0.0
+    } else {
+        prefix as f64 / total as f64
+    };
+    let should_trigger =
+        split > 0 && total > threshold && ratio >= COMPRESSIBLE_MIN_RATIO;
+    CompressGateDecision {
+        should_trigger,
+        total,
+        prefix,
+        ratio,
+        split,
+        threshold,
+        payload_est,
+        api_prompt,
+        gate_source,
+    }
+}
+
+/// Soft-threshold helper for spawn checks (same rules as soft `evaluate_compress_gate`).
+pub fn should_precompress_history(
+    history: &[ChatMessage],
+    reported_prompt_tokens: Option<u32>,
+    budget_tokens: usize,
+    keep_users: usize,
+) -> bool {
+    evaluate_compress_gate(
+        history,
+        reported_prompt_tokens,
+        budget_tokens,
+        keep_users,
+        true,
+    )
+    .should_trigger
 }
 
 /// Retry budget: first attempt × 2, capped at [`SUMMARY_RETRY_TOKENS_CEILING`].
@@ -68,6 +138,23 @@ pub fn compute_summary_retry_max_tokens(first_max_tokens: u32) -> u32 {
         .max(first_max_tokens)
         .min(SUMMARY_RETRY_TOKENS_CEILING)
         .max(MIN_SUMMARY_TOKENS)
+}
+
+/// True when provider error looks like context / prompt too large.
+pub fn is_context_overflow_error(err: &anyhow::Error) -> bool {
+    let s = err.to_string().to_ascii_lowercase();
+    s.contains("context_length_exceeded")
+        || s.contains("maximum context length")
+        || s.contains("context length exceeded")
+        || s.contains("prompt is too long")
+        || s.contains("prompt too long")
+        || s.contains("too many tokens")
+        || s.contains("max tokens") && s.contains("input")
+        || s.contains("range of input is too long")
+        || s.contains("input is too long")
+        || s.contains("token limit")
+        || s.contains("exceeds the model")
+        || s.contains("exceed context")
 }
 
 /// Whether compression UI/events target the main thread or an isolated sub-agent loop.
@@ -684,12 +771,15 @@ async fn compress_history_inner(
     stream: &StreamTx,
     cancel: CancellationToken,
     force_ignore_char_budget: bool,
-    // When true (background precompress), compress once gate exceeds the soft
-    // threshold even if still under the hard budget.
+    // When true (background precompress), compress once soft gate + ratio pass
+    // even if still under the hard budget.
     soft_precompress: bool,
     emit_compression_ui: bool,
     ui: &CompressionUiContext,
     reported_prompt_tokens: Option<u32>,
+    // When set (precompress), skip SQLite splice if this conversation has an
+    // active run_chat and enqueue the result for idle apply instead.
+    defer_persist_state: Option<Arc<crate::chat_service::AppState>>,
 ) -> bool {
     let wall = Instant::now();
     let messages_before = history.len();
@@ -705,30 +795,30 @@ async fn compress_history_inner(
     let keep_users = settings.context_keep_recent_user_turns.max(1);
     let budget_tokens = normalize_context_budget_tokens(settings.context_budget_tokens);
 
-    let (gate_tokens, payload_est, api_prompt, gate_source) =
-        compression_gate_tokens(history, reported_prompt_tokens);
-    let soft_threshold = precompress_gate_threshold(budget_tokens);
+    let gate = evaluate_compress_gate(
+        history,
+        reported_prompt_tokens,
+        budget_tokens,
+        keep_users as usize,
+        soft_precompress,
+    );
+    let (gate_tokens, payload_est, api_prompt, gate_source) = (
+        gate.total,
+        gate.payload_est,
+        gate.api_prompt,
+        gate.gate_source,
+    );
     if !force_ignore_char_budget {
-        if soft_precompress {
-            if gate_tokens <= soft_threshold {
-                log::debug!(
-                    "context_compress: skip_precompress_under_soft_gate conversation_id={} gate_tokens={} soft_threshold={} budget_tokens={}",
-                    conversation_id,
-                    gate_tokens,
-                    soft_threshold,
-                    budget_tokens
-                );
-                return false;
-            }
-        } else if gate_tokens <= budget_tokens {
+        if !gate.should_trigger {
             log::debug!(
-                "context_compress: skip_under_budget conversation_id={} messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} wall_ms={}",
+                "context_compress: skip_gate conversation_id={} soft={} total={} prefix={} ratio={:.3} threshold={} split={} budget_tokens={} wall_ms={}",
                 conversation_id,
-                messages_before,
-                gate_tokens,
-                gate_source,
-                payload_est,
-                api_prompt,
+                soft_precompress,
+                gate.total,
+                gate.prefix,
+                gate.ratio,
+                gate.threshold,
+                gate.split,
                 budget_tokens,
                 wall.elapsed().as_millis()
             );
@@ -736,7 +826,11 @@ async fn compress_history_inner(
         }
     }
 
-    let split = find_split_at_user_boundary(history, keep_users as usize);
+    let split = if force_ignore_char_budget {
+        find_split_at_user_boundary(history, keep_users as usize)
+    } else {
+        gate.split
+    };
     if split == 0 {
         log::info!(
             "context_compress: skip_no_user_boundary conversation_id={} messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} wall_ms={}",
@@ -981,6 +1075,53 @@ async fn compress_history_inner(
     };
 
     let insert_before_message_id = history.get(split).map(|m| m.id.clone()).unwrap_or_default();
+    let fingerprint_prefix_ids: Vec<String> = history[..split].iter().map(|m| m.id.clone()).collect();
+
+    let turn_busy = matches!(ui.scope, CompressionScope::Main)
+        && defer_persist_state
+            .as_ref()
+            .map(|s| s.cancels.lock().contains_key(conversation_id))
+            .unwrap_or(false);
+    if turn_busy {
+        let mut excluded_for_persist: Vec<ChatMessage> = history[..split]
+            .iter()
+            .filter(|m| crate::message_context::is_context_included(m))
+            .cloned()
+            .collect();
+        for m in &mut excluded_for_persist {
+            crate::message_context::mark_excluded(
+                m,
+                crate::models::ExcludedReason::ContextCompression,
+            );
+        }
+        let summary_msg = new_summary_user_message(summary_body);
+        // Preview as if splice already applied (prefix → summary + tail).
+        let mut preview_hist = vec![summary_msg.clone()];
+        preview_hist.extend(history[split..].iter().cloned());
+        let preview_for_disk = crate::conversation_store::conversation_preview(&preview_hist);
+        enqueue_pending_splice(PendingCompressionSplice {
+            conversation_id: conversation_id.to_string(),
+            fingerprint_prefix_ids,
+            insert_before_message_id,
+            excluded_for_persist,
+            summary_msg,
+            preview_for_disk,
+            dropped_count,
+            keep_users,
+            apply_reason: apply_reason.to_string(),
+            summary_failed,
+        });
+        log::info!(
+            "context_compress: enqueued splice (turn busy) conversation_id={} split={} dropped={} ratio={:.3} wall_ms={}",
+            conversation_id,
+            split,
+            dropped_count,
+            gate.ratio,
+            wall.elapsed().as_millis()
+        );
+        return false;
+    }
+
     let excluded_message_ids = mark_compressed_prefix_excluded(&mut history[..split]);
     let excluded_for_persist: Vec<ChatMessage> = history
         .iter()
@@ -1101,6 +1242,7 @@ fn clear_last_lead_prompt_tokens(conversation_id: &str) {
 }
 
 /// When history exceeds char budget, summarize prefix. Emits `ContextCompressionApplied` when successful.
+/// Returns whether durable history changed.
 pub async fn maybe_compress_history(
     history: &mut Vec<ChatMessage>,
     settings: &ModelSettings,
@@ -1111,7 +1253,7 @@ pub async fn maybe_compress_history(
     ui: CompressionUiContext,
     memory_store: Option<&crate::memory::MemoryStore>,
     reported_prompt_tokens: Option<u32>,
-) {
+) -> bool {
     let changed = compress_history_inner(
         history,
         settings,
@@ -1124,6 +1266,7 @@ pub async fn maybe_compress_history(
         true,
         &ui,
         reported_prompt_tokens,
+        None,
     )
     .await;
     if changed {
@@ -1136,6 +1279,7 @@ pub async fn maybe_compress_history(
             }
         }
     }
+    changed
 }
 
 /// After tool-round limit: try summarization even if under char budget. Returns whether history changed.
@@ -1162,6 +1306,7 @@ pub async fn maybe_compress_after_tool_round_limit(
         emit_compression_ui,
         &ui,
         reported_prompt_tokens,
+        None,
     )
     .await;
     if changed && ui.scope == CompressionScope::Main {
@@ -1170,11 +1315,25 @@ pub async fn maybe_compress_after_tool_round_limit(
     changed
 }
 
-// ── Background precompress (soft gate → async; next send awaits if still running) ──
+// ── Background precompress + pending idle splice ──
+
+struct PendingCompressionSplice {
+    conversation_id: String,
+    fingerprint_prefix_ids: Vec<String>,
+    insert_before_message_id: String,
+    excluded_for_persist: Vec<ChatMessage>,
+    summary_msg: ChatMessage,
+    preview_for_disk: String,
+    dropped_count: u32,
+    keep_users: u32,
+    apply_reason: String,
+    summary_failed: bool,
+}
 
 struct PrecompressCoordinator {
     /// `false` while running, `true` when finished (success or skip).
     inflight: Mutex<HashMap<String, tokio::sync::watch::Receiver<bool>>>,
+    pending: Mutex<HashMap<String, PendingCompressionSplice>>,
 }
 
 impl PrecompressCoordinator {
@@ -1182,41 +1341,150 @@ impl PrecompressCoordinator {
         static COORD: OnceLock<PrecompressCoordinator> = OnceLock::new();
         COORD.get_or_init(|| Self {
             inflight: Mutex::new(HashMap::new()),
+            pending: Mutex::new(HashMap::new()),
         })
     }
 }
 
-/// Wait for an in-flight background precompress for this conversation (if any).
-/// Call before transcript `begin` so SQLite already holds the splice.
-pub async fn await_precompress_if_any(conversation_id: &str) {
+fn enqueue_pending_splice(pending: PendingCompressionSplice) {
+    let id = pending.conversation_id.clone();
+    PrecompressCoordinator::global()
+        .pending
+        .lock()
+        .insert(id, pending);
+}
+
+/// Drop a queued splice (e.g. before overflow sync compress).
+pub fn discard_pending_compression(conversation_id: &str) {
     let id = conversation_id.trim();
     if id.is_empty() {
         return;
     }
-    let rx = {
-        PrecompressCoordinator::global()
-            .inflight
-            .lock()
-            .get(id)
-            .cloned()
-    };
-    let Some(mut rx) = rx else {
-        return;
-    };
-    if *rx.borrow() {
-        return;
+    if PrecompressCoordinator::global()
+        .pending
+        .lock()
+        .remove(id)
+        .is_some()
+    {
+        log::info!("context_compress: discarded pending splice conversation_id={id}");
     }
-    log::info!("context_compress: awaiting in-flight precompress conversation_id={id}");
-    while !*rx.borrow() {
-        if rx.changed().await.is_err() {
-            break;
-        }
-    }
-    log::info!("context_compress: precompress wait finished conversation_id={id}");
 }
 
-/// After a turn ends, optionally start soft-threshold compression in the background
-/// so the next user send usually finds history already under budget.
+fn pending_fingerprint_matches(history: &[ChatMessage], pending: &PendingCompressionSplice) -> bool {
+    if pending.fingerprint_prefix_ids.is_empty() {
+        return false;
+    }
+    let by_id: HashMap<&str, usize> = history
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.id.as_str(), i))
+        .collect();
+    let mut last = None;
+    for id in &pending.fingerprint_prefix_ids {
+        let Some(&idx) = by_id.get(id.as_str()) else {
+            return false;
+        };
+        if let Some(prev) = last {
+            if idx <= prev {
+                return false;
+            }
+        }
+        last = Some(idx);
+    }
+    if pending.insert_before_message_id.is_empty() {
+        return true;
+    }
+    by_id.contains_key(pending.insert_before_message_id.as_str())
+}
+
+/// Apply a queued precompress splice when the conversation is idle.
+/// Call after `cancels` is cleared for this conversation.
+pub fn try_apply_pending_compression(
+    state: &crate::chat_service::AppState,
+    conversation_id: &str,
+) -> bool {
+    let id = conversation_id.trim();
+    if id.is_empty() {
+        return false;
+    }
+    if state.cancels.lock().contains_key(id) {
+        log::debug!("context_compress: pending apply skipped (still busy) conversation_id={id}");
+        return false;
+    }
+    let Some(pending) = PrecompressCoordinator::global().pending.lock().remove(id) else {
+        return false;
+    };
+    let Ok(store) = crate::conversation_store::global_store() else {
+        log::warn!("context_compress: pending apply no store conversation_id={id}");
+        return false;
+    };
+    let history = match store.load_messages(id) {
+        Ok(msgs) => msgs,
+        Err(e) => {
+            log::warn!("context_compress: pending apply load failed conversation_id={id}: {e:#}");
+            return false;
+        }
+    };
+    if !pending_fingerprint_matches(&history, &pending) {
+        log::warn!(
+            "context_compress: pending splice stale, discarded conversation_id={id} prefix_ids={}",
+            pending.fingerprint_prefix_ids.len()
+        );
+        return false;
+    }
+    crate::conversation_transcript::persist_compression_splice(
+        id,
+        &pending.excluded_for_persist,
+        &pending.summary_msg,
+        &pending.insert_before_message_id,
+        &pending.preview_for_disk,
+    );
+    clear_last_lead_prompt_tokens(id);
+    if let Err(e) = state.memory_store.reload_snapshot_for_conversation(id) {
+        log::warn!("memory: reload after pending compression failed: {e:#}");
+    }
+    let (stream_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let ui = CompressionUiContext {
+        scope: CompressionScope::Main,
+        ..Default::default()
+    };
+    let (done_msg, done_level) = compression_done_toast(
+        &ui,
+        pending.dropped_count,
+        pending.keep_users,
+        pending.summary_failed,
+    );
+    emit_ui_toast(&stream_tx, id, &done_msg, done_level);
+    let compression = build_compression_info(
+        &ui,
+        &pending.apply_reason,
+        pending.fingerprint_prefix_ids.len(),
+        0,
+        pending.dropped_count,
+        pending.keep_users,
+    );
+    crate::stream_broadcast::publish_stream(
+        &stream_tx,
+        StreamEvent::ContextCompressionApplied {
+            conversation_id: id.to_string(),
+            compression,
+            excluded_message_ids: pending
+                .excluded_for_persist
+                .iter()
+                .map(|m| m.id.clone())
+                .collect(),
+            summary_message: pending.summary_msg.clone(),
+            insert_before_message_id: pending.insert_before_message_id,
+        },
+    );
+    log::info!(
+        "context_compress: pending splice applied conversation_id={id} dropped={}",
+        pending.dropped_count
+    );
+    true
+}
+
+/// After a turn ends, optionally start soft-threshold compression in the background.
 pub fn maybe_spawn_precompress(
     state: Arc<crate::chat_service::AppState>,
     conversation_id: String,
@@ -1245,11 +1513,16 @@ pub fn maybe_spawn_precompress(
     };
     crate::chat_service::sub_message::strip_scoped_from_lead_history(&mut history);
     let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
+    let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
     let last_api = store.get_last_lead_prompt_tokens(&id).ok().flatten();
-    let (gate, ..) = compression_gate_tokens(&history, last_api);
-    if !should_precompress(gate, budget) {
+    let decision = evaluate_compress_gate(&history, last_api, budget, keep_users, true);
+    if !decision.should_trigger {
         log::debug!(
-            "context_compress: precompress spawn not needed conversation_id={id} gate={gate} budget={budget}"
+            "context_compress: precompress spawn not needed conversation_id={id} total={} prefix={} ratio={:.3} threshold={}",
+            decision.total,
+            decision.prefix,
+            decision.ratio,
+            decision.threshold
         );
         return;
     }
@@ -1266,7 +1539,11 @@ pub fn maybe_spawn_precompress(
     }
 
     log::info!(
-        "context_compress: precompress spawn conversation_id={id} gate_tokens={gate} budget_tokens={budget} messages={}",
+        "context_compress: precompress spawn conversation_id={id} total={} prefix={} ratio={:.3} budget={} messages={}",
+        decision.total,
+        decision.prefix,
+        decision.ratio,
+        budget,
         history.len()
     );
     tokio::spawn(async move {
@@ -1309,14 +1586,18 @@ async fn run_precompress_job(state: Arc<crate::chat_service::AppState>, conversa
         return false;
     }
     let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
+    let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
     let last_api = store
         .get_last_lead_prompt_tokens(conversation_id)
         .ok()
         .flatten();
-    let (gate, ..) = compression_gate_tokens(&history, last_api);
-    if !should_precompress(gate, budget) {
+    let decision = evaluate_compress_gate(&history, last_api, budget, keep_users, true);
+    if !decision.should_trigger {
         log::debug!(
-            "context_compress: precompress not needed conversation_id={conversation_id} gate={gate} budget={budget}"
+            "context_compress: precompress not needed conversation_id={conversation_id} total={} prefix={} ratio={:.3}",
+            decision.total,
+            decision.prefix,
+            decision.ratio
         );
         return false;
     }
@@ -1337,7 +1618,10 @@ async fn run_precompress_job(state: Arc<crate::chat_service::AppState>, conversa
     ));
 
     log::info!(
-        "context_compress: precompress starting conversation_id={conversation_id} gate_tokens={gate} budget_tokens={budget} messages={}",
+        "context_compress: precompress starting conversation_id={conversation_id} total={} prefix={} ratio={:.3} messages={}",
+        decision.total,
+        decision.prefix,
+        decision.ratio,
         history.len()
     );
     let changed = compress_history_inner(
@@ -1349,9 +1633,10 @@ async fn run_precompress_job(state: Arc<crate::chat_service::AppState>, conversa
         cancel,
         false,
         true,  // soft_precompress
-        true,  // emit UI via global broadcast (mpsc may have no local listener)
+        true,  // emit UI via global broadcast
         &ui,
         last_api,
+        Some(state.clone()),
     )
     .await;
     if changed {
@@ -1482,13 +1767,51 @@ mod tests {
     }
 
     #[test]
-    fn should_precompress_uses_soft_gate_ratio() {
+    fn evaluate_compress_gate_requires_prefix_ratio() {
+        let budget = 10_000;
+        // Keep zone huge, compressible prefix tiny → do not trigger.
+        let keep_heavy = vec![
+            u(&"old ".repeat(500)),  // compressible
+            u(&"keep ".repeat(20_000)), // keep (newest)
+        ];
+        let d = evaluate_compress_gate(&keep_heavy, None, budget, 1, true);
+        assert!(d.total > precompress_gate_threshold(budget));
+        assert!(d.ratio < COMPRESSIBLE_MIN_RATIO);
+        assert!(!d.should_trigger);
+
+        // Prefix carries most mass → trigger.
+        let prefix_heavy = vec![
+            u(&"old ".repeat(20_000)),
+            u(&"keep ".repeat(500)),
+        ];
+        let d2 = evaluate_compress_gate(&prefix_heavy, None, budget, 1, true);
+        assert!(d2.total > precompress_gate_threshold(budget));
+        assert!(d2.ratio >= COMPRESSIBLE_MIN_RATIO);
+        assert!(d2.should_trigger);
+    }
+
+    #[test]
+    fn is_context_overflow_error_matches_common_phrases() {
+        assert!(is_context_overflow_error(&anyhow::anyhow!(
+            "HTTP 400: context_length_exceeded"
+        )));
+        assert!(is_context_overflow_error(&anyhow::anyhow!(
+            "maximum context length is 128000 tokens"
+        )));
+        assert!(is_context_overflow_error(&anyhow::anyhow!(
+            "Range of input is too long"
+        )));
+        assert!(!is_context_overflow_error(&anyhow::anyhow!("HTTP 429 rate limit")));
+        assert!(!is_context_overflow_error(&anyhow::anyhow!("connection reset")));
+    }
+
+    #[test]
+    fn should_precompress_history_uses_soft_gate_and_ratio() {
         let budget = 100_000;
         let soft = precompress_gate_threshold(budget);
         assert_eq!(soft, 80_000);
-        assert!(!should_precompress(soft, budget));
-        assert!(should_precompress(soft + 1, budget));
-        assert!(should_precompress(budget + 1, budget));
+        let small = vec![u("hi"), u("there")];
+        assert!(!should_precompress_history(&small, None, budget, 1));
     }
 
     #[test]

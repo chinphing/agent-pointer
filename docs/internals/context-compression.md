@@ -5,20 +5,33 @@
 
 ## 触发与保留边界
 
-- 主会话在每个新用户轮次开始时按 token 预算判断是否压缩。
-- 工具轮次耗尽时可强制尝试压缩。
+- **发送路径不主动同步压缩**，也不 await 后台预压缩。
+- 工具轮次耗尽时可强制尝试压缩（同步）。
 - 最近若干个有独立语义的用户轮次及其后续消息保持原文。
 - 自动重试提示和仅表示继续执行的短消息不占用用户轮次保留名额。
 
-## 异步预压缩（软阈值）
+## 异步预压缩（软阈值 + 闲时落盘）
 
-目标：接近硬预算时先在后台压缩，下一轮发送几乎无感。
+目标：接近硬预算时后台先压，发送路径零等待。
 
-- 软阈值：`gate_tokens > context_budget_tokens × 0.80`。
-- 一轮 `run_chat` 成功结束后，若越过软阈值且无同会话 inflight 任务，则后台异步压缩（`soft_precompress`）。
-- 下一轮 `run_chat` 在 transcript `begin` **之前**等待同会话 inflight 预压缩（若有）。
-- 预压缩仍会写 SQLite；UI 事件照常广播（用户可能看到「正在压缩」）。
-- 若预压缩已完成，同步路径通常因已在预算内而跳过。
+- 软阈值：`total_gate > context_budget_tokens × 0.80`。
+- **可压占比**：`prefix_tokens / total_gate ≥ 0.50`（`prefix` = 排除
+  `contextKeepRecentUserTurns` 保留区后的可压窗口），否则不触发，
+  避免「体积在保留区 → 压完几乎不掉量 → 马上再压」。
+- 一轮 `run_chat` 成功结束后，若满足上述条件且无同会话 inflight，则后台异步压缩。
+- 若摘要完成时该会话仍有活跃回合：结果 **入队**，不写 SQLite；回合结束后
+  `try_apply_pending_compression` 在指纹仍匹配时落盘，过期则丢弃并可能再调度预压。
+- 预压缩仍可广播 UI 事件。
+
+## 上下文超限（唯一阻塞压缩）
+
+仅当 provider 返回上下文/prompt 过长类错误时：
+
+1. 丢弃同会话 pending splice；
+2. 同步 `maybe_compress_history`（同样受可压占比约束）；
+3. 若本回合尚未产生 assistant 流式输出且压缩成功 → **同一次 `run_chat` 内自动重试**；
+4. 若已流式 → 只压缩落盘，提示用户重发；
+5. 若无法压缩（无可压前缀 / 占比不足）→ 明确错误提示，不空转。
 
 ## 摘要输入预算
 
@@ -44,8 +57,6 @@
 摘要默认 **关闭 thinking**，并收紧首轮 `max_tokens`，避免
 `finish_reason=length` 触发漫长重试。
 
-摘要 `max_tokens` 按被压缩内容动态估算（设置页不再暴露摘要 tokens）：
-
 ```
 summary_max_tokens = clamp(
   content_tokens × 0.15,
@@ -55,9 +66,8 @@ summary_max_tokens = clamp(
 retry_max_tokens = min(first × 2, 12_000)
 ```
 
-- `content_tokens`：格式化后待摘要前缀的启发式 token 估算。
 - 首轮与重试均使用 `chat_once_without_thinking`。
-- 仅在首轮验收失败（截断 / 空正文 / 调用失败）时重试一次并放大输出预算。
+- 仅在首轮验收失败时重试一次并放大输出预算。
 
 ## 摘要验收与失败语义
 
@@ -67,19 +77,15 @@ retry_max_tokens = min(first × 2, 12_000)
 - 输出正文非空。
 
 约定章节用于引导模型组织内容，不作为逐字匹配的验收条件。
-首次输出被截断或为空时，再发起一次无 thinking 重试（并放大输出预算）。
 
 写回上下文的摘要保留稳定识别前缀，并追加 `REFERENCE ONLY` 说明。
-后续模型必须将摘要视为背景资料，只处理摘要之后的新消息。
 
-两次尝试均失败时（对齐 Hermes 默认行为）：
+两次尝试均失败时：
 
 - **丢弃**待压缩前缀（soft-exclude + drain）；
-- 写入一条确定性 handoff 摘要（标明 summary unavailable / dropped N）；
-- 发出 warning toast（「摘要生成失败，已丢弃较早…」）；
+- 写入确定性 handoff 摘要；
+- warning toast；
 - `reason` 记为 `budget_drop` / `tool_limit_drop`。
-
-不再在摘要失败时原样保留超预算历史（那会导致下一轮继续撞墙）。
 
 ## 持久化与跨入口一致性
 
@@ -90,30 +96,15 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 2. 后端重新加载数据库顺序；
 3. APP、WEB、IM 后续均使用该规范化历史。
 
-APP 和 WEB 在项目切换、空 shell、消息淘汰或 IM fork 后发送前，
-必须等待 hydration 完成。加载失败时阻止发送并保留待发送消息。
-
-会话已 hydration 后，前端 `sendChat` 与 `persistAppend`（回合结束 / trim /
-发送失败兜底）都只序列化尚未写入 SQLite 的新消息，不再深拷贝整段历史。
-水位线随 hydration、`sendChat` 成功与 `persistAppend` 更新；`sendChat` 若增量
-结果为空则回退全量，`persistAppend` 增量为空则跳过 append（仍刷新水位线）。
-
-压缩成功后，无论由预算还是工具轮次触发，都必须清除
-`last_lead_prompt_tokens`，防止下一轮使用压缩前的陈旧 token 数。
+压缩成功后必须清除 `last_lead_prompt_tokens`。
 
 ## UI 进度标记
 
 压缩真正开始摘要 LLM 时发送 **`context_compression_started`**（临时事件，不落库）。
 
-前端在消息列表工具行区域显示「正在压缩较早记录 / 压缩中」动态标记；
-在 `context_compression_applied`、`context_compressed`、停止或 `done`/`error` 清 run state 时自动隐藏。
-
 完成后仍用 **`UiToast`** 提示压缩结果（成功或摘要失败后的 drop）。
 
 ## 可观测性
 
-- 成功日志包含 split、输入估算、API prompt tokens、格式化耗时和摘要耗时。
-- 每次压缩记录 `summary_budget` / `summary_retry_budget`（content_tokens、max_tokens）。
-- 每次被拒绝的摘要记录 attempt、拒绝原因、finish reason、max_tokens 和 token 用量。
-- 两次失败后记录 `drop_without_summary`，并仍走 splice 落库 / UI 事件。
-- 运行开始时记录数据库规范化后的消息数。
+关键日志字段：`total` / `prefix` / `ratio` / `threshold` / `soft`，
+以及 pending enqueue / apply / stale discard、overflow retry。

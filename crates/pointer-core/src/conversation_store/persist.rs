@@ -11,9 +11,10 @@ use super::ListScope;
 /// Scalar anchor probe row for turn paging: only real user-turn anchors.
 /// The SQL already filters `role='user' AND is_system_generated=0`, so every
 /// row returned here is a turn anchor — no content/payload deserialization.
+/// Only `position` is needed for window math (ids resolved separately when
+/// looking up around-targets).
 pub(crate) struct AnchorProbeRow {
     pub position: i64,
-    pub message_id: String,
 }
 
 /// Whether a message row is a system-generated/special user message that must
@@ -252,18 +253,15 @@ pub(crate) fn load_anchor_probe(
     conversation_id: &str,
 ) -> Result<Vec<AnchorProbeRow>> {
     let mut stmt = conn.prepare(
-        "SELECT position, message_id
+        "SELECT position
          FROM messages
          WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
          ORDER BY position ASC",
     )?;
-    let rows = stmt.query_map(params![conversation_id], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })?;
+    let rows = stmt.query_map(params![conversation_id], |row| row.get::<_, i64>(0))?;
     let mut out = Vec::new();
     for row in rows {
-        let (position, message_id) = row?;
-        out.push(AnchorProbeRow { position, message_id });
+        out.push(AnchorProbeRow { position: row? });
     }
     Ok(out)
 }

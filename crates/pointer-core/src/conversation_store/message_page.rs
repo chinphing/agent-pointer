@@ -632,9 +632,8 @@ mod tests {
     fn probe_from_rows(rows: &[(i64, ChatMessage)]) -> Vec<AnchorProbeRow> {
         rows.iter()
             .filter(|(_, msg)| is_user_anchor(msg))
-            .map(|(pos, msg)| AnchorProbeRow {
+            .map(|(pos, _)| AnchorProbeRow {
                 position: *pos,
-                message_id: msg.id.clone(),
             })
             .collect()
     }

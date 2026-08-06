@@ -617,7 +617,7 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     if (conversationNeedsMessageHydration(conv)) {
-      const hydrated = await ensureMessagesLoaded(convId, { force: true })
+      const hydrated = await ensureMessagesLoaded(convId)
       if (!hydrated) {
         console.error('[chat] outbound drain paused: hydration failed', convId)
         showUiToast('历史消息加载失败，待发送消息已保留', 'error')
@@ -1389,9 +1389,11 @@ export const useChatStore = defineStore('chat', () => {
         messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
       }
       try {
-        // force (stream catch-up): full transcript; otherwise last N user turns.
+        // Always page by user turns. `force` only means re-fetch even if already
+        // hydrated (SSE catch-up / cron refresh) — not "load entire transcript".
+        // LLM history still comes from SQLite in run_chat; UI window is independent.
         const page = await loadConversationMessagesPage(convId, {
-          limitTurns: options?.force ? 0 : DEFAULT_MESSAGE_PAGE_TURNS
+          limitTurns: DEFAULT_MESSAGE_PAGE_TURNS
         })
         attachPagePositions(page)
         const stripped = stripWireAttachmentFields(
@@ -2207,17 +2209,14 @@ export const useChatStore = defineStore('chat', () => {
 
     const selectedId = id
     const focusIdForHydrate = focusMessageId
-    const hydrateOpts =
-      needsHydration && (conv?.messageCount ?? 0) > 0 && (conv?.messages.length ?? 0) === 0
-        ? { force: true as const }
-        : undefined
     // Defer transcript hydrate / draft load / boards so they do not block the highlight frame.
+    // First paint uses the default turn page (not force/full transcript).
     queueMicrotask(() => {
       if (currentId.value !== selectedId) return
       if (focusIdForHydrate) {
         void ensureMessagesAround(selectedId, focusIdForHydrate)
       } else {
-        void ensureMessagesLoaded(selectedId, hydrateOpts)
+        void ensureMessagesLoaded(selectedId)
       }
       reconcileRunStateForConversation(selectedId)
       loadActiveComposerDraft(selectedId)
@@ -2738,7 +2737,7 @@ export const useChatStore = defineStore('chat', () => {
     // User gesture: unlock Web Audio so Done-time chime is not blocked by WKWebView.
     primeTaskCompleteAudio()
     if (conversationNeedsMessageHydration(conv)) {
-      const hydrated = await ensureMessagesLoaded(conv.id, { force: true })
+      const hydrated = await ensureMessagesLoaded(conv.id)
       if (!hydrated) {
         console.error('[chat] send blocked because message hydration failed', conv.id)
         showUiToast('历史消息加载失败，请重试', 'error')

@@ -25,7 +25,7 @@
 | 发送闸门 | `dispatchChatTurn` 在 `POST /api/chat` 前 `await waitForChatStreamReady()`，避免新会话首条在零订阅时把帧丢掉 |
 | 执行态对账 | `flags`：只对照 dispatcher 清/置 `generating`（online、visibility、boot） |
 | **消息拉取** | **仅** SSE 断开类 reason 走全量 `catch_up`：`server_lagged` / `stream_ended*` / `stream_error` / `stream_gateway_error`（含兼容 `sse_gap`）。另外：`flags` 模式下若清掉「服务端已结束、UI 仍 generating」的会话，也会对该会话 `force` 水合（覆盖首条未挂上 SSE 的情况） |
-| catch_up 水合 | `ensureMessagesLoaded({ force, silent })`，不拨 hydrating UI，避免整页闪一下 |
+| catch_up 水合 | `ensureMessagesLoaded({ force, silent })`，重新拉取最近回合窗口（非全量），不拨 hydrating UI |
 | 合并 | 强制水合时保留 live streaming 标志，正文/工具取与 DB 更完整的一侧 |
 | Done 提示音 | `generating` 或仍有 active turn timing 时播放 |
 

@@ -21,6 +21,8 @@
 
 收缩态可见内容：**用户问题 + 回合结束后的最后一次 assistant content**（及压缩 summary）。工具过程、子 Agent、thoughts 仅在展开后显示。
 
+加载更早（`loadOlderMessages`）写入内存后必须跑 `normalizeInterruptedAssistantStatuses`：历史里若仍带 `streaming`/`pending`，在「默认收缩」关闭时会被当成 active 而不折叠。
+
 ## 计时口径
 
 | 来源 | 含义 |

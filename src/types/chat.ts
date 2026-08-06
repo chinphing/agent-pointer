@@ -281,6 +281,10 @@ export interface ChatMessage {
   content: string
   status: MessageStatus
   createdAt: number
+  /** SQLite row position for the current turn-page window (wire-only; absent
+   * for streamed/derived messages). Used to keep the paging cursor exact when
+   * older in-memory messages are trimmed. */
+  position?: number
   toolCalls?: ToolCall[]
   toolCallId?: string
   errorMessage?: string

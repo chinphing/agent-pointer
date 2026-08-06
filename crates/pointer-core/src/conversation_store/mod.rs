@@ -34,7 +34,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 20;
+const SCHEMA_VERSION: i32 = 21;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -984,6 +984,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            payload TEXT NOT NULL,
            created_at_ms INTEGER NOT NULL,
            position INTEGER NOT NULL,
+           is_system_generated INTEGER NOT NULL DEFAULT 0,
            UNIQUE(conversation_id, message_id)
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -1014,6 +1015,18 @@ fn init_schema(conn: &Connection) -> Result<()> {
         "conversations",
         "is_pinned",
         "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    // v21 messages anchor flag — same always-run guard for DBs that somehow
+    // reached the version without the column (schema_version was pre-written).
+    add_column_if_missing(
+        conn,
+        "messages",
+        "is_system_generated",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_anchor
+           ON messages(conversation_id, position) WHERE role = 'user' AND is_system_generated = 0;",
     )?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
@@ -1419,6 +1432,20 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "conversations",
         "is_pinned",
         "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    // v21: materialized turn-anchor flag on messages. Backfill only touches
+    // user rows that should be flagged (idempotent + store_meta gated);
+    // afterwards writes compute it at insert time.
+    add_column_if_missing(
+        conn,
+        "messages",
+        "is_system_generated",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    crate::conversation_store::persist::backfill_is_system_generated(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_anchor
+           ON messages(conversation_id, position) WHERE role = 'user' AND is_system_generated = 0;",
     )?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)

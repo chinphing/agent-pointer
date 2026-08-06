@@ -64,6 +64,8 @@ export type LoadConversationMessagesPageOpts = {
 /** Turn-windowed message page from SQLite (UI hydrate only). */
 export type ConversationMessagePage = {
   messages: ChatMessage[]
+  /** SQLite `position` of each message in `messages` (parallel array; wire-only). */
+  positions?: number[]
   hasMoreOlder: boolean
   hasMoreNewer: boolean
   oldestPosition: number | null

@@ -100,6 +100,7 @@ import { disarmTaskCompleteAudio, primeTaskCompleteAudio } from '../lib/taskComp
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
 import {
   assistantTurnActivelyRunning,
+  computeHistoryTrimCutByViewedAt,
   hasInFlightToolCalls,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
@@ -451,6 +452,13 @@ export const useChatStore = defineStore('chat', () => {
   }
   const messagePageByConv = ref<Record<string, MessagePageState>>({})
   const olderLoadPromises = new Map<string, Promise<boolean>>()
+  /** Last-viewed timestamp per user message (current-conversation history trim). */
+  const EMPTY_VIEWED_MAP: ReadonlyMap<string, number> = new Map()
+  /** How long a user message can go unviewed before it becomes trim candidate. */
+  const TRIM_HISTORY_STALE_MS = 60 * 60 * 1000
+  /** Always keep at least this many user turns in memory (3 pages × 8 turns). */
+  const TRIM_HISTORY_MIN_KEEP_TURNS = 24
+  const messageViewedAtByConv = new Map<string, Map<string, number>>()
   /**
    * Message ids already known to exist in SQLite for a hydrated conversation.
    * Used so `sendChat` only ships rows that still need `append_missing`.
@@ -1334,6 +1342,15 @@ export const useChatStore = defineStore('chat', () => {
     return uniqueOlder.length ? [...uniqueOlder, ...existing] : existing
   }
 
+  /** Copy wire-only `positions` (parallel to `page.messages`) onto the message objects. */
+  function attachPagePositions(page: { messages: ChatMessage[]; positions?: number[] }): void {
+    if (!page.positions || page.positions.length === 0) return
+    page.messages.forEach((m, i) => {
+      const pos = page.positions?.[i]
+      if (pos != null) m.position = pos
+    })
+  }
+
   async function ensureMessagesLoaded(
     id: string,
     options?: { force?: boolean; silent?: boolean }
@@ -1375,6 +1392,7 @@ export const useChatStore = defineStore('chat', () => {
         const page = await loadConversationMessagesPage(convId, {
           limitTurns: options?.force ? 0 : DEFAULT_MESSAGE_PAGE_TURNS
         })
+        attachPagePositions(page)
         const stripped = stripWireAttachmentFields(
           page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
         )
@@ -1445,19 +1463,22 @@ export const useChatStore = defineStore('chat', () => {
       console.info('[chat] loadOlderMessages: nothing older', convId)
       return false
     }
-    if (state.loadingOlder) {
-      return olderLoadPromises.get(convId) ?? false
+    // Strict serial: never start a second page while one is in flight.
+    // Do not join the in-flight promise — callers must wait and retry later.
+    if (state.loadingOlder || olderLoadPromises.has(convId)) {
+      console.info('[chat] loadOlderMessages: busy, skip concurrent', convId)
+      return false
     }
-    const existing = olderLoadPromises.get(convId)
-    if (existing) return existing
 
     applyMessagePageState(convId, state, { loadingOlder: true })
+    const oldestAtStart = state.oldestPosition
     const load = (async (): Promise<boolean> => {
       try {
         const page = await loadConversationMessagesPage(convId, {
           limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
-          beforePosition: state.oldestPosition!
+          beforePosition: oldestAtStart
         })
+        attachPagePositions(page)
         const stripped = stripWireAttachmentFields(
           page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
         )
@@ -1465,7 +1486,7 @@ export const useChatStore = defineStore('chat', () => {
           applyMessagePageState(convId, {
             hasMoreOlder: false,
             hasMoreNewer: state.hasMoreNewer,
-            oldestPosition: state.oldestPosition,
+            oldestPosition: oldestAtStart,
             newestPosition: state.newestPosition
           })
           return false
@@ -1474,10 +1495,14 @@ export const useChatStore = defineStore('chat', () => {
         conv.messages = prependMessagesById(conv.messages, stripped)
         addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
         normalizeSubAgentTraces([conv])
+        // Older pages are historical. Stuck streaming/pending rows would be
+        // classified as active turns and skip collapse when「默认收缩」is off
+        // (hiddenCount=0 → full process, no elapsed chip).
+        normalizeInterruptedAssistantStatuses([conv])
         applyMessagePageState(convId, {
           hasMoreOlder: page.hasMoreOlder,
           hasMoreNewer: state.hasMoreNewer,
-          oldestPosition: page.oldestPosition ?? state.oldestPosition,
+          oldestPosition: page.oldestPosition ?? oldestAtStart,
           newestPosition: state.newestPosition
         })
         console.info(
@@ -1495,7 +1520,7 @@ export const useChatStore = defineStore('chat', () => {
       } finally {
         olderLoadPromises.delete(convId)
         const cur = messagePageByConv.value[convId]
-        if (cur) {
+        if (cur?.loadingOlder) {
           messagePageByConv.value = {
             ...messagePageByConv.value,
             [convId]: { ...cur, loadingOlder: false }
@@ -1505,6 +1530,96 @@ export const useChatStore = defineStore('chat', () => {
     })()
     olderLoadPromises.set(convId, load)
     return load
+  }
+
+  /**
+   * Drop a stale `loadingOlder` flag when no request is in flight (e.g. after
+   * WebView OOM left the button stuck on「加载中…」).
+   */
+  function clearStuckOlderLoading(id?: string): void {
+    const convId = (id ?? currentId.value ?? '').trim()
+    if (!convId) return
+    const state = messagePageState(convId)
+    if (!state?.loadingOlder || olderLoadPromises.has(convId)) return
+    console.warn('[chat] clearStuckOlderLoading', convId)
+    applyMessagePageState(convId, state, { loadingOlder: false })
+  }
+
+  /**
+   * Trim the oldest in-memory messages of the *current* conversation so a very
+   * long thread does not keep every loaded turn in RAM forever. Only user
+   * messages not viewed within `TRIM_HISTORY_STALE_MS` (and their preceding
+   * rows) are removed; the paging cursor is moved forward so scrolling back up
+   * reloads them from disk via `loadOlderMessages`. Streamed / not-yet-
+   * persisted rows are never cut.
+   * @returns number of messages removed.
+   */
+  function trimConversationHistory(id: string): number {
+    const convId = id.trim()
+    if (!convId) return 0
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv || conv.messages.length === 0) return 0
+
+    const messages = conv.messages
+    const cut = computeHistoryTrimCutByViewedAt(
+      messages,
+      messageViewedAtByConv.get(convId) ?? EMPTY_VIEWED_MAP,
+      Date.now(),
+      TRIM_HISTORY_STALE_MS,
+      TRIM_HISTORY_MIN_KEEP_TURNS
+    )
+    if (cut <= 0) return 0
+
+    conv.messages = messages.slice(cut)
+    // Drop viewedAt records for removed rows so the map does not grow unbounded.
+    const viewed = messageViewedAtByConv.get(convId)
+    if (viewed) {
+      for (const msg of messages.slice(0, cut)) {
+        viewed.delete(msg.id)
+      }
+    }
+    const newFirst = conv.messages[0]
+    if (newFirst?.position != null) {
+      const state = messagePageByConv.value[convId]
+      if (state) {
+        messagePageByConv.value = {
+          ...messagePageByConv.value,
+          [convId]: {
+            ...state,
+            // The removed rows still exist in SQLite before this position, so
+            // scrolling up re-fetches them (hasMoreOlder must stay true).
+            oldestPosition: newFirst.position,
+            hasMoreOlder: true
+          }
+        }
+      }
+    }
+    console.info(
+      '[chat] trimmed conversation history',
+      convId,
+      'removed',
+      cut,
+      'kept',
+      conv.messages.length,
+      'oldestPosition',
+      newFirst?.position
+    )
+    return cut
+  }
+
+  /**
+   * Record that a user message is currently visible in the viewport. Used by
+   * the history trimmer to keep recently-viewed turns in memory.
+   */
+  function markUserMessageViewed(convId: string, messageId: string): void {
+    const key = convId.trim()
+    if (!key || !messageId) return
+    let map = messageViewedAtByConv.get(key)
+    if (!map) {
+      map = new Map()
+      messageViewedAtByConv.set(key, map)
+    }
+    map.set(messageId, Date.now())
   }
 
   /** Load a turn window around a message (sidebar FTS jump). */
@@ -1541,6 +1656,7 @@ export const useChatStore = defineStore('chat', () => {
           limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
           aroundMessageId: targetId
         })
+        attachPagePositions(page)
         const stripped = stripWireAttachmentFields(
           page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
         )
@@ -2829,6 +2945,9 @@ export const useChatStore = defineStore('chat', () => {
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     loadOlderMessages,
+    clearStuckOlderLoading,
+    trimConversationHistory,
+    markUserMessageViewed,
     ensureMessagesAround,
     messagePageState,
     messagePageByConv,

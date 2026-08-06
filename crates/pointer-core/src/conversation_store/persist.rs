@@ -8,6 +8,121 @@ use crate::models::{
 };
 use super::ListScope;
 
+/// Scalar anchor probe row for turn paging: only real user-turn anchors.
+/// The SQL already filters `role='user' AND is_system_generated=0`, so every
+/// row returned here is a turn anchor — no content/payload deserialization.
+pub(crate) struct AnchorProbeRow {
+    pub position: i64,
+    pub message_id: String,
+}
+
+/// Whether a message row is a system-generated/special user message that must
+/// NOT count as a turn anchor: injected or synthetic user content (screenshots,
+/// compression summaries, trim placeholders) or a scoped sub-message.
+pub fn is_system_generated_user_message(msg: &ChatMessage) -> bool {
+    matches!(msg.role, Role::User)
+        && (crate::task_board::history_trim::is_injected_or_synthetic_user_content(&msg.content)
+            || crate::models::is_scoped_sub_message(msg))
+}
+
+const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled";
+
+/// One-time migration: materialize `is_system_generated` for existing rows.
+///
+/// Only **user** payloads can be system-generated; assistant/tool stay at the
+/// column default `0`. Writing every row once (as an early build did) rewrote
+/// multi-GB DBs into the WAL on the UI thread and hung production launch.
+pub(crate) fn backfill_is_system_generated(conn: &Connection) -> Result<()> {
+    let done: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![SYSTEM_GENERATED_BACKFILL_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if done.as_deref() == Some("1") {
+        return Ok(());
+    }
+
+    log::info!("conversation_store: backfilling is_system_generated (user rows only)");
+    let started = std::time::Instant::now();
+    // Prefer `content` over full `payload` when present — synthetic markers live
+    // in the text; scoped-sub detection still needs the payload JSON.
+    let mut stmt = conn.prepare(
+        "SELECT conversation_id, message_id, content, payload
+         FROM messages
+         WHERE role = 'user' AND is_system_generated = 0",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+
+    let mut set_true: Vec<(String, String)> = Vec::new();
+    let mut scanned: u64 = 0;
+    let mut corrupt: u64 = 0;
+    for row in rows {
+        let (conversation_id, message_id, content, payload) = row?;
+        scanned += 1;
+        let flag = if crate::task_board::history_trim::is_injected_or_synthetic_user_content(&content)
+        {
+            true
+        } else {
+            match serde_json::from_str::<ChatMessage>(&payload) {
+                Ok(msg) => is_system_generated_user_message(&msg),
+                Err(_) => {
+                    corrupt += 1;
+                    log::warn!(
+                        "conversation_store: skip corrupt message in backfill_is_system_generated {conversation_id}/{message_id}"
+                    );
+                    false
+                }
+            }
+        };
+        if flag {
+            set_true.push((conversation_id, message_id));
+        }
+    }
+
+    let apply = || -> Result<u64> {
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let mut updated: u64 = 0;
+        for (conversation_id, message_id) in &set_true {
+            let n = conn.execute(
+                "UPDATE messages SET is_system_generated = 1
+                 WHERE conversation_id = ?1 AND message_id = ?2 AND is_system_generated = 0",
+                params![conversation_id, message_id],
+            )?;
+            updated += n as u64;
+        }
+        conn.execute(
+            "INSERT INTO store_meta(key, value) VALUES (?1, '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![SYSTEM_GENERATED_BACKFILL_META],
+        )?;
+        conn.execute_batch("COMMIT")?;
+        Ok(updated)
+    };
+    let updated = match apply() {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+    };
+
+    log::info!(
+        "conversation_store: is_system_generated backfill done scanned_user={scanned} set_true={} updated={updated} corrupt={corrupt} elapsed_ms={}",
+        set_true.len(),
+        started.elapsed().as_millis()
+    );
+    Ok(())
+}
+
 pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, skill_ids_json,
@@ -124,7 +239,119 @@ pub(crate) fn load_messages_with_positions(
             }
         }
     }
-    // Lazy migration: drop legacy multi‑MB toolRawOutput blobs so the next load is cheap.
+    scrub_tool_raw_output(conn, conversation_id, scrub);
+    Ok(out)
+}
+
+/// Lightweight anchor probe: real user-turn anchors only. The SQL filters
+/// `role='user' AND is_system_generated=0` using the materialized column, so no
+/// content/payload deserialization happens and the partial index serves it.
+/// Used by turn paging so a page load never materializes the full transcript.
+pub(crate) fn load_anchor_probe(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Vec<AnchorProbeRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT position, message_id
+         FROM messages
+         WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
+         ORDER BY position ASC",
+    )?;
+    let rows = stmt.query_map(params![conversation_id], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (position, message_id) = row?;
+        out.push(AnchorProbeRow { position, message_id });
+    }
+    Ok(out)
+}
+
+/// Position of the first message row at or after `position` (any role). Used as
+/// the exclusive end bound of `before` windows so assistant/tool rows after the
+/// cursor are excluded too (the anchor probe only knows user rows).
+pub(crate) fn first_position_at_or_after(
+    conn: &Connection,
+    conversation_id: &str,
+    position: i64,
+) -> Result<Option<i64>> {
+    conn.query_row(
+        "SELECT MIN(position) FROM messages
+         WHERE conversation_id = ?1 AND position >= ?2",
+        params![conversation_id, position],
+        |row| row.get::<_, Option<i64>>(0),
+    )
+    .map_err(Into::into)
+}
+
+/// Position of an arbitrary message row (any role), for `around` windows whose
+/// target may be an assistant/tool row not present in the anchor probe.
+pub(crate) fn message_position(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "SELECT position FROM messages
+             WHERE conversation_id = ?1 AND message_id = ?2",
+            params![conversation_id, message_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?)
+}
+
+/// Load only the message rows inside `[start_position, end_position)` (ascending).
+/// Still runs the legacy toolRawOutput scrub on the returned window.
+pub(crate) fn load_messages_in_position_range(
+    conn: &Connection,
+    conversation_id: &str,
+    start_position: i64,
+    end_position: i64,
+) -> Result<Vec<(i64, ChatMessage)>> {
+    let mut stmt = conn.prepare(
+        "SELECT message_id, position, payload FROM messages
+         WHERE conversation_id = ?1 AND position >= ?2 AND position < ?3
+         ORDER BY position ASC",
+    )?;
+    let rows = stmt.query_map(
+        params![conversation_id, start_position, end_position],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        },
+    )?;
+    let mut out = Vec::new();
+    let mut scrub: Vec<(String, i64, ChatMessage)> = Vec::new();
+    for row in rows {
+        let (message_id, position, payload) = row?;
+        match serde_json::from_str::<ChatMessage>(&payload) {
+            Ok(mut msg) => {
+                if msg.strip_tool_raw_output() {
+                    scrub.push((message_id, position, msg.clone()));
+                }
+                out.push((position, msg));
+            }
+            Err(e) => {
+                log::warn!("conversation_store: skip corrupt message in {conversation_id}: {e}")
+            }
+        }
+    }
+    scrub_tool_raw_output(conn, conversation_id, scrub);
+    Ok(out)
+}
+
+/// Lazy migration shared by all transcript loads: drop legacy multi‑MB
+/// `toolRawOutput` blobs so the next load is cheap.
+fn scrub_tool_raw_output(
+    conn: &Connection,
+    conversation_id: &str,
+    scrub: Vec<(String, i64, ChatMessage)>,
+) {
     for (message_id, position, msg) in scrub {
         let content = message_index_content(&msg);
         let payload = match msg.to_store_payload_json() {
@@ -158,7 +385,6 @@ pub(crate) fn load_messages_with_positions(
             );
         }
     }
-    Ok(out)
 }
 
 /// Cursor for paginated conversation-meta reads. Sort order is
@@ -718,8 +944,8 @@ pub fn upsert_conversation(
             let payload = msg.to_store_payload_json()?;
             conn.execute(
                 "INSERT INTO messages (
-                   conversation_id, message_id, role, content, payload, created_at_ms, position
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                   conversation_id, message_id, role, content, payload, created_at_ms, position, is_system_generated
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                 params![
                     conv.id,
                     msg.id,
@@ -728,6 +954,7 @@ pub fn upsert_conversation(
                     payload,
                     msg.created_at,
                     pos as i64,
+                    i64::from(is_system_generated_user_message(msg)),
                 ],
             )?;
         }

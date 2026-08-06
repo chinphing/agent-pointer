@@ -3,6 +3,7 @@ import type { ChatMessage, Conversation } from '../../types/chat'
 import {
   applyExcludedMessageIds,
   assistantTurnActivelyRunning,
+  computeHistoryTrimCutByViewedAt,
   insertMessageBeforeAnchor,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
@@ -202,5 +203,73 @@ describe('chat helpers', () => {
     ])
     expect(removeTrailingDiscardableEmptyAssistant(c)).toBe(true)
     expect(c.messages).toHaveLength(0)
+  })
+
+  it('computeHistoryTrimCutByViewedAt keeps recently viewed user messages', () => {
+    const now = 1_000_000
+    const staleMs = 3_600_000 // 1h
+    const msgs: ChatMessage[] = [
+      { id: 'm0', role: 'user', content: 'a', status: 'done', createdAt: 0, position: 0 },
+      { id: 'm1', role: 'assistant', content: 'b', status: 'done', createdAt: 0, position: 1 },
+      { id: 'm2', role: 'user', content: 'c', status: 'done', createdAt: 0, position: 2 },
+      { id: 'm3', role: 'assistant', content: 'd', status: 'done', createdAt: 0, position: 3 },
+      // streamed row — no position, must never be cut
+      { id: 'm4', role: 'assistant', content: 'e', status: 'streaming', createdAt: 0 }
+    ]
+    // Nothing viewed yet → keep everything (avoids wiping an unviewed thread).
+    expect(computeHistoryTrimCutByViewedAt(msgs, new Map(), now, staleMs, 1)).toBe(0)
+    // m0 never stamped, m2 recent → keep from m0 (do not treat missing as epoch 0).
+    expect(
+      computeHistoryTrimCutByViewedAt(
+        msgs,
+        new Map([['m2', now - 60_000]]),
+        now,
+        staleMs,
+        1
+      )
+    ).toBe(0)
+    // m0 viewed long ago, m2 recent → cut before m2.
+    const viewed = new Map<string, number>([
+      ['m0', now - 2 * staleMs],
+      ['m2', now - 60_000]
+    ])
+    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs, 1)).toBe(2)
+    // All stamped users stale → no "recent" pivot; keep everything.
+    const allStale = new Map<string, number>([
+      ['m0', now - 2 * staleMs],
+      ['m2', now - 2 * staleMs]
+    ])
+    expect(computeHistoryTrimCutByViewedAt(msgs, allStale, now, staleMs, 1)).toBe(0)
+    // Freshly-viewed first user message → nothing is stale.
+    const freshHead = new Map<string, number>([['m0', now - 1_000]])
+    expect(computeHistoryTrimCutByViewedAt(msgs, freshHead, now, staleMs, 1)).toBe(0)
+  })
+
+  it('computeHistoryTrimCutByViewedAt never trims below the keep floor', () => {
+    const now = 1_000_000
+    const staleMs = 3_600_000 // 1h
+    const user = (i: number): ChatMessage => ({
+      id: `u${i}`,
+      role: 'user',
+      content: `q${i}`,
+      status: 'done',
+      createdAt: 0,
+      position: i
+    })
+    // 30 user messages, newest last.
+    const msgs: ChatMessage[] = Array.from({ length: 30 }, (_, i) => user(i))
+    // Only the newest 2 user messages were viewed recently.
+    const viewed = new Map<string, number>()
+    for (let i = 0; i < msgs.length; i += 1) {
+      viewed.set(`u${i}`, i >= 28 ? now - 60_000 : now - 2 * staleMs)
+    }
+    // Default floor 24 → keep u6..u29 (24 turns) even though 28 are stale.
+    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs)).toBe(6)
+    // Higher floor → even less trimming.
+    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs, 26)).toBe(4)
+    // Fewer turns than the floor → never trim at all.
+    const few: ChatMessage[] = Array.from({ length: 10 }, (_, i) => user(i))
+    const fewViewed = new Map(few.map(m => [m.id, now - 2 * staleMs]))
+    expect(computeHistoryTrimCutByViewedAt(few, fewViewed, now, staleMs, 24)).toBe(0)
   })
 })

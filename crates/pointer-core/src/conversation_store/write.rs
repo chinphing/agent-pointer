@@ -207,14 +207,15 @@ fn insert_message_at(
     let payload = msg.to_store_payload_json()?;
     conn.execute(
         "INSERT INTO messages (
-           conversation_id, message_id, role, content, payload, created_at_ms, position
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7)
+           conversation_id, message_id, role, content, payload, created_at_ms, position, is_system_generated
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
          ON CONFLICT(conversation_id, message_id) DO UPDATE SET
            role = excluded.role,
            content = excluded.content,
            payload = excluded.payload,
            created_at_ms = excluded.created_at_ms,
-           position = excluded.position",
+           position = excluded.position,
+           is_system_generated = excluded.is_system_generated",
         params![
             conversation_id,
             msg.id,
@@ -223,6 +224,7 @@ fn insert_message_at(
             payload,
             msg.created_at,
             position,
+            i64::from(super::persist::is_system_generated_user_message(msg)),
         ],
     )?;
     Ok(())

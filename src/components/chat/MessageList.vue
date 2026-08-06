@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { ArrowDown, ChevronDown, ChevronRight, Loader2, Plus, X } from 'lucide-vue-next'
+import { ArrowDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
 import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
@@ -44,6 +44,11 @@ import {
   highlightSidebarSearchText
 } from '../../lib/sidebarSearchTextHighlight'
 import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
+import {
+  scrollTopForAnchor,
+  turnOffsetInScroller,
+  type MessageListScrollAnchor
+} from '../../lib/messageListScrollAnchor'
 
 const props = withDefaults(defineProps<{
   searchMatchIds?: string[]
@@ -102,8 +107,18 @@ const ATTACH_BOTTOM_PX = 8
 const DETACH_BOTTOM_PX = 48
 /** Prefetch older turns when within this distance of the top. */
 const LOAD_OLDER_TOP_PX = 300
-/** Cooldown after an older page lands before auto-prefetch again. */
-const LOAD_OLDER_COOLDOWN_MS = 200
+/**
+ * After an older page lands, require the user to leave the top band once
+ * before auto-prefetch can fire again. Prevents a restore-shortfall cascade
+ * (scrollTop stays ≤ top threshold → load → OOM / white WebView).
+ */
+const LOAD_OLDER_LEAVE_TOP_PX = 400
+/** Frames to re-apply scroll restore while the virtualizer catches up. */
+const LOAD_OLDER_SETTLE_FRAMES = 4
+/** Minimum gap between two history trims (avoid churn while scrolling). */
+const TRIM_HISTORY_COOLDOWN_MS = 30_000
+/** How often visible user messages are re-stamped and history is scanned. */
+const TRIM_HISTORY_TICK_MS = 30_000
 let lastScrollTs = 0
 let touchStartY: number | null = null
 /** Last observed scroller clientHeight; re-stick when chrome shrinks the viewport. */
@@ -111,17 +126,46 @@ let lastScrollerClientHeight = 0
 let scrollerResizeObserver: ResizeObserver | null = null
 let mobileMediaQuery: MediaQueryList | null = null
 let lastScrollTop = 0
-let olderLoadCooldownUntil = 0
 let olderLoadInFlight = false
+/** Auto-prefetch is one-shot per visit to the top; re-arm after leaving it. */
+let olderPrefetchArmed = true
+let lastHistoryTrimAt = 0
+let historyTrimTimer: ReturnType<typeof setInterval> | null = null
 let focusAroundRequestedId: string | null = null
+/** Max blank pull distance when there is no older page. */
+const NO_OLDER_PULL_MAX_PX = 52
+/** Show the hint copy once the pulled blank area is tall enough. */
+const NO_OLDER_HINT_REVEAL_PX = 28
+/** Current top pull gap (px); 0 when not pulling. */
+const noOlderPullPx = ref(0)
+let noOlderPullTouchY: number | null = null
+let noOlderPullWheelReleaseTimer: ReturnType<typeof setTimeout> | null = null
 
 const currentMessagePage = computed(() => {
   const id = chat.currentId?.trim()
   if (!id) return null
   return chat.messagePageState(id)
 })
-const canLoadOlder = computed(() => Boolean(currentMessagePage.value?.hasMoreOlder))
-const loadingOlder = computed(() => Boolean(currentMessagePage.value?.loadingOlder || olderLoadInFlight))
+const showNoOlderPullHint = computed(() => noOlderPullPx.value >= NO_OLDER_HINT_REVEAL_PX)
+
+function canPullNoOlderHint(el: HTMLElement): boolean {
+  return currentMessagePage.value?.hasMoreOlder === false
+    && el.scrollTop <= 1
+    && programmaticScrollDepth === 0
+}
+
+function setNoOlderPullPx(px: number) {
+  noOlderPullPx.value = Math.max(0, Math.min(NO_OLDER_PULL_MAX_PX, px))
+}
+
+function releaseNoOlderPull() {
+  noOlderPullPx.value = 0
+  noOlderPullTouchY = null
+  if (noOlderPullWheelReleaseTimer != null) {
+    clearTimeout(noOlderPullWheelReleaseTimer)
+    noOlderPullWheelReleaseTimer = null
+  }
+}
 
 function distanceFromBottom(): number {
   const el = scroller.value
@@ -210,10 +254,27 @@ function unpinFollowOutput() {
 function onWheel(event: WheelEvent) {
   // Trackpad / mouse wheel up = read older messages → stop fighting the user.
   if (event.deltaY < 0) unpinFollowOutput()
+  const el = scroller.value
+  if (!el) return
+  if (event.deltaY > 0 || el.scrollTop > 1) {
+    if (noOlderPullPx.value > 0) releaseNoOlderPull()
+    return
+  }
+  // Already at top with no older pages: grow a blank gap and show the hint.
+  if (!canPullNoOlderHint(el) || event.deltaY >= 0) return
+  setNoOlderPullPx(noOlderPullPx.value + Math.min(20, -event.deltaY * 0.4))
+  if (noOlderPullWheelReleaseTimer != null) clearTimeout(noOlderPullWheelReleaseTimer)
+  noOlderPullWheelReleaseTimer = setTimeout(() => {
+    noOlderPullWheelReleaseTimer = null
+    releaseNoOlderPull()
+  }, 450)
 }
 
 function onTouchStart(event: TouchEvent) {
   touchStartY = event.touches[0]?.clientY ?? null
+  const el = scroller.value
+  noOlderPullTouchY =
+    el && canPullNoOlderHint(el) ? touchStartY : null
 }
 
 function onTouchMove(event: TouchEvent) {
@@ -222,10 +283,19 @@ function onTouchMove(event: TouchEvent) {
   if (y == null) return
   // Finger moves down → content scrolls toward older messages.
   if (y - touchStartY > 8) unpinFollowOutput()
+  const el = scroller.value
+  if (noOlderPullTouchY == null || !el) return
+  if (!canPullNoOlderHint(el)) {
+    releaseNoOlderPull()
+    return
+  }
+  const pull = y - noOlderPullTouchY
+  setNoOlderPullPx(pull > 0 ? pull * 0.45 : 0)
 }
 
 function onTouchEnd() {
   touchStartY = null
+  releaseNoOlderPull()
 }
 
 function updateMobileViewport() {
@@ -259,6 +329,8 @@ function onNewConversationConfirmationKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => {
+  // Recover a stale older-load flag left after a crashed / remounted request.
+  chat.clearStuckOlderLoading()
   mobileMediaQuery = window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY)
   updateMobileViewport()
   mobileMediaQuery.addEventListener('change', updateMobileViewport)
@@ -289,13 +361,22 @@ onMounted(() => {
     // registered too late to observe the state change, so retry from mounted.
     void tryLocatePendingFocus()
   })
+  historyTrimTimer = setInterval(() => {
+    stampVisibleUserMessagesViewed()
+    maybeTrimConversationHistory()
+  }, TRIM_HISTORY_TICK_MS)
 })
 
 onBeforeUnmount(() => {
   stopElapsedTicker()
+  releaseNoOlderPull()
   document.removeEventListener('keydown', onNewConversationConfirmationKeydown)
   mobileMediaQuery?.removeEventListener('change', updateMobileViewport)
   mobileMediaQuery = null
+  if (historyTrimTimer != null) {
+    clearInterval(historyTrimTimer)
+    historyTrimTimer = null
+  }
   if (scrollFrame != null) {
     cancelAnimationFrame(scrollFrame)
     scrollFrame = null
@@ -315,9 +396,11 @@ onBeforeUnmount(() => {
 
 watch(() => chat.currentId, async () => {
   followOutput = true
+  releaseNoOlderPull()
   await nextTick()
   rowVirtualizer.value.measure()
   toBottom({ settle: true })
+  stampVisibleUserMessagesViewed()
 })
 
 watch(() => chat.current?.messages.length, () => {
@@ -603,48 +686,145 @@ function updateActiveBoardStickyState() {
 
 async function loadOlderWithScrollAnchor() {
   const el = scroller.value
-  if (!el || olderLoadInFlight || locatingFocus.value) return
+  if (!el || locatingFocus.value) return
+  // Heal a stale store flag (no in-flight request) so the button is not stuck.
+  chat.clearStuckOlderLoading()
   const page = currentMessagePage.value
-  if (!page?.hasMoreOlder || page.loadingOlder) return
-  if (Date.now() < olderLoadCooldownUntil) return
+  // Strict serial: local lock OR store lock — previous page must fully finish
+  // (IPC + prepend + scroll settle) before another load can start.
+  if (!page?.hasMoreOlder || page.loadingOlder || olderLoadInFlight) return
 
   olderLoadInFlight = true
+  // Disarm auto-prefetch until the user leaves the top band.
+  olderPrefetchArmed = false
   followOutput = false
-  const prevHeight = el.scrollHeight
-  const prevTop = el.scrollTop
+  const anchor = captureVisibleTurnAnchor()
   beginProgrammaticScroll()
   try {
     const added = await chat.loadOlderMessages()
     if (!added) return
-    await nextTick()
-    // Wait a frame so virtualizer can measure prepended rows.
-    await new Promise<void>(resolve => {
-      requestAnimationFrame(() => resolve())
+    // Remeasured prepended rows change totalSize over several frames; re-pin
+    // the same turn id + viewport offset each frame (not scrollHeight delta).
+    for (let i = 0; i < LOAD_OLDER_SETTLE_FRAMES; i += 1) {
+      await nextTick()
+      await nextAnimationFrame()
+      if (!restoreVisibleTurnAnchor(anchor)) break
+    }
+    console.info('[MessageList] restored scroll after older page', {
+      turnId: anchor?.turnId,
+      offsetPx: anchor?.offsetPx,
+      scrollTop: scroller.value?.scrollTop
     })
-    const next = scroller.value
-    if (!next) return
-    const delta = next.scrollHeight - prevHeight
-    next.scrollTop = prevTop + Math.max(0, delta)
-    console.info('[MessageList] restored scroll after older page', { delta, prevTop })
   } finally {
-    olderLoadCooldownUntil = Date.now() + LOAD_OLDER_COOLDOWN_MS
+    // Only release the lock after settle — prevents cascading loads while
+    // height/scroll are still catching up.
     olderLoadInFlight = false
     endProgrammaticScroll()
   }
 }
 
+/** Snapshot the topmost visible turn so prepend/trim can re-pin the viewport. */
+function captureVisibleTurnAnchor(): MessageListScrollAnchor | null {
+  const el = scroller.value
+  const firstRow = virtualRows.value[0]
+  if (!el || !firstRow) return null
+  const turn = conversationTurns.value[firstRow.index]
+  if (!turn) return null
+  const turnEl = el.querySelector(
+    `[data-turn-id="${CSS.escape(turn.id)}"]`
+  ) as HTMLElement | null
+  if (turnEl) {
+    return {
+      turnId: turn.id,
+      offsetPx: turnOffsetInScroller(el, turnEl)
+    }
+  }
+  // Fallback when the row exists in the virtual window but DOM is not ready.
+  return {
+    turnId: turn.id,
+    offsetPx: firstRow.start - el.scrollTop
+  }
+}
+
+/** Re-apply a captured turn anchor after the virtualizer layout changes. */
+function restoreVisibleTurnAnchor(anchor: MessageListScrollAnchor | null): boolean {
+  const el = scroller.value
+  if (!el || !anchor) return false
+  const idx = conversationTurns.value.findIndex(turn => turn.id === anchor.turnId)
+  if (idx < 0) {
+    console.warn('[MessageList] scroll anchor turn missing after layout change', anchor.turnId)
+    return false
+  }
+  const offsetPair = rowVirtualizer.value.getOffsetForIndex(idx, 'start')
+  if (!offsetPair) {
+    rowVirtualizer.value.scrollToIndex(idx, { align: 'start', behavior: 'auto' })
+    lastScrollTop = el.scrollTop
+    return true
+  }
+  const [turnStartPx] = offsetPair
+  el.scrollTop = scrollTopForAnchor(turnStartPx, anchor.offsetPx)
+  lastScrollTop = el.scrollTop
+  return true
+}
+
 function maybePrefetchOlder() {
   const el = scroller.value
   if (!el || programmaticScrollDepth > 0 || locatingFocus.value) return
+  if (olderLoadInFlight || currentMessagePage.value?.loadingOlder) return
+  const atTop = el.scrollTop <= LOAD_OLDER_TOP_PX
+  if (!atTop && el.scrollTop > LOAD_OLDER_LEAVE_TOP_PX) {
+    olderPrefetchArmed = true
+  }
   const scrollingUp = el.scrollTop < lastScrollTop - 1
   lastScrollTop = el.scrollTop
-  if (!scrollingUp && el.scrollTop > LOAD_OLDER_TOP_PX) return
-  if (el.scrollTop > LOAD_OLDER_TOP_PX) return
+  if (!atTop || !scrollingUp || !olderPrefetchArmed) return
   void loadOlderWithScrollAnchor()
+}
+
+/** Stamp every user message currently inside the virtual viewport as "viewed". */
+function stampVisibleUserMessagesViewed() {
+  const convId = chat.currentId?.trim()
+  if (!convId) return
+  for (const row of virtualRows.value) {
+    const turn = conversationTurns.value[row.index]
+    if (!turn) continue
+    for (const entry of turn.entries) {
+      if (entry.type !== 'message' || entry.message.role !== 'user') continue
+      chat.markUserMessageViewed(convId, entry.message.id)
+    }
+  }
+}
+
+/**
+ * Release old in-memory history of the *current* conversation when user
+ * messages above the viewport have not been viewed within the stale window.
+ * SQLite keeps the rows; scrolling back up near the top reloads them through
+ * `loadOlderMessages` because `oldestPosition` was advanced.
+ */
+function maybeTrimConversationHistory() {
+  const convId = chat.currentId?.trim()
+  if (!convId || locatingFocus.value || programmaticScrollDepth > 0) return
+  if (olderLoadInFlight) return
+  if (Date.now() - lastHistoryTrimAt < TRIM_HISTORY_COOLDOWN_MS) return
+  const anchor = captureVisibleTurnAnchor()
+  const removed = chat.trimConversationHistory(convId)
+  lastHistoryTrimAt = Date.now()
+  if (removed > 0 && anchor) {
+    // Rows above the viewport were dropped; re-pin the same turn + offset.
+    void (async () => {
+      await nextTick()
+      await nextAnimationFrame()
+      restoreVisibleTurnAnchor(anchor)
+    })()
+  }
 }
 
 function onScroll(event: Event) {
   showScrollbarWhileScrolling(event)
+  const el = scroller.value
+  if (el && el.scrollTop > 2 && noOlderPullPx.value > 0) {
+    releaseNoOlderPull()
+  }
   const distance = distanceFromBottom()
   if (programmaticScrollDepth === 0) {
     // Hysteresis: wheel/touch may unpin while still within DETACH_BOTTOM_PX.
@@ -658,6 +838,8 @@ function onScroll(event: Event) {
   showScrollButton.value = !followOutput
   updateActiveBoardStickyState()
   maybePrefetchOlder()
+  stampVisibleUserMessagesViewed()
+  maybeTrimConversationHistory()
 }
 
 function isTaskBoardTerminal(status: string | undefined): boolean {
@@ -986,17 +1168,17 @@ function entrySpacing(
       @touchcancel="onTouchEnd"
     >
     <div
-      v-if="canLoadOlder"
-      class="sticky top-0 z-20 flex justify-center py-2"
+      class="flex shrink-0 items-center justify-center overflow-hidden"
+      :style="{ height: `${noOlderPullPx}px` }"
+      aria-hidden="true"
     >
-      <button
-        type="button"
-        class="rounded-full border border-border bg-background/95 px-3 py-1 text-xs text-muted shadow-sm backdrop-blur-sm hover:text-fg disabled:opacity-60"
-        :disabled="loadingOlder"
-        @click="loadOlderWithScrollAnchor"
+      <p
+        v-if="showNoOlderPullHint"
+        class="text-xs text-muted"
+        role="status"
       >
-        {{ loadingOlder ? '加载中…' : '加载更早消息' }}
-      </button>
+        没有更早的消息
+      </p>
     </div>
 
     <div

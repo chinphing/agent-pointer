@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::conversation_store::persist::sample_conv;
-    use crate::conversation_store::{ConversationStore, ListScope};
+    use crate::conversation_store::persist::{msg, sample_conv};
+    use crate::conversation_store::{ConversationStore, ListScope, LoadMessagesPageOpts};
+    use crate::models::Role;
+    use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use tempfile::TempDir;
 
@@ -949,7 +951,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 20);
+        assert_eq!(version, 21);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -1045,7 +1047,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 20);
+        assert_eq!(version, 21);
         let has_kind: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",
@@ -1062,5 +1064,175 @@ mod tests {
             .unwrap();
         assert_eq!(has_kind, 1);
         assert_eq!(has_raw, 1);
+    }
+
+    #[test]
+    fn anchor_probe_filters_system_generated_and_scoped_rows_end_to_end() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("page-anchor", "Anchor", "real one");
+        // sample_conv has: u1 (real user), a1 (assistant). Append a synthetic
+        // user row, a second real user turn, and a scoped sub-message.
+        let mut synthetic = msg("u-syn", Role::User, "[CUR_SCREEN] shot", 2);
+        synthetic.id = "u-syn".into();
+        let u2 = msg("u2", Role::User, "real two", 3);
+        let a2 = msg("a2", Role::Assistant, "ok", 4);
+        let mut scoped = msg("u-scoped", Role::User, "sub", 5);
+        scoped.anchor_message_id = Some("u2".into());
+        conv.messages.push(synthetic);
+        conv.messages.push(u2);
+        conv.messages.push(a2);
+        conv.messages.push(scoped);
+        store.sync_conversations(&[conv]).unwrap();
+
+        // Tail of 1 turn: only real user rows are anchors, so the window starts
+        // at u2 (u-syn / u-scoped must NOT count as separate turns).
+        let page = store
+            .load_messages_page(
+                "page-anchor",
+                &LoadMessagesPageOpts {
+                    limit_turns: Some(1),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let ids: Vec<&str> = page.messages.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["u2", "a2", "u-scoped"], "tail window must be the last real turn");
+        assert_eq!(page.oldest_position, Some(3), "oldest = u2 position");
+        assert_eq!(page.newest_position, Some(5), "newest = last row position");
+        assert!(page.has_more_older);
+        assert!(!page.has_more_newer);
+        // message_count counts ALL rows (frontend hydration uses it), not just anchors.
+        assert_eq!(page.message_count, 6);
+
+        // Before u2: end bound = first row at/after u2's position, window = [0, 3).
+        let before = store
+            .load_messages_page(
+                "page-anchor",
+                &LoadMessagesPageOpts {
+                    limit_turns: Some(1),
+                    before_position: Some(3),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let before_ids: Vec<&str> = before.messages.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(before_ids, vec!["msg_u1", "msg_a1", "u-syn"], "before window ends before u2");
+        assert_eq!(before.oldest_position, Some(0));
+        assert_eq!(before.newest_position, Some(2));
+        assert!(!before.has_more_older);
+        assert!(before.has_more_newer);
+        assert_eq!(before.message_count, 6);
+    }
+
+    /// Ops helper: `POINTER_MIGRATE_OPEN=1 POINTER_APP_DATA_DIR=… cargo test -p pointer-core open_app_data_dir_once -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn open_app_data_dir_once() {
+        if std::env::var_os("POINTER_MIGRATE_OPEN").as_deref() != Some(std::ffi::OsStr::new("1")) {
+            eprintln!("skip: set POINTER_MIGRATE_OPEN=1 to open POINTER_APP_DATA_DIR");
+            return;
+        }
+        let store = ConversationStore::open_default().expect("open_default");
+        let n = store
+            .load_metas(&ListScope::All, None, 1)
+            .expect("load_metas")
+            .len();
+        eprintln!("open_app_data_dir_once: ok metas_sample={n}");
+    }
+
+    #[test]
+    fn backfill_system_generated_only_flags_synthetic_users() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .sync_conversations(&[sample_conv("bf-legacy", "BF", "real one")])
+            .unwrap();
+        let mut conv = sample_conv("bf-legacy", "BF", "real one");
+        let mut synthetic = msg("u-syn", Role::User, "[CUR_SCREEN] shot", 2);
+        synthetic.id = "u-syn".into();
+        conv.messages.push(synthetic);
+        store.replace_messages("bf-legacy", &conv.messages).unwrap();
+
+        let db_path = dir.path().join("conversations.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            // Simulate a pre-backfill DB: clear flags and meta so open re-runs it.
+            conn.execute_batch(
+                "UPDATE messages SET is_system_generated = 0;
+                 DELETE FROM store_meta WHERE key = 'is_system_generated_backfilled';
+                 UPDATE schema_version SET version = 20;",
+            )
+            .unwrap();
+        }
+
+        // Re-open triggers v21 migrate + optimized backfill.
+        let _store2 = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conn = Connection::open(&db_path).unwrap();
+        let flags: Vec<(String, i64)> = conn
+            .prepare(
+                "SELECT message_id, is_system_generated FROM messages WHERE conversation_id = ?1 ORDER BY position ASC",
+            )
+            .unwrap()
+            .query_map(params!["bf-legacy"], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            flags,
+            vec![
+                ("msg_u1".to_string(), 0),
+                ("msg_a1".to_string(), 0),
+                ("u-syn".to_string(), 1)
+            ]
+        );
+        let meta: String = conn
+            .query_row(
+                "SELECT value FROM store_meta WHERE key = 'is_system_generated_backfilled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(meta, "1");
+        let version: i32 = conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(version >= 21);
+    }
+
+    #[test]
+    fn replace_messages_writes_system_generated_flag() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        // replace_messages does not create the conversation row (FK); seed it first.
+        store
+            .sync_conversations(&[sample_conv("flag-write", "Flag", "real one")])
+            .unwrap();
+        let mut conv = sample_conv("flag-write", "Flag", "real one");
+        let mut synthetic = msg("u-syn", Role::User, "[CUR_SCREEN] shot", 2);
+        synthetic.id = "u-syn".into();
+        conv.messages.push(synthetic);
+        store.replace_messages("flag-write", &conv.messages).unwrap();
+
+        let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
+        let flags: Vec<(String, i64)> = conn
+            .prepare(
+                "SELECT message_id, is_system_generated FROM messages WHERE conversation_id = ?1 ORDER BY position ASC",
+            )
+            .unwrap()
+            .query_map(params!["flag-write"], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            flags,
+            vec![
+                ("msg_u1".to_string(), 0),
+                ("msg_a1".to_string(), 0),
+                ("u-syn".to_string(), 1)
+            ]
+        );
     }
 }

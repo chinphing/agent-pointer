@@ -125,24 +125,24 @@ const canConfirmMultiple = computed(
 </script>
 
 <template>
-  <div v-if="args" class="ml-4 mb-2 max-w-xl space-y-2" @click.stop>
-    <p class="text-[13px] leading-5 text-foreground/90">{{ args.question }}</p>
+  <div v-if="args" class="ml-4 mb-2 max-w-xl min-w-0 space-y-2" @click.stop>
+    <p class="text-[13px] leading-5 break-words text-foreground/90">{{ args.question }}</p>
 
-    <div class="grid gap-0">
+    <div class="grid gap-0 min-w-0">
       <button
         v-for="option in args.options"
         :key="option.label"
         type="button"
-        class="group w-full min-h-8 px-3 py-1.5 rounded-md text-left transition-colors disabled:cursor-default"
+        class="group w-full min-w-0 min-h-8 px-3 py-1.5 rounded-md text-left transition-colors disabled:cursor-default"
         :class="isSelected(option.label)
           ? 'text-foreground'
           : 'hover:bg-hover/30 text-foreground/85'"
         :disabled="submitting || isCompleted"
         @click="choose(option.label)"
       >
-        <span class="flex items-center gap-2">
+        <span class="flex min-w-0 items-start gap-2">
           <span
-            class="flex h-4 w-4 shrink-0 items-center justify-center text-[10px]"
+            class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[10px]"
             :class="[
               args.multiSelect ? 'rounded-[3px]' : 'rounded-full',
               isSelected(option.label)
@@ -152,7 +152,7 @@ const canConfirmMultiple = computed(
           >
             <Check v-if="isSelected(option.label)" class="h-3 w-3" stroke-width="3" />
           </span>
-          <span class="min-w-0 truncate text-xs leading-4">
+          <span class="min-w-0 flex-1 whitespace-normal break-words text-xs leading-4">
             <span class="font-medium">{{ option.label }}</span>
             <span v-if="option.description" class="ml-1.5 text-[11px] text-muted">
               · {{ option.description }}
@@ -163,7 +163,7 @@ const canConfirmMultiple = computed(
 
       <!-- Hermes: Other is always an inline field; Enter confirms. -->
       <div
-        class="flex items-center gap-2 min-h-8 px-3 py-1.5 rounded-md"
+        class="flex min-w-0 items-center gap-2 min-h-8 px-3 py-1.5 rounded-md"
         :class="otherActive ? 'text-foreground' : 'text-foreground/85'"
       >
         <span
@@ -180,7 +180,7 @@ const canConfirmMultiple = computed(
         <span class="shrink-0 text-xs leading-4 font-medium">其他</span>
         <input
           type="text"
-          class="min-w-0 flex-1 h-7 rounded-md border border-border bg-transparent px-2 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-foreground/25 disabled:opacity-80"
+          class="h-7 w-full max-w-[14rem] min-w-0 rounded-md border border-border bg-transparent px-2 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-foreground/25 disabled:opacity-80"
           :placeholder="isCompleted ? '' : '请输入其他选项'"
           :value="isCompleted ? freeTextSelected : otherText"
           :disabled="submitting || isCompleted"

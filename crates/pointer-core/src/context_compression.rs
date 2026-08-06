@@ -25,23 +25,21 @@ pub const SUMMARY_PREFIX_TOOL_LIMIT: &str =
     "[Conversation summary (auto-compression after tool rounds)]";
 
 /// Summary output budget: `content_tokens × ratio`, clamped.
-/// Kept modest so the **first** no-thinking attempt finishes without
-/// `finish_reason=length` (thinking used to eat the budget and force a retry).
-const SUMMARY_TOKEN_RATIO: f64 = 0.15;
+/// Single no-thinking attempt (no retry) — budget sized so typical prefixes
+/// finish without `finish_reason=length`.
+const SUMMARY_TOKEN_RATIO: f64 = 0.20;
 const MIN_SUMMARY_TOKENS: u32 = 1_500;
-/// Absolute ceiling for the first summary attempt.
-const SUMMARY_TOKENS_CEILING: u32 = 6_000;
-/// Retry may enlarge the first attempt; keep well below the old 32k wait.
-const SUMMARY_RETRY_TOKENS_CEILING: u32 = 12_000;
-const SUMMARY_RETRY_TOKEN_MULTIPLIER: f64 = 2.0;
+/// Absolute ceiling for the one-shot summary attempt.
+const SUMMARY_TOKENS_CEILING: u32 = 12_000;
 
 /// Background precompress starts once gate tokens exceed this fraction of the
 /// hard context budget (still compresses when already over budget).
 pub const PRECOMPRESS_GATE_RATIO: f64 = 0.80;
-/// Compress only when the droppable prefix is at least this share of total gate
-/// tokens — avoids "compress then immediately compress again" when mass sits
-/// in the keep-recent user-turn window.
-pub const COMPRESSIBLE_MIN_RATIO: f64 = 0.50;
+/// Compress only when the droppable prefix is at least this share of
+/// **payload** tokens (same heuristic as `prefix`) — avoids "compress then
+/// immediately compress again" when mass sits in the keep-recent window.
+/// Do not divide by API `prompt_tokens` (system/tools inflate that and under-trigger).
+pub const COMPRESSIBLE_MIN_RATIO: f64 = 0.30;
 
 type StreamTx = UnboundedSender<StreamEvent>;
 
@@ -73,7 +71,7 @@ pub struct CompressGateDecision {
     pub gate_source: &'static str,
 }
 
-/// Whether to compress: total over threshold **and** compressible prefix ratio ≥ 50%.
+/// Whether to compress: total over threshold **and** compressible prefix ratio ≥ 30%.
 pub fn evaluate_compress_gate(
     history: &[ChatMessage],
     reported_prompt_tokens: Option<u32>,
@@ -94,10 +92,12 @@ pub fn evaluate_compress_gate(
     } else {
         0
     };
-    let ratio = if total == 0 {
+    // Ratio uses payload/payload only. `total` (max of api prompt + payload) still
+    // gates whether we are over the soft/hard token threshold.
+    let ratio = if payload_est == 0 {
         0.0
     } else {
-        prefix as f64 / total as f64
+        prefix as f64 / payload_est as f64
     };
     let should_trigger =
         split > 0 && total > threshold && ratio >= COMPRESSIBLE_MIN_RATIO;
@@ -129,15 +129,6 @@ pub fn should_precompress_history(
         true,
     )
     .should_trigger
-}
-
-/// Retry budget: first attempt × 2, capped at [`SUMMARY_RETRY_TOKENS_CEILING`].
-pub fn compute_summary_retry_max_tokens(first_max_tokens: u32) -> u32 {
-    let scaled = ((first_max_tokens as f64) * SUMMARY_RETRY_TOKEN_MULTIPLIER).ceil() as u32;
-    scaled
-        .max(first_max_tokens)
-        .min(SUMMARY_RETRY_TOKENS_CEILING)
-        .max(MIN_SUMMARY_TOKENS)
 }
 
 /// True when provider error looks like context / prompt too large.
@@ -704,7 +695,7 @@ fn build_drop_without_summary_body(summary_prefix: &str, dropped_count: u32) -> 
         summary_prefix,
         &format!(
             "## Goal\n\
-             [Summary unavailable — compression summary failed after retry.]\n\n\
+             [Summary unavailable — compression summary failed.]\n\n\
              ## Progress\n\
              ### Done\n\
              Dropped {dropped_count} earlier message(s) that could not be summarized.\n\n\
@@ -936,8 +927,8 @@ async fn compress_history_inner(
     let summary_system = build_summary_system_prompt(ui, keep_users);
     let summary_sections =
         crate::models::SystemPromptSections::all_cacheable(vec![summary_system.clone()]);
-    // First attempt: no thinking + modest max_tokens so the summary finishes
-    // in one shot (thinking previously ate the budget → length → long retry).
+    // One-shot: no-thinking + 20% content budget (ceiling 12k). No retry —
+    // failed validation falls through to drop_without_summary.
     let first = provider
         .chat_once_without_thinking(
             std::slice::from_ref(&input),
@@ -948,15 +939,15 @@ async fn compress_history_inner(
             Some(dump_lbl.as_str()),
         )
         .await;
-    let mut summary_text = match first {
+    let summary_text = match first {
         Ok(out) => {
-            record_summary_usage(ui, &out, "initial_no_thinking");
+            record_summary_usage(ui, &out, "no_thinking");
             match validate_summary_output(&out) {
                 Ok(text) => Some(text),
                 Err(reason) => {
                     let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
                     log::warn!(
-                        "context summary rejected conversation_id={} attempt=initial_no_thinking reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} max_tokens={} summary_llm_ms={}",
+                        "context summary rejected conversation_id={} attempt=no_thinking reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} max_tokens={} summary_llm_ms={}",
                         conversation_id,
                         reason,
                         out.finish_reason,
@@ -971,7 +962,7 @@ async fn compress_history_inner(
         }
         Err(e) => {
             log::warn!(
-                "context summary LLM call failed conversation_id={} attempt=initial_no_thinking error={e:#} max_tokens={} summary_llm_ms={}",
+                "context summary LLM call failed conversation_id={} attempt=no_thinking error={e:#} max_tokens={} summary_llm_ms={}",
                 conversation_id,
                 max_tok,
                 t_llm.elapsed().as_millis()
@@ -981,62 +972,6 @@ async fn compress_history_inner(
     };
 
     let mut summary_failed = false;
-    if summary_text.is_none() && !cancel.is_cancelled() {
-        let retry_max = compute_summary_retry_max_tokens(max_tok);
-        let retry_label = format!("{dump_lbl}_retry_no_thinking");
-        let retry_system = format!(
-            "{summary_system}\n\nRetry requirement: produce every required heading, keep each section concise, \
-             and finish the complete summary within the enlarged output budget ({retry_max} tokens)."
-        );
-        let retry_sections = crate::models::SystemPromptSections::all_cacheable(vec![retry_system]);
-        log::info!(
-            "context_compress: summary_retry_budget conversation_id={} first_max_tokens={} retry_max_tokens={}",
-            conversation_id,
-            max_tok,
-            retry_max
-        );
-        match provider
-            .chat_once_without_thinking(
-                std::slice::from_ref(&input),
-                &retry_sections,
-                Vec::new(),
-                cancel.clone(),
-                Some(retry_max),
-                Some(retry_label.as_str()),
-            )
-            .await
-        {
-            Ok(out) => {
-                record_summary_usage(ui, &out, "retry_no_thinking");
-                match validate_summary_output(&out) {
-                    Ok(text) => summary_text = Some(text),
-                    Err(reason) => {
-                        let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
-                        log::warn!(
-                            "context summary rejected conversation_id={} attempt=retry_no_thinking reason={} model={model:?} finish_reason={:?} completion_tokens={} prompt_tokens={} max_tokens={} summary_llm_ms={}",
-                            conversation_id,
-                            reason,
-                            out.finish_reason,
-                            out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
-                            out.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-                            retry_max,
-                            t_llm.elapsed().as_millis(),
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                log::warn!(
-                    "context summary LLM call failed conversation_id={} attempt=retry_no_thinking error={e:#} max_tokens={} summary_llm_ms={}",
-                    conversation_id,
-                    retry_max,
-                    t_llm.elapsed().as_millis()
-                );
-            }
-        }
-    }
-
-    // 如果用户已取消，不要继续修改历史
     if cancel.is_cancelled() {
         log::info!(
             "context_compress: cancelled after LLM summary, aborting splice conversation_id={} wall_ms={}",
@@ -1750,20 +1685,29 @@ mod tests {
     }
 
     #[test]
-    fn summary_max_tokens_scales_with_content_and_caps_at_6k() {
+    fn summary_max_tokens_scales_with_content_and_caps_at_12k() {
         // Small content still gets the 1.5k floor.
         assert_eq!(compute_summary_max_tokens(1_000), 1_500);
-        // 20k content → 3k budget (×0.15).
-        assert_eq!(compute_summary_max_tokens(20_000), 3_000);
-        // Huge content caps at first-attempt ceiling 6k.
-        assert_eq!(compute_summary_max_tokens(500_000), 6_000);
+        // 20k content → 4k budget (×0.20).
+        assert_eq!(compute_summary_max_tokens(20_000), 4_000);
+        // Huge content caps at one-shot ceiling 12k.
+        assert_eq!(compute_summary_max_tokens(500_000), 12_000);
     }
 
     #[test]
-    fn summary_retry_max_tokens_is_double_with_12k_cap() {
-        assert_eq!(compute_summary_retry_max_tokens(3_000), 6_000);
-        assert_eq!(compute_summary_retry_max_tokens(6_000), 12_000);
-        assert_eq!(compute_summary_retry_max_tokens(10_000), 12_000);
+    fn evaluate_compress_gate_ratio_uses_payload_not_api_prompt() {
+        let budget = 10_000;
+        // Prefix carries most of the *message* mass; inflated API prompt must
+        // not suppress the compressible ratio (old bug: prefix/api < 0.5).
+        let prefix_heavy = vec![
+            u(&"old ".repeat(20_000)),
+            u(&"keep ".repeat(500)),
+        ];
+        let d = evaluate_compress_gate(&prefix_heavy, Some(200_000), budget, 1, true);
+        assert!(d.total > precompress_gate_threshold(budget));
+        assert_eq!(d.gate_source, "api_prompt");
+        assert!(d.ratio >= COMPRESSIBLE_MIN_RATIO);
+        assert!(d.should_trigger);
     }
 
     #[test]

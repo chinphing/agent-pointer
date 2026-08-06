@@ -48,6 +48,8 @@
 - 工具行标题只显示 **「询问用户」**（不加 `displaySummary` / 问题摘要）。
 - 问题正文只出现在交互卡片（`AskUserOptions`）内，避免标题与正文重复。
 - 宿主固定提供「其他」自由输入（对齐 Hermes）；不必要求模型在 `options` 里加 Other。
+- 选项文案（含 description）在卡片宽度内**自动换行**，不要用 `truncate` 单行截断。
+- 「其他」输入框设 `max-w-[14rem]`，不要 `flex-1` 拉满整行。
 - 选中态只用主题语义色：`foreground` / `background` / `border` / `hover` / `muted`（随浅色/深色翻转）。
   勾选填充为 `bg-foreground/55 text-background`，不要写死灰阶、紫色或未定义的 `muted-foreground`。
 

@@ -15,9 +15,10 @@
 目标：接近硬预算时后台先压，发送路径零等待。
 
 - 软阈值：`total_gate > context_budget_tokens × 0.80`。
-- **可压占比**：`prefix_tokens / total_gate ≥ 0.50`（`prefix` = 排除
-  `contextKeepRecentUserTurns` 保留区后的可压窗口），否则不触发，
-  避免「体积在保留区 → 压完几乎不掉量 → 马上再压」。
+- **可压占比**：`prefix_payload / payload_est ≥ 0.30`（payload 同口径；
+  `prefix` = 排除 `contextKeepRecentUserTurns` 保留区后的可压窗口），否则不触发，
+  避免「体积在保留区 → 压完几乎不掉量 → 马上再压」。超预算判定仍用
+  `gate = max(api_prompt, payload_est)`。
 - 一轮 `run_chat` 成功结束后，若满足上述条件且无同会话 inflight，则后台异步压缩。
 - 若摘要完成时该会话仍有活跃回合：结果 **入队**，不写 SQLite；回合结束后
   `try_apply_pending_compression` 在指纹仍匹配时落盘，过期则丢弃并可能再调度预压。
@@ -54,20 +55,18 @@
 
 ## 摘要输出预算
 
-摘要默认 **关闭 thinking**，并收紧首轮 `max_tokens`，避免
-`finish_reason=length` 触发漫长重试。
+摘要默认 **关闭 thinking**，**单次**调用（不重试）：
 
 ```
 summary_max_tokens = clamp(
-  content_tokens × 0.15,
+  content_tokens × 0.20,
   floor = 1_500,
-  ceiling = 6_000          # first attempt
+  ceiling = 12_000
 )
-retry_max_tokens = min(first × 2, 12_000)
 ```
 
-- 首轮与重试均使用 `chat_once_without_thinking`。
-- 仅在首轮验收失败时重试一次并放大输出预算。
+- 使用 `chat_once_without_thinking`。
+- 验收失败则直接走 drop handoff，不再放大预算重试。
 
 ## 摘要验收与失败语义
 
@@ -80,12 +79,20 @@ retry_max_tokens = min(first × 2, 12_000)
 
 写回上下文的摘要保留稳定识别前缀，并追加 `REFERENCE ONLY` 说明。
 
-两次尝试均失败时：
+摘要尝试失败时：
 
 - **丢弃**待压缩前缀（soft-exclude + drain）；
 - 写入确定性 handoff 摘要；
 - warning toast；
 - `reason` 记为 `budget_drop` / `tool_limit_drop`。
+
+## 可压占比（payload 同口径）
+
+触发条件：`gate_tokens > soft/hard 阈值` **且**
+`prefix_payload / payload_est ≥ 0.30`。
+
+- `gate_tokens` 仍取 `max(api_prompt, payload_est)`（是否超预算）。
+- **ratio 只除 payload**：避免系统提示/工具 schema 把 API prompt 抬高后误判「可压占比不足」而漏触发。
 
 ## 持久化与跨入口一致性
 

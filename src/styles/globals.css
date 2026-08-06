@@ -437,28 +437,38 @@
   margin-bottom: 0 !important;
 }
 .md-body a { color: hsl(var(--accent)); @apply underline underline-offset-2 cursor-pointer; }
-/* GFM tables: rounded outer frame, header tint, full cell grid (row + column rules). */
+/* Tables (GFM + raw HTML): rounded outer frame, header tint, full cell grid. */
 .md-body .table-wrapper {
   @apply my-3 max-w-full overflow-x-auto rounded-lg border border-border;
 }
 .md-body table {
-  @apply my-0 w-full table-auto border-collapse;
+  @apply my-0 w-full border-collapse;
+  table-layout: auto;
 }
-.md-body thead th {
-  @apply px-3 py-2.5 text-left text-sm font-semibold border-b border-r border-border;
-  background: hsl(var(--hover));
+/* Honor explicit column widths from HTML tables (table style or <col>). */
+.md-body table[style*='width'],
+.md-body table:has(col[style*='width']) {
+  table-layout: fixed;
+  width: 100%;
+}
+.md-body th,
+.md-body td {
+  @apply px-3 py-2.5 text-left text-sm border-b border-r border-border break-words;
   color: hsl(var(--foreground));
 }
-.md-body thead th:last-child {
+.md-body th {
+  @apply font-semibold;
+  background: hsl(var(--hover));
+}
+.md-body td {
+  background: hsl(var(--card));
+}
+.md-body th:last-child,
+.md-body td:last-child {
   border-right-width: 0;
 }
-.md-body tbody td {
-  @apply px-3 py-2.5 text-left text-sm border-b border-r border-border break-words;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-}
-/* First column as row label (slightly heavier). */
-.md-body tbody td:first-child {
+/* First body column as row label (slightly heavier). */
+.md-body td:first-child {
   @apply font-medium;
 }
 .md-body th.md-align-left,
@@ -473,10 +483,8 @@
 .md-body td.md-align-right {
   text-align: right;
 }
-.md-body tbody td:last-child {
-  border-right-width: 0;
-}
-.md-body tbody tr:last-child td {
+.md-body tr:last-child > th,
+.md-body tr:last-child > td {
   border-bottom-width: 0;
 }
 /* Chart.js hosts from ```chartjs / ```chart fences */

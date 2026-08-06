@@ -6,7 +6,7 @@
 | [external-links.md](external-links.md) | 应用内 http(s) 链接用系统默认浏览器打开（桌面）/ 新标签（Web） |
 | [markdown-charts.md](markdown-charts.md) | Markdown `chartjs` fence → 本地 Chart.js 交互图表 |
 | [markdown-svg.md](markdown-svg.md) | Markdown `svg` fence → 消毒后内联流程图/示意图 |
-| [markdown-svg.md](markdown-svg.md) | Markdown `svg` fence → 消毒后挂载的流程图 / 结构图 |
+| [markdown-media-boundaries.md](markdown-media-boundaries.md) | Markdown / SVG / Chart / HTML 功能边界与 HTML 表约定 |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
 | [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」；未开「默认收缩执行过程」时与增设前行为一致 |
 | [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选：先提交 `currentId`，主区异步加载 |

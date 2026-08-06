@@ -49,6 +49,8 @@ Example:
 - **Tables**: precise values, many columns, copy-friendly detail.
 - **Charts**: comparisons and trends.
 
+HTML tables with column widths / status colors: see [markdown-media-boundaries.md](markdown-media-boundaries.md).
+
 ## IM channels (Feishu / DingTalk / WeCom / Weixin)
 
 Platforms cannot run interactive Chart.js. On outbound delivery the host:

@@ -5,6 +5,10 @@ import {
   tryParseChartConfig,
 } from './markdownChart'
 import {
+  isHtmlFenceLang,
+  sanitizeHtmlFence,
+} from './markdownHtml'
+import {
   encodeSvgConfigAttr,
   isSvgFenceLang,
   tryParseSvgFence,
@@ -55,6 +59,18 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+/**
+ * GFM tables already emit `<div class="table-wrapper"><table>…`.
+ * Raw HTML `<table>` from the model does not — wrap those so theme chrome applies.
+ */
+export function wrapBareHtmlTables(html: string): string {
+  if (!html.includes('<table')) return html
+  return html.replace(
+    /(?<!<div class="table-wrapper">)<table\b[\s\S]*?<\/table>/gi,
+    table => `<div class="table-wrapper">${table}</div>`
+  )
 }
 
 function tableAlignClass(align: string | null | undefined): string | null {
@@ -187,6 +203,12 @@ marked.use({
         if (parsed.ok) return svgHostHtml(parsed.svg, true)
         return svgHostHtml(raw, false)
       }
+      if (isHtmlFenceLang(langString)) {
+        // Render ```html as HTML (tables with colgroup widths, etc.) — not a code card.
+        const fragment = sanitizeHtmlFence(text.replace(/\n$/, ''))
+        if (!fragment) return ''
+        return `${wrapBareHtmlTables(fragment)}\n`
+      }
       const body = escaped ? code : escapeHtml(code)
       const langClass = langString ? ` class="language-${escapeHtml(langString)}"` : ''
       return (
@@ -227,7 +249,7 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
   parseStreamingCharts = streamingCharts
   parseStreamingSvgs = streamingSvgs
   try {
-    return marked.parse(fixed) as string
+    return wrapBareHtmlTables(marked.parse(fixed) as string)
   } finally {
     parseStreamingCharts = false
     parseStreamingSvgs = false

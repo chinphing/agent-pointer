@@ -46,6 +46,8 @@ Internal fragment refs (`href="#id"`) remain allowed (e.g. markers / `<use>`).
 | Numeric comparison / trends | `chartjs` / `chart` |
 | Process / architecture / decision flow | `svg` |
 
+Full media boundaries (Markdown / SVG / Chart / HTML tables): [markdown-media-boundaries.md](markdown-media-boundaries.md).
+
 ## IM channels
 
 Interactive SVG runs in App/Web. IM rasterization is not guaranteed; the model prompt asks for a short textual summary when the diagram is essential.

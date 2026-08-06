@@ -95,4 +95,6 @@ export interface StreamHandlerContext {
   consumeStaleDoneAfterInterrupt(conversationId: string): boolean
   /** Mark a finished background conversation as awaiting user view (sidebar solid dot). */
   markConversationAwaitingView(conversationId: string): void
+  /** Stamp a user message for in-memory history trim (load / send / viewport). */
+  markUserMessageViewed(conversationId: string, messageId: string, at?: number): void
 }

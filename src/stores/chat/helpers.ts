@@ -113,11 +113,14 @@ export function assistantTurnActivelyRunning(msg: ChatMessage): boolean {
  * conversation history, based on per-user-message last-viewed timestamps.
  *
  * Scans user messages from oldest to newest and returns the cut index just
- * before the first user message that should stay: either never stamped into
- * the viewport, or viewed within `staleMs`. Rows with a viewedAt older than
- * `staleMs` are eligible to drop. Streamed rows without a `position` are never
- * cut, and the new window head is guaranteed to carry a position so the paging
- * cursor stays exact.
+ * before the first user message that should stay: never stamped into the
+ * viewport/load map, or viewed within `staleMs`. Rows with a viewedAt older
+ * than `staleMs` are eligible to drop. If every stamped user message is
+ * stale (no keep pivot), time-based cut allows the whole list — the
+ * `minKeepUserTurns` floor still caps how much is removed.
+ *
+ * Streamed rows without a `position` are never cut, and the new window head
+ * is guaranteed to carry a position so the paging cursor stays exact.
  *
  * A floor of `minKeepUserTurns` user messages (default 24 = 3 pages × 8 turns)
  * is always kept in memory: time-based trimming never removes more than that,
@@ -131,11 +134,11 @@ export function computeHistoryTrimCutByViewedAt(
   minKeepUserTurns = 24
 ): number {
   if (messages.length === 0) return 0
-  // Time-based scan: cut before the first user message that should stay in
-  // memory. A message with no viewedAt stamp has never been in the viewport —
-  // treat it like "keep" so a just-prepended older page is not immediately
-  // deleted (viewedAt missing must not be coerced to epoch 0 / "ancient").
-  let cutByTime = 0
+  // Time-based scan: cut before the first user message that should stay.
+  // Missing stamp → keep (just-loaded race before stamp applies).
+  // All stamped + all stale → no pivot; allow cutting the whole list
+  // (floor below still keeps the newest N user turns).
+  let cutByTime = messages.length
   for (let i = 0; i < messages.length; i += 1) {
     const msg = messages[i]!
     if (msg.role !== 'user') continue

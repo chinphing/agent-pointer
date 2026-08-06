@@ -175,6 +175,8 @@ export function handleInjectedUserMessage(ctx: StreamHandlerContext, e: Injected
   conv.messages = dedupeImInboundUserMessages(e.conversationId, conv.messages)
   maybeUpdateConversationTitle(conv)
   conv.updatedAt = Date.now()
+  // IM / injected user rows enter memory outside hydrate — stamp creation time.
+  ctx.markUserMessageViewed(e.conversationId, e.messageId, Date.now())
 }
 
 export function handleInjectedAssistantMessage(

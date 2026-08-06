@@ -14,6 +14,17 @@
 | 更早页收缩 | 加载更早后对历史行做与首屏相同的中断态归一化，避免卡住的 `streaming` 被当成进行中而不收缩 |
 | 侧栏 FTS 定位 | `aroundMessageId` 拉取命中所在回合窗口，再滚动高亮 |
 | 对话内 ⌘F | **仅搜索已加载消息**；未加载的更早内容不会命中 |
+| 内存裁剪 | 按 user 消息 `viewedAt`：加载/发送即打戳，进视口续期；超过 **10 分钟**可裁（至少保留最近 24 个 user 回合）；滚回顶部从 SQLite 再取 |
+
+## 内存裁剪与打戳
+
+| 时机 | `viewedAt` | 作用 |
+|------|------------|------|
+| 加载进内存（hydrate / load-older / around） | 加载时刻 | 避免「无戳永久保留」 |
+| 新发 / IM 注入 user 消息 | `createdAt` / 产生时刻 | 新消息进入可裁时钟 |
+| 进入虚拟视口 | 刷新为当前时间 | 刚看过的回合 10 分钟内不裁 |
+
+裁剪算法（`computeHistoryTrimCutByViewedAt`）：从最老 user 往新扫，停在第一个「无戳或未过期」的保留锚点；若**全部已打戳且都过期**，则只受「至少保留 N 个 user 回合」地板约束（可裁到地板）。SQLite 仍有全量，滚上去会重新加载。
 
 ## API
 
@@ -56,5 +67,4 @@ blocked desktop launch on large local DBs.
 ## 非目标
 
 - 对话内搜索服务端 FTS
-- 视口外远端页卸载
 - 改 compression / transcript `begin()`

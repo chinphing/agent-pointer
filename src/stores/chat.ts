@@ -455,7 +455,7 @@ export const useChatStore = defineStore('chat', () => {
   /** Last-viewed timestamp per user message (current-conversation history trim). */
   const EMPTY_VIEWED_MAP: ReadonlyMap<string, number> = new Map()
   /** How long a user message can go unviewed before it becomes trim candidate. */
-  const TRIM_HISTORY_STALE_MS = 60 * 60 * 1000
+  const TRIM_HISTORY_STALE_MS = 10 * 60 * 1000
   /** Always keep at least this many user turns in memory (3 pages × 8 turns). */
   const TRIM_HISTORY_MIN_KEEP_TURNS = 24
   const messageViewedAtByConv = new Map<string, Map<string, number>>()
@@ -643,6 +643,7 @@ export const useChatStore = defineStore('chat', () => {
         ...(item.attachments?.length ? { attachments: item.attachments } : {})
       }
       conv.messages.push(userMsg)
+      markUserMessageViewed(convId, userMsg.id, userMsg.createdAt)
       maybeUpdateConversationTitle(conv)
       conv.updatedAt = Date.now()
       await dispatchChatTurn(conv)
@@ -1421,6 +1422,8 @@ export const useChatStore = defineStore('chat', () => {
           normalizeInterruptedAssistantStatuses([conv])
         }
         normalizeSubAgentTraces([conv])
+        // Load-time stamp so trim does not treat missing viewedAt as forever-keep.
+        stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
         console.info(
           '[chat] ensureMessagesLoaded: hydrated',
@@ -1499,6 +1502,7 @@ export const useChatStore = defineStore('chat', () => {
         // classified as active turns and skip collapse when「默认收缩」is off
         // (hiddenCount=0 → full process, no elapsed chip).
         normalizeInterruptedAssistantStatuses([conv])
+        stampLoadedUserMessages(convId, stripped)
         applyMessagePageState(convId, {
           hasMoreOlder: page.hasMoreOlder,
           hasMoreNewer: state.hasMoreNewer,
@@ -1608,10 +1612,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * Record that a user message is currently visible in the viewport. Used by
-   * the history trimmer to keep recently-viewed turns in memory.
+   * Record that a user message entered memory or the viewport.
+   * Used by the history trimmer to decide which turns may leave RAM.
+   * @param at — stamp time; defaults to now (viewport renewal). Load/send
+   *   paths pass load time or `createdAt`.
    */
-  function markUserMessageViewed(convId: string, messageId: string): void {
+  function markUserMessageViewed(convId: string, messageId: string, at?: number): void {
     const key = convId.trim()
     if (!key || !messageId) return
     let map = messageViewedAtByConv.get(key)
@@ -1619,7 +1625,29 @@ export const useChatStore = defineStore('chat', () => {
       map = new Map()
       messageViewedAtByConv.set(key, map)
     }
-    map.set(messageId, Date.now())
+    map.set(messageId, at ?? Date.now())
+  }
+
+  /**
+   * Stamp user rows that just entered memory (hydrate / load-older / around).
+   * `onlyMissing` preserves newer viewport renewals when merging with an
+   * in-flight stream.
+   */
+  function stampLoadedUserMessages(
+    convId: string,
+    messages: ChatMessage[],
+    options?: { onlyMissing?: boolean; at?: number }
+  ): void {
+    const key = convId.trim()
+    if (!key || messages.length === 0) return
+    const at = options?.at ?? Date.now()
+    const onlyMissing = options?.onlyMissing === true
+    const existing = onlyMissing ? messageViewedAtByConv.get(key) : undefined
+    for (const msg of messages) {
+      if (msg.role !== 'user' || !msg.id) continue
+      if (onlyMissing && existing?.has(msg.id)) continue
+      markUserMessageViewed(key, msg.id, at)
+    }
   }
 
   /** Load a turn window around a message (sidebar FTS jump). */
@@ -1679,6 +1707,7 @@ export const useChatStore = defineStore('chat', () => {
           normalizeInterruptedAssistantStatuses([conv])
         }
         normalizeSubAgentTraces([conv])
+        stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
         console.info(
           '[chat] ensureMessagesAround: hydrated',
@@ -2649,7 +2678,8 @@ export const useChatStore = defineStore('chat', () => {
         void ensureMessagesLoaded(conversationId, { force: true })
       },
       consumeStaleDoneAfterInterrupt,
-      markConversationAwaitingView
+      markConversationAwaitingView,
+      markUserMessageViewed
     }
   }
 
@@ -2816,6 +2846,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     conv.messages.push(userMsg)
+    markUserMessageViewed(conv.id, userMsg.id, userMsg.createdAt)
     maybeUpdateConversationTitle(conv)
     for (const att of attachments) {
       releaseComposerAttachment(att.id)

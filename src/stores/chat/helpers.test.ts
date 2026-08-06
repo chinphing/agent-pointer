@@ -234,15 +234,34 @@ describe('chat helpers', () => {
       ['m2', now - 60_000]
     ])
     expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs, 1)).toBe(2)
-    // All stamped users stale → no "recent" pivot; keep everything.
+    // All stamped users stale → no "recent" pivot; cut down to the keep floor
+    // (newest 1 user turn → start at m2). Streamed m4 has no position so the
+    // cut head must stay on a positioned row (still m2).
     const allStale = new Map<string, number>([
       ['m0', now - 2 * staleMs],
       ['m2', now - 2 * staleMs]
     ])
-    expect(computeHistoryTrimCutByViewedAt(msgs, allStale, now, staleMs, 1)).toBe(0)
+    expect(computeHistoryTrimCutByViewedAt(msgs, allStale, now, staleMs, 1)).toBe(2)
     // Freshly-viewed first user message → nothing is stale.
     const freshHead = new Map<string, number>([['m0', now - 1_000]])
     expect(computeHistoryTrimCutByViewedAt(msgs, freshHead, now, staleMs, 1)).toBe(0)
+  })
+
+  it('computeHistoryTrimCutByViewedAt all-stale trims to floor only', () => {
+    const now = 1_000_000
+    const staleMs = 3_600_000
+    const user = (i: number): ChatMessage => ({
+      id: `u${i}`,
+      role: 'user',
+      content: `q${i}`,
+      status: 'done',
+      createdAt: 0,
+      position: i
+    })
+    const msgs: ChatMessage[] = Array.from({ length: 30 }, (_, i) => user(i))
+    const viewed = new Map(msgs.map(m => [m.id, now - 2 * staleMs]))
+    // Every stamp stale → time allows full cut; floor keeps newest 24 (u6..u29).
+    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs)).toBe(6)
   })
 
   it('computeHistoryTrimCutByViewedAt never trims below the keep floor', () => {

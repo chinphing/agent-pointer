@@ -10,6 +10,16 @@
 - 最近若干个有独立语义的用户轮次及其后续消息保持原文。
 - 自动重试提示和仅表示继续执行的短消息不占用用户轮次保留名额。
 
+## 异步预压缩（软阈值）
+
+目标：接近硬预算时先在后台压缩，下一轮发送几乎无感。
+
+- 软阈值：`gate_tokens > context_budget_tokens × 0.80`。
+- 一轮 `run_chat` 成功结束后，若越过软阈值且无同会话 inflight 任务，则后台异步压缩（`soft_precompress`）。
+- 下一轮 `run_chat` 在 transcript `begin` **之前**等待同会话 inflight 预压缩（若有）。
+- 预压缩仍会写 SQLite；UI 事件照常广播（用户可能看到「正在压缩」）。
+- 若预压缩已完成，同步路径通常因已在预算内而跳过。
+
 ## 摘要输入预算
 
 压缩只读取 `context_state.included=true` 的旧前缀消息。
@@ -29,20 +39,25 @@
 边界前后都要求模型只生成摘要、不得回答或继续历史中的请求，
 完整章节模板位于历史之后，避免长输入的近因内容覆盖摘要任务。
 
-## 摘要输出预算（对齐 Hermes）
+## 摘要输出预算
+
+摘要默认 **关闭 thinking**，并收紧首轮 `max_tokens`，避免
+`finish_reason=length` 触发漫长重试。
 
 摘要 `max_tokens` 按被压缩内容动态估算（设置页不再暴露摘要 tokens）：
 
 ```
 summary_max_tokens = clamp(
-  content_tokens × 0.20,
-  floor = 2000,
-  ceiling = 16_000
+  content_tokens × 0.15,
+  floor = 1_500,
+  ceiling = 6_000          # first attempt
 )
+retry_max_tokens = min(first × 2, 12_000)
 ```
 
 - `content_tokens`：格式化后待摘要前缀的启发式 token 估算。
-- 第一次失败后重试一次（关闭 thinking），`max_tokens × 2`，重试上限 **32_000**。
+- 首轮与重试均使用 `chat_once_without_thinking`。
+- 仅在首轮验收失败（截断 / 空正文 / 调用失败）时重试一次并放大输出预算。
 
 ## 摘要验收与失败语义
 
@@ -52,8 +67,7 @@ summary_max_tokens = clamp(
 - 输出正文非空。
 
 约定章节用于引导模型组织内容，不作为逐字匹配的验收条件。
-首次输出被截断或为空时，使用禁用 thinking 的辅助请求重试一次（并放大输出预算），
-避免隐藏推理占用摘要输出 token。
+首次输出被截断或为空时，再发起一次无 thinking 重试（并放大输出预算）。
 
 写回上下文的摘要保留稳定识别前缀，并追加 `REFERENCE ONLY` 说明。
 后续模型必须将摘要视为背景资料，只处理摘要之后的新消息。

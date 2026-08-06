@@ -62,6 +62,9 @@ pub async fn run_chat(
         .lock()
         .insert(conversation_id.clone(), cancel.clone());
 
+    // Await soft precompress so transcript begin reads the spliced SQLite state.
+    crate::context_compression::await_precompress_if_any(&conversation_id).await;
+
     let transcript_session =
         match crate::conversation_transcript::ConversationTranscriptSession::begin(
             &conversation_id,
@@ -196,7 +199,7 @@ pub async fn run_chat(
     emit(
         &stream,
         StreamEvent::Done {
-            conversation_id,
+            conversation_id: conversation_id.clone(),
             tool_rounds_used_total: Some(consumed_single),
             tool_rounds_used_supervisor_total: Some(consumed_supervisor),
             max_tool_rounds: Some(max_tr),
@@ -206,5 +209,9 @@ pub async fn run_chat(
         "run_chat finished after Done emit final_result_is_ok={}",
         result.is_ok(),
     );
+    // Soft-threshold background compress while the user is idle / composing.
+    if result.is_ok() {
+        crate::context_compression::maybe_spawn_precompress(state.clone(), conversation_id);
+    }
     result
 }

@@ -28,6 +28,10 @@ import {
   hasMacosComputerPermissionsUserAck
 } from '../../lib/macosPermissionsSession'
 import { isTauriRuntime } from '../../lib/runtime'
+import {
+  acquireComposerTauriDragDrop,
+  normalizeComposerDropPath
+} from '../../lib/composerTauriDragDrop'
 import { openPlatformBillingPage } from '../../lib/platformUrls'
 import {
   CHAT_ATTACHMENT_ACCEPT,
@@ -111,8 +115,10 @@ const composerDropZoneRef = ref<HTMLDivElement | null>(null)
 const attachmentHint = ref<string | null>(null)
 const composerDragDepth = ref(0)
 const isComposerDragOver = computed(() => composerDragDepth.value > 0)
-/** Desktop: `onUnmounted` must call this — each Composer instance registers its own listener. */
-let unlistenTauriDragDrop: (() => void) | null = null
+/** Disposer for the shared Tauri window drop listener (see composerTauriDragDrop). */
+let releaseTauriDragDrop: (() => void) | null = null
+/** Guard async acquire against unmount mid-setup (avoids leaking a handler on the stack). */
+let composerDragDropMounted = false
 
 const agents = useAgentsCatalog()
 
@@ -677,6 +683,15 @@ async function addAttachmentFile(file: File) {
 async function addAttachmentFromLocalPath(path: string) {
   attachmentHint.value = null
   const name = path.split(/[/\\]/).pop() || 'attachment'
+  const normalizedPath = normalizeComposerDropPath(path)
+  if (
+    composerAttachments.value.some(
+      a => a.localSourcePath && normalizeComposerDropPath(a.localSourcePath) === normalizedPath
+    )
+  ) {
+    console.info('[composer] skip duplicate local attachment path', path)
+    return
+  }
   const fileLike = { name, type: '', size: 0 }
   if (!isSupportedChatAttachmentFile(fileLike)) {
     attachmentHint.value = `无法添加附件：${name}`
@@ -969,9 +984,12 @@ function composerAttachmentBlockedHint(): string {
  * Two mutually exclusive paths — do not merge into one handler:
  *
  * - Web: HTML5 `@drop` on `composerDropZoneRef` (below in template). Uses `File` API.
- * - Desktop (Tauri): `webview.onDragDropEvent` in `setupTauriComposerDragDrop`.
+ * - Desktop (Tauri): shared `acquireComposerTauriDragDrop` (`lib/composerTauriDragDrop.ts`).
  *   Tauri intercepts OS file drags; HTML5 `drop` does NOT fire for Finder/Explorer files.
  *   Payload gives filesystem paths (`ingestDroppedPaths`), not bytes.
+ *   Listener is module-singleton (not per Composer mount) + short-window path dedupe —
+ *   remount races / duplicate native events previously added the same file multiple times
+ *   into the shared `composerAttachments` store.
  *
  * Common regressions (see docs/contributing/web-media-and-desktop-snapshot.md):
  * - Setting `dragDropEnabled: false` in tauri.conf.json — breaks native drops on macOS;
@@ -979,6 +997,7 @@ function composerAttachmentBlockedHint(): string {
  * - DOMRect / `getBoundingClientRect` hit tests on `event.payload.position` — coords are
  *   window-outer relative; frameless + macOS overlay title bar ≠ viewport (tauri#10744).
  *   Accept window-level drops instead of coordinate targeting.
+ * - Registering `onDragDropEvent` inside each Composer instance — leaks / multiplies drops.
  * - Removing `if (isTauriRuntime()) return` from HTML5 handlers — dead on desktop but documents
  *   intent; do not wire desktop file intake only through `@drop`.
  * - Calling `webview.scaleFactor()` — not on Webview type; use `getCurrentWindow().scaleFactor()`
@@ -1101,36 +1120,27 @@ async function onComposerDrop(e: DragEvent) {
 }
 
 async function setupTauriComposerDragDrop() {
-  if (!isTauriRuntime()) return
-  try {
-    const { getCurrentWebview } = await import('@tauri-apps/api/webview')
-    const webview = getCurrentWebview()
-    // Window-level listener: do NOT filter by pointer position (unreliable on overlay chrome).
-    // Accept any drop with paths while this Composer is mounted.
-    unlistenTauriDragDrop = await webview.onDragDropEvent(async event => {
-      const payload = event.payload
-      if (payload.type === 'enter' || payload.type === 'over') {
-        composerDragDepth.value = canAcceptComposerAttachments() ? 1 : 0
+  // Shared window listener — see lib/composerTauriDragDrop.ts (do not re-register per instance).
+  releaseTauriDragDrop?.()
+  releaseTauriDragDrop = null
+  const release = await acquireComposerTauriDragDrop({
+    onHover: active => {
+      composerDragDepth.value = active && canAcceptComposerAttachments() ? 1 : 0
+    },
+    onDrop: async paths => {
+      if (!canAcceptComposerAttachments()) {
+        attachmentHint.value = composerAttachmentBlockedHint()
+        console.warn('[composer-drag-drop] drop blocked:', composerAttachmentBlockedHint())
         return
       }
-      if (payload.type === 'drop') {
-        composerDragDepth.value = 0
-        if (!payload.paths?.length) return
-        if (!canAcceptComposerAttachments()) {
-          attachmentHint.value = composerAttachmentBlockedHint()
-          console.warn('[composer-drag-drop] drop blocked:', composerAttachmentBlockedHint())
-          return
-        }
-        console.info('[composer-drag-drop] native drop', payload.paths)
-        await ingestDroppedPaths(payload.paths)
-        return
-      }
-      composerDragDepth.value = 0
-    })
-    console.info('[composer-drag-drop] native listener ready')
-  } catch (err) {
-    console.warn('tauri composer drag-drop listener failed', err)
+      await ingestDroppedPaths(paths)
+    }
+  })
+  if (!composerDragDropMounted) {
+    release()
+    return
   }
+  releaseTauriDragDrop = release
 }
 
 function removePendingAttachment(id: string) {
@@ -1526,6 +1536,7 @@ watch(composerText, () => {
 })
 
 onMounted(() => {
+  composerDragDropMounted = true
   nextTick(() => {
     autoResize()
     setupTextareaResizeObserver()
@@ -1546,13 +1557,14 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  composerDragDropMounted = false
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
   textareaResizeObserver?.disconnect()
   textareaResizeObserver = null
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleDocumentKeydown)
-  unlistenTauriDragDrop?.()
-  unlistenTauriDragDrop = null
+  releaseTauriDragDrop?.()
+  releaseTauriDragDrop = null
 })
 </script>
 

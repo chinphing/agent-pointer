@@ -20,11 +20,12 @@ Composer 支持三种添加方式：回形针选择、粘贴图片、拖入文�
 | 主窗口设置 `dragDropEnabled: false` | 与 Tauri 原生 OS 拖放互斥；macOS 上 HTML5 `@drop` 对 Finder 文件常不触发 |
 | 用 `onDragDropEvent` 的 `position` + `getBoundingClientRect` 做落点命中 | 坐标相对窗口外框，与 viewport 不一致（overlay 标题栏约 28px 量级偏差） |
 | 桌面端仅依赖模板 `@drop` 收文件 | OS 文件拖入时 WebView 不派发 HTML5 drop，必须用 `onDragDropEvent` |
+| 在每个 Composer 实例里各自 `onDragDropEvent` | 事件是整窗级别；多实例或 remount 竞态会泄漏监听，同一文件进共享 `composerAttachments` 多次。必须走 `lib/composerTauriDragDrop.ts` 单例 + 短时路径去重 |
 | 去掉 HTML5 处理器里的 `if (isTauriRuntime()) return` | 标明 Web/Tauri 双路径；避免误以为桌面走 DOM drop |
 | 调用 `webview.scaleFactor()` | Tauri 2 上在 `Window` 上，不在 `Webview` |
 | 改 `tauri.conf` 后只热更新前端 | `dragDropEnabled` 等在窗口创建时生效，需完整重启 `tauri dev` / 重装包 |
 
-实现位置：`src/components/chat/Composer.vue`（`setupTauriComposerDragDrop` + Web `@drop`）；主窗口 `drag_drop_enabled` 见 `src-tauri/tauri.conf.json`（默认 `true`，勿随意改 false）。
+实现位置：`src/lib/composerTauriDragDrop.ts`（桌面单例监听）+ `Composer.vue`（订阅 + Web `@drop`）；主窗口 `drag_drop_enabled` 见 `src-tauri/tauri.conf.json`（默认 `true`，勿随意改 false）。
 
 | 能力 | 桌面 (Tauri) | Web (pointer-server) |
 |------|--------------|----------------------|

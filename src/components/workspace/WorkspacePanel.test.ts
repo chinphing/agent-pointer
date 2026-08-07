@@ -76,6 +76,62 @@ afterEach(() => {
 })
 
 describe('WorkspacePanel refresh behavior', () => {
+  it('force-refreshes Git status when entering Changes, not when already there', async () => {
+    apiMocks.getWorkspaceGitStatus.mockResolvedValue({
+      changes: [{ path: 'a.ts', status: 'modified', staged: false }]
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
+    mountedApps.push(app)
+    app.mount(host)
+    await settle()
+
+    const changesTab = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tab-icon')]
+      .find(tab => tab.getAttribute('aria-label') === '变更文件')
+    expect(changesTab).toBeTruthy()
+
+    apiMocks.getWorkspaceGitStatus.mockClear()
+    apiMocks.getWorkspaceGitStatus.mockResolvedValue({
+      changes: [
+        { path: 'a.ts', status: 'modified', staged: false },
+        { path: 'b.ts', status: 'added', staged: false }
+      ]
+    })
+    changesTab!.click()
+    await settle()
+    expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace')
+    expect(host.textContent).toContain('2')
+
+    apiMocks.getWorkspaceGitStatus.mockClear()
+    // Already on Changes — clicking again should not re-fetch.
+    changesTab!.click()
+    await settle()
+    expect(apiMocks.getWorkspaceGitStatus).not.toHaveBeenCalled()
+  })
+
+  it('silently refreshes the Git badge when the window regains focus', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
+    mountedApps.push(app)
+    app.mount(host)
+    await settle()
+    apiMocks.getWorkspaceGitStatus.mockClear()
+
+    // Bypass TTL from mount by waiting past 1.5s is slow in tests — fire focus
+    // after advancing timers once the mount refresh window has elapsed.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      vi.advanceTimersByTime(1_600)
+      window.dispatchEvent(new Event('focus'))
+      await settle()
+      expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('refreshes the tree and Git badge after the current turn writes a file', async () => {
     const host = document.createElement('div')
     document.body.append(host)
@@ -128,9 +184,9 @@ describe('WorkspacePanel terminal tab', () => {
 
     const tabs = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tab-icon')]
     expect(tabs.slice(0, 3).map(tab => tab.getAttribute('aria-label'))).toEqual([
-      '调试终端',
       '工作区文件',
-      '变更文件'
+      '变更文件',
+      '调试终端'
     ])
   })
 })

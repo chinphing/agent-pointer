@@ -306,6 +306,7 @@ function refreshChangesBadge(options?: { force?: boolean }) {
 
 /** Switch primary nav immediately; do not reload the file tree (keeps scroll + expanded folders). */
 function activatePrimaryView(nextView: PrimaryView) {
+  const switching = activeView.value !== nextView
   activeView.value = nextView
   if (nextView === 'files') {
     refreshChangesBadge()
@@ -314,10 +315,23 @@ function activatePrimaryView(nextView: PrimaryView) {
     })
     return
   }
-  // First open of Changes may still need data; later switches keep the list.
-  if (!changes.value.length && !loadingChanges.value) {
-    void refreshChangesBadge({ force: true })
+  if (nextView === 'changes') {
+    // Force-refresh only when entering Changes from another tab.
+    if (switching) void refreshChangesBadge({ force: true })
+    return
   }
+}
+
+/** Window/tab regained focus — silent badge refresh (respects 1.5s TTL). */
+function onWorkspaceFocusRefresh() {
+  if (!hasWorkspace.value) return
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+  refreshChangesBadge()
+}
+
+function onDocumentVisibilityRefresh() {
+  if (document.visibilityState !== 'visible') return
+  onWorkspaceFocusRefresh()
 }
 
 function reloadPreviewTab(tabItem: PreviewTab) {
@@ -1030,6 +1044,8 @@ onMounted(() => {
   window.addEventListener('scroll', closeContextMenu, true)
   document.addEventListener('keydown', handleDocumentKeydown)
   window.addEventListener('keydown', onGlobalTreeFindShortcut, true)
+  window.addEventListener('focus', onWorkspaceFocusRefresh)
+  document.addEventListener('visibilitychange', onDocumentVisibilityRefresh)
   const pending = workspacePanelStore.consumePendingTurnDiff()
   if (pending) void openTurnDiff(pending.conversationId, pending.turnId, pending.path)
 })
@@ -1040,6 +1056,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', closeContextMenu, true)
   document.removeEventListener('keydown', handleDocumentKeydown)
   window.removeEventListener('keydown', onGlobalTreeFindShortcut, true)
+  window.removeEventListener('focus', onWorkspaceFocusRefresh)
+  document.removeEventListener('visibilitychange', onDocumentVisibilityRefresh)
   if (treeSearchDebounce != null) clearTimeout(treeSearchDebounce)
 })
 </script>

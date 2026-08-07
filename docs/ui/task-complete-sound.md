@@ -14,7 +14,7 @@
 
 | 层 | 说明 |
 |----|------|
-| **桌面（Tauri）** | 原生播音：`play_task_complete_chime` 按**原 Web Audio 四层音色**离线合成 WAV（G3/G4 + D4/D5、1400Hz 低通、master 1.45），经 OS 播放（macOS `afplay` / Windows `SoundPlayer` / Linux `paplay\|aplay\|ffplay`）。不走 WebView，避免无声 |
+| **桌面（Tauri）** | 原生播音：`play_task_complete_chime` 按**原 Web Audio 四层音色**离线合成 WAV（G3/G4 + D4/D5、1400Hz 低通、master 1.45），经 OS 播放（macOS `afplay` / Windows WinMM `PlaySoundW` 进程内播放 / Linux `paplay\|aplay\|ffplay`）。不走 WebView，避免无声 |
 | **网页** | 同款合成 WAV + `HTMLAudioElement`；发送时 `primeTaskCompleteAudio` 静音解锁 |
 | 触发 | **仅** `handleDone`（`StreamEvent::Done`）；在 `finally` 中播放 |
 | 条件 | Done 前仍为 `generating`，**或**仍有未关闭的 turn timing（`hasActiveTurn`） |

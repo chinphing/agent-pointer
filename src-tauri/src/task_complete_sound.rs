@@ -5,7 +5,7 @@
 //!
 //! Playback via OS audio stack:
 //! - macOS: `afplay`
-//! - Windows: `System.Media.SoundPlayer`
+//! - Windows: WinMM `PlaySoundW` (in-process; no PowerShell / console flash)
 //! - Linux: `paplay` / `aplay` / `ffplay` (first available)
 
 use std::fs;
@@ -236,6 +236,40 @@ fn spawn_player(program: &str, args: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn play_wav_windows(path: &PathBuf) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    // winmm PlaySound — plays in-process, no console host.
+    const SND_ASYNC: u32 = 0x0001;
+    const SND_NODEFAULT: u32 = 0x0002;
+    const SND_FILENAME: u32 = 0x0002_0000;
+
+    #[link(name = "winmm")]
+    extern "system" {
+        fn PlaySoundW(psz_sound: *const u16, hmod: isize, fdw_sound: u32) -> i32;
+    }
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // ASYNC so the Tauri command returns immediately; the temp WAV stays on disk
+    // for the process lifetime (OnceLock path), which PlaySound requires.
+    let ok = unsafe {
+        PlaySoundW(
+            wide.as_ptr(),
+            0,
+            SND_FILENAME | SND_ASYNC | SND_NODEFAULT,
+        )
+    };
+    if ok == 0 {
+        return Err("PlaySoundW failed".into());
+    }
+    Ok(())
+}
+
 fn play_wav_file(path: &PathBuf) -> Result<(), String> {
     let path_str = path.to_string_lossy().to_string();
 
@@ -246,14 +280,8 @@ fn play_wav_file(path: &PathBuf) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        let script = format!(
-            "(New-Object System.Media.SoundPlayer -ArgumentList '{}').PlaySync()",
-            path_str.replace('\'', "''")
-        );
-        return spawn_player(
-            "powershell",
-            &["-NoProfile", "-NonInteractive", "-Command", &script],
-        );
+        let _ = path_str;
+        return play_wav_windows(path);
     }
 
     #[cfg(target_os = "linux")]

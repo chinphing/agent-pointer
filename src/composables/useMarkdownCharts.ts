@@ -1,5 +1,5 @@
 import { nextTick, onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
-import { Chart } from 'chart.js/auto'
+import type { Chart as ChartInstance } from 'chart.js'
 import {
   applyChartTheme,
   decodeChartConfigAttr,
@@ -13,8 +13,18 @@ const checkIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height=
 const downloadIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>`
 const codeIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`
 
+type ChartCtor = typeof import('chart.js/auto').Chart
+let chartCtorPromise: Promise<ChartCtor> | null = null
+
+function loadChartCtor(): Promise<ChartCtor> {
+  if (!chartCtorPromise) {
+    chartCtorPromise = import('chart.js/auto').then(mod => mod.Chart)
+  }
+  return chartCtorPromise
+}
+
 type ChartHostState = {
-  chart: Chart | null
+  chart: ChartInstance | null
   boundConfig: string
   resizeObserver: ResizeObserver | null
 }
@@ -52,7 +62,7 @@ export function useMarkdownCharts(
     hosts.delete(host)
   }
 
-  function extractDatasetValues(chart: Chart): number[] {
+  function extractDatasetValues(chart: ChartInstance): number[] {
     const rawPoints = chart.data.datasets[0]?.data
     if (!Array.isArray(rawPoints)) return []
     const values: number[] = []
@@ -70,7 +80,7 @@ export function useMarkdownCharts(
    * Detect squashed series: data should sit mid/high on the axis but pixels
    * stay on the floor (seen on macOS WKWebView with bad first layout).
    */
-  function chartPixelsLookSquashed(chart: Chart): boolean {
+  function chartPixelsLookSquashed(chart: ChartInstance): boolean {
     try {
       const yScale = chart.scales.y
       if (!yScale || !Number.isFinite(yScale.min) || !Number.isFinite(yScale.max)) return false
@@ -107,7 +117,7 @@ export function useMarkdownCharts(
     }
   }
 
-  function repairSquashedChart(chart: Chart) {
+  function repairSquashedChart(chart: ChartInstance) {
     const y = chart.options.scales?.y as Record<string, unknown> | undefined
     if (y) {
       delete y.min
@@ -305,6 +315,10 @@ export function useMarkdownCharts(
   }
 
   function mountOrUpdate(host: HTMLElement) {
+    void mountOrUpdateAsync(host)
+  }
+
+  async function mountOrUpdateAsync(host: HTMLElement) {
     // Defer Chart.js until the assistant turn finishes streaming.
     if (isStreaming()) {
       showStatus(host, '图表生成中…', 'pending')
@@ -366,6 +380,11 @@ export function useMarkdownCharts(
     wrap.appendChild(box)
 
     try {
+      const Chart = await loadChartCtor()
+      // Host may have been torn down / reconfigured while Chart.js was loading.
+      if (hosts.get(host)?.boundConfig === encoded && hosts.get(host)?.chart) return
+      if (host.getAttribute('data-chart-config') !== encoded) return
+
       const themed = applyChartTheme(parsed.config)
       // Size the canvas from the laid-out box before Chart.js reads it (WKWebView).
       const w = Math.max(1, Math.floor(box.clientWidth || box.getBoundingClientRect().width))

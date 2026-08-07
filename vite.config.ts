@@ -17,7 +17,7 @@ export default defineConfig({
   },
   clearScreen: false,
   build: {
-    // Local Tauri + same-origin server UI; gzip matters more than raw 500kB threshold.
+    // Local Tauri + same-origin server UI; gzip matters more than raw threshold.
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
@@ -28,6 +28,18 @@ export default defineConfig({
           }
           if (id.includes(`${path.sep}@tauri-apps${path.sep}`) || id.includes('/@tauri-apps/')) {
             return 'tauri-vendor'
+          }
+          if (id.includes(`${path.sep}lucide-vue-next${path.sep}`) || id.includes('/lucide-vue-next/')) {
+            return 'lucide-vendor'
+          }
+          if (id.includes(`${path.sep}marked${path.sep}`) || id.includes('/marked/')) {
+            return 'marked-vendor'
+          }
+          if (id.includes(`${path.sep}chart.js${path.sep}`) || id.includes('/chart.js/')) {
+            return 'chart-vendor'
+          }
+          if (id.includes(`${path.sep}@tanstack${path.sep}`) || id.includes('/@tanstack/')) {
+            return 'virtual-vendor'
           }
         }
       }

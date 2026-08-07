@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue'
 import {
   Plus,
   Search,
@@ -44,8 +44,10 @@ import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
 import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
 import { isTauriRuntime } from '../../lib/runtime'
-import WorkspacePanel from '../workspace/WorkspacePanel.vue'
 import type { Project } from '../../types/chat'
+
+/** Lazy: DiffView + markdown preview stay out of the first paint. */
+const WorkspacePanel = defineAsyncComponent(() => import('../workspace/WorkspacePanel.vue'))
 
 const emit = defineEmits<{
   (e: 'open-settings', section?: string): void

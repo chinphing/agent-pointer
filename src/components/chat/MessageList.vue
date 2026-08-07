@@ -49,6 +49,7 @@ import {
   turnOffsetInScroller,
   type MessageListScrollAnchor
 } from '../../lib/messageListScrollAnchor'
+import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
 
 const props = withDefaults(defineProps<{
   searchMatchIds?: string[]
@@ -205,6 +206,9 @@ function stickScrollerToBottom() {
   const el = scroller.value
   if (!el) return
   el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+  // Keep lastScrollTop in sync so the next user drag is detected as scrollingUp
+  // (otherwise lastScrollTop stays 0 after mount and scrollbar detach fails).
+  lastScrollTop = el.scrollTop
 }
 
 function scheduleToBottom() {
@@ -827,13 +831,17 @@ function onScroll(event: Event) {
   }
   const distance = distanceFromBottom()
   if (programmaticScrollDepth === 0) {
-    // Hysteresis: wheel/touch may unpin while still within DETACH_BOTTOM_PX.
-    // Only resume follow when essentially at the bottom again.
-    if (distance <= ATTACH_BOTTOM_PX) {
-      followOutput = true
-    } else if (distance > DETACH_BOTTOM_PX) {
-      followOutput = false
-    }
+    // Scrollbar drag only emits scroll (not wheel). Detect scrollTop moving
+    // toward older content and unpin immediately — otherwise follow stays on
+    // inside the attach/detach band and scheduleToBottom fights the thumb.
+    const scrollingUp = el != null && el.scrollTop < lastScrollTop - 1
+    followOutput = nextFollowOutputAfterScroll({
+      followOutput,
+      distanceFromBottom: distance,
+      scrollingUp,
+      attachPx: ATTACH_BOTTOM_PX,
+      detachPx: DETACH_BOTTOM_PX
+    })
   }
   showScrollButton.value = !followOutput
   updateActiveBoardStickyState()

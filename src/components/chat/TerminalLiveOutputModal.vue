@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { Maximize2, Minimize2, Terminal, X } from 'lucide-vue-next'
+import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
 
 const props = defineProps<{
   command: string
@@ -16,6 +17,9 @@ const fullscreen = ref(false)
 /** User scrolled away from the live tail — stop auto-following until they return. */
 const followOutput = ref(true)
 let touchStartY: number | null = null
+let lastScrollTop = 0
+const ATTACH_BOTTOM_PX = 8
+const DETACH_BOTTOM_PX = 48
 
 const hasOutput = computed(() => props.output.trim().length > 0)
 
@@ -30,12 +34,21 @@ function scrollOutputToBottom() {
   if (!el) return
   followOutput.value = true
   el.scrollTop = el.scrollHeight
+  lastScrollTop = el.scrollTop
 }
 
 function onOutputScroll() {
+  const el = outputEl.value
   const distance = distanceFromBottom()
-  if (distance <= 8) followOutput.value = true
-  else if (distance > 48) followOutput.value = false
+  const scrollingUp = el != null && el.scrollTop < lastScrollTop - 1
+  followOutput.value = nextFollowOutputAfterScroll({
+    followOutput: followOutput.value,
+    distanceFromBottom: distance,
+    scrollingUp,
+    attachPx: ATTACH_BOTTOM_PX,
+    detachPx: DETACH_BOTTOM_PX
+  })
+  if (el) lastScrollTop = el.scrollTop
 }
 
 function onOutputWheel(event: WheelEvent) {
@@ -61,6 +74,7 @@ function close() {
   fullscreen.value = false
   emit('close')
 }
+
 
 function toggleFullscreen() {
   fullscreen.value = !fullscreen.value

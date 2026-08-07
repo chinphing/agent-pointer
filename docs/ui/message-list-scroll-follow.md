@@ -9,15 +9,16 @@
 | 状态 | 条件 | 自动滚动 |
 |------|------|----------|
 | 跟随 | 贴底（或刚点跳转按钮 / 切换会话） | 新 token / 新消息继续滚到底 |
-| 脱离 | 向上滚轮 / 手指下拖 / 距底超过阈值 | 不再 `scrollToIndex` |
+| 脱离 | 向上滚轮 / 手指下拖 / **滚动条上拉** / 距底超过阈值 | 不再 `scrollToIndex` |
 | 恢复 | 距底 ≤ 附着阈值，或点击跳转按钮 | 重新跟随 |
 
 阈值（`MessageList.vue`）：
 
 - **附着** `ATTACH_BOTTOM_PX = 8`：只有几乎贴底才恢复跟随（滞回，避免轻微上滑立刻被 `onScroll` 重新贴底）。
-- **脱离** `DETACH_BOTTOM_PX = 48`：仅靠滚动位置脱离时的距离。
+- **脱离** `DETACH_BOTTOM_PX = 48`：仅靠滚动**位置**脱离时的距离。
+- **上滑即时脱离**：`scrollTop` 减小（滚轮 / 触控 / **拖动滚动条**）时立刻 `followOutput = false`。滚动条只触发 `scroll`、不触发 `wheel`；若缺少这一步，在附着/脱离滞回带内会继续 `scheduleToBottom`，与拖动打架导致界面反复抖动。
 
-程序化 `toBottom` 期间用 `programmaticScrollDepth` 忽略滚动事件，避免把跟随状态写乱。
+程序化 `toBottom` 期间用 `programmaticScrollDepth` 忽略滚动事件，避免把跟随状态写乱。贴底后同步 `lastScrollTop`，否则首次拖动无法识别为上滑。
 
 贴底实现要点：
 
@@ -27,7 +28,7 @@
 2. **切换/挂载 settle**：会话切换会 remount 列表，行高先用估算值；
    `toBottom({ settle: true })` 在随后两帧再贴一次，减少测量校正后的下跳与裁切。
 3. **视口变矮**：`ResizeObserver` 在跟随态下侦测 scroller `clientHeight`
-   （Composer / ChangeSummary / 草稿增高），再 `scheduleToBottom`。
+   （Composer / ChangeSummary / 草稿增高），再按视口差值补偿 `scrollTop`。
 4. **总高度变化**：跟随态下 virtualizer `getTotalSize()` 变化时再贴一次真底部
    （覆盖切换后 estimate→measure 与末轮展开）。
 
@@ -38,4 +39,5 @@
 
 ## 实现
 
-`src/components/chat/MessageList.vue`
+- `src/components/chat/MessageList.vue`
+- `src/lib/messageListScrollFollow.ts` — `nextFollowOutputAfterScroll`

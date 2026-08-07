@@ -73,6 +73,22 @@ export function wrapBareHtmlTables(html: string): string {
   )
 }
 
+/**
+ * CommonMark treats HTML blocks as opaque until a blank line. Models often emit:
+ *   </table>
+ *   ## Next heading
+ * without a blank line, so subsequent Markdown is left unparsed. Insert gaps.
+ */
+export function ensureBlankLinesAroundHtmlTables(src: string): string {
+  if (!src.includes('<table') && !src.includes('</table')) return src
+  let out = src
+  // Blank line before <table> when the previous line has content.
+  out = out.replace(/([^\n])\n([ \t]*)(<table\b)/gi, '$1\n\n$2$3')
+  // Blank line after </table> when the next line has content (not already blank).
+  out = out.replace(/<\/table>([ \t]*)\n(?=[ \t]*\S)/gi, '</table>$1\n\n')
+  return out
+}
+
 function tableAlignClass(align: string | null | undefined): string | null {
   if (align === 'right') return 'md-align-right'
   if (align === 'center') return 'md-align-center'
@@ -245,6 +261,7 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
   let prepared = src
   if (streamingCharts) prepared = stabilizeStreamingChartFences(prepared)
   if (streamingSvgs) prepared = stabilizeStreamingSvgFences(prepared)
+  prepared = ensureBlankLinesAroundHtmlTables(prepared)
   const fixed = prepared.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
   parseStreamingCharts = streamingCharts
   parseStreamingSvgs = streamingSvgs

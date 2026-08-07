@@ -1,6 +1,40 @@
 import { describe, expect, it } from 'vitest'
-import { parseMarkdown, wrapBareHtmlTables } from './markdownConfig'
+import {
+  ensureBlankLinesAroundHtmlTables,
+  parseMarkdown,
+  wrapBareHtmlTables
+} from './markdownConfig'
 import { isHtmlFenceLang, sanitizeHtmlFence } from './markdownHtml'
+
+describe('ensureBlankLinesAroundHtmlTables', () => {
+  it('inserts blank lines so Markdown resumes after HTML tables', () => {
+    const src = [
+      '## 报销进度汇总',
+      '<table><tr><td>a</td></tr></table>',
+      '## 待补充清单',
+      '<table><tr><td>b</td></tr></table>',
+      '## 当前进展',
+      '正文',
+      '',
+      '**加粗**',
+      '',
+      '1. 一项',
+      '',
+      '[链接](https://example.com)',
+    ].join('\n')
+    const normalized = ensureBlankLinesAroundHtmlTables(src)
+    expect(normalized).toContain('</table>\n\n## 待补充清单')
+    expect(normalized).toContain('</table>\n\n## 当前进展')
+    const html = parseMarkdown(src)
+    expect(html).toContain('<h2>报销进度汇总</h2>')
+    expect(html).toContain('<h2>待补充清单</h2>')
+    expect(html).toContain('<h2>当前进展</h2>')
+    expect(html).toContain('<strong>加粗</strong>')
+    expect(html).toContain('<ol>')
+    expect(html).toContain('href="https://example.com"')
+    expect(html).not.toMatch(/>\s*## 待补充清单/)
+  })
+})
 
 describe('wrapBareHtmlTables', () => {
   it('wraps a bare HTML table', () => {

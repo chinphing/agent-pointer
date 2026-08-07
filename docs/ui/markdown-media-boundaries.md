@@ -25,6 +25,7 @@
 
 - 仅此 fence 承载矢量图；正文裸 `<svg>` 不应作为正式画图通道。
 - 专用消毒、流式占位、卡片工具条。见 [markdown-svg.md](markdown-svg.md)。
+- 宿主按 `viewBox` 定宽，窄聊天气泡横向滚动，避免 `width="100%"` 把长标签挤叠。
 
 ### ` ```chartjs ` / ` ```chart `
 

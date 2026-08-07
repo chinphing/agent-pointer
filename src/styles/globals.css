@@ -574,10 +574,22 @@
   @apply w-full px-3 pt-3 pb-2;
   overflow: auto;
   border-radius: inherit;
+  /* Isolate from `.md-body` prose so inherited font-size / line-height /
+     overflow-wrap do not change SVG text metrics vs the authored layout. */
+  font-size: 12px;
+  line-height: normal;
+  letter-spacing: normal;
+  word-spacing: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
+  font-weight: 400;
 }
 .md-body .md-svg-frame > svg {
   display: block;
-  max-width: 100%;
+  /* Prefer authored viewBox pixel width (set on mount); allow horizontal scroll
+     instead of crushing long labels with max-width: 100%. */
+  max-width: none;
   height: auto;
   margin: 0 auto;
 }

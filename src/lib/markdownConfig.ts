@@ -157,8 +157,8 @@ export function stabilizeStreamingChartFences(src: string): string {
 }
 
 /**
- * Replace open/closed `svg` fences with a fixed stub so streaming re-parses
- * do not rewrite the SVG card HTML every token.
+ * While streaming: stub **incomplete** `svg` fences only.
+ * Closed fences are kept so the diagram can mount before the rest of the reply finishes.
  */
 export function stabilizeStreamingSvgFences(src: string): string {
   if (!src.includes('```')) return src
@@ -169,9 +169,18 @@ export function stabilizeStreamingSvgFences(src: string): string {
   while (i < lines.length) {
     const line = lines[i]!
     if (SVG_OPEN_RE.test(line)) {
+      const openLine = line
       i += 1
+      const bodyStart = i
       while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i]!)) i += 1
-      if (i < lines.length) i += 1
+      if (i < lines.length) {
+        // Closed fence — keep authored body (stable once closed).
+        out.push(openLine)
+        for (let j = bodyStart; j <= i; j++) out.push(lines[j]!)
+        i += 1
+        continue
+      }
+      // Still open — fixed stub so growing tokens do not reshuffle card HTML.
       out.push('```svg', STREAMING_SVG_STUB, '```')
       replaced = true
       continue
@@ -212,11 +221,12 @@ marked.use({
         return chartHostHtml(raw, false)
       }
       if (isSvgFenceLang(langString)) {
-        if (parseStreamingSvgs) return STREAMING_SVG_HOST_HTML
         const raw = text.replace(/\n$/, '')
         if (raw.trim() === STREAMING_SVG_STUB) return STREAMING_SVG_HOST_HTML
         const parsed = tryParseSvgFence(raw)
         if (parsed.ok) return svgHostHtml(parsed.svg, true)
+        // Incomplete stream (unclosed fence is stubbed); soft-pending while streaming.
+        if (parseStreamingSvgs) return STREAMING_SVG_HOST_HTML
         return svgHostHtml(raw, false)
       }
       if (isHtmlFenceLang(langString)) {

@@ -4,9 +4,11 @@ When a **process, architecture, or decision flow** is clearer as a diagram
 than as prose alone, emit a fenced SVG block (not HTML pages, not CDN scripts):
 
 - Tag: **`svg`**. Body: one self-contained `<svg>…</svg>` document.
-- Prefer a fixed `viewBox` and `width="100%"` (or omit width/height and rely
-  on `viewBox`) so the host can scale the diagram in chat.
-- Keep diagrams readable: few nodes, short labels, clear arrows.
+- Prefer a fixed `viewBox` sized to the content **including footnotes**, with
+  ~16px outer margin. The host lays out from `viewBox` and expands an
+  undersized box when geometry spills past it — still author enough height so
+  the bottom is not clipped. Do **not** rely on `width="100%"` to squeeze.
+- Keep diagrams readable: few nodes, **short labels**, clear arrows.
   Prefer soft fills/strokes (muted blues/greens/neutrals) — avoid neon glow.
 - Include a short `<title>` (and optional `<desc>`) for accessibility.
 - Do **not** include `<script>`, event handlers (`onclick=…`),
@@ -19,11 +21,24 @@ than as prose alone, emit a fenced SVG block (not HTML pages, not CDN scripts):
   fence for App/Web, and add a one-line textual summary when the diagram
   is essential for the answer.
 
+### Layout (avoid overlap)
+
+- Size each box for its label: leave ≥8px padding; long file names need wider
+  boxes or a second line **below** the box — never let text spill onto arrows.
+- Leave ≥20px clear gap between boxes for arrows; arrow endpoints stop at
+  box edges (do not draw through labels).
+- Multi-stage flows: prefer a **vertical stack** (one stage per row) over a
+  dense multi-column grid that collides.
+- Put footnotes / “来源 / 输出” on their own row with space under the stage —
+  do not park a second mini-flow in the leftover corner if it crosses lines.
+- Keep `viewBox` tall/wide enough for **all** nodes, arrows, and footer text
+  plus ~16px outer margin (content past the box is clipped).
+
 Example:
 
 ````
 ```svg
-<svg viewBox="0 0 320 120" width="100%" xmlns="http://www.w3.org/2000/svg" role="img">
+<svg viewBox="0 0 320 120" xmlns="http://www.w3.org/2000/svg" role="img">
   <title>Request flow</title>
   <rect x="20" y="40" width="80" height="40" rx="8" fill="#E6F1FB" stroke="#185FA5"/>
   <text x="60" y="64" text-anchor="middle" font-size="12" fill="#0C447C">Start</text>

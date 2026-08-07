@@ -5,7 +5,13 @@ import {
   parseMarkdown,
   stabilizeStreamingSvgFences,
 } from './markdownConfig'
-import { sanitizeSvgMarkup, tryParseSvgFence } from './markdownSvg'
+import {
+  sanitizeSvgMarkup,
+  tryParseSvgFence,
+  intrinsicSvgSizeFromViewBox,
+  applySvgMountLayout,
+  fitSvgViewBoxToAttributedContent,
+} from './markdownSvg'
 
 describe('sanitizeSvgMarkup', () => {
   it('accepts a simple flowchart svg', () => {
@@ -52,6 +58,71 @@ describe('sanitizeSvgMarkup', () => {
   })
 })
 
+describe('intrinsicSvgSizeFromViewBox / applySvgMountLayout', () => {
+  it('parses viewBox width/height', () => {
+    expect(intrinsicSvgSizeFromViewBox('0 0 760 300')).toEqual({
+      x: 0,
+      y: 0,
+      width: 760,
+      height: 300,
+    })
+    expect(intrinsicSvgSizeFromViewBox('0,0,100,40')).toEqual({
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+    })
+    expect(intrinsicSvgSizeFromViewBox('bad')).toBeNull()
+    expect(intrinsicSvgSizeFromViewBox(null)).toBeNull()
+  })
+
+  it('sizes the root from viewBox and clears percentage width crush', () => {
+    const style: Record<string, string> = {}
+    const attrs = new Map<string, string>([
+      ['viewBox', '0 0 760 300'],
+      ['width', '100%'],
+    ])
+    const svg = {
+      getAttribute: (name: string) => attrs.get(name) ?? null,
+      setAttribute: (name: string, value: string) => {
+        attrs.set(name, value)
+      },
+      style,
+      querySelectorAll: () => [],
+    } as unknown as SVGElement
+    applySvgMountLayout(svg)
+    expect(attrs.get('width')).toBe('760')
+    expect(attrs.get('height')).toBe('300')
+    expect(style.width).toBe('760px')
+    expect(style.maxWidth).toBe('none')
+    expect(attrs.get('overflow')).toBe('visible')
+  })
+
+  it('expands undersized viewBox so bottom content is not clipped', () => {
+    const raw = `<svg viewBox="0 0 760 260" xmlns="http://www.w3.org/2000/svg">
+  <rect x="260" y="248" width="240" height="34" fill="#F5EEF9"/>
+  <text x="380" y="269" text-anchor="middle" font-size="12">pending_summary</text>
+  <text x="20" y="300" font-size="11">footer note</text>
+</svg>`
+    const fitted = fitSvgViewBoxToAttributedContent(raw)
+    const vb = intrinsicSvgSizeFromViewBox(
+      fitted.match(/viewBox="([^"]+)"/)?.[1]
+    )
+    expect(vb).not.toBeNull()
+    expect(vb!.height).toBeGreaterThan(260)
+    expect(vb!.y + vb!.height).toBeGreaterThanOrEqual(300)
+
+    const sanitized = sanitizeSvgMarkup(raw)
+    expect(sanitized.ok).toBe(true)
+    if (sanitized.ok) {
+      const svb = intrinsicSvgSizeFromViewBox(
+        sanitized.svg.match(/viewBox="([^"]+)"/)?.[1]
+      )
+      expect(svb!.height).toBeGreaterThan(260)
+    }
+  })
+})
+
 describe('parseMarkdown svg fences', () => {
   it('emits an md-svg host for valid svg', () => {
     const src =
@@ -78,31 +149,38 @@ describe('parseMarkdown svg fences', () => {
     expect(html).not.toContain('md-svg')
   })
 
-  it('stabilizeStreamingSvgFences collapses growing svg to a stub', () => {
-    const a = stabilizeStreamingSvgFences(
+  it('stabilizeStreamingSvgFences stubs only incomplete fences', () => {
+    const open = stabilizeStreamingSvgFences(
       'Intro\n\n```svg\n<svg viewBox="0 0 10 10"><rect\n'
     )
-    const b = stabilizeStreamingSvgFences(
+    const closed =
       'Intro\n\n```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>\n```\n'
-    )
-    expect(a).toContain(STREAMING_SVG_STUB)
-    expect(b).toContain(STREAMING_SVG_STUB)
-    expect(a.replace(/\n+$/, '')).toBe(b.replace(/\n+$/, ''))
+    const closedStab = stabilizeStreamingSvgFences(closed)
+    expect(open).toContain(STREAMING_SVG_STUB)
+    expect(closedStab).not.toContain(STREAMING_SVG_STUB)
+    expect(closedStab).toContain('<rect width="10" height="10"/>')
   })
 
-  it('streamingSvgs parse keeps identical HTML while fence grows', () => {
+  it('streamingSvgs keeps pending HTML while fence is open', () => {
     const prefix = '流程如下：\n\n'
-    const htmlA = parseMarkdown(
+    const htmlOpen = parseMarkdown(
       prefix + '```svg\n<svg viewBox="0 0 10 10"><rect\n',
       { streamingSvgs: true }
     )
-    const htmlB = parseMarkdown(
-      prefix +
-        '```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>\n```\n',
-      { streamingSvgs: true }
-    )
-    expect(htmlA).toBe(htmlB)
-    expect(htmlA).toContain(STREAMING_SVG_HOST_HTML.trim())
-    expect(htmlA).toContain('图示生成中…')
+    expect(htmlOpen).toContain(STREAMING_SVG_HOST_HTML.trim())
+    expect(htmlOpen).toContain('图示生成中…')
+  })
+
+  it('streamingSvgs mounts a closed fence before the reply finishes', () => {
+    const src =
+      '流程如下：\n\n```svg\n' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>\n' +
+      '```\n\n后面还有说明文字仍在流式输出…\n'
+    const html = parseMarkdown(src, { streamingSvgs: true })
+    expect(html).toContain('class="md-svg group"')
+    expect(html).not.toContain('md-svg--pending')
+    expect(html).not.toContain('图示生成中…')
+    expect(html).toContain('data-svg-config=')
+    expect(html).toContain('后面还有说明文字')
   })
 })

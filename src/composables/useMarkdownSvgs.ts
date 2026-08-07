@@ -1,8 +1,10 @@
 import { nextTick, onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
 import {
+  applySvgMountLayout,
   decodeSvgConfigAttr,
   tryParseSvgFence,
 } from '../lib/markdownSvg'
+import { STREAMING_SVG_STUB } from '../lib/markdownConfig'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
 
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`
@@ -12,6 +14,27 @@ const codeIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="
 
 type SvgHostState = {
   boundConfig: string
+}
+
+/** Cleaned SVG markup cache — survives v-html host recreation while trailing text streams. */
+const cleanedSvgByConfig = new Map<string, string>()
+const CLEANED_SVG_CACHE_MAX = 32
+
+function cacheCleanedSvg(encoded: string, svg: string) {
+  if (cleanedSvgByConfig.has(encoded)) {
+    cleanedSvgByConfig.delete(encoded)
+  }
+  cleanedSvgByConfig.set(encoded, svg)
+  while (cleanedSvgByConfig.size > CLEANED_SVG_CACHE_MAX) {
+    const oldest = cleanedSvgByConfig.keys().next().value
+    if (oldest == null) break
+    cleanedSvgByConfig.delete(oldest)
+  }
+}
+
+function isStreamingSvgStub(raw: string): boolean {
+  const t = raw.trim()
+  return t === STREAMING_SVG_STUB || t.includes('data-pointer-svg-pending')
 }
 
 export type MarkdownSvgsOptions = {
@@ -150,11 +173,6 @@ export function useMarkdownSvgs(
   }
 
   function mountOrUpdate(host: HTMLElement) {
-    if (isStreaming()) {
-      showStatus(host, '图示生成中…', 'pending')
-      return
-    }
-
     ensureToolbar(host)
 
     const encoded = host.getAttribute('data-svg-config')
@@ -167,21 +185,33 @@ export function useMarkdownSvgs(
       showStatus(host, '图示无法解析', 'error')
       return
     }
-    const parsed = tryParseSvgFence(raw)
-    if (!parsed.ok) {
-      const pending = parsed.reason === 'empty' || parsed.reason === 'parse_error'
-      // Growing incomplete fence during settle: treat malformed as pending briefly.
-      const softPending = parsed.reason === 'not_svg' && !raw.includes('</svg>')
-      showStatus(
-        host,
-        pending || softPending ? '图示生成中…' : '图示无效',
-        pending || softPending ? 'pending' : 'error'
-      )
+
+    // Pending only for incomplete fences (stub), not for the whole assistant turn.
+    if (isStreamingSvgStub(raw)) {
+      showStatus(host, '图示生成中…', 'pending')
       return
     }
 
+    let cleaned = cleanedSvgByConfig.get(encoded)
+    if (!cleaned) {
+      const parsed = tryParseSvgFence(raw)
+      if (!parsed.ok) {
+        const pending = parsed.reason === 'empty' || parsed.reason === 'parse_error'
+        const softPending = parsed.reason === 'not_svg' && !raw.includes('</svg>')
+        const asPending = pending || softPending || isStreaming()
+        showStatus(
+          host,
+          asPending ? '图示生成中…' : '图示无效',
+          asPending ? 'pending' : 'error'
+        )
+        return
+      }
+      cleaned = parsed.svg
+      cacheCleanedSvg(encoded, cleaned)
+    }
+
     const prev = hosts.get(host)
-    if (prev?.boundConfig === encoded) {
+    if (prev?.boundConfig === encoded && host.querySelector('.md-svg-frame > svg')) {
       setToolbarVisible(host, true)
       return
     }
@@ -198,12 +228,11 @@ export function useMarkdownSvgs(
 
     try {
       if (typeof DOMParser === 'undefined') {
-        // Node / non-DOM environments should not reach mount; keep a text fallback.
         frame.textContent = 'SVG'
         console.warn('[markdownSvgs] DOMParser unavailable; skip mount')
         return
       }
-      const doc = new DOMParser().parseFromString(parsed.svg, 'image/svg+xml')
+      const doc = new DOMParser().parseFromString(cleaned, 'image/svg+xml')
       const parseError = doc.querySelector('parsererror')
       if (parseError) {
         showStatus(host, '图示无效', 'error')
@@ -224,6 +253,7 @@ export function useMarkdownSvgs(
         imported.setAttribute('aria-label', 'diagram')
       }
       frame.appendChild(imported)
+      applySvgMountLayout(imported)
       hosts.set(host, { boundConfig: encoded })
       host.dataset.svgBound = encoded
       console.info('[markdownSvgs] mounted svg host')

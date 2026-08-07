@@ -72,6 +72,22 @@ pub fn app_data_dir() -> Result<PathBuf> {
     data_dir()
 }
 
+/// Inject `DATA_DIR` into a terminal child env map (Pointer app data root).
+/// Same directory as conversations / sandboxes / skills under the host.
+pub fn apply_data_dir_env(env: &mut HashMap<String, String>) {
+    match app_data_dir() {
+        Ok(dir) => {
+            let path = dir.to_string_lossy();
+            if !path.is_empty() {
+                env.insert("DATA_DIR".into(), path.into_owned());
+            }
+        }
+        Err(e) => {
+            log::warn!("DATA_DIR: app_data_dir unavailable for terminal child: {e:#}");
+        }
+    }
+}
+
 /// Flatten a conversation id into a single cross-platform directory name.
 ///
 /// IM ids contain `:` (e.g. `wecom:default:wecom:dm:chat:sender`); Windows rejects `:` in paths.

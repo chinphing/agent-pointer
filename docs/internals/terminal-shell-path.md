@@ -40,7 +40,7 @@ Merge rules:
 2. Non-`PATH` variables from `.env` **override** those values for the child only (host unchanged).
 3. `PATH` from `.env` is **prepended** before the inherited `PATH` (deduplicated). `%PATH%` / `$PATH` in the `.env` value is expanded before merge.
 4. When multiple files are listed, later files override earlier ones within the merged layer.
-5. Session `WORKING_DIR` / `SESSION_USER_ID` are injected next.
+5. Session `WORKING_DIR` / `SESSION_USER_ID` / host `DATA_DIR` are injected next.
 6. Settings **`terminalEnvOverrides`** (settings UI, session memory; independent of debug menus) apply last with the same override / PATH-prepend rules (can override session vars).
 
 Non-elevated and **elevated** (`elevated: true`) terminal runs both use the same builder (`build_terminal_child_environment`): full process env + `.env` + debug overlays. Elevated hosts inject that map into the admin/root child (Windows `env.json`; Unix `env.sh` + `set -a`).

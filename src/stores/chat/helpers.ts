@@ -122,16 +122,16 @@ export function assistantTurnActivelyRunning(msg: ChatMessage): boolean {
  * Streamed rows without a `position` are never cut, and the new window head
  * is guaranteed to carry a position so the paging cursor stays exact.
  *
- * A floor of `minKeepUserTurns` user messages (default 24 = 3 pages × 8 turns)
+ * A floor of `minKeepUserTurns` user messages (default 8 = 1 page × 8 turns)
  * is always kept in memory: time-based trimming never removes more than that,
- * so a freshly-loaded thread is never thinned out below three paging pages.
+ * so a freshly-loaded thread is never thinned out below one paging page.
  */
 export function computeHistoryTrimCutByViewedAt(
   messages: ChatMessage[],
   viewedAt: ReadonlyMap<string, number>,
   now: number,
   staleMs: number,
-  minKeepUserTurns = 24
+  minKeepUserTurns = 8
 ): number {
   if (messages.length === 0) return 0
   // Time-based scan: cut before the first user message that should stay.

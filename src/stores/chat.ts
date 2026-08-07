@@ -456,8 +456,8 @@ export const useChatStore = defineStore('chat', () => {
   const EMPTY_VIEWED_MAP: ReadonlyMap<string, number> = new Map()
   /** How long a user message can go unviewed before it becomes trim candidate. */
   const TRIM_HISTORY_STALE_MS = 10 * 60 * 1000
-  /** Always keep at least this many user turns in memory (3 pages × 8 turns). */
-  const TRIM_HISTORY_MIN_KEEP_TURNS = 24
+  /** Always keep at least this many user turns in memory (1 page × 8 turns). */
+  const TRIM_HISTORY_MIN_KEEP_TURNS = 8
   const messageViewedAtByConv = new Map<string, Map<string, number>>()
   /**
    * Message ids already known to exist in SQLite for a hydrated conversation.

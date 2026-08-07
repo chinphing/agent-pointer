@@ -260,8 +260,8 @@ describe('chat helpers', () => {
     })
     const msgs: ChatMessage[] = Array.from({ length: 30 }, (_, i) => user(i))
     const viewed = new Map(msgs.map(m => [m.id, now - 2 * staleMs]))
-    // Every stamp stale → time allows full cut; floor keeps newest 24 (u6..u29).
-    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs)).toBe(6)
+    // Every stamp stale → time allows full cut; floor keeps newest 8 (u22..u29).
+    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs)).toBe(22)
   })
 
   it('computeHistoryTrimCutByViewedAt never trims below the keep floor', () => {
@@ -282,13 +282,13 @@ describe('chat helpers', () => {
     for (let i = 0; i < msgs.length; i += 1) {
       viewed.set(`u${i}`, i >= 28 ? now - 60_000 : now - 2 * staleMs)
     }
-    // Default floor 24 → keep u6..u29 (24 turns) even though 28 are stale.
-    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs)).toBe(6)
+    // Default floor 8 → keep u22..u29 (8 turns) even though 28 are stale.
+    expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs)).toBe(22)
     // Higher floor → even less trimming.
     expect(computeHistoryTrimCutByViewedAt(msgs, viewed, now, staleMs, 26)).toBe(4)
     // Fewer turns than the floor → never trim at all.
-    const few: ChatMessage[] = Array.from({ length: 10 }, (_, i) => user(i))
+    const few: ChatMessage[] = Array.from({ length: 6 }, (_, i) => user(i))
     const fewViewed = new Map(few.map(m => [m.id, now - 2 * staleMs]))
-    expect(computeHistoryTrimCutByViewedAt(few, fewViewed, now, staleMs, 24)).toBe(0)
+    expect(computeHistoryTrimCutByViewedAt(few, fewViewed, now, staleMs)).toBe(0)
   })
 })

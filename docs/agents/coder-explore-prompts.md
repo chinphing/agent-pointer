@@ -45,7 +45,7 @@ agents/explore/
 | `narrow_confirm` | 不委派；lead 本地 1 grep + 1 read |
 | `single_module_fix` | References + Readers + Tests |
 | `cross_module_change` | lite Impact map + Surfaces |
-| `architecture_explain` | Summary + Key files + Execution paths |
+| `architecture_explain` | explore: Summary + Key files + Execution paths；**coder lead Deliver**：优先一个 fenced **`svg`** 总览 |
 | `reachability_audit` | layer tags + negative greps |
 | `spec_map` | References + Registration + Test&drift |
 | `design_only` | Key files + Summary |

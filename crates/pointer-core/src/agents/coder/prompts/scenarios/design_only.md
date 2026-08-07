@@ -1,6 +1,8 @@
 ### Scenario: design_only
 
 **Classify** when the user asks for plan / design / 方案 **without** implementation this session.
+For explaining **existing** architecture / flow (not a new design), use
+**`Scenario: architecture_explain`** instead.
 
 **Orient:** **`Scenario: design_only`** explore for Key files + Summary; skip full Impact map unless behavior change is being designed.
 

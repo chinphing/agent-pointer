@@ -16,3 +16,5 @@ Chart.js 与 SVG 示意图的模型侧说明从各 Agent `AGENT.md` 正文剥离
 其它 profile（explore / research / supervisor 等）只注入 `COMMUNICATION_PUBLIC` + 自身系统提示，不带这三块。
 
 约定：提示词英文、短行、不写仓库文件名；产品行为见 [`../ui/markdown-charts.md`](../ui/markdown-charts.md)、[`../ui/markdown-svg.md`](../ui/markdown-svg.md)。组装总序见 [`../internals/llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)。
+
+**Coder 架构场景：** `Scenario: architecture_explain`（coder playbook）要求交付时优先用 fenced **`svg`** 画结构/流程总览（写在助手正文里内联渲染），再用短文补充；**不要**把示意图写成 `.svg` 再用 `MEDIA:` 当附件投递（除非用户明确要可下载文件）。共享 `SVG_DIAGRAMS` 仍为 soft guidance，硬约束只在该场景。

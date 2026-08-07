@@ -45,7 +45,7 @@ Internal fragment refs (`href="#id"`) remain allowed (e.g. markers / `<use>`).
 | Need | Fence |
 |------|--------|
 | Numeric comparison / trends | `chartjs` / `chart` |
-| Process / architecture / decision flow | `svg` |
+| Process / architecture / decision flow | `svg`（coder **`architecture_explain`** 场景优先强制用 SVG 总览） |
 
 Full media boundaries (Markdown / SVG / Chart / HTML tables): [markdown-media-boundaries.md](markdown-media-boundaries.md).
 

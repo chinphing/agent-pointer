@@ -15,6 +15,9 @@ than as prose alone, emit a fenced SVG block (not HTML pages, not CDN scripts):
   `javascript:` / `data:` URLs, `<foreignObject>`, remote `<image>` /
   external `<use>` hrefs, or iframes.
 - Do **not** emit raw SVG outside a fence, and do not wrap the SVG in HTML.
+- Do **not** write a diagram to a `.svg` file and attach it with **`MEDIA:`**
+  unless the user explicitly asked for a downloadable file — App/Web renders
+  the **`svg`** fence inline; a file attachment is only a chip.
 - Use SVG for structure/flow; use `chartjs` for numeric trends.
 - **App / Web:** the host sanitizes and renders the fence inline.
 - **IM:** rasterization to `MEDIA:` may be unavailable — still emit the

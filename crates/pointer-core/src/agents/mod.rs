@@ -1541,6 +1541,11 @@ mod builtin_agent_tests {
             "coder should include skill_change scenario playbook"
         );
         assert!(
+            prompt.contains("Scenario: architecture_explain")
+                && prompt.contains("SVG first"),
+            "coder architecture_explain should prefer an SVG overview"
+        );
+        assert!(
             prompt.contains("G3 evidence gate"),
             "coder should include G3 evidence gate for same-turn verification"
         );

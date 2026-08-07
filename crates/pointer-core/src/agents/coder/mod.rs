@@ -11,6 +11,7 @@ const CODER_SCENARIO_IMPL: &str = include_str!("prompts/scenarios/implementation
 const CODER_SCENARIO_DEBUG: &str = include_str!("prompts/scenarios/debugging.md");
 const CODER_SCENARIO_REFACTOR: &str = include_str!("prompts/scenarios/refactor.md");
 const CODER_SCENARIO_DESIGN: &str = include_str!("prompts/scenarios/design_only.md");
+const CODER_SCENARIO_ARCH: &str = include_str!("prompts/scenarios/architecture_explain.md");
 const CODER_SCENARIO_SPEC: &str = include_str!("prompts/scenarios/spec_audit.md");
 const CODER_SCENARIO_SKILL: &str = include_str!("prompts/scenarios/skill_change.md");
 
@@ -27,6 +28,7 @@ pub fn composed_system_body() -> String {
         CODER_SCENARIO_DEBUG,
         CODER_SCENARIO_REFACTOR,
         CODER_SCENARIO_DESIGN,
+        CODER_SCENARIO_ARCH,
         CODER_SCENARIO_SPEC,
         CODER_SCENARIO_SKILL,
     ])

@@ -12,6 +12,7 @@ export type WindowDragRegionId =
   | 'sidebar-top-chrome'
   | 'sidebar-body'
   | 'main-top-chrome'
+  | 'settings-top-chrome'
   | 'chat-body'
   | 'compact-bar-shell'
   | 'compact-bar-status'
@@ -32,6 +33,10 @@ export const WINDOW_DRAG_REGION_POLICIES: Record<WindowDragRegionId, WindowDragR
     doubleClickMaximize: true
   },
   'main-top-chrome': {
+    draggable: true,
+    doubleClickMaximize: true
+  },
+  'settings-top-chrome': {
     draggable: true,
     doubleClickMaximize: true
   },

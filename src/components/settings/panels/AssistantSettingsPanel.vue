@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
-import type { ComputerInitialTier } from '../../../types/chat'
+import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../../types/chat'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
 import { useSettingsStore } from '../../../stores/settings'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
@@ -45,8 +45,13 @@ const {
   ffmpegStatusDetail,
   ffmpegNeedsInstall,
   refreshMediaDeps,
-  askAssistantInstallFfmpeg
+  askAssistantInstallFfmpeg,
+  activeSection
 } = props.form
+
+function openModelService() {
+  activeSection.value = 'provider'
+}
 
 const queueSnapshot = ref<RunQueueSnapshot | null>(null)
 const queueLoading = ref(false)
@@ -92,11 +97,16 @@ onUnmounted(() => {
   if (queuePollTimer) clearInterval(queuePollTimer)
 })
 
-const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: string }[] = [
-  { value: 'primary', label: '快速', desc: '轻量视觉，响应更快' },
-  { value: 'intermediate', label: '标准', desc: '速度与准确度平衡' },
-  { value: 'advanced', label: '高级', desc: '最强视觉，适合复杂界面' }
-]
+const COMPUTER_TIER_DESCRIPTIONS = {
+  primary: '轻量视觉，响应更快',
+  intermediate: '速度与准确度平衡',
+  advanced: '最强视觉，适合复杂界面'
+} as const
+
+const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
+  ...option,
+  desc: COMPUTER_TIER_DESCRIPTIONS[option.value]
+}))
 </script>
 
 <template>            <div>
@@ -120,7 +130,8 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                   </button>
                 </div>
                 <p class="mt-1 text-[11px] text-muted">
-                  选择各场景的运行模式；具体模型在调试模式中配置。
+                  选择各场景使用的档位；每档具体模型在「模型服务」中配置。
+                  <button type="button" class="ml-1 text-accent hover:underline cursor-pointer" @click="openModelService">去配置</button>
                 </p>
               </div>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
@@ -134,20 +145,23 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                     class="flex flex-wrap items-center gap-x-4 gap-y-2"
                   >
                     <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">{{ row.label }}</span>
-                    <div class="inline-flex flex-wrap items-center gap-3 min-w-0">
+                    <div class="grid grid-cols-3 gap-1.5 min-w-0 flex-1 max-w-sm">
                       <label
                         v-for="opt in PERFORMANCE_MODE_UI"
                         :key="row.id + '-mode-' + opt.value"
-                        class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
+                        class="rounded-lg border px-2 py-1.5 text-center cursor-pointer transition-all"
+                        :class="(agentPerformanceModesLocal[row.id] ?? 'fast') === opt.value
+                          ? 'border-accent/40 bg-accent/5 text-foreground'
+                          : 'border-border bg-card text-muted hover:border-border/80'"
                       >
                         <input
                           type="radio"
-                          class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
+                          class="sr-only"
                           :name="'agent-mode-' + row.id"
                           :checked="(agentPerformanceModesLocal[row.id] ?? 'fast') === opt.value"
                           @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [row.id]: opt.value }"
                         />
-                        <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
+                        <span class="text-[11px] whitespace-nowrap">{{ opt.label }}</span>
                       </label>
                     </div>
                   </div>
@@ -162,20 +176,23 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                     class="flex flex-wrap items-center gap-x-4 gap-y-2"
                   >
                     <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">{{ row.label }}</span>
-                    <div class="inline-flex flex-wrap items-center gap-3 min-w-0">
+                    <div class="grid grid-cols-3 gap-1.5 min-w-0 flex-1 max-w-sm">
                       <label
                         v-for="opt in PERFORMANCE_MODE_UI"
                         :key="row.key + '-mode-' + opt.value"
-                        class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
+                        class="rounded-lg border px-2 py-1.5 text-center cursor-pointer transition-all"
+                        :class="mediaUnderstandingModesLocal[row.key] === opt.value
+                          ? 'border-accent/40 bg-accent/5 text-foreground'
+                          : 'border-border bg-card text-muted hover:border-border/80'"
                       >
                         <input
                           type="radio"
-                          class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
+                          class="sr-only"
                           :name="'media-mode-' + row.key"
                           :checked="mediaUnderstandingModesLocal[row.key] === opt.value"
                           @change="mediaUnderstandingModesLocal = { ...mediaUnderstandingModesLocal, [row.key]: opt.value }"
                         />
-                        <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
+                        <span class="text-[11px] whitespace-nowrap">{{ opt.label }}</span>
                       </label>
                     </div>
                   </div>
@@ -189,7 +206,8 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                   <Monitor class="w-4 h-4 text-accent shrink-0" />电脑操控
                 </h4>
                 <p class="mt-1 text-[11px] text-muted">
-                  桌面自动化的起始视觉档位与操作行为；具体模型在调试模式中配置。
+                  桌面自动化的起始视觉档位与操作行为；每档具体模型在「模型服务」中配置。
+                  <button type="button" class="ml-1 text-accent hover:underline cursor-pointer" @click="openModelService">去配置</button>
                 </p>
               </div>
 

@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { SlidersHorizontal, ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
+import { useWindowChrome } from '../../composables/useWindowChrome'
+import WindowDragRegion from '../layout/WindowDragRegion.vue'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
@@ -22,7 +24,7 @@ const emit = defineEmits<{
 const props = withDefaults(defineProps<{
   initialSection?: string
 }>(), {
-  initialSection: 'assistant'
+  initialSection: 'account'
 })
 
 const s = useSettingsStore()
@@ -31,6 +33,7 @@ const platformAuth = usePlatformAuthStore()
 
 const activeSection = ref(props.initialSection)
 const saving = ref(false)
+const { enabled: chromeEnabled, macTrafficLightPadding } = useWindowChrome()
 
 const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
@@ -54,12 +57,9 @@ const form = provideSettingsDialogForm({
 
 const {
   theme,
-  debugMenusEnabled,
-  showDebugMenus,
   themeLabel,
   cycleTheme,
   currentThemeIcon,
-  toggleDebugMenus,
   getAssistantSavePayload,
   getDebugSessionSavePayload,
   getDebugRuntimeSavePayload,
@@ -70,8 +70,12 @@ const {
 const providerPanelRef = ref<InstanceType<typeof ProviderSettingsPanel> | null>(null)
 const channelPanelRef = ref<InstanceType<typeof ChannelSettingsPanel> | null>(null)
 
+const showAdminDebugSection = computed(() =>
+  s.isPlatformAdmin || platformAuth.isPlatformAdmin || platformAuth.isStandalone
+)
+
 const sections = computed(() => {
-  const merged = showDebugMenus.value
+  const merged = showAdminDebugSection.value
     ? [...alwaysSections, ...debugSections]
     : [...alwaysSections]
   // 侧栏顺序：账户 → 自动化 → 连接 → 智能体 → （调试菜单）→ 云主机。
@@ -111,9 +115,6 @@ const showFooterSave = computed(() => {
 })
 const footerSaveLabel = computed(() =>
   isPersistedSection.value ? '保存' : '保存(本次会话)'
-)
-const debugModeTitle = computed(() =>
-  debugMenusEnabled.value ? '调试模式：已开启（点击关闭）' : '调试模式：已关闭（点击开启）'
 )
 
 onMounted(() => {
@@ -182,8 +183,13 @@ async function saveFromFooter() {
     class="app-content-no-drag h-full w-full min-h-0 flex flex-col bg-background"
     data-tauri-drag-region="false"
   >
-      <!-- Header -->
-      <header class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0">
+      <!-- Header: reserve the native macOS traffic-light zone and drag from empty space. -->
+      <WindowDragRegion
+        as="header"
+        region="settings-top-chrome"
+        class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0"
+        :class="chromeEnabled && macTrafficLightPadding ? 'traffic-light-inset' : ''"
+      >
         <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
           <SlidersHorizontal class="w-4 h-4 text-accent" />
         </div>
@@ -213,19 +219,6 @@ async function saveFromFooter() {
             />
           </button>
         </div>
-        <label
-          v-if="s.canEditPlatform"
-          class="mr-1"
-        >
-          <button
-            type="button"
-            class="h-7 w-7 rounded-md border border-border hover:bg-hover transition-colors inline-flex items-center justify-center"
-            :title="debugModeTitle"
-            @click="toggleDebugMenus"
-          >
-            <Bug class="w-4 h-4" :class="debugMenusEnabled ? 'text-amber-400' : 'text-muted'" />
-          </button>
-        </label>
         <button
           type="button"
           class="h-8 px-2 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center gap-1 cursor-pointer"
@@ -236,7 +229,7 @@ async function saveFromFooter() {
           <ArrowLeft class="w-4 h-4" />
           <span class="text-xs">返回</span>
         </button>
-      </header>
+      </WindowDragRegion>
 
       <div class="flex flex-1 min-h-0">
         <!-- Sidebar -->

@@ -740,6 +740,7 @@ function createSettingsDialogForm(deps: {
     s,
     platformAuth,
     chat,
+    activeSection,
     platformReadOnly,
     COMPUTER_TIER_UI,
     COMPUTER_INITIAL_TIER_OPTIONS,

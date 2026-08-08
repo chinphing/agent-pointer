@@ -40,7 +40,7 @@ const skills = useSkillsStore()
 
 const showSettings = ref(false)
 const showSkills = ref(false)
-const settingsInitialSection = ref('assistant')
+const settingsInitialSection = ref('account')
 const {
   open: pairingModalOpen,
   pendingItem: pairingModalPending,
@@ -108,7 +108,7 @@ function onOpenSkillsFromSettings() {
   showSkills.value = true
 }
 
-function openSettings(section = 'assistant') {
+function openSettings(section = 'account') {
   settingsInitialSection.value = section
   showSettings.value = true
 }

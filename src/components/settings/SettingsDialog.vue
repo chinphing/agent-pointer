@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { SlidersHorizontal, ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -121,14 +121,6 @@ onMounted(() => {
   initFormFromStore()
 })
 
-function onDialogBackdropClick() {
-  if (providerPanelRef.value?.isModelConfigOpen()) {
-    providerPanelRef.value.closeModelConfigModal()
-    return
-  }
-  emit('close')
-}
-
 async function saveFromFooter() {
   saving.value = true
   try {
@@ -186,11 +178,10 @@ async function saveFromFooter() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="onDialogBackdropClick">
-    <div
-      class="w-[960px] max-w-[94vw] h-[740px] max-h-[90vh] glass-strong rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden"
-      data-tauri-drag-region="false"
-    >
+  <div
+    class="app-content-no-drag h-full w-full min-h-0 flex flex-col bg-background"
+    data-tauri-drag-region="false"
+  >
       <!-- Header -->
       <header class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0">
         <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
@@ -237,12 +228,13 @@ async function saveFromFooter() {
         </label>
         <button
           type="button"
-          class="h-7 w-7 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center justify-center cursor-pointer"
-          title="关闭"
-          aria-label="关闭"
+          class="h-8 px-2 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center gap-1 cursor-pointer"
+          title="返回聊天"
+          aria-label="返回聊天"
           @click="emit('close')"
         >
-          <X class="w-4 h-4" />
+          <ArrowLeft class="w-4 h-4" />
+          <span class="text-xs">返回</span>
         </button>
       </header>
 
@@ -325,6 +317,5 @@ async function saveFromFooter() {
           {{ saving ? '保存中…' : footerSaveLabel }}
         </button>
       </footer>
-    </div>
   </div>
 </template>

@@ -18,7 +18,7 @@ import { isTauriRuntime } from './lib/runtime'
 const isDesktopApp = isTauriRuntime()
 
 /** Lazy: keep first paint free of settings / modal / skills graphs. */
-const SettingsDialog = defineAsyncComponent(
+const SettingsView = defineAsyncComponent(
   () => import('./components/settings/SettingsDialog.vue')
 )
 const ChannelPairingModal = defineAsyncComponent(
@@ -146,17 +146,17 @@ watch(showSkills, open => {
         @open-automation="openAutomation"
         @open-skills="showSkills = true"
       >
-        <ChatView />
+        <SettingsView
+          v-if="showSettings"
+          :initial-section="settingsInitialSection"
+          @close="showSettings = false"
+          @open-skills="onOpenSkillsFromSettings"
+        />
+        <ChatView v-else />
       </AppShell>
     </template>
   </div>
 
-  <SettingsDialog
-    v-if="showSettings"
-    :initial-section="settingsInitialSection"
-    @close="showSettings = false"
-    @open-skills="onOpenSkillsFromSettings"
-  />
   <SkillPicker v-if="showSkills" @close="showSkills = false" />
 
   <ChannelPairingModal

@@ -85,11 +85,10 @@ async function onPlaySoundToggle(checked: boolean) {
   <section class="grid gap-4 lg:grid-cols-3">
     <div
       v-if="balanceVisible"
-      class="relative overflow-hidden rounded-2xl border p-6 lg:col-span-2"
+      class="rounded-2xl border p-6 lg:col-span-2"
       :class="balanceToneClass"
     >
-      <div class="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-accent/10 blur-2xl" aria-hidden="true" />
-      <div class="relative flex h-full flex-col justify-between gap-8">
+      <div class="flex h-full flex-col justify-between gap-8">
         <div>
           <div class="flex items-center gap-2 text-sm font-medium">
             <AlertTriangle

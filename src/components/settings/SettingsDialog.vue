@@ -283,11 +283,11 @@ async function saveFromFooter() {
         </main>
       </div>
 
-      <!-- Footer -->
-      <footer class="px-6 h-14 flex items-center justify-end gap-3 border-t border-border shrink-0">
-        <button class="h-9 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="emit('close')">取消</button>
+      <footer
+        v-if="showFooterSave"
+        class="px-6 h-14 flex items-center justify-end border-t border-border shrink-0"
+      >
         <button
-          v-if="showFooterSave"
           class="h-9 px-5 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity"
           :disabled="saving"
           @click="saveFromFooter"

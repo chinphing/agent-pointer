@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   DEFAULT_CHANNEL_IDLE_MINUTES,
   type ChannelAccountConfig,
@@ -79,6 +79,10 @@ export function useChannelSettingsForm() {
   const connectionByTab = ref<Partial<Record<ChannelTab, boolean>>>({})
   const tauriMode = isTauriRuntime()
   let connectionPollId: number | undefined
+  let channelAutosaveTimer: number | undefined
+  let channelAutosaveReady = false
+  let refreshingConfig = false
+  let persistingConfig = false
 
   const COMMON_SETTINGS_HELP =
     '以下配置对所有 IM 通道（微信、飞书、企微、钉钉）生效。'
@@ -333,6 +337,7 @@ export function useChannelSettingsForm() {
   async function refresh() {
     loading.value = true
     error.value = ''
+    refreshingConfig = true
     try {
       const [loaded, status] = await Promise.all([getChannelsConfig(), listChannelStatus()])
       mergeConfig(loaded)
@@ -353,14 +358,37 @@ export function useChannelSettingsForm() {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
+      refreshingConfig = false
+      void nextTick(() => {
+        channelAutosaveReady = true
+      })
     }
   }
 
   async function persistConfig(restartMonitors = false) {
     normalizeAllConnectionModes()
     config.value = sanitizeChannelsConfig(config.value)
-    await updateChannelsConfig(config.value, { restartMonitors })
+    persistingConfig = true
+    try {
+      await updateChannelsConfig(config.value, { restartMonitors })
+    } finally {
+      persistingConfig = false
+    }
   }
+
+  /** 配置变更即时持久化（防抖，避免输入框每键都写入配置）。 */
+  function scheduleChannelAutosave() {
+    if (!channelAutosaveReady || refreshingConfig || persistingConfig) return
+    if (channelAutosaveTimer) window.clearTimeout(channelAutosaveTimer)
+    channelAutosaveTimer = window.setTimeout(() => {
+      channelAutosaveTimer = undefined
+      void persistConfig().catch(e => {
+        error.value = e instanceof Error ? e.message : String(e)
+      })
+    }, 400)
+  }
+
+  watch(config, scheduleChannelAutosave, { deep: true })
 
   /** 供设置页底部「保存」调用：仅持久化配置，不强制连接 */
   async function save() {

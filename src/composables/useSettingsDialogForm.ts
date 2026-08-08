@@ -1,4 +1,4 @@
-import { computed, getCurrentInstance, inject, onScopeDispose, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
+import { computed, getCurrentInstance, inject, nextTick, onScopeDispose, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
 import {
   Bot,
   CircleHelp,
@@ -114,6 +114,18 @@ function createSettingsDialogForm(deps: {
   return MODE_AGENT_IDS.has(agentId)
   }
 
+  let debugModelSaveTimer: number | undefined
+
+  function scheduleDebugModelSave() {
+  if (debugModelSaveTimer) window.clearTimeout(debugModelSaveTimer)
+  debugModelSaveTimer = window.setTimeout(() => {
+    debugModelSaveTimer = undefined
+    void s.saveDebugSession(s.createDebugSessionSnapshot()).catch(error => {
+      console.error('[settings] failed to save debug model mapping', error)
+    })
+  }, 250)
+  }
+
   function patchAgentModeLlm(agentId: string, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
   const next = { ...(s.platformSettings.agentModeLlm ?? {}) }
   const agentMap = { ...(next[agentId] ?? {}) }
@@ -121,6 +133,7 @@ function createSettingsDialogForm(deps: {
   agentMap[mode] = { ...prev, ...patch }
   next[agentId] = agentMap
   s.platformSettings.agentModeLlm = next
+  scheduleDebugModelSave()
   }
 
   function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
@@ -148,6 +161,7 @@ function createSettingsDialogForm(deps: {
   kindMap[mode] = { ...prev, ...patch }
   next[kind] = kindMap
   s.platformSettings.mediaModeLlm = next
+  scheduleDebugModelSave()
   }
 
   function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): ComputerTierLlmConfig {
@@ -185,6 +199,7 @@ function createSettingsDialogForm(deps: {
   const next = { ...(s.platformSettings.computerTierLlm ?? {}) }
   next[key] = { ...computerTierLlm(key), ...patch }
   s.platformSettings.computerTierLlm = next
+  scheduleDebugModelSave()
   }
 
   function computerTierModelValue(key: ComputerTierKey): string {
@@ -221,6 +236,7 @@ function createSettingsDialogForm(deps: {
 
   function patchComputerPipelineLlm(patch: Partial<ComputerPipelineLlmSettings>) {
   s.platformSettings.computerPipelineLlm = { ...computerPipelineLlm(), ...patch }
+  scheduleDebugModelSave()
   }
 
   function computerPipelineVerifyValue(): string {
@@ -403,11 +419,15 @@ function createSettingsDialogForm(deps: {
   async function applyThemeChoice(t: ThemePreference) {
   theme.value = t
   applyTheme(t)
-  // Theme persists in UserSettings; keep both mirrors in sync so a later
-  // applyEffectiveView (from unrelated saves) does not resurrect the old value
-  // before saveUser({ theme }) runs.
+  // Keep both mirrors in sync before persistence so concurrent settings updates
+  // cannot temporarily restore the previous theme.
   s.settings.theme = t
   s.userSettings.theme = t
+  try {
+    await s.saveUser({ theme: t })
+  } catch (e) {
+    console.error('[settings] failed to save theme', e)
+  }
   }
 
   function themeLabel(t: ThemePreference): string {
@@ -492,6 +512,9 @@ function createSettingsDialogForm(deps: {
     audio: s.getMediaUnderstandingMode('audio'),
     video: s.getMediaUnderstandingMode('video')
   }
+  void nextTick(() => {
+    autosaveReady = true
+  })
   void loadAgents()
   // Defer ffmpeg probe so opening settings → IM 通道 stays responsive on Windows.
   window.setTimeout(() => {
@@ -695,7 +718,7 @@ function createSettingsDialogForm(deps: {
     return Math.floor(n)
   }
 
-  function getAssistantSavePayload() {
+  function assistantPreferencesPayload() {
   return {
     computerAutoCompact: computerAutoCompact.value,
     collapseProcessByDefault: collapseProcessByDefault.value,
@@ -725,16 +748,75 @@ function createSettingsDialogForm(deps: {
   }
   }
 
-  function getDebugSessionSavePayload() {
-  return s.createDebugSessionSnapshot()
+  let autosaveReady = false
+  let assistantSaveTimer: number | undefined
+  let debugSaveTimer: number | undefined
+
+  function scheduleAssistantSave() {
+    if (!autosaveReady) return
+    if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
+    assistantSaveTimer = window.setTimeout(() => {
+      assistantSaveTimer = undefined
+      const payload = assistantPreferencesPayload()
+      void (async () => {
+        try {
+          await s.saveAgentPreferences(payload)
+          await s.saveUser({
+            computerAutoCompact: payload.computerAutoCompact,
+            collapseProcessByDefault: payload.collapseProcessByDefault,
+            userCodingRules: payload.userCodingRules
+          })
+        } catch (error) {
+          console.error('[settings] failed to save assistant preferences', error)
+        }
+      })()
+    }, 350)
   }
 
-  function getDebugRuntimeSavePayload() {
-  return {
-    debugDumpLlmPrompts: debugDumpLlmPrompts.value,
-    debugMenusEnabled: debugMenusEnabled.value
+  function scheduleDebugSave() {
+    if (!autosaveReady) return
+    if (debugSaveTimer) window.clearTimeout(debugSaveTimer)
+    debugSaveTimer = window.setTimeout(() => {
+      debugSaveTimer = undefined
+      const debugDump = debugDumpLlmPrompts.value
+      void s.save({ debugDumpLlmPrompts: debugDump }).catch(error => {
+        console.error('[settings] failed to save debug preferences', error)
+      })
+    }, 250)
   }
-  }
+
+  watch(
+    [
+      toolApprovalMode,
+      contextCompressionEnabled,
+      contextBudgetTokens,
+      contextKeepRecentUserTurns,
+      maxToolRounds,
+      parallelToolExecutionEnabled,
+      maxParallelToolCalls,
+      maxParallelSubAgents,
+      maxParallelMediaJobs,
+      maxConcurrentRuns,
+      computerHumanLike,
+      computerAutoSwitchMonitor,
+      computerAutoCompact,
+      collapseProcessByDefault,
+      userCodingRules,
+      computerInitialTier,
+      captchaSliderOffsetPx,
+      agentPerformanceModesLocal,
+      mediaUnderstandingModesLocal
+    ],
+    scheduleAssistantSave,
+    { deep: true }
+  )
+  watch(debugDumpLlmPrompts, scheduleDebugSave)
+
+  onScopeDispose(() => {
+    if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
+    if (debugSaveTimer) window.clearTimeout(debugSaveTimer)
+    if (debugModelSaveTimer) window.clearTimeout(debugModelSaveTimer)
+  })
 
   return {
     s,
@@ -838,8 +920,5 @@ function createSettingsDialogForm(deps: {
     logoutPlatformAccount,
     loginPlatformAccount,
     initFormFromStore,
-    getAssistantSavePayload,
-    getDebugSessionSavePayload,
-    getDebugRuntimeSavePayload,
   }
 }

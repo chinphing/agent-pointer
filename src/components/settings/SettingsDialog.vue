@@ -4,7 +4,6 @@ import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, MessageSquare, 
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
-import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { provideSettingsDialogForm } from '../../composables/useSettingsDialogForm'
@@ -28,11 +27,9 @@ const props = withDefaults(defineProps<{
 })
 
 const s = useSettingsStore()
-const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 
 const activeSection = ref(props.initialSection)
-const saving = ref(false)
 const { enabled: chromeEnabled, macTrafficLightPadding } = useWindowChrome()
 
 const alwaysSections = [
@@ -48,7 +45,6 @@ const debugSections = [
 ] as const
 
 const debugSectionIds = new Set<string>(debugSections.map(item => item.id))
-const persistedSectionIds = new Set<string>(['assistant', 'channels', 'automation'])
 
 const form = provideSettingsDialogForm({
   onClose: () => emit('close'),
@@ -61,15 +57,8 @@ const {
   themeLabel,
   cycleTheme,
   currentThemeIcon,
-  getAssistantSavePayload,
-  getDebugSessionSavePayload,
-  getDebugRuntimeSavePayload,
-  activeUiAgentId,
   initFormFromStore
 } = form
-
-const providerPanelRef = ref<InstanceType<typeof ProviderSettingsPanel> | null>(null)
-const channelPanelRef = ref<InstanceType<typeof ChannelSettingsPanel> | null>(null)
 
 const showAdminDebugSection = computed(() =>
   s.isPlatformAdmin || platformAuth.isPlatformAdmin || platformAuth.isStandalone
@@ -104,79 +93,9 @@ const sections = computed(() => {
   return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }, about]
 })
 
-const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
-const showFooterSave = computed(() => {
-  if (activeSection.value === 'account' || activeSection.value === 'cloud' || activeSection.value === 'automation' || activeSection.value === 'skills' || activeSection.value === 'about') return false
-  return (
-    activeSection.value === 'assistant' ||
-    activeSection.value === 'channels' ||
-    activeSection.value === 'provider' ||
-    debugSectionIds.has(activeSection.value)
-  )
-})
-const footerSaveLabel = computed(() =>
-  isPersistedSection.value ? '保存' : '保存(本次会话)'
-)
-
 onMounted(() => {
   initFormFromStore()
 })
-
-async function saveFromFooter() {
-  saving.value = true
-  try {
-    const sectionToSave = activeSection.value
-    if (
-      sectionToSave === 'provider' &&
-      providerPanelRef.value?.hasUnsavedEdits() &&
-      !providerPanelRef.value.flushEditingProviderToStore()
-    ) {
-      return
-    }
-
-    // Capture every request payload before the first await. API responses refresh
-    // the Store and may contain older values than the current form draft.
-    const themeToSave = theme.value
-    const themeSnapshot = s.createUserSnapshot({ theme: themeToSave })
-    const assistantPayload = sectionToSave === 'assistant' ? getAssistantSavePayload() : null
-    const assistantSnapshot = assistantPayload
-      ? s.createSessionSnapshot(assistantPayload)
-      : null
-    const assistantUserSnapshot = assistantPayload
-      ? s.createUserSnapshot({
-          theme: themeToSave,
-          computerAutoCompact: assistantPayload.computerAutoCompact,
-          collapseProcessByDefault: assistantPayload.collapseProcessByDefault,
-          userCodingRules: assistantPayload.userCodingRules
-        })
-      : null
-    const debugSessionSnapshot =
-      debugSectionIds.has(sectionToSave) || sectionToSave === 'provider'
-        ? getDebugSessionSavePayload()
-        : null
-    const debugRuntimeSnapshot =
-      debugSectionIds.has(sectionToSave)
-        ? s.createSessionSnapshot(getDebugRuntimeSavePayload())
-        : null
-
-    await s.saveUserSnapshot(themeSnapshot)
-
-    if (sectionToSave === 'provider' && debugSessionSnapshot) {
-      await s.saveDebugSession(debugSessionSnapshot)
-    } else if (sectionToSave === 'channels') {
-      await channelPanelRef.value?.save()
-    } else if (sectionToSave === 'assistant' && assistantSnapshot && assistantUserSnapshot) {
-      await s.saveAgentPreferencesSnapshot(assistantSnapshot)
-      await s.saveUserSnapshot(assistantUserSnapshot)
-    } else if (debugRuntimeSnapshot && debugSessionSnapshot) {
-      await s.saveSessionSnapshot(debugRuntimeSnapshot)
-      await s.saveDebugSession(debugSessionSnapshot)
-    }
-    emit('close')
-  } finally {
-    saving.value = false
-  }
-}
 </script>
 
 <template>
@@ -247,7 +166,7 @@ async function saveFromFooter() {
           </section>
 
           <section v-else-if="activeSection === 'channels'" class="p-6">
-            <ChannelSettingsPanel ref="channelPanelRef" />
+            <ChannelSettingsPanel />
           </section>
 
           <section v-else-if="activeSection === 'automation'" class="p-6 space-y-5">
@@ -278,22 +197,10 @@ async function saveFromFooter() {
 
           <!-- Keep the provider panel mounted to preserve in-progress edits while switching sections. -->
           <section v-show="activeSection === 'provider'" class="p-6">
-            <ProviderSettingsPanel ref="providerPanelRef" :form="form" />
+            <ProviderSettingsPanel :form="form" />
           </section>
         </main>
       </div>
 
-      <footer
-        v-if="showFooterSave"
-        class="px-6 h-14 flex items-center justify-end border-t border-border shrink-0"
-      >
-        <button
-          class="h-9 px-5 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity"
-          :disabled="saving"
-          @click="saveFromFooter"
-        >
-          {{ saving ? '保存中…' : footerSaveLabel }}
-        </button>
-      </footer>
   </div>
 </template>

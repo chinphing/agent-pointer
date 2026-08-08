@@ -42,7 +42,6 @@ import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import { useSidebarSectionCollapse } from '../../composables/useSidebarSectionCollapse'
 import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
-import BalanceChip from './BalanceChip.vue'
 import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
 import { isTauriRuntime } from '../../lib/runtime'
 import type { Project } from '../../types/chat'
@@ -1410,7 +1409,6 @@ watch(searchQuery, q => {
           :class="macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
         >
           <div class="main-chrome-drag flex-1 min-w-0 h-full min-h-10" />
-          <BalanceChip class="self-center mr-1" />
           <button
             v-if="!workspacePanelOpen"
             type="button"

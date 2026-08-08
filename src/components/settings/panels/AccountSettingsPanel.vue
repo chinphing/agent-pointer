@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
-import { Volume2, UserCircle } from 'lucide-vue-next'
+import { AlertTriangle, Volume2, UserCircle, WalletCards } from 'lucide-vue-next'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
 import { useSettingsStore } from '../../../stores/settings'
+import { usePlatformBalance } from '../../../composables/usePlatformBalance'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
+import { openPlatformBillingPage } from '../../../lib/platformUrls'
 import PlatformLoginActions from '../../auth/PlatformLoginActions.vue'
 
 const props = defineProps<{
@@ -13,7 +15,19 @@ const props = defineProps<{
 
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
+const { balance, exhausted, loading, lowBalance, visible: balanceVisible } = usePlatformBalance()
 const soundSaving = ref(false)
+
+const balanceToneClass = computed(() => {
+  if (exhausted.value) return 'border-warning/40 bg-warning/10 text-warning'
+  if (lowBalance.value) return 'border-warning/25 bg-warning/5 text-warning'
+  return 'border-border bg-card text-foreground'
+})
+
+const balanceLabel = computed(() => {
+  if (loading.value && balance.value == null) return '余额…'
+  return balance.value == null ? '余额 --' : `${balance.value} 元`
+})
 
 const {
   platformAccountTitle,
@@ -100,6 +114,40 @@ async function onPlaySoundToggle(checked: boolean) {
         @login="onPlatformLogin"
         @cancel="onPlatformLoginCancel"
       />
+    </div>
+  </div>
+
+  <div
+    v-if="balanceVisible"
+    class="rounded-xl border panel p-5"
+    :class="balanceToneClass"
+  >
+    <div class="flex items-center justify-between gap-4">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2">
+          <AlertTriangle
+            v-if="exhausted || lowBalance"
+            class="h-4 w-4 shrink-0"
+            aria-hidden="true"
+          />
+          <WalletCards v-else class="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+          <p class="text-sm font-medium">账户余额</p>
+        </div>
+        <p class="mt-1 text-xs opacity-80">
+          {{ exhausted ? '账户余额已用尽，请充值后继续使用' : lowBalance ? '账户余额较低，请及时充值' : '平台账户可用余额' }}
+        </p>
+      </div>
+      <div class="flex shrink-0 items-center gap-3">
+        <span class="text-sm font-medium tabular-nums whitespace-nowrap">{{ balanceLabel }}</span>
+        <button
+          type="button"
+          class="h-8 rounded-lg border border-border/80 bg-background px-3 text-sm font-medium text-foreground hover:bg-hover cursor-pointer"
+          aria-label="前往账户充值"
+          @click="openPlatformBillingPage"
+        >
+          充值
+        </button>
+      </div>
     </div>
   </div>
 

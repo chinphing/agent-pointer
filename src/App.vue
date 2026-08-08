@@ -141,18 +141,19 @@ watch(showSkills, open => {
     @stop="stopComputerCompact"
   />
     <template v-else>
+      <SettingsView
+        v-if="showSettings"
+        :initial-section="settingsInitialSection"
+        @close="showSettings = false"
+        @open-skills="onOpenSkillsFromSettings"
+      />
       <AppShell
+        v-else
         @open-settings="openSettings"
         @open-automation="openAutomation"
         @open-skills="showSkills = true"
       >
-        <SettingsView
-          v-if="showSettings"
-          :initial-section="settingsInitialSection"
-          @close="showSettings = false"
-          @open-skills="onOpenSkillsFromSettings"
-        />
-        <ChatView v-else />
+        <ChatView />
       </AppShell>
     </template>
   </div>

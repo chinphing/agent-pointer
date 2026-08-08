@@ -28,6 +28,19 @@ export function subTaskIdFromTraceId(traceId: string): string {
   return i > 0 ? traceId.slice(0, i).trim() : traceId.trim()
 }
 
+/**
+ * Middle segment of self-fork traces `taskId:instanceId:agentId`.
+ * Legacy `taskId:agentId` has no instance → null.
+ */
+export function agentInstanceIdFromTraceId(traceId: string): string | null {
+  const parts = traceId
+    .split(':')
+    .map(s => s.trim())
+    .filter(Boolean)
+  if (parts.length < 3) return null
+  return parts[1] ?? null
+}
+
 function desktopToolFamily(base: string): 'mouse' | 'input' | 'other' | null {
   if (base.startsWith('mouse_')) return 'mouse'
   if (base.startsWith('input_')) return 'input'

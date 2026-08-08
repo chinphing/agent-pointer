@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentInstanceIdFromTraceId,
   emptySubAgentToolStats,
   formatSubAgentSummaryLine,
   incrementSubAgentToolStats,
@@ -12,6 +13,7 @@ describe('sub-agent trace identity parsing', () => {
     const traceId = 'task-reused:instance-unique:current-agent'
 
     expect(subTaskIdFromTraceId(traceId)).toBe('task-reused')
+    expect(agentInstanceIdFromTraceId(traceId)).toBe('instance-unique')
     expect(subAgentIdFromTraceId(traceId)).toBe('current-agent')
   })
 
@@ -19,6 +21,7 @@ describe('sub-agent trace identity parsing', () => {
     const traceId = 'task-legacy:explore'
 
     expect(subTaskIdFromTraceId(traceId)).toBe('task-legacy')
+    expect(agentInstanceIdFromTraceId(traceId)).toBeNull()
     expect(subAgentIdFromTraceId(traceId)).toBe('explore')
   })
 })

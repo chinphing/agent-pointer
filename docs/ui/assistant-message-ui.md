@@ -40,6 +40,7 @@
 - **默认收缩**为一行概要（工具卡片不渲染；任务板仍显示在摘要上方），执行中与完成后均如此；点击可展开。流式 `agent_step` 不得覆盖用户手动展开状态。收缩态**不**渲染工具卡片。
 - 收缩摘要：`running` 且已有工具调用时，优先展示**当前/最近工具**一行（与紧凑状态条同款文案）；结束后再按工具分桶计数，维度按子 agent `agentId`——`explore`：搜索/读文件；`coder`：搜索/读文件/终端/编辑；`computer`：鼠标/输入/其他；`research`：联网搜索。历史 trace 中的 `general-worker` 仍按既有 metadata 渲染（`agentUi` / `subAgentStats`），registry 不再加载该 agent。
 - 子 Agent **任务板**与外层相同组件 `TaskBoardPanel`，绑定在 **lead assistant 消息**（`task_board_updated.anchorMessageId` → `childBindings`），渲染在对应 `SubAgentFrame` **内、执行过程上方**；收缩与展开时都显示完整任务板，不随工具区折叠隐藏。
+- **子板统一查找**：先按绑定（trace id / 旧 lead 消息 id）命中；没有绑定再按同一 task id 找未绑定板（self-fork 时优先匹配 trace 里的 instance）。legacy 短 key 与带 `ptr_agent_instance` 的长 key 走同一套规则。
 - 设置「显示子 Agent 边框面板」（`showSubAgentTrace`）：Supervisor 默认开；worker lead 默认关。
 - Supervisor 规划列表：`supervisor_plan` → `message.supervisorPlanTasks`，轻量 checklist（无 `<pre>` 时间线）。
 

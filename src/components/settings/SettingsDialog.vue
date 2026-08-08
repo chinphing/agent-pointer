@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { provideSettingsDialogForm } from '../../composables/useSettingsDialogForm'
-import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
 import ChannelSettingsPanel from './ChannelSettingsPanel.vue'
 import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
 import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
@@ -37,9 +36,8 @@ const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
   { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
-  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot },
-  { id: 'generation', label: '界面配置', desc: '界面显示选项', icon: Gauge },
-  { id: 'provider', label: '模型服务', desc: '平台/自定义模型服务', icon: Cpu }
+  { id: 'assistant', label: '智能体', desc: '模型、档位与行为', icon: Bot },
+  { id: 'generation', label: '界面配置', desc: '界面显示选项', icon: Gauge }
 ] as const
 
 const debugSections = [
@@ -93,12 +91,11 @@ const sections = computed<SidebarGroup[]>(() => {
   const groups: SidebarGroup[] = [
     // 账户：高频，单独置顶
     { items: [account] },
-    // 智能体与模型：决定 AI 怎么工作、怎么显示、用哪些模型
+    // 智能体与配置：决定 AI 怎么工作、怎么显示
     {
       items: [
         alwaysSections.find(item => item.id === 'assistant')!,
-        alwaysSections.find(item => item.id === 'generation')!,
-        alwaysSections.find(item => item.id === 'provider')!
+        alwaysSections.find(item => item.id === 'generation')!
       ]
     },
     // 自动化与集成：外部接入
@@ -201,11 +198,12 @@ onMounted(() => {
         <!-- Main Content -->
         <main class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
           <!-- ==================== Assistant Section ==================== -->
-          <section v-if="activeSection === 'assistant'" class="p-6 space-y-5">
+          <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
+          <section v-show="activeSection === 'assistant'" class="p-6 space-y-5">
             <AssistantSettingsPanel :form="form" />
           </section>
 
-          <section v-else-if="activeSection === 'channels'" class="p-6">
+          <section v-if="activeSection === 'channels'" class="p-6">
             <ChannelSettingsPanel />
           </section>
 
@@ -238,11 +236,6 @@ onMounted(() => {
           <!-- About Settings -->
           <section v-else-if="activeSection === 'about'" class="p-6 space-y-5">
             <AboutSettingsPanel />
-          </section>
-
-          <!-- Keep the provider panel mounted to preserve in-progress edits while switching sections. -->
-          <section v-show="activeSection === 'provider'" class="p-6">
-            <ProviderSettingsPanel :form="form" />
           </section>
         </main>
       </div>

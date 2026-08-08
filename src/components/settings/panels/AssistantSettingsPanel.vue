@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../../types/chat'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
 import { useSettingsStore } from '../../../stores/settings'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
-import { Bot, CircleHelp, Monitor, Sparkles, Wrench } from 'lucide-vue-next'
+import { Bot, CalendarClock, CircleHelp, GitBranch, Monitor, ScrollText, ShieldCheck, Sparkles, UserRound, Wrench } from 'lucide-vue-next'
+import ModelServiceSection from '../ModelServiceSection.vue'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -47,10 +48,6 @@ const {
   activeSection
 } = props.form
 
-function openModelService() {
-  activeSection.value = 'provider'
-}
-
 const queueSnapshot = ref<RunQueueSnapshot | null>(null)
 const queueLoading = ref(false)
 let queuePollTimer: ReturnType<typeof setInterval> | null = null
@@ -84,12 +81,20 @@ async function refreshQueueSnapshot() {
   }
 }
 
-onMounted(() => {
-  void refreshQueueSnapshot()
-  queuePollTimer = setInterval(() => {
-    void refreshQueueSnapshot()
-  }, 2500)
-})
+// 仅在智能体分区激活时轮询队列；切到其他分区暂停，避免后台空转。
+watch(activeSection, section => {
+  if (section === 'assistant') {
+    if (!queuePollTimer) {
+      void refreshQueueSnapshot()
+      queuePollTimer = setInterval(() => {
+        void refreshQueueSnapshot()
+      }, 2500)
+    }
+  } else if (queuePollTimer) {
+    clearInterval(queuePollTimer)
+    queuePollTimer = null
+  }
+}, { immediate: true })
 
 onUnmounted(() => {
   if (queuePollTimer) clearInterval(queuePollTimer)
@@ -113,10 +118,15 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
               </h3>
             </div>
 
+            <!-- 模型与档位：平台/自定义服务 + 三档模型配置（原「模型服务」分区并入） -->
+            <ModelServiceSection :form="form" />
+
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
               <div>
                 <div class="flex items-center gap-1.5">
-                  <h4 class="text-sm font-medium text-foreground">模式选择</h4>
+                  <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                    <Bot class="w-4 h-4 text-accent" />模式选择
+                  </h4>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
@@ -128,8 +138,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
                   </button>
                 </div>
                 <p class="mt-1 text-[11px] text-muted">
-                  选择各场景使用的档位；每档具体模型在「模型服务」中配置。
-                  <button type="button" class="ml-1 text-accent hover:underline cursor-pointer" @click="openModelService">去配置</button>
+                  选择各场景使用的档位；每档具体模型在上方「模型与档位」中配置。
                 </p>
               </div>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
@@ -204,8 +213,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
                   <Monitor class="w-4 h-4 text-accent shrink-0" />电脑操控
                 </h4>
                 <p class="mt-1 text-[11px] text-muted">
-                  桌面自动化的起始视觉档位与操作行为；每档具体模型在「模型服务」中配置。
-                  <button type="button" class="ml-1 text-accent hover:underline cursor-pointer" @click="openModelService">去配置</button>
+                  桌面自动化的起始视觉档位与操作行为；每档具体模型在上方「模型与档位」中配置。
                 </p>
               </div>
 
@@ -349,7 +357,9 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <div>
-                <h4 class="text-sm font-medium text-foreground">个性化</h4>
+                <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                  <UserRound class="w-4 h-4 text-accent" />个性化
+                </h4>
                 <p class="mt-1 text-[11px] text-muted">
                   写入每次对话的系统提示（[USER RULES]）。用于约束改动范围、风格等；留空则仅使用产品默认规则。
                 </p>
@@ -366,7 +376,9 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
               <div class="flex items-center gap-1.5 min-w-0">
-                <h4 class="text-sm font-medium text-foreground">任务调度</h4>
+                <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                  <CalendarClock class="w-4 h-4 text-accent" />任务调度
+                </h4>
                 <button
                   type="button"
                   class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
@@ -458,7 +470,9 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
               <div class="flex items-center justify-between gap-4">
                 <div class="flex items-center gap-1.5 min-w-0">
-                  <h4 class="text-sm font-medium text-foreground">并行执行</h4>
+                  <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                    <GitBranch class="w-4 h-4 text-accent" />并行执行
+                  </h4>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
@@ -528,7 +542,9 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
               <div class="flex items-center justify-between">
-                <h4 class="text-sm font-medium text-foreground">上下文自动压缩</h4>
+                <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                  <ScrollText class="w-4 h-4 text-accent" />上下文自动压缩
+                </h4>
                 <label class="relative inline-flex items-center cursor-pointer">
                   <input v-model="contextCompressionEnabled" type="checkbox" class="sr-only peer" />
                   <div class="settings-toggle-track"></div>
@@ -554,7 +570,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                <Sparkles class="w-4 h-4 text-accent" />多媒体理解
+                <Film class="w-4 h-4 text-accent" />多媒体理解
               </h4>
               <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>

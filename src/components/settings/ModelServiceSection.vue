@@ -428,13 +428,13 @@ defineExpose({
 </script>
 
 <template>
-  <section class="space-y-5">
+  <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
     <div class="flex items-center justify-between gap-3">
       <div>
-        <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-          <Cpu class="w-4 h-4 text-accent" />模型服务
-        </h3>
-        <p class="mt-0.5 text-xs text-muted">平台服务与自定义连接配置（仅本次会话，重启后恢复默认）</p>
+        <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+          <Cpu class="w-4 h-4 text-accent" />模型与档位
+        </h4>
+        <p class="mt-1 text-[11px] text-muted">平台服务与自定义连接配置（仅本次会话，重启后恢复默认）</p>
       </div>
       <button
         v-if="tab === 'custom' && !platformReadOnly"
@@ -613,7 +613,7 @@ defineExpose({
         </div>
       </div>
     </div>
-  </section>
+  </div>
 
   <Teleport to="body">
     <div

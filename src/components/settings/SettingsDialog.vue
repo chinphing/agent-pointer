@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { SlidersHorizontal, ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -9,8 +9,7 @@ import { provideSettingsDialogForm } from '../../composables/useSettingsDialogFo
 import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
 import ChannelSettingsPanel from './ChannelSettingsPanel.vue'
 import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
-import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
-import AgentSettingsPanel from './panels/AgentSettingsPanel.vue'
+import DebugSettingsPanel from './panels/DebugSettingsPanel.vue'
 import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
@@ -41,8 +40,7 @@ const alwaysSections = [
 ] as const
 
 const debugSections = [
-  { id: 'generation', label: '界面配置', desc: '界面', icon: Gauge },
-  { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge }
+  { id: 'debug', label: '调试', desc: '保存对话请求', icon: Bug }
 ] as const
 
 const debugSectionIds = new Set<string>(debugSections.map(item => item.id))
@@ -276,14 +274,8 @@ async function saveFromFooter() {
             <AutomationSettingsPanel @view-session="emit('close')" />
           </section>
 
-          <!-- ==================== Generation Section ==================== -->
-          <section v-else-if="activeSection === 'generation'" class="p-6 space-y-5">
-            <GenerationSettingsPanel :form="form" />
-          </section>
-
-          <!-- ==================== Agent Section ==================== -->
-          <section v-else-if="activeSection === 'agent'" class="p-6 space-y-5">
-            <AgentSettingsPanel :form="form" />
+          <section v-else-if="activeSection === 'debug'" class="p-6">
+            <DebugSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Platform account (desktop) ==================== -->

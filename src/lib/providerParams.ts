@@ -1,4 +1,5 @@
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
+import { DOUBAO_GENERATION_MODELS } from './modelCapabilities'
 
 /** Default Qwen `thinking_budget` when deep thinking is enabled. */
 export const DEFAULT_THINKING_BUDGET = 2048
@@ -6,7 +7,7 @@ export const DEFAULT_THINKING_BUDGET = 2048
 export type ReasoningEffort = 'high' | 'max'
 
 /** UI / preset kind; drives the same RuntimeParamsForm variant as built-in Qwen & DeepSeek. */
-export type ProviderTemplateId = 'qwen' | 'deepseek' | 'openai_compatible'
+export type ProviderTemplateId = 'qwen' | 'deepseek' | 'doubao' | 'openai_compatible'
 
 export interface ProviderTemplateMeta {
   id: ProviderTemplateId
@@ -52,6 +53,15 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultModels: ['deepseek-v4-flash', 'deepseek-v4-pro']
   },
   {
+    id: 'doubao',
+    label: '豆包',
+    hint: '火山方舟 API；支持平台图像与视频模型',
+    defaultId: 'doubao',
+    defaultName: '豆包',
+    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    defaultModels: [...DOUBAO_GENERATION_MODELS]
+  },
+  {
     id: 'openai_compatible',
     label: 'OpenAI 兼容',
     hint: '其它 OpenAI 格式端点；可配 extra_body（如 repetition_penalty）',
@@ -72,16 +82,26 @@ export function isDeepSeekProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): b
   return /api\.deepseek\.com/i.test(p.baseUrl || '')
 }
 
+export function isDoubaoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (p.id?.toLowerCase() === 'doubao') return true
+  return /ark\.cn-[a-z-]+\.volces\.com/i.test(p.baseUrl || '')
+}
+
 export function detectProviderTemplateId(
   p: Pick<ProviderConfig, 'id' | 'baseUrl'>
 ): ProviderTemplateId {
   if (isQwenProvider(p)) return 'qwen'
   if (isDeepSeekProvider(p)) return 'deepseek'
+  if (isDoubaoProvider(p)) return 'doubao'
   return 'openai_compatible'
 }
 
 export function providerTemplateMeta(id: ProviderTemplateId): ProviderTemplateMeta {
-  return PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === id) ?? PROVIDER_TEMPLATE_OPTIONS[2]
+  return (
+    PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === id)
+    ?? PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === 'openai_compatible')
+    ?? PROVIDER_TEMPLATE_OPTIONS[0]
+  )
 }
 
 /** Remove provider/model fields that do not apply to the detected template. */

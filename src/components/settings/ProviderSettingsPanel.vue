@@ -37,10 +37,15 @@ const tab = ref<'platform' | 'custom'>('platform')
 const platformReadOnly = computed(() => props.form.platformReadOnly.value)
 const isPlatformProvider = (provider: ProviderConfig) => {
   const template = detectProviderTemplateId(provider)
-  return template === 'qwen' || template === 'deepseek'
+  return template === 'qwen' || template === 'deepseek' || template === 'doubao'
 }
 const visibleProviders = computed(() =>
   s.settings.providers.filter(provider => tab.value === 'platform' ? isPlatformProvider(provider) : !isPlatformProvider(provider))
+)
+const editableTemplateOptions = computed(() =>
+  showAddProvider.value
+    ? PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id === 'openai_compatible')
+    : PROVIDER_TEMPLATE_OPTIONS
 )
 
 const copiedKey = ref(false)
@@ -508,7 +513,7 @@ defineExpose({
         <label class="block text-[12px] text-muted">服务类型</label>
         <div class="inline-flex flex-wrap gap-1 rounded-lg bg-card border border-border p-0.5">
           <button
-            v-for="opt in PROVIDER_TEMPLATE_OPTIONS"
+            v-for="opt in editableTemplateOptions"
             :key="opt.id"
             type="button"
             class="h-8 px-3 rounded-md text-[12px] cursor-pointer transition-colors"

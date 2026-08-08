@@ -1,8 +1,8 @@
 # 设置页：模型服务商编辑（维护说明）
 
-> **可见性**：设置侧栏「模型服务」仅在 **平台管理员 + 调试模式** 下显示（`canEditPlatform && debugMenusEnabled`）。普通用户通过平台账户 OAuth 注入 API Key，不可编辑服务商列表。
+> **可见性**：设置侧栏「模型服务」是常规分区，平台页包含千问、DeepSeek、豆包；自定义页包含其余 OpenAI 兼容服务。非平台管理员只读，平台管理员可编辑。
 
-> **关闭调试**：Bug 按钮再次点击会同步关闭 `rawContentViewEnabled`、`computerAnnotatedScreenViewEnabled`、`debugDumpLlmPrompts`、`taskBoardShowChildBoards`，并清除各智能体 `agentUiOverrides` 中的 `showSidecarToolCalls` / `showToolCallResults` / `showReasoning`（恢复 profile 默认）。`terminalEnvOverrides` 保留在内存中并**继续注入** terminal；编辑入口仍在调试「界面配置」，再次开启可继续编辑。
+> **调试**：Bug 按钮仅控制调试分区的可见性（仍受 `canEditPlatform` 限制）。调试页只保留 `debugDumpLlmPrompts`（「保存每轮对话请求」）；切换 Bug 按钮不会重置其它运行时开关或智能体 UI 覆盖。
 
 > 配置写入内存，重启后恢复默认；底部「保存(本次会话)」通过专用的
 > `DebugSessionSettings` 边界更新当前进程配置。

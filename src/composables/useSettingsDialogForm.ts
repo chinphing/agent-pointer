@@ -657,87 +657,14 @@ function createSettingsDialogForm(deps: {
   })
   }
 
-  /** Cleared from every agent when debug mode is turned off (restore profile defaults). */
-  const DEBUG_AGENT_UI_KEYS: (keyof AgentUiConfig)[] = [
-  'showSidecarToolCalls',
-  'showToolCallResults',
-  'showReasoning'
-  ]
-
-  function stripDebugAgentUiOverrides(
-  overrides: Record<string, Partial<AgentUiConfig>> | undefined
-  ): Record<string, Partial<AgentUiConfig>> {
-  if (!overrides) return {}
-  const out: Record<string, Partial<AgentUiConfig>> = {}
-  for (const [id, cfg] of Object.entries(overrides)) {
-    const next = { ...cfg }
-    for (const key of DEBUG_AGENT_UI_KEYS) {
-      delete next[key]
-    }
-    if (Object.keys(next).length > 0) {
-      out[id] = next
-    }
-  }
-  return out
-  }
-
+  /**
+   * 调试开关只控制调试入口可见性。
+   * 其它运行时开关及智能体显示覆盖保持原值，避免打开/关闭设置影响正常默认行为。
+   */
   async function toggleDebugMenus() {
   const next = !debugMenusEnabled.value
   debugMenusEnabled.value = next
-  rawContentViewEnabled.value = next
-  computerAnnotatedScreenViewEnabled.value = next
-
-  if (next) {
-    agentUiLocal.value = {
-      ...agentUiLocal.value,
-      showReasoning: true,
-      showSidecarToolCalls: true
-    }
-    s.patchAgentUiOverride(activeUiAgentId.value, {
-      showReasoning: true,
-      showSidecarToolCalls: true
-    })
-  } else {
-    debugDumpLlmPrompts.value = false
-    taskBoardShowChildBoards.value = false
-    agentUiLocal.value = {
-      ...agentUiLocal.value,
-      showSidecarToolCalls: false,
-      showToolCallResults: false,
-      showReasoning: false
-    }
-    s.patchAgentUiOverride(activeUiAgentId.value, {
-      showSidecarToolCalls: false,
-      showToolCallResults: false,
-      showReasoning: false
-    })
-  }
-
-  const baseOverrides = s.settings.agentUiOverrides ?? {}
-  const agentUiOverrides = next
-    ? {
-        ...baseOverrides,
-        [activeUiAgentId.value]: {
-          ...(baseOverrides[activeUiAgentId.value] ?? {}),
-          ...agentUiLocal.value,
-          showReasoning: true
-        }
-      }
-    : stripDebugAgentUiOverrides(baseOverrides)
-
-  // Keep terminalEnvOverrides across debug toggle; injection stays active either way.
-  const terminalEnvOverrides = terminalEnvOverridesFromRows()
-  s.settings.terminalEnvOverrides = terminalEnvOverrides
-
-  await s.save({
-    debugMenusEnabled: next,
-    rawContentViewEnabled: next,
-    computerAnnotatedScreenViewEnabled: next,
-    debugDumpLlmPrompts: next ? debugDumpLlmPrompts.value : false,
-    taskBoardShowChildBoards: next ? taskBoardShowChildBoards.value : false,
-    terminalEnvOverrides,
-    agentUiOverrides
-  })
+  await s.save({ debugMenusEnabled: next })
   }
 
   function terminalEnvOverridesFromRows(): Record<string, string> {
@@ -803,26 +730,9 @@ function createSettingsDialogForm(deps: {
   }
 
   function getDebugRuntimeSavePayload() {
-  const terminalEnvOverrides = terminalEnvOverridesFromRows()
-  // Optimistic local write so later applyEffectiveView (theme / debug-session)
-  // preserves overrides when the response omits or defaults the field.
-  s.settings.terminalEnvOverrides = terminalEnvOverrides
   return {
-    agentMode: agentMode.value,
-    leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
-    maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
-    maxSubAgentSpawnDepth: Number(maxSubAgentSpawnDepth.value),
-    rawContentViewEnabled: rawContentViewEnabled.value,
     debugDumpLlmPrompts: debugDumpLlmPrompts.value,
-    terminalEnvOverrides,
-    debugMenusEnabled: debugMenusEnabled.value,
-    taskBoardShowChildBoards: taskBoardShowChildBoards.value,
-    computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
-    agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
-    agentUiOverrides: {
-      ...(s.settings.agentUiOverrides ?? {}),
-      [activeUiAgentId.value]: { ...agentUiLocal.value }
-    },
+    debugMenusEnabled: debugMenusEnabled.value
   }
   }
 

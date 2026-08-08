@@ -1,19 +1,16 @@
 import type { AgentDef, AgentProfile, AgentUiConfig, ModelSettings } from '../types/chat'
 
-/** When debug mode is on, apply session overrides (default sidecar visible unless explicitly off). */
+/**
+ * Debug mode now only gates the dedicated debug settings entry.
+ * Keep display behavior identical to the normal profile unless an explicit
+ * agent UI override is already resolved by `mergeUi`.
+ */
 export function mergeDebugDisplayUi(
-  settings: Pick<ModelSettings, 'debugMenusEnabled' | 'agentUiOverrides'> | undefined,
-  agentId: string,
+  _settings: Pick<ModelSettings, 'debugMenusEnabled' | 'agentUiOverrides'> | undefined,
+  _agentId: string,
   ui: ResolvedAgentUi
 ): ResolvedAgentUi {
-  if (!settings?.debugMenusEnabled) return ui
-  const ov = settings.agentUiOverrides?.[agentId]
-  return {
-    ...ui,
-    showSidecarToolCalls: ov?.showSidecarToolCalls ?? true,
-    showToolCallResults: ov?.showToolCallResults ?? ui.showToolCallResults,
-    showReasoning: ov?.showReasoning ?? true
-  }
+  return ui
 }
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 
@@ -102,7 +99,7 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
     showReasoning: false,
     showSubAgentTrace: isSupervisor || key === 'research',
     showToolCalls: !isSupervisor,
-    showToolCallResults: false,
+    showToolCallResults: true,
     hideToolNames: hasTaskBoard ? ['task_board_init', 'task_board_patch', 'task_board_replace', 'task_board_finalize', 'task_board_check_deps', 'task_board_prune'] : [],
     showWorkspacePicker: !isSupervisor,
     showComputerMonitorPicker: key === 'computer',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -190,12 +190,6 @@ async function saveFromFooter() {
         class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0"
         :class="chromeEnabled && macTrafficLightPadding ? 'pl-[4.75rem]' : ''"
       >
-        <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
-          <SlidersHorizontal class="w-4 h-4 text-accent" />
-        </div>
-        <div>
-          <h2 class="text-base font-semibold text-foreground">设置</h2>
-        </div>
         <div class="flex-1" />
         <button
           type="button"

@@ -52,7 +52,6 @@ const WorkspacePanel = defineAsyncComponent(() => import('../workspace/Workspace
 const emit = defineEmits<{
   (e: 'open-settings', section?: string): void
   (e: 'open-automation'): void
-  (e: 'open-skills'): void
 }>()
 
 const chat = useChatStore()
@@ -367,10 +366,6 @@ async function loadMoreProjectConversations(project: Project) {
 
 function openAutomation() {
   emit('open-automation')
-}
-
-function openSkills() {
-  emit('open-skills')
 }
 
 function openProjectSearch() {
@@ -847,7 +842,7 @@ watch(searchQuery, q => {
             <button
               type="button"
               class="sidebar-workbench-link"
-              @click="openSkills"
+              @click="emit('open-settings', 'skills')"
             >
               <Sparkles class="w-4 h-4" />
               技能

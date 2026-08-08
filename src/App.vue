@@ -27,7 +27,6 @@ const ChannelPairingModal = defineAsyncComponent(
 const TerminalInputModal = defineAsyncComponent(
   () => import('./components/chat/TerminalInputModal.vue')
 )
-const SkillPicker = defineAsyncComponent(() => import('./components/skills/SkillPicker.vue'))
 const ExternalSkillsImportModal = defineAsyncComponent(
   () => import('./components/skills/ExternalSkillsImportModal.vue')
 )
@@ -39,7 +38,6 @@ const settings = useSettingsStore()
 const skills = useSkillsStore()
 
 const showSettings = ref(false)
-const showSkills = ref(false)
 const settingsInitialSection = ref('account')
 const {
   open: pairingModalOpen,
@@ -103,11 +101,6 @@ onMounted(() => {
   }
 })
 
-function onOpenSkillsFromSettings() {
-  showSettings.value = false
-  showSkills.value = true
-}
-
 function openSettings(section = 'account') {
   settingsInitialSection.value = section
   showSettings.value = true
@@ -118,10 +111,6 @@ function openAutomation() {
 }
 
 watch(showSettings, open => {
-  if (open && isCompact.value) expandComputerCompact()
-})
-
-watch(showSkills, open => {
   if (open && isCompact.value) expandComputerCompact()
 })
 </script>
@@ -145,20 +134,16 @@ watch(showSkills, open => {
         v-if="showSettings"
         :initial-section="settingsInitialSection"
         @close="showSettings = false"
-        @open-skills="onOpenSkillsFromSettings"
       />
       <AppShell
         v-else
         @open-settings="openSettings"
         @open-automation="openAutomation"
-        @open-skills="showSkills = true"
       >
         <ChatView />
       </AppShell>
     </template>
   </div>
-
-  <SkillPicker v-if="showSkills" @close="showSkills = false" />
 
   <ChannelPairingModal
     v-model:open="pairingModalOpen"

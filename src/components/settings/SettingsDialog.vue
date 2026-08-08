@@ -16,10 +16,10 @@ import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
+import SkillsPanel from '../skills/SkillsPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'open-skills'): void
 }>()
 const props = withDefaults(defineProps<{
   initialSection?: string
@@ -106,7 +106,7 @@ const sections = computed(() => {
 
 const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
 const showFooterSave = computed(() => {
-  if (activeSection.value === 'account' || activeSection.value === 'cloud' || activeSection.value === 'automation' || activeSection.value === 'about') return false
+  if (activeSection.value === 'account' || activeSection.value === 'cloud' || activeSection.value === 'automation' || activeSection.value === 'skills' || activeSection.value === 'about') return false
   return (
     activeSection.value === 'assistant' ||
     activeSection.value === 'channels' ||
@@ -226,7 +226,7 @@ async function saveFromFooter() {
             :key="item.id"
             class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
             :class="activeSection === item.id ? 'bg-accent/10 border border-accent/30' : 'border border-transparent hover:bg-hover'"
-            @click="item.id === 'skills' ? emit('open-skills') : (activeSection = item.id)"
+            @click="activeSection = item.id"
           >
             <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
                  :class="activeSection === item.id ? 'bg-accent/15' : 'bg-hover group-hover:bg-hover'">
@@ -252,6 +252,10 @@ async function saveFromFooter() {
 
           <section v-else-if="activeSection === 'automation'" class="p-6 space-y-5">
             <AutomationSettingsPanel @view-session="emit('close')" />
+          </section>
+
+          <section v-else-if="activeSection === 'skills'" class="p-6">
+            <SkillsPanel />
           </section>
 
           <section v-else-if="activeSection === 'debug'" class="p-6">

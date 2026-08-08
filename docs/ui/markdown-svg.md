@@ -37,6 +37,7 @@ Internal fragment refs (`href="#id"`) remain allowed (e.g. markers / `<use>`).
 
 - Card chrome matches GFM tables / code / charts (`--card`, rounded border).
 - Toolbar: copy source, export `.svg`, toggle source.
+- **Export:** builds a URI-encoded `data:image/svg+xml;charset=utf-8,…` URL. Desktop save must decode that payload to UTF-8 bytes (then base64 for `save_bytes_to_path`); do not treat the percent-encoded payload as base64 (PNG chart export uses `;base64,` and is unaffected).
 - **Layout:** mount sizes the SVG from `viewBox` (pixel width). Narrow chat panes scroll horizontally instead of crushing labels with `max-width: 100%`. Undersized `viewBox` (content drawn past the bottom/side) is expanded from geometry attributes / `getBBox` so footers are not clipped. The frame resets prose inheritance (font-size / line-height / overflow-wrap) so `.md-body` typography does not change SVG text metrics.
 - **Streaming:** while the fence is still open, show “图示生成中…”. Once the closing ` ``` ` arrives, mount immediately — do not wait for the rest of the assistant turn. Trailing prose may still be streaming.
 

@@ -188,7 +188,7 @@ async function saveFromFooter() {
         as="header"
         region="settings-top-chrome"
         class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0"
-        :class="chromeEnabled && macTrafficLightPadding ? 'traffic-light-inset' : ''"
+        :class="chromeEnabled && macTrafficLightPadding ? 'pl-[4.75rem]' : ''"
       >
         <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
           <SlidersHorizontal class="w-4 h-4 text-accent" />

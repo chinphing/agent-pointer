@@ -23,7 +23,7 @@
 |---|---|
 | `src/App.vue` | `showSettings` 控制设置页面与聊天视图切换；`<SettingsDialog>` 全屏呈现 |
 | `src/components/settings/SettingsDialog.vue` | 全屏设置页：标题栏、左侧分区导航、右侧内容区与按需保存操作 |
-| 分区 | `account` 账户 / `automation` 自动化 / `channels` 连接 / `skills` 技能 / `assistant` 智能体 / `provider` 模型服务 / `debug` 调试 / `cloud` 云主机（桌面·平台模式）/ `about` 关于 |
+| 分区 | `account` 账户 / `automation` 自动化 / `channels` 连接 / `skills` 技能 / `assistant` 智能体 / `generation` 界面配置 / `provider` 模型服务 / `debug` 调试 / `cloud` 云主机（桌面·平台模式）/ `about` 关于 |
 | `src/components/layout/AppShell.vue` | 主布局（侧栏+主区）；侧栏有「自动化/技能/连接」入口，通过 `emit('open-settings', section)` 打开设置并定位分区 |
 
 关键结论：设置是 `v-if` 渲染的覆盖层，主界面（ChatView）始终在下面。改成页面形态时，需要把「显示/关闭」改为「视图切换」，并保留 `initialSection` 深链能力。
@@ -131,6 +131,7 @@
    - 所有分区均即时保存；返回按钮是唯一退出入口，不区分「保存/取消」。
 4. 调试菜单（provider/generation/agent 分区）保持可见性规则不变，只是从弹窗分区变为页面分区。
 5. 技能管理作为设置内嵌分区：左侧「技能」直接切换右侧内容区，不再打开独立弹窗；技能启用、搜索和 zip 导入均即时保存。
+6. 「界面配置」为普通用户可见分区：工具调用显示（sidecar/非 sidecar/卡片/结果）、原始内容查看、标记截图查看、显示推理过程、任务板面板、子 Agent 边框面板、子任务板；调试相关选项（保存每轮对话请求、终端环境变量）不放入该分区。
 
 **验收**：全屏/窗口下设置以页面形态呈现；打开设置不遮挡聊天；返回后聊天状态无损；深链分区定位正常；所有分区修改即时持久化，返回按钮为唯一退出入口。
 

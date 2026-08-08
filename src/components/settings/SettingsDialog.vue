@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -10,6 +10,7 @@ import { provideSettingsDialogForm } from '../../composables/useSettingsDialogFo
 import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
 import ChannelSettingsPanel from './ChannelSettingsPanel.vue'
 import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
+import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
 import DebugSettingsPanel from './panels/DebugSettingsPanel.vue'
 import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
@@ -37,6 +38,7 @@ const alwaysSections = [
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
   { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
   { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot },
+  { id: 'generation', label: '界面配置', desc: '界面显示选项', icon: Gauge },
   { id: 'provider', label: '模型服务', desc: '平台/自定义模型服务', icon: Cpu }
 ] as const
 
@@ -179,6 +181,11 @@ onMounted(() => {
 
           <section v-else-if="activeSection === 'debug'" class="p-6">
             <DebugSettingsPanel :form="form" />
+          </section>
+
+          <!-- ==================== Generation Section ==================== -->
+          <section v-else-if="activeSection === 'generation'" class="p-6 space-y-5">
+            <GenerationSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Platform account (desktop) ==================== -->

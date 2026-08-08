@@ -414,6 +414,7 @@ function createSettingsDialogForm(deps: {
   function setDisplayUi(key: keyof AgentUiConfig, checked: boolean) {
   agentUiLocal.value = { ...agentUiLocal.value, [key]: checked }
   s.patchAgentUiOverride(activeUiAgentId.value, { [key]: checked })
+  scheduleAssistantSave()
   }
 
   async function applyThemeChoice(t: ThemePreference) {
@@ -745,6 +746,10 @@ function createSettingsDialogForm(deps: {
     maxToolRounds: Number(maxToolRounds.value),
     agentPerformanceModes: { ...agentPerformanceModesLocal.value },
     mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
+    rawContentViewEnabled: rawContentViewEnabled.value,
+    computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
+    taskBoardShowChildBoards: taskBoardShowChildBoards.value,
+    agentUiOverrides: { ...(s.settings.agentUiOverrides ?? {}) },
   }
   }
 
@@ -804,6 +809,9 @@ function createSettingsDialogForm(deps: {
       userCodingRules,
       computerInitialTier,
       captchaSliderOffsetPx,
+      rawContentViewEnabled,
+      computerAnnotatedScreenViewEnabled,
+      taskBoardShowChildBoards,
       agentPerformanceModesLocal,
       mediaUnderstandingModesLocal
     ],

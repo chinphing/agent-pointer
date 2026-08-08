@@ -163,6 +163,44 @@ describe('collapsed turn projection', () => {
     expect(host?.trailingToolGroups?.map(g => g.id)).toEqual(['ask1'])
     expect(host?.trailingToolGroups?.[0]?.toolCalls.map(tc => tc.name)).toEqual(['ask_user'])
   })
+
+  it('keeps a running task board in the collapsed active projection', () => {
+    const boardDoc = {
+      version: 4,
+      task_id: 'tb1',
+      meta: { goal: '办报销', status: 'running' },
+      global_milestones: [
+        { id: 'g_plan', title: '规划', status: 'done' as const },
+        { id: 'g_exec', title: '执行', status: 'in_progress' as const }
+      ]
+    }
+    const deps: FlattenDeps = {
+      ...emptyDeps,
+      boardsForMessage: messageId =>
+        messageId === 'u1'
+          ? [{ storeKey: 'main:u1', document: boardDoc, isActive: true }]
+          : []
+    }
+    const result = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [
+        user('u1', '报销'),
+        assistant('a1', '处理中', 'streaming')
+      ],
+      deps,
+      cache: null,
+      collapseActiveTurns: true
+    })
+    const turn = result.turns[0]!
+    expect(turn.state).toBe('active')
+    const boards = turn.collapsedEntries.filter(e => e.type === 'task_board')
+    expect(boards).toHaveLength(1)
+    expect(boards[0]).toMatchObject({
+      type: 'task_board',
+      storeKey: 'main:u1',
+      isActive: true
+    })
+  })
 })
 
 describe('buildMessageListLayout', () => {

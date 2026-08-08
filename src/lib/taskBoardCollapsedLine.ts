@@ -1,5 +1,6 @@
 import type { TaskBoardDocument } from '../types/chat'
 import {
+  taskBoardCurrentMilestone,
   taskBoardVisibleMilestones,
   taskBoardVisibleMilestoneProgress
 } from './taskBoard'
@@ -31,8 +32,8 @@ export function taskBoardCompactSummary(
     i => i.status === 'done' || i.status === 'failed'
   ).length
   const total = items.length
-  const inProgress = items.find(i => i.status === 'in_progress')
-  const currentStep = inProgress ? milestoneTitle(inProgress) : null
+  const current = taskBoardCurrentMilestone(document)
+  const currentStep = current ? milestoneTitle(current) : null
   const taskLine = currentStep ?? goal
 
   return { goal, taskLine, progress, doneCount, total, currentStep, fullLine: taskLine }

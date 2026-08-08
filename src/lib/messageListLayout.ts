@@ -399,7 +399,10 @@ function entryHasRunningTool(entry: FlatEntry): boolean {
 }
 
 function entryIsSummary(entry: FlatEntry): boolean {
-  if (entry.type === 'task_board') return isTaskBoardTerminal(entry.document.meta?.status)
+  // Task boards are progress chrome, not process to hide — keep running and
+  // terminal boards in the collapsed projection (sticky also needs the inline
+  // mount). Only compression summaries use the same keep path among messages.
+  if (entry.type === 'task_board') return true
   return entry.type === 'message' && isCompressionSummaryMessage(entry.message)
 }
 

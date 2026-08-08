@@ -12,8 +12,8 @@ use super::model::{BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStat
 use super::row_patch::{compact_row_after_done, merge_row_patch_with_warnings};
 use super::snapshot::{unified_patch_target, UnifiedPatchTarget};
 use super::state_machine::{
-    count_incomplete, dependencies_satisfied, dependencies_satisfied_rows, mark_ready_pending_rows,
-    validate_item_transition,
+    count_incomplete, dependencies_satisfied, dependencies_satisfied_rows,
+    ensure_single_milestone_in_progress, mark_ready_pending_rows, validate_item_transition,
 };
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -113,6 +113,7 @@ pub fn apply_method(
         other => return Err(anyhow!("task_board: unknown method {other}")),
     };
     mark_ready_pending_rows(doc);
+    ensure_single_milestone_in_progress(doc);
     Ok(ApplyOutcome {
         body,
         reflection_required,

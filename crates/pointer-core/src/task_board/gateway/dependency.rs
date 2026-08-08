@@ -41,4 +41,5 @@ pub fn check_dependencies(doc: &BoardDocument, item_id: &str) -> DependencyCheck
 
 pub fn mark_ready_after_report(doc: &mut BoardDocument) {
     super::super::state_machine::mark_ready_pending_rows(doc);
+    super::super::state_machine::ensure_single_milestone_in_progress(doc);
 }

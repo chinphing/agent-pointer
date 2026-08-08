@@ -76,6 +76,12 @@ When planner is off, execution prompts include the same Type2 `enumerated` vs `d
 
 **Dynamic init (2026-07):** when `work_item_mode=dynamic` and `dynamic_quota=N`, host seeds **N pending placeholder rows** (`#1`…`#N`) on init so the UI list is populated immediately. Execution **`work_item_claim`** fills the next unassigned slot when the runtime target is known.
 
+## Host status advancement
+
+- After every apply: `pending` rows with satisfied deps → `ready`, then **ensure one `in_progress`**.
+- **Type1** (linear `m*` / step ladder): if none is `in_progress`, promote the first `ready` (else eligible `pending`). Same after a terminal patch so the next step does not sit forever at `ready`.
+- **Type2 loop** (`g_plan` + `wi_*` + `g_deliver`): host advances the next `wi_*` to `in_progress` (bootstrap + after terminal item patch). `g_deliver` is not auto-started until all loop items are terminal.
+
 ## UI behavior rules
 
 - Inline panels mount only on the bound user message (`parentBindings`).
@@ -83,4 +89,6 @@ When planner is off, execution prompts include the same Type2 `enumerated` vs `d
 - Ended taskboards should render as normal inline panels.
 - Ended taskboards should not use sticky scroll behavior.
 - Unfinished taskboards may stay sticky to support active execution.
+- With「默认收缩执行过程」, collapsed turns still keep **all** task boards (running and terminal); only process/tool rows are hidden.
+- Spinner: prefer row `in_progress`; if meta is still running and no `in_progress` exists (stale client doc), treat the first `ready`/`pending` as current (aligned with inject **Current task**). Summary bar spins whenever a current row exists (`<details>` closed by default).
 - Messages soft-excluded by task-board trim (`contextState.included=false`) render like normal chat rows in the UI (no exclusion badge). When debug prompt dump is enabled, excluded rows are logged as `context_excluded_messages` before each LLM request.

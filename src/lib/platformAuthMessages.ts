@@ -5,7 +5,7 @@ export function loginRequiredMessage(
   isStandalone: boolean,
   purpose: LoginRequiredPurpose = 'default'
 ): string {
-  if (purpose === 'cloud') return '请先登录 Pointer 平台账户'
+  if (purpose === 'cloud') return '请先登录 Pointer 账户'
   if (isStandalone) {
     return purpose === 'attachment' ? '请先登录后再添加附件' : '请先登录'
   }

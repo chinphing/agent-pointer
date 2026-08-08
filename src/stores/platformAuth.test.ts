@@ -71,7 +71,7 @@ describe('loginRequiredMessage / mapLoginGateError', () => {
     expect(loginRequiredMessage(true, 'default')).toBe('请先登录')
     expect(loginRequiredMessage(false, 'attachment')).toBe('请先登录 Pointer 账户后再添加附件')
     expect(loginRequiredMessage(true, 'attachment')).toBe('请先登录后再添加附件')
-    expect(loginRequiredMessage(false, 'cloud')).toBe('请先登录 Pointer 平台账户')
+    expect(loginRequiredMessage(false, 'cloud')).toBe('请先登录 Pointer 账户')
   })
 
   it('maps backend login-gate errors to the standard hint', () => {

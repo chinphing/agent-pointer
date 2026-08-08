@@ -4,7 +4,7 @@
 
 ## 用户设置
 
-- 位置：设置 → **平台账户 / 管理员账户** → **通知** → **完成时播放提示音**
+- 位置：设置 → **账户** → **通知** → **完成时播放提示音**
 - 字段：`UserSettings.playSoundOnFinish`（camelCase JSON）
 - 默认：`true`
 - 持久化：`user_settings.json`（切换开关后立即 `update_user_settings`，无需页脚保存）

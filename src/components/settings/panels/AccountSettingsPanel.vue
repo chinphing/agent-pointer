@@ -73,11 +73,45 @@ async function onPlaySoundToggle(checked: boolean) {
   <div>
     <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
       <UserCircle class="w-4 h-4 text-accent" />
-      {{ platformAuth.isStandalone ? '管理员账户' : '平台账户' }}
+      账户
     </h3>
     <p class="mt-0.5 text-xs text-muted">
-      {{ platformAuth.isStandalone ? '独立部署登录状态' : 'Pointer 平台登录状态' }}
+      {{ platformAuth.isStandalone ? '独立部署登录与凭据' : '余额、登录与平台凭据' }}
     </p>
+  </div>
+
+  <div
+    v-if="balanceVisible"
+    class="rounded-2xl border p-6"
+    :class="balanceToneClass"
+  >
+    <div class="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-sm font-medium">
+          <AlertTriangle
+            v-if="exhausted || lowBalance"
+            class="h-4 w-4 shrink-0"
+            aria-hidden="true"
+          />
+          <WalletCards v-else class="h-4 w-4 shrink-0 opacity-70" aria-hidden="true" />
+          <span>账户余额</span>
+        </div>
+        <p class="mt-3 text-4xl font-semibold tracking-tight tabular-nums text-foreground sm:text-5xl">
+          {{ balanceLabel }}
+        </p>
+        <p class="mt-2 text-xs opacity-80">
+          {{ exhausted ? '余额已用尽，请充值后继续使用' : lowBalance ? '余额较低，请及时充值' : '可用于平台模型与云主机服务' }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="h-10 shrink-0 rounded-lg bg-accent px-5 text-sm font-medium text-white hover:opacity-95 cursor-pointer"
+        aria-label="前往账户充值"
+        @click="openPlatformBillingPage"
+      >
+        充值
+      </button>
+    </div>
   </div>
 
   <div class="rounded-xl border border-border panel p-5 space-y-4">
@@ -114,40 +148,6 @@ async function onPlaySoundToggle(checked: boolean) {
         @login="onPlatformLogin"
         @cancel="onPlatformLoginCancel"
       />
-    </div>
-  </div>
-
-  <div
-    v-if="balanceVisible"
-    class="rounded-xl border panel p-5"
-    :class="balanceToneClass"
-  >
-    <div class="flex items-center justify-between gap-4">
-      <div class="min-w-0">
-        <div class="flex items-center gap-2">
-          <AlertTriangle
-            v-if="exhausted || lowBalance"
-            class="h-4 w-4 shrink-0"
-            aria-hidden="true"
-          />
-          <WalletCards v-else class="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-          <p class="text-sm font-medium">账户余额</p>
-        </div>
-        <p class="mt-1 text-xs opacity-80">
-          {{ exhausted ? '账户余额已用尽，请充值后继续使用' : lowBalance ? '账户余额较低，请及时充值' : '平台账户可用余额' }}
-        </p>
-      </div>
-      <div class="flex shrink-0 items-center gap-3">
-        <span class="text-sm font-medium tabular-nums whitespace-nowrap">{{ balanceLabel }}</span>
-        <button
-          type="button"
-          class="h-8 rounded-lg border border-border/80 bg-background px-3 text-sm font-medium text-foreground hover:bg-hover cursor-pointer"
-          aria-label="前往账户充值"
-          @click="openPlatformBillingPage"
-        >
-          充值
-        </button>
-      </div>
     </div>
   </div>
 

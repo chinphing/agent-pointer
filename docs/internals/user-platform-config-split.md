@@ -22,7 +22,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 
 - Footer label **保存** only on **智能体** (persists tool approval, Computer prefs, context compression, max tool rounds, composer agent, last workspace to `local_platform_settings.json`).
 - **界面配置**, **智能模式**: **保存(本次会话)** — in-memory only until restart.
-- **平台账户**: login/logout via OAuth (`auth.dat`); no footer save.
+- **账户**: login/logout via OAuth (`auth.dat`); no footer save.
 - Theme follows browser localStorage only (not written to `user_settings.json` from settings dialog).
 
 ### API

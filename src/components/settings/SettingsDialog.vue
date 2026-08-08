@@ -82,8 +82,8 @@ const sections = computed(() => {
   // 账户：platform 走 OAuth；standalone 走账号密码。云主机仅桌面端。
   const account = {
     id: 'account',
-    label: platformAuth.isStandalone ? '管理员账户' : '平台账户',
-    desc: '登录与凭据',
+    label: '账户',
+    desc: '余额、登录与凭据',
     icon: UserCircle
   }
   // About section: all modes

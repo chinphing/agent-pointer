@@ -199,42 +199,42 @@ onMounted(() => {
         <main class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
           <!-- ==================== Assistant Section ==================== -->
           <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
-          <section v-show="activeSection === 'assistant'" class="p-6 space-y-5">
+          <section v-show="activeSection === 'assistant'" class="p-6 min-h-full flex flex-col">
             <AssistantSettingsPanel :form="form" />
           </section>
 
-          <section v-if="activeSection === 'channels'" class="p-6">
+          <section v-if="activeSection === 'channels'" class="p-6 min-h-full flex flex-col">
             <ChannelSettingsPanel />
           </section>
 
-          <section v-else-if="activeSection === 'automation'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'automation'" class="p-6 min-h-full flex flex-col">
             <AutomationSettingsPanel @view-session="emit('close')" />
           </section>
 
-          <section v-else-if="activeSection === 'skills'" class="p-6">
+          <section v-else-if="activeSection === 'skills'" class="p-6 min-h-full flex flex-col">
             <SkillsPanel />
           </section>
 
-          <section v-else-if="activeSection === 'debug'" class="p-6">
+          <section v-else-if="activeSection === 'debug'" class="p-6 min-h-full flex flex-col">
             <DebugSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Generation Section ==================== -->
-          <section v-else-if="activeSection === 'generation'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'generation'" class="p-6 min-h-full flex flex-col">
             <GenerationSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Platform account (desktop) ==================== -->
-          <section v-else-if="activeSection === 'account'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'account'" class="p-6 min-h-full flex flex-col">
             <AccountSettingsPanel :form="form" />
           </section>
 
-          <section v-else-if="activeSection === 'cloud'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'cloud'" class="p-6 min-h-full flex flex-col">
             <CloudSettingsPanel :form="form" />
           </section>
 
           <!-- About Settings -->
-          <section v-else-if="activeSection === 'about'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'about'" class="p-6 min-h-full flex flex-col">
             <AboutSettingsPanel />
           </section>
         </main>

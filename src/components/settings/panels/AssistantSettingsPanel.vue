@@ -158,7 +158,9 @@ const mediaModelName = (key: 'image' | 'audio' | 'video') =>
   tierModelName(s.platformSettings.mediaModeLlm?.[key], mediaUnderstandingModesLocal.value[key])
 </script>
 
-<template>            <div class="flex items-start justify-between gap-3 pb-1">
+<template>
+            <div class="flex-1 flex flex-col gap-5">
+              <div class="flex items-start justify-between gap-3 pb-1">
               <div>
                 <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
                   <Bot class="w-4 h-4 text-accent" />智能体
@@ -642,8 +644,8 @@ const mediaModelName = (key: 'image' | 'audio' | 'video') =>
               </div>
             </div>
 
-            <!-- 模型服务：技术配置，默认折叠在底部 -->
-            <div class="pt-7">
+            <!-- 模型服务：技术配置，默认折叠在底部（内容不满时吸底，避免底部大片空白） -->
+            <div class="pt-7 mt-auto">
               <button
                 type="button"
                 class="w-full flex items-center justify-between gap-3 px-1 pb-2 cursor-pointer group"
@@ -804,4 +806,5 @@ const mediaModelName = (key: 'image' | 'audio' | 'video') =>
       </div>
     </div>
   </Teleport>
+            </div>
 </template>

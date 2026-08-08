@@ -21,8 +21,6 @@ const {
   computerInitialTier,
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
-  computerAutoCompact,
-  collapseProcessByDefault,
   userCodingRules,
   computerHumanLike,
   captchaSliderOffsetPx,
@@ -240,38 +238,6 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
 
               <div class="border-t border-border pt-4 space-y-0 divide-y divide-border">
                 <div class="flex items-start justify-between gap-4 py-3 first:pt-0">
-                  <div class="min-w-0">
-                    <p class="text-[12px] font-medium text-foreground">执行时收缩为状态条</p>
-                    <p class="text-[11px] text-muted mt-0.5">运行中收起对话区域，保留进度提示</p>
-                  </div>
-                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
-                    <input
-                      type="checkbox"
-                      class="sr-only peer"
-                      :checked="computerAutoCompact"
-                      @change="computerAutoCompact = ($event.target as HTMLInputElement).checked"
-                    />
-                    <div class="settings-toggle-track" />
-                  </label>
-                </div>
-
-                <div class="flex items-start justify-between gap-4 py-3">
-                  <div class="min-w-0">
-                    <p class="text-[12px] font-medium text-foreground">默认收缩执行过程</p>
-                    <p class="text-[11px] text-muted mt-0.5">已完成轮次始终折叠，仅显示用户问题和最终输出</p>
-                  </div>
-                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
-                    <input
-                      type="checkbox"
-                      class="sr-only peer"
-                      :checked="collapseProcessByDefault"
-                      @change="collapseProcessByDefault = ($event.target as HTMLInputElement).checked"
-                    />
-                    <div class="settings-toggle-track" />
-                  </label>
-                </div>
-
-                <div class="flex items-start justify-between gap-4 py-3">
                   <div class="min-w-0">
                     <p class="text-[12px] font-medium text-foreground">人性化鼠标移动</p>
                     <p class="text-[11px] text-muted mt-0.5">曲线轨迹与微抖动；关闭时为直线匀速移动</p>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Check, ChevronRight, Copy, Cpu, Plus, Trash2, Wrench, X } from 'lucide-vue-next'
+import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import {
   detectProviderTemplateId,
@@ -24,9 +25,23 @@ import {
 import { resolvedModelCapabilities } from '../../lib/modelCapabilities'
 import RuntimeParamsForm from './RuntimeParamsForm.vue'
 import ModelCapabilityForm from './ModelCapabilityForm.vue'
+import TierModelRows from './TierModelRows.vue'
 import { useSettingsStore } from '../../stores/settings'
 
+const props = defineProps<{
+  form: SettingsDialogForm
+}>()
+
 const s = useSettingsStore()
+const tab = ref<'platform' | 'custom'>('platform')
+const platformReadOnly = computed(() => props.form.platformReadOnly.value)
+const isPlatformProvider = (provider: ProviderConfig) => {
+  const template = detectProviderTemplateId(provider)
+  return template === 'qwen' || template === 'deepseek'
+}
+const visibleProviders = computed(() =>
+  s.settings.providers.filter(provider => tab.value === 'platform' ? isPlatformProvider(provider) : !isPlatformProvider(provider))
+)
 
 const copiedKey = ref(false)
 const editingProvider = ref<ProviderConfig | null>(null)
@@ -222,6 +237,7 @@ function setProviderTemplate(template: ProviderTemplateId) {
 }
 
 function startEditProvider(provider: ProviderConfig) {
+  if (platformReadOnly.value) return
   const pruned = pruneInheritedModelConfigs(provider, provider.modelConfigs, globalGenFallback)
   const template = detectProviderTemplateId(provider)
   providerTemplate.value = template
@@ -240,6 +256,7 @@ function startEditProvider(provider: ProviderConfig) {
 }
 
 function startAddProvider() {
+  if (platformReadOnly.value) return
   providerTemplate.value = 'openai_compatible'
   const draft = providerDraftForTemplate('openai_compatible', globalGenDefaults())
   editingProvider.value = draft
@@ -340,6 +357,7 @@ function applyProviderSnapshotToStore(
 }
 
 function flushEditingProviderToStore(reopenEdit = false): boolean {
+  if (platformReadOnly.value) return true
   if (!editingProvider.value) return true
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
@@ -350,6 +368,7 @@ function flushEditingProviderToStore(reopenEdit = false): boolean {
 }
 
 async function saveProvider() {
+  if (platformReadOnly.value) return
   providerSaveError.value = ''
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
@@ -377,6 +396,7 @@ async function saveProvider() {
 }
 
 function removeProvider(id: string) {
+  if (platformReadOnly.value) return
   s.removeProvider(id)
   if (editingProvider.value?.id === id) {
     editingProvider.value = null
@@ -404,14 +424,15 @@ defineExpose({
 
 <template>
   <section class="space-y-5">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-3">
       <div>
         <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
           <Cpu class="w-4 h-4 text-accent" />模型服务
         </h3>
-        <p class="mt-0.5 text-xs text-muted">管理 AI 模型服务的连接配置（仅本次会话，重启后恢复默认）</p>
+        <p class="mt-0.5 text-xs text-muted">平台服务与自定义连接配置（仅本次会话，重启后恢复默认）</p>
       </div>
       <button
+        v-if="tab === 'custom' && !platformReadOnly"
         type="button"
         class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-accent/10 hover:bg-accent/20 text-[12px] text-accent cursor-pointer transition-colors"
         @click="startAddProvider"
@@ -421,9 +442,18 @@ defineExpose({
       </button>
     </div>
 
+    <p v-if="platformReadOnly" class="rounded-lg border border-border bg-hover px-3 py-2 text-[12px] text-muted">由平台统一管理。你可以查看模型服务和三档配置，但不能修改。</p>
+
+    <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
+      <button type="button" class="h-8 px-3 rounded-md text-[12px] transition-colors" :class="tab === 'platform' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'" @click="tab = 'platform'">平台</button>
+      <button type="button" class="h-8 px-3 rounded-md text-[12px] transition-colors" :class="tab === 'custom' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'" @click="tab = 'custom'">自定义</button>
+    </div>
+
+    <TierModelRows v-if="tab === 'platform'" :form="form" :read-only="platformReadOnly" />
+
     <div class="space-y-2">
       <div
-        v-for="p in s.settings.providers"
+        v-for="p in visibleProviders"
         :key="p.id"
         class="group relative rounded-xl border p-4 transition-all"
         :class="s.settings.activeProviderId === p.id ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
@@ -442,7 +472,7 @@ defineExpose({
               <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
             </div>
           </div>
-          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div v-if="!platformReadOnly" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
               <Wrench class="w-3.5 h-3.5 text-muted" />
             </button>
@@ -461,10 +491,10 @@ defineExpose({
         </div>
       </div>
 
-      <div v-if="s.settings.providers.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
+      <div v-if="visibleProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
         <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
-        <p class="text-sm text-muted">暂无模型服务</p>
-        <p class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
+        <p class="text-sm text-muted">{{ tab === 'platform' ? '暂无平台模型服务' : '暂无自定义模型服务' }}</p>
+        <p v-if="tab === 'custom' && !platformReadOnly" class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
       </div>
     </div>
 

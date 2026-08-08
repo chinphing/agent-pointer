@@ -36,11 +36,11 @@ const saving = ref(false)
 const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
-  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot }
+  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot },
+  { id: 'provider', label: '模型服务', desc: '平台/自定义模型服务', icon: Cpu }
 ] as const
 
 const debugSections = [
-  { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
   { id: 'generation', label: '界面配置', desc: '界面', icon: Gauge },
   { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge }
 ] as const
@@ -107,6 +107,7 @@ const showFooterSave = computed(() => {
   return (
     activeSection.value === 'assistant' ||
     activeSection.value === 'channels' ||
+    activeSection.value === 'provider' ||
     debugSectionIds.has(activeSection.value)
   )
 })
@@ -149,11 +150,12 @@ async function saveFromFooter() {
           userCodingRules: assistantPayload.userCodingRules
         })
       : null
-    const debugSessionSnapshot = debugSectionIds.has(sectionToSave)
-      ? getDebugSessionSavePayload()
-      : null
+    const debugSessionSnapshot =
+      debugSectionIds.has(sectionToSave) || sectionToSave === 'provider'
+        ? getDebugSessionSavePayload()
+        : null
     const debugRuntimeSnapshot =
-      debugSectionIds.has(sectionToSave) && sectionToSave !== 'provider'
+      debugSectionIds.has(sectionToSave)
         ? s.createSessionSnapshot(getDebugRuntimeSavePayload())
         : null
 
@@ -298,9 +300,9 @@ async function saveFromFooter() {
             <AboutSettingsPanel />
           </section>
 
-          <!-- Provider panel stays mounted while debug menus are on (preserves in-progress edits). -->
-          <section v-if="showDebugMenus" v-show="activeSection === 'provider'" class="p-6">
-            <ProviderSettingsPanel ref="providerPanelRef" />
+          <!-- Keep the provider panel mounted to preserve in-progress edits while switching sections. -->
+          <section v-show="activeSection === 'provider'" class="p-6">
+            <ProviderSettingsPanel ref="providerPanelRef" :form="form" />
           </section>
         </main>
       </div>

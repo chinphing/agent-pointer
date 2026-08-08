@@ -10,8 +10,6 @@ const {
   TOOL_CALL_UI_FIELDS,
   displayUiChecked,
   setDisplayUi,
-  rawContentViewEnabled,
-  computerAnnotatedScreenViewEnabled,
   taskBoardShowChildBoards
 } = props.form
 </script>
@@ -48,20 +46,6 @@ const {
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <h4 class="text-sm font-medium text-foreground">智能体输出</h4>
               <div class="grid grid-cols-2 gap-y-3 gap-x-32">
-                <div class="flex items-center justify-between gap-3">
-                  <h4 class="text-[12px] font-medium text-foreground">原始内容查看</h4>
-                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
-                    <div class="settings-toggle-track" />
-                  </label>
-                </div>
-                <div class="flex items-center justify-between gap-3">
-                  <h4 class="text-[12px] font-medium text-foreground">标记截图查看</h4>
-                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input v-model="computerAnnotatedScreenViewEnabled" type="checkbox" class="sr-only peer" />
-                    <div class="settings-toggle-track" />
-                  </label>
-                </div>
                 <div class="flex items-center justify-between gap-3">
                   <h4 class="text-[12px] font-medium text-foreground">显示推理过程</h4>
                   <label class="relative inline-flex items-center cursor-pointer shrink-0">

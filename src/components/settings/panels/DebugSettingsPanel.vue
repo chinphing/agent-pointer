@@ -6,7 +6,7 @@ const props = defineProps<{
   form: SettingsDialogForm
 }>()
 
-const { debugDumpLlmPrompts } = props.form
+const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewEnabled } = props.form
 </script>
 
 <template>
@@ -26,6 +26,32 @@ const { debugDumpLlmPrompts } = props.form
         </div>
         <label class="relative inline-flex items-center cursor-pointer shrink-0">
           <input v-model="debugDumpLlmPrompts" type="checkbox" class="sr-only peer" />
+          <div class="settings-toggle-track" />
+        </label>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-border panel p-5">
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-foreground">原始内容查看</p>
+          <p class="mt-1 text-xs text-muted">助手消息上显示「原始输出」调试入口（正文通道原始字串与 API reasoning）</p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer shrink-0">
+          <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
+          <div class="settings-toggle-track" />
+        </label>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-border panel p-5">
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-foreground">标记截图查看</p>
+          <p class="mt-1 text-xs text-muted">显示 Computer 使用的标注截图预览</p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer shrink-0">
+          <input v-model="computerAnnotatedScreenViewEnabled" type="checkbox" class="sr-only peer" />
           <div class="settings-toggle-track" />
         </label>
       </div>

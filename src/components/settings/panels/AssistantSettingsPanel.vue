@@ -6,7 +6,7 @@ import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
 import { useSettingsStore } from '../../../stores/settings'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
-import { Bot, CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, ScrollText, ShieldCheck, Sparkles, UserRound, Wrench, X } from 'lucide-vue-next'
+import { Bot, CalendarClock, ChevronRight, CircleHelp, Code, Cpu, Film, GitBranch, Gauge, Monitor, ScrollText, ShieldCheck, Sparkles, UserRound, Wrench, X } from 'lucide-vue-next'
 import ModelServiceSection from '../ModelServiceSection.vue'
 
 const props = defineProps<{
@@ -16,7 +16,6 @@ const props = defineProps<{
 const s = useSettingsStore()
 const {
   PERFORMANCE_MODE_HELP,
-  AGENT_MODE_USER_ROWS,
   MEDIA_MODE_USER_ROWS,
   PERFORMANCE_MODE_UI,
   computerInitialTier,
@@ -118,6 +117,9 @@ const mediaDepsModalOpen = ref(false)
 const computerTierDesc = computed(() =>
   COMPUTER_TIER_CARDS.find(opt => opt.value === computerInitialTier.value)?.desc ?? ''
 )
+const computerTierLabel = computed(() =>
+  COMPUTER_TIER_CARDS.find(opt => opt.value === computerInitialTier.value)?.label ?? '标准'
+)
 
 const queueSummary = computed(() => {
   if (queueLoading.value && !queueSnapshot.value) return '加载中…'
@@ -126,18 +128,46 @@ const queueSummary = computed(() => {
   }
   return '当前无排队任务'
 })
+
+// 模型服务为技术配置，默认折叠在页面底部
+const modelServiceCollapsed = ref(true)
+const modelServiceSummary = computed(() => {
+  const p = s.activeProvider
+  const name = p?.name?.trim() || '—'
+  const model = s.settings.model?.trim() || '—'
+  return `${name} · ${model}`
+})
+
+// ---- 场景档位 → 实际模型联动（仅作提示，不占视觉焦点） ----
+function tierModelName(
+  tiers: Record<string, { model?: string }> | undefined,
+  mode: string
+): string {
+  return tiers?.[mode]?.model?.trim() || '未配置'
+}
+const generalModelName = computed(() =>
+  tierModelName(s.platformSettings.agentModeLlm?.general, agentPerformanceModesLocal.value.general ?? 'fast')
+)
+const coderModelName = computed(() =>
+  tierModelName(s.platformSettings.agentModeLlm?.coder, agentPerformanceModesLocal.value.coder ?? 'fast')
+)
+const desktopModelName = computed(() =>
+  tierModelName(s.platformSettings.computerTierLlm, computerInitialTier.value)
+)
+const mediaModelName = (key: 'image' | 'audio' | 'video') =>
+  tierModelName(s.platformSettings.mediaModeLlm?.[key], mediaUnderstandingModesLocal.value[key])
 </script>
 
-<template>            <div>
-              <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Bot class="w-4 h-4 text-accent" />智能体
-              </h3>
+<template>            <div class="flex items-start justify-between gap-3 pb-1">
+              <div>
+                <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Bot class="w-4 h-4 text-accent" />智能体
+                </h3>
+                <p class="mt-0.5 text-[11px] text-muted">档位、行为偏好与模型服务</p>
+              </div>
             </div>
 
-            <!-- 模型与档位：平台/自定义服务 + 三档模型配置（原「模型服务」分区并入） -->
-            <ModelServiceSection :form="form" />
-
-            <!-- 场景模式：各场景档位与媒体生成模型 -->
+            <!-- 场景模式：各场景档位、桌面行为与媒体生成 -->
             <div class="flex items-center gap-2 px-1 pt-7 pb-2">
               <span class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">场景模式</span>
               <div class="flex-1 h-px bg-border/60" />
@@ -147,72 +177,132 @@ const queueSummary = computed(() => {
               <div>
                 <div class="flex items-center gap-1.5">
                   <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                    <Bot class="w-4 h-4 text-accent" />模式选择
+                    <Gauge class="w-4 h-4 text-accent" />场景档位
                   </h4>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
                     :title="PERFORMANCE_MODE_HELP"
-                    aria-label="模式说明"
+                    aria-label="档位说明"
                     @click.stop
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
                 </div>
                 <p class="mt-1 text-[11px] text-muted">
-                  选择各场景使用的档位；每档具体模型在上方「模型与档位」中配置。
+                  每个场景独立选档；选中后右侧直接显示该档实际使用的模型，可在上方「模型与档位」中调整。
                 </p>
               </div>
-              <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
-                <div class="space-y-3 min-w-0">
-                  <h5 class="text-[12px] font-medium text-foreground flex items-center gap-1.5">
-                    <Bot class="w-3.5 h-3.5 text-accent shrink-0" />智能体
-                  </h5>
-                  <div
-                    v-for="row in AGENT_MODE_USER_ROWS"
-                    :key="'agent-mode-row-' + row.id"
-                    class="flex flex-wrap items-center gap-x-4 gap-y-2"
-                  >
-                    <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">{{ row.label }}</span>
-                    <div class="grid grid-cols-3 gap-1.5 min-w-0 flex-1 max-w-sm">
+              <div class="space-y-2.5">
+                <div class="rounded-lg border border-border bg-card/50 px-3.5 py-3 space-y-2">
+                  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <Bot class="w-4 h-4 text-accent shrink-0" />
+                      <span class="text-[12px] font-medium text-foreground shrink-0">智能体</span>
+                      <span class="hidden md:inline font-mono text-[10px] text-muted/70 truncate" :title="'当前档位模型：' + generalModelName">{{ generalModelName }}</span>
+                    </div>
+                    <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
                       <label
                         v-for="opt in PERFORMANCE_MODE_UI"
-                        :key="row.id + '-mode-' + opt.value"
-                        class="rounded-lg border px-2 py-1.5 text-center cursor-pointer transition-all"
-                        :class="(agentPerformanceModesLocal[row.id] ?? 'fast') === opt.value
-                          ? 'border-accent/40 bg-accent/5 text-foreground'
-                          : 'border-border bg-card text-muted hover:border-border/80'"
+                        :key="'scene-general-' + opt.value"
+                        class="h-7 px-3 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
+                        :class="(agentPerformanceModesLocal.general ?? 'fast') === opt.value
+                          ? 'bg-hover text-foreground'
+                          : 'text-muted hover:text-foreground'"
                       >
                         <input
                           type="radio"
                           class="sr-only"
-                          :name="'agent-mode-' + row.id"
-                          :checked="(agentPerformanceModesLocal[row.id] ?? 'fast') === opt.value"
-                          @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [row.id]: opt.value }"
+                          name="scene-general-mode"
+                          :checked="(agentPerformanceModesLocal.general ?? 'fast') === opt.value"
+                          @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, general: opt.value }"
                         />
-                        <span class="text-[11px] whitespace-nowrap">{{ opt.label }}</span>
+                        {{ opt.label }}
                       </label>
                     </div>
                   </div>
+                  <p class="text-[10px] text-muted">日常对话、写作与工具调用</p>
                 </div>
-                <div class="space-y-3 min-w-0 lg:border-l lg:border-border lg:pl-8">
-                  <h5 class="text-[12px] font-medium text-foreground flex items-center gap-1.5">
-                    <Wrench class="w-3.5 h-3.5 text-accent shrink-0" />工具
-                  </h5>
+
+                <div class="rounded-lg border border-border bg-card/50 px-3.5 py-3 space-y-2">
+                  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <Code class="w-4 h-4 text-accent shrink-0" />
+                      <span class="text-[12px] font-medium text-foreground shrink-0">编码</span>
+                      <span class="hidden md:inline font-mono text-[10px] text-muted/70 truncate" :title="'当前档位模型：' + coderModelName">{{ coderModelName }}</span>
+                    </div>
+                    <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
+                      <label
+                        v-for="opt in PERFORMANCE_MODE_UI"
+                        :key="'scene-coder-' + opt.value"
+                        class="h-7 px-3 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
+                        :class="(agentPerformanceModesLocal.coder ?? 'fast') === opt.value
+                          ? 'bg-hover text-foreground'
+                          : 'text-muted hover:text-foreground'"
+                      >
+                        <input
+                          type="radio"
+                          class="sr-only"
+                          name="scene-coder-mode"
+                          :checked="(agentPerformanceModesLocal.coder ?? 'fast') === opt.value"
+                          @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, coder: opt.value }"
+                        />
+                        {{ opt.label }}
+                      </label>
+                    </div>
+                  </div>
+                  <p class="text-[10px] text-muted">深度重构、跨文件修改与测试</p>
+                </div>
+
+                <div class="rounded-lg border border-border bg-card/50 px-3.5 py-3 space-y-2">
+                  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <Monitor class="w-4 h-4 text-accent shrink-0" />
+                      <span class="text-[12px] font-medium text-foreground shrink-0">桌面自动化</span>
+                      <span class="hidden md:inline font-mono text-[10px] text-muted/70 truncate" :title="'当前档位模型：' + desktopModelName">{{ desktopModelName }}</span>
+                    </div>
+                    <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
+                      <label
+                        v-for="opt in COMPUTER_TIER_CARDS"
+                        :key="'scene-desktop-' + opt.value"
+                        class="h-7 px-3 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
+                        :class="computerInitialTier === opt.value
+                          ? 'bg-hover text-foreground'
+                          : 'text-muted hover:text-foreground'"
+                      >
+                        <input
+                          v-model="computerInitialTier"
+                          type="radio"
+                          class="sr-only"
+                          name="scene-desktop-tier"
+                          :value="opt.value"
+                        />
+                        {{ opt.label }}
+                      </label>
+                    </div>
+                  </div>
+                  <p class="text-[10px] text-muted">{{ computerTierDesc }}</p>
+                </div>
+
+                <div class="rounded-lg border border-border bg-card/50 px-3.5 py-3 space-y-2">
+                  <div class="flex items-center gap-2">
+                    <Film class="w-4 h-4 text-accent shrink-0" />
+                    <span class="text-[12px] font-medium text-foreground">媒体理解</span>
+                  </div>
                   <div
                     v-for="row in MEDIA_MODE_USER_ROWS"
                     :key="'media-mode-row-' + row.key"
                     class="flex flex-wrap items-center gap-x-4 gap-y-2"
                   >
-                    <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">{{ row.label }}</span>
-                    <div class="grid grid-cols-3 gap-1.5 min-w-0 flex-1 max-w-sm">
+                    <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-16">{{ row.label }}</span>
+                    <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
                       <label
                         v-for="opt in PERFORMANCE_MODE_UI"
                         :key="row.key + '-mode-' + opt.value"
-                        class="rounded-lg border px-2 py-1.5 text-center cursor-pointer transition-all"
+                        class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
                         :class="mediaUnderstandingModesLocal[row.key] === opt.value
-                          ? 'border-accent/40 bg-accent/5 text-foreground'
-                          : 'border-border bg-card text-muted hover:border-border/80'"
+                          ? 'bg-hover text-foreground'
+                          : 'text-muted hover:text-foreground'"
                       >
                         <input
                           type="radio"
@@ -221,9 +311,10 @@ const queueSummary = computed(() => {
                           :checked="mediaUnderstandingModesLocal[row.key] === opt.value"
                           @change="mediaUnderstandingModesLocal = { ...mediaUnderstandingModesLocal, [row.key]: opt.value }"
                         />
-                        <span class="text-[11px] whitespace-nowrap">{{ opt.label }}</span>
+                        {{ opt.label }}
                       </label>
                     </div>
+                    <span class="hidden md:inline font-mono text-[10px] text-muted/70 truncate min-w-0 flex-1" :title="'当前档位模型：' + mediaModelName(row.key)">{{ mediaModelName(row.key) }}</span>
                   </div>
                 </div>
               </div>
@@ -232,40 +323,11 @@ const queueSummary = computed(() => {
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-5">
               <div>
                 <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                  <Monitor class="w-4 h-4 text-accent shrink-0" />电脑操控
+                  <Monitor class="w-4 h-4 text-accent shrink-0" />电脑行为
                 </h4>
                 <p class="mt-1 text-[11px] text-muted">
-                  桌面自动化的起始视觉档位与操作行为；每档具体模型在上方「模型与档位」中配置。
+                  桌面自动化的操作行为；起始档位在上方「场景档位」中选择。
                 </p>
-              </div>
-
-              <div class="space-y-2.5">
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <span class="text-[12px] font-medium text-foreground w-20 shrink-0">起始模式</span>
-                  <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
-                    <label
-                      v-for="opt in COMPUTER_TIER_CARDS"
-                      :key="'computer-tier-' + opt.value"
-                      class="h-8 px-3 rounded-md text-[12px] cursor-pointer transition-colors flex items-center"
-                      :class="
-                        computerInitialTier === opt.value
-                          ? 'bg-hover text-foreground'
-                          : 'text-muted hover:text-foreground'
-                      "
-                    >
-                      <input
-                        v-model="computerInitialTier"
-                        type="radio"
-                        class="sr-only"
-                        name="computer-initial-tier"
-                        :value="opt.value"
-                      />
-                      {{ opt.label }}
-                    </label>
-                  </div>
-                  <span class="text-[11px] text-muted hidden sm:inline">{{ computerTierDesc }}</span>
-                </div>
-                <p class="text-[10px] text-muted">仅影响新会话；验证失败时可能自动升档。</p>
               </div>
 
               <div class="border-t border-border pt-4 space-y-0 divide-y divide-border">
@@ -577,6 +639,28 @@ const queueSummary = computed(() => {
                     <ChevronRight class="w-3 h-3" />
                   </button>
                 </div>
+              </div>
+            </div>
+
+            <!-- 模型服务：技术配置，默认折叠在底部 -->
+            <div class="pt-7">
+              <button
+                type="button"
+                class="w-full flex items-center justify-between gap-3 px-1 pb-2 cursor-pointer group"
+                @click="modelServiceCollapsed = !modelServiceCollapsed"
+              >
+                <span class="flex items-center gap-2 min-w-0 text-left">
+                  <Cpu class="w-4 h-4 text-accent shrink-0" />
+                  <span class="text-[12px] font-semibold text-foreground">模型服务</span>
+                  <span class="hidden sm:inline text-[11px] text-muted truncate">{{ modelServiceSummary }}</span>
+                </span>
+                <span class="flex items-center gap-1.5 shrink-0 text-[11px] text-muted group-hover:text-foreground transition-colors">
+                  {{ modelServiceCollapsed ? '展开配置' : '收起' }}
+                  <ChevronRight class="w-3.5 h-3.5 transition-transform" :class="modelServiceCollapsed ? '' : 'rotate-90'" />
+                </span>
+              </button>
+              <div v-show="!modelServiceCollapsed" class="pt-3">
+                <ModelServiceSection :form="form" />
               </div>
             </div>
 

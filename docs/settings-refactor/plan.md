@@ -2,7 +2,7 @@
 
 > 分支：`refactor/settings-ui`（独立 worktree：`/Users/starliu/pointer-all/pointer-app-settings`）
 > 基线：`main @ 418d36f1`
-> 状态：草案，逐步完善
+> 状态：已评审（2026-08-08）：O1/O2/O3/O5 按建议执行；O4 明确 = 平台配置由 **pointer-official 官网 API** 下发
 
 ## 1. 目标
 
@@ -67,6 +67,24 @@
 | 平台模式 | 平台后端（pointer.readflowai.com）返回 `EffectiveSettingsView { user, platform, merged, canEditPlatform, isPlatformAdmin }` |
 
 关键结论：平台模式后端已能下发 `platform.providers` 等，但前端仍用硬编码默认值兜底。第 2 期需要新增「平台目录」数据（服务商模板 + 模型三档 + 能力标注），并让默认值完全由平台侧下发。
+
+### 2.5 pointer-official 官网现状（第 2 期对接基础）
+
+**架构**：`apps/web`（Next.js 官网/控制台）+ `apps/api`（FastAPI :8001）+ `infra`（Postgres/Redis）。桌面端 Release 默认 `https://pointer.readflowai.com`（web）/ `https://pointer-api.readflowai.com`（api）。
+
+**已有设施（与本需求直接相关）**：
+
+| 设施 | 位置 | 说明 |
+|---|---|---|
+| 登录下发 LLM 凭据 | `apps/api/app/routers/app_oauth.py` → `build_oauth_llm_payload`（`services/user_llm_capability.py`） | `POST /auth/app/token` 返回 `api_key` / `llm_provider` / `llm_source` / `provider_api_keys` / `media_oss` |
+| 平台密钥池 | `services/platform_provider_llm.py` | `PlatformProviderLlmKey`（qwen/deepseek/doubao 多 TOKEN 随机选取）；`PlatformNoviceLlmConfig` 旧版迁移 |
+| 用户自有密钥 | `routers/me_llm_api_keys.py` | `/api/me/llm-api-keys` CRUD + `/reveal` 一次性取明文；`UserLlmApiKey` 表 |
+| 供应商规范化 | `schemas.py` | `normalize_llm_provider`（qwen/deepseek/aliyun_qwen→qwen/doubao，支持自定义）、`llm_provider_label_zh` |
+| 计费/余额 | `services/billing.py`、`services/balance_credit.py`、`routers/me_llm_api_keys.py` | `/api/me/balance-ledger`、`/auth/partner/balance`（run_chat 门禁）、充值（微信支付） |
+
+**pointer-app 侧消费链路**：
+- 桌面/云上 server 登录后：`crates/pointer-core/src/platform_config.rs` `apply_login_credentials_to_model_settings` / `app_state.rs` `apply_login_credentials` → 把登录下发的 key 注入 `platform_config.providers`（按 `resolve_llm_provider_id` 匹配 provider）。
+- **但 provider 的 baseUrl/模型清单/默认参数仍来自硬编码**：Rust `src-tauri/src/models.rs` `PlatformSettings::default()`（千问/OpenAI/本地/深度求索）+ 前端 `providerParams.ts` / `settings.ts` / `modelCapabilities.ts`。官网 API 目前**不下发** provider 目录（baseUrl/模型/三档/能力），这是第 2 期要补的核心缺口。
 
 ---
 
@@ -153,29 +171,48 @@
 
 **范围：移除平台配置硬编码，默认值平台化。**
 
-#### 4.4 平台目录下发
+#### 4.4 平台目录下发（数据源 = pointer-official API）
 
-1. 后端（平台侧 + `server/`）：
-   - 新增平台目录数据源：`platformCatalog`（或并入 `EffectiveSettingsView.platform`）：
-     ```ts
-     interface PlatformCatalog {
-       providers: PlatformProviderTemplate[]   // id/name/baseUrl/models
-       modelMeta: Record<string, ModelMeta>    // capabilities 视觉/生图/生视频/语音
-       tierDefaults: {                         // 三档默认映射
-         agentModeLlm: ...; mediaModeLlm: ...; computerTierLlm: ...;
-       }
-       defaults: { activeProviderId, model, temperature, maxTokens, mediaModelOverrides }
+**目标**：平台配置（服务商 baseUrl/模型清单/能力标注/三档默认/全局默认）由官网 API 下发，代码（前端 + Rust）不再固化；默认值在平台侧设置。
+
+**官网 API 侧（pointer-official，新增/扩展）**
+
+1. 新增平台目录接口（建议 `GET /api/llm/catalog`，公开或 partner 鉴权均可，数据含模型清单与默认值，不含密钥）：
+   ```ts
+   interface PlatformLlmCatalog {
+     version: string                       // 目录版本，客户端缓存用
+     providers: Array<{
+       id: string                          // qwen / deepseek / doubao / custom...
+       name: string
+       baseUrl: string
+       variant: 'qwen' | 'deepseek' | 'doubao' | 'generic'
+       models: Array<{ id: string; capabilities: { vision?; image?; video?; audio? } }>
+       defaultParams: { temperature?: number; maxTokens?: number }
+     }>
+     tierDefaults: {                       // 三档默认映射（快速/标准/高级）
+       agentModeLlm: Record<string, Record<PerformanceMode, TierModelRef>>
+       mediaModeLlm: Record<'image'|'audio'|'video', Record<PerformanceMode, TierModelRef>>
+       computerTierLlm: Record<ComputerTierKey, TierModelRef>
      }
-     ```
-   - 平台模式由官方后端下发；standalone 模式由 `pointer-server.toml`（LLM providers）或内置最小目录兜底。
-2. 前端：
-   - 新增 `PlatformCatalogStore`（或在 settings store 内）：启动 `settings.load()` 时一并拉取目录；失败时用最小兜底（OpenAI 兼容 + 当前已有 providers），不阻塞启动。
-   - 删除/降级硬编码：`providerParams.ts` 的 `PROVIDER_TEMPLATE_OPTIONS`、`settings.ts` 的 `defaultPlatformSettings` 模型默认值、`modelCapabilities.ts` 的模型清单与能力推断 —— 改为目录驱动；`isQwenProvider`/`isDeepSeekProvider` 启发式改为目录标记（`variant: 'qwen'|'deepseek'|'generic'`）。
-   - 自定义服务商仍由用户创建（openai_compatible 变体），不受目录影响。
-3. 默认值平台化：新建/重置时默认来自平台设置；「恢复默认」按钮调用平台默认值而非本地常量。
+     defaults: { activeProviderId; model; temperature; maxTokens; mediaModelOverrides }
+   }
+   ```
+2. 管理入口：平台管理员在官网后台维护目录（数据表 + 管理 API）；默认值「在平台设置」= 目录中的 `defaults`。
+3. 复用现有设施：密钥仍走 `provider_api_keys`（用户自有 `/api/me/llm-api-keys`）或平台密钥池；目录接口只管「形状/默认值」，不碰密钥。
+
+**pointer-app 侧**
+
+1. 新增 `platformCatalog` 拉取/缓存（Rust 侧：登录时随凭据一起拉取并写入 `platform_config`；前端：`settings.load()` 后拉取供 UI 渲染）。
+2. 删除硬编码，改为目录驱动：
+   - 前端 `providerParams.ts`：`PROVIDER_TEMPLATE_OPTIONS` 改为来自目录；`isQwenProvider`/`isDeepSeekProvider` 启发式改为目录 `variant` 标记（保留旧逻辑作兼容回退）。
+   - 前端 `settings.ts`：`defaultPlatformSettings` 的模型默认值/三档映射改从目录 `defaults`/`tierDefaults` 生成；本地仅保留「自定义 OpenAI 兼容」空模板。
+   - 前端 `modelCapabilities.ts`：模型清单与能力推断改读目录 `models[].capabilities`（保留按名称推断作为自定义服务的回退）。
+   - Rust `models.rs`：`PlatformSettings::default()` 的 provider 列表改为由目录/`pointer-server.toml` 填充，不再内嵌模型清单。
+3. standalone 模式：目录不可用时回退 `pointer-server.toml`（LLM providers）+ 最小内置兜底（OpenAI 兼容空模板），应用照常启动并提示「平台目录不可用」。
 4. 兼容与迁移：
    - 旧用户已有 providers/三档覆盖保留（目录只补默认，不覆盖用户显式配置）；
-   - 目录变更（模型上下架）不破坏已保存配置（缺失模型时提示并回退到同档默认）。
+   - 目录变更（模型上下架）不破坏已保存配置（缺失模型时提示并回退到同档默认）；
+   - 平台模式下新增服务商/改三档的保存链路仍走 `saveDebugSession`/平台设置接口，字段不变。
 
 **验收**：修改平台目录（后端）后，前端无需发版即可看到新平台/模型/默认值；旧配置不回退、不丢失；无目录可用时应用仍可启动并提示。
 
@@ -198,13 +235,13 @@
 - 手动验收清单（第 1 期）：打开设置→返回；深链分区；保存后返回；余额显示/充值；平台+自定义两类配置；三档修改后对话生效。
 - 第 2 期：模拟目录接口返回不同数据验证渲染；旧配置迁移用例。
 
-## 7. 开放问题（待确认）
+## 7. 开放问题（已确认）
 
-- **O1**：余额数据源 `getCloudPlatformMe` 在 Web 端是否有对应实现？主界面余额胶囊的展示范围（仅桌面平台模式，还是 web 也要）？
-- **O2**：设置作为页面后，左侧会话侧栏是否保留？建议保留（与聊天同屏），返回按钮只切主区。若希望全屏沉浸式设置，需另做。
-- **O3**：「平台 + 自定义」中，平台服务商是否需要支持用户自建多实例（如两个千问账号）？建议第 1 期保持「每平台一个，密钥可换」，多实例归入自定义。
-- **O4**：第 2 期「平台官网加载」指 Pointer 平台后端下发目录，还是直接从各模型官网（百炼/DeepSeek）抓取？方案按 Pointer 后端下发设计（可控、稳定），如需直接抓官网需单独评估。
-- **O5**：三档命名统一为「快速/标准/高级」，是否接受（当前 agent/media 用「专家」、computer 用「高级」）？
+- **O1**（已确认）：余额胶囊展示范围 = 桌面平台模式 + Web 平台模式（登录后可见）；standalone 隐藏。数据源 `getCloudPlatformMe`（Tauri）与 Web 对应接口；拉取失败静默降级，不阻塞 UI。
+- **O2**（已确认）：设置作为页面后保留左侧会话侧栏，返回按钮只切主区（设置视图与聊天共用侧栏）。
+- **O3**（已确认）：平台服务商第 1 期保持单实例（每平台一个，密钥可换）；多实例需求归入「自定义」。
+- **O4**（已确认）：平台配置由 **pointer-official 官网 API** 下发（`GET /api/llm/catalog` 等，见 §4.4）；不从百炼/DeepSeek 官网直接抓取。
+- **O5**（已确认）：三档命名统一为「快速/标准/高级」（agent/media 原「专家」改为「高级」，computer 保持「高级」）。
 
 ## 8. 里程碑
 
@@ -212,5 +249,5 @@
 - [ ] M2 设置页改造 + 返回导航（4.1）
 - [ ] M3 主界面余额/充值（4.2）
 - [ ] M4 模型服务简化 + 三档 UI（4.3）
-- [ ] M5 第 2 期：平台目录接口 + 前端目录化（4.4）
+- [ ] M5 第 2 期：官网 `GET /api/llm/catalog` + pointer-app 目录化（4.4）
 - [ ] M6 硬编码清理与回归验证

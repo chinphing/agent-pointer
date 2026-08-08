@@ -73,7 +73,6 @@ interface SidebarItem {
   icon: typeof Bot
 }
 interface SidebarGroup {
-  label?: string
   items: SidebarItem[]
 }
 
@@ -92,11 +91,10 @@ const sections = computed<SidebarGroup[]>(() => {
   }
 
   const groups: SidebarGroup[] = [
-    // 账户：高频，单独置顶、无分组标题
+    // 账户：高频，单独置顶
     { items: [account] },
     // 智能体与模型：决定 AI 怎么工作、怎么显示、用哪些模型
     {
-      label: '智能体与模型',
       items: [
         alwaysSections.find(item => item.id === 'assistant')!,
         alwaysSections.find(item => item.id === 'generation')!,
@@ -105,7 +103,6 @@ const sections = computed<SidebarGroup[]>(() => {
     },
     // 自动化与集成：外部接入
     {
-      label: '自动化与集成',
       items: [
         alwaysSections.find(item => item.id === 'automation')!,
         alwaysSections.find(item => item.id === 'channels')!,
@@ -117,13 +114,18 @@ const sections = computed<SidebarGroup[]>(() => {
   // 系统：管理员/桌面专属 + 版本信息，收到底部
   const systemItems: SidebarItem[] = []
   if (showAdminDebugSection.value) {
-    systemItems.push(debugSections[0] as unknown as SidebarItem)
+    systemItems.push({
+      id: 'debug',
+      label: '调试',
+      desc: '保存对话请求',
+      icon: Bug
+    })
   }
   if (isTauriRuntime() && !platformAuth.isStandalone) {
     systemItems.push({ id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud })
   }
   systemItems.push(about)
-  groups.push({ label: '系统', items: systemItems })
+  groups.push({ items: systemItems })
 
   return groups
 })
@@ -175,11 +177,8 @@ onMounted(() => {
       <div class="flex flex-1 min-h-0">
         <!-- Sidebar -->
         <aside class="w-56 shrink-0 border-r border-border p-3 bg-[hsl(var(--card-elevated))]">
-          <template v-for="group in sections" :key="group.label ?? 'account'">
-            <p
-              v-if="group.label"
-              class="px-3 pt-4 pb-1 text-[10px] font-medium text-muted/70 uppercase tracking-wider"
-            >{{ group.label }}</p>
+          <template v-for="(group, groupIndex) in sections" :key="groupIndex">
+            <div v-if="groupIndex > 0" class="my-2 h-px bg-border/60" />
             <button
               v-for="item in group.items"
               :key="item.id"

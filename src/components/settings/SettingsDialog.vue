@@ -38,6 +38,7 @@ const { enabled: chromeEnabled, macTrafficLightPadding } = useWindowChrome()
 const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
+  { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
   { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot },
   { id: 'provider', label: '模型服务', desc: '平台/自定义模型服务', icon: Cpu }
 ] as const
@@ -191,14 +192,6 @@ async function saveFromFooter() {
         :class="chromeEnabled && macTrafficLightPadding ? 'pl-[4.75rem]' : ''"
       >
         <div class="flex-1" />
-        <button
-          type="button"
-          class="h-7 w-7 mr-1 rounded-md border border-border hover:bg-hover transition-colors inline-flex items-center justify-center cursor-pointer"
-          title="技能管理"
-          @click="emit('open-skills')"
-        >
-          <Sparkles class="w-4 h-4 text-accent" />
-        </button>
         <div class="mr-1">
           <button
             type="button"
@@ -233,7 +226,7 @@ async function saveFromFooter() {
             :key="item.id"
             class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
             :class="activeSection === item.id ? 'bg-accent/10 border border-accent/30' : 'border border-transparent hover:bg-hover'"
-            @click="activeSection = item.id"
+            @click="item.id === 'skills' ? emit('open-skills') : (activeSection = item.id)"
           >
             <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
                  :class="activeSection === item.id ? 'bg-accent/15' : 'bg-hover group-hover:bg-hover'">

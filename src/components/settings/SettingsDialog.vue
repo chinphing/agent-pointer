@@ -66,33 +66,66 @@ const showAdminDebugSection = computed(() =>
   s.isPlatformAdmin || platformAuth.isPlatformAdmin || platformAuth.isStandalone
 )
 
-const sections = computed(() => {
-  const merged = showAdminDebugSection.value
-    ? [...alwaysSections, ...debugSections]
-    : [...alwaysSections]
-  // 侧栏顺序：账户 → 自动化 → 连接 → 智能体 → （调试菜单）→ 云主机。
-  // 账户：platform 走 OAuth；standalone 走账号密码。云主机仅桌面端。
-  const account = {
+interface SidebarItem {
+  id: string
+  label: string
+  desc: string
+  icon: typeof Bot
+}
+interface SidebarGroup {
+  label?: string
+  items: SidebarItem[]
+}
+
+const sections = computed<SidebarGroup[]>(() => {
+  const account: SidebarItem = {
     id: 'account',
     label: '账户',
     desc: '余额、登录与凭据',
     icon: UserCircle
   }
-  // About section: all modes
-  const about = {
+  const about: SidebarItem = {
     id: 'about',
     label: '关于',
     desc: '版本与更新',
     icon: Info
   }
-  if (!isTauriRuntime()) {
-    return [account, ...merged, about]
+
+  const groups: SidebarGroup[] = [
+    // 账户：高频，单独置顶、无分组标题
+    { items: [account] },
+    // 智能体与模型：决定 AI 怎么工作、怎么显示、用哪些模型
+    {
+      label: '智能体与模型',
+      items: [
+        alwaysSections.find(item => item.id === 'assistant')!,
+        alwaysSections.find(item => item.id === 'generation')!,
+        alwaysSections.find(item => item.id === 'provider')!
+      ]
+    },
+    // 自动化与集成：外部接入
+    {
+      label: '自动化与集成',
+      items: [
+        alwaysSections.find(item => item.id === 'automation')!,
+        alwaysSections.find(item => item.id === 'channels')!,
+        alwaysSections.find(item => item.id === 'skills')!
+      ]
+    }
+  ]
+
+  // 系统：管理员/桌面专属 + 版本信息，收到底部
+  const systemItems: SidebarItem[] = []
+  if (showAdminDebugSection.value) {
+    systemItems.push(debugSections[0] as unknown as SidebarItem)
   }
-  // Standalone web/server has no cloud shop; desktop platform mode keeps cloud.
-  if (platformAuth.isStandalone) {
-    return [account, ...merged]
+  if (isTauriRuntime() && !platformAuth.isStandalone) {
+    systemItems.push({ id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud })
   }
-  return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }, about]
+  systemItems.push(about)
+  groups.push({ label: '系统', items: systemItems })
+
+  return groups
 })
 
 onMounted(() => {
@@ -142,22 +175,28 @@ onMounted(() => {
       <div class="flex flex-1 min-h-0">
         <!-- Sidebar -->
         <aside class="w-56 shrink-0 border-r border-border p-3 bg-[hsl(var(--card-elevated))]">
-          <button
-            v-for="item in sections"
-            :key="item.id"
-            class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
-            :class="activeSection === item.id ? 'bg-accent/10 border border-accent/30' : 'border border-transparent hover:bg-hover'"
-            @click="activeSection = item.id"
-          >
-            <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-                 :class="activeSection === item.id ? 'bg-accent/15' : 'bg-hover group-hover:bg-hover'">
-              <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-accent' : 'text-muted'" />
-            </div>
-            <span class="min-w-0">
-              <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
-              <span class="block text-[11px] text-muted truncate">{{ item.desc }}</span>
-            </span>
-          </button>
+          <template v-for="group in sections" :key="group.label ?? 'account'">
+            <p
+              v-if="group.label"
+              class="px-3 pt-4 pb-1 text-[10px] font-medium text-muted/70 uppercase tracking-wider"
+            >{{ group.label }}</p>
+            <button
+              v-for="item in group.items"
+              :key="item.id"
+              class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
+              :class="activeSection === item.id ? 'bg-accent/10 border border-accent/30' : 'border border-transparent hover:bg-hover'"
+              @click="activeSection = item.id"
+            >
+              <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
+                   :class="activeSection === item.id ? 'bg-accent/15' : 'bg-hover group-hover:bg-hover'">
+                <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-accent' : 'text-muted'" />
+              </div>
+              <span class="min-w-0">
+                <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
+                <span class="block text-[11px] text-muted truncate">{{ item.desc }}</span>
+              </span>
+            </button>
+          </template>
         </aside>
 
         <!-- Main Content -->

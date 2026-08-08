@@ -95,7 +95,7 @@ onUnmounted(() => {
 const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: string }[] = [
   { value: 'primary', label: '快速', desc: '轻量视觉，响应更快' },
   { value: 'intermediate', label: '标准', desc: '速度与准确度平衡' },
-  { value: 'advanced', label: '专家', desc: '最强视觉，适合复杂界面' }
+  { value: 'advanced', label: '高级', desc: '最强视觉，适合复杂界面' }
 ]
 </script>
 

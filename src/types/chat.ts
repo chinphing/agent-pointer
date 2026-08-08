@@ -57,7 +57,7 @@ export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
 export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label: string }[] = [
   { value: 'primary', label: '快速' },
   { value: 'intermediate', label: '标准' },
-  { value: 'advanced', label: '专家' }
+  { value: 'advanced', label: '高级' }
 ]
 
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
@@ -476,7 +476,7 @@ export type PerformanceModeKey = PerformanceMode
 export const PERFORMANCE_MODE_OPTIONS: { value: PerformanceMode; label: string }[] = [
   { value: 'fast', label: '快速' },
   { value: 'standard', label: '标准' },
-  { value: 'expert', label: '专家' }
+  { value: 'expert', label: '高级' }
 ]
 
 export interface MediaUnderstandingModes {

@@ -177,7 +177,7 @@ function skillLabel(skillId: string): string {
                     >
                       <div class="flex items-center justify-between gap-2">
                         <h4 class="text-xs font-medium text-foreground">各模式对应模型（调试）</h4>
-                        <span class="text-[10px] text-muted">快速 / 标准 / 专家 各模式对应模型</span>
+                        <span class="text-[10px] text-muted">快速 / 标准 / 高级 各模式对应模型</span>
                       </div>
                       <div
                         v-for="mode in PERFORMANCE_MODE_UI"
@@ -219,7 +219,7 @@ function skillLabel(skillId: string): string {
                     >
                       <div class="flex items-center justify-between gap-2">
                         <h4 class="text-xs font-medium text-foreground">电脑操控各模式对应模型（调试）</h4>
-                        <span class="text-[10px] text-muted">快速 / 标准 / 专家 各模式对应模型与思考参数</span>
+                        <span class="text-[10px] text-muted">快速 / 标准 / 高级 各模式对应模型与思考参数</span>
                       </div>
                       <div
                         v-for="tier in COMPUTER_TIER_UI"

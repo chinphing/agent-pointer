@@ -86,13 +86,13 @@ function createSettingsDialogForm(deps: {
   const COMPUTER_TIER_UI: { key: ComputerTierKey; label: string }[] = [
   { key: 'primary', label: '快速' },
   { key: 'intermediate', label: '标准' },
-  { key: 'advanced', label: '专家' }
+  { key: 'advanced', label: '高级' }
   ]
 
   const PERFORMANCE_MODE_UI = PERFORMANCE_MODE_OPTIONS
 
   const PERFORMANCE_MODE_HELP =
-  '快速、标准、专家由低到高：速度从高到低，价格从低到高，智能从低到高。'
+  '快速、标准、高级由低到高：速度从高到低，价格从低到高，智能从低到高。'
 
   const MEDIA_DEBUG_KINDS = ['image', 'audio', 'video'] as const
   type MediaDebugKind = (typeof MEDIA_DEBUG_KINDS)[number]

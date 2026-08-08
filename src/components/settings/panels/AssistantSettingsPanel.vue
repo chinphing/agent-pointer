@@ -6,7 +6,7 @@ import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
 import { useSettingsStore } from '../../../stores/settings'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
-import { Bot, CalendarClock, CircleHelp, GitBranch, Monitor, ScrollText, ShieldCheck, Sparkles, UserRound, Wrench } from 'lucide-vue-next'
+import { Bot, CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, ScrollText, ShieldCheck, Sparkles, UserRound, Wrench, X } from 'lucide-vue-next'
 import ModelServiceSection from '../ModelServiceSection.vue'
 
 const props = defineProps<{
@@ -110,6 +110,22 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
   ...option,
   desc: COMPUTER_TIER_DESCRIPTIONS[option.value]
 }))
+
+// 低频场景弹窗
+const queueModalOpen = ref(false)
+const mediaDepsModalOpen = ref(false)
+
+const computerTierDesc = computed(() =>
+  COMPUTER_TIER_CARDS.find(opt => opt.value === computerInitialTier.value)?.desc ?? ''
+)
+
+const queueSummary = computed(() => {
+  if (queueLoading.value && !queueSnapshot.value) return '加载中…'
+  if (pendingRunCount.value > 0 || totalLaneWaiting.value > 0) {
+    return `${pendingRunCount.value} 个待执行 · ${totalLaneWaiting.value} 个在 lane 排队`
+  }
+  return '当前无排队任务'
+})
 </script>
 
 <template>            <div>
@@ -120,6 +136,12 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
 
             <!-- 模型与档位：平台/自定义服务 + 三档模型配置（原「模型服务」分区并入） -->
             <ModelServiceSection :form="form" />
+
+            <!-- 场景模式：各场景档位与媒体生成模型 -->
+            <div class="flex items-center gap-2 px-1 pt-7 pb-2">
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">场景模式</span>
+              <div class="flex-1 h-px bg-border/60" />
+            </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
               <div>
@@ -218,28 +240,30 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
               </div>
 
               <div class="space-y-2.5">
-                <p class="text-[12px] font-medium text-foreground">起始模式</p>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <label
-                    v-for="opt in COMPUTER_TIER_CARDS"
-                    :key="'computer-tier-card-' + opt.value"
-                    class="rounded-xl border p-3 cursor-pointer transition-all"
-                    :class="
-                      computerInitialTier === opt.value
-                        ? 'border-accent/40 bg-accent/5'
-                        : 'border-border bg-card hover:border-border/80'
-                    "
-                  >
-                    <input
-                      v-model="computerInitialTier"
-                      type="radio"
-                      class="sr-only"
-                      name="computer-initial-tier"
-                      :value="opt.value"
-                    />
-                    <span class="block text-sm font-medium text-foreground">{{ opt.label }}</span>
-                    <span class="mt-1 block text-[11px] text-muted leading-snug">{{ opt.desc }}</span>
-                  </label>
+                <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <span class="text-[12px] font-medium text-foreground w-20 shrink-0">起始模式</span>
+                  <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
+                    <label
+                      v-for="opt in COMPUTER_TIER_CARDS"
+                      :key="'computer-tier-' + opt.value"
+                      class="h-8 px-3 rounded-md text-[12px] cursor-pointer transition-colors flex items-center"
+                      :class="
+                        computerInitialTier === opt.value
+                          ? 'bg-hover text-foreground'
+                          : 'text-muted hover:text-foreground'
+                      "
+                    >
+                      <input
+                        v-model="computerInitialTier"
+                        type="radio"
+                        class="sr-only"
+                        name="computer-initial-tier"
+                        :value="opt.value"
+                      />
+                      {{ opt.label }}
+                    </label>
+                  </div>
+                  <span class="text-[11px] text-muted hidden sm:inline">{{ computerTierDesc }}</span>
                 </div>
                 <p class="text-[10px] text-muted">仅影响新会话；验证失败时可能自动升档。</p>
               </div>
@@ -337,6 +361,12 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
               </div>
             </div>
 
+            <!-- 行为偏好：工具权限、个性化与执行策略 -->
+            <div class="flex items-center gap-2 px-1 pt-7 pb-2">
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">行为偏好</span>
+              <div class="flex-1 h-px bg-border/60" />
+            </div>
+
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
                 <Wrench class="w-4 h-4 text-accent" />工具使用权限
@@ -372,99 +402,6 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
                 class="w-full min-h-[7rem] px-3 py-2 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors resize-y"
               />
               <p class="text-[10px] text-muted text-right">{{ userCodingRules.length }} / 4000</p>
-            </div>
-
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-              <div class="flex items-center gap-1.5 min-w-0">
-                <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                  <CalendarClock class="w-4 h-4 text-accent" />任务调度
-                </h4>
-                <button
-                  type="button"
-                  class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
-                  title="同时执行的 Agent 运行数上限，聊天、Webhook、Cron 等触发源共享此配额。"
-                  aria-label="任务调度说明"
-                >
-                  <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-                </button>
-              </div>
-              <div class="max-w-xs">
-                <label
-                  class="block text-[12px] text-muted mb-1.5"
-                  title="不同会话可并行运行，同一会话仍串行"
-                >全局并发任务</label>
-                <input
-                  v-model.number="maxConcurrentRuns"
-                  type="number"
-                  min="1"
-                  max="64"
-                  step="1"
-                  class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
-                />
-              </div>
-
-              <div class="pt-2 border-t border-border space-y-3">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-[12px] font-medium text-foreground">队列状态</span>
-                  <span class="text-[11px] text-muted">
-                    <template v-if="queueLoading && !queueSnapshot">加载中…</template>
-                    <template v-else>
-                      {{ pendingRunCount }} 个待执行
-                      <template v-if="totalLaneWaiting > 0"> · {{ totalLaneWaiting }} 个在 lane 排队</template>
-                    </template>
-                  </span>
-                </div>
-
-                <div v-if="queueSnapshot" class="space-y-2">
-                  <div
-                    v-for="lane in activeLanes"
-                    :key="lane.lane"
-                    class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2"
-                  >
-                    <div class="flex items-center justify-between gap-2 text-[12px]">
-                      <span class="font-medium text-foreground">{{ laneQueueLabel(lane.lane) }}</span>
-                      <span class="text-muted shrink-0">{{ laneStatusLine(lane) }}</span>
-                    </div>
-                    <ul v-if="lane.waiters.length" class="mt-2 space-y-1">
-                      <li
-                        v-for="w in lane.waiters"
-                        :key="`${lane.lane}:${w.runId}`"
-                        class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
-                        :title="`${w.runId} · ${w.conversationId}`"
-                      >
-                        <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(w.triggerSource) }}</span>
-                        <span class="truncate">{{ shortId(w.conversationId, 28) }}</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div
-                    v-if="pendingRunCount > 0"
-                    class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2 space-y-1.5"
-                  >
-                    <div class="text-[12px] font-medium text-foreground">待执行任务</div>
-                    <ul class="space-y-1 max-h-36 overflow-y-auto">
-                      <li
-                        v-for="run in queueSnapshot.pendingRuns"
-                        :key="run.runId"
-                        class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
-                        :title="run.runId"
-                      >
-                        <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(run.triggerSource) }}</span>
-                        <span class="truncate flex-1">{{ shortId(run.conversationId, 24) }}</span>
-                        <span class="shrink-0 text-[10px] text-muted/70">{{ new Date(run.createdAtMs).toLocaleTimeString() }}</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <p
-                    v-else-if="!totalLaneWaiting"
-                    class="text-[11px] text-muted text-center py-2"
-                  >
-                    当前无排队任务
-                  </p>
-                </div>
-              </div>
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
@@ -568,46 +505,219 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
               </div>
             </div>
 
+            <!-- 高级：低频设置收纳在弹窗中 -->
+            <div class="flex items-center gap-2 px-1 pt-7 pb-2">
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">高级</span>
+              <div class="flex-1 h-px bg-border/60" />
+            </div>
+
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                <Film class="w-4 h-4 text-accent" />多媒体理解
-              </h4>
-              <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <p class="text-[12px] text-foreground">ffmpeg / ffprobe</p>
-                  <p class="text-[11px] text-muted">
-                    IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。
-                  </p>
-                  <p
-                    class="text-[11px] mt-1"
-                    :class="mediaDeps?.status === 'ready' ? 'text-emerald-600' : 'text-amber-600'"
-                  >
-                    {{ ffmpegStatusLabel }}
-                  </p>
-                  <p v-if="ffmpegStatusDetail" class="text-[10px] text-muted mt-0.5 break-all">
-                    {{ ffmpegStatusDetail }}
-                  </p>
-                  <p v-if="mediaDeps?.status === 'ready'" class="text-[10px] text-muted mt-0.5">
-                    单个视频仍可能因编码或文件损坏抽帧失败，不代表未安装 ffmpeg。
-                  </p>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
+              <div class="flex items-center justify-between gap-2">
+                <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Film class="w-4 h-4 text-accent" />多媒体理解
+                </h4>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
+                  @click="mediaDepsModalOpen = true"
+                >
+                  管理
+                  <ChevronRight class="w-3 h-3" />
+                </button>
+              </div>
+              <div class="flex items-center gap-2 rounded-lg border border-border bg-card/50 px-3 py-2.5">
+                <span
+                  class="h-2 w-2 rounded-full shrink-0"
+                  :class="mediaDeps?.status === 'ready' ? 'bg-success' : 'bg-warning'"
+                  aria-hidden="true"
+                />
+                <span class="text-[12px] text-foreground">{{ ffmpegStatusLabel }}</span>
+                <span class="ml-auto text-[11px] text-muted">ffmpeg / ffprobe</span>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                  <CalendarClock class="w-4 h-4 text-accent" />任务调度
+                </h4>
+                <button
+                  type="button"
+                  class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
+                  title="同时执行的 Agent 运行数上限，聊天、Webhook、Cron 等触发源共享此配额。"
+                  aria-label="任务调度说明"
+                >
+                  <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                </button>
+              </div>
+              <div class="max-w-xs">
+                <label
+                  class="block text-[12px] text-muted mb-1.5"
+                  title="不同会话可并行运行，同一会话仍串行"
+                >全局并发任务</label>
+                <input
+                  v-model.number="maxConcurrentRuns"
+                  type="number"
+                  min="1"
+                  max="64"
+                  step="1"
+                  class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+              <div class="flex items-center justify-between gap-2 pt-2 border-t border-border">
+                <span class="text-[12px] font-medium text-foreground">队列状态</span>
+                <div class="flex items-center gap-3 min-w-0">
+                  <span class="text-[11px] text-muted truncate">{{ queueSummary }}</span>
                   <button
                     type="button"
-                    class="h-8 px-3 rounded-lg border border-border text-xs text-foreground hover:bg-muted/50"
-                    @click="refreshMediaDeps()"
+                    class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
+                    @click="queueModalOpen = true"
                   >
-                    重新检测
-                  </button>
-                  <button
-                    v-if="ffmpegNeedsInstall"
-                    type="button"
-                    class="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs hover:opacity-90"
-                    @click="askAssistantInstallFfmpeg()"
-                  >
-                    让助手安装
+                    查看队列
+                    <ChevronRight class="w-3 h-3" />
                   </button>
                 </div>
               </div>
             </div>
+
+  <!-- 队列详情弹窗（低频） -->
+  <Teleport to="body">
+    <div
+      v-if="queueModalOpen"
+      class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4"
+      role="presentation"
+      @click.self="queueModalOpen = false"
+    >
+      <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
+        <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
+          <div class="min-w-0">
+            <h4 class="text-sm font-semibold text-foreground">队列详情</h4>
+            <p class="mt-0.5 text-[11px] text-muted">{{ queueSummary }}</p>
+          </div>
+          <button
+            type="button"
+            class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
+            aria-label="关闭"
+            @click="queueModalOpen = false"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <div class="p-4 space-y-2 overflow-y-auto">
+          <div
+            v-for="lane in activeLanes"
+            :key="lane.lane"
+            class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2"
+          >
+            <div class="flex items-center justify-between gap-2 text-[12px]">
+              <span class="font-medium text-foreground">{{ laneQueueLabel(lane.lane) }}</span>
+              <span class="text-muted shrink-0">{{ laneStatusLine(lane) }}</span>
+            </div>
+            <ul v-if="lane.waiters.length" class="mt-2 space-y-1">
+              <li
+                v-for="w in lane.waiters"
+                :key="`${lane.lane}:${w.runId}`"
+                class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
+                :title="`${w.runId} · ${w.conversationId}`"
+              >
+                <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(w.triggerSource) }}</span>
+                <span class="truncate">{{ shortId(w.conversationId, 28) }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <div
+            v-if="queueSnapshot && pendingRunCount > 0"
+            class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2 space-y-1.5"
+          >
+            <div class="text-[12px] font-medium text-foreground">待执行任务</div>
+            <ul class="space-y-1 max-h-36 overflow-y-auto">
+              <li
+                v-for="run in queueSnapshot.pendingRuns"
+                :key="run.runId"
+                class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
+                :title="run.runId"
+              >
+                <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(run.triggerSource) }}</span>
+                <span class="truncate flex-1">{{ shortId(run.conversationId, 24) }}</span>
+                <span class="shrink-0 text-[10px] text-muted/70">{{ new Date(run.createdAtMs).toLocaleTimeString() }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <p
+            v-if="queueSnapshot && pendingRunCount === 0 && !totalLaneWaiting"
+            class="text-[11px] text-muted text-center py-4"
+          >
+            当前无排队任务
+          </p>
+          <p v-else-if="!queueSnapshot && !queueLoading" class="text-[11px] text-muted text-center py-4">
+            队列信息暂不可用
+          </p>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 多媒体理解环境弹窗（低频） -->
+  <Teleport to="body">
+    <div
+      v-if="mediaDepsModalOpen"
+      class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4"
+      role="presentation"
+      @click.self="mediaDepsModalOpen = false"
+    >
+      <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-5 space-y-4" @click.stop>
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <h4 class="text-sm font-semibold text-foreground">多媒体理解环境</h4>
+            <p class="mt-0.5 text-[11px] text-muted">IM 视频与抽帧理解依赖本机 ffmpeg</p>
+          </div>
+          <button
+            type="button"
+            class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
+            aria-label="关闭"
+            @click="mediaDepsModalOpen = false"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 space-y-1">
+          <p class="text-[12px] font-medium text-foreground">ffmpeg / ffprobe</p>
+          <p class="text-[11px] text-muted">
+            IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。
+          </p>
+          <p
+            class="text-[11px] mt-1"
+            :class="mediaDeps?.status === 'ready' ? 'text-emerald-600' : 'text-amber-600'"
+          >
+            {{ ffmpegStatusLabel }}
+          </p>
+          <p v-if="ffmpegStatusDetail" class="text-[10px] text-muted mt-0.5 break-all">
+            {{ ffmpegStatusDetail }}
+          </p>
+          <p v-if="mediaDeps?.status === 'ready'" class="text-[10px] text-muted mt-0.5">
+            单个视频仍可能因编码或文件损坏抽帧失败，不代表未安装 ffmpeg。
+          </p>
+        </div>
+        <div class="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="h-8 px-3 rounded-lg border border-border text-xs text-foreground hover:bg-muted/50 cursor-pointer transition-colors"
+            @click="refreshMediaDeps()"
+          >
+            重新检测
+          </button>
+          <button
+            v-if="ffmpegNeedsInstall"
+            type="button"
+            class="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs hover:opacity-90 cursor-pointer transition-colors"
+            @click="askAssistantInstallFfmpeg()"
+          >
+            让助手安装
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>

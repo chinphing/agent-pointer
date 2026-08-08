@@ -42,6 +42,7 @@ const isPlatformProvider = (provider: ProviderConfig) => {
 const visibleProviders = computed(() =>
   s.settings.providers.filter(provider => tab.value === 'platform' ? isPlatformProvider(provider) : !isPlatformProvider(provider))
 )
+const activeProviderName = computed(() => s.activeProvider?.name?.trim() || '—')
 const editableTemplateOptions = computed(() =>
   showAddProvider.value
     ? PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id === 'openai_compatible')
@@ -447,6 +448,22 @@ defineExpose({
       </button>
     </div>
 
+    <!-- 当前配置摘要：一眼可见正在使用哪个服务商与默认模型 -->
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border bg-card px-3 py-2.5">
+      <span class="flex items-center gap-1.5 text-[12px] text-muted">
+        <span class="h-2 w-2 rounded-full bg-success shrink-0" aria-hidden="true" />
+        服务商：<span class="font-medium text-foreground">{{ activeProviderName }}</span>
+      </span>
+      <span class="text-border select-none" aria-hidden="true">|</span>
+      <span class="text-[12px] text-muted">
+        默认模型：<span class="font-mono text-[12px] text-foreground">{{ s.settings.model || '—' }}</span>
+      </span>
+      <span class="hidden sm:inline-flex text-border select-none" aria-hidden="true">|</span>
+      <span class="hidden sm:inline-flex text-[12px] text-muted">
+        密钥：<span :class="s.activeProvider?.apiKey ? 'text-foreground' : 'text-warning'">{{ s.activeProvider?.apiKey ? '已配置' : '未配置' }}</span>
+      </span>
+    </div>
+
     <p v-if="platformReadOnly" class="rounded-lg border border-border bg-hover px-3 py-2 text-[12px] text-muted">由平台统一管理。你可以查看模型服务和三档配置，但不能修改。</p>
 
     <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
@@ -503,11 +520,32 @@ defineExpose({
       </div>
     </div>
 
-    <div v-if="editingProvider" class="rounded-xl border border-accent/30 bg-accent/5 p-5 space-y-4">
-      <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-        <ChevronRight class="w-4 h-4 text-accent" />
-        {{ showAddProvider ? '添加模型服务' : '编辑模型服务' }}
-      </h4>
+  <Teleport to="body">
+    <div
+      v-if="editingProvider"
+      class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-black/55 p-4"
+      role="presentation"
+      @click.self="cancelEditProvider"
+    >
+      <div class="w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
+        <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
+          <div>
+            <h4 class="text-sm font-semibold text-foreground flex items-center gap-2">
+              <ChevronRight class="w-4 h-4 text-accent" />
+              {{ showAddProvider ? '添加模型服务' : '编辑模型服务' }}
+            </h4>
+            <p class="mt-0.5 text-[11px] text-muted">配置服务商默认参数与模型清单；各模型可单独「定制」。</p>
+          </div>
+          <button
+            type="button"
+            class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
+            aria-label="关闭"
+            @click="cancelEditProvider"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <div class="p-5 space-y-4 overflow-y-auto">
 
       <div class="space-y-2">
         <label class="block text-[12px] text-muted">服务类型</label>
@@ -603,9 +641,9 @@ defineExpose({
         </div>
       </div>
 
-      <div class="space-y-2 pt-1">
-        <p v-if="providerSaveError" class="text-[12px] text-red-400">{{ providerSaveError }}</p>
-        <div class="flex items-center justify-end gap-2">
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 shrink-0">
+          <p v-if="providerSaveError" class="mr-auto text-[12px] text-red-400">{{ providerSaveError }}</p>
           <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelEditProvider">取消</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="!editingProvider.id?.trim() || !editingProvider.name?.trim() || !editingProvider.baseUrl?.trim()" @click="saveProvider">
             {{ showAddProvider ? '添加' : '保存' }}
@@ -613,6 +651,7 @@ defineExpose({
         </div>
       </div>
     </div>
+  </Teleport>
   </div>
 
   <Teleport to="body">

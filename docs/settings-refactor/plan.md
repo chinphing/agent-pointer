@@ -24,7 +24,7 @@
 | `src/App.vue` | `showSettings` 控制设置页面与聊天视图切换；`<SettingsDialog>` 全屏呈现 |
 | `src/components/settings/SettingsDialog.vue` | 全屏设置页：标题栏、左侧分区导航、右侧内容区与按需保存操作 |
 | 分区 | `account` 账户 / `automation` 自动化 / `channels` 连接 / `skills` 技能 / `assistant` 智能体（含模型与档位） / `generation` 界面配置 / `debug` 调试 / `cloud` 云主机（桌面·平台模式）/ `about` 关于 |
-| 侧栏分组 | 按职责分 4 组（无标题，组间用分割线）：账户 ｜ 智能体与配置（智能体/界面配置）｜ 自动化与集成（自动化/连接/技能）｜ 系统（调试/云主机/关于）；`debug`/`cloud` 可见性规则不变。原「模型服务」分区已并入智能体页顶部「模型与档位」区块（`ModelServiceSection.vue`） |
+| 侧栏分组 | 按职责分 4 组（无标题，组间用分割线）：账户 ｜ 智能体与配置（智能体/界面配置）｜ 自动化与集成（自动化/连接/技能）｜ 系统（调试/云主机/关于）；`debug`/`cloud` 可见性规则不变。原「模型服务」分区已并入智能体页顶部「模型与档位」区块（`ModelServiceSection.vue`），智能体页按层次组织：场景模式（模式选择/电脑操控/图片视频生成）→ 行为偏好（工具权限/个性化/并行/上下文压缩）→ 高级（多媒体理解/任务调度，低频弹窗化） |
 | `src/components/layout/AppShell.vue` | 主布局（侧栏+主区）；侧栏有「自动化/技能/连接」入口，通过 `emit('open-settings', section)` 打开设置并定位分区 |
 
 关键结论：设置是 `v-if` 渲染的覆盖层，主界面（ChatView）始终在下面。改成页面形态时，需要把「显示/关闭」改为「视图切换」，并保留 `initialSection` 深链能力。

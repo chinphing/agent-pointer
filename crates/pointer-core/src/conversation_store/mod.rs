@@ -34,7 +34,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 21;
+const SCHEMA_VERSION: i32 = 22;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -79,6 +79,15 @@ impl ConversationStore {
     pub fn load_messages(&self, conversation_id: &str) -> Result<Vec<ChatMessage>> {
         let conn = self.db.conn.lock();
         persist::load_messages(&conn, conversation_id)
+    }
+
+    /// Full DB row count plus lead LLM working-set messages (`included`, non-scoped).
+    pub fn load_lead_working_messages(
+        &self,
+        conversation_id: &str,
+    ) -> Result<(Vec<ChatMessage>, u32)> {
+        let conn = self.db.conn.lock();
+        persist::load_lead_working_messages(&conn, conversation_id)
     }
 
     /// Turn-windowed messages for UI hydration (`limit_turns` / `before` / `around`).
@@ -985,6 +994,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            created_at_ms INTEGER NOT NULL,
            position INTEGER NOT NULL,
            is_system_generated INTEGER NOT NULL DEFAULT 0,
+           context_included INTEGER NOT NULL DEFAULT 1,
            UNIQUE(conversation_id, message_id)
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -1027,6 +1037,18 @@ fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_anchor
            ON messages(conversation_id, position) WHERE role = 'user' AND is_system_generated = 0;",
+    )?;
+    // v22: materialized lead-context flag (mirrors is_context_included).
+    add_column_if_missing(
+        conn,
+        "messages",
+        "context_included",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
+    crate::conversation_store::persist::backfill_context_included(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
+           ON messages(conversation_id, position) WHERE context_included = 1;",
     )?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
@@ -1446,6 +1468,19 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_anchor
            ON messages(conversation_id, position) WHERE role = 'user' AND is_system_generated = 0;",
+    )?;
+    // v22: lead LLM working-set flag. Set-based JSON backfill (store_meta gated);
+    // writes compute it at insert/upsert time.
+    add_column_if_missing(
+        conn,
+        "messages",
+        "context_included",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
+    crate::conversation_store::persist::backfill_context_included(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
+           ON messages(conversation_id, position) WHERE context_included = 1;",
     )?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)

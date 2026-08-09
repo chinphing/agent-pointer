@@ -27,6 +27,67 @@ pub fn is_system_generated_user_message(msg: &ChatMessage) -> bool {
 }
 
 const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled";
+const CONTEXT_INCLUDED_BACKFILL_META: &str = "context_included_backfilled";
+
+/// Column value mirroring [`crate::message_context::is_context_included`].
+pub fn context_included_column_value(msg: &ChatMessage) -> i64 {
+    i64::from(crate::message_context::is_context_included(msg))
+}
+
+/// One-time migration: materialize `context_included` for existing rows.
+///
+/// Set-based `json_extract` update (only flips 1→0). Avoids deserializing every
+/// payload into `ChatMessage` on launch for multi‑GB local DBs.
+pub(crate) fn backfill_context_included(conn: &Connection) -> Result<()> {
+    let done: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![CONTEXT_INCLUDED_BACKFILL_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if done.as_deref() == Some("1") {
+        return Ok(());
+    }
+
+    log::info!("conversation_store: backfilling context_included (soft-excluded + scoped)");
+    let started = std::time::Instant::now();
+    let apply = || -> Result<u64> {
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let updated = conn.execute(
+            "UPDATE messages SET context_included = 0
+             WHERE context_included != 0
+               AND (
+                 json_extract(payload, '$.contextState.included') = 0
+                 OR (
+                   json_extract(payload, '$.anchorMessageId') IS NOT NULL
+                   AND length(trim(json_extract(payload, '$.anchorMessageId'))) > 0
+                 )
+               )",
+            [],
+        )? as u64;
+        conn.execute(
+            "INSERT INTO store_meta(key, value) VALUES (?1, '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![CONTEXT_INCLUDED_BACKFILL_META],
+        )?;
+        conn.execute_batch("COMMIT")?;
+        Ok(updated)
+    };
+    let updated = match apply() {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+    };
+
+    log::info!(
+        "conversation_store: context_included backfill done updated={updated} elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    Ok(())
+}
 
 /// One-time migration: materialize `is_system_generated` for existing rows.
 ///
@@ -205,6 +266,61 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
         .into_iter()
         .map(|(_, msg)| msg)
         .collect())
+}
+
+/// Lead `run_chat` working set via materialized `context_included` (schema v22).
+/// Soft-excluded / scoped payloads are not selected, so they are never deserialized
+/// into the returned Vec. `db_count` is still the full transcript row count.
+pub(crate) fn load_lead_working_messages(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<(Vec<ChatMessage>, u32)> {
+    let db_count: u32 = conn.query_row(
+        "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+        params![conversation_id],
+        |row| {
+            let n: i64 = row.get(0)?;
+            Ok(n as u32)
+        },
+    )?;
+    let mut stmt = conn.prepare(
+        "SELECT message_id, position, payload FROM messages
+         WHERE conversation_id = ?1 AND context_included = 1
+         ORDER BY position ASC",
+    )?;
+    let rows = stmt.query_map(params![conversation_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut working = Vec::new();
+    let mut scrub: Vec<(String, i64, ChatMessage)> = Vec::new();
+    for row in rows {
+        let (message_id, position, payload) = row?;
+        match serde_json::from_str::<ChatMessage>(&payload) {
+            Ok(mut msg) => {
+                if msg.strip_tool_raw_output() {
+                    scrub.push((message_id, position, msg.clone()));
+                }
+                // Belt-and-suspenders if a row's column drifted from payload.
+                if !crate::message_context::is_context_included(&msg) {
+                    log::warn!(
+                        "conversation_store: context_included column stale conversation_id={conversation_id} message_id={}",
+                        msg.id
+                    );
+                    continue;
+                }
+                working.push(msg);
+            }
+            Err(e) => {
+                log::warn!("conversation_store: skip corrupt message in {conversation_id}: {e}")
+            }
+        }
+    }
+    scrub_tool_raw_output(conn, conversation_id, scrub);
+    Ok((working, db_count))
 }
 
 /// Load transcript rows with SQLite `position` (ascending). Used by turn paging.
@@ -942,8 +1058,9 @@ pub fn upsert_conversation(
             let payload = msg.to_store_payload_json()?;
             conn.execute(
                 "INSERT INTO messages (
-                   conversation_id, message_id, role, content, payload, created_at_ms, position, is_system_generated
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                   conversation_id, message_id, role, content, payload, created_at_ms, position,
+                   is_system_generated, context_included
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
                     conv.id,
                     msg.id,
@@ -953,6 +1070,7 @@ pub fn upsert_conversation(
                     msg.created_at,
                     pos as i64,
                     i64::from(is_system_generated_user_message(msg)),
+                    context_included_column_value(msg),
                 ],
             )?;
         }

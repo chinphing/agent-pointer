@@ -25,11 +25,29 @@ How Pointer reduces **peak RSS during a chat turn** without changing the persist
   `append_conversation_messages` (`messagesForPersistAppend`). Empty incremental
   skips the IPC/HTTP append but still refreshes the watermark.
 
+## Phase 2.2 (implemented) — `run_chat` working-set history
+
+- `ConversationTranscriptSession::begin` loads the **lead LLM working set** only
+  (`context_state.included`, non-scoped) via `load_lead_working_messages`.
+- Soft-excluded rows remain in SQLite for UI paging; meta `message_count` stays
+  the full DB count so FE hydrate is unchanged.
+- Sync paths already preserve DB orphans when the in-memory list is shorter
+  (`sync_messages_ordered` preserve mode).
+
+## Phase 2.2b (implemented) — `context_included` column (schema v22)
+
+- `messages.context_included` mirrors `is_context_included` (soft-exclude + scoped).
+- Writes set the column on insert/upsert; one-time set-based JSON backfill is
+  gated by `store_meta.context_included_backfilled`.
+- Working-set load uses `WHERE context_included = 1` so excluded payloads are not
+  deserialized on the `run_chat` path (`COUNT(*)` still supplies full `db_count`).
+
 ## Still cloned (acceptable / later)
 
 - `make_openai_messages_with_inject` still clones included rows into the filter/expand pipeline (needed for tool flatten).
 - Background memory review and parallel `web_search` may snapshot `history` into an owned `Vec` / `Arc` for async lifetimes.
-- Frontend **display slim** for old in-memory messages (phase 2.2) is deferred.
+- Frontend **display slim** for old in-memory messages (phase 2.3) is deferred.
+- Session-level working-set cache / delta reload (P1/P2) is deferred.
 
 ## Related
 

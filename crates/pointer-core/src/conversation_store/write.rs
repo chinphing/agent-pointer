@@ -207,15 +207,17 @@ fn insert_message_at(
     let payload = msg.to_store_payload_json()?;
     conn.execute(
         "INSERT INTO messages (
-           conversation_id, message_id, role, content, payload, created_at_ms, position, is_system_generated
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+           conversation_id, message_id, role, content, payload, created_at_ms, position,
+           is_system_generated, context_included
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
          ON CONFLICT(conversation_id, message_id) DO UPDATE SET
            role = excluded.role,
            content = excluded.content,
            payload = excluded.payload,
            created_at_ms = excluded.created_at_ms,
            position = excluded.position,
-           is_system_generated = excluded.is_system_generated",
+           is_system_generated = excluded.is_system_generated,
+           context_included = excluded.context_included",
         params![
             conversation_id,
             msg.id,
@@ -225,6 +227,7 @@ fn insert_message_at(
             msg.created_at,
             position,
             i64::from(super::persist::is_system_generated_user_message(msg)),
+            super::persist::context_included_column_value(msg),
         ],
     )?;
     Ok(())
@@ -712,6 +715,75 @@ mod tests {
 
         assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
         assert_eq!(store.message_count("c1").unwrap(), 4);
+    }
+
+    #[test]
+    fn load_lead_working_messages_skips_soft_excluded_keeps_db_count() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "T", "hello");
+        conv.messages[0].context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        conv.messages[1].context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        let summary = super::super::persist::msg(
+            "ctx_sum",
+            Role::User,
+            "[Conversation summary (auto-compression)] kept",
+            50,
+        );
+        let recent = super::super::persist::msg("user_b", Role::User, "continue", 60);
+        conv.messages.push(summary.clone());
+        conv.messages.push(recent.clone());
+        store.save_all(&[conv.clone()]).unwrap();
+
+        let flags: Vec<(String, i64)> = {
+            let conn = rusqlite::Connection::open(dir.path().join("conversations.db")).unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT message_id, context_included FROM messages
+                     WHERE conversation_id = 'c1' ORDER BY position ASC",
+                )
+                .unwrap();
+            let rows = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            rows
+        };
+        assert_eq!(
+            flags,
+            vec![
+                (conv.messages[0].id.clone(), 0),
+                (conv.messages[1].id.clone(), 0),
+                ("ctx_sum".into(), 1),
+                ("user_b".into(), 1),
+            ]
+        );
+
+        let (working, db_count) = store.load_lead_working_messages("c1").unwrap();
+        assert_eq!(db_count, 4);
+        assert_eq!(
+            working.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["ctx_sum", "user_b"]
+        );
+
+        store
+            .sync_messages_ordered_with_meta("c1", &working, working.len() as u32, "p")
+            .unwrap();
+        assert_eq!(store.message_count("c1").unwrap(), 4);
+        assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
+        let full = store.load_messages("c1").unwrap();
+        assert_eq!(full.len(), 4);
+        assert_eq!(
+            full[0].context_state.as_ref().map(|s| s.included),
+            Some(false)
+        );
     }
 
     #[test]

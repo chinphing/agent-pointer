@@ -1094,6 +1094,10 @@ async fn compress_history_inner(
         m.image_slot_labels = None;
     }
 
+    if matches!(ui.scope, CompressionScope::Main) {
+        crate::conversation_session::publish_working_set(conversation_id, history, None);
+    }
+
     let messages_after = history.len();
 
     let compression = build_compression_info(

@@ -42,12 +42,23 @@ How Pointer reduces **peak RSS during a chat turn** without changing the persist
 - Working-set load uses `WHERE context_included = 1` so excluded payloads are not
   deserialized on the `run_chat` path (`COUNT(*)` still supplies full `db_count`).
 
+## Phase 2.3 (implemented) — `conversation_session` facade
+
+- Unified write / working-set entry: [`conversation_session`](../../crates/pointer-core/src/conversation_session/mod.rs)
+  (`append_missing`, `upsert_message`, `sync_ordered`, `prepare_lead_history`, …).
+- Every `ConversationStore` transcript mutation bumps a per-conversation
+  **generation** and clears the in-process working-set cache.
+- `run_chat` begin uses `prepare_lead_history`: cache hit when generation matches
+  (no DB working-set reload); otherwise incremental append or full
+  `load_lead_working_messages`.
+- UI paging / FTS / meta listing still read SQLite directly (not the working set).
+
 ## Still cloned (acceptable / later)
 
 - `make_openai_messages_with_inject` still clones included rows into the filter/expand pipeline (needed for tool flatten).
 - Background memory review and parallel `web_search` may snapshot `history` into an owned `Vec` / `Arc` for async lifetimes.
-- Frontend **display slim** for old in-memory messages (phase 2.3) is deferred.
-- Session-level working-set cache / delta reload (P1/P2) is deferred.
+- Frontend **display slim** for old in-memory messages (phase 2.4) is deferred.
+- Further sealing of remaining `ConversationStore` message writes in other crates.
 
 ## Related
 

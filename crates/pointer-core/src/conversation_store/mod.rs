@@ -418,6 +418,14 @@ impl ConversationStore {
             }
             Ok(())
         })?;
+        for id in &new_ids {
+            crate::conversation_session::note_transcript_mutated(id);
+        }
+        for id in &old_ids {
+            if !new_ids.contains(id) {
+                crate::conversation_session::drop_conversation(id);
+            }
+        }
 
         // Clean up sandbox directories for deleted conversations.
         let deleted_ids: Vec<&str> = old_ids
@@ -480,6 +488,7 @@ impl ConversationStore {
     pub fn delete_conversation(&self, id: &str) -> Result<()> {
         self.db
             .execute_write(|conn| persist::delete_conversation_from_conn(conn, id))?;
+        crate::conversation_session::drop_conversation(id);
         log::info!("conversation_store: deleted conversation id={id}");
         if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup_for_conversation(id) {
             log::warn!("session_sandbox cleanup failed for {id}: {e}");
@@ -488,14 +497,19 @@ impl ConversationStore {
     }
 
     /// P0: append messages not yet present in the DB.
+    /// Prefer [`crate::conversation_session::append_missing`] from business code.
     pub fn append_missing_messages(
         &self,
         conversation_id: &str,
         messages: &[ChatMessage],
     ) -> Result<u32> {
-        self.db.execute_write(|conn| {
+        let written = self.db.execute_write(|conn| {
             write::append_missing_messages_in_conn(conn, conversation_id, messages)
-        })
+        })?;
+        if written > 0 {
+            crate::conversation_session::note_transcript_mutated(conversation_id);
+        }
+        Ok(written)
     }
 
     /// Ensure a dedicated cron session row exists for a cron job. Creates the
@@ -583,9 +597,12 @@ impl ConversationStore {
     }
 
     /// P0: insert or update one message.
+    /// Prefer [`crate::conversation_session::upsert_message`] from business code.
     pub fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
         self.db
-            .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))
+            .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     pub fn upsert_message_no_refresh(
@@ -595,7 +612,9 @@ impl ConversationStore {
     ) -> Result<()> {
         self.db.execute_write(|conn| {
             write::upsert_message_no_refresh_in_conn(conn, conversation_id, msg)
-        })
+        })?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     pub fn flush_conversation_meta(
@@ -642,7 +661,9 @@ impl ConversationStore {
                 message_count,
                 preview,
             )
-        })
+        })?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     /// Soft-exclude payloads + shift suffix + insert summary at the cut point.
@@ -663,13 +684,17 @@ impl ConversationStore {
                 insert_before_message_id,
                 preview,
             )
-        })
+        })?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     /// P2b: replace full transcript from client-held messages.
     pub fn replace_messages(&self, conversation_id: &str, messages: &[ChatMessage]) -> Result<()> {
         self.db
-            .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))
+            .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     pub fn upsert_meta(&self, meta: &ConversationMeta) -> Result<()> {

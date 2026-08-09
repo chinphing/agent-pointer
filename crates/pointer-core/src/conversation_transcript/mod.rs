@@ -27,6 +27,7 @@ pub fn global_registry() -> Arc<ConversationTranscriptRegistry> {
 }
 
 /// Drop scoped sub-agent rows and soft-excluded messages from a lead history snapshot.
+#[cfg(test)]
 pub(crate) fn filter_lead_working_history(
     messages: impl IntoIterator<Item = ChatMessage>,
 ) -> Vec<ChatMessage> {
@@ -61,34 +62,9 @@ impl ConversationTranscriptSession {
         conversation_id: &str,
         history: &mut Vec<ChatMessage>,
     ) -> Result<Arc<Mutex<Self>>> {
-        let db_message_count = if let Ok(store) = conversation_store::global_store() {
-            // Existing DB rows are authoritative for ordering and context_state.
-            // The caller may have missed a compression event or may be sending an
-            // unhydrated shell; only genuinely new ids are accepted from it.
-            store.append_missing_messages(conversation_id, history)?;
-            let (working, db_count) = store.load_lead_working_messages(conversation_id)?;
-            if working.is_empty() && db_count == 0 && !history.is_empty() {
-                anyhow::bail!(
-                    "conversation transcript reload returned empty after appending {} message(s)",
-                    history.len()
-                );
-            }
-            *history = working;
-            log::info!(
-                "conversation_transcript: canonicalized lead working history from store conversation_id={} db_messages={} working_history={}",
-                conversation_id,
-                db_count,
-                history.len()
-            );
-            db_count
-        } else {
-            *history = filter_lead_working_history(std::mem::take(history));
-            log::warn!(
-                "conversation_transcript: global store unavailable; using filtered caller history conversation_id={conversation_id} working_history={}",
-                history.len()
-            );
-            history.len() as u32
-        };
+        // Unified session facade: append deltas + working-set cache / DB reload.
+        let db_message_count =
+            crate::conversation_session::prepare_lead_history(conversation_id, history)?;
 
         let reconciled = reconcile::reconcile_tool_messages(history);
         let message_count = db_message_count.max(history.len() as u32);
@@ -103,29 +79,32 @@ impl ConversationTranscriptSession {
             transcript_dirty: reconciled,
         }));
 
-        if let Ok(store) = conversation_store::global_store() {
-            let mut s = session.lock();
-            if reconciled {
-                if let Err(e) = store.sync_messages_ordered_with_meta(
-                    conversation_id,
-                    history,
-                    s.message_count,
-                    &s.preview,
-                ) {
-                    log::warn!(
-                        "conversation_transcript: sync after reconcile failed conversation_id={conversation_id}: {e:#}"
-                    );
-                } else {
-                    s.transcript_dirty = false;
-                    s.message_count = meta_message_count(conversation_id, history.len() as u32);
-                }
-            }
-            if let Err(e) =
-                store.flush_conversation_meta(conversation_id, s.message_count, &s.preview)
-            {
+        if reconciled {
+            if let Err(e) = crate::conversation_session::sync_ordered(conversation_id, history) {
                 log::warn!(
-                    "conversation_transcript: flush_meta after bootstrap failed conversation_id={conversation_id}: {e:#}"
+                    "conversation_transcript: sync after reconcile failed conversation_id={conversation_id}: {e:#}"
                 );
+            } else {
+                let mut s = session.lock();
+                s.transcript_dirty = false;
+                s.message_count = meta_message_count(conversation_id, history.len() as u32);
+                s.preview = conversation_preview(history);
+            }
+        } else {
+            crate::conversation_session::publish_working_set(
+                conversation_id,
+                history,
+                Some(message_count),
+            );
+            if let Ok(store) = conversation_store::global_store() {
+                let s = session.lock();
+                if let Err(e) =
+                    store.flush_conversation_meta(conversation_id, s.message_count, &s.preview)
+                {
+                    log::warn!(
+                        "conversation_transcript: flush_meta after bootstrap failed conversation_id={conversation_id}: {e:#}"
+                    );
+                }
             }
         }
 
@@ -151,6 +130,11 @@ impl ConversationTranscriptSession {
                 "conversation_transcript: end flush failed conversation_id={conversation_id}: {e:#}"
             );
         }
+        crate::conversation_session::publish_working_set(
+            &conversation_id,
+            history,
+            Some(meta_message_count(&conversation_id, history.len() as u32)),
+        );
         global_registry().unregister(&conversation_id);
         log::info!(
             "conversation_transcript: end conversation_id={conversation_id} working_history={} db_messages={}",
@@ -200,23 +184,13 @@ impl ConversationTranscriptSession {
         }
         reconcile::maybe_update_preview(&mut s.preview, msg);
         let conversation_id = s.conversation_id.clone();
-        let preview = s.preview.clone();
-        if let Ok(store) = conversation_store::global_store() {
-            if let Err(e) = store.upsert_message_no_refresh(&conversation_id, msg) {
-                log::warn!(
-                    "conversation_transcript: upsert_message failed conversation_id={conversation_id} message_id={}: {e:#}",
-                    msg.id
-                );
-            } else {
-                let count = meta_message_count(&conversation_id, s.message_count);
-                s.message_count = count;
-                if let Err(e) = store.flush_conversation_meta(&conversation_id, count, &preview)
-                {
-                    log::warn!(
-                        "conversation_transcript: flush_meta after upsert failed conversation_id={conversation_id}: {e:#}"
-                    );
-                }
-            }
+        if let Err(e) = crate::conversation_session::upsert_message(&conversation_id, msg) {
+            log::warn!(
+                "conversation_transcript: upsert_message failed conversation_id={conversation_id} message_id={}: {e:#}",
+                msg.id
+            );
+        } else {
+            s.message_count = meta_message_count(&conversation_id, s.message_count);
         }
     }
 
@@ -238,15 +212,12 @@ impl ConversationTranscriptSession {
         if !s.transcript_dirty {
             return Ok(());
         }
-        let store = conversation_store::global_store()?;
-        store.sync_messages_ordered_with_meta(
-            conversation_id,
-            history,
-            s.message_count,
-            &s.preview,
-        )?;
+        drop(s);
+        crate::conversation_session::sync_ordered(conversation_id, history)?;
+        let mut s = session.lock();
         s.transcript_dirty = false;
         s.message_count = meta_message_count(conversation_id, history.len() as u32);
+        s.preview = conversation_preview(history);
         s.known_ids = history.iter().map(|m| m.id.clone()).collect();
         Ok(())
     }
@@ -262,24 +233,11 @@ pub fn upsert_message(conversation_id: &str, msg: &ChatMessage) {
         "conversation_transcript: upsert without active session conversation_id={conversation_id} message_id={}",
         msg.id
     );
-    if let Ok(store) = conversation_store::global_store() {
-        if let Err(e) = store.upsert_message_no_refresh(conversation_id, msg) {
-            log::warn!(
-                "conversation_transcript: fallback upsert failed conversation_id={conversation_id} message_id={}: {e:#}",
-                msg.id
-            );
-            return;
-        }
-        let count = store.message_count(conversation_id).unwrap_or(0);
-        let preview = match store.stored_conversation_preview(conversation_id) {
-            Ok(p) if !p.is_empty() => p,
-            _ => conversation_preview(&[msg.clone()]),
-        };
-        if let Err(e) = store.flush_conversation_meta(conversation_id, count, &preview) {
-            log::warn!(
-                "conversation_transcript: fallback flush_meta failed conversation_id={conversation_id}: {e:#}"
-            );
-        }
+    if let Err(e) = crate::conversation_session::upsert_message(conversation_id, msg) {
+        log::warn!(
+            "conversation_transcript: fallback upsert failed conversation_id={conversation_id} message_id={}: {e:#}",
+            msg.id
+        );
     }
 }
 
@@ -338,18 +296,13 @@ pub fn flush_after_tool_pass(conversation_id: &str, history: &[ChatMessage]) {
 }
 
 pub fn sync_ordered(conversation_id: &str, history: &[ChatMessage]) {
-    let preview = conversation_preview(history);
-    let count = meta_message_count(conversation_id, history.len() as u32);
-    if let Ok(store) = conversation_store::global_store() {
-        if let Err(e) =
-            store.sync_messages_ordered_with_meta(conversation_id, history, count, &preview)
-        {
-            log::warn!(
-                "conversation_transcript: sync_ordered failed conversation_id={conversation_id}: {e:#}"
-            );
-        }
+    if let Err(e) = crate::conversation_session::sync_ordered(conversation_id, history) {
+        log::warn!(
+            "conversation_transcript: sync_ordered failed conversation_id={conversation_id}: {e:#}"
+        );
     }
     let count = meta_message_count(conversation_id, history.len() as u32);
+    let preview = conversation_preview(history);
     if let Some(session) = global_registry().get(conversation_id) {
         let mut s = session.lock();
         s.transcript_dirty = false;
@@ -369,19 +322,19 @@ pub fn persist_compression_splice(
     insert_before_message_id: &str,
     preview: &str,
 ) {
+    if let Err(e) = crate::conversation_session::persist_compression_splice(
+        conversation_id,
+        excluded_messages,
+        summary,
+        insert_before_message_id,
+        preview,
+    ) {
+        log::warn!(
+            "conversation_transcript: persist_compression_splice failed conversation_id={conversation_id}: {e:#}"
+        );
+        return;
+    }
     if let Ok(store) = conversation_store::global_store() {
-        if let Err(e) = store.persist_context_compression(
-            conversation_id,
-            excluded_messages,
-            summary,
-            insert_before_message_id,
-            preview,
-        ) {
-            log::warn!(
-                "conversation_transcript: persist_compression_splice failed conversation_id={conversation_id}: {e:#}"
-            );
-            return;
-        }
         if let Ok(count) = store.message_count(conversation_id) {
             if let Some(session) = global_registry().get(conversation_id) {
                 let mut s = session.lock();

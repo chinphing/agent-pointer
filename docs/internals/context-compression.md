@@ -100,12 +100,15 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 每次 `run_chat` 开始时：
 
 1. 调用方历史仅用于追加数据库中不存在的新消息 ID；
-2. 后端按 `messages.context_included = 1` 加载 **lead LLM 工作集**
-   （列与 `is_context_included` 对齐：soft-exclude + scoped）；
+2. 经 `conversation_session::prepare_lead_history` 取得 **lead LLM 工作集**
+   （优先进程内 cache；miss 时按 `context_included = 1` 从库加载）；
 3. soft-excluded 行留在 SQLite，供 UI 分页 hydrate；会话
    `message_count` 仍为全库行数；
 4. APP、WEB、IM 的 `run_chat` 内存历史均使用该工作集；落盘 sync
    在存在 DB orphan 时走保位路径，不会因短列表删掉 excluded 行。
+   压缩 drain 后需 `publish_working_set` 刷新 cache。
+
+详见 [`conversation-session.md`](conversation-session.md)。
 
 压缩成功后必须清除 `last_lead_prompt_tokens`。
 

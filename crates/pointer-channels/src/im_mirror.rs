@@ -69,7 +69,7 @@ pub fn mirror_delivery_to_im_session(
     msg.id = message_id.clone();
     msg.role = Role::Assistant;
 
-    if let Err(e) = store.upsert_message(&desktop_id, &msg) {
+    if let Err(e) = pointer_core::conversation_session::upsert_message(&desktop_id, &msg) {
         log::warn!(
             "im_deliver mirror: upsert failed desktop={desktop_id}: {e:#}"
         );

@@ -321,7 +321,9 @@ impl DispatchService {
             attachments_opt.clone(),
         );
 
-        if let Err(e) = store.upsert_message_no_refresh(&desktop_conv_id, &user_msg) {
+        if let Err(e) =
+            pointer_core::conversation_session::upsert_message(&desktop_conv_id, &user_msg)
+        {
             log::warn!(
                 "channel upsert inbound user message failed desktop={desktop_conv_id}: {e:#}"
             );

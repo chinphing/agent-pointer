@@ -341,6 +341,7 @@ pub fn upsert_message_no_refresh_in_conn(
 }
 
 /// P0: upsert a single message at the end (or update payload in place).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn upsert_message_in_conn(
     conn: &Connection,
     conversation_id: &str,
@@ -532,6 +533,7 @@ pub fn persist_context_compression_in_conn(
 }
 
 /// P2b: replace the full transcript for one conversation.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn replace_messages_in_conn(
     conn: &Connection,
     conversation_id: &str,

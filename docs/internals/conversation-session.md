@@ -12,12 +12,25 @@ full working set every turn for correctness. That made “skip reload” unsafe.
 
 1. **Mutate transcript via `conversation_session`** (`append_missing`,
    `upsert_message`, `sync_ordered`, `persist_compression_splice`, …).
-2. `ConversationStore` message writes still exist for low-level/tests, but each
-   write calls `note_transcript_mutated` so the facade cache cannot go stale.
+2. `ConversationStore` message writes (`append_missing_messages`,
+   `upsert_message*`, `sync_messages_ordered_with_meta`,
+   `persist_context_compression`, `replace_messages`) are **`pub(crate)`** —
+   external crates cannot call them. Inside `pointer-core` they remain for the
+   facade and unit tests; each write still calls `note_transcript_mutated`.
 3. **UI hydrate / FTS / meta** may read SQLite directly; they are not the lead
-   working set.
+   working set. Legacy full import may still use public `save_all`.
 4. `prepare_lead_history` is the only path `run_chat` should use to build lead
    `history` at turn start.
+
+## Observability: `save_all` (legacy)
+
+`ConversationStore::save_all` logs at **info** with a stable prefix:
+
+`conversation_store: save_all_legacy_import …`
+
+Search production logs for that string. If it never appears for a release window,
+consider removing the FE/server `save_conversations` API and tightening
+`save_all` further. Do not remove based on silence in debug-only logs.
 
 ## Cache
 

@@ -401,6 +401,19 @@ impl ConversationStore {
         // Snapshot old IDs before the write so we can detect deletions.
         let old_ids: Vec<String> = self.list_all_ids().unwrap_or_default();
         let new_ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
+        let total_messages: usize = list.iter().map(|c| c.messages.len()).sum();
+        // Observability for legacy full-conversation import. Keep at info so
+        // production logs show whether this path still fires; revisit removal
+        // after a quiet period (see docs/internals/conversation-session.md).
+        log::info!(
+            "conversation_store: save_all_legacy_import conversations={} total_messages={} deleted_absent={}",
+            list.len(),
+            total_messages,
+            old_ids
+                .iter()
+                .filter(|id| !new_ids.contains(id))
+                .count()
+        );
 
         self.db.execute_write(|conn| {
             persist::delete_conversations_not_in(conn, &new_ids)?;
@@ -411,8 +424,8 @@ impl ConversationStore {
                 }
             }
             if written > 0 {
-                log::debug!(
-                    "conversation_store: upserted {written}/{} conversations",
+                log::info!(
+                    "conversation_store: save_all_legacy_import upserted {written}/{} conversations",
                     list.len()
                 );
             }
@@ -497,8 +510,9 @@ impl ConversationStore {
     }
 
     /// P0: append messages not yet present in the DB.
-    /// Prefer [`crate::conversation_session::append_missing`] from business code.
-    pub fn append_missing_messages(
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    pub(crate) fn append_missing_messages(
         &self,
         conversation_id: &str,
         messages: &[ChatMessage],
@@ -597,15 +611,19 @@ impl ConversationStore {
     }
 
     /// P0: insert or update one message.
-    /// Prefer [`crate::conversation_session::upsert_message`] from business code.
-    pub fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    /// Retained for store unit tests (`upsert` with refresh); production uses
+    /// [`Self::upsert_message_no_refresh`] via the session facade.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
         self.db
             .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))?;
         crate::conversation_session::note_transcript_mutated(conversation_id);
         Ok(())
     }
 
-    pub fn upsert_message_no_refresh(
+    pub(crate) fn upsert_message_no_refresh(
         &self,
         conversation_id: &str,
         msg: &ChatMessage,
@@ -646,7 +664,9 @@ impl ConversationStore {
     /// P2a: ordered upsert without deleting orphan rows (compression / trim).
     /// When DB has rows absent from `messages` (soft-exclude), positions of existing
     /// ids are preserved and new ids are inserted near neighbors (or appended).
-    pub fn sync_messages_ordered_with_meta(
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    pub(crate) fn sync_messages_ordered_with_meta(
         &self,
         conversation_id: &str,
         messages: &[ChatMessage],
@@ -667,7 +687,9 @@ impl ConversationStore {
     }
 
     /// Soft-exclude payloads + shift suffix + insert summary at the cut point.
-    pub fn persist_context_compression(
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    pub(crate) fn persist_context_compression(
         &self,
         conversation_id: &str,
         excluded_messages: &[ChatMessage],
@@ -690,7 +712,15 @@ impl ConversationStore {
     }
 
     /// P2b: replace full transcript from client-held messages.
-    pub fn replace_messages(&self, conversation_id: &str, messages: &[ChatMessage]) -> Result<()> {
+    ///
+    /// Crate-private: used by store unit tests and legacy in-crate paths.
+    /// External crates use `save_all` for full-conversation import.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn replace_messages(
+        &self,
+        conversation_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<()> {
         self.db
             .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))?;
         crate::conversation_session::note_transcript_mutated(conversation_id);

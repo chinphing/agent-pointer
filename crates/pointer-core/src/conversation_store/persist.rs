@@ -38,6 +38,9 @@ pub fn context_included_column_value(msg: &ChatMessage) -> i64 {
 ///
 /// Set-based `json_extract` update (only flips 1→0). Avoids deserializing every
 /// payload into `ChatMessage` on launch for multi‑GB local DBs.
+/// `json_valid(payload) = 1` guards against legacy rows with truncated/corrupt
+/// JSON payloads — a single malformed row would otherwise fail the whole
+/// UPDATE (SQLite raises "malformed JSON") and brick the v22 migration.
 pub(crate) fn backfill_context_included(conn: &Connection) -> Result<()> {
     let done: Option<String> = conn
         .query_row(
@@ -57,6 +60,7 @@ pub(crate) fn backfill_context_included(conn: &Connection) -> Result<()> {
         let updated = conn.execute(
             "UPDATE messages SET context_included = 0
              WHERE context_included != 0
+               AND json_valid(payload) = 1
                AND (
                  json_extract(payload, '$.contextState.included') = 0
                  OR (

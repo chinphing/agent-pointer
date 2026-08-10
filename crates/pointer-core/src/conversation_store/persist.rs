@@ -1158,6 +1158,9 @@ pub(crate) fn role_str(role: &Role) -> &'static str {
     }
 }
 
+/// Test-only helper used by [`ConversationStore::save_all`] (test convenience
+/// write path). Production deletion is explicit per-conversation.
+#[cfg(test)]
 pub fn delete_conversations_not_in(conn: &Connection, ids: &[String]) -> Result<()> {
     if ids.is_empty() {
         return Ok(());

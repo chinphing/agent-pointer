@@ -397,16 +397,18 @@ impl ConversationStore {
         })
     }
 
+    /// Full-conversation import/upsert. **Test-only since 2026-08**: the legacy
+    /// FE/server `save_conversations` API was removed (production logs never
+    /// showed `save_all_legacy_import` after the append-migration). Unit tests
+    /// still use this as a convenience write path.
+    #[cfg(test)]
     pub fn save_all(&self, list: &[Conversation]) -> Result<()> {
         // Snapshot old IDs before the write so we can detect deletions.
         let old_ids: Vec<String> = self.list_all_ids().unwrap_or_default();
         let new_ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
         let total_messages: usize = list.iter().map(|c| c.messages.len()).sum();
-        // Observability for legacy full-conversation import. Keep at info so
-        // production logs show whether this path still fires; revisit removal
-        // after a quiet period (see docs/internals/conversation-session.md).
         log::info!(
-            "conversation_store: save_all_legacy_import conversations={} total_messages={} deleted_absent={}",
+            "conversation_store: save_all_test_only conversations={} total_messages={} deleted_absent={}",
             list.len(),
             total_messages,
             old_ids
@@ -425,7 +427,7 @@ impl ConversationStore {
             }
             if written > 0 {
                 log::info!(
-                    "conversation_store: save_all_legacy_import upserted {written}/{} conversations",
+                    "conversation_store: save_all_test_only upserted {written}/{} conversations",
                     list.len()
                 );
             }

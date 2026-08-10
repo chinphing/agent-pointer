@@ -1185,11 +1185,6 @@ pub fn delete_conversation(conversation_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn save_conversations(conversations: Vec<Conversation>) -> Result<(), String> {
-    storage::save_conversations(&conversations).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub fn save_conversation_meta(
     state: State<'_, Arc<AppState>>,
     metas: Vec<pointer_core::models::ConversationMeta>,

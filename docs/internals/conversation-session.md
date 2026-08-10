@@ -18,19 +18,18 @@ full working set every turn for correctness. That made “skip reload” unsafe.
    external crates cannot call them. Inside `pointer-core` they remain for the
    facade and unit tests; each write still calls `note_transcript_mutated`.
 3. **UI hydrate / FTS / meta** may read SQLite directly; they are not the lead
-   working set. Legacy full import may still use public `save_all`.
+   working set.
 4. `prepare_lead_history` is the only path `run_chat` should use to build lead
    `history` at turn start.
 
-## Observability: `save_all` (legacy)
+## Removed: legacy `save_conversations` / `save_all`
 
-`ConversationStore::save_all` logs at **info** with a stable prefix:
-
-`conversation_store: save_all_legacy_import …`
-
-Search production logs for that string. If it never appears for a release window,
-consider removing the FE/server `save_conversations` API and tightening
-`save_all` further. Do not remove based on silence in debug-only logs.
+The FE/server `save_conversations` API (Tauri command + `PUT /api/conversations` +
+`tauri.ts`/`web.ts` wrappers) was **removed 2026-08**: after the append-migration,
+production logs never showed the legacy import marker, so the full-conversation
+import path had no caller. `ConversationStore::save_all` is now `#[cfg(test)]`
+(test convenience write only). Do not reintroduce a full-transcript client
+overwrite API — use `conversation_session` writes instead.
 
 ## Cache
 

@@ -949,10 +949,6 @@ pub fn load_conversation_messages_page(
     crate::conversation_store::global_store()?.load_messages_page(conversation_id, opts)
 }
 
-pub fn save_conversations(list: &[Conversation]) -> Result<()> {
-    crate::conversation_store::global_store()?.save_all(list)
-}
-
 pub fn save_conversation_meta(metas: &[ConversationMeta]) -> Result<()> {
     save_conversation_meta_with_platform_user(metas, None)
 }

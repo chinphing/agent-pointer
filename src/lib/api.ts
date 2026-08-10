@@ -264,7 +264,6 @@ export interface RuntimeApi {
     conversationId: string,
     opts?: LoadConversationMessagesPageOpts
   ): Promise<ConversationMessagePage>
-  saveConversations(conversations: Conversation[]): Promise<void>
   revealInFinder(path: string): Promise<void>
   openPathWithDefaultApp(path: string): Promise<void>
   openChatMedia(storageRelPath: string): Promise<void>
@@ -424,7 +423,6 @@ export const deleteProject = api.deleteProject
 export const searchConversations = api.searchConversations
 export const loadConversationMessages = api.loadConversationMessages
 export const loadConversationMessagesPage = api.loadConversationMessagesPage
-export const saveConversations = api.saveConversations
 export const saveConversationMeta = api.saveConversationMeta
 export const deleteConversation = api.deleteConversation
 export const appendConversationMessages = api.appendConversationMessages

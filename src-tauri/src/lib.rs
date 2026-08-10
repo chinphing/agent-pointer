@@ -536,7 +536,6 @@ pub fn run() {
             commands::load_conversation_messages_page,
             commands::load_conversation_meta,
             commands::delete_conversation,
-            commands::save_conversations,
             commands::save_conversation_meta,
             commands::append_conversation_messages,
             commands::list_pinned_experiences,

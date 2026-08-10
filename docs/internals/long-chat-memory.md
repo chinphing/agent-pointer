@@ -59,8 +59,8 @@ How Pointer reduces **peak RSS during a chat turn** without changing the persist
 - Background memory review and parallel `web_search` may snapshot `history` into an owned `Vec` / `Arc` for async lifetimes.
 - Frontend **display slim** for old in-memory messages (phase 2.4) is deferred.
 - `ConversationStore` fine-grained message writes are `pub(crate)` (sealed for
-  external crates); legacy `save_all` remains public and emits
-  `save_all_legacy_import` info logs for production usage analysis.
+  external crates); legacy full-transcript `save_all` was removed from
+  production (test-only convenience, `#[cfg(test)]`).
 
 ## Related
 

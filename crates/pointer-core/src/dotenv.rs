@@ -77,6 +77,7 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
     crate::session_user_env::apply_session_user_id(&mut env);
     crate::session_work_dir_env::apply_session_work_dir(&mut env);
     crate::storage::apply_data_dir_env(&mut env);
+    crate::skills::external::apply_skill_dir_env(&mut env);
     apply_terminal_env_overrides(&mut env);
     // After overrides: Dock-launched hosts often have LANG=C; PTY `ls` then prints `?`.
     #[cfg(unix)]
@@ -445,6 +446,22 @@ mod tests {
             .to_string_lossy()
             .into_owned();
         assert_eq!(data_dir, &expected);
+    }
+
+    #[test]
+    fn build_terminal_child_environment_injects_skill_dir() {
+        let _guard = env_test_guard();
+        crate::platform_config::replace_global_platform_config_for_test(
+            crate::models::PlatformSettings::default(),
+        );
+        let map = build_terminal_child_environment(&[]);
+        let skill_dir = map.get("SKILL_DIR").expect("SKILL_DIR");
+        assert!(!skill_dir.trim().is_empty());
+        let expected = crate::skills::external::pointer_skills_dir()
+            .expect("pointer_skills_dir")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(skill_dir, &expected);
     }
 
     #[test]

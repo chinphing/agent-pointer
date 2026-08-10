@@ -1,6 +1,6 @@
 # Session workspace root
 
-The **workspace root** is the directory used by `file`, `terminal`, `read_lints`, and related tools for a conversation. It is persisted as `workspaceRoot` on the conversation row and exposed to scripts as `WORKING_DIR` (see [terminal-environment-variables.md](terminal-environment-variables.md)). App-local storage (DB, sandboxes, skills) is exposed separately as `DATA_DIR`.
+The **workspace root** is the directory used by `file`, `terminal`, `read_lints`, and related tools for a conversation. It is persisted as `workspaceRoot` on the conversation row and exposed to scripts as `WORKING_DIR` (see [terminal-environment-variables.md](terminal-environment-variables.md)). App-local storage (DB, sandboxes, system skills) is exposed separately as `DATA_DIR`; the user skill library (`~/.pointer/skills`) as `SKILL_DIR`.
 
 ## Resolution order (`run_chat`)
 
@@ -66,5 +66,5 @@ It does **not** remove a shared user sandbox `{session-sandboxes}/{session_user_
 ## Related
 
 - [session-user-id.md](session-user-id.md) — how `session_user_id` is set
-- [terminal-environment-variables.md](terminal-environment-variables.md) — `WORKING_DIR` / `DATA_DIR`
+- [terminal-environment-variables.md](terminal-environment-variables.md) — `WORKING_DIR` / `DATA_DIR` / `SKILL_DIR`
 - [file-tool-write-scope.md](file-tool-write-scope.md) — write scope vs workspace root

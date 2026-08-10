@@ -20,7 +20,7 @@ const {
 } = props.form
 
 const TERMINAL_ENV_HINT =
-  '覆盖进程、.env 与会话注入到 terminal 的变量（含 WORKING_DIR、SESSION_USER_ID、DATA_DIR）；PATH 前置合并。'
+  '覆盖进程、.env 与会话注入到 terminal 的变量（含 WORKING_DIR、SESSION_USER_ID、DATA_DIR、SKILL_DIR）；PATH 前置合并。'
 </script>
 
 <template>

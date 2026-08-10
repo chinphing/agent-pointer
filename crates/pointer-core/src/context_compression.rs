@@ -1357,8 +1357,8 @@ pub fn try_apply_pending_compression(
         log::warn!("context_compress: pending apply no store conversation_id={id}");
         return false;
     };
-    let history = match store.load_messages(id) {
-        Ok(msgs) => msgs,
+    let (history, _db_messages) = match store.load_lead_working_messages(id) {
+        Ok((working, db_count)) => (working, db_count),
         Err(e) => {
             log::warn!("context_compress: pending apply load failed conversation_id={id}: {e:#}");
             return false;
@@ -1441,11 +1441,15 @@ pub fn maybe_spawn_precompress(
         log::warn!("context_compress: precompress spawn skipped (no store) conversation_id={id}");
         return;
     };
-    let mut history = match store.load_messages(&id) {
-        Ok(msgs) => msgs,
+    // Load only the context-included working set (not the full transcript with
+    // soft-excluded rows). The gate/payload estimates filter to included messages
+    // anyway, and split/mark/persist operate on the included subset, so this is
+    // behavior-equivalent while avoiding deserializing tens of thousands of rows.
+    let (mut history, db_messages) = match store.load_lead_working_messages(&id) {
+        Ok((working, db_count)) => (working, db_count),
         Err(e) => {
             log::warn!(
-                "context_compress: precompress spawn load_messages failed conversation_id={id}: {e:#}"
+                "context_compress: precompress spawn load_working failed conversation_id={id}: {e:#}"
             );
             return;
         }
@@ -1478,12 +1482,13 @@ pub fn maybe_spawn_precompress(
     }
 
     log::info!(
-        "context_compress: precompress spawn conversation_id={id} total={} prefix={} ratio={:.3} budget={} messages={}",
+        "context_compress: precompress spawn conversation_id={id} total={} prefix={} ratio={:.3} budget={} messages={} db_messages={}",
         decision.total,
         decision.prefix,
         decision.ratio,
         budget,
-        history.len()
+        history.len(),
+        db_messages
     );
     tokio::spawn(async move {
         let outcome = run_precompress_job(state, &id).await;
@@ -1500,11 +1505,11 @@ async fn run_precompress_job(state: Arc<crate::chat_service::AppState>, conversa
         log::warn!("context_compress: precompress skipped (no store) conversation_id={conversation_id}");
         return false;
     };
-    let mut history = match store.load_messages(conversation_id) {
-        Ok(msgs) => msgs,
+    let (mut history, _db_messages) = match store.load_lead_working_messages(conversation_id) {
+        Ok((working, db_count)) => (working, db_count),
         Err(e) => {
             log::warn!(
-                "context_compress: precompress load_messages failed conversation_id={conversation_id}: {e:#}"
+                "context_compress: precompress load_working failed conversation_id={conversation_id}: {e:#}"
             );
             return false;
         }

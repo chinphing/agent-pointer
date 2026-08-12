@@ -481,10 +481,6 @@ export async function loadConversationMessagesPage(
   })
 }
 
-export async function saveConversations(conversations: Conversation[]): Promise<void> {
-  await invoke('save_conversations', { conversations })
-}
-
 export async function saveConversationMeta(metas: ConversationMeta[]): Promise<void> {
   await invoke('save_conversation_meta', { metas })
 }

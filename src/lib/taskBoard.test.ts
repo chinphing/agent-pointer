@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { TaskBoardDocument } from '../types/chat'
 import {
   hasTaskBoardContent,
+  milestoneShowsRunning,
+  taskBoardCurrentMilestone,
   taskBoardGlobalMilestones,
   taskBoardVisibleMilestoneProgress,
   taskBoardVisibleMilestones
@@ -46,6 +48,23 @@ describe('taskBoard helpers', () => {
     }
     expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['m1', 'm2'])
     expect(taskBoardVisibleMilestoneProgress(doc)).toBe('1/2')
+  })
+
+  it('treats first ready as current when no in_progress on a running board', () => {
+    const doc: TaskBoardDocument = {
+      version: 4,
+      task_id: 'tb_ready_only',
+      meta: { goal: 'g', status: 'running' },
+      global_milestones: [
+        { id: 'm1', title: 'One', status: 'done' },
+        { id: 'm2', title: 'Two', status: 'ready' },
+        { id: 'm3', title: 'Three', status: 'ready' }
+      ]
+    }
+    const current = taskBoardCurrentMilestone(doc)
+    expect(current?.id).toBe('m2')
+    expect(milestoneShowsRunning(doc.global_milestones![1]!, current)).toBe(true)
+    expect(milestoneShowsRunning(doc.global_milestones![2]!, current)).toBe(false)
   })
 
   it('loop board progress counts full ladder including bookends', () => {

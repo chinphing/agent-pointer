@@ -269,7 +269,8 @@ pub fn bootstrap_loop_milestone_board(doc: &mut BoardDocument) {
     sync_loop_meta(doc);
 }
 
-fn ensure_single_loop_item_in_progress(doc: &mut BoardDocument) {
+/// When no `wi_*` row is in progress, promote the first pending/ready item.
+pub(crate) fn ensure_single_loop_item_in_progress(doc: &mut BoardDocument) {
     let Some((start, end)) = loop_item_range(doc) else {
         return;
     };

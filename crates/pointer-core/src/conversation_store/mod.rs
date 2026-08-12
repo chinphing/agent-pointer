@@ -34,7 +34,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 21;
+const SCHEMA_VERSION: i32 = 22;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -79,6 +79,15 @@ impl ConversationStore {
     pub fn load_messages(&self, conversation_id: &str) -> Result<Vec<ChatMessage>> {
         let conn = self.db.conn.lock();
         persist::load_messages(&conn, conversation_id)
+    }
+
+    /// Full DB row count plus lead LLM working-set messages (`included`, non-scoped).
+    pub fn load_lead_working_messages(
+        &self,
+        conversation_id: &str,
+    ) -> Result<(Vec<ChatMessage>, u32)> {
+        let conn = self.db.conn.lock();
+        persist::load_lead_working_messages(&conn, conversation_id)
     }
 
     /// Turn-windowed messages for UI hydration (`limit_turns` / `before` / `around`).
@@ -388,10 +397,25 @@ impl ConversationStore {
         })
     }
 
+    /// Full-conversation import/upsert. **Test-only since 2026-08**: the legacy
+    /// FE/server `save_conversations` API was removed (production logs never
+    /// showed `save_all_legacy_import` after the append-migration). Unit tests
+    /// still use this as a convenience write path.
+    #[cfg(test)]
     pub fn save_all(&self, list: &[Conversation]) -> Result<()> {
         // Snapshot old IDs before the write so we can detect deletions.
         let old_ids: Vec<String> = self.list_all_ids().unwrap_or_default();
         let new_ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
+        let total_messages: usize = list.iter().map(|c| c.messages.len()).sum();
+        log::info!(
+            "conversation_store: save_all_test_only conversations={} total_messages={} deleted_absent={}",
+            list.len(),
+            total_messages,
+            old_ids
+                .iter()
+                .filter(|id| !new_ids.contains(id))
+                .count()
+        );
 
         self.db.execute_write(|conn| {
             persist::delete_conversations_not_in(conn, &new_ids)?;
@@ -402,13 +426,21 @@ impl ConversationStore {
                 }
             }
             if written > 0 {
-                log::debug!(
-                    "conversation_store: upserted {written}/{} conversations",
+                log::info!(
+                    "conversation_store: save_all_test_only upserted {written}/{} conversations",
                     list.len()
                 );
             }
             Ok(())
         })?;
+        for id in &new_ids {
+            crate::conversation_session::note_transcript_mutated(id);
+        }
+        for id in &old_ids {
+            if !new_ids.contains(id) {
+                crate::conversation_session::drop_conversation(id);
+            }
+        }
 
         // Clean up sandbox directories for deleted conversations.
         let deleted_ids: Vec<&str> = old_ids
@@ -471,6 +503,7 @@ impl ConversationStore {
     pub fn delete_conversation(&self, id: &str) -> Result<()> {
         self.db
             .execute_write(|conn| persist::delete_conversation_from_conn(conn, id))?;
+        crate::conversation_session::drop_conversation(id);
         log::info!("conversation_store: deleted conversation id={id}");
         if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup_for_conversation(id) {
             log::warn!("session_sandbox cleanup failed for {id}: {e}");
@@ -479,14 +512,20 @@ impl ConversationStore {
     }
 
     /// P0: append messages not yet present in the DB.
-    pub fn append_missing_messages(
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    pub(crate) fn append_missing_messages(
         &self,
         conversation_id: &str,
         messages: &[ChatMessage],
     ) -> Result<u32> {
-        self.db.execute_write(|conn| {
+        let written = self.db.execute_write(|conn| {
             write::append_missing_messages_in_conn(conn, conversation_id, messages)
-        })
+        })?;
+        if written > 0 {
+            crate::conversation_session::note_transcript_mutated(conversation_id);
+        }
+        Ok(written)
     }
 
     /// Ensure a dedicated cron session row exists for a cron job. Creates the
@@ -574,19 +613,28 @@ impl ConversationStore {
     }
 
     /// P0: insert or update one message.
-    pub fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    /// Retained for store unit tests (`upsert` with refresh); production uses
+    /// [`Self::upsert_message_no_refresh`] via the session facade.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
         self.db
-            .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))
+            .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
-    pub fn upsert_message_no_refresh(
+    pub(crate) fn upsert_message_no_refresh(
         &self,
         conversation_id: &str,
         msg: &ChatMessage,
     ) -> Result<()> {
         self.db.execute_write(|conn| {
             write::upsert_message_no_refresh_in_conn(conn, conversation_id, msg)
-        })
+        })?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     pub fn flush_conversation_meta(
@@ -618,7 +666,9 @@ impl ConversationStore {
     /// P2a: ordered upsert without deleting orphan rows (compression / trim).
     /// When DB has rows absent from `messages` (soft-exclude), positions of existing
     /// ids are preserved and new ids are inserted near neighbors (or appended).
-    pub fn sync_messages_ordered_with_meta(
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    pub(crate) fn sync_messages_ordered_with_meta(
         &self,
         conversation_id: &str,
         messages: &[ChatMessage],
@@ -633,11 +683,15 @@ impl ConversationStore {
                 message_count,
                 preview,
             )
-        })
+        })?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     /// Soft-exclude payloads + shift suffix + insert summary at the cut point.
-    pub fn persist_context_compression(
+    ///
+    /// Crate-private: external crates must use [`crate::conversation_session`].
+    pub(crate) fn persist_context_compression(
         &self,
         conversation_id: &str,
         excluded_messages: &[ChatMessage],
@@ -654,13 +708,25 @@ impl ConversationStore {
                 insert_before_message_id,
                 preview,
             )
-        })
+        })?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     /// P2b: replace full transcript from client-held messages.
-    pub fn replace_messages(&self, conversation_id: &str, messages: &[ChatMessage]) -> Result<()> {
+    ///
+    /// Crate-private: used by store unit tests and legacy in-crate paths.
+    /// External crates use `save_all` for full-conversation import.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn replace_messages(
+        &self,
+        conversation_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<()> {
         self.db
-            .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))
+            .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
     }
 
     pub fn upsert_meta(&self, meta: &ConversationMeta) -> Result<()> {
@@ -985,6 +1051,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            created_at_ms INTEGER NOT NULL,
            position INTEGER NOT NULL,
            is_system_generated INTEGER NOT NULL DEFAULT 0,
+           context_included INTEGER NOT NULL DEFAULT 1,
            UNIQUE(conversation_id, message_id)
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -1027,6 +1094,18 @@ fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_anchor
            ON messages(conversation_id, position) WHERE role = 'user' AND is_system_generated = 0;",
+    )?;
+    // v22: materialized lead-context flag (mirrors is_context_included).
+    add_column_if_missing(
+        conn,
+        "messages",
+        "context_included",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
+    crate::conversation_store::persist::backfill_context_included(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
+           ON messages(conversation_id, position) WHERE context_included = 1;",
     )?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
@@ -1446,6 +1525,19 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_anchor
            ON messages(conversation_id, position) WHERE role = 'user' AND is_system_generated = 0;",
+    )?;
+    // v22: lead LLM working-set flag. Set-based JSON backfill (store_meta gated);
+    // writes compute it at insert/upsert time.
+    add_column_if_missing(
+        conn,
+        "messages",
+        "context_included",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
+    crate::conversation_store::persist::backfill_context_included(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
+           ON messages(conversation_id, position) WHERE context_included = 1;",
     )?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)

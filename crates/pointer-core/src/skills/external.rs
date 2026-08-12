@@ -2,7 +2,7 @@ use crate::models::{SkillDef, SkillImportResult};
 use crate::storage;
 use anyhow::{anyhow, Context, Result};
 use serde::{de, Deserialize, Deserializer};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Component, Path, PathBuf};
@@ -64,6 +64,22 @@ pub fn system_skills_dir() -> Result<PathBuf> {
 /// User-managed imports (`~/.pointer/skills`).
 pub fn skills_dir() -> Result<PathBuf> {
     pointer_skills_dir()
+}
+
+/// Inject `SKILL_DIR` into a terminal child env map (user skill library root).
+/// Same directory as `~/.pointer/skills`; shared across app installs.
+pub fn apply_skill_dir_env(env: &mut HashMap<String, String>) {
+    match pointer_skills_dir() {
+        Ok(dir) => {
+            let path = dir.to_string_lossy();
+            if !path.is_empty() {
+                env.insert("SKILL_DIR".into(), path.into_owned());
+            }
+        }
+        Err(e) => {
+            log::warn!("SKILL_DIR: skills dir unavailable for terminal child: {e:#}");
+        }
+    }
 }
 
 /// Codex / Agent standard user skill library (`~/.agents/skills`).

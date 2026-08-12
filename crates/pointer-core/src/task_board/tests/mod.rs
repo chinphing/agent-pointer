@@ -8,6 +8,65 @@ mod apply_tests {
     use serde_json::json;
 
     #[test]
+    fn type1_init_promotes_first_ready_to_in_progress() {
+        let store = TaskBoardStore::new();
+        let key = "conv-type1-bootstrap";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [
+                        {"id": "m1", "title": "One", "status": "pending"},
+                        {"id": "m2", "title": "Two", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect("init");
+        let doc = store.document(key);
+        assert_eq!(doc.global_milestones[0].status, ItemStatus::InProgress);
+        assert_eq!(doc.global_milestones[1].status, ItemStatus::Ready);
+    }
+
+    #[test]
+    fn type1_done_patch_advances_next_ready_to_in_progress() {
+        let store = TaskBoardStore::new();
+        let key = "conv-type1-advance";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [
+                        {"id": "m1", "title": "One", "status": "in_progress"},
+                        {"id": "m2", "title": "Two", "status": "pending"},
+                        {"id": "m3", "title": "Three", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "milestones": [{
+                        "id": "m1",
+                        "status": "done",
+                        "remark": "finished step one"
+                    }]
+                }),
+            )
+            .expect("patch done");
+        let doc = store.document(key);
+        assert_eq!(doc.global_milestones[0].status, ItemStatus::Done);
+        assert_eq!(doc.global_milestones[1].status, ItemStatus::InProgress);
+        assert_eq!(doc.global_milestones[2].status, ItemStatus::Ready);
+    }
+
+    #[test]
     fn string_items_patch_applies() {
         let store = TaskBoardStore::new();
         let key = "conv-test";

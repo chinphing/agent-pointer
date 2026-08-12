@@ -58,12 +58,17 @@
 - `src/components/chat/MessageList.vue` — 滚顶自动预取、turn-id 视口锚定、开头提示
 - `src/lib/messageListScrollAnchor.ts` — 锚定 scrollTop 计算
 
-## Schema note (`is_system_generated`)
+## Schema note (`is_system_generated` / `context_included`)
 
 Turn anchors use `messages.is_system_generated` (schema v21). Migration backfills
 **user rows only** (synthetic / scoped), gated by `store_meta.is_system_generated_backfilled`,
 inside one transaction. Do not UPDATE every message row — that bloated the WAL and
 blocked desktop launch on large local DBs.
+
+Lead `run_chat` working-set load uses `messages.context_included` (schema v22),
+mirroring `is_context_included`. Backfill is a set-based `json_extract` UPDATE
+(only 1→0), gated by `store_meta.context_included_backfilled`. UI pagination still
+reads full payloads by position and does not filter on this column.
 
 ## 非目标
 

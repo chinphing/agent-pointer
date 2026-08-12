@@ -47,7 +47,7 @@
 | [turn-file-baseline-review.md](turn-file-baseline-review.md) | 本轮修改列表、轮次文件基线与右侧栏 Review |
 | [web-search-tool.md](web-search-tool.md) | `web_search` 工具行为与 DashScope API |
 | [web-fetch-tool.md](web-fetch-tool.md) | `web_fetch` 抓取公开 URL（Hermes `web_extract` 对齐） |
-| [terminal-environment-variables.md](terminal-environment-variables.md) | **`terminal`** 子进程环境变量（`WORKING_DIR`、`SESSION_USER_ID`、`DATA_DIR`） |
+| [terminal-environment-variables.md](terminal-environment-variables.md) | **`terminal`** 子进程环境变量（`WORKING_DIR`、`SESSION_USER_ID`、`DATA_DIR`、`SKILL_DIR`） |
 | [terminal-interactive-input.md](terminal-interactive-input.md) | SSH / sudo 等交互输入：应用内密码弹窗、ASKPASS、提示词约定 |
 | [workspace-root.md](workspace-root.md) | 会话工作区根路径解析与沙箱目录布局 |
 | [session-user-id.md](session-user-id.md) | 会话 `session_user_id` 持久化与解析 |

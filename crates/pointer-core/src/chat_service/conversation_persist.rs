@@ -14,22 +14,9 @@ fn store() -> Option<std::sync::Arc<conversation_store::ConversationStore>> {
 }
 
 pub fn append_missing(conversation_id: &str, history: &[ChatMessage]) {
-    let Some(store) = store() else {
-        return;
-    };
-    if let Err(e) = store.append_missing_messages(conversation_id, history) {
+    if let Err(e) = crate::conversation_session::append_missing(conversation_id, history) {
         log::warn!(
             "conversation_persist: append_missing failed conversation_id={conversation_id}: {e:#}"
-        );
-        return;
-    }
-    let count = store
-        .message_count(conversation_id)
-        .unwrap_or(history.len() as u32);
-    let preview = conversation_store::conversation_preview(history);
-    if let Err(e) = store.flush_conversation_meta(conversation_id, count, &preview) {
-        log::warn!(
-            "conversation_persist: flush_meta after append_missing failed conversation_id={conversation_id}: {e:#}"
         );
     }
 }

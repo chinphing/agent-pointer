@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { TaskBoardDocument } from '../../types/chat'
 import {
   applyTaskBoardDocumentToEntry,
+  childBoardBindingForTrace,
   childStoreKey,
+  childStoreKeyForInstance,
   emptyTaskBoardEntry,
-  resolveActiveParentBoardDocument,
   resolveActiveParentBoardBinding,
+  resolveActiveParentBoardDocument,
   resolveChildTaskBoardDocument,
   resolveCompactTaskBoardDocument,
-  childBoardBindingForTrace,
   TASK_BOARD_MAIN_TURN_SEP,
   TASK_BOARD_SUB_SEP
 } from './taskBoard'
@@ -190,5 +191,43 @@ describe('taskBoard logic', () => {
     expect(binding?.document.meta?.goal).toBe('open wechat')
     expect(binding?.isActive).toBe(true)
     expect(childBoardBindingForTrace(entry, 'task_b:computer', 'lead_msg')).toBeNull()
+  })
+
+  it('binds coder self-fork child board keyed with agent instance id', () => {
+    const entry = emptyTaskBoardEntry()
+    const taskId = 'call_3OprsqC3ip30GcwFq6f7mEWZ'
+    const instanceId = '9f296493-7477-4608-b488-7865ad1c9e70'
+    const traceId = `${taskId}:${instanceId}:coder`
+    const storeKey = childStoreKeyForInstance('conv1', taskId, instanceId)
+    applyTaskBoardDocumentToEntry(
+      entry,
+      'conv1',
+      storeKey,
+      doc('fullscreen settings', 'completed'),
+      traceId,
+      []
+    )
+    const binding = childBoardBindingForTrace(entry, traceId, 'lead_assistant')
+    expect(binding?.storeKey).toBe(storeKey)
+    expect(binding?.document.meta?.goal).toBe('fullscreen settings')
+    expect(binding?.isActive).toBe(false)
+    expect(resolveChildTaskBoardDocument(entry, taskId, traceId)?.meta?.goal).toBe(
+      'fullscreen settings'
+    )
+  })
+
+  it('picks the matching instance when two self-fork boards share a task id', () => {
+    const entry = emptyTaskBoardEntry()
+    const taskId = 'shared-task'
+    const a = childStoreKeyForInstance('conv1', taskId, 'instance-a')
+    const b = childStoreKeyForInstance('conv1', taskId, 'instance-b')
+    applyTaskBoardDocumentToEntry(entry, 'conv1', a, doc('fork a'), `${taskId}:instance-a:coder`, [])
+    applyTaskBoardDocumentToEntry(entry, 'conv1', b, doc('fork b'), `${taskId}:instance-b:coder`, [])
+    expect(
+      childBoardBindingForTrace(entry, `${taskId}:instance-b:coder`)?.document.meta?.goal
+    ).toBe('fork b')
+    expect(
+      childBoardBindingForTrace(entry, `${taskId}:instance-a:coder`)?.document.meta?.goal
+    ).toBe('fork a')
   })
 })

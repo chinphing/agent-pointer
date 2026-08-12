@@ -8,6 +8,7 @@ pub mod console_session;
 pub mod console_term_query;
 pub mod cloud_agent_auth;
 pub mod context_compression;
+pub mod conversation_session;
 pub mod conversation_snapshot;
 pub mod conversation_store;
 pub mod conversation_transcript;

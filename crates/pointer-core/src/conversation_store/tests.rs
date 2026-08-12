@@ -1203,6 +1203,117 @@ mod tests {
     }
 
     #[test]
+    fn backfill_context_included_flags_soft_excluded_and_scoped() {
+        use crate::models::{ExcludedReason, MessageContextState};
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("bf-ctx", "BF", "real one");
+        conv.messages[0].context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        let mut scoped = msg("u-scoped", Role::User, "child", 3);
+        scoped.anchor_message_id = Some("msg_a1".into());
+        conv.messages.push(scoped);
+        store.save_all(&[conv]).unwrap();
+
+        let db_path = dir.path().join("conversations.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "UPDATE messages SET context_included = 1;
+                 DELETE FROM store_meta WHERE key = 'context_included_backfilled';
+                 UPDATE schema_version SET version = 21;",
+            )
+            .unwrap();
+        }
+
+        let _store2 = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conn = Connection::open(&db_path).unwrap();
+        let flags: Vec<(String, i64)> = conn
+            .prepare(
+                "SELECT message_id, context_included FROM messages
+                 WHERE conversation_id = ?1 ORDER BY position ASC",
+            )
+            .unwrap()
+            .query_map(params!["bf-ctx"], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            flags,
+            vec![
+                ("msg_u1".to_string(), 0),
+                ("msg_a1".to_string(), 1),
+                ("u-scoped".to_string(), 0),
+            ]
+        );
+        let meta: String = conn
+            .query_row(
+                "SELECT value FROM store_meta WHERE key = 'context_included_backfilled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(meta, "1");
+        let version: i32 = conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(version >= 22);
+    }
+
+    #[test]
+    fn backfill_context_included_skips_malformed_payload_rows() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("bf-corrupt", "BF", "real one");
+        store.save_all(&[conv]).unwrap();
+
+        let db_path = dir.path().join("conversations.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "INSERT INTO messages(conversation_id, message_id, role, content, payload, created_at_ms, position, is_system_generated, context_included)
+                 VALUES ('bf-corrupt', 'corrupt-1', 'assistant', 'x', '{\"not valid json', 1782538761000, 100, 0, 1);
+                 UPDATE messages SET context_included = 1;
+                 DELETE FROM store_meta WHERE key = 'context_included_backfilled';
+                 UPDATE schema_version SET version = 21;",
+            )
+            .unwrap();
+        }
+
+        // Reopen must succeed even though one row's payload is malformed JSON.
+        let _store2 = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conn = Connection::open(&db_path).unwrap();
+        // Malformed rows are skipped by the backfill (stay at the default 1).
+        let corrupt_flag: i64 = conn
+            .query_row(
+                "SELECT context_included FROM messages WHERE message_id = 'corrupt-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(corrupt_flag, 1);
+        let meta: String = conn
+            .query_row(
+                "SELECT value FROM store_meta WHERE key = 'context_included_backfilled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(meta, "1");
+        let version: i32 = conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(version >= 22);
+    }
+
+    #[test]
     fn replace_messages_writes_system_generated_flag() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

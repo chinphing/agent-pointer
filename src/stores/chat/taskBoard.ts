@@ -2,9 +2,14 @@ import type { Ref } from 'vue'
 import type { ChatMessage, TaskBoardDocument } from '../../types/chat'
 import { findLastRealUserMessage } from '../../lib/messageContext'
 import { hasTaskBoardContent } from '../../lib/taskBoard'
-import { subTaskIdFromTraceId } from '../../lib/subAgentStats'
+import {
+  agentInstanceIdFromTraceId,
+  subTaskIdFromTraceId
+} from '../../lib/subAgentStats'
 
 export const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
+/** Self-fork / explore boards append this + instance id after the task id. */
+export const TASK_BOARD_AGENT_INSTANCE_SEP = '\u{1f}ptr_agent_instance\u{1f}'
 export const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
 const TASK_BOARD_DEBOUNCE_MS = 300
 
@@ -39,8 +44,100 @@ export function anchorFromMainTaskBoardStoreKey(storeKey: string): string | null
   return msgId || null
 }
 
-export function childStoreKey(parentStoreKey: string, taskId: string): string {
-  return `${parentStoreKey.trim()}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
+/** Build child store key. `groupKey` is bare task id or `taskId＋instance` suffix. */
+export function childStoreKey(parentStoreKey: string, groupKey: string): string {
+  return `${parentStoreKey.trim()}${TASK_BOARD_SUB_SEP}${groupKey.trim()}`
+}
+
+export function childStoreKeyForInstance(
+  parentStoreKey: string,
+  taskId: string,
+  agentInstanceId: string
+): string {
+  return childStoreKey(
+    parentStoreKey,
+    `${taskId.trim()}${TASK_BOARD_AGENT_INSTANCE_SEP}${agentInstanceId.trim()}`
+  )
+}
+
+type ChildBoardMatch = {
+  storeKey: string
+  document: TaskBoardDocument
+}
+
+function childDocumentForStoreKey(
+  entry: ConversationTaskBoardState,
+  storeKey: string
+): TaskBoardDocument | null {
+  const splitIdx = storeKey.lastIndexOf(TASK_BOARD_SUB_SEP)
+  if (splitIdx <= 0) return null
+  const parentStoreKey = storeKey.slice(0, splitIdx).trim()
+  const groupKey = storeKey.slice(splitIdx + TASK_BOARD_SUB_SEP.length).trim()
+  if (!parentStoreKey || !groupKey) return null
+  const document = entry.childrenByParentStoreKey[parentStoreKey]?.[groupKey]
+  return document && hasTaskBoardContent(document) ? document : null
+}
+
+/** Same task: exact group key, or `taskId＋ptr_agent_instance＋…` (self-fork / explore). */
+function groupKeyMatchesTaskId(groupKey: string, taskId: string): boolean {
+  const tid = taskId.trim()
+  if (!tid) return false
+  return groupKey === tid || groupKey.startsWith(`${tid}${TASK_BOARD_AGENT_INSTANCE_SEP}`)
+}
+
+/**
+ * Unified child-board lookup (legacy + self-fork instance keys):
+ * 1) Prefer board whose binding equals the sub-agent trace id (or legacy lead message id).
+ * 2) Else unbound board for the same task id, preferring the instance id from the trace.
+ */
+function pickChildBoardMatch(
+  entry: ConversationTaskBoardState,
+  taskId: string,
+  traceId?: string | null,
+  legacyLeadMessageId?: string | null
+): ChildBoardMatch | null {
+  const trace = traceId?.trim() || ''
+  const legacy = legacyLeadMessageId?.trim() || ''
+  const tid = (taskId.trim() || (trace ? subTaskIdFromTraceId(trace) : '')).trim()
+
+  for (const anchor of [trace, legacy]) {
+    if (!anchor) continue
+    for (const [storeKey, bound] of Object.entries(entry.childBindings)) {
+      if (bound !== anchor) continue
+      const document = childDocumentForStoreKey(entry, storeKey)
+      if (!document) continue
+      // When both anchors are tried, still require task id agreement if known.
+      if (tid) {
+        const groupKey = storeKey.slice(storeKey.lastIndexOf(TASK_BOARD_SUB_SEP) + TASK_BOARD_SUB_SEP.length)
+        if (!groupKeyMatchesTaskId(groupKey, tid)) continue
+      }
+      return { storeKey, document }
+    }
+  }
+
+  if (!tid) return null
+  const instanceId = trace ? agentInstanceIdFromTraceId(trace) : null
+  const unbound: ChildBoardMatch[] = []
+  for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
+    for (const [groupKey, document] of Object.entries(group)) {
+      if (!hasTaskBoardContent(document) || !groupKeyMatchesTaskId(groupKey, tid)) continue
+      const storeKey = childStoreKey(parentStoreKey, groupKey)
+      if (entry.childBindings?.[storeKey]) continue
+      unbound.push({ storeKey, document })
+    }
+  }
+  if (!unbound.length) return null
+  if (instanceId) {
+    const want = `${tid}${TASK_BOARD_AGENT_INSTANCE_SEP}${instanceId}`
+    const hit = unbound.find(c => {
+      const groupKey = c.storeKey.slice(
+        c.storeKey.lastIndexOf(TASK_BOARD_SUB_SEP) + TASK_BOARD_SUB_SEP.length
+      )
+      return groupKey === want
+    })
+    if (hit) return hit
+  }
+  return unbound[0] ?? null
 }
 
 /** Pure in-memory task board merge (no timers / network). */
@@ -221,39 +318,8 @@ export function resolveChildTaskBoardDocument(
   traceId?: string | null,
   legacyLeadMessageId?: string | null
 ): TaskBoardDocument | null {
-  if (!entry || !taskId.trim()) return null
-  const tid = taskId.trim()
-  for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
-    const document = group[tid]
-    if (!document || !hasTaskBoardContent(document)) continue
-    const storeKey = childStoreKey(parentStoreKey, tid)
-    const bound = entry.childBindings?.[storeKey]
-    if (bound) {
-      const trace = traceId?.trim()
-      const legacy = legacyLeadMessageId?.trim()
-      const matches =
-        (!!trace && bound === trace)
-        || (!!legacy && bound === legacy)
-      if (!matches) continue
-    }
-    return document
-  }
-  return null
-}
-
-function childStoreKeyForTask(
-  entry: ConversationTaskBoardState,
-  taskId: string
-): string | null {
-  const tid = taskId.trim()
-  if (!tid) return null
-  for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
-    const document = group[tid]
-    if (document && hasTaskBoardContent(document)) {
-      return childStoreKey(parentStoreKey, tid)
-    }
-  }
-  return null
+  if (!entry) return null
+  return pickChildBoardMatch(entry, taskId, traceId, legacyLeadMessageId)?.document ?? null
 }
 
 /** Child task board binding for one delegated trace (MessageList / SubAgentFrame UI). */
@@ -265,19 +331,12 @@ export function childBoardBindingForTrace(
   if (!entry || !traceId.trim()) return null
   const taskId = subTaskIdFromTraceId(traceId)
   if (!taskId) return null
-  const document = resolveChildTaskBoardDocument(
-    entry,
-    taskId,
-    traceId.trim(),
-    legacyLeadMessageId
-  )
-  if (!document) return null
-  const storeKey = childStoreKeyForTask(entry, taskId)
-  if (!storeKey) return null
+  const match = pickChildBoardMatch(entry, taskId, traceId.trim(), legacyLeadMessageId)
+  if (!match) return null
   return {
-    storeKey,
-    document,
-    isActive: !isTaskBoardTerminal(document.meta?.status)
+    storeKey: match.storeKey,
+    document: match.document,
+    isActive: !isTaskBoardTerminal(match.document.meta?.status)
   }
 }
 

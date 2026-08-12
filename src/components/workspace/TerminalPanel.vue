@@ -44,6 +44,11 @@ let removeSelectionGuard: (() => void) | null = null
 let imeGuard: TerminalImeGuard | null = null
 /** True between primary-button mousedown and mouseup on the terminal. */
 let selectionPressing = false
+/** xterm 6 manages scrollbar via its own `_scrollbarState`; on WKWebView its
+ *  wheel handling can fail to move the viewport. Fallback scrolls the real
+ *  `.xterm-viewport` when xterm itself did not move it. */
+let viewportScrollFallback: ((e: WheelEvent) => void) | null = null
+let fallbackViewport: HTMLElement | null = null
 
 function writeActiveSession(data: string) {
   const id = consoleStore.activeSessionId
@@ -135,6 +140,7 @@ async function ensureTerminal() {
   await nextTick()
   await settleTerminalLayout()
   fitAddon.fit()
+  installViewportScrollFallback()
 }
 
 /**
@@ -192,6 +198,41 @@ function installSelectionGuard(element: HTMLElement | undefined | null) {
 
 function closeContextMenu() {
   contextMenu.value = null
+}
+
+/**
+ * WKWebView fallback for xterm 6 wheel scrolling. xterm's Viewport consumes
+ * the wheel event and moves the scrollbar via its own state machine; when that
+ * silently fails (WebKit), the real `.xterm-viewport` never moves and the
+ * overlay scrollbar never appears. If xterm did not change scrollTop, apply
+ * the delta ourselves so users can always scroll long output.
+ */
+function installViewportScrollFallback() {
+  removeViewportScrollFallback()
+  if (!host.value || !terminal) return
+  fallbackViewport = host.value.querySelector<HTMLElement>('.xterm-viewport')
+  if (!fallbackViewport) return
+  viewportScrollFallback = (event: WheelEvent) => {
+    const vp = fallbackViewport
+    if (!vp || vp.scrollHeight <= vp.clientHeight || event.deltaY === 0) return
+    const before = vp.scrollTop
+    requestAnimationFrame(() => {
+      // xterm scrolled synchronously on this event → no fallback needed.
+      if (vp.scrollTop === before) {
+        vp.scrollTop += event.deltaY
+        event.preventDefault()
+      }
+    })
+  }
+  host.value.addEventListener('wheel', viewportScrollFallback, { capture: true })
+}
+
+function removeViewportScrollFallback() {
+  if (host.value && viewportScrollFallback) {
+    host.value.removeEventListener('wheel', viewportScrollFallback, { capture: true } as EventListenerOptions)
+  }
+  viewportScrollFallback = null
+  fallbackViewport = null
 }
 
 function openContextMenu(event: MouseEvent, tab: WorkspaceConsoleTab) {
@@ -360,6 +401,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   removeSelectionGuard?.()
   removeSelectionGuard = null
+  removeViewportScrollFallback()
   removeOutsideMenuListeners?.()
   removeOutsideMenuListeners = null
   imeGuard?.detach()
@@ -458,7 +500,7 @@ onBeforeUnmount(() => {
   -webkit-user-select: text !important;
   user-select: text !important;
 }
-.terminal-panel :deep(.xterm-viewport) { overflow-y: auto !important; }
+.terminal-panel :deep(.xterm-viewport) { overflow-y: auto !important; overscroll-behavior: contain; }
 .console-chrome,
 .console-tabs,
 .console-tab,

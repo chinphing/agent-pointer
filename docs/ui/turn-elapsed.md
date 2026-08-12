@@ -15,11 +15,11 @@
 实现要点：
 
 - `buildConversationTurns(..., { collapseActiveTurns, omitDeliveryWhileActive })`：仅开启时对 `active` 回合计算 `hiddenCount`；进行中不挂最终 delivery，避免中间叙述当「最终输出」
-- 收缩投影（`messageListLayout.projectCollapsedTurn`）：保留的 delivery 标 `contentOnly`，去掉 `trailingToolGroups` 与非交互工具行；`ask_user` / `pending_approval` 仍可见
+- 收缩投影（`messageListLayout.projectCollapsedTurn`）：保留的 delivery 标 `contentOnly`，去掉 `trailingToolGroups` 与非交互工具行；`ask_user` / `pending_approval` 仍可见；**任务板（含进行中）始终保留**（进度 chrome，不是可隐藏过程）
 - `MessageList` 传入 `collapseActiveTurns: collapseProcessByDefault`
 - 未开启时 `shouldAutoExpandTurn` 仍要求 `state !== 'active'`
 
-收缩态可见内容：**用户问题 + 回合结束后的最后一次 assistant content**（及压缩 summary）。工具过程、子 Agent、thoughts 仅在展开后显示。
+收缩态可见内容：**用户问题 + 任务板 + 回合结束后的最后一次 assistant content**（及压缩 summary）。工具过程、子 Agent、thoughts 仅在展开后显示。
 
 加载更早（`loadOlderMessages`）写入内存后必须跑 `normalizeInterruptedAssistantStatuses`：历史里若仍带 `streaming`/`pending`，在「默认收缩」关闭时会被当成 active 而不折叠。
 

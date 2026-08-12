@@ -730,10 +730,6 @@ export async function searchConversations(
   return await request<ConversationSearchHit[]>(`/api/conversations/search?${params.toString()}`)
 }
 
-export async function saveConversations(conversations: Conversation[]): Promise<void> {
-  await request('/api/conversations', { method: 'PUT', body: JSON.stringify(conversations) })
-}
-
 export async function saveConversationMeta(metas: import('../types/chat').ConversationMeta[]): Promise<void> {
   await request('/api/conversations/meta', { method: 'PUT', body: JSON.stringify(metas) })
 }

@@ -636,7 +636,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/api/conversations",
-            get(load_conversations).put(save_conversations),
+            get(load_conversations),
         )
         .route(
             "/api/conversations/:conversation_id",
@@ -1923,15 +1923,6 @@ async fn load_conversation_messages_handler(
         messages.len()
     );
     Ok(Json(messages).into_response())
-}
-
-async fn save_conversations(
-    State(state): State<ServerState>,
-    Json(conversations): Json<Vec<Conversation>>,
-) -> Result<StatusCode, ApiError> {
-    require_platform_access(&state)?;
-    storage::save_conversations(&conversations)?;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn save_conversation_meta(

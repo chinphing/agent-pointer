@@ -4,6 +4,8 @@ import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-
 import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
 import {
   hasTaskBoardContent,
+  milestoneShowsRunning,
+  taskBoardCurrentMilestone,
   taskBoardVisibleMilestones,
   taskBoardVisibleMilestoneProgress
 } from '../../lib/taskBoard'
@@ -20,8 +22,12 @@ const props = defineProps<{
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
 const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
 const visibleMilestones = computed(() => taskBoardVisibleMilestones(props.document))
+const currentMilestone = computed(() => taskBoardCurrentMilestone(props.document))
 
 const milestoneProgress = computed(() => taskBoardVisibleMilestoneProgress(props.document))
+
+/** Current work row (in_progress, or ready fallback) — closed-summary spinner. */
+const hasRunning = computed(() => currentMilestone.value != null)
 
 const childBoardsWithContent = computed(() => {
   if (!props.isActive) return {}
@@ -31,20 +37,20 @@ const childBoardsWithContent = computed(() => {
   )
 })
 
-function statusIcon(status: string) {
-  switch (status) {
+function statusIcon(item: TaskBoardItem, current: TaskBoardItem | null = currentMilestone.value) {
+  if (milestoneShowsRunning(item, current)) return Loader2
+  switch (item.status) {
     case 'done': return CheckCircle2
-    case 'in_progress': return Loader2
     case 'failed': return XCircle
     case 'cancelled': return Ban
     default: return Circle
   }
 }
 
-function statusClass(status: string): string {
-  switch (status) {
+function statusClass(item: TaskBoardItem, current: TaskBoardItem | null = currentMilestone.value): string {
+  if (milestoneShowsRunning(item, current)) return 'text-accent animate-spin'
+  switch (item.status) {
     case 'done': return 'text-success'
-    case 'in_progress': return 'text-accent animate-spin'
     case 'failed': return 'text-danger'
     case 'cancelled': return 'text-muted'
     default: return 'text-muted'
@@ -65,7 +71,12 @@ function rowLabel(item: TaskBoardItem): string {
     <summary
       class="cursor-pointer select-none px-3 py-2 flex items-center gap-2 list-none hover:bg-hover transition"
     >
-      <LayoutList class="w-4 h-4 text-accent shrink-0" />
+      <Loader2
+        v-if="hasRunning"
+        class="w-4 h-4 text-accent shrink-0 animate-spin"
+        aria-hidden="true"
+      />
+      <LayoutList v-else class="w-4 h-4 text-accent shrink-0" />
       <span class="text-[13px] font-medium text-foreground truncate flex-1">
         {{ goal || '任务板' }}
       </span>
@@ -84,7 +95,7 @@ function rowLabel(item: TaskBoardItem): string {
         :key="item.id"
         class="flex items-start gap-2 text-[12px] py-1 min-h-[1.5rem]"
       >
-        <component :is="statusIcon(item.status)" class="w-3.5 h-3.5 shrink-0 mt-0.5" :class="statusClass(item.status)" />
+        <component :is="statusIcon(item)" class="w-3.5 h-3.5 shrink-0 mt-0.5" :class="statusClass(item)" />
         <div class="min-w-0 flex-1 text-foreground leading-snug break-words">
           <div>{{ rowLabel(item) }}</div>
         </div>
@@ -102,7 +113,11 @@ function rowLabel(item: TaskBoardItem): string {
         :key="row.id"
         class="flex items-start gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
       >
-        <component :is="statusIcon(row.status)" class="w-3 h-3 shrink-0 mt-0.5" :class="statusClass(row.status)" />
+        <component
+          :is="statusIcon(row, taskBoardCurrentMilestone(child))"
+          class="w-3 h-3 shrink-0 mt-0.5"
+          :class="statusClass(row, taskBoardCurrentMilestone(child))"
+        />
         <div class="min-w-0 flex-1 leading-snug break-words text-foreground">
           <div>{{ milestoneRowLabel(row) }}</div>
         </div>

@@ -124,6 +124,10 @@ const refreshWarning = ref('')
 const gitError = ref<import('../../lib/api').GitErrorInfo | null>(null)
 const panelWidth = ref(readWorkspacePanelWidth(typeof localStorage === 'undefined' ? null : localStorage.getItem(WIDTH_STORAGE_KEY)))
 const resizing = ref(false)
+/** 全屏时 macOS 底部（Dock/系统区域）会遮挡面板底部；右侧边栏整体留底，保证终端最后一行可见。 */
+const FULLSCREEN_BOTTOM_PAD_PX = 20
+const isFullscreen = ref(false)
+let unlistenFullscreenResize: (() => void) | undefined
 const contextMenu = ref<ContextMenuState | null>(null)
 /** Pending delete after context-menu action (Tauri has no usable window.confirm). */
 const pendingDelete = ref<{ path: string; name: string; kind: TreeNode['kind'] } | null>(null)
@@ -156,7 +160,10 @@ function isMediaFile(path: string): 'image' | 'pdf' | null {
 
 const hasWorkspace = computed(() => !!props.workspaceRoot.trim())
 const workspaceName = computed(() => props.workspaceRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || props.workspaceRoot)
-const panelStyle = computed(() => ({ width: `${panelWidth.value}px` }))
+const panelStyle = computed(() => ({
+  width: `${panelWidth.value}px`,
+  ...(isFullscreen.value ? { paddingBottom: `${FULLSCREEN_BOTTOM_PAD_PX}px` } : {})
+}))
 const activePreviewTab = computed(() => previewTabs.value.find(item => item.id === activeView.value) ?? null)
 const activeFileTab = computed(() => activePreviewTab.value?.kind === 'file' ? activePreviewTab.value : null)
 const activeDiffTab = computed(() => activePreviewTab.value?.kind === 'diff' ? activePreviewTab.value : null)
@@ -1039,7 +1046,27 @@ watch(activeView, view => {
   if (view !== 'files' && treeSearchOpen.value) closeTreeSearch()
 })
 
+async function refreshFullscreenState() {
+  if (!isTauriRuntime()) return
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    isFullscreen.value = await getCurrentWindow().isFullscreen()
+  } catch (err) {
+    console.warn('[WorkspacePanel] fullscreen state check failed', err)
+  }
+}
+
+function watchFullscreenState() {
+  if (!isTauriRuntime()) return
+  void refreshFullscreenState()
+  void import('@tauri-apps/api/window')
+    .then(({ getCurrentWindow }) => getCurrentWindow().onResized(() => { void refreshFullscreenState() }))
+    .then(unlisten => { unlistenFullscreenResize = unlisten })
+    .catch(err => console.warn('[WorkspacePanel] fullscreen resize listener failed', err))
+}
+
 onMounted(() => {
+  watchFullscreenState()
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('scroll', closeContextMenu, true)
   document.addEventListener('keydown', handleDocumentKeydown)
@@ -1052,6 +1079,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   finishResize()
+  unlistenFullscreenResize?.()
   window.removeEventListener('resize', handleViewportResize)
   window.removeEventListener('scroll', closeContextMenu, true)
   document.removeEventListener('keydown', handleDocumentKeydown)

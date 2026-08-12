@@ -354,6 +354,13 @@ function onWorkspaceEnter(event: KeyboardEvent) {
   void commitWorkspaceInput()
 }
 
+/** Guard the post-compositionend window where the confirming Enter still arrives. */
+function onWorkspaceCompositionEnd() {
+  setTimeout(() => {
+    workspaceComposing.value = false
+  }, 50)
+}
+
 function onWorkspaceInputChange() {
   chat.setConversationWorkspace(chat.current?.workspaceRoot ?? '')
 }
@@ -1801,7 +1808,7 @@ onUnmounted(() => {
                       @input="onWorkspaceInput"
                       @keydown.enter="onWorkspaceEnter"
                       @compositionstart="workspaceComposing = true"
-                      @compositionend="workspaceComposing = false"
+                      @compositionend="onWorkspaceCompositionEnd"
                     />
                   </div>
                   <div class="px-3 pb-1 pt-2">

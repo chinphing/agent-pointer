@@ -123,6 +123,13 @@ function onOtherEnter(event: KeyboardEvent) {
   else confirmOtherSingle()
 }
 
+/** Guard the post-compositionend window where the confirming Enter still arrives. */
+function onOtherCompositionEnd() {
+  setTimeout(() => {
+    composing.value = false
+  }, 50)
+}
+
 const canConfirmMultiple = computed(
   () => localSelection.value.length > 0 || otherText.value.trim().length > 0
 )
@@ -195,7 +202,7 @@ const canConfirmMultiple = computed(
           @input="onOtherInput"
           @keydown.enter="onOtherEnter"
           @compositionstart="composing = true"
-          @compositionend="composing = false"
+          @compositionend="onOtherCompositionEnd"
         >
       </div>
     </div>

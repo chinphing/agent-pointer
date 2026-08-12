@@ -68,6 +68,13 @@ function onSearchEnter(event: KeyboardEvent) {
   void stepMatch(1)
 }
 
+/** Guard the post-compositionend window where the confirming Enter still arrives. */
+function onSearchCompositionEnd() {
+  setTimeout(() => {
+    searchComposing.value = false
+  }, 50)
+}
+
 async function stepBlock(direction: 1 | -1) {
   const blocks = changeBlocks.value
   if (!blocks.length) return
@@ -155,7 +162,7 @@ const numWidth = computed(() => 'calc(3ch + 8px)')
     <div v-if="fillHeight" class="diff-toolbar">
       <label class="diff-search">
         <Search />
-        <input v-model="searchQuery" type="search" placeholder="搜索 Diff" @keydown.enter="onSearchEnter" @compositionstart="searchComposing = true" @compositionend="searchComposing = false" />
+        <input v-model="searchQuery" type="search" placeholder="搜索 Diff" @keydown.enter="onSearchEnter" @compositionstart="searchComposing = true" @compositionend="onSearchCompositionEnd" />
         <span v-if="searchQuery">{{ searchMatches.length ? `${activeMatchIndex + 1}/${searchMatches.length}` : '0/0' }}</span>
         <button v-if="searchQuery" type="button" title="清除搜索" @click="searchQuery = ''"><X /></button>
       </label>

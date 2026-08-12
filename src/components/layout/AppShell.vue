@@ -123,6 +123,17 @@ function onRenameEnter(event: KeyboardEvent) {
   saveRename()
 }
 
+/**
+ * Keep guarding a short window after compositionend: some IMEs (e.g. English
+ * candidates) deliver the confirming Enter AFTER compositionend, when
+ * `isComposing` is already false — mirroring Composer's onCompositionEnd.
+ */
+function onRenameCompositionEnd() {
+  setTimeout(() => {
+    renameComposing.value = false
+  }, 50)
+}
+
 function cancelRename() {
   renameTarget.value = null
   renameTitle.value = ''
@@ -1536,7 +1547,7 @@ watch(searchQuery, q => {
             @keydown.enter="onRenameEnter"
             @keydown="onRenameKeydown"
             @compositionstart="renameComposing = true"
-            @compositionend="renameComposing = false"
+            @compositionend="onRenameCompositionEnd"
           >
         </label>
         <div class="mt-5 flex justify-end gap-2">

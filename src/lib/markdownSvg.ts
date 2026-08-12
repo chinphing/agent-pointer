@@ -121,6 +121,12 @@ export function sanitizeSvgMarkup(
   cleaned = neutralizeDangerousUrlsByRegex(cleaned)
   cleaned = stripStyleExpressionsByRegex(cleaned)
 
+  // Product-level flow-diagram fix: materialize `marker-end` arrowheads as
+  // explicit polygons and snap arrow tips to the nearest rect edge, so rendered
+  // connectors always touch their boxes (renderer-independent; fixes floating /
+  // reversed arrowheads that models often draw with hand-computed coords).
+  cleaned = normalizeFlowArrows(cleaned)
+
   if (typeof DOMParser !== 'undefined') {
     try {
       const doc = new DOMParser().parseFromString(cleaned, 'image/svg+xml')
@@ -168,6 +174,252 @@ export function sanitizeSvgMarkup(
   }
   cleaned = fitSvgViewBoxToAttributedContent(cleaned)
   return { ok: true, svg: cleaned }
+}
+
+/** Max distance (px) an arrow tip may float from a rect edge and still be snapped onto it. */
+const ARROW_SNAP_PX = 24
+const ARROW_COLOR_FALLBACK = '#5F5E5A'
+
+interface FlowRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+interface ArrowMarkerSpec {
+  vb: [number, number, number, number]
+  refX: number
+  refY: number
+  mw: number
+  mh: number
+  strokeWidthUnits: boolean
+  points: number[][]
+  fill: string | null
+  stroke: string | null
+}
+
+function attrNum(attrs: string, name: string, fallback: number): number {
+  const m = attrs.match(
+    new RegExp(`\\b${name}\\s*=\\s*["']?(-?\\d+(?:\\.\\d+)?)`, 'i')
+  )
+  if (!m) return fallback
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : fallback
+}
+
+function attrStr(attrs: string, name: string): string | null {
+  const m = attrs.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i'))
+  return m ? m[1] : null
+}
+
+/** Parse absolute M/L coordinates from a path `d` (flow diagrams use M/L only). */
+function pathPoints(d: string): number[][] {
+  const nums =
+    d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)?.map(Number).filter(Number.isFinite) ?? []
+  const pts: number[][] = []
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    pts.push([nums[i]!, nums[i + 1]!])
+  }
+  return pts
+}
+
+function round2(n: number): string {
+  return String(Math.round(n * 100) / 100)
+}
+
+function rebuildPathD(
+  pts: number[][],
+  pxn: number,
+  pyn: number,
+  tx: number,
+  ty: number
+): string {
+  const head = pts.slice(0, -2)
+  const parts: string[] = []
+  head.forEach(([x, y], i) => {
+    parts.push(`${i === 0 ? 'M' : 'L'}${round2(x)} ${round2(y)}`)
+  })
+  if (head.length === 0) {
+    parts.push(`M${round2(pxn)} ${round2(pyn)}`)
+  } else {
+    parts.push(`L${round2(pxn)} ${round2(pyn)}`)
+  }
+  parts.push(`L${round2(tx)} ${round2(ty)}`)
+  return parts.join(' ')
+}
+
+function parseMarkerSpecs(svg: string): Map<string, ArrowMarkerSpec> {
+  const specs = new Map<string, ArrowMarkerSpec>()
+  const markerRe = /<marker\b([^>]*)>([\s\S]*?)<\/marker\s*>/gi
+  for (const m of svg.matchAll(markerRe)) {
+    const attrs = m[1] ?? ''
+    const body = m[2] ?? ''
+    const id = attrStr(attrs, 'id')
+    if (!id) continue
+    const vbRaw = attrStr(attrs, 'viewBox')
+    const vb = vbRaw
+      ? (vbRaw
+          .trim()
+          .split(/[\s,]+/)
+          .map(Number) as [number, number, number, number])
+      : null
+    if (!vb || vb.length !== 4 || vb.some(n => !Number.isFinite(n)) || vb[2] <= 0 || vb[3] <= 0) {
+      continue
+    }
+    const pathM = body.match(/<path\b([^>]*)>/i)
+    if (!pathM) continue
+    const pathAttrs = pathM[1] ?? ''
+    const d = attrStr(pathAttrs, 'd')
+    if (!d) continue
+    const points = pathPoints(d)
+    if (points.length < 2) continue
+    specs.set(id, {
+      vb,
+      refX: attrNum(attrs, 'refX', vb[2] / 2),
+      refY: attrNum(attrs, 'refY', vb[3] / 2),
+      mw: attrNum(attrs, 'markerWidth', 3),
+      mh: attrNum(attrs, 'markerHeight', 3),
+      strokeWidthUnits: !/\bmarkerUnits\s*=\s*["']userSpaceOnUse["']/i.test(attrs),
+      points,
+      fill: attrStr(pathAttrs, 'fill'),
+      stroke: attrStr(pathAttrs, 'stroke'),
+    })
+  }
+  return specs
+}
+
+const PATH_TAG_RE = /<path\b([^>]*?)(\/>|<\/path\s*>)/gi
+
+/** Replace `marker-end="url(#id)"` with an explicit `<polygon>` arrowhead. */
+export function expandSvgArrowMarkers(svg: string): string {
+  const specs = parseMarkerSpecs(svg)
+  if (specs.size === 0) return svg
+  return svg.replace(PATH_TAG_RE, (full, attrs: string, closing: string) => {
+    const endRef = attrs.match(
+      /\bmarker-end\s*=\s*["']url\(\s*#([^)]+)\)["']/i
+    )
+    if (!endRef) return full
+    const spec = specs.get(endRef[1])
+    if (!spec) return full
+    const d = attrStr(attrs, 'd')
+    if (!d) return full
+    const pts = pathPoints(d)
+    if (pts.length < 2) return full
+    const [ex, ey] = pts[pts.length - 1]!
+    const [px, py] = pts[pts.length - 2]!
+    const dx = ex - px
+    const dy = ey - py
+    const len = Math.hypot(dx, dy)
+    if (len < 1e-6) return full
+    const angle = Math.atan2(dy, dx)
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    const strokeWidth = attrNum(attrs, 'stroke-width', 1)
+    const scale = (spec.strokeWidthUnits ? strokeWidth : 1) * (spec.mw / spec.vb[2])
+    const color =
+      spec.fill && spec.fill !== 'none' && !spec.fill.startsWith('url(')
+        ? spec.fill
+        : spec.stroke && spec.stroke !== 'none'
+          ? spec.stroke
+          : ARROW_COLOR_FALLBACK
+    const polyPts = spec.points.map(([x, y]) => {
+      const rx0 = (x - spec.refX) * scale
+      const ry0 = (y - spec.refY) * scale
+      return `${round2(rx0 * cos - ry0 * sin + ex)},${round2(rx0 * sin + ry0 * cos + ey)}`
+    })
+    const attrsClean = attrs.replace(/\s+marker-end\s*=\s*["'][^"']*["']/gi, '')
+    return `<path${attrsClean}${closing}<polygon points="${polyPts.join(' ')}" fill="${color}"/>`
+  })
+}
+
+interface RectEdgeSnap {
+  edge: 'top' | 'bottom' | 'left' | 'right'
+  tx: number
+  ty: number
+  dist: number
+}
+
+function nearestRectEdge(
+  rects: FlowRect[],
+  x: number,
+  y: number
+): RectEdgeSnap | null {
+  let best: RectEdgeSnap | null = null
+  const consider = (edge: RectEdgeSnap['edge'], tx: number, ty: number, dist: number) => {
+    if (!best || dist < best.dist) best = { edge, tx, ty, dist }
+  }
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+  for (const r of rects) {
+    if (y >= r.y - ARROW_SNAP_PX && y <= r.y + r.h + ARROW_SNAP_PX) {
+      consider('left', r.x, clamp(y, r.y, r.y + r.h), Math.abs(x - r.x))
+      consider('right', r.x + r.w, clamp(y, r.y, r.y + r.h), Math.abs(x - (r.x + r.w)))
+    }
+    if (x >= r.x - ARROW_SNAP_PX && x <= r.x + r.w + ARROW_SNAP_PX) {
+      consider('top', clamp(x, r.x, r.x + r.w), r.y, Math.abs(y - r.y))
+      consider('bottom', clamp(x, r.x, r.x + r.w), r.y + r.h, Math.abs(y - (r.y + r.h)))
+    }
+  }
+  return best
+}
+
+/**
+ * Snap arrow tips (last point of paths with `marker-end`) onto the nearest rect
+ * edge when they float within ARROW_SNAP_PX. Also re-point the previous vertex
+ * when the final segment collapses, so the arrowhead direction stays correct.
+ */
+export function snapArrowEndpoints(svg: string): string {
+  const rects: FlowRect[] = []
+  const rectRe = /<rect\b([^>]*?)(\/>|>)/gi
+  for (const m of svg.matchAll(rectRe)) {
+    const attrs = m[1] ?? ''
+    const x = attrNum(attrs, 'x', Number.NaN)
+    const y = attrNum(attrs, 'y', Number.NaN)
+    const w = attrNum(attrs, 'width', Number.NaN)
+    const h = attrNum(attrs, 'height', Number.NaN)
+    if ([x, y, w, h].some(n => !Number.isFinite(n)) || w <= 0 || h <= 0) continue
+    rects.push({ x, y, w, h })
+  }
+  if (rects.length === 0) return svg
+
+  return svg.replace(PATH_TAG_RE, (full, attrs: string, closing: string) => {
+    if (!/\bmarker-end\s*=/i.test(attrs)) return full
+    const d = attrStr(attrs, 'd')
+    if (!d) return full
+    const pts = pathPoints(d)
+    if (pts.length < 2) return full
+    const [ex, ey] = pts[pts.length - 1]!
+    const [px, py] = pts[pts.length - 2]!
+    const snap = nearestRectEdge(rects, ex, ey)
+    if (!snap || snap.dist > ARROW_SNAP_PX || snap.dist < 0.5) return full
+
+    let pxn = px
+    let pyn = py
+    if (Math.hypot(snap.tx - px, snap.ty - py) < 4) {
+      // Final segment collapsed: move prev outside the snapped edge.
+      if (snap.edge === 'top') {
+        pxn = snap.tx
+        pyn = snap.ty - 10
+      } else if (snap.edge === 'bottom') {
+        pxn = snap.tx
+        pyn = snap.ty + 10
+      } else if (snap.edge === 'left') {
+        pxn = snap.tx - 10
+        pyn = snap.ty
+      } else {
+        pxn = snap.tx + 10
+        pyn = snap.ty
+      }
+    }
+    const rebuilt = rebuildPathD(pts, pxn, pyn, snap.tx, snap.ty)
+    const attrsClean = attrs.replace(/\bd\s*=\s*["'][\s\S]*?["']/i, ` d="${rebuilt}"`)
+    return `<path${attrsClean}${closing}`
+  })
+}
+
+/** Snap arrow endpoints first, then expand marker arrowheads into polygons. */
+export function normalizeFlowArrows(svg: string): string {
+  return expandSvgArrowMarkers(snapArrowEndpoints(svg))
 }
 
 export function tryParseSvgFence(

@@ -545,32 +545,39 @@
   word-break: break-word;
 }
 
-/* SVG diagram hosts from ```svg fences */
-.md-body .md-svg {
+/* SVG / Mermaid diagram hosts from ```svg / ```mermaid fences */
+.md-body .md-svg,
+.md-body .md-mermaid {
   @apply my-3 relative rounded-lg border border-border;
   overflow: visible;
   background: hsl(var(--card));
 }
-.md-body .md-svg-toolbar {
+.md-body .md-svg-toolbar,
+.md-body .md-mermaid-toolbar {
   @apply absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg p-0.5;
   background: hsl(var(--card) / 0.92);
   color: hsl(var(--muted));
   box-shadow: 0 0 0 1px hsl(var(--border));
 }
-.md-body .md-svg-toolbar[hidden] {
+.md-body .md-svg-toolbar[hidden],
+.md-body .md-mermaid-toolbar[hidden] {
   display: none !important;
 }
-.md-body .md-svg-btn {
+.md-body .md-svg-btn,
+.md-body .md-mermaid-btn {
   @apply inline-flex items-center justify-center rounded-md p-1.5 transition cursor-pointer;
   color: hsl(var(--muted));
   background: transparent;
 }
 .md-body .md-svg-btn:hover,
-.md-body .md-svg-btn-active {
+.md-body .md-svg-btn-active,
+.md-body .md-mermaid-btn:hover,
+.md-body .md-mermaid-btn-active {
   background: hsl(var(--hover));
   color: hsl(var(--foreground));
 }
-.md-body .md-svg-frame {
+.md-body .md-svg-frame,
+.md-body .md-mermaid-frame {
   @apply w-full px-3 pt-3 pb-2;
   overflow: auto;
   border-radius: inherit;
@@ -585,7 +592,8 @@
   white-space: normal;
   font-weight: 400;
 }
-.md-body .md-svg-frame > svg {
+.md-body .md-svg-frame > svg,
+.md-body .md-mermaid-frame > svg {
   display: block;
   /* Prefer authored viewBox pixel width (set on mount); allow horizontal scroll
      instead of crushing long labels with max-width: 100%. */
@@ -593,15 +601,18 @@
   height: auto;
   margin: 0 auto;
 }
-.md-body .md-svg-status {
+.md-body .md-svg-status,
+.md-body .md-mermaid-status {
   @apply flex w-full items-center justify-center text-xs;
   min-height: 120px;
   color: hsl(var(--muted));
 }
-.md-body .md-svg-status-error {
+.md-body .md-svg-status-error,
+.md-body .md-mermaid-status-error {
   color: hsl(var(--danger));
 }
-.md-body .md-svg-source {
+.md-body .md-svg-source,
+.md-body .md-mermaid-source {
   @apply m-0 max-h-56 overflow-auto border-t border-border px-3 py-2 text-[12px] font-mono leading-5;
   background: hsl(var(--hover));
   color: hsl(var(--foreground));

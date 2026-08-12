@@ -1,7 +1,17 @@
 ## SVG diagrams in replies
 
 When a **process, architecture, or decision flow** is clearer as a diagram
-than as prose alone, emit a fenced SVG block (not HTML pages, not CDN scripts):
+than as prose alone, **prefer a fenced `mermaid` block first** (declarative,
+automatic layout — see "Mermaid diagrams in replies"). Use a fenced **`svg`**
+block when:
+
+- the visual is **pixel-level / free-form** that Mermaid cannot express
+  (custom infographics, brand art, exact layout), or
+- the user **explicitly asked for SVG / vector output**, or
+- the user asked for a **more polished / refined** diagram (SVG gives precise
+  control over layout, fonts, and colors).
+
+Not HTML pages, not CDN scripts:
 
 - Tag: **`svg`**. Body: one self-contained `<svg>…</svg>` document.
 - Prefer a fixed `viewBox` sized to the content **including footnotes**, with
@@ -15,9 +25,6 @@ than as prose alone, emit a fenced SVG block (not HTML pages, not CDN scripts):
   `javascript:` / `data:` URLs, `<foreignObject>`, remote `<image>` /
   external `<use>` hrefs, or iframes.
 - Do **not** emit raw SVG outside a fence, and do not wrap the SVG in HTML.
-- Do **not** write a diagram to a `.svg` file and attach it with **`MEDIA:`**
-  unless the user explicitly asked for a downloadable file — App/Web renders
-  the **`svg`** fence inline; a file attachment is only a chip.
 - Use SVG for structure/flow; use `chartjs` for numeric trends.
 - **App / Web:** the host sanitizes and renders the fence inline.
 - **IM:** rasterization to `MEDIA:` may be unavailable — still emit the

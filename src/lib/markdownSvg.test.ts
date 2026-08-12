@@ -11,6 +11,8 @@ import {
   intrinsicSvgSizeFromViewBox,
   applySvgMountLayout,
   fitSvgViewBoxToAttributedContent,
+  normalizeFlowArrows,
+  expandSvgArrowMarkers,
 } from './markdownSvg'
 
 describe('sanitizeSvgMarkup', () => {
@@ -182,5 +184,109 @@ describe('parseMarkdown svg fences', () => {
     expect(html).not.toContain('图示生成中…')
     expect(html).toContain('data-svg-config=')
     expect(html).toContain('后面还有说明文字')
+  })
+})
+
+describe('normalizeFlowArrows', () => {
+  it('leaves curved paths intact when the arrow tip is attached', () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+      '<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">' +
+      '<path d="M2 1 L8 5 L2 9"/></marker></defs>' +
+      '<rect x="10" y="10" width="40" height="20" fill="#eee"/>' +
+      '<rect x="10" y="60" width="40" height="20" fill="#eee"/>' +
+      '<path d="M30 30 C 30 45, 30 45, 30 60" fill="none" stroke="#333" marker-end="url(#ar)"/>' +
+      '</svg>'
+    const parsed = sanitizeSvgMarkup(svg)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    // Tip sits on the bottom rect edge -> snap is not triggered; curve survives.
+    expect(parsed.svg).toContain('C ')
+    // Arrowhead is materialized as an explicit polygon.
+    expect(parsed.svg).toContain('<polygon')
+  })
+
+  const PROBLEM_SVG = `<svg viewBox="-16 -16 652 292" xmlns="http://www.w3.org/2000/svg">
+  <rect x="15" y="20" width="180" height="52" rx="8" fill="#FFF4E0" stroke="#B7791F"/>
+  <rect x="235" y="20" width="180" height="52" rx="8" fill="#E6F1FB" stroke="#185FA5"/>
+  <rect x="455" y="20" width="150" height="52" rx="8" fill="#E1F5EE" stroke="#0F6E56"/>
+  <rect x="235" y="100" width="180" height="52" rx="8" fill="#E1F5EE" stroke="#0F6E56"/>
+  <rect x="15" y="190" width="180" height="52" rx="8" fill="#E6F1FB" stroke="#185FA5"/>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A"/>
+    </marker>
+  </defs>
+  <path d="M195 46 L235 46" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M415 46 L455 46" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M530 72 L530 100 L325 100 L325 78" stroke="#5F5E5A" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <path d="M325 152 L325 190 L105 190 L105 170" stroke="#5F5E5A" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+</svg>`
+
+  it('snaps floating arrow tips onto the nearest rect edge and expands markers', () => {
+    const out = normalizeFlowArrows(PROBLEM_SVG)
+    expect(out).not.toContain('marker-end')
+    expect(out).toContain('<polygon points=')
+    // 6px float above rect ② bottom edge (y=72) → snapped onto it
+    expect(out).toContain('L325 100 L325 72')
+    // 20px float above rect ⑤ top edge (y=190) → snapped, prev re-pointed outside
+    expect(out).toContain('L105 180 L105 190')
+    expect(out).not.toContain('L105 170')
+    // Already-touching horizontal arrows keep their geometry
+    expect(out).toContain('M195 46 L235 46')
+    expect(out).toContain('M415 46 L455 46')
+  })
+
+  it('keeps already-touching arrow tips unchanged', () => {
+    const svg = `<svg viewBox="0 0 300 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="10" y="20" width="100" height="40"/>
+  <rect x="150" y="20" width="100" height="40"/>
+  <defs>
+    <marker id="a" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 L10 6 L1 11 Z" fill="#5F5E5A"/>
+    </marker>
+  </defs>
+  <path d="M110 40 L150 40" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+</svg>`
+    const out = normalizeFlowArrows(svg)
+    expect(out).toContain('d="M110 40 L150 40"')
+    expect(out).not.toContain('marker-end')
+    expect(out).toContain('<polygon points=')
+  })
+
+  it('expands a horizontal arrow marker to a polygon whose tip is the path end', () => {
+    const svg = `<svg viewBox="0 0 300 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="150" y="20" width="100" height="40"/>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A"/>
+    </marker>
+  </defs>
+  <path d="M110 40 L150 40" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+</svg>`
+    const out = expandSvgArrowMarkers(svg)
+    const m = out.match(/<polygon points="([^"]+)"/)
+    expect(m).not.toBeNull()
+    const pts = m![1]!.split(' ').map(p => p.split(',').map(Number))
+    // Tip (refX aligns to path end) lands exactly on the endpoint.
+    expect(
+      pts.some(([x, y]) => Math.abs(x! - 150) < 0.01 && Math.abs(y! - 40) < 0.01)
+    ).toBe(true)
+    // Tail distance from tip = (8-2) * strokeWidth(1.5) * markerWidth(6) / viewBox(10) = 5.4
+    const tailXs = pts.filter(([x]) => x! < 150)
+    for (const [x] of tailXs) {
+      expect(Math.abs(x! - (150 - 5.4))).toBeLessThan(0.1)
+    }
+  })
+
+  it('sanitize integrates normalization end-to-end', () => {
+    const parsed = sanitizeSvgMarkup(PROBLEM_SVG)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.svg).not.toContain('marker-end')
+      expect(parsed.svg).toContain('<polygon')
+      expect(parsed.svg).toContain('L325 72')
+      expect(parsed.svg).toContain('L105 190')
+    }
   })
 })

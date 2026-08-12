@@ -78,10 +78,10 @@ function startDrag(event: PointerEvent, node: TerminalPaneBranch) {
 </template>
 
 <style scoped>
-.terminal-split { @apply flex h-full min-h-0 min-w-0; }
+.terminal-split { @apply flex h-full min-h-0 min-w-0 flex-1; }
 .terminal-split.is-row { flex-direction: row; }
 .terminal-split.is-column { flex-direction: column; }
-.terminal-pane-slot { @apply flex h-full min-h-0 min-w-0; }
+.terminal-pane-slot { @apply flex h-full min-h-0 min-w-0 flex-1; }
 .terminal-pane-slot > * { @apply h-full min-h-0 min-w-0 flex-1; }
 .terminal-splitter {
   @apply shrink-0 select-none;

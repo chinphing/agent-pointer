@@ -6,6 +6,7 @@ import {
 } from '../lib/markdownSvg'
 import { STREAMING_SVG_STUB } from '../lib/markdownConfig'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
+import { openDiagramZoom, zoomIconSvg } from '../lib/diagramZoom'
 
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`
 const checkIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
@@ -149,7 +150,21 @@ export function useMarkdownSvgs(
       }
     })
 
-    toolbar.append(copyBtn, downloadBtn, sourceBtn)
+    const zoomBtn = document.createElement('button')
+    zoomBtn.type = 'button'
+    zoomBtn.className = 'md-svg-btn'
+    zoomBtn.title = '放大查看'
+    zoomBtn.setAttribute('aria-label', '放大查看')
+    zoomBtn.innerHTML = zoomIconSvg
+    zoomBtn.addEventListener('click', e => {
+      e.preventDefault()
+      e.stopPropagation()
+      const frame = host.querySelector('.md-svg-frame')
+      const svg = frame?.querySelector('svg')
+      if (svg instanceof SVGElement) openDiagramZoom(svg)
+    })
+
+    toolbar.append(zoomBtn, copyBtn, downloadBtn, sourceBtn)
   }
 
   function setToolbarVisible(host: HTMLElement, visible: boolean) {
@@ -254,6 +269,11 @@ export function useMarkdownSvgs(
       }
       frame.appendChild(imported)
       applySvgMountLayout(imported)
+      imported.addEventListener('click', e => {
+        e.preventDefault()
+        e.stopPropagation()
+        openDiagramZoom(imported)
+      })
       hosts.set(host, { boundConfig: encoded })
       host.dataset.svgBound = encoded
       console.info('[markdownSvgs] mounted svg host')

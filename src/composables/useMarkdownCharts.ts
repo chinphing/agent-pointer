@@ -7,6 +7,7 @@ import {
   tryParseChartConfig,
 } from '../lib/markdownChart'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
+import { openDiagramZoom, zoomIconSvg } from '../lib/diagramZoom'
 
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`
 const checkIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
@@ -277,7 +278,20 @@ export function useMarkdownCharts(
       }
     })
 
-    toolbar.append(copyBtn, downloadBtn, sourceBtn)
+    const zoomBtn = document.createElement('button')
+    zoomBtn.type = 'button'
+    zoomBtn.className = 'md-chart-btn'
+    zoomBtn.title = '放大查看'
+    zoomBtn.setAttribute('aria-label', '放大查看')
+    zoomBtn.innerHTML = zoomIconSvg
+    zoomBtn.addEventListener('click', e => {
+      e.preventDefault()
+      e.stopPropagation()
+      const canvas = host.querySelector('.md-chart-canvas-wrap canvas')
+      if (canvas instanceof HTMLCanvasElement) openDiagramZoom(canvas)
+    })
+
+    toolbar.append(zoomBtn, copyBtn, downloadBtn, sourceBtn)
   }
 
   function setToolbarVisible(host: HTMLElement, visible: boolean) {
@@ -377,6 +391,11 @@ export function useMarkdownCharts(
     canvas.setAttribute('role', 'img')
     canvas.setAttribute('aria-label', 'chart')
     box.appendChild(canvas)
+    canvas.addEventListener('click', e => {
+      e.preventDefault()
+      e.stopPropagation()
+      openDiagramZoom(canvas)
+    })
     wrap.appendChild(box)
 
     try {

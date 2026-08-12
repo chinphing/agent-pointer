@@ -7,7 +7,6 @@ import {
   findLeafByTabId,
   firstLeafWithTab,
   leafCount,
-  MAX_PANES,
   removeLeaf,
   setLeafTabId,
   splitLeaf,
@@ -106,9 +105,5 @@ describe('terminalLayout', () => {
     const branch = createBranch('column', createLeaf(null), createLeaf(null), [70, 30])
     expect(branch.sizes).toEqual([70, 30])
     expect(leafCount(branch)).toBe(2)
-  })
-
-  it('MAX_PANES is four', () => {
-    expect(MAX_PANES).toBe(4)
   })
 })

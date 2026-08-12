@@ -8,8 +8,6 @@ import {
   findLeaf,
   findLeafByTabId,
   firstLeafWithTab,
-  leafCount,
-  MAX_PANES,
   removeLeaf,
   setLeafTabId,
   splitLeaf,
@@ -38,8 +36,8 @@ const activeTab = computed(() =>
   workspaceTabs.value.find(tab => tab.id === consoleStore.activeSessionId) ?? null
 )
 const hasWorkspace = computed(() => !!props.workspaceRoot.trim())
-const paneCount = computed(() => leafCount(layout.value))
-const canSplit = computed(() => !!layout.value && paneCount.value < MAX_PANES && !loading.value)
+/** 拆分数量不设上限；只在无布局/加载中时禁用。 */
+const canSplit = computed(() => !!layout.value && !loading.value)
 
 /** 焦点窗格（缺省回退到第一个有会话的窗格）。 */
 const activePaneLeaf = computed(() => {

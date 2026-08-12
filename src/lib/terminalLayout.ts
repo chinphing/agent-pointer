@@ -2,7 +2,7 @@
  * 终端拆分布局（递归二分树）。
  *
  * 叶子 = 一个终端会话（tabId）；分支 = 水平/垂直分割，两个子节点。
- * 面板层用 MAX_PANES 限制叶子总数（拆分按钮在达到上限时禁用）。
+ * 数量不设上限，可任意递归拆分（每个窗格独立 PTY 会话，资源随窗格数增长）。
  * 所有更新函数都返回新的不可变节点树，便于单测与 Vue 响应式替换。
  */
 export type TerminalPaneDirection = 'row' | 'column'
@@ -25,7 +25,6 @@ export interface TerminalPaneBranch {
 
 export type TerminalPaneNode = TerminalPaneLeaf | TerminalPaneBranch
 
-export const MAX_PANES = 4
 /** 分割条拖拽时子窗格的最小占比（百分比）。 */
 export const MIN_PANE_RATIO = 0.15
 

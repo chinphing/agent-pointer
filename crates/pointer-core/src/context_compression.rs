@@ -612,7 +612,9 @@ Example:
 1. READ config.py:45 — found `==` should be `!=` [tool: read_file]
 2. PATCH config.py:45 — changed `==` to `!=` [tool: patch]
 3. TEST `pytest tests/` — 3/50 failed: test_parse, test_validate [tool: terminal]
-Be specific with file paths, commands, line numbers, and results.]
+Be specific with file paths, commands, line numbers, and results.
+When there are many actions, merge related rounds into one line and keep only the
+most important outcomes — one line per action, never a paragraph per action.]
 
 ## Active State
 [Current working state: working directory / branch, modified or created files, test status,
@@ -743,9 +745,13 @@ fn build_summary_user_prompt(formatted: &str, target_tokens: u32) -> String {
          --- BEGIN SOURCE CONVERSATION ---\n\
          {formatted}\n\
          --- END SOURCE CONVERSATION ---\n\n\
-         Target ~{target_tokens} tokens. Be CONCRETE — include file paths, command outputs,\n\
-         error messages, line numbers, and specific values. Avoid vague descriptions like\n\
-         \"made some changes\" — say exactly what changed.\n\n\
+         {target_tokens} tokens is a HARD CEILING, not a suggestion — finish well\n\
+         inside it (truncated output is rejected; a short summary is always accepted).\n\
+         If the source exceeds the ceiling, prioritize: Active Task > Goal >\n\
+         Key Decisions > Blocked > Critical Context > Remaining Work > everything else.\n\
+         Compress Completed Actions to one line per action and merge repetitive rounds.\n\
+         Keep facts CONCRETE (file paths, commands, error messages, line numbers,\n\
+         exact values), but be terse: bullets, no filler, no restating headings.\n\n\
          {SUMMARY_USER_SUFFIX}"
     )
 }
@@ -2037,8 +2043,9 @@ mod tests {
 
         assert!(prompt.contains("--- BEGIN SOURCE CONVERSATION ---"));
         assert!(prompt.contains("[USER]: continue the conversation"));
-        assert!(prompt.contains("Target ~5400 tokens"));
-        assert!(prompt.contains("Be CONCRETE"));
+        assert!(prompt.contains("5400 tokens is a HARD CEILING"));
+        assert!(prompt.contains("Active Task > Goal >"));
+        assert!(prompt.contains("one line per action"));
         assert!(final_instruction > source_end);
         assert!(prompt.ends_with(
             "Write only the summary body. Do not include a greeting, preamble, or response to the conversation."

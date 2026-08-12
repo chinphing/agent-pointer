@@ -29,6 +29,7 @@ const expanded = ref<Set<number>>(new Set())
 const rootElement = ref<HTMLElement | null>(null)
 const scrollElement = ref<HTMLElement | null>(null)
 const searchQuery = ref('')
+const searchComposing = ref(false)
 const activeMatchIndex = ref(-1)
 const activeBlockIndex = ref(-1)
 const wrapLines = ref(true)
@@ -58,6 +59,13 @@ async function stepMatch(direction: 1 | -1) {
   activeMatchIndex.value = (activeMatchIndex.value + direction + matches.length) % matches.length
   const match = matches[activeMatchIndex.value]!
   await scrollToKey(match.key, match.parentIndex)
+}
+
+/** Enter steps to next match — but never while an IME is composing (Chinese candidate confirm). */
+function onSearchEnter(event: KeyboardEvent) {
+  if (event.isComposing || searchComposing.value) return
+  event.preventDefault()
+  void stepMatch(1)
 }
 
 async function stepBlock(direction: 1 | -1) {
@@ -147,7 +155,7 @@ const numWidth = computed(() => 'calc(3ch + 8px)')
     <div v-if="fillHeight" class="diff-toolbar">
       <label class="diff-search">
         <Search />
-        <input v-model="searchQuery" type="search" placeholder="搜索 Diff" @keydown.enter.prevent="stepMatch(1)" />
+        <input v-model="searchQuery" type="search" placeholder="搜索 Diff" @keydown.enter="onSearchEnter" @compositionstart="searchComposing = true" @compositionend="searchComposing = false" />
         <span v-if="searchQuery">{{ searchMatches.length ? `${activeMatchIndex + 1}/${searchMatches.length}` : '0/0' }}</span>
         <button v-if="searchQuery" type="button" title="清除搜索" @click="searchQuery = ''"><X /></button>
       </label>

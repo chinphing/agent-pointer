@@ -94,6 +94,7 @@ const pendingDeleteId = ref<string | null>(null)
 const renameTarget = ref<{ id: string; title: string } | null>(null)
 const renameTitle = ref('')
 const renameInputRef = ref<HTMLInputElement | null>(null)
+const renameComposing = ref(false)
 
 function startEdit(conv: { id: string; title: string }) {
   pendingDeleteId.value = null
@@ -113,6 +114,13 @@ function saveRename() {
   }
   renameTarget.value = null
   renameTitle.value = ''
+}
+
+/** Enter saves — but never while an IME is composing (Chinese candidate confirm). */
+function onRenameEnter(event: KeyboardEvent) {
+  if (event.isComposing || renameComposing.value) return
+  event.preventDefault()
+  saveRename()
 }
 
 function cancelRename() {
@@ -1525,8 +1533,10 @@ watch(searchQuery, q => {
             v-model="renameTitle"
             type="text"
             class="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent"
-            @keydown.enter.prevent="saveRename"
+            @keydown.enter="onRenameEnter"
             @keydown="onRenameKeydown"
+            @compositionstart="renameComposing = true"
+            @compositionend="renameComposing = false"
           >
         </label>
         <div class="mt-5 flex justify-end gap-2">

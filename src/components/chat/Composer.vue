@@ -341,8 +341,17 @@ async function pickWorkspaceFolder() {
   }
 }
 
+const workspaceComposing = ref(false)
+
 async function commitWorkspaceInput() {
   await createOrSelectWorkspaceProject(chat.current?.workspaceRoot ?? '')
+}
+
+/** Enter commits the workspace path — but never while an IME is composing (Chinese candidate confirm). */
+function onWorkspaceEnter(event: KeyboardEvent) {
+  if (event.isComposing || workspaceComposing.value) return
+  event.preventDefault()
+  void commitWorkspaceInput()
 }
 
 function onWorkspaceInputChange() {
@@ -1790,7 +1799,9 @@ onUnmounted(() => {
                       class="composer-workspace-input"
                       :title="workspaceTooltip"
                       @input="onWorkspaceInput"
-                      @keydown.enter.prevent="commitWorkspaceInput"
+                      @keydown.enter="onWorkspaceEnter"
+                      @compositionstart="workspaceComposing = true"
+                      @compositionend="workspaceComposing = false"
                     />
                   </div>
                   <div class="px-3 pb-1 pt-2">

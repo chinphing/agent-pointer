@@ -65,6 +65,7 @@ function mimeFromFileName(fileName: string): string {
   if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
   if (ext === 'gif') return 'image/gif'
   if (ext === 'webp') return 'image/webp'
+  if (ext === 'svg') return 'image/svg+xml'
   if (ext === 'pdf') return 'application/pdf'
   if (ext === 'html' || ext === 'htm') return 'text/html'
   if (ext === 'json') return 'application/json'
@@ -82,10 +83,10 @@ function mimeFromFileName(fileName: string): string {
 
 function kindFromFileName(fileName: string): MediaAttachmentKind {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'image'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) return 'image'
   if (['mp4', 'webm', 'mov', 'mkv'].includes(ext)) return 'video'
   if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext)) return 'audio'
-  if (['pdf', 'txt', 'md', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'html', 'htm', 'json', 'csv'].includes(ext)) return 'document'
+  if (['pdf', 'txt', 'md', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'html', 'htm', 'json', 'csv', 'svg'].includes(ext)) return 'document'
   return 'file'
 }
 

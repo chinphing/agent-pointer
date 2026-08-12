@@ -10,6 +10,14 @@ When the user asks to receive a file — including “send it”, “give me the
 
 If a real local file exists or is produced for that request, the final reply **must** include one `MEDIA:<absolute-path>` or `MEDIA:<pointer-media://…>` line for each requested file. A filename, bare path, `localPath`/`ref` metadata list, or `scp`/shell command is **not** file delivery. Provide a path or transfer command instead only when the user explicitly asks for that representation rather than the file itself.
 
+### Diagram fences are the delivery
+
+For diagrams rendered from a **fence** (`svg`, `mermaid`, `chartjs`), the fence
+itself is the delivery — App/Web renders it inline. Do **not** also attach a
+file (`.svg` / `.png` / `.mmd`) or convert to PNG on top of it, unless the user
+explicitly asked for a downloadable file ("下载", "发我", "给我", "插入文档/PPT",
+"矢量文件", "PNG"). One diagram = one fence; no duplicate file deliveries.
+
 ### Format
 
 - Optional short caption, then **one line per file at the end**:

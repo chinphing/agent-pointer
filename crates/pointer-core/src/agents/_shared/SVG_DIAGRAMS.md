@@ -1,15 +1,24 @@
 ## SVG diagrams in replies
 
-When a **process, architecture, or decision flow** is clearer as a diagram
-than as prose alone, **prefer a fenced `mermaid` block first** (declarative,
-automatic layout — see "Mermaid diagrams in replies"). Use a fenced **`svg`**
-block when:
+Use a fenced **`svg`** block for these diagram types (Mermaid this build
+cannot render them, or they need pixel-level control). For flows, sequences,
+class/state/ER models, and gantt, **prefer `mermaid`** (see "Mermaid diagrams
+in replies"). Numeric trends go to **`chartjs`**.
 
-- the visual is **pixel-level / free-form** that Mermaid cannot express
-  (custom infographics, brand art, exact layout), or
-- the user **explicitly asked for SVG / vector output**, or
-- the user asked for a **more polished / refined** diagram (SVG gives precise
+Emit **`svg`** when:
+
+- **Mermaid-unsupported types** (not bundled this build): timeline,
+  journey, mindmap, sankey, quadrant, xychart, pie / doughnut, radar,
+  gitGraph, C4 / architecture, block, treeView, venn, treemap, requirement,
+  kanban, ishikawa, railroad, packet, eventmodeling, wardley, cynefin.
+- **Custom infographics / brand visuals** that need pixel-level exact layout
+  (precise fonts, spacing, colors) — free-form art Mermaid cannot express.
+- The user **explicitly asked for SVG / vector output**.
+- The user asked for a **more polished / refined** diagram (SVG gives precise
   control over layout, fonts, and colors).
+
+Note: data charts (pie, radar, scatter, numeric trend lines) belong to
+`chartjs`, not SVG, unless they need custom visuals.
 
 Not HTML pages, not CDN scripts:
 

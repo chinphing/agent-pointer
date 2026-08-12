@@ -24,8 +24,12 @@ function loadMermaid(): Promise<MermaidModule> {
         startOnLoad: false,
         // Strict: no HTML labels / foreignObject in output — stays pure SVG so our
         // sanitize pipeline is safe and layout metrics match the authored viewBox.
+        // htmlLabels MUST be top-level: mermaid 11 deprecates flowchart.htmlLabels
+        // (FLOWCHART_HTML_LABELS_DEPRECATED) and silently ignores it, which would
+        // emit <foreignObject> HTML labels that sanitizeSvgMarkup then strips —
+        // leaving empty node boxes.
         securityLevel: 'strict',
-        flowchart: { htmlLabels: false },
+        htmlLabels: false,
       })
       return api
     })

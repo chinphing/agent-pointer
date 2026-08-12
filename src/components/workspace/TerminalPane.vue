@@ -332,10 +332,10 @@ onBeforeUnmount(() => {
       <p>此窗格暂无终端</p>
     </div>
     <button
-      v-if="tab"
+      v-if="!tab"
       type="button"
-      class="pane-close"
-      :title="focused ? '关闭此窗格' : '关闭此窗格'"
+      class="pane-close pane-close-empty"
+      title="关闭此窗格"
       aria-label="关闭此窗格"
       @click.stop="emit('close')"
     ><X class="h-3 w-3" /></button>
@@ -372,4 +372,7 @@ onBeforeUnmount(() => {
 }
 .terminal-pane:hover .pane-close { @apply opacity-70; }
 .pane-close:hover { @apply bg-hover text-foreground opacity-100; }
+/* 空窗格无标签/工具栏可关，关闭按钮常显 */
+.pane-close-empty { @apply opacity-60; }
+.terminal-pane:hover .pane-close-empty { @apply opacity-100; }
 </style>

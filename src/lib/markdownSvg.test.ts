@@ -100,6 +100,28 @@ describe('intrinsicSvgSizeFromViewBox / applySvgMountLayout', () => {
     expect(attrs.get('overflow')).toBe('visible')
   })
 
+  it('keeps responsive width/max-width for mermaid-style svg', () => {
+    const style: Record<string, string> = { width: '', maxWidth: '2279.875px' }
+    const attrs = new Map<string, string>([
+      ['viewBox', '0 0 2279.875 480.8'],
+      ['width', '100%'],
+    ])
+    const svg = {
+      getAttribute: (name: string) => attrs.get(name) ?? null,
+      setAttribute: (name: string, value: string) => {
+        attrs.set(name, value)
+      },
+      style,
+      querySelectorAll: () => [],
+    } as unknown as SVGElement
+    applySvgMountLayout(svg)
+    expect(attrs.get('width')).toBe('100%')
+    expect(attrs.has('height')).toBe(false)
+    expect(style.width).toBe('100%')
+    expect(style.maxWidth).toBe('2279.875px')
+    expect(attrs.get('overflow')).toBe('visible')
+  })
+
   it('expands undersized viewBox so bottom content is not clipped', () => {
     const raw = `<svg viewBox="0 0 760 260" xmlns="http://www.w3.org/2000/svg">
   <rect x="260" y="248" width="240" height="34" fill="#F5EEF9"/>

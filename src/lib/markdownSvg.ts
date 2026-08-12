@@ -590,7 +590,21 @@ function roundVb(n: number): string {
 export function applySvgMountLayout(root: SVGElement): void {
   expandSvgViewBoxFromDomBBox(root)
   const size = intrinsicSvgSizeFromViewBox(root.getAttribute('viewBox'))
-  if (size) {
+  // Authors may ship responsive sizing (e.g. Mermaid emits width="100%" plus
+  // `style="max-width: Npx"`). Forcing the raw viewBox pixel width then
+  // overflows narrow containers — the diagram gets pinned to the top-left
+  // corner and clipped on the right. Respect their responsive intent.
+  // (Bare width="100%" without a max-width cap still means "crush to container"
+  // — keep forcing the intrinsic pixel size for that case.)
+  const maxWidthCap = root.style.maxWidth
+  const hasMaxWidthCap =
+    maxWidthCap !== undefined && maxWidthCap !== '' && maxWidthCap !== 'none'
+  const responsive = root.getAttribute('width') === '100%' && hasMaxWidthCap
+  if (responsive) {
+    root.style.width = '100%'
+    root.style.height = 'auto'
+    // keep the author's max-width cap so wide diagrams scale down, not up
+  } else if (size) {
     root.setAttribute('width', String(size.width))
     root.setAttribute('height', String(size.height))
     root.style.width = `${size.width}px`

@@ -1053,6 +1053,29 @@ fn default_computer_human_like() -> bool {
     true
 }
 
+/// Fill platform-owned defaults into a user settings slice loaded from disk:
+/// 1. every platform default agent model key the user lacks gets the default ref;
+/// 2. built-in providers (qwen/deepseek/doubao) get any default model id that is
+///    missing from their list.
+/// Existing user choices are preserved; only missing defaults are added.
+pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
+    for (agent_id, default_ref) in default_platform_agent_models() {
+        user.agent_default_models
+            .entry(agent_id)
+            .or_insert(default_ref);
+    }
+    let default_providers = default_platform_providers();
+    for provider in &mut user.providers {
+        if let Some(def) = default_providers.iter().find(|p| p.id == provider.id) {
+            for model in &def.models {
+                if !provider.models.iter().any(|m| m == model) {
+                    provider.models.push(model.clone());
+                }
+            }
+        }
+    }
+}
+
 pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
     let ap = settings.active_provider_id.clone();
     for v in settings.agent_default_models.values_mut() {
@@ -2606,6 +2629,118 @@ mod model_capability_vision_tests {
         let ds = s.providers.iter().find(|p| p.id == "deepseek").unwrap();
         let entry = ds.model_configs.get("deepseek-v4-flash").unwrap();
         assert_eq!(entry.supports_vision, Some(false));
+    }
+}
+
+#[cfg(test)]
+mod user_settings_defaults_tests {
+    use super::*;
+
+    #[test]
+    fn backfills_missing_builtin_provider_models_and_agent_defaults() {
+        // Simulate a legacy user_settings.json: qwen trimmed to a few models,
+        // agent_default_models empty. Other built-in providers stay present.
+        let mut user = UserSettings::default();
+        let mut qwen = default_platform_providers()
+            .into_iter()
+            .find(|p| p.id == "qwen")
+            .expect("default qwen provider");
+        qwen.models = vec!["qwen3.5-plus".into(), "qwen3.6-plus".into()];
+        let mut providers: Vec<ProviderConfig> = user
+            .providers
+            .drain(..)
+            .map(|p| if p.id == "qwen" { qwen.clone() } else { p })
+            .collect();
+        user.providers = providers;
+        user.agent_default_models.clear();
+
+        ensure_user_settings_defaults(&mut user);
+
+        // Built-in provider model list is backfilled with every default qwen model.
+        let qwen = user
+            .providers
+            .iter()
+            .find(|p| p.id == "qwen")
+            .expect("qwen provider");
+        let defaults = default_qwen_provider_models();
+        for model in &defaults {
+            assert!(
+                qwen.models.iter().any(|m| m == model),
+                "qwen should contain default model {model}"
+            );
+        }
+        // Deepseek / doubao providers that exist stay intact.
+        assert!(
+            user.providers.iter().any(|p| p.id == "deepseek"),
+            "deepseek provider should be preserved"
+        );
+        assert!(
+            user.providers.iter().any(|p| p.id == "doubao"),
+            "doubao provider should be preserved"
+        );
+
+        // Every platform default agent model key exists.
+        let defaults_map = default_platform_agent_models();
+        for agent_id in defaults_map.keys() {
+            assert!(
+                user.agent_default_models.contains_key(agent_id),
+                "agent default for {agent_id} should be backfilled"
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_user_customizations() {
+        let mut user = UserSettings::default();
+        // User-added custom provider must survive.
+        user.providers.push(default_platform_providers().into_iter().find(|p| p.id == "openrouter").unwrap_or_else(|| {
+            ProviderConfig {
+                id: "openrouter".into(),
+                name: "OpenRouter".into(),
+                base_url: "https://openrouter.ai/api/v1".into(),
+                api_key: String::new(),
+                models: vec!["openai/gpt-5.4-nano".into()],
+                reasoning_in_messages: None,
+                temperature: None,
+                max_tokens: None,
+                model_configs: HashMap::new(),
+                enable_thinking: None,
+                thinking_budget: None,
+                reasoning_effort: None,
+                extra_body: None,
+            }
+        }));
+        // User-chosen agent default for `coder` must survive backfill.
+        user.agent_default_models.insert(
+            "coder".into(),
+            AgentModelRef {
+                provider_id: "qwen".into(),
+                model: "qwen3.6-plus".into(),
+            },
+        );
+
+        ensure_user_settings_defaults(&mut user);
+
+        assert!(
+            user.providers.iter().any(|p| p.id == "openrouter"),
+            "custom provider should be preserved"
+        );
+        assert_eq!(
+            user.agent_default_models.get("coder").map(|r| r.model.as_str()),
+            Some("qwen3.6-plus"),
+            "user agent default for coder should not be overwritten"
+        );
+        // Other agents still got defaults.
+        assert!(user.agent_default_models.contains_key("explore"));
+    }
+
+    #[test]
+    fn idempotent_when_defaults_already_present() {
+        let mut user = UserSettings::default();
+        let before = user.clone();
+        ensure_user_settings_defaults(&mut user);
+        assert_eq!(user.providers.len(), before.providers.len());
+        assert_eq!(user.agent_default_models.len(), before.agent_default_models.len());
     }
 }
 

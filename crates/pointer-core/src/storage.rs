@@ -390,6 +390,10 @@ pub fn load_user_settings() -> Result<UserSettings> {
     let raw = fs::read_to_string(&path)?;
     let mut user: UserSettings = serde_json::from_str(&raw).unwrap_or_default();
     user.media_oss = Default::default();
+    // Backfill platform defaults that may be missing from older user_settings.json
+    // (built-in provider model lists and per-agent default models). User-owned
+    // customizations are preserved; only missing defaults are added.
+    crate::models::ensure_user_settings_defaults(&mut user);
     // Re-attach keys the user typed (encrypted on disk); platform-injected keys
     // are not stored here and are re-injected on login / server config load.
     for (provider_id, key) in load_provider_api_keys()? {

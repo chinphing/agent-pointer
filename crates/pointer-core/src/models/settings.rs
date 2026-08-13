@@ -1056,7 +1056,9 @@ fn default_computer_human_like() -> bool {
 /// Fill platform-owned defaults into a user settings slice loaded from disk:
 /// 1. every platform default agent model key the user lacks gets the default ref;
 /// 2. built-in providers (qwen/deepseek/doubao) get any default model id that is
-///    missing from their list.
+///    missing from their list;
+/// 3. `session-provider`/`session-worker` placeholder entries left by the legacy
+///    debug-session write path are removed so the UI falls back to real defaults.
 /// Existing user choices are preserved; only missing defaults are added.
 pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     for (agent_id, default_ref) in default_platform_agent_models() {
@@ -1073,6 +1075,51 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
                 }
             }
         }
+    }
+    strip_session_placeholder_model_configs(user);
+}
+
+/// Remove `session-provider` / `session-worker` entries from per-mode LLM maps.
+/// These were written into user_settings.json by the legacy debug-session save
+/// path; deleting them makes the UI fall back to the platform defaults.
+fn strip_session_placeholder_model_configs(user: &mut UserSettings) {
+    fn is_session_placeholder(cfg: &ComputerTierLlmConfig) -> bool {
+        cfg.provider_id.trim().eq_ignore_ascii_case("session-provider")
+            || cfg.model.trim().eq_ignore_ascii_case("session-worker")
+    }
+    for (_, modes) in user.agent_mode_llm.iter_mut() {
+        modes.retain(|_, cfg| !is_session_placeholder(cfg));
+    }
+    for (_, modes) in user.media_mode_llm.iter_mut() {
+        modes.retain(|_, cfg| !is_session_placeholder(cfg));
+    }
+    user.computer_tier_llm
+        .retain(|_, cfg| !is_session_placeholder(cfg));
+
+    let pipeline = &mut user.computer_pipeline_llm;
+    if pipeline.decision.trim().eq_ignore_ascii_case("session-worker")
+        || pipeline.decision_provider_id
+            .trim()
+            .eq_ignore_ascii_case("session-provider")
+    {
+        pipeline.decision = default_pipeline_model_decision();
+        pipeline.decision_provider_id = default_computer_llm_provider();
+    }
+    if pipeline.position.trim().eq_ignore_ascii_case("session-worker")
+        || pipeline.position_provider_id
+            .trim()
+            .eq_ignore_ascii_case("session-provider")
+    {
+        pipeline.position = default_pipeline_model_position();
+        pipeline.position_provider_id = default_computer_llm_provider();
+    }
+    if pipeline.verify.trim().eq_ignore_ascii_case("session-worker")
+        || pipeline.verify_provider_id
+            .trim()
+            .eq_ignore_ascii_case("session-provider")
+    {
+        pipeline.verify = default_pipeline_model_verify();
+        pipeline.verify_provider_id = default_computer_llm_provider();
     }
 }
 
@@ -2741,6 +2788,76 @@ mod user_settings_defaults_tests {
         ensure_user_settings_defaults(&mut user);
         assert_eq!(user.providers.len(), before.providers.len());
         assert_eq!(user.agent_default_models.len(), before.agent_default_models.len());
+    }
+
+    #[test]
+    fn strips_session_placeholder_model_configs() {
+        let mut user = UserSettings::default();
+        // Legacy debug-session pollution: per-mode maps + pipeline all session-*.
+        user.agent_mode_llm.insert(
+            "general".into(),
+            [(
+                "standard".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "session-provider".into(),
+                    model: "session-worker".into(),
+                    enable_thinking: true,
+                    thinking_budget: Some(2048),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        user.media_mode_llm.insert(
+            "image".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "session-provider".into(),
+                    model: "session-worker".into(),
+                    enable_thinking: true,
+                    thinking_budget: Some(2048),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        user.computer_tier_llm.insert(
+            "primary".into(),
+            ComputerTierLlmConfig {
+                provider_id: "session-provider".into(),
+                model: "session-worker".into(),
+                enable_thinking: true,
+                thinking_budget: Some(2048),
+            },
+        );
+        user.computer_pipeline_llm = ComputerPipelineLlmSettings {
+            decision: "session-worker".into(),
+            position: "session-worker".into(),
+            verify: "session-worker".into(),
+            decision_provider_id: "session-provider".into(),
+            position_provider_id: "session-provider".into(),
+            verify_provider_id: "session-provider".into(),
+            position_thinking_budget: 1024,
+            verify_thinking_budget: 256,
+        };
+
+        ensure_user_settings_defaults(&mut user);
+
+        assert!(
+            user.agent_mode_llm.get("general").map(|m| m.is_empty()).unwrap_or(true),
+            "agent_mode_llm session placeholder should be removed"
+        );
+        assert!(
+            user.media_mode_llm.get("image").map(|m| m.is_empty()).unwrap_or(true),
+            "media_mode_llm session placeholder should be removed"
+        );
+        assert!(
+            !user.computer_tier_llm.contains_key("primary"),
+            "computer_tier_llm session placeholder should be removed"
+        );
+        assert_ne!(user.computer_pipeline_llm.decision, "session-worker");
+        assert_ne!(user.computer_pipeline_llm.position_provider_id, "session-provider");
     }
 }
 

@@ -525,7 +525,7 @@ defineExpose({
             class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent"
           >默认全局服务商</span>
         </div>
-        <p class="text-[11px] text-muted">由平台统一管理，仅管理员可修改。</p>
+        <p class="text-[11px] text-muted">由平台统一管理。</p>
       </div>
 
       <!-- 管理员：完整卡片 + 编辑入口 -->

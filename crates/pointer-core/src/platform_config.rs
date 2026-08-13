@@ -6,8 +6,8 @@ use std::sync::{Arc, OnceLock};
 
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    ensure_provider_model_capability_defaults, filter_openrouter_providers, merge_user_platform,
-    MediaOssConfig, ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
+    ensure_provider_model_capability_defaults, merge_user_platform, MediaOssConfig, ModelSettings,
+    PlatformSettings, ProviderConfig, UserSettings,
 };
 use crate::platform_auth::PlatformMediaOssCredentials;
 use crate::storage;
@@ -145,8 +145,8 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         media_model_overrides: s.media_model_overrides.clone(),
         agent_performance_modes: s.agent_performance_modes.clone(),
         media_understanding_modes: s.media_understanding_modes.clone(),
-        computer_tier_llm: PlatformSettings::default().computer_tier_llm,
-        computer_pipeline_llm: PlatformSettings::default().computer_pipeline_llm,
+        computer_tier_llm: s.computer_tier_llm.clone(),
+        computer_pipeline_llm: s.computer_pipeline_llm.clone(),
         agent_mode_llm: s.agent_mode_llm.clone(),
         media_mode_llm: s.media_mode_llm.clone(),
         media_oss: s.media_oss.clone(),
@@ -164,8 +164,12 @@ pub fn merge_platform_preferences(
     existing: &PlatformSettings,
 ) -> PlatformSettings {
     let mut next = platform_settings_from_model_settings(incoming);
+    // computer tier/pipeline LLM: allow incoming updates (persisted via agent-settings).
     next.computer_tier_llm = existing.computer_tier_llm.clone();
-    next.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
+    for (tier, config) in incoming.computer_tier_llm.iter() {
+        next.computer_tier_llm.insert(tier.clone(), config.clone());
+    }
+    next.computer_pipeline_llm = incoming.computer_pipeline_llm.clone();
     // Per-agent/per-mode LLM config: start with existing then overlay incoming
     // on top so that incoming values always take priority.
     {
@@ -188,7 +192,7 @@ pub fn merge_platform_preferences(
         }
         next.media_mode_llm = merged;
     }
-    next.providers = filter_openrouter_providers(next.providers);
+    // OpenRouter is a first-party preset now; keep it in providers (persisted via agent-settings).
     let preserved_keys: HashMap<String, String> = existing
         .providers
         .iter()
@@ -404,7 +408,7 @@ fn resolve_llm_provider_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::PersistedLocalPlatformSettings;
+    use crate::models::{ComputerTierLlmConfig, PersistedLocalPlatformSettings};
 
     #[test]
     fn apply_login_maps_aliyun_qwen() {
@@ -442,14 +446,14 @@ mod tests {
     }
 
     #[test]
-    fn persisted_local_platform_keeps_agent_fields_only() {
+    fn persisted_local_platform_keeps_model_config_and_strips_keys() {
         let mut platform = PlatformSettings::default();
         platform.providers[0].api_key = "sk-secret".into();
         platform.providers.push(ProviderConfig {
             id: "openrouter".into(),
             name: "OpenRouter".into(),
             base_url: "https://openrouter.ai/api/v1".into(),
-            api_key: String::new(),
+            api_key: "sk-openrouter-secret".into(),
             models: vec!["gpt-4o".into()],
             reasoning_in_messages: None,
             temperature: None,
@@ -458,10 +462,10 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
-        extra_body: None,
+            extra_body: None,
         });
-        platform.active_provider_id = "qwen".into();
-        platform.model = "qwen3.5-plus".into();
+        platform.active_provider_id = "openrouter".into();
+        platform.model = "gpt-4o".into();
         platform.temperature = 0.9;
         platform.max_tokens = 8192;
         platform.tool_approval_mode = "manual".into();
@@ -487,6 +491,7 @@ mod tests {
         let persisted = PersistedLocalPlatformSettings::from_platform(&platform);
         let json = serde_json::to_string(&persisted).unwrap();
         let value = serde_json::to_value(&persisted).unwrap();
+        // Model-service config is now persisted so custom services survive restarts.
         for key in [
             "providers",
             "activeProviderId",
@@ -497,18 +502,16 @@ mod tests {
             "computerPipelineLlm",
             "agentModeLlm",
             "mediaModeLlm",
+            "agentDefaultModels",
         ] {
             assert!(
-                value.get(key).is_none(),
-                "debug-session field must not be persisted: {key}"
+                value.get(key).is_some(),
+                "model config field must be persisted: {key}"
             );
         }
+        // Secrets stay out of the persisted file (empty/cleared on write).
         assert!(!json.contains("sk-secret"));
-        assert!(!json.contains("apiKey"));
-        assert!(!json.contains("openrouter"));
-        assert!(!json.contains("OpenRouter"));
-        assert!(!json.contains("activeProviderId"));
-        assert!(!json.contains("temperature"));
+        assert!(!json.contains("sk-openrouter-secret"));
         assert!(!json.contains("rawContentViewEnabled"));
         assert!(!json.contains("debugDumpLlmPrompts"));
         assert!(!json.contains("computerAnnotatedScreenViewEnabled"));
@@ -537,8 +540,86 @@ mod tests {
         assert_eq!(loaded.lead_agent_id, "coder");
         assert_eq!(loaded.workspace_root, "/tmp/pointer-workspace");
         assert_eq!(loaded.tool_approval_mode, platform.tool_approval_mode);
-        assert_eq!(loaded.model, PlatformSettings::default().model);
+        // Model-service selection survives restart now.
+        assert_eq!(loaded.active_provider_id, "openrouter");
+        assert_eq!(loaded.model, "gpt-4o");
+        assert_eq!(loaded.temperature, 0.9);
+        assert_eq!(loaded.max_tokens, 8192);
+        assert_eq!(loaded.computer_tier_llm, platform.computer_tier_llm);
+        assert_eq!(loaded.computer_pipeline_llm, platform.computer_pipeline_llm);
+        assert_eq!(loaded.agent_mode_llm, platform.agent_mode_llm);
+        assert_eq!(loaded.media_mode_llm, platform.media_mode_llm);
+        assert_eq!(loaded.agent_default_models, platform.agent_default_models);
+        let openrouter = loaded.providers.iter().find(|p| p.id == "openrouter").unwrap();
+        assert_eq!(openrouter.base_url, "https://openrouter.ai/api/v1");
+        assert!(openrouter.api_key.is_empty());
         assert!(loaded.providers.iter().all(|p| p.api_key.is_empty()));
+    }
+
+    #[test]
+    fn merge_platform_preferences_applies_computer_tier_llm() {
+        let mut existing = PlatformSettings::default();
+        existing.computer_tier_llm.insert(
+            "primary".into(),
+            ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "existing-model".into(),
+                enable_thinking: false,
+                thinking_budget: None,
+            },
+        );
+        existing.computer_tier_llm.insert(
+            "advanced".into(),
+            ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "existing-advanced".into(),
+                enable_thinking: true,
+                thinking_budget: Some(4096),
+            },
+        );
+        existing.computer_pipeline_llm.verify = "existing-verify".into();
+
+        let mut incoming = ModelSettings::default();
+        incoming.computer_tier_llm.clear();
+        incoming.computer_tier_llm.insert(
+            "primary".into(),
+            ComputerTierLlmConfig {
+                provider_id: "openrouter".into(),
+                model: "incoming-primary".into(),
+                enable_thinking: true,
+                thinking_budget: Some(2048),
+            },
+        );
+        incoming.computer_tier_llm.insert(
+            "intermediate".into(),
+            ComputerTierLlmConfig {
+                provider_id: "openrouter".into(),
+                model: "incoming-intermediate".into(),
+                enable_thinking: false,
+                thinking_budget: None,
+            },
+        );
+        incoming.computer_pipeline_llm.verify = "incoming-verify".into();
+
+        let merged = merge_platform_preferences(&incoming, &existing);
+        assert_eq!(
+            merged.computer_tier_llm.get("primary").unwrap().model,
+            "incoming-primary"
+        );
+        assert_eq!(
+            merged.computer_tier_llm.get("primary").unwrap().provider_id,
+            "openrouter"
+        );
+        assert_eq!(
+            merged.computer_tier_llm.get("intermediate").unwrap().model,
+            "incoming-intermediate"
+        );
+        // Existing-only tiers are retained, incoming-only tiers added.
+        assert_eq!(
+            merged.computer_tier_llm.get("advanced").unwrap().model,
+            "existing-advanced"
+        );
+        assert_eq!(merged.computer_pipeline_llm.verify, "incoming-verify");
     }
 
     #[test]

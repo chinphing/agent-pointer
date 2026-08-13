@@ -921,6 +921,12 @@ pub struct ModelSettings {
     /// Debug: media kind → performance mode → LLM profile.
     #[serde(default, rename = "mediaModeLlm")]
     pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    /// Debug: computer tier → LLM profile.
+    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
+    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+    /// Debug: per-phase LLM for computer host verify pipeline.
+    #[serde(default, rename = "computerPipelineLlm")]
+    pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
     /// Max concurrent tool invocations per batch (`None` → min(CPU cores, 8)).
@@ -1253,6 +1259,8 @@ impl Default for ModelSettings {
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
             media_understanding_modes: MediaUnderstandingModes::default(),
+            computer_tier_llm: default_computer_tier_llm(),
+            computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
             media_oss: MediaOssConfig::default(),
@@ -1532,7 +1540,7 @@ impl Default for UserSettings {
 }
 
 /// Per-tier LLM overrides for Computer Use Agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ComputerTierLlmConfig {
     #[serde(rename = "providerId")]
     pub provider_id: String,
@@ -1544,7 +1552,7 @@ pub struct ComputerTierLlmConfig {
 }
 
 /// Per-phase model ids and thinking budgets for host verify pipeline.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ComputerPipelineLlmSettings {
     #[serde(default = "default_pipeline_model_decision")]
     pub decision: String,
@@ -1862,9 +1870,36 @@ pub fn filter_openrouter_providers(providers: Vec<ProviderConfig>) -> Vec<Provid
         .collect()
 }
 
-/// Disk-safe desktop agent preferences (智能体 section). Excludes model-service and session-only fields.
+/// Disk-safe desktop agent preferences (智能体 section). Includes model-service
+/// configuration (provider structure without secrets, active model selection) so
+/// custom services survive restarts; apiKey stays in memory / OAuth-injected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedLocalPlatformSettings {
+    #[serde(default = "default_active_provider_id", rename = "activeProviderId")]
+    pub active_provider_id: String,
+    #[serde(default = "default_model_name", rename = "model")]
+    pub model: String,
+    #[serde(default = "default_model_temperature", rename = "temperature")]
+    pub temperature: f32,
+    #[serde(default = "default_model_max_tokens", rename = "maxTokens")]
+    pub max_tokens: u32,
+    #[serde(default, rename = "providers")]
+    pub providers: Vec<ProviderConfig>,
+    #[serde(
+        default,
+        rename = "agentDefaultModels",
+        deserialize_with = "deserialize_agent_default_models",
+        serialize_with = "serialize_agent_default_models"
+    )]
+    pub agent_default_models: HashMap<String, AgentModelRef>,
+    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
+    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+    #[serde(default, rename = "computerPipelineLlm")]
+    pub computer_pipeline_llm: ComputerPipelineLlmSettings,
+    #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
+    pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
+    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
     pub tool_approval_mode: String,
     #[serde(
@@ -1954,6 +1989,24 @@ pub struct PersistedLocalPlatformSettings {
 impl PersistedLocalPlatformSettings {
     pub fn from_platform(platform: &PlatformSettings) -> Self {
         Self {
+            active_provider_id: platform.active_provider_id.clone(),
+            model: platform.model.clone(),
+            temperature: platform.temperature,
+            max_tokens: platform.max_tokens,
+            providers: platform
+                .providers
+                .iter()
+                .map(|p| {
+                    let mut p = p.clone();
+                    p.api_key.clear();
+                    p
+                })
+                .collect(),
+            agent_default_models: platform.agent_default_models.clone(),
+            computer_tier_llm: platform.computer_tier_llm.clone(),
+            computer_pipeline_llm: platform.computer_pipeline_llm.clone(),
+            agent_mode_llm: platform.agent_mode_llm.clone(),
+            media_mode_llm: platform.media_mode_llm.clone(),
             tool_approval_mode: platform.tool_approval_mode.clone(),
             user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
             computer_human_like: platform.computer_human_like,
@@ -1987,6 +2040,24 @@ impl PersistedLocalPlatformSettings {
 
     /// Merge persisted agent fields onto runtime platform.
     pub fn apply_onto(&self, platform: &mut PlatformSettings) {
+        if !self.active_provider_id.trim().is_empty() {
+            platform.active_provider_id = self.active_provider_id.clone();
+        }
+        if !self.model.trim().is_empty() {
+            platform.model = self.model.clone();
+        }
+        platform.temperature = self.temperature;
+        platform.max_tokens = self.max_tokens;
+        if !self.providers.is_empty() {
+            platform.providers = self.providers.clone();
+        }
+        if !self.agent_default_models.is_empty() {
+            platform.agent_default_models = self.agent_default_models.clone();
+        }
+        platform.computer_tier_llm = self.computer_tier_llm.clone();
+        platform.computer_pipeline_llm = self.computer_pipeline_llm.clone();
+        platform.agent_mode_llm = self.agent_mode_llm.clone();
+        platform.media_mode_llm = self.media_mode_llm.clone();
         platform.tool_approval_mode = self.tool_approval_mode.clone();
         platform.user_dynamic_inject_enabled = self.user_dynamic_inject_enabled;
         platform.computer_human_like = self.computer_human_like;
@@ -2470,6 +2541,8 @@ pub fn preserve_platform_debug_settings_in_model(
     // Mode LLM maps are also omitted for non-admins; keep server values.
     incoming.agent_mode_llm = platform.agent_mode_llm.clone();
     incoming.media_mode_llm = platform.media_mode_llm.clone();
+    incoming.computer_tier_llm = platform.computer_tier_llm.clone();
+    incoming.computer_pipeline_llm = platform.computer_pipeline_llm.clone();
 }
 
 /// Strip DaTi fields and redact secrets for pointer-server Web API responses.
@@ -2555,6 +2628,8 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         media_understanding_modes: platform.media_understanding_modes.clone(),
         agent_mode_llm: platform.agent_mode_llm.clone(),
         media_mode_llm: platform.media_mode_llm.clone(),
+        computer_tier_llm: platform.computer_tier_llm.clone(),
+        computer_pipeline_llm: platform.computer_pipeline_llm.clone(),
         media_oss: platform.media_oss.clone(),
         max_parallel_tool_calls: platform.max_parallel_tool_calls,
         max_parallel_sub_agents: platform.max_parallel_sub_agents,

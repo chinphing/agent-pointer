@@ -7,13 +7,20 @@ use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 const STREAM_EVENT: &str = "chat://stream";
 const MAX_TOOL_ROUNDS: usize = 6;
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
 pub struct AppState {
     pub tools: Arc<ToolRegistry>,
@@ -62,6 +69,8 @@ pub async fn run_chat(
         .cancels
         .lock()
         .insert(conversation_id.clone(), cancel.clone());
+    // 本��� AI 工作区间起点（epoch ms），Done 事件携带供前端计算"工作耗时"。
+    let run_started_at_ms = now_ms();
 
     let result = run_chat_inner(
         app.clone(),
@@ -89,6 +98,8 @@ pub async fn run_chat(
         &app,
         &StreamEvent::Done {
             conversation_id: conversation_id.clone(),
+            started_at_ms: Some(run_started_at_ms),
+            finished_at_ms: Some(now_ms()),
         },
     );
     result

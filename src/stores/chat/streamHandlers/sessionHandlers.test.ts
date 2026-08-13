@@ -58,6 +58,25 @@ describe('sessionHandlers', () => {
     vi.restoreAllMocks()
   })
 
+  it('handleDone prefers backend run_chat timestamps over local timing', () => {
+    const conv = sampleConversation()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn()
+    })
+    recordTurnStart('conv1', 'user-1', 10_000)
+
+    handleDone(ctx, {
+      kind: 'done',
+      conversationId: 'conv1',
+      startedAtMs: 20_000,
+      finishedAtMs: 50_000
+    })
+
+    expect(turnElapsedMs('conv1', 'user-1')).toBe(30_000)
+  })
+
   it('handleDone ignores stale Done after interrupt when a newer turn is active', () => {
     const conv = sampleConversation()
     const clearRunState = vi.fn()

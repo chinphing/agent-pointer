@@ -41,7 +41,6 @@ describe('settings debug-session save', () => {
       isPlatformAdmin: true
     }
     store.settings.model = 'qwen3.7-plus'
-    store.platformSettings.model = 'qwen3.7-plus'
     const debugSnapshot = store.createDebugSessionSnapshot()
 
     updateUserSettings.mockResolvedValue(oldView)

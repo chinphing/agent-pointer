@@ -80,66 +80,11 @@ const defaultMediaModeLlm = () => ({
 
 const defaultPlatformSettings = (): PlatformSettings => ({
   providers: defaultProviders,
-  activeProviderId: 'qwen',
-  model: 'qwen3.5-plus',
-  temperature: 0.3,
-  maxTokens: 64_000,
-  toolApprovalMode: 'auto',
-  agentMode: 'single',
-  workspaceRoot: '',
-  leadAgentId: 'general',
-  contextCompressionEnabled: true,
-  contextBudgetTokens: 100_000,
-  contextKeepRecentUserTurns: 3,
-  contextSummaryMaxTokens: 1024,
-  maxToolRounds: 200,
-  maxSubAgentToolRounds: 200,
-  maxSubAgentSpawnDepth: 2,
-  rawContentViewEnabled: false,
-  debugDumpLlmPrompts: false,
-  terminalEnvOverrides: {},
-  debugMenusEnabled: false,
-  taskBoardShowChildBoards: false,
-  agentDefaultModels: {},
-  agentTaskBoardHistoryTrim: {},
-  computerHumanLike: true,
-  computerInitialTier: 'intermediate',
-  computerAutoSwitchMonitor: true,
-  computerAnnotatedScreenViewEnabled: false,
-  captchaSliderOffsetPx: 0,
-  agentUiOverrides: {},
-  mediaModelOverrides: {
-    image: { providerId: 'qwen', model: 'qwen3.5-plus' },
-    audio: { providerId: 'qwen', model: 'qwen3-asr-flash' },
-    imageGeneration: {
-      providerId: 'doubao',
-      model: 'doubao-seedream-5-0-lite-260128'
-    },
-    videoGeneration: {
-      providerId: 'doubao',
-      model: 'doubao-seedance-2-0-fast-260128'
-    }
-  },
-  computerTierLlm: {
-    primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
-    intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
-    advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
-  },
-  computerPipelineLlm: {
-    decision: 'qwen3.5-flash',
-    position: 'qwen3.5-plus',
-    verify: 'qwen3.5-flash',
-    decisionProviderId: 'qwen',
-    positionProviderId: 'qwen',
-    verifyProviderId: 'qwen',
-    positionThinkingBudget: 1024,
-    verifyThinkingBudget: 256
-  },
-  agentModeLlm: defaultAgentModeLlm(),
-  mediaModeLlm: defaultMediaModeLlm(),
-  agentPerformanceModes: { general: 'fast', coder: 'fast' },
-  mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' },
-  parallelToolExecutionEnabled: true
+  mediaOss: undefined,
+  datiApiUrl: '',
+  datiAuthcode: '',
+  datiTypeno: '',
+  datiAuthor: ''
 })
 
 function migratePlannerSettingsFields(
@@ -220,14 +165,11 @@ function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxToke
  */
 function retainTerminalEnvOverrides(
   mergedIn?: Record<string, string>,
-  platformIn?: Record<string, string>,
-  prevMerged?: Record<string, string>,
-  prevPlatform?: Record<string, string>
+  prevMerged?: Record<string, string>
 ): Record<string, string> {
-  const incoming = mergedIn ?? platformIn
-  const previous = prevMerged ?? prevPlatform ?? {}
-  if (incoming === undefined) return { ...previous }
-  return { ...incoming }
+  const previous = prevMerged ?? {}
+  if (mergedIn === undefined) return { ...previous }
+  return { ...mergedIn }
 }
 
 const defaultProviders: ProviderConfig[] = [
@@ -347,7 +289,61 @@ export const useSettingsStore = defineStore('settings', () => {
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
   const settings = ref<ModelSettings>({
     ...defaultPlatformSettings(),
+    activeProviderId: 'qwen',
+    model: 'qwen3.5-plus',
+    temperature: 0.3,
+    maxTokens: 64_000,
     hasKey: false,
+    toolApprovalMode: 'auto',
+    agentMode: 'single',
+    workspaceRoot: '',
+    leadAgentId: 'general',
+    contextCompressionEnabled: true,
+    contextBudgetTokens: 100_000,
+    contextKeepRecentUserTurns: 3,
+    contextSummaryMaxTokens: 1024,
+    maxToolRounds: 200,
+    maxSubAgentToolRounds: 200,
+    maxSubAgentSpawnDepth: 2,
+    rawContentViewEnabled: false,
+    debugDumpLlmPrompts: false,
+    terminalEnvOverrides: {},
+    debugMenusEnabled: false,
+    taskBoardShowChildBoards: false,
+    agentDefaultModels: {},
+    agentTaskBoardHistoryTrim: {},
+    computerHumanLike: true,
+    computerInitialTier: 'intermediate',
+    computerAutoSwitchMonitor: true,
+    computerAnnotatedScreenViewEnabled: false,
+    captchaSliderOffsetPx: 0,
+    agentUiOverrides: {},
+    mediaModelOverrides: {
+      image: { providerId: 'qwen', model: 'qwen3.5-plus' },
+      audio: { providerId: 'qwen', model: 'qwen3-asr-flash' },
+      imageGeneration: { providerId: 'doubao', model: 'doubao-seedream-5-0-lite-260128' },
+      videoGeneration: { providerId: 'doubao', model: 'doubao-seedance-2-0-fast-260128' }
+    },
+    computerTierLlm: {
+      primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
+      intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
+      advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
+    },
+    computerPipelineLlm: {
+      decision: 'qwen3.5-flash',
+      position: 'qwen3.5-plus',
+      verify: 'qwen3.5-flash',
+      decisionProviderId: 'qwen',
+      positionProviderId: 'qwen',
+      verifyProviderId: 'qwen',
+      positionThinkingBudget: 1024,
+      verifyThinkingBudget: 256
+    },
+    agentModeLlm: defaultAgentModeLlm(),
+    mediaModeLlm: defaultMediaModeLlm(),
+    agentPerformanceModes: { general: 'fast', coder: 'fast' },
+    mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' },
+    parallelToolExecutionEnabled: true,
     theme: 'system'
   } as ModelSettings)
   const canEditPlatform = ref(false)
@@ -367,31 +363,12 @@ export const useSettingsStore = defineStore('settings', () => {
     const prevMerged = settings.value
     const retainedTerminalEnv = retainTerminalEnvOverrides(
       mergedIn.terminalEnvOverrides,
-      platformIn.terminalEnvOverrides,
-      prevMerged.terminalEnvOverrides,
-      prevPlatform.terminalEnvOverrides
+      prevMerged.terminalEnvOverrides
     )
     platformSettings.value = {
       ...defaultPlatformSettings(),
       ...platformIn,
-      providers: normalizeProviders(platformIn.providers, undefined, globalGenFallbackFrom(mergedIn)),
-      terminalEnvOverrides: { ...retainedTerminalEnv },
-      computerTierLlm: {
-        ...defaultPlatformSettings().computerTierLlm,
-        ...(platformIn.computerTierLlm ?? prevPlatform.computerTierLlm ?? {})
-      },
-      computerPipelineLlm: {
-        ...defaultPlatformSettings().computerPipelineLlm,
-        ...(platformIn.computerPipelineLlm ?? prevPlatform.computerPipelineLlm ?? {})
-      },
-      agentModeLlm: {
-        ...defaultAgentModeLlm(),
-        ...(platformIn.agentModeLlm ?? prevPlatform.agentModeLlm ?? {})
-      },
-      mediaModeLlm: {
-        ...defaultMediaModeLlm(),
-        ...(platformIn.mediaModeLlm ?? prevPlatform.mediaModeLlm ?? {})
-      }
+      providers: normalizeProviders(platformIn.providers, undefined, globalGenFallbackFrom(mergedIn))
     }
     canEditPlatform.value = view.canEditPlatform
     isPlatformAdmin.value = view.isPlatformAdmin
@@ -413,10 +390,11 @@ export const useSettingsStore = defineStore('settings', () => {
         prevMerged.computerAnnotatedScreenViewEnabled,
       agentUiOverrides:
         mergedIn.agentUiOverrides ?? prevMerged.agentUiOverrides,
-      agentModeLlm: platformSettings.value.agentModeLlm,
-      mediaModeLlm: platformSettings.value.mediaModeLlm,
-      computerTierLlm: platformSettings.value.computerTierLlm,
-      computerPipelineLlm: platformSettings.value.computerPipelineLlm
+      agentModeLlm: mergedIn.agentModeLlm ?? prevMerged.agentModeLlm ?? {},
+      mediaModeLlm: mergedIn.mediaModeLlm ?? prevMerged.mediaModeLlm ?? {},
+      computerTierLlm: mergedIn.computerTierLlm ?? prevMerged.computerTierLlm ?? {},
+      computerPipelineLlm:
+        mergedIn.computerPipelineLlm ?? prevMerged.computerPipelineLlm ?? {}
     }
     settings.value = normalizeMergedSettings(nextMerged, activeId)
     applyTheme(settings.value.theme)
@@ -575,10 +553,10 @@ export const useSettingsStore = defineStore('settings', () => {
       model: settings.value.model,
       temperature: settings.value.temperature,
       maxTokens: settings.value.maxTokens,
-      computerTierLlm: platformSettings.value.computerTierLlm ?? {},
-      computerPipelineLlm: platformSettings.value.computerPipelineLlm ?? {},
-      agentModeLlm: platformSettings.value.agentModeLlm ?? {},
-      mediaModeLlm: platformSettings.value.mediaModeLlm ?? {},
+      computerTierLlm: settings.value.computerTierLlm ?? {},
+      computerPipelineLlm: settings.value.computerPipelineLlm ?? {},
+      agentModeLlm: settings.value.agentModeLlm ?? {},
+      mediaModeLlm: settings.value.mediaModeLlm ?? {},
       ...patch
     })
   }
@@ -633,10 +611,10 @@ export const useSettingsStore = defineStore('settings', () => {
     await saveAgentPreferencesSnapshot(createSessionSnapshot(patch))
   }
 
-  async function saveModelService(patch: Partial<PlatformSettings>) {
+  async function saveModelService(patch: Partial<ModelSettings>) {
     // 模型配置统一走 agent-settings（唯一持久化端点）；providers/activeProviderId/
     // model/temperature/maxTokens 随全量快照落盘（apiKey 由后端脱敏）。
-    await saveAgentPreferences(patch as unknown as Partial<ModelSettings>)
+    await saveAgentPreferences(patch)
   }
 
   /** Apply agent UI debug/display overrides in memory (chat reflects immediately; persist via save). */

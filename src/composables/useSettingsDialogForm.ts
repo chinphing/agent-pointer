@@ -123,10 +123,10 @@ function createSettingsDialogForm(deps: {
     // 档位/管道模型映射统一走 agent-settings 持久化，重启保留。
     void s
       .saveAgentPreferences({
-        computerTierLlm: s.platformSettings.computerTierLlm,
-        computerPipelineLlm: s.platformSettings.computerPipelineLlm,
-        agentModeLlm: s.platformSettings.agentModeLlm,
-        mediaModeLlm: s.platformSettings.mediaModeLlm
+        computerTierLlm: s.settings.computerTierLlm,
+        computerPipelineLlm: s.settings.computerPipelineLlm,
+        agentModeLlm: s.settings.agentModeLlm,
+        mediaModeLlm: s.settings.mediaModeLlm
       })
       .catch(error => {
         console.error('[settings] failed to save debug model mapping', error)
@@ -135,17 +135,17 @@ function createSettingsDialogForm(deps: {
   }
 
   function patchAgentModeLlm(agentId: string, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
-  const next = { ...(s.platformSettings.agentModeLlm ?? {}) }
+  const next = { ...(s.settings.agentModeLlm ?? {}) }
   const agentMap = { ...(next[agentId] ?? {}) }
   const prev = agentMap[mode] ?? agentModeLlm(agentId, mode)
   agentMap[mode] = { ...prev, ...patch }
   next[agentId] = agentMap
-  s.platformSettings.agentModeLlm = next
+  s.settings.agentModeLlm = next
   scheduleDebugModelSave()
   }
 
   function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
-  const m = s.platformSettings.agentModeLlm?.[agentId]?.[mode]
+  const m = s.settings.agentModeLlm?.[agentId]?.[mode]
   if (m) return m
   if (mode === 'fast') {
     return { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 }
@@ -158,7 +158,7 @@ function createSettingsDialogForm(deps: {
   }
 
   function patchMediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
-  const next = { ...(s.platformSettings.mediaModeLlm ?? {}) }
+  const next = { ...(s.settings.mediaModeLlm ?? {}) }
   const kindMap = { ...(next[kind] ?? {}) }
   const prev = kindMap[mode] ?? {
     providerId: 'qwen',
@@ -168,12 +168,12 @@ function createSettingsDialogForm(deps: {
   }
   kindMap[mode] = { ...prev, ...patch }
   next[kind] = kindMap
-  s.platformSettings.mediaModeLlm = next
+  s.settings.mediaModeLlm = next
   scheduleDebugModelSave()
   }
 
   function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): ComputerTierLlmConfig {
-  const m = s.platformSettings.mediaModeLlm?.[kind]?.[mode]
+  const m = s.settings.mediaModeLlm?.[kind]?.[mode]
   if (m) return m
   if (kind === 'audio') {
     return {
@@ -192,7 +192,7 @@ function createSettingsDialogForm(deps: {
   }
 
   function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
-  const m = s.platformSettings.computerTierLlm?.[key]
+  const m = s.settings.computerTierLlm?.[key]
   return (
     m ?? {
       providerId: 'qwen',
@@ -204,9 +204,9 @@ function createSettingsDialogForm(deps: {
   }
 
   function patchComputerTierLlm(key: ComputerTierKey, patch: Partial<ComputerTierLlmConfig>) {
-  const next = { ...(s.platformSettings.computerTierLlm ?? {}) }
+  const next = { ...(s.settings.computerTierLlm ?? {}) }
   next[key] = { ...computerTierLlm(key), ...patch }
-  s.platformSettings.computerTierLlm = next
+  s.settings.computerTierLlm = next
   scheduleDebugModelSave()
   }
 
@@ -239,11 +239,11 @@ function createSettingsDialogForm(deps: {
     positionThinkingBudget: 1024,
     verifyThinkingBudget: 256
   }
-  return { ...defaults, ...s.platformSettings.computerPipelineLlm }
+  return { ...defaults, ...s.settings.computerPipelineLlm }
   }
 
   function patchComputerPipelineLlm(patch: Partial<ComputerPipelineLlmSettings>) {
-  s.platformSettings.computerPipelineLlm = { ...computerPipelineLlm(), ...patch }
+  s.settings.computerPipelineLlm = { ...computerPipelineLlm(), ...patch }
   scheduleDebugModelSave()
   }
 

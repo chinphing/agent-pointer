@@ -43,7 +43,7 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 - Registered delegation stops at **`maxSubAgentSpawnDepth`** (default 2).
 - Self leaf forks remain allowed at that depth.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
-- Optional **`taskId`** stays stable across repeated handoffs to the same logical task.
+- Optional **`taskId`** is for **explicitly continuing the same logical task**: reuse it only when a later handoff genuinely continues the same task (e.g. retry or follow-up on the same goal). For a **new** logical task, omit `taskId` so the host assigns a fresh id — do **not** copy a `taskId` seen in a previous completed result.
 
 **Parallel wave (`self` and `explore`)**
 
@@ -227,7 +227,7 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 - **`goal`** (required) — **`What:`** + **`Done when:`**; optional **`Out of scope:`** (≤3 lines, **≤25 words per line**; see **Goal vs context**).
 - **`context`** (optional) — One string; Markdown **`##` blocks** (not JSON). See template above.
 - **`title`** (optional) — Short label for traces.
-- **`taskId`** (optional) — Stable id for sidecar state.
+- **`taskId`** (optional) — Reuse only when explicitly continuing the **same logical task**; for new tasks omit it (host assigns a fresh id). Completed results do **not** echo `taskId` back.
 - **`workspaceRoot`** (**required** when **`agentId`** is **`coder`**) —
   Absolute directory for the coder worker.
   Optional for a self fork; when present, it overrides the current workspace.

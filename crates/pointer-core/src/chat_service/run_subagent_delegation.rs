@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::agent_ui::agent_display_label;
-use crate::agents::{AgentDef, AgentTask};
+use crate::agents::{AgentDef, AgentRunResult, AgentTask};
 use crate::chat_service::self_fork::SelfForkSnapshot;
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::ChatMessage;
@@ -23,6 +23,22 @@ use super::util::{new_id, truncate_str};
 use tokio_util::sync::CancellationToken;
 
 pub(super) type ToolExecResult = Result<(String, bool, Option<String>), anyhow::Error>;
+
+/// Serialize a completed sub-agent result for the lead model **without** echoing the
+/// internal `taskId`. The model must not see a finished task's machine id, otherwise it
+/// tends to copy it onto the next, unrelated `run_subagent` call — colliding the child
+/// board store key / trace id (child key and trace are derived from taskId alone for
+/// registered agents). Keep the JSON shape otherwise identical.
+fn serialize_subagent_result_without_task_id(result: &AgentRunResult) -> Result<String, serde_json::Error> {
+    let mut obj = serde_json::Map::new();
+    obj.insert("agentId".to_string(), serde_json::Value::String(result.agent_id.clone()));
+    obj.insert("agentName".to_string(), serde_json::Value::String(result.agent_name.clone()));
+    obj.insert("content".to_string(), serde_json::Value::String(result.content.clone()));
+    if let Some(reasoning) = &result.reasoning {
+        obj.insert("reasoning".to_string(), serde_json::Value::String(reasoning.clone()));
+    }
+    serde_json::to_string(&serde_json::Value::Object(obj))
+}
 
 pub(super) struct PreparedSubagentOutcome {
     pub tool_call_id: String,
@@ -327,7 +343,7 @@ pub(super) async fn execute_owned_subagent(
     };
     let run_result = Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await;
     let (trace, exec) = match run_result {
-        Ok(result) => match serde_json::to_string(&result) {
+        Ok(result) => match serialize_subagent_result_without_task_id(&result) {
             Ok(json) => (
                 build_subagent_trace(
                     &task,
@@ -708,10 +724,14 @@ pub(super) async fn run_subagent_delegation(
                                 result.task_id,
                                 child_spawn_depth
                             );
-                            let json = serde_json::to_string(&result).unwrap_or_else(|e| {
-                                log::warn!("run_subagent result serialize failed: {e}");
-                                r#"{"error":"serialize_failed"}"#.to_string()
-                            });
+                            let json = serialize_subagent_result_without_task_id(&result).unwrap_or_else(
+                                |e| {
+                                    log::warn!(
+                                        "run_subagent result serialize failed: {e}"
+                                    );
+                                    r#"{"error":"serialize_failed"}"#.to_string()
+                                },
+                            );
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,
@@ -749,16 +769,36 @@ pub(super) async fn run_subagent_delegation(
 mod trace_tests {
     use super::{
         build_subagent_trace, commit_subagent_outcome, execute_owned_subagent,
-        failed_owned_subagent_outcome, finalize_subagent_outcome, OwnedSubagentExecutionInput,
-        OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
+        failed_owned_subagent_outcome, finalize_subagent_outcome,
+        serialize_subagent_result_without_task_id, OwnedSubagentExecutionInput, OwnedSubagentSource,
+        PreparedSubagentOutcome, SubagentCommitContext,
     };
     use crate::agent_instance_scope::AgentInstanceScope;
     use crate::agents::{
-        AccessPolicy, AgentDef, AgentProfile, AgentTask, AgentUiConfig, SkillsPolicy,
+        AccessPolicy, AgentDef, AgentProfile, AgentRunResult, AgentTask, AgentUiConfig,
+        SkillsPolicy,
     };
     use crate::llm_token_stats::ConversationLlmStats;
     use crate::models::{ChatMessage, Role};
     use std::collections::HashMap;
+
+    #[test]
+    fn subagent_result_serialization_omits_task_id() {
+        let result = AgentRunResult {
+            task_id: "sub_task_should_not_leak".into(),
+            agent_id: "coder".into(),
+            agent_name: "氛围编程".into(),
+            content: "handoff body".into(),
+            reasoning: Some("thinking".into()),
+        };
+        let json = serialize_subagent_result_without_task_id(&result).unwrap();
+        assert!(!json.contains("sub_task_should_not_leak"));
+        assert!(!json.contains("taskId"));
+        assert!(json.contains("\"agentId\":\"coder\""));
+        assert!(json.contains("\"agentName\":\"氛围编程\""));
+        assert!(json.contains("\"content\":\"handoff body\""));
+        assert!(json.contains("\"reasoning\":\"thinking\""));
+    }
 
     #[test]
     fn child_trace_carries_current_agent_instance_id() {

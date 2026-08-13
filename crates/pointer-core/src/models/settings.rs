@@ -2859,6 +2859,86 @@ mod user_settings_defaults_tests {
         assert_ne!(user.computer_pipeline_llm.decision, "session-worker");
         assert_ne!(user.computer_pipeline_llm.position_provider_id, "session-provider");
     }
+
+    #[test]
+    fn keeps_user_customized_mode_models_not_session_placeholders() {
+        // 用户主动改过档位模型（合法值），清理 session 占位时不能误删。
+        let mut user = UserSettings::default();
+        user.agent_mode_llm.insert(
+            "general".into(),
+            [
+                (
+                    "fast".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "openrouter".into(),
+                        model: "inclusionai/ling-3.0-flash".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(2048),
+                    },
+                ),
+                (
+                    "standard".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "session-provider".into(),
+                        model: "session-worker".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(2048),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        user.media_mode_llm.insert(
+            "video".into(),
+            [(
+                "expert".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "qwen".into(),
+                    model: "qwen3.6-plus".into(),
+                    enable_thinking: true,
+                    thinking_budget: Some(8192),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        user.computer_tier_llm.insert(
+            "advanced".into(),
+            ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "qwen3.7-max".into(),
+                enable_thinking: true,
+                thinking_budget: Some(8192),
+            },
+        );
+
+        ensure_user_settings_defaults(&mut user);
+
+        let general = user.agent_mode_llm.get("general").expect("general map");
+        // 用户自定义 fast 保留
+        assert_eq!(
+            general.get("fast").map(|c| (c.provider_id.as_str(), c.model.as_str())),
+            Some(("openrouter", "inclusionai/ling-3.0-flash"))
+        );
+        // session 占位 standard 被删
+        assert!(general.get("standard").is_none(), "session placeholder removed");
+        // media video expert 自定义保留
+        assert_eq!(
+            user.media_mode_llm
+                .get("video")
+                .and_then(|m| m.get("expert"))
+                .map(|c| (c.provider_id.as_str(), c.model.as_str())),
+            Some(("qwen", "qwen3.6-plus"))
+        );
+        // computer advanced 自定义保留
+        assert_eq!(
+            user.computer_tier_llm
+                .get("advanced")
+                .map(|c| (c.provider_id.as_str(), c.model.as_str())),
+            Some(("qwen", "qwen3.7-max"))
+        );
+    }
 }
 
 #[cfg(test)]

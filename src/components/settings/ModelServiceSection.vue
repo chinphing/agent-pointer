@@ -295,11 +295,10 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
     name: draft.name.trim(),
     baseUrl: draft.baseUrl.trim(),
     models,
-    apiKey: editingApiKey.value
-      ? editingApiKey.value
-      : showAddProvider.value
-        ? draft.apiKey
-        : originalApiKey.value,
+    // 只有用户本次显式输入的 key 才提交。未编辑 key 时提交空串：
+    // 后端 merge_user_preferences 会用此前加密保存的用户 key 回填（空则保持空）。
+    // 平台注入的 key（OAuth / server.toml）不进入 user 层，不会落盘。
+    apiKey: editingApiKey.value ? editingApiKey.value : '',
     modelConfigs: { ...(draft.modelConfigs ?? {}) }
   }
 
@@ -387,8 +386,15 @@ async function saveProvider() {
   if (!applyProviderSnapshotToStore(snapshot, wasAdd, false)) return
 
   try {
+    // 提交 providers 时，只有本次编辑的 provider 保留显式输入的 key；
+    // 其余统一置空，由后端用「此前加密保存的用户 key」回填，避免把
+    // 平台注入的 key（OAuth / server.toml）误存进 user 层。
+    const providersForSave = s.settings.providers.map(p => ({
+      ...p,
+      apiKey: p.id === snapshot.id ? p.apiKey : ''
+    }))
     await s.saveModelService({
-      providers: s.settings.providers,
+      providers: providersForSave,
       activeProviderId: s.settings.activeProviderId,
       model: s.settings.model,
       temperature: s.settings.temperature,

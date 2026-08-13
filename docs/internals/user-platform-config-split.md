@@ -6,7 +6,7 @@ Runtime configuration is split into two layers:
 
 | Layer | Contents | Persistence | Editable by |
 |-------|----------|-------------|-------------|
-| **User** | Everything the user can edit, incl. debug fields: theme, coding rules, completion sound, providers (structure, no secrets), active provider/model/temperature/maxTokens, tool approval, agent mode, context settings, tool rounds, mode/tier LLM maps, Computer prefs, parallel limits | `user_settings.json` — **full snapshot, no whitelist** | All users (debug fields: `is_platform_admin` only) |
+| **User** | Everything the user can edit, incl. debug fields: theme, coding rules, completion sound, providers (structure, no secrets), active provider/model/temperature/maxTokens, tool approval, agent mode, context settings, tool rounds, mode/tier LLM maps, Computer prefs, parallel limits | `user_settings.json` — **full snapshot, no whitelist**. User-typed provider keys are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound) | All users (debug fields: `is_platform_admin` only) |
 | **Platform** | In-memory only: runtime provider list (with injected OAuth/TOML keys), media OSS credentials, server-side DaTi CAPTCHA config | **Never persisted** | `is_platform_admin` only |
 
 Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, platform)` (user fields + platform runtime keys/media_oss/dati) and used by chat, tools, and the UI.
@@ -21,6 +21,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 ### Settings save actions
 
 - **智能体 / 模型服务 / 界面配置 / 调试**: all persist to `user_settings.json` (single save path; provider apiKey cleared on write).
+- **Provider keys**: only keys the user explicitly typed are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound, separate purpose key from `auth.dat`) and survive restarts. Platform-injected keys (OAuth / server.toml) are never persisted — they live only in platform memory.
 - **平台账户**: login/logout via OAuth (`auth.dat`); no footer save.
 - Theme follows `user_settings.json` (round-trips through the API).
 

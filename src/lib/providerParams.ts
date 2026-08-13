@@ -73,11 +73,22 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
   {
     id: 'openrouter',
     label: 'OpenRouter',
-    hint: '聚合入口；可调用 GPT-5.6 / Claude Opus 5 / Gemini 3.6 等',
+    hint: '聚合入口；可调用 GPT-5.6 / Claude / Gemini 等',
     defaultId: 'openrouter',
     defaultName: 'OpenRouter',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
-    defaultModels: ['openai/gpt-5.6-sol', 'anthropic/claude-opus-5', 'google/gemini-3.6-flash']
+    defaultModels: [
+      'stepfun/step-3.7-flash',
+      'openai/gpt-5.4-nano',
+      'openai/gpt-5.4-mini',
+      'openai/gpt-5.6-luna',
+      'openai/gpt-5.6-luna-pro',
+      'openai/gpt-5.6-terra',
+      'openai/gpt-5.6-sol',
+      'anthropic/claude-opus-5',
+      'anthropic/claude-fable-5',
+      'google/gemini-3.6-flash'
+    ]
   },
   {
     id: 'kimi',

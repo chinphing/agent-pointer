@@ -2489,6 +2489,17 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
             }
         }
     }
+    // Platform-only providers (e.g. custom providers from `pointer-server.toml`
+    // `[llm]` in standalone deployments) are appended to the merged list so the
+    // UI and runtime can use them even before the user saves a copy. User-owned
+    // providers keep precedence; duplicates by id never appear.
+    let known: std::collections::HashSet<String> =
+        providers.iter().map(|p| p.id.clone()).collect();
+    for platform_provider in &platform.providers {
+        if !known.contains(&platform_provider.id) {
+            providers.push(platform_provider.clone());
+        }
+    }
     ModelSettings {
         providers,
         active_provider_id: user.active_provider_id.clone(),
@@ -2937,6 +2948,62 @@ mod user_settings_defaults_tests {
                 .get("advanced")
                 .map(|c| (c.provider_id.as_str(), c.model.as_str())),
             Some(("qwen", "qwen3.7-max"))
+        );
+    }
+
+    #[test]
+    fn merges_platform_only_providers_from_server_config() {
+        // server.toml [llm] 配置的自定义 provider 只进 platform 层；
+        // merged 视图必须包含它（带 key），否则界面和运行时都不可用。
+        let mut platform = PlatformSettings::default();
+        platform.providers.push(ProviderConfig {
+            id: "vllm-local".into(),
+            name: "本地 vLLM".into(),
+            base_url: "http://127.0.0.1:8000/v1".into(),
+            api_key: "sk-local".into(),
+            models: vec!["qwen3.6-27b".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: Default::default(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+        });
+        let mut user = UserSettings::default();
+        user.active_provider_id = "vllm-local".into();
+        user.model = "qwen3.6-27b".into();
+
+        let merged = merge_user_platform(&user, &platform);
+
+        let vllm = merged
+            .providers
+            .iter()
+            .find(|p| p.id == "vllm-local")
+            .expect("server custom provider should appear in merged view");
+        assert_eq!(vllm.api_key, "sk-local");
+        assert_eq!(merged.active_provider_id, "vllm-local");
+        assert!(
+            merged.providers.iter().any(|p| !p.api_key.is_empty()),
+            "merged has_key should be true"
+        );
+        // user-owned providers keep precedence and no duplicates appear.
+        assert_eq!(merged.providers.len(), 4);
+        assert_eq!(merged.providers[0].id, "qwen");
+    }
+
+    #[test]
+    fn platform_only_provider_does_not_duplicate_existing_user_provider() {
+        let mut platform = PlatformSettings::default();
+        platform.providers[0].api_key = "platform-qwen-key".into();
+        let user = UserSettings::default(); // user already owns qwen/deepseek/doubao
+        let merged = merge_user_platform(&user, &platform);
+        assert_eq!(merged.providers.len(), 3, "no duplicate for user-owned provider");
+        assert_eq!(
+            merged.providers[0].api_key,
+            "platform-qwen-key",
+            "platform key overlaid onto user-owned provider"
         );
     }
 }

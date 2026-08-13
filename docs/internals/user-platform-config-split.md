@@ -7,7 +7,7 @@ Runtime configuration is split into two layers:
 | Layer | Contents | Persistence | Editable by |
 |-------|----------|-------------|-------------|
 | **User** | Theme; optional UI cache (`userNickname`); globally enabled skill ids (`enabledSkillIds`); **coding rules** (`userCodingRules` → `[USER RULES]` inject); **completion sound** (`playSoundOnFinish`) | `user_settings.json` | All users |
-| **Platform** | Providers, generation params, agent defaults, Computer tier LLM, workspace, etc. | **In-memory only** (process lifetime) | `is_platform_admin` only |
+| **Platform** | Providers (structure, no secrets), active provider/model/temperature/maxTokens, agent defaults, mode/tier LLM maps, Computer tier LLM, workspace, etc. | `local_platform_settings.json` via **agent-settings** (model config + agent prefs); `debug-session-settings` remains in-memory | `is_platform_admin` only |
 
 Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, platform)` and used by chat, tools, and the UI.
 
@@ -16,7 +16,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 - **OAuth refresh token**: encrypted in `{data_dir}/PointerApp/auth.dat` (AES-256-GCM, machine-bound key via HKDF). No OS keyring.
 - **Login / refresh**: `/auth/app/token` returns `api_key`, `llm_provider`, and `user.is_platform_admin`. Credentials are injected into the in-memory provider list (`apply_login_llm_credentials`).
 - **Normal users**: use platform-issued API key; cannot edit platform settings in the UI.
-- **Platform admins**: may override provider/model settings in memory via debug **模型服务** (session-only; no disk write).
+- **Platform admins**: may override provider/model settings via **模型服务** (persisted through agent-settings; apiKey stays in memory / OAuth-injected, provider structure and selection survive restart).
 
 ### Settings save actions
 
@@ -30,8 +30,9 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 - `GET get_settings` → `EffectiveSettingsView` (`user`, `platform`, `merged`, `canEditPlatform`, `isPlatformAdmin`)
 - `PUT update_user_settings` → theme and `enabledSkillIds`, persisted immediately
 - `PUT update_platform_settings` → admin only; in-memory only (no disk write)
-- `PUT update_agent_settings` → persists **智能体** subset to disk
+- `PUT update_agent_settings` → persists **智能体** subset + model-service config (provider structure w/o secrets, active model selection, mode/tier LLM maps, agent defaults) to disk
 - `PUT update_settings` → session preferences in memory only
+- `PUT update_debug_session_settings` → admin only; in-memory only (never persisted)
 
 ## Web server
 

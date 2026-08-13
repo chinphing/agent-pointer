@@ -130,8 +130,10 @@ pub fn finalize_merged_settings(mut settings: ModelSettings) -> ModelSettings {
 }
 
 /// Apply UI-edited preferences to the persisted user layer (user_settings.json).
-/// Providers come in as part of the merged snapshot; keys are resolved against
-/// the runtime platform (existing key preserved when incoming is empty).
+/// Providers come in as part of the merged snapshot; user-typed keys are kept
+/// (masked/empty falls back to the previously encrypted user key). Keys that
+/// match the runtime platform (OAuth / server.toml injected) are excluded so
+/// platform credentials never land in the persisted user layer.
 pub fn merge_user_preferences(
     incoming: &ModelSettings,
     existing: &UserSettings,
@@ -215,16 +217,32 @@ pub fn merge_user_preferences(
         }
         next.media_mode_llm = merged;
     }
-    // Providers are user-owned now; keep platform runtime keys for the same ids.
-    let runtime_keys: HashMap<String, String> = platform
+    // Providers are user-owned. Persist only keys the user typed: incoming may
+    // carry a freshly typed key; masked/empty entries fall back to the previously
+    // encrypted user key (existing). Keys that equal the runtime platform key
+    // (OAuth / server.toml injected) are treated as platform-injected and dropped,
+    // so platform credentials never land in the persisted user layer.
+    let existing_keys: HashMap<String, String> = existing
+        .providers
+        .iter()
+        .map(|p| (p.id.clone(), p.api_key.clone()))
+        .collect();
+    let platform_keys: HashMap<String, String> = platform
         .providers
         .iter()
         .map(|p| (p.id.clone(), p.api_key.clone()))
         .collect();
     for provider in &mut next.providers {
-        if provider.api_key.trim().is_empty() {
-            if let Some(key) = runtime_keys.get(&provider.id) {
+        let incoming_key = provider.api_key.trim();
+        let is_platform_key = platform_keys
+            .get(&provider.id)
+            .map(|k| !k.trim().is_empty() && k.trim() == incoming_key)
+            .unwrap_or(false);
+        if incoming_key.is_empty() || incoming_key == "****" || is_platform_key {
+            if let Some(key) = existing_keys.get(&provider.id) {
                 provider.api_key = key.clone();
+            } else {
+                provider.api_key.clear();
             }
         }
     }
@@ -506,14 +524,28 @@ mod tests {
     }
 
     #[test]
-    fn merge_user_preferences_keeps_runtime_provider_keys() {
+    fn merge_user_preferences_keeps_typed_key_and_skips_platform_key() {
+        // User typed a key on an existing provider → preserved.
         let mut existing = UserSettings::default();
-        existing.providers[0].api_key = String::new();
-        let mut platform = PlatformSettings::default();
-        platform.providers[0].api_key = "sk-runtime".into();
-        let incoming = ModelSettings::default();
+        existing.providers[0].api_key = "sk-user-typed".into();
+        let mut incoming = ModelSettings::default();
+        incoming.providers[0].api_key = "sk-incoming".into();
+        let platform = PlatformSettings::default();
         let merged = merge_user_preferences(&incoming, &existing, &platform);
-        assert_eq!(merged.providers[0].api_key, "sk-runtime");
+        assert_eq!(merged.providers[0].api_key, "sk-incoming");
+        // Masked / empty incoming falls back to the previously typed user key.
+        let mut incoming2 = ModelSettings::default();
+        incoming2.providers[0].api_key = "****".into();
+        let merged2 = merge_user_preferences(&incoming2, &existing, &platform);
+        assert_eq!(merged2.providers[0].api_key, "sk-user-typed");
+        // Platform runtime keys are NOT folded into the persisted user layer.
+        let mut platform2 = PlatformSettings::default();
+        platform2.providers[0].api_key = "sk-platform-injected".into();
+        let mut incoming3 = ModelSettings::default();
+        incoming3.providers[0].api_key = "sk-platform-injected".into();
+        let existing3 = UserSettings::default();
+        let merged3 = merge_user_preferences(&incoming3, &existing3, &platform2);
+        assert!(merged3.providers[0].api_key.is_empty());
     }
 
     #[test]

@@ -10,8 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
 use crate::models::{
-    ensure_agent_model_refs_have_provider, DebugSessionSettings, EffectiveSettingsView,
-    ModelSettings, PlatformSettings, UserSettings,
+    DebugSessionSettings, EffectiveSettingsView, ModelSettings, PlatformSettings, UserSettings,
 };
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{

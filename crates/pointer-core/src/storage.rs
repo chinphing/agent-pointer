@@ -1,6 +1,6 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    ensure_provider_model_capability_defaults, filter_openrouter_providers, merge_user_platform,
+    ensure_provider_model_capability_defaults, merge_user_platform,
     AgentModelRef, ChatMessage, Conversation, ConversationMeta, ConversationSearchHit,
     ModelRuntimeOverrides, ModelSettings, PlatformSettings, Project, ProjectCreationResult,
     ProjectCursor, ProjectPage, ProviderConfig, UserSettings,
@@ -371,6 +371,13 @@ pub fn load_user_settings() -> Result<UserSettings> {
     let raw = fs::read_to_string(&path)?;
     let mut user: UserSettings = serde_json::from_str(&raw).unwrap_or_default();
     user.media_oss = Default::default();
+    // Re-attach keys the user typed (encrypted on disk); platform-injected keys
+    // are not stored here and are re-injected on login / server config load.
+    for (provider_id, key) in load_provider_api_keys()? {
+        if let Some(provider) = user.providers.iter_mut().find(|p| p.id == provider_id) {
+            provider.api_key = key;
+        }
+    }
     Ok(user)
 }
 
@@ -379,27 +386,68 @@ fn write_user_settings_file(user: &UserSettings) -> Result<()> {
     Ok(())
 }
 
+fn provider_keys_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("provider_keys.enc"))
+}
+
+/// Encrypt `(provider_id, api_key)` pairs the user typed into `provider_keys.enc`.
+/// An empty list removes the file. Never stores platform-injected keys (OAuth /
+/// server.toml) — those live only in platform memory.
+fn save_provider_api_keys(keys: &[(String, String)]) -> Result<()> {
+    let path = provider_keys_path()?;
+    if keys.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path)?;
+        }
+        return Ok(());
+    }
+    let payload = serde_json::to_vec(keys)?;
+    let blob = crate::local_secret::encrypt_local_secret_with_info(
+        &String::from_utf8_lossy(&payload),
+        b"provider-api-keys-v1",
+    )?;
+    fs::write(&path, blob)?;
+    Ok(())
+}
+
+/// Decrypt user-typed provider keys saved by [`save_provider_api_keys`].
+fn load_provider_api_keys() -> Result<Vec<(String, String)>> {
+    let path = provider_keys_path()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let blob = fs::read(&path)?;
+    let payload =
+        crate::local_secret::decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1")
+            .map_err(|e| {
+                log::warn!(
+                    "storage: provider_keys.enc decrypt failed: {e}; keys will need re-entry"
+                );
+                e
+            })?;
+    Ok(serde_json::from_str(&payload).unwrap_or_default())
+}
+
 /// Persist the full user settings layer (user configuration incl. debug fields).
-/// Secrets are never written: provider apiKey and OAuth media_oss are cleared.
+/// Provider structure is written to user_settings.json with apiKey cleared;
+/// keys the user typed are encrypted into `provider_keys.enc` (AES-256-GCM,
+/// machine-bound) so they survive restarts. Platform-injected keys never pass
+/// through here — they live only in platform memory.
 pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
     let mut to_save = user.clone();
     to_save.media_oss = Default::default();
+    let user_keys: Vec<(String, String)> = to_save
+        .providers
+        .iter()
+        .map(|p| (p.id.clone(), p.api_key.clone()))
+        .filter(|(_, k)| !k.trim().is_empty() && k.trim() != "****")
+        .collect();
     for provider in &mut to_save.providers {
         provider.api_key.clear();
     }
-    write_user_settings_file(&to_save)
-}
-
-fn migrate_planner_settings_json(value: &mut serde_json::Value) {
-    let obj = match value.as_object_mut() {
-        Some(o) => o,
-        None => return,
-    };
-    obj.remove("taskBoardPlannerEnabled");
-    obj.remove("taskBoardWorkItemsEnabled");
-    obj.remove("taskBoardComputerNoExecInit");
-    obj.remove("computerStandalonePlannerEnabled");
+    write_user_settings_file(&to_save)?;
+    save_provider_api_keys(&user_keys)
 }
 
 /// Keep free-form `extraBody` keys after absorbing structured thinking fields.

@@ -12,6 +12,7 @@ import MessageFooterActions from './MessageFooterActions.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownCharts } from '../../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../../composables/useMarkdownSvgs'
+import { useMarkdownMermaid } from '../../../composables/useMarkdownMermaid'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 import { attachmentsForMessageRender } from '../../../lib/messageNormalizer'
 import { showsWebDownloadOnly } from '../../../lib/chatAttachmentLoad'
@@ -43,6 +44,7 @@ const {
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
 useMarkdownCharts(bodyRef, () => props.message.content)
 useMarkdownSvgs(bodyRef, () => props.message.content)
+useMarkdownMermaid(bodyRef, () => props.message.content)
 useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
 async function onOpenAttachment(att: RenderableAttachment) {

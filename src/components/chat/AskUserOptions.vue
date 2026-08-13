@@ -12,6 +12,7 @@ const completedSelection = computed(() => parseAskUserSelection(props.toolCall.r
 const localSelection = ref<string[]>([])
 const otherText = ref('')
 const otherFocused = ref(false)
+const composing = ref(false)
 const submitted = ref(false)
 const submitting = ref(false)
 const error = ref('')
@@ -114,9 +115,19 @@ function confirmMultiple() {
   void submit(selected)
 }
 
-function onOtherEnter() {
+function onOtherEnter(event: KeyboardEvent) {
+  // IME composition: Enter confirms the candidate — never submit from it.
+  if (event.isComposing || composing.value) return
+  event.preventDefault()
   if (args.value?.multiSelect) confirmMultiple()
   else confirmOtherSingle()
+}
+
+/** Guard the post-compositionend window where the confirming Enter still arrives. */
+function onOtherCompositionEnd() {
+  setTimeout(() => {
+    composing.value = false
+  }, 50)
 }
 
 const canConfirmMultiple = computed(
@@ -189,7 +200,9 @@ const canConfirmMultiple = computed(
           @focus="onOtherFocus"
           @blur="onOtherBlur"
           @input="onOtherInput"
-          @keydown.enter.prevent="onOtherEnter"
+          @keydown.enter="onOtherEnter"
+          @compositionstart="composing = true"
+          @compositionend="onOtherCompositionEnd"
         >
       </div>
     </div>

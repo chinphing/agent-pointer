@@ -31,7 +31,9 @@ describe('project creation dialog submission', () => {
 
   it('creates or reuses a project when the composer chooses a workspace directory', () => {
     expect(composerSource).toContain('await createOrSelectWorkspaceProject(dir)')
-    expect(composerSource).toContain('@keydown.enter.prevent="commitWorkspaceInput"')
+    // Enter commits via a guard that ignores IME composition (Chinese candidate confirm).
+    expect(composerSource).toContain('@keydown.enter="onWorkspaceEnter"')
+    expect(composerSource).toContain('event.isComposing || workspaceComposing.value')
   })
 })
 

@@ -11,7 +11,12 @@ import {
   disarmTaskCompleteAudio,
   playTaskCompleteSoundIfEnabled
 } from '../../../lib/taskCompleteSound'
-import { hasActiveTurn, peekActiveTurn, recordTurnDone } from '../../../lib/turnElapsed'
+import {
+  hasActiveTurn,
+  peekActiveTurn,
+  recordTurnDone,
+  recordTurnDoneWithSpan
+} from '../../../lib/turnElapsed'
 import { useSkillsStore } from '../../skills'
 import { useSettingsStore } from '../../settings'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
@@ -319,7 +324,14 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
   }
 
   try {
-    if (convId) recordTurnDone(convId)
+    if (convId) {
+      // 后端 run_chat 时间戳是权威工作区间（排除前端排队/网络）；缺失时回退本地计时。
+      if (e.startedAtMs != null && e.finishedAtMs != null && turnId) {
+        recordTurnDoneWithSpan(convId, turnId, e.startedAtMs, e.finishedAtMs)
+      } else {
+        recordTurnDone(convId)
+      }
+    }
     if (convId) ctx.clearRunState(convId)
     flushStreamDeltaBuffers()
     if (convId) ctx.ensureImConversation(convId)

@@ -15,6 +15,7 @@ import type { WorkspaceFilePreview } from '../../lib/api'
 import { parseMarkdown } from '../../lib/markdownConfig'
 import { useMarkdownCharts } from '../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../composables/useMarkdownSvgs'
+import { useMarkdownMermaid } from '../../composables/useMarkdownMermaid'
 import { isTauriRuntime } from '../../lib/runtime'
 import { workspaceFileMediaObjectUrl } from '../../lib/web'
 import {
@@ -60,6 +61,7 @@ let mediaLoadSeq = 0
 
 useMarkdownCharts(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
 useMarkdownSvgs(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
+useMarkdownMermaid(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
 const ext = computed(() => {

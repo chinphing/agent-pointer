@@ -386,6 +386,13 @@ pub enum StreamEvent {
         tool_rounds_used_supervisor_total: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "maxToolRounds")]
         max_tool_rounds: Option<u32>,
+        /// 本轮 run_chat 的真实开始时间（epoch ms）。UI 用它计算"工作耗时"，
+        /// 排除前端 dispatch 排队/网络传输；历史会话无此值时回退消息时间戳。
+        #[serde(skip_serializing_if = "Option::is_none", rename = "startedAtMs")]
+        started_at_ms: Option<i64>,
+        /// 本轮 run_chat 发出 Done 的时间（epoch ms）。
+        #[serde(skip_serializing_if = "Option::is_none", rename = "finishedAtMs")]
+        finished_at_ms: Option<i64>,
     },
     /// Task-board trim marked earlier messages excluded from LLM context (UI patch only).
     ContextTrimApplied {

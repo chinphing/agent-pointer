@@ -93,6 +93,7 @@ const pendingDeleteId = ref<string | null>(null)
 const renameTarget = ref<{ id: string; title: string } | null>(null)
 const renameTitle = ref('')
 const renameInputRef = ref<HTMLInputElement | null>(null)
+const renameComposing = ref(false)
 
 function startEdit(conv: { id: string; title: string }) {
   pendingDeleteId.value = null
@@ -112,6 +113,24 @@ function saveRename() {
   }
   renameTarget.value = null
   renameTitle.value = ''
+}
+
+/** Enter saves — but never while an IME is composing (Chinese candidate confirm). */
+function onRenameEnter(event: KeyboardEvent) {
+  if (event.isComposing || renameComposing.value) return
+  event.preventDefault()
+  saveRename()
+}
+
+/**
+ * Keep guarding a short window after compositionend: some IMEs (e.g. English
+ * candidates) deliver the confirming Enter AFTER compositionend, when
+ * `isComposing` is already false — mirroring Composer's onCompositionEnd.
+ */
+function onRenameCompositionEnd() {
+  setTimeout(() => {
+    renameComposing.value = false
+  }, 50)
 }
 
 function cancelRename() {
@@ -1520,8 +1539,10 @@ watch(searchQuery, q => {
             v-model="renameTitle"
             type="text"
             class="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-accent"
-            @keydown.enter.prevent="saveRename"
+            @keydown.enter="onRenameEnter"
             @keydown="onRenameKeydown"
+            @compositionstart="renameComposing = true"
+            @compositionend="onRenameCompositionEnd"
           >
         </label>
         <div class="mt-5 flex justify-end gap-2">

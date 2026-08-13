@@ -44,6 +44,8 @@ const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md
 const MEDIA_DELIVERY: &str = include_str!("_shared/MEDIA_DELIVERY.md");
 /// Chart.js fence guidance for numeric replies (assembled separately from agent bodies).
 const CHARTS: &str = include_str!("_shared/CHARTS.md");
+/// Mermaid diagram fence guidance (assembled separately from agent bodies).
+const MERMAID_DIAGRAMS: &str = include_str!("_shared/MERMAID_DIAGRAMS.md");
 /// SVG diagram fence guidance (assembled separately from agent bodies).
 const SVG_DIAGRAMS: &str = include_str!("_shared/SVG_DIAGRAMS.md");
 /// HTML table fence guidance for fixed column widths (assembled separately).
@@ -97,6 +99,16 @@ pub fn charts_md() -> &'static str {
 
 pub fn rendered_charts_inject() -> Option<String> {
     let md = charts_md();
+    (!md.is_empty()).then(|| md.to_string())
+}
+
+/// Mermaid diagram reply fence rules (injected on every main/sub-agent round).
+pub fn mermaid_diagrams_md() -> &'static str {
+    MERMAID_DIAGRAMS.trim()
+}
+
+pub fn rendered_mermaid_diagrams_inject() -> Option<String> {
+    let md = mermaid_diagrams_md();
     (!md.is_empty()).then(|| md.to_string())
 }
 
@@ -1614,6 +1626,9 @@ mod builtin_agent_tests {
         let charts = rendered_charts_inject().expect("charts inject");
         assert!(charts.contains("Charts in replies"));
         assert!(charts.contains("chartjs"));
+        let mermaid = rendered_mermaid_diagrams_inject().expect("mermaid diagrams inject");
+        assert!(mermaid.contains("Mermaid diagrams in replies"));
+        assert!(mermaid.contains("```mermaid") || mermaid.contains("`mermaid`"));
         let svg = rendered_svg_diagrams_inject().expect("svg diagrams inject");
         assert!(svg.contains("SVG diagrams in replies"));
         assert!(svg.contains("```svg") || svg.contains("`svg`"));

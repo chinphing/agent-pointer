@@ -80,6 +80,34 @@ export function recordTurnDone(conversationId: string, finishedAt = Date.now()):
   return elapsedMs
 }
 
+/**
+ * 用后端 run_chat 的权威时间戳覆盖该轮耗时（取代本地 dispatch→Done 计时）。
+ * 本地计时包含前端排队/网络传输，而 run_chat 的开始/结束才是 AI 真实工作区间。
+ * 仅当该轮仍是当前活动轮次时生效；否则忽略（避免错配）。
+ */
+export function recordTurnDoneWithSpan(
+  conversationId: string,
+  turnId: string,
+  startedAt: number,
+  finishedAt: number
+): number | null {
+  const state = readState()
+  const active = state.active[conversationId]
+  if (!active || active.turnId !== turnId) return null
+  if (
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(finishedAt) ||
+    finishedAt < startedAt
+  ) {
+    return null
+  }
+  const elapsedMs = finishedAt - startedAt
+  state.completed[completedKey(conversationId, turnId)] = elapsedMs
+  delete state.active[conversationId]
+  writeState(state)
+  return elapsedMs
+}
+
 export function turnElapsedMs(conversationId: string, turnId: string): number | null {
   const elapsed = readState().completed[completedKey(conversationId, turnId)]
   return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : null

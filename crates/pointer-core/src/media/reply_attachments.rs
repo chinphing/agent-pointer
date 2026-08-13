@@ -158,11 +158,11 @@ fn kind_from_file_name(file_name: &str) -> String {
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
     match ext.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" => "image".into(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" => "image".into(),
         "mp4" | "webm" | "mov" | "mkv" => "video".into(),
         "mp3" | "wav" | "m4a" | "aac" | "ogg" | "flac" => "audio".into(),
         "pdf" | "txt" | "md" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "html"
-        | "htm" | "json" | "csv" | "xml" | "yaml" | "yml" => "document".into(),
+        | "htm" | "json" | "csv" | "xml" | "yaml" | "yml" | "svg" => "document".into(),
         "zip" | "tar" | "gz" | "7z" | "rar" => "file".into(),
         _ => "file".into(),
     }
@@ -179,6 +179,7 @@ fn mime_from_file_name(file_name: &str) -> String {
         Some("jpg") | Some("jpeg") => "image/jpeg".into(),
         Some("gif") => "image/gif".into(),
         Some("webp") => "image/webp".into(),
+        Some("svg") => "image/svg+xml".into(),
         Some("pdf") => "application/pdf".into(),
         Some("html") | Some("htm") => "text/html".into(),
         Some("json") => "application/json".into(),
@@ -250,6 +251,17 @@ mod tests {
         assert_eq!(atts.len(), 1);
         assert_eq!(atts[0].kind, "document");
         assert_eq!(atts[0].mime_type, "text/html");
+    }
+
+    #[test]
+    fn svg_path_becomes_document_attachment() {
+        // SVG must NOT be treated as an inline image: chat clients cannot
+        // render it in an <img> preview, which shows a broken/question icon.
+        let path = touch("/tmp/pointer_test_diagram.svg");
+        let atts = attachments_from_reply_paths(&[path.into()]);
+        assert_eq!(atts.len(), 1);
+        assert_eq!(atts[0].kind, "document");
+        assert_eq!(atts[0].mime_type, "image/svg+xml");
     }
 
     #[test]

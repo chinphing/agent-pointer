@@ -2,9 +2,9 @@ import { nextTick, onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
 import {
   applySvgMountLayout,
   decodeSvgConfigAttr,
-  tryParseSvgFence,
+  sanitizeSvgMarkup,
 } from '../lib/markdownSvg'
-import { STREAMING_SVG_STUB } from '../lib/markdownConfig'
+import { isStreamingMermaidStub } from '../lib/markdownMermaid'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
 import { openDiagramZoom, zoomIconSvg } from '../lib/diagramZoom'
 
@@ -13,11 +13,36 @@ const checkIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height=
 const downloadIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>`
 const codeIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`
 
-type SvgHostState = {
+type MermaidModule = typeof import('mermaid').default
+let mermaidModulePromise: Promise<MermaidModule> | null = null
+let renderSeq = 0
+
+function loadMermaid(): Promise<MermaidModule> {
+  if (!mermaidModulePromise) {
+    mermaidModulePromise = import('mermaid').then(mod => {
+      const api = mod.default
+      api.initialize({
+        startOnLoad: false,
+        // Strict: no HTML labels / foreignObject in output — stays pure SVG so our
+        // sanitize pipeline is safe and layout metrics match the authored viewBox.
+        // htmlLabels MUST be top-level: mermaid 11 deprecates flowchart.htmlLabels
+        // (FLOWCHART_HTML_LABELS_DEPRECATED) and silently ignores it, which would
+        // emit <foreignObject> HTML labels that sanitizeSvgMarkup then strips —
+        // leaving empty node boxes.
+        securityLevel: 'strict',
+        htmlLabels: false,
+      })
+      return api
+    })
+  }
+  return mermaidModulePromise
+}
+
+type MermaidHostState = {
   boundConfig: string
 }
 
-/** Cleaned SVG markup cache — survives v-html host recreation while trailing text streams. */
+/** Sanitized SVG markup cache — survives v-html host recreation while trailing text streams. */
 const cleanedSvgByConfig = new Map<string, string>()
 const CLEANED_SVG_CACHE_MAX = 32
 
@@ -33,23 +58,18 @@ function cacheCleanedSvg(encoded: string, svg: string) {
   }
 }
 
-function isStreamingSvgStub(raw: string): boolean {
-  const t = raw.trim()
-  return t === STREAMING_SVG_STUB || t.includes('data-pointer-svg-pending')
-}
-
-export type MarkdownSvgsOptions = {
-  /** When true, never mount SVG — show a pending placeholder only. */
+export type MarkdownMermaidOptions = {
+  /** When true, never render Mermaid — show a pending placeholder only. */
   isStreaming?: () => boolean
 }
 
-/** Mount sanitized SVG diagrams for `.md-svg` hosts inside markdown HTML. */
-export function useMarkdownSvgs(
+/** Mount Mermaid diagrams for `.md-mermaid` hosts inside markdown HTML. */
+export function useMarkdownMermaid(
   rootRef: Ref<HTMLElement | null>,
   getTickSource: () => string,
-  options: MarkdownSvgsOptions = {}
+  options: MarkdownMermaidOptions = {}
 ) {
-  const hosts = new Map<HTMLElement, SvgHostState>()
+  const hosts = new Map<HTMLElement, MermaidHostState>()
   const isStreaming = () => options.isStreaming?.() === true
 
   function flashButton(btn: HTMLButtonElement, okTitle: string) {
@@ -66,100 +86,94 @@ export function useMarkdownSvgs(
   }
 
   function ensureToolbar(host: HTMLElement) {
-    const toolbar = host.querySelector('.md-svg-toolbar')
+    const toolbar = host.querySelector('.md-mermaid-toolbar')
     if (!(toolbar instanceof HTMLElement) || toolbar.dataset.ready === '1') return
     toolbar.dataset.ready = '1'
 
     const copyBtn = document.createElement('button')
     copyBtn.type = 'button'
-    copyBtn.className = 'md-svg-btn'
+    copyBtn.className = 'md-mermaid-btn'
     copyBtn.title = '复制源码'
     copyBtn.setAttribute('aria-label', '复制源码')
     copyBtn.innerHTML = copyIconSvg
     copyBtn.addEventListener('click', e => {
       e.preventDefault()
       e.stopPropagation()
-      const encoded = host.getAttribute('data-svg-config')
+      const encoded = host.getAttribute('data-mermaid-config')
       const raw = encoded ? decodeSvgConfigAttr(encoded) : null
       if (!raw) {
-        console.warn('[markdownSvgs] copy: missing config')
+        console.warn('[markdownMermaid] copy: missing config')
         return
       }
       void navigator.clipboard.writeText(raw).then(() => flashButton(copyBtn, '已复制')).catch(err => {
-        console.error('[markdownSvgs] copy failed', err)
+        console.error('[markdownMermaid] copy failed', err)
       })
     })
 
     const downloadBtn = document.createElement('button')
     downloadBtn.type = 'button'
-    downloadBtn.className = 'md-svg-btn'
+    downloadBtn.className = 'md-mermaid-btn'
     downloadBtn.title = '导出 SVG'
     downloadBtn.setAttribute('aria-label', '导出 SVG')
     downloadBtn.innerHTML = downloadIconSvg
     downloadBtn.addEventListener('click', e => {
       e.preventDefault()
       e.stopPropagation()
-      const encoded = host.getAttribute('data-svg-config')
-      const raw = encoded ? decodeSvgConfigAttr(encoded) : null
-      if (!raw) {
-        console.warn('[markdownSvgs] export: missing config')
+      const encoded = host.getAttribute('data-mermaid-config')
+      const svg = encoded ? cleanedSvgByConfig.get(encoded) : null
+      if (!svg) {
+        console.warn('[markdownMermaid] export: not rendered yet')
         return
       }
-      const parsed = tryParseSvgFence(raw)
-      if (!parsed.ok) {
-        console.warn('[markdownSvgs] export: invalid svg', parsed.reason)
-        return
-      }
-      const dataUrl =
-        'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(parsed.svg)
+      const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
       const fileName = `pointer-diagram-${Date.now()}.svg`
       void saveDataUrlAsFile(dataUrl, fileName, [{ name: 'SVG', extensions: ['svg'] }])
         .then(result => {
           if (result === 'saved') flashButton(downloadBtn, '已导出')
         })
         .catch(err => {
-          console.error('[markdownSvgs] export failed', err)
+          console.error('[markdownMermaid] export failed', err)
         })
     })
 
     const sourceBtn = document.createElement('button')
     sourceBtn.type = 'button'
-    sourceBtn.className = 'md-svg-btn'
+    sourceBtn.className = 'md-mermaid-btn'
     sourceBtn.title = '查看源码'
     sourceBtn.setAttribute('aria-label', '查看源码')
     sourceBtn.innerHTML = codeIconSvg
     sourceBtn.addEventListener('click', e => {
       e.preventDefault()
       e.stopPropagation()
-      const pre = host.querySelector('.md-svg-source')
+      const pre = host.querySelector('.md-mermaid-source')
       if (!(pre instanceof HTMLElement)) return
       const open = pre.hasAttribute('hidden')
       if (open) {
-        const encoded = host.getAttribute('data-svg-config')
+        const encoded = host.getAttribute('data-mermaid-config')
         const raw = encoded ? decodeSvgConfigAttr(encoded) : ''
         pre.textContent = raw || ''
         pre.removeAttribute('hidden')
         sourceBtn.title = '隐藏源码'
         sourceBtn.setAttribute('aria-label', '隐藏源码')
-        sourceBtn.classList.add('md-svg-btn-active')
+        sourceBtn.classList.add('md-mermaid-btn-active')
       } else {
         pre.setAttribute('hidden', '')
         sourceBtn.title = '查看源码'
         sourceBtn.setAttribute('aria-label', '查看源码')
-        sourceBtn.classList.remove('md-svg-btn-active')
+        sourceBtn.classList.remove('md-mermaid-btn-active')
       }
     })
 
     const zoomBtn = document.createElement('button')
     zoomBtn.type = 'button'
-    zoomBtn.className = 'md-svg-btn'
+    zoomBtn.className = 'md-mermaid-btn'
     zoomBtn.title = '放大查看'
     zoomBtn.setAttribute('aria-label', '放大查看')
     zoomBtn.innerHTML = zoomIconSvg
     zoomBtn.addEventListener('click', e => {
       e.preventDefault()
       e.stopPropagation()
-      const frame = host.querySelector('.md-svg-frame')
+      const frame = host.querySelector('.md-mermaid-frame')
       const svg = frame?.querySelector('svg')
       if (svg instanceof SVGElement) openDiagramZoom(svg)
     })
@@ -168,75 +182,98 @@ export function useMarkdownSvgs(
   }
 
   function setToolbarVisible(host: HTMLElement, visible: boolean) {
-    const toolbar = host.querySelector('.md-svg-toolbar')
+    const toolbar = host.querySelector('.md-mermaid-toolbar')
     if (!(toolbar instanceof HTMLElement)) return
     toolbar.hidden = !visible
   }
 
   function showStatus(host: HTMLElement, message: string, kind: 'pending' | 'error') {
-    const frame = host.querySelector('.md-svg-frame')
+    const frame = host.querySelector('.md-mermaid-frame')
     hosts.delete(host)
-    host.classList.toggle('md-svg--invalid', kind === 'error')
-    host.classList.toggle('md-svg--pending', kind === 'pending')
+    host.classList.toggle('md-mermaid--invalid', kind === 'error')
+    host.classList.toggle('md-mermaid--pending', kind === 'pending')
     setToolbarVisible(host, kind !== 'pending')
     if (!(frame instanceof HTMLElement)) return
     frame.replaceChildren()
     const status = document.createElement('div')
-    status.className = `md-svg-status md-svg-status-${kind}`
+    status.className = `md-mermaid-status md-mermaid-status-${kind}`
     status.textContent = message
     frame.appendChild(status)
   }
 
   function mountOrUpdate(host: HTMLElement) {
+    void mountOrUpdateAsync(host)
+  }
+
+  async function mountOrUpdateAsync(host: HTMLElement) {
     ensureToolbar(host)
 
-    const encoded = host.getAttribute('data-svg-config')
+    const encoded = host.getAttribute('data-mermaid-config')
     if (!encoded) {
       showStatus(host, '图示配置缺失', 'error')
       return
     }
-    const raw = decodeSvgConfigAttr(encoded)
+    let raw: string | null
+    try {
+      raw = decodeSvgConfigAttr(encoded)
+    } catch {
+      raw = null
+    }
     if (raw == null) {
       showStatus(host, '图示无法解析', 'error')
       return
     }
 
-    // Pending only for incomplete fences (stub), not for the whole assistant turn.
-    if (isStreamingSvgStub(raw)) {
+    // Defer rendering until the assistant turn finishes: Mermaid render is
+    // comparatively expensive and only the final source should be laid out.
+    if (isStreaming() || isStreamingMermaidStub(raw)) {
       showStatus(host, '图示生成中…', 'pending')
       return
     }
 
     let cleaned = cleanedSvgByConfig.get(encoded)
     if (!cleaned) {
-      const parsed = tryParseSvgFence(raw)
-      if (!parsed.ok) {
-        const pending = parsed.reason === 'empty' || parsed.reason === 'parse_error'
-        const softPending = parsed.reason === 'not_svg' && !raw.includes('</svg>')
-        const asPending = pending || softPending || isStreaming()
-        showStatus(
-          host,
-          asPending ? '图示生成中…' : '图示无效',
-          asPending ? 'pending' : 'error'
-        )
+      try {
+        const mermaid = await loadMermaid()
+        // Host may have been torn down / reconfigured while Mermaid was loading.
+        if (host.getAttribute('data-mermaid-config') !== encoded) return
+        const holder = document.createElement('div')
+        holder.id = `md-mermaid-${renderSeq++}`
+        holder.style.display = 'none'
+        document.body.appendChild(holder)
+        let svg: string
+        try {
+          const result = await mermaid.render(holder.id, raw)
+          svg = result.svg
+        } finally {
+          holder.remove()
+        }
+        const parsed = sanitizeSvgMarkup(svg)
+        if (!parsed.ok) {
+          showStatus(host, '图示渲染失败', 'error')
+          return
+        }
+        cleaned = parsed.svg
+        cacheCleanedSvg(encoded, cleaned)
+      } catch (err) {
+        console.error('[markdownMermaid] render failed', err)
+        showStatus(host, '图示语法错误', 'error')
         return
       }
-      cleaned = parsed.svg
-      cacheCleanedSvg(encoded, cleaned)
     }
 
     const prev = hosts.get(host)
-    if (prev?.boundConfig === encoded && host.querySelector('.md-svg-frame > svg')) {
+    if (prev?.boundConfig === encoded && host.querySelector('.md-mermaid-frame > svg')) {
       setToolbarVisible(host, true)
       return
     }
 
-    host.classList.remove('md-svg--invalid', 'md-svg--pending')
+    host.classList.remove('md-mermaid--invalid', 'md-mermaid--pending')
     setToolbarVisible(host, true)
-    let frame = host.querySelector('.md-svg-frame')
+    let frame = host.querySelector('.md-mermaid-frame')
     if (!(frame instanceof HTMLElement)) {
       frame = document.createElement('div')
-      frame.className = 'md-svg-frame'
+      frame.className = 'md-mermaid-frame'
       host.appendChild(frame)
     }
     frame.replaceChildren()
@@ -244,7 +281,7 @@ export function useMarkdownSvgs(
     try {
       if (typeof DOMParser === 'undefined') {
         frame.textContent = 'SVG'
-        console.warn('[markdownSvgs] DOMParser unavailable; skip mount')
+        console.warn('[markdownMermaid] DOMParser unavailable; skip mount')
         return
       }
       const doc = new DOMParser().parseFromString(cleaned, 'image/svg+xml')
@@ -275,10 +312,10 @@ export function useMarkdownSvgs(
         openDiagramZoom(imported)
       })
       hosts.set(host, { boundConfig: encoded })
-      host.dataset.svgBound = encoded
-      console.info('[markdownSvgs] mounted svg host')
+      host.dataset.mermaidBound = encoded
+      console.info('[markdownMermaid] mounted mermaid host')
     } catch (err) {
-      console.error('[markdownSvgs] mount failed', err)
+      console.error('[markdownMermaid] mount failed', err)
       showStatus(host, '图示渲染失败', 'error')
     }
   }
@@ -286,7 +323,7 @@ export function useMarkdownSvgs(
   function sync() {
     const root = rootRef.value
     if (!root) return
-    const found = root.querySelectorAll('.md-svg')
+    const found = root.querySelectorAll('.md-mermaid')
     const alive = new Set<HTMLElement>()
     for (const node of Array.from(found)) {
       if (!(node instanceof HTMLElement)) continue

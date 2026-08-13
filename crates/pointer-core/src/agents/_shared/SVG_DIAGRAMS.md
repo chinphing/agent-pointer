@@ -1,7 +1,26 @@
 ## SVG diagrams in replies
 
-When a **process, architecture, or decision flow** is clearer as a diagram
-than as prose alone, emit a fenced SVG block (not HTML pages, not CDN scripts):
+Use a fenced **`svg`** block for these diagram types (Mermaid this build
+cannot render them, or they need pixel-level control). For flows, sequences,
+class/state/ER models, and gantt, **prefer `mermaid`** (see "Mermaid diagrams
+in replies"). Numeric trends go to **`chartjs`**.
+
+Emit **`svg`** when:
+
+- **Mermaid-unsupported types** (not bundled this build): timeline,
+  journey, mindmap, sankey, quadrant, xychart, pie / doughnut, radar,
+  gitGraph, C4 / architecture, block, treeView, venn, treemap, requirement,
+  kanban, ishikawa, railroad, packet, eventmodeling, wardley, cynefin.
+- **Custom infographics / brand visuals** that need pixel-level exact layout
+  (precise fonts, spacing, colors) — free-form art Mermaid cannot express.
+- The user **explicitly asked for SVG / vector output**.
+- The user asked for a **more polished / refined** diagram (SVG gives precise
+  control over layout, fonts, and colors).
+
+Note: data charts (pie, radar, scatter, numeric trend lines) belong to
+`chartjs`, not SVG, unless they need custom visuals.
+
+Not HTML pages, not CDN scripts:
 
 - Tag: **`svg`**. Body: one self-contained `<svg>…</svg>` document.
 - Prefer a fixed `viewBox` sized to the content **including footnotes**, with
@@ -15,9 +34,6 @@ than as prose alone, emit a fenced SVG block (not HTML pages, not CDN scripts):
   `javascript:` / `data:` URLs, `<foreignObject>`, remote `<image>` /
   external `<use>` hrefs, or iframes.
 - Do **not** emit raw SVG outside a fence, and do not wrap the SVG in HTML.
-- Do **not** write a diagram to a `.svg` file and attach it with **`MEDIA:`**
-  unless the user explicitly asked for a downloadable file — App/Web renders
-  the **`svg`** fence inline; a file attachment is only a chip.
 - Use SVG for structure/flow; use `chartjs` for numeric trends.
 - **App / Web:** the host sanitizes and renders the fence inline.
 - **IM:** rasterization to `MEDIA:` may be unavailable — still emit the

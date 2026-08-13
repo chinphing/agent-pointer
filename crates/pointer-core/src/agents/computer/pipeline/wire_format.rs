@@ -313,6 +313,6 @@ mod tests {
             .unwrap()
             .as_str()
             .unwrap()
-            .contains("before vs after"));
+            .contains("Both images include synthetic pointer overlay"));
     }
 }

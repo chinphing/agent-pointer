@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { trackFullscreenExit } from '../../../lib/fullscreenTrack'
 
 const props = defineProps<{
   src: string
@@ -15,16 +16,25 @@ const dragStartX = ref(0)
 const dragStartY = ref(0)
 const dragOriginX = ref(0)
 const dragOriginY = ref(0)
+let unlistenFullscreen: (() => void) | undefined
 
 function openPreview() {
   open.value = true
   scale.value = 1
   translateX.value = 0
   translateY.value = 0
+  // On desktop, Esc while the OS-level window is fullscreen is consumed by the
+  // system to exit fullscreen (no DOM keydown) — close when the window leaves
+  // fullscreen so the user's Esc intent still dismisses the preview.
+  void trackFullscreenExit(closePreview).then(fn => {
+    unlistenFullscreen = fn
+  })
 }
 
 function closePreview() {
   open.value = false
+  unlistenFullscreen?.()
+  unlistenFullscreen = undefined
 }
 
 function resetZoom() {
@@ -79,12 +89,21 @@ function onDblClick(e: MouseEvent) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && open.value) closePreview()
-  if (e.key === 'r' && open.value) resetZoom()
+  // Capture-phase + stopImmediatePropagation: while the preview is open, Esc
+  // must not leak to other document/window listeners (DiffView maximized,
+  // TerminalLiveOutputModal fullscreen, other modals…).
+  if (e.key === 'Escape' && open.value) {
+    e.stopImmediatePropagation()
+    closePreview()
+  }
+  if (e.key === 'r' && open.value) {
+    e.stopImmediatePropagation()
+    resetZoom()
+  }
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+onMounted(() => document.addEventListener('keydown', onKeydown, true))
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>

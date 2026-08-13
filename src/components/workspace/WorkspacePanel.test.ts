@@ -3,8 +3,10 @@
 import { createApp, nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { GitChange } from '../../lib/api'
+
 const apiMocks = vi.hoisted(() => ({
-  getWorkspaceGitStatus: vi.fn(async () => ({ changes: [] as Array<{ path: string; status: string; staged: boolean }> })),
+  getWorkspaceGitStatus: vi.fn(async (): Promise<{ changes: GitChange[] }> => ({ changes: [] })),
   listWorkspaceDirectory: vi.fn(async () => [
     { name: 'README.md', path: 'README.md', kind: 'file', sizeBytes: 64 }
   ]),

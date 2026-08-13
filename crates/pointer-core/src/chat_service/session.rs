@@ -61,6 +61,8 @@ pub async fn run_chat(
     trigger_source: Option<TriggerSource>,
     im_auto_deliver: bool,
 ) -> Result<()> {
+    // 本轮 AI 工作区间起点（排除前端 dispatch / 排队 / 网络传输），Done 事件携带。
+    let run_started_at_ms = super::util::now_ms();
     // Canonical skill source: user_settings.agentSkillOverrides (request overrides
     // only when non-empty, e.g. tests). Legacy enabledSkillIds is ignored.
     let agent_skill_overrides = if agent_skill_overrides.is_empty() {
@@ -344,6 +346,8 @@ pub async fn run_chat(
             tool_rounds_used_total: Some(consumed_single),
             tool_rounds_used_supervisor_total: Some(consumed_supervisor),
             max_tool_rounds: Some(max_tr),
+            started_at_ms: Some(run_started_at_ms),
+            finished_at_ms: Some(super::util::now_ms()),
         },
     );
     log::info!(

@@ -6,6 +6,7 @@ import type { MessageStatus, ToolCall, ChatMessage } from '../../../../types/cha
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
 import { useMarkdownCharts } from '../../../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../../../composables/useMarkdownSvgs'
+import { useMarkdownMermaid } from '../../../../composables/useMarkdownMermaid'
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
 import { isInteractiveToolCall, visibleToolCalls, toolCallBaseName } from '../../../../lib/messageTooling'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
@@ -131,6 +132,7 @@ const html = useThrottledMarkdown(
     parseMarkdown(src, {
       streamingCharts: isContentStreaming.value,
       streamingSvgs: isContentStreaming.value,
+      streamingMermaid: isContentStreaming.value,
     }),
   { longSourceThreshold: 8000, longStreamingInterval: 250 }
 )
@@ -176,6 +178,9 @@ useMarkdownCharts(bodyRef, () => markdownSource.value, {
   isStreaming: () => isContentStreaming.value,
 })
 useMarkdownSvgs(bodyRef, () => markdownSource.value, {
+  isStreaming: () => isContentStreaming.value,
+})
+useMarkdownMermaid(bodyRef, () => markdownSource.value, {
   isStreaming: () => isContentStreaming.value,
 })
 useMarkdownExternalLinks(bodyRef, () => markdownSource.value)

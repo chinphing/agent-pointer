@@ -956,7 +956,7 @@ export type StreamEvent =
   /** Same `messageId` as a prior `injected_assistant_message`; updates its `content` only. */
   | { kind: 'injected_assistant_message_update'; conversationId: string; messageId: string; content: string }
   | { kind: 'error'; conversationId?: string; messageId?: string; message: string }
-  | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number }
+  | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number; startedAtMs?: number; finishedAtMs?: number }
   | { kind: 'context_trim_applied'; conversationId: string; excludedMessageIds: string[] }
   /** Ephemeral: compression in progress (tool-row marker); not persisted. */
   | {

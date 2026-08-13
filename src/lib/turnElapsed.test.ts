@@ -7,6 +7,7 @@ import {
   formatTurnElapsed,
   hasActiveTurn,
   recordTurnDone,
+  recordTurnDoneWithSpan,
   recordTurnStart,
   resolveTurnElapsedMs,
   turnElapsedMs
@@ -25,6 +26,31 @@ describe('turn elapsed', () => {
     expect(hasActiveTurn('conv-1')).toBe(false)
     expect(turnElapsedMs('conv-1', 'user-1')).toBe(65_400)
     expect(turnElapsedMs('conv-1', 'other-user')).toBeNull()
+  })
+
+  it('overrides elapsed with backend run_chat timestamps for the active turn', () => {
+    recordTurnStart('conv-1', 'user-1', 1_000)
+
+    // Backend span (20s→50s) wins over local dispatch timing (1s→now).
+    expect(recordTurnDoneWithSpan('conv-1', 'user-1', 20_000, 50_000)).toBe(30_000)
+    expect(hasActiveTurn('conv-1')).toBe(false)
+    expect(turnElapsedMs('conv-1', 'user-1')).toBe(30_000)
+  })
+
+  it('ignores backend span when the turn id does not match the active turn', () => {
+    recordTurnStart('conv-1', 'user-1', 1_000)
+
+    expect(recordTurnDoneWithSpan('conv-1', 'other-turn', 20_000, 50_000)).toBeNull()
+    expect(hasActiveTurn('conv-1')).toBe(true)
+    expect(turnElapsedMs('conv-1', 'user-1')).toBeNull()
+  })
+
+  it('ignores invalid backend spans without clearing the active turn', () => {
+    recordTurnStart('conv-1', 'user-1', 1_000)
+
+    expect(recordTurnDoneWithSpan('conv-1', 'user-1', 50_000, 20_000)).toBeNull()
+    expect(recordTurnDoneWithSpan('conv-1', 'user-1', Number.NaN, 50_000)).toBeNull()
+    expect(hasActiveTurn('conv-1')).toBe(true)
   })
 
   it('survives a storage read and keeps conversations isolated', () => {

@@ -9,6 +9,12 @@ import {
   sanitizeHtmlFence,
 } from './markdownHtml'
 import {
+  isMermaidFenceLang,
+  mermaidHostHtml,
+  STREAMING_MERMAID_HOST_HTML,
+  STREAMING_MERMAID_STUB,
+} from './markdownMermaid'
+import {
   encodeSvgConfigAttr,
   isSvgFenceLang,
   tryParseSvgFence,
@@ -128,6 +134,7 @@ function svgHostHtml(raw: string, valid: boolean): string {
 
 const CHART_OPEN_RE = /^[ \t]*```(chartjs|chart)[ \t]*$/i
 const SVG_OPEN_RE = /^[ \t]*```svg[ \t]*$/i
+const MERMAID_OPEN_RE = /^[ \t]*```mermaid[ \t]*$/i
 const FENCE_CLOSE_RE = /^[ \t]*```[ \t]*$/
 
 /**
@@ -191,6 +198,41 @@ export function stabilizeStreamingSvgFences(src: string): string {
   return replaced ? out.join('\n') : src
 }
 
+/**
+ * While streaming: stub **incomplete** `mermaid` fences only.
+ * Closed fences are kept so the diagram can mount before the rest of the reply finishes.
+ */
+export function stabilizeStreamingMermaidFences(src: string): string {
+  if (!src.includes('```')) return src
+  const lines = src.split('\n')
+  const out: string[] = []
+  let i = 0
+  let replaced = false
+  while (i < lines.length) {
+    const line = lines[i]!
+    if (MERMAID_OPEN_RE.test(line)) {
+      const openLine = line
+      i += 1
+      const bodyStart = i
+      while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i]!)) i += 1
+      if (i < lines.length) {
+        // Closed fence — keep authored body (stable once closed).
+        out.push(openLine)
+        for (let j = bodyStart; j <= i; j++) out.push(lines[j]!)
+        i += 1
+        continue
+      }
+      // Still open — fixed stub so growing tokens do not reshuffle card HTML.
+      out.push('```mermaid', STREAMING_MERMAID_STUB, '```')
+      replaced = true
+      continue
+    }
+    out.push(line)
+    i += 1
+  }
+  return replaced ? out.join('\n') : src
+}
+
 marked.use({
   renderer: {
     table({ header, rows, align }) {
@@ -219,6 +261,11 @@ marked.use({
         if (parsed.ok) return chartHostHtml(parsed.json, true)
         // Incomplete stream or bad JSON: keep a host so the UI can show pending/error.
         return chartHostHtml(raw, false)
+      }
+      if (isMermaidFenceLang(langString)) {
+        const raw = text.replace(/\n$/, '')
+        if (raw.trim() === STREAMING_MERMAID_STUB) return STREAMING_MERMAID_HOST_HTML
+        return mermaidHostHtml(raw)
       }
       if (isSvgFenceLang(langString)) {
         const raw = text.replace(/\n$/, '')
@@ -255,6 +302,11 @@ export type ParseMarkdownOptions = {
    * pending host so `v-html` does not flash on every token.
    */
   streamingSvgs?: boolean
+  /**
+   * While the assistant turn is streaming, stub **incomplete** mermaid fences
+   * (closed ones are kept; the mount layer defers rendering until streaming ends).
+   */
+  streamingMermaid?: boolean
 }
 
 /**
@@ -268,9 +320,11 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
   if (!src.trim()) return ''
   const streamingCharts = options?.streamingCharts === true
   const streamingSvgs = options?.streamingSvgs === true
+  const streamingMermaid = options?.streamingMermaid === true
   let prepared = src
   if (streamingCharts) prepared = stabilizeStreamingChartFences(prepared)
   if (streamingSvgs) prepared = stabilizeStreamingSvgFences(prepared)
+  if (streamingMermaid) prepared = stabilizeStreamingMermaidFences(prepared)
   prepared = ensureBlankLinesAroundHtmlTables(prepared)
   const fixed = prepared.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
   parseStreamingCharts = streamingCharts

@@ -57,9 +57,9 @@ use crate::models::{ChatMessage, StreamEvent};
 /// Default global concurrency cap when settings omit an explicit value.
 pub const DEFAULT_MAX_CONCURRENT: usize = 4;
 
-/// Resolve dispatcher global cap from platform settings (1..=64).
-pub fn resolve_max_concurrent_runs(platform: &crate::models::PlatformSettings) -> usize {
-    platform.max_concurrent_runs.clamp(1, 64) as usize
+/// Resolve dispatcher global cap from merged user settings (1..=64).
+pub fn resolve_max_concurrent_runs(settings: &crate::models::ModelSettings) -> usize {
+    settings.max_concurrent_runs.clamp(1, 64) as usize
 }
 
 /// In-process run dispatcher. Constructed once per host process and shared by

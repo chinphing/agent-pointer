@@ -16,8 +16,7 @@ use crate::models::{
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
     apply_login_llm_credentials, apply_login_llm_provider_api_keys, apply_login_media_oss,
-    finalize_merged_settings, merge_platform_preferences, persist_local_platform_settings,
-    PlatformConfigManager, SharedPlatformConfig,
+    finalize_merged_settings, merge_user_preferences, PlatformConfigManager, SharedPlatformConfig,
 };
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -297,14 +296,6 @@ impl AppState {
 
         let platform_mgr = PlatformConfigManager::new();
         storage::ensure_legacy_settings_migrated();
-        match storage::load_local_platform_settings() {
-            Ok(Some(local)) => {
-                log::info!("storage: loaded persisted agent settings from disk");
-                platform_mgr.replace(local);
-            }
-            Ok(None) => {}
-            Err(e) => log::warn!("storage: load local platform settings failed: {e}"),
-        }
 
         let platform_config = platform_mgr.shared();
 
@@ -487,9 +478,9 @@ impl AppState {
         )
     }
 
-    /// Global dispatcher concurrency cap from platform settings.
+    /// Global dispatcher concurrency cap from merged user settings.
     pub fn resolve_max_concurrent_runs(&self) -> usize {
-        crate::dispatcher::resolve_max_concurrent_runs(&self.platform_config.read())
+        crate::dispatcher::resolve_max_concurrent_runs(&self.effective_settings())
     }
 
     pub fn sync_dispatcher_concurrency(&self, dispatcher: &crate::dispatcher::RunDispatcher) {
@@ -552,15 +543,27 @@ impl AppState {
 
     pub fn update_platform_settings(
         &self,
-        mut patch: PlatformSettings,
+        patch: PlatformSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
         if !self.active_platform_auth().is_platform_admin() {
             anyhow::bail!("only platform admins may edit platform settings");
         }
-        let mut tmp = crate::models::merge_user_platform(&UserSettings::default(), &patch);
-        ensure_agent_model_refs_have_provider(&mut tmp);
-        patch.agent_default_models = tmp.agent_default_models;
-        *self.platform_config.write() = patch.clone();
+        // Platform settings are in-memory only: providers (runtime keys), media_oss,
+        // and server-side DaTi config. User-owned fields live in user_settings.json.
+        let mut platform = self.platform_config.write();
+        if !patch.providers.is_empty() {
+            platform.providers = patch.providers;
+        }
+        if !patch.media_oss.bucket.trim().is_empty() {
+            platform.media_oss = patch.media_oss;
+        }
+        if !patch.dati_api_url.trim().is_empty() {
+            platform.dati_api_url = patch.dati_api_url;
+            platform.dati_authcode = patch.dati_authcode;
+            platform.dati_typeno = patch.dati_typeno;
+            platform.dati_author = patch.dati_author;
+        }
+        drop(platform);
         Ok(self.effective_settings_view())
     }
 
@@ -603,7 +606,9 @@ impl AppState {
         incoming.active_provider_id = active_provider_id;
         incoming.model = model;
 
-        let mut platform = self.platform_config.write();
+        // Debug session settings are user-owned now; preserve runtime keys when the
+        // client sends masked/empty credentials, then persist user_settings.json.
+        let platform = self.platform_config.read().clone();
         let existing_keys: HashMap<String, String> = platform
             .providers
             .iter()
@@ -616,30 +621,32 @@ impl AppState {
                 }
             }
         }
-        platform.providers = incoming.providers;
-        platform.active_provider_id = incoming.active_provider_id;
-        platform.model = incoming.model;
-        platform.temperature = incoming.temperature;
-        platform.max_tokens = incoming.max_tokens;
-        platform.computer_tier_llm = incoming.computer_tier_llm;
-        platform.computer_pipeline_llm = incoming.computer_pipeline_llm;
-        platform.agent_mode_llm = incoming.agent_mode_llm;
-        platform.media_mode_llm = incoming.media_mode_llm;
 
-        let provider_count = platform.providers.len();
-        let mapping_count = platform.computer_tier_llm.len()
+        let mut user = self.load_user_settings();
+        user.providers = incoming.providers;
+        user.active_provider_id = incoming.active_provider_id;
+        user.model = incoming.model;
+        user.temperature = incoming.temperature;
+        user.max_tokens = incoming.max_tokens;
+        user.computer_tier_llm = incoming.computer_tier_llm;
+        user.computer_pipeline_llm = incoming.computer_pipeline_llm;
+        user.agent_mode_llm = incoming.agent_mode_llm;
+        user.media_mode_llm = incoming.media_mode_llm;
+        self.save_user_settings(&user)?;
+
+        let provider_count = user.providers.len();
+        let mapping_count = user.computer_tier_llm.len()
             + 3
-            + platform
+            + user
                 .agent_mode_llm
                 .values()
                 .map(HashMap::len)
                 .sum::<usize>()
-            + platform
+            + user
                 .media_mode_llm
                 .values()
                 .map(HashMap::len)
                 .sum::<usize>();
-        drop(platform);
         log::info!(
             "debug_session_settings: updated providers={} mappings={}",
             provider_count,
@@ -652,9 +659,10 @@ impl AppState {
         &self,
         incoming: &ModelSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
-        self.apply_session_platform_preferences(incoming)?;
+        let user = self.load_user_settings();
         let platform = self.platform_config.read().clone();
-        persist_local_platform_settings(&platform);
+        let next_user = merge_user_preferences(incoming, &user, &platform);
+        self.save_user_settings(&next_user)?;
         Ok(self.effective_settings_view())
     }
 
@@ -662,23 +670,24 @@ impl AppState {
         &self,
         incoming: &ModelSettings,
     ) -> anyhow::Result<()> {
-        let current = self.platform_config.read().clone();
-        let next = merge_platform_preferences(incoming, &current);
-        *self.platform_config.write() = next;
+        let user = self.load_user_settings();
+        let platform = self.platform_config.read().clone();
+        let next_user = merge_user_preferences(incoming, &user, &platform);
+        self.save_user_settings(&next_user)?;
         Ok(())
     }
 
     pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
         self.remember_automation_llm_creds(creds);
         let mut platform = self.platform_config.write();
-        apply_login_llm_provider_api_keys(&mut platform, &creds.provider_api_keys);
+        apply_login_llm_provider_api_keys(&mut platform.providers, &creds.provider_api_keys);
         apply_login_llm_credentials(
-            &mut platform,
+            &mut platform.providers,
             creds.api_key.as_deref(),
             creds.llm_provider.as_deref(),
         );
         if let Some(media) = creds.media_oss.as_ref() {
-            apply_login_media_oss(&mut platform, Some(media));
+            apply_login_media_oss(&mut platform.media_oss, Some(media));
         }
     }
 
@@ -1066,7 +1075,8 @@ mod active_main_task_board_tests {
     #[test]
     fn debug_session_settings_replace_runtime_model_configuration() {
         let state = AppState::new();
-        let mut debug = DebugSessionSettings::from(state.platform_config.read().clone());
+        let merged = state.effective_settings();
+        let mut debug = DebugSessionSettings::from(&merged);
         let mut provider = debug.providers[0].clone();
         provider.id = "session-provider".into();
         provider.name = "Session Provider".into();
@@ -1119,28 +1129,27 @@ mod active_main_task_board_tests {
             .update_debug_session_settings(debug.clone())
             .expect("debug session update");
 
-        assert_eq!(view.platform.active_provider_id, "session-provider");
-        assert_eq!(view.platform.model, "session-chat");
+        assert_eq!(view.merged.active_provider_id, "session-provider");
         assert_eq!(view.merged.model, "session-chat");
         assert_eq!(state.effective_settings().model, "session-chat");
-        assert_eq!(view.platform.temperature, 0.42);
-        assert_eq!(view.platform.max_tokens, 4321);
+        assert_eq!(view.merged.temperature, 0.42);
+        assert_eq!(view.merged.max_tokens, 4321);
         assert_eq!(
-            view.platform.computer_tier_llm["primary"].model,
+            view.merged.computer_tier_llm["primary"].model,
             "session-worker"
         );
         assert_eq!(
-            view.platform.computer_pipeline_llm.decision,
+            view.merged.computer_pipeline_llm.decision,
             "session-worker"
         );
         assert!(view
-            .platform
+            .merged
             .agent_mode_llm
             .values()
             .flat_map(|modes| modes.values())
             .all(|config| config.model == "session-worker"));
         assert!(view
-            .platform
+            .merged
             .media_mode_llm
             .values()
             .flat_map(|modes| modes.values())

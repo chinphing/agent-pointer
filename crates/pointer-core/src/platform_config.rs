@@ -34,12 +34,38 @@ pub fn replace_global_platform_config_for_test(platform: PlatformSettings) {
 
 /// Effective settings when only user persistence + optional global platform config exist.
 pub fn effective_settings_global() -> ModelSettings {
-    let user = storage::load_user_settings().unwrap_or_default();
+    let user = test_user_settings_or_default();
     let platform = GLOBAL_PLATFORM_CONFIG
         .get()
         .map(|p| p.read().clone())
         .unwrap_or_else(PlatformSettings::default);
     finalize_merged_settings(merge_user_platform(&user, &platform))
+}
+
+#[cfg(test)]
+static GLOBAL_USER_SETTINGS_FOR_TEST: OnceLock<RwLock<UserSettings>> = OnceLock::new();
+
+/// Test helper: inject user settings for `effective_settings_global()`.
+#[cfg(test)]
+pub fn replace_global_user_settings_for_test(user: UserSettings) {
+    if let Some(g) = GLOBAL_USER_SETTINGS_FOR_TEST.get() {
+        *g.write() = user;
+        return;
+    }
+    let _ = GLOBAL_USER_SETTINGS_FOR_TEST.set(RwLock::new(user));
+}
+
+#[cfg(test)]
+fn test_user_settings_or_default() -> UserSettings {
+    GLOBAL_USER_SETTINGS_FOR_TEST
+        .get()
+        .map(|g| g.read().clone())
+        .unwrap_or_else(|| storage::load_user_settings().unwrap_or_default())
+}
+
+#[cfg(not(test))]
+fn test_user_settings_or_default() -> UserSettings {
+    storage::load_user_settings().unwrap_or_default()
 }
 
 pub type SharedPlatformConfig = Arc<RwLock<PlatformSettings>>;
@@ -103,75 +129,72 @@ pub fn finalize_merged_settings(mut settings: ModelSettings) -> ModelSettings {
     settings
 }
 
-/// Build platform settings from merged UI/runtime model settings.
-pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSettings {
-    PlatformSettings {
-        providers: s.providers.clone(),
-        active_provider_id: s.active_provider_id.clone(),
-        model: s.model.clone(),
-        temperature: s.temperature,
-        max_tokens: s.max_tokens,
-        tool_approval_mode: s.tool_approval_mode.clone(),
-        agent_mode: s.agent_mode.clone(),
-        workspace_root: s.workspace_root.clone(),
-        lead_agent_id: s.lead_agent_id.clone(),
-        context_compression_enabled: s.context_compression_enabled,
-        context_budget_tokens: s.context_budget_tokens,
-        context_keep_recent_user_turns: s.context_keep_recent_user_turns,
-        context_summary_max_tokens: s.context_summary_max_tokens,
-        max_tool_rounds: s.max_tool_rounds,
-        max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
-        max_sub_agent_spawn_depth: s.max_sub_agent_spawn_depth,
-        raw_content_view_enabled: s.raw_content_view_enabled,
-        debug_dump_llm_prompts: s.debug_dump_llm_prompts,
-        terminal_env_overrides: s.terminal_env_overrides.clone(),
-        debug_menus_enabled: s.debug_menus_enabled,
-        task_board_show_child_boards: s.task_board_show_child_boards,
-        user_dynamic_inject_enabled: s.user_dynamic_inject_enabled,
-        agent_default_models: s.agent_default_models.clone(),
-        agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
-        computer_human_like: s.computer_human_like,
-        computer_initial_tier: s.computer_initial_tier.clone(),
-        computer_annotated_screen_view_enabled: s.computer_annotated_screen_view_enabled,
-        dati_api_url: s.dati_api_url.clone(),
-        dati_authcode: s.dati_authcode.clone(),
-        dati_typeno: s.dati_typeno.clone(),
-        dati_author: s.dati_author.clone(),
-        captcha_slider_offset_px: s.captcha_slider_offset_px,
-        computer_show_monitor_picker: s.computer_show_monitor_picker,
-        computer_auto_switch_monitor: s.computer_auto_switch_monitor,
-        agent_ui_overrides: s.agent_ui_overrides.clone(),
-        web_search_model: s.web_search_model.clone(),
-        media_model_overrides: s.media_model_overrides.clone(),
-        agent_performance_modes: s.agent_performance_modes.clone(),
-        media_understanding_modes: s.media_understanding_modes.clone(),
-        computer_tier_llm: s.computer_tier_llm.clone(),
-        computer_pipeline_llm: s.computer_pipeline_llm.clone(),
-        agent_mode_llm: s.agent_mode_llm.clone(),
-        media_mode_llm: s.media_mode_llm.clone(),
-        media_oss: s.media_oss.clone(),
-        max_parallel_tool_calls: s.max_parallel_tool_calls,
-        max_parallel_sub_agents: s.max_parallel_sub_agents,
-        max_parallel_media_jobs: s.max_parallel_media_jobs,
-        max_concurrent_runs: s.max_concurrent_runs,
-        parallel_tool_execution_enabled: s.parallel_tool_execution_enabled,
-    }
-}
-
-/// Apply UI-edited preferences while preserving empty incoming provider keys.
-pub fn merge_platform_preferences(
+/// Apply UI-edited preferences to the persisted user layer (user_settings.json).
+/// Providers come in as part of the merged snapshot; keys are resolved against
+/// the runtime platform (existing key preserved when incoming is empty).
+pub fn merge_user_preferences(
     incoming: &ModelSettings,
-    existing: &PlatformSettings,
-) -> PlatformSettings {
-    let mut next = platform_settings_from_model_settings(incoming);
-    // computer tier/pipeline LLM: allow incoming updates (persisted via agent-settings).
-    next.computer_tier_llm = existing.computer_tier_llm.clone();
-    for (tier, config) in incoming.computer_tier_llm.iter() {
-        next.computer_tier_llm.insert(tier.clone(), config.clone());
+    existing: &UserSettings,
+    platform: &PlatformSettings,
+) -> UserSettings {
+    let mut next = UserSettings {
+        providers: incoming.providers.clone(),
+        active_provider_id: incoming.active_provider_id.clone(),
+        model: incoming.model.clone(),
+        temperature: incoming.temperature,
+        max_tokens: incoming.max_tokens,
+        tool_approval_mode: incoming.tool_approval_mode.clone(),
+        agent_mode: incoming.agent_mode.clone(),
+        workspace_root: incoming.workspace_root.clone(),
+        lead_agent_id: incoming.lead_agent_id.clone(),
+        context_compression_enabled: incoming.context_compression_enabled,
+        context_budget_tokens: incoming.context_budget_tokens,
+        context_keep_recent_user_turns: incoming.context_keep_recent_user_turns,
+        context_summary_max_tokens: incoming.context_summary_max_tokens,
+        max_tool_rounds: incoming.max_tool_rounds,
+        max_sub_agent_tool_rounds: incoming.max_sub_agent_tool_rounds,
+        max_sub_agent_spawn_depth: incoming.max_sub_agent_spawn_depth,
+        raw_content_view_enabled: incoming.raw_content_view_enabled,
+        debug_dump_llm_prompts: incoming.debug_dump_llm_prompts,
+        terminal_env_overrides: incoming.terminal_env_overrides.clone(),
+        debug_menus_enabled: incoming.debug_menus_enabled,
+        task_board_show_child_boards: incoming.task_board_show_child_boards,
+        user_dynamic_inject_enabled: incoming.user_dynamic_inject_enabled,
+        agent_default_models: incoming.agent_default_models.clone(),
+        agent_task_board_history_trim: incoming.agent_task_board_history_trim.clone(),
+        computer_human_like: incoming.computer_human_like,
+        computer_initial_tier: incoming.computer_initial_tier.clone(),
+        computer_annotated_screen_view_enabled: incoming.computer_annotated_screen_view_enabled,
+        captcha_slider_offset_px: incoming.captcha_slider_offset_px,
+        computer_show_monitor_picker: incoming.computer_show_monitor_picker,
+        computer_auto_switch_monitor: incoming.computer_auto_switch_monitor,
+        agent_ui_overrides: incoming.agent_ui_overrides.clone(),
+        web_search_model: incoming.web_search_model.clone(),
+        media_model_overrides: incoming.media_model_overrides.clone(),
+        agent_performance_modes: incoming.agent_performance_modes.clone(),
+        media_understanding_modes: incoming.media_understanding_modes.clone(),
+        computer_tier_llm: incoming.computer_tier_llm.clone(),
+        computer_pipeline_llm: incoming.computer_pipeline_llm.clone(),
+        agent_mode_llm: incoming.agent_mode_llm.clone(),
+        media_mode_llm: incoming.media_mode_llm.clone(),
+        max_parallel_tool_calls: incoming.max_parallel_tool_calls,
+        max_parallel_sub_agents: incoming.max_parallel_sub_agents,
+        max_parallel_media_jobs: incoming.max_parallel_media_jobs,
+        max_concurrent_runs: incoming.max_concurrent_runs,
+        parallel_tool_execution_enabled: incoming.parallel_tool_execution_enabled,
+        ..existing.clone()
+    };
+    // Computer tier / pipeline LLM: overlay incoming on existing so a partial
+    // snapshot never wipes tiers the client did not send.
+    {
+        let mut merged = existing.computer_tier_llm.clone();
+        for (tier, config) in &next.computer_tier_llm {
+            merged.insert(tier.clone(), config.clone());
+        }
+        next.computer_tier_llm = merged;
     }
     next.computer_pipeline_llm = incoming.computer_pipeline_llm.clone();
-    // Per-agent/per-mode LLM config: start with existing then overlay incoming
-    // on top so that incoming values always take priority.
+    // Per-agent/per-mode LLM config: start with existing then overlay incoming.
     {
         let mut merged = existing.agent_mode_llm.clone();
         for (agent_id, modes) in &next.agent_mode_llm {
@@ -192,57 +215,34 @@ pub fn merge_platform_preferences(
         }
         next.media_mode_llm = merged;
     }
-    // OpenRouter is a first-party preset now; keep it in providers (persisted via agent-settings).
-    let preserved_keys: HashMap<String, String> = existing
+    // Providers are user-owned now; keep platform runtime keys for the same ids.
+    let runtime_keys: HashMap<String, String> = platform
         .providers
         .iter()
         .map(|p| (p.id.clone(), p.api_key.clone()))
         .collect();
     for provider in &mut next.providers {
         if provider.api_key.trim().is_empty() {
-            if let Some(key) = preserved_keys.get(&provider.id) {
+            if let Some(key) = runtime_keys.get(&provider.id) {
                 provider.api_key = key.clone();
             }
         }
     }
-    // DaTi config is server/build-time only; web clients never send these fields.
-    next.dati_api_url = existing.dati_api_url.clone();
-    next.dati_authcode = existing.dati_authcode.clone();
-    next.dati_typeno = existing.dati_typeno.clone();
-    next.dati_author = existing.dati_author.clone();
     next
-}
-
-pub fn persist_local_platform_settings(platform: &PlatformSettings) {
-    if let Err(e) = storage::save_local_platform_from_runtime(platform) {
-        log::warn!("platform_config: failed to persist local platform settings: {e}");
-    }
 }
 
 pub fn apply_login_credentials_to_model_settings(
     settings: &mut ModelSettings,
     creds: &crate::platform_auth::PlatformLoginCredentials,
 ) {
-    let mut scratch = PlatformSettings {
-        providers: settings.providers.clone(),
-        active_provider_id: settings.active_provider_id.clone(),
-        ..PlatformSettings::default()
-    };
-    apply_login_llm_provider_api_keys(&mut scratch, &creds.provider_api_keys);
+    apply_login_llm_provider_api_keys(&mut settings.providers, &creds.provider_api_keys);
     apply_login_llm_credentials(
-        &mut scratch,
+        &mut settings.providers,
         creds.api_key.as_deref(),
         creds.llm_provider.as_deref(),
     );
     if let Some(media) = creds.media_oss.as_ref() {
-        apply_login_media_oss(&mut scratch, Some(media));
-    }
-    for sp in &mut settings.providers {
-        if let Some(tp) = scratch.providers.iter().find(|p| p.id == sp.id) {
-            if !tp.api_key.trim().is_empty() {
-                sp.api_key = tp.api_key.clone();
-            }
-        }
+        apply_login_media_oss(&mut settings.media_oss, Some(media));
     }
     if let Some(p) = settings
         .providers
@@ -252,14 +252,11 @@ pub fn apply_login_credentials_to_model_settings(
         settings.api_key = p.api_key.clone();
         settings.has_key = !p.api_key.trim().is_empty();
     }
-    if !scratch.media_oss.bucket.trim().is_empty() {
-        settings.media_oss = scratch.media_oss.clone();
-    }
 }
 
-/// Inject OAuth-issued LLM credentials into platform provider list.
+/// Inject OAuth-issued LLM credentials into provider list.
 pub fn apply_login_llm_credentials(
-    platform: &mut PlatformSettings,
+    providers: &mut Vec<ProviderConfig>,
     api_key: Option<&str>,
     llm_provider: Option<&str>,
 ) {
@@ -268,7 +265,7 @@ pub fn apply_login_llm_credentials(
         log::info!("platform_config: login token has no api_key; providers unchanged");
         return;
     };
-    let provider_id = resolve_llm_provider_id(llm_provider, &platform.providers);
+    let provider_id = resolve_llm_provider_id(llm_provider, providers);
     let Some(pid) = provider_id else {
         log::warn!(
             "platform_config: no provider match for llm_provider={:?}",
@@ -276,7 +273,7 @@ pub fn apply_login_llm_credentials(
         );
         return;
     };
-    for p in &mut platform.providers {
+    for p in providers.iter_mut() {
         if p.id == pid {
             p.api_key = key.to_string();
             log::debug!("platform_config: injected api_key for provider {pid}");
@@ -288,7 +285,7 @@ pub fn apply_login_llm_credentials(
 
 /// Inject per-provider OAuth-issued LLM credentials (provider id -> api key).
 pub fn apply_login_llm_provider_api_keys(
-    platform: &mut PlatformSettings,
+    providers: &mut Vec<ProviderConfig>,
     provider_api_keys: &HashMap<String, String>,
 ) {
     if provider_api_keys.is_empty() {
@@ -299,12 +296,11 @@ pub fn apply_login_llm_provider_api_keys(
         if key.is_empty() {
             continue;
         }
-        let Some(pid) = resolve_llm_provider_id(Some(raw_provider.as_str()), &platform.providers)
-        else {
+        let Some(pid) = resolve_llm_provider_id(Some(raw_provider.as_str()), providers) else {
             log::warn!("platform_config: skip unknown provider {raw_provider}");
             continue;
         };
-        if let Some(p) = platform.providers.iter_mut().find(|p| p.id == pid) {
+        if let Some(p) = providers.iter_mut().find(|p| p.id == pid) {
             p.api_key = key.to_string();
             log::debug!("platform_config: injected api_key for provider {pid}");
         } else {
@@ -348,20 +344,17 @@ fn parse_oss_bucket_from_endpoint(endpoint: &str) -> Option<String> {
     }
 }
 
-/// Inject OAuth-issued media OSS credentials into in-memory platform settings.
-pub fn apply_login_media_oss(
-    platform: &mut PlatformSettings,
-    media: Option<&PlatformMediaOssCredentials>,
-) {
+/// Inject OAuth-issued media OSS credentials into media_oss config.
+pub fn apply_login_media_oss(media_oss: &mut MediaOssConfig, media: Option<&PlatformMediaOssCredentials>) {
     let Some(raw) = media else {
-        platform.media_oss = MediaOssConfig::default();
+        *media_oss = MediaOssConfig::default();
         return;
     };
     let endpoint = raw.endpoint.trim();
     let access_key_id = raw.access_key_id.trim();
     let access_key_secret = raw.access_key_secret.trim();
     if endpoint.is_empty() || access_key_id.is_empty() || access_key_secret.is_empty() {
-        platform.media_oss = MediaOssConfig::default();
+        *media_oss = MediaOssConfig::default();
         log::info!("platform_config: login token has no usable media_oss; cleared");
         return;
     }
@@ -369,7 +362,7 @@ pub fn apply_login_media_oss(
         .unwrap_or_else(|| DEFAULT_PLATFORM_MEDIA_OSS_REGION.to_string());
     let bucket = parse_oss_bucket_from_endpoint(endpoint)
         .unwrap_or_else(|| DEFAULT_PLATFORM_MEDIA_OSS_BUCKET.to_string());
-    platform.media_oss = MediaOssConfig {
+    *media_oss = MediaOssConfig {
         enabled: true,
         bucket,
         region,
@@ -408,12 +401,12 @@ fn resolve_llm_provider_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ComputerTierLlmConfig, PersistedLocalPlatformSettings};
+    use crate::models::{ComputerTierLlmConfig, UserSettings};
 
     #[test]
     fn apply_login_maps_aliyun_qwen() {
         let mut platform = PlatformSettings::default();
-        apply_login_llm_credentials(&mut platform, Some("sk-test"), Some("aliyun_qwen"));
+        apply_login_llm_credentials(&mut platform.providers, Some("sk-test"), Some("aliyun_qwen"));
         let qwen = platform.providers.iter().find(|p| p.id == "qwen").unwrap();
         assert_eq!(qwen.api_key, "sk-test");
     }
@@ -424,7 +417,7 @@ mod tests {
         let mut keys = HashMap::new();
         keys.insert("aliyun_qwen".into(), "sk-qwen".into());
         keys.insert("deepseek".into(), "sk-ds".into());
-        apply_login_llm_provider_api_keys(&mut platform, &keys);
+        apply_login_llm_provider_api_keys(&mut platform.providers, &keys);
         assert_eq!(
             platform
                 .providers
@@ -446,119 +439,8 @@ mod tests {
     }
 
     #[test]
-    fn persisted_local_platform_keeps_model_config_and_strips_keys() {
-        let mut platform = PlatformSettings::default();
-        platform.providers[0].api_key = "sk-secret".into();
-        platform.providers.push(ProviderConfig {
-            id: "openrouter".into(),
-            name: "OpenRouter".into(),
-            base_url: "https://openrouter.ai/api/v1".into(),
-            api_key: "sk-openrouter-secret".into(),
-            models: vec!["gpt-4o".into()],
-            reasoning_in_messages: None,
-            temperature: None,
-            max_tokens: None,
-            model_configs: HashMap::new(),
-            enable_thinking: None,
-            thinking_budget: None,
-            reasoning_effort: None,
-            extra_body: None,
-        });
-        platform.active_provider_id = "openrouter".into();
-        platform.model = "gpt-4o".into();
-        platform.temperature = 0.9;
-        platform.max_tokens = 8192;
-        platform.tool_approval_mode = "manual".into();
-        platform.computer_human_like = true;
-        platform.computer_initial_tier = "intermediate".into();
-        platform.context_compression_enabled = false;
-        platform.context_budget_tokens = 99_000;
-        platform.max_tool_rounds = 42;
-        platform.agent_mode = "single".into();
-        platform.lead_agent_id = "coder".into();
-        platform.workspace_root = "/tmp/pointer-workspace".into();
-        platform.raw_content_view_enabled = true;
-        platform.debug_dump_llm_prompts = true;
-        platform.computer_annotated_screen_view_enabled = true;
-        platform.agent_ui_overrides.insert(
-            "computer".into(),
-            crate::agents::AgentUiConfig {
-                show_computer_monitor_picker: Some(false),
-                ..Default::default()
-            },
-        );
-
-        let persisted = PersistedLocalPlatformSettings::from_platform(&platform);
-        let json = serde_json::to_string(&persisted).unwrap();
-        let value = serde_json::to_value(&persisted).unwrap();
-        // Model-service config is now persisted so custom services survive restarts.
-        for key in [
-            "providers",
-            "activeProviderId",
-            "model",
-            "temperature",
-            "maxTokens",
-            "computerTierLlm",
-            "computerPipelineLlm",
-            "agentModeLlm",
-            "mediaModeLlm",
-            "agentDefaultModels",
-        ] {
-            assert!(
-                value.get(key).is_some(),
-                "model config field must be persisted: {key}"
-            );
-        }
-        // Secrets stay out of the persisted file (empty/cleared on write).
-        assert!(!json.contains("sk-secret"));
-        assert!(!json.contains("sk-openrouter-secret"));
-        assert!(!json.contains("rawContentViewEnabled"));
-        assert!(!json.contains("debugDumpLlmPrompts"));
-        assert!(!json.contains("computerAnnotatedScreenViewEnabled"));
-        assert!(!json.contains("agentUiOverrides"));
-        assert!(!json.contains("datiApiUrl"));
-        assert!(!json.contains("datiAuthcode"));
-        assert!(!json.contains("datiTypeno"));
-        assert!(!json.contains("datiAuthor"));
-        assert!(json.contains("toolApprovalMode"));
-        assert!(json.contains("manual"));
-        assert!(json.contains("computerHumanLike"));
-        assert!(json.contains("maxToolRounds"));
-        assert!(json.contains("leadAgentId"));
-        assert!(json.contains("coder"));
-        assert!(json.contains("workspaceRoot"));
-        assert!(json.contains("/tmp/pointer-workspace"));
-
-        let loaded = PersistedLocalPlatformSettings::from_platform(&platform).into_platform();
-        assert_eq!(loaded.tool_approval_mode, "manual");
-        assert!(loaded.computer_human_like);
-        assert_eq!(loaded.computer_initial_tier, "intermediate");
-        assert!(!loaded.context_compression_enabled);
-        assert_eq!(loaded.context_budget_tokens, 99_000);
-        assert_eq!(loaded.max_tool_rounds, 42);
-        assert_eq!(loaded.agent_mode, "single");
-        assert_eq!(loaded.lead_agent_id, "coder");
-        assert_eq!(loaded.workspace_root, "/tmp/pointer-workspace");
-        assert_eq!(loaded.tool_approval_mode, platform.tool_approval_mode);
-        // Model-service selection survives restart now.
-        assert_eq!(loaded.active_provider_id, "openrouter");
-        assert_eq!(loaded.model, "gpt-4o");
-        assert_eq!(loaded.temperature, 0.9);
-        assert_eq!(loaded.max_tokens, 8192);
-        assert_eq!(loaded.computer_tier_llm, platform.computer_tier_llm);
-        assert_eq!(loaded.computer_pipeline_llm, platform.computer_pipeline_llm);
-        assert_eq!(loaded.agent_mode_llm, platform.agent_mode_llm);
-        assert_eq!(loaded.media_mode_llm, platform.media_mode_llm);
-        assert_eq!(loaded.agent_default_models, platform.agent_default_models);
-        let openrouter = loaded.providers.iter().find(|p| p.id == "openrouter").unwrap();
-        assert_eq!(openrouter.base_url, "https://openrouter.ai/api/v1");
-        assert!(openrouter.api_key.is_empty());
-        assert!(loaded.providers.iter().all(|p| p.api_key.is_empty()));
-    }
-
-    #[test]
-    fn merge_platform_preferences_applies_computer_tier_llm() {
-        let mut existing = PlatformSettings::default();
+    fn merge_user_preferences_overlays_computer_tier_llm() {
+        let mut existing = UserSettings::default();
         existing.computer_tier_llm.insert(
             "primary".into(),
             ComputerTierLlmConfig {
@@ -601,7 +483,8 @@ mod tests {
         );
         incoming.computer_pipeline_llm.verify = "incoming-verify".into();
 
-        let merged = merge_platform_preferences(&incoming, &existing);
+        let platform = PlatformSettings::default();
+        let merged = merge_user_preferences(&incoming, &existing, &platform);
         assert_eq!(
             merged.computer_tier_llm.get("primary").unwrap().model,
             "incoming-primary"
@@ -623,26 +506,21 @@ mod tests {
     }
 
     #[test]
-    fn merge_platform_preferences_preserves_dati_fields() {
-        let mut existing = PlatformSettings::default();
-        existing.dati_api_url = "https://dati.example".into();
-        existing.dati_authcode = "keep-auth".into();
-        existing.dati_typeno = "501057".into();
-        existing.dati_author = "keep-author".into();
+    fn merge_user_preferences_keeps_runtime_provider_keys() {
+        let mut existing = UserSettings::default();
+        existing.providers[0].api_key = String::new();
+        let mut platform = PlatformSettings::default();
+        platform.providers[0].api_key = "sk-runtime".into();
         let incoming = ModelSettings::default();
-        let merged = merge_platform_preferences(&incoming, &existing);
-        assert_eq!(merged.dati_api_url, "https://dati.example");
-        assert_eq!(merged.dati_authcode, "keep-auth");
-        assert_eq!(merged.dati_typeno, "501057");
-        assert_eq!(merged.dati_author, "keep-author");
+        let merged = merge_user_preferences(&incoming, &existing, &platform);
+        assert_eq!(merged.providers[0].api_key, "sk-runtime");
     }
 
     #[test]
     fn default_agent_model_is_deepseek_flash() {
-        let platform = PlatformSettings::default();
+        let user = UserSettings::default();
         assert_eq!(
-            platform
-                .agent_default_models
+            user.agent_default_models
                 .get("general")
                 .map(|r| r.model.as_str()),
             Some("deepseek-v4-flash")

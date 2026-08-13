@@ -1511,6 +1511,164 @@ pub struct UserSettings {
     pub collapse_process_by_default: bool,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
+    // --- Model-service config (user-configurable; persisted in user_settings.json) ---
+    #[serde(default = "default_platform_providers", rename = "providers")]
+    pub providers: Vec<ProviderConfig>,
+    #[serde(default = "default_active_provider_id", rename = "activeProviderId")]
+    pub active_provider_id: String,
+    #[serde(default = "default_model_name", rename = "model")]
+    pub model: String,
+    #[serde(default = "default_model_temperature", rename = "temperature")]
+    pub temperature: f32,
+    #[serde(default = "default_model_max_tokens", rename = "maxTokens")]
+    pub max_tokens: u32,
+    #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
+    pub tool_approval_mode: String,
+    #[serde(default = "default_agent_mode", rename = "agentMode")]
+    pub agent_mode: String,
+    #[serde(default, rename = "workspaceRoot")]
+    pub workspace_root: String,
+    #[serde(default = "default_lead_agent_id", rename = "leadAgentId")]
+    pub lead_agent_id: String,
+    #[serde(
+        default = "platform_default_context_compression_enabled",
+        rename = "contextCompressionEnabled"
+    )]
+    pub context_compression_enabled: bool,
+    #[serde(
+        default = "platform_default_context_budget_tokens",
+        rename = "contextBudgetTokens",
+        alias = "contextBudgetChars"
+    )]
+    pub context_budget_tokens: u32,
+    #[serde(
+        default = "platform_default_context_keep_recent_user_turns",
+        rename = "contextKeepRecentUserTurns"
+    )]
+    pub context_keep_recent_user_turns: u32,
+    #[serde(
+        default = "platform_default_context_summary_max_tokens",
+        rename = "contextSummaryMaxTokens"
+    )]
+    pub context_summary_max_tokens: u32,
+    #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
+    pub max_tool_rounds: u32,
+    #[serde(
+        default = "platform_default_max_tool_rounds",
+        rename = "maxSubAgentToolRounds"
+    )]
+    pub max_sub_agent_tool_rounds: u32,
+    #[serde(
+        default = "platform_default_max_sub_agent_spawn_depth",
+        rename = "maxSubAgentSpawnDepth"
+    )]
+    pub max_sub_agent_spawn_depth: u32,
+    #[serde(
+        default = "platform_default_raw_content_view_enabled",
+        rename = "rawContentViewEnabled"
+    )]
+    pub raw_content_view_enabled: bool,
+    #[serde(
+        default = "default_debug_dump_llm_prompts",
+        rename = "debugDumpLlmPrompts"
+    )]
+    pub debug_dump_llm_prompts: bool,
+    #[serde(default, rename = "terminalEnvOverrides")]
+    pub terminal_env_overrides: HashMap<String, String>,
+    #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
+    pub debug_menus_enabled: bool,
+    #[serde(
+        default = "default_task_board_show_child_boards",
+        rename = "taskBoardShowChildBoards"
+    )]
+    pub task_board_show_child_boards: bool,
+    #[serde(
+        default = "default_user_dynamic_inject_enabled",
+        rename = "userDynamicInjectEnabled"
+    )]
+    pub user_dynamic_inject_enabled: bool,
+    #[serde(
+        default,
+        rename = "agentDefaultModels",
+        deserialize_with = "deserialize_agent_default_models",
+        serialize_with = "serialize_agent_default_models"
+    )]
+    pub agent_default_models: HashMap<String, AgentModelRef>,
+    #[serde(default, rename = "agentTaskBoardHistoryTrim")]
+    pub agent_task_board_history_trim: HashMap<String, bool>,
+    #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
+    pub computer_human_like: bool,
+    #[serde(
+        default = "default_computer_initial_tier",
+        rename = "computerInitialTier"
+    )]
+    pub computer_initial_tier: String,
+    #[serde(
+        default = "default_computer_annotated_screen_view_enabled",
+        rename = "computerAnnotatedScreenViewEnabled"
+    )]
+    pub computer_annotated_screen_view_enabled: bool,
+    #[serde(
+        default = "default_captcha_slider_offset_px",
+        rename = "captchaSliderOffsetPx"
+    )]
+    pub captcha_slider_offset_px: i32,
+    #[serde(
+        default = "default_computer_show_monitor_picker",
+        rename = "computerShowMonitorPicker"
+    )]
+    pub computer_show_monitor_picker: bool,
+    #[serde(
+        default = "default_computer_auto_switch_monitor",
+        rename = "computerAutoSwitchMonitor"
+    )]
+    pub computer_auto_switch_monitor: bool,
+    #[serde(default, rename = "agentUiOverrides")]
+    pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
+    #[serde(
+        default = "default_web_search_model_setting",
+        rename = "webSearchModel"
+    )]
+    pub web_search_model: String,
+    #[serde(default, rename = "mediaModelOverrides")]
+    pub media_model_overrides: MediaModelOverrides,
+    #[serde(default, rename = "agentPerformanceModes")]
+    pub agent_performance_modes: HashMap<String, String>,
+    #[serde(default, rename = "mediaUnderstandingModes")]
+    pub media_understanding_modes: MediaUnderstandingModes,
+    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
+    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+    #[serde(default, rename = "computerPipelineLlm")]
+    pub computer_pipeline_llm: ComputerPipelineLlmSettings,
+    #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
+    pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
+    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(
+        default,
+        rename = "maxParallelToolCalls",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_parallel_tool_calls: Option<u32>,
+    #[serde(
+        default,
+        rename = "maxParallelSubAgents",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_parallel_sub_agents: Option<u32>,
+    #[serde(
+        default,
+        rename = "maxParallelMediaJobs",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_parallel_media_jobs: Option<u32>,
+    #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
+    pub max_concurrent_runs: u32,
+    #[serde(
+        default = "default_parallel_tool_execution_enabled",
+        rename = "parallelToolExecutionEnabled"
+    )]
+    pub parallel_tool_execution_enabled: bool,
 }
 
 impl Default for UserSettings {
@@ -1535,6 +1693,51 @@ impl Default for UserSettings {
             play_sound_on_finish: default_play_sound_on_finish(),
             collapse_process_by_default: default_collapse_process_by_default(),
             media_oss: MediaOssConfig::default(),
+            providers: default_platform_providers(),
+            active_provider_id: default_active_provider_id(),
+            model: default_model_name(),
+            temperature: build_cfg_f32!("TEMPERATURE", platform_default_temperature()),
+            max_tokens: build_cfg_u32!("MAX_TOKENS", platform_default_max_tokens()),
+            tool_approval_mode: default_tool_approval_mode(),
+            agent_mode: default_agent_mode(),
+            workspace_root: default_workspace_root(),
+            lead_agent_id: default_lead_agent_id(),
+            context_compression_enabled: platform_default_context_compression_enabled(),
+            context_budget_tokens: platform_default_context_budget_tokens(),
+            context_keep_recent_user_turns: platform_default_context_keep_recent_user_turns(),
+            context_summary_max_tokens: platform_default_context_summary_max_tokens(),
+            max_tool_rounds: platform_default_max_tool_rounds(),
+            max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
+            max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
+            raw_content_view_enabled: platform_default_raw_content_view_enabled(),
+            debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
+            terminal_env_overrides: HashMap::new(),
+            debug_menus_enabled: default_debug_menus_enabled(),
+            task_board_show_child_boards: default_task_board_show_child_boards(),
+            user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
+            agent_default_models: default_platform_agent_models(),
+            agent_task_board_history_trim: HashMap::new(),
+            computer_human_like: true,
+            computer_initial_tier: default_computer_initial_tier(),
+            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
+            ),
+            captcha_slider_offset_px: default_captcha_slider_offset_px(),
+            computer_show_monitor_picker: default_computer_show_monitor_picker(),
+            computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
+            agent_ui_overrides: HashMap::new(),
+            web_search_model: default_web_search_model_setting(),
+            media_model_overrides: default_media_generation_overrides(),
+            agent_performance_modes: HashMap::new(),
+            media_understanding_modes: MediaUnderstandingModes::default(),
+            computer_tier_llm: default_computer_tier_llm(),
+            computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
+            agent_mode_llm: default_agent_mode_llm(),
+            media_mode_llm: default_media_mode_llm(),
+            max_parallel_tool_calls: None,
+            max_parallel_sub_agents: None,
+            max_parallel_media_jobs: None,
+            max_concurrent_runs: default_max_concurrent_runs(),
+            parallel_tool_execution_enabled: true,
         }
     }
 }
@@ -1626,103 +1829,15 @@ fn default_pipeline_thinking_budget_verify() -> u32 {
     DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET
 }
 
-/// In-memory platform configuration (not persisted across restarts).
+/// In-memory platform configuration. Only session-scoped / sensitive fields
+/// live here (never persisted): runtime provider list (with injected keys),
+/// OAuth media OSS credentials, and server-side DaTi CAPTCHA config.
+/// All user-editable preferences (incl. debug) live in [`UserSettings`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformSettings {
     pub providers: Vec<ProviderConfig>,
-    #[serde(rename = "activeProviderId")]
-    pub active_provider_id: String,
-    pub model: String,
-    pub temperature: f32,
-    #[serde(rename = "maxTokens")]
-    pub max_tokens: u32,
-    #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
-    pub tool_approval_mode: String,
-    #[serde(default = "default_agent_mode", rename = "agentMode")]
-    pub agent_mode: String,
-    #[serde(default, rename = "workspaceRoot")]
-    pub workspace_root: String,
-    #[serde(default, rename = "leadAgentId")]
-    pub lead_agent_id: String,
-    #[serde(
-        default = "platform_default_context_compression_enabled",
-        rename = "contextCompressionEnabled"
-    )]
-    pub context_compression_enabled: bool,
-    #[serde(
-        default = "platform_default_context_budget_tokens",
-        rename = "contextBudgetTokens",
-        alias = "contextBudgetChars"
-    )]
-    pub context_budget_tokens: u32,
-    #[serde(
-        default = "platform_default_context_keep_recent_user_turns",
-        rename = "contextKeepRecentUserTurns"
-    )]
-    pub context_keep_recent_user_turns: u32,
-    #[serde(
-        default = "platform_default_context_summary_max_tokens",
-        rename = "contextSummaryMaxTokens"
-    )]
-    pub context_summary_max_tokens: u32,
-    #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
-    pub max_tool_rounds: u32,
-    #[serde(
-        default = "platform_default_max_tool_rounds",
-        rename = "maxSubAgentToolRounds"
-    )]
-    pub max_sub_agent_tool_rounds: u32,
-    #[serde(
-        default = "platform_default_max_sub_agent_spawn_depth",
-        rename = "maxSubAgentSpawnDepth"
-    )]
-    pub max_sub_agent_spawn_depth: u32,
-    #[serde(
-        default = "platform_default_raw_content_view_enabled",
-        rename = "rawContentViewEnabled"
-    )]
-    pub raw_content_view_enabled: bool,
-    #[serde(
-        default = "default_debug_dump_llm_prompts",
-        rename = "debugDumpLlmPrompts"
-    )]
-    pub debug_dump_llm_prompts: bool,
-    /// Session KEY→VALUE overlays for `terminal` child env (override process / `.env`).
-    #[serde(default, rename = "terminalEnvOverrides")]
-    pub terminal_env_overrides: HashMap<String, String>,
-    #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
-    pub debug_menus_enabled: bool,
-    #[serde(
-        default = "default_task_board_show_child_boards",
-        rename = "taskBoardShowChildBoards"
-    )]
-    pub task_board_show_child_boards: bool,
-    #[serde(
-        default = "default_user_dynamic_inject_enabled",
-        rename = "userDynamicInjectEnabled"
-    )]
-    pub user_dynamic_inject_enabled: bool,
-    #[serde(
-        default,
-        rename = "agentDefaultModels",
-        deserialize_with = "deserialize_agent_default_models",
-        serialize_with = "serialize_agent_default_models"
-    )]
-    pub agent_default_models: HashMap<String, AgentModelRef>,
-    #[serde(default, rename = "agentTaskBoardHistoryTrim")]
-    pub agent_task_board_history_trim: HashMap<String, bool>,
-    #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
-    pub computer_human_like: bool,
-    #[serde(
-        default = "default_computer_initial_tier",
-        rename = "computerInitialTier"
-    )]
-    pub computer_initial_tier: String,
-    #[serde(
-        default = "default_computer_annotated_screen_view_enabled",
-        rename = "computerAnnotatedScreenViewEnabled"
-    )]
-    pub computer_annotated_screen_view_enabled: bool,
+    #[serde(default, rename = "mediaOss")]
+    pub media_oss: MediaOssConfig,
     #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
     pub dati_api_url: String,
     #[serde(default = "default_dati_authcode", rename = "datiAuthcode")]
@@ -1731,71 +1846,6 @@ pub struct PlatformSettings {
     pub dati_typeno: String,
     #[serde(default = "default_dati_author", rename = "datiAuthor")]
     pub dati_author: String,
-    #[serde(
-        default = "default_captcha_slider_offset_px",
-        rename = "captchaSliderOffsetPx"
-    )]
-    pub captcha_slider_offset_px: i32,
-    #[serde(
-        default = "default_computer_show_monitor_picker",
-        rename = "computerShowMonitorPicker"
-    )]
-    pub computer_show_monitor_picker: bool,
-    #[serde(
-        default = "default_computer_auto_switch_monitor",
-        rename = "computerAutoSwitchMonitor"
-    )]
-    pub computer_auto_switch_monitor: bool,
-    #[serde(default, rename = "agentUiOverrides")]
-    pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
-    /// Model id for DashScope web search tool calls (empty = default `qwen3-max`).
-    #[serde(
-        default = "default_web_search_model_setting",
-        rename = "webSearchModel"
-    )]
-    pub web_search_model: String,
-    #[serde(default, rename = "mediaModelOverrides")]
-    pub media_model_overrides: MediaModelOverrides,
-    #[serde(default, rename = "agentPerformanceModes")]
-    pub agent_performance_modes: HashMap<String, String>,
-    #[serde(default, rename = "mediaUnderstandingModes")]
-    pub media_understanding_modes: MediaUnderstandingModes,
-    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
-    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
-    #[serde(default, rename = "computerPipelineLlm")]
-    pub computer_pipeline_llm: ComputerPipelineLlmSettings,
-    #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
-    pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    /// Session-only media OSS credentials from platform login (not persisted locally).
-    #[serde(default, rename = "mediaOss")]
-    pub media_oss: MediaOssConfig,
-    #[serde(
-        default,
-        rename = "maxParallelToolCalls",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_parallel_tool_calls: Option<u32>,
-    #[serde(
-        default,
-        rename = "maxParallelSubAgents",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_parallel_sub_agents: Option<u32>,
-    #[serde(
-        default,
-        rename = "maxParallelMediaJobs",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_parallel_media_jobs: Option<u32>,
-    #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
-    pub max_concurrent_runs: u32,
-    #[serde(
-        default = "default_parallel_tool_execution_enabled",
-        rename = "parallelToolExecutionEnabled"
-    )]
-    pub parallel_tool_execution_enabled: bool,
 }
 
 /// Process-local debug model configuration. This DTO must never be persisted.
@@ -1818,18 +1868,18 @@ pub struct DebugSessionSettings {
     pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
 }
 
-impl From<PlatformSettings> for DebugSessionSettings {
-    fn from(platform: PlatformSettings) -> Self {
+impl From<&ModelSettings> for DebugSessionSettings {
+    fn from(merged: &ModelSettings) -> Self {
         Self {
-            providers: platform.providers,
-            active_provider_id: platform.active_provider_id,
-            model: platform.model,
-            temperature: platform.temperature,
-            max_tokens: platform.max_tokens,
-            computer_tier_llm: platform.computer_tier_llm,
-            computer_pipeline_llm: platform.computer_pipeline_llm,
-            agent_mode_llm: platform.agent_mode_llm,
-            media_mode_llm: platform.media_mode_llm,
+            providers: merged.providers.clone(),
+            active_provider_id: merged.active_provider_id.clone(),
+            model: merged.model.clone(),
+            temperature: merged.temperature,
+            max_tokens: merged.max_tokens,
+            computer_tier_llm: merged.computer_tier_llm.clone(),
+            computer_pipeline_llm: merged.computer_pipeline_llm.clone(),
+            agent_mode_llm: merged.agent_mode_llm.clone(),
+            media_mode_llm: merged.media_mode_llm.clone(),
         }
     }
 }
@@ -1868,227 +1918,6 @@ pub fn filter_openrouter_providers(providers: Vec<ProviderConfig>) -> Vec<Provid
         .into_iter()
         .filter(|p| !is_openrouter_provider(p))
         .collect()
-}
-
-/// Disk-safe desktop agent preferences (智能体 section). Includes model-service
-/// configuration (provider structure without secrets, active model selection) so
-/// custom services survive restarts; apiKey stays in memory / OAuth-injected.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistedLocalPlatformSettings {
-    #[serde(default = "default_active_provider_id", rename = "activeProviderId")]
-    pub active_provider_id: String,
-    #[serde(default = "default_model_name", rename = "model")]
-    pub model: String,
-    #[serde(default = "default_model_temperature", rename = "temperature")]
-    pub temperature: f32,
-    #[serde(default = "default_model_max_tokens", rename = "maxTokens")]
-    pub max_tokens: u32,
-    #[serde(default, rename = "providers")]
-    pub providers: Vec<ProviderConfig>,
-    #[serde(
-        default,
-        rename = "agentDefaultModels",
-        deserialize_with = "deserialize_agent_default_models",
-        serialize_with = "serialize_agent_default_models"
-    )]
-    pub agent_default_models: HashMap<String, AgentModelRef>,
-    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
-    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
-    #[serde(default, rename = "computerPipelineLlm")]
-    pub computer_pipeline_llm: ComputerPipelineLlmSettings,
-    #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
-    pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
-    pub tool_approval_mode: String,
-    #[serde(
-        default = "default_user_dynamic_inject_enabled",
-        rename = "userDynamicInjectEnabled"
-    )]
-    pub user_dynamic_inject_enabled: bool,
-    #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
-    pub computer_human_like: bool,
-    #[serde(
-        default = "default_computer_initial_tier",
-        rename = "computerInitialTier"
-    )]
-    pub computer_initial_tier: String,
-    #[serde(
-        default = "platform_default_context_compression_enabled",
-        rename = "contextCompressionEnabled"
-    )]
-    pub context_compression_enabled: bool,
-    #[serde(
-        default = "platform_default_context_budget_tokens",
-        rename = "contextBudgetTokens",
-        alias = "contextBudgetChars"
-    )]
-    pub context_budget_tokens: u32,
-    #[serde(
-        default = "platform_default_context_keep_recent_user_turns",
-        rename = "contextKeepRecentUserTurns"
-    )]
-    pub context_keep_recent_user_turns: u32,
-    #[serde(
-        default = "platform_default_context_summary_max_tokens",
-        rename = "contextSummaryMaxTokens"
-    )]
-    pub context_summary_max_tokens: u32,
-    #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
-    pub max_tool_rounds: u32,
-    #[serde(default = "default_agent_mode", rename = "agentMode")]
-    pub agent_mode: String,
-    #[serde(default, rename = "leadAgentId")]
-    pub lead_agent_id: String,
-    #[serde(default, rename = "workspaceRoot")]
-    pub workspace_root: String,
-    #[serde(
-        default = "default_captcha_slider_offset_px",
-        rename = "captchaSliderOffsetPx"
-    )]
-    pub captcha_slider_offset_px: i32,
-    #[serde(
-        default = "default_computer_auto_switch_monitor",
-        rename = "computerAutoSwitchMonitor"
-    )]
-    pub computer_auto_switch_monitor: bool,
-    #[serde(default, rename = "mediaModelOverrides")]
-    pub media_model_overrides: MediaModelOverrides,
-    #[serde(default, rename = "agentPerformanceModes")]
-    pub agent_performance_modes: HashMap<String, String>,
-    #[serde(default, rename = "mediaUnderstandingModes")]
-    pub media_understanding_modes: MediaUnderstandingModes,
-    #[serde(
-        default = "default_parallel_tool_execution_enabled",
-        rename = "parallelToolExecutionEnabled"
-    )]
-    pub parallel_tool_execution_enabled: bool,
-    #[serde(
-        default,
-        rename = "maxParallelToolCalls",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_parallel_tool_calls: Option<u32>,
-    #[serde(
-        default,
-        rename = "maxParallelSubAgents",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_parallel_sub_agents: Option<u32>,
-    #[serde(
-        default,
-        rename = "maxParallelMediaJobs",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub max_parallel_media_jobs: Option<u32>,
-    #[serde(default = "default_max_concurrent_runs", rename = "maxConcurrentRuns")]
-    pub max_concurrent_runs: u32,
-}
-
-impl PersistedLocalPlatformSettings {
-    pub fn from_platform(platform: &PlatformSettings) -> Self {
-        Self {
-            active_provider_id: platform.active_provider_id.clone(),
-            model: platform.model.clone(),
-            temperature: platform.temperature,
-            max_tokens: platform.max_tokens,
-            providers: platform
-                .providers
-                .iter()
-                .map(|p| {
-                    let mut p = p.clone();
-                    p.api_key.clear();
-                    p
-                })
-                .collect(),
-            agent_default_models: platform.agent_default_models.clone(),
-            computer_tier_llm: platform.computer_tier_llm.clone(),
-            computer_pipeline_llm: platform.computer_pipeline_llm.clone(),
-            agent_mode_llm: platform.agent_mode_llm.clone(),
-            media_mode_llm: platform.media_mode_llm.clone(),
-            tool_approval_mode: platform.tool_approval_mode.clone(),
-            user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
-            computer_human_like: platform.computer_human_like,
-            computer_initial_tier: platform.computer_initial_tier.clone(),
-            context_compression_enabled: platform.context_compression_enabled,
-            context_budget_tokens: platform.context_budget_tokens,
-            context_keep_recent_user_turns: platform.context_keep_recent_user_turns,
-            context_summary_max_tokens: platform.context_summary_max_tokens,
-            max_tool_rounds: platform.max_tool_rounds,
-            agent_mode: platform.agent_mode.clone(),
-            lead_agent_id: platform.lead_agent_id.clone(),
-            workspace_root: platform.workspace_root.clone(),
-            captcha_slider_offset_px: platform.captcha_slider_offset_px,
-            computer_auto_switch_monitor: platform.computer_auto_switch_monitor,
-            media_model_overrides: platform.media_model_overrides.clone(),
-            agent_performance_modes: platform.agent_performance_modes.clone(),
-            media_understanding_modes: platform.media_understanding_modes.clone(),
-            parallel_tool_execution_enabled: platform.parallel_tool_execution_enabled,
-            max_parallel_tool_calls: platform.max_parallel_tool_calls,
-            max_parallel_sub_agents: platform.max_parallel_sub_agents,
-            max_parallel_media_jobs: platform.max_parallel_media_jobs,
-            max_concurrent_runs: platform.max_concurrent_runs,
-        }
-    }
-
-    pub fn into_platform(self) -> PlatformSettings {
-        let mut platform = PlatformSettings::default();
-        self.apply_onto(&mut platform);
-        platform
-    }
-
-    /// Merge persisted agent fields onto runtime platform.
-    pub fn apply_onto(&self, platform: &mut PlatformSettings) {
-        if !self.active_provider_id.trim().is_empty() {
-            platform.active_provider_id = self.active_provider_id.clone();
-        }
-        if !self.model.trim().is_empty() {
-            platform.model = self.model.clone();
-        }
-        platform.temperature = self.temperature;
-        platform.max_tokens = self.max_tokens;
-        if !self.providers.is_empty() {
-            platform.providers = self.providers.clone();
-        }
-        if !self.agent_default_models.is_empty() {
-            platform.agent_default_models = self.agent_default_models.clone();
-        }
-        platform.computer_tier_llm = self.computer_tier_llm.clone();
-        platform.computer_pipeline_llm = self.computer_pipeline_llm.clone();
-        platform.agent_mode_llm = self.agent_mode_llm.clone();
-        platform.media_mode_llm = self.media_mode_llm.clone();
-        platform.tool_approval_mode = self.tool_approval_mode.clone();
-        platform.user_dynamic_inject_enabled = self.user_dynamic_inject_enabled;
-        platform.computer_human_like = self.computer_human_like;
-        platform.computer_initial_tier = self.computer_initial_tier.clone();
-        platform.context_compression_enabled = self.context_compression_enabled;
-        platform.context_budget_tokens = self.context_budget_tokens;
-        platform.context_keep_recent_user_turns = self.context_keep_recent_user_turns;
-        platform.context_summary_max_tokens = self.context_summary_max_tokens;
-        platform.max_tool_rounds = self.max_tool_rounds;
-        platform.agent_mode = if self.agent_mode.trim().is_empty() {
-            default_agent_mode()
-        } else {
-            self.agent_mode.clone()
-        };
-        platform.lead_agent_id = if self.lead_agent_id.trim().is_empty() {
-            PlatformSettings::default().lead_agent_id
-        } else {
-            self.lead_agent_id.clone()
-        };
-        platform.workspace_root = self.workspace_root.clone();
-        platform.captcha_slider_offset_px = self.captcha_slider_offset_px;
-        platform.computer_auto_switch_monitor = self.computer_auto_switch_monitor;
-        platform.media_model_overrides = self.media_model_overrides.clone();
-        platform.agent_performance_modes = self.agent_performance_modes.clone();
-        platform.media_understanding_modes = self.media_understanding_modes.clone();
-        platform.parallel_tool_execution_enabled = self.parallel_tool_execution_enabled;
-        platform.max_parallel_tool_calls = self.max_parallel_tool_calls;
-        platform.max_parallel_sub_agents = self.max_parallel_sub_agents;
-        platform.max_parallel_media_jobs = self.max_parallel_media_jobs;
-        platform.max_concurrent_runs = self.max_concurrent_runs;
-    }
 }
 
 fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
@@ -2285,105 +2114,65 @@ fn platform_default_max_tokens() -> u32 {
     64_000
 }
 
+fn default_platform_providers() -> Vec<ProviderConfig> {
+    vec![
+        ProviderConfig {
+            id: "qwen".into(),
+            name: "千问".into(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            api_key: String::new(),
+            models: default_qwen_provider_models(),
+            reasoning_in_messages: Some(false),
+            temperature: Some(platform_default_temperature()),
+            max_tokens: Some(platform_default_max_tokens()),
+            model_configs: HashMap::new(),
+            enable_thinking: Some(true),
+            thinking_budget: Some(2048),
+            reasoning_effort: None,
+            extra_body: None,
+        },
+        ProviderConfig {
+            id: "deepseek".into(),
+            name: "深度求索".into(),
+            base_url: "https://api.deepseek.com/v1".into(),
+            api_key: String::new(),
+            models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
+            reasoning_in_messages: Some(true),
+            temperature: Some(platform_default_temperature()),
+            max_tokens: Some(platform_default_max_tokens()),
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+        },
+        ProviderConfig {
+            id: "doubao".into(),
+            name: "豆包".into(),
+            base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
+            api_key: String::new(),
+            models: default_doubao_provider_models(),
+            reasoning_in_messages: None,
+            temperature: Some(platform_default_temperature()),
+            max_tokens: Some(platform_default_max_tokens()),
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+        },
+    ]
+}
+
 impl Default for PlatformSettings {
     fn default() -> Self {
         Self {
-            providers: vec![
-                ProviderConfig {
-                    id: "qwen".into(),
-                    name: "千问".into(),
-                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
-                    api_key: String::new(),
-                    models: default_qwen_provider_models(),
-                    reasoning_in_messages: Some(false),
-                    temperature: Some(platform_default_temperature()),
-                    max_tokens: Some(platform_default_max_tokens()),
-                    model_configs: HashMap::new(),
-                    enable_thinking: Some(true),
-                    thinking_budget: Some(2048),
-                    reasoning_effort: None,
-                    extra_body: None,
-                },
-                ProviderConfig {
-                    id: "deepseek".into(),
-                    name: "深度求索".into(),
-                    base_url: "https://api.deepseek.com/v1".into(),
-                    api_key: String::new(),
-                    models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
-                    reasoning_in_messages: Some(true),
-                    temperature: Some(platform_default_temperature()),
-                    max_tokens: Some(platform_default_max_tokens()),
-                    model_configs: HashMap::new(),
-                    enable_thinking: None,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    extra_body: None,
-                },
-                ProviderConfig {
-                    id: "doubao".into(),
-                    name: "豆包".into(),
-                    base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
-                    api_key: String::new(),
-                    models: default_doubao_provider_models(),
-                    reasoning_in_messages: None,
-                    temperature: Some(platform_default_temperature()),
-                    max_tokens: Some(platform_default_max_tokens()),
-                    model_configs: HashMap::new(),
-                    enable_thinking: None,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    extra_body: None,
-                },
-            ],
-            active_provider_id: default_active_provider_id(),
-            model: default_model_name(),
-            temperature: build_cfg_f32!("TEMPERATURE", platform_default_temperature()),
-            max_tokens: build_cfg_u32!("MAX_TOKENS", platform_default_max_tokens()),
-            tool_approval_mode: default_tool_approval_mode(),
-            agent_mode: default_agent_mode(),
-            workspace_root: default_workspace_root(),
-            lead_agent_id: default_lead_agent_id(),
-            context_compression_enabled: platform_default_context_compression_enabled(),
-            context_budget_tokens: platform_default_context_budget_tokens(),
-            context_keep_recent_user_turns: platform_default_context_keep_recent_user_turns(),
-            context_summary_max_tokens: platform_default_context_summary_max_tokens(),
-            max_tool_rounds: platform_default_max_tool_rounds(),
-            max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
-            max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
-            raw_content_view_enabled: platform_default_raw_content_view_enabled(),
-            debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
-            terminal_env_overrides: HashMap::new(),
-            debug_menus_enabled: default_debug_menus_enabled(),
-            task_board_show_child_boards: default_task_board_show_child_boards(),
-            user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
-            agent_default_models: default_platform_agent_models(),
-            agent_task_board_history_trim: HashMap::new(),
-            computer_human_like: true,
-            computer_initial_tier: default_computer_initial_tier(),
-            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
-            ),
+            providers: default_platform_providers(),
             dati_api_url: default_dati_api_url(),
             dati_authcode: default_dati_authcode(),
             dati_typeno: default_dati_typeno(),
             dati_author: default_dati_author(),
-            captcha_slider_offset_px: default_captcha_slider_offset_px(),
-            computer_show_monitor_picker: default_computer_show_monitor_picker(),
-            computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
-            agent_ui_overrides: HashMap::new(),
-            web_search_model: default_web_search_model_setting(),
-            media_model_overrides: default_media_generation_overrides(),
-            agent_performance_modes: HashMap::new(),
-            media_understanding_modes: MediaUnderstandingModes::default(),
-            computer_tier_llm: default_computer_tier_llm(),
-            computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
-            agent_mode_llm: default_agent_mode_llm(),
-            media_mode_llm: default_media_mode_llm(),
             media_oss: MediaOssConfig::default(),
-            max_parallel_tool_calls: None,
-            max_parallel_sub_agents: None,
-            max_parallel_media_jobs: None,
-            max_concurrent_runs: default_max_concurrent_runs(),
-            parallel_tool_execution_enabled: true,
         }
     }
 }
@@ -2489,6 +2278,21 @@ fn redact_settings_object_secrets(
     obj: &mut serde_json::Map<String, serde_json::Value>,
     strip_debug: bool,
 ) {
+    // Debug / mode-LLM fields now live in the user slice; non-admins must not
+    // see them there either (admins keep them for save→reopen round-trips).
+    if let Some(user) = obj.get_mut("user") {
+        if strip_debug {
+            strip_debug_keys_from_settings_object(user);
+        }
+        if let Some(user_obj) = user.as_object_mut() {
+            if let Some(providers) = user_obj.get_mut("providers") {
+                redact_provider_api_keys_in_array(providers);
+            }
+            if let Some(oss) = user_obj.get_mut("mediaOss") {
+                redact_media_oss_secrets(oss);
+            }
+        }
+    }
     if let Some(platform) = obj.get_mut("platform") {
         strip_dati_keys_from_settings_object(platform);
         if strip_debug {
@@ -2523,26 +2327,27 @@ fn redact_settings_object_secrets(
 /// Web PUT from non-admin clients must not overwrite server debug toggles with
 /// serde defaults (those fields are omitted on non-admin GET). Admins receive
 /// and may update the fields; callers should skip this preserve for admins.
+/// Debug fields now live in user settings, so the server values come from `user`.
 pub fn preserve_platform_debug_settings_in_model(
     incoming: &mut ModelSettings,
-    platform: &PlatformSettings,
+    user: &UserSettings,
 ) {
-    incoming.raw_content_view_enabled = platform.raw_content_view_enabled;
-    incoming.debug_dump_llm_prompts = platform.debug_dump_llm_prompts;
-    incoming.terminal_env_overrides = platform.terminal_env_overrides.clone();
-    incoming.debug_menus_enabled = platform.debug_menus_enabled;
-    incoming.task_board_show_child_boards = platform.task_board_show_child_boards;
+    incoming.raw_content_view_enabled = user.raw_content_view_enabled;
+    incoming.debug_dump_llm_prompts = user.debug_dump_llm_prompts;
+    incoming.terminal_env_overrides = user.terminal_env_overrides.clone();
+    incoming.debug_menus_enabled = user.debug_menus_enabled;
+    incoming.task_board_show_child_boards = user.task_board_show_child_boards;
     incoming.computer_annotated_screen_view_enabled =
-        platform.computer_annotated_screen_view_enabled;
-    incoming.agent_ui_overrides = platform.agent_ui_overrides.clone();
-    incoming.agent_task_board_history_trim = platform.agent_task_board_history_trim.clone();
-    incoming.max_sub_agent_tool_rounds = platform.max_sub_agent_tool_rounds;
-    incoming.max_sub_agent_spawn_depth = platform.max_sub_agent_spawn_depth;
+        user.computer_annotated_screen_view_enabled;
+    incoming.agent_ui_overrides = user.agent_ui_overrides.clone();
+    incoming.agent_task_board_history_trim = user.agent_task_board_history_trim.clone();
+    incoming.max_sub_agent_tool_rounds = user.max_sub_agent_tool_rounds;
+    incoming.max_sub_agent_spawn_depth = user.max_sub_agent_spawn_depth;
     // Mode LLM maps are also omitted for non-admins; keep server values.
-    incoming.agent_mode_llm = platform.agent_mode_llm.clone();
-    incoming.media_mode_llm = platform.media_mode_llm.clone();
-    incoming.computer_tier_llm = platform.computer_tier_llm.clone();
-    incoming.computer_pipeline_llm = platform.computer_pipeline_llm.clone();
+    incoming.agent_mode_llm = user.agent_mode_llm.clone();
+    incoming.media_mode_llm = user.media_mode_llm.clone();
+    incoming.computer_tier_llm = user.computer_tier_llm.clone();
+    incoming.computer_pipeline_llm = user.computer_pipeline_llm.clone();
 }
 
 /// Strip DaTi fields and redact secrets for pointer-server Web API responses.
@@ -2572,43 +2377,59 @@ impl serde::Serialize for WebEffectiveSettingsView {
 
 /// Merge persisted user settings with in-memory platform config.
 pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> ModelSettings {
+    // Providers are user-owned (persisted in user_settings.json). Runtime keys
+    // (OAuth / server.toml injection) live in platform.providers and are overlaid
+    // by provider id so user edits never wipe injected credentials.
+    let mut providers = user.providers.clone();
+    let platform_keys: HashMap<String, String> = platform
+        .providers
+        .iter()
+        .map(|p| (p.id.clone(), p.api_key.clone()))
+        .collect();
+    for provider in &mut providers {
+        if provider.api_key.trim().is_empty() {
+            if let Some(key) = platform_keys.get(&provider.id) {
+                provider.api_key = key.clone();
+            }
+        }
+    }
     ModelSettings {
-        providers: platform.providers.clone(),
-        active_provider_id: platform.active_provider_id.clone(),
-        model: platform.model.clone(),
+        providers,
+        active_provider_id: user.active_provider_id.clone(),
+        model: user.model.clone(),
         api_key: String::new(),
-        temperature: platform.temperature,
-        max_tokens: platform.max_tokens,
+        temperature: user.temperature,
+        max_tokens: user.max_tokens,
         has_key: platform.providers.iter().any(|p| !p.api_key.is_empty()),
-        tool_approval_mode: platform.tool_approval_mode.clone(),
-        agent_mode: platform.agent_mode.clone(),
-        workspace_root: platform.workspace_root.clone(),
-        lead_agent_id: platform.lead_agent_id.clone(),
-        context_compression_enabled: platform.context_compression_enabled,
-        context_budget_tokens: platform.context_budget_tokens,
-        context_keep_recent_user_turns: platform.context_keep_recent_user_turns,
-        context_summary_max_tokens: platform.context_summary_max_tokens,
-        max_tool_rounds: platform.max_tool_rounds,
-        max_sub_agent_tool_rounds: platform.max_sub_agent_tool_rounds,
-        max_sub_agent_spawn_depth: platform.max_sub_agent_spawn_depth,
-        raw_content_view_enabled: platform.raw_content_view_enabled,
-        debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
-        terminal_env_overrides: platform.terminal_env_overrides.clone(),
-        debug_menus_enabled: platform.debug_menus_enabled,
-        task_board_show_child_boards: platform.task_board_show_child_boards,
-        user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
-        agent_default_models: platform.agent_default_models.clone(),
-        agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),
-        computer_human_like: platform.computer_human_like,
-        computer_initial_tier: platform.computer_initial_tier.clone(),
-        computer_annotated_screen_view_enabled: platform.computer_annotated_screen_view_enabled,
+        tool_approval_mode: user.tool_approval_mode.clone(),
+        agent_mode: user.agent_mode.clone(),
+        workspace_root: user.workspace_root.clone(),
+        lead_agent_id: user.lead_agent_id.clone(),
+        context_compression_enabled: user.context_compression_enabled,
+        context_budget_tokens: user.context_budget_tokens,
+        context_keep_recent_user_turns: user.context_keep_recent_user_turns,
+        context_summary_max_tokens: user.context_summary_max_tokens,
+        max_tool_rounds: user.max_tool_rounds,
+        max_sub_agent_tool_rounds: user.max_sub_agent_tool_rounds,
+        max_sub_agent_spawn_depth: user.max_sub_agent_spawn_depth,
+        raw_content_view_enabled: user.raw_content_view_enabled,
+        debug_dump_llm_prompts: user.debug_dump_llm_prompts,
+        terminal_env_overrides: user.terminal_env_overrides.clone(),
+        debug_menus_enabled: user.debug_menus_enabled,
+        task_board_show_child_boards: user.task_board_show_child_boards,
+        user_dynamic_inject_enabled: user.user_dynamic_inject_enabled,
+        agent_default_models: user.agent_default_models.clone(),
+        agent_task_board_history_trim: user.agent_task_board_history_trim.clone(),
+        computer_human_like: user.computer_human_like,
+        computer_initial_tier: user.computer_initial_tier.clone(),
+        computer_annotated_screen_view_enabled: user.computer_annotated_screen_view_enabled,
         dati_api_url: platform.dati_api_url.clone(),
         dati_authcode: platform.dati_authcode.clone(),
         dati_typeno: platform.dati_typeno.clone(),
         dati_author: platform.dati_author.clone(),
-        captcha_slider_offset_px: platform.captcha_slider_offset_px,
-        computer_show_monitor_picker: platform.computer_show_monitor_picker,
-        computer_auto_switch_monitor: platform.computer_auto_switch_monitor,
+        captcha_slider_offset_px: user.captcha_slider_offset_px,
+        computer_show_monitor_picker: user.computer_show_monitor_picker,
+        computer_auto_switch_monitor: user.computer_auto_switch_monitor,
         memory_enabled: user.memory_enabled,
         user_profile_enabled: user.user_profile_enabled,
         user_coding_rules: user.user_coding_rules.clone(),
@@ -2621,21 +2442,21 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         curator_idle_hours: user.curator_idle_hours,
         curator_interval_days: user.curator_interval_days,
         theme: user.theme.clone(),
-        agent_ui_overrides: platform.agent_ui_overrides.clone(),
-        web_search_model: platform.web_search_model.clone(),
-        media_model_overrides: platform.media_model_overrides.clone(),
-        agent_performance_modes: platform.agent_performance_modes.clone(),
-        media_understanding_modes: platform.media_understanding_modes.clone(),
-        agent_mode_llm: platform.agent_mode_llm.clone(),
-        media_mode_llm: platform.media_mode_llm.clone(),
-        computer_tier_llm: platform.computer_tier_llm.clone(),
-        computer_pipeline_llm: platform.computer_pipeline_llm.clone(),
+        agent_ui_overrides: user.agent_ui_overrides.clone(),
+        web_search_model: user.web_search_model.clone(),
+        media_model_overrides: user.media_model_overrides.clone(),
+        agent_performance_modes: user.agent_performance_modes.clone(),
+        media_understanding_modes: user.media_understanding_modes.clone(),
+        agent_mode_llm: user.agent_mode_llm.clone(),
+        media_mode_llm: user.media_mode_llm.clone(),
+        computer_tier_llm: user.computer_tier_llm.clone(),
+        computer_pipeline_llm: user.computer_pipeline_llm.clone(),
         media_oss: platform.media_oss.clone(),
-        max_parallel_tool_calls: platform.max_parallel_tool_calls,
-        max_parallel_sub_agents: platform.max_parallel_sub_agents,
-        max_parallel_media_jobs: platform.max_parallel_media_jobs,
-        max_concurrent_runs: platform.max_concurrent_runs,
-        parallel_tool_execution_enabled: platform.parallel_tool_execution_enabled,
+        max_parallel_tool_calls: user.max_parallel_tool_calls,
+        max_parallel_sub_agents: user.max_parallel_sub_agents,
+        max_parallel_media_jobs: user.max_parallel_media_jobs,
+        max_concurrent_runs: user.max_concurrent_runs,
+        parallel_tool_execution_enabled: user.parallel_tool_execution_enabled,
         round_enable_thinking: None,
         round_thinking_budget: None,
     }
@@ -2932,15 +2753,16 @@ mod effective_extra_body_tests {
         platform.dati_authcode = "secret-auth".into();
         platform.dati_typeno = "501057".into();
         platform.dati_author = "author".into();
-        platform.raw_content_view_enabled = true;
-        platform.debug_dump_llm_prompts = true;
-        platform.debug_menus_enabled = true;
-        platform.computer_annotated_screen_view_enabled = true;
         platform.providers[0].api_key = "sk-live-secret".into();
         platform.media_oss.access_key_secret = "oss-secret".into();
-        let merged = merge_user_platform(&UserSettings::default(), &platform);
+        let mut user = UserSettings::default();
+        user.raw_content_view_enabled = true;
+        user.debug_dump_llm_prompts = true;
+        user.debug_menus_enabled = true;
+        user.computer_annotated_screen_view_enabled = true;
+        let merged = merge_user_platform(&user, &platform);
         let view = EffectiveSettingsView {
-            user: UserSettings::default(),
+            user,
             platform,
             merged,
             can_edit_platform: false,
@@ -2964,13 +2786,14 @@ mod effective_extra_body_tests {
     #[test]
     fn web_effective_settings_view_keeps_debug_fields_for_admin() {
         let mut platform = PlatformSettings::default();
-        platform.debug_menus_enabled = true;
-        platform.raw_content_view_enabled = true;
-        platform.agent_mode_llm = default_agent_mode_llm();
         platform.providers[0].api_key = "sk-live-secret".into();
-        let merged = merge_user_platform(&UserSettings::default(), &platform);
+        let mut user = UserSettings::default();
+        user.debug_menus_enabled = true;
+        user.raw_content_view_enabled = true;
+        user.agent_mode_llm = default_agent_mode_llm();
+        let merged = merge_user_platform(&user, &platform);
         let view = EffectiveSettingsView {
-            user: UserSettings::default(),
+            user,
             platform,
             merged,
             can_edit_platform: true,
@@ -2986,15 +2809,15 @@ mod effective_extra_body_tests {
 
     #[test]
     fn preserve_platform_debug_settings_in_model_keeps_server_values() {
-        let mut platform = PlatformSettings::default();
-        platform.raw_content_view_enabled = true;
-        platform.debug_menus_enabled = true;
-        platform.max_sub_agent_tool_rounds = 42;
+        let mut user = UserSettings::default();
+        user.raw_content_view_enabled = true;
+        user.debug_menus_enabled = true;
+        user.max_sub_agent_tool_rounds = 42;
         let mut incoming = ModelSettings::default();
         incoming.raw_content_view_enabled = false;
         incoming.debug_menus_enabled = false;
         incoming.max_sub_agent_tool_rounds = 1;
-        preserve_platform_debug_settings_in_model(&mut incoming, &platform);
+        preserve_platform_debug_settings_in_model(&mut incoming, &user);
         assert!(incoming.raw_content_view_enabled);
         assert!(incoming.debug_menus_enabled);
         assert_eq!(incoming.max_sub_agent_tool_rounds, 42);
@@ -3091,7 +2914,7 @@ mod effective_extra_body_tests {
 
     #[test]
     fn debug_session_web_redaction_keeps_mappings_and_masks_keys() {
-        let mut debug = DebugSessionSettings::from(PlatformSettings::default());
+        let mut debug = DebugSessionSettings::from(&ModelSettings::default());
         debug.providers[0].api_key = "sk-secret".into();
         debug
             .agent_mode_llm

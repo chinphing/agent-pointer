@@ -524,15 +524,15 @@ mod tests {
     fn build_terminal_child_environment_applies_terminal_env_overrides() {
         let _guard = env_test_guard();
         std::env::set_var("POINTER_OVERRIDE_BASE", "from_process");
-        let mut p = crate::models::PlatformSettings::default();
-        p.debug_menus_enabled = false;
-        p.terminal_env_overrides.insert(
+        let mut u = crate::models::UserSettings::default();
+        u.debug_menus_enabled = false;
+        u.terminal_env_overrides.insert(
             "POINTER_OVERRIDE_BASE".into(),
             "from_settings".into(),
         );
-        p.terminal_env_overrides
+        u.terminal_env_overrides
             .insert("POINTER_OVERRIDE_NEW".into(), "added".into());
-        crate::platform_config::replace_global_platform_config_for_test(p);
+        crate::platform_config::replace_global_user_settings_for_test(u);
         let map = build_terminal_child_environment(&[]);
         assert_eq!(
             map.get("POINTER_OVERRIDE_BASE").map(String::as_str),
@@ -543,8 +543,8 @@ mod tests {
             Some("added")
         );
         std::env::remove_var("POINTER_OVERRIDE_BASE");
-        crate::platform_config::replace_global_platform_config_for_test(
-            crate::models::PlatformSettings::default(),
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
         );
     }
 
@@ -553,13 +553,13 @@ mod tests {
         let _guard = env_test_guard();
         let _uid = crate::session_user_env::SessionUserIdGuard::enter("session-uid".into());
         let _wd = crate::session_work_dir_env::SessionWorkDirGuard::enter("/session/work".into());
-        let mut p = crate::models::PlatformSettings::default();
-        p.debug_menus_enabled = false;
-        p.terminal_env_overrides
+        let mut u = crate::models::UserSettings::default();
+        u.debug_menus_enabled = false;
+        u.terminal_env_overrides
             .insert("SESSION_USER_ID".into(), "override-uid".into());
-        p.terminal_env_overrides
+        u.terminal_env_overrides
             .insert("WORKING_DIR".into(), "/override/work".into());
-        crate::platform_config::replace_global_platform_config_for_test(p);
+        crate::platform_config::replace_global_user_settings_for_test(u);
         let map = build_terminal_child_environment(&[]);
         assert_eq!(
             map.get("SESSION_USER_ID").map(String::as_str),
@@ -569,26 +569,26 @@ mod tests {
             map.get("WORKING_DIR").map(String::as_str),
             Some("/override/work")
         );
-        crate::platform_config::replace_global_platform_config_for_test(
-            crate::models::PlatformSettings::default(),
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
         );
     }
 
     #[test]
     fn build_terminal_child_environment_applies_overrides_when_debug_off() {
         let _guard = env_test_guard();
-        let mut p = crate::models::PlatformSettings::default();
-        p.debug_menus_enabled = false;
-        p.terminal_env_overrides
+        let mut u = crate::models::UserSettings::default();
+        u.debug_menus_enabled = false;
+        u.terminal_env_overrides
             .insert("POINTER_OVERRIDE_NEW".into(), "added".into());
-        crate::platform_config::replace_global_platform_config_for_test(p);
+        crate::platform_config::replace_global_user_settings_for_test(u);
         let map = build_terminal_child_environment(&[]);
         assert_eq!(
             map.get("POINTER_OVERRIDE_NEW").map(String::as_str),
             Some("added")
         );
-        crate::platform_config::replace_global_platform_config_for_test(
-            crate::models::PlatformSettings::default(),
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
         );
     }
 

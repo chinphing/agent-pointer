@@ -511,8 +511,25 @@ defineExpose({
         </h4>
         <p class="mt-1 text-[11px] text-muted">内置千问 / 深度求索 / 豆包，由平台统一管理</p>
       </div>
-      <p v-if="platformReadOnly" class="rounded-lg border border-border bg-hover px-3 py-2 text-[12px] text-muted">由平台统一管理。你可以查看平台模型服务与档位配置，但不能修改。</p>
-      <div class="space-y-2">
+      <!-- 普通用户：只读简化显示 -->
+      <div v-if="platformReadOnly" class="space-y-1.5">
+        <div v-if="platformProviders.length === 0" class="text-sm text-muted">暂无平台模型服务</div>
+        <div
+          v-for="p in platformProviders"
+          :key="p.id"
+          class="flex items-center gap-2 text-sm"
+        >
+          <span class="text-foreground">{{ p.name }}</span>
+          <span
+            v-if="s.settings.activeProviderId === p.id"
+            class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent"
+          >默认全局服务商</span>
+        </div>
+        <p class="text-[11px] text-muted">由平台统一管理，仅管理员可修改。</p>
+      </div>
+
+      <!-- 管理员：完整卡片 + 编辑入口 -->
+      <div v-else class="space-y-2">
         <div
           v-for="p in platformProviders"
           :key="p.id"
@@ -533,7 +550,7 @@ defineExpose({
                 <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
               </div>
             </div>
-            <div v-if="!platformReadOnly" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
                 <Wrench class="w-3.5 h-3.5 text-muted" />
               </button>

@@ -634,7 +634,9 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function saveModelService(patch: Partial<PlatformSettings>) {
-    await saveDebugSession(createDebugSessionSnapshot(patch))
+    // 模型配置统一走 agent-settings（唯一持久化端点）；providers/activeProviderId/
+    // model/temperature/maxTokens 随全量快照落盘（apiKey 由后端脱敏）。
+    await saveAgentPreferences(patch as unknown as Partial<ModelSettings>)
   }
 
   /** Apply agent UI debug/display overrides in memory (chat reflects immediately; persist via save). */
@@ -799,7 +801,8 @@ export const useSettingsStore = defineStore('settings', () => {
       const pid = (ref.providerId || '').trim() || settings.value.activeProviderId
       next[agentId] = { providerId: pid, model: ref.model.trim() }
     }
-    await save({ agentDefaultModels: next })
+    // 默认模型是用户配置，走持久化端点（agent-settings），重启保留。
+    await saveAgentPreferences({ agentDefaultModels: next })
   }
 
   function getMediaModelOverride(kind: keyof MediaModelOverrides): AgentModelRef | undefined {

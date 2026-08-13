@@ -4,12 +4,13 @@ import type { EffectiveSettingsView } from '../types/chat'
 
 const updateUserSettings = vi.hoisted(() => vi.fn())
 const updateDebugSessionSettings = vi.hoisted(() => vi.fn())
+const updateAgentSettings = vi.hoisted(() => vi.fn())
 
 vi.mock('../lib/theme', () => ({ applyTheme: vi.fn() }))
 vi.mock('../lib/api', () => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
-  updateAgentSettings: vi.fn(),
+  updateAgentSettings,
   updateUserSettings,
   updatePlatformSettings: vi.fn(),
   updateDebugSessionSettings,
@@ -53,6 +54,31 @@ describe('settings debug-session save', () => {
     expect(updateDebugSessionSettings).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'qwen3.7-plus' })
     )
+  })
+
+  it('persists model service config through the agent-settings endpoint', async () => {
+    const store = useSettingsStore()
+    const view: EffectiveSettingsView = {
+      user: jsonClone(store.userSettings),
+      platform: jsonClone(store.platformSettings),
+      merged: jsonClone(store.settings),
+      canEditPlatform: true,
+      isPlatformAdmin: true
+    }
+    updateAgentSettings.mockResolvedValue(view)
+
+    await store.saveModelService({
+      providers: store.settings.providers,
+      activeProviderId: 'qwen',
+      model: 'qwen3.5-plus',
+      temperature: 0.7,
+      maxTokens: 2048
+    })
+
+    expect(updateAgentSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ activeProviderId: 'qwen', model: 'qwen3.5-plus' })
+    )
+    expect(updateDebugSessionSettings).not.toHaveBeenCalled()
   })
 
   it('recomputes hasKey from the applied active provider', async () => {

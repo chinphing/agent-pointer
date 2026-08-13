@@ -120,9 +120,17 @@ function createSettingsDialogForm(deps: {
   if (debugModelSaveTimer) window.clearTimeout(debugModelSaveTimer)
   debugModelSaveTimer = window.setTimeout(() => {
     debugModelSaveTimer = undefined
-    void s.saveDebugSession(s.createDebugSessionSnapshot()).catch(error => {
-      console.error('[settings] failed to save debug model mapping', error)
-    })
+    // 档位/管道模型映射统一走 agent-settings 持久化，重启保留。
+    void s
+      .saveAgentPreferences({
+        computerTierLlm: s.platformSettings.computerTierLlm,
+        computerPipelineLlm: s.platformSettings.computerPipelineLlm,
+        agentModeLlm: s.platformSettings.agentModeLlm,
+        mediaModeLlm: s.platformSettings.mediaModeLlm
+      })
+      .catch(error => {
+        console.error('[settings] failed to save debug model mapping', error)
+      })
   }, 250)
   }
 

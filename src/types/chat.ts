@@ -727,6 +727,8 @@ export interface ModelSettings {
   mediaUnderstandingModes?: MediaUnderstandingModes
   agentModeLlm?: AgentModeLlmMap
   mediaModeLlm?: MediaModeLlmMap
+  computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+  computerPipelineLlm?: ComputerPipelineLlmSettings
   mediaOss?: MediaOssConfig
   parallelToolExecutionEnabled?: boolean
   maxParallelToolCalls?: number | null

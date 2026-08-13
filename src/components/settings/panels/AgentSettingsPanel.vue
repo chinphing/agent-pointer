@@ -186,11 +186,11 @@ function skillLabel(skillId: string): string {
                       >
                         <span class="text-[11px] text-muted font-medium">{{ mode.label }}</span>
                         <select
-                          :value="agentModeLlm(w.id, mode.value).model"
+                          :value="agentModeLlm(w.id, mode.value).providerId + ':' + agentModeLlm(w.id, mode.value).model"
                           class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                           @change="selectAgentModeModel(w.id, mode.value, ($event.target as HTMLSelectElement).value)"
                         >
-                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
                         <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
                           <input
@@ -301,11 +301,11 @@ function skillLabel(skillId: string): string {
                   >
                     <span class="text-[11px] text-muted font-medium">{{ mode.label }}</span>
                     <select
-                      :value="mediaModeLlm(kind, mode.value).model"
+                      :value="mediaModeLlm(kind, mode.value).providerId + ':' + mediaModeLlm(kind, mode.value).model"
                       class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                       @change="selectMediaModeModel(kind, mode.value, ($event.target as HTMLSelectElement).value)"
                     >
-                      <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                      <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                     </select>
                     <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
                       <input

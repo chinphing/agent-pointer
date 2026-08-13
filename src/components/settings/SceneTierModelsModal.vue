@@ -127,11 +127,11 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
-                  :value="form.agentModeLlm(scene, tier.key).model"
+                  :value="form.agentModeLlm(scene, tier.key).providerId + ':' + form.agentModeLlm(scene, tier.key).model"
                   class="h-8 min-w-0 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
                   @change="form.selectAgentModeModel(scene, tier.key, ($event.target as HTMLSelectElement).value)"
                 >
-                  <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                  <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <div v-if="providerTemplate(form.agentModeLlm(scene, tier.key).providerId, form.agentModeLlm(scene, tier.key).model) === 'qwen'" class="flex items-center gap-1.5 justify-end">
                   <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
@@ -172,11 +172,11 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
-                  :value="form.mediaModeLlm(mediaKind, tier.key).model"
+                  :value="form.mediaModeLlm(mediaKind, tier.key).providerId + ':' + form.mediaModeLlm(mediaKind, tier.key).model"
                   class="h-8 min-w-0 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
                   @change="form.selectMediaModeModel(mediaKind, tier.key, ($event.target as HTMLSelectElement).value)"
                 >
-                  <option v-for="item in mediaOptions(mediaKind)" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                  <option v-for="item in mediaOptions(mediaKind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <div v-if="providerTemplate(form.mediaModeLlm(mediaKind, tier.key).providerId, form.mediaModeLlm(mediaKind, tier.key).model) === 'qwen'" class="flex items-center gap-1.5 justify-end">
                   <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">

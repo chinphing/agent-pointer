@@ -37,6 +37,7 @@ import { listAgents, checkMediaDeps } from '../lib/api'
 import { usePlatformAuthStore } from '../stores/platformAuth'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
+import { splitProviderModelValue } from '../lib/modelSelectValue'
 
 export type SettingsDialogForm = ReturnType<typeof createSettingsDialogForm>
 
@@ -216,16 +217,12 @@ function createSettingsDialogForm(deps: {
   }
 
   function selectComputerTierModel(key: ComputerTierKey, value: string) {
-  const i = value.indexOf(':')
-  if (i > 0 && i < value.length - 1) {
-    const providerId = value.slice(0, i).trim()
-    const model = value.slice(i + 1).trim()
-    if (providerId && model) {
-      patchComputerTierLlm(key, { providerId, model })
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      patchComputerTierLlm(key, { providerId: parsed.providerId, model: parsed.model })
       return
     }
-  }
-  console.warn('[settings] selectComputerTierModel: invalid value', value)
+    console.warn('[settings] selectComputerTierModel: invalid value', value)
   }
 
   function computerPipelineLlm(): ComputerPipelineLlmSettings {
@@ -642,20 +639,22 @@ function createSettingsDialogForm(deps: {
   })
   }
 
-  function selectAgentModeModel(agentId: string, mode: PerformanceModeKey, model: string) {
-  const item = s.allModels.find(m => m.model === model)
-  patchAgentModeLlm(agentId, mode, {
-    model,
-    providerId: item?.providerId ?? agentModeLlm(agentId, mode).providerId
-  })
+  function selectAgentModeModel(agentId: string, mode: PerformanceModeKey, value: string) {
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      patchAgentModeLlm(agentId, mode, { providerId: parsed.providerId, model: parsed.model })
+      return
+    }
+    console.warn('[settings] selectAgentModeModel: invalid value', value)
   }
 
-  function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, model: string) {
-  const item = s.allModels.find(m => m.model === model)
-  patchMediaModeLlm(kind, mode, {
-    model,
-    providerId: item?.providerId ?? mediaModeLlm(kind, mode).providerId
-  })
+  function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, value: string) {
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      patchMediaModeLlm(kind, mode, { providerId: parsed.providerId, model: parsed.model })
+      return
+    }
+    console.warn('[settings] selectMediaModeModel: invalid value', value)
   }
 
   /** Get agent default model with provider prefix: "providerId:model" */

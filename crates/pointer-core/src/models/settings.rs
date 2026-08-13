@@ -2325,6 +2325,7 @@ fn redact_settings_object_secrets(
 }
 
 /// Web PUT from non-admin clients must not overwrite server debug toggles with
+/// Web PUT from non-admin clients must not overwrite server debug toggles with
 /// serde defaults (those fields are omitted on non-admin GET). Admins receive
 /// and may update the fields; callers should skip this preserve for admins.
 /// Debug fields now live in user settings, so the server values come from `user`.
@@ -2348,6 +2349,31 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.media_mode_llm = user.media_mode_llm.clone();
     incoming.computer_tier_llm = user.computer_tier_llm.clone();
     incoming.computer_pipeline_llm = user.computer_pipeline_llm.clone();
+}
+
+/// UserSettings 版脱敏保护：WEB 非 admin GET 时 user 切片的调试字段被剥掉
+/// （DEBUG_WEB_SETTINGS_JSON_KEYS），PUT 回来 serde 默认值会清掉服务端调试配置；
+/// 保存前用现有 user 值强改回。admin 走 round-trip 可正常更新，调用方应跳过。
+pub fn preserve_platform_debug_settings_in_user(
+    incoming: &mut UserSettings,
+    existing: &UserSettings,
+) {
+    incoming.raw_content_view_enabled = existing.raw_content_view_enabled;
+    incoming.debug_dump_llm_prompts = existing.debug_dump_llm_prompts;
+    incoming.terminal_env_overrides = existing.terminal_env_overrides.clone();
+    incoming.debug_menus_enabled = existing.debug_menus_enabled;
+    incoming.task_board_show_child_boards = existing.task_board_show_child_boards;
+    incoming.computer_annotated_screen_view_enabled =
+        existing.computer_annotated_screen_view_enabled;
+    incoming.agent_ui_overrides = existing.agent_ui_overrides.clone();
+    incoming.agent_task_board_history_trim = existing.agent_task_board_history_trim.clone();
+    incoming.max_sub_agent_tool_rounds = existing.max_sub_agent_tool_rounds;
+    incoming.max_sub_agent_spawn_depth = existing.max_sub_agent_spawn_depth;
+    // Mode LLM maps are also omitted for non-admins; keep server values.
+    incoming.agent_mode_llm = existing.agent_mode_llm.clone();
+    incoming.media_mode_llm = existing.media_mode_llm.clone();
+    incoming.computer_tier_llm = existing.computer_tier_llm.clone();
+    incoming.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
 }
 
 /// Strip DaTi fields and redact secrets for pointer-server Web API responses.

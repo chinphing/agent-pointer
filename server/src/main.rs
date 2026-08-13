@@ -24,7 +24,7 @@ use pointer_core::{
     },
     models::{
         ChatMediaPreview, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-        DebugSessionSettings, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
+        DebugSessionSettings, PlatformSettings, SendChatPayload, SkillDef,
         SkillImportResult, StreamEvent, ToolDef, UserSettings, WebEffectiveSettingsView,
     },
     platform_auth::{PlatformAuthManager, PlatformSessionView},
@@ -592,8 +592,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/auth/refresh", post(refresh_platform_session))
         .route("/api/license/status", get(local_auth::license_status))
         .route("/api/license/reload", post(local_auth::license_reload))
-        .route("/api/settings", get(get_settings).put(update_settings))
-        .route("/api/agent-settings", put(update_agent_settings))
+        .route("/api/settings", get(get_settings))
         .route(
             "/api/debug-session-settings",
             put(update_debug_session_settings),
@@ -867,16 +866,11 @@ async fn get_settings(
 
 async fn update_user_settings(
     State(state): State<ServerState>,
-    Json(mut user): Json<UserSettings>,
+    Json(user): Json<UserSettings>,
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
-    if user.theme.trim().is_empty() {
-        user.theme = "system".into();
-    }
-    state.core.save_user_settings(&user)?;
-    Ok(Json(WebEffectiveSettingsView(
-        state.core.effective_settings_view(),
-    )))
+    let view = state.core.update_user_settings(user).map_err(ApiError)?;
+    Ok(Json(WebEffectiveSettingsView(view)))
 }
 
 async fn update_platform_settings(
@@ -903,43 +897,6 @@ async fn update_debug_session_settings(
     let mut response = DebugSessionSettings::from(&view.merged);
     pointer_core::models::redact_debug_session_settings_for_web(&mut response);
     Ok(Json(response))
-}
-
-async fn update_settings(
-    State(state): State<ServerState>,
-    Json(mut settings): Json<ModelSettings>,
-) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
-    require_platform_access(&state)?;
-    // Non-admins omit debug fields on GET; preserve server values so serde defaults
-    // do not wipe them. Admins round-trip the fields and may update them.
-    let user = state.core.load_user_settings();
-    if !state.core.active_platform_auth().is_platform_admin() {
-        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &user);
-    }
-    state.core.apply_session_platform_preferences(&settings)?;
-    state.core.sync_dispatcher_concurrency(&state.dispatcher);
-    Ok(Json(WebEffectiveSettingsView(
-        state.core.effective_settings_view(),
-    )))
-}
-
-async fn update_agent_settings(
-    State(state): State<ServerState>,
-    Json(mut settings): Json<ModelSettings>,
-) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
-    require_platform_access(&state)?;
-    let user = state.core.load_user_settings();
-    if !state.core.active_platform_auth().is_platform_admin() {
-        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &user);
-    }
-    state
-        .core
-        .update_agent_settings(&settings)
-        .map_err(ApiError)?;
-    state.core.sync_dispatcher_concurrency(&state.dispatcher);
-    Ok(Json(WebEffectiveSettingsView(
-        state.core.effective_settings_view(),
-    )))
 }
 
 #[derive(Deserialize)]

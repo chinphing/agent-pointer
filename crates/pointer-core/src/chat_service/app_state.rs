@@ -10,12 +10,12 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
 use crate::models::{
-    DebugSessionSettings, EffectiveSettingsView, ModelSettings, PlatformSettings, UserSettings,
+    DebugSessionSettings, EffectiveSettingsView, PlatformSettings, UserSettings,
 };
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
     apply_login_llm_credentials, apply_login_llm_provider_api_keys, apply_login_media_oss,
-    finalize_merged_settings, merge_user_preferences, PlatformConfigManager, SharedPlatformConfig,
+    finalize_merged_settings, PlatformConfigManager, SharedPlatformConfig,
 };
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -632,26 +632,38 @@ impl AppState {
         Ok(self.effective_settings_view())
     }
 
-    pub fn update_agent_settings(
+    /// 用户配置板块统一保存入口：前端发 UserSettings 快照（user 层全量 + 板块
+    /// patch），这里做两类保护后直接落盘——
+    /// 1. WEB 非 admin GET 会剥掉调试字段，回传 serde 默认值会清掉服务端调试
+    ///    配置；非 admin 保存时用现有 user 值强改回（admin round-trip 正常更新）。
+    /// 2. WEB 非 admin 的 providers apiKey 被脱敏成 "****"/空，不能因此清掉用户
+    ///    加密保存的 key；空/脱敏时回填现有用户 key。
+    /// 平台注入 key 不进入 user 层（前端发的是 user 切片，本不含平台 key）。
+    pub fn update_user_settings(
         &self,
-        incoming: &ModelSettings,
+        mut incoming: UserSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
-        let user = self.load_user_settings();
-        let platform = self.platform_config.read().clone();
-        let next_user = merge_user_preferences(incoming, &user, &platform);
-        self.save_user_settings(&next_user)?;
+        if incoming.theme.trim().is_empty() {
+            incoming.theme = "system".into();
+        }
+        let existing = self.load_user_settings();
+        if !self.active_platform_auth().is_platform_admin() {
+            crate::models::preserve_platform_debug_settings_in_user(&mut incoming, &existing);
+        }
+        let existing_keys: HashMap<String, String> = existing
+            .providers
+            .iter()
+            .map(|p| (p.id.clone(), p.api_key.clone()))
+            .collect();
+        for provider in &mut incoming.providers {
+            if provider.api_key.trim().is_empty() || provider.api_key.trim() == "****" {
+                if let Some(key) = existing_keys.get(&provider.id) {
+                    provider.api_key = key.clone();
+                }
+            }
+        }
+        self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
-    }
-
-    pub fn apply_session_platform_preferences(
-        &self,
-        incoming: &ModelSettings,
-    ) -> anyhow::Result<()> {
-        let user = self.load_user_settings();
-        let platform = self.platform_config.read().clone();
-        let next_user = merge_user_preferences(incoming, &user, &platform);
-        self.save_user_settings(&next_user)?;
-        Ok(())
     }
 
     pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
@@ -1059,6 +1071,50 @@ mod active_main_task_board_tests {
         let dir = tempfile::tempdir().expect("temp data dir");
         crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
         TestDataDirGuard { _dir: dir }
+    }
+
+    #[test]
+    fn update_user_settings_preserves_encrypted_user_key_on_masked_roundtrip() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // 1. User types a key → encrypted into provider_keys.enc.
+        let mut user = state.load_user_settings();
+        user.providers[0].api_key = "sk-user-typed".into();
+        state.update_user_settings(user).expect("save typed key");
+        assert_eq!(
+            state.load_user_settings().providers[0].api_key,
+            "sk-user-typed"
+        );
+        // 2. WEB non-admin GET redacts apiKey to "****"; PUT round-trip must not
+        //    wipe the encrypted key (update_user_settings re-attaches existing).
+        let mut masked = state.load_user_settings();
+        for provider in &mut masked.providers {
+            provider.api_key = "****".into();
+        }
+        state.update_user_settings(masked).expect("save masked");
+        assert_eq!(
+            state.load_user_settings().providers[0].api_key,
+            "sk-user-typed"
+        );
+    }
+
+    #[test]
+    fn update_user_settings_empty_key_keeps_existing_encrypted_key() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        let mut user = state.load_user_settings();
+        user.providers[0].api_key = "sk-user-typed".into();
+        state.update_user_settings(user).expect("save typed key");
+        // Empty apiKey (client did not edit) keeps the previously encrypted key.
+        let mut blank = state.load_user_settings();
+        for provider in &mut blank.providers {
+            provider.api_key.clear();
+        }
+        state.update_user_settings(blank).expect("save blank");
+        assert_eq!(
+            state.load_user_settings().providers[0].api_key,
+            "sk-user-typed"
+        );
     }
 
     #[test]

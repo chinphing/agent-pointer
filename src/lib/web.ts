@@ -17,7 +17,6 @@ import type {
   DebugSessionSettings,
   EffectiveSettingsView,
   MediaDepsStatus,
-  ModelSettings,
   PlatformSettings,
   SkillDef,
   SkillImportResult,
@@ -333,14 +332,6 @@ export async function dismissTerminalInput(requestId: string): Promise<void> {
 
 export async function getSettings(): Promise<EffectiveSettingsView> {
   return await request<EffectiveSettingsView>('/api/settings')
-}
-
-export async function updateSettings(settings: ModelSettings): Promise<EffectiveSettingsView> {
-  return await request<EffectiveSettingsView>('/api/settings', { method: 'PUT', body: JSON.stringify(settings) })
-}
-
-export async function updateAgentSettings(settings: ModelSettings): Promise<EffectiveSettingsView> {
-  return await request<EffectiveSettingsView>('/api/agent-settings', { method: 'PUT', body: JSON.stringify(settings) })
 }
 
 export async function updateDebugSessionSettings(

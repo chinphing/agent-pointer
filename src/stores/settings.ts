@@ -2,8 +2,6 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   getSettings,
-  updateSettings,
-  updateAgentSettings,
   updateDebugSessionSettings,
   updateUserSettings,
   setApiKey,
@@ -579,41 +577,28 @@ export const useSettingsStore = defineStore('settings', () => {
     })
   }
 
-  function createSessionSnapshot(patch: Partial<ModelSettings>): ModelSettings {
-    const snapshot: ModelSettings = cloneJson({ ...settings.value, ...patch })
-    snapshot.agentDefaultModels = normalizeAgentDefaultModels(
-      snapshot.agentDefaultModels as Record<string, unknown>,
-      snapshot.activeProviderId
-    )
-    return snapshot
+  async function saveUserPreferencesSnapshot(snapshot: UserSettings) {
+    // 用户板块统一走 update_user_settings：前端只发「当前 user 层 + 板块 patch」
+    // 的 UserSettings 快照，后端直接覆盖落盘，无需 merge。
+    await saveUserSnapshot(snapshot)
   }
 
-  async function saveSessionSnapshot(snapshot: ModelSettings) {
-    const view = await updateSettings(cloneJson(snapshot))
-    applyEffectiveView(view)
-  }
-
-  async function saveSession(patch: Partial<ModelSettings>) {
+  async function saveSession(patch: Partial<UserSettings>) {
     if (patch.theme !== undefined) {
       applyTheme(patch.theme)
       settings.value.theme = patch.theme
     }
     if (Object.keys(patch).length === 0) return
-    await saveSessionSnapshot(createSessionSnapshot(patch))
+    await saveUserPreferencesSnapshot(createUserSnapshot(patch))
   }
 
-  async function saveAgentPreferencesSnapshot(snapshot: ModelSettings) {
-    const view = await updateAgentSettings(cloneJson(snapshot))
-    applyEffectiveView(view)
+  async function saveAgentPreferences(patch: Partial<UserSettings>) {
+    await saveUserPreferencesSnapshot(createUserSnapshot(patch))
   }
 
-  async function saveAgentPreferences(patch: Partial<ModelSettings>) {
-    await saveAgentPreferencesSnapshot(createSessionSnapshot(patch))
-  }
-
-  async function saveModelService(patch: Partial<ModelSettings>) {
-    // 模型配置统一走 agent-settings（唯一持久化端点）；providers/activeProviderId/
-    // model/temperature/maxTokens 随全量快照落盘（apiKey 由后端脱敏）。
+  async function saveModelService(patch: Partial<UserSettings>) {
+    // 模型配置统一走 update_user_settings（唯一用户持久化端点）；
+    // providers/activeProviderId/model/temperature/maxTokens 以板块快照落盘。
     await saveAgentPreferences(patch)
   }
 
@@ -628,7 +613,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function save(patch: Partial<ModelSettings>) {
+  async function save(patch: Partial<UserSettings>) {
     await saveSession(patch)
   }
 
@@ -856,10 +841,7 @@ export const useSettingsStore = defineStore('settings', () => {
     save,
     createUserSnapshot,
     saveUserSnapshot,
-    createSessionSnapshot,
-    saveSessionSnapshot,
     saveSession,
-    saveAgentPreferencesSnapshot,
     saveAgentPreferences,
     createDebugSessionSnapshot,
     saveDebugSession,

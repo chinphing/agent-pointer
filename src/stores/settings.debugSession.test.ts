@@ -4,13 +4,10 @@ import type { EffectiveSettingsView } from '../types/chat'
 
 const updateUserSettings = vi.hoisted(() => vi.fn())
 const updateDebugSessionSettings = vi.hoisted(() => vi.fn())
-const updateAgentSettings = vi.hoisted(() => vi.fn())
 
 vi.mock('../lib/theme', () => ({ applyTheme: vi.fn() }))
 vi.mock('../lib/api', () => ({
   getSettings: vi.fn(),
-  updateSettings: vi.fn(),
-  updateAgentSettings,
   updateUserSettings,
   updatePlatformSettings: vi.fn(),
   updateDebugSessionSettings,
@@ -55,7 +52,7 @@ describe('settings debug-session save', () => {
     )
   })
 
-  it('persists model service config through the agent-settings endpoint', async () => {
+  it('persists model service config through the user-settings endpoint', async () => {
     const store = useSettingsStore()
     const view: EffectiveSettingsView = {
       user: jsonClone(store.userSettings),
@@ -64,7 +61,7 @@ describe('settings debug-session save', () => {
       canEditPlatform: true,
       isPlatformAdmin: true
     }
-    updateAgentSettings.mockResolvedValue(view)
+    updateUserSettings.mockResolvedValue(view)
 
     await store.saveModelService({
       providers: store.settings.providers,
@@ -74,7 +71,7 @@ describe('settings debug-session save', () => {
       maxTokens: 2048
     })
 
-    expect(updateAgentSettings).toHaveBeenCalledWith(
+    expect(updateUserSettings).toHaveBeenCalledWith(
       expect.objectContaining({ activeProviderId: 'qwen', model: 'qwen3.5-plus' })
     )
     expect(updateDebugSessionSettings).not.toHaveBeenCalled()

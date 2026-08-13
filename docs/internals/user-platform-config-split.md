@@ -28,10 +28,8 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 ### API
 
 - `GET get_settings` → `EffectiveSettingsView` (`user`, `platform`, `merged`, `canEditPlatform`, `isPlatformAdmin`)
-- `PUT update_user_settings` → persists full `UserSettings` immediately
-- `PUT update_agent_settings` → merges incoming ModelSettings user fields, persists to `user_settings.json`
-- `PUT update_settings` → same as `update_agent_settings` (user-owned persistence)
-- `PUT update_debug_session_settings` → admin only; persists debug model config to `user_settings.json`
+- `PUT update_user_settings` → persists full `UserSettings` immediately (single user-owned save path; frontend sends a user-slice snapshot, backend overwrites directly)
+- `PUT update_debug_session_settings` → admin only; in-memory only (never persisted; session-scoped debug providers)
 - `PUT update_platform_settings` → admin only; in-memory only (no disk write)
 
 ## Web server

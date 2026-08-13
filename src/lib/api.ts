@@ -18,7 +18,6 @@ import type {
   DebugSessionSettings,
   EffectiveSettingsView,
   MediaDepsStatus,
-  ModelSettings,
   PlatformSettings,
   SkillDef,
   SkillImportResult,
@@ -202,8 +201,6 @@ export interface RuntimeApi {
   submitTerminalInput(requestId: string, text: string): Promise<void>
   dismissTerminalInput(requestId: string): Promise<void>
   getSettings(): Promise<EffectiveSettingsView>
-  updateSettings(settings: ModelSettings): Promise<EffectiveSettingsView>
-  updateAgentSettings(settings: ModelSettings): Promise<EffectiveSettingsView>
   updateDebugSessionSettings(settings: DebugSessionSettings): Promise<DebugSessionSettings>
   updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView>
   updatePlatformSettings(platform: PlatformSettings): Promise<EffectiveSettingsView>
@@ -321,8 +318,6 @@ export const submitAskUser = api.submitAskUser
 export const submitTerminalInput = api.submitTerminalInput
 export const dismissTerminalInput = api.dismissTerminalInput
 export const getSettings = api.getSettings
-export const updateSettings = api.updateSettings
-export const updateAgentSettings = api.updateAgentSettings
 export const updateDebugSessionSettings = api.updateDebugSessionSettings
 export const updateUserSettings = api.updateUserSettings
 export const updatePlatformSettings = api.updatePlatformSettings

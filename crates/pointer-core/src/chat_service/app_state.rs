@@ -605,9 +605,10 @@ impl AppState {
         incoming.active_provider_id = active_provider_id;
         incoming.model = model;
 
-        // Debug session settings are user-owned now; preserve runtime keys when the
-        // client sends masked/empty credentials, then persist user_settings.json.
-        let platform = self.platform_config.read().clone();
+        // 会话级调试（DebugSessionSettings 契约：must never be persisted）。
+        // 只更新 platform 内存 providers（临时调试），不写 user_settings.json，
+        // 避免调试 provider 覆盖用户/平台默认配置。
+        let mut platform = self.platform_config.write();
         let existing_keys: HashMap<String, String> = platform
             .providers
             .iter()
@@ -620,36 +621,13 @@ impl AppState {
                 }
             }
         }
+        platform.providers = incoming.providers;
+        let provider_count = platform.providers.len();
+        drop(platform);
 
-        let mut user = self.load_user_settings();
-        user.providers = incoming.providers;
-        user.active_provider_id = incoming.active_provider_id;
-        user.model = incoming.model;
-        user.temperature = incoming.temperature;
-        user.max_tokens = incoming.max_tokens;
-        user.computer_tier_llm = incoming.computer_tier_llm;
-        user.computer_pipeline_llm = incoming.computer_pipeline_llm;
-        user.agent_mode_llm = incoming.agent_mode_llm;
-        user.media_mode_llm = incoming.media_mode_llm;
-        self.save_user_settings(&user)?;
-
-        let provider_count = user.providers.len();
-        let mapping_count = user.computer_tier_llm.len()
-            + 3
-            + user
-                .agent_mode_llm
-                .values()
-                .map(HashMap::len)
-                .sum::<usize>()
-            + user
-                .media_mode_llm
-                .values()
-                .map(HashMap::len)
-                .sum::<usize>();
         log::info!(
-            "debug_session_settings: updated providers={} mappings={}",
-            provider_count,
-            mapping_count
+            "debug_session_settings: session providers updated (in-memory only) count={}",
+            provider_count
         );
         Ok(self.effective_settings_view())
     }
@@ -1071,8 +1049,21 @@ mod active_main_task_board_tests {
         child
     }
 
+    /// Point `storage::data_dir()` at a fresh temp dir so AppState tests never
+    /// read/write the developer's real user_settings.json / provider_keys.enc.
+    struct TestDataDirGuard {
+        _dir: tempfile::TempDir,
+    }
+
+    fn isolate_app_data_dir() -> TestDataDirGuard {
+        let dir = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        TestDataDirGuard { _dir: dir }
+    }
+
     #[test]
     fn debug_session_settings_replace_runtime_model_configuration() {
+        let _guard = isolate_app_data_dir();
         let state = AppState::new();
         let merged = state.effective_settings();
         let mut debug = DebugSessionSettings::from(&merged);
@@ -1128,31 +1119,20 @@ mod active_main_task_board_tests {
             .update_debug_session_settings(debug.clone())
             .expect("debug session update");
 
-        assert_eq!(view.merged.active_provider_id, "session-provider");
-        assert_eq!(view.merged.model, "session-chat");
-        assert_eq!(state.effective_settings().model, "session-chat");
-        assert_eq!(view.merged.temperature, 0.42);
-        assert_eq!(view.merged.max_tokens, 4321);
+        // 会话级调试只更新 platform 内存 providers，不写入 user_settings.json。
         assert_eq!(
-            view.merged.computer_tier_llm["primary"].model,
-            "session-worker"
+            state.platform_config.read().providers[0].id,
+            "session-provider"
         );
-        assert_eq!(
-            view.merged.computer_pipeline_llm.decision,
-            "session-worker"
-        );
-        assert!(view
-            .merged
-            .agent_mode_llm
-            .values()
-            .flat_map(|modes| modes.values())
-            .all(|config| config.model == "session-worker"));
-        assert!(view
-            .merged
-            .media_mode_llm
-            .values()
-            .flat_map(|modes| modes.values())
-            .all(|config| config.model == "session-worker"));
+        assert_eq!(state.platform_config.read().providers.len(), 1);
+        // merged 仍来自持久化 user 层（平台默认），未被调试覆盖。
+        assert_ne!(view.merged.active_provider_id, "session-provider");
+        assert_ne!(view.merged.model, "session-chat");
+        // 持久化 user_settings 未被污染：providers 仍是默认 3 个平台服务商。
+        let persisted = state.load_user_settings();
+        assert_eq!(persisted.providers.len(), 3);
+        assert!(!persisted.providers.iter().any(|p| p.id == "session-provider"));
+        assert_ne!(persisted.active_provider_id, "session-provider");
     }
 
     #[test]

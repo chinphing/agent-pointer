@@ -22,6 +22,19 @@ pub const APP_DATA_SUBDIR_DEV: &str = "PointerAppDev";
 
 static RESOLVED_APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+#[cfg(test)]
+static TEST_APP_DATA_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Test hook: force `data_dir()` to a temp dir for the current process.
+/// Must be called before the first `data_dir()` resolution in the process.
+#[cfg(test)]
+pub fn set_test_app_data_dir(dir: PathBuf) {
+    *TEST_APP_DATA_DIR.lock().unwrap() = Some(dir);
+    // Clear the once-cell so data_dir() re-resolves to the test dir.
+    // OnceLock has no public reset; a private raw pointer swap is unsafe, so
+    // instead we re-check TEST_APP_DATA_DIR first inside data_dir().
+}
+
 static LEGACY_MIGRATION_ONCE: Once = Once::new();
 
 fn default_app_data_subdir() -> &'static str {
@@ -60,6 +73,12 @@ fn compute_app_data_dir() -> Result<PathBuf> {
 }
 
 fn data_dir() -> Result<PathBuf> {
+    #[cfg(test)]
+    {
+        if let Some(dir) = TEST_APP_DATA_DIR.lock().unwrap().clone() {
+            return Ok(dir);
+        }
+    }
     if let Some(dir) = RESOLVED_APP_DATA_DIR.get() {
         return Ok(dir.clone());
     }

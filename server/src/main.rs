@@ -465,10 +465,14 @@ async fn main() -> anyhow::Result<()> {
     let core = Arc::new(AppState::new());
     if pointer_core::deployment_mode::is_standalone() {
         let mut platform = core.platform_config.write();
-        pointer_core::server_config::apply_llm_providers_from_config(&mut platform);
+        let mut user = core.load_user_settings();
+        pointer_core::server_config::apply_llm_providers_from_config(&mut platform, &mut user);
+        if let Err(e) = core.save_user_settings(&user) {
+            log::warn!("pointer-server: failed to persist standalone LLM user settings: {e}");
+        }
         log::info!(
             "pointer-server: standalone LLM providers applied (active_provider={})",
-            platform.active_provider_id
+            user.active_provider_id
         );
     }
     core.start_background_tasks();
@@ -896,7 +900,7 @@ async fn update_debug_session_settings(
             log::warn!("debug_session_settings: web update failed: {error:#}");
             ApiError(error)
         })?;
-    let mut response = DebugSessionSettings::from(view.platform);
+    let mut response = DebugSessionSettings::from(&view.merged);
     pointer_core::models::redact_debug_session_settings_for_web(&mut response);
     Ok(Json(response))
 }
@@ -906,11 +910,11 @@ async fn update_settings(
     Json(mut settings): Json<ModelSettings>,
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
-    let platform = state.core.platform_config.read().clone();
     // Non-admins omit debug fields on GET; preserve server values so serde defaults
     // do not wipe them. Admins round-trip the fields and may update them.
+    let user = state.core.load_user_settings();
     if !state.core.active_platform_auth().is_platform_admin() {
-        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
+        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &user);
     }
     state.core.apply_session_platform_preferences(&settings)?;
     state.core.sync_dispatcher_concurrency(&state.dispatcher);
@@ -924,9 +928,9 @@ async fn update_agent_settings(
     Json(mut settings): Json<ModelSettings>,
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
-    let platform = state.core.platform_config.read().clone();
+    let user = state.core.load_user_settings();
     if !state.core.active_platform_auth().is_platform_admin() {
-        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
+        pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &user);
     }
     state
         .core
@@ -3607,7 +3611,7 @@ async fn platform_logout(headers: HeaderMap, State(state): State<ServerState>) -
     }
     sync_automation_web_session(&state);
     let mut platform = state.core.platform_config.write();
-    apply_login_media_oss(&mut platform, None);
+    apply_login_media_oss(&mut platform.media_oss, None);
     log::info!("platform_auth: logout");
     let mut resp = StatusCode::NO_CONTENT.into_response();
     web_session::clear_session_cookie(resp.headers_mut(), cookie_secure());

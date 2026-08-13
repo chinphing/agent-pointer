@@ -65,7 +65,7 @@ pub async fn logout_platform(state: State<'_, Arc<AppState>>) -> Result<(), Stri
     state.platform_auth.clear_session_async().await;
     log::info!("platform_auth: clear_session_async done");
     let mut platform = state.platform_config.write();
-    apply_login_media_oss(&mut platform, None);
+    apply_login_media_oss(&mut platform.media_oss, None);
     log::info!("platform_auth: logout_platform command done");
     Ok(())
 }

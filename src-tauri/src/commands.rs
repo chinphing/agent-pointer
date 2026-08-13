@@ -307,7 +307,7 @@ pub fn update_debug_session_settings(
             log::warn!("debug_session_settings: desktop update failed: {error:#}");
             error.to_string()
         })?;
-    Ok(DebugSessionSettings::from(view.platform))
+    Ok(DebugSessionSettings::from(&view.merged))
 }
 
 /// Back-compat: session preferences in memory only; agent section uses update_agent_settings.

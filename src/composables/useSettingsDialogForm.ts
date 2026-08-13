@@ -519,14 +519,14 @@ function createSettingsDialogForm(deps: {
   void loadAgents()
   // Defer ffmpeg probe so opening settings → IM 通道 stays responsive on Windows.
   window.setTimeout(() => {
-    if (activeSection.value === 'assistant' && mediaDeps.value === null) {
+    if (activeSection.value === 'generation' && mediaDeps.value === null) {
       void refreshMediaDeps()
     }
   }, 400)
   }
 
   watch(activeSection, section => {
-  if (section === 'assistant' && mediaDeps.value === null) {
+  if (section === 'generation' && mediaDeps.value === null) {
     void refreshMediaDeps()
   }
   })

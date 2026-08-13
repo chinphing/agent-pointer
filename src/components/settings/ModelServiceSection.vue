@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Check, ChevronRight, Copy, Cpu, Plus, Trash2, Wrench, X } from 'lucide-vue-next'
+import { Check, ChevronRight, Cloud, Copy, Cpu, Plus, Trash2, Wrench, X } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import {
@@ -25,7 +25,6 @@ import {
 import { resolvedModelCapabilities } from '../../lib/modelCapabilities'
 import RuntimeParamsForm from './RuntimeParamsForm.vue'
 import ModelCapabilityForm from './ModelCapabilityForm.vue'
-import TierModelRows from './TierModelRows.vue'
 import { useSettingsStore } from '../../stores/settings'
 
 const props = defineProps<{
@@ -33,19 +32,20 @@ const props = defineProps<{
 }>()
 
 const s = useSettingsStore()
-const tab = ref<'platform' | 'custom'>('platform')
 const platformReadOnly = computed(() => props.form.platformReadOnly.value)
 const isPlatformProvider = (provider: ProviderConfig) => {
   const template = detectProviderTemplateId(provider)
   return template === 'qwen' || template === 'deepseek' || template === 'doubao'
 }
-const visibleProviders = computed(() =>
-  s.settings.providers.filter(provider => tab.value === 'platform' ? isPlatformProvider(provider) : !isPlatformProvider(provider))
+const platformProviders = computed(() =>
+  s.settings.providers.filter(isPlatformProvider)
 )
-const activeProviderName = computed(() => s.activeProvider?.name?.trim() || '—')
+const customProviders = computed(() =>
+  s.settings.providers.filter(provider => !isPlatformProvider(provider))
+)
 const editableTemplateOptions = computed(() =>
   showAddProvider.value
-    ? PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id === 'openai_compatible')
+    ? PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id !== 'qwen' && option.id !== 'deepseek' && option.id !== 'doubao')
     : PROVIDER_TEMPLATE_OPTIONS
 )
 
@@ -430,95 +430,128 @@ defineExpose({
 
 <template>
   <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-    <div class="flex items-center justify-between gap-3">
-      <div>
-        <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-          <Cpu class="w-4 h-4 text-accent" />模型与档位
-        </h4>
-        <p class="mt-1 text-[11px] text-muted">平台服务与自定义连接配置（仅本次会话，重启后恢复默认）</p>
+    <!-- 自定义服务（上）：自行接入的服务优先展示 -->
+    <section class="space-y-3">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+            <Wrench class="w-4 h-4 text-accent" />自定义服务
+          </h4>
+          <p class="mt-1 text-[11px] text-muted">自行接入的 OpenAI 兼容服务</p>
+        </div>
+        <button
+          v-if="!platformReadOnly"
+          type="button"
+          class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-accent/10 hover:bg-accent/20 text-[12px] text-accent cursor-pointer transition-colors shrink-0"
+          @click="startAddProvider"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          添加服务
+        </button>
       </div>
-      <button
-        v-if="tab === 'custom' && !platformReadOnly"
-        type="button"
-        class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-accent/10 hover:bg-accent/20 text-[12px] text-accent cursor-pointer transition-colors"
-        @click="startAddProvider"
-      >
-        <Plus class="w-3.5 h-3.5" />
-        添加服务
-      </button>
-    </div>
-
-    <!-- 当前配置摘要：一眼可见正在使用哪个服务商与默认模型 -->
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border bg-card px-3 py-2.5">
-      <span class="flex items-center gap-1.5 text-[12px] text-muted">
-        <span class="h-2 w-2 rounded-full bg-success shrink-0" aria-hidden="true" />
-        服务商：<span class="font-medium text-foreground">{{ activeProviderName }}</span>
-      </span>
-      <span class="text-border select-none" aria-hidden="true">|</span>
-      <span class="text-[12px] text-muted">
-        默认模型：<span class="font-mono text-[12px] text-foreground">{{ s.settings.model || '—' }}</span>
-      </span>
-      <span class="hidden sm:inline-flex text-border select-none" aria-hidden="true">|</span>
-      <span class="hidden sm:inline-flex text-[12px] text-muted">
-        密钥：<span :class="s.activeProvider?.apiKey ? 'text-foreground' : 'text-warning'">{{ s.activeProvider?.apiKey ? '已配置' : '未配置' }}</span>
-      </span>
-    </div>
-
-    <p v-if="platformReadOnly" class="rounded-lg border border-border bg-hover px-3 py-2 text-[12px] text-muted">由平台统一管理。你可以查看模型服务和三档配置，但不能修改。</p>
-
-    <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
-      <button type="button" class="h-8 px-3 rounded-md text-[12px] transition-colors" :class="tab === 'platform' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'" @click="tab = 'platform'">平台</button>
-      <button type="button" class="h-8 px-3 rounded-md text-[12px] transition-colors" :class="tab === 'custom' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'" @click="tab = 'custom'">自定义</button>
-    </div>
-
-    <TierModelRows v-if="tab === 'platform'" :form="form" :read-only="platformReadOnly" />
-
-    <div class="space-y-2">
-      <div
-        v-for="p in visibleProviders"
-        :key="p.id"
-        class="group relative rounded-xl border p-4 transition-all"
-        :class="s.settings.activeProviderId === p.id ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
-      >
-        <div class="flex items-start gap-3">
-          <div class="mt-0.5 w-2 h-2 rounded-full shrink-0" :class="p.apiKey ? 'bg-success' : 'bg-warning'" />
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-foreground">{{ p.name }}</span>
-              <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">默认全局服务商</span>
+      <div class="space-y-2">
+        <div
+          v-for="p in customProviders"
+          :key="p.id"
+          class="group relative rounded-xl border p-4 transition-all"
+          :class="s.settings.activeProviderId === p.id ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
+        >
+          <div class="flex items-start gap-3">
+            <div class="mt-0.5 w-2 h-2 rounded-full shrink-0" :class="p.apiKey ? 'bg-success' : 'bg-warning'" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-foreground">{{ p.name }}</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">默认全局服务商</span>
+              </div>
+              <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
+              <div class="mt-1 flex items-center gap-3 text-[11px] text-muted">
+                <span>密钥：{{ providerKeyDisplay(p.apiKey) }}</span>
+                <span class="text-border">|</span>
+                <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
+              </div>
             </div>
-            <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
-            <div class="mt-1 flex items-center gap-3 text-[11px] text-muted">
-              <span>密钥：{{ providerKeyDisplay(p.apiKey) }}</span>
-              <span class="text-border">|</span>
-              <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
+            <div v-if="!platformReadOnly" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
+                <Wrench class="w-3.5 h-3.5 text-muted" />
+              </button>
+              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="removeProvider(p.id)">
+                <Trash2 class="w-3.5 h-3.5 text-danger" />
+              </button>
+              <button
+                v-if="s.settings.activeProviderId !== p.id"
+                type="button"
+                class="ml-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
+                @click="s.setActiveProvider(p.id)"
+              >
+                设为默认
+              </button>
             </div>
-          </div>
-          <div v-if="!platformReadOnly" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
-              <Wrench class="w-3.5 h-3.5 text-muted" />
-            </button>
-            <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="removeProvider(p.id)">
-              <Trash2 class="w-3.5 h-3.5 text-danger" />
-            </button>
-            <button
-              v-if="s.settings.activeProviderId !== p.id"
-              type="button"
-              class="ml-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
-              @click="s.setActiveProvider(p.id)"
-            >
-              设为默认
-            </button>
           </div>
         </div>
-      </div>
 
-      <div v-if="visibleProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
-        <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
-        <p class="text-sm text-muted">{{ tab === 'platform' ? '暂无平台模型服务' : '暂无自定义模型服务' }}</p>
-        <p v-if="tab === 'custom' && !platformReadOnly" class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
+        <div v-if="customProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
+          <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
+          <p class="text-sm text-muted">暂无自定义模型服务</p>
+          <p v-if="!platformReadOnly" class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
+        </div>
       </div>
-    </div>
+    </section>
+
+    <!-- 平台服务（下）：内置服务 -->
+    <section class="space-y-3">
+      <div>
+        <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+          <Cloud class="w-4 h-4 text-accent" />平台服务
+        </h4>
+        <p class="mt-1 text-[11px] text-muted">内置千问 / 深度求索 / 豆包，由平台统一管理</p>
+      </div>
+      <p v-if="platformReadOnly" class="rounded-lg border border-border bg-hover px-3 py-2 text-[12px] text-muted">由平台统一管理。你可以查看平台模型服务与档位配置，但不能修改。</p>
+      <div class="space-y-2">
+        <div
+          v-for="p in platformProviders"
+          :key="p.id"
+          class="group relative rounded-xl border p-4 transition-all"
+          :class="s.settings.activeProviderId === p.id ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
+        >
+          <div class="flex items-start gap-3">
+            <div class="mt-0.5 w-2 h-2 rounded-full shrink-0" :class="p.apiKey ? 'bg-success' : 'bg-warning'" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-foreground">{{ p.name }}</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">默认全局服务商</span>
+              </div>
+              <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
+              <div class="mt-1 flex items-center gap-3 text-[11px] text-muted">
+                <span>密钥：{{ providerKeyDisplay(p.apiKey) }}</span>
+                <span class="text-border">|</span>
+                <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
+              </div>
+            </div>
+            <div v-if="!platformReadOnly" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
+                <Wrench class="w-3.5 h-3.5 text-muted" />
+              </button>
+              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="removeProvider(p.id)">
+                <Trash2 class="w-3.5 h-3.5 text-danger" />
+              </button>
+              <button
+                v-if="s.settings.activeProviderId !== p.id"
+                type="button"
+                class="ml-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
+                @click="s.setActiveProvider(p.id)"
+              >
+                设为默认
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="platformProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
+          <Cloud class="w-8 h-8 text-muted/80 mx-auto mb-2" />
+          <p class="text-sm text-muted">暂无平台模型服务</p>
+        </div>
+      </div>
+    </section>
 
   <Teleport to="body">
     <div

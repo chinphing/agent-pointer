@@ -7,7 +7,7 @@ export const DEFAULT_THINKING_BUDGET = 2048
 export type ReasoningEffort = 'high' | 'max'
 
 /** UI / preset kind; drives the same RuntimeParamsForm variant as built-in Qwen & DeepSeek. */
-export type ProviderTemplateId = 'qwen' | 'deepseek' | 'doubao' | 'openai_compatible'
+export type ProviderTemplateId = 'qwen' | 'deepseek' | 'doubao' | 'openai_compatible' | 'openrouter' | 'kimi' | 'zhipu'
 
 export interface ProviderTemplateMeta {
   id: ProviderTemplateId
@@ -69,6 +69,33 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultName: '',
     defaultBaseUrl: 'https://api.openai.com/v1',
     defaultModels: []
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    hint: '聚合入口；可调用 GPT-5.6 / Claude Opus 5 / Gemini 3.6 等',
+    defaultId: 'openrouter',
+    defaultName: 'OpenRouter',
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    defaultModels: ['openai/gpt-5.6-sol', 'anthropic/claude-opus-5', 'google/gemini-3.6-flash']
+  },
+  {
+    id: 'kimi',
+    label: 'Kimi',
+    hint: '月之暗面 API；长文档处理突出',
+    defaultId: 'kimi',
+    defaultName: 'Kimi（月之暗面）',
+    defaultBaseUrl: 'https://api.moonshot.cn/v1',
+    defaultModels: ['kimi-k3']
+  },
+  {
+    id: 'zhipu',
+    label: '智谱 GLM',
+    hint: '智谱 API；代码生成突出',
+    defaultId: 'zhipu',
+    defaultName: '智谱 GLM',
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModels: ['glm-5.2']
   }
 ]
 
@@ -87,12 +114,30 @@ export function isDoubaoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boo
   return /ark\.cn-[a-z-]+\.volces\.com/i.test(p.baseUrl || '')
 }
 
+export function isOpenRouterProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (p.id?.toLowerCase() === 'openrouter') return true
+  return /openrouter\.ai/i.test(p.baseUrl || '')
+}
+
+export function isKimiProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (p.id?.toLowerCase() === 'kimi') return true
+  return /moonshot\.cn/i.test(p.baseUrl || '')
+}
+
+export function isZhipuProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (p.id?.toLowerCase() === 'zhipu') return true
+  return /bigmodel\.cn/i.test(p.baseUrl || '')
+}
+
 export function detectProviderTemplateId(
   p: Pick<ProviderConfig, 'id' | 'baseUrl'>
 ): ProviderTemplateId {
   if (isQwenProvider(p)) return 'qwen'
   if (isDeepSeekProvider(p)) return 'deepseek'
   if (isDoubaoProvider(p)) return 'doubao'
+  if (isOpenRouterProvider(p)) return 'openrouter'
+  if (isKimiProvider(p)) return 'kimi'
+  if (isZhipuProvider(p)) return 'zhipu'
   return 'openai_compatible'
 }
 

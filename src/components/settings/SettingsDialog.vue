@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -10,6 +10,7 @@ import { provideSettingsDialogForm } from '../../composables/useSettingsDialogFo
 import ChannelSettingsPanel from './ChannelSettingsPanel.vue'
 import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
 import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
+import ModelSettingsPanel from './panels/ModelSettingsPanel.vue'
 import DebugSettingsPanel from './panels/DebugSettingsPanel.vue'
 import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
@@ -36,8 +37,9 @@ const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
   { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
-  { id: 'assistant', label: '智能体', desc: '模型、档位与行为', icon: Bot },
-  { id: 'generation', label: '界面配置', desc: '界面显示选项', icon: Gauge }
+  { id: 'assistant', label: '智能体', desc: '档位与行为', icon: Bot },
+  { id: 'models', label: '模型配置', desc: '服务商与档位映射', icon: Cpu },
+  { id: 'generation', label: '系统设置', desc: '界面、桌面与系统运行', icon: Settings }
 ] as const
 
 const debugSections = [
@@ -95,6 +97,7 @@ const sections = computed<SidebarGroup[]>(() => {
     {
       items: [
         alwaysSections.find(item => item.id === 'assistant')!,
+        alwaysSections.find(item => item.id === 'models')!,
         alwaysSections.find(item => item.id === 'generation')!
       ]
     },
@@ -219,7 +222,12 @@ onMounted(() => {
             <DebugSettingsPanel :form="form" />
           </section>
 
-          <!-- ==================== Generation Section ==================== -->
+          <!-- ==================== Model Section ==================== -->
+          <section v-else-if="activeSection === 'models'" class="p-6 min-h-full flex flex-col">
+            <ModelSettingsPanel :form="form" />
+          </section>
+
+          <!-- ==================== Generation Section (系统设置) ==================== -->
           <section v-else-if="activeSection === 'generation'" class="p-6 min-h-full flex flex-col">
             <GenerationSettingsPanel :form="form" />
           </section>

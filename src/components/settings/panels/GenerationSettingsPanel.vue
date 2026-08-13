@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
-import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, ScrollText, Settings, Sparkles, Volume2, X } from 'lucide-vue-next'
+import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, Plus, ScrollText, Settings, Sparkles, Terminal, Volume2, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -42,6 +42,10 @@ const {
   ffmpegNeedsInstall,
   refreshMediaDeps,
   askAssistantInstallFfmpeg,
+  terminalEnvRows,
+  addTerminalEnvRow,
+  removeTerminalEnvRow,
+  saveTerminalEnvRows,
   activeSection
 } = props.form
 
@@ -93,10 +97,6 @@ watch(activeSection, section => {
   }
 }, { immediate: true })
 
-onUnmounted(() => {
-  if (queuePollTimer) clearInterval(queuePollTimer)
-})
-
 const queueModalOpen = ref(false)
 const mediaDepsModalOpen = ref(false)
 
@@ -110,6 +110,23 @@ const queueSummary = computed(() => {
 
 const soundSaving = ref(false)
 const playSoundOnFinish = ref(s.userSettings.playSoundOnFinish !== false)
+
+let terminalEnvSaveTimer: ReturnType<typeof setTimeout> | null = null
+function onTerminalEnvRowChanged() {
+  if (terminalEnvSaveTimer) clearTimeout(terminalEnvSaveTimer)
+  terminalEnvSaveTimer = setTimeout(() => {
+    terminalEnvSaveTimer = null
+    saveTerminalEnvRows()
+  }, 300)
+}
+
+onUnmounted(() => {
+  if (queuePollTimer) clearInterval(queuePollTimer)
+  if (terminalEnvSaveTimer) {
+    clearTimeout(terminalEnvSaveTimer)
+    saveTerminalEnvRows()
+  }
+})
 
 async function onPlaySoundToggle(checked: boolean) {
   playSoundOnFinish.value = checked
@@ -396,6 +413,61 @@ async function onPlaySoundToggle(checked: boolean) {
           />
           <span class="text-[12px] text-foreground">{{ ffmpegStatusLabel }}</span>
           <span class="ml-auto text-[11px] text-muted">ffmpeg / ffprobe</span>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+            <Terminal class="w-4 h-4 text-accent" />终端环境变量
+          </h4>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
+            @click="addTerminalEnvRow(); onTerminalEnvRowChanged()"
+          >
+            添加
+            <Plus class="w-3 h-3" />
+          </button>
+        </div>
+        <p class="text-[11px] text-muted">Agent 终端子进程的 KEY→VALUE 环境变量覆盖（追加在进程与 .env 之后，优先级最高），保存后持久化。</p>
+
+        <div v-if="terminalEnvRows.length === 0" class="rounded-lg border border-dashed border-border bg-card/40 px-3 py-4 text-center text-[11px] text-muted">
+          暂无环境变量覆盖，点击「添加」新建
+        </div>
+
+        <div v-else class="space-y-2">
+          <div
+            v-for="row in terminalEnvRows"
+            :key="row.id"
+            class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center"
+          >
+            <input
+              v-model="row.key"
+              type="text"
+              spellcheck="false"
+              placeholder="KEY（如 API_TOKEN）"
+              class="h-8 px-2.5 rounded-lg bg-card border border-border text-[12px] text-foreground font-mono outline-none focus:border-accent/50 transition-colors min-w-0"
+              @input="onTerminalEnvRowChanged"
+            />
+            <input
+              v-model="row.value"
+              type="text"
+              spellcheck="false"
+              placeholder="VALUE"
+              class="h-8 px-2.5 rounded-lg bg-card border border-border text-[12px] text-foreground font-mono outline-none focus:border-accent/50 transition-colors min-w-0"
+              @input="onTerminalEnvRowChanged"
+            />
+            <button
+              type="button"
+              class="p-1.5 rounded-lg text-muted hover:text-destructive hover:bg-destructive/10 cursor-pointer transition-colors shrink-0"
+              :title="`删除 ${row.key || '环境变量'}`"
+              aria-label="删除该环境变量"
+              @click="removeTerminalEnvRow(row.id); onTerminalEnvRowChanged()"
+            >
+              <X class="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
     </section>

@@ -719,6 +719,14 @@ function createSettingsDialogForm(deps: {
     terminalEnvRows.value = terminalEnvRows.value.filter(row => row.id !== id)
   }
 
+  function saveTerminalEnvRows() {
+    const next = terminalEnvOverridesFromRows()
+    s.settings.terminalEnvOverrides = next
+    void s.saveUser({ terminalEnvOverrides: next }).catch(error => {
+      console.error('[settings] failed to save terminalEnvOverrides', error)
+    })
+  }
+
   function optionalParallelLimit(v: number | ''): number | null {
     if (v === '') return null
     const n = Number(v)
@@ -868,6 +876,7 @@ function createSettingsDialogForm(deps: {
     terminalEnvRows,
     addTerminalEnvRow,
     removeTerminalEnvRow,
+    saveTerminalEnvRows,
     taskBoardShowChildBoards,
     agentTaskBoardHistoryTrim,
     computerHumanLike,

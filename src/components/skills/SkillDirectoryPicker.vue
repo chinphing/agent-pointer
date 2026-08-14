@@ -81,7 +81,8 @@ function descriptionFor(path: string): string | undefined {
         </span>
         <span
           v-if="descriptionFor(dir.path)"
-          class="block min-w-0 whitespace-normal break-words text-[10px] leading-relaxed text-muted"
+          :title="descriptionFor(dir.path)"
+          class="block min-w-0 truncate text-[10px] leading-relaxed text-muted"
         >
           {{ descriptionFor(dir.path) }}
         </span>

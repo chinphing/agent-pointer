@@ -60,6 +60,7 @@ const editableTemplateOptions = computed(() => {
 
 const copiedKey = ref(false)
 const editingProvider = ref<ProviderConfig | null>(null)
+const pendingProviderDeletion = ref<ProviderConfig | null>(null)
 const showAddProvider = ref(false)
 const editingModelsText = ref('')
 const originalApiKey = ref('')
@@ -422,6 +423,22 @@ async function saveProvider() {
   }
 }
 
+function requestCustomProviderDeletion(provider: ProviderConfig) {
+  if (platformReadOnly.value || isPlatformProvider(provider)) return
+  pendingProviderDeletion.value = provider
+}
+
+function cancelCustomProviderDeletion() {
+  pendingProviderDeletion.value = null
+}
+
+async function confirmCustomProviderDeletion() {
+  const provider = pendingProviderDeletion.value
+  if (!provider) return
+  pendingProviderDeletion.value = null
+  await removeCustomProvider(provider)
+}
+
 async function removeCustomProvider(provider: ProviderConfig) {
   if (platformReadOnly.value || isPlatformProvider(provider)) return
 
@@ -539,7 +556,7 @@ defineExpose({
                 class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
                 :title="`删除 ${p.name}`"
                 :aria-label="`删除 ${p.name}`"
-                @click="removeCustomProvider(p)"
+                @click="requestCustomProviderDeletion(p)"
               >
                 <Trash2 class="w-3.5 h-3.5 text-danger" />
               </button>
@@ -761,6 +778,26 @@ defineExpose({
     </div>
   </Teleport>
   </div>
+
+  <Teleport to="body">
+    <div
+      v-if="pendingProviderDeletion"
+      class="pointer-events-auto fixed inset-0 z-[10003] flex items-center justify-center bg-black/55 p-4"
+      role="presentation"
+      @click.self="cancelCustomProviderDeletion"
+    >
+      <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-5 space-y-4" role="alertdialog" aria-modal="true" aria-labelledby="delete-provider-title" @click.stop>
+        <div class="space-y-1">
+          <h5 id="delete-provider-title" class="text-sm font-semibold text-foreground">确认删除模型服务</h5>
+          <p class="text-sm text-muted">将删除“{{ pendingProviderDeletion.name }}”及其本地模型配置。此操作无法撤销。</p>
+        </div>
+        <div class="flex items-center justify-end gap-2">
+          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelCustomProviderDeletion">取消</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-danger text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmCustomProviderDeletion">确认删除</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 
   <Teleport to="body">
     <div

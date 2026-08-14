@@ -97,7 +97,7 @@ afterEach(() => {
 })
 
 describe('ModelServiceSection', () => {
-  it('only exposes delete for custom providers and persists the deletion immediately', async () => {
+  it('only exposes delete for custom providers and waits for confirmation before persisting', async () => {
     const host = mountSection()
     await settle()
 
@@ -108,6 +108,16 @@ describe('ModelServiceSection', () => {
     removeCustom!.click()
     await settle()
 
+    expect(document.body.textContent).toContain('确认删除模型服务')
+    expect(document.body.textContent).toContain('本地模型')
+    expect(storeState.removeProvider).not.toHaveBeenCalled()
+    expect(storeState.saveModelService).not.toHaveBeenCalled()
+
+    ;[...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent === '确认删除')!
+      .click()
+    await settle()
+
     expect(storeState.removeProvider).toHaveBeenCalledWith('local')
     expect(storeState.saveModelService).toHaveBeenCalledWith(expect.objectContaining({
       activeProviderId: 'qwen',
@@ -116,12 +126,32 @@ describe('ModelServiceSection', () => {
     }))
   })
 
+  it('does not modify state when deletion confirmation is cancelled', async () => {
+    const host = mountSection()
+    await settle()
+
+    host.querySelector<HTMLButtonElement>('[aria-label="删除 本地模型"]')!.click()
+    await settle()
+    ;[...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent === '取消')!
+      .click()
+    await settle()
+
+    expect(storeState.settings.providers.map(provider => provider.id)).toEqual(['qwen', 'local'])
+    expect(storeState.removeProvider).not.toHaveBeenCalled()
+    expect(storeState.saveModelService).not.toHaveBeenCalled()
+  })
+
   it('restores the custom provider when persistence fails', async () => {
     storeState.saveModelService.mockRejectedValueOnce(new Error('disk unavailable'))
     const host = mountSection()
     await settle()
 
     host.querySelector<HTMLButtonElement>('[aria-label="删除 本地模型"]')!.click()
+    await settle()
+    ;[...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent === '确认删除')!
+      .click()
     await settle()
 
     expect(storeState.settings.providers.map(provider => provider.id)).toEqual(['qwen', 'local'])

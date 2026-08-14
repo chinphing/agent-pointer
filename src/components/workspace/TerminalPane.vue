@@ -366,7 +366,12 @@ onBeforeUnmount(() => {
   -webkit-user-select: text !important;
   user-select: text !important;
 }
-.terminal-pane :deep(.xterm-viewport) { overflow-y: auto !important; overscroll-behavior: contain; }
+.terminal-pane :deep(.xterm-viewport) {
+  /* xterm 默认 #000 会在 FitAddon 不能填满最后一行时露出为底部黑条。 */
+  background-color: hsl(var(--card)) !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
 .pane-close {
   @apply absolute right-1 top-1 z-10 rounded p-1 text-muted opacity-0 transition-opacity;
 }

@@ -189,17 +189,14 @@ onMounted(() => {
           <button
             type="button"
             class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
-            title="返回聊天"
-            aria-label="返回聊天"
+            title="返回对话"
+            aria-label="返回对话"
             @click="emit('close')"
           >
             <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors bg-hover/40 group-hover:bg-hover/80">
               <ArrowLeft class="w-3.5 h-3.5 text-muted/70 group-hover:text-foreground/80" />
             </div>
-            <span class="min-w-0">
-              <span class="block text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回</span>
-              <span class="block text-[11px] text-muted/60 truncate">返回聊天</span>
-            </span>
+            <span class="block min-w-0 text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回对话</span>
           </button>
           <div class="my-2 h-px bg-border/60" />
           <template v-for="(group, groupIndex) in sections" :key="groupIndex">

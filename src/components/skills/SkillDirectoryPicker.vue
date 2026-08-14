@@ -78,7 +78,10 @@ function descriptionFor(path: string): string | undefined {
           <FolderOpen class="h-3.5 w-3.5 shrink-0 text-accent" />
           <span class="min-w-0 truncate">{{ dir.name }}</span>
         </span>
-        <span v-if="descriptionFor(dir.path)" class="block min-w-0 truncate text-[10px] text-muted">
+        <span
+          v-if="descriptionFor(dir.path)"
+          class="block break-words text-[10px] leading-relaxed text-muted"
+        >
           {{ descriptionFor(dir.path) }}
         </span>
       </button>

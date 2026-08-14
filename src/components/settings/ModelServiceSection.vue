@@ -729,7 +729,7 @@ defineExpose({
   <Teleport to="body">
     <div
       v-if="modelConfigModalId && editingProvider"
-      class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4"
+      class="pointer-events-auto fixed inset-0 z-[10003] flex items-center justify-center bg-black/55 p-4"
       role="presentation"
       @click.self="closeModelConfigModal"
     >

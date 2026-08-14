@@ -1905,6 +1905,14 @@ export const useChatStore = defineStore('chat', () => {
     )
   }
 
+  function nextConversationActivityAt(now: number): number {
+    const latestActivityAt = conversations.value.reduce(
+      (latest, conversation) => Math.max(latest, conversation.updatedAt),
+      0
+    )
+    return Math.max(now, latestActivityAt + 1)
+  }
+
   function newConversation(projectId?: string, workspaceRoot?: string): Conversation {
     // Global creation starts unowned. Project-menu creation passes an explicit
     // id and therefore remains directly bound to that project.
@@ -1937,11 +1945,12 @@ export const useChatStore = defineStore('chat', () => {
       markMetaDirty(existingBlank.id)
       return existingBlank
     }
+    const createdAt = Date.now()
     const c: Conversation = {
       id: uid(),
       title: DEFAULT_CONVERSATION_TITLE,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt,
+      updatedAt: nextConversationActivityAt(createdAt),
       isPinned: false,
       messages: [],
       skillIds: [],

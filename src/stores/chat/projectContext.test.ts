@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const loadProjects = vi.hoisted(() => vi.fn())
 const loadProject = vi.hoisted(() => vi.fn())
@@ -65,6 +65,10 @@ describe('chat project context flow', () => {
     waitForChatStreamReady.mockResolvedValue(undefined)
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('creates conversations in the selected project and inherits its workspace', () => {
     const store = useChatStore()
     store.projects = [project('p1', '/workspace/p1', true)]
@@ -110,15 +114,20 @@ describe('chat project context flow', () => {
     expect(store.projects).toEqual([visible])
   })
 
-  it('creates a fresh visible blank for each global new-conversation action', () => {
+  it('keeps each new global blank first when the clock does not advance', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000_000)
     const store = useChatStore()
 
-    const first = store.newConversation()
-    const second = store.newConversation()
+    let previousId: string | undefined
+    for (let index = 0; index < 10; index += 1) {
+      const latest = store.newConversation()
 
-    expect(second.id).not.toBe(first.id)
-    expect(store.conversations[0]?.id).toBe(second.id)
-    expect(store.currentId).toBe(second.id)
+      expect(latest.id).not.toBe(previousId)
+      expect(store.conversations[0]?.id).toBe(latest.id)
+      expect(store.currentId).toBe(latest.id)
+      previousId = latest.id
+    }
   })
 
   it('keeps a pre-send project selection pending without binding the conversation', () => {

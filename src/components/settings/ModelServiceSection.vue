@@ -46,11 +46,17 @@ const platformProviders = computed(() =>
 const customProviders = computed(() =>
   s.settings.providers.filter(provider => !isPlatformProvider(provider))
 )
-const editableTemplateOptions = computed(() =>
-  showAddProvider.value
-    ? PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id !== 'qwen' && option.id !== 'deepseek' && option.id !== 'doubao')
-    : PROVIDER_TEMPLATE_OPTIONS
-)
+const editableTemplateOptions = computed(() => {
+  if (showAddProvider.value) {
+    // 添加服务：内置平台服务不可自建，只提供自定义模板可选。
+    return PROVIDER_TEMPLATE_OPTIONS.filter(
+      option => option.id !== 'qwen' && option.id !== 'deepseek' && option.id !== 'doubao'
+    )
+  }
+  // 编辑已有服务：类型锁定为当前服务的类型，只显示一个按钮，
+  // 避免把所有模板（看起来像所有 provider）都列出来。
+  return PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id === providerTemplate.value)
+})
 
 const copiedKey = ref(false)
 const editingProvider = ref<ProviderConfig | null>(null)
@@ -621,6 +627,7 @@ defineExpose({
             type="button"
             class="h-8 px-3 rounded-md text-[12px] cursor-pointer transition-colors"
             :class="providerTemplate === opt.id ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'"
+            :disabled="!showAddProvider"
             @click="setProviderTemplate(opt.id)"
           >
             {{ opt.label }}

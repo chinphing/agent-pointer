@@ -551,11 +551,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Phase 5: start the cron scheduler. The server (web host) enables it by
-    // default in platform mode; standalone defaults off. `POINTER_SCHEDULER_ENABLED=0`
-    // explicitly disables it; `=1` enables in standalone.
+    // default in every deployment mode. `POINTER_SCHEDULER_ENABLED=0` / `false`
+    // explicitly disables it; `=1` / `true` forces it on.
     let scheduler_enabled = env::var("POINTER_SCHEDULER_ENABLED")
         .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
-        .unwrap_or(!pointer_core::deployment_mode::is_standalone());
+        .unwrap_or(true);
     if scheduler_enabled {
         let _scheduler = pointer_core::scheduler::Scheduler::start(
             pointer_core::scheduler::Scheduler::new(state.core.clone(), state.dispatcher.clone()),

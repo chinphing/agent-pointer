@@ -1,34 +1,28 @@
 # 设置页：模型服务商编辑（维护说明）
 
-> **可见性**：设置侧栏「模型服务」是常规分区，平台页包含千问、DeepSeek、豆包；自定义页包含其余 OpenAI 兼容服务。非平台管理员只读，平台管理员可编辑。
+> **可见性**：设置侧栏「模型配置」是常规分区，平台服务包含千问、DeepSeek、豆包；自定义服务包含其余 OpenAI 兼容服务。普通用户只读；平台管理员可编辑。平台服务由平台统一管理，**不显示删除入口**；仅自定义服务可删除。
 
-> **调试**：Bug 按钮仅控制调试分区的可见性（仍受 `canEditPlatform` 限制）。调试页只保留 `debugDumpLlmPrompts`（「保存每轮对话请求」）；切换 Bug 按钮不会重置其它运行时开关或智能体 UI 覆盖。
+> **保存语义**：模型服务、当前服务/模型、生成参数和三档模型映射均通过 `updateUserSettings` 保存到 `user_settings.json`；Provider API Key 以 `enc:v1:` 加密落盘。自定义服务删除后立即保存；失败时前端恢复删除前的服务列表、默认服务和模型。
 
-> 配置写入内存，重启后恢复默认；底部「保存(本次会话)」通过专用的
-> `DebugSessionSettings` 边界更新当前进程配置。
->
+> **调试权限**：调试分区仅对平台管理员或 standalone 本地管理员显示。它包含「保存每轮对话请求」「原始内容查看」「标记截图查看」；普通用户不可见也不可修改后两项。
+
 > **WEB 回读**：平台管理员（含 standalone 本地管理员）的 `/api/settings` 响应会保留
 > `agentModeLlm` / `debugMenusEnabled` 等调试字段，保存后再打开设置不会退回内置默认。
-> 非管理员响应仍省略这些字段；前端在字段缺失时保留当前内存值。
+> 非管理员响应仍省略这些字段；后端保存时保留平台调试字段，前端在字段缺失时保留当前内存值。
 
-## 调试会话配置边界
+## 持久化边界
 
 - 模型服务商、当前模型、生成参数及电脑/智能体/多媒体模型映射统一通过
-  `DebugSessionSettings` 更新。
-- APP 使用专用 Tauri command，WEB 使用
-  `PUT /api/debug-session-settings`；两端最终调用同一个 Core 更新方法。
-- Core 只原子替换 `AppState.platform_config` 中对应字段，不调用 storage、
-  `PersistedLocalPlatformSettings` 或其他持久化写入路径。
-- `PersistedLocalPlatformSettings` 必须继续排除 providers、当前服务商/模型、
-  temperature、maxTokens 及所有调试模型映射。
+  `updateUserSettings` 更新；APP 使用 Tauri command，WEB 使用
+  `PUT /api/user-settings`，两端最终调用同一个 Core 用户设置持久化方法。
+- `DebugSessionSettings` / `PUT /api/debug-session-settings` 仅保留为旧 API 兼容与测试边界；当前设置页面不调用它，不能把它作为模型服务保存链路。
+- 保存模型服务时，当前编辑服务保留显式输入的 API Key；其他服务的 key 置空，由后端内存 key 池回填。`source=platform` 的平台注入服务不会写入用户层。
+- 自定义服务删除后立即提交完整服务列表；保存失败必须恢复删除前的列表、默认服务和模型。
 - WEB 接口沿用平台访问鉴权与响应脱敏，不得在日志中记录 API Key。
 
 ## 保存快照规则
 
-设置页必须在第一个异步请求之前同步构造所有请求的不可变快照。
-后续主题或用户设置请求可能用服务端旧值刷新 Store，但不得据此重新构造
-调试配置 payload。调试请求完成后再用返回的有效设置刷新 Store，确保新模型
-立即用于后续对话。
+设置页在第一个异步请求之前同步构造不可变快照。服务端返回有效设置后同步回填 Store，避免旧响应覆盖正在编辑的模型服务 key 或场景模型映射。
 
 ## 模型能力标记
 
@@ -43,7 +37,7 @@
 
 ## 模式选择与调试模型映射
 
-- 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 智能体 → 模式选择** 中选运行模式；具体模型在调试模式下于 `agentModeLlm` / `mediaModeLlm` / `computerTierLlm` 配置（平台内存，重启恢复默认，相同持久化策略）。
+- 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 模型配置** 中调整场景档位；`agentModeLlm` / `mediaModeLlm` / `computerTierLlm` 作为用户覆盖通过 `updateUserSettings` 持久化，重启后保留。
 - **电脑操控档位 / Verify**：调试下拉使用全部已配置服务商的 `allModels`（值为 `providerId:model`），写入 `providerId` + `model`；运行时 `apply_round_settings` / `apply_pipeline_phase_settings` 会同时切换 `activeProviderId` 与 `model`。
 - **API Key 回退**：主会话 / 子 Agent 按模式解析出的 Provider **没有可用 API Key**，但当前活跃 Provider 有 Key 时，自动回退到活跃 Provider；模型优先用原活跃模型，若不在该 Provider 的 `models` 列表中则改用列表首项（打 warn 日志）。有 Key 时仍优先用模式映射，不静默改道。
 
@@ -92,9 +86,8 @@
 
 - 模型名写在「模型列表」输入框（`editingModelsText`），须通过 `buildProviderSnapshotFromEditor` 合并进 `snapshot.models` 再 `updateProvider`。
 - **改模型名**：`updateProvider` 在更新的是**当前激活**服务商、且 `settings.model` 已不在新列表中时，必须改选 `models[0]`。否则后端校验 `active model is not configured for provider`，前端只显示「应用配置失败，请重试」。
-- 仅点底部「保存配置」时，必须先 `flushEditingProviderToStore()`，否则会保存旧的 `providers`、新模型丢失。
-- 单模型「设置」弹窗点「完成」：只 `closeModelConfigModal()`，**不要** `emit('close')`。
-- 服务商表单「添加」/「保存」：写入成功后**退出**编辑区，回到上方服务商列表；继续改再点扳手。
-- 底部「保存配置」：合并草稿后 `emit('close')` 关闭整个设置对话框。
-- `applyProviderSnapshotToStore(..., reopenEdit)`：服务商表单添加/保存、底部保存前均用 `reopenEdit: false`。
+- 单模型「设置」弹窗点「完成」：只 `closeModelConfigModal()`，**不要**关闭整个设置页。
+- 服务商表单「添加」/「保存」：写入成功后退出编辑区，回到服务商列表；继续修改时再点扳手。
+- 当前没有底部「保存配置」栏：服务商表单点击「添加」/「保存」时立即持久化；自定义服务点删除时也立即持久化。
+- `applyProviderSnapshotToStore(..., reopenEdit)`：服务商表单添加/保存使用 `reopenEdit: false`。
 - 新增服务商时若 **服务 ID 与已有重复**，`addProvider` 会拒绝并提示，避免 `find` 命中旧条目导致像没保存上。

@@ -197,7 +197,7 @@ function createSettingsDialogForm(deps: {
   return (
     m ?? {
       providerId: 'qwen',
-      model: key === 'advanced' ? 'qwen3.7-plus' : 'qwen3.5-plus',
+      model: key === 'primary' ? 'qwen3.5-flash' : key === 'advanced' ? 'qwen3.7-plus' : 'qwen3.5-plus',
       enableThinking: true,
       thinkingBudget: key === 'advanced' ? 8192 : 2048
     }

@@ -124,6 +124,16 @@ describe('settings debug-session save', () => {
     expect(store.settings.hasKey).toBe(true)
   })
 
+  it('uses the Rust-aligned qwen3.5-flash Computer Primary default', () => {
+    const store = useSettingsStore()
+
+    expect(store.settings.computerTierLlm?.primary).toMatchObject({
+      providerId: 'qwen',
+      model: 'qwen3.5-flash',
+      thinkingBudget: 2048
+    })
+  })
+
   it('selects a valid model when removing the active provider', () => {
     const store = useSettingsStore()
     store.settings.activeProviderId = 'qwen'

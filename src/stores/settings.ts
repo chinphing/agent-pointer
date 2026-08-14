@@ -323,7 +323,7 @@ export const useSettingsStore = defineStore('settings', () => {
       videoGeneration: { providerId: 'doubao', model: 'doubao-seedance-2-0-fast-260128' }
     },
     computerTierLlm: {
-      primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
+      primary: { providerId: 'qwen', model: 'qwen3.5-flash', enableThinking: true, thinkingBudget: 2048 },
       intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
       advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
     },

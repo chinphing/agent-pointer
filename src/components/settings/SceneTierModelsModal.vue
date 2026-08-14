@@ -75,7 +75,7 @@ function variantValue(config: { enableThinking?: boolean; thinkingBudget?: numbe
 
 function modeOverridden(config: { providerId: string; model: string }, mode: string, group: 'agent' | 'media' | 'computer', id?: string) {
   if (group === 'computer') {
-    const defaults: Record<string, string> = { primary: 'qwen:qwen3.5-plus', intermediate: 'qwen:qwen3.5-plus', advanced: 'qwen:qwen3.7-plus' }
+    const defaults: Record<string, string> = { primary: 'qwen:qwen3.5-flash', intermediate: 'qwen:qwen3.5-plus', advanced: 'qwen:qwen3.7-plus' }
     return `${config.providerId}:${config.model}` !== defaults[mode]
   }
   if (group === 'agent') {

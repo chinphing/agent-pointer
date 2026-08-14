@@ -422,9 +422,42 @@ async function saveProvider() {
   }
 }
 
-function removeProvider(id: string) {
-  if (platformReadOnly.value) return
+async function removeCustomProvider(provider: ProviderConfig) {
+  if (platformReadOnly.value || isPlatformProvider(provider)) return
+
+  const id = provider.id
+  const before = {
+    providers: s.settings.providers,
+    activeProviderId: s.settings.activeProviderId,
+    model: s.settings.model
+  }
   s.removeProvider(id)
+  if (s.settings.providers.some(entry => entry.id === id)) return
+
+  try {
+    // 删除仅适用于自定义服务。提交时清空其他服务的显式 key，
+    // 由后端以内存 key 池回填，避免把平台注入密钥写入 user 层。
+    await s.saveModelService({
+      providers: s.settings.providers.map(entry => ({
+        ...entry,
+        apiKey: '',
+        source: isPlatformProvider(entry) ? 'platform' : 'user'
+      })),
+      activeProviderId: s.settings.activeProviderId,
+      model: s.settings.model,
+      temperature: s.settings.temperature,
+      maxTokens: s.settings.maxTokens
+    })
+    providerSaveError.value = ''
+  } catch (e) {
+    console.error('[settings] remove provider failed', e)
+    s.settings.providers = before.providers
+    s.settings.activeProviderId = before.activeProviderId
+    s.settings.model = before.model
+    providerSaveError.value = '删除服务失败，请重试'
+    return
+  }
+
   if (editingProvider.value?.id === id) {
     editingProvider.value = null
     showAddProvider.value = false
@@ -492,10 +525,22 @@ defineExpose({
               </div>
             </div>
             <div v-if="!platformReadOnly" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
+              <button
+                type="button"
+                class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
+                :title="`编辑 ${p.name}`"
+                :aria-label="`编辑 ${p.name}`"
+                @click="startEditProvider(p)"
+              >
                 <Wrench class="w-3.5 h-3.5 text-muted" />
               </button>
-              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="removeProvider(p.id)">
+              <button
+                type="button"
+                class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
+                :title="`删除 ${p.name}`"
+                :aria-label="`删除 ${p.name}`"
+                @click="removeCustomProvider(p)"
+              >
                 <Trash2 class="w-3.5 h-3.5 text-danger" />
               </button>
               <button
@@ -510,6 +555,7 @@ defineExpose({
           </div>
         </div>
 
+        <p v-if="providerSaveError" class="text-[12px] text-red-400" role="alert">{{ providerSaveError }}</p>
         <div v-if="customProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
           <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
           <p class="text-sm text-muted">暂无自定义模型服务</p>
@@ -566,11 +612,14 @@ defineExpose({
               </div>
             </div>
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
+              <button
+                type="button"
+                class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
+                :title="`编辑 ${p.name}`"
+                :aria-label="`编辑 ${p.name}`"
+                @click="startEditProvider(p)"
+              >
                 <Wrench class="w-3.5 h-3.5 text-muted" />
-              </button>
-              <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="removeProvider(p.id)">
-                <Trash2 class="w-3.5 h-3.5 text-danger" />
               </button>
               <button
                 v-if="s.settings.activeProviderId !== p.id"

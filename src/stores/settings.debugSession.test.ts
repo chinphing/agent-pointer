@@ -88,6 +88,42 @@ describe('settings debug-session save', () => {
     expect(store.settings.hasKey).toBe(true)
   })
 
+  it('syncs backfilled provider keys from the saved effective view', async () => {
+    const store = useSettingsStore()
+    // 模拟编辑保存：本地 merged 视图里该 provider 的 key 已被置空。
+    const target = store.settings.providers[0].id
+    store.settings.providers = store.settings.providers.map(p => ({
+      ...p,
+      apiKey: p.id === target ? '' : p.apiKey
+    }))
+    // 后端 update_user_settings 从内存 key 池回填后返回 merged 视图（明文 key）。
+    const view: EffectiveSettingsView = {
+      user: jsonClone(store.userSettings),
+      platform: jsonClone(store.platformSettings),
+      merged: jsonClone({
+        ...store.settings,
+        hasKey: true,
+        providers: store.settings.providers.map(p => ({
+          ...p,
+          apiKey: p.id === target ? 'sk-backfilled' : p.apiKey
+        }))
+      }),
+      canEditPlatform: true,
+      isPlatformAdmin: true
+    }
+    updateUserSettings.mockResolvedValue(view)
+
+    await store.saveModelService({
+      providers: store.settings.providers,
+      activeProviderId: store.settings.activeProviderId,
+      model: store.settings.model
+    })
+
+    const synced = store.settings.providers.find(p => p.id === target)
+    expect(synced?.apiKey).toBe('sk-backfilled')
+    expect(store.settings.hasKey).toBe(true)
+  })
+
   it('selects a valid model when removing the active provider', () => {
     const store = useSettingsStore()
     store.settings.activeProviderId = 'qwen'

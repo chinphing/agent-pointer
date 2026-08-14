@@ -526,8 +526,24 @@ export const useSettingsStore = defineStore('settings', () => {
       theme: (view.user.theme as ThemePreference) ?? 'system'
     }
     userSettings.value = user
+    // 后端 update_user_settings 会把空/掩码的 apiKey 从内存 key 池回填后再落盘，
+    // 返回的 merged.providers 才是最新的 key 状态。若不把 providers 同步回来，
+    // 本地 merged 视图里编辑项的 apiKey 停留在保存前被置空的值，UI 会显示
+    // 「保存后 key 丢了」（后端其实已存好，重启后又恢复）。只刷新 merged 的
+    // provider/模型相关字段，不动 platform map 与 session debug drafts。
+    const mergedIn = view.merged ?? ({} as ModelSettings)
     settings.value = {
       ...settings.value,
+      providers: normalizeProviders(
+        mergedIn.providers,
+        undefined,
+        storeGlobalGenFallbackFrom(mergedIn)
+      ),
+      activeProviderId: mergedIn.activeProviderId ?? settings.value.activeProviderId,
+      model: mergedIn.model ?? settings.value.model,
+      temperature: mergedIn.temperature ?? settings.value.temperature,
+      maxTokens: mergedIn.maxTokens ?? settings.value.maxTokens,
+      hasKey: mergedIn.hasKey ?? settings.value.hasKey,
       theme: user.theme
     }
     applyTheme(user.theme)

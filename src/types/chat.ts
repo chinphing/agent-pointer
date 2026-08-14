@@ -522,6 +522,12 @@ export interface ProviderConfig {
    * Per-model `extraBody` overlays; flattened to request root on wire.
    */
   extraBody?: Record<string, unknown>
+  /**
+   * Runtime provenance: `user` (persisted user layer) or `platform`
+   * (injected by server.toml / OAuth / login). Computed by the backend
+   * merge; not persisted on disk. Used to filter what gets saved.
+   */
+  source?: 'user' | 'platform'
 }
 
 export interface AgentModelRef {

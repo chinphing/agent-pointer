@@ -394,11 +394,44 @@ pub fn load_user_settings() -> Result<UserSettings> {
     // (built-in provider model lists and per-agent default models). User-owned
     // customizations are preserved; only missing defaults are added.
     crate::models::ensure_user_settings_defaults(&mut user);
-    // Re-attach keys the user typed (encrypted on disk); platform-injected keys
-    // are not stored here and are re-injected on login / server config load.
-    for (provider_id, key) in load_provider_api_keys()? {
-        if let Some(provider) = user.providers.iter_mut().find(|p| p.id == provider_id) {
-            provider.api_key = key;
+    // Decrypt provider keys that were persisted inside user_settings.json
+    // (enc:v1:<base64>). Older data stored plaintext — keep it as-is.
+    for provider in &mut user.providers {
+        if let Some(rest) = provider.api_key.strip_prefix("enc:v1:") {
+            let blob = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, rest)
+            {
+                Ok(b) => b,
+                Err(e) => {
+                    log::warn!(
+                        "storage: provider {} key base64 decode failed: {e}; key cleared",
+                        provider.id
+                    );
+                    provider.api_key.clear();
+                    continue;
+                }
+            };
+            match crate::local_secret::decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1")
+            {
+                Ok(key) => provider.api_key = key,
+                Err(e) => {
+                    log::warn!(
+                        "storage: provider {} key decrypt failed: {e}; key cleared",
+                        provider.id
+                    );
+                    provider.api_key.clear();
+                }
+            }
+        }
+    }
+    // Legacy provider_keys.enc compat: backfill keys for providers whose json
+    // entry has no key. Read-only — save_user_settings no longer writes this file.
+    if let Ok(legacy_keys) = load_provider_api_keys() {
+        for (provider_id, key) in legacy_keys {
+            if let Some(provider) = user.providers.iter_mut().find(|p| p.id == provider_id) {
+                if provider.api_key.is_empty() {
+                    provider.api_key = key;
+                }
+            }
         }
     }
     Ok(user)
@@ -413,27 +446,9 @@ fn provider_keys_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("provider_keys.enc"))
 }
 
-/// Encrypt `(provider_id, api_key)` pairs the user typed into `provider_keys.enc`.
-/// An empty list removes the file. Never stores platform-injected keys (OAuth /
-/// server.toml) — those live only in platform memory.
-fn save_provider_api_keys(keys: &[(String, String)]) -> Result<()> {
-    let path = provider_keys_path()?;
-    if keys.is_empty() {
-        if path.exists() {
-            fs::remove_file(&path)?;
-        }
-        return Ok(());
-    }
-    let payload = serde_json::to_vec(keys)?;
-    let blob = crate::local_secret::encrypt_local_secret_with_info(
-        &String::from_utf8_lossy(&payload),
-        b"provider-api-keys-v1",
-    )?;
-    fs::write(&path, blob)?;
-    Ok(())
-}
-
-/// Decrypt user-typed provider keys saved by [`save_provider_api_keys`].
+/// Legacy (read-only): decrypt user-typed provider keys saved by the old
+/// `provider_keys.enc` sidecar. Kept for backward compat during the
+/// key-in-json migration; new saves write keys into user_settings.json.
 fn load_provider_api_keys() -> Result<Vec<(String, String)>> {
     let path = provider_keys_path()?;
     if !path.exists() {
@@ -452,25 +467,32 @@ fn load_provider_api_keys() -> Result<Vec<(String, String)>> {
 }
 
 /// Persist the full user settings layer (user configuration incl. debug fields).
-/// Provider structure is written to user_settings.json with apiKey cleared;
-/// keys the user typed are encrypted into `provider_keys.enc` (AES-256-GCM,
-/// machine-bound) so they survive restarts. Platform-injected keys never pass
-/// through here — they live only in platform memory.
+/// Provider keys the user typed are encrypted (AES-256-GCM, machine-bound) and
+/// stored inline in user_settings.json as `enc:v1:<base64>` on each provider's
+/// apiKey. Platform-injected keys never pass through here — they live only in
+/// platform memory (see `update_user_settings` filtering by source).
 pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
     let mut to_save = user.clone();
     to_save.media_oss = Default::default();
-    let user_keys: Vec<(String, String)> = to_save
-        .providers
-        .iter()
-        .map(|p| (p.id.clone(), p.api_key.clone()))
-        .filter(|(_, k)| !k.trim().is_empty() && k.trim() != "****")
-        .collect();
+    // Encrypt non-empty, non-masked keys inline. "****" is the web redaction
+    // sentinel and must not be persisted — it is re-attached from existing data
+    // by update_user_settings before reaching here.
     for provider in &mut to_save.providers {
-        provider.api_key.clear();
+        if provider.api_key.trim().is_empty() || provider.api_key.trim() == "****" {
+            provider.api_key.clear();
+        } else if !provider.api_key.starts_with("enc:v1:") {
+            let blob = crate::local_secret::encrypt_local_secret_with_info(
+                &provider.api_key,
+                b"provider-api-keys-v1",
+            )?;
+            provider.api_key = format!(
+                "enc:v1:{}",
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, blob)
+            );
+        }
     }
-    write_user_settings_file(&to_save)?;
-    save_provider_api_keys(&user_keys)
+    write_user_settings_file(&to_save)
 }
 
 /// Keep free-form `extraBody` keys after absorbing structured thinking fields.
@@ -554,6 +576,7 @@ fn stored_provider_to_platform(
         thinking_budget,
         reasoning_effort,
         extra_body: leftover_extra_body(p.extra_body.as_ref()),
+        source: Some("user".into()),
     }
 }
 

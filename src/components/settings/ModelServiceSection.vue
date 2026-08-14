@@ -33,7 +33,10 @@ const props = defineProps<{
 
 const s = useSettingsStore()
 const platformReadOnly = computed(() => props.form.platformReadOnly.value)
+// 分组：平台注入的 provider（source=platform）或模板内置服务（qwen/deepseek/doubao）
+// 归「平台服务」；其余为「自定义服务」。
 const isPlatformProvider = (provider: ProviderConfig) => {
+  if (provider.source === 'platform') return true
   const template = detectProviderTemplateId(provider)
   return template === 'qwen' || template === 'deepseek' || template === 'doubao'
 }
@@ -296,9 +299,12 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
     baseUrl: draft.baseUrl.trim(),
     models,
     // 只有用户本次显式输入的 key 才提交。未编辑 key 时提交空串：
-    // 后端 update_user_settings 会用此前加密保存的用户 key 回填（空则保持空）。
+    // 后端 update_user_settings 会用内存里的 key 回填（空则保持空）。
     // 平台注入的 key（OAuth / server.toml）不进入 user 层，不会落盘。
     apiKey: editingApiKey.value ? editingApiKey.value : '',
+    // 编辑保存 = 用户接管该 provider：无论原来来自哪层，保存后都属于
+    // user 层（platform 注入项编辑保存 = fork 到 user 层）。
+    source: 'user',
     modelConfigs: { ...(draft.modelConfigs ?? {}) }
   }
 
@@ -387,11 +393,14 @@ async function saveProvider() {
 
   try {
     // 提交 providers 时，只有本次编辑的 provider 保留显式输入的 key；
-    // 其余统一置空，由后端用「此前加密保存的用户 key」回填，避免把
-    // 平台注入的 key（OAuth / server.toml）误存进 user 层。
+    // 其余统一置空，由后端用「内存里的 key」回填，避免把平台注入的 key
+    // （OAuth / server.toml）误存进 user 层。
+    // source 标记：编辑项已是 'user'（fork），非编辑的平台注入项标记
+    // 'platform'，后端据此过滤不落盘。
     const providersForSave = s.settings.providers.map(p => ({
       ...p,
-      apiKey: p.id === snapshot.id ? p.apiKey : ''
+      apiKey: p.id === snapshot.id ? p.apiKey : '',
+      source: p.id === snapshot.id ? 'user' : (p.source ?? 'user')
     }))
     await s.saveModelService({
       providers: providersForSave,

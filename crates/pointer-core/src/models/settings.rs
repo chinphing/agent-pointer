@@ -120,6 +120,11 @@ pub struct ProviderConfig {
     /// (per-model `extraBody` overlays). Flattened to request root on wire.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
     pub extra_body: Option<Value>,
+    /// Runtime-only provenance: `user` (persisted user layer) or `platform`
+    /// (injected by server.toml / OAuth / login). Computed by `merge_user_platform`
+    /// on every merge; not a durable attribute — the disk value is re-derived each load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 /// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1244,6 +1249,7 @@ impl Default for ModelSettings {
                     thinking_budget: None,
                     reasoning_effort: None,
                     extra_body: None,
+                    source: None,
                 },
                 ProviderConfig {
                     id: "deepseek".into(),
@@ -1259,6 +1265,7 @@ impl Default for ModelSettings {
                     thinking_budget: None,
                     reasoning_effort: None,
                     extra_body: None,
+                    source: None,
                 },
                 ProviderConfig {
                     id: "doubao".into(),
@@ -1274,6 +1281,7 @@ impl Default for ModelSettings {
                     thinking_budget: None,
                     reasoning_effort: None,
                     extra_body: None,
+                    source: None,
                 },
             ],
             active_provider_id: default_active_provider_id(),
@@ -2200,6 +2208,7 @@ fn default_platform_providers() -> Vec<ProviderConfig> {
             thinking_budget: Some(2048),
             reasoning_effort: None,
             extra_body: None,
+            source: Some("platform".into()),
         },
         ProviderConfig {
             id: "deepseek".into(),
@@ -2215,6 +2224,7 @@ fn default_platform_providers() -> Vec<ProviderConfig> {
             thinking_budget: None,
             reasoning_effort: None,
             extra_body: None,
+            source: Some("platform".into()),
         },
         ProviderConfig {
             id: "doubao".into(),
@@ -2230,6 +2240,7 @@ fn default_platform_providers() -> Vec<ProviderConfig> {
             thinking_budget: None,
             reasoning_effort: None,
             extra_body: None,
+            source: Some("platform".into()),
         },
     ]
 }
@@ -2483,6 +2494,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         .map(|p| (p.id.clone(), p.api_key.clone()))
         .collect();
     for provider in &mut providers {
+        provider.source = Some("user".into());
         if provider.api_key.trim().is_empty() {
             if let Some(key) = platform_keys.get(&provider.id) {
                 provider.api_key = key.clone();
@@ -2497,7 +2509,9 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         providers.iter().map(|p| p.id.clone()).collect();
     for platform_provider in &platform.providers {
         if !known.contains(&platform_provider.id) {
-            providers.push(platform_provider.clone());
+            let mut p = platform_provider.clone();
+            p.source = Some("platform".into());
+            providers.push(p);
         }
     }
     ModelSettings {
@@ -2766,6 +2780,7 @@ mod user_settings_defaults_tests {
                 thinking_budget: None,
                 reasoning_effort: None,
                 extra_body: None,
+                source: Some("platform".into()),
             }
         }));
         // User-chosen agent default for `coder` must survive backfill.
@@ -2970,6 +2985,7 @@ mod user_settings_defaults_tests {
             thinking_budget: None,
             reasoning_effort: None,
             extra_body: None,
+            source: Some("platform".into()),
         });
         let mut user = UserSettings::default();
         user.active_provider_id = "vllm-local".into();

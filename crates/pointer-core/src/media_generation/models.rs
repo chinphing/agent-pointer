@@ -319,7 +319,8 @@ mod tests {
                 enable_thinking: None,
                 thinking_budget: None,
                 reasoning_effort: None,
-            extra_body: None,
+                extra_body: None,
+                source: None,
             },
             ProviderConfig {
                 id: "doubao".into(),
@@ -334,7 +335,8 @@ mod tests {
                 enable_thinking: None,
                 thinking_budget: None,
                 reasoning_effort: None,
-            extra_body: None,
+                extra_body: None,
+                source: None,
             },
         ];
         settings.media_model_overrides.video_generation = Some(AgentModelRef {
@@ -365,7 +367,8 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
-        extra_body: None,
+            extra_body: None,
+            source: None,
         }];
         settings.media_model_overrides.video_generation = Some(AgentModelRef {
             provider_id: "qwen".into(),

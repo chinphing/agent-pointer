@@ -650,18 +650,32 @@ impl AppState {
         if !self.active_platform_auth().is_platform_admin() {
             crate::models::preserve_platform_debug_settings_in_user(&mut incoming, &existing);
         }
-        let existing_keys: HashMap<String, String> = existing
+        // 后端内存 key 池：user 层现有 key（load 时已从 json 解密回填到内存）
+        // + platform 内存注入 key（OAuth / server.toml）。前端不回传原始 key：
+        // 用户没改提交空/"****"，这里从后端内存回填；用户显式输入的新 key
+        // 非空，直接落盘（不走回填）。
+        let mut key_pool: HashMap<String, String> = existing
             .providers
             .iter()
             .map(|p| (p.id.clone(), p.api_key.clone()))
             .collect();
+        for p in &self.platform_config.read().providers {
+            key_pool.entry(p.id.clone()).or_insert_with(|| p.api_key.clone());
+        }
         for provider in &mut incoming.providers {
             if provider.api_key.trim().is_empty() || provider.api_key.trim() == "****" {
-                if let Some(key) = existing_keys.get(&provider.id) {
+                if let Some(key) = key_pool.get(&provider.id) {
                     provider.api_key = key.clone();
                 }
             }
         }
+        // 过滤 platform 独有项（source=platform 且 user 层没有）→ 不落盘：
+        // 平台注入的 key 不进 user 层，merged 视图每次从 platform 内存叠加。
+        // 用户编辑 platform 项保存时前端把它标成 source=user（fork）→ 正常落盘。
+        incoming.providers.retain(|p| {
+            existing.providers.iter().any(|e| e.id == p.id)
+                || p.source.as_deref() != Some("platform")
+        });
         self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
     }
@@ -1115,6 +1129,111 @@ mod active_main_task_board_tests {
             state.load_user_settings().providers[0].api_key,
             "sk-user-typed"
         );
+    }
+
+    fn provider_fixture(id: &str, key: &str, source: Option<&str>) -> crate::models::ProviderConfig {
+        crate::models::ProviderConfig {
+            id: id.into(),
+            name: id.into(),
+            base_url: format!("https://{id}.example.com/v1"),
+            api_key: key.into(),
+            models: vec!["m1".into()],
+            model_configs: Default::default(),
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+            source: source.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn custom_provider_key_survives_blank_resave() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // 1. First save: custom provider with key.
+        let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("custom-a", "sk-custom-a", Some("user")));
+        state.update_user_settings(user).expect("save custom key");
+        // 2. Re-edit without typing key → front-end sends empty apiKey; backend
+        //    re-attaches from its in-memory key pool (persisted json → memory).
+        let mut blank = state.load_user_settings();
+        for p in &mut blank.providers {
+            if p.id == "custom-a" {
+                p.api_key.clear();
+            }
+        }
+        state.update_user_settings(blank).expect("save blank");
+        let after = state.load_user_settings();
+        let key = after
+            .providers
+            .iter()
+            .find(|p| p.id == "custom-a")
+            .unwrap()
+            .api_key
+            .clone();
+        assert_eq!(key, "sk-custom-a", "user-layer custom key must survive blank resave");
+    }
+
+    #[test]
+    fn platform_injected_provider_key_survives_blank_resave() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // Server.toml custom provider injected into platform (in-memory).
+        state
+            .platform_config
+            .write()
+            .providers
+            .push(provider_fixture("vllm-local", "sk-vllm", Some("platform")));
+        // Front-end merged view shows vllm-local (source=platform); user edits
+        // models only, sends blank key.
+        let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("vllm-local", "", Some("platform")));
+        state.update_user_settings(user).expect("save blank key");
+        // Platform-injected key must not be persisted into user layer…
+        let persisted = state.load_user_settings();
+        assert!(
+            !persisted.providers.iter().any(|p| p.id == "vllm-local"),
+            "platform-only provider must not be written into user layer"
+        );
+        // …but the merged/effective view must still expose it from platform memory.
+        let merged_key = state
+            .effective_settings()
+            .providers
+            .iter()
+            .find(|p| p.id == "vllm-local")
+            .unwrap()
+            .api_key
+            .clone();
+        assert_eq!(merged_key, "sk-vllm", "platform-injected key should survive blank resave");
+    }
+
+    #[test]
+    fn platform_provider_fork_with_new_key_persists_to_user_layer() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // Server.toml custom provider injected into platform (in-memory).
+        state
+            .platform_config
+            .write()
+            .providers
+            .push(provider_fixture("vllm-local", "sk-vllm", Some("platform")));
+        // User edits the platform provider and explicitly types a new key → the
+        // front-end marks it source=user (fork) and submits the new key.
+        let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("vllm-local", "sk-user-new", Some("user")));
+        state.update_user_settings(user).expect("save fork");
+        // Forked provider persists with the user's explicit key.
+        let persisted = state.load_user_settings();
+        let p = persisted
+            .providers
+            .iter()
+            .find(|p| p.id == "vllm-local")
+            .unwrap();
+        assert_eq!(p.api_key, "sk-user-new");
     }
 
     #[test]

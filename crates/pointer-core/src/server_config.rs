@@ -785,6 +785,7 @@ fn apply_llm_section(platform: &mut PlatformSettings, user: &mut UserSettings, l
                 thinking_budget: None,
                 reasoning_effort: None,
                 extra_body: None,
+                source: Some("platform".into()),
             };
             apply_llm_provider_extra_body(&mut provider, cfg);
             platform.providers.push(provider);

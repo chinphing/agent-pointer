@@ -180,7 +180,7 @@ function setModelConfigMode(modelId: string, mode: 'same' | 'custom') {
 }
 
 function openModelConfigModal(modelId: string) {
-  if (!editingProvider.value || modelConfigMode(modelId) !== 'custom') return
+  if (!editingProvider.value) return
   modelConfigModalError.value = ''
   if (!editingProvider.value.modelConfigs?.[modelId]) {
     setModelConfigMode(modelId, 'custom')
@@ -605,7 +605,7 @@ defineExpose({
               <ChevronRight class="w-4 h-4 text-accent" />
               {{ showAddProvider ? '添加模型服务' : '编辑模型服务' }}
             </h4>
-            <p class="mt-0.5 text-[11px] text-muted">配置服务商默认参数与模型清单；各模型可单独「定制」。</p>
+            <p class="mt-0.5 text-[11px] text-muted">配置服务商默认参数与模型清单；各模型可单独配置参数。</p>
           </div>
           <button
             type="button"
@@ -634,7 +634,7 @@ defineExpose({
           </button>
         </div>
         <p class="text-[11px] text-muted">
-          与内置千问/深度求索相同：先设服务商默认参数，再在下方各模型选「同上」或「定制」。
+          与内置千问/深度求索相同：先设服务商默认参数，再在下方各模型单独配置。
           <span class="text-muted">（{{ providerTemplateHint }}）</span>
         </p>
       </div>
@@ -668,7 +668,7 @@ defineExpose({
         </div>
         <div class="col-span-2 rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3">
           <h5 class="text-[12px] font-medium text-foreground">模型参数</h5>
-          <p class="text-[11px] text-muted">服务商级默认；各模型可选「同上」或「定制」。定制后点「设置」可改参数与视觉/生成能力。</p>
+          <p class="text-[11px] text-muted">服务商级默认；各模型可单独「配置」参数与视觉/生成能力，恢复默认即跟随服务商。</p>
           <RuntimeParamsForm :api="providerRuntimeApi" />
           <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-border space-y-1.5">
             <div class="text-[11px] text-muted">各模型</div>
@@ -681,31 +681,18 @@ defineExpose({
                 <div class="flex-1 min-w-0">
                   <span class="block font-mono text-[12px] text-foreground truncate" :title="mid">{{ mid }}</span>
                   <span
-                    v-if="modelConfigMode(mid) === 'custom' && modelCapabilitySummary(mid)"
-                    class="block text-[10px] text-muted truncate mt-0.5"
-                  >{{ modelCapabilitySummary(mid) }}</span>
-                </div>
-                <div class="inline-flex rounded-lg bg-card border border-border p-0.5 shrink-0">
-                  <button
-                    type="button"
-                    class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors"
-                    :class="modelConfigMode(mid) === 'same' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'"
-                    @click="setModelConfigMode(mid, 'same')"
-                  >同上</button>
-                  <button
-                    type="button"
-                    class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors"
-                    :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'"
-                    @click="setModelConfigMode(mid, 'custom')"
-                  >定制</button>
+                    v-if="modelConfigMode(mid) === 'custom'"
+                    class="block text-[10px] text-accent truncate mt-0.5"
+                  >已定制<template v-if="modelCapabilitySummary(mid)"> · {{ modelCapabilitySummary(mid) }}</template></span>
+                  <span v-else class="block text-[10px] text-muted truncate mt-0.5">跟随服务商默认</span>
                 </div>
                 <button
-                  v-if="modelConfigMode(mid) === 'custom'"
                   type="button"
-                  class="shrink-0 h-7 px-2.5 rounded-md bg-hover hover:bg-hover text-[11px] text-foreground cursor-pointer transition-colors"
+                  class="shrink-0 h-7 px-3 rounded-lg text-[11px] cursor-pointer transition-colors"
+                  :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'bg-accent/10 text-accent hover:bg-accent/20'"
                   @click="openModelConfigModal(mid)"
                 >
-                  设置
+                  {{ modelConfigMode(mid) === 'custom' ? '编辑' : '配置' }}
                 </button>
               </li>
             </ul>
@@ -751,6 +738,12 @@ defineExpose({
         />
         <RuntimeParamsForm v-if="modelConfigModalId" :api="modelRuntimeApi" />
         <div class="flex items-center justify-end gap-2 pt-1">
+          <button
+            v-if="modelConfigModalId && modelConfigMode(modelConfigModalId) === 'custom'"
+            type="button"
+            class="h-8 px-4 mr-auto rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors"
+            @click="setModelConfigMode(modelConfigModalId, 'same')"
+          >恢复默认</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>
         </div>

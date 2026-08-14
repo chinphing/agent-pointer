@@ -44,6 +44,16 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::env::set_var("POINTER_APP_DATA_DIR", dir.to_string_lossy().as_ref());
+    // Isolate from real user settings: `UserSettings::default()` carries
+    // built-in providers with real base URLs/keys, and merged settings prefer
+    // user-owned providers over the platform list below (so the real qwen
+    // would win and the mock never gets used). An explicit empty
+    // user_settings.json keeps the mock platform provider active.
+    std::fs::write(
+        dir.join("user_settings.json"),
+        r#"{"providers":[],"activeProviderId":"qwen"}"#,
+    )
+    .unwrap();
 
     let mock = MockServer::start().await;
     Mock::given(method("POST"))
@@ -69,7 +79,6 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
     let state = Arc::new(AppState::new());
     {
         let mut platform = state.platform_config.write();
-        platform.active_provider_id = "qwen".into();
         platform.providers = vec![ProviderConfig {
             id: "qwen".into(),
             name: "Qwen".into(),
@@ -83,7 +92,8 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
-        extra_body: None,
+            source: Some("platform".into()),
+            extra_body: None,
         }];
     }
 

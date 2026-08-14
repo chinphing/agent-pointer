@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
@@ -31,7 +31,25 @@ const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
 
 const activeSection = ref(props.initialSection)
+const mainEl = ref<HTMLElement | null>(null)
+const renderError = ref('')
 const { enabled: chromeEnabled, macTrafficLightPadding } = useWindowChrome()
+
+// 某个 section 渲染抛错时不再静默空白：显示错误条并阻断错误冒泡
+// （否则整个 SettingsDialog 树可能白屏）。切到其他分区后错误条保留，
+// 便于定位；切换即清空。
+onErrorCaptured(err => {
+  renderError.value = err instanceof Error ? err.message : String(err)
+  console.error('[settings] section render error:', err)
+  return false
+})
+// 系统设置页很长，切换分区时 main 滚动位置会残留；显式归零，
+// 避免切到内容较短的分区时视觉上停在旧滚动位置。
+watch(activeSection, () => {
+  nextTick(() => {
+    if (mainEl.value) mainEl.value.scrollTop = 0
+  })
+})
 
 const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
@@ -199,7 +217,13 @@ onMounted(() => {
         </aside>
 
         <!-- Main Content -->
-        <main class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
+        <main ref="mainEl" class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
+          <div
+            v-if="renderError"
+            class="sticky top-0 z-20 mx-4 mt-3 px-3 py-2 rounded-lg border border-red-400/30 bg-red-400/10 text-[11px] text-red-400"
+          >
+            设置页渲染异常：{{ renderError }}
+          </div>
           <!-- ==================== Assistant Section ==================== -->
           <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
           <section v-show="activeSection === 'assistant'" class="p-6 min-h-full flex flex-col">

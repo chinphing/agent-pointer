@@ -110,33 +110,37 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
   }
 ]
 
+function providerIdLower(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): string {
+  return typeof p?.id === 'string' ? p.id.toLowerCase() : ''
+}
+
 export function isQwenProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'qwen') return true
+  if (providerIdLower(p) === 'qwen') return true
   return /dashscope\.aliyuncs\.com|dashscope-intl\.aliyuncs\.com/i.test(p.baseUrl || '')
 }
 
 export function isDeepSeekProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'deepseek') return true
+  if (providerIdLower(p) === 'deepseek') return true
   return /api\.deepseek\.com/i.test(p.baseUrl || '')
 }
 
 export function isDoubaoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'doubao') return true
+  if (providerIdLower(p) === 'doubao') return true
   return /ark\.cn-[a-z-]+\.volces\.com/i.test(p.baseUrl || '')
 }
 
 export function isOpenRouterProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'openrouter') return true
+  if (providerIdLower(p) === 'openrouter') return true
   return /openrouter\.ai/i.test(p.baseUrl || '')
 }
 
 export function isKimiProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'kimi') return true
+  if (providerIdLower(p) === 'kimi') return true
   return /moonshot\.cn/i.test(p.baseUrl || '')
 }
 
 export function isZhipuProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'zhipu') return true
+  if (providerIdLower(p) === 'zhipu') return true
   return /bigmodel\.cn/i.test(p.baseUrl || '')
 }
 

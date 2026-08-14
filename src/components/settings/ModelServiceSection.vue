@@ -94,8 +94,8 @@ watch(
   }
 )
 
-function maskKey(key: string): string {
-  if (!key) return ''
+function maskKey(key: unknown): string {
+  if (typeof key !== 'string' || !key) return ''
   if (key.length <= 8) return '••••••••'
   return key.slice(0, 4) + '••••••••' + key.slice(-4)
 }
@@ -112,8 +112,8 @@ const inputPlaceholder = computed(() => {
   return '输入新密钥以替换原密钥'
 })
 
-function providerKeyDisplay(key: string): string {
-  return key ? maskKey(key) : '未配置'
+function providerKeyDisplay(key: unknown): string {
+  return typeof key === 'string' && key ? maskKey(key) : '未配置'
 }
 
 function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<ProviderConfig['modelConfigs']> {

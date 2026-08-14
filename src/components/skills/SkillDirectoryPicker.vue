@@ -63,13 +63,14 @@ function descriptionFor(path: string): string | undefined {
 
     <div
       v-if="variant === 'grid'"
-      class="mt-2 grid max-h-56 grid-cols-[repeat(2,minmax(0,1fr))] gap-1.5 overflow-y-auto pr-0.5"
+      class="mt-2 grid max-h-56 gap-1.5 overflow-y-auto pr-0.5"
+      style="grid-template-columns: repeat(2, minmax(0, 1fr))"
     >
       <button
         v-for="dir in candidates"
         :key="dir.path"
         type="button"
-        class="flex min-w-0 flex-col gap-1 rounded-xl border border-border bg-card p-2.5 text-left transition-colors hover:border-accent/50 hover:bg-hover cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+        class="flex min-w-0 flex-col gap-1 overflow-hidden rounded-xl border border-border bg-card p-2.5 text-left transition-colors hover:border-accent/50 hover:bg-hover cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
         :title="dir.path"
         :disabled="props.disabled"
         @click="emit('select', dir)"
@@ -80,7 +81,7 @@ function descriptionFor(path: string): string | undefined {
         </span>
         <span
           v-if="descriptionFor(dir.path)"
-          class="block break-words text-[10px] leading-relaxed text-muted"
+          class="block min-w-0 whitespace-normal break-words text-[10px] leading-relaxed text-muted"
         >
           {{ descriptionFor(dir.path) }}
         </span>

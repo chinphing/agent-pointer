@@ -2,8 +2,6 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   getSettings,
-  updateSettings,
-  updateAgentSettings,
   updateDebugSessionSettings,
   updateUserSettings,
   setApiKey,
@@ -80,66 +78,11 @@ const defaultMediaModeLlm = () => ({
 
 const defaultPlatformSettings = (): PlatformSettings => ({
   providers: defaultProviders,
-  activeProviderId: 'qwen',
-  model: 'qwen3.5-plus',
-  temperature: 0.3,
-  maxTokens: 64_000,
-  toolApprovalMode: 'auto',
-  agentMode: 'single',
-  workspaceRoot: '',
-  leadAgentId: 'general',
-  contextCompressionEnabled: true,
-  contextBudgetTokens: 100_000,
-  contextKeepRecentUserTurns: 3,
-  contextSummaryMaxTokens: 1024,
-  maxToolRounds: 200,
-  maxSubAgentToolRounds: 200,
-  maxSubAgentSpawnDepth: 2,
-  rawContentViewEnabled: false,
-  debugDumpLlmPrompts: false,
-  terminalEnvOverrides: {},
-  debugMenusEnabled: false,
-  taskBoardShowChildBoards: false,
-  agentDefaultModels: {},
-  agentTaskBoardHistoryTrim: {},
-  computerHumanLike: true,
-  computerInitialTier: 'intermediate',
-  computerAutoSwitchMonitor: true,
-  computerAnnotatedScreenViewEnabled: false,
-  captchaSliderOffsetPx: 0,
-  agentUiOverrides: {},
-  mediaModelOverrides: {
-    image: { providerId: 'qwen', model: 'qwen3.5-plus' },
-    audio: { providerId: 'qwen', model: 'qwen3-asr-flash' },
-    imageGeneration: {
-      providerId: 'doubao',
-      model: 'doubao-seedream-5-0-lite-260128'
-    },
-    videoGeneration: {
-      providerId: 'doubao',
-      model: 'doubao-seedance-2-0-fast-260128'
-    }
-  },
-  computerTierLlm: {
-    primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
-    intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
-    advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
-  },
-  computerPipelineLlm: {
-    decision: 'qwen3.5-flash',
-    position: 'qwen3.5-plus',
-    verify: 'qwen3.5-flash',
-    decisionProviderId: 'qwen',
-    positionProviderId: 'qwen',
-    verifyProviderId: 'qwen',
-    positionThinkingBudget: 1024,
-    verifyThinkingBudget: 256
-  },
-  agentModeLlm: defaultAgentModeLlm(),
-  mediaModeLlm: defaultMediaModeLlm(),
-  agentPerformanceModes: { general: 'fast', coder: 'fast' },
-  mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' },
-  parallelToolExecutionEnabled: true
+  mediaOss: undefined,
+  datiApiUrl: '',
+  datiAuthcode: '',
+  datiTypeno: '',
+  datiAuthor: ''
 })
 
 function migratePlannerSettingsFields(
@@ -220,14 +163,11 @@ function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxToke
  */
 function retainTerminalEnvOverrides(
   mergedIn?: Record<string, string>,
-  platformIn?: Record<string, string>,
-  prevMerged?: Record<string, string>,
-  prevPlatform?: Record<string, string>
+  prevMerged?: Record<string, string>
 ): Record<string, string> {
-  const incoming = mergedIn ?? platformIn
-  const previous = prevMerged ?? prevPlatform ?? {}
-  if (incoming === undefined) return { ...previous }
-  return { ...incoming }
+  const previous = prevMerged ?? {}
+  if (mergedIn === undefined) return { ...previous }
+  return { ...mergedIn }
 }
 
 const defaultProviders: ProviderConfig[] = [
@@ -347,7 +287,61 @@ export const useSettingsStore = defineStore('settings', () => {
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
   const settings = ref<ModelSettings>({
     ...defaultPlatformSettings(),
+    activeProviderId: 'qwen',
+    model: 'qwen3.5-plus',
+    temperature: 0.3,
+    maxTokens: 64_000,
     hasKey: false,
+    toolApprovalMode: 'auto',
+    agentMode: 'single',
+    workspaceRoot: '',
+    leadAgentId: 'general',
+    contextCompressionEnabled: true,
+    contextBudgetTokens: 100_000,
+    contextKeepRecentUserTurns: 3,
+    contextSummaryMaxTokens: 1024,
+    maxToolRounds: 200,
+    maxSubAgentToolRounds: 200,
+    maxSubAgentSpawnDepth: 2,
+    rawContentViewEnabled: false,
+    debugDumpLlmPrompts: false,
+    terminalEnvOverrides: {},
+    debugMenusEnabled: false,
+    taskBoardShowChildBoards: false,
+    agentDefaultModels: {},
+    agentTaskBoardHistoryTrim: {},
+    computerHumanLike: true,
+    computerInitialTier: 'intermediate',
+    computerAutoSwitchMonitor: true,
+    computerAnnotatedScreenViewEnabled: false,
+    captchaSliderOffsetPx: 0,
+    agentUiOverrides: {},
+    mediaModelOverrides: {
+      image: { providerId: 'qwen', model: 'qwen3.5-plus' },
+      audio: { providerId: 'qwen', model: 'qwen3-asr-flash' },
+      imageGeneration: { providerId: 'doubao', model: 'doubao-seedream-5-0-lite-260128' },
+      videoGeneration: { providerId: 'doubao', model: 'doubao-seedance-2-0-fast-260128' }
+    },
+    computerTierLlm: {
+      primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
+      intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
+      advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
+    },
+    computerPipelineLlm: {
+      decision: 'qwen3.5-flash',
+      position: 'qwen3.5-plus',
+      verify: 'qwen3.5-flash',
+      decisionProviderId: 'qwen',
+      positionProviderId: 'qwen',
+      verifyProviderId: 'qwen',
+      positionThinkingBudget: 1024,
+      verifyThinkingBudget: 256
+    },
+    agentModeLlm: defaultAgentModeLlm(),
+    mediaModeLlm: defaultMediaModeLlm(),
+    agentPerformanceModes: { general: 'fast', coder: 'fast' },
+    mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' },
+    parallelToolExecutionEnabled: true,
     theme: 'system'
   } as ModelSettings)
   const canEditPlatform = ref(false)
@@ -367,31 +361,12 @@ export const useSettingsStore = defineStore('settings', () => {
     const prevMerged = settings.value
     const retainedTerminalEnv = retainTerminalEnvOverrides(
       mergedIn.terminalEnvOverrides,
-      platformIn.terminalEnvOverrides,
-      prevMerged.terminalEnvOverrides,
-      prevPlatform.terminalEnvOverrides
+      prevMerged.terminalEnvOverrides
     )
     platformSettings.value = {
       ...defaultPlatformSettings(),
       ...platformIn,
-      providers: normalizeProviders(platformIn.providers, undefined, globalGenFallbackFrom(mergedIn)),
-      terminalEnvOverrides: { ...retainedTerminalEnv },
-      computerTierLlm: {
-        ...defaultPlatformSettings().computerTierLlm,
-        ...(platformIn.computerTierLlm ?? prevPlatform.computerTierLlm ?? {})
-      },
-      computerPipelineLlm: {
-        ...defaultPlatformSettings().computerPipelineLlm,
-        ...(platformIn.computerPipelineLlm ?? prevPlatform.computerPipelineLlm ?? {})
-      },
-      agentModeLlm: {
-        ...defaultAgentModeLlm(),
-        ...(platformIn.agentModeLlm ?? prevPlatform.agentModeLlm ?? {})
-      },
-      mediaModeLlm: {
-        ...defaultMediaModeLlm(),
-        ...(platformIn.mediaModeLlm ?? prevPlatform.mediaModeLlm ?? {})
-      }
+      providers: normalizeProviders(platformIn.providers, undefined, globalGenFallbackFrom(mergedIn))
     }
     canEditPlatform.value = view.canEditPlatform
     isPlatformAdmin.value = view.isPlatformAdmin
@@ -413,10 +388,11 @@ export const useSettingsStore = defineStore('settings', () => {
         prevMerged.computerAnnotatedScreenViewEnabled,
       agentUiOverrides:
         mergedIn.agentUiOverrides ?? prevMerged.agentUiOverrides,
-      agentModeLlm: platformSettings.value.agentModeLlm,
-      mediaModeLlm: platformSettings.value.mediaModeLlm,
-      computerTierLlm: platformSettings.value.computerTierLlm,
-      computerPipelineLlm: platformSettings.value.computerPipelineLlm
+      agentModeLlm: mergedIn.agentModeLlm ?? prevMerged.agentModeLlm ?? {},
+      mediaModeLlm: mergedIn.mediaModeLlm ?? prevMerged.mediaModeLlm ?? {},
+      computerTierLlm: mergedIn.computerTierLlm ?? prevMerged.computerTierLlm ?? {},
+      computerPipelineLlm:
+        mergedIn.computerPipelineLlm ?? prevMerged.computerPipelineLlm ?? {}
     }
     settings.value = normalizeMergedSettings(nextMerged, activeId)
     applyTheme(settings.value.theme)
@@ -550,8 +526,24 @@ export const useSettingsStore = defineStore('settings', () => {
       theme: (view.user.theme as ThemePreference) ?? 'system'
     }
     userSettings.value = user
+    // 后端 update_user_settings 会把空/掩码的 apiKey 从内存 key 池回填后再落盘，
+    // 返回的 merged.providers 才是最新的 key 状态。若不把 providers 同步回来，
+    // 本地 merged 视图里编辑项的 apiKey 停留在保存前被置空的值，UI 会显示
+    // 「保存后 key 丢了」（后端其实已存好，重启后又恢复）。只刷新 merged 的
+    // provider/模型相关字段，不动 platform map 与 session debug drafts。
+    const mergedIn = view.merged ?? ({} as ModelSettings)
     settings.value = {
       ...settings.value,
+      providers: normalizeProviders(
+        mergedIn.providers,
+        undefined,
+        storeGlobalGenFallbackFrom(mergedIn)
+      ),
+      activeProviderId: mergedIn.activeProviderId ?? settings.value.activeProviderId,
+      model: mergedIn.model ?? settings.value.model,
+      temperature: mergedIn.temperature ?? settings.value.temperature,
+      maxTokens: mergedIn.maxTokens ?? settings.value.maxTokens,
+      hasKey: mergedIn.hasKey ?? settings.value.hasKey,
       theme: user.theme
     }
     applyTheme(user.theme)
@@ -575,10 +567,10 @@ export const useSettingsStore = defineStore('settings', () => {
       model: settings.value.model,
       temperature: settings.value.temperature,
       maxTokens: settings.value.maxTokens,
-      computerTierLlm: platformSettings.value.computerTierLlm ?? {},
-      computerPipelineLlm: platformSettings.value.computerPipelineLlm ?? {},
-      agentModeLlm: platformSettings.value.agentModeLlm ?? {},
-      mediaModeLlm: platformSettings.value.mediaModeLlm ?? {},
+      computerTierLlm: settings.value.computerTierLlm ?? {},
+      computerPipelineLlm: settings.value.computerPipelineLlm ?? {},
+      agentModeLlm: settings.value.agentModeLlm ?? {},
+      mediaModeLlm: settings.value.mediaModeLlm ?? {},
       ...patch
     })
   }
@@ -601,40 +593,29 @@ export const useSettingsStore = defineStore('settings', () => {
     })
   }
 
-  function createSessionSnapshot(patch: Partial<ModelSettings>): ModelSettings {
-    const snapshot: ModelSettings = cloneJson({ ...settings.value, ...patch })
-    snapshot.agentDefaultModels = normalizeAgentDefaultModels(
-      snapshot.agentDefaultModels as Record<string, unknown>,
-      snapshot.activeProviderId
-    )
-    return snapshot
+  async function saveUserPreferencesSnapshot(snapshot: UserSettings) {
+    // 用户板块统一走 update_user_settings：前端只发「当前 user 层 + 板块 patch」
+    // 的 UserSettings 快照，后端直接覆盖落盘，无需 merge。
+    await saveUserSnapshot(snapshot)
   }
 
-  async function saveSessionSnapshot(snapshot: ModelSettings) {
-    const view = await updateSettings(cloneJson(snapshot))
-    applyEffectiveView(view)
-  }
-
-  async function saveSession(patch: Partial<ModelSettings>) {
+  async function saveSession(patch: Partial<UserSettings>) {
     if (patch.theme !== undefined) {
       applyTheme(patch.theme)
       settings.value.theme = patch.theme
     }
     if (Object.keys(patch).length === 0) return
-    await saveSessionSnapshot(createSessionSnapshot(patch))
+    await saveUserPreferencesSnapshot(createUserSnapshot(patch))
   }
 
-  async function saveAgentPreferencesSnapshot(snapshot: ModelSettings) {
-    const view = await updateAgentSettings(cloneJson(snapshot))
-    applyEffectiveView(view)
+  async function saveAgentPreferences(patch: Partial<UserSettings>) {
+    await saveUserPreferencesSnapshot(createUserSnapshot(patch))
   }
 
-  async function saveAgentPreferences(patch: Partial<ModelSettings>) {
-    await saveAgentPreferencesSnapshot(createSessionSnapshot(patch))
-  }
-
-  async function saveModelService(patch: Partial<PlatformSettings>) {
-    await saveDebugSession(createDebugSessionSnapshot(patch))
+  async function saveModelService(patch: Partial<UserSettings>) {
+    // 模型配置统一走 update_user_settings（唯一用户持久化端点）；
+    // providers/activeProviderId/model/temperature/maxTokens 以板块快照落盘。
+    await saveAgentPreferences(patch)
   }
 
   /** Apply agent UI debug/display overrides in memory (chat reflects immediately; persist via save). */
@@ -648,7 +629,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function save(patch: Partial<ModelSettings>) {
+  async function save(patch: Partial<UserSettings>) {
     await saveSession(patch)
   }
 
@@ -799,7 +780,8 @@ export const useSettingsStore = defineStore('settings', () => {
       const pid = (ref.providerId || '').trim() || settings.value.activeProviderId
       next[agentId] = { providerId: pid, model: ref.model.trim() }
     }
-    await save({ agentDefaultModels: next })
+    // 默认模型是用户配置，走持久化端点（agent-settings），重启保留。
+    await saveAgentPreferences({ agentDefaultModels: next })
   }
 
   function getMediaModelOverride(kind: keyof MediaModelOverrides): AgentModelRef | undefined {
@@ -875,10 +857,7 @@ export const useSettingsStore = defineStore('settings', () => {
     save,
     createUserSnapshot,
     saveUserSnapshot,
-    createSessionSnapshot,
-    saveSessionSnapshot,
     saveSession,
-    saveAgentPreferencesSnapshot,
     saveAgentPreferences,
     createDebugSessionSnapshot,
     saveDebugSession,

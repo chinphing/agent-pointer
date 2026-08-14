@@ -1023,7 +1023,8 @@ mod tests {
                 enable_thinking: None,
                 thinking_budget: None,
                 reasoning_effort: None,
-            extra_body: None,
+                extra_body: None,
+                source: None,
             }],
             ..Default::default()
         };
@@ -1046,7 +1047,8 @@ mod tests {
                 enable_thinking: None,
                 thinking_budget: None,
                 reasoning_effort: None,
-            extra_body: None,
+                extra_body: None,
+                source: None,
             }],
             active_provider_id: "deepseek".into(),
             ..Default::default()
@@ -1072,7 +1074,8 @@ mod tests {
                 enable_thinking: None,
                 thinking_budget: None,
                 reasoning_effort: None,
-            extra_body: None,
+                extra_body: None,
+                source: None,
             }],
             web_search_model: "qwen3.6-plus".into(),
             agent_default_models: [(

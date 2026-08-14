@@ -8,7 +8,7 @@
 //! Existing OS environment variables always override file values.
 
 use crate::dotenv::parse_dotenv_bytes;
-use crate::models::{PlatformSettings, ProviderConfig};
+use crate::models::{PlatformSettings, ProviderConfig, UserSettings};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -606,15 +606,15 @@ fn resolve_license_key(license: &LicenseSection, base_dir: &Path) -> Option<Stri
     }
 }
 
-/// If `platform.model` is missing from the active provider's `models` list,
+/// If the active model is missing from the active provider's `models` list,
 /// switch to the first configured model (standalone TOML often replaces the
 /// built-in catalog with a single local/custom id).
-fn sync_active_model_to_provider_list(platform: &mut PlatformSettings) {
-    let pid = platform.active_provider_id.trim().to_string();
+fn sync_active_model_to_provider_list(user: &mut UserSettings, providers: &[ProviderConfig]) {
+    let pid = user.active_provider_id.trim().to_string();
     if pid.is_empty() {
         return;
     }
-    let Some(provider) = platform.providers.iter().find(|p| p.id == pid) else {
+    let Some(provider) = providers.iter().find(|p| p.id == pid) else {
         return;
     };
     let first = provider
@@ -626,18 +626,18 @@ fn sync_active_model_to_provider_list(platform: &mut PlatformSettings) {
     let Some(first) = first else {
         return;
     };
-    let current = platform.model.trim();
+    let current = user.model.trim();
     if provider.models.iter().any(|m| m.trim() == current) {
         return;
     }
     log::info!(
         "server_config: active model '{current}' not in provider {pid} models; using '{first}'"
     );
-    platform.model = first;
+    user.model = first;
 }
 
 fn platform_provider_model_usable(
-    platform: &PlatformSettings,
+    providers: &[ProviderConfig],
     provider_id: &str,
     model: &str,
 ) -> bool {
@@ -646,7 +646,7 @@ fn platform_provider_model_usable(
     if pid.is_empty() || model.is_empty() {
         return false;
     }
-    let Some(provider) = platform.providers.iter().find(|p| p.id == pid) else {
+    let Some(provider) = providers.iter().find(|p| p.id == pid) else {
         return false;
     };
     if provider.api_key.trim().is_empty() {
@@ -660,26 +660,26 @@ fn platform_provider_model_usable(
 
 /// Rewrite `agentModeLlm` / `mediaModeLlm` rows that point at missing keys or
 /// catalog models so chat uses the standalone-configured active model.
-fn sync_mode_llm_maps_to_active(platform: &mut PlatformSettings) {
-    let active_pid = platform.active_provider_id.trim().to_string();
-    let active_model = platform.model.trim().to_string();
+fn sync_mode_llm_maps_to_active(user: &mut UserSettings, providers: &[ProviderConfig]) {
+    let active_pid = user.active_provider_id.trim().to_string();
+    let active_model = user.model.trim().to_string();
     if active_pid.is_empty() || active_model.is_empty() {
         return;
     }
-    if !platform_provider_model_usable(platform, &active_pid, &active_model) {
+    if !platform_provider_model_usable(providers, &active_pid, &active_model) {
         return;
     }
 
     let mut agent_rewrites: Vec<(String, String)> = Vec::new();
-    for (outer, modes) in &platform.agent_mode_llm {
+    for (outer, modes) in &user.agent_mode_llm {
         for (mode, cfg) in modes {
-            if !platform_provider_model_usable(platform, &cfg.provider_id, &cfg.model) {
+            if !platform_provider_model_usable(providers, &cfg.provider_id, &cfg.model) {
                 agent_rewrites.push((outer.clone(), mode.clone()));
             }
         }
     }
     for (outer, mode) in agent_rewrites {
-        if let Some(cfg) = platform
+        if let Some(cfg) = user
             .agent_mode_llm
             .get_mut(&outer)
             .and_then(|m| m.get_mut(&mode))
@@ -696,15 +696,15 @@ fn sync_mode_llm_maps_to_active(platform: &mut PlatformSettings) {
     }
 
     let mut media_rewrites: Vec<(String, String)> = Vec::new();
-    for (outer, modes) in &platform.media_mode_llm {
+    for (outer, modes) in &user.media_mode_llm {
         for (mode, cfg) in modes {
-            if !platform_provider_model_usable(platform, &cfg.provider_id, &cfg.model) {
+            if !platform_provider_model_usable(providers, &cfg.provider_id, &cfg.model) {
                 media_rewrites.push((outer.clone(), mode.clone()));
             }
         }
     }
     for (outer, mode) in media_rewrites {
-        if let Some(cfg) = platform
+        if let Some(cfg) = user
             .media_mode_llm
             .get_mut(&outer)
             .and_then(|m| m.get_mut(&mode))
@@ -721,15 +721,19 @@ fn sync_mode_llm_maps_to_active(platform: &mut PlatformSettings) {
     }
 }
 
-/// Apply `[llm]` provider keys from pointer-server.toml into in-memory platform settings.
-pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings) {
+/// Apply `[llm]` provider keys from pointer-server.toml into in-memory providers
+/// and the persisted user layer (active provider / model selection).
+pub fn apply_llm_providers_from_config(
+    platform: &mut PlatformSettings,
+    user: &mut UserSettings,
+) {
     let Some(llm) = PARSED_LLM.get().and_then(|o| o.as_ref()) else {
         return;
     };
-    apply_llm_section(platform, llm);
+    apply_llm_section(platform, user, llm);
 }
 
-fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
+fn apply_llm_section(platform: &mut PlatformSettings, user: &mut UserSettings, llm: &LlmSection) {
     if llm.providers.is_empty() {
         return;
     }
@@ -738,7 +742,7 @@ fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| llm.active_provider.trim().to_string());
     if !active.is_empty() {
-        platform.active_provider_id = active;
+        user.active_provider_id = active.clone();
     }
     for (provider_id, cfg) in &llm.providers {
         let pid = provider_id.trim();
@@ -781,14 +785,15 @@ fn apply_llm_section(platform: &mut PlatformSettings, llm: &LlmSection) {
                 thinking_budget: None,
                 reasoning_effort: None,
                 extra_body: None,
+                source: Some("platform".into()),
             };
             apply_llm_provider_extra_body(&mut provider, cfg);
             platform.providers.push(provider);
             log::info!("server_config: added llm provider {pid} from config");
         }
     }
-    sync_active_model_to_provider_list(platform);
-    sync_mode_llm_maps_to_active(platform);
+    sync_active_model_to_provider_list(user, &platform.providers);
+    sync_mode_llm_maps_to_active(user, &platform.providers);
 }
 
 /// Whether SSE initial padding is enabled (flush proxy buffers).
@@ -1080,8 +1085,9 @@ api_base = "https://legacy.example.com"
         std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
 
         let mut platform = PlatformSettings::default();
-        platform.model = "qwen3.5-plus".into();
-        platform.active_provider_id = "qwen".into();
+        let mut user = UserSettings::default();
+        user.model = "qwen3.5-plus".into();
+        user.active_provider_id = "qwen".into();
 
         let mut llm = LlmSection::default();
         llm.active_provider = "xiaohe".into();
@@ -1096,10 +1102,10 @@ api_base = "https://legacy.example.com"
             },
         );
 
-        apply_llm_section(&mut platform, &llm);
+        apply_llm_section(&mut platform, &mut user, &llm);
 
-        assert_eq!(platform.active_provider_id, "xiaohe");
-        assert_eq!(platform.model, "qwen3.6-27b");
+        assert_eq!(user.active_provider_id, "xiaohe");
+        assert_eq!(user.model, "qwen3.6-27b");
         let p = platform
             .providers
             .iter()
@@ -1115,8 +1121,9 @@ api_base = "https://legacy.example.com"
         std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
 
         let mut platform = PlatformSettings::default();
-        platform.model = "qwen3.5-turbo".into();
-        platform.active_provider_id = "qwen".into();
+        let mut user = UserSettings::default();
+        user.model = "qwen3.5-turbo".into();
+        user.active_provider_id = "qwen".into();
 
         let mut llm = LlmSection::default();
         llm.active_provider = "qwen".into();
@@ -1131,10 +1138,10 @@ api_base = "https://legacy.example.com"
             },
         );
 
-        apply_llm_section(&mut platform, &llm);
+        apply_llm_section(&mut platform, &mut user, &llm);
 
-        assert_eq!(platform.active_provider_id, "qwen");
-        assert_eq!(platform.model, "qwen3.5-turbo");
+        assert_eq!(user.active_provider_id, "qwen");
+        assert_eq!(user.model, "qwen3.5-turbo");
     }
 
     #[test]
@@ -1143,6 +1150,7 @@ api_base = "https://legacy.example.com"
         std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
 
         let mut platform = PlatformSettings::default();
+        let mut user = UserSettings::default();
         let mut llm = LlmSection::default();
         llm.active_provider = "local".into();
         let mut model_extra = HashMap::new();
@@ -1165,7 +1173,7 @@ api_base = "https://legacy.example.com"
             },
         );
 
-        apply_llm_section(&mut platform, &llm);
+        apply_llm_section(&mut platform, &mut user, &llm);
 
         let p = platform
             .providers

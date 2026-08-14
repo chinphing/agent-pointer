@@ -6,7 +6,7 @@ use pointer_core::dispatcher::{
 };
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView, ModelSettings,
+    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView,
     PlatformSettings, Project, ProjectCreationResult, ProjectCursor, ProjectPage, SendChatPayload,
     SkillDef, SkillImportResult, ToolDef, UserSettings,
 };
@@ -274,13 +274,11 @@ pub fn get_settings(state: State<'_, Arc<AppState>>) -> Result<EffectiveSettings
 #[tauri::command]
 pub fn update_user_settings(
     state: State<'_, Arc<AppState>>,
-    mut user: UserSettings,
+    user: UserSettings,
 ) -> Result<EffectiveSettingsView, String> {
-    if user.theme.trim().is_empty() {
-        user.theme = "system".into();
-    }
-    state.save_user_settings(&user).map_err(|e| e.to_string())?;
-    Ok(state.effective_settings_view())
+    state
+        .update_user_settings(user)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -307,34 +305,7 @@ pub fn update_debug_session_settings(
             log::warn!("debug_session_settings: desktop update failed: {error:#}");
             error.to_string()
         })?;
-    Ok(DebugSessionSettings::from(view.platform))
-}
-
-/// Back-compat: session preferences in memory only; agent section uses update_agent_settings.
-#[tauri::command]
-pub fn update_settings(
-    state: State<'_, Arc<AppState>>,
-    dispatcher: State<'_, Arc<RunDispatcher>>,
-    settings: ModelSettings,
-) -> Result<EffectiveSettingsView, String> {
-    state
-        .apply_session_platform_preferences(&settings)
-        .map_err(|e| e.to_string())?;
-    state.sync_dispatcher_concurrency(&dispatcher);
-    Ok(state.effective_settings_view())
-}
-
-#[tauri::command]
-pub fn update_agent_settings(
-    state: State<'_, Arc<AppState>>,
-    dispatcher: State<'_, Arc<RunDispatcher>>,
-    settings: ModelSettings,
-) -> Result<EffectiveSettingsView, String> {
-    let view = state
-        .update_agent_settings(&settings)
-        .map_err(|e| e.to_string())?;
-    state.sync_dispatcher_concurrency(&dispatcher);
-    Ok(view)
+    Ok(DebugSessionSettings::from(&view.merged))
 }
 
 #[tauri::command]

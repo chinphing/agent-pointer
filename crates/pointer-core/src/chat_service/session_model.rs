@@ -258,7 +258,8 @@ mod tests {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
-                extra_body: None,
+                    extra_body: None,
+                    source: None,
                 },
                 ProviderConfig {
                     id: "openai".into(),
@@ -273,7 +274,8 @@ mod tests {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
-                extra_body: None,
+                    extra_body: None,
+                    source: None,
                 },
             ],
             active_provider_id: "qwen".into(),
@@ -373,7 +375,8 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
-        extra_body: None,
+            extra_body: None,
+            source: None,
         });
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "coder".into();

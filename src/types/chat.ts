@@ -57,7 +57,7 @@ export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
 export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label: string }[] = [
   { value: 'primary', label: '快速' },
   { value: 'intermediate', label: '标准' },
-  { value: 'advanced', label: '专家' }
+  { value: 'advanced', label: '高级' }
 ]
 
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
@@ -476,7 +476,7 @@ export type PerformanceModeKey = PerformanceMode
 export const PERFORMANCE_MODE_OPTIONS: { value: PerformanceMode; label: string }[] = [
   { value: 'fast', label: '快速' },
   { value: 'standard', label: '标准' },
-  { value: 'expert', label: '专家' }
+  { value: 'expert', label: '高级' }
 ]
 
 export interface MediaUnderstandingModes {
@@ -522,6 +522,12 @@ export interface ProviderConfig {
    * Per-model `extraBody` overlays; flattened to request root on wire.
    */
   extraBody?: Record<string, unknown>
+  /**
+   * Runtime provenance: `user` (persisted user layer) or `platform`
+   * (injected by server.toml / OAuth / login). Computed by the backend
+   * merge; not persisted on disk. Used to filter what gets saved.
+   */
+  source?: 'user' | 'platform'
 }
 
 export interface AgentModelRef {
@@ -549,6 +555,50 @@ export interface UserSettings {
   mediaOss?: MediaOssConfig
   /** Collapse intermediate process entries by default; only show final output for completed turns. */
   collapseProcessByDefault?: boolean
+  // --- Model-service config (user-owned; persisted in user_settings.json) ---
+  providers?: ProviderConfig[]
+  activeProviderId?: string
+  model?: string
+  temperature?: number
+  maxTokens?: number
+  toolApprovalMode?: 'auto' | 'manual'
+  agentMode?: AgentMode
+  workspaceRoot?: string
+  leadAgentId?: string
+  contextCompressionEnabled?: boolean
+  contextBudgetTokens?: number
+  contextKeepRecentUserTurns?: number
+  contextSummaryMaxTokens?: number
+  maxToolRounds?: number
+  maxSubAgentToolRounds?: number
+  maxSubAgentSpawnDepth?: number
+  rawContentViewEnabled?: boolean
+  debugDumpLlmPrompts?: boolean
+  terminalEnvOverrides?: Record<string, string>
+  debugMenusEnabled?: boolean
+  taskBoardShowChildBoards?: boolean
+  userDynamicInjectEnabled?: boolean
+  agentDefaultModels?: Record<string, AgentModelRef>
+  agentTaskBoardHistoryTrim?: Record<string, boolean>
+  computerHumanLike?: boolean
+  computerInitialTier?: ComputerInitialTier
+  computerAutoSwitchMonitor?: boolean
+  computerAnnotatedScreenViewEnabled?: boolean
+  captchaSliderOffsetPx?: number
+  agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
+  webSearchModel?: string
+  mediaModelOverrides?: MediaModelOverrides
+  agentPerformanceModes?: AgentPerformanceModes
+  mediaUnderstandingModes?: MediaUnderstandingModes
+  computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+  computerPipelineLlm?: ComputerPipelineLlmSettings
+  agentModeLlm?: AgentModeLlmMap
+  mediaModeLlm?: MediaModeLlmMap
+  parallelToolExecutionEnabled?: boolean
+  maxParallelToolCalls?: number | null
+  maxParallelSubAgents?: number | null
+  maxParallelMediaJobs?: number | null
+  maxConcurrentRuns?: number
 }
 
 /** Aliyun OSS — large video temp upload for native DashScope `video_url`. */
@@ -600,65 +650,17 @@ export interface DebugSessionSettings {
   mediaModeLlm: MediaModeLlmMap
 }
 
-/** Platform/runtime fields (in-memory; admin-editable in desktop app). */
+/** Platform/runtime fields (in-memory only; never persisted). Only session-scoped /
+ *  sensitive config lives here: runtime providers (with injected keys), OAuth media
+ *  OSS credentials, and server-side DaTi CAPTCHA settings. All user-editable
+ *  preferences (incl. debug) live in `UserSettings` / merged `ModelSettings`. */
 export interface PlatformSettings {
   providers: ProviderConfig[]
-  activeProviderId: string
-  model: string
-  temperature: number
-  maxTokens: number
-  toolApprovalMode: 'auto' | 'manual'
-  agentMode: AgentMode
-  workspaceRoot: string
-  leadAgentId: string
-  contextCompressionEnabled: boolean
-  contextBudgetTokens: number
-  contextKeepRecentUserTurns: number
-  contextSummaryMaxTokens: number
-  maxToolRounds: number
-  maxSubAgentToolRounds?: number
-  maxSubAgentSpawnDepth?: number
-  rawContentViewEnabled: boolean
-  /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
-  debugDumpLlmPrompts?: boolean
-  /**
-   * Debug: env KEY→VALUE overlays for `terminal` child processes.
-   * Overrides process / `.env` / session values; `PATH` is prepended like `.env`.
-   * Applied only while debug menus are enabled.
-   */
-  terminalEnvOverrides?: Record<string, string>
-  /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
-  debugMenusEnabled?: boolean
-  /** Debug: show child task boards under parent board panel. */
-  taskBoardShowChildBoards?: boolean
-  agentDefaultModels: Record<string, AgentModelRef>
-  agentTaskBoardHistoryTrim?: Record<string, boolean>
-  computerHumanLike?: boolean
-  computerInitialTier?: ComputerInitialTier
-  /** Auto-select primary monitor and follow launch_app window; when false, manual spatial picker */
-  computerAutoSwitchMonitor?: boolean
-  /** Show annotated screenshot preview on Computer Use assistant messages */
-  computerAnnotatedScreenViewEnabled?: boolean
-  /** Pixel offset added to final slider CAPTCHA drag point */
-  captchaSliderOffsetPx?: number
-  agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
-  computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
-  /** Debug: per-phase LLM for computer host verify pipeline. */
-  computerPipelineLlm?: ComputerPipelineLlmSettings
-  /** Debug: per-mode LLM for general / coder agents. */
-  agentModeLlm?: AgentModeLlmMap
-  /** Debug: per-mode LLM for image / audio / video understanding. */
-  mediaModeLlm?: MediaModeLlmMap
-  mediaModelOverrides?: MediaModelOverrides
-  agentPerformanceModes?: AgentPerformanceModes
-  mediaUnderstandingModes?: MediaUnderstandingModes
-  /** When false, tool calls in one assistant turn run serially. */
-  parallelToolExecutionEnabled?: boolean
-  maxParallelToolCalls?: number | null
-  maxParallelSubAgents?: number | null
-  maxParallelMediaJobs?: number | null
-  /** Max concurrent dispatcher runs (chat, webhook, cron, …). Default 4. */
-  maxConcurrentRuns?: number
+  mediaOss?: MediaOssConfig
+  datiApiUrl?: string
+  datiAuthcode?: string
+  datiTypeno?: string
+  datiAuthor?: string
 }
 
 export interface EffectiveSettingsView {
@@ -727,6 +729,8 @@ export interface ModelSettings {
   mediaUnderstandingModes?: MediaUnderstandingModes
   agentModeLlm?: AgentModeLlmMap
   mediaModeLlm?: MediaModeLlmMap
+  computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+  computerPipelineLlm?: ComputerPipelineLlmSettings
   mediaOss?: MediaOssConfig
   parallelToolExecutionEnabled?: boolean
   maxParallelToolCalls?: number | null

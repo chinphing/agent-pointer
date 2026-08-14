@@ -140,7 +140,7 @@ pub struct ComputerState {
 }
 
 impl ComputerState {
-    /// Merge agent manifest tier config with in-memory platform settings.
+    /// Merge agent manifest tier config with persisted user settings.
     fn effective_tier_config(&self) -> ComputerTierConfig {
         let mut cfg = self.tier_config.clone();
         if let Some(pc) = &self.platform_config {
@@ -148,8 +148,8 @@ impl ComputerState {
             let user = crate::storage::load_user_settings().unwrap_or_default();
             let settings = crate::models::merge_user_platform(&user, &platform);
             cfg.apply_app_settings(&settings);
-            cfg.apply_platform_tier_llm(&platform.computer_tier_llm);
-            cfg.apply_platform_pipeline_llm(&platform.computer_pipeline_llm);
+            cfg.apply_platform_tier_llm(&settings.computer_tier_llm);
+            cfg.apply_platform_pipeline_llm(&settings.computer_pipeline_llm);
         }
         cfg
     }

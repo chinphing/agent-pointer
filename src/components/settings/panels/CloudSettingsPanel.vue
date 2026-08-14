@@ -444,7 +444,7 @@ onMounted(() => {
     </div>
 
     <div v-if="!loggedIn" class="rounded-xl border border-border panel p-5 space-y-3">
-      <p class="text-sm text-muted">登录平台账户后可管理云主机</p>
+      <p class="text-sm text-muted">登录账户后可管理云主机</p>
       <button
         type="button"
         class="h-8 px-4 rounded-lg bg-accent text-sm font-medium text-white hover:opacity-95 cursor-pointer"

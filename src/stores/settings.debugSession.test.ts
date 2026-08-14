@@ -8,8 +8,6 @@ const updateDebugSessionSettings = vi.hoisted(() => vi.fn())
 vi.mock('../lib/theme', () => ({ applyTheme: vi.fn() }))
 vi.mock('../lib/api', () => ({
   getSettings: vi.fn(),
-  updateSettings: vi.fn(),
-  updateAgentSettings: vi.fn(),
   updateUserSettings,
   updatePlatformSettings: vi.fn(),
   updateDebugSessionSettings,
@@ -40,7 +38,6 @@ describe('settings debug-session save', () => {
       isPlatformAdmin: true
     }
     store.settings.model = 'qwen3.7-plus'
-    store.platformSettings.model = 'qwen3.7-plus'
     const debugSnapshot = store.createDebugSessionSnapshot()
 
     updateUserSettings.mockResolvedValue(oldView)
@@ -55,6 +52,31 @@ describe('settings debug-session save', () => {
     )
   })
 
+  it('persists model service config through the user-settings endpoint', async () => {
+    const store = useSettingsStore()
+    const view: EffectiveSettingsView = {
+      user: jsonClone(store.userSettings),
+      platform: jsonClone(store.platformSettings),
+      merged: jsonClone(store.settings),
+      canEditPlatform: true,
+      isPlatformAdmin: true
+    }
+    updateUserSettings.mockResolvedValue(view)
+
+    await store.saveModelService({
+      providers: store.settings.providers,
+      activeProviderId: 'qwen',
+      model: 'qwen3.5-plus',
+      temperature: 0.7,
+      maxTokens: 2048
+    })
+
+    expect(updateUserSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ activeProviderId: 'qwen', model: 'qwen3.5-plus' })
+    )
+    expect(updateDebugSessionSettings).not.toHaveBeenCalled()
+  })
+
   it('recomputes hasKey from the applied active provider', async () => {
     const store = useSettingsStore()
     const snapshot = store.createDebugSessionSnapshot()
@@ -63,6 +85,42 @@ describe('settings debug-session save', () => {
 
     await store.saveDebugSession(snapshot)
 
+    expect(store.settings.hasKey).toBe(true)
+  })
+
+  it('syncs backfilled provider keys from the saved effective view', async () => {
+    const store = useSettingsStore()
+    // 模拟编辑保存：本地 merged 视图里该 provider 的 key 已被置空。
+    const target = store.settings.providers[0].id
+    store.settings.providers = store.settings.providers.map(p => ({
+      ...p,
+      apiKey: p.id === target ? '' : p.apiKey
+    }))
+    // 后端 update_user_settings 从内存 key 池回填后返回 merged 视图（明文 key）。
+    const view: EffectiveSettingsView = {
+      user: jsonClone(store.userSettings),
+      platform: jsonClone(store.platformSettings),
+      merged: jsonClone({
+        ...store.settings,
+        hasKey: true,
+        providers: store.settings.providers.map(p => ({
+          ...p,
+          apiKey: p.id === target ? 'sk-backfilled' : p.apiKey
+        }))
+      }),
+      canEditPlatform: true,
+      isPlatformAdmin: true
+    }
+    updateUserSettings.mockResolvedValue(view)
+
+    await store.saveModelService({
+      providers: store.settings.providers,
+      activeProviderId: store.settings.activeProviderId,
+      model: store.settings.model
+    })
+
+    const synced = store.settings.providers.find(p => p.id === target)
+    expect(synced?.apiKey).toBe('sk-backfilled')
     expect(store.settings.hasKey).toBe(true)
   })
 

@@ -296,7 +296,7 @@ pub(super) async fn run_chat_inner(
     );
     if api_key.is_empty() {
         return Err(anyhow!(
-            "尚未配置 API Key（{}），请先登录平台账户或在设置中配置密钥",
+            "尚未配置 API Key（{}），请先登录账户或在设置中配置密钥",
             settings.active_provider_id
         ));
     }

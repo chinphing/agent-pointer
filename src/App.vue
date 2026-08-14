@@ -18,7 +18,7 @@ import { isTauriRuntime } from './lib/runtime'
 const isDesktopApp = isTauriRuntime()
 
 /** Lazy: keep first paint free of settings / modal / skills graphs. */
-const SettingsDialog = defineAsyncComponent(
+const SettingsView = defineAsyncComponent(
   () => import('./components/settings/SettingsDialog.vue')
 )
 const ChannelPairingModal = defineAsyncComponent(
@@ -27,7 +27,6 @@ const ChannelPairingModal = defineAsyncComponent(
 const TerminalInputModal = defineAsyncComponent(
   () => import('./components/chat/TerminalInputModal.vue')
 )
-const SkillPicker = defineAsyncComponent(() => import('./components/skills/SkillPicker.vue'))
 const ExternalSkillsImportModal = defineAsyncComponent(
   () => import('./components/skills/ExternalSkillsImportModal.vue')
 )
@@ -39,8 +38,7 @@ const settings = useSettingsStore()
 const skills = useSkillsStore()
 
 const showSettings = ref(false)
-const showSkills = ref(false)
-const settingsInitialSection = ref('assistant')
+const settingsInitialSection = ref('account')
 const {
   open: pairingModalOpen,
   pendingItem: pairingModalPending,
@@ -103,12 +101,7 @@ onMounted(() => {
   }
 })
 
-function onOpenSkillsFromSettings() {
-  showSettings.value = false
-  showSkills.value = true
-}
-
-function openSettings(section = 'assistant') {
+function openSettings(section = 'account') {
   settingsInitialSection.value = section
   showSettings.value = true
 }
@@ -118,10 +111,6 @@ function openAutomation() {
 }
 
 watch(showSettings, open => {
-  if (open && isCompact.value) expandComputerCompact()
-})
-
-watch(showSkills, open => {
   if (open && isCompact.value) expandComputerCompact()
 })
 </script>
@@ -141,23 +130,20 @@ watch(showSkills, open => {
     @stop="stopComputerCompact"
   />
     <template v-else>
+      <SettingsView
+        v-if="showSettings"
+        :initial-section="settingsInitialSection"
+        @close="showSettings = false"
+      />
       <AppShell
+        v-else
         @open-settings="openSettings"
         @open-automation="openAutomation"
-        @open-skills="showSkills = true"
       >
         <ChatView />
       </AppShell>
     </template>
   </div>
-
-  <SettingsDialog
-    v-if="showSettings"
-    :initial-section="settingsInitialSection"
-    @close="showSettings = false"
-    @open-skills="onOpenSkillsFromSettings"
-  />
-  <SkillPicker v-if="showSkills" @close="showSkills = false" />
 
   <ChannelPairingModal
     v-model:open="pairingModalOpen"

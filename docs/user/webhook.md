@@ -10,12 +10,12 @@
 **LLM 凭证（无需在 curl 里登录）：**
 
 - **云主机**：需先从桌面 **打开云主机** 完成一次 OAuth（凭证保存在 server 上，供 Webhook / 定时任务复用）。之后 curl 只需 Webhook Token，不必带浏览器 cookie。
-- **自部署 server**：在 **设置** 中配置 DashScope API Key 即可，无需平台账户登录。
+- **自部署 server**：在 **设置** 中配置 DashScope API Key 即可，无需账户登录。
 - Webhook Bearer Token 只负责「允许触发」，不负责 LLM 鉴权。
 
 **Token 保存说明：**
 
-- 列表中显示尾号（如 `****1d34`），点击即可复制完整 Token（需已登录平台账户）。
+- 列表中显示尾号（如 `****1d34`），点击即可复制完整 Token（需已登录账户）。
 - 添加来源时 Token 也会自动复制到剪贴板。
 - 若遗失 Token：删除该来源后重新添加（Token 仅可设置一次，不可覆盖）。
 
@@ -256,7 +256,7 @@ print(result["text"])
 |------|------|
 | 401 | 检查 Token 与来源 id 是否与自动化面板一致 |
 | 请先登录 / 需要 LLM 凭证 | 云实例：桌面「打开云主机」完成一次登录；自部署：设置中配置 API Key |
-| Token 不可用 | 确认已登录平台账户；删除来源后重新添加 |
+| Token 不可用 | 确认已登录账户；删除来源后重新添加 |
 | 504 | 增大 `TIMEOUT_SECONDS`（最大 600），或改用异步（`blocking: false`） |
 | 附件找不到 | 先 upload，触发时使用返回的 `storageRelPath`，并保持同一 `conversationId` |
 | 413 | 单文件超过 30 MiB，需拆分或改用其他传递方式 |

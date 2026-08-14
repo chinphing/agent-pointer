@@ -10,7 +10,7 @@
    - 已在已加载 shells 中 → 直接选中；
    - 不在第一页 → `loadConversationMeta` 拉取 meta、注入 shell 再选中；
    - 不存在 / 越权（ListScope）→ 清除本地键，回退到当前列表最新一条。
-3. **删除与登出**：删除该会话或平台账户退出登录时清除本地键（删除后若切到另一会话，会由选中逻辑重新写入）。
+3. **删除与登出**：删除该会话或账户退出登录时清除本地键（删除后若切到另一会话，会由选中逻辑重新写入）。
 4. **跨入口**：Tauri 命令 `load_conversation_meta` 与 Web
    `GET /api/conversations/:id/meta` 均按侧栏 `ListScope` 过滤。
 

@@ -209,7 +209,7 @@ export function formatApiError(e: unknown): string {
     return loginRequiredMessage(false, 'cloud')
   }
   if (msg.includes('Invalid token') || msg.includes('invalid_refresh_token')) {
-    return '平台登录已失效，请在「平台账户」重新登录后再试'
+    return '平台登录已失效，请在「账户」重新登录后再试'
   }
   if (msg.includes('Plugin not found') || msg.includes('not allowed')) {
     return '当前页面无法调用桌面接口，请从主窗口打开云主机或使用浏览器直接访问'

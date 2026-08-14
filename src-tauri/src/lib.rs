@@ -484,8 +484,6 @@ pub fn run() {
             commands::submit_terminal_input,
             commands::dismiss_terminal_input,
             commands::get_settings,
-            commands::update_settings,
-            commands::update_agent_settings,
             commands::update_user_settings,
             commands::update_platform_settings,
             commands::update_debug_session_settings,

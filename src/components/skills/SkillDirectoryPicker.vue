@@ -63,22 +63,27 @@ function descriptionFor(path: string): string | undefined {
 
     <div
       v-if="variant === 'grid'"
-      class="mt-2 grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto pr-0.5"
+      class="mt-2 grid max-h-56 gap-1.5 overflow-y-auto pr-0.5"
+      style="grid-template-columns: repeat(2, minmax(0, 1fr))"
     >
       <button
         v-for="dir in candidates"
         :key="dir.path"
         type="button"
-        class="flex min-w-0 flex-col gap-1 rounded-xl border border-border bg-card p-2.5 text-left transition-colors hover:border-accent/50 hover:bg-hover cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+        class="flex min-w-0 flex-col gap-1 overflow-hidden rounded-xl border border-border bg-card p-2.5 text-left transition-colors hover:border-accent/50 hover:bg-hover cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
         :title="dir.path"
         :disabled="props.disabled"
         @click="emit('select', dir)"
       >
-        <span class="flex items-center gap-1.5 text-xs font-medium text-foreground">
+        <span class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground">
           <FolderOpen class="h-3.5 w-3.5 shrink-0 text-accent" />
-          <span class="truncate">{{ dir.name }}</span>
+          <span class="min-w-0 truncate">{{ dir.name }}</span>
         </span>
-        <span v-if="descriptionFor(dir.path)" class="truncate text-[10px] text-muted">
+        <span
+          v-if="descriptionFor(dir.path)"
+          :title="descriptionFor(dir.path)"
+          class="block min-w-0 truncate text-[10px] leading-relaxed text-muted"
+        >
           {{ descriptionFor(dir.path) }}
         </span>
       </button>

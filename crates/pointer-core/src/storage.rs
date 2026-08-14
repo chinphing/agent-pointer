@@ -1,9 +1,9 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    ensure_provider_model_capability_defaults, filter_openrouter_providers, merge_user_platform,
+    ensure_provider_model_capability_defaults, merge_user_platform,
     AgentModelRef, ChatMessage, Conversation, ConversationMeta, ConversationSearchHit,
-    ModelRuntimeOverrides, ModelSettings, PersistedLocalPlatformSettings, PlatformSettings,
-    Project, ProjectCreationResult, ProjectCursor, ProjectPage, ProviderConfig, UserSettings,
+    ModelRuntimeOverrides, ModelSettings, PlatformSettings, Project, ProjectCreationResult,
+    ProjectCursor, ProjectPage, ProviderConfig, UserSettings,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,19 @@ pub const APP_DATA_SUBDIR: &str = "PointerApp";
 pub const APP_DATA_SUBDIR_DEV: &str = "PointerAppDev";
 
 static RESOLVED_APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+#[cfg(test)]
+static TEST_APP_DATA_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Test hook: force `data_dir()` to a temp dir for the current process.
+/// Must be called before the first `data_dir()` resolution in the process.
+#[cfg(test)]
+pub fn set_test_app_data_dir(dir: PathBuf) {
+    *TEST_APP_DATA_DIR.lock().unwrap() = Some(dir);
+    // Clear the once-cell so data_dir() re-resolves to the test dir.
+    // OnceLock has no public reset; a private raw pointer swap is unsafe, so
+    // instead we re-check TEST_APP_DATA_DIR first inside data_dir().
+}
 
 static LEGACY_MIGRATION_ONCE: Once = Once::new();
 
@@ -60,6 +73,12 @@ fn compute_app_data_dir() -> Result<PathBuf> {
 }
 
 fn data_dir() -> Result<PathBuf> {
+    #[cfg(test)]
+    {
+        if let Some(dir) = TEST_APP_DATA_DIR.lock().unwrap().clone() {
+            return Ok(dir);
+        }
+    }
     if let Some(dir) = RESOLVED_APP_DATA_DIR.get() {
         return Ok(dir.clone());
     }
@@ -121,9 +140,6 @@ fn settings_migrated_path() -> Result<PathBuf> {
 }
 fn user_settings_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("user_settings.json"))
-}
-fn local_platform_settings_path() -> Result<PathBuf> {
-    Ok(data_dir()?.join("local_platform_settings.json"))
 }
 fn auth_dat_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("auth.dat"))
@@ -345,20 +361,11 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
     log::info!("storage: migrating legacy settings.json → user_settings.json");
     let raw = fs::read_to_string(&legacy)?;
     let stored: StoredSettings = serde_json::from_str(&raw).unwrap_or_default();
-    let theme = if stored.theme.is_empty() {
-        default_theme()
-    } else {
-        stored.theme.clone()
-    };
-    let user = UserSettings {
-        theme,
-        user_nickname: None,
-        enabled_skill_ids: Vec::new(),
-        ..UserSettings::default()
-    };
+    let mut user = stored_settings_to_user(&stored);
+    if user.theme.trim().is_empty() {
+        user.theme = default_theme();
+    }
     write_user_settings_file(&user)?;
-    let platform = stored_settings_to_platform(&stored);
-    save_local_platform_from_runtime(&platform)?;
     fs::rename(&legacy, &migrated)?;
     log::info!(
         "storage: legacy settings.json renamed to {}",
@@ -383,6 +390,50 @@ pub fn load_user_settings() -> Result<UserSettings> {
     let raw = fs::read_to_string(&path)?;
     let mut user: UserSettings = serde_json::from_str(&raw).unwrap_or_default();
     user.media_oss = Default::default();
+    // Backfill platform defaults that may be missing from older user_settings.json
+    // (built-in provider model lists and per-agent default models). User-owned
+    // customizations are preserved; only missing defaults are added.
+    crate::models::ensure_user_settings_defaults(&mut user);
+    // Decrypt provider keys that were persisted inside user_settings.json
+    // (enc:v1:<base64>). Older data stored plaintext — keep it as-is.
+    for provider in &mut user.providers {
+        if let Some(rest) = provider.api_key.strip_prefix("enc:v1:") {
+            let blob = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, rest)
+            {
+                Ok(b) => b,
+                Err(e) => {
+                    log::warn!(
+                        "storage: provider {} key base64 decode failed: {e}; key cleared",
+                        provider.id
+                    );
+                    provider.api_key.clear();
+                    continue;
+                }
+            };
+            match crate::local_secret::decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1")
+            {
+                Ok(key) => provider.api_key = key,
+                Err(e) => {
+                    log::warn!(
+                        "storage: provider {} key decrypt failed: {e}; key cleared",
+                        provider.id
+                    );
+                    provider.api_key.clear();
+                }
+            }
+        }
+    }
+    // Legacy provider_keys.enc compat: backfill keys for providers whose json
+    // entry has no key. Read-only — save_user_settings no longer writes this file.
+    if let Ok(legacy_keys) = load_provider_api_keys() {
+        for (provider_id, key) in legacy_keys {
+            if let Some(provider) = user.providers.iter_mut().find(|p| p.id == provider_id) {
+                if provider.api_key.is_empty() {
+                    provider.api_key = key;
+                }
+            }
+        }
+    }
     Ok(user)
 }
 
@@ -391,99 +442,57 @@ fn write_user_settings_file(user: &UserSettings) -> Result<()> {
     Ok(())
 }
 
+fn provider_keys_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("provider_keys.enc"))
+}
+
+/// Legacy (read-only): decrypt user-typed provider keys saved by the old
+/// `provider_keys.enc` sidecar. Kept for backward compat during the
+/// key-in-json migration; new saves write keys into user_settings.json.
+fn load_provider_api_keys() -> Result<Vec<(String, String)>> {
+    let path = provider_keys_path()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let blob = fs::read(&path)?;
+    let payload =
+        crate::local_secret::decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1")
+            .map_err(|e| {
+                log::warn!(
+                    "storage: provider_keys.enc decrypt failed: {e}; keys will need re-entry"
+                );
+                e
+            })?;
+    Ok(serde_json::from_str(&payload).unwrap_or_default())
+}
+
+/// Persist the full user settings layer (user configuration incl. debug fields).
+/// Provider keys the user typed are encrypted (AES-256-GCM, machine-bound) and
+/// stored inline in user_settings.json as `enc:v1:<base64>` on each provider's
+/// apiKey. Platform-injected keys never pass through here — they live only in
+/// platform memory (see `update_user_settings` filtering by source).
 pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
     let mut to_save = user.clone();
     to_save.media_oss = Default::default();
-    write_user_settings_file(&to_save)
-}
-
-fn migrate_planner_settings_json(value: &mut serde_json::Value) {
-    let obj = match value.as_object_mut() {
-        Some(o) => o,
-        None => return,
-    };
-    obj.remove("taskBoardPlannerEnabled");
-    obj.remove("taskBoardWorkItemsEnabled");
-    obj.remove("taskBoardComputerNoExecInit");
-    obj.remove("computerStandalonePlannerEnabled");
-}
-
-/// Desktop-only persisted agent preferences (智能体 section).
-pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
-    ensure_local_platform_imported()?;
-    let path = local_platform_settings_path()?;
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = fs::read_to_string(&path)?;
-    let contains_sensitive_dati = local_platform_contains_sensitive_dati_keys(&raw);
-    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) {
-        migrate_planner_settings_json(&mut value);
-        if let Ok(persisted) = serde_json::from_value::<PersistedLocalPlatformSettings>(value) {
-            if contains_sensitive_dati {
-                log::warn!(
-                    "storage: local_platform_settings.json contains sensitive DaTi keys; rewriting sanitized file"
-                );
-                save_local_platform_settings(&persisted)?;
-            }
-            return Ok(Some(persisted.into_platform()));
+    // Encrypt non-empty, non-masked keys inline. "****" is the web redaction
+    // sentinel and must not be persisted — it is re-attached from existing data
+    // by update_user_settings before reaching here.
+    for provider in &mut to_save.providers {
+        if provider.api_key.trim().is_empty() || provider.api_key.trim() == "****" {
+            provider.api_key.clear();
+        } else if !provider.api_key.starts_with("enc:v1:") {
+            let blob = crate::local_secret::encrypt_local_secret_with_info(
+                &provider.api_key,
+                b"provider-api-keys-v1",
+            )?;
+            provider.api_key = format!(
+                "enc:v1:{}",
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, blob)
+            );
         }
     }
-    // Legacy file written as full PlatformSettings (may contain apiKey / debug fields).
-    if let Ok(legacy) = serde_json::from_str::<PlatformSettings>(&raw) {
-        log::warn!("storage: sanitizing legacy local_platform_settings.json (strip secrets/debug/openrouter)");
-        let mut legacy = legacy;
-        legacy.providers = filter_openrouter_providers(legacy.providers);
-        let persisted = PersistedLocalPlatformSettings::from_platform(&legacy);
-        save_local_platform_settings(&persisted)?;
-        return Ok(Some(persisted.into_platform()));
-    }
-    Ok(None)
-}
-
-fn local_platform_contains_sensitive_dati_keys(raw: &str) -> bool {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
-        return false;
-    };
-    let Some(obj) = v.as_object() else {
-        return false;
-    };
-    obj.contains_key("datiApiUrl")
-        || obj.contains_key("datiAuthcode")
-        || obj.contains_key("datiTypeno")
-        || obj.contains_key("datiAuthor")
-}
-
-pub fn save_local_platform_settings(persisted: &PersistedLocalPlatformSettings) -> Result<()> {
-    fs::write(
-        local_platform_settings_path()?,
-        serde_json::to_vec_pretty(persisted)?,
-    )?;
-    Ok(())
-}
-
-pub fn save_local_platform_from_runtime(platform: &PlatformSettings) -> Result<()> {
-    save_local_platform_settings(&PersistedLocalPlatformSettings::from_platform(platform))
-}
-
-/// One-time import for installs that migrated theme before local platform persistence existed.
-fn ensure_local_platform_imported() -> Result<()> {
-    let local = local_platform_settings_path()?;
-    if local.exists() {
-        return Ok(());
-    }
-    let migrated = settings_migrated_path()?;
-    if !migrated.exists() {
-        return Ok(());
-    }
-    log::info!("storage: importing local platform settings from settings.json.migrated");
-    let raw = fs::read_to_string(&migrated)?;
-    let stored: StoredSettings = serde_json::from_str(&raw).unwrap_or_default();
-    let platform = stored_settings_to_platform(&stored);
-    save_local_platform_from_runtime(&platform)?;
-    log::info!("storage: wrote local_platform_settings.json from legacy backup");
-    Ok(())
+    write_user_settings_file(&to_save)
 }
 
 /// Keep free-form `extraBody` keys after absorbing structured thinking fields.
@@ -567,6 +576,7 @@ fn stored_provider_to_platform(
         thinking_budget,
         reasoning_effort,
         extra_body: leftover_extra_body(p.extra_body.as_ref()),
+        source: Some("user".into()),
     }
 }
 
@@ -588,14 +598,14 @@ fn normalize_disk_agent_defaults(
     out
 }
 
-fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
+fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
     let legacy_reasoning = stored.legacy_reasoning_in_messages;
     let active = if stored.active_provider_id.trim().is_empty() {
         "qwen".to_string()
     } else {
         stored.active_provider_id.clone()
     };
-    let mut platform = PlatformSettings {
+    let mut user = UserSettings {
         providers: stored
             .providers
             .iter()
@@ -624,13 +634,14 @@ fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
         computer_human_like: stored.computer_human_like,
         computer_initial_tier: stored.computer_initial_tier.clone(),
         computer_annotated_screen_view_enabled: stored.computer_annotated_screen_view_enabled,
+        theme: stored.theme.clone(),
         agent_ui_overrides: stored.agent_ui_overrides.clone(),
-        ..PlatformSettings::default()
+        ..UserSettings::default()
     };
-    let mut merged = merge_user_platform(&UserSettings::default(), &platform);
+    let mut merged = merge_user_platform(&user, &PlatformSettings::default());
     ensure_agent_model_refs_have_provider(&mut merged);
-    platform.agent_default_models = merged.agent_default_models;
-    platform
+    user.agent_default_models = merged.agent_default_models;
+    user
 }
 
 static PLATFORM_AUTH_PERSIST_ENABLED: AtomicBool = AtomicBool::new(true);

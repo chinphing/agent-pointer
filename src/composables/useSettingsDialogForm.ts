@@ -1,4 +1,4 @@
-import { computed, getCurrentInstance, inject, onScopeDispose, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
+import { computed, getCurrentInstance, inject, nextTick, onScopeDispose, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
 import {
   Bot,
   CircleHelp,
@@ -37,6 +37,7 @@ import { listAgents, checkMediaDeps } from '../lib/api'
 import { usePlatformAuthStore } from '../stores/platformAuth'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
+import { splitProviderModelValue } from '../lib/modelSelectValue'
 
 export type SettingsDialogForm = ReturnType<typeof createSettingsDialogForm>
 
@@ -86,13 +87,13 @@ function createSettingsDialogForm(deps: {
   const COMPUTER_TIER_UI: { key: ComputerTierKey; label: string }[] = [
   { key: 'primary', label: '快速' },
   { key: 'intermediate', label: '标准' },
-  { key: 'advanced', label: '专家' }
+  { key: 'advanced', label: '高级' }
   ]
 
   const PERFORMANCE_MODE_UI = PERFORMANCE_MODE_OPTIONS
 
   const PERFORMANCE_MODE_HELP =
-  '快速、标准、专家由低到高：速度从高到低，价格从低到高，智能从低到高。'
+  '快速、标准、高级由低到高：速度从高到低，价格从低到高，智能从低到高。'
 
   const MEDIA_DEBUG_KINDS = ['image', 'audio', 'video'] as const
   type MediaDebugKind = (typeof MEDIA_DEBUG_KINDS)[number]
@@ -114,17 +115,38 @@ function createSettingsDialogForm(deps: {
   return MODE_AGENT_IDS.has(agentId)
   }
 
+  let debugModelSaveTimer: number | undefined
+
+  function scheduleDebugModelSave() {
+  if (debugModelSaveTimer) window.clearTimeout(debugModelSaveTimer)
+  debugModelSaveTimer = window.setTimeout(() => {
+    debugModelSaveTimer = undefined
+    // 档位/管道模型映射统一走 agent-settings 持久化，重启保留。
+    void s
+      .saveAgentPreferences({
+        computerTierLlm: s.settings.computerTierLlm,
+        computerPipelineLlm: s.settings.computerPipelineLlm,
+        agentModeLlm: s.settings.agentModeLlm,
+        mediaModeLlm: s.settings.mediaModeLlm
+      })
+      .catch(error => {
+        console.error('[settings] failed to save debug model mapping', error)
+      })
+  }, 250)
+  }
+
   function patchAgentModeLlm(agentId: string, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
-  const next = { ...(s.platformSettings.agentModeLlm ?? {}) }
+  const next = { ...(s.settings.agentModeLlm ?? {}) }
   const agentMap = { ...(next[agentId] ?? {}) }
   const prev = agentMap[mode] ?? agentModeLlm(agentId, mode)
   agentMap[mode] = { ...prev, ...patch }
   next[agentId] = agentMap
-  s.platformSettings.agentModeLlm = next
+  s.settings.agentModeLlm = next
+  scheduleDebugModelSave()
   }
 
   function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
-  const m = s.platformSettings.agentModeLlm?.[agentId]?.[mode]
+  const m = s.settings.agentModeLlm?.[agentId]?.[mode]
   if (m) return m
   if (mode === 'fast') {
     return { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 }
@@ -137,7 +159,7 @@ function createSettingsDialogForm(deps: {
   }
 
   function patchMediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
-  const next = { ...(s.platformSettings.mediaModeLlm ?? {}) }
+  const next = { ...(s.settings.mediaModeLlm ?? {}) }
   const kindMap = { ...(next[kind] ?? {}) }
   const prev = kindMap[mode] ?? {
     providerId: 'qwen',
@@ -147,11 +169,12 @@ function createSettingsDialogForm(deps: {
   }
   kindMap[mode] = { ...prev, ...patch }
   next[kind] = kindMap
-  s.platformSettings.mediaModeLlm = next
+  s.settings.mediaModeLlm = next
+  scheduleDebugModelSave()
   }
 
   function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): ComputerTierLlmConfig {
-  const m = s.platformSettings.mediaModeLlm?.[kind]?.[mode]
+  const m = s.settings.mediaModeLlm?.[kind]?.[mode]
   if (m) return m
   if (kind === 'audio') {
     return {
@@ -170,7 +193,7 @@ function createSettingsDialogForm(deps: {
   }
 
   function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
-  const m = s.platformSettings.computerTierLlm?.[key]
+  const m = s.settings.computerTierLlm?.[key]
   return (
     m ?? {
       providerId: 'qwen',
@@ -182,9 +205,10 @@ function createSettingsDialogForm(deps: {
   }
 
   function patchComputerTierLlm(key: ComputerTierKey, patch: Partial<ComputerTierLlmConfig>) {
-  const next = { ...(s.platformSettings.computerTierLlm ?? {}) }
+  const next = { ...(s.settings.computerTierLlm ?? {}) }
   next[key] = { ...computerTierLlm(key), ...patch }
-  s.platformSettings.computerTierLlm = next
+  s.settings.computerTierLlm = next
+  scheduleDebugModelSave()
   }
 
   function computerTierModelValue(key: ComputerTierKey): string {
@@ -193,16 +217,12 @@ function createSettingsDialogForm(deps: {
   }
 
   function selectComputerTierModel(key: ComputerTierKey, value: string) {
-  const i = value.indexOf(':')
-  if (i > 0 && i < value.length - 1) {
-    const providerId = value.slice(0, i).trim()
-    const model = value.slice(i + 1).trim()
-    if (providerId && model) {
-      patchComputerTierLlm(key, { providerId, model })
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      patchComputerTierLlm(key, { providerId: parsed.providerId, model: parsed.model })
       return
     }
-  }
-  console.warn('[settings] selectComputerTierModel: invalid value', value)
+    console.warn('[settings] selectComputerTierModel: invalid value', value)
   }
 
   function computerPipelineLlm(): ComputerPipelineLlmSettings {
@@ -216,11 +236,12 @@ function createSettingsDialogForm(deps: {
     positionThinkingBudget: 1024,
     verifyThinkingBudget: 256
   }
-  return { ...defaults, ...s.platformSettings.computerPipelineLlm }
+  return { ...defaults, ...s.settings.computerPipelineLlm }
   }
 
   function patchComputerPipelineLlm(patch: Partial<ComputerPipelineLlmSettings>) {
-  s.platformSettings.computerPipelineLlm = { ...computerPipelineLlm(), ...patch }
+  s.settings.computerPipelineLlm = { ...computerPipelineLlm(), ...patch }
+  scheduleDebugModelSave()
   }
 
   function computerPipelineVerifyValue(): string {
@@ -398,16 +419,21 @@ function createSettingsDialogForm(deps: {
   function setDisplayUi(key: keyof AgentUiConfig, checked: boolean) {
   agentUiLocal.value = { ...agentUiLocal.value, [key]: checked }
   s.patchAgentUiOverride(activeUiAgentId.value, { [key]: checked })
+  scheduleAssistantSave()
   }
 
   async function applyThemeChoice(t: ThemePreference) {
   theme.value = t
   applyTheme(t)
-  // Theme persists in UserSettings; keep both mirrors in sync so a later
-  // applyEffectiveView (from unrelated saves) does not resurrect the old value
-  // before saveUser({ theme }) runs.
+  // Keep both mirrors in sync before persistence so concurrent settings updates
+  // cannot temporarily restore the previous theme.
   s.settings.theme = t
   s.userSettings.theme = t
+  try {
+    await s.saveUser({ theme: t })
+  } catch (e) {
+    console.error('[settings] failed to save theme', e)
+  }
   }
 
   function themeLabel(t: ThemePreference): string {
@@ -492,17 +518,20 @@ function createSettingsDialogForm(deps: {
     audio: s.getMediaUnderstandingMode('audio'),
     video: s.getMediaUnderstandingMode('video')
   }
+  void nextTick(() => {
+    autosaveReady = true
+  })
   void loadAgents()
   // Defer ffmpeg probe so opening settings → IM 通道 stays responsive on Windows.
   window.setTimeout(() => {
-    if (activeSection.value === 'assistant' && mediaDeps.value === null) {
+    if (activeSection.value === 'generation' && mediaDeps.value === null) {
       void refreshMediaDeps()
     }
   }, 400)
   }
 
   watch(activeSection, section => {
-  if (section === 'assistant' && mediaDeps.value === null) {
+  if (section === 'generation' && mediaDeps.value === null) {
     void refreshMediaDeps()
   }
   })
@@ -610,20 +639,22 @@ function createSettingsDialogForm(deps: {
   })
   }
 
-  function selectAgentModeModel(agentId: string, mode: PerformanceModeKey, model: string) {
-  const item = s.allModels.find(m => m.model === model)
-  patchAgentModeLlm(agentId, mode, {
-    model,
-    providerId: item?.providerId ?? agentModeLlm(agentId, mode).providerId
-  })
+  function selectAgentModeModel(agentId: string, mode: PerformanceModeKey, value: string) {
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      patchAgentModeLlm(agentId, mode, { providerId: parsed.providerId, model: parsed.model })
+      return
+    }
+    console.warn('[settings] selectAgentModeModel: invalid value', value)
   }
 
-  function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, model: string) {
-  const item = s.allModels.find(m => m.model === model)
-  patchMediaModeLlm(kind, mode, {
-    model,
-    providerId: item?.providerId ?? mediaModeLlm(kind, mode).providerId
-  })
+  function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, value: string) {
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      patchMediaModeLlm(kind, mode, { providerId: parsed.providerId, model: parsed.model })
+      return
+    }
+    console.warn('[settings] selectMediaModeModel: invalid value', value)
   }
 
   /** Get agent default model with provider prefix: "providerId:model" */
@@ -657,87 +688,14 @@ function createSettingsDialogForm(deps: {
   })
   }
 
-  /** Cleared from every agent when debug mode is turned off (restore profile defaults). */
-  const DEBUG_AGENT_UI_KEYS: (keyof AgentUiConfig)[] = [
-  'showSidecarToolCalls',
-  'showToolCallResults',
-  'showReasoning'
-  ]
-
-  function stripDebugAgentUiOverrides(
-  overrides: Record<string, Partial<AgentUiConfig>> | undefined
-  ): Record<string, Partial<AgentUiConfig>> {
-  if (!overrides) return {}
-  const out: Record<string, Partial<AgentUiConfig>> = {}
-  for (const [id, cfg] of Object.entries(overrides)) {
-    const next = { ...cfg }
-    for (const key of DEBUG_AGENT_UI_KEYS) {
-      delete next[key]
-    }
-    if (Object.keys(next).length > 0) {
-      out[id] = next
-    }
-  }
-  return out
-  }
-
+  /**
+   * 调试开关只控制调试入口可见性。
+   * 其它运行时开关及智能体显示覆盖保持原值，避免打开/关闭设置影响正常默认行为。
+   */
   async function toggleDebugMenus() {
   const next = !debugMenusEnabled.value
   debugMenusEnabled.value = next
-  rawContentViewEnabled.value = next
-  computerAnnotatedScreenViewEnabled.value = next
-
-  if (next) {
-    agentUiLocal.value = {
-      ...agentUiLocal.value,
-      showReasoning: true,
-      showSidecarToolCalls: true
-    }
-    s.patchAgentUiOverride(activeUiAgentId.value, {
-      showReasoning: true,
-      showSidecarToolCalls: true
-    })
-  } else {
-    debugDumpLlmPrompts.value = false
-    taskBoardShowChildBoards.value = false
-    agentUiLocal.value = {
-      ...agentUiLocal.value,
-      showSidecarToolCalls: false,
-      showToolCallResults: false,
-      showReasoning: false
-    }
-    s.patchAgentUiOverride(activeUiAgentId.value, {
-      showSidecarToolCalls: false,
-      showToolCallResults: false,
-      showReasoning: false
-    })
-  }
-
-  const baseOverrides = s.settings.agentUiOverrides ?? {}
-  const agentUiOverrides = next
-    ? {
-        ...baseOverrides,
-        [activeUiAgentId.value]: {
-          ...(baseOverrides[activeUiAgentId.value] ?? {}),
-          ...agentUiLocal.value,
-          showReasoning: true
-        }
-      }
-    : stripDebugAgentUiOverrides(baseOverrides)
-
-  // Keep terminalEnvOverrides across debug toggle; injection stays active either way.
-  const terminalEnvOverrides = terminalEnvOverridesFromRows()
-  s.settings.terminalEnvOverrides = terminalEnvOverrides
-
-  await s.save({
-    debugMenusEnabled: next,
-    rawContentViewEnabled: next,
-    computerAnnotatedScreenViewEnabled: next,
-    debugDumpLlmPrompts: next ? debugDumpLlmPrompts.value : false,
-    taskBoardShowChildBoards: next ? taskBoardShowChildBoards.value : false,
-    terminalEnvOverrides,
-    agentUiOverrides
-  })
+  await s.save({ debugMenusEnabled: next })
   }
 
   function terminalEnvOverridesFromRows(): Record<string, string> {
@@ -761,6 +719,14 @@ function createSettingsDialogForm(deps: {
     terminalEnvRows.value = terminalEnvRows.value.filter(row => row.id !== id)
   }
 
+  function saveTerminalEnvRows() {
+    const next = terminalEnvOverridesFromRows()
+    s.settings.terminalEnvOverrides = next
+    void s.saveUser({ terminalEnvOverrides: next }).catch(error => {
+      console.error('[settings] failed to save terminalEnvOverrides', error)
+    })
+  }
+
   function optionalParallelLimit(v: number | ''): number | null {
     if (v === '') return null
     const n = Number(v)
@@ -768,7 +734,7 @@ function createSettingsDialogForm(deps: {
     return Math.floor(n)
   }
 
-  function getAssistantSavePayload() {
+  function assistantPreferencesPayload() {
   return {
     computerAutoCompact: computerAutoCompact.value,
     collapseProcessByDefault: collapseProcessByDefault.value,
@@ -795,41 +761,91 @@ function createSettingsDialogForm(deps: {
     maxToolRounds: Number(maxToolRounds.value),
     agentPerformanceModes: { ...agentPerformanceModesLocal.value },
     mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
-  }
-  }
-
-  function getDebugSessionSavePayload() {
-  return s.createDebugSessionSnapshot()
-  }
-
-  function getDebugRuntimeSavePayload() {
-  const terminalEnvOverrides = terminalEnvOverridesFromRows()
-  // Optimistic local write so later applyEffectiveView (theme / debug-session)
-  // preserves overrides when the response omits or defaults the field.
-  s.settings.terminalEnvOverrides = terminalEnvOverrides
-  return {
-    agentMode: agentMode.value,
-    leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
-    maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
-    maxSubAgentSpawnDepth: Number(maxSubAgentSpawnDepth.value),
     rawContentViewEnabled: rawContentViewEnabled.value,
-    debugDumpLlmPrompts: debugDumpLlmPrompts.value,
-    terminalEnvOverrides,
-    debugMenusEnabled: debugMenusEnabled.value,
-    taskBoardShowChildBoards: taskBoardShowChildBoards.value,
     computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
-    agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
-    agentUiOverrides: {
-      ...(s.settings.agentUiOverrides ?? {}),
-      [activeUiAgentId.value]: { ...agentUiLocal.value }
-    },
+    taskBoardShowChildBoards: taskBoardShowChildBoards.value,
+    agentUiOverrides: { ...(s.settings.agentUiOverrides ?? {}) },
   }
   }
+
+  let autosaveReady = false
+  let assistantSaveTimer: number | undefined
+  let debugSaveTimer: number | undefined
+
+  function scheduleAssistantSave() {
+    if (!autosaveReady) return
+    if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
+    assistantSaveTimer = window.setTimeout(() => {
+      assistantSaveTimer = undefined
+      const payload = assistantPreferencesPayload()
+      void (async () => {
+        try {
+          await s.saveAgentPreferences(payload)
+          await s.saveUser({
+            computerAutoCompact: payload.computerAutoCompact,
+            collapseProcessByDefault: payload.collapseProcessByDefault,
+            userCodingRules: payload.userCodingRules
+          })
+        } catch (error) {
+          console.error('[settings] failed to save assistant preferences', error)
+        }
+      })()
+    }, 350)
+  }
+
+  function scheduleDebugSave() {
+    if (!autosaveReady) return
+    if (debugSaveTimer) window.clearTimeout(debugSaveTimer)
+    debugSaveTimer = window.setTimeout(() => {
+      debugSaveTimer = undefined
+      const debugDump = debugDumpLlmPrompts.value
+      void s.save({ debugDumpLlmPrompts: debugDump }).catch(error => {
+        console.error('[settings] failed to save debug preferences', error)
+      })
+    }, 250)
+  }
+
+  watch(
+    [
+      toolApprovalMode,
+      contextCompressionEnabled,
+      contextBudgetTokens,
+      contextKeepRecentUserTurns,
+      maxToolRounds,
+      parallelToolExecutionEnabled,
+      maxParallelToolCalls,
+      maxParallelSubAgents,
+      maxParallelMediaJobs,
+      maxConcurrentRuns,
+      computerHumanLike,
+      computerAutoSwitchMonitor,
+      computerAutoCompact,
+      collapseProcessByDefault,
+      userCodingRules,
+      computerInitialTier,
+      captchaSliderOffsetPx,
+      rawContentViewEnabled,
+      computerAnnotatedScreenViewEnabled,
+      taskBoardShowChildBoards,
+      agentPerformanceModesLocal,
+      mediaUnderstandingModesLocal
+    ],
+    scheduleAssistantSave,
+    { deep: true }
+  )
+  watch(debugDumpLlmPrompts, scheduleDebugSave)
+
+  onScopeDispose(() => {
+    if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
+    if (debugSaveTimer) window.clearTimeout(debugSaveTimer)
+    if (debugModelSaveTimer) window.clearTimeout(debugModelSaveTimer)
+  })
 
   return {
     s,
     platformAuth,
     chat,
+    activeSection,
     platformReadOnly,
     COMPUTER_TIER_UI,
     COMPUTER_INITIAL_TIER_OPTIONS,
@@ -860,6 +876,7 @@ function createSettingsDialogForm(deps: {
     terminalEnvRows,
     addTerminalEnvRow,
     removeTerminalEnvRow,
+    saveTerminalEnvRows,
     taskBoardShowChildBoards,
     agentTaskBoardHistoryTrim,
     computerHumanLike,
@@ -927,8 +944,5 @@ function createSettingsDialogForm(deps: {
     logoutPlatformAccount,
     loginPlatformAccount,
     initFormFromStore,
-    getAssistantSavePayload,
-    getDebugSessionSavePayload,
-    getDebugRuntimeSavePayload,
   }
 }

@@ -1,52 +1,70 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info } from 'lucide-vue-next'
+import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
+import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
-import { useChatStore } from '../../stores/chat'
+import { useWindowChrome } from '../../composables/useWindowChrome'
+import WindowDragRegion from '../layout/WindowDragRegion.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { provideSettingsDialogForm } from '../../composables/useSettingsDialogForm'
-import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
 import ChannelSettingsPanel from './ChannelSettingsPanel.vue'
 import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
 import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
-import AgentSettingsPanel from './panels/AgentSettingsPanel.vue'
+import ModelSettingsPanel from './panels/ModelSettingsPanel.vue'
+import DebugSettingsPanel from './panels/DebugSettingsPanel.vue'
 import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
+import SkillsPanel from '../skills/SkillsPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'open-skills'): void
 }>()
 const props = withDefaults(defineProps<{
   initialSection?: string
 }>(), {
-  initialSection: 'assistant'
+  initialSection: 'account'
 })
 
 const s = useSettingsStore()
-const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 
 const activeSection = ref(props.initialSection)
-const saving = ref(false)
+const mainEl = ref<HTMLElement | null>(null)
+const renderError = ref('')
+const { enabled: chromeEnabled, macTrafficLightPadding } = useWindowChrome()
+
+// 某个 section 渲染抛错时不再静默空白：显示错误条并阻断错误冒泡
+// （否则整个 SettingsDialog 树可能白屏）。切到其他分区后错误条保留，
+// 便于定位；切换即清空。
+onErrorCaptured(err => {
+  renderError.value = err instanceof Error ? err.message : String(err)
+  console.error('[settings] section render error:', err)
+  return false
+})
+// 系统设置页很长，切换分区时 main 滚动位置会残留；显式归零，
+// 避免切到内容较短的分区时视觉上停在旧滚动位置。
+watch(activeSection, () => {
+  nextTick(() => {
+    if (mainEl.value) mainEl.value.scrollTop = 0
+  })
+})
 
 const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
-  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot }
+  { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
+  { id: 'assistant', label: '智能体', desc: '档位与行为', icon: Bot },
+  { id: 'models', label: '模型配置', desc: '服务商与档位映射', icon: Cpu },
+  { id: 'generation', label: '系统设置', desc: '界面、桌面与系统运行', icon: Settings }
 ] as const
 
 const debugSections = [
-  { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
-  { id: 'generation', label: '界面配置', desc: '界面', icon: Gauge },
-  { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge }
+  { id: 'debug', label: '调试', desc: '保存对话请求', icon: Bug }
 ] as const
 
 const debugSectionIds = new Set<string>(debugSections.map(item => item.id))
-const persistedSectionIds = new Set<string>(['assistant', 'channels', 'automation'])
 
 const form = provideSettingsDialogForm({
   onClose: () => emit('close'),
@@ -56,158 +74,98 @@ const form = provideSettingsDialogForm({
 
 const {
   theme,
-  debugMenusEnabled,
-  showDebugMenus,
   themeLabel,
   cycleTheme,
   currentThemeIcon,
-  toggleDebugMenus,
-  getAssistantSavePayload,
-  getDebugSessionSavePayload,
-  getDebugRuntimeSavePayload,
-  activeUiAgentId,
   initFormFromStore
 } = form
 
-const providerPanelRef = ref<InstanceType<typeof ProviderSettingsPanel> | null>(null)
-const channelPanelRef = ref<InstanceType<typeof ChannelSettingsPanel> | null>(null)
+const showAdminDebugSection = computed(() =>
+  s.isPlatformAdmin || platformAuth.isPlatformAdmin || platformAuth.isStandalone
+)
 
-const sections = computed(() => {
-  const merged = showDebugMenus.value
-    ? [...alwaysSections, ...debugSections]
-    : [...alwaysSections]
-  // 侧栏顺序：账户 → 自动化 → 连接 → 智能体 → （调试菜单）→ 云主机。
-  // 账户：platform 走 OAuth；standalone 走账号密码。云主机仅桌面端。
-  const account = {
+interface SidebarItem {
+  id: string
+  label: string
+  desc: string
+  icon: typeof Bot
+}
+interface SidebarGroup {
+  items: SidebarItem[]
+}
+
+const sections = computed<SidebarGroup[]>(() => {
+  const account: SidebarItem = {
     id: 'account',
-    label: platformAuth.isStandalone ? '管理员账户' : '平台账户',
-    desc: '登录与凭据',
+    label: '账户',
+    desc: '余额、登录与凭据',
     icon: UserCircle
   }
-  // About section: all modes
-  const about = {
+  const about: SidebarItem = {
     id: 'about',
     label: '关于',
     desc: '版本与更新',
     icon: Info
   }
-  if (!isTauriRuntime()) {
-    return [account, ...merged, about]
-  }
-  // Standalone web/server has no cloud shop; desktop platform mode keeps cloud.
-  if (platformAuth.isStandalone) {
-    return [account, ...merged]
-  }
-  return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }, about]
-})
 
-const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
-const showFooterSave = computed(() => {
-  if (activeSection.value === 'account' || activeSection.value === 'cloud' || activeSection.value === 'automation' || activeSection.value === 'about') return false
-  return (
-    activeSection.value === 'assistant' ||
-    activeSection.value === 'channels' ||
-    debugSectionIds.has(activeSection.value)
-  )
+  const groups: SidebarGroup[] = [
+    // 账户：高频，单独置顶
+    { items: [account] },
+    // 智能体与配置：决定 AI 怎么工作、怎么显示
+    {
+      items: [
+        alwaysSections.find(item => item.id === 'assistant')!,
+        alwaysSections.find(item => item.id === 'models')!,
+        alwaysSections.find(item => item.id === 'generation')!
+      ]
+    },
+    // 自动化与集成：外部接入
+    {
+      items: [
+        alwaysSections.find(item => item.id === 'automation')!,
+        alwaysSections.find(item => item.id === 'channels')!,
+        alwaysSections.find(item => item.id === 'skills')!
+      ]
+    }
+  ]
+
+  // 系统：管理员/桌面专属 + 版本信息，收到底部
+  const systemItems: SidebarItem[] = []
+  if (showAdminDebugSection.value) {
+    systemItems.push({
+      id: 'debug',
+      label: '调试',
+      desc: '保存对话请求',
+      icon: Bug
+    })
+  }
+  if (isTauriRuntime() && !platformAuth.isStandalone) {
+    systemItems.push({ id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud })
+  }
+  systemItems.push(about)
+  groups.push({ items: systemItems })
+
+  return groups
 })
-const footerSaveLabel = computed(() =>
-  isPersistedSection.value ? '保存' : '保存(本次会话)'
-)
-const debugModeTitle = computed(() =>
-  debugMenusEnabled.value ? '调试模式：已开启（点击关闭）' : '调试模式：已关闭（点击开启）'
-)
 
 onMounted(() => {
   initFormFromStore()
 })
-
-function onDialogBackdropClick() {
-  if (providerPanelRef.value?.isModelConfigOpen()) {
-    providerPanelRef.value.closeModelConfigModal()
-    return
-  }
-  emit('close')
-}
-
-async function saveFromFooter() {
-  saving.value = true
-  try {
-    const sectionToSave = activeSection.value
-    if (
-      sectionToSave === 'provider' &&
-      providerPanelRef.value?.hasUnsavedEdits() &&
-      !providerPanelRef.value.flushEditingProviderToStore()
-    ) {
-      return
-    }
-
-    // Capture every request payload before the first await. API responses refresh
-    // the Store and may contain older values than the current form draft.
-    const themeToSave = theme.value
-    const themeSnapshot = s.createUserSnapshot({ theme: themeToSave })
-    const assistantPayload = sectionToSave === 'assistant' ? getAssistantSavePayload() : null
-    const assistantSnapshot = assistantPayload
-      ? s.createSessionSnapshot(assistantPayload)
-      : null
-    const assistantUserSnapshot = assistantPayload
-      ? s.createUserSnapshot({
-          theme: themeToSave,
-          computerAutoCompact: assistantPayload.computerAutoCompact,
-          collapseProcessByDefault: assistantPayload.collapseProcessByDefault,
-          userCodingRules: assistantPayload.userCodingRules
-        })
-      : null
-    const debugSessionSnapshot = debugSectionIds.has(sectionToSave)
-      ? getDebugSessionSavePayload()
-      : null
-    const debugRuntimeSnapshot =
-      debugSectionIds.has(sectionToSave) && sectionToSave !== 'provider'
-        ? s.createSessionSnapshot(getDebugRuntimeSavePayload())
-        : null
-
-    await s.saveUserSnapshot(themeSnapshot)
-
-    if (sectionToSave === 'provider' && debugSessionSnapshot) {
-      await s.saveDebugSession(debugSessionSnapshot)
-    } else if (sectionToSave === 'channels') {
-      await channelPanelRef.value?.save()
-    } else if (sectionToSave === 'assistant' && assistantSnapshot && assistantUserSnapshot) {
-      await s.saveAgentPreferencesSnapshot(assistantSnapshot)
-      await s.saveUserSnapshot(assistantUserSnapshot)
-    } else if (debugRuntimeSnapshot && debugSessionSnapshot) {
-      await s.saveSessionSnapshot(debugRuntimeSnapshot)
-      await s.saveDebugSession(debugSessionSnapshot)
-    }
-    emit('close')
-  } finally {
-    saving.value = false
-  }
-}
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="onDialogBackdropClick">
-    <div
-      class="w-[960px] max-w-[94vw] h-[740px] max-h-[90vh] glass-strong rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden"
-      data-tauri-drag-region="false"
-    >
-      <!-- Header -->
-      <header class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0">
-        <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
-          <SlidersHorizontal class="w-4 h-4 text-accent" />
-        </div>
-        <div>
-          <h2 class="text-base font-semibold text-foreground">设置</h2>
-        </div>
+  <div
+    class="app-content-no-drag h-full w-full min-h-0 flex flex-col bg-background"
+    data-tauri-drag-region="false"
+  >
+      <!-- Header: reserve the native macOS traffic-light zone and drag from empty space. -->
+      <WindowDragRegion
+        as="header"
+        region="settings-top-chrome"
+        class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0"
+        :class="chromeEnabled && macTrafficLightPadding ? 'pl-[4.75rem]' : ''"
+      >
         <div class="flex-1" />
-        <button
-          type="button"
-          class="h-7 w-7 mr-1 rounded-md border border-border hover:bg-hover transition-colors inline-flex items-center justify-center cursor-pointer"
-          title="技能管理"
-          @click="emit('open-skills')"
-        >
-          <Sparkles class="w-4 h-4 text-accent" />
-        </button>
         <div class="mr-1">
           <button
             type="button"
@@ -222,109 +180,101 @@ async function saveFromFooter() {
             />
           </button>
         </div>
-        <label
-          v-if="s.canEditPlatform"
-          class="mr-1"
-        >
-          <button
-            type="button"
-            class="h-7 w-7 rounded-md border border-border hover:bg-hover transition-colors inline-flex items-center justify-center"
-            :title="debugModeTitle"
-            @click="toggleDebugMenus"
-          >
-            <Bug class="w-4 h-4" :class="debugMenusEnabled ? 'text-amber-400' : 'text-muted'" />
-          </button>
-        </label>
-        <button
-          type="button"
-          class="h-7 w-7 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center justify-center cursor-pointer"
-          title="关闭"
-          aria-label="关闭"
-          @click="emit('close')"
-        >
-          <X class="w-4 h-4" />
-        </button>
-      </header>
+      </WindowDragRegion>
 
       <div class="flex flex-1 min-h-0">
         <!-- Sidebar -->
         <aside class="w-56 shrink-0 border-r border-border p-3 bg-[hsl(var(--card-elevated))]">
+          <!-- 返回按钮：仿栏位结构但弱化（muted 色、hover 才加深，不参与选中态） -->
           <button
-            v-for="item in sections"
-            :key="item.id"
+            type="button"
             class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
-            :class="activeSection === item.id ? 'bg-accent/10 border border-accent/30' : 'border border-transparent hover:bg-hover'"
-            @click="activeSection = item.id"
+            title="返回对话"
+            aria-label="返回对话"
+            @click="emit('close')"
           >
-            <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-                 :class="activeSection === item.id ? 'bg-accent/15' : 'bg-hover group-hover:bg-hover'">
-              <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-accent' : 'text-muted'" />
+            <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors bg-hover/40 group-hover:bg-hover/80">
+              <ArrowLeft class="w-3.5 h-3.5 text-muted/70 group-hover:text-foreground/80" />
             </div>
-            <span class="min-w-0">
-              <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
-              <span class="block text-[11px] text-muted truncate">{{ item.desc }}</span>
-            </span>
+            <span class="block min-w-0 text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回对话</span>
           </button>
+          <div class="my-2 h-px bg-border/60" />
+          <template v-for="(group, groupIndex) in sections" :key="groupIndex">
+            <div v-if="groupIndex > 0" class="my-2 h-px bg-border/60" />
+            <button
+              v-for="item in group.items"
+              :key="item.id"
+              class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
+              :class="activeSection === item.id ? 'bg-accent/10 border border-accent/30' : 'border border-transparent hover:bg-hover'"
+              @click="activeSection = item.id"
+            >
+              <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
+                   :class="activeSection === item.id ? 'bg-accent/15' : 'bg-hover group-hover:bg-hover'">
+                <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-accent' : 'text-muted'" />
+              </div>
+              <span class="min-w-0">
+                <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
+                <span class="block text-[11px] text-muted truncate">{{ item.desc }}</span>
+              </span>
+            </button>
+          </template>
         </aside>
 
         <!-- Main Content -->
-        <main class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
+        <main ref="mainEl" class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
+          <div
+            v-if="renderError"
+            class="sticky top-0 z-20 mx-4 mt-3 px-3 py-2 rounded-lg border border-red-400/30 bg-red-400/10 text-[11px] text-red-400"
+          >
+            设置页渲染异常：{{ renderError }}
+          </div>
           <!-- ==================== Assistant Section ==================== -->
-          <section v-if="activeSection === 'assistant'" class="p-6 space-y-5">
+          <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
+          <section v-show="activeSection === 'assistant'" class="p-6 min-h-full flex flex-col">
             <AssistantSettingsPanel :form="form" />
           </section>
 
-          <section v-else-if="activeSection === 'channels'" class="p-6">
-            <ChannelSettingsPanel ref="channelPanelRef" />
+          <section v-if="activeSection === 'channels'" class="p-6 min-h-full flex flex-col">
+            <ChannelSettingsPanel />
           </section>
 
-          <section v-else-if="activeSection === 'automation'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'automation'" class="p-6 min-h-full flex flex-col">
             <AutomationSettingsPanel @view-session="emit('close')" />
           </section>
 
-          <!-- ==================== Generation Section ==================== -->
-          <section v-else-if="activeSection === 'generation'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'skills'" class="p-6 min-h-full flex flex-col">
+            <SkillsPanel />
+          </section>
+
+          <section v-else-if="activeSection === 'debug'" class="p-6 min-h-full flex flex-col">
+            <DebugSettingsPanel :form="form" />
+          </section>
+
+          <!-- ==================== Model Section ==================== -->
+          <section v-else-if="activeSection === 'models'" class="p-6 min-h-full flex flex-col">
+            <ModelSettingsPanel :form="form" />
+          </section>
+
+          <!-- ==================== Generation Section (系统设置) ==================== -->
+          <section v-else-if="activeSection === 'generation'" class="p-6 min-h-full flex flex-col">
             <GenerationSettingsPanel :form="form" />
           </section>
 
-          <!-- ==================== Agent Section ==================== -->
-          <section v-else-if="activeSection === 'agent'" class="p-6 space-y-5">
-            <AgentSettingsPanel :form="form" />
-          </section>
-
           <!-- ==================== Platform account (desktop) ==================== -->
-          <section v-else-if="activeSection === 'account'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'account'" class="p-6 min-h-full flex flex-col">
             <AccountSettingsPanel :form="form" />
           </section>
 
-          <section v-else-if="activeSection === 'cloud'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'cloud'" class="p-6 min-h-full flex flex-col">
             <CloudSettingsPanel :form="form" />
           </section>
 
           <!-- About Settings -->
-          <section v-else-if="activeSection === 'about'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'about'" class="p-6 min-h-full flex flex-col">
             <AboutSettingsPanel />
-          </section>
-
-          <!-- Provider panel stays mounted while debug menus are on (preserves in-progress edits). -->
-          <section v-if="showDebugMenus" v-show="activeSection === 'provider'" class="p-6">
-            <ProviderSettingsPanel ref="providerPanelRef" />
           </section>
         </main>
       </div>
 
-      <!-- Footer -->
-      <footer class="px-6 h-14 flex items-center justify-end gap-3 border-t border-border shrink-0">
-        <button class="h-9 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="emit('close')">取消</button>
-        <button
-          v-if="showFooterSave"
-          class="h-9 px-5 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity"
-          :disabled="saving"
-          @click="saveFromFooter"
-        >
-          {{ saving ? '保存中…' : footerSaveLabel }}
-        </button>
-      </footer>
-    </div>
   </div>
 </template>

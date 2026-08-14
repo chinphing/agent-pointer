@@ -12,7 +12,7 @@
 | [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选：先提交 `currentId`，主区异步加载 |
 | [last-conversation-restore.md](last-conversation-restore.md) | 启动恢复上次选中会话（`pointer.chat.lastConversationId`） |
 | [sidebar-awaiting-view.md](sidebar-awaiting-view.md) | 后台完成未查看：侧栏实心圆点 |
-| 设置 → **平台账户 / 管理员账户** | 登录状态、「退出登录」；完成提示音开关 |
+| 设置 → **账户** | 余额、登录状态、「退出登录」；完成提示音开关 |
 | [assistant-message-ui.md](assistant-message-ui.md) | 助手消息 `thoughts` / reasoning / 原始输出面板等约定 |
 | [mobile-chat.md](mobile-chat.md) | 移动端：隐藏头像与常显时间/复制；Composer 仅附件+发送；欢迎页底部输入、无 slogan/经验区 |
 | [message-list-layout-cache.md](message-list-layout-cache.md) | 消息列表已完成 turn 结构指纹缓存，流式时只重算尾部 |

@@ -1,4 +1,5 @@
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
+import { DOUBAO_GENERATION_MODELS } from './modelCapabilities'
 
 /** Default Qwen `thinking_budget` when deep thinking is enabled. */
 export const DEFAULT_THINKING_BUDGET = 2048
@@ -6,7 +7,7 @@ export const DEFAULT_THINKING_BUDGET = 2048
 export type ReasoningEffort = 'high' | 'max'
 
 /** UI / preset kind; drives the same RuntimeParamsForm variant as built-in Qwen & DeepSeek. */
-export type ProviderTemplateId = 'qwen' | 'deepseek' | 'openai_compatible'
+export type ProviderTemplateId = 'qwen' | 'deepseek' | 'doubao' | 'openai_compatible' | 'openrouter' | 'kimi' | 'zhipu'
 
 export interface ProviderTemplateMeta {
   id: ProviderTemplateId
@@ -52,6 +53,15 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultModels: ['deepseek-v4-flash', 'deepseek-v4-pro']
   },
   {
+    id: 'doubao',
+    label: '豆包',
+    hint: '火山方舟 API；支持平台图像与视频模型',
+    defaultId: 'doubao',
+    defaultName: '豆包',
+    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    defaultModels: [...DOUBAO_GENERATION_MODELS]
+  },
+  {
     id: 'openai_compatible',
     label: 'OpenAI 兼容',
     hint: '其它 OpenAI 格式端点；可配 extra_body（如 repetition_penalty）',
@@ -59,17 +69,79 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultName: '',
     defaultBaseUrl: 'https://api.openai.com/v1',
     defaultModels: []
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    hint: '聚合入口；可调用 GPT-5.6 / Claude / Gemini 等',
+    defaultId: 'openrouter',
+    defaultName: 'OpenRouter',
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    defaultModels: [
+      'stepfun/step-3.7-flash',
+      'openai/gpt-5.4-nano',
+      'openai/gpt-5.4-mini',
+      'openai/gpt-5.6-luna',
+      'openai/gpt-5.6-luna-pro',
+      'openai/gpt-5.6-terra',
+      'openai/gpt-5.6-sol',
+      'anthropic/claude-opus-5',
+      'anthropic/claude-fable-5',
+      'google/gemini-3.6-flash'
+    ]
+  },
+  {
+    id: 'kimi',
+    label: 'Kimi',
+    hint: '月之暗面 API；长文档处理突出',
+    defaultId: 'kimi',
+    defaultName: 'Kimi（月之暗面）',
+    defaultBaseUrl: 'https://api.moonshot.cn/v1',
+    defaultModels: ['kimi-k3']
+  },
+  {
+    id: 'zhipu',
+    label: '智谱 GLM',
+    hint: '智谱 API；代码生成突出',
+    defaultId: 'zhipu',
+    defaultName: '智谱 GLM',
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModels: ['glm-5.2']
   }
 ]
 
+function providerIdLower(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): string {
+  return typeof p?.id === 'string' ? p.id.toLowerCase() : ''
+}
+
 export function isQwenProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'qwen') return true
+  if (providerIdLower(p) === 'qwen') return true
   return /dashscope\.aliyuncs\.com|dashscope-intl\.aliyuncs\.com/i.test(p.baseUrl || '')
 }
 
 export function isDeepSeekProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (p.id?.toLowerCase() === 'deepseek') return true
+  if (providerIdLower(p) === 'deepseek') return true
   return /api\.deepseek\.com/i.test(p.baseUrl || '')
+}
+
+export function isDoubaoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'doubao') return true
+  return /ark\.cn-[a-z-]+\.volces\.com/i.test(p.baseUrl || '')
+}
+
+export function isOpenRouterProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'openrouter') return true
+  return /openrouter\.ai/i.test(p.baseUrl || '')
+}
+
+export function isKimiProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'kimi') return true
+  return /moonshot\.cn/i.test(p.baseUrl || '')
+}
+
+export function isZhipuProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'zhipu') return true
+  return /bigmodel\.cn/i.test(p.baseUrl || '')
 }
 
 export function detectProviderTemplateId(
@@ -77,11 +149,19 @@ export function detectProviderTemplateId(
 ): ProviderTemplateId {
   if (isQwenProvider(p)) return 'qwen'
   if (isDeepSeekProvider(p)) return 'deepseek'
+  if (isDoubaoProvider(p)) return 'doubao'
+  if (isOpenRouterProvider(p)) return 'openrouter'
+  if (isKimiProvider(p)) return 'kimi'
+  if (isZhipuProvider(p)) return 'zhipu'
   return 'openai_compatible'
 }
 
 export function providerTemplateMeta(id: ProviderTemplateId): ProviderTemplateMeta {
-  return PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === id) ?? PROVIDER_TEMPLATE_OPTIONS[2]
+  return (
+    PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === id)
+    ?? PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === 'openai_compatible')
+    ?? PROVIDER_TEMPLATE_OPTIONS[0]
+  )
 }
 
 /** Remove provider/model fields that do not apply to the detected template. */

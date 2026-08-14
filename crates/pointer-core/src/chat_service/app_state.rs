@@ -10,14 +10,12 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
 use crate::models::{
-    ensure_agent_model_refs_have_provider, DebugSessionSettings, EffectiveSettingsView,
-    ModelSettings, PlatformSettings, UserSettings,
+    DebugSessionSettings, EffectiveSettingsView, PlatformSettings, UserSettings,
 };
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
     apply_login_llm_credentials, apply_login_llm_provider_api_keys, apply_login_media_oss,
-    finalize_merged_settings, merge_platform_preferences, persist_local_platform_settings,
-    PlatformConfigManager, SharedPlatformConfig,
+    finalize_merged_settings, PlatformConfigManager, SharedPlatformConfig,
 };
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -297,14 +295,6 @@ impl AppState {
 
         let platform_mgr = PlatformConfigManager::new();
         storage::ensure_legacy_settings_migrated();
-        match storage::load_local_platform_settings() {
-            Ok(Some(local)) => {
-                log::info!("storage: loaded persisted agent settings from disk");
-                platform_mgr.replace(local);
-            }
-            Ok(None) => {}
-            Err(e) => log::warn!("storage: load local platform settings failed: {e}"),
-        }
 
         let platform_config = platform_mgr.shared();
 
@@ -487,9 +477,9 @@ impl AppState {
         )
     }
 
-    /// Global dispatcher concurrency cap from platform settings.
+    /// Global dispatcher concurrency cap from merged user settings.
     pub fn resolve_max_concurrent_runs(&self) -> usize {
-        crate::dispatcher::resolve_max_concurrent_runs(&self.platform_config.read())
+        crate::dispatcher::resolve_max_concurrent_runs(&self.effective_settings())
     }
 
     pub fn sync_dispatcher_concurrency(&self, dispatcher: &crate::dispatcher::RunDispatcher) {
@@ -552,15 +542,27 @@ impl AppState {
 
     pub fn update_platform_settings(
         &self,
-        mut patch: PlatformSettings,
+        patch: PlatformSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
         if !self.active_platform_auth().is_platform_admin() {
             anyhow::bail!("only platform admins may edit platform settings");
         }
-        let mut tmp = crate::models::merge_user_platform(&UserSettings::default(), &patch);
-        ensure_agent_model_refs_have_provider(&mut tmp);
-        patch.agent_default_models = tmp.agent_default_models;
-        *self.platform_config.write() = patch.clone();
+        // Platform settings are in-memory only: providers (runtime keys), media_oss,
+        // and server-side DaTi config. User-owned fields live in user_settings.json.
+        let mut platform = self.platform_config.write();
+        if !patch.providers.is_empty() {
+            platform.providers = patch.providers;
+        }
+        if !patch.media_oss.bucket.trim().is_empty() {
+            platform.media_oss = patch.media_oss;
+        }
+        if !patch.dati_api_url.trim().is_empty() {
+            platform.dati_api_url = patch.dati_api_url;
+            platform.dati_authcode = patch.dati_authcode;
+            platform.dati_typeno = patch.dati_typeno;
+            platform.dati_author = patch.dati_author;
+        }
+        drop(platform);
         Ok(self.effective_settings_view())
     }
 
@@ -603,6 +605,9 @@ impl AppState {
         incoming.active_provider_id = active_provider_id;
         incoming.model = model;
 
+        // 会话级调试（DebugSessionSettings 契约：must never be persisted）。
+        // 只更新 platform 内存 providers（临时调试），不写 user_settings.json，
+        // 避免调试 provider 覆盖用户/平台默认配置。
         let mut platform = self.platform_config.write();
         let existing_keys: HashMap<String, String> = platform
             .providers
@@ -617,68 +622,75 @@ impl AppState {
             }
         }
         platform.providers = incoming.providers;
-        platform.active_provider_id = incoming.active_provider_id;
-        platform.model = incoming.model;
-        platform.temperature = incoming.temperature;
-        platform.max_tokens = incoming.max_tokens;
-        platform.computer_tier_llm = incoming.computer_tier_llm;
-        platform.computer_pipeline_llm = incoming.computer_pipeline_llm;
-        platform.agent_mode_llm = incoming.agent_mode_llm;
-        platform.media_mode_llm = incoming.media_mode_llm;
-
         let provider_count = platform.providers.len();
-        let mapping_count = platform.computer_tier_llm.len()
-            + 3
-            + platform
-                .agent_mode_llm
-                .values()
-                .map(HashMap::len)
-                .sum::<usize>()
-            + platform
-                .media_mode_llm
-                .values()
-                .map(HashMap::len)
-                .sum::<usize>();
         drop(platform);
+
         log::info!(
-            "debug_session_settings: updated providers={} mappings={}",
-            provider_count,
-            mapping_count
+            "debug_session_settings: session providers updated (in-memory only) count={}",
+            provider_count
         );
         Ok(self.effective_settings_view())
     }
 
-    pub fn update_agent_settings(
+    /// 用户配置板块统一保存入口：前端发 UserSettings 快照（user 层全量 + 板块
+    /// patch），这里做两类保护后直接落盘——
+    /// 1. WEB 非 admin GET 会剥掉调试字段，回传 serde 默认值会清掉服务端调试
+    ///    配置；非 admin 保存时用现有 user 值强改回（admin round-trip 正常更新）。
+    /// 2. WEB 非 admin 的 providers apiKey 被脱敏成 "****"/空，不能因此清掉用户
+    ///    加密保存的 key；空/脱敏时回填现有用户 key。
+    /// 平台注入 key 不进入 user 层（前端发的是 user 切片，本不含平台 key）。
+    pub fn update_user_settings(
         &self,
-        incoming: &ModelSettings,
+        mut incoming: UserSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
-        self.apply_session_platform_preferences(incoming)?;
-        let platform = self.platform_config.read().clone();
-        persist_local_platform_settings(&platform);
+        if incoming.theme.trim().is_empty() {
+            incoming.theme = "system".into();
+        }
+        let existing = self.load_user_settings();
+        if !self.active_platform_auth().is_platform_admin() {
+            crate::models::preserve_platform_debug_settings_in_user(&mut incoming, &existing);
+        }
+        // 后端内存 key 池：user 层现有 key（load 时已从 json 解密回填到内存）
+        // + platform 内存注入 key（OAuth / server.toml）。前端不回传原始 key：
+        // 用户没改提交空/"****"，这里从后端内存回填；用户显式输入的新 key
+        // 非空，直接落盘（不走回填）。
+        let mut key_pool: HashMap<String, String> = existing
+            .providers
+            .iter()
+            .map(|p| (p.id.clone(), p.api_key.clone()))
+            .collect();
+        for p in &self.platform_config.read().providers {
+            key_pool.entry(p.id.clone()).or_insert_with(|| p.api_key.clone());
+        }
+        for provider in &mut incoming.providers {
+            if provider.api_key.trim().is_empty() || provider.api_key.trim() == "****" {
+                if let Some(key) = key_pool.get(&provider.id) {
+                    provider.api_key = key.clone();
+                }
+            }
+        }
+        // 过滤 platform 独有项（source=platform 且 user 层没有）→ 不落盘：
+        // 平台注入的 key 不进 user 层，merged 视图每次从 platform 内存叠加。
+        // 用户编辑 platform 项保存时前端把它标成 source=user（fork）→ 正常落盘。
+        incoming.providers.retain(|p| {
+            existing.providers.iter().any(|e| e.id == p.id)
+                || p.source.as_deref() != Some("platform")
+        });
+        self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
-    }
-
-    pub fn apply_session_platform_preferences(
-        &self,
-        incoming: &ModelSettings,
-    ) -> anyhow::Result<()> {
-        let current = self.platform_config.read().clone();
-        let next = merge_platform_preferences(incoming, &current);
-        *self.platform_config.write() = next;
-        Ok(())
     }
 
     pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
         self.remember_automation_llm_creds(creds);
         let mut platform = self.platform_config.write();
-        apply_login_llm_provider_api_keys(&mut platform, &creds.provider_api_keys);
+        apply_login_llm_provider_api_keys(&mut platform.providers, &creds.provider_api_keys);
         apply_login_llm_credentials(
-            &mut platform,
+            &mut platform.providers,
             creds.api_key.as_deref(),
             creds.llm_provider.as_deref(),
         );
         if let Some(media) = creds.media_oss.as_ref() {
-            apply_login_media_oss(&mut platform, Some(media));
+            apply_login_media_oss(&mut platform.media_oss, Some(media));
         }
     }
 
@@ -1063,10 +1075,173 @@ mod active_main_task_board_tests {
         child
     }
 
+    /// Point `storage::data_dir()` at a fresh temp dir so AppState tests never
+    /// read/write the developer's real user_settings.json / provider_keys.enc.
+    struct TestDataDirGuard {
+        _dir: tempfile::TempDir,
+    }
+
+    fn isolate_app_data_dir() -> TestDataDirGuard {
+        let dir = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        TestDataDirGuard { _dir: dir }
+    }
+
+    #[test]
+    fn update_user_settings_preserves_encrypted_user_key_on_masked_roundtrip() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // 1. User types a key → encrypted into provider_keys.enc.
+        let mut user = state.load_user_settings();
+        user.providers[0].api_key = "sk-user-typed".into();
+        state.update_user_settings(user).expect("save typed key");
+        assert_eq!(
+            state.load_user_settings().providers[0].api_key,
+            "sk-user-typed"
+        );
+        // 2. WEB non-admin GET redacts apiKey to "****"; PUT round-trip must not
+        //    wipe the encrypted key (update_user_settings re-attaches existing).
+        let mut masked = state.load_user_settings();
+        for provider in &mut masked.providers {
+            provider.api_key = "****".into();
+        }
+        state.update_user_settings(masked).expect("save masked");
+        assert_eq!(
+            state.load_user_settings().providers[0].api_key,
+            "sk-user-typed"
+        );
+    }
+
+    #[test]
+    fn update_user_settings_empty_key_keeps_existing_encrypted_key() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        let mut user = state.load_user_settings();
+        user.providers[0].api_key = "sk-user-typed".into();
+        state.update_user_settings(user).expect("save typed key");
+        // Empty apiKey (client did not edit) keeps the previously encrypted key.
+        let mut blank = state.load_user_settings();
+        for provider in &mut blank.providers {
+            provider.api_key.clear();
+        }
+        state.update_user_settings(blank).expect("save blank");
+        assert_eq!(
+            state.load_user_settings().providers[0].api_key,
+            "sk-user-typed"
+        );
+    }
+
+    fn provider_fixture(id: &str, key: &str, source: Option<&str>) -> crate::models::ProviderConfig {
+        crate::models::ProviderConfig {
+            id: id.into(),
+            name: id.into(),
+            base_url: format!("https://{id}.example.com/v1"),
+            api_key: key.into(),
+            models: vec!["m1".into()],
+            model_configs: Default::default(),
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+            source: source.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn custom_provider_key_survives_blank_resave() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // 1. First save: custom provider with key.
+        let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("custom-a", "sk-custom-a", Some("user")));
+        state.update_user_settings(user).expect("save custom key");
+        // 2. Re-edit without typing key → front-end sends empty apiKey; backend
+        //    re-attaches from its in-memory key pool (persisted json → memory).
+        let mut blank = state.load_user_settings();
+        for p in &mut blank.providers {
+            if p.id == "custom-a" {
+                p.api_key.clear();
+            }
+        }
+        state.update_user_settings(blank).expect("save blank");
+        let after = state.load_user_settings();
+        let key = after
+            .providers
+            .iter()
+            .find(|p| p.id == "custom-a")
+            .unwrap()
+            .api_key
+            .clone();
+        assert_eq!(key, "sk-custom-a", "user-layer custom key must survive blank resave");
+    }
+
+    #[test]
+    fn platform_injected_provider_key_survives_blank_resave() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // Server.toml custom provider injected into platform (in-memory).
+        state
+            .platform_config
+            .write()
+            .providers
+            .push(provider_fixture("vllm-local", "sk-vllm", Some("platform")));
+        // Front-end merged view shows vllm-local (source=platform); user edits
+        // models only, sends blank key.
+        let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("vllm-local", "", Some("platform")));
+        state.update_user_settings(user).expect("save blank key");
+        // Platform-injected key must not be persisted into user layer…
+        let persisted = state.load_user_settings();
+        assert!(
+            !persisted.providers.iter().any(|p| p.id == "vllm-local"),
+            "platform-only provider must not be written into user layer"
+        );
+        // …but the merged/effective view must still expose it from platform memory.
+        let merged_key = state
+            .effective_settings()
+            .providers
+            .iter()
+            .find(|p| p.id == "vllm-local")
+            .unwrap()
+            .api_key
+            .clone();
+        assert_eq!(merged_key, "sk-vllm", "platform-injected key should survive blank resave");
+    }
+
+    #[test]
+    fn platform_provider_fork_with_new_key_persists_to_user_layer() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        // Server.toml custom provider injected into platform (in-memory).
+        state
+            .platform_config
+            .write()
+            .providers
+            .push(provider_fixture("vllm-local", "sk-vllm", Some("platform")));
+        // User edits the platform provider and explicitly types a new key → the
+        // front-end marks it source=user (fork) and submits the new key.
+        let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("vllm-local", "sk-user-new", Some("user")));
+        state.update_user_settings(user).expect("save fork");
+        // Forked provider persists with the user's explicit key.
+        let persisted = state.load_user_settings();
+        let p = persisted
+            .providers
+            .iter()
+            .find(|p| p.id == "vllm-local")
+            .unwrap();
+        assert_eq!(p.api_key, "sk-user-new");
+    }
+
     #[test]
     fn debug_session_settings_replace_runtime_model_configuration() {
+        let _guard = isolate_app_data_dir();
         let state = AppState::new();
-        let mut debug = DebugSessionSettings::from(state.platform_config.read().clone());
+        let merged = state.effective_settings();
+        let mut debug = DebugSessionSettings::from(&merged);
         let mut provider = debug.providers[0].clone();
         provider.id = "session-provider".into();
         provider.name = "Session Provider".into();
@@ -1119,32 +1294,20 @@ mod active_main_task_board_tests {
             .update_debug_session_settings(debug.clone())
             .expect("debug session update");
 
-        assert_eq!(view.platform.active_provider_id, "session-provider");
-        assert_eq!(view.platform.model, "session-chat");
-        assert_eq!(view.merged.model, "session-chat");
-        assert_eq!(state.effective_settings().model, "session-chat");
-        assert_eq!(view.platform.temperature, 0.42);
-        assert_eq!(view.platform.max_tokens, 4321);
+        // 会话级调试只更新 platform 内存 providers，不写入 user_settings.json。
         assert_eq!(
-            view.platform.computer_tier_llm["primary"].model,
-            "session-worker"
+            state.platform_config.read().providers[0].id,
+            "session-provider"
         );
-        assert_eq!(
-            view.platform.computer_pipeline_llm.decision,
-            "session-worker"
-        );
-        assert!(view
-            .platform
-            .agent_mode_llm
-            .values()
-            .flat_map(|modes| modes.values())
-            .all(|config| config.model == "session-worker"));
-        assert!(view
-            .platform
-            .media_mode_llm
-            .values()
-            .flat_map(|modes| modes.values())
-            .all(|config| config.model == "session-worker"));
+        assert_eq!(state.platform_config.read().providers.len(), 1);
+        // merged 仍来自持久化 user 层（平台默认），未被调试覆盖。
+        assert_ne!(view.merged.active_provider_id, "session-provider");
+        assert_ne!(view.merged.model, "session-chat");
+        // 持久化 user_settings 未被污染：providers 仍是默认 3 个平台服务商。
+        let persisted = state.load_user_settings();
+        assert_eq!(persisted.providers.len(), 3);
+        assert!(!persisted.providers.iter().any(|p| p.id == "session-provider"));
+        assert_ne!(persisted.active_provider_id, "session-provider");
     }
 
     #[test]

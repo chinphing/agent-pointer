@@ -177,7 +177,7 @@ function skillLabel(skillId: string): string {
                     >
                       <div class="flex items-center justify-between gap-2">
                         <h4 class="text-xs font-medium text-foreground">各模式对应模型（调试）</h4>
-                        <span class="text-[10px] text-muted">快速 / 标准 / 专家 各模式对应模型</span>
+                        <span class="text-[10px] text-muted">快速 / 标准 / 高级 各模式对应模型</span>
                       </div>
                       <div
                         v-for="mode in PERFORMANCE_MODE_UI"
@@ -186,11 +186,11 @@ function skillLabel(skillId: string): string {
                       >
                         <span class="text-[11px] text-muted font-medium">{{ mode.label }}</span>
                         <select
-                          :value="agentModeLlm(w.id, mode.value).model"
+                          :value="agentModeLlm(w.id, mode.value).providerId + ':' + agentModeLlm(w.id, mode.value).model"
                           class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                           @change="selectAgentModeModel(w.id, mode.value, ($event.target as HTMLSelectElement).value)"
                         >
-                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
                         <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
                           <input
@@ -219,7 +219,7 @@ function skillLabel(skillId: string): string {
                     >
                       <div class="flex items-center justify-between gap-2">
                         <h4 class="text-xs font-medium text-foreground">电脑操控各模式对应模型（调试）</h4>
-                        <span class="text-[10px] text-muted">快速 / 标准 / 专家 各模式对应模型与思考参数</span>
+                        <span class="text-[10px] text-muted">快速 / 标准 / 高级 各模式对应模型与思考参数</span>
                       </div>
                       <div
                         v-for="tier in COMPUTER_TIER_UI"
@@ -301,11 +301,11 @@ function skillLabel(skillId: string): string {
                   >
                     <span class="text-[11px] text-muted font-medium">{{ mode.label }}</span>
                     <select
-                      :value="mediaModeLlm(kind, mode.value).model"
+                      :value="mediaModeLlm(kind, mode.value).providerId + ':' + mediaModeLlm(kind, mode.value).model"
                       class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                       @change="selectMediaModeModel(kind, mode.value, ($event.target as HTMLSelectElement).value)"
                     >
-                      <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                      <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                     </select>
                     <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
                       <input

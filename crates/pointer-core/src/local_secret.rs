@@ -48,10 +48,6 @@ fn derive_key_with_info(info: &[u8]) -> [u8; 32] {
     key
 }
 
-fn derive_key() -> [u8; 32] {
-    derive_key_with_info(b"auth-refresh-token")
-}
-
 /// HMAC key for public media download tokens (separate from auth.dat key).
 pub fn derive_media_download_key() -> Result<[u8; 32]> {
     Ok(derive_key_with_info(b"media-public-download-v1"))
@@ -59,7 +55,13 @@ pub fn derive_media_download_key() -> Result<[u8; 32]> {
 
 /// Encrypt plaintext for local storage. Output: `version(1B)` + `nonce(12B)` + ciphertext+tag.
 pub fn encrypt_local_secret(plaintext: &str) -> Result<Vec<u8>> {
-    let key = derive_key();
+    encrypt_local_secret_with_info(plaintext, b"auth-refresh-token")
+}
+
+/// Encrypt with a purpose-specific derived key (e.g. user provider keys),
+/// isolated from the `auth.dat` key so files are not interchangeable.
+pub fn encrypt_local_secret_with_info(plaintext: &str, info: &[u8]) -> Result<Vec<u8>> {
+    let key = derive_key_with_info(info);
     let cipher = Aes256Gcm::new_from_slice(&key).context("AES key init")?;
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce_bytes);
@@ -76,6 +78,11 @@ pub fn encrypt_local_secret(plaintext: &str) -> Result<Vec<u8>> {
 
 /// Decrypt blob written by [`encrypt_local_secret`].
 pub fn decrypt_local_secret(blob: &[u8]) -> Result<String> {
+    decrypt_local_secret_with_info(blob, b"auth-refresh-token")
+}
+
+/// Decrypt with the matching purpose-specific derived key.
+pub fn decrypt_local_secret_with_info(blob: &[u8], info: &[u8]) -> Result<String> {
     if blob.is_empty() {
         return Err(anyhow!("empty auth blob"));
     }
@@ -87,7 +94,7 @@ pub fn decrypt_local_secret(blob: &[u8]) -> Result<String> {
     }
     let nonce = Nonce::from_slice(&blob[1..1 + NONCE_LEN]);
     let ciphertext = &blob[1 + NONCE_LEN..];
-    let key = derive_key();
+    let key = derive_key_with_info(info);
     let cipher = Aes256Gcm::new_from_slice(&key).context("AES key init")?;
     let plain = cipher
         .decrypt(nonce, ciphertext)
@@ -105,6 +112,16 @@ mod tests {
         assert_eq!(blob[0], FILE_VERSION);
         let plain = decrypt_local_secret(&blob).unwrap();
         assert_eq!(plain, "refresh-token-abc");
+    }
+
+    #[test]
+    fn encrypt_decrypt_roundtrip_with_info() {
+        let blob = encrypt_local_secret_with_info("sk-user-typed", b"provider-api-keys-v1").unwrap();
+        let plain =
+            decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1").unwrap();
+        assert_eq!(plain, "sk-user-typed");
+        // Purpose-scoped key isolation: cannot decrypt with the auth.dat info.
+        assert!(decrypt_local_secret_with_info(&blob, b"auth-refresh-token").is_err());
     }
 
     #[test]

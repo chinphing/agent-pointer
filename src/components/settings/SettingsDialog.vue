@@ -180,21 +180,28 @@ onMounted(() => {
             />
           </button>
         </div>
-        <button
-          type="button"
-          class="h-8 px-2 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center gap-1 cursor-pointer"
-          title="返回聊天"
-          aria-label="返回聊天"
-          @click="emit('close')"
-        >
-          <ArrowLeft class="w-4 h-4" />
-          <span class="text-xs">返回</span>
-        </button>
       </WindowDragRegion>
 
       <div class="flex flex-1 min-h-0">
         <!-- Sidebar -->
         <aside class="w-56 shrink-0 border-r border-border p-3 bg-[hsl(var(--card-elevated))]">
+          <!-- 返回按钮：仿栏位结构但弱化（muted 色、hover 才加深，不参与选中态） -->
+          <button
+            type="button"
+            class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
+            title="返回聊天"
+            aria-label="返回聊天"
+            @click="emit('close')"
+          >
+            <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors bg-hover/40 group-hover:bg-hover/80">
+              <ArrowLeft class="w-3.5 h-3.5 text-muted/70 group-hover:text-foreground/80" />
+            </div>
+            <span class="min-w-0">
+              <span class="block text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回</span>
+              <span class="block text-[11px] text-muted/60 truncate">返回聊天</span>
+            </span>
+          </button>
+          <div class="my-2 h-px bg-border/60" />
           <template v-for="(group, groupIndex) in sections" :key="groupIndex">
             <div v-if="groupIndex > 0" class="my-2 h-px bg-border/60" />
             <button

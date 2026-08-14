@@ -273,8 +273,10 @@ async function boot() {
   if (opening) return opening
   opening = (async () => {
     await ensureTerminal()
-    await renderTab()
+    // PTY 初始使用 80×24 创建；必须先同步实际尺寸，避免先画出旧尺寸
+    // 的提示符、再让 shell 因 SIGWINCH 重绘，从而留下顶部残影。
     await syncSize()
+    await renderTab()
   })()
   return opening
 }

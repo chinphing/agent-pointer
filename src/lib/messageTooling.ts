@@ -126,6 +126,12 @@ export function taskBoardToolSummary(result: string | undefined): string | null 
       ?? parsed.document?.board?.length
       ?? parsed.summary?.count
     if (typeof boardLen === 'number') return `共 ${boardLen} 里程碑`
+    // 只有 JSON 里确实出现任务板相关字段才生成摘要；否则（如 ask_user 的
+    // {"selected": ...}）返回 null，避免把任意工具 result 误显示成"任务板 · …"。
+    const hasBoardShape =
+      typeof parsed.method === 'string'
+      || typeof parsed.summary?.method === 'string'
+    if (!hasBoardShape) return null
     const method = parsed.method ?? parsed.summary?.method ?? 'update'
     return `任务板 · ${method}`
   } catch {

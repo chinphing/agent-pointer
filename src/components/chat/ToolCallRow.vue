@@ -56,7 +56,14 @@ const videoGenerateDuration = computed(() => {
   } catch { /* ignore */ }
   return null
 })
-const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
+const boardSummary = computed(() => {
+  // 只对 task_board 系列工具解析 result；其他工具（如 ask_user 的
+  // {"selected": ...}）绝不能误显示成"任务板 · …"。
+  const name = props.toolCall.name
+  const base = name.indexOf(':') === -1 ? name : name.slice(0, name.indexOf(':'))
+  if (!base.startsWith('task_board')) return null
+  return taskBoardToolSummary(props.toolCall.result)
+})
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
 const displaySummary = computed(() => {

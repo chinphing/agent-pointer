@@ -1463,7 +1463,19 @@ export const useChatStore = defineStore('chat', () => {
       console.warn('[chat] loadOlderMessages: missing conversation', convId)
       return false
     }
-    const state = messagePageState(convId)
+    let state = messagePageState(convId)
+    // Self-heal: newConversation marks the conversation hydrated without ever
+    // running a paging baseline, so a long-lived session (streamed for hours,
+    // context-compressed many times) has no messagePageState. Without this,
+    // scrolling up short-circuits on `!state?.hasMoreOlder` and never fetches
+    // earlier history. Establish an authoritative tail baseline first.
+    if (!state && conv.messages.length > 0) {
+      console.info('[chat] loadOlderMessages: no paging baseline, hydrating first', convId)
+      const ok = await ensureMessagesLoaded(convId, { force: true })
+      if (!ok) return false
+      state = messagePageState(convId)
+      if (!state) return false
+    }
     if (!state?.hasMoreOlder || state.oldestPosition == null) {
       console.info('[chat] loadOlderMessages: nothing older', convId)
       return false

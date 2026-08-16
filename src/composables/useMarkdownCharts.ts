@@ -406,8 +406,54 @@ export function useMarkdownCharts(
 
       const themed = applyChartTheme(parsed.config)
       // Size the canvas from the laid-out box before Chart.js reads it (WKWebView).
-      const w = Math.max(1, Math.floor(box.clientWidth || box.getBoundingClientRect().width))
-      const h = Math.max(1, Math.floor(box.clientHeight || 360))
+      let w = Math.max(0, Math.floor(box.clientWidth || box.getBoundingClientRect().width))
+      let h = Math.max(0, Math.floor(box.clientHeight || 360))
+      // First paint inside a not-yet-laid-out host → 0×0 canvas looks blank.
+      // Wait one frame (and ResizeObserver) before constructing Chart.js.
+      if (w < 8 || h < 8) {
+        await new Promise<void>(resolve => {
+          let settled = false
+          const done = () => {
+            if (settled) return
+            settled = true
+            resolve()
+          }
+          const ro =
+            typeof ResizeObserver !== 'undefined'
+              ? new ResizeObserver(() => {
+                  const nw = Math.floor(box.clientWidth || 0)
+                  const nh = Math.floor(box.clientHeight || 0)
+                  if (nw >= 8 && nh >= 8) {
+                    ro?.disconnect()
+                    done()
+                  }
+                })
+              : null
+          ro?.observe(box)
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const nw = Math.floor(box.clientWidth || 0)
+              const nh = Math.floor(box.clientHeight || 0)
+              if (nw >= 8 && nh >= 8) {
+                ro?.disconnect()
+                done()
+              } else {
+                // Give layout a bit longer; still proceed so we never hang forever.
+                window.setTimeout(() => {
+                  ro?.disconnect()
+                  done()
+                }, 120)
+              }
+            })
+          })
+        })
+        if (host.getAttribute('data-chart-config') !== encoded) return
+        w = Math.max(1, Math.floor(box.clientWidth || box.getBoundingClientRect().width))
+        h = Math.max(1, Math.floor(box.clientHeight || 360))
+      } else {
+        w = Math.max(1, w)
+        h = Math.max(1, h)
+      }
       canvas.style.width = `${w}px`
       canvas.style.height = `${h}px`
       const chart = new Chart(canvas, themed as never)

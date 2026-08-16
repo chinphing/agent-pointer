@@ -36,6 +36,8 @@ let themeObserver: MutationObserver | null = null
 let opening: Promise<void> | null = null
 let renderedSessionId = ''
 let renderedOutputLength = 0
+/** 已执行过一次「清屏+重绘」的会话 id；避免切换 tab 时重复清理或丢失历史输出。 */
+const cleanedSessionIds = new Set<string>()
 let removeSelectionGuard: (() => void) | null = null
 let imeGuard: TerminalImeGuard | null = null
 /** True between primary-button mousedown and mouseup on the terminal. */
@@ -140,6 +142,9 @@ async function ensureTerminal() {
   await nextTick()
   await settleTerminalLayout()
   fitAddon.fit()
+  // 尺寸统一由 boot() 的 syncSize 推给 PTY（fit 后立即、且只推一次）：
+  // 这里若再发一次 resize，会多触发一次 SIGWINCH，使 shell 额外重绘一次
+  // prompt，output 里累积多份（重复提示符的根源之一）。
   installViewportScrollFallback()
 }
 
@@ -272,13 +277,49 @@ async function renderTab() {
 async function boot() {
   if (opening) return opening
   opening = (async () => {
-    await ensureTerminal()
-    // PTY 初始使用 80×24 创建；必须先同步实际尺寸，避免先画出旧尺寸
-    // 的提示符、再让 shell 因 SIGWINCH 重绘，从而留下顶部残影。
-    await syncSize()
-    await renderTab()
+    try {
+      await ensureTerminal()
+      // PTY 初始使用 80×24 创建；必须先同步实际尺寸，避免先画出旧尺寸
+      // 的提示符、再让 shell 因 SIGWINCH 重绘，从而留下顶部残影。
+      await syncSize()
+      const current = tab.value
+      // 每个会话只在首次渲染时清理一次：PTY 以 80×24 创建，zsh 已按旧宽度
+      // 打印 prompt；resize 后 zsh 又 SIGWINCH 重绘，output 里可能有两份。
+      // 等待这些 resize 相关的重绘输出稳定到达 store 后，把清理点设在其后，
+      // 再发 Ctrl-L 让 shell 用当前尺寸重绘一次干净 prompt（唯一增量）。
+      if (current && terminal && !cleanedSessionIds.has(current.id)) {
+        cleanedSessionIds.add(current.id)
+        await waitForOutputSettled(current)
+        const baseLen = current.output.length
+        terminal.write('\x1b[2J\x1b[3J\x1b[H')
+        renderedSessionId = current.id
+        renderedOutputLength = baseLen
+        await consoleStore.write(current.id, '\x0c')
+      }
+      await renderTab()
+    } finally {
+      opening = null
+    }
   })()
   return opening
+}
+
+/** 等待会话 output 长度稳定（resize 触发的 SIGWINCH 重绘全部到达 store）。
+ *  要求连续 ~100ms 长度不变，避免「初始 prompt 已到、重绘未到」的间隙误判。 */
+async function waitForOutputSettled(tab: { output: string }, timeoutMs = 600) {
+  const start = performance.now()
+  let last = tab.output.length
+  let stableMs = 0
+  while (performance.now() - start < timeoutMs) {
+    await new Promise<void>(resolve => setTimeout(resolve, 16))
+    if (tab.output.length === last) {
+      stableMs += 16
+      if (stableMs >= 96) return
+    } else {
+      stableMs = 0
+      last = tab.output.length
+    }
+  }
 }
 
 function focusPane() {

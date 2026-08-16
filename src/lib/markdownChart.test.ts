@@ -37,6 +37,42 @@ describe('markdownChart', () => {
     }
   })
 
+  it('flips long Chinese category labels to horizontal bars', () => {
+    const sanitized = sanitizeChartConfig({
+      type: 'bar',
+      data: {
+        labels: [
+          '已匹配（✅）',
+          '已剔除（⛔）',
+          '已匹配+已剔除',
+          '凭证总额',
+          '未匹配发票的凭证小计',
+          '未匹配凭证的发票小计',
+        ],
+        datasets: [{ label: '金额（元）', data: [2496, 960, 3456, 4686, 1230, 0] }],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } },
+      },
+    })
+    expect((sanitized.options as { indexAxis?: string }).indexAxis).toBe('y')
+    const scales = (sanitized.options as { scales?: Record<string, Record<string, unknown>> }).scales
+    expect(scales?.x?.beginAtZero).toBe(true)
+    expect(scales?.y?.beginAtZero).toBeUndefined()
+  })
+
+  it('keeps short-label vertical bars', () => {
+    const sanitized = sanitizeChartConfig({
+      type: 'bar',
+      data: {
+        labels: ['A', 'B', 'C'],
+        datasets: [{ data: [1, 2, 3] }],
+      },
+    })
+    expect((sanitized.options as { indexAxis?: string } | undefined)?.indexAxis).toBeUndefined()
+  })
+
   it('rejects missing type/data and invalid json', () => {
     expect(tryParseChartConfig('{').ok).toBe(false)
     expect(tryParseChartConfig('{"data":{}}').ok).toBe(false)

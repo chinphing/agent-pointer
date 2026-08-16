@@ -340,6 +340,43 @@ function chartIndexAxis(config: ChartJsConfig): 'x' | 'y' {
   return opts.indexAxis === 'y' ? 'y' : 'x'
 }
 
+function categoryLabelLength(label: unknown): number {
+  return Array.from(String(label ?? '')).length
+}
+
+/**
+ * Vertical bars + long Chinese category labels collapse the plot (labels eat
+ * the 360px height). Auto-flip to horizontal unless the model set indexAxis.
+ */
+function preferHorizontalBarForLongLabels(config: ChartJsConfig): ChartJsConfig {
+  if (String(config.type || '').toLowerCase() !== 'bar') return config
+  const opts = isPlainObject(config.options) ? { ...config.options } : {}
+  if (opts.indexAxis === 'x' || opts.indexAxis === 'y') return config
+  const labels =
+    isPlainObject(config.data) && Array.isArray(config.data.labels) ? config.data.labels : []
+  if (labels.length < 2) return config
+  const maxLen = Math.max(0, ...labels.map(categoryLabelLength))
+  // Long names (报销口径) or many mid-length labels → horizontal.
+  if (!(maxLen >= 8 || (labels.length >= 4 && maxLen >= 6))) return config
+
+  opts.indexAxis = 'y'
+  // Model often puts beginAtZero on y for vertical bars; after flip the value
+  // axis is x — move the flag so the scale still starts at zero.
+  if (isPlainObject(opts.scales)) {
+    const scales = { ...opts.scales }
+    const yScale = isPlainObject(scales.y) ? { ...scales.y } : null
+    const xScale = isPlainObject(scales.x) ? { ...scales.x } : {}
+    if (yScale && yScale.beginAtZero === true && xScale.beginAtZero == null) {
+      xScale.beginAtZero = true
+      delete yScale.beginAtZero
+      scales.x = xScale
+      scales.y = yScale
+      opts.scales = scales
+    }
+  }
+  return { ...config, options: opts }
+}
+
 /** Ensure scale numeric fields are real numbers (not numeric strings). */
 function forceNumericScaleBounds(scale: Record<string, unknown>): Record<string, unknown> {
   const next = { ...scale }
@@ -599,6 +636,8 @@ export function sanitizeChartConfig(config: ChartJsConfig): ChartJsConfig {
   const useHostPalette = wantsHostSeriesPalette(cloned)
   // Host-only flag — not a Chart.js field.
   delete cloned.pointerPalette
+
+  cloned = preferHorizontalBarForLongLabels(cloned)
 
   if (isPlainObject(cloned.data) && Array.isArray(cloned.data.datasets)) {
     cloned.data = {

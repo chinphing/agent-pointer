@@ -64,7 +64,14 @@ pub struct ConsoleSessionManager {
 }
 
 impl ConsoleSessionManager {
-    pub fn create(&self, workspace_root: &str, conversation_id: &str, cwd: Option<&str>, cols: u16, rows: u16) -> Result<ConsoleSessionInfo> {
+    pub fn create(
+        &self,
+        workspace_root: &str,
+        conversation_id: &str,
+        cwd: Option<&str>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<ConsoleSessionInfo> {
         let workspace_root = normalize_directory(workspace_root, "工作区目录")?;
         let cwd = match cwd.map(str::trim).filter(|value| !value.is_empty()) {
             Some(value) => normalize_directory(value, "终端目录")?,
@@ -79,7 +86,9 @@ impl ConsoleSessionManager {
         };
         let session = Arc::new(spawn_console_session(info, cols, rows)?);
         let response = session.info.clone();
-        self.sessions.lock().insert(response.id.clone(), session.clone());
+        self.sessions
+            .lock()
+            .insert(response.id.clone(), session.clone());
         spawn_output_reader(session);
         Ok(response)
     }
@@ -164,8 +173,16 @@ fn directory_label(cwd: &str) -> String {
 
 fn normalize_size(cols: u16, rows: u16) -> PtySize {
     PtySize {
-        cols: if cols == 0 { DEFAULT_COLS } else { cols.min(MAX_COLS) },
-        rows: if rows == 0 { DEFAULT_ROWS } else { rows.min(MAX_ROWS) },
+        cols: if cols == 0 {
+            DEFAULT_COLS
+        } else {
+            cols.min(MAX_COLS)
+        },
+        rows: if rows == 0 {
+            DEFAULT_ROWS
+        } else {
+            rows.min(MAX_ROWS)
+        },
         pixel_width: 0,
         pixel_height: 0,
     }
@@ -274,7 +291,12 @@ fn spawn_output_reader(session: Arc<ConsoleSession>) {
         }
         let tail = crate::windows_shell_encoding::decode_utf8_finish(&mut carry);
         session.emit_output(tail);
-        let exit_code = session.child.lock().wait().ok().map(|status| status.exit_code() as i32);
+        let exit_code = session
+            .child
+            .lock()
+            .wait()
+            .ok()
+            .map(|status| status.exit_code() as i32);
         publish_global_stream(StreamEvent::ConsoleSessionExited {
             session_id: session.info.id.clone(),
             workspace_root: session.info.workspace_root.clone(),
@@ -296,17 +318,33 @@ mod tests {
         let root = tempfile::tempdir().expect("workspace");
         let manager = ConsoleSessionManager::default();
         let first = manager
-            .create(root.path().to_str().expect("utf8 path"), "test-conversation", None, 100, 40)
+            .create(
+                root.path().to_str().expect("utf8 path"),
+                "test-conversation",
+                None,
+                100,
+                40,
+            )
             .expect("create first shell");
         let second = manager
-            .create(root.path().to_str().expect("utf8 path"), "test-conversation", None, 80, 24)
+            .create(
+                root.path().to_str().expect("utf8 path"),
+                "test-conversation",
+                None,
+                80,
+                24,
+            )
             .expect("create second shell");
         assert_ne!(first.id, second.id);
         assert_eq!(first.cwd, second.cwd);
-        manager.write(&first.id, "echo first\r").expect("write first");
+        manager
+            .write(&first.id, "echo first\r")
+            .expect("write first");
         manager.resize(&second.id, 120, 50).expect("resize second");
         assert!(manager.close(&first.id));
-        manager.write(&second.id, "echo second\r").expect("second remains alive");
+        manager
+            .write(&second.id, "echo second\r")
+            .expect("second remains alive");
         assert!(manager.close(&second.id));
     }
 
@@ -325,7 +363,11 @@ mod tests {
             conversation_id: "test-conversation".into(),
         };
         let session = spawn_console_session(info, 100, 40).expect("spawn shell");
-        let mut reader = session.master.lock().try_clone_reader().expect("clone reader");
+        let mut reader = session
+            .master
+            .lock()
+            .try_clone_reader()
+            .expect("clone reader");
         let mut sink = String::new();
         {
             let mut writer = session.writer.lock();
@@ -341,7 +383,9 @@ mod tests {
                     break;
                 }
             }
-            writer.write_all("echo 中文往返测试\r".as_bytes()).expect("write utf8");
+            writer
+                .write_all("echo 中文往返测试\r".as_bytes())
+                .expect("write utf8");
             writer.flush().expect("flush writer");
         }
         let mut echoed = String::new();

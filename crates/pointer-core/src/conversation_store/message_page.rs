@@ -64,7 +64,11 @@ fn probe_window_tail(probe: &[AnchorProbeRow], limit_turns: u32) -> ProbeWindow 
         };
     }
     let first_turn = probe.len().saturating_sub(n);
-    let start_position = if first_turn == 0 { 0 } else { probe[first_turn].position };
+    let start_position = if first_turn == 0 {
+        0
+    } else {
+        probe[first_turn].position
+    };
     let has_more_older = first_turn > 0;
     ProbeWindow {
         start_position,
@@ -105,7 +109,11 @@ fn probe_window_before(
     }
     let n = limit_turns.max(1) as usize;
     let first_turn = end_idx.saturating_sub(n);
-    let start_position = if first_turn == 0 { 0 } else { probe[first_turn].position };
+    let start_position = if first_turn == 0 {
+        0
+    } else {
+        probe[first_turn].position
+    };
     let has_more_older = first_turn > 0;
     ProbeWindow {
         start_position,
@@ -141,7 +149,11 @@ fn probe_window_around(
     let first_turn = turn_idx.saturating_sub(before);
     let last_turn = (turn_idx + after).min(probe.len().saturating_sub(1));
 
-    let start_position = if first_turn == 0 { 0 } else { probe[first_turn].position };
+    let start_position = if first_turn == 0 {
+        0
+    } else {
+        probe[first_turn].position
+    };
     let end_position = probe
         .get(last_turn + 1)
         .map(|row| row.position)
@@ -179,14 +191,21 @@ fn probe_window_from_rows(
         .filter(|s| !s.is_empty());
 
     if let Some(message_id) = around {
-        let turns = if limit == 0 { DEFAULT_MESSAGE_PAGE_TURNS } else { limit };
-        let target_position = around_target_position.ok_or_else(|| {
-            anyhow!("around_message_id not found: {message_id}")
-        })?;
+        let turns = if limit == 0 {
+            DEFAULT_MESSAGE_PAGE_TURNS
+        } else {
+            limit
+        };
+        let target_position = around_target_position
+            .ok_or_else(|| anyhow!("around_message_id not found: {message_id}"))?;
         return Ok(probe_window_around(probe, target_position, turns));
     }
     if let Some(_before) = opts.before_position {
-        let turns = if limit == 0 { DEFAULT_MESSAGE_PAGE_TURNS } else { limit };
+        let turns = if limit == 0 {
+            DEFAULT_MESSAGE_PAGE_TURNS
+        } else {
+            limit
+        };
         let end_position = before_end_position.unwrap_or(i64::MAX);
         return Ok(probe_window_before(probe, end_position, turns));
     }
@@ -223,36 +242,32 @@ pub fn load_messages_page(
         Some(message_id) => persist::message_position(conn, conversation_id, message_id)?,
         None => None,
     };
-    let window = probe_window_from_rows(
-        &probe,
-        opts,
-        before_end_position,
-        around_target_position,
-    )?;
+    let window = probe_window_from_rows(&probe, opts, before_end_position, around_target_position)?;
 
-    let (messages, positions, loaded_first, loaded_last) = if window.start_position >= window.end_position {
-        (Vec::new(), Vec::new(), None, None)
-    } else {
-        let rows = persist::load_messages_in_position_range(
-            conn,
-            conversation_id,
-            window.start_position,
-            window.end_position,
-        )?;
-        let mut msgs = Vec::with_capacity(rows.len());
-        let mut poss = Vec::with_capacity(rows.len());
-        let mut first = None;
-        let mut last = None;
-        for (i, (pos, msg)) in rows.into_iter().enumerate() {
-            if i == 0 {
-                first = Some(pos);
+    let (messages, positions, loaded_first, loaded_last) =
+        if window.start_position >= window.end_position {
+            (Vec::new(), Vec::new(), None, None)
+        } else {
+            let rows = persist::load_messages_in_position_range(
+                conn,
+                conversation_id,
+                window.start_position,
+                window.end_position,
+            )?;
+            let mut msgs = Vec::with_capacity(rows.len());
+            let mut poss = Vec::with_capacity(rows.len());
+            let mut first = None;
+            let mut last = None;
+            for (i, (pos, msg)) in rows.into_iter().enumerate() {
+                if i == 0 {
+                    first = Some(pos);
+                }
+                last = Some(pos);
+                msgs.push(msg);
+                poss.push(pos);
             }
-            last = Some(pos);
-            msgs.push(msg);
-            poss.push(pos);
-        }
-        (msgs, poss, first, last)
-    };
+            (msgs, poss, first, last)
+        };
 
     // Total transcript size is a separate scalar (anchors alone don't count
     // assistant/tool rows; frontend uses it for hydration checks).
@@ -287,7 +302,7 @@ pub fn load_messages_page(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{is_scoped_sub_message, Role, ChatMessage};
+    use crate::models::{is_scoped_sub_message, ChatMessage, Role};
     use crate::task_board::history_trim::is_real_user_task_message;
 
     // ── Reference implementation (full-rows in memory) ──
@@ -305,10 +320,7 @@ mod tests {
     }
 
     fn turn_end_exclusive(anchors: &[usize], turn_idx: usize, row_len: usize) -> usize {
-        anchors
-            .get(turn_idx + 1)
-            .copied()
-            .unwrap_or(row_len)
+        anchors.get(turn_idx + 1).copied().unwrap_or(row_len)
     }
 
     fn slice_page(
@@ -348,7 +360,11 @@ mod tests {
         slice_page(rows, start, rows.len(), has_more_older, false)
     }
 
-    fn page_before(rows: &[(i64, ChatMessage)], before_position: i64, limit_turns: u32) -> MessagePage {
+    fn page_before(
+        rows: &[(i64, ChatMessage)],
+        before_position: i64,
+        limit_turns: u32,
+    ) -> MessagePage {
         let end = rows
             .iter()
             .position(|(pos, _)| *pos >= before_position)
@@ -366,7 +382,11 @@ mod tests {
 
         let n = limit_turns.max(1) as usize;
         let first_turn = anchors.len().saturating_sub(n);
-        let start = if first_turn == 0 { 0 } else { anchors[first_turn] };
+        let start = if first_turn == 0 {
+            0
+        } else {
+            anchors[first_turn]
+        };
         let has_more_older = first_turn > 0;
         slice_page(rows, start, end, has_more_older, true)
     }
@@ -397,7 +417,11 @@ mod tests {
         let first_turn = turn_idx.saturating_sub(before);
         let last_turn = (turn_idx + after).min(anchors.len().saturating_sub(1));
 
-        let start = if first_turn == 0 { 0 } else { anchors[first_turn] };
+        let start = if first_turn == 0 {
+            0
+        } else {
+            anchors[first_turn]
+        };
         let end = turn_end_exclusive(&anchors, last_turn, rows.len());
         let has_more_older = first_turn > 0;
         let has_more_newer = last_turn + 1 < anchors.len() || end < rows.len();
@@ -430,11 +454,23 @@ mod tests {
             .filter(|s| !s.is_empty());
 
         if let Some(message_id) = around {
-            return page_around(rows, message_id, if limit == 0 { DEFAULT_MESSAGE_PAGE_TURNS } else { limit });
+            return page_around(
+                rows,
+                message_id,
+                if limit == 0 {
+                    DEFAULT_MESSAGE_PAGE_TURNS
+                } else {
+                    limit
+                },
+            );
         }
 
         if let Some(before) = opts.before_position {
-            let turns = if limit == 0 { DEFAULT_MESSAGE_PAGE_TURNS } else { limit };
+            let turns = if limit == 0 {
+                DEFAULT_MESSAGE_PAGE_TURNS
+            } else {
+                limit
+            };
             return Ok(page_before(rows, before, turns));
         }
 
@@ -510,7 +546,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            page.messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            page.messages
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["u2", "a2", "u3", "a3"]
         );
         assert!(page.has_more_older);
@@ -551,7 +590,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            page.messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            page.messages
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["u2", "a2"]
         );
         assert!(page.has_more_older);
@@ -632,9 +674,7 @@ mod tests {
     fn probe_from_rows(rows: &[(i64, ChatMessage)]) -> Vec<AnchorProbeRow> {
         rows.iter()
             .filter(|(_, msg)| is_user_anchor(msg))
-            .map(|(pos, _)| AnchorProbeRow {
-                position: *pos,
-            })
+            .map(|(pos, _)| AnchorProbeRow { position: *pos })
             .collect()
     }
 
@@ -654,7 +694,9 @@ mod tests {
     fn assert_window_matches(rows: &[(i64, ChatMessage)], opts: &LoadMessagesPageOpts) {
         let reference = page_from_positioned(rows, opts).unwrap();
         let probe = probe_from_rows(rows);
-        let before_end = opts.before_position.and_then(|b| before_end_position_for(rows, b));
+        let before_end = opts
+            .before_position
+            .and_then(|b| before_end_position_for(rows, b));
         let around_target = opts
             .around_message_id
             .as_deref()
@@ -662,23 +704,23 @@ mod tests {
         let window = probe_window_from_rows(&probe, opts, before_end, around_target).unwrap();
         let ids: Vec<&str> = rows
             .iter()
-            .filter(|(pos, _)| {
-                *pos >= window.start_position && *pos < window.end_position
-            })
+            .filter(|(pos, _)| *pos >= window.start_position && *pos < window.end_position)
             .map(|(_, m)| m.id.as_str())
             .collect();
-        let reference_ids: Vec<&str> = reference
-            .messages
-            .iter()
-            .map(|m| m.id.as_str())
-            .collect();
+        let reference_ids: Vec<&str> = reference.messages.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(
             ids, reference_ids,
             "window mismatch for opts={opts:?} (full={:?})",
             reference_ids
         );
-        assert_eq!(window.has_more_older, reference.has_more_older, "has_more_older opts={opts:?}");
-        assert_eq!(window.has_more_newer, reference.has_more_newer, "has_more_newer opts={opts:?}");
+        assert_eq!(
+            window.has_more_older, reference.has_more_older,
+            "has_more_older opts={opts:?}"
+        );
+        assert_eq!(
+            window.has_more_newer, reference.has_more_newer,
+            "has_more_newer opts={opts:?}"
+        );
         assert_eq!(
             rows.iter()
                 .find(|(p, _)| *p >= window.start_position)
@@ -688,9 +730,7 @@ mod tests {
         );
         assert_eq!(
             rows.iter()
-                .filter(|(pos, _)| {
-                    *pos >= window.start_position && *pos < window.end_position
-                })
+                .filter(|(pos, _)| { *pos >= window.start_position && *pos < window.end_position })
                 .last()
                 .map(|(p, _)| *p),
             reference.newest_position,
@@ -715,9 +755,18 @@ mod tests {
         ]);
         let cases = [
             LoadMessagesPageOpts::default(),
-            LoadMessagesPageOpts { limit_turns: Some(0), ..Default::default() },
-            LoadMessagesPageOpts { limit_turns: Some(2), ..Default::default() },
-            LoadMessagesPageOpts { limit_turns: Some(8), ..Default::default() },
+            LoadMessagesPageOpts {
+                limit_turns: Some(0),
+                ..Default::default()
+            },
+            LoadMessagesPageOpts {
+                limit_turns: Some(2),
+                ..Default::default()
+            },
+            LoadMessagesPageOpts {
+                limit_turns: Some(8),
+                ..Default::default()
+            },
             LoadMessagesPageOpts {
                 limit_turns: Some(2),
                 before_position: Some(4),
@@ -746,7 +795,8 @@ mod tests {
 
     #[test]
     fn probe_window_empty_transcript() {
-        let window = probe_window_from_rows(&[], &LoadMessagesPageOpts::default(), None, None).unwrap();
+        let window =
+            probe_window_from_rows(&[], &LoadMessagesPageOpts::default(), None, None).unwrap();
         assert_eq!((window.start_position, window.end_position), (0, i64::MAX));
         assert!(!window.has_more_older);
         assert!(!window.has_more_newer);

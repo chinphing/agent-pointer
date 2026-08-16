@@ -174,9 +174,9 @@ histories             : HashMap<ComputerTier, Vec<TierActionRecord>> 每个 tier
 代码：`tier/mod.rs:17-24`
 
 ```rust
-DEFAULT_MODEL_PRIMARY       = "qwen3.5-flash"
-DEFAULT_MODEL_INTERMEDIATE  = "qwen3.5-plus"
-DEFAULT_MODEL_ADVANCED      = "qwen3.6-plus"
+DEFAULT_MODEL_PRIMARY       = ""   // 平台模型配置全部由平台下发（tierDefaults.computerTierLlm）
+DEFAULT_MODEL_INTERMEDIATE  = ""
+DEFAULT_MODEL_ADVANCED      = ""
 PRIMARY_INTERMEDIATE_THINKING_BUDGET = 2048
 ADVANCED_THINKING_BUDGET            = 8192
 ```

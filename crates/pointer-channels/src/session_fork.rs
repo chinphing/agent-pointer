@@ -47,6 +47,7 @@ pub fn fork_im_desktop_session(
         workspace_inherit_disabled: false,
         lead_agent_id: lead_agent_id.clone(),
         agent_mode: agent_mode.clone(),
+        performance_mode: None,
         message_count: 0,
         preview: String::new(),
         session_user_id,

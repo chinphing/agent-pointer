@@ -46,10 +46,7 @@ impl Default for TaskBoardStore {
 }
 
 fn is_terminal(doc: &BoardDocument) -> bool {
-    matches!(
-        doc.meta.status,
-        MetaStatus::Completed | MetaStatus::Failed
-    )
+    matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed)
 }
 
 impl TaskBoardStore {
@@ -334,9 +331,7 @@ mod eviction_tests {
     fn backdate(store: &TaskBoardStore, key: &str, age: Duration) {
         let mut inner = store.inner.write();
         let entry = inner.get_mut(key).expect("cached");
-        entry.last_accessed = Instant::now()
-            .checked_sub(age)
-            .expect("instant backdate");
+        entry.last_accessed = Instant::now().checked_sub(age).expect("instant backdate");
     }
 
     #[test]
@@ -372,11 +367,7 @@ mod eviction_tests {
         let (_dir, store) = persist_store();
         let key = "idle-board";
         store
-            .apply(
-                key,
-                "init",
-                &json!({ "goal": "g", "items": [] }),
-            )
+            .apply(key, "init", &json!({ "goal": "g", "items": [] }))
             .expect("init");
         assert!(store.is_cached(key));
         backdate(&store, key, Duration::from_secs(IDLE_EVICT_SECS + 5));

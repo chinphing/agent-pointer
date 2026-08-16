@@ -447,10 +447,7 @@ mod make_openai_messages_tests {
             false,
             LEAD,
         );
-        let roles: Vec<&str> = out
-            .iter()
-            .filter_map(|m| m["role"].as_str())
-            .collect();
+        let roles: Vec<&str> = out.iter().filter_map(|m| m["role"].as_str()).collect();
         assert!(roles.contains(&"system"));
         let user_texts: Vec<&str> = out
             .iter()

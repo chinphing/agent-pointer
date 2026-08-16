@@ -54,6 +54,7 @@ pub async fn run_chat(
     agent_skill_overrides: HashMap<String, Vec<String>>,
     agent_mode: Option<String>,
     lead_agent_id_override: Option<String>,
+    performance_mode_override: Option<String>,
     tool_rounds_used_single_start: u32,
     tool_rounds_used_supervisor_start: u32,
     workspace_root: String,
@@ -120,6 +121,7 @@ pub async fn run_chat(
     let run_req = super::context::ChatRunRequest {
         agent_mode: agent_mode.clone(),
         lead_agent_id_override: lead_agent_id_override.clone(),
+        performance_mode_override: performance_mode_override.clone(),
         agent_skill_overrides: agent_skill_overrides.clone(),
         tool_rounds_used_single_start,
         workspace_root: workspace_root.clone(),
@@ -161,17 +163,19 @@ pub async fn run_chat(
                     &mut llm_settings,
                     &mode,
                     lead_agent_id_override.as_deref(),
+                    performance_mode_override.as_deref(),
                 );
                 if !api_key.trim().is_empty() {
                     let provider = OpenAIProvider::new(llm_settings.clone(), api_key);
-                    let last_api = crate::conversation_store::global_store()
-                        .ok()
-                        .and_then(|store| {
-                            store
-                                .get_last_lead_prompt_tokens(&conversation_id)
-                                .ok()
-                                .flatten()
-                        });
+                    let last_api =
+                        crate::conversation_store::global_store()
+                            .ok()
+                            .and_then(|store| {
+                                store
+                                    .get_last_lead_prompt_tokens(&conversation_id)
+                                    .ok()
+                                    .flatten()
+                            });
                     let lead_role = lead_agent_id_override
                         .clone()
                         .filter(|s| !s.trim().is_empty())
@@ -236,8 +240,7 @@ pub async fn run_chat(
                             &stream,
                             StreamEvent::UiToast {
                                 conversation_id: conversation_id.clone(),
-                                message: "上下文过大且无法压缩保留区，请新开对话或删减内容"
-                                    .into(),
+                                message: "上下文过大且无法压缩保留区，请新开对话或删减内容".into(),
                                 level: "error".into(),
                             },
                         );

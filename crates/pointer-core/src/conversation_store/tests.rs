@@ -56,9 +56,24 @@ mod tests {
         assert_ne!(a.project.id, b.project.id);
         assert_eq!(a.project.session_user_id, "user-a");
         assert_eq!(b.project.session_user_id, "user-b");
-        assert_eq!(store.load_sidebar_projects(&ListScope::User("user-a".into())).unwrap().len(), 1);
-        assert_eq!(store.load_sidebar_projects(&ListScope::User("user-b".into())).unwrap().len(), 1);
-        assert!(store.load_project(&a.project.id, &ListScope::User("user-b".into())).unwrap().is_none());
+        assert_eq!(
+            store
+                .load_sidebar_projects(&ListScope::User("user-a".into()))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .load_sidebar_projects(&ListScope::User("user-b".into()))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(store
+            .load_project(&a.project.id, &ListScope::User("user-b".into()))
+            .unwrap()
+            .is_none());
         // Platform admin list scope sees every user's projects.
         let admin_sidebar = store.load_sidebar_projects(&ListScope::All).unwrap();
         assert!(admin_sidebar.iter().any(|p| p.id == a.project.id));
@@ -81,9 +96,7 @@ mod tests {
         b.updated_at = 100;
         store.sync_conversations(&[a, b]).unwrap();
 
-        let admin = store
-            .load_metas(&ListScope::All, None, 50)
-            .unwrap();
+        let admin = store.load_metas(&ListScope::All, None, 50).unwrap();
         assert_eq!(admin.len(), 2);
 
         let only_a = store
@@ -125,12 +138,16 @@ mod tests {
                 .unwrap();
         }
 
-        let sidebar = store.load_sidebar_projects(&ListScope::User("user-a".into())).unwrap();
+        let sidebar = store
+            .load_sidebar_projects(&ListScope::User("user-a".into()))
+            .unwrap();
         let cursor = sidebar.last().map(|project| crate::models::ProjectCursor {
             last_activity_at: project.last_activity_at,
             id: project.id.clone(),
         });
-        let next_page = store.load_projects(&ListScope::User("user-a".into()), cursor, 5).unwrap();
+        let next_page = store
+            .load_projects(&ListScope::User("user-a".into()), cursor, 5)
+            .unwrap();
 
         assert_eq!(sidebar.len(), 5);
         assert!(sidebar.iter().all(|project| project.is_pinned));
@@ -165,7 +182,10 @@ mod tests {
             .sync_conversations(&[older_conversation, newer_conversation])
             .unwrap();
 
-        let projects = store.load_projects(&ListScope::User("".into()), None, 20).unwrap().items;
+        let projects = store
+            .load_projects(&ListScope::User("".into()), None, 20)
+            .unwrap()
+            .items;
         let older_index = projects.iter().position(|p| p.id == older.id).unwrap();
         let newer_index = projects.iter().position(|p| p.id == newer.id).unwrap();
         assert!(newer_index < older_index);
@@ -181,7 +201,10 @@ mod tests {
         store
             .update_project(&older.id, "", None, None, Some(true), None)
             .unwrap();
-        let projects = store.load_projects(&ListScope::User("".into()), None, 20).unwrap().items;
+        let projects = store
+            .load_projects(&ListScope::User("".into()), None, 20)
+            .unwrap()
+            .items;
         let older_index = projects.iter().position(|p| p.id == older.id).unwrap();
         let newer_index = projects.iter().position(|p| p.id == newer.id).unwrap();
         assert!(older_index < newer_index);
@@ -206,8 +229,14 @@ mod tests {
             .save_meta_all_with_platform_user(&[(&b).into()], Some("user-b"))
             .unwrap();
 
-        let projects_a = store.load_projects(&ListScope::User("user-a".into()), None, 20).unwrap().items;
-        let projects_b = store.load_projects(&ListScope::User("user-b".into()), None, 20).unwrap().items;
+        let projects_a = store
+            .load_projects(&ListScope::User("user-a".into()), None, 20)
+            .unwrap()
+            .items;
+        let projects_b = store
+            .load_projects(&ListScope::User("user-b".into()), None, 20)
+            .unwrap()
+            .items;
         assert_eq!(projects_a.len(), 1);
         assert_eq!(projects_b.len(), 1);
         assert!(projects_a[0].is_default);
@@ -300,7 +329,9 @@ mod tests {
         ];
         store.sync_conversations(&convs).unwrap();
 
-        let hits = store.search_conversations(&ListScope::All, "auth refactor", 10).unwrap();
+        let hits = store
+            .search_conversations(&ListScope::All, "auth refactor", 10)
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c1");
         assert!(!hits[0].snippet.is_empty());
@@ -309,7 +340,9 @@ mod tests {
             "body hit should return the matched message id"
         );
 
-        let title_hits = store.search_conversations(&ListScope::All, "Cooking", 10).unwrap();
+        let title_hits = store
+            .search_conversations(&ListScope::All, "Cooking", 10)
+            .unwrap();
         assert!(title_hits.iter().any(|h| h.id == "c2"));
     }
 
@@ -325,7 +358,9 @@ mod tests {
             .sync_conversations(&[sample_conv("c1", "案件ID: 778508", &body)])
             .unwrap();
 
-        let hits = store.search_conversations(&ListScope::All, "北京", 10).unwrap();
+        let hits = store
+            .search_conversations(&ListScope::All, "北京", 10)
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert!(
             hits[0].snippet.contains("北京"),
@@ -381,11 +416,14 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            performance_mode: None,
             session_user_id: String::new(),
         };
         store.sync_conversations(&[conv]).unwrap();
 
-        let hits = store.search_conversations(&ListScope::All, "北京", 10).unwrap();
+        let hits = store
+            .search_conversations(&ListScope::All, "北京", 10)
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert!(
             hits[0].snippet.contains("北京"),
@@ -436,6 +474,7 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            performance_mode: None,
             session_user_id: String::new(),
         };
         store.sync_conversations(&[conv]).unwrap();
@@ -480,7 +519,9 @@ mod tests {
             .unwrap();
         }
 
-        let hits = store.search_conversations(&ListScope::All, "推送吧", 10).unwrap();
+        let hits = store
+            .search_conversations(&ListScope::All, "推送吧", 10)
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].message_id, "user-hit");
         assert!(hits[0].snippet.contains("推送吧"));
@@ -498,7 +539,9 @@ mod tests {
             )])
             .unwrap();
 
-        let hits = store.search_conversations(&ListScope::All, "北京", 10).unwrap();
+        let hits = store
+            .search_conversations(&ListScope::All, "北京", 10)
+            .unwrap();
         assert!(hits.iter().any(|h| h.id == "c1"));
         let hit = hits.iter().find(|h| h.id == "c1").unwrap();
         assert!(
@@ -521,7 +564,9 @@ mod tests {
         conv.session_user_id = "user-a".into();
         store.sync_conversations(&[conv]).unwrap();
 
-        let hits = store.search_conversations(&ListScope::All, "secret keyword", 10).unwrap();
+        let hits = store
+            .search_conversations(&ListScope::All, "secret keyword", 10)
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c1");
     }
@@ -606,6 +651,7 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            performance_mode: None,
             session_user_id: String::new(),
         };
         store.sync_conversations(&[conv]).unwrap();
@@ -834,6 +880,7 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            performance_mode: None,
             message_count: 0,
             preview: String::new(),
             session_user_id: String::new(),
@@ -951,7 +998,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 21);
+        assert_eq!(version, 23);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -1047,7 +1094,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 21);
+        assert_eq!(version, 23);
         let has_kind: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",
@@ -1097,7 +1144,11 @@ mod tests {
             )
             .unwrap();
         let ids: Vec<&str> = page.messages.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, vec!["u2", "a2", "u-scoped"], "tail window must be the last real turn");
+        assert_eq!(
+            ids,
+            vec!["u2", "a2", "u-scoped"],
+            "tail window must be the last real turn"
+        );
         assert_eq!(page.oldest_position, Some(3), "oldest = u2 position");
         assert_eq!(page.newest_position, Some(5), "newest = last row position");
         assert!(page.has_more_older);
@@ -1117,7 +1168,11 @@ mod tests {
             )
             .unwrap();
         let before_ids: Vec<&str> = before.messages.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(before_ids, vec!["msg_u1", "msg_a1", "u-syn"], "before window ends before u2");
+        assert_eq!(
+            before_ids,
+            vec!["msg_u1", "msg_a1", "u-syn"],
+            "before window ends before u2"
+        );
         assert_eq!(before.oldest_position, Some(0));
         assert_eq!(before.newest_position, Some(2));
         assert!(!before.has_more_older);
@@ -1325,7 +1380,9 @@ mod tests {
         let mut synthetic = msg("u-syn", Role::User, "[CUR_SCREEN] shot", 2);
         synthetic.id = "u-syn".into();
         conv.messages.push(synthetic);
-        store.replace_messages("flag-write", &conv.messages).unwrap();
+        store
+            .replace_messages("flag-write", &conv.messages)
+            .unwrap();
 
         let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
         let flags: Vec<(String, i64)> = conn

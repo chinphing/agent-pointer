@@ -3,10 +3,10 @@
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
 
+use super::ListScope;
 use crate::models::{
     ChatMessage, Conversation, ConversationMeta, Project, ProjectCursor, ProjectPage, Role,
 };
-use super::ListScope;
 
 /// Scalar anchor probe row for turn paging: only real user-turn anchors.
 /// The SQL already filters `role='user' AND is_system_generated=0`, so every
@@ -134,8 +134,9 @@ pub(crate) fn backfill_is_system_generated(conn: &Connection) -> Result<()> {
     for row in rows {
         let (conversation_id, message_id, content, payload) = row?;
         scanned += 1;
-        let flag = if crate::task_board::history_trim::is_injected_or_synthetic_user_content(&content)
-        {
+        let flag = if crate::task_board::history_trim::is_injected_or_synthetic_user_content(
+            &content,
+        ) {
             true
         } else {
             match serde_json::from_str::<ChatMessage>(&payload) {
@@ -193,7 +194,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, skill_ids_json,
                 tool_rounds_used, tool_rounds_used_supervisor, computer_monitor_id, project_id, workspace_root,
-                workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode,
+                workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
                 session_user_id, is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
@@ -216,8 +217,9 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             row.get::<_, i64>(11)? != 0,
             row.get::<_, String>(12)?,
             row.get::<_, String>(13)?,
-            row.get::<_, String>(14)?,
-            row.get::<_, i64>(15)? != 0,
+            row.get::<_, Option<String>>(14)?,
+            row.get::<_, String>(15)?,
+            row.get::<_, i64>(16)? != 0,
         ))
     })?;
     let mut out = Vec::new();
@@ -237,6 +239,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             workspace_inherit_disabled,
             lead_agent_id,
             agent_mode,
+            performance_mode,
             session_user_id,
             is_pinned,
         ) = row?;
@@ -259,6 +262,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             workspace_inherit_disabled,
             lead_agent_id,
             agent_mode,
+            performance_mode,
             session_user_id,
         });
     }
@@ -692,8 +696,8 @@ pub fn load_project_metas_from_conn(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                 computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id,
-                is_pinned
+                workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
+                session_user_id, is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%'
            AND project_id = ?3
@@ -725,8 +729,9 @@ pub fn load_project_metas_from_conn(
                 workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
                 lead_agent_id: row.get(14)?,
                 agent_mode: row.get(15)?,
-                session_user_id: row.get(16)?,
-                is_pinned: row.get::<_, i64>(17)? != 0,
+                performance_mode: row.get(16)?,
+                session_user_id: row.get(17)?,
+                is_pinned: row.get::<_, i64>(18)? != 0,
             })
         },
     )?;
@@ -760,8 +765,8 @@ pub fn load_metas_from_conn(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                 computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id,
-                is_pinned
+                workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
+                session_user_id, is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
            AND id NOT LIKE 'webhook:%'
@@ -798,8 +803,9 @@ pub fn load_metas_from_conn(
                 workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
                 lead_agent_id: row.get(14)?,
                 agent_mode: row.get(15)?,
-                session_user_id: row.get(16)?,
-                is_pinned: row.get::<_, i64>(17)? != 0,
+                performance_mode: row.get(16)?,
+                session_user_id: row.get(17)?,
+                is_pinned: row.get::<_, i64>(18)? != 0,
             })
         },
     )?;
@@ -826,8 +832,8 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
             "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                     skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                     computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                    workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id,
-                    is_pinned
+                    workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
+                    session_user_id, is_pinned
              FROM conversations WHERE id = ?1",
             params![id],
             |row| {
@@ -848,8 +854,9 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
                     workspace_inherit_disabled: row.get::<_, i64>(13)? != 0,
                     lead_agent_id: row.get(14)?,
                     agent_mode: row.get(15)?,
-                    session_user_id: row.get(16)?,
-                    is_pinned: row.get::<_, i64>(17)? != 0,
+                    performance_mode: row.get(16)?,
+                    session_user_id: row.get(17)?,
+                    is_pinned: row.get::<_, i64>(18)? != 0,
                 })
             },
         )
@@ -881,6 +888,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
         workspace_inherit_disabled: r.workspace_inherit_disabled,
         lead_agent_id: r.lead_agent_id,
         agent_mode: r.agent_mode,
+        performance_mode: r.performance_mode,
         message_count: r.message_count,
         preview: r.preview,
         session_user_id: r.session_user_id,
@@ -940,6 +948,7 @@ struct MetaRow {
     workspace_inherit_disabled: bool,
     lead_agent_id: String,
     agent_mode: String,
+    performance_mode: Option<String>,
     session_user_id: String,
     is_pinned: bool,
 }
@@ -971,6 +980,7 @@ fn meta_from_row(r: MetaRow) -> Result<ConversationMeta> {
         workspace_inherit_disabled: r.workspace_inherit_disabled,
         lead_agent_id: r.lead_agent_id,
         agent_mode: r.agent_mode,
+        performance_mode: r.performance_mode,
         message_count: r.message_count,
         preview: r.preview,
         session_user_id: r.session_user_id,
@@ -1007,8 +1017,8 @@ pub fn upsert_conversation(
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
            computer_monitor_id, project_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
-           lead_agent_id, agent_mode, session_user_id, is_pinned
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+           lead_agent_id, agent_mode, performance_mode, session_user_id, is_pinned
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            created_at_ms = excluded.created_at_ms,
@@ -1025,6 +1035,7 @@ pub fn upsert_conversation(
            workspace_inherit_disabled = excluded.workspace_inherit_disabled,
            lead_agent_id = excluded.lead_agent_id,
            agent_mode = excluded.agent_mode,
+           performance_mode = excluded.performance_mode,
            session_user_id = CASE
              WHEN trim(excluded.session_user_id) != '' THEN excluded.session_user_id
              ELSE conversations.session_user_id
@@ -1047,6 +1058,7 @@ pub fn upsert_conversation(
             i64::from(conv.workspace_inherit_disabled),
             conv.lead_agent_id,
             conv.agent_mode,
+            conv.performance_mode,
             conv.session_user_id,
             i64::from(conv.is_pinned),
         ],
@@ -1241,6 +1253,7 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
         workspace_inherit_disabled: false,
         lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
         agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+        performance_mode: None,
         session_user_id: String::new(),
     }
 }

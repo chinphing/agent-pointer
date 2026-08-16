@@ -13,7 +13,10 @@ const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
     ("max_tokens", "MAX_TOKENS"),
     ("context_compression_enabled", "CONTEXT_COMPRESSION_ENABLED"),
     ("context_budget_tokens", "CONTEXT_BUDGET_TOKENS"),
-    ("context_keep_recent_user_turns", "CONTEXT_KEEP_RECENT_USER_TURNS"),
+    (
+        "context_keep_recent_user_turns",
+        "CONTEXT_KEEP_RECENT_USER_TURNS",
+    ),
     ("context_summary_max_tokens", "CONTEXT_SUMMARY_MAX_TOKENS"),
     ("max_tool_rounds", "MAX_TOOL_ROUNDS"),
     ("max_sub_agent_tool_rounds", "MAX_SUB_AGENT_TOOL_ROUNDS"),
@@ -28,7 +31,10 @@ const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
         "computer_annotated_screen_view_enabled",
         "COMPUTER_ANNOTATED_SCREEN_VIEW_ENABLED",
     ),
-    ("computer_show_monitor_picker", "COMPUTER_SHOW_MONITOR_PICKER"),
+    (
+        "computer_show_monitor_picker",
+        "COMPUTER_SHOW_MONITOR_PICKER",
+    ),
     ("web_search_model", "WEB_SEARCH_MODEL"),
     ("dati_api_url", "DATI_API_URL"),
     ("dati_authcode", "DATI_AUTHCODE"),
@@ -53,7 +59,10 @@ fn main() {
     let Some(config_path) = pick_config_path(&workspace_cfg, &local_cfg) else {
         return;
     };
-    println!("cargo:warning=pointer-core: loading {}", config_path.display());
+    println!(
+        "cargo:warning=pointer-core: loading {}",
+        config_path.display()
+    );
     if let Err(e) = load_build_config(&config_path) {
         println!(
             "cargo:warning=pointer-core: failed to read {}: {e}",

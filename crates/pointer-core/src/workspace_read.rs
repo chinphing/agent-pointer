@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Context, Result};
 use crate::text_diff::compute_diff_lines;
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fmt;
@@ -262,14 +262,12 @@ pub fn delete_path(workspace_root: &Path, relative_path: &str) -> Result<()> {
     if !target.starts_with(&root) {
         return Err(anyhow!("path is outside workspaceRoot"));
     }
-    let metadata = fs::symlink_metadata(&target).with_context(|| {
-        format!("workspace path does not exist: {}", relative.display())
-    })?;
+    let metadata = fs::symlink_metadata(&target)
+        .with_context(|| format!("workspace path does not exist: {}", relative.display()))?;
     let file_type = metadata.file_type();
     let display = relative.to_string_lossy().replace('\\', "/");
     if file_type.is_symlink() || file_type.is_file() {
-        fs::remove_file(&target)
-            .with_context(|| format!("failed to delete file: {display}"))?;
+        fs::remove_file(&target).with_context(|| format!("failed to delete file: {display}"))?;
         log::info!("workspace_read: deleted file path={display}");
     } else if file_type.is_dir() {
         fs::remove_dir_all(&target)
@@ -500,9 +498,7 @@ fn git_diff_mode(status: &str) -> &'static str {
     if unstaged {
         return "unstaged";
     }
-    let staged = bytes
-        .first()
-        .is_some_and(|c| *c != b'.' && *c != b'?');
+    let staged = bytes.first().is_some_and(|c| *c != b'.' && *c != b'?');
     if staged {
         return "staged";
     }

@@ -1910,10 +1910,10 @@ async fn append_conversation_messages(
     State(state): State<ServerState>,
     axum::extract::Path(conversation_id): axum::extract::Path<String>,
     Json(messages): Json<Vec<pointer_core::models::ChatMessage>>,
-) -> Result<Json<u32>, ApiError> {
+) -> Result<Json<Vec<pointer_core::conversation_store::AppendedMessageRow>>, ApiError> {
     require_platform_access(&state)?;
-    let written = storage::append_conversation_messages(&conversation_id, &messages)?;
-    Ok(Json(written))
+    let appended = storage::append_conversation_messages(&conversation_id, &messages)?;
+    Ok(Json(appended))
 }
 
 async fn send_chat(
@@ -1944,6 +1944,7 @@ async fn send_chat(
         agent_skill_overrides: payload.agent_skill_overrides,
         agent_mode: payload.agent_mode,
         lead_agent_id: payload.lead_agent_id,
+        performance_mode: payload.performance_mode,
         tool_rounds_used_single_start: payload.tool_rounds_used,
         tool_rounds_used_supervisor_start: payload.tool_rounds_used_supervisor,
         workspace_root: payload.workspace_root,
@@ -2549,6 +2550,7 @@ async fn webhook_ingress(
         agent_skill_overrides: HashMap::new(),
         agent_mode: body.agent_mode,
         lead_agent_id: body.lead_agent_id,
+        performance_mode: None,
         tool_rounds_used_single_start: 0,
         tool_rounds_used_supervisor_start: 0,
         workspace_root: body.workspace_root,

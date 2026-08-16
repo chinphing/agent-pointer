@@ -39,7 +39,9 @@ pub fn apply_unix_utf8_child_env(env: &mut HashMap<String, String>) {
 
     if !lang_ok {
         let fixed = preferred_utf8_locale(env);
-        log::info!("unix_locale: setting LANG={fixed:?} for terminal child (was missing/non-UTF-8)");
+        log::info!(
+            "unix_locale: setting LANG={fixed:?} for terminal child (was missing/non-UTF-8)"
+        );
         env.insert("LANG".into(), fixed);
     }
 }
@@ -129,7 +131,8 @@ fn locale_is_available(name: &str) -> bool {
     };
     let text = String::from_utf8_lossy(&output.stdout);
     let target = name.to_ascii_lowercase();
-    text.lines().any(|line| line.trim().eq_ignore_ascii_case(&target))
+    text.lines()
+        .any(|line| line.trim().eq_ignore_ascii_case(&target))
 }
 
 #[cfg(test)]

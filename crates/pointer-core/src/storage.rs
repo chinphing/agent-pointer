@@ -1,9 +1,9 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    ensure_provider_model_capability_defaults, merge_user_platform,
-    AgentModelRef, ChatMessage, Conversation, ConversationMeta, ConversationSearchHit,
-    ModelRuntimeOverrides, ModelSettings, PlatformSettings, Project, ProjectCreationResult,
-    ProjectCursor, ProjectPage, ProviderConfig, UserSettings,
+    ensure_provider_model_capability_defaults, merge_user_platform, AgentModelRef, ChatMessage,
+    Conversation, ConversationMeta, ConversationSearchHit, ModelRuntimeOverrides, ModelSettings,
+    PlatformSettings, Project, ProjectCreationResult, ProjectCursor, ProjectPage, ProviderConfig,
+    UserSettings,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,15 @@ static RESOLVED_APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[cfg(test)]
 static TEST_APP_DATA_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+static TEST_APP_DATA_DIR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Serialize tests that replace the process-global app data directory.
+#[cfg(test)]
+pub fn test_app_data_dir_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_APP_DATA_DIR_LOCK.lock().unwrap()
+}
 
 /// Test hook: force `data_dir()` to a temp dir for the current process.
 /// Must be called before the first `data_dir()` resolution in the process.
@@ -141,12 +150,166 @@ fn settings_migrated_path() -> Result<PathBuf> {
 fn user_settings_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("user_settings.json"))
 }
+
+/// Read-only model directory returned by the platform login API. Kept separate
+/// from user settings so platform-owned catalog entries never become editable
+/// user configuration.
+fn platform_model_catalog_cache_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("platform_model_catalog.json"))
+}
 fn auth_dat_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("auth.dat"))
 }
 fn key_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("key.dat"))
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+struct PlatformModelCatalogCache {
+    catalog: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    providers: Vec<crate::platform_auth::PlatformProviderTemplate>,
+    #[serde(default)]
+    tier_defaults: serde_json::Value,
+    #[serde(default)]
+    hash: Option<String>,
+}
+
+/// 完整平台目录缓存（模型名目录 + 服务商模板 + 档位默认 + 版本）。
+pub struct PlatformModelCatalogCacheData {
+    pub catalog: HashMap<String, Vec<String>>,
+    pub providers: Vec<crate::platform_auth::PlatformProviderTemplate>,
+    pub tier_defaults: serde_json::Value,
+    pub hash: Option<String>,
+}
+
+fn platform_model_catalog_hash(catalog: &HashMap<String, Vec<String>>) -> String {
+    let canonical: std::collections::BTreeMap<_, _> = catalog.iter().collect();
+    let bytes = serde_json::to_vec(&canonical).expect("catalog map is JSON-safe");
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Load the full platform-owned directory cache (models + provider templates + tier defaults).
+/// Legacy cache files containing only provider -> models remain supported.
+pub fn load_platform_model_catalog_cache_full() -> Result<PlatformModelCatalogCacheData> {
+    let path = platform_model_catalog_cache_path()?;
+    if !path.exists() {
+        return Ok(PlatformModelCatalogCacheData {
+            catalog: HashMap::new(),
+            providers: Vec::new(),
+            tier_defaults: serde_json::Value::Null,
+            hash: None,
+        });
+    }
+    let raw = fs::read_to_string(&path)?;
+    let parsed = serde_json::from_str::<PlatformModelCatalogCache>(&raw)
+        .map(|entry| {
+            (
+                entry.catalog,
+                entry.providers,
+                entry.tier_defaults,
+                entry.hash,
+            )
+        })
+        .or_else(|_| {
+            serde_json::from_str::<HashMap<String, Vec<String>>>(&raw)
+                .map(|catalog| (catalog, Vec::new(), serde_json::Value::Null, None))
+        });
+    match parsed {
+        Ok((catalog, providers, tier_defaults, hash)) => {
+            let hash = hash
+                .or_else(|| (!catalog.is_empty()).then(|| platform_model_catalog_hash(&catalog)));
+            Ok(PlatformModelCatalogCacheData {
+                catalog,
+                providers,
+                tier_defaults,
+                hash,
+            })
+        }
+        Err(err) => {
+            log::warn!("storage: ignoring malformed platform model catalog cache: {err}");
+            Ok(PlatformModelCatalogCacheData {
+                catalog: HashMap::new(),
+                providers: Vec::new(),
+                tier_defaults: serde_json::Value::Null,
+                hash: None,
+            })
+        }
+    }
+}
+
+/// Load the last non-empty platform-owned model catalog. Missing or malformed
+/// cache data is treated as absent. This client builds providers from cached
+/// `platformProviders` templates, not from the name-list catalog.
+pub fn load_platform_model_catalog_cache() -> Result<HashMap<String, Vec<String>>> {
+    Ok(load_platform_model_catalog_cache_full()?.catalog)
+}
+
+pub fn platform_model_catalog_cache_hash() -> Result<Option<String>> {
+    Ok(load_platform_model_catalog_cache_full()?.hash)
+}
+
+/// Atomically replace the separate read-only platform model catalog cache.
+/// This file deliberately does not share the user-settings write path.
+pub fn save_platform_model_catalog_cache_full(
+    catalog: &HashMap<String, Vec<String>>,
+    providers: &Vec<crate::platform_auth::PlatformProviderTemplate>,
+    tier_defaults: &serde_json::Value,
+    hash: Option<&str>,
+) -> Result<()> {
+    if catalog.is_empty() && providers.is_empty() {
+        return Ok(());
+    }
+    let path = platform_model_catalog_cache_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension(format!("json.{}.tmp", uuid::Uuid::new_v4()));
+    let entry = PlatformModelCatalogCache {
+        catalog: catalog.clone(),
+        providers: providers.clone(),
+        tier_defaults: tier_defaults.clone(),
+        hash: hash.map(str::to_owned).or_else(|| {
+            if !catalog.is_empty() {
+                Some(platform_model_catalog_hash(catalog))
+            } else {
+                None
+            }
+        }),
+    };
+    fs::write(&tmp, serde_json::to_vec_pretty(&entry)?)?;
+    fs::rename(&tmp, &path).with_context(|| {
+        format!(
+            "replace platform model catalog cache {} with {}",
+            path.display(),
+            tmp.display()
+        )
+    })?;
+    Ok(())
+}
+
+pub fn save_platform_model_catalog_cache_with_hash(
+    catalog: &HashMap<String, Vec<String>>,
+    hash: Option<&str>,
+) -> Result<()> {
+    save_platform_model_catalog_cache_full(
+        catalog,
+        &Vec::new(),
+        &serde_json::Value::Null,
+        hash,
+    )
+}
+
+pub fn save_platform_model_catalog_cache(catalog: &HashMap<String, Vec<String>>) -> Result<()> {
+    save_platform_model_catalog_cache_full(
+        catalog,
+        &Vec::new(),
+        &serde_json::Value::Null,
+        None,
+    )
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredModelOverrides {
     #[serde(default, rename = "reasoningInMessages")]
@@ -398,20 +561,22 @@ pub fn load_user_settings() -> Result<UserSettings> {
     // (enc:v1:<base64>). Older data stored plaintext — keep it as-is.
     for provider in &mut user.providers {
         if let Some(rest) = provider.api_key.strip_prefix("enc:v1:") {
-            let blob = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, rest)
-            {
-                Ok(b) => b,
-                Err(e) => {
-                    log::warn!(
-                        "storage: provider {} key base64 decode failed: {e}; key cleared",
-                        provider.id
-                    );
-                    provider.api_key.clear();
-                    continue;
-                }
-            };
-            match crate::local_secret::decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1")
-            {
+            let blob =
+                match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, rest) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        log::warn!(
+                            "storage: provider {} key base64 decode failed: {e}; key cleared",
+                            provider.id
+                        );
+                        provider.api_key.clear();
+                        continue;
+                    }
+                };
+            match crate::local_secret::decrypt_local_secret_with_info(
+                &blob,
+                b"provider-api-keys-v1",
+            ) {
                 Ok(key) => provider.api_key = key,
                 Err(e) => {
                     log::warn!(
@@ -862,9 +1027,7 @@ pub fn load_conversation_meta(
             if stored == uid {
                 Ok(Some(meta))
             } else {
-                log::info!(
-                    "storage: load_conversation_meta denied id={id} (out of list scope)"
-                );
+                log::info!("storage: load_conversation_meta denied id={id} (out of list scope)");
                 Ok(None)
             }
         }
@@ -879,9 +1042,7 @@ pub fn load_projects(
     crate::conversation_store::global_store()?.load_projects(scope, cursor, limit)
 }
 
-pub fn load_sidebar_projects(
-    scope: &crate::conversation_store::ListScope,
-) -> Result<Vec<Project>> {
+pub fn load_sidebar_projects(scope: &crate::conversation_store::ListScope) -> Result<Vec<Project>> {
     crate::conversation_store::global_store()?.load_sidebar_projects(scope)
 }
 
@@ -898,12 +1059,7 @@ pub fn load_project_conversation_metas(
     cursor: Option<(i64, String)>,
     limit: i64,
 ) -> Result<Vec<ConversationMeta>> {
-    crate::conversation_store::global_store()?.load_project_metas(
-        project_id,
-        scope,
-        cursor,
-        limit,
-    )
+    crate::conversation_store::global_store()?.load_project_metas(project_id, scope, cursor, limit)
 }
 
 pub fn create_project(
@@ -911,11 +1067,7 @@ pub fn create_project(
     workspace_root: &str,
     session_user_id: &str,
 ) -> Result<ProjectCreationResult> {
-    crate::conversation_store::global_store()?.create_project(
-        name,
-        workspace_root,
-        session_user_id,
-    )
+    crate::conversation_store::global_store()?.create_project(name, workspace_root, session_user_id)
 }
 
 pub fn update_project(
@@ -978,9 +1130,73 @@ pub fn delete_conversation(conversation_id: &str) -> Result<()> {
 }
 
 /// Append messages whose ids are not yet in the DB (P0); does not delete existing rows.
+/// Returns the `{message_id, position}` rows actually written so the frontend can
+/// attach SQLite positions to its in-memory messages after `persistAppend`.
 pub fn append_conversation_messages(
     conversation_id: &str,
     messages: &[ChatMessage],
-) -> Result<u32> {
+) -> Result<Vec<crate::conversation_store::AppendedMessageRow>> {
     crate::conversation_session::append_missing(conversation_id, messages)
+}
+
+#[cfg(test)]
+mod platform_model_catalog_cache_tests {
+    use super::*;
+
+    #[test]
+    fn platform_catalog_cache_round_trips_without_touching_user_settings() {
+        let _lock = test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        set_test_app_data_dir(dir.path().to_path_buf());
+        let catalog = HashMap::from([("aliyun_qwen".to_string(), vec!["qwen-next".to_string()])]);
+
+        save_platform_model_catalog_cache(&catalog).expect("write catalog cache");
+
+        assert_eq!(
+            load_platform_model_catalog_cache().expect("read catalog cache"),
+            catalog
+        );
+        assert!(platform_model_catalog_cache_path()
+            .expect("cache path")
+            .exists());
+        assert!(
+            !user_settings_path().expect("user settings path").exists(),
+            "platform catalog cache must not create or modify user_settings.json"
+        );
+    }
+
+    #[test]
+    fn legacy_platform_catalog_cache_loads_with_computed_hash() {
+        let _lock = test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        set_test_app_data_dir(dir.path().to_path_buf());
+        let catalog = HashMap::from([("qwen".to_string(), vec!["qwen-plus".to_string()])]);
+        fs::write(
+            platform_model_catalog_cache_path().expect("cache path"),
+            serde_json::to_vec(&catalog).expect("serialize legacy catalog"),
+        )
+        .expect("write legacy cache");
+
+        let data = load_platform_model_catalog_cache_full().expect("load legacy cache");
+        assert_eq!(data.catalog, catalog);
+        assert_eq!(data.hash, Some(platform_model_catalog_hash(&catalog)));
+        assert!(data.providers.is_empty());
+        assert!(data.tier_defaults.is_null());
+    }
+
+    #[test]
+    fn malformed_platform_catalog_cache_falls_back_to_empty_catalog() {
+        let _lock = test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        set_test_app_data_dir(dir.path().to_path_buf());
+        fs::write(
+            platform_model_catalog_cache_path().expect("cache path"),
+            "not json",
+        )
+        .expect("write malformed cache");
+
+        assert!(load_platform_model_catalog_cache()
+            .expect("malformed cache is recoverable")
+            .is_empty());
+    }
 }

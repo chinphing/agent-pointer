@@ -202,6 +202,9 @@ pub struct TriggerRequest {
     pub agent_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead_agent_id: Option<String>,
+    /// Per-conversation performance tier override; unset = global default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub performance_mode: Option<String>,
     #[serde(default)]
     pub tool_rounds_used_single_start: u32,
     #[serde(default)]

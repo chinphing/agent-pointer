@@ -59,10 +59,7 @@ pub fn mark_ready_pending_rows(doc: &mut BoardDocument) {
 /// promotes the first eligible `ready`/`pending` row (same idea as loop `wi_*`
 /// bootstrap). Loop boards delegate to the `wi_*` ladder.
 pub fn ensure_single_milestone_in_progress(doc: &mut BoardDocument) {
-    if matches!(
-        doc.meta.status,
-        MetaStatus::Completed | MetaStatus::Failed
-    ) {
+    if matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed) {
         return;
     }
     if loop_milestones::is_loop_milestone_board(doc) {
@@ -82,9 +79,9 @@ pub fn ensure_single_milestone_in_progress(doc: &mut BoardDocument) {
         .iter()
         .find(|r| r.status == ItemStatus::Ready)
         .or_else(|| {
-            doc.global_milestones.iter().find(|r| {
-                r.status == ItemStatus::Pending && dependencies_satisfied(doc, r)
-            })
+            doc.global_milestones
+                .iter()
+                .find(|r| r.status == ItemStatus::Pending && dependencies_satisfied(doc, r))
         })
         .map(|r| r.id.clone());
     let Some(id) = promote_id else {
@@ -92,9 +89,7 @@ pub fn ensure_single_milestone_in_progress(doc: &mut BoardDocument) {
     };
     if let Some(row) = doc.global_milestones.iter_mut().find(|r| r.id == id) {
         row.status = ItemStatus::InProgress;
-        log::info!(
-            "task_board: ensure_single_milestone_in_progress promoted {id} → in_progress"
-        );
+        log::info!("task_board: ensure_single_milestone_in_progress promoted {id} → in_progress");
     }
 }
 

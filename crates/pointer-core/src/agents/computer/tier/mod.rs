@@ -21,19 +21,21 @@ pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str =
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
 pub const CONFIG_KEY_PIPELINE_VERIFY_HOST: &str = "computerPipelineVerifyHost";
 
-pub const DEFAULT_MODEL_PRIMARY: &str = "qwen3.5-flash";
-pub const DEFAULT_MODEL_INTERMEDIATE: &str = "qwen3.5-plus";
-pub const DEFAULT_MODEL_ADVANCED: &str = "qwen3.7-plus";
-pub const DEFAULT_MODEL_PIPELINE_DECISION: &str = "qwen3.5-flash";
-pub const DEFAULT_MODEL_PIPELINE_POSITION: &str = "qwen3.5-plus";
-pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "qwen3.5-flash";
-/// Default LLM provider id for computer tier / pipeline overrides.
-pub const DEFAULT_COMPUTER_LLM_PROVIDER: &str = "qwen";
-/// Qwen `thinking_budget` for Advanced pipeline Position phase (`qwen3.5-plus`).
+// 平台模型配置全部由平台下发；本地不内置 computer tier 默认模型（登录后由
+// tierDefaults.computerTierLlm / computerPipelineLlm 注入，未配置时为空）。
+pub const DEFAULT_MODEL_PRIMARY: &str = "";
+pub const DEFAULT_MODEL_INTERMEDIATE: &str = "";
+pub const DEFAULT_MODEL_ADVANCED: &str = "";
+pub const DEFAULT_MODEL_PIPELINE_DECISION: &str = "";
+pub const DEFAULT_MODEL_PIPELINE_POSITION: &str = "";
+pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "";
+/// Default LLM provider id for computer tier / pipeline overrides (empty = none local).
+pub const DEFAULT_COMPUTER_LLM_PROVIDER: &str = "";
+/// `thinking_budget` for Advanced pipeline Position phase.
 pub const DEFAULT_PIPELINE_POSITION_THINKING_BUDGET: u32 = 1024;
-/// Qwen `thinking_budget` for Advanced pipeline Verify phase (`qwen3.5-flash`).
+/// `thinking_budget` for Advanced pipeline Verify phase.
 pub const DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET: u32 = 256;
-/// Qwen `thinking_budget` for Primary / Intermediate (`qwen3.5-plus`).
+/// `thinking_budget` for Primary / Intermediate.
 pub const PRIMARY_INTERMEDIATE_THINKING_BUDGET: u32 = 2048;
 pub const ADVANCED_THINKING_BUDGET: u32 = 8192;
 

@@ -9,13 +9,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
-use crate::models::{
-    DebugSessionSettings, EffectiveSettingsView, PlatformSettings, UserSettings,
-};
+use crate::models::{DebugSessionSettings, EffectiveSettingsView, PlatformSettings, UserSettings};
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
     apply_login_llm_credentials, apply_login_llm_provider_api_keys, apply_login_media_oss,
-    finalize_merged_settings, PlatformConfigManager, SharedPlatformConfig,
+    apply_login_platform_providers, finalize_merged_settings, PlatformConfigManager,
+    SharedPlatformConfig,
 };
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -297,6 +296,17 @@ impl AppState {
         storage::ensure_legacy_settings_migrated();
 
         let platform_config = platform_mgr.shared();
+        match storage::load_platform_model_catalog_cache_full() {
+            Ok(data) if !data.providers.is_empty() => {
+                let mut platform = platform_config.write();
+                platform.model_catalog = data.catalog.clone();
+                platform.tier_defaults = data.tier_defaults.clone();
+                apply_login_platform_providers(&mut platform.providers, &data.providers);
+                log::info!("platform_config: loaded cached platform model catalog");
+            }
+            Ok(_) => {}
+            Err(err) => log::warn!("platform_config: failed to load cached model catalog: {err:#}"),
+        }
 
         let tools = Arc::new(ToolRegistry::new());
         let task_board_store = match crate::task_board::open_default_persistence() {
@@ -660,7 +670,9 @@ impl AppState {
             .map(|p| (p.id.clone(), p.api_key.clone()))
             .collect();
         for p in &self.platform_config.read().providers {
-            key_pool.entry(p.id.clone()).or_insert_with(|| p.api_key.clone());
+            key_pool
+                .entry(p.id.clone())
+                .or_insert_with(|| p.api_key.clone());
         }
         for provider in &mut incoming.providers {
             if provider.api_key.trim().is_empty() || provider.api_key.trim() == "****" {
@@ -683,6 +695,24 @@ impl AppState {
     pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
         self.remember_automation_llm_creds(creds);
         let mut platform = self.platform_config.write();
+        // 平台服务商模板创建/更新（客户端不再内置任何平台服务商）。
+        apply_login_platform_providers(&mut platform.providers, &creds.platform_providers);
+        if !creds.model_catalog.is_empty() {
+            platform.model_catalog = creds.model_catalog.clone();
+        }
+        if !creds.tier_defaults.is_null() {
+            platform.tier_defaults = creds.tier_defaults.clone();
+        }
+        if !creds.model_catalog.is_empty() || !creds.platform_providers.is_empty() {
+            if let Err(err) = storage::save_platform_model_catalog_cache_full(
+                &creds.model_catalog,
+                &creds.platform_providers,
+                &creds.tier_defaults,
+                creds.model_catalog_hash.as_deref(),
+            ) {
+                log::warn!("platform_config: failed to cache platform model catalog: {err:#}");
+            }
+        }
         apply_login_llm_provider_api_keys(&mut platform.providers, &creds.provider_api_keys);
         apply_login_llm_credentials(
             &mut platform.providers,
@@ -1054,6 +1084,7 @@ mod active_main_task_board_tests {
     use crate::platform_auth::{PlatformSession, PlatformUserSummary};
     use crate::task_board::{main_turn_task_board_store_key, sub_agent_task_board_store_key};
     use serde_json::json;
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -1079,12 +1110,53 @@ mod active_main_task_board_tests {
     /// read/write the developer's real user_settings.json / provider_keys.enc.
     struct TestDataDirGuard {
         _dir: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
     }
 
     fn isolate_app_data_dir() -> TestDataDirGuard {
+        let lock = crate::storage::test_app_data_dir_lock();
         let dir = tempfile::tempdir().expect("temp data dir");
         crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
-        TestDataDirGuard { _dir: dir }
+        TestDataDirGuard { _dir: dir, _lock: lock }
+    }
+
+    #[test]
+    fn app_state_loads_cached_platform_catalog_without_persisting_user_settings() {
+        let _guard = isolate_app_data_dir();
+        let catalog = HashMap::from([("aliyun_qwen".to_string(), vec!["qwen-cached".to_string()])]);
+        let providers = vec![crate::platform_auth::PlatformProviderTemplate {
+            id: "qwen".into(),
+            name: "千问".into(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            models: vec![crate::platform_auth::PlatformProviderModel {
+                name: "qwen-cached".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+        crate::storage::save_platform_model_catalog_cache_full(
+            &catalog,
+            &providers,
+            &serde_json::Value::Null,
+            None,
+        )
+        .expect("cache catalog");
+
+        let state = AppState::new();
+        let qwen = state
+            .platform_config
+            .read()
+            .providers
+            .iter()
+            .find(|provider| provider.id == "qwen")
+            .expect("qwen provider")
+            .clone();
+        assert_eq!(qwen.models, vec!["qwen-cached"]);
+        assert_eq!(state.platform_config.read().model_catalog, catalog);
+        assert!(!crate::storage::app_data_dir()
+            .expect("data dir")
+            .join("user_settings.json")
+            .exists());
     }
 
     #[test]
@@ -1093,6 +1165,7 @@ mod active_main_task_board_tests {
         let state = AppState::new();
         // 1. User types a key → encrypted into provider_keys.enc.
         let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("custom-a", "", Some("user")));
         user.providers[0].api_key = "sk-user-typed".into();
         state.update_user_settings(user).expect("save typed key");
         assert_eq!(
@@ -1117,6 +1190,7 @@ mod active_main_task_board_tests {
         let _guard = isolate_app_data_dir();
         let state = AppState::new();
         let mut user = state.load_user_settings();
+        user.providers.push(provider_fixture("custom-a", "", Some("user")));
         user.providers[0].api_key = "sk-user-typed".into();
         state.update_user_settings(user).expect("save typed key");
         // Empty apiKey (client did not edit) keeps the previously encrypted key.
@@ -1131,7 +1205,11 @@ mod active_main_task_board_tests {
         );
     }
 
-    fn provider_fixture(id: &str, key: &str, source: Option<&str>) -> crate::models::ProviderConfig {
+    fn provider_fixture(
+        id: &str,
+        key: &str,
+        source: Option<&str>,
+    ) -> crate::models::ProviderConfig {
         crate::models::ProviderConfig {
             id: id.into(),
             name: id.into(),
@@ -1156,7 +1234,8 @@ mod active_main_task_board_tests {
         let state = AppState::new();
         // 1. First save: custom provider with key.
         let mut user = state.load_user_settings();
-        user.providers.push(provider_fixture("custom-a", "sk-custom-a", Some("user")));
+        user.providers
+            .push(provider_fixture("custom-a", "sk-custom-a", Some("user")));
         state.update_user_settings(user).expect("save custom key");
         // 2. Re-edit without typing key → front-end sends empty apiKey; backend
         //    re-attaches from its in-memory key pool (persisted json → memory).
@@ -1175,7 +1254,10 @@ mod active_main_task_board_tests {
             .unwrap()
             .api_key
             .clone();
-        assert_eq!(key, "sk-custom-a", "user-layer custom key must survive blank resave");
+        assert_eq!(
+            key, "sk-custom-a",
+            "user-layer custom key must survive blank resave"
+        );
     }
 
     #[test]
@@ -1191,7 +1273,8 @@ mod active_main_task_board_tests {
         // Front-end merged view shows vllm-local (source=platform); user edits
         // models only, sends blank key.
         let mut user = state.load_user_settings();
-        user.providers.push(provider_fixture("vllm-local", "", Some("platform")));
+        user.providers
+            .push(provider_fixture("vllm-local", "", Some("platform")));
         state.update_user_settings(user).expect("save blank key");
         // Platform-injected key must not be persisted into user layer…
         let persisted = state.load_user_settings();
@@ -1208,7 +1291,10 @@ mod active_main_task_board_tests {
             .unwrap()
             .api_key
             .clone();
-        assert_eq!(merged_key, "sk-vllm", "platform-injected key should survive blank resave");
+        assert_eq!(
+            merged_key, "sk-vllm",
+            "platform-injected key should survive blank resave"
+        );
     }
 
     #[test]
@@ -1224,7 +1310,8 @@ mod active_main_task_board_tests {
         // User edits the platform provider and explicitly types a new key → the
         // front-end marks it source=user (fork) and submits the new key.
         let mut user = state.load_user_settings();
-        user.providers.push(provider_fixture("vllm-local", "sk-user-new", Some("user")));
+        user.providers
+            .push(provider_fixture("vllm-local", "sk-user-new", Some("user")));
         state.update_user_settings(user).expect("save fork");
         // Forked provider persists with the user's explicit key.
         let persisted = state.load_user_settings();
@@ -1242,6 +1329,9 @@ mod active_main_task_board_tests {
         let state = AppState::new();
         let merged = state.effective_settings();
         let mut debug = DebugSessionSettings::from(&merged);
+        if debug.providers.is_empty() {
+            debug.providers.push(provider_fixture("qwen", "", Some("user")));
+        }
         let mut provider = debug.providers[0].clone();
         provider.id = "session-provider".into();
         provider.name = "Session Provider".into();
@@ -1303,10 +1393,13 @@ mod active_main_task_board_tests {
         // merged 仍来自持久化 user 层（平台默认），未被调试覆盖。
         assert_ne!(view.merged.active_provider_id, "session-provider");
         assert_ne!(view.merged.model, "session-chat");
-        // 持久化 user_settings 未被污染：providers 仍是默认 3 个平台服务商。
+        // 持久化 user_settings 未被污染：本地默认不再内置平台服务商。
         let persisted = state.load_user_settings();
-        assert_eq!(persisted.providers.len(), 3);
-        assert!(!persisted.providers.iter().any(|p| p.id == "session-provider"));
+        assert_eq!(persisted.providers.len(), 0);
+        assert!(!persisted
+            .providers
+            .iter()
+            .any(|p| p.id == "session-provider"));
         assert_ne!(persisted.active_provider_id, "session-provider");
     }
 

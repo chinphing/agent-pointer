@@ -170,6 +170,7 @@ mod tests {
                workspace_inherit_disabled INTEGER NOT NULL DEFAULT 0,
                lead_agent_id TEXT NOT NULL DEFAULT 'general',
                agent_mode TEXT NOT NULL DEFAULT 'single',
+               performance_mode TEXT,
                session_user_id TEXT NOT NULL DEFAULT '',
                is_pinned INTEGER NOT NULL DEFAULT 0
              );",

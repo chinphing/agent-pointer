@@ -37,7 +37,8 @@ impl TurnBaselineGuard {
         } else {
             Some((conversation_id, turn_id))
         };
-        let previous = TURN_BASELINE_CTX.with(|cell| std::mem::replace(&mut *cell.borrow_mut(), next));
+        let previous =
+            TURN_BASELINE_CTX.with(|cell| std::mem::replace(&mut *cell.borrow_mut(), next));
         Self { previous }
     }
 }
@@ -153,9 +154,7 @@ fn resolve_abs_path(workspace_root: &Path, path: &str) -> Result<PathBuf> {
     }
     let candidate = PathBuf::from(trimmed);
     if candidate.is_absolute() {
-        return Ok(candidate
-            .canonicalize()
-            .unwrap_or_else(|_| candidate));
+        return Ok(candidate.canonicalize().unwrap_or_else(|_| candidate));
     }
     let joined = workspace_root.join(trimmed);
     Ok(joined.canonicalize().unwrap_or(joined))

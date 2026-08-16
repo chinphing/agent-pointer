@@ -1115,17 +1115,13 @@ fn reject_session_user_id_keyword_in_terminal_args(args: &serde_json::Value) -> 
     if let Some(command) = args.get("command").and_then(|v| v.as_str()) {
         if command.contains(keyword) {
             warn!("terminal: rejected command containing {keyword}");
-            bail!(
-                "terminal 命令不得包含 {keyword}；该变量由 Host 注入，禁止在命令中设置或改写"
-            );
+            bail!("terminal 命令不得包含 {keyword}；该变量由 Host 注入，禁止在命令中设置或改写");
         }
     }
     if let Some(stdin) = args.get("stdin").and_then(|v| v.as_str()) {
         if stdin.contains(keyword) {
             warn!("terminal: rejected stdin containing {keyword}");
-            bail!(
-                "terminal stdin 不得包含 {keyword}；该变量由 Host 注入，禁止通过输入设置或改写"
-            );
+            bail!("terminal stdin 不得包含 {keyword}；该变量由 Host 注入，禁止通过输入设置或改写");
         }
     }
     Ok(())

@@ -23,9 +23,7 @@ fn resolve_license_public_key_b64() -> Result<String> {
         if let Ok(raw) = std::env::var(ENV_LICENSE_PUBLIC_KEY) {
             let trimmed = raw.trim().to_string();
             if !trimmed.is_empty() {
-                log::info!(
-                    "license: using {ENV_LICENSE_PUBLIC_KEY} override (debug builds only)"
-                );
+                log::info!("license: using {ENV_LICENSE_PUBLIC_KEY} override (debug builds only)");
                 return Ok(trimmed);
             }
         }

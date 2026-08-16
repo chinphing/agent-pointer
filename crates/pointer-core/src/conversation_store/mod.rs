@@ -19,6 +19,7 @@ mod write;
 pub use message_page::{
     load_messages_page, LoadMessagesPageOpts, MessagePage, DEFAULT_MESSAGE_PAGE_TURNS,
 };
+pub use write::AppendedMessageRow;
 
 pub use session_user::{normalize_session_user_id, ListScope};
 
@@ -34,7 +35,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 22;
+const SCHEMA_VERSION: i32 = 23;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -518,14 +519,14 @@ impl ConversationStore {
         &self,
         conversation_id: &str,
         messages: &[ChatMessage],
-    ) -> Result<u32> {
-        let written = self.db.execute_write(|conn| {
+    ) -> Result<Vec<AppendedMessageRow>> {
+        let appended = self.db.execute_write(|conn| {
             write::append_missing_messages_in_conn(conn, conversation_id, messages)
         })?;
-        if written > 0 {
+        if !appended.is_empty() {
             crate::conversation_session::note_transcript_mutated(conversation_id);
         }
-        Ok(written)
+        Ok(appended)
     }
 
     /// Ensure a dedicated cron session row exists for a cron job. Creates the
@@ -723,8 +724,9 @@ impl ConversationStore {
         conversation_id: &str,
         messages: &[ChatMessage],
     ) -> Result<()> {
-        self.db
-            .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))?;
+        self.db.execute_write(|conn| {
+            write::replace_messages_in_conn(conn, conversation_id, messages)
+        })?;
         crate::conversation_session::note_transcript_mutated(conversation_id);
         Ok(())
     }
@@ -1035,6 +1037,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            workspace_inherit_disabled INTEGER NOT NULL DEFAULT 0,
            lead_agent_id TEXT NOT NULL DEFAULT 'general',
            agent_mode TEXT NOT NULL DEFAULT 'single',
+           performance_mode TEXT,
            im_session_epoch INTEGER NOT NULL DEFAULT 0,
            im_active_conversation_id TEXT,
            im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,
@@ -1512,6 +1515,9 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "is_pinned",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    // v23: per-conversation performance tier override (Composer picker).
+    // NULL = no override → global agentPerformanceModes default applies.
+    add_column_if_missing(conn, "conversations", "performance_mode", "TEXT")?;
     // v21: materialized turn-anchor flag on messages. Backfill only touches
     // user rows that should be flagged (idempotent + store_meta gated);
     // afterwards writes compute it at insert time.

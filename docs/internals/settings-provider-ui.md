@@ -1,6 +1,8 @@
 # 设置页：模型服务商编辑（维护说明）
 
-> **可见性**：设置侧栏「模型配置」是常规分区，平台服务包含千问、DeepSeek、豆包；自定义服务包含其余 OpenAI 兼容服务。普通用户只读；平台管理员可编辑。平台服务由平台统一管理，**不显示删除入口**；仅自定义服务可删除。
+> **默认分区**：普通入口打开设置落在「智能体」。指定分区的入口（如自动化、输入框档位）仍直达对应栏。
+
+> **可见性**：设置侧栏「模型配置」是常规分区，平台服务（千问、DeepSeek、豆包）**由平台目录下发**，客户端本地不再内置任何平台服务商/模型清单/档位默认；登录平台后按 `platformProviders` 模板自动创建，未登录时「平台服务」区为空。自定义服务包含其余 OpenAI 兼容服务。普通用户只读；平台管理员可编辑。平台服务由平台统一管理，**不显示删除入口**；仅自定义服务可删除。平台服务与自定义服务用同一套卡片（名称、地址、模型数）；平台密钥不展示，条目不可编辑/删除，可设为默认。
 
 > **保存语义**：模型服务、当前服务/模型、生成参数和三档模型映射均通过 `updateUserSettings` 保存到 `user_settings.json`；Provider API Key 以 `enc:v1:` 加密落盘。删除自定义服务前必须明确确认；确认后立即保存，失败时前端恢复删除前的服务列表、默认服务和模型。
 
@@ -24,6 +26,8 @@
 
 设置页在第一个异步请求之前同步构造不可变快照。服务端返回有效设置后同步回填 Store，避免旧响应覆盖正在编辑的模型服务 key 或场景模型映射。
 
+`saveUserSnapshot` 不能只回填 providers / 当前模型。场景档位（`agentPerformanceModes` / `mediaUnderstandingModes` / `computerInitialTier`）和三档映射也要写回 merged，否则输入框和下一轮对话仍读旧值。改档位时先写入内存，再异步落盘。
+
 ## 模型能力标记
 
 - 各模型在「定制 → 设置」弹窗顶部可勾选：**支持视觉理解**、**可生成图片**、**可生成视频**。
@@ -33,7 +37,8 @@
 - `hasEffectiveModelOverride` / `pruneInheritedModelConfigs` / `sanitizeProviderModelConfigs`
   必须保留与默认值不同的 `supportsVision` / `canGenerateImage` / `canGenerateVideo`。
 - 图片/视频生成下拉、vision 能力检测会读取 `modelConfigs` 中对应字段；未设置时对已知模型名自动推断。
-- 千问 / 豆包默认列表已包含 Wan、Seedream、Seedance 等生成模型。
+- 千问 / 豆包模型清单（含 Wan、Seedream、Seedance 等生成模型）**由平台目录下发**，本地不再内置默认模型列表。平台新增模型后，用户下次登录或刷新凭据即可在下拉中看到，无需发客户端版本。
+- 场景档位「已覆盖」以平台 `tierDefaults` 为准，不要在界面里写死模型名来判断是否默认。
 
 ## 模式选择与调试模型映射
 
@@ -67,11 +72,11 @@
 - **扩展参数 `extraBody`**：JSON 对象；失焦时解析写入。服务商级与模型级均可配；模型覆盖浅合并服务商。
   请求时一律展平到 chat/completions 根级（对齐 Hermes）。详见 [`../llm/model-thinking-api.md`](../llm/model-thinking-api.md)。
 
-## 新增服务商与千问/深度求索一致
+## 新增自定义服务
 
-- 添加/编辑表单顶部有 **服务类型**（千问 / 深度求索 / OpenAI 兼容），决定 `RuntimeParamsForm` 的 variant（深度思考、推理力度等）。
-- 类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问面板）；添加时也可直接点类型按钮套用默认 ID、地址与模型列表。
-- 配置流程与内置服务商相同：服务商级 `RuntimeParamsForm` → 模型列表 → 各模型「同上 / 定制」→ 定制弹窗内同一套 `RuntimeParamsForm`。
+- 添加服务仅提供**自定义模板**（OpenAI 兼容 / OpenRouter / Kimi / 智谱）；千问 / 深度求索 / 豆包由平台目录管理，不再出现在添加列表。
+- 编辑已有服务时，服务类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问面板）；平台注入服务（`source=platform`）只读，不可编辑删除。
+- 配置流程与自定义服务相同：服务商级 `RuntimeParamsForm` → 模型列表 → 各模型「同上 / 定制」→ 定制弹窗内同一套 `RuntimeParamsForm`。
 - 预设与识别逻辑在 `src/lib/providerParams.ts`（`PROVIDER_TEMPLATE_OPTIONS`、`detectProviderTemplateId`）。
 
 ## 模型「同上」与 `modelConfigs`

@@ -13,6 +13,8 @@ use super::super::StreamTx;
 pub struct ChatRunRequest {
     pub agent_mode: Option<String>,
     pub lead_agent_id_override: Option<String>,
+    /// Per-conversation performance tier override; `None` = global default.
+    pub performance_mode_override: Option<String>,
     pub agent_skill_overrides: HashMap<String, Vec<String>>,
     pub tool_rounds_used_single_start: u32,
     pub workspace_root: String,

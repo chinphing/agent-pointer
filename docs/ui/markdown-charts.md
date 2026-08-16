@@ -38,6 +38,7 @@ Example:
 - **LLM context (API-only):** when building the next model request, assistant messages that contain chart fences get an appended `<!-- pointer-chart-render -->` block listing the host-applied (or custom) series colors. This is not stored in `msg.content` and is not shown in the UI — same pattern as delivered-attachment manifests.
 - Hover tooltips are enabled (`interaction.mode: index`). Do **not** force CSS width/height on the `<canvas>` — that breaks hit-testing.
 - Plot area height is fixed (`360px` inner box); `maintainAspectRatio` is forced off so model `aspectRatio` cannot flatten the chart.
+- **Long category labels:** vertical `bar` charts with long Chinese labels are auto-flipped to `indexAxis: "y"` (horizontal) so the plot is not crushed empty; `beginAtZero` on `y` is moved to `x`.
 - Cartesian series are flattened to primitive number arrays (`parseFloat`); `parsing: false` object points are avoided because they mis-scale on macOS WKWebView.
 - Theme paints use resolved `rgb()`/`rgba()` (not `hsl()`) for WebKit canvas reliability; animations are disabled.
 - Oversized `scales.*.min` / `max` / `suggested*` (large empty headroom above the series) are stripped so data is not glued to the floor.

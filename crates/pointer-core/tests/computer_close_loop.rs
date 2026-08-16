@@ -19,7 +19,10 @@ fn solid_jpeg(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
     let mut buf = Vec::new();
     let img = RgbImage::from_pixel(width, height, image::Rgb(rgb));
     DynamicImage::ImageRgb8(img)
-        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
+        .write_to(
+            &mut std::io::Cursor::new(&mut buf),
+            image::ImageFormat::Jpeg,
+        )
         .unwrap();
     buf
 }
@@ -71,11 +74,7 @@ impl ActionBackend for SharedRecordingBackend {
     fn key_phase(&self, _name: &str, _phase: KeyPhase) -> Result<ActionResult> {
         Ok(ActionResult::success("key"))
     }
-    fn mouse_phase(
-        &self,
-        _button: MouseButton,
-        _phase: KeyPhase,
-    ) -> Result<ActionResult> {
+    fn mouse_phase(&self, _button: MouseButton, _phase: KeyPhase) -> Result<ActionResult> {
         Ok(ActionResult::success("mouse_phase"))
     }
 }
@@ -142,7 +141,10 @@ async fn computer_state_apply_screen_capture_chains_previous_raw_for_inject() {
         .await
         .expect("second pipeline");
     let before = second.inject_before_action.as_ref().expect("before inject");
-    assert_ne!(before.screen_jpeg.as_slice(), first.raw_marked_jpeg.as_slice());
+    assert_ne!(
+        before.screen_jpeg.as_slice(),
+        first.raw_marked_jpeg.as_slice()
+    );
     assert_ne!(before.screen_jpeg.as_slice(), jpeg_a.as_slice());
     assert!(!before.zoom_pointer_png.is_empty());
 

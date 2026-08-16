@@ -114,6 +114,13 @@ pub struct Conversation {
         skip_serializing_if = "is_default_session_agent_mode"
     )]
     pub agent_mode: String,
+    /// Per-conversation performance tier override (Composer picker); `None` = global default.
+    #[serde(
+        default,
+        rename = "performanceMode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub performance_mode: Option<String>,
     /// Platform login user id or IM channel user / group key for this session.
     #[serde(
         default,
@@ -197,6 +204,13 @@ pub struct ConversationMeta {
         skip_serializing_if = "is_default_session_agent_mode"
     )]
     pub agent_mode: String,
+    /// Per-conversation performance tier override (Composer picker); `None` = global default.
+    #[serde(
+        default,
+        rename = "performanceMode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub performance_mode: Option<String>,
     /// Persisted message count for the conversation (DB-backed; 0 when derived
     /// from an in-memory `Conversation`).
     #[serde(default, rename = "messageCount")]
@@ -253,6 +267,7 @@ impl From<&Conversation> for ConversationMeta {
             workspace_inherit_disabled: c.workspace_inherit_disabled,
             lead_agent_id: c.lead_agent_id.clone(),
             agent_mode: c.agent_mode.clone(),
+            performance_mode: c.performance_mode.clone(),
             message_count: 0,
             preview: String::new(),
             session_user_id: c.session_user_id.clone(),
@@ -322,6 +337,13 @@ pub struct SendChatPayload {
         skip_serializing_if = "Option::is_none"
     )]
     pub lead_agent_id: Option<String>,
+    /// Per-conversation performance tier override (Composer picker); unset = global default.
+    #[serde(
+        default,
+        rename = "performanceMode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub performance_mode: Option<String>,
 }
 
 #[cfg(test)]
@@ -407,6 +429,7 @@ mod agent_trace_persistence_tests {
             workspace_inherit_disabled: false,
             lead_agent_id: default_lead_agent_id(),
             agent_mode: default_agent_mode(),
+            performance_mode: None,
             session_user_id: String::new(),
         };
         let json = serde_json::to_string(&conv).expect("serialize");

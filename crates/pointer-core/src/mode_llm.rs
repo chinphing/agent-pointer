@@ -88,9 +88,10 @@ pub fn resolve_media_mode_llm(settings: &ModelSettings, kind: &str) -> AgentMode
     if let Some(m) = legacy.filter(|m| !m.model.trim().is_empty()) {
         return m.clone();
     }
+    // 无本地平台默认：媒体理解未配置时返回空引用，由调用方按“未配置 API Key”处理。
     AgentModelRef {
-        provider_id: "qwen".into(),
-        model: "qwen3.5-plus".into(),
+        provider_id: String::new(),
+        model: String::new(),
     }
 }
 
@@ -132,10 +133,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_media_fast_fallback() {
+    fn resolve_media_fast_fallback_empty_without_platform_defaults() {
         let settings = ModelSettings::default();
         let r = resolve_media_mode_llm(&settings, "image");
-        assert_eq!(r.model, "qwen3.5-flash");
+        // 本地不再内置平台默认模型；未配置时返回空引用，由调用方按未配置处理。
+        assert!(r.model.is_empty());
+        assert!(r.provider_id.is_empty());
     }
 
     #[test]

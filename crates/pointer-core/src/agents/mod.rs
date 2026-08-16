@@ -1293,10 +1293,8 @@ mod builtin_agent_tests {
         let tools = ToolRegistry::new();
         let store = std::sync::Arc::new(crate::task_board::TaskBoardStore::new());
         crate::tools::builtin::register_all(&tools, store);
-        let overrides = HashMap::from([(
-            "general".to_string(),
-            vec!["captured-skill".to_string()],
-        )]);
+        let overrides =
+            HashMap::from([("general".to_string(), vec!["captured-skill".to_string()])]);
         let plan = AgentOrchestrator::build_plan(
             &agents,
             &skills,
@@ -1307,8 +1305,14 @@ mod builtin_agent_tests {
             Some("general"),
         );
 
-        assert!(plan.resolved_skill_ids.iter().any(|id| id == "captured-skill"));
-        assert!(plan.resolved_skill_ids.iter().any(|id| id == "skill-manager"));
+        assert!(plan
+            .resolved_skill_ids
+            .iter()
+            .any(|id| id == "captured-skill"));
+        assert!(plan
+            .resolved_skill_ids
+            .iter()
+            .any(|id| id == "skill-manager"));
         assert_eq!(
             plan.active_system_prompt,
             plan.system_prompts.first().cloned().unwrap()
@@ -1411,7 +1415,7 @@ mod builtin_agent_tests {
             "communication should require route decision"
         );
         assert!(
-            agent.system_prompt.contains("Step 1 — Verify"),
+            agent.system_prompt.contains("Step 1 — Apply verify outcome"),
             "communication should include Verify step"
         );
         assert!(
@@ -1553,8 +1557,7 @@ mod builtin_agent_tests {
             "coder should include skill_change scenario playbook"
         );
         assert!(
-            prompt.contains("Scenario: architecture_explain")
-                && prompt.contains("SVG first"),
+            prompt.contains("Scenario: architecture_explain") && prompt.contains("SVG first"),
             "coder architecture_explain should prefer an SVG overview"
         );
         assert!(

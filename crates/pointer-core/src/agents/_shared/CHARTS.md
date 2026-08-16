@@ -15,6 +15,8 @@ emit a fenced Chart.js JSON block (not HTML/`<script>`/CDN):
   bars for level, line for rate; mark the rate series `(right axis)` /
   `(右轴)` in its label; set `y` + `y1` scales.
 - Prefer ≤ **2** datasets; hard cap **4**. More → split charts or a table.
+- Long category labels (Chinese names, 口径名) → prefer **`indexAxis: "y"`**
+  (horizontal bars). The host may auto-flip vertical bars when labels are long.
 - Long time series is OK: keep ≤2 series, thin bars / lines, and sparse
   category ticks (`maxTicksLimit` ~8–12). Short windows → show every label.
 - Chart = shape/trend; GFM table = exact numbers. Use both when useful;

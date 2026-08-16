@@ -626,6 +626,26 @@ fn aborted_result(duration_ms: u64) -> TerminalStreamingResult {
 mod tests {
     use super::*;
 
+    /// Restore process PATH on drop so concurrent tests that spawn external
+    /// commands (e.g. workspace_read git tests) are not affected by PATH
+    /// mutations in this module's tests.
+    struct PathGuard(Option<String>);
+
+    impl PathGuard {
+        fn capture() -> Self {
+            Self(std::env::var("PATH").ok())
+        }
+    }
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(p) => std::env::set_var("PATH", p),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+    }
+
     #[test]
     fn terminal_requests_elevation_parses_bool() {
         assert!(!terminal_requests_elevation(
@@ -655,6 +675,7 @@ mod tests {
 
     #[test]
     fn build_elevated_child_environment_path_matches_process_after_refresh() {
+        let _path_guard = PathGuard::capture();
         std::env::set_var("PATH", "/pointer/elevated-path-test");
 
         // Snapshot before refresh freezes PATH even if the process env moves afterward.

@@ -4,6 +4,7 @@ use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{ChatMessage, ConversationMeta};
+use serde::Serialize;
 
 use super::persist::{conversation_preview, message_index_content, role_str};
 
@@ -22,10 +23,10 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
            computer_monitor_id, project_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
-           lead_agent_id, agent_mode, session_user_id, is_pinned
+           lead_agent_id, agent_mode, performance_mode, session_user_id, is_pinned
          ) VALUES (?1,?2,?3,?4,
            COALESCE((SELECT message_count FROM conversations WHERE id = ?1), 0),
-           ?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+           ?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            updated_at_ms = excluded.updated_at_ms,
@@ -39,6 +40,7 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
            workspace_inherit_disabled = excluded.workspace_inherit_disabled,
            lead_agent_id = excluded.lead_agent_id,
            agent_mode = excluded.agent_mode,
+           performance_mode = excluded.performance_mode,
            session_user_id = CASE
              WHEN trim(excluded.session_user_id) != '' THEN excluded.session_user_id
              ELSE conversations.session_user_id
@@ -60,6 +62,7 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
             i64::from(meta.workspace_inherit_disabled),
             meta.lead_agent_id,
             meta.agent_mode,
+            meta.performance_mode,
             meta.session_user_id,
             i64::from(meta.is_pinned),
         ],
@@ -138,6 +141,7 @@ pub(crate) fn ensure_conversation_row_with_title(
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            performance_mode: None,
             message_count: 0,
             preview: String::new(),
             session_user_id: String::new(),
@@ -284,32 +288,46 @@ pub fn flush_conversation_meta_in_conn(
     Ok(())
 }
 
+/// One row actually written by [`append_missing_messages_in_conn`].
+/// Wire-only: lets the frontend attach SQLite positions to in-memory messages
+/// after `persistAppend`, without persisting position into payloads.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppendedMessageRow {
+    pub message_id: String,
+    pub position: i64,
+}
+
 /// P0: append messages whose ids are not yet in the DB.
 pub fn append_missing_messages_in_conn(
     conn: &Connection,
     conversation_id: &str,
     messages: &[ChatMessage],
-) -> Result<u32> {
+) -> Result<Vec<AppendedMessageRow>> {
     ensure_conversation_row(conn, conversation_id)?;
     let existing: std::collections::HashSet<String> = existing_message_ids(conn, conversation_id)?
         .into_iter()
         .collect();
     let mut pos = max_message_position(conn, conversation_id)?;
-    let mut written = 0u32;
+    let mut appended: Vec<AppendedMessageRow> = Vec::new();
     for msg in messages {
         if existing.contains(&msg.id) {
             continue;
         }
         pos += 1;
         insert_message_at(conn, conversation_id, msg, pos)?;
-        written += 1;
+        appended.push(AppendedMessageRow {
+            message_id: msg.id.clone(),
+            position: pos,
+        });
     }
-    if written > 0 {
+    if !appended.is_empty() {
         log::debug!(
-            "conversation_store: append_missing conversation_id={conversation_id} new_messages={written}"
+            "conversation_store: append_missing conversation_id={conversation_id} new_messages={}",
+            appended.len()
         );
     }
-    Ok(written)
+    Ok(appended)
 }
 
 /// P0: upsert without reloading the full transcript for stats.
@@ -586,6 +604,7 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            performance_mode: None,
             message_count: 0,
             preview: String::new(),
             session_user_id: String::new(),
@@ -813,5 +832,36 @@ mod tests {
             .unwrap();
         let loaded = store.load_all().unwrap();
         assert_eq!(loaded[0].messages.len(), 1);
+    }
+
+    #[test]
+    fn append_missing_returns_appended_rows_with_positions() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c1", "T", "hello");
+        store.save_all(&[conv.clone()]).unwrap();
+
+        let m1 = super::super::persist::msg("m1", Role::User, "one", 101);
+        let m2 = super::super::persist::msg("m2", Role::Assistant, "two", 102);
+        let rows = store
+            .append_missing_messages("c1", &[m1.clone(), m2.clone()])
+            .unwrap();
+        assert_eq!(rows.len(), 2, "both fresh rows are reported");
+        assert_eq!(rows[0].message_id, "m1");
+        assert_eq!(rows[1].message_id, "m2");
+        assert!(
+            rows[1].position > rows[0].position,
+            "positions are monotonically increasing"
+        );
+        let first_position = rows[0].position;
+
+        // Existing ids are skipped and never reported; fresh rows continue after.
+        let m3 = super::super::persist::msg("m3", Role::User, "three", 103);
+        let rows2 = store
+            .append_missing_messages("c1", &[m1, m3.clone()])
+            .unwrap();
+        assert_eq!(rows2.len(), 1, "duplicate id is skipped");
+        assert_eq!(rows2[0].message_id, "m3");
+        assert_eq!(rows2[0].position, first_position + 2, "position continues after last row");
     }
 }

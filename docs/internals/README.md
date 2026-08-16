@@ -18,7 +18,7 @@
 | [terminal-shell-path.md](terminal-shell-path.md) | `terminal` 工具在各平台的 PATH / shell 行为 |
 | [pointer-build-toml.md](pointer-build-toml.md) | 编译期 `.pointer-build.toml` |
 | [macos-computer-permissions.md](macos-computer-permissions.md) | macOS 电脑操控权限 |
-| [user-platform-config-split.md](user-platform-config-split.md) | 用户 / 平台配置拆分 |
+| [user-platform-config-split.md](user-platform-config-split.md) | 用户 / 平台配置拆分；平台模型目录是平台服务商与档位默认的唯一来源 |
 | [settings-provider-ui.md](settings-provider-ui.md) | 设置页 Provider UI |
 | [task-board-v2-schema.md](task-board-v2-schema.md) | 任务板 v2 schema |
 | [task-board-unified-milestone-inject.md](task-board-unified-milestone-inject.md) | 任务板 milestone 注入 |

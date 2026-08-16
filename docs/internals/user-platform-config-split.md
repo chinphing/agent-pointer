@@ -7,14 +7,14 @@ Runtime configuration is split into two layers:
 | Layer | Contents | Persistence | Editable by |
 |-------|----------|-------------|-------------|
 | **User** | Everything the user can edit, incl. debug fields: theme, coding rules, completion sound, providers (structure, no secrets), active provider/model/temperature/maxTokens, tool approval, agent mode, context settings, tool rounds, mode/tier LLM maps, Computer prefs, parallel limits | `user_settings.json` — **full snapshot, no whitelist**. User-typed provider keys are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound) | All users (debug fields: `is_platform_admin` only) |
-| **Platform** | In-memory only: runtime provider list (with injected OAuth/TOML keys), media OSS credentials, server-side DaTi CAPTCHA config | **Never persisted** | `is_platform_admin` only |
+| **Platform** | In-memory only: runtime provider list (with injected OAuth/TOML keys), platform model directory (`platformProviders` + `tierDefaults`), media OSS credentials, server-side DaTi CAPTCHA config | Directory is cached locally for offline restart; never copied into `user_settings.json` | Platform admin on the control plane |
 
 Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, platform)` (user fields + platform runtime keys/media_oss/dati) and used by chat, tools, and the UI.
 
 ## Desktop (Tauri)
 
 - **OAuth refresh token**: encrypted in `{data_dir}/PointerApp/auth.dat` (AES-256-GCM, machine-bound key via HKDF). No OS keyring.
-- **Login / refresh**: `/auth/app/token` returns `api_key`, `llm_provider`, and `user.is_platform_admin`. Credentials are injected into the in-memory provider list (`apply_login_llm_credentials`).
+- **Login / refresh**: `/auth/app/token` returns `api_key`, `llm_provider`, `user.is_platform_admin`, and the platform model directory (`platformProviders` + `tierDefaults`). The client creates/updates platform providers from that directory and does not keep a local allowlist of platform models.
 - **Normal users**: use platform-issued API key; cannot edit debug fields in the UI.
 - **Platform admins**: may override provider/model/debug settings; all user-owned fields persist to `user_settings.json`; apiKey stays in memory / OAuth-injected.
 
@@ -52,10 +52,18 @@ On first startup after upgrade:
 
 User setting `computerTierLlm` maps `primary` | `intermediate` | `advanced` to model + thinking flags. Runtime `ComputerRoundLlmOverrides::for_tier` reads this map (tier config overrides agent manifest model defaults).
 
-Defaults:
+Defaults are **no longer embedded locally**: they come from the platform directory `tierDefaults.computerTierLlm` on login and are merged into the runtime view (user-configured values keep precedence). Before login / without platform defaults, the map is empty and computer runs require an explicit configuration.
 
-- Primary / intermediate: `qwen3.5-plus`, thinking on, budget 2048
-- Advanced: `qwen3.7-plus`, thinking on, budget 8192
+## Platform model directory
+
+The control plane is the only place that adds, removes, or reorders platform models.
+
+- Login / token refresh applies `platformProviders` as a complete directory: create missing providers, replace their model lists and model-level params, and drop `source=platform` providers that the directory no longer lists.
+- This client does not read `modelCatalog` to build providers. That field stays on the official login APIs so older clients keep working; the new client only consumes `platformProviders` + `tierDefaults`.
+- Scene defaults (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm` / `computerPipelineLlm` / `mediaGeneration`) come from `tierDefaults`. The settings UI compares “已覆盖” against this directory, not against names compiled into the client.
+- User settings never persist qwen / deepseek / doubao. After login, those services appear from the platform directory, so a newly published model is selectable on the next refresh without a client update.
+- Capability flags (`supportsVision` / `canGenerateImage` / `canGenerateVideo`) should be set on the platform model entry when the name heuristic would be wrong. Name-based inference is only a fallback.
+- Billing rate lives on each official model row on the control plane. Login payloads and the directory hash omit rate fields, so a rate-only edit does not rebuild client providers.
 
 ## Security notes (`auth.dat`)
 

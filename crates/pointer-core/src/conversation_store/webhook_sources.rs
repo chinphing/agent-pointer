@@ -338,6 +338,7 @@ mod tests {
                workspace_inherit_disabled INTEGER NOT NULL DEFAULT 0,
                lead_agent_id TEXT NOT NULL DEFAULT 'general',
                agent_mode TEXT NOT NULL DEFAULT 'single',
+               performance_mode TEXT,
                im_session_epoch INTEGER NOT NULL DEFAULT 0,
                im_active_conversation_id TEXT,
                im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,

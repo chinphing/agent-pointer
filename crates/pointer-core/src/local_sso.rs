@@ -363,6 +363,14 @@ mod tests {
     fn sso_sub_flows_to_terminal_session_user_id_env() {
         let _guard = env_guard();
         clear_sso_env();
+        // Isolate from any persisted terminalEnvOverrides (e.g. a dev machine
+        // SESSION_USER_ID override) so the guard → child-env assertion is exact.
+        // The settings lock is shared with dotenv tests that also mutate the
+        // process-global settings.
+        let _settings_guard = crate::platform_config::settings_test_lock();
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
         std::env::set_var(ENV_SSO_SECRET, "e2e-sso-secret");
         std::env::set_var(ENV_SSO_AUDIENCE, "http://127.0.0.1:18787");
 

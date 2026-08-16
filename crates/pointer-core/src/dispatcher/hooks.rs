@@ -533,6 +533,7 @@ mod tests {
             agent_skill_overrides: std::collections::HashMap::new(),
             agent_mode: None,
             lead_agent_id: None,
+            performance_mode: None,
             tool_rounds_used_single_start: 0,
             tool_rounds_used_supervisor_start: 0,
             workspace_root: String::new(),

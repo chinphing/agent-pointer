@@ -1,13 +1,14 @@
 //! In-memory platform configuration and defaults.
 
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    ensure_provider_model_capability_defaults, merge_user_platform, MediaOssConfig, ModelSettings,
-    PlatformSettings, ProviderConfig, UserSettings,
+    apply_platform_tier_defaults, ensure_agent_model_refs_have_provider,
+    ensure_provider_generation_defaults, ensure_provider_model_capability_defaults,
+    merge_user_platform, MediaOssConfig, ModelRuntimeOverrides, ModelSettings, PlatformSettings,
+    ProviderConfig, UserSettings,
 };
 use crate::platform_auth::PlatformMediaOssCredentials;
 use crate::storage;
@@ -44,6 +45,16 @@ pub fn effective_settings_global() -> ModelSettings {
 
 #[cfg(test)]
 static GLOBAL_USER_SETTINGS_FOR_TEST: OnceLock<RwLock<UserSettings>> = OnceLock::new();
+
+/// Serialize tests that mutate process-global user settings / platform config
+/// (terminalEnvOverrides etc.). Tests that write these globals must hold this
+/// lock across their whole read+assert window so concurrent tests cannot swap
+/// the value in between.
+#[cfg(test)]
+pub(crate) fn settings_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static SETTINGS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    SETTINGS_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Test helper: inject user settings for `effective_settings_global()`.
 #[cfg(test)]
@@ -133,12 +144,17 @@ pub fn apply_login_credentials_to_model_settings(
     settings: &mut ModelSettings,
     creds: &crate::platform_auth::PlatformLoginCredentials,
 ) {
+    apply_login_platform_providers(&mut settings.providers, &creds.platform_providers);
     apply_login_llm_provider_api_keys(&mut settings.providers, &creds.provider_api_keys);
     apply_login_llm_credentials(
         &mut settings.providers,
         creds.api_key.as_deref(),
         creds.llm_provider.as_deref(),
     );
+    if !creds.tier_defaults.is_null() {
+        let providers = settings.providers.clone();
+        apply_platform_tier_defaults(settings, &creds.tier_defaults, &providers);
+    }
     if let Some(media) = creds.media_oss.as_ref() {
         apply_login_media_oss(&mut settings.media_oss, Some(media));
     }
@@ -179,6 +195,113 @@ pub fn apply_login_llm_credentials(
         }
     }
     log::warn!("platform_config: provider id {pid} not found in platform config");
+}
+
+/// 按平台下发的服务商完整模板创建/更新运行时 provider（客户端不再内置任何平台服务商）。
+///
+/// 非空目录是完整清单：会移除已不在目录中的 `source=platform` 服务商，
+/// 以便平台下线服务商后客户端立即同步。空目录不改动现有列表。
+pub fn apply_login_platform_providers(
+    providers: &mut Vec<ProviderConfig>,
+    platform_providers: &[crate::platform_auth::PlatformProviderTemplate],
+) {
+    if platform_providers.is_empty() {
+        return;
+    }
+    let incoming_ids: HashSet<String> = platform_providers
+        .iter()
+        .map(|tpl| tpl.id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    for tpl in platform_providers {
+        let id = tpl.id.trim();
+        if id.is_empty() {
+            log::warn!("platform_config: skip platform provider without id");
+            continue;
+        }
+        let name = tpl.name.trim().to_string();
+        let base_url = tpl.base_url.trim().to_string();
+        if name.is_empty() || base_url.is_empty() {
+            log::warn!("platform_config: skip platform provider {id}: missing name/baseUrl");
+            continue;
+        }
+        let models: Vec<String> = tpl
+            .models
+            .iter()
+            .map(|m| m.name.trim().to_string())
+            .filter(|m| !m.is_empty())
+            .collect();
+        if models.is_empty() {
+            log::warn!("platform_config: skip platform provider {id}: no models");
+            continue;
+        }
+        let model_configs: HashMap<String, ModelRuntimeOverrides> = tpl
+            .models
+            .iter()
+            .map(|m| {
+                (
+                    m.name.trim().to_string(),
+                    ModelRuntimeOverrides {
+                        reasoning_in_messages: m.reasoning_in_messages,
+                        temperature: m.temperature,
+                        max_tokens: m.max_tokens,
+                        enable_thinking: m.enable_thinking,
+                        thinking_budget: m.thinking_budget,
+                        reasoning_effort: m.reasoning_effort.clone(),
+                        supports_vision: m.supports_vision,
+                        can_generate_image: m.can_generate_image,
+                        can_generate_video: m.can_generate_video,
+                        ..Default::default()
+                    },
+                )
+            })
+            .filter(|(model_name, _)| !model_name.is_empty())
+            .collect();
+        if let Some(p) = providers.iter_mut().find(|p| p.id == id) {
+            p.name = name;
+            p.base_url = base_url;
+            p.models = models;
+            p.model_configs = model_configs;
+            p.reasoning_in_messages = tpl.reasoning_in_messages;
+            p.enable_thinking = tpl.enable_thinking;
+            p.thinking_budget = tpl.thinking_budget;
+            p.reasoning_effort = tpl.reasoning_effort.clone();
+            if tpl.temperature.is_some() {
+                p.temperature = tpl.temperature;
+            }
+            if tpl.max_tokens.is_some() {
+                p.max_tokens = tpl.max_tokens;
+            }
+            p.source = Some("platform".into());
+        } else {
+            providers.push(ProviderConfig {
+                id: id.to_string(),
+                name,
+                base_url,
+                api_key: String::new(),
+                models,
+                reasoning_in_messages: tpl.reasoning_in_messages,
+                temperature: tpl.temperature,
+                max_tokens: tpl.max_tokens,
+                model_configs,
+                enable_thinking: tpl.enable_thinking,
+                thinking_budget: tpl.thinking_budget,
+                reasoning_effort: tpl.reasoning_effort.clone(),
+                extra_body: None,
+                source: Some("platform".into()),
+            });
+        }
+    }
+    let before = providers.len();
+    providers.retain(|p| {
+        p.source.as_deref() != Some("platform") || incoming_ids.contains(&p.id)
+    });
+    if providers.len() != before {
+        log::info!(
+            "platform_config: dropped {} platform provider(s) no longer in directory",
+            before - providers.len()
+        );
+    }
 }
 
 /// Inject per-provider OAuth-issued LLM credentials (provider id -> api key).
@@ -243,7 +366,10 @@ fn parse_oss_bucket_from_endpoint(endpoint: &str) -> Option<String> {
 }
 
 /// Inject OAuth-issued media OSS credentials into media_oss config.
-pub fn apply_login_media_oss(media_oss: &mut MediaOssConfig, media: Option<&PlatformMediaOssCredentials>) {
+pub fn apply_login_media_oss(
+    media_oss: &mut MediaOssConfig,
+    media: Option<&PlatformMediaOssCredentials>,
+) {
     let Some(raw) = media else {
         *media_oss = MediaOssConfig::default();
         return;
@@ -299,19 +425,75 @@ fn resolve_llm_provider_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ComputerTierLlmConfig, UserSettings};
+    use crate::models::UserSettings;
+
+    fn qwen_template() -> crate::platform_auth::PlatformProviderTemplate {
+        crate::platform_auth::PlatformProviderTemplate {
+            id: "qwen".into(),
+            name: "千问".into(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            models: vec![
+                crate::platform_auth::PlatformProviderModel {
+                    name: "qwen3.5-plus".into(),
+                    ..Default::default()
+                },
+                crate::platform_auth::PlatformProviderModel {
+                    name: "qwen-next".into(),
+                    ..Default::default()
+                },
+            ],
+            reasoning_in_messages: Some(false),
+            ..Default::default()
+        }
+    }
+
+    fn deepseek_template() -> crate::platform_auth::PlatformProviderTemplate {
+        crate::platform_auth::PlatformProviderTemplate {
+            id: "deepseek".into(),
+            name: "深度求索".into(),
+            base_url: "https://api.deepseek.com/v1".into(),
+            models: vec![crate::platform_auth::PlatformProviderModel {
+                name: "deepseek-v4-flash".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn apply_login_maps_aliyun_qwen() {
         let mut platform = PlatformSettings::default();
-        apply_login_llm_credentials(&mut platform.providers, Some("sk-test"), Some("aliyun_qwen"));
+        let templates = vec![qwen_template()];
+        apply_login_platform_providers(&mut platform.providers, &templates);
+        apply_login_llm_credentials(
+            &mut platform.providers,
+            Some("sk-test"),
+            Some("aliyun_qwen"),
+        );
         let qwen = platform.providers.iter().find(|p| p.id == "qwen").unwrap();
         assert_eq!(qwen.api_key, "sk-test");
+        assert_eq!(qwen.source.as_deref(), Some("platform"));
+    }
+
+    #[test]
+    fn apply_login_platform_providers_creates_missing_providers() {
+        let mut providers: Vec<ProviderConfig> = Vec::new();
+        let templates = vec![qwen_template(), deepseek_template()];
+        apply_login_platform_providers(&mut providers, &templates);
+        assert_eq!(providers.len(), 2);
+        let qwen = providers.iter().find(|p| p.id == "qwen").unwrap();
+        assert_eq!(qwen.name, "千问");
+        assert_eq!(qwen.base_url, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+        assert_eq!(qwen.models, vec!["qwen3.5-plus", "qwen-next"]);
+        assert_eq!(qwen.source.as_deref(), Some("platform"));
     }
 
     #[test]
     fn apply_login_provider_api_keys_maps_aliyun_qwen_alias() {
         let mut platform = PlatformSettings::default();
+        let templates = vec![qwen_template(), deepseek_template()];
+        apply_login_platform_providers(&mut platform.providers, &templates);
+
         let mut keys = HashMap::new();
         keys.insert("aliyun_qwen".into(), "sk-qwen".into());
         keys.insert("deepseek".into(), "sk-ds".into());
@@ -337,13 +519,78 @@ mod tests {
     }
 
     #[test]
-    fn default_agent_model_is_deepseek_flash() {
+    fn default_agent_model_is_empty_without_platform_defaults() {
         let user = UserSettings::default();
-        assert_eq!(
-            user.agent_default_models
-                .get("general")
-                .map(|r| r.model.as_str()),
-            Some("deepseek-v4-flash")
-        );
+        assert!(!user.agent_default_models.contains_key("general"));
+    }
+
+    #[test]
+    fn apply_login_platform_providers_drops_removed_platform_providers() {
+        let mut providers: Vec<ProviderConfig> = Vec::new();
+        apply_login_platform_providers(&mut providers, &[qwen_template(), deepseek_template()]);
+        assert_eq!(providers.len(), 2);
+        apply_login_platform_providers(&mut providers, &[qwen_template()]);
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "qwen");
+    }
+
+    #[test]
+    fn apply_login_platform_providers_keeps_user_providers() {
+        let mut providers = vec![ProviderConfig {
+            id: "custom-llm".into(),
+            name: "Custom".into(),
+            base_url: "https://custom.example/v1".into(),
+            api_key: String::new(),
+            models: vec!["local".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+            source: Some("user".into()),
+        }];
+        apply_login_platform_providers(&mut providers, &[qwen_template()]);
+        assert!(providers.iter().any(|p| p.id == "custom-llm"));
+        assert!(providers.iter().any(|p| p.id == "qwen"));
+    }
+
+    #[test]
+    fn login_applies_platform_providers_and_ignores_model_catalog() {
+        let mut settings = ModelSettings::default();
+        let creds = crate::platform_auth::PlatformLoginCredentials {
+            platform_providers: vec![qwen_template()],
+            model_catalog: HashMap::from([("qwen".into(), vec!["qwen3.5-plus".into()])]),
+            ..Default::default()
+        };
+        apply_login_credentials_to_model_settings(&mut settings, &creds);
+        let qwen = settings.providers.iter().find(|p| p.id == "qwen").unwrap();
+        assert_eq!(qwen.models, vec!["qwen3.5-plus", "qwen-next"]);
+    }
+
+    #[test]
+    fn apply_login_credentials_to_model_settings_creates_providers_from_templates() {
+        let mut settings = ModelSettings::default();
+        let creds = crate::platform_auth::PlatformLoginCredentials {
+            platform_providers: vec![qwen_template()],
+            tier_defaults: serde_json::json!({
+                "agentModeLlm": {
+                    "general": {
+                        "fast": { "providerId": "qwen", "model": "qwen-next" }
+                    }
+                }
+            }),
+            ..Default::default()
+        };
+        apply_login_credentials_to_model_settings(&mut settings, &creds);
+        assert!(settings.providers.iter().any(|p| p.id == "qwen"));
+        let fast = settings
+            .agent_mode_llm
+            .get("general")
+            .and_then(|m| m.get("fast"))
+            .expect("platform tier default should be applied");
+        assert_eq!(fast.model, "qwen-next");
     }
 }

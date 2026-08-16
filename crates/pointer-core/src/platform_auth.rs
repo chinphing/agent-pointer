@@ -64,6 +64,83 @@ pub struct PlatformSession {
     pub user: PlatformUserSummary,
 }
 
+/// 平台服务商完整模板（由平台目录下发；客户端据此创建服务商，不再本地内置）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlatformProviderTemplate {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default, rename = "sortOrder", alias = "sort_order")]
+    pub sort_order: Option<u32>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, rename = "baseUrl", alias = "base_url")]
+    pub base_url: String,
+    #[serde(default, deserialize_with = "deserialize_platform_models")]
+    pub models: Vec<PlatformProviderModel>,
+    #[serde(default, rename = "reasoningInMessages", alias = "reasoning_in_messages")]
+    pub reasoning_in_messages: Option<bool>,
+    #[serde(default, rename = "enableThinking", alias = "enable_thinking")]
+    pub enable_thinking: Option<bool>,
+    #[serde(default, rename = "thinkingBudget", alias = "thinking_budget")]
+    pub thinking_budget: Option<u32>,
+    #[serde(default, rename = "reasoningEffort", alias = "reasoning_effort")]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    #[serde(default, rename = "maxTokens", alias = "max_tokens")]
+    pub max_tokens: Option<u32>,
+}
+
+/// 平台模型条目（name + 模型级参数；未设置的字段继承服务商级默认）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlatformProviderModel {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, rename = "reasoningInMessages", alias = "reasoning_in_messages")]
+    pub reasoning_in_messages: Option<bool>,
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    #[serde(default, rename = "maxTokens", alias = "max_tokens")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, rename = "enableThinking", alias = "enable_thinking")]
+    pub enable_thinking: Option<bool>,
+    #[serde(default, rename = "thinkingBudget", alias = "thinking_budget")]
+    pub thinking_budget: Option<u32>,
+    #[serde(default, rename = "reasoningEffort", alias = "reasoning_effort")]
+    pub reasoning_effort: Option<String>,
+    #[serde(default, rename = "supportsVision", alias = "supports_vision")]
+    pub supports_vision: Option<bool>,
+    #[serde(default, rename = "canGenerateImage", alias = "can_generate_image")]
+    pub can_generate_image: Option<bool>,
+    #[serde(default, rename = "canGenerateVideo", alias = "can_generate_video")]
+    pub can_generate_video: Option<bool>,
+}
+
+/// models 数组元素兼容纯字符串模型名与 {name, ...模型级参数} 对象。
+fn deserialize_platform_models<'de, D>(deserializer: D) -> Result<Vec<PlatformProviderModel>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: Vec<serde_json::Value> = serde::Deserialize::deserialize(deserializer)?;
+    let mut out = Vec::with_capacity(raw.len());
+    for value in raw {
+        if let Some(name) = value.as_str() {
+            let name = name.trim();
+            if !name.is_empty() {
+                out.push(PlatformProviderModel {
+                    name: name.to_string(),
+                    ..Default::default()
+                });
+            }
+        } else if let Ok(model) = serde_json::from_value::<PlatformProviderModel>(value) {
+            if !model.name.trim().is_empty() {
+                out.push(model);
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// LLM credentials from the last successful token exchange (not persisted).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlatformLoginCredentials {
@@ -71,6 +148,22 @@ pub struct PlatformLoginCredentials {
     pub llm_provider: Option<String>,
     #[serde(default)]
     pub provider_api_keys: HashMap<String, String>,
+    /// Read-only model catalog returned by the platform; never persisted to user settings.
+    #[serde(
+        default,
+        rename = "modelCatalog",
+        alias = "model_catalog",
+        alias = "providerModels"
+    )]
+    pub model_catalog: HashMap<String, Vec<String>>,
+    /// 平台服务商完整模板（id -> name/baseUrl/models/默认参数）；客户端据此创建服务商。
+    #[serde(default, rename = "platformProviders", alias = "platform_providers")]
+    pub platform_providers: Vec<PlatformProviderTemplate>,
+    /// 场景档位默认（agent/media/computer 快速/标准/高级默认模型映射）。
+    #[serde(default, rename = "tierDefaults", alias = "tier_defaults")]
+    pub tier_defaults: serde_json::Value,
+    #[serde(default, rename = "modelCatalogHash", alias = "model_catalog_hash")]
+    pub model_catalog_hash: Option<String>,
     #[serde(default, rename = "mediaOss", alias = "media_oss")]
     pub media_oss: Option<PlatformMediaOssCredentials>,
 }
@@ -298,6 +391,22 @@ impl PlatformAuthManager {
             } else {
                 overlay.provider_api_keys
             },
+            model_catalog: if overlay.model_catalog.is_empty() {
+                primary.model_catalog
+            } else {
+                overlay.model_catalog
+            },
+            platform_providers: if overlay.platform_providers.is_empty() {
+                primary.platform_providers
+            } else {
+                overlay.platform_providers
+            },
+            tier_defaults: if overlay.tier_defaults.is_null() {
+                primary.tier_defaults
+            } else {
+                overlay.tier_defaults
+            },
+            model_catalog_hash: overlay.model_catalog_hash.or(primary.model_catalog_hash),
             media_oss: overlay.media_oss.or(primary.media_oss),
         }
     }
@@ -311,6 +420,10 @@ impl PlatformAuthManager {
                 api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
                 llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
                 provider_api_keys: parsed.provider_api_keys,
+                model_catalog: parsed.model_catalog,
+                platform_providers: parsed.platform_providers,
+                tier_defaults: parsed.tier_defaults,
+                model_catalog_hash: None,
                 media_oss,
             });
         }
@@ -319,6 +432,10 @@ impl PlatformAuthManager {
                 api_key: None,
                 llm_provider: None,
                 provider_api_keys: HashMap::new(),
+                model_catalog: HashMap::new(),
+                platform_providers: Vec::new(),
+                tier_defaults: serde_json::Value::Null,
+                model_catalog_hash: None,
                 media_oss,
             });
         }
@@ -665,6 +782,10 @@ impl PlatformAuthManager {
             api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
             llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
             provider_api_keys: parsed.provider_api_keys,
+            model_catalog: parsed.model_catalog,
+            platform_providers: parsed.platform_providers,
+            tier_defaults: parsed.tier_defaults,
+            model_catalog_hash: None,
             media_oss: Self::sanitize_media_oss(parsed.media_oss),
         };
         Ok((session, creds))
@@ -829,11 +950,14 @@ impl PlatformAuthManager {
     /// Transient network/5xx errors retry with the same backoff as token refresh; still fail-closed
     /// after retries. Soft overdraft on charge remains server-side.
     pub async fn ensure_llm_allowed(&self) -> Result<()> {
-        if crate::deployment_mode::is_standalone() {
-            return Ok(());
-        }
-        if !self.session_view().logged_in {
-            return Ok(());
+        self.ensure_llm_allowed_with_balance().await.map(|_| ())
+    }
+
+    /// Same gate as [`Self::ensure_llm_allowed`], returning the successful lightweight
+    /// balance payload so the chat owner may refresh the read-only model catalog.
+    pub async fn ensure_llm_allowed_with_balance(&self) -> Result<Option<PartnerBalanceResponse>> {
+        if crate::deployment_mode::is_standalone() || !self.session_view().logged_in {
+            return Ok(None);
         }
         match self.fetch_partner_balance().await {
             Ok(bal) => {
@@ -841,7 +965,7 @@ impl PlatformAuthManager {
                 if bal.token_quota_exhausted {
                     return Err(anyhow!("token_quota_exhausted"));
                 }
-                Ok(())
+                Ok(Some(bal))
             }
             Err(e) => {
                 let msg = e.to_string();
@@ -859,6 +983,29 @@ impl PlatformAuthManager {
                 Err(e)
             }
         }
+    }
+
+    /// Fetch the full catalog only when the balance response advertises a new version.
+    /// A refresh failure is intentionally returned to the caller as a soft error; it must
+    /// not change the outcome of the already-successful balance gate.
+    pub async fn refresh_llm_credentials_if_model_catalog_changed(
+        &self,
+        server_hash: Option<&str>,
+    ) -> Result<Option<PlatformLoginCredentials>> {
+        let Some(server_hash) = server_hash.filter(|hash| !hash.trim().is_empty()) else {
+            return Ok(None);
+        };
+        if storage::platform_model_catalog_cache_hash()?.as_deref() == Some(server_hash) {
+            return Ok(None);
+        }
+        let Some(mut creds) = self.fetch_llm_credentials().await? else {
+            return Ok(None);
+        };
+        if creds.platform_providers.is_empty() {
+            return Ok(None);
+        }
+        creds.model_catalog_hash = Some(server_hash.to_owned());
+        Ok(Some(creds))
     }
 
     /// Query official account balance for run_chat gate (with transient retries).
@@ -970,6 +1117,17 @@ struct AppTokenResponse {
     llm_provider: Option<String>,
     #[serde(default)]
     provider_api_keys: HashMap<String, String>,
+    #[serde(
+        default,
+        rename = "modelCatalog",
+        alias = "model_catalog",
+        alias = "providerModels"
+    )]
+    model_catalog: HashMap<String, Vec<String>>,
+    #[serde(default, rename = "platformProviders", alias = "platform_providers")]
+    platform_providers: Vec<PlatformProviderTemplate>,
+    #[serde(default, rename = "tierDefaults", alias = "tier_defaults")]
+    tier_defaults: serde_json::Value,
     #[serde(default, rename = "mediaOss", alias = "media_oss")]
     media_oss: Option<PlatformMediaOssCredentials>,
 }
@@ -1008,6 +1166,17 @@ struct PartnerLlmCredentialResponse {
     llm_provider: Option<String>,
     #[serde(default)]
     provider_api_keys: HashMap<String, String>,
+    #[serde(
+        default,
+        rename = "modelCatalog",
+        alias = "model_catalog",
+        alias = "providerModels"
+    )]
+    model_catalog: HashMap<String, Vec<String>>,
+    #[serde(default, rename = "platformProviders", alias = "platform_providers")]
+    platform_providers: Vec<PlatformProviderTemplate>,
+    #[serde(default, rename = "tierDefaults", alias = "tier_defaults")]
+    tier_defaults: serde_json::Value,
     #[serde(default)]
     error_code: Option<String>,
     #[serde(default, rename = "included_tokens")]
@@ -1025,6 +1194,8 @@ pub struct PartnerBalanceResponse {
     pub token_quota_exhausted: bool,
     #[serde(default)]
     pub message: Option<String>,
+    #[serde(default, rename = "modelCatalogHash", alias = "model_catalog_hash")]
+    pub model_catalog_hash: Option<String>,
 }
 
 /// 从首选端口起扫描，绑定第一个可用的 127.0.0.1 端口。
@@ -1487,8 +1658,9 @@ mod tests {
     #[test]
     fn refresh_auth_failure_uses_http_status_not_proxy_noise() {
         let auth = PlatformAuthManager::new();
-        let auth_fail =
-            anyhow!("token exchange failed http_status=401 (401 Unauthorized): invalid_refresh_token");
+        let auth_fail = anyhow!(
+            "token exchange failed http_status=401 (401 Unauthorized): invalid_refresh_token"
+        );
         let legacy_auth = anyhow!("token exchange failed (403 Forbidden): denied");
         let proxy_noise = anyhow!("upstream gateway 401 while connecting to CDN");
         let network = anyhow!("token request failed: error sending request for url");
@@ -1526,6 +1698,21 @@ mod tests {
             PlatformAuthManager::refresh_transient_retry_delay(3).as_millis(),
             4000
         );
+    }
+
+    #[test]
+    fn partner_balance_accepts_missing_or_present_model_catalog_hash() {
+        let old: PartnerBalanceResponse = serde_json::from_str(
+            r#"{"balance_yuan":"1.000","token_quota_exhausted":false,"message":null}"#,
+        )
+        .expect("old response remains compatible");
+        assert_eq!(old.model_catalog_hash, None);
+
+        let current: PartnerBalanceResponse = serde_json::from_str(
+            r#"{"balance_yuan":"1.000","token_quota_exhausted":false,"modelCatalogHash":"abc"}"#,
+        )
+        .expect("new response parses");
+        assert_eq!(current.model_catalog_hash.as_deref(), Some("abc"));
     }
 
     #[test]

@@ -824,7 +824,7 @@ mod tests {
             user_specified_time: false,
         };
         let notice = format_video_scope_notice(&default, 500.0, 200, true, false);
-        assert!(notice.contains("did not specify a time window"));
+        assert!(notice.contains("only the first segment was processed"));
         assert!(notice.contains("native video_url"));
 
         let user = VideoTimeRange {

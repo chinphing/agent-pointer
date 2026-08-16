@@ -134,6 +134,10 @@ pub async fn exchange_agent_oauth_code(
         api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
         llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
         provider_api_keys: parsed.provider_api_keys,
+        model_catalog: parsed.model_catalog,
+        platform_providers: parsed.platform_providers,
+        tier_defaults: parsed.tier_defaults,
+        model_catalog_hash: None,
         media_oss: parsed.media_oss,
     };
     log::info!(
@@ -164,6 +168,17 @@ struct OAuthCodeExchangeResponse {
     llm_provider: Option<String>,
     #[serde(default)]
     provider_api_keys: HashMap<String, String>,
+    #[serde(
+        default,
+        rename = "modelCatalog",
+        alias = "model_catalog",
+        alias = "providerModels"
+    )]
+    model_catalog: HashMap<String, Vec<String>>,
+    #[serde(default, rename = "platformProviders", alias = "platform_providers")]
+    platform_providers: Vec<crate::platform_auth::PlatformProviderTemplate>,
+    #[serde(default, rename = "tierDefaults", alias = "tier_defaults")]
+    tier_defaults: serde_json::Value,
     #[serde(default, rename = "mediaOss", alias = "media_oss")]
     media_oss: Option<crate::platform_auth::PlatformMediaOssCredentials>,
     user: OAuthExchangeUser,
@@ -200,6 +215,9 @@ mod tests {
             api_key: None,
             llm_provider: None,
             provider_api_keys: HashMap::new(),
+            model_catalog: HashMap::new(),
+            platform_providers: Vec::new(),
+            tier_defaults: serde_json::Value::Null,
             media_oss: None,
             user: OAuthExchangeUser {
                 id: "u".into(),

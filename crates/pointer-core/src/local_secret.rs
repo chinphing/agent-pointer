@@ -116,9 +116,9 @@ mod tests {
 
     #[test]
     fn encrypt_decrypt_roundtrip_with_info() {
-        let blob = encrypt_local_secret_with_info("sk-user-typed", b"provider-api-keys-v1").unwrap();
-        let plain =
-            decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1").unwrap();
+        let blob =
+            encrypt_local_secret_with_info("sk-user-typed", b"provider-api-keys-v1").unwrap();
+        let plain = decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1").unwrap();
         assert_eq!(plain, "sk-user-typed");
         // Purpose-scoped key isolation: cannot decrypt with the auth.dat info.
         assert!(decrypt_local_secret_with_info(&blob, b"auth-refresh-token").is_err());

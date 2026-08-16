@@ -36,6 +36,9 @@ pub use attachment_lookup::{
     conversation_user_attachments, find_attachment_by_id, find_attachment_by_media_ref,
 };
 pub use capabilities::model_supports_vision;
+pub use chart_render_context::{
+    append_chart_render_api_context, format_chart_render_api_manifest, CHART_RENDER_MARKER,
+};
 pub use delegation::{
     collect_recent_user_attachments, format_delegation_attachments_block,
     merge_attachments_into_context, parse_attachment_specs_from_args, resolve_attachment_specs,
@@ -50,9 +53,6 @@ pub use filename::{
 pub use image_dir::{
     format_image_dir_scope_notice, format_multi_refs_scope_notice, list_image_files_in_dir,
     ImageDirRange, DEFAULT_IMAGE_BATCH, MAX_IMAGES_PER_CALL,
-};
-pub use chart_render_context::{
-    append_chart_render_api_context, format_chart_render_api_manifest, CHART_RENDER_MARKER,
 };
 pub use manifest::{
     append_delivered_attachments_api_context, append_user_attachments_api_context,

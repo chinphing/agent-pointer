@@ -76,7 +76,11 @@ mod tests {
 
     #[test]
     fn folds_long_unchanged_runs() {
-        let old = (0..20).map(|i| format!("L{i}")).collect::<Vec<_>>().join("\n") + "\n";
+        let old = (0..20)
+            .map(|i| format!("L{i}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
         let mut new_lines: Vec<String> = (0..20).map(|i| format!("L{i}")).collect();
         new_lines[10] = "CHANGED".into();
         let new = new_lines.join("\n") + "\n";

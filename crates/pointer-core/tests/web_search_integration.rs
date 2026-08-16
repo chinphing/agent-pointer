@@ -116,7 +116,8 @@ async fn web_search_happy_path_parses_sources() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(generation_fixture("Rust 2024 edition is stable.")),
+            ResponseTemplate::new(200)
+                .set_body_json(generation_fixture("Rust 2024 edition is stable.")),
         )
         .mount(&server)
         .await;
@@ -211,7 +212,9 @@ async fn web_search_generation_sse_streams_sources_then_answer() {
 async fn web_search_generation_stream_entry_parses_answer() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(generation_fixture("Rust is great.")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(generation_fixture("Rust is great.")),
+        )
         .mount(&server)
         .await;
 

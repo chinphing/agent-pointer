@@ -38,10 +38,7 @@ fn chat_completion_sse_body(content: &str) -> String {
 
 #[tokio::test]
 async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
-    let dir = std::env::temp_dir().join(format!(
-        "pointer-webhook-e2e-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("pointer-webhook-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     std::env::set_var("POINTER_APP_DATA_DIR", dir.to_string_lossy().as_ref());
     // Isolate from real user settings: `UserSettings::default()` carries
@@ -61,20 +58,16 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/event-stream")
-                .set_body_string(chat_completion_sse_body(
-                    "Webhook E2E reply from mock LLM.",
-                )),
+                .set_body_string(chat_completion_sse_body("Webhook E2E reply from mock LLM.")),
         )
         .mount(&mock)
         .await;
 
     let store = ConversationStore::open(dir.join("conversations.db")).unwrap();
     let token_store = WebhookTokenStore::new(&store);
-    assert!(
-        token_store
-            .set_source_token("curltest", "dev-curl-test-token", None, None)
-            .unwrap()
-    );
+    assert!(token_store
+        .set_source_token("curltest", "dev-curl-test-token", None, None)
+        .unwrap());
 
     let state = Arc::new(AppState::new());
     {
@@ -117,6 +110,7 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
         agent_skill_overrides: std::collections::HashMap::new(),
         agent_mode: None,
         lead_agent_id: None,
+        performance_mode: None,
         tool_rounds_used_single_start: 0,
         tool_rounds_used_supervisor_start: 0,
         workspace_root: String::new(),
@@ -126,16 +120,15 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
     };
 
     let handle = dispatcher.dispatch(req).await.unwrap();
-    let outcome = tokio::time::timeout(
-        Duration::from_secs(30),
-        dispatcher.wait(&handle.run_id),
-    )
-    .await
-    .expect("webhook run timed out")
-    .expect("wait failed");
+    let outcome = tokio::time::timeout(Duration::from_secs(30), dispatcher.wait(&handle.run_id))
+        .await
+        .expect("webhook run timed out")
+        .expect("wait failed");
 
     match outcome {
-        RunOutcome::Finished { conversation_id, .. } => {
+        RunOutcome::Finished {
+            conversation_id, ..
+        } => {
             assert_eq!(conversation_id, conv);
         }
         other => panic!("unexpected run outcome: {other:?}"),

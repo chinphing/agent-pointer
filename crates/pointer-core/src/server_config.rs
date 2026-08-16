@@ -723,10 +723,7 @@ fn sync_mode_llm_maps_to_active(user: &mut UserSettings, providers: &[ProviderCo
 
 /// Apply `[llm]` provider keys from pointer-server.toml into in-memory providers
 /// and the persisted user layer (active provider / model selection).
-pub fn apply_llm_providers_from_config(
-    platform: &mut PlatformSettings,
-    user: &mut UserSettings,
-) {
+pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings, user: &mut UserSettings) {
     let Some(llm) = PARSED_LLM.get().and_then(|o| o.as_ref()) else {
         return;
     };

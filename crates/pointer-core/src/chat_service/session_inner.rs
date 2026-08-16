@@ -92,6 +92,7 @@ pub(super) async fn run_chat_inner(
     let conversation_id = ctx.conversation_id;
     let request_agent_mode = req.agent_mode.as_deref();
     let request_lead_agent_id = req.lead_agent_id_override.as_deref();
+    let request_performance_mode = req.performance_mode_override.as_deref();
     let tool_rounds_used_single_start = req.tool_rounds_used_single_start;
     let workspace_root = req.workspace_root.clone();
     let run_id = req.run_id.as_str();
@@ -139,19 +140,44 @@ pub(super) async fn run_chat_inner(
         // Platform balance gate once per user turn (GET /auth/partner/balance).
         // Standalone never applies. Login / llm-credentials unchanged.
         if !crate::deployment_mode::is_standalone() && platform_logged_in {
-            if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
-                let raw = e.to_string();
-                let msg = if raw.contains("token_quota_exhausted") {
-                    "账户余额已用尽，请前往 Pointer 官网余额页充值。".to_string()
-                } else if raw.contains("网络异常") {
-                    // Already normalized after balance-check retries.
-                    raw
-                } else if state.active_platform_auth().is_refresh_transient_failure(&e) {
-                    "网络异常，请检查网络链接是否正常，然后重试。".to_string()
-                } else {
-                    raw
-                };
-                return Err(anyhow!(msg));
+            match state
+                .active_platform_auth()
+                .ensure_llm_allowed_with_balance()
+                .await
+            {
+                Ok(Some(balance)) => {
+                    match state
+                        .active_platform_auth()
+                        .refresh_llm_credentials_if_model_catalog_changed(
+                            balance.model_catalog_hash.as_deref(),
+                        )
+                        .await
+                    {
+                        Ok(Some(creds)) => state.apply_login_credentials(&creds),
+                        Ok(None) => {}
+                        Err(err) => log::warn!(
+                            "platform_auth: model catalog refresh after balance check failed; keeping cached catalog: {err:#}"
+                        ),
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    let raw = e.to_string();
+                    let msg = if raw.contains("token_quota_exhausted") {
+                        "账户余额已用尽，请前往 Pointer 官网余额页充值。".to_string()
+                    } else if raw.contains("网络异常") {
+                        // Already normalized after balance-check retries.
+                        raw
+                    } else if state
+                        .active_platform_auth()
+                        .is_refresh_transient_failure(&e)
+                    {
+                        "网络异常，请检查网络链接是否正常，然后重试。".to_string()
+                    } else {
+                        raw
+                    };
+                    return Err(anyhow!(msg));
+                }
             }
         }
     } else if is_automation && has_local_llm {
@@ -293,6 +319,7 @@ pub(super) async fn run_chat_inner(
         &mut settings,
         &effective_agent_mode,
         lead_worker_id.as_deref(),
+        request_performance_mode,
     );
     if api_key.is_empty() {
         return Err(anyhow!(

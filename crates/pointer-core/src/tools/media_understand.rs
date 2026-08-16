@@ -419,11 +419,7 @@ mod tests {
             "goal": "compare"
         });
         assert_eq!(
-            resolve_mode(
-                &args,
-                &["/tmp/a.png".into(), "/tmp/b.jpg".into()]
-            )
-            .unwrap(),
+            resolve_mode(&args, &["/tmp/a.png".into(), "/tmp/b.jpg".into()]).unwrap(),
             "image"
         );
     }
@@ -436,11 +432,7 @@ mod tests {
             "goal": "extract"
         });
         assert_eq!(
-            resolve_mode(
-                &args,
-                &["/tmp/a.pdf".into(), "/tmp/b.pdf".into()]
-            )
-            .unwrap(),
+            resolve_mode(&args, &["/tmp/a.pdf".into(), "/tmp/b.pdf".into()]).unwrap(),
             "pdf"
         );
     }
@@ -452,16 +444,10 @@ mod tests {
             "mode": "image",
             "goal": "extract"
         });
-        let err = resolve_mode(
-            &args,
-            &["/tmp/a.png".into(), "/tmp/b.pdf".into()],
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(
-            err.contains("mixed types"),
-            "unexpected error: {err}"
-        );
+        let err = resolve_mode(&args, &["/tmp/a.png".into(), "/tmp/b.pdf".into()])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("mixed types"), "unexpected error: {err}");
     }
 
     #[test]

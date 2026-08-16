@@ -29,13 +29,27 @@ pub(super) type ToolExecResult = Result<(String, bool, Option<String>), anyhow::
 /// tends to copy it onto the next, unrelated `run_subagent` call — colliding the child
 /// board store key / trace id (child key and trace are derived from taskId alone for
 /// registered agents). Keep the JSON shape otherwise identical.
-fn serialize_subagent_result_without_task_id(result: &AgentRunResult) -> Result<String, serde_json::Error> {
+fn serialize_subagent_result_without_task_id(
+    result: &AgentRunResult,
+) -> Result<String, serde_json::Error> {
     let mut obj = serde_json::Map::new();
-    obj.insert("agentId".to_string(), serde_json::Value::String(result.agent_id.clone()));
-    obj.insert("agentName".to_string(), serde_json::Value::String(result.agent_name.clone()));
-    obj.insert("content".to_string(), serde_json::Value::String(result.content.clone()));
+    obj.insert(
+        "agentId".to_string(),
+        serde_json::Value::String(result.agent_id.clone()),
+    );
+    obj.insert(
+        "agentName".to_string(),
+        serde_json::Value::String(result.agent_name.clone()),
+    );
+    obj.insert(
+        "content".to_string(),
+        serde_json::Value::String(result.content.clone()),
+    );
     if let Some(reasoning) = &result.reasoning {
-        obj.insert("reasoning".to_string(), serde_json::Value::String(reasoning.clone()));
+        obj.insert(
+            "reasoning".to_string(),
+            serde_json::Value::String(reasoning.clone()),
+        );
     }
     serde_json::to_string(&serde_json::Value::Object(obj))
 }
@@ -724,14 +738,11 @@ pub(super) async fn run_subagent_delegation(
                                 result.task_id,
                                 child_spawn_depth
                             );
-                            let json = serialize_subagent_result_without_task_id(&result).unwrap_or_else(
-                                |e| {
-                                    log::warn!(
-                                        "run_subagent result serialize failed: {e}"
-                                    );
+                            let json = serialize_subagent_result_without_task_id(&result)
+                                .unwrap_or_else(|e| {
+                                    log::warn!("run_subagent result serialize failed: {e}");
                                     r#"{"error":"serialize_failed"}"#.to_string()
-                                },
-                            );
+                                });
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,
@@ -770,8 +781,8 @@ mod trace_tests {
     use super::{
         build_subagent_trace, commit_subagent_outcome, execute_owned_subagent,
         failed_owned_subagent_outcome, finalize_subagent_outcome,
-        serialize_subagent_result_without_task_id, OwnedSubagentExecutionInput, OwnedSubagentSource,
-        PreparedSubagentOutcome, SubagentCommitContext,
+        serialize_subagent_result_without_task_id, OwnedSubagentExecutionInput,
+        OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
     };
     use crate::agent_instance_scope::AgentInstanceScope;
     use crate::agents::{

@@ -3,11 +3,7 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 
 use crate::agents::computer::tier::{
-    ADVANCED_THINKING_BUDGET, DEFAULT_COMPUTER_LLM_PROVIDER, DEFAULT_MODEL_ADVANCED,
-    DEFAULT_MODEL_INTERMEDIATE, DEFAULT_MODEL_PIPELINE_DECISION, DEFAULT_MODEL_PIPELINE_POSITION,
-    DEFAULT_MODEL_PIPELINE_VERIFY, DEFAULT_MODEL_PRIMARY,
     DEFAULT_PIPELINE_POSITION_THINKING_BUDGET, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
-    PRIMARY_INTERMEDIATE_THINKING_BUDGET,
 };
 
 /// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.
@@ -433,46 +429,9 @@ pub fn model_capability_flags(
     )
 }
 
-pub fn default_qwen_provider_models() -> Vec<String> {
-    vec![
-        "qwen3.5-plus".into(),
-        "qwen3.5-27b".into(),
-        "qwen3.5-flash".into(),
-        "qwen3.7-max".into(),
-        "qwen3.7-plus".into(),
-        "qwen3.6-plus".into(),
-        "qwen3.6-27b".into(),
-        "qwen3.6-flash".into(),
-        "qwen3-asr-flash".into(),
-        "fun-asr".into(),
-        "wan2.7-image-pro".into(),
-        "qwen-image-2.0-pro".into(),
-        "happyhorse-1.0-t2v".into(),
-        "happyhorse-1.0-i2v".into(),
-    ]
-}
-
-pub fn default_doubao_provider_models() -> Vec<String> {
-    vec![
-        "doubao-seedream-5-0-lite-260128".into(),
-        "doubao-seedream-4-5-251128".into(),
-        "doubao-seedance-2-0-fast-260128".into(),
-        "doubao-seedance-2-0-260128".into(),
-    ]
-}
-
 pub fn default_media_generation_overrides() -> MediaModelOverrides {
-    MediaModelOverrides {
-        image_generation: Some(AgentModelRef {
-            provider_id: "doubao".into(),
-            model: "doubao-seedream-5-0-lite-260128".into(),
-        }),
-        video_generation: Some(AgentModelRef {
-            provider_id: "doubao".into(),
-            model: "doubao-seedance-2-0-fast-260128".into(),
-        }),
-        ..MediaModelOverrides::default()
-    }
+    // 平台模型配置全部由平台下发；本地不再内置图片/视频生成默认模型。
+    MediaModelOverrides::default()
 }
 
 /// Build `extra_body` object from legacy `thinkingEnabled` / `thinkingBudget` (disk migration).
@@ -1027,11 +986,12 @@ fn default_theme() -> String {
 }
 
 fn default_active_provider_id() -> String {
-    build_cfg_str!("ACTIVE_PROVIDER_ID", "qwen")
+    // 平台模型配置全部由平台下发；本地默认无激活服务商（build 配置可覆盖）。
+    build_cfg_str!("ACTIVE_PROVIDER_ID", "")
 }
 
 fn default_model_name() -> String {
-    build_cfg_str!("MODEL", "qwen3.5-plus")
+    build_cfg_str!("MODEL", "")
 }
 
 fn default_model_temperature() -> f32 {
@@ -1058,30 +1018,60 @@ fn default_computer_human_like() -> bool {
     true
 }
 
-/// Fill platform-owned defaults into a user settings slice loaded from disk:
-/// 1. every platform default agent model key the user lacks gets the default ref;
-/// 2. built-in providers (qwen/deepseek/doubao) get any default model id that is
-///    missing from their list;
-/// 3. `session-provider`/`session-worker` placeholder entries left by the legacy
-///    debug-session write path are removed so the UI falls back to real defaults.
-/// Existing user choices are preserved; only missing defaults are added.
+/// Clean up legacy settings loaded from disk:
+/// 1. `session-provider`/`session-worker` placeholder entries left by the legacy
+///    debug-session write path are removed so the UI falls back to real defaults;
+/// 2. legacy user-layer platform providers (qwen/deepseek/doubao) and tier maps
+///    pointing at them are removed — platform model config now comes entirely
+///    from the platform directory on login.
+/// Existing user choices are preserved; platform defaults are no longer backfilled
+/// locally (platform model config comes from the platform directory on login).
 pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
-    for (agent_id, default_ref) in default_platform_agent_models() {
-        user.agent_default_models
-            .entry(agent_id)
-            .or_insert(default_ref);
+    strip_session_placeholder_model_configs(user);
+    strip_legacy_platform_config(user);
+}
+
+/// 清理旧版本地平台配置：移除用户层 qwen/deepseek/doubao 服务商及其档位映射。
+/// 平台模型配置现全部由平台目录下发（登录后创建服务商并补齐档位默认），
+/// 本地不再保留任何平台模型固定配置。
+fn strip_legacy_platform_config(user: &mut UserSettings) {
+    const LEGACY: [&str; 3] = ["qwen", "deepseek", "doubao"];
+    user.providers.retain(|p| !LEGACY.contains(&p.id.as_str()));
+    for (_, modes) in user.agent_mode_llm.iter_mut() {
+        modes.retain(|_, cfg| !LEGACY.contains(&cfg.provider_id.as_str()));
     }
-    let default_providers = default_platform_providers();
-    for provider in &mut user.providers {
-        if let Some(def) = default_providers.iter().find(|p| p.id == provider.id) {
-            for model in &def.models {
-                if !provider.models.iter().any(|m| m == model) {
-                    provider.models.push(model.clone());
-                }
+    for (_, modes) in user.media_mode_llm.iter_mut() {
+        modes.retain(|_, cfg| !LEGACY.contains(&cfg.provider_id.as_str()));
+    }
+    user.computer_tier_llm
+        .retain(|_, cfg| !LEGACY.contains(&cfg.provider_id.as_str()));
+    user.agent_default_models
+        .retain(|_, r| !LEGACY.contains(&r.provider_id.as_str()));
+    let pipeline = &mut user.computer_pipeline_llm;
+    for (model, pid) in [
+        (&mut pipeline.decision, &mut pipeline.decision_provider_id),
+        (&mut pipeline.position, &mut pipeline.position_provider_id),
+        (&mut pipeline.verify, &mut pipeline.verify_provider_id),
+    ] {
+        if LEGACY.contains(&pid.as_str()) {
+            *model = String::new();
+            *pid = String::new();
+        }
+    }
+    let overrides = &mut user.media_model_overrides;
+    for slot in [
+        &mut overrides.image_generation,
+        &mut overrides.video_generation,
+        &mut overrides.image,
+        &mut overrides.audio,
+        &mut overrides.video,
+    ] {
+        if let Some(r) = slot {
+            if LEGACY.contains(&r.provider_id.as_str()) {
+                *slot = None;
             }
         }
     }
-    strip_session_placeholder_model_configs(user);
 }
 
 /// Remove `session-provider` / `session-worker` entries from per-mode LLM maps.
@@ -1089,7 +1079,9 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
 /// path; deleting them makes the UI fall back to the platform defaults.
 fn strip_session_placeholder_model_configs(user: &mut UserSettings) {
     fn is_session_placeholder(cfg: &ComputerTierLlmConfig) -> bool {
-        cfg.provider_id.trim().eq_ignore_ascii_case("session-provider")
+        cfg.provider_id
+            .trim()
+            .eq_ignore_ascii_case("session-provider")
             || cfg.model.trim().eq_ignore_ascii_case("session-worker")
     }
     for (_, modes) in user.agent_mode_llm.iter_mut() {
@@ -1102,24 +1094,36 @@ fn strip_session_placeholder_model_configs(user: &mut UserSettings) {
         .retain(|_, cfg| !is_session_placeholder(cfg));
 
     let pipeline = &mut user.computer_pipeline_llm;
-    if pipeline.decision.trim().eq_ignore_ascii_case("session-worker")
-        || pipeline.decision_provider_id
+    if pipeline
+        .decision
+        .trim()
+        .eq_ignore_ascii_case("session-worker")
+        || pipeline
+            .decision_provider_id
             .trim()
             .eq_ignore_ascii_case("session-provider")
     {
         pipeline.decision = default_pipeline_model_decision();
         pipeline.decision_provider_id = default_computer_llm_provider();
     }
-    if pipeline.position.trim().eq_ignore_ascii_case("session-worker")
-        || pipeline.position_provider_id
+    if pipeline
+        .position
+        .trim()
+        .eq_ignore_ascii_case("session-worker")
+        || pipeline
+            .position_provider_id
             .trim()
             .eq_ignore_ascii_case("session-provider")
     {
         pipeline.position = default_pipeline_model_position();
         pipeline.position_provider_id = default_computer_llm_provider();
     }
-    if pipeline.verify.trim().eq_ignore_ascii_case("session-worker")
-        || pipeline.verify_provider_id
+    if pipeline
+        .verify
+        .trim()
+        .eq_ignore_ascii_case("session-worker")
+        || pipeline
+            .verify_provider_id
             .trim()
             .eq_ignore_ascii_case("session-provider")
     {
@@ -1234,56 +1238,7 @@ fn default_max_concurrent_runs() -> u32 {
 impl Default for ModelSettings {
     fn default() -> Self {
         Self {
-            providers: vec![
-                ProviderConfig {
-                    id: "qwen".into(),
-                    name: "千问".into(),
-                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
-                    api_key: String::new(),
-                    models: default_qwen_provider_models(),
-                    reasoning_in_messages: None,
-                    temperature: None,
-                    max_tokens: None,
-                    model_configs: HashMap::new(),
-                    enable_thinking: None,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    extra_body: None,
-                    source: None,
-                },
-                ProviderConfig {
-                    id: "deepseek".into(),
-                    name: "深度求索".into(),
-                    base_url: "https://api.deepseek.com/v1".into(),
-                    api_key: String::new(),
-                    models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
-                    reasoning_in_messages: Some(true),
-                    temperature: None,
-                    max_tokens: None,
-                    model_configs: HashMap::new(),
-                    enable_thinking: None,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    extra_body: None,
-                    source: None,
-                },
-                ProviderConfig {
-                    id: "doubao".into(),
-                    name: "豆包".into(),
-                    base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
-                    api_key: String::new(),
-                    models: default_doubao_provider_models(),
-                    reasoning_in_messages: None,
-                    temperature: None,
-                    max_tokens: None,
-                    model_configs: HashMap::new(),
-                    enable_thinking: None,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    extra_body: None,
-                    source: None,
-                },
-            ],
+            providers: Vec::new(),
             active_provider_id: default_active_provider_id(),
             model: default_model_name(),
             api_key: String::new(),
@@ -1575,10 +1530,7 @@ pub struct UserSettings {
     )]
     pub computer_auto_compact: bool,
     /// Play a short chime when a chat turn finishes (UI preference).
-    #[serde(
-        default = "default_play_sound_on_finish",
-        rename = "playSoundOnFinish"
-    )]
+    #[serde(default = "default_play_sound_on_finish", rename = "playSoundOnFinish")]
     pub play_sound_on_finish: bool,
     /// Collapse intermediate process entries by default; only show final output
     /// for completed turns (UI preference).
@@ -1590,7 +1542,7 @@ pub struct UserSettings {
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
     // --- Model-service config (user-configurable; persisted in user_settings.json) ---
-    #[serde(default = "default_platform_providers", rename = "providers")]
+    #[serde(default = "default_providers_empty", rename = "providers")]
     pub providers: Vec<ProviderConfig>,
     #[serde(default = "default_active_provider_id", rename = "activeProviderId")]
     pub active_provider_id: String,
@@ -1771,7 +1723,7 @@ impl Default for UserSettings {
             play_sound_on_finish: default_play_sound_on_finish(),
             collapse_process_by_default: default_collapse_process_by_default(),
             media_oss: MediaOssConfig::default(),
-            providers: default_platform_providers(),
+            providers: default_providers_empty(),
             active_provider_id: default_active_provider_id(),
             model: default_model_name(),
             temperature: build_cfg_f32!("TEMPERATURE", platform_default_temperature()),
@@ -1851,10 +1803,7 @@ pub struct ComputerPipelineLlmSettings {
         rename = "positionProviderId"
     )]
     pub position_provider_id: String,
-    #[serde(
-        default = "default_computer_llm_provider",
-        rename = "verifyProviderId"
-    )]
+    #[serde(default = "default_computer_llm_provider", rename = "verifyProviderId")]
     pub verify_provider_id: String,
     #[serde(
         default = "default_pipeline_thinking_budget_position",
@@ -1884,19 +1833,19 @@ impl Default for ComputerPipelineLlmSettings {
 }
 
 fn default_pipeline_model_decision() -> String {
-    DEFAULT_MODEL_PIPELINE_DECISION.into()
+    String::new()
 }
 
 fn default_pipeline_model_position() -> String {
-    DEFAULT_MODEL_PIPELINE_POSITION.into()
+    String::new()
 }
 
 fn default_pipeline_model_verify() -> String {
-    DEFAULT_MODEL_PIPELINE_VERIFY.into()
+    String::new()
 }
 
 fn default_computer_llm_provider() -> String {
-    DEFAULT_COMPUTER_LLM_PROVIDER.into()
+    String::new()
 }
 
 fn default_pipeline_thinking_budget_position() -> u32 {
@@ -1914,6 +1863,18 @@ fn default_pipeline_thinking_budget_verify() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformSettings {
     pub providers: Vec<ProviderConfig>,
+    /// Wire-compat name list from official APIs (`modelCatalog`). This client
+    /// does not use it to build providers; `platformProviders` is the directory.
+    #[serde(
+        default,
+        rename = "modelCatalog",
+        skip_serializing_if = "HashMap::is_empty"
+    )]
+    pub model_catalog: HashMap<String, Vec<String>>,
+    /// 平台下发的场景档位默认（agent/media/computer 快速/标准/高级默认模型映射）；
+    /// merge 时补齐用户缺失档位，不持久化到用户设置。
+    #[serde(default, rename = "tierDefaults", alias = "tier_defaults")]
+    pub tier_defaults: serde_json::Value,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
     #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
@@ -1998,162 +1959,62 @@ pub fn filter_openrouter_providers(providers: Vec<ProviderConfig>) -> Vec<Provid
         .collect()
 }
 
-fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
-    let mut m = HashMap::new();
-    m.insert(
-        "primary".into(),
-        ComputerTierLlmConfig {
-            provider_id: "qwen".into(),
-            model: DEFAULT_MODEL_PRIMARY.into(),
-            enable_thinking: true,
-            thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
-        },
-    );
-    m.insert(
-        "intermediate".into(),
-        ComputerTierLlmConfig {
-            provider_id: "qwen".into(),
-            model: DEFAULT_MODEL_INTERMEDIATE.into(),
-            enable_thinking: true,
-            thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
-        },
-    );
-    m.insert(
-        "advanced".into(),
-        ComputerTierLlmConfig {
-            provider_id: "qwen".into(),
-            model: DEFAULT_MODEL_ADVANCED.into(),
-            enable_thinking: true,
-            thinking_budget: Some(ADVANCED_THINKING_BUDGET),
-        },
-    );
-    m
+/// 测试用：带 qwen + deepseek 服务商的运行时设置（本地默认不再内置平台服务商）。
+#[cfg(test)]
+pub(crate) fn sample_settings() -> ModelSettings {
+    let mut s = ModelSettings::default();
+    s.active_provider_id = "qwen".into();
+    s.model = "qwen3.5-plus".into();
+    s.providers.push(ProviderConfig {
+        id: "qwen".into(),
+        name: "千问".into(),
+        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+        api_key: String::new(),
+        models: vec!["qwen3.5-plus".into(), "qwen3.5-flash".into()],
+        reasoning_in_messages: Some(false),
+        temperature: None,
+        max_tokens: None,
+        model_configs: HashMap::new(),
+        enable_thinking: Some(true),
+        thinking_budget: Some(2048),
+        reasoning_effort: None,
+        extra_body: None,
+        source: Some("platform".into()),
+    });
+    s.providers.push(ProviderConfig {
+        id: "deepseek".into(),
+        name: "深度求索".into(),
+        base_url: "https://api.deepseek.com/v1".into(),
+        api_key: String::new(),
+        models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
+        reasoning_in_messages: Some(true),
+        temperature: None,
+        max_tokens: None,
+        model_configs: HashMap::new(),
+        enable_thinking: None,
+        thinking_budget: None,
+        reasoning_effort: None,
+        extra_body: None,
+        source: Some("platform".into()),
+    });
+    s
 }
 
-fn mode_llm_entry(provider_id: &str, model: &str, budget: u32) -> ComputerTierLlmConfig {
-    ComputerTierLlmConfig {
-        provider_id: provider_id.into(),
-        model: model.into(),
-        enable_thinking: true,
-        thinking_budget: Some(budget),
-    }
+fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
+    // 档位默认由平台目录下发；本地不再内置 computer tier 默认模型。
+    HashMap::new()
 }
 
 fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
-    let mut general = HashMap::new();
-    general.insert(
-        "fast".into(),
-        mode_llm_entry("deepseek", "deepseek-v4-flash", 2048),
-    );
-    general.insert(
-        "standard".into(),
-        mode_llm_entry("deepseek", "deepseek-v4-pro", 2048),
-    );
-    general.insert(
-        "expert".into(),
-        mode_llm_entry("qwen", "qwen3.7-plus", 8192),
-    );
-
-    let mut coder = HashMap::new();
-    coder.insert(
-        "fast".into(),
-        mode_llm_entry("deepseek", "deepseek-v4-flash", 2048),
-    );
-    coder.insert(
-        "standard".into(),
-        mode_llm_entry("deepseek", "deepseek-v4-pro", 4096),
-    );
-    coder.insert("expert".into(), mode_llm_entry("qwen", "qwen3.7-max", 8192));
-
-    let mut m = HashMap::new();
-    m.insert("general".into(), general);
-    m.insert("coder".into(), coder);
-    m
+    HashMap::new()
 }
 
 fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
-    let mut image = HashMap::new();
-    image.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
-    image.insert(
-        "standard".into(),
-        mode_llm_entry("qwen", "qwen3.5-plus", 2048),
-    );
-    image.insert(
-        "expert".into(),
-        mode_llm_entry("qwen", "qwen3.6-plus", 8192),
-    );
-
-    let mut audio = HashMap::new();
-    audio.insert(
-        "fast".into(),
-        mode_llm_entry("qwen", "qwen3-asr-flash", 2048),
-    );
-    audio.insert("standard".into(), mode_llm_entry("qwen", "fun-asr", 2048));
-    audio.insert("expert".into(), mode_llm_entry("qwen", "fun-asr", 8192));
-
-    let mut video = HashMap::new();
-    video.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
-    video.insert(
-        "standard".into(),
-        mode_llm_entry("qwen", "qwen3.5-plus", 2048),
-    );
-    video.insert(
-        "expert".into(),
-        mode_llm_entry("qwen", "qwen3.6-plus", 8192),
-    );
-
-    let mut m = HashMap::new();
-    m.insert("image".into(), image);
-    m.insert("audio".into(), audio);
-    m.insert("video".into(), video);
-    m
+    HashMap::new()
 }
 
 fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
-    let mut m = HashMap::new();
-    m.insert(
-        "coder".into(),
-        AgentModelRef {
-            provider_id: "deepseek".into(),
-            model: "deepseek-v4-pro".into(),
-        },
-    );
-    m.insert(
-        "explore".into(),
-        AgentModelRef {
-            provider_id: "deepseek".into(),
-            model: "deepseek-v4-flash".into(),
-        },
-    );
-    m.insert(
-        "computer".into(),
-        AgentModelRef {
-            provider_id: "qwen".into(),
-            model: "qwen3.5-plus".into(),
-        },
-    );
-    m.insert(
-        "general".into(),
-        AgentModelRef {
-            provider_id: "deepseek".into(),
-            model: "deepseek-v4-flash".into(),
-        },
-    );
-    m.insert(
-        "supervisor".into(),
-        AgentModelRef {
-            provider_id: "deepseek".into(),
-            model: "deepseek-v4-pro".into(),
-        },
-    );
-    m.insert(
-        "research".into(),
-        AgentModelRef {
-            provider_id: "qwen".into(),
-            model: "qwen3.6-plus".into(),
-        },
-    );
-    m
+    HashMap::new()
 }
 
 fn platform_default_context_compression_enabled() -> bool {
@@ -2192,63 +2053,17 @@ fn platform_default_max_tokens() -> u32 {
     64_000
 }
 
-fn default_platform_providers() -> Vec<ProviderConfig> {
-    vec![
-        ProviderConfig {
-            id: "qwen".into(),
-            name: "千问".into(),
-            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
-            api_key: String::new(),
-            models: default_qwen_provider_models(),
-            reasoning_in_messages: Some(false),
-            temperature: Some(platform_default_temperature()),
-            max_tokens: Some(platform_default_max_tokens()),
-            model_configs: HashMap::new(),
-            enable_thinking: Some(true),
-            thinking_budget: Some(2048),
-            reasoning_effort: None,
-            extra_body: None,
-            source: Some("platform".into()),
-        },
-        ProviderConfig {
-            id: "deepseek".into(),
-            name: "深度求索".into(),
-            base_url: "https://api.deepseek.com/v1".into(),
-            api_key: String::new(),
-            models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
-            reasoning_in_messages: Some(true),
-            temperature: Some(platform_default_temperature()),
-            max_tokens: Some(platform_default_max_tokens()),
-            model_configs: HashMap::new(),
-            enable_thinking: None,
-            thinking_budget: None,
-            reasoning_effort: None,
-            extra_body: None,
-            source: Some("platform".into()),
-        },
-        ProviderConfig {
-            id: "doubao".into(),
-            name: "豆包".into(),
-            base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
-            api_key: String::new(),
-            models: default_doubao_provider_models(),
-            reasoning_in_messages: None,
-            temperature: Some(platform_default_temperature()),
-            max_tokens: Some(platform_default_max_tokens()),
-            model_configs: HashMap::new(),
-            enable_thinking: None,
-            thinking_budget: None,
-            reasoning_effort: None,
-            extra_body: None,
-            source: Some("platform".into()),
-        },
-    ]
+fn default_providers_empty() -> Vec<ProviderConfig> {
+    // 平台模型配置全部由平台下发；本地默认无任何平台服务商。
+    Vec::new()
 }
 
 impl Default for PlatformSettings {
     fn default() -> Self {
         Self {
-            providers: default_platform_providers(),
+            providers: default_providers_empty(),
+            model_catalog: HashMap::new(),
+            tier_defaults: serde_json::Value::Null,
             dati_api_url: default_dati_api_url(),
             dati_authcode: default_dati_authcode(),
             dati_typeno: default_dati_typeno(),
@@ -2419,8 +2234,7 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.terminal_env_overrides = user.terminal_env_overrides.clone();
     incoming.debug_menus_enabled = user.debug_menus_enabled;
     incoming.task_board_show_child_boards = user.task_board_show_child_boards;
-    incoming.computer_annotated_screen_view_enabled =
-        user.computer_annotated_screen_view_enabled;
+    incoming.computer_annotated_screen_view_enabled = user.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = user.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = user.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_tool_rounds = user.max_sub_agent_tool_rounds;
@@ -2487,8 +2301,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
     // Providers are user-owned (persisted in user_settings.json). Runtime keys
     // (OAuth / server.toml injection) live in platform.providers and are overlaid
     // by provider id so user edits never wipe injected credentials.
-    let mut providers = user.providers.clone();
-    let platform_keys: HashMap<String, String> = platform
+    let mut providers = user.providers.clone();    let platform_keys: HashMap<String, String> = platform
         .providers
         .iter()
         .map(|p| (p.id.clone(), p.api_key.clone()))
@@ -2505,8 +2318,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
     // `[llm]` in standalone deployments) are appended to the merged list so the
     // UI and runtime can use them even before the user saves a copy. User-owned
     // providers keep precedence; duplicates by id never appear.
-    let known: std::collections::HashSet<String> =
-        providers.iter().map(|p| p.id.clone()).collect();
+    let known: std::collections::HashSet<String> = providers.iter().map(|p| p.id.clone()).collect();
     for platform_provider in &platform.providers {
         if !known.contains(&platform_provider.id) {
             let mut p = platform_provider.clone();
@@ -2514,7 +2326,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
             providers.push(p);
         }
     }
-    ModelSettings {
+    let mut settings = ModelSettings {
         providers,
         active_provider_id: user.active_provider_id.clone(),
         model: user.model.clone(),
@@ -2580,7 +2392,155 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         parallel_tool_execution_enabled: user.parallel_tool_execution_enabled,
         round_enable_thinking: None,
         round_thinking_budget: None,
+    };
+    apply_platform_tier_defaults(&mut settings, &platform.tier_defaults, &platform.providers);
+    settings
+}
+
+/// 将平台下发的档位默认（tierDefaults）补齐到运行时设置：用户已显式配置的
+/// 档位保持不变，仅补缺失项。JSON 按已知形状容错读取。
+/// tierDefaults 条目只填 providerId+model；maxTokens/enableThinking/thinkingBudget
+/// 从 providers 的模型级参数（model_configs，优先）或服务商级默认继承。
+pub fn apply_platform_tier_defaults(
+    settings: &mut ModelSettings,
+    tier_defaults: &serde_json::Value,
+    providers: &[ProviderConfig],
+) {
+    let Some(obj) = tier_defaults.as_object() else {
+        return;
+    };
+    if let Some(agent_defaults) = obj.get("agentDefaultModels").and_then(|v| v.as_object()) {
+        for (agent, ref_val) in agent_defaults {
+            if settings.agent_default_models.contains_key(agent) {
+                continue;
+            }
+            if let Some(r) = agent_ref_from_json(ref_val) {
+                settings.agent_default_models.insert(agent.clone(), r);
+            }
+        }
     }
+    for (key, target) in [
+        ("agentModeLlm", &mut settings.agent_mode_llm),
+        ("mediaModeLlm", &mut settings.media_mode_llm),
+    ] {
+        let Some(outer) = obj.get(key).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for (outer_key, inner) in outer {
+            let inner_map = target.entry(outer_key.clone()).or_default();
+            let Some(inner_obj) = inner.as_object() else {
+                continue;
+            };
+            for (mode, cfg_val) in inner_obj {
+                if inner_map.contains_key(mode) {
+                    continue;
+                }
+                if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
+                    inner_map.insert(mode.clone(), cfg);
+                }
+            }
+        }
+    }
+    if let Some(computer_tier) = obj.get("computerTierLlm").and_then(|v| v.as_object()) {
+        for (tier, cfg_val) in computer_tier {
+            if settings.computer_tier_llm.contains_key(tier) {
+                continue;
+            }
+            if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
+                settings.computer_tier_llm.insert(tier.clone(), cfg);
+            }
+        }
+    }
+    if let Some(pipeline) = obj.get("computerPipelineLlm").and_then(|v| v.as_object()) {
+        for (phase, cfg_val) in pipeline {
+            let pid = cfg_val
+                .get("providerId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            let model = cfg_val
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if pid.is_empty() || model.is_empty() {
+                continue;
+            }
+            let p = &mut settings.computer_pipeline_llm;
+            match phase.as_str() {
+                "decision" => {
+                    if p.decision.trim().is_empty() {
+                        p.decision = model.into();
+                        p.decision_provider_id = pid.into();
+                    }
+                }
+                "position" => {
+                    if p.position.trim().is_empty() {
+                        p.position = model.into();
+                        p.position_provider_id = pid.into();
+                    }
+                }
+                "verify" => {
+                    if p.verify.trim().is_empty() {
+                        p.verify = model.into();
+                        p.verify_provider_id = pid.into();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if let Some(media_gen) = obj.get("mediaGeneration").and_then(|v| v.as_object()) {
+        let overrides = &mut settings.media_model_overrides;
+        if overrides.image_generation.is_none() {
+            if let Some(img) = media_gen.get("image").and_then(agent_ref_from_json) {
+                overrides.image_generation = Some(img);
+            }
+        }
+        if overrides.video_generation.is_none() {
+            if let Some(vid) = media_gen.get("video").and_then(agent_ref_from_json) {
+                overrides.video_generation = Some(vid);
+            }
+        }
+    }
+}
+
+fn agent_ref_from_json(v: &serde_json::Value) -> Option<AgentModelRef> {
+    let pid = v.get("providerId").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let model = v.get("model").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if pid.is_empty() || model.is_empty() {
+        None
+    } else {
+        Some(AgentModelRef {
+            provider_id: pid.to_string(),
+            model: model.to_string(),
+        })
+    }
+}
+
+/// 解析档位条目（只含 providerId+model）；enableThinking/thinkingBudget 从
+/// providers 的模型级参数（model_configs，优先）或服务商级默认继承，缺省 true/None。
+fn tier_cfg_from_json(
+    v: &serde_json::Value,
+    providers: &[ProviderConfig],
+) -> Option<ComputerTierLlmConfig> {
+    let ref_val = agent_ref_from_json(v)?;
+    let mut enable_thinking: Option<bool> = None;
+    let mut thinking_budget: Option<u32> = None;
+    if let Some(p) = providers.iter().find(|p| p.id == ref_val.provider_id) {
+        if let Some(m) = p.model_configs.get(&ref_val.model) {
+            enable_thinking = m.enable_thinking.or(enable_thinking);
+            thinking_budget = m.thinking_budget.or(thinking_budget);
+        }
+        enable_thinking = enable_thinking.or(p.enable_thinking);
+        thinking_budget = thinking_budget.or(p.thinking_budget);
+    }
+    Some(ComputerTierLlmConfig {
+        provider_id: ref_val.provider_id,
+        model: ref_val.model,
+        enable_thinking: enable_thinking.unwrap_or(true),
+        thinking_budget,
+    })
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDef {
@@ -2588,7 +2548,11 @@ pub struct SkillDef {
     pub name: String,
     pub description: String,
     pub tags: Vec<String>,
-    #[serde(default, rename = "systemPrompt", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "systemPrompt",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub system_prompt: String,
     #[serde(rename = "toolNames")]
     pub tool_names: Vec<String>,
@@ -2639,7 +2603,7 @@ mod qwen_explicit_cache_tests {
 
     #[test]
     fn enabled_for_default_qwen_provider() {
-        let s = ModelSettings::default();
+        let s = sample_settings();
         assert!(qwen_explicit_system_cache_enabled(&s));
     }
 
@@ -2653,7 +2617,7 @@ mod qwen_explicit_cache_tests {
 
     #[test]
     fn enabled_for_custom_dashscope_base_url() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.providers[0].id = "custom".into();
         s.providers[0].base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1".into();
         s.model = "qwen-plus".into();
@@ -2686,7 +2650,7 @@ mod model_capability_vision_tests {
 
     #[test]
     fn ensure_provider_resets_deepseek_vision_false() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         {
             let ds = s.providers.iter_mut().find(|p| p.id == "deepseek").unwrap();
             ds.model_configs.insert(
@@ -2709,86 +2673,120 @@ mod user_settings_defaults_tests {
     use super::*;
 
     #[test]
-    fn backfills_missing_builtin_provider_models_and_agent_defaults() {
-        // Simulate a legacy user_settings.json: qwen trimmed to a few models,
-        // agent_default_models empty. Other built-in providers stay present.
+    fn strips_legacy_platform_providers_and_tier_maps() {
+        // 旧 user_settings.json 中的平台服务商与指向它们的档位映射应被清理。
         let mut user = UserSettings::default();
-        let mut qwen = default_platform_providers()
+        user.providers.push(ProviderConfig {
+            id: "qwen".into(),
+            name: "千问".into(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            api_key: String::new(),
+            models: vec!["qwen3.5-plus".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+            source: Some("user".into()),
+        });
+        user.providers.push(ProviderConfig {
+            id: "custom-llm".into(),
+            name: "Custom".into(),
+            base_url: "https://custom.example/v1".into(),
+            api_key: String::new(),
+            models: vec!["custom-model".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+            source: Some("user".into()),
+        });
+        user.agent_default_models.insert(
+            "general".into(),
+            AgentModelRef {
+                provider_id: "deepseek".into(),
+                model: "deepseek-v4-flash".into(),
+            },
+        );
+        user.agent_default_models.insert(
+            "coder".into(),
+            AgentModelRef {
+                provider_id: "custom-llm".into(),
+                model: "custom-model".into(),
+            },
+        );
+        user.agent_mode_llm.insert(
+            "general".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "qwen".into(),
+                    model: "qwen3.5-flash".into(),
+                    enable_thinking: true,
+                    thinking_budget: None,
+                },
+            )]
             .into_iter()
-            .find(|p| p.id == "qwen")
-            .expect("default qwen provider");
-        qwen.models = vec!["qwen3.5-plus".into(), "qwen3.6-plus".into()];
-        let mut providers: Vec<ProviderConfig> = user
-            .providers
-            .drain(..)
-            .map(|p| if p.id == "qwen" { qwen.clone() } else { p })
-            .collect();
-        user.providers = providers;
-        user.agent_default_models.clear();
+            .collect(),
+        );
 
         ensure_user_settings_defaults(&mut user);
 
-        // Built-in provider model list is backfilled with every default qwen model.
-        let qwen = user
-            .providers
-            .iter()
-            .find(|p| p.id == "qwen")
-            .expect("qwen provider");
-        let defaults = default_qwen_provider_models();
-        for model in &defaults {
-            assert!(
-                qwen.models.iter().any(|m| m == model),
-                "qwen should contain default model {model}"
-            );
-        }
-        // Deepseek / doubao providers that exist stay intact.
+        // 平台服务商全部清理；自定义服务商保留。
         assert!(
-            user.providers.iter().any(|p| p.id == "deepseek"),
-            "deepseek provider should be preserved"
+            !user
+                .providers
+                .iter()
+                .any(|p| ["qwen", "deepseek", "doubao"].contains(&p.id.as_str())),
+            "legacy platform providers must be stripped"
         );
         assert!(
-            user.providers.iter().any(|p| p.id == "doubao"),
-            "doubao provider should be preserved"
+            user.providers.iter().any(|p| p.id == "custom-llm"),
+            "custom provider should be preserved"
         );
-
-        // Every platform default agent model key exists.
-        let defaults_map = default_platform_agent_models();
-        for agent_id in defaults_map.keys() {
-            assert!(
-                user.agent_default_models.contains_key(agent_id),
-                "agent default for {agent_id} should be backfilled"
-            );
-        }
+        // 指向平台 provider 的档位/默认清理；自定义保留。
+        assert!(!user.agent_default_models.contains_key("general"));
+        assert_eq!(
+            user.agent_default_models.get("coder").map(|r| r.model.as_str()),
+            Some("custom-model")
+        );
+        let general = user.agent_mode_llm.get("general").cloned().unwrap_or_default();
+        assert!(general.is_empty(), "qwen tier map should be stripped");
     }
 
     #[test]
     fn preserves_user_customizations() {
         let mut user = UserSettings::default();
         // User-added custom provider must survive.
-        user.providers.push(default_platform_providers().into_iter().find(|p| p.id == "openrouter").unwrap_or_else(|| {
-            ProviderConfig {
-                id: "openrouter".into(),
-                name: "OpenRouter".into(),
-                base_url: "https://openrouter.ai/api/v1".into(),
-                api_key: String::new(),
-                models: vec!["openai/gpt-5.4-nano".into()],
-                reasoning_in_messages: None,
-                temperature: None,
-                max_tokens: None,
-                model_configs: HashMap::new(),
-                enable_thinking: None,
-                thinking_budget: None,
-                reasoning_effort: None,
-                extra_body: None,
-                source: Some("platform".into()),
-            }
-        }));
+        user.providers.push(ProviderConfig {
+            id: "openrouter".into(),
+            name: "OpenRouter".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            api_key: String::new(),
+            models: vec!["openai/gpt-5.4-nano".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: None,
+            source: Some("user".into()),
+        });
         // User-chosen agent default for `coder` must survive backfill.
         user.agent_default_models.insert(
             "coder".into(),
             AgentModelRef {
-                provider_id: "qwen".into(),
-                model: "qwen3.6-plus".into(),
+                provider_id: "openrouter".into(),
+                model: "openai/gpt-5.4-nano".into(),
             },
         );
 
@@ -2799,12 +2797,14 @@ mod user_settings_defaults_tests {
             "custom provider should be preserved"
         );
         assert_eq!(
-            user.agent_default_models.get("coder").map(|r| r.model.as_str()),
-            Some("qwen3.6-plus"),
+            user.agent_default_models
+                .get("coder")
+                .map(|r| r.model.as_str()),
+            Some("openai/gpt-5.4-nano"),
             "user agent default for coder should not be overwritten"
         );
-        // Other agents still got defaults.
-        assert!(user.agent_default_models.contains_key("explore"));
+        // No platform defaults are backfilled anymore.
+        assert!(user.agent_default_models.is_empty() || user.agent_default_models.len() == 1);
     }
 
     #[test]
@@ -2813,7 +2813,10 @@ mod user_settings_defaults_tests {
         let before = user.clone();
         ensure_user_settings_defaults(&mut user);
         assert_eq!(user.providers.len(), before.providers.len());
-        assert_eq!(user.agent_default_models.len(), before.agent_default_models.len());
+        assert_eq!(
+            user.agent_default_models.len(),
+            before.agent_default_models.len()
+        );
     }
 
     #[test]
@@ -2871,11 +2874,17 @@ mod user_settings_defaults_tests {
         ensure_user_settings_defaults(&mut user);
 
         assert!(
-            user.agent_mode_llm.get("general").map(|m| m.is_empty()).unwrap_or(true),
+            user.agent_mode_llm
+                .get("general")
+                .map(|m| m.is_empty())
+                .unwrap_or(true),
             "agent_mode_llm session placeholder should be removed"
         );
         assert!(
-            user.media_mode_llm.get("image").map(|m| m.is_empty()).unwrap_or(true),
+            user.media_mode_llm
+                .get("image")
+                .map(|m| m.is_empty())
+                .unwrap_or(true),
             "media_mode_llm session placeholder should be removed"
         );
         assert!(
@@ -2883,7 +2892,10 @@ mod user_settings_defaults_tests {
             "computer_tier_llm session placeholder should be removed"
         );
         assert_ne!(user.computer_pipeline_llm.decision, "session-worker");
-        assert_ne!(user.computer_pipeline_llm.position_provider_id, "session-provider");
+        assert_ne!(
+            user.computer_pipeline_llm.position_provider_id,
+            "session-provider"
+        );
     }
 
     #[test]
@@ -2944,25 +2956,31 @@ mod user_settings_defaults_tests {
         let general = user.agent_mode_llm.get("general").expect("general map");
         // 用户自定义 fast 保留
         assert_eq!(
-            general.get("fast").map(|c| (c.provider_id.as_str(), c.model.as_str())),
+            general
+                .get("fast")
+                .map(|c| (c.provider_id.as_str(), c.model.as_str())),
             Some(("openrouter", "inclusionai/ling-3.0-flash"))
         );
         // session 占位 standard 被删
-        assert!(general.get("standard").is_none(), "session placeholder removed");
-        // media video expert 自定义保留
-        assert_eq!(
+        assert!(
+            general.get("standard").is_none(),
+            "session placeholder removed"
+        );
+        // media video expert 指向平台 provider（qwen）→ 被清理
+        assert!(
             user.media_mode_llm
                 .get("video")
-                .and_then(|m| m.get("expert"))
-                .map(|c| (c.provider_id.as_str(), c.model.as_str())),
-            Some(("qwen", "qwen3.6-plus"))
+                .map(|m| m.is_empty())
+                .unwrap_or(true),
+            "qwen tier map should be stripped"
         );
-        // computer advanced 自定义保留
-        assert_eq!(
+        // computer advanced 指向平台 provider（qwen）→ 被清理
+        assert!(
             user.computer_tier_llm
                 .get("advanced")
-                .map(|c| (c.provider_id.as_str(), c.model.as_str())),
-            Some(("qwen", "qwen3.7-max"))
+                .map(|c| c.provider_id.as_str())
+                .is_none_or(|pid| pid != "qwen"),
+            "qwen computer tier should be stripped"
         );
     }
 
@@ -3004,21 +3022,26 @@ mod user_settings_defaults_tests {
             merged.providers.iter().any(|p| !p.api_key.is_empty()),
             "merged has_key should be true"
         );
-        // user-owned providers keep precedence and no duplicates appear.
-        assert_eq!(merged.providers.len(), 4);
-        assert_eq!(merged.providers[0].id, "qwen");
+        // 本地不再内置平台服务商；platform-only provider 直接进入 merged 视图。
+        assert_eq!(merged.providers.len(), 1);
+        assert_eq!(merged.providers[0].id, "vllm-local");
     }
 
     #[test]
     fn platform_only_provider_does_not_duplicate_existing_user_provider() {
         let mut platform = PlatformSettings::default();
+        platform.providers.push(sample_settings().providers.remove(0));
         platform.providers[0].api_key = "platform-qwen-key".into();
-        let user = UserSettings::default(); // user already owns qwen/deepseek/doubao
+        let mut user = UserSettings::default();
+        user.providers.push(sample_settings().providers.remove(0));
         let merged = merge_user_platform(&user, &platform);
-        assert_eq!(merged.providers.len(), 3, "no duplicate for user-owned provider");
         assert_eq!(
-            merged.providers[0].api_key,
-            "platform-qwen-key",
+            merged.providers.len(),
+            1,
+            "no duplicate for user-owned provider"
+        );
+        assert_eq!(
+            merged.providers[0].api_key, "platform-qwen-key",
             "platform key overlaid onto user-owned provider"
         );
     }
@@ -3036,14 +3059,14 @@ mod effective_reasoning_tests {
 
     #[test]
     fn effective_reasoning_provider_off() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.providers[0].reasoning_in_messages = Some(false);
         assert!(!effective_reasoning_in_messages(&s));
     }
 
     #[test]
     fn effective_reasoning_model_overrides_provider() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         let m = s.providers[0].models[0].clone();
         s.model = m.clone();
         s.providers[0].reasoning_in_messages = Some(false);
@@ -3064,7 +3087,7 @@ mod effective_generation_tests {
 
     #[test]
     fn effective_temperature_provider_default() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.model = "qwen3.5-plus".into();
         s.temperature = 0.2;
         s.providers[0].temperature = Some(0.9);
@@ -3073,7 +3096,7 @@ mod effective_generation_tests {
 
     #[test]
     fn effective_max_tokens_provider_default() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.model = "qwen3.5-plus".into();
         s.max_tokens = 512;
         s.providers[0].max_tokens = Some(8192);
@@ -3082,7 +3105,7 @@ mod effective_generation_tests {
 
     #[test]
     fn effective_temperature_model_override() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.model = "qwen3.5-plus".into();
         s.temperature = 0.2;
         s.providers[0].model_configs.insert(
@@ -3097,7 +3120,7 @@ mod effective_generation_tests {
 
     #[test]
     fn effective_max_tokens_model_override() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.model = "qwen3.5-plus".into();
         s.max_tokens = 512;
         s.providers[0].model_configs.insert(
@@ -3112,7 +3135,7 @@ mod effective_generation_tests {
 
     #[test]
     fn ensure_provider_generation_defaults_fills_provider_not_models() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.temperature = 0.55;
         s.max_tokens = 3000;
         s.providers[0].temperature = None;
@@ -3137,7 +3160,7 @@ mod effective_extra_body_tests {
 
     #[test]
     fn merge_provider_then_model() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.model = s.providers[0].models[0].clone();
         s.providers[0].enable_thinking = Some(true);
         s.providers[0].thinking_budget = Some(100);
@@ -3157,7 +3180,7 @@ mod effective_extra_body_tests {
 
     #[test]
     fn deepseek_reasoning_effort_on_wire() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
         s.active_provider_id = "deepseek".into();
         s.model = "deepseek-v4-flash".into();
         s.providers[1].reasoning_effort = Some("max".into());
@@ -3190,6 +3213,7 @@ mod effective_extra_body_tests {
     #[test]
     fn web_effective_settings_view_omits_dati_fields() {
         let mut platform = PlatformSettings::default();
+        platform.providers.push(sample_settings().providers.remove(0));
         platform.dati_api_url = "https://dati.example".into();
         platform.dati_authcode = "secret-auth".into();
         platform.dati_typeno = "501057".into();
@@ -3227,6 +3251,9 @@ mod effective_extra_body_tests {
     #[test]
     fn web_effective_settings_view_keeps_debug_fields_for_admin() {
         let mut platform = PlatformSettings::default();
+        platform
+            .providers
+            .push(sample_settings().providers.remove(0));
         platform.providers[0].api_key = "sk-live-secret".into();
         let mut user = UserSettings::default();
         user.debug_menus_enabled = true;
@@ -3321,14 +3348,28 @@ mod effective_extra_body_tests {
 
     #[test]
     fn hermes_style_extra_body_merges_and_flattens_for_openai_compatible() {
-        let mut s = ModelSettings::default();
+        let mut s = sample_settings();
+        s.providers.push(ProviderConfig {
+            id: "doubao".into(),
+            name: "豆包".into(),
+            base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
+            api_key: String::new(),
+            models: vec!["ep-demo".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            extra_body: Some(serde_json::json!({
+                "repetition_penalty": 1.1,
+                "top_p": 0.8
+            })),
+            source: Some("platform".into()),
+        });
         s.active_provider_id = "doubao".into();
         s.model = "ep-demo".into();
-        s.providers[2].models = vec!["ep-demo".into()];
-        s.providers[2].extra_body = Some(serde_json::json!({
-            "repetition_penalty": 1.1,
-            "top_p": 0.8
-        }));
         s.providers[2].model_configs.insert(
             "ep-demo".into(),
             ModelRuntimeOverrides {
@@ -3355,15 +3396,22 @@ mod effective_extra_body_tests {
 
     #[test]
     fn debug_session_web_redaction_keeps_mappings_and_masks_keys() {
-        let mut debug = DebugSessionSettings::from(&ModelSettings::default());
+        let mut debug = DebugSessionSettings::from(&sample_settings());
         debug.providers[0].api_key = "sk-secret".into();
-        debug
-            .agent_mode_llm
-            .get_mut("general")
-            .unwrap()
-            .get_mut("fast")
-            .unwrap()
-            .model = "session-model".into();
+        debug.agent_mode_llm.insert(
+            "general".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "qwen".into(),
+                    model: "session-model".into(),
+                    enable_thinking: true,
+                    thinking_budget: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
 
         redact_debug_session_settings_for_web(&mut debug);
 

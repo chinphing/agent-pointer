@@ -531,15 +531,15 @@ mod definition_source_tests {
     fn registered_linkage_keeps_legacy_task_and_agent_trace_id() {
         let task = AgentTask {
             id: "task-1".into(),
-            agent_id: "explore".into(),
-            title: "Explore".into(),
+            agent_id: "coder".into(),
+            title: "Coder".into(),
             goal: "Inspect".into(),
             context: String::new(),
             depends_on: vec![],
         };
         let def = AgentDef {
-            id: "explore".into(),
-            name: "Explore".into(),
+            id: "coder".into(),
+            name: "Coder".into(),
             description: "registered".into(),
             role: "worker".into(),
             profile: AgentProfile::Coder,
@@ -562,7 +562,54 @@ mod definition_source_tests {
 
         assert_eq!(
             linkage.trace_id,
-            crate::chat_service::emit::agent_trace_step_id("task-1", "explore")
+            crate::chat_service::emit::agent_trace_step_id("task-1", "coder")
+        );
+    }
+
+    #[test]
+    fn explore_linkage_trace_id_is_scoped_by_instance() {
+        let task = AgentTask {
+            id: "task-1".into(),
+            agent_id: "explore".into(),
+            title: "Explore".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let def = AgentDef {
+            id: "explore".into(),
+            name: "Explore".into(),
+            description: "registered".into(),
+            role: "worker".into(),
+            profile: AgentProfile::Explore,
+            default_skill_ids: vec![],
+            skills_policy: SkillsPolicy::InheritsFromParent,
+            access_policy: AccessPolicy::default(),
+            builtin: false,
+            enabled: true,
+            tool_names: vec![],
+            source: None,
+            resource_files: vec![],
+            allow_agents: vec![],
+            config: HashMap::new(),
+            ui: AgentUiConfig::default(),
+        };
+        let source = SubAgentDefinitionSource::Registered(&task);
+        let instance_scope = source.new_instance_scope("run", "conversation");
+
+        let linkage = build_sub_agent_linkage("anchor", &task, &def, &instance_scope, 1);
+
+        // explore/self spawns are instance-scoped so repeated delegates of the
+        // same task do not collide on one trace row.
+        assert_eq!(
+            linkage.trace_id,
+            crate::chat_service::emit::agent_trace_step_id(
+                "task-1",
+                &crate::chat_service::emit::agent_trace_step_id(
+                    &instance_scope.agent_instance_id,
+                    "explore"
+                )
+            )
         );
     }
 

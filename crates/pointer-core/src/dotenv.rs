@@ -325,8 +325,35 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    fn env_test_guard() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    /// Module env lock + process-global settings lock so `build_terminal_child_environment`
+    /// tests (which mutate terminalEnvOverrides via `replace_global_user_settings_for_test`)
+    /// cannot race with `local_sso` / other tests that read the same globals.
+    struct EnvTestGuard(MutexGuard<'static, ()>, MutexGuard<'static, ()>);
+
+    fn env_test_guard() -> EnvTestGuard {
+        EnvTestGuard(
+            ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner()),
+            crate::platform_config::settings_test_lock(),
+        )
+    }
+
+    /// Restore process PATH on drop so concurrent tests that spawn external
+    /// commands (workspace_read git, local_sso sh) are not affected.
+    struct PathGuard(Option<String>);
+
+    impl PathGuard {
+        fn capture() -> Self {
+            Self(std::env::var("PATH").ok())
+        }
+    }
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(p) => std::env::set_var("PATH", p),
+                None => std::env::remove_var("PATH"),
+            }
+        }
     }
 
     #[test]
@@ -364,6 +391,7 @@ mod tests {
     #[test]
     fn dotenv_path_prepends_before_inherited() {
         let _guard = env_test_guard();
+        let _path_guard = PathGuard::capture();
         #[cfg(windows)]
         {
             std::env::set_var("PATH", r"C:\Windows\System32");
@@ -385,6 +413,7 @@ mod tests {
     #[test]
     fn dotenv_path_expands_percent_path_placeholder() {
         let _guard = env_test_guard();
+        let _path_guard = PathGuard::capture();
         std::env::set_var("PATH", "/usr/bin");
         assert_eq!(
             env_value_for_child("PATH", "/opt/python:%PATH%"),
@@ -424,6 +453,9 @@ mod tests {
         crate::platform_config::replace_global_platform_config_for_test(
             crate::models::PlatformSettings::default(),
         );
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
         let _user_guard = crate::session_user_env::SessionUserIdGuard::enter("user-42".into());
         let map = build_terminal_child_environment(&[]);
         assert_eq!(
@@ -437,6 +469,9 @@ mod tests {
         let _guard = env_test_guard();
         crate::platform_config::replace_global_platform_config_for_test(
             crate::models::PlatformSettings::default(),
+        );
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
         );
         let map = build_terminal_child_environment(&[]);
         let data_dir = map.get("DATA_DIR").expect("DATA_DIR");
@@ -454,6 +489,9 @@ mod tests {
         crate::platform_config::replace_global_platform_config_for_test(
             crate::models::PlatformSettings::default(),
         );
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
         let map = build_terminal_child_environment(&[]);
         let skill_dir = map.get("SKILL_DIR").expect("SKILL_DIR");
         assert!(!skill_dir.trim().is_empty());
@@ -470,6 +508,9 @@ mod tests {
         crate::platform_config::replace_global_platform_config_for_test(
             crate::models::PlatformSettings::default(),
         );
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
         let _dir_guard =
             crate::session_work_dir_env::SessionWorkDirGuard::enter("/tmp/pointer-ws".into());
         let map = build_terminal_child_environment(&[]);
@@ -484,6 +525,9 @@ mod tests {
         let _guard = env_test_guard();
         crate::platform_config::replace_global_platform_config_for_test(
             crate::models::PlatformSettings::default(),
+        );
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
         );
         let _user_guard = crate::session_user_env::SessionUserIdGuard::enter("user-42".into());
         let _dir_guard =
@@ -526,10 +570,8 @@ mod tests {
         std::env::set_var("POINTER_OVERRIDE_BASE", "from_process");
         let mut u = crate::models::UserSettings::default();
         u.debug_menus_enabled = false;
-        u.terminal_env_overrides.insert(
-            "POINTER_OVERRIDE_BASE".into(),
-            "from_settings".into(),
-        );
+        u.terminal_env_overrides
+            .insert("POINTER_OVERRIDE_BASE".into(), "from_settings".into());
         u.terminal_env_overrides
             .insert("POINTER_OVERRIDE_NEW".into(), "added".into());
         crate::platform_config::replace_global_user_settings_for_test(u);

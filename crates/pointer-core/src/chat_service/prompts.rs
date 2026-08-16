@@ -1,11 +1,9 @@
 use crate::agents::computer::ComputerState;
 use crate::agents::{
     computer_agent_body_for_tier, computer_communication_for_tier,
-    expand_agent_prompt_placeholders, rendered_charts_inject,
-    rendered_communication_public_inject, rendered_html_tables_inject,
-    rendered_media_delivery_inject, rendered_mermaid_diagrams_inject,
-    rendered_svg_diagrams_inject, AgentProfile,
-    SessionInjectVars,
+    expand_agent_prompt_placeholders, rendered_charts_inject, rendered_communication_public_inject,
+    rendered_html_tables_inject, rendered_media_delivery_inject, rendered_mermaid_diagrams_inject,
+    rendered_svg_diagrams_inject, AgentProfile, SessionInjectVars,
 };
 
 /// `MEDIA_DELIVERY` / `CHARTS` / `SVG_DIAGRAMS` / `HTML_TABLES` — general / coder / computer.

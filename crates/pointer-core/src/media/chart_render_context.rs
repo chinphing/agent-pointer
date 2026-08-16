@@ -12,8 +12,7 @@ pub const CHART_RENDER_MARKER: &str = "<!-- pointer-chart-render -->";
 
 /// Same soft series borders as App (`CHART_SERIES_PALETTE`) / IM outbound.
 const SERIES_BORDERS: &[&str] = &[
-    "#4C8DDA", "#E8A07A", "#5DADE2", "#C4A574", "#7FBF9E", "#A8B2C1", "#C995A8",
-    "#A3B07A",
+    "#4C8DDA", "#E8A07A", "#5DADE2", "#C4A574", "#7FBF9E", "#A8B2C1", "#C995A8", "#A3B07A",
 ];
 
 fn chart_fence_re() -> &'static Regex {
@@ -68,8 +67,7 @@ pub fn append_chart_render_api_context(content: &str) -> String {
 }
 
 fn summarize_chart_fence(index: usize, json_body: &str) -> Result<String, String> {
-    let root: Value =
-        serde_json::from_str(json_body).map_err(|e| format!("json parse: {e}"))?;
+    let root: Value = serde_json::from_str(json_body).map_err(|e| format!("json parse: {e}"))?;
     let obj = root
         .as_object()
         .ok_or_else(|| "root not object".to_string())?;
@@ -96,9 +94,9 @@ fn summarize_chart_fence(index: usize, json_body: &str) -> Result<String, String
     if !use_host {
         let mut colors: Vec<String> = Vec::new();
         for ds in &datasets {
-            if let Some(c) = color_preview(ds.get("borderColor")).or_else(|| {
-                color_preview(ds.get("backgroundColor"))
-            }) {
+            if let Some(c) = color_preview(ds.get("borderColor"))
+                .or_else(|| color_preview(ds.get("backgroundColor")))
+            {
                 colors.push(c);
             }
         }

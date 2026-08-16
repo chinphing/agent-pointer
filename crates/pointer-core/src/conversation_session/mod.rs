@@ -44,16 +44,12 @@ impl SessionHub {
     }
 
     fn generation(&self, conversation_id: &str) -> u64 {
-        self.generations
-            .get(conversation_id)
-            .copied()
-            .unwrap_or(0)
+        self.generations.get(conversation_id).copied().unwrap_or(0)
     }
 
     fn bump(&mut self, conversation_id: &str) -> u64 {
         let g = self.generation(conversation_id).saturating_add(1);
-        self.generations
-            .insert(conversation_id.to_string(), g);
+        self.generations.insert(conversation_id.to_string(), g);
         // Any mutation invalidates the cached working set for that id.
         self.cache.remove(conversation_id);
         self.lru.retain(|id| id != conversation_id);
@@ -66,9 +62,7 @@ impl SessionHub {
         while self.lru.len() > MAX_CACHED_CONVERSATIONS {
             if let Some(old) = self.lru.pop_front() {
                 self.cache.remove(&old);
-                log::info!(
-                    "conversation_session: evicted working-set cache conversation_id={old}"
-                );
+                log::info!("conversation_session: evicted working-set cache conversation_id={old}");
             }
         }
     }
@@ -135,18 +129,22 @@ fn meta_message_count(conversation_id: &str, working_len: u32) -> u32 {
 }
 
 /// Append rows missing from SQLite, then refresh meta. Preferred write entry.
-pub fn append_missing(conversation_id: &str, messages: &[ChatMessage]) -> Result<u32> {
+pub fn append_missing(
+    conversation_id: &str,
+    messages: &[ChatMessage],
+) -> Result<Vec<conversation_store::AppendedMessageRow>> {
     let store = conversation_store::global_store()?;
-    let written = store.append_missing_messages(conversation_id, messages)?;
-    if written > 0 {
+    let appended = store.append_missing_messages(conversation_id, messages)?;
+    if !appended.is_empty() {
         let count = store.message_count(conversation_id)?;
         let preview = conversation_preview(messages);
         store.flush_conversation_meta(conversation_id, count, &preview)?;
         log::info!(
-            "conversation_session: append_missing conversation_id={conversation_id} written={written} db_count={count}"
+            "conversation_session: append_missing conversation_id={conversation_id} written={} db_count={count}",
+            appended.len()
         );
     }
-    Ok(written)
+    Ok(appended)
 }
 
 /// Upsert one message and keep meta roughly in sync.
@@ -202,11 +200,7 @@ pub fn persist_compression_splice(
 }
 
 /// Replace the cached lead working set after a successful in-memory drain/sync.
-pub fn publish_working_set(
-    conversation_id: &str,
-    working: &[ChatMessage],
-    db_count: Option<u32>,
-) {
+pub fn publish_working_set(conversation_id: &str, working: &[ChatMessage], db_count: Option<u32>) {
     let id = conversation_id.trim();
     if id.is_empty() {
         return;
@@ -229,10 +223,7 @@ pub fn publish_working_set(
 
 /// Canonicalize lead history for `run_chat`: append caller deltas, then serve
 /// from working-set cache when generation still matches, else reload from DB.
-pub fn prepare_lead_history(
-    conversation_id: &str,
-    history: &mut Vec<ChatMessage>,
-) -> Result<u32> {
+pub fn prepare_lead_history(conversation_id: &str, history: &mut Vec<ChatMessage>) -> Result<u32> {
     let Ok(store) = conversation_store::global_store() else {
         *history = filter_lead_working_history(std::mem::take(history));
         log::warn!(
@@ -245,10 +236,10 @@ pub fn prepare_lead_history(
     let gen_before = transcript_generation(conversation_id);
     let cached = hub().lock().cache.get(conversation_id).cloned();
 
-    let written = store.append_missing_messages(conversation_id, history)?;
+    let appended = store.append_missing_messages(conversation_id, history)?;
     let gen_after = transcript_generation(conversation_id);
 
-    if written == 0 {
+    if appended.is_empty() {
         if let Some(entry) = cached {
             if entry.generation == gen_before && entry.generation == gen_after {
                 *history = entry.working;
@@ -283,11 +274,12 @@ pub fn prepare_lead_history(
             }
             let db_count = store
                 .message_count(conversation_id)
-                .unwrap_or(entry.db_count.saturating_add(written));
+                .unwrap_or(entry.db_count.saturating_add(appended.len() as u32));
             *history = working;
             publish_working_set(conversation_id, history, Some(db_count));
             log::info!(
-                "conversation_session: working-set cache incremental conversation_id={conversation_id} written={written} added_working={added} db_messages={db_count} working_history={}",
+                "conversation_session: working-set cache incremental conversation_id={conversation_id} written={} added_working={added} db_messages={db_count} working_history={}",
+                appended.len(),
                 history.len()
             );
             return Ok(db_count);
@@ -308,7 +300,7 @@ pub fn prepare_lead_history(
         db_count,
         history.len(),
         transcript_generation(conversation_id),
-        written
+        appended.len()
     );
     Ok(db_count)
 }
@@ -317,9 +309,7 @@ pub fn prepare_lead_history(
 mod tests {
     use super::*;
     use crate::conversation_store::ConversationStore;
-    use crate::models::{
-        ChatMessage, Conversation, ExcludedReason, MessageContextState, Role,
-    };
+    use crate::models::{ChatMessage, Conversation, ExcludedReason, MessageContextState, Role};
     use tempfile::TempDir;
 
     fn sample_conv(id: &str) -> Conversation {
@@ -371,6 +361,7 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            performance_mode: None,
             session_user_id: String::new(),
         }
     }

@@ -1742,29 +1742,23 @@ mod native_tool_call_tests {
 
     #[test]
     fn stream_delta_accepts_reasoning_alias_used_by_vllm_qwen() {
-        let delta: StreamDelta = serde_json::from_str(
-            r#"{"reasoning":" 9.","content":null}"#,
-        )
-        .unwrap();
+        let delta: StreamDelta =
+            serde_json::from_str(r#"{"reasoning":" 9.","content":null}"#).unwrap();
         assert_eq!(delta.reasoning_text(), Some(" 9."));
         assert!(delta.reasoning_content.is_none());
     }
 
     #[test]
     fn stream_delta_prefers_reasoning_content_over_reasoning() {
-        let delta: StreamDelta = serde_json::from_str(
-            r#"{"reasoning_content":"a","reasoning":"b"}"#,
-        )
-        .unwrap();
+        let delta: StreamDelta =
+            serde_json::from_str(r#"{"reasoning_content":"a","reasoning":"b"}"#).unwrap();
         assert_eq!(delta.reasoning_text(), Some("a"));
     }
 
     #[test]
     fn chat_response_message_accepts_reasoning_alias() {
-        let msg: ChatResponseMessage = serde_json::from_str(
-            r#"{"content":"ok","reasoning":"think"}"#,
-        )
-        .unwrap();
+        let msg: ChatResponseMessage =
+            serde_json::from_str(r#"{"content":"ok","reasoning":"think"}"#).unwrap();
         assert_eq!(msg.reasoning_text(), Some("think"));
     }
 

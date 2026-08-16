@@ -391,6 +391,7 @@ impl DispatchService {
                 std::collections::HashMap::new(),
                 agent_mode,
                 lead_agent,
+                None,
                 0,
                 0,
                 workspace_root,

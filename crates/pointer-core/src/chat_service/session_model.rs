@@ -80,11 +80,7 @@ fn provider_model_usable(settings: &ModelSettings, provider_id: &str, model: &st
 }
 
 /// Prefer `preferred` when it is in the provider list; otherwise first listed model.
-fn resolve_fallback_model(
-    settings: &ModelSettings,
-    provider_id: &str,
-    preferred: &str,
-) -> String {
+fn resolve_fallback_model(settings: &ModelSettings, provider_id: &str, preferred: &str) -> String {
     let preferred = preferred.trim();
     if provider_model_in_list(settings, provider_id, preferred) {
         return preferred.to_string();
@@ -168,10 +164,16 @@ pub(crate) fn apply_session_agent_model_defaults(
     settings: &mut ModelSettings,
     effective_agent_mode: &str,
     lead_agent_id_override: Option<&str>,
+    performance_mode_override: Option<&str>,
 ) {
     let prior_provider = settings.active_provider_id.clone();
     let prior_model = settings.model.clone();
     let key = resolve_lead_agent_key(settings, effective_agent_mode, lead_agent_id_override);
+    if let Some(mode) = performance_mode_override.map(str::trim).filter(|s| !s.is_empty()) {
+        settings
+            .agent_performance_modes
+            .insert(key.clone(), mode.to_string());
+    }
     let _ = apply_agent_model_defaults(settings, &key);
     fallback_to_active_if_unusable(settings, &prior_provider, &prior_model, "session");
 }
@@ -194,9 +196,15 @@ pub(crate) fn prepare_session_llm_settings(
     settings: &mut ModelSettings,
     effective_agent_mode: &str,
     lead_agent_id_override: Option<&str>,
+    performance_mode_override: Option<&str>,
 ) -> String {
     let fallback_key = settings.api_key.clone();
-    apply_session_agent_model_defaults(settings, effective_agent_mode, lead_agent_id_override);
+    apply_session_agent_model_defaults(
+        settings,
+        effective_agent_mode,
+        lead_agent_id_override,
+        performance_mode_override,
+    );
     let api_key = resolve_provider_api_key(settings, &fallback_key);
     settings.api_key = api_key.clone();
     settings.has_key = !api_key.is_empty();
@@ -240,7 +248,7 @@ pub(crate) fn sub_agent_provider(parent: &OpenAIProvider, sub_agent_id: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AgentModelRef, ProviderConfig};
+    use crate::models::{AgentModelRef, ComputerTierLlmConfig, ProviderConfig};
 
     fn sample_settings() -> ModelSettings {
         ModelSettings {
@@ -312,8 +320,22 @@ mod tests {
     #[test]
     fn apply_agent_model_defaults_applies_mode_llm_for_coder() {
         let mut settings = sample_settings();
+        // 平台下发档位默认后（agentModeLlm），coder fast → deepseek-v4-flash。
+        settings.agent_mode_llm.insert(
+            "coder".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "deepseek".into(),
+                    model: "deepseek-v4-flash".into(),
+                    enable_thinking: true,
+                    thinking_budget: Some(2048),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
         assert!(apply_agent_model_defaults(&mut settings, "coder"));
-        // Default performance mode is fast → deepseek-v4-flash from platform agentModeLlm.
         assert_eq!(settings.active_provider_id, "deepseek");
         assert_eq!(settings.model, "deepseek-v4-flash");
     }
@@ -324,7 +346,7 @@ mod tests {
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "coder".into();
         // coder fast → deepseek (not in providers / no key); active qwen has key.
-        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        let key = prepare_session_llm_settings(&mut settings, "single", None, None);
         assert_eq!(settings.active_provider_id, "qwen");
         assert_eq!(settings.model, "qwen-plus");
         assert_eq!(key, "qwen-key");
@@ -338,7 +360,7 @@ mod tests {
         settings.providers[0].models = vec!["qwen3.6-27b".into()];
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "coder".into();
-        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        let key = prepare_session_llm_settings(&mut settings, "single", None, None);
         assert_eq!(settings.active_provider_id, "qwen");
         assert_eq!(settings.model, "qwen3.6-27b");
         assert_eq!(key, "qwen-key");
@@ -348,12 +370,14 @@ mod tests {
     fn prepare_session_fallback_when_mode_model_missing_from_keyed_catalog() {
         let mut settings = sample_settings();
         // expert → qwen/qwen3.7-plus via agentModeLlm, but catalog only has local id.
-        settings.agent_performance_modes.insert("coder".into(), "expert".into());
+        settings
+            .agent_performance_modes
+            .insert("coder".into(), "expert".into());
         settings.providers[0].models = vec!["qwen3.6-27b".into()];
         settings.model = "qwen3.6-27b".into();
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "coder".into();
-        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        let key = prepare_session_llm_settings(&mut settings, "single", None, None);
         assert_eq!(settings.active_provider_id, "qwen");
         assert_eq!(settings.model, "qwen3.6-27b");
         assert_eq!(key, "qwen-key");
@@ -362,6 +386,20 @@ mod tests {
     #[test]
     fn prepare_session_keeps_mode_model_when_provider_has_key() {
         let mut settings = sample_settings();
+        settings.agent_mode_llm.insert(
+            "coder".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "deepseek".into(),
+                    model: "deepseek-v4-flash".into(),
+                    enable_thinking: true,
+                    thinking_budget: Some(2048),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
         settings.providers.push(ProviderConfig {
             id: "deepseek".into(),
             name: "DeepSeek".into(),
@@ -380,7 +418,7 @@ mod tests {
         });
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "coder".into();
-        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        let key = prepare_session_llm_settings(&mut settings, "single", None, None);
         assert_eq!(settings.active_provider_id, "deepseek");
         assert_eq!(settings.model, "deepseek-v4-flash");
         assert_eq!(key, "ds-key");
@@ -429,7 +467,7 @@ mod tests {
         let mut settings = sample_settings();
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "explore".into();
-        let key = prepare_session_llm_settings(&mut settings, "single", None);
+        let key = prepare_session_llm_settings(&mut settings, "single", None, None);
         assert_eq!(settings.active_provider_id, "openai");
         assert_eq!(key, "openai-key");
         assert_ne!(key, "qwen-key");
@@ -441,9 +479,53 @@ mod tests {
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "coder".into();
         // IM session override should win over global settings.lead_agent_id.
-        let key = prepare_session_llm_settings(&mut settings, "single", Some("explore"));
+        let key = prepare_session_llm_settings(&mut settings, "single", Some("explore"), None);
         assert_eq!(settings.active_provider_id, "openai");
         assert_eq!(settings.model, "gpt-4o");
         assert_eq!(key, "openai-key");
+    }
+
+    #[test]
+    fn prepare_session_performance_override_wins_over_global_mode() {
+        let mut settings = sample_settings();
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "coder".into();
+        // Global default: coder → fast. Override must inject expert for the session key.
+        settings.providers[0].models = vec!["qwen-fast".into(), "qwen-expert".into()];
+        settings
+            .agent_performance_modes
+            .insert("coder".into(), "fast".into());
+        settings.agent_mode_llm.insert(
+            "coder".into(),
+            [
+                (
+                    "fast".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-fast".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(1024),
+                    },
+                ),
+                (
+                    "expert".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-expert".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(4096),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let key = prepare_session_llm_settings(&mut settings, "single", None, Some("expert"));
+        assert_eq!(
+            settings.agent_performance_modes.get("coder").map(String::as_str),
+            Some("expert")
+        );
+        assert_eq!(settings.model, "qwen-expert");
+        assert_eq!(key, "qwen-key");
     }
 }

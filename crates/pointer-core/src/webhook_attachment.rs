@@ -224,9 +224,7 @@ mod tests {
         let abs = media_abs_path(&saved.storage_rel_path).unwrap();
         assert!(abs.is_file());
         assert!(
-            saved
-                .storage_rel_path
-                .contains("/attachments/"),
+            saved.storage_rel_path.contains("/attachments/"),
             "expected sandbox attachment storage rel path"
         );
         if let Some(parent) = abs.parent() {

@@ -228,6 +228,7 @@ impl Scheduler {
             agent_skill_overrides: std::collections::HashMap::new(),
             agent_mode: job.agent_mode.clone(),
             lead_agent_id: job.lead_agent_id.clone(),
+            performance_mode: None,
             tool_rounds_used_single_start: 0,
             tool_rounds_used_supervisor_start: 0,
             workspace_root: String::new(),

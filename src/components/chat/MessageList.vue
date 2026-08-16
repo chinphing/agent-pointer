@@ -51,7 +51,14 @@ import {
   type MessageListScrollAnchor
 } from '../../lib/messageListScrollAnchor'
 import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
-import { fileChangesByTurn } from '../../lib/lastTurnFileChanges'
+import {
+  closedLeadTurnsKey,
+  collectLeadTurnStarts,
+  frozenFileChangesFromStarts,
+  resolveActiveTurnFileChanges,
+  type FrozenFileChangesCache
+} from '../../lib/lastTurnFileChanges'
+import type { FileChangeSummary } from '../../lib/toolCallDisplay'
 
 const props = withDefaults(defineProps<{
   searchMatchIds?: string[]
@@ -914,7 +921,79 @@ const expandedTurnIds = ref<Set<string>>(new Set())
 const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
 const expandedChangeTurnIds = ref<Set<string>>(new Set())
 const collapsedChangeTurnIds = ref<Set<string>>(new Set())
-const turnFileChanges = computed(() => fileChangesByTurn(chat.current?.messages))
+const leadTurnStarts = computed(() => {
+  const list = chat.current?.messages
+  if (!list) return []
+  void list.length
+  return collectLeadTurnStarts(list)
+})
+
+let frozenFileChangesCache: FrozenFileChangesCache | null = null
+
+/** Closed turns: reuse prior file arrays; only snapshot the turn that just ended. */
+const frozenTurnFileChanges = computed(() => {
+  const starts = leadTurnStarts.value
+  const prev = frozenFileChangesCache
+  if (prev && prev.key === closedLeadTurnsKey(starts)) return prev.map
+  const list = chat.current?.messages ?? []
+  frozenFileChangesCache = frozenFileChangesFromStarts(list, starts, prev)
+  return frozenFileChangesCache.map
+})
+
+let activeFileChangesCache: {
+  turnId: string
+  settleKey: string
+  files: FileChangeSummary[]
+  mergedToolIds: Set<string>
+} = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
+
+/** Latest turn: rebuild when a tool batch settles and that batch wrote files. */
+const activeTurnFileChanges = computed(() => {
+  const list = chat.current?.messages ?? []
+  const last = leadTurnStarts.value[leadTurnStarts.value.length - 1]
+  if (!last) {
+    return {
+      turnId: '',
+      settleKey: '',
+      files: [] as FileChangeSummary[],
+      mergedToolIds: new Set<string>()
+    }
+  }
+  activeFileChangesCache = resolveActiveTurnFileChanges(
+    list,
+    last.turnId,
+    last.start,
+    activeFileChangesCache.turnId ? activeFileChangesCache : null
+  )
+  return activeFileChangesCache
+})
+
+let mergedTurnFileChangesCache: {
+  frozen: Map<string, FileChangeSummary[]>
+  active: {
+    turnId: string
+    settleKey: string
+    files: FileChangeSummary[]
+    mergedToolIds: Set<string>
+  }
+  map: Map<string, FileChangeSummary[]>
+} | null = null
+
+const turnFileChanges = computed(() => {
+  const frozen = frozenTurnFileChanges.value
+  const active = activeTurnFileChanges.value
+  if (
+    mergedTurnFileChangesCache
+    && mergedTurnFileChangesCache.frozen === frozen
+    && mergedTurnFileChangesCache.active === active
+  ) {
+    return mergedTurnFileChangesCache.map
+  }
+  const out = new Map(frozen)
+  if (active.files.length) out.set(active.turnId, active.files)
+  mergedTurnFileChangesCache = { frozen, active, map: out }
+  return out
+})
 
 // Live ticking clock for the running turn's elapsed label. The interval runs
 // only while at least one turn is still active; otherwise nothing re-renders.
@@ -1061,6 +1140,9 @@ watch(() => chat.currentId, () => {
   manuallyCollapsedTurnIds.value = new Set()
   expandedChangeTurnIds.value = new Set()
   collapsedChangeTurnIds.value = new Set()
+  frozenFileChangesCache = null
+  activeFileChangesCache = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
+  mergedTurnFileChangesCache = null
   activeBoardInlineScrollTop.value = null
   activeBoardIsSticky.value = false
 })
@@ -1354,7 +1436,7 @@ function entrySpacing(
         </template>
         <div
           v-if="turnFileChanges.get(row.turn.id)?.length"
-          class="mt-1.5 px-3"
+          class="mt-1.5 min-w-0 max-w-full px-3"
         >
           <ChangeSummary
             :turn-id="row.turn.id"

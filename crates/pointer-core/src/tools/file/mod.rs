@@ -940,6 +940,22 @@ mod tests {
     }
 
     #[test]
+    fn file_write_reports_line_stats_for_new_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let args = json!({
+            "path": "out.txt",
+            "content": "hello\nworld\n"
+        });
+        let raw = execute_file_write_payload(&args, root).expect("write");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("json");
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["created"], true);
+        assert_eq!(parsed["stats"]["adds"], 2);
+        assert_eq!(parsed["stats"]["dels"], 0);
+    }
+
+    #[test]
     fn file_write_accepts_object_content_as_pretty_json() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();

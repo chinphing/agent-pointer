@@ -1,4 +1,5 @@
 use super::path::{path_display_abs, resolve_writable_path};
+use crate::text_diff::compute_diff_lines;
 use anyhow::{anyhow, Result};
 use log::info;
 use std::fs;
@@ -48,17 +49,19 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
         fs::create_dir_all(parent).map_err(|e| anyhow!("创建目录失败: {e}"))?;
     }
     fs::write(&full, content.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
-    // No full-file diff in the tool result — turn review uses baseline vs disk.
+    let (_diff_lines, stats) = compute_diff_lines(&old_content, &content);
     info!(
-        "file_write: path={}, bytes={}",
+        "file_write: path={}, bytes={}, created={}",
         path_display_abs(&full),
-        content.len()
+        content.len(),
+        old_content.is_empty()
     );
     Ok(serde_json::json!({
         "path": path_display_abs(&full),
         "bytesWritten": content.as_bytes().len(),
         "success": true,
         "created": old_content.is_empty(),
+        "stats": stats,
     })
     .to_string())
 }

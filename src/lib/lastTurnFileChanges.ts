@@ -39,24 +39,286 @@ function pathBasename(path: string): string {
   return parts[parts.length - 1] || path
 }
 
-function isLeadUserMessage(message: ChatMessage): boolean {
+export function isLeadUserMessage(message: ChatMessage): boolean {
   return message.role === 'user' && Boolean(message.id?.trim()) && !message.anchorMessageId?.trim()
 }
 
+type LeadStartsMemo = {
+  length: number
+  starts: Array<{ turnId: string; start: number }>
+}
+
+const leadStartsMemo = new WeakMap<ChatMessage[], LeadStartsMemo>()
+
+function scanLeadStarts(
+  list: ChatMessage[],
+  from: number,
+  into: Array<{ turnId: string; start: number }>
+): void {
+  for (let i = from; i < list.length; i++) {
+    const message = list[i]!
+    if (isLeadUserMessage(message)) {
+      into.push({ turnId: message.id, start: i })
+    }
+  }
+}
+
+/** Lead-user starts. Same array + same length returns the previous list (no rescan). */
+export function collectLeadTurnStarts(
+  list: ChatMessage[]
+): Array<{ turnId: string; start: number }> {
+  const prev = leadStartsMemo.get(list)
+  if (prev && prev.length === list.length) return prev.starts
+  if (prev && list.length > prev.length) {
+    const added: Array<{ turnId: string; start: number }> = []
+    scanLeadStarts(list, prev.length, added)
+    if (added.length === 0) {
+      leadStartsMemo.set(list, { length: list.length, starts: prev.starts })
+      return prev.starts
+    }
+    const starts = prev.starts.concat(added)
+    leadStartsMemo.set(list, { length: list.length, starts })
+    return starts
+  }
+  const starts: Array<{ turnId: string; start: number }> = []
+  scanLeadStarts(list, 0, starts)
+  leadStartsMemo.set(list, { length: list.length, starts })
+  return starts
+}
+
+/**
+ * One assistant (or scoped) row's tool batch: in-flight until every tool
+ * leaves pending / running / pending_approval.
+ */
+export type ToolRoundPart = {
+  messageId: string
+  index: number
+  inflight: boolean
+  toolCount: number
+  hasSuccessfulFileWrite: boolean
+}
+
+function isInFlightTool(tc: ToolCall): boolean {
+  return tc.status === 'running' || tc.status === 'pending' || tc.status === 'pending_approval'
+}
+
+export function lastTurnToolRounds(
+  list: ChatMessage[],
+  start: number,
+  end: number
+): ToolRoundPart[] {
+  const parts: ToolRoundPart[] = []
+  for (let i = start; i < end; i++) {
+    const message = list[i]!
+    const calls = message.toolCalls
+    if (!calls?.length) continue
+    let inflight = false
+    let hasSuccessfulFileWrite = false
+    for (const tc of calls) {
+      if (isInFlightTool(tc)) inflight = true
+      if (isFileMutatingTool(tc) && tc.status === 'success') hasSuccessfulFileWrite = true
+    }
+    parts.push({
+      messageId: message.id,
+      index: i,
+      inflight,
+      toolCount: calls.length,
+      hasSuccessfulFileWrite
+    })
+  }
+  return parts
+}
+
+export function toolRoundSettleKey(parts: ToolRoundPart[]): string {
+  return parts
+    .map(part => (
+      part.inflight
+        ? `${part.messageId}:inflight`
+        : `${part.messageId}:settled:${part.toolCount}`
+    ))
+    .join('\0')
+}
+
+function parseSettleKey(settleKey: string): Map<string, string> {
+  const previous = new Map<string, string>()
+  if (!settleKey) return previous
+  for (const segment of settleKey.split('\0')) {
+    const split = segment.indexOf(':')
+    if (split < 0) continue
+    previous.set(segment.slice(0, split), segment.slice(split + 1))
+  }
+  return previous
+}
+
+/** Message indexes whose tool batch just settled and that batch wrote files. */
+export function newlySettledFileWriteIndexes(
+  previousSettleKey: string,
+  parts: ToolRoundPart[]
+): number[] {
+  const previous = parseSettleKey(previousSettleKey)
+  const indexes: number[] = []
+  for (const part of parts) {
+    if (part.inflight || !part.hasSuccessfulFileWrite) continue
+    const was = previous.get(part.messageId)
+    const now = `settled:${part.toolCount}`
+    if (was !== now) indexes.push(part.index)
+  }
+  return indexes
+}
+
+export type ActiveTurnFileCache = {
+  turnId: string
+  settleKey: string
+  files: FileChangeSummary[]
+  mergedToolIds: Set<string>
+}
+
+function mutatingToolIds(toolCalls: ToolCall[]): Set<string> {
+  return new Set(toolCalls.map(tc => tc.id))
+}
+
+function pathKey(path: string): string {
+  return path.replace(/\\/g, '/').toLocaleLowerCase()
+}
+
+function sortFileChangeSummaries(files: FileChangeSummary[]): FileChangeSummary[] {
+  return [...files].sort((a, b) => {
+    const byName = a.fileName.localeCompare(b.fileName, undefined, { sensitivity: 'base' })
+    if (byName !== 0) return byName
+    return a.path.localeCompare(b.path, undefined, { sensitivity: 'base' })
+  })
+}
+
+function mergeFileChangeSummaries(
+  previous: FileChangeSummary[],
+  incoming: FileChangeSummary[]
+): FileChangeSummary[] {
+  if (!incoming.length) return previous
+  if (!previous.length) return incoming
+  const byPath = new Map<string, FileChangeSummary>()
+  for (const file of previous) {
+    byPath.set(pathKey(file.path), file)
+  }
+  for (const file of incoming) {
+    const key = pathKey(file.path)
+    const existing = byPath.get(key)
+    if (!existing) {
+      byPath.set(key, file)
+      continue
+    }
+    byPath.set(key, {
+      ...existing,
+      adds: existing.adds + file.adds,
+      dels: existing.dels + file.dels,
+      diffs: existing.diffs.concat(file.diffs),
+      kind: file.kind === 'write' ? 'write' : existing.kind
+    })
+  }
+  return sortFileChangeSummaries([...byPath.values()])
+}
+
+function keepPreviousSettle(
+  previous: ActiveTurnFileCache,
+  settleKey: string
+): ActiveTurnFileCache {
+  previous.settleKey = settleKey
+  return previous
+}
+
+/** Update the file list when a tool batch settles and that batch wrote files. */
+export function resolveActiveTurnFileChanges(
+  list: ChatMessage[],
+  turnId: string,
+  start: number,
+  previous: ActiveTurnFileCache | null
+): ActiveTurnFileCache {
+  const parts = lastTurnToolRounds(list, start, list.length)
+  const settleKey = toolRoundSettleKey(parts)
+  if (previous && previous.turnId === turnId && previous.settleKey === settleKey) {
+    return previous
+  }
+  if (previous && previous.turnId === turnId) {
+    const settledIndexes = newlySettledFileWriteIndexes(previous.settleKey, parts)
+    if (!settledIndexes.length) {
+      return keepPreviousSettle(previous, settleKey)
+    }
+    const incomingTools = collectSuccessfulFileMutationsFromIndexes(list, settledIndexes)
+      .filter(tc => !previous.mergedToolIds.has(tc.id))
+    if (!incomingTools.length) {
+      return keepPreviousSettle(previous, settleKey)
+    }
+    const mergedToolIds = new Set(previous.mergedToolIds)
+    for (const tc of incomingTools) mergedToolIds.add(tc.id)
+    return {
+      turnId,
+      settleKey,
+      files: mergeFileChangeSummaries(previous.files, filesFromToolCalls(incomingTools)),
+      mergedToolIds
+    }
+  }
+  const mutating = collectSuccessfulFileMutations(list, start, list.length)
+  return {
+    turnId,
+    settleKey,
+    files: filesFromToolCalls(mutating),
+    mergedToolIds: mutatingToolIds(mutating)
+  }
+}
+
+function pushSuccessfulFileMutations(into: ToolCall[], calls: ToolCall[] | undefined): void {
+  if (!calls?.length) return
+  for (const tc of calls) {
+    if (!isFileMutatingTool(tc)) continue
+    if (tc.status !== 'success') continue
+    into.push(tc)
+  }
+}
+
+function collectSuccessfulFileMutations(
+  list: ChatMessage[],
+  start: number,
+  end: number
+): ToolCall[] {
+  const mutating: ToolCall[] = []
+  for (let i = start; i < end; i++) {
+    pushSuccessfulFileMutations(mutating, list[i]?.toolCalls)
+  }
+  return mutating
+}
+
+function collectSuccessfulFileMutationsFromIndexes(
+  list: ChatMessage[],
+  indexes: number[]
+): ToolCall[] {
+  const mutating: ToolCall[] = []
+  for (const index of indexes) {
+    pushSuccessfulFileMutations(mutating, list[index]?.toolCalls)
+  }
+  return mutating
+}
+
+export function fileChangesInRange(
+  list: ChatMessage[],
+  start: number,
+  end: number
+): FileChangeSummary[] {
+  return filesFromToolCalls(collectSuccessfulFileMutations(list, start, end))
+}
+
 function filesFromToolCalls(toolCalls: ToolCall[]): FileChangeSummary[] {
-  const mutating = toolCalls.filter(tc => tc.status === 'success' && isFileMutatingTool(tc))
+  const mutating = toolCalls
   if (!mutating.length) return []
 
   const fromDiffs = buildFileChangeSummaries(mutating)
   const byPath = new Map<string, FileChangeSummary>()
   for (const summary of fromDiffs) {
-    byPath.set(summary.path.replace(/\\/g, '/').toLocaleLowerCase(), summary)
+    byPath.set(pathKey(summary.path), summary)
   }
 
   for (const tc of mutating) {
     const path = pathFromToolCall(tc)
     if (!path) continue
-    const key = path.replace(/\\/g, '/').toLocaleLowerCase()
+    const key = pathKey(path)
     if (byPath.has(key)) continue
     byPath.set(key, {
       path,
@@ -68,39 +330,72 @@ function filesFromToolCalls(toolCalls: ToolCall[]): FileChangeSummary[] {
     })
   }
 
-  return [...byPath.values()].sort((a, b) => {
-    const byName = a.fileName.localeCompare(b.fileName, undefined, { sensitivity: 'base' })
-    if (byName !== 0) return byName
-    return a.path.localeCompare(b.path, undefined, { sensitivity: 'base' })
-  })
+  return sortFileChangeSummaries([...byPath.values()])
 }
 
-/** Lead-user turn ranges: [start, end) in transcript order. */
-function leadTurnRanges(list: ChatMessage[]): Array<{ turnId: string; start: number; end: number }> {
-  const starts: Array<{ turnId: string; start: number }> = []
-  for (let i = 0; i < list.length; i++) {
-    const message = list[i]!
-    if (isLeadUserMessage(message)) {
-      starts.push({ turnId: message.id, start: i })
-    }
+export type FrozenFileChangesCache = {
+  key: string
+  map: Map<string, FileChangeSummary[]>
+}
+
+export function closedLeadTurnsKey(
+  starts: Array<{ turnId: string; start: number }>
+): string {
+  if (starts.length < 2) return ''
+  return starts
+    .slice(0, -1)
+    .map(item => `${item.turnId}@${item.start}`)
+    .join('\0')
+}
+
+/**
+ * Closed-turn file lists. Reuses previous arrays when only a new lead turn appears;
+ * rebuilds when history is prepended or the window is replaced.
+ */
+export function frozenFileChangesFromStarts(
+  list: ChatMessage[],
+  starts: Array<{ turnId: string; start: number }>,
+  previous: FrozenFileChangesCache | null
+): FrozenFileChangesCache {
+  const key = closedLeadTurnsKey(starts)
+  if (previous && previous.key === key) return previous
+  if (starts.length < 2) return { key: '', map: new Map() }
+
+  const previousIds = previous?.key ? previous.key.split('\0') : []
+  const nextIds = key.split('\0')
+  const canAppend = Boolean(
+    previous
+    && nextIds.length === previousIds.length + 1
+    && previousIds.every((id, index) => id === nextIds[index])
+  )
+  if (canAppend && previous) {
+    const newlyClosed = starts[starts.length - 2]!
+    const end = starts[starts.length - 1]!.start
+    const files = fileChangesInRange(list, newlyClosed.start, end)
+    const map = new Map(previous.map)
+    if (files.length) map.set(newlyClosed.turnId, files)
+    else map.delete(newlyClosed.turnId)
+    return { key, map }
   }
-  return starts.map((item, index) => ({
-    turnId: item.turnId,
-    start: item.start,
-    end: starts[index + 1]?.start ?? list.length
-  }))
+
+  const map = new Map<string, FileChangeSummary[]>()
+  for (let i = 0; i < starts.length - 1; i++) {
+    const range = starts[i]!
+    const files = fileChangesInRange(list, range.start, starts[i + 1]!.start)
+    if (files.length) map.set(range.turnId, files)
+  }
+  return { key, map }
 }
 
 export function fileChangesByTurn(
   messages: ChatMessage[] | undefined | null
 ): Map<string, FileChangeSummary[]> {
   const list = messages ?? []
+  const starts = collectLeadTurnStarts(list)
   const out = new Map<string, FileChangeSummary[]>()
-  for (const range of leadTurnRanges(list)) {
-    const toolCalls = list
-      .slice(range.start, range.end)
-      .flatMap(message => message.toolCalls ?? [])
-    const files = filesFromToolCalls(toolCalls)
+  for (let i = 0; i < starts.length; i++) {
+    const range = starts[i]!
+    const files = fileChangesInRange(list, range.start, starts[i + 1]?.start ?? list.length)
     if (files.length) out.set(range.turnId, files)
   }
   return out
@@ -110,20 +405,24 @@ export function fileChangesForTurn(
   messages: ChatMessage[] | undefined | null,
   turnId: string
 ): LastTurnFileChanges | null {
-  const files = fileChangesByTurn(messages).get(turnId)
-  return files?.length ? { turnId, files } : null
+  const list = messages ?? []
+  const starts = collectLeadTurnStarts(list)
+  const index = starts.findIndex(item => item.turnId === turnId)
+  if (index < 0) return null
+  const files = fileChangesInRange(list, starts[index]!.start, starts[index + 1]?.start ?? list.length)
+  return files.length ? { turnId, files } : null
 }
 
 /**
  * Latest user-anchored turn's successful file_edit / file_write paths.
  * Includes nested/scoped assistant tool calls that belong to the same lead turn.
+ * Only reads the last lead-turn slice (not earlier turns' tools).
  */
 export function lastTurnFileChanges(messages: ChatMessage[] | undefined | null): LastTurnFileChanges | null {
   const list = messages ?? []
-  let turnId: string | null = null
-  for (const message of list) {
-    if (isLeadUserMessage(message)) turnId = message.id
-  }
-  if (!turnId) return null
-  return fileChangesForTurn(list, turnId)
+  const starts = collectLeadTurnStarts(list)
+  const last = starts[starts.length - 1]
+  if (!last) return null
+  const files = fileChangesInRange(list, last.start, list.length)
+  return files.length ? { turnId: last.turnId, files } : null
 }

@@ -228,7 +228,7 @@ describe('buildFileChangeSummaries', () => {
         id: 'write-1',
         name: 'file_write',
         status: 'success',
-        arguments: JSON.stringify({ path: 'src/New.vue' }),
+        arguments: JSON.stringify({ path: 'src/New.vue', content: 'a\nb\n' }),
         result: writeResult('src/New.vue')
       })
     ])
@@ -245,7 +245,7 @@ describe('buildFileChangeSummaries', () => {
       path: 'src/New.vue',
       fileName: 'New.vue',
       kind: 'write',
-      adds: 0,
+      adds: 2,
       dels: 0
     })
   })

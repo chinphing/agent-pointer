@@ -320,6 +320,18 @@ function parseStats(raw: unknown): { adds: number; dels: number } {
   }
 }
 
+function countContentLines(text: string): number {
+  if (!text) return 0
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const parts = normalized.split('\n')
+  return parts[parts.length - 1] === '' ? Math.max(0, parts.length - 1) : parts.length
+}
+
+function writeAddsFromArgs(argumentsJson: string | undefined): number {
+  const args = parseToolArgs(argumentsJson ?? '')
+  return typeof args.content === 'string' ? countContentLines(args.content) : 0
+}
+
 function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
   const base = toolCallBaseName(tc.name)
   const method = resolveMethod(tc.name, tc.arguments)
@@ -330,7 +342,11 @@ function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
     const result = JSON.parse(tc.result) as RawFileChangeResult
     if (result.success !== true || typeof result.path !== 'string' || !result.path.trim()) return null
     const path = result.path.trim()
-    const stats = parseStats(result.stats ?? result.diff_stats)
+    const hasStats = result.stats != null || result.diff_stats != null
+    let stats = parseStats(result.stats ?? result.diff_stats)
+    if (!hasStats && method === 'write') {
+      stats = { adds: writeAddsFromArgs(tc.arguments), dels: 0 }
+    }
 
     const diffLines = Array.isArray(result.diff_lines)
       ? result.diff_lines.filter((line): line is FileChangeDiff['diffLines'][number] => {

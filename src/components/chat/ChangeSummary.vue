@@ -38,8 +38,6 @@ const totals = computed(() => {
   return { adds, dels }
 })
 
-const showTotals = computed(() => totals.value.adds > 0 || totals.value.dels > 0)
-
 function displayPath(path: string): string {
   return workspaceRelativeDisplayPath(path, chat.current?.workspaceRoot)
 }
@@ -74,6 +72,17 @@ function onHeaderClick(): void {
 
 <template>
   <section v-if="files.length" class="change-summary">
+    <div v-if="!singleFile" class="change-summary-sizer" aria-hidden="true">
+      <div
+        v-for="change in files"
+        :key="`sizer-${change.path}`"
+        class="change-summary-sizer-row"
+      >
+        <span>{{ displayPath(change.path) }}</span>
+        <span v-if="change.adds > 0">+{{ change.adds }}</span>
+        <span v-if="change.dels > 0">-{{ change.dels }}</span>
+      </div>
+    </div>
     <button
       type="button"
       class="change-summary-header"
@@ -82,14 +91,15 @@ function onHeaderClick(): void {
       @click="onHeaderClick"
     >
       <FileText class="h-3.5 w-3.5 shrink-0 text-muted" />
-      <span class="min-w-0 truncate text-left text-[13px] text-muted">{{ headerLabel }}</span>
+      <span class="ellipsis-start min-w-0 text-[13px] text-muted">{{ headerLabel }}&lrm;</span>
       <span
-        v-if="showTotals"
-        class="inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums"
-      >
-        <span class="text-green-500">+{{ totals.adds }}</span>
-        <span class="text-red-500">-{{ totals.dels }}</span>
-      </span>
+        v-if="totals.adds > 0"
+        class="shrink-0 text-[11px] tabular-nums text-green-500"
+      >+{{ totals.adds }}</span>
+      <span
+        v-if="totals.dels > 0"
+        class="shrink-0 text-[11px] tabular-nums text-red-500"
+      >-{{ totals.dels }}</span>
       <ChevronDown
         v-if="!singleFile"
         class="ml-auto h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
@@ -97,7 +107,13 @@ function onHeaderClick(): void {
       />
     </button>
 
-    <div v-if="!singleFile && expanded" class="change-summary-files">
+    <div
+      v-if="!singleFile"
+      class="change-summary-files"
+      :class="{ 'is-collapsed': !expanded }"
+      :aria-hidden="!expanded"
+      :inert="!expanded"
+    >
       <button
         v-for="change in files"
         :key="change.path"
@@ -106,15 +122,13 @@ function onHeaderClick(): void {
         :title="displayPath(change.path)"
         @click="openFile(change.path)"
       >
-        <span class="min-w-0 flex-1 truncate text-left font-mono">
-          {{ displayPath(change.path) }}
-        </span>
+        <span class="ellipsis-start min-w-0 flex-1 font-mono">{{ displayPath(change.path) }}&lrm;</span>
         <span
-          v-if="change.adds || change.dels"
+          v-if="change.adds > 0"
           class="shrink-0 text-green-500 tabular-nums"
         >+{{ change.adds }}</span>
         <span
-          v-if="change.adds || change.dels"
+          v-if="change.dels > 0"
           class="shrink-0 text-red-500 tabular-nums"
         >-{{ change.dels }}</span>
       </button>
@@ -124,21 +138,62 @@ function onHeaderClick(): void {
 
 <style scoped>
 .change-summary {
-  min-width: 15.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, max-content);
   width: max-content;
-  max-width: min(22rem, 100%);
+  max-width: 100%;
+  min-width: 0;
   @apply overflow-hidden rounded-lg border border-border/80 bg-card;
 }
+.change-summary-sizer {
+  grid-column: 1;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+.change-summary-sizer-row {
+  display: flex;
+  width: max-content;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ellipsis-start {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
 .change-summary-header {
+  grid-column: 1;
+  min-width: 0;
   min-height: 34px;
   @apply flex w-full items-center gap-2 px-3 text-left transition-colors hover:bg-hover/40;
 }
 .change-summary-files {
+  grid-column: 1;
+  min-width: 0;
   max-height: 12rem;
-  @apply divide-y divide-border/80 overflow-y-auto border-t border-border/80;
+  overflow-x: hidden;
+  overflow-y: auto;
+  @apply divide-y divide-border/80 border-t border-border/80;
+}
+.change-summary-files.is-collapsed {
+  max-height: 0;
+  overflow: hidden;
+  border-top-width: 0;
 }
 .change-summary-file {
   min-height: 32px;
-  @apply flex w-full cursor-pointer items-center gap-2 px-3 text-[12px] text-muted transition-colors hover:bg-hover/40 hover:text-foreground/85;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  @apply flex cursor-pointer items-center gap-2 px-3 text-[12px] text-muted transition-colors hover:bg-hover/40 hover:text-foreground/85;
 }
 </style>

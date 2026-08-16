@@ -165,6 +165,12 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
     {
         migrate_usage_accum_v4(conn)?;
     }
+    if table_exists(conn, "usage_accum")?
+        && (!table_has_column(conn, "usage_accum", "cached_tokens")?
+            || !table_has_column(conn, "usage_accum", "source")?)
+    {
+        migrate_usage_accum_v5(conn)?;
+    }
     migrate_legacy_jsonl(conn)?;
     Ok(())
 }
@@ -599,6 +605,32 @@ fn migrate_usage_accum_v4(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_usage_accum_v5(conn: &Connection) -> Result<()> {
+    log::info!("token_usage_store: migrating usage_accum to cached_tokens + source");
+    if !table_has_column(conn, "usage_accum", "cached_tokens")? {
+        conn.execute(
+            "ALTER TABLE usage_accum ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !table_has_column(conn, "usage_accum", "source")? {
+        conn.execute(
+            "ALTER TABLE usage_accum ADD COLUMN source TEXT NOT NULL DEFAULT 'platform'",
+            [],
+        )?;
+    }
+    // Prefer `source` (matches ProviderConfig). Convert a short-lived `is_custom` column if present.
+    if table_has_column(conn, "usage_accum", "is_custom")? {
+        conn.execute(
+            "UPDATE usage_accum SET source = 'user' WHERE is_custom = 1",
+            [],
+        )?;
+        log::info!("token_usage_store: copied is_custom=1 rows into source=user");
+    }
+    log::info!("token_usage_store: usage_accum v5 migration complete");
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LegacyPendingRow {
     request_id: String,
@@ -690,10 +722,13 @@ struct ReportRow {
     prompt_tokens: u32,
     completion_tokens: u32,
     thinking_tokens: u32,
+    cached_tokens: u32,
     total_tokens: u32,
     llm_rounds: u32,
     billing_mode: String,
     unit_count: u32,
+    /// Provider source: `platform` | `user` (same as settings provider.source).
+    source: String,
     period_start: Option<String>,
     period_end: Option<String>,
     history_archive_path: Option<String>,
@@ -755,6 +790,7 @@ pub fn record_round(
     usage: Option<&LlmUsageSnapshot>,
     model_name: Option<&str>,
     billing: Option<&UsageBillingMeta>,
+    source: &str,
 ) -> Result<()> {
     let model = usage_model_key(model_name);
     ensure_model_accum_row(scope, &model)?;
@@ -765,21 +801,29 @@ pub fn record_round(
         .map(|b| b.billing_mode)
         .unwrap_or(BILLING_MODE_TOKENS);
     let unit_delta = billing.map(|b| b.unit_count).unwrap_or(0);
+    let source_norm = if crate::llm_token_stats::source_is_user(source) {
+        crate::llm_token_stats::PROVIDER_SOURCE_USER
+    } else {
+        crate::llm_token_stats::PROVIDER_SOURCE_PLATFORM
+    };
     if let Some(u) = usage {
+        let cache_hit = u.cache_hit_tokens();
         conn.execute(
             "UPDATE usage_accum SET
                prompt_tokens = prompt_tokens + ?4,
                completion_tokens = completion_tokens + ?5,
                thinking_tokens = thinking_tokens + ?6,
-               total_tokens = total_tokens + ?7,
+               cached_tokens = cached_tokens + ?7,
+               total_tokens = total_tokens + ?8,
                llm_rounds = llm_rounds + 1,
-               billing_mode = CASE WHEN ?8 != ?9 THEN ?8 ELSE billing_mode END,
-               unit_count = unit_count + ?10,
-               period_start = COALESCE(period_start, ?11),
-               period_end = ?11,
-               updated_at = ?11
+               billing_mode = CASE WHEN ?9 != ?10 THEN ?9 ELSE billing_mode END,
+               unit_count = unit_count + ?11,
+               source = CASE WHEN source = 'user' OR ?12 = 'user' THEN 'user' ELSE 'platform' END,
+               period_start = COALESCE(period_start, ?13),
+               period_end = ?13,
+               updated_at = ?13
              WHERE run_id = ?1 AND agent_instance_id = ?2 AND model_name = ?3
-               AND report_status = ?12",
+               AND report_status = ?14",
             params![
                 scope.run_id,
                 scope.agent_instance_id,
@@ -787,10 +831,12 @@ pub fn record_round(
                 u.prompt_tokens,
                 u.completion_tokens,
                 u.reasoning_tokens,
+                cache_hit,
                 u.total_tokens,
                 billing_mode,
                 BILLING_MODE_TOKENS,
                 unit_delta,
+                source_norm,
                 now,
                 REPORT_STATUS_ACCUMULATING,
             ],
@@ -801,11 +847,12 @@ pub fn record_round(
                llm_rounds = llm_rounds + 1,
                billing_mode = CASE WHEN ?4 != ?5 THEN ?4 ELSE billing_mode END,
                unit_count = unit_count + ?6,
-               period_start = COALESCE(period_start, ?7),
-               period_end = ?7,
-               updated_at = ?7
+               source = CASE WHEN source = 'user' OR ?7 = 'user' THEN 'user' ELSE 'platform' END,
+               period_start = COALESCE(period_start, ?8),
+               period_end = ?8,
+               updated_at = ?8
              WHERE run_id = ?1 AND agent_instance_id = ?2 AND model_name = ?3
-               AND report_status = ?8",
+               AND report_status = ?9",
             params![
                 scope.run_id,
                 scope.agent_instance_id,
@@ -813,6 +860,7 @@ pub fn record_round(
                 billing_mode,
                 BILLING_MODE_TOKENS,
                 unit_delta,
+                source_norm,
                 now,
                 REPORT_STATUS_ACCUMULATING,
             ],
@@ -899,8 +947,9 @@ pub fn finalize_all_stale_accum() -> Result<usize> {
 fn read_unsent_reports(conn: &Connection) -> Result<Vec<ReportRow>> {
     let mut stmt = conn.prepare(
         "SELECT run_id, request_id, conversation_id, agent_instance_id, agent_role_id,
-                model_name, prompt_tokens, completion_tokens, thinking_tokens, total_tokens,
-                llm_rounds, billing_mode, unit_count, period_start, period_end, history_archive_path
+                model_name, prompt_tokens, completion_tokens, thinking_tokens, cached_tokens,
+                total_tokens, llm_rounds, billing_mode, unit_count, source,
+                period_start, period_end, history_archive_path
          FROM usage_accum
          WHERE report_status = ?1
          ORDER BY created_at ASC",
@@ -916,13 +965,15 @@ fn read_unsent_reports(conn: &Connection) -> Result<Vec<ReportRow>> {
             prompt_tokens: row.get(6)?,
             completion_tokens: row.get(7)?,
             thinking_tokens: row.get(8)?,
-            total_tokens: row.get(9)?,
-            llm_rounds: row.get(10)?,
-            billing_mode: row.get(11)?,
-            unit_count: row.get(12)?,
-            period_start: row.get(13)?,
-            period_end: row.get(14)?,
-            history_archive_path: row.get(15)?,
+            cached_tokens: row.get(9)?,
+            total_tokens: row.get(10)?,
+            llm_rounds: row.get(11)?,
+            billing_mode: row.get(12)?,
+            unit_count: row.get(13)?,
+            source: row.get(14)?,
+            period_start: row.get(15)?,
+            period_end: row.get(16)?,
+            history_archive_path: row.get(17)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -946,9 +997,11 @@ fn build_report_metadata(row: &ReportRow, platform_agent_id: Option<String>) -> 
         "prompt_tokens": row.prompt_tokens,
         "completion_tokens": row.completion_tokens,
         "thinking_tokens": row.thinking_tokens,
+        "cached_tokens": row.cached_tokens,
         "total_tokens": row.total_tokens,
         "assistant_rounds": row.llm_rounds,
         "billing_mode": row.billing_mode,
+        "source": row.source,
     });
     if row.unit_count > 0 {
         metadata["unit_count"] = json!(row.unit_count);
@@ -1155,10 +1208,12 @@ mod tests {
             prompt_tokens: 1,
             completion_tokens: 2,
             thinking_tokens: 0,
+            cached_tokens: 0,
             total_tokens: 3,
             llm_rounds: 2,
             billing_mode: "tokens".into(),
             unit_count: 0,
+            source: "platform".into(),
             period_start: None,
             period_end: None,
             history_archive_path: None,
@@ -1171,6 +1226,8 @@ mod tests {
         assert_eq!(metadata["total_tokens"], 3);
         assert_eq!(metadata["assistant_rounds"], 2);
         assert_eq!(metadata["billing_mode"], "tokens");
+        assert_eq!(metadata["cached_tokens"], 0);
+        assert_eq!(metadata["source"], "platform");
         assert!(metadata.get("unit_count").is_none());
         assert!(metadata.get("agent_role_id").is_none());
         assert!(metadata.get("model_totals").is_none());
@@ -1212,10 +1269,12 @@ mod tests {
             prompt_tokens: 1,
             completion_tokens: 2,
             thinking_tokens: 0,
+            cached_tokens: 0,
             total_tokens: 3,
             llm_rounds: 1,
             billing_mode: "tokens".into(),
             unit_count: 0,
+            source: "platform".into(),
             period_start: None,
             period_end: None,
             history_archive_path: None,
@@ -1238,10 +1297,12 @@ mod tests {
             prompt_tokens: 0,
             completion_tokens: 20_000,
             thinking_tokens: 0,
+            cached_tokens: 0,
             total_tokens: 20_000,
             llm_rounds: 1,
             billing_mode: "per-image".into(),
             unit_count: 2,
+            source: "platform".into(),
             period_start: None,
             period_end: None,
             history_archive_path: None,

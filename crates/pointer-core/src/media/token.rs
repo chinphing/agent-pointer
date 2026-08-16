@@ -13,6 +13,7 @@ const MEDIA_INSTANCE_NAMESPACE: Uuid = uuid!("a8f4c1e2-6b3d-4f5a-9c0d-1e2f3a4b5c
 pub struct MediaTokenContext {
     pub run_id: String,
     pub conversation_id: String,
+    pub source: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -58,7 +59,7 @@ pub fn record_media_understand_usage(
 ) {
     let scope = media_understand_scope(ctx, kind);
     let model = model_name_for_usage_report(&out.model);
-    match token_usage_store::record_round(&scope, out.usage.as_ref(), model, None) {
+    match token_usage_store::record_round(&scope, out.usage.as_ref(), model, None, ctx.source) {
         Ok(()) => {
             if let Some(u) = out.usage.as_ref() {
                 log::info!(
@@ -98,6 +99,7 @@ mod tests {
         let ctx = MediaTokenContext {
             run_id: "run-1".into(),
             conversation_id: "conv-1".into(),
+            source: crate::llm_token_stats::PROVIDER_SOURCE_PLATFORM,
         };
         let image = media_understand_scope(&ctx, MediaUnderstandKind::Image);
         assert!(Uuid::parse_str(&image.agent_instance_id).is_ok());

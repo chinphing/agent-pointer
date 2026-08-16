@@ -163,6 +163,7 @@ pub fn record_generation_usage(
     kind: GenerationKind,
     model: &str,
     usage: &GenerationUsage,
+    source: &str,
 ) {
     let instance_id = generation_instance_id(kind, run_id);
     let scope = AgentInstanceScope::with_instance_id(
@@ -177,8 +178,13 @@ pub fn record_generation_usage(
         billing_mode: usage.billing_mode.as_str(),
         unit_count: usage.unit_count,
     };
-    if let Err(e) =
-        token_usage_store::record_round(&scope, Some(&snapshot), Some(&model_key), Some(&billing))
+    if let Err(e) = token_usage_store::record_round(
+        &scope,
+        Some(&snapshot),
+        Some(&model_key),
+        Some(&billing),
+        source,
+    )
     {
         log::warn!(
             "token_usage_store: media generation record failed {} kind={}: {e}",
@@ -187,13 +193,14 @@ pub fn record_generation_usage(
         );
     } else {
         log::info!(
-            "media generation usage {} kind={} model={} mode={:?} units={} total_tokens={}",
+            "media generation usage {} kind={} model={} mode={:?} units={} total_tokens={} source={}",
             scope.log_suffix(),
             generation_role_id(kind),
             model,
             usage.billing_mode,
             usage.unit_count,
-            usage.total_tokens
+            usage.total_tokens,
+            source
         );
     }
 }

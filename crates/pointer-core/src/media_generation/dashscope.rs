@@ -314,6 +314,7 @@ pub async fn generate_image_dashscope(
         GenerationKind::Image,
         &cfg.model,
         &usage,
+        cfg.source,
     );
     Ok(GenerationArtifact {
         local_paths,
@@ -403,6 +404,7 @@ pub async fn generate_video_dashscope(
         GenerationKind::Video,
         &model,
         &usage,
+        cfg.source,
     );
     Ok(GenerationArtifact {
         local_paths,

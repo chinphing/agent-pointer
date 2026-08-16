@@ -75,6 +75,7 @@ pub(super) async fn run_provider_stream_round(
     let mut buffers = StreamRoundBuffers::default();
     let mut llm_recorder = LlmRoundRecorder::TokenSession {
         session: ctx.token_session,
+        source: crate::llm_token_stats::active_provider_source(settings),
     };
     drain_provider_events(
         &mut rx,

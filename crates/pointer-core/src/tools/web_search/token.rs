@@ -12,11 +12,12 @@ use super::client::WebSearchResult;
 /// reporting without changing the agent-loop prompt size used by compression.
 pub struct WebSearchTokenRecorder {
     scope: AgentInstanceScope,
+    source: &'static str,
 }
 
 impl WebSearchTokenRecorder {
-    pub fn new(scope: AgentInstanceScope) -> Self {
-        Self { scope }
+    pub fn new(scope: AgentInstanceScope, source: &'static str) -> Self {
+        Self { scope, source }
     }
 
     pub fn record(&self, result: &WebSearchResult) {
@@ -34,9 +35,13 @@ impl WebSearchTokenRecorder {
             result.usage.total_tokens,
         );
         let model = result.model.as_str();
-        if let Err(e) =
-            token_usage_store::record_round(&self.scope, Some(&snapshot), Some(model), None)
-        {
+        if let Err(e) = token_usage_store::record_round(
+            &self.scope,
+            Some(&snapshot),
+            Some(model),
+            None,
+            self.source,
+        ) {
             log::warn!(
                 "token_usage_store: web_search record_round failed {} model={model}: {e}",
                 self.scope.log_suffix()

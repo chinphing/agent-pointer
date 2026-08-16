@@ -28,6 +28,7 @@ fn record_chat_once_usage(
         r.scope,
         out.usage.as_ref(),
         model_name_for_usage_report(&out.model),
+        r.source,
     );
 }
 

@@ -2,16 +2,12 @@
 
 use crate::models::{AgentModelRef, MediaModelOverrides, ModelSettings, ProviderConfig};
 
-/// DashScope 万相 2.7 — unified image gen/edit (sync multimodal API).
-pub const QWEN_DEFAULT_IMAGE_MODEL: &str = "wan2.7-image-pro";
-
-/// HappyHorse 1.0 文生视频（官网推荐，原生音画同步）。
-pub const QWEN_DEFAULT_VIDEO_MODEL: &str = "happyhorse-1.0-t2v";
-
-/// 火山方舟 Seedream 5.0 Lite（默认图片生成）。
-pub const DOUBAO_DEFAULT_IMAGE_MODEL: &str = "doubao-seedream-5-0-lite-260128";
-/// Seedance 2.0 极速版（默认轻量档；与 2.0 标准版共用 Ark video API）。
-pub const DOUBAO_DEFAULT_VIDEO_MODEL: &str = "doubao-seedance-2-0-fast-260128";
+// 平台模型配置全部由平台下发；本地不内置媒体生成默认模型
+// （由 tierDefaults.mediaGeneration 注入 media_model_overrides；未配置时为空）。
+pub const QWEN_DEFAULT_IMAGE_MODEL: &str = "";
+pub const QWEN_DEFAULT_VIDEO_MODEL: &str = "";
+pub const DOUBAO_DEFAULT_IMAGE_MODEL: &str = "";
+pub const DOUBAO_DEFAULT_VIDEO_MODEL: &str = "";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenerationKind {
@@ -25,6 +21,8 @@ pub struct ResolvedGenerationConfig {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    /// Provider source: `platform` | `user` (same as settings provider.source).
+    pub source: &'static str,
 }
 
 pub fn find_dashscope_provider(settings: &ModelSettings) -> Option<&ProviderConfig> {
@@ -162,6 +160,13 @@ pub fn resolve_generation_config(
         api_key: api_key.to_string(),
         base_url: provider.base_url.trim().trim_end_matches('/').to_string(),
         model,
+        source: if provider.source.as_deref()
+            == Some(crate::llm_token_stats::PROVIDER_SOURCE_PLATFORM)
+        {
+            crate::llm_token_stats::PROVIDER_SOURCE_PLATFORM
+        } else {
+            crate::llm_token_stats::PROVIDER_SOURCE_USER
+        },
     })
 }
 

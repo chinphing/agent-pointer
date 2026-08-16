@@ -453,6 +453,7 @@ pub(super) async fn run_single_agent_loop(
             let mut pipeline_usage = PipelineLlmUsageRecorder {
                 stats: &mut ctx.token_session.stats,
                 scope: &ctx.token_session.lead_scope,
+                source: crate::llm_token_stats::active_provider_source(settings),
             };
             if let Err(err) = run_pipeline_post_execute_verify(
                 state.as_ref(),

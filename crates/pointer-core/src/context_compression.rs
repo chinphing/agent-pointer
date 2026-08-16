@@ -119,8 +119,7 @@ pub fn evaluate_compress_gate(
     } else {
         prefix as f64 / payload_est as f64
     };
-    let should_trigger =
-        split > 0 && total > threshold && ratio >= COMPRESSIBLE_MIN_RATIO;
+    let should_trigger = split > 0 && total > threshold && ratio >= COMPRESSIBLE_MIN_RATIO;
     CompressGateDecision {
         should_trigger,
         total,
@@ -784,11 +783,12 @@ fn record_summary_usage(
     ui: &CompressionUiContext,
     out: &crate::provider::ChatOnceOutput,
     attempt: &str,
+    source: &str,
 ) {
     let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
     if let Some(scope) = ui.agent_scope.as_ref() {
         if let Err(e) =
-            crate::token_usage_store::record_round(scope, out.usage.as_ref(), model, None)
+            crate::token_usage_store::record_round(scope, out.usage.as_ref(), model, None, source)
         {
             log::warn!(
                 "token_usage_store: context compression {attempt} record_round failed {}: {e}",
@@ -1057,7 +1057,12 @@ async fn compress_history_inner(
         .await
     {
         Ok(out) => {
-            record_summary_usage(ui, &out, "no_thinking");
+            record_summary_usage(
+                ui,
+                &out,
+                "no_thinking",
+                crate::llm_token_stats::active_provider_source(&provider.settings),
+            );
             match validate_summary_output(&out) {
                 Ok(text) => Some(text),
                 Err(reason) => {
@@ -1094,11 +1099,21 @@ async fn compress_history_inner(
                             .await
                         {
                             Ok(out2) => {
-                                record_summary_usage(ui, &out2, "retry_length");
+                                record_summary_usage(
+                                    ui,
+                                    &out2,
+                                    "retry_length",
+                                    crate::llm_token_stats::active_provider_source(
+                                        &provider.settings,
+                                    ),
+                                );
                                 match validate_summary_output(&out2) {
                                     Ok(text) => Some(text),
                                     Err(reason2) => {
-                                        let model2 = crate::llm_token_stats::model_name_for_usage_report(&out2.model);
+                                        let model2 =
+                                            crate::llm_token_stats::model_name_for_usage_report(
+                                                &out2.model,
+                                            );
                                         log::warn!(
                                             "context summary rejected conversation_id={} attempt=retry_length reason={} model={model2:?} finish_reason={:?} completion_tokens={} prompt_tokens={} max_tokens={} requested={} summary_llm_ms={}",
                                             conversation_id,
@@ -1182,7 +1197,8 @@ async fn compress_history_inner(
     };
 
     let insert_before_message_id = history.get(split).map(|m| m.id.clone()).unwrap_or_default();
-    let fingerprint_prefix_ids: Vec<String> = history[..split].iter().map(|m| m.id.clone()).collect();
+    let fingerprint_prefix_ids: Vec<String> =
+        history[..split].iter().map(|m| m.id.clone()).collect();
 
     let turn_busy = matches!(ui.scope, CompressionScope::Main)
         && defer_persist_state
@@ -1481,7 +1497,10 @@ pub fn discard_pending_compression(conversation_id: &str) {
     }
 }
 
-fn pending_fingerprint_matches(history: &[ChatMessage], pending: &PendingCompressionSplice) -> bool {
+fn pending_fingerprint_matches(
+    history: &[ChatMessage],
+    pending: &PendingCompressionSplice,
+) -> bool {
     if pending.fingerprint_prefix_ids.is_empty() {
         return false;
     }
@@ -1596,10 +1615,7 @@ pub fn try_apply_pending_compression(
 }
 
 /// After a turn ends, optionally start soft-threshold compression in the background.
-pub fn maybe_spawn_precompress(
-    state: Arc<crate::chat_service::AppState>,
-    conversation_id: String,
-) {
+pub fn maybe_spawn_precompress(state: Arc<crate::chat_service::AppState>, conversation_id: String) {
     let id = conversation_id.trim().to_string();
     if id.is_empty() {
         return;
@@ -1672,9 +1688,14 @@ pub fn maybe_spawn_precompress(
     });
 }
 
-async fn run_precompress_job(state: Arc<crate::chat_service::AppState>, conversation_id: &str) -> bool {
+async fn run_precompress_job(
+    state: Arc<crate::chat_service::AppState>,
+    conversation_id: &str,
+) -> bool {
     let Ok(store) = crate::conversation_store::global_store() else {
-        log::warn!("context_compress: precompress skipped (no store) conversation_id={conversation_id}");
+        log::warn!(
+            "context_compress: precompress skipped (no store) conversation_id={conversation_id}"
+        );
         return false;
     };
     let (mut history, _db_messages) = match store.load_lead_working_messages(conversation_id) {
@@ -1693,6 +1714,7 @@ async fn run_precompress_job(state: Arc<crate::chat_service::AppState>, conversa
     let api_key = crate::chat_service::session_model::prepare_session_llm_settings(
         &mut settings,
         &agent_mode,
+        None,
         None,
     );
     if api_key.trim().is_empty() {
@@ -1748,8 +1770,8 @@ async fn run_precompress_job(state: Arc<crate::chat_service::AppState>, conversa
         &stream_tx,
         cancel,
         false,
-        true,  // soft_precompress
-        true,  // emit UI via global broadcast
+        true, // soft_precompress
+        true, // emit UI via global broadcast
         &ui,
         last_api,
         Some(state.clone()),
@@ -1880,10 +1902,7 @@ mod tests {
         let budget = 10_000;
         // Prefix carries most of the *message* mass; inflated API prompt must
         // not suppress the compressible ratio (old bug: prefix/api < 0.5).
-        let prefix_heavy = vec![
-            u(&"old ".repeat(20_000)),
-            u(&"keep ".repeat(500)),
-        ];
+        let prefix_heavy = vec![u(&"old ".repeat(20_000)), u(&"keep ".repeat(500))];
         let d = evaluate_compress_gate(&prefix_heavy, Some(200_000), budget, 1, true);
         assert!(d.total > precompress_gate_threshold(budget));
         assert_eq!(d.gate_source, "api_prompt");
@@ -1896,7 +1915,7 @@ mod tests {
         let budget = 10_000;
         // Keep zone huge, compressible prefix tiny → do not trigger.
         let keep_heavy = vec![
-            u(&"old ".repeat(500)),  // compressible
+            u(&"old ".repeat(500)),     // compressible
             u(&"keep ".repeat(20_000)), // keep (newest)
         ];
         let d = evaluate_compress_gate(&keep_heavy, None, budget, 1, true);
@@ -1905,10 +1924,7 @@ mod tests {
         assert!(!d.should_trigger);
 
         // Prefix carries most mass → trigger.
-        let prefix_heavy = vec![
-            u(&"old ".repeat(20_000)),
-            u(&"keep ".repeat(500)),
-        ];
+        let prefix_heavy = vec![u(&"old ".repeat(20_000)), u(&"keep ".repeat(500))];
         let d2 = evaluate_compress_gate(&prefix_heavy, None, budget, 1, true);
         assert!(d2.total > precompress_gate_threshold(budget));
         assert!(d2.ratio >= COMPRESSIBLE_MIN_RATIO);
@@ -1926,8 +1942,12 @@ mod tests {
         assert!(is_context_overflow_error(&anyhow::anyhow!(
             "Range of input is too long"
         )));
-        assert!(!is_context_overflow_error(&anyhow::anyhow!("HTTP 429 rate limit")));
-        assert!(!is_context_overflow_error(&anyhow::anyhow!("connection reset")));
+        assert!(!is_context_overflow_error(&anyhow::anyhow!(
+            "HTTP 429 rate limit"
+        )));
+        assert!(!is_context_overflow_error(&anyhow::anyhow!(
+            "connection reset"
+        )));
     }
 
     #[test]
@@ -2070,7 +2090,9 @@ mod tests {
         assert!(should_retry_summary_on_reject("finish_reason=length"));
         assert!(should_retry_summary_on_reject("finish_reason=LENGTH"));
         assert!(!should_retry_summary_on_reject("empty output"));
-        assert!(!should_retry_summary_on_reject("finish_reason=content_filter"));
+        assert!(!should_retry_summary_on_reject(
+            "finish_reason=content_filter"
+        ));
         assert!(!should_retry_summary_on_reject("finish_reason=stop"));
     }
 

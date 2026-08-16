@@ -206,7 +206,8 @@ pub(crate) async fn plan_agent_tasks(
     let plan_scope =
         crate::agent_instance_scope::AgentInstanceScope::new(run_id, conversation_id, "supervisor");
     let model_name = crate::llm_token_stats::model_name_for_usage_report(&out.model);
-    llm_stats.record_llm_round(&plan_scope, out.usage.as_ref(), model_name);
+    let source = crate::llm_token_stats::active_provider_source(&provider.settings);
+    llm_stats.record_llm_round(&plan_scope, out.usage.as_ref(), model_name, source);
     parse_agent_tasks(&out.text, &workers, limits)
         .or_else(|| Some(fallback_agent_tasks(state, history, limits)))
         .ok_or_else(|| anyhow!("无法生成 Agent 任务计划"))

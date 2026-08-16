@@ -45,7 +45,10 @@ pub(crate) struct WebSearchDispatchContext<'a> {
 pub(crate) async fn dispatch(ctx: WebSearchDispatchContext<'_>) -> Result<WebSearchResult> {
     let citation_base_index =
         super::client::compute_citation_base_index(ctx.history, ctx.exclude_message_id);
-    let token_recorder = WebSearchTokenRecorder::new(ctx.usage_scope);
+    let token_recorder = WebSearchTokenRecorder::new(
+        ctx.usage_scope,
+        crate::llm_token_stats::active_provider_source(ctx.settings),
+    );
     let ui = WebSearchStreamUi {
         stream: ctx.stream.clone(),
         message_id: ctx.message_id.clone(),

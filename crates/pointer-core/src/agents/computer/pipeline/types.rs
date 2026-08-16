@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct PipelineLlmUsageRecorder<'a> {
     pub stats: &'a mut ConversationLlmStats,
     pub scope: &'a AgentInstanceScope,
+    pub source: &'static str,
 }
 
 /// Outcome label from the verify module (maps to tier history `verify_result`).

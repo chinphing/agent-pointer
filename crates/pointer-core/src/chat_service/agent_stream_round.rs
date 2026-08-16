@@ -42,20 +42,22 @@ impl Default for StreamRoundBuffers {
 pub(super) enum LlmRoundRecorder<'a> {
     TokenSession {
         session: &'a mut ChatLlmTokenSession,
+        source: &'static str,
     },
     Scoped {
         stats: &'a mut ConversationLlmStats,
         scope: &'a crate::agent_instance_scope::AgentInstanceScope,
+        source: &'static str,
     },
 }
 
 impl LlmRoundRecorder<'_> {
     fn record(&mut self, usage: Option<&LlmUsageSnapshot>, model: Option<&str>) {
         match self {
-            LlmRoundRecorder::TokenSession { session } => {
+            LlmRoundRecorder::TokenSession { session, source } => {
                 session
                     .stats
-                    .record_llm_round(&session.lead_scope, usage, model);
+                    .record_llm_round(&session.lead_scope, usage, model, source);
                 if let Some(u) = usage {
                     if let Err(e) = crate::conversation_store::global_store().and_then(|store| {
                         store.set_last_lead_prompt_tokens(
@@ -70,8 +72,12 @@ impl LlmRoundRecorder<'_> {
                     }
                 }
             }
-            LlmRoundRecorder::Scoped { stats, scope } => {
-                stats.record_llm_round(scope, usage, model);
+            LlmRoundRecorder::Scoped {
+                stats,
+                scope,
+                source,
+            } => {
+                stats.record_llm_round(scope, usage, model, source);
             }
         }
     }

@@ -133,6 +133,7 @@ pub async fn generate_image_volcengine(
         GenerationKind::Image,
         &cfg.model,
         &usage,
+        cfg.source,
     );
     Ok(GenerationArtifact {
         local_paths,
@@ -245,6 +246,7 @@ pub async fn generate_video_volcengine(
         GenerationKind::Video,
         &model,
         &usage,
+        cfg.source,
     );
     Ok(GenerationArtifact {
         local_paths: vec![path.to_string_lossy().into_owned()],

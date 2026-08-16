@@ -18,9 +18,9 @@ use crate::media::{
 use crate::mode_llm::resolve_media_mode_llm;
 use crate::models::ModelSettings;
 use crate::tools::media_understand::{
-    format_goal_block, parse_context, parse_goal, parse_image_dir_range,
-    parse_pdf_page_range, parse_ref_inputs_loose, parse_video_time_range, prepend_scope_notice,
-    resolve_mode, validate_ref_inputs_for_mode, MediaRefInput,
+    format_goal_block, parse_context, parse_goal, parse_image_dir_range, parse_pdf_page_range,
+    parse_ref_inputs_loose, parse_video_time_range, prepend_scope_notice, resolve_mode,
+    validate_ref_inputs_for_mode, MediaRefInput,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
@@ -536,6 +536,7 @@ pub async fn dispatch_media_understand_async(
     let token_ctx = MediaTokenContext {
         run_id: ctx.run_id.to_string(),
         conversation_id: ctx.conversation_id.to_string(),
+        source: crate::llm_token_stats::active_provider_source(ctx.settings),
     };
 
     let resolved_refs = resolve_ref_inputs(ctx.conversation_id, &ctx.args, mode.as_str())?;

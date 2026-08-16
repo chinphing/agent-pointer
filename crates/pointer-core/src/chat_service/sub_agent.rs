@@ -571,6 +571,7 @@ pub(crate) async fn run_sub_agent(
             let mut pipeline_usage = PipelineLlmUsageRecorder {
                 stats: ctx.llm_stats,
                 scope: &instance_scope,
+                source: crate::llm_token_stats::active_provider_source(&sub_provider.settings),
             };
             run_pipeline_post_execute_verify(
                 state,

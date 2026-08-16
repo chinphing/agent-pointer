@@ -48,6 +48,7 @@ pub(super) async fn run_sub_agent_stream_round(
     } else {
         provider.settings.clone()
     };
+    let source = crate::llm_token_stats::active_provider_source(&round_settings);
     let prov = crate::provider::OpenAIProvider::new(round_settings, provider.api_key.clone());
     let cancel_clone = cancel_owned(&cancel);
     let dump_lbl = format!("{}_{}_sub_{}", conversation_id, sub.message_id, sub.task.id);
@@ -73,6 +74,7 @@ pub(super) async fn run_sub_agent_stream_round(
     let mut llm_recorder = LlmRoundRecorder::Scoped {
         stats: sub.llm_stats,
         scope: sub.instance_scope,
+        source,
     };
     drain_provider_events(
         &mut rx,

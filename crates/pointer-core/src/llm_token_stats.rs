@@ -18,6 +18,49 @@ pub fn model_name_for_settings_report(settings: &ModelSettings) -> Option<&str> 
     model_name_for_usage_report(&settings.model)
 }
 
+/// Same values as `ProviderConfig.source`: `platform` (billed) or `user` (record-only).
+pub const PROVIDER_SOURCE_PLATFORM: &str = "platform";
+pub const PROVIDER_SOURCE_USER: &str = "user";
+
+pub fn source_is_user(source: &str) -> bool {
+    source.trim() != PROVIDER_SOURCE_PLATFORM
+}
+
+/// Active provider `source` for usage reporting (`platform` / `user`).
+pub fn active_provider_source(settings: &ModelSettings) -> &'static str {
+    let is_platform = settings
+        .providers
+        .iter()
+        .find(|p| p.id == settings.active_provider_id)
+        .or_else(|| settings.providers.first())
+        .map(|p| p.source.as_deref() == Some(PROVIDER_SOURCE_PLATFORM))
+        .unwrap_or(false);
+    if is_platform {
+        PROVIDER_SOURCE_PLATFORM
+    } else {
+        PROVIDER_SOURCE_USER
+    }
+}
+
+/// `source` for a provider id in `settings` (`platform` / `user`).
+pub fn provider_id_source(settings: &ModelSettings, provider_id: &str) -> &'static str {
+    let pid = provider_id.trim();
+    if pid.is_empty() {
+        return active_provider_source(settings);
+    }
+    let is_platform = settings
+        .providers
+        .iter()
+        .find(|p| p.id == pid)
+        .map(|p| p.source.as_deref() == Some(PROVIDER_SOURCE_PLATFORM))
+        .unwrap_or(false);
+    if is_platform {
+        PROVIDER_SOURCE_PLATFORM
+    } else {
+        PROVIDER_SOURCE_USER
+    }
+}
+
 /// One API `usage` snapshot (normalized to u32; missing fields treated as 0).
 #[derive(Debug, Clone, Default)]
 pub struct LlmUsageSnapshot {
@@ -87,6 +130,7 @@ impl ConversationLlmStats {
         scope: &AgentInstanceScope,
         usage: Option<&LlmUsageSnapshot>,
         model_name: Option<&str>,
+        source: &str,
     ) {
         self.llm_rounds = self.llm_rounds.saturating_add(1);
         match usage {
@@ -103,21 +147,22 @@ impl ConversationLlmStats {
                 self.sum_cache_hit = self.sum_cache_hit.saturating_add(cache_hit as u64);
                 self.sum_cache_miss = self.sum_cache_miss.saturating_add(cache_miss as u64);
                 log::debug!(
-                    "LLM round {} {} tokens: total={} prompt={} completion={} cache_hit={} cache_miss={}",
+                    "LLM round {} {} tokens: total={} prompt={} completion={} cache_hit={} cache_miss={} source={}",
                     self.llm_rounds,
                     scope.log_suffix(),
                     u.total_tokens,
                     u.prompt_tokens,
                     u.completion_tokens,
                     cache_hit,
-                    cache_miss
+                    cache_miss,
+                    source
                 );
             }
             None => {
                 self.rounds_missing_usage = self.rounds_missing_usage.saturating_add(1);
             }
         }
-        if let Err(e) = token_usage_store::record_round(scope, usage, model_name, None) {
+        if let Err(e) = token_usage_store::record_round(scope, usage, model_name, None, source) {
             log::warn!(
                 "token_usage_store: record_round failed {}: {e}",
                 scope.log_suffix()

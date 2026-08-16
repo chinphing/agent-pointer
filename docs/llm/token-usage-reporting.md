@@ -14,7 +14,9 @@ Runtime logs on LLM / sub-agent paths use `run_id`, `agent_instance_id`, and `ag
 
 ## Client storage (pointer-app)
 
-All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, agent_instance_id, model_name)` and tracks one model's token usage for one agent instance in one `run_chat`. When a run uses multiple models, there is one row per model with full token breakdown (`prompt_tokens`, `completion_tokens`, `thinking_tokens`, `total_tokens`, `llm_rounds`).
+All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, agent_instance_id, model_name)` and tracks one model's token usage for one agent instance in one `run_chat`. When a run uses multiple models, there is one row per model with full token breakdown (`prompt_tokens`, `completion_tokens`, `thinking_tokens`, `cached_tokens`, `total_tokens`, `llm_rounds`).
+
+`source` is sticky across rounds: if any round used a user provider (`source=user`), the row uploads as `user`.
 
 `report_status` flow:
 
@@ -33,11 +35,23 @@ On app startup or exit, `finalize_all_stale_accum` promotes interrupted `accumul
 ## Client upload
 
 - `POST /auth/partner/token-usage` as `multipart/form-data`
-- `metadata`: JSON (`model_name`, per-model token fields, ids, `request_id`, `period_*`)
+- `metadata`: JSON (`model_name`, per-model token fields, ids, `request_id`, `period_*`, `cached_tokens`, `source`)
 - One upload per `(run_id, agent_instance_id, model_name)` row. `model_name` matches the chat/completions `model` field actually sent (stream `Finish` / `chat_once` output).
+- `cached_tokens`: sum of context-cache hits (`prompt_tokens_details.cached_tokens`) for the row
+- `source`: same as `ProviderConfig.source` — `platform` (billed) or `user` (record-only, `billed_yuan=0`)
 - `history_archive`: zip (`conversation_snapshot.json` inside)
 
 Snapshots exclude `system` messages, redact images to `[image:n]` / `[computer_screen]`, and include only messages tagged with the reporting `agent_instance_id` plus the preceding user turn.
+
+## Billing (official)
+
+| Case | Charge |
+|------|--------|
+| `source=platform` | Normal yuan billing from balance |
+| `source=user` | No charge; row stored with `source=user` |
+| Old clients omitting `source` | Server treats models **not** in the platform catalog/ratio table as `user` (record-only) |
+
+`tokens_consumed` still increments for all reports (stats). Cache hits are stored for analytics and do not change the billed token formula by themselves.
 
 ## Client gate (platform mode)
 

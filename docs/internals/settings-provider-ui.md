@@ -36,7 +36,9 @@
   禁止在子组件里直接改 props（Vue 只读代理下会丢改动）。
 - `hasEffectiveModelOverride` / `pruneInheritedModelConfigs` / `sanitizeProviderModelConfigs`
   必须保留与默认值不同的 `supportsVision` / `canGenerateImage` / `canGenerateVideo`。
-- 图片/视频生成下拉、vision 能力检测会读取 `modelConfigs` 中对应字段；未设置时对已知模型名自动推断。
+- 图片/视频生成下拉、vision 能力检测会读取 `modelConfigs` 中对应字段。
+  平台模型以目录下发的 `supportsVision` / `canGenerateImage` / `canGenerateVideo` /
+  服务商 `reasoningInMessages` 为准；未下发时才按服务商 id / 模型名推断（自定义服务）。
 - 千问 / 豆包模型清单（含 Wan、Seedream、Seedance 等生成模型）**由平台目录下发**，本地不再内置默认模型列表。平台新增模型后，用户下次登录或刷新凭据即可在下拉中看到，无需发客户端版本。
 - 场景档位「已覆盖」以平台 `tierDefaults` 为准，不要在界面里写死模型名来判断是否默认。
 

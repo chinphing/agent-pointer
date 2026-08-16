@@ -1,3 +1,8 @@
+<script lang="ts">
+/** First-boot Ctrl-L, shared across pane remounts so tab switches do not re-clear the PTY. */
+export const cleanedSessionIds = new Set<string>()
+</script>
+
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
@@ -17,6 +22,8 @@ const props = defineProps<{
   /** 绑定的 console 会话 id；null = 空窗格（不挂 xterm）。 */
   tabId: string | null
   focused: boolean
+  /** 所属 tab 是否正在显示。隐藏时保持 xterm，但不向 PTY 推 0 尺寸。 */
+  visible?: boolean
 }>()
 
 const emit = defineEmits<{ focus: []; close: [] }>()
@@ -29,6 +36,8 @@ const tab = computed(() => {
   return consoleStore.tabs.find(item => item.id === props.tabId) ?? null
 })
 
+const paneVisible = computed(() => props.visible !== false)
+
 let terminal: import('@xterm/xterm').Terminal | null = null
 let fitAddon: import('@xterm/addon-fit').FitAddon | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -36,8 +45,6 @@ let themeObserver: MutationObserver | null = null
 let opening: Promise<void> | null = null
 let renderedSessionId = ''
 let renderedOutputLength = 0
-/** 已执行过一次「清屏+重绘」的会话 id；避免切换 tab 时重复清理或丢失历史输出。 */
-const cleanedSessionIds = new Set<string>()
 let removeSelectionGuard: (() => void) | null = null
 let imeGuard: TerminalImeGuard | null = null
 /** True between primary-button mousedown and mouseup on the terminal. */
@@ -137,7 +144,10 @@ async function ensureTerminal() {
   })
   themeObserver = new MutationObserver(syncTerminalTheme)
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
-  resizeObserver = new ResizeObserver(() => { void syncSize() })
+  resizeObserver = new ResizeObserver(() => {
+    if (!paneVisible.value) return
+    void syncSize()
+  })
   resizeObserver.observe(host.value)
   await nextTick()
   await settleTerminalLayout()
@@ -238,7 +248,7 @@ function removeViewportScrollFallback() {
 
 async function syncSize() {
   const id = props.tabId
-  if (!terminal || !fitAddon || !id) return
+  if (!terminal || !fitAddon || !id || !paneVisible.value) return
   fitAddon.fit()
   const { cols, rows } = terminalSize()
   try {
@@ -283,18 +293,19 @@ async function boot() {
       // 的提示符、再让 shell 因 SIGWINCH 重绘，从而留下顶部残影。
       await syncSize()
       const current = tab.value
-      // 每个会话只在首次渲染时清理一次：PTY 以 80×24 创建，zsh 已按旧宽度
+      // 每个会话只在首次可见渲染时 Ctrl-L 一次：PTY 以 80×24 创建，zsh 已按旧宽度
       // 打印 prompt；resize 后 zsh 又 SIGWINCH 重绘，output 里可能有两份。
-      // 等待这些 resize 相关的重绘输出稳定到达 store 后，把清理点设在其后，
-      // 再发 Ctrl-L 让 shell 用当前尺寸重绘一次干净 prompt（唯一增量）。
+      // 隐藏窗格只回放缓冲，不向仍在运行的 PTY 再发清屏。
       if (current && terminal && !cleanedSessionIds.has(current.id)) {
         cleanedSessionIds.add(current.id)
-        await waitForOutputSettled(current)
-        const baseLen = current.output.length
-        terminal.write('\x1b[2J\x1b[3J\x1b[H')
-        renderedSessionId = current.id
-        renderedOutputLength = baseLen
-        await consoleStore.write(current.id, '\x0c')
+        if (paneVisible.value) {
+          await waitForOutputSettled(current)
+          const baseLen = current.output.length
+          terminal.write('\x1b[2J\x1b[3J\x1b[H')
+          renderedSessionId = current.id
+          renderedOutputLength = baseLen
+          await consoleStore.write(current.id, '\x0c')
+        }
       }
       await renderTab()
     } finally {
@@ -330,18 +341,28 @@ function focusPane() {
 watch(() => props.tabId, async (next) => {
   if (next) {
     await boot()
-  } else {
-    // 解绑：清屏但不销毁 xterm（窗格可能马上绑定另一个会话）。
-    if (terminal) {
-      terminal.write('\x1b[2J\x1b[3J\x1b[H')
-    }
-    renderedSessionId = ''
-    renderedOutputLength = 0
+    return
   }
+  // 解绑：清屏但不销毁 xterm（窗格可能马上绑定另一个会话）。
+  if (terminal) {
+    terminal.write('\x1b[2J\x1b[3J\x1b[H')
+  }
+  renderedSessionId = ''
+  renderedOutputLength = 0
+})
+watch(() => paneVisible.value, async (visible) => {
+  if (!visible || !props.tabId) return
+  if (terminal) {
+    await settleTerminalLayout()
+    await syncSize()
+    if (props.focused) requestAnimationFrame(() => terminal?.focus())
+    return
+  }
+  await boot()
 })
 watch(() => tab.value?.output, () => { void renderTab() })
 watch(() => props.focused, (next) => {
-  if (next) requestAnimationFrame(() => terminal?.focus())
+  if (next && paneVisible.value) requestAnimationFrame(() => terminal?.focus())
 })
 
 onMounted(() => {

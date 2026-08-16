@@ -7,6 +7,8 @@ const props = defineProps<{
   workspaceRoot: string
   conversationId: string
   focusedPaneId: string | null
+  /** 所属 tab 是否正在显示；隐藏时窗格仍挂载，但不向 PTY 推 0 尺寸。 */
+  visible: boolean
 }>()
 
 const emit = defineEmits<{ focus: [leafId: string]; close: [leafId: string] }>()
@@ -43,6 +45,7 @@ function startDrag(event: PointerEvent, node: TerminalPaneBranch) {
     :conversation-id="conversationId"
     :tab-id="node.tabId"
     :focused="focusedPaneId === node.id"
+    :visible="visible"
     class="terminal-pane-slot"
     @focus="emit('focus', node.id)"
     @close="emit('close', node.id)"
@@ -54,6 +57,7 @@ function startDrag(event: PointerEvent, node: TerminalPaneBranch) {
         :workspace-root="workspaceRoot"
         :conversation-id="conversationId"
         :focused-pane-id="focusedPaneId"
+        :visible="visible"
         @focus="emit('focus', $event)"
         @close="emit('close', $event)"
       />
@@ -70,6 +74,7 @@ function startDrag(event: PointerEvent, node: TerminalPaneBranch) {
         :workspace-root="workspaceRoot"
         :conversation-id="conversationId"
         :focused-pane-id="focusedPaneId"
+        :visible="visible"
         @focus="emit('focus', $event)"
         @close="emit('close', $event)"
       />

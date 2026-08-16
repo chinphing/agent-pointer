@@ -8,6 +8,7 @@
 - 每个标签都有自己的 cwd、环境和前台进程；创建时默认从工作区目录启动。
 - 标签只显示当前启动目录的名称；鼠标悬停显示完整绝对路径；右键可复制完整路径或关闭该 Shell。
 - 关闭右侧栏或切到 Files / Changes 只卸载终端视图，不会结束已有 Shell；回到 Terminal 后继续使用同一批标签。
+- 切换终端标签时各组窗格保持挂载（隐藏而非销毁），xterm 缓冲与 PTY 输出不会被清空；隐藏窗格不向 PTY 发送 0 尺寸 resize。
 - 切换到另一个工作区时，旧工作区的标签会保留到显式关闭，避免意外中断正在运行的调试服务。
 - 点击标签关闭、顶部“结束 Shell”或“重启 Shell”才会终止对应 session。
 - Agent `terminal` 工具仍是一条命令一个子进程，不会写入、复用或中断用户控制台。
@@ -38,6 +39,7 @@
 - `TerminalPanel.vue` 是异步组件，仅在切换到 Terminal Tab 时加载。
 - xterm 与 fit addon 也使用动态 import；生产构建中它们是独立 chunk，不进入主聊天首屏 chunk。
 - xterm scrollback 限制为 5,000 行；每个标签的前端输出缓冲最多保留 256 KiB，避免长期日志无限增长。
+- 多个终端标签同时挂载 xterm（非激活组 `display: none`），后台 PTY 输出仍写入对应实例。
 - **TUI（vim 等）**：`console_output_delta` 按 animation frame 合并后再更新 Vue/xterm，
   避免全屏重绘把 UI 打挂；按键写入按 session **串行**（避免 invoke/HTTP 乱序）。
 - 截断缓冲时尽量落在换行处，减少半截 CSI 弄坏 alternate screen。

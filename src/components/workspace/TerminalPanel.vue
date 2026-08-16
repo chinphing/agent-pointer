@@ -34,7 +34,7 @@ const loading = ref(false)
 const contextMenu = ref<{ group: TerminalGroup; x: number; y: number } | null>(null)
 /**
  * group（= tab）状态：每个 group 持有一棵独立布局树，切换 tab 恢复该组布局。
- * 当前显示的布局树始终等于激活组的树。
+ * 各组窗格保持挂载（v-show），避免切 tab 销毁 xterm 并清空屏幕。
  */
 const groupsState = ref<TerminalGroupsState>(createTerminalGroupsState())
 const focusedPaneId = ref<string | null>(null)
@@ -453,25 +453,34 @@ onBeforeUnmount(() => {
     </div>
     <p v-if="error" class="absolute inset-x-3 top-11 z-10 rounded border border-red-400/40 bg-red-950/90 p-2 text-xs text-red-200">{{ error }}</p>
     <div
-      v-show="hasWorkspace && layout"
+      v-show="hasWorkspace && groupsState.groups.length > 0"
       class="terminal-layout min-h-0 flex-1 p-2"
       data-workspace-terminal
     >
-      <TerminalSplitPane
-        v-if="layout"
-        :node="layout"
-        :workspace-root="props.workspaceRoot"
-        :conversation-id="props.conversationId"
-        :focused-pane-id="focusedPaneId"
-        @focus="focusPane"
-        @close="closePane"
-      />
+      <div
+        v-for="group in groupsState.groups"
+        v-show="group.id === groupsState.activeGroupId"
+        :key="group.id"
+        class="terminal-layout-group"
+      >
+        <TerminalSplitPane
+          v-if="group.layout"
+          :node="group.layout"
+          :workspace-root="props.workspaceRoot"
+          :conversation-id="props.conversationId"
+          :focused-pane-id="group.id === groupsState.activeGroupId ? focusedPaneId : null"
+          :visible="group.id === groupsState.activeGroupId"
+          @focus="focusPane"
+          @close="closePane"
+        />
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.terminal-layout { @apply flex min-h-0 flex-1; }
+.terminal-layout { @apply relative flex min-h-0 flex-1; }
+.terminal-layout-group { @apply absolute inset-0 flex min-h-0 min-w-0; }
 .console-chrome,
 .console-tabs,
 .console-tab,

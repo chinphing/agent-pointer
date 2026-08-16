@@ -325,10 +325,8 @@ watch(contextMenu, menu => {
 })
 
 watch(() => props.workspaceRoot, () => {
-  groupsState.value = createTerminalGroupsState()
-  focusedPaneId.value = null
-  error.value = ''
-  if (props.workspaceRoot && props.active) void createTab()
+  const rebuilt = rebuildGroupsFromTabs()
+  if (!rebuilt && props.workspaceRoot && props.active) void createTab()
 })
 
 watch(() => props.conversationId, () => {

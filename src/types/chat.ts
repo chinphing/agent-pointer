@@ -458,6 +458,18 @@ export interface ModelRuntimeOverrides {
   thinkingBudget?: number
   /** DeepSeek: `reasoning_effort` — `high` | `max`. */
   reasoningEffort?: 'high' | 'max'
+  /** Thinking wire strategy: auto | budget | effort | openrouter | kimi | openai_effort | off | custom. */
+  thinkingProtocol?:
+    | 'auto'
+    | 'budget'
+    | 'effort'
+    | 'openrouter'
+    | 'kimi'
+    | 'openai_effort'
+    | 'off'
+    | 'custom'
+  /** Unified product thinking intensity: off | low | medium | high | max. */
+  thinkingIntensity?: 'off' | 'low' | 'medium' | 'high' | 'max'
   /** Whether the model accepts vision / image understanding input. */
   supportsVision?: boolean
   /** Whether the model can generate images (`image_generate`). */
@@ -520,6 +532,18 @@ export interface ProviderConfig {
   thinkingBudget?: number
   /** DeepSeek: `reasoning_effort` — `high` | `max`. */
   reasoningEffort?: 'high' | 'max'
+  /** Thinking wire strategy: auto | budget | effort | openrouter | kimi | openai_effort | off | custom. */
+  thinkingProtocol?:
+    | 'auto'
+    | 'budget'
+    | 'effort'
+    | 'openrouter'
+    | 'kimi'
+    | 'openai_effort'
+    | 'off'
+    | 'custom'
+  /** Unified product thinking intensity: off | low | medium | high | max. */
+  thinkingIntensity?: 'off' | 'low' | 'medium' | 'high' | 'max'
   /**
    * Hermes-style free-form chat/completions fields for this provider.
    * Per-model `extraBody` overlays; flattened to request root on wire.
@@ -624,6 +648,10 @@ export interface ComputerTierLlmConfig {
   model: string
   enableThinking?: boolean
   thinkingBudget?: number
+  /** DeepSeek / effort protocol: `high` | `max`. */
+  reasoningEffort?: 'high' | 'max'
+  /** Unified product intensity; preferred over legacy budget/effort alone. */
+  thinkingIntensity?: 'off' | 'low' | 'medium' | 'high' | 'max'
 }
 
 /** Per-phase model ids and thinking budgets for host verify pipeline (debug). */
@@ -662,6 +690,8 @@ export interface PlatformProviderModelTemplate {
   enableThinking?: boolean
   thinkingBudget?: number
   reasoningEffort?: string
+  thinkingProtocol?: string
+  thinkingIntensity?: string
   supportsVision?: boolean
   canGenerateImage?: boolean
   canGenerateVideo?: boolean
@@ -677,6 +707,8 @@ export interface PlatformProviderTemplate {
   enableThinking?: boolean
   thinkingBudget?: number
   reasoningEffort?: string
+  thinkingProtocol?: string
+  thinkingIntensity?: string
   temperature?: number
   maxTokens?: number
 }

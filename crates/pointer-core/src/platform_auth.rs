@@ -85,6 +85,10 @@ pub struct PlatformProviderTemplate {
     pub thinking_budget: Option<u32>,
     #[serde(default, rename = "reasoningEffort", alias = "reasoning_effort")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, rename = "thinkingProtocol", alias = "thinking_protocol")]
+    pub thinking_protocol: Option<String>,
+    #[serde(default, rename = "thinkingIntensity", alias = "thinking_intensity")]
+    pub thinking_intensity: Option<String>,
     #[serde(default)]
     pub temperature: Option<f32>,
     #[serde(default, rename = "maxTokens", alias = "max_tokens")]
@@ -108,6 +112,10 @@ pub struct PlatformProviderModel {
     pub thinking_budget: Option<u32>,
     #[serde(default, rename = "reasoningEffort", alias = "reasoning_effort")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, rename = "thinkingProtocol", alias = "thinking_protocol")]
+    pub thinking_protocol: Option<String>,
+    #[serde(default, rename = "thinkingIntensity", alias = "thinking_intensity")]
+    pub thinking_intensity: Option<String>,
     #[serde(default, rename = "supportsVision", alias = "supports_vision")]
     pub supports_vision: Option<bool>,
     #[serde(default, rename = "canGenerateImage", alias = "can_generate_image")]

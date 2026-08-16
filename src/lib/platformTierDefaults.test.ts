@@ -21,6 +21,22 @@ describe('platformTierDefaults', () => {
     ).toEqual(['qwen-next', 'qwen3.8-max'])
   })
 
+  it('ignores platform thinkingProtocol and keeps intensity', () => {
+    const providers = normalizePlatformProviderTemplates([
+      {
+        id: 'qwen',
+        name: '千问',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        thinkingProtocol: 'budget',
+        thinkingIntensity: 'medium',
+        models: [{ name: 'qwen3.5-plus', thinkingProtocol: 'budget', thinkingIntensity: 'high' }]
+      }
+    ])
+    expect(providers[0].thinkingProtocol).toBeUndefined()
+    expect(providers[0].thinkingIntensity).toBe('medium')
+    expect(providers[0].modelConfigs?.['qwen3.5-plus']).toEqual({ thinkingIntensity: 'high' })
+  })
+
   it('builds providers from an API array of templates', () => {
     const providers = normalizePlatformProviderTemplates([
       {

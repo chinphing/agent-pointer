@@ -1,4 +1,11 @@
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
+import {
+  defaultProtocolForTemplate,
+  parseThinkingIntensity,
+  parseThinkingProtocol,
+  type ThinkingIntensity,
+  type ThinkingProtocol
+} from './thinkingIntensity'
 
 /** Default Qwen `thinking_budget` when deep thinking is enabled. */
 export const DEFAULT_THINKING_BUDGET = 2048
@@ -129,28 +136,28 @@ export function stripProviderExtensionFields(
   template: ProviderTemplateId
 ): ProviderConfig {
   const out: ProviderConfig = { ...p }
-  if (template !== 'qwen') {
+  // thinkingIntensity / thinkingProtocol apply to all strategies.
+  if (template === 'doubao') {
     delete out.enableThinking
     delete out.thinkingBudget
-  } else if (out.enableThinking !== true) {
-    delete out.thinkingBudget
-  }
-  if (template !== 'deepseek') {
     delete out.reasoningEffort
+  } else if (template === 'qwen') {
+    if (out.enableThinking !== true) delete out.thinkingBudget
+  }
+  if (!out.thinkingProtocol) {
+    out.thinkingProtocol = defaultProtocolForTemplate(template)
   }
   const mc = out.modelConfigs
   if (!mc) return out
   const nextMc: Record<string, ModelRuntimeOverrides> = {}
   for (const [mid, raw] of Object.entries(mc)) {
     const o: ModelRuntimeOverrides = { ...raw }
-    if (template !== 'qwen') {
+    if (template === 'doubao') {
       delete o.enableThinking
       delete o.thinkingBudget
-    } else if (o.enableThinking !== true) {
-      delete o.thinkingBudget
-    }
-    if (template !== 'deepseek') {
       delete o.reasoningEffort
+    } else if (template === 'qwen' && o.enableThinking !== true) {
+      delete o.thinkingBudget
     }
     if (Object.keys(o).length) nextMc[mid] = o
   }
@@ -173,11 +180,22 @@ export function providerDraftForTemplate(
     reasoningInMessages: false,
     temperature: global.temperature,
     maxTokens: global.maxTokens,
-    modelConfigs: {}
+    modelConfigs: {},
+    thinkingProtocol: defaultProtocolForTemplate(template)
   }
 }
 
 export function normalizeReasoningEffort(v: unknown): ReasoningEffort | undefined {
   if (v === 'high' || v === 'max') return v
   return undefined
+}
+
+export function normalizeThinkingIntensity(v: unknown): ThinkingIntensity | undefined {
+  const parsed = parseThinkingIntensity(v)
+  return parsed || undefined
+}
+
+export function normalizeThinkingProtocol(v: unknown): ThinkingProtocol | undefined {
+  const parsed = parseThinkingProtocol(v)
+  return parsed || undefined
 }

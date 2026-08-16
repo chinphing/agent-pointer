@@ -6,11 +6,21 @@ import {
 } from '../lib/modelCapabilities'
 import {
   DEFAULT_THINKING_BUDGET,
+  detectProviderTemplateId,
   isDeepSeekProvider,
   isQwenProvider,
   normalizeReasoningEffort,
+  normalizeThinkingIntensity,
+  normalizeThinkingProtocol,
   type ReasoningEffort
 } from '../lib/providerParams'
+import {
+  defaultProtocolForTemplate,
+  intensityFromLegacy,
+  patchFromThinkingIntensity,
+  type ThinkingIntensity,
+  type ThinkingProtocol
+} from '../lib/thinkingIntensity'
 
 export const DEFAULT_MODEL_TEMPERATURE = 0.7
 export const DEFAULT_MODEL_MAX_TOKENS = 2048
@@ -37,6 +47,13 @@ export interface RuntimeParamsApi {
   setThinkingBudget: (value: number) => void
   reasoningEffort: () => '' | ReasoningEffort
   setReasoningEffort: (value: string) => void
+  thinkingIntensity: () => '' | ThinkingIntensity
+  setThinkingIntensity: (value: string) => void
+  thinkingProtocol: () => ThinkingProtocol
+  setThinkingProtocol: (value: string) => void
+  showThinkingIntensity: () => boolean
+  showProtocolPicker: () => boolean
+  showQwenBudgetControls: () => boolean
   /** Pretty JSON for Hermes-style `extraBody` (empty string = unset). */
   extraBodyJson: () => string
   /** Parse JSON object into `extraBody`; empty clears. */
@@ -278,6 +295,90 @@ export function useRuntimeParams(
     }
   }
 
+  function thinkingProtocol(): ThinkingProtocol {
+    const p = provider.value
+    if (!p) return defaultProtocolForTemplate(detectProviderTemplateId(p ?? { id: '', baseUrl: '' }))
+    const mid = modelId.value
+    const raw = mid
+      ? p.modelConfigs?.[mid]?.thinkingProtocol ?? p.thinkingProtocol
+      : p.thinkingProtocol
+    return (
+      normalizeThinkingProtocol(raw) ??
+      defaultProtocolForTemplate(detectProviderTemplateId(p))
+    )
+  }
+
+  function setThinkingProtocol(value: string) {
+    const p = provider.value
+    if (!p) return
+    const v = normalizeThinkingProtocol(value) ?? 'auto'
+    const mid = modelId.value
+    if (mid) {
+      patchModel(mid, prev => ({ ...prev, thinkingProtocol: v }))
+    } else {
+      p.thinkingProtocol = v
+    }
+  }
+
+  function thinkingIntensity(): '' | ThinkingIntensity {
+    const p = provider.value
+    if (!p) return ''
+    const mid = modelId.value
+    if (mid) {
+      const o = p.modelConfigs?.[mid]
+      return intensityFromLegacy({
+        thinkingIntensity: o?.thinkingIntensity ?? p.thinkingIntensity,
+        enableThinking: o?.enableThinking ?? p.enableThinking,
+        thinkingBudget: o?.thinkingBudget ?? p.thinkingBudget,
+        reasoningEffort: o?.reasoningEffort ?? p.reasoningEffort
+      })
+    }
+    return intensityFromLegacy(p)
+  }
+
+  function setThinkingIntensity(value: string) {
+    const p = provider.value
+    if (!p) return
+    const intensity = (normalizeThinkingIntensity(value) ?? '') as '' | ThinkingIntensity
+    const patch = patchFromThinkingIntensity(intensity)
+    const mid = modelId.value
+    if (mid) {
+      patchModel(mid, prev => {
+        const next = { ...prev }
+        if (patch.thinkingIntensity) next.thinkingIntensity = patch.thinkingIntensity as ThinkingIntensity
+        else delete next.thinkingIntensity
+        if (patch.enableThinking !== undefined) next.enableThinking = patch.enableThinking
+        else delete next.enableThinking
+        if (patch.thinkingBudget !== undefined) next.thinkingBudget = patch.thinkingBudget
+        else delete next.thinkingBudget
+        if (patch.reasoningEffort) next.reasoningEffort = patch.reasoningEffort
+        else delete next.reasoningEffort
+        return next
+      })
+    } else {
+      if (patch.thinkingIntensity) p.thinkingIntensity = patch.thinkingIntensity as ThinkingIntensity
+      else delete p.thinkingIntensity
+      if (patch.enableThinking !== undefined) p.enableThinking = patch.enableThinking
+      else delete p.enableThinking
+      if (patch.thinkingBudget !== undefined) p.thinkingBudget = patch.thinkingBudget
+      else delete p.thinkingBudget
+      if (patch.reasoningEffort) p.reasoningEffort = patch.reasoningEffort
+      else delete p.reasoningEffort
+    }
+  }
+
+  function showThinkingIntensity(): boolean {
+    return true
+  }
+
+  function showProtocolPicker(): boolean {
+    return false
+  }
+
+  function showQwenBudgetControls(): boolean {
+    return false
+  }
+
   function extraBodyJson(): string {
     const p = provider.value
     if (!p) return ''
@@ -325,6 +426,13 @@ export function useRuntimeParams(
     setThinkingBudget,
     reasoningEffort,
     setReasoningEffort,
+    thinkingIntensity,
+    setThinkingIntensity,
+    thinkingProtocol,
+    setThinkingProtocol,
+    showThinkingIntensity,
+    showProtocolPicker,
+    showQwenBudgetControls,
     extraBodyJson,
     setExtraBodyJson
   }
@@ -357,10 +465,13 @@ export function hasEffectiveModelOverride(
   globalFallback: { temperature: () => number; maxTokens: () => number },
   modelId = ''
 ): boolean {
-  if (isQwenProvider(p) && (o.enableThinking !== undefined || o.thinkingBudget !== undefined)) {
+  if (o.thinkingIntensity !== undefined || o.thinkingProtocol !== undefined) {
     return true
   }
-  if (isDeepSeekProvider(p) && o.reasoningEffort !== undefined) {
+  if (o.enableThinking !== undefined || o.thinkingBudget !== undefined) {
+    return true
+  }
+  if (o.reasoningEffort !== undefined) {
     return true
   }
   const providerReasoning = p.reasoningInMessages !== false
@@ -433,13 +544,11 @@ export function sanitizeProviderModelConfigs(
     if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
     if (o.temperature !== undefined) clean.temperature = o.temperature
     if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
-    if (isDeepSeekProvider(provider) && o.reasoningEffort !== undefined) {
-      clean.reasoningEffort = o.reasoningEffort
-    }
-    if (isQwenProvider(provider) && o.enableThinking !== undefined) {
-      clean.enableThinking = o.enableThinking
-    }
-    if (isQwenProvider(provider) && o.enableThinking === true && o.thinkingBudget !== undefined) {
+    if (o.thinkingIntensity !== undefined) clean.thinkingIntensity = o.thinkingIntensity
+    if (o.thinkingProtocol !== undefined) clean.thinkingProtocol = o.thinkingProtocol
+    if (o.reasoningEffort !== undefined) clean.reasoningEffort = o.reasoningEffort
+    if (o.enableThinking !== undefined) clean.enableThinking = o.enableThinking
+    if (o.enableThinking === true && o.thinkingBudget !== undefined) {
       clean.thinkingBudget = o.thinkingBudget
     }
     if (o.supportsVision !== undefined) clean.supportsVision = o.supportsVision
@@ -487,9 +596,10 @@ export function buildCustomModelEntryFromProvider(
       entry.thinkingBudget = p.thinkingBudget ?? DEFAULT_THINKING_BUDGET
     }
   }
-  if (isDeepSeekProvider(p)) {
-    // 显式写入，便于定制弹窗展示并与「同上」区分；未设置时默认 high
-    entry.reasoningEffort = normalizeReasoningEffort(p.reasoningEffort) ?? 'high'
+  if (p.thinkingIntensity) entry.thinkingIntensity = p.thinkingIntensity
+  if (p.thinkingProtocol) entry.thinkingProtocol = p.thinkingProtocol
+  if (p.reasoningEffort) {
+    entry.reasoningEffort = normalizeReasoningEffort(p.reasoningEffort) ?? p.reasoningEffort
   }
   return entry
 }

@@ -7,6 +7,7 @@ import type {
   PlatformSettings,
   ProviderConfig
 } from '../types/chat'
+import { parseThinkingIntensity } from './thinkingIntensity'
 
 export type PlatformTierRef = { providerId: string; model: string }
 
@@ -47,6 +48,8 @@ function modelEntryOverrides(entry: unknown): ModelRuntimeOverrides {
   if (raw.reasoningEffort === 'high' || raw.reasoningEffort === 'max') {
     over.reasoningEffort = raw.reasoningEffort
   }
+  const intensity = parseThinkingIntensity(raw.thinkingIntensity)
+  if (intensity) over.thinkingIntensity = intensity
   if (raw.supportsVision !== undefined) over.supportsVision = raw.supportsVision
   if (raw.canGenerateImage !== undefined) over.canGenerateImage = raw.canGenerateImage
   if (raw.canGenerateVideo !== undefined) over.canGenerateVideo = raw.canGenerateVideo
@@ -90,6 +93,7 @@ export function normalizePlatformProviderTemplates(
       tpl.reasoningEffort === 'high' || tpl.reasoningEffort === 'max'
         ? tpl.reasoningEffort
         : undefined,
+    thinkingIntensity: parseThinkingIntensity(tpl.thinkingIntensity) || undefined,
     temperature: tpl.temperature,
     maxTokens: tpl.maxTokens,
     modelConfigs: platformModelConfigs(tpl.models)
@@ -131,7 +135,9 @@ export function withInheritedThinking(
     providerId: ref.providerId,
     model: ref.model,
     enableThinking: model?.enableThinking ?? provider?.enableThinking ?? true,
-    thinkingBudget: model?.thinkingBudget ?? provider?.thinkingBudget
+    thinkingBudget: model?.thinkingBudget ?? provider?.thinkingBudget,
+    reasoningEffort: model?.reasoningEffort ?? provider?.reasoningEffort,
+    thinkingIntensity: model?.thinkingIntensity ?? provider?.thinkingIntensity
   }
 }
 

@@ -781,6 +781,8 @@ fn apply_llm_section(platform: &mut PlatformSettings, user: &mut UserSettings, l
                 enable_thinking: None,
                 thinking_budget: None,
                 reasoning_effort: None,
+                thinking_protocol: None,
+                thinking_intensity: None,
                 extra_body: None,
                 source: Some("platform".into()),
             };

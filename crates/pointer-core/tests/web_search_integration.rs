@@ -24,6 +24,8 @@ fn dashscope_settings(api_key: &str, base_url: &str) -> ModelSettings {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             source: None,
             extra_body: None,
         }],

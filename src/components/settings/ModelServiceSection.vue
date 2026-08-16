@@ -5,8 +5,6 @@ import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm
 import type { ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import {
   detectProviderTemplateId,
-  isDeepSeekProvider,
-  isQwenProvider,
   PROVIDER_TEMPLATE_OPTIONS,
   providerDraftForTemplate,
   providerTemplateMeta,
@@ -316,15 +314,10 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
     modelConfigs: { ...(draft.modelConfigs ?? {}) }
   }
 
-  if (!isQwenProvider(snapshot)) {
-    delete snapshot.enableThinking
-    delete snapshot.thinkingBudget
-  } else if (snapshot.enableThinking !== true) {
+  if (snapshot.enableThinking !== true) {
     delete snapshot.thinkingBudget
   }
-  if (!isDeepSeekProvider(snapshot)) {
-    delete snapshot.reasoningEffort
-  }
+  // Keep thinkingIntensity / thinkingProtocol / reasoningEffort for strategy translation.
 
   const nextMc = sanitizeProviderModelConfigs(
     snapshot,

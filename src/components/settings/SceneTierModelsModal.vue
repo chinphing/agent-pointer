@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { X } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
-import { detectProviderTemplateId } from '../../lib/providerParams'
 import { composerAgentLabel } from '../../lib/agentUi'
 import { useSettingsStore } from '../../stores/settings'
 import {
@@ -11,6 +10,11 @@ import {
   platformComputerTierDefault,
   platformMediaModeDefault
 } from '../../lib/platformTierDefaults'
+import {
+  THINKING_INTENSITY_OPTIONS,
+  patchTierThinkingIntensity,
+  tierThinkingIntensityValue
+} from '../../lib/thinkingIntensity'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -51,32 +55,28 @@ const computerTiers = computed(() =>
   COMPUTER_TIER_UI.map(t => ({ key: t.key, label: t.label }))
 )
 
-function providerTemplate(providerId: string, model: string) {
-  const provider = s.settings.providers.find(item => item.id === providerId)
-  return detectProviderTemplateId(provider ?? { id: providerId, baseUrl: '' })
-}
-
 function mediaOptions(kind: MediaKind) {
   return kind === 'audio' ? s.audioModels : s.visionModels
 }
 
 function patchVariant(
-  config: { providerId: string; model: string; enableThinking?: boolean; thinkingBudget?: number },
-  patch: (value: { enableThinking?: boolean; thinkingBudget?: number }) => void,
+  patch: (value: ReturnType<typeof patchTierThinkingIntensity>) => void,
   value: string
 ) {
-  if (value === 'off') {
-    patch({ enableThinking: false, thinkingBudget: undefined })
-  } else if (value === 'max') {
-    patch({ enableThinking: true, thinkingBudget: 8192 })
-  } else {
-    patch({ enableThinking: true, thinkingBudget: 2048 })
-  }
+  const intensity =
+    value === 'off' || value === 'low' || value === 'medium' || value === 'high' || value === 'max'
+      ? value
+      : ''
+  patch(patchTierThinkingIntensity(intensity))
 }
 
-function variantValue(config: { enableThinking?: boolean; thinkingBudget?: number }) {
-  if (config.enableThinking === false) return 'off'
-  return (config.thinkingBudget ?? 2048) >= 8192 ? 'max' : 'high'
+function variantValue(config: {
+  thinkingIntensity?: string
+  enableThinking?: boolean
+  thinkingBudget?: number
+  reasoningEffort?: string
+}) {
+  return tierThinkingIntensityValue(config)
 }
 
 function modeOverridden(config: { providerId: string; model: string }, mode: string, group: 'agent' | 'media' | 'computer', id?: string) {
@@ -132,32 +132,17 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
                 >
                   <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
-                <div v-if="providerTemplate(form.agentModeLlm(scene, tier.key).providerId, form.agentModeLlm(scene, tier.key).model) === 'qwen'" class="flex items-center gap-1.5 justify-end">
-                  <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
-                    <input type="checkbox" class="accent-accent" :checked="form.agentModeLlm(scene, tier.key).enableThinking !== false" @change="form.patchAgentModeLlm(scene, tier.key, { enableThinking: ($event.target as HTMLInputElement).checked })">思考
-                  </label>
-                  <input
-                    :disabled="form.agentModeLlm(scene, tier.key).enableThinking === false"
-                    :value="form.agentModeLlm(scene, tier.key).thinkingBudget ?? 2048"
-                    type="number"
-                    min="256"
-                    step="256"
-                    class="h-8 w-16 px-1 rounded border border-border bg-card text-[11px] text-foreground disabled:opacity-60"
-                    aria-label="思考预算"
-                    @change="form.patchAgentModeLlm(scene, tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
-                  >
-                </div>
                 <select
-                  v-else-if="providerTemplate(form.agentModeLlm(scene, tier.key).providerId, form.agentModeLlm(scene, tier.key).model) === 'deepseek'"
                   :value="variantValue(form.agentModeLlm(scene, tier.key))"
                   class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="patchVariant(form.agentModeLlm(scene, tier.key), patch => form.patchAgentModeLlm(scene, tier.key, patch), ($event.target as HTMLSelectElement).value)"
+                  @change="patchVariant(patch => form.patchAgentModeLlm(scene, tier.key, patch), ($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="off">不设置</option>
-                  <option value="high">高</option>
-                  <option value="max">最高</option>
+                  <option
+                    v-for="opt in THINKING_INTENSITY_OPTIONS"
+                    :key="opt.value || 'unset'"
+                    :value="opt.value"
+                  >{{ opt.label }}</option>
                 </select>
-                <span v-else class="text-right text-[11px] text-muted">仅模型</span>
               </div>
             </div>
           </template>
@@ -177,32 +162,17 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
                 >
                   <option v-for="item in mediaOptions(mediaKind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
-                <div v-if="providerTemplate(form.mediaModeLlm(mediaKind, tier.key).providerId, form.mediaModeLlm(mediaKind, tier.key).model) === 'qwen'" class="flex items-center gap-1.5 justify-end">
-                  <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
-                    <input type="checkbox" class="accent-accent" :checked="form.mediaModeLlm(mediaKind, tier.key).enableThinking !== false" @change="form.patchMediaModeLlm(mediaKind, tier.key, { enableThinking: ($event.target as HTMLInputElement).checked })">思考
-                  </label>
-                  <input
-                    :disabled="form.mediaModeLlm(mediaKind, tier.key).enableThinking === false"
-                    :value="form.mediaModeLlm(mediaKind, tier.key).thinkingBudget ?? 2048"
-                    type="number"
-                    min="256"
-                    step="256"
-                    class="h-8 w-16 px-1 rounded border border-border bg-card text-[11px] text-foreground disabled:opacity-60"
-                    aria-label="思考预算"
-                    @change="form.patchMediaModeLlm(mediaKind, tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
-                  >
-                </div>
                 <select
-                  v-else-if="providerTemplate(form.mediaModeLlm(mediaKind, tier.key).providerId, form.mediaModeLlm(mediaKind, tier.key).model) === 'deepseek'"
                   :value="variantValue(form.mediaModeLlm(mediaKind, tier.key))"
                   class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="patchVariant(form.mediaModeLlm(mediaKind, tier.key), patch => form.patchMediaModeLlm(mediaKind, tier.key, patch), ($event.target as HTMLSelectElement).value)"
+                  @change="patchVariant(patch => form.patchMediaModeLlm(mediaKind, tier.key, patch), ($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="off">不设置</option>
-                  <option value="high">高</option>
-                  <option value="max">最高</option>
+                  <option
+                    v-for="opt in THINKING_INTENSITY_OPTIONS"
+                    :key="opt.value || 'unset'"
+                    :value="opt.value"
+                  >{{ opt.label }}</option>
                 </select>
-                <span v-else class="text-right text-[11px] text-muted">仅模型</span>
               </div>
             </div>
           </template>
@@ -222,32 +192,17 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
                 >
                   <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
-                <div v-if="providerTemplate(form.computerTierLlm(tier.key).providerId, form.computerTierLlm(tier.key).model) === 'qwen'" class="flex items-center gap-1.5 justify-end">
-                  <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
-                    <input type="checkbox" class="accent-accent" :checked="form.computerTierLlm(tier.key).enableThinking !== false" @change="form.patchComputerTierLlm(tier.key, { enableThinking: ($event.target as HTMLInputElement).checked })">思考
-                  </label>
-                  <input
-                    :disabled="form.computerTierLlm(tier.key).enableThinking === false"
-                    :value="form.computerTierLlm(tier.key).thinkingBudget ?? 2048"
-                    type="number"
-                    min="256"
-                    step="256"
-                    class="h-8 w-16 px-1 rounded border border-border bg-card text-[11px] text-foreground disabled:opacity-60"
-                    aria-label="思考预算"
-                    @change="form.patchComputerTierLlm(tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
-                  >
-                </div>
                 <select
-                  v-else-if="providerTemplate(form.computerTierLlm(tier.key).providerId, form.computerTierLlm(tier.key).model) === 'deepseek'"
                   :value="variantValue(form.computerTierLlm(tier.key))"
                   class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="patchVariant(form.computerTierLlm(tier.key), patch => form.patchComputerTierLlm(tier.key, patch), ($event.target as HTMLSelectElement).value)"
+                  @change="patchVariant(patch => form.patchComputerTierLlm(tier.key, patch), ($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="off">不设置</option>
-                  <option value="high">高</option>
-                  <option value="max">最高</option>
+                  <option
+                    v-for="opt in THINKING_INTENSITY_OPTIONS"
+                    :key="opt.value || 'unset'"
+                    :value="opt.value"
+                  >{{ opt.label }}</option>
                 </select>
-                <span v-else class="text-right text-[11px] text-muted">仅模型</span>
               </div>
             </div>
           </template>

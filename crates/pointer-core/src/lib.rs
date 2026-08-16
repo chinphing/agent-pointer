@@ -39,6 +39,7 @@ pub mod session_work_dir_env;
 pub mod task_board;
 pub mod text_diff;
 pub mod text_util;
+pub mod thinking_strategy;
 pub mod token_usage_store;
 pub mod turn_file_baseline;
 pub mod user_rules;

@@ -324,6 +324,8 @@ impl ComputerState {
         s.model = o.model;
         s.round_enable_thinking = Some(o.enable_thinking);
         s.round_thinking_budget = o.thinking_budget;
+        s.round_reasoning_effort = o.reasoning_effort.clone();
+        s.round_thinking_intensity = o.thinking_intensity.clone();
         s
     }
 
@@ -348,11 +350,15 @@ impl ComputerState {
                 let o = ComputerRoundLlmOverrides::for_tier(tier, &cfg);
                 s.round_enable_thinking = Some(o.enable_thinking);
                 s.round_thinking_budget = o.thinking_budget;
+                s.round_reasoning_effort = o.reasoning_effort.clone();
+                s.round_thinking_intensity = o.thinking_intensity.clone();
             }
             PipelineLlmPhase::Position | PipelineLlmPhase::Verify => {
                 let (enable, budget) = cfg.pipeline_llm.thinking_for_phase(phase);
                 s.round_enable_thinking = Some(enable);
                 s.round_thinking_budget = Some(budget);
+                s.round_reasoning_effort = None;
+                s.round_thinking_intensity = None;
             }
         }
         if crate::logging::internal_runtime_log_enabled() {

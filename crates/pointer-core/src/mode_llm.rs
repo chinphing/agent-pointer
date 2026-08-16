@@ -62,15 +62,27 @@ pub fn media_understanding_mode(settings: &ModelSettings, kind: &str) -> &'stati
 }
 
 pub fn resolve_agent_mode_llm(settings: &ModelSettings, agent_id: &str) -> Option<AgentModelRef> {
+    if let Some(cfg) = resolve_agent_mode_llm_config(settings, agent_id) {
+        return Some(tier_cfg_to_ref(cfg));
+    }
+    settings.agent_default_models.get(agent_id.trim()).cloned()
+}
+
+pub fn resolve_agent_mode_llm_config<'a>(
+    settings: &'a ModelSettings,
+    agent_id: &str,
+) -> Option<&'a ComputerTierLlmConfig> {
     if !is_mode_agent(agent_id) {
         return None;
     }
     let key = agent_id.trim();
     let mode = agent_performance_mode(settings, key);
-    if let Some(r) = lookup_mode_llm(&settings.agent_mode_llm, key, mode) {
-        return Some(r);
+    let inner = settings.agent_mode_llm.get(key)?;
+    let cfg = inner.get(mode)?;
+    if cfg.model.trim().is_empty() {
+        return None;
     }
-    settings.agent_default_models.get(key).cloned()
+    Some(cfg)
 }
 
 pub fn resolve_media_mode_llm(settings: &ModelSettings, kind: &str) -> AgentModelRef {
@@ -114,6 +126,8 @@ mod tests {
                 model: model.into(),
                 enable_thinking: true,
                 thinking_budget: Some(2048),
+                reasoning_effort: None,
+                thinking_intensity: None,
             },
         );
         let mut outer = HashMap::new();

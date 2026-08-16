@@ -40,6 +40,20 @@ pub struct ModelRuntimeOverrides {
         rename = "reasoningEffort"
     )]
     pub reasoning_effort: Option<String>,
+    /// Thinking wire protocol / strategy id (`budget` | `effort` | `openrouter` | …).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingProtocol"
+    )]
+    pub thinking_protocol: Option<String>,
+    /// Unified product thinking intensity: `off` | `low` | `medium` | `high` | `max`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingIntensity"
+    )]
+    pub thinking_intensity: Option<String>,
     /// Whether the model accepts vision / image understanding input.
     #[serde(
         default,
@@ -112,6 +126,20 @@ pub struct ProviderConfig {
         rename = "reasoningEffort"
     )]
     pub reasoning_effort: Option<String>,
+    /// Thinking wire protocol / strategy id (`budget` | `effort` | `openrouter` | …).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingProtocol"
+    )]
+    pub thinking_protocol: Option<String>,
+    /// Unified product thinking intensity: `off` | `low` | `medium` | `high` | `max`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingIntensity"
+    )]
+    pub thinking_intensity: Option<String>,
     /// Hermes-style free-form chat/completions fields for all models under this provider
     /// (per-model `extraBody` overlays). Flattened to request root on wire.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
@@ -485,41 +513,11 @@ fn normalize_reasoning_effort(s: &str) -> Option<String> {
     }
 }
 
-fn effective_enable_thinking(
-    provider: &ProviderConfig,
-    model_over: Option<&ModelRuntimeOverrides>,
-) -> Option<bool> {
-    model_over
-        .and_then(|o| o.enable_thinking)
-        .or(provider.enable_thinking)
-}
-
-fn effective_thinking_budget(
-    provider: &ProviderConfig,
-    model_over: Option<&ModelRuntimeOverrides>,
-) -> u32 {
-    model_over
-        .and_then(|o| o.thinking_budget)
-        .or(provider.thinking_budget)
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_THINKING_BUDGET)
-}
-
-fn effective_reasoning_effort(
-    provider: &ProviderConfig,
-    model_over: Option<&ModelRuntimeOverrides>,
-) -> Option<String> {
-    model_over
-        .and_then(|o| o.reasoning_effort.as_deref())
-        .or(provider.reasoning_effort.as_deref())
-        .and_then(|s| normalize_reasoning_effort(s))
-}
-
 /// Extension fields for **active** provider + **current** `settings.model` (per-model overrides win).
 ///
 /// Merge order (later wins): provider `extraBody` → model `extraBody` → structured
-/// UI fields (`enable_thinking` / `thinking_budget` / `reasoning_effort`). Aligned with
-/// Hermes `custom_providers[].extra_body` + OpenAI SDK root-level merge.
+/// thinking strategy fields. Aligned with Hermes `custom_providers[].extra_body`
+/// + OpenAI SDK root-level merge.
 pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
     let (provider, model) = active_provider_and_model(settings)?;
     let model_over = provider.model_configs.get(model);
@@ -532,7 +530,9 @@ pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
         Some(_) => Map::new(),
         None => Map::new(),
     };
-    fill_structured_chat_extra_fields(settings, provider, model_over, &mut m);
+    crate::thinking_strategy::apply_thinking_strategy(
+        settings, provider, model, model_over, &mut m,
+    );
     if m.is_empty() {
         None
     } else {
@@ -540,34 +540,14 @@ pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
     }
 }
 
-fn fill_structured_chat_extra_fields(
-    settings: &ModelSettings,
-    provider: &ProviderConfig,
-    model_over: Option<&ModelRuntimeOverrides>,
-    m: &mut Map<String, Value>,
-) {
-    if provider_uses_dashscope_compatible_api(provider) {
-        let enable = settings
-            .round_enable_thinking
-            .or_else(|| effective_enable_thinking(provider, model_over));
-        if let Some(enable) = enable {
-            m.insert("enable_thinking".into(), Value::Bool(enable));
-            if enable {
-                let budget = settings
-                    .round_thinking_budget
-                    .unwrap_or_else(|| effective_thinking_budget(provider, model_over));
-                m.insert("thinking_budget".into(), Value::Number(budget.into()));
-            } else {
-                m.remove("thinking_budget");
-            }
-        }
-    }
+/// Force thinking **off** via the active provider thinking strategy.
+pub fn apply_thinking_disabled_to_extra_body(settings: &ModelSettings, extra: &mut Option<Value>) {
+    crate::thinking_strategy::apply_thinking_disabled_strategy(settings, extra);
+}
 
-    if provider_uses_deepseek_api(provider) {
-        if let Some(effort) = effective_reasoning_effort(provider, model_over) {
-            m.insert("reasoning_effort".into(), Value::String(effort));
-        }
-    }
+/// Whether structured wire helpers should treat thinking as currently enabled.
+pub fn thinking_enabled_in_extra_body(extra: Option<&Value>) -> bool {
+    crate::thinking_strategy::thinking_enabled_in_extra_body(extra)
 }
 
 /// Absorb legacy `extraBody` JSON and `thinkingEnabled` / `thinkingBudget` into structured fields.
@@ -928,6 +908,10 @@ pub struct ModelSettings {
     pub round_enable_thinking: Option<bool>,
     #[serde(skip)]
     pub round_thinking_budget: Option<u32>,
+    #[serde(skip)]
+    pub round_reasoning_effort: Option<String>,
+    #[serde(skip)]
+    pub round_thinking_intensity: Option<String>,
 }
 
 macro_rules! build_cfg_str {
@@ -1304,6 +1288,8 @@ impl Default for ModelSettings {
             parallel_tool_execution_enabled: true,
             round_enable_thinking: None,
             round_thinking_budget: None,
+            round_reasoning_effort: None,
+            round_thinking_intensity: None,
         }
     }
 }
@@ -1778,10 +1764,26 @@ pub struct ComputerTierLlmConfig {
     #[serde(rename = "providerId")]
     pub provider_id: String,
     pub model: String,
-    #[serde(default, rename = "enableThinking")]
+    #[serde(default = "default_tier_enable_thinking", rename = "enableThinking")]
     pub enable_thinking: bool,
     #[serde(default, rename = "thinkingBudget")]
     pub thinking_budget: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "reasoningEffort"
+    )]
+    pub reasoning_effort: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thinkingIntensity"
+    )]
+    pub thinking_intensity: Option<String>,
+}
+
+fn default_tier_enable_thinking() -> bool {
+    true
 }
 
 /// Per-phase model ids and thinking budgets for host verify pipeline.
@@ -1978,6 +1980,8 @@ pub(crate) fn sample_settings() -> ModelSettings {
         enable_thinking: Some(true),
         thinking_budget: Some(2048),
         reasoning_effort: None,
+        thinking_protocol: None,
+        thinking_intensity: None,
         extra_body: None,
         source: Some("platform".into()),
     });
@@ -1994,6 +1998,8 @@ pub(crate) fn sample_settings() -> ModelSettings {
         enable_thinking: None,
         thinking_budget: None,
         reasoning_effort: None,
+        thinking_protocol: None,
+        thinking_intensity: None,
         extra_body: None,
         source: Some("platform".into()),
     });
@@ -2392,6 +2398,8 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         parallel_tool_execution_enabled: user.parallel_tool_execution_enabled,
         round_enable_thinking: None,
         round_thinking_budget: None,
+        round_reasoning_effort: None,
+        round_thinking_intensity: None,
     };
     apply_platform_tier_defaults(&mut settings, &platform.tier_defaults, &platform.providers);
     settings
@@ -2527,19 +2535,27 @@ fn tier_cfg_from_json(
     let ref_val = agent_ref_from_json(v)?;
     let mut enable_thinking: Option<bool> = None;
     let mut thinking_budget: Option<u32> = None;
+    let mut reasoning_effort: Option<String> = None;
+    let mut thinking_intensity: Option<String> = None;
     if let Some(p) = providers.iter().find(|p| p.id == ref_val.provider_id) {
         if let Some(m) = p.model_configs.get(&ref_val.model) {
             enable_thinking = m.enable_thinking.or(enable_thinking);
             thinking_budget = m.thinking_budget.or(thinking_budget);
+            reasoning_effort = m.reasoning_effort.clone().or(reasoning_effort);
+            thinking_intensity = m.thinking_intensity.clone().or(thinking_intensity);
         }
         enable_thinking = enable_thinking.or(p.enable_thinking);
         thinking_budget = thinking_budget.or(p.thinking_budget);
+        reasoning_effort = reasoning_effort.or(p.reasoning_effort.clone());
+        thinking_intensity = thinking_intensity.or(p.thinking_intensity.clone());
     }
     Some(ComputerTierLlmConfig {
         provider_id: ref_val.provider_id,
         model: ref_val.model,
         enable_thinking: enable_thinking.unwrap_or(true),
         thinking_budget,
+        reasoning_effort,
+        thinking_intensity,
     })
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2689,6 +2705,8 @@ mod user_settings_defaults_tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: None,
             source: Some("user".into()),
         });
@@ -2705,6 +2723,8 @@ mod user_settings_defaults_tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: None,
             source: Some("user".into()),
         });
@@ -2731,6 +2751,8 @@ mod user_settings_defaults_tests {
                     model: "qwen3.5-flash".into(),
                     enable_thinking: true,
                     thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
                 },
             )]
             .into_iter()
@@ -2778,6 +2800,8 @@ mod user_settings_defaults_tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: None,
             source: Some("user".into()),
         });
@@ -2832,6 +2856,8 @@ mod user_settings_defaults_tests {
                     model: "session-worker".into(),
                     enable_thinking: true,
                     thinking_budget: Some(2048),
+                    reasoning_effort: None,
+                    thinking_intensity: None,
                 },
             )]
             .into_iter()
@@ -2846,6 +2872,8 @@ mod user_settings_defaults_tests {
                     model: "session-worker".into(),
                     enable_thinking: true,
                     thinking_budget: Some(2048),
+                    reasoning_effort: None,
+                    thinking_intensity: None,
                 },
             )]
             .into_iter()
@@ -2858,6 +2886,8 @@ mod user_settings_defaults_tests {
                 model: "session-worker".into(),
                 enable_thinking: true,
                 thinking_budget: Some(2048),
+                reasoning_effort: None,
+                thinking_intensity: None,
             },
         );
         user.computer_pipeline_llm = ComputerPipelineLlmSettings {
@@ -2912,6 +2942,8 @@ mod user_settings_defaults_tests {
                         model: "inclusionai/ling-3.0-flash".into(),
                         enable_thinking: true,
                         thinking_budget: Some(2048),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
                     },
                 ),
                 (
@@ -2921,6 +2953,8 @@ mod user_settings_defaults_tests {
                         model: "session-worker".into(),
                         enable_thinking: true,
                         thinking_budget: Some(2048),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
                     },
                 ),
             ]
@@ -2936,6 +2970,8 @@ mod user_settings_defaults_tests {
                     model: "qwen3.6-plus".into(),
                     enable_thinking: true,
                     thinking_budget: Some(8192),
+                    reasoning_effort: None,
+                    thinking_intensity: None,
                 },
             )]
             .into_iter()
@@ -2948,6 +2984,8 @@ mod user_settings_defaults_tests {
                 model: "qwen3.7-max".into(),
                 enable_thinking: true,
                 thinking_budget: Some(8192),
+                reasoning_effort: None,
+                thinking_intensity: None,
             },
         );
 
@@ -3002,6 +3040,8 @@ mod user_settings_defaults_tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: None,
             source: Some("platform".into()),
         });
@@ -3189,6 +3229,49 @@ mod effective_extra_body_tests {
             v.get("reasoning_effort"),
             Some(&Value::String("max".into()))
         );
+        assert!(v.get("thinking").is_none());
+        assert!(v.get("output_config").is_none());
+    }
+
+    #[test]
+    fn deepseek_thinking_disabled_omits_effort() {
+        let mut s = sample_settings();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-v4-flash".into();
+        s.providers[1].enable_thinking = Some(false);
+        s.providers[1].reasoning_effort = Some("high".into());
+        assert!(effective_chat_extra_body(&s).is_none());
+    }
+
+    #[test]
+    fn apply_thinking_disabled_budget_forces_enable_false() {
+        let mut s = sample_settings();
+        s.model = s.providers[0].models[0].clone();
+        s.providers[0].enable_thinking = Some(true);
+        s.providers[0].thinking_budget = Some(2048);
+        let mut extra = effective_chat_extra_body(&s);
+        apply_thinking_disabled_to_extra_body(&s, &mut extra);
+        let o = extra.as_ref().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(o.get("enable_thinking"), Some(&Value::Bool(false)));
+        assert!(o.get("thinking_budget").is_none());
+    }
+
+    #[test]
+    fn apply_thinking_disabled_effort_sets_thinking_disabled() {
+        let mut s = sample_settings();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-v4-flash".into();
+        s.providers[1].reasoning_effort = Some("max".into());
+        let mut extra = effective_chat_extra_body(&s);
+        assert_eq!(
+            extra.as_ref().and_then(|v| v.get("reasoning_effort")),
+            Some(&Value::String("max".into()))
+        );
+        apply_thinking_disabled_to_extra_body(&s, &mut extra);
+        let o = extra.as_ref();
+        assert!(o.and_then(|v| v.get("reasoning_effort")).is_none());
+        assert!(o.and_then(|v| v.get("thinking")).is_none());
+        assert!(!thinking_enabled_in_extra_body(o));
     }
 
     #[test]
@@ -3362,6 +3445,8 @@ mod effective_extra_body_tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: Some(serde_json::json!({
                 "repetition_penalty": 1.1,
                 "top_p": 0.8
@@ -3407,6 +3492,8 @@ mod effective_extra_body_tests {
                     model: "session-model".into(),
                     enable_thinking: true,
                     thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
                 },
             )]
             .into_iter()

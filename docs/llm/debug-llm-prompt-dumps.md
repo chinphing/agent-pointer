@@ -18,6 +18,8 @@
 
 实现见 `crates/pointer-core/src/llm_prompt_dump.rs`（`try_log_openai_chat_request_json`），在 `provider.rs` 的 `chat_once` / `stream_chat` 中调用。
 
+默认 **info** 不打思考字段。打开 **debug** 后，在 `POST …/chat/completions` 之前有一条 `openai_compat_request`：已展平到根级的最终请求体（含 `max_tokens`、`enable_thinking` / `reasoning_effort` 等），`messages` / `tools` 只记条数，无 API Key。
+
 ## 未纳入上下文的消息（仅调试）
 
 开启「保存每轮对话请求」或 `POINTER_DEBUG_LLM_PROMPTS=1` 时，每轮 LLM 请求前会额外打 **info** 日志 `context_excluded_messages`：列出本会话中 `contextState.included=false` 的消息（`id`、`role`、`excludedReason`、内容预览）。界面不展示该标记。

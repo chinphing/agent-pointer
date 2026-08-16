@@ -85,6 +85,8 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             source: Some("platform".into()),
             extra_body: None,
         }];

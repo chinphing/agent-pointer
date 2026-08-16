@@ -1223,6 +1223,8 @@ mod active_main_task_board_tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: None,
             source: source.map(str::to_string),
         }

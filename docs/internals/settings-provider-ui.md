@@ -46,6 +46,17 @@
 - **电脑操控档位 / Verify**：调试下拉使用全部已配置服务商的 `allModels`（值为 `providerId:model`），写入 `providerId` + `model`；运行时 `apply_round_settings` / `apply_pipeline_phase_settings` 会同时切换 `activeProviderId` 与 `model`。
 - **API Key 回退**：主会话 / 子 Agent 按模式解析出的 Provider **没有可用 API Key**，但当前活跃 Provider 有 Key 时，自动回退到活跃 Provider；模型优先用原活跃模型，若不在该 Provider 的 `models` 列表中则改用列表首项（打 warn 日志）。有 Key 时仍优先用模式映射，不静默改道。
 
+## 思考强度协议
+
+- 产品界面只暴露「思考强度」（`off|low|medium|high|max` / 不设置）。
+- 不在设置里展示思考协议、深度思考开关、思考预算或厂商力度。
+- 线路字段由客户端按服务商自动翻译：千问→预算，DeepSeek→`reasoning_effort`，
+  OpenRouter→`reasoning`，智谱/自定义 OpenAI 兼容→顶层 `reasoning_effort`。
+  平台目录只下发强度，不下发协议。
+- 场景三档映射同样只选强度。
+- Agent 模式映射写入的思考参数会在 `apply_agent_model_defaults` 时落到本轮
+  `round_*` 覆盖（含 `round_thinking_intensity`），再由策略翻译到请求体。
+
 ## 保存后界面「空白」
 
 编辑区由 `v-if="editingProvider"` 控制。`saveProvider` 成功后**不要**把 `editingProvider` 设为 `null`，否则编辑表单消失，用户会以为配置页坏了。应使用 store 中规范化后的条目调用 `startEditProvider` 重新打开。

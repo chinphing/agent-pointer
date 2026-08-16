@@ -248,6 +248,8 @@ pub fn apply_login_platform_providers(
                         enable_thinking: m.enable_thinking,
                         thinking_budget: m.thinking_budget,
                         reasoning_effort: m.reasoning_effort.clone(),
+                        thinking_protocol: None,
+                        thinking_intensity: m.thinking_intensity.clone(),
                         supports_vision: m.supports_vision,
                         can_generate_image: m.can_generate_image,
                         can_generate_video: m.can_generate_video,
@@ -266,6 +268,8 @@ pub fn apply_login_platform_providers(
             p.enable_thinking = tpl.enable_thinking;
             p.thinking_budget = tpl.thinking_budget;
             p.reasoning_effort = tpl.reasoning_effort.clone();
+            p.thinking_protocol = None;
+            p.thinking_intensity = tpl.thinking_intensity.clone();
             if tpl.temperature.is_some() {
                 p.temperature = tpl.temperature;
             }
@@ -287,6 +291,8 @@ pub fn apply_login_platform_providers(
                 enable_thinking: tpl.enable_thinking,
                 thinking_budget: tpl.thinking_budget,
                 reasoning_effort: tpl.reasoning_effort.clone(),
+                thinking_protocol: None,
+                thinking_intensity: tpl.thinking_intensity.clone(),
                 extra_body: None,
                 source: Some("platform".into()),
             });
@@ -549,6 +555,8 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: None,
             source: Some("user".into()),
         }];

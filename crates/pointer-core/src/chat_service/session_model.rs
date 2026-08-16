@@ -1,5 +1,5 @@
 use crate::agents::{AGENT_MODE_SUPERVISOR, DEFAULT_LEAD_AGENT_ID, SUPERVISOR_AGENT_ID};
-use crate::mode_llm::resolve_agent_mode_llm;
+use crate::mode_llm::resolve_agent_mode_llm_config;
 use crate::models::ModelSettings;
 use crate::provider::OpenAIProvider;
 
@@ -10,7 +10,31 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
     if key.is_empty() {
         return false;
     }
-    if let Some(pref) = resolve_agent_mode_llm(settings, key) {
+    if let Some(cfg) = resolve_agent_mode_llm_config(settings, key) {
+        let provider_id = cfg.provider_id.trim().to_string();
+        let model = cfg.model.trim().to_string();
+        let enable_thinking = cfg.enable_thinking;
+        let thinking_budget = cfg.thinking_budget;
+        let reasoning_effort = cfg.reasoning_effort.clone();
+        let thinking_intensity = cfg.thinking_intensity.clone();
+        let mut applied = false;
+        if !provider_id.is_empty() {
+            settings.active_provider_id = provider_id;
+            applied = true;
+        }
+        if !model.is_empty() {
+            settings.model = model;
+            applied = true;
+        }
+        if applied {
+            settings.round_enable_thinking = Some(enable_thinking);
+            settings.round_thinking_budget = thinking_budget;
+            settings.round_reasoning_effort = reasoning_effort;
+            settings.round_thinking_intensity = thinking_intensity;
+            return true;
+        }
+    }
+    if let Some(pref) = settings.agent_default_models.get(key).cloned() {
         let mut applied = false;
         if !pref.provider_id.trim().is_empty() {
             settings.active_provider_id = pref.provider_id.trim().to_string();
@@ -20,23 +44,9 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
             settings.model = pref.model.trim().to_string();
             applied = true;
         }
-        if applied {
-            return true;
-        }
+        return applied;
     }
-    let Some(pref) = settings.agent_default_models.get(key) else {
-        return false;
-    };
-    let mut applied = false;
-    if !pref.provider_id.trim().is_empty() {
-        settings.active_provider_id = pref.provider_id.trim().to_string();
-        applied = true;
-    }
-    if !pref.model.trim().is_empty() {
-        settings.model = pref.model.trim().to_string();
-        applied = true;
-    }
-    applied
+    false
 }
 
 fn provider_has_api_key(settings: &ModelSettings, provider_id: &str) -> bool {
@@ -266,6 +276,8 @@ mod tests {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                    thinking_protocol: None,
+                    thinking_intensity: None,
                     extra_body: None,
                     source: None,
                 },
@@ -282,6 +294,8 @@ mod tests {
                     enable_thinking: None,
                     thinking_budget: None,
                     reasoning_effort: None,
+                    thinking_protocol: None,
+                    thinking_intensity: None,
                     extra_body: None,
                     source: None,
                 },
@@ -330,6 +344,8 @@ mod tests {
                     model: "deepseek-v4-flash".into(),
                     enable_thinking: true,
                     thinking_budget: Some(2048),
+                    reasoning_effort: None,
+                    thinking_intensity: None,
                 },
             )]
             .into_iter()
@@ -395,6 +411,8 @@ mod tests {
                     model: "deepseek-v4-flash".into(),
                     enable_thinking: true,
                     thinking_budget: Some(2048),
+                    reasoning_effort: None,
+                    thinking_intensity: None,
                 },
             )]
             .into_iter()
@@ -413,6 +431,8 @@ mod tests {
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
             extra_body: None,
             source: None,
         });
@@ -505,6 +525,8 @@ mod tests {
                         model: "qwen-fast".into(),
                         enable_thinking: true,
                         thinking_budget: Some(1024),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
                     },
                 ),
                 (
@@ -514,6 +536,8 @@ mod tests {
                         model: "qwen-expert".into(),
                         enable_thinking: true,
                         thinking_budget: Some(4096),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
                     },
                 ),
             ]

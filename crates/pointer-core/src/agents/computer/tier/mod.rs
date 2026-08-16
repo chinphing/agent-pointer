@@ -1058,6 +1058,8 @@ pub struct ComputerRoundLlmOverrides {
     pub model: String,
     pub enable_thinking: bool,
     pub thinking_budget: Option<u32>,
+    pub reasoning_effort: Option<String>,
+    pub thinking_intensity: Option<String>,
 }
 
 impl ComputerRoundLlmOverrides {
@@ -1074,6 +1076,8 @@ impl ComputerRoundLlmOverrides {
                 model: t.model.clone(),
                 enable_thinking: t.enable_thinking,
                 thinking_budget: t.thinking_budget,
+                reasoning_effort: t.reasoning_effort.clone(),
+                thinking_intensity: t.thinking_intensity.clone(),
             };
         }
         match tier {
@@ -1082,18 +1086,24 @@ impl ComputerRoundLlmOverrides {
                 model: config.model_primary.clone(),
                 enable_thinking: true,
                 thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
+                reasoning_effort: None,
+                thinking_intensity: None,
             },
             ComputerTier::Intermediate => Self {
                 provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
                 model: config.model_intermediate.clone(),
                 enable_thinking: true,
                 thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
+                reasoning_effort: None,
+                thinking_intensity: None,
             },
             ComputerTier::Advanced => Self {
                 provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
                 model: config.model_advanced.clone(),
                 enable_thinking: true,
                 thinking_budget: Some(ADVANCED_THINKING_BUDGET),
+                reasoning_effort: None,
+                thinking_intensity: None,
             },
         }
     }

@@ -7,6 +7,11 @@ import { useSettingsStore } from '../../../stores/settings'
 import { useSkillsStore } from '../../../stores/skills'
 import { Bot, RotateCcw, Sparkles, Users } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
+import {
+  THINKING_INTENSITY_OPTIONS,
+  patchTierThinkingIntensity,
+  tierThinkingIntensityValue
+} from '../../../lib/thinkingIntensity'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -192,24 +197,17 @@ function skillLabel(skillId: string): string {
                         >
                           <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
-                        <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            class="rounded border-border bg-[hsl(var(--card-elevated))]"
-                            :checked="agentModeLlm(w.id, mode.value).enableThinking !== false"
-                            @change="patchAgentModeLlm(w.id, mode.value, { enableThinking: ($event.target as HTMLInputElement).checked })"
-                          />
-                          思考
-                        </label>
-                        <input
-                          type="number"
-                          min="256"
-                          step="256"
-                          class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                          :value="agentModeLlm(w.id, mode.value).thinkingBudget ?? 2048"
-                          :disabled="agentModeLlm(w.id, mode.value).enableThinking === false"
-                          @change="patchAgentModeLlm(w.id, mode.value, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
-                        />
+                        <select
+                          class="h-8 col-span-2 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                          :value="tierThinkingIntensityValue(agentModeLlm(w.id, mode.value))"
+                          @change="patchAgentModeLlm(w.id, mode.value, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
+                        >
+                          <option
+                            v-for="opt in THINKING_INTENSITY_OPTIONS"
+                            :key="opt.value || 'unset'"
+                            :value="opt.value"
+                          >{{ opt.label }}</option>
+                        </select>
                       </div>
                     </div>
 
@@ -234,24 +232,17 @@ function skillLabel(skillId: string): string {
                         >
                           <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
-                        <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            class="rounded border-border bg-[hsl(var(--card-elevated))]"
-                            :checked="computerTierLlm(tier.key).enableThinking !== false"
-                            @change="patchComputerTierLlm(tier.key, { enableThinking: ($event.target as HTMLInputElement).checked })"
-                          />
-                          思考
-                        </label>
-                        <input
-                          type="number"
-                          min="256"
-                          step="256"
-                          class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                          :value="computerTierLlm(tier.key).thinkingBudget ?? 2048"
-                          :disabled="computerTierLlm(tier.key).enableThinking === false"
-                          @change="patchComputerTierLlm(tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
-                        />
+                        <select
+                          class="h-8 col-span-2 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                          :value="tierThinkingIntensityValue(computerTierLlm(tier.key))"
+                          @change="patchComputerTierLlm(tier.key, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
+                        >
+                          <option
+                            v-for="opt in THINKING_INTENSITY_OPTIONS"
+                            :key="opt.value || 'unset'"
+                            :value="opt.value"
+                          >{{ opt.label }}</option>
+                        </select>
                       </div>
                       <div class="border-t border-border pt-3 space-y-2">
                         <div class="flex items-center justify-between gap-2 px-2">
@@ -307,24 +298,17 @@ function skillLabel(skillId: string): string {
                     >
                       <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                     </select>
-                    <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        class="rounded border-border bg-[hsl(var(--card-elevated))]"
-                        :checked="mediaModeLlm(kind, mode.value).enableThinking !== false"
-                        @change="patchMediaModeLlm(kind, mode.value, { enableThinking: ($event.target as HTMLInputElement).checked })"
-                      />
-                      思考
-                    </label>
-                    <input
-                      type="number"
-                      min="256"
-                      step="256"
-                      class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                      :value="mediaModeLlm(kind, mode.value).thinkingBudget ?? 2048"
-                      :disabled="mediaModeLlm(kind, mode.value).enableThinking === false"
-                      @change="patchMediaModeLlm(kind, mode.value, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
-                    />
+                    <select
+                      class="h-8 col-span-2 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                      :value="tierThinkingIntensityValue(mediaModeLlm(kind, mode.value))"
+                      @change="patchMediaModeLlm(kind, mode.value, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
+                    >
+                      <option
+                        v-for="opt in THINKING_INTENSITY_OPTIONS"
+                        :key="opt.value || 'unset'"
+                        :value="opt.value"
+                      >{{ opt.label }}</option>
+                    </select>
                   </div>
                 </div>
               </div>

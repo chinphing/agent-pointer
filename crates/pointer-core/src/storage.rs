@@ -324,6 +324,10 @@ struct StoredModelOverrides {
     thinking_budget: Option<u32>,
     #[serde(default, rename = "reasoningEffort")]
     reasoning_effort: Option<String>,
+    #[serde(default, rename = "thinkingProtocol")]
+    thinking_protocol: Option<String>,
+    #[serde(default, rename = "thinkingIntensity")]
+    thinking_intensity: Option<String>,
     /// Legacy; absorbed on load, not written back.
     #[serde(default, rename = "extraBody")]
     extra_body: Option<serde_json::Value>,
@@ -353,6 +357,10 @@ struct StoredProvider {
     thinking_budget: Option<u32>,
     #[serde(default, rename = "reasoningEffort")]
     reasoning_effort: Option<String>,
+    #[serde(default, rename = "thinkingProtocol")]
+    thinking_protocol: Option<String>,
+    #[serde(default, rename = "thinkingIntensity")]
+    thinking_intensity: Option<String>,
     /// Legacy; absorbed on load, not written back.
     #[serde(default, rename = "extraBody")]
     extra_body: Option<serde_json::Value>,
@@ -669,7 +677,7 @@ fn leftover_extra_body(extra: Option<&serde_json::Value>) -> Option<serde_json::
     for (k, v) in map {
         if matches!(
             k.as_str(),
-            "enable_thinking" | "thinking_budget" | "reasoning_effort"
+            "enable_thinking" | "thinking_budget" | "reasoning_effort" | "thinking"
         ) {
             continue;
         }
@@ -701,6 +709,8 @@ fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOv
         enable_thinking,
         thinking_budget,
         reasoning_effort,
+        thinking_protocol: v.thinking_protocol.clone(),
+        thinking_intensity: v.thinking_intensity.clone(),
         supports_vision: None,
         can_generate_image: None,
         can_generate_video: None,
@@ -740,6 +750,8 @@ fn stored_provider_to_platform(
         enable_thinking,
         thinking_budget,
         reasoning_effort,
+        thinking_protocol: p.thinking_protocol.clone(),
+        thinking_intensity: p.thinking_intensity.clone(),
         extra_body: leftover_extra_body(p.extra_body.as_ref()),
         source: Some("user".into()),
     }
@@ -913,6 +925,8 @@ impl Default for StoredSettings {
                                     enable_thinking: v.enable_thinking,
                                     thinking_budget: v.thinking_budget,
                                     reasoning_effort: v.reasoning_effort.clone(),
+                                    thinking_protocol: v.thinking_protocol.clone(),
+                                    thinking_intensity: v.thinking_intensity.clone(),
                                     extra_body: v.extra_body.clone(),
                                     thinking_enabled: None,
                                 },
@@ -922,6 +936,8 @@ impl Default for StoredSettings {
                     enable_thinking: p.enable_thinking,
                     thinking_budget: p.thinking_budget,
                     reasoning_effort: p.reasoning_effort.clone(),
+                    thinking_protocol: p.thinking_protocol.clone(),
+                    thinking_intensity: p.thinking_intensity.clone(),
                     extra_body: p.extra_body.clone(),
                     thinking_enabled: None,
                 })

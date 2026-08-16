@@ -66,6 +66,8 @@ summary_max_tokens = clamp(
 ```
 
 - 使用 `chat_once_without_thinking`。
+- 关思考走与主对话相同的协议翻译：千问 `enable_thinking=false`，
+  DeepSeek 去掉 `reasoning_effort`（不写 `thinking.type`）。
 - 验收失败则直接走 drop handoff，不再放大预算重试。
 
 ## 摘要验收与失败语义

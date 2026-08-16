@@ -123,7 +123,37 @@ struct ChatRequest<'a> {
 
 fn chat_request_wire_json(req: &ChatRequest<'_>, settings: &ModelSettings) -> Value {
     let body = serde_json::to_value(req).expect("ChatRequest serializes");
-    crate::models::flatten_chat_extra_body_on_wire(body, settings)
+    let wire = crate::models::flatten_chat_extra_body_on_wire(body, settings);
+    log_openai_compat_wire_debug(&wire);
+    wire
+}
+
+/// Final OpenAI-compatible body after strategy flatten (no messages / tools / keys).
+fn log_openai_compat_wire_debug(wire: &Value) {
+    if !log::log_enabled!(log::Level::Debug) {
+        return;
+    }
+    let Some(obj) = wire.as_object() else {
+        log::debug!("openai_compat_request {wire}");
+        return;
+    };
+    let mut out = serde_json::Map::new();
+    for (k, v) in obj {
+        match k.as_str() {
+            "messages" => {
+                let n = v.as_array().map(|a| a.len()).unwrap_or(0);
+                out.insert(k.clone(), json!({ "omitted": n }));
+            }
+            "tools" => {
+                let n = v.as_array().map(|a| a.len()).unwrap_or(0);
+                out.insert(k.clone(), json!({ "omitted": n }));
+            }
+            _ => {
+                out.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    log::debug!("openai_compat_request {}", Value::Object(out));
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -473,12 +503,7 @@ impl OpenAIProvider {
             max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let mut extra_body = crate::models::effective_chat_extra_body(&self.settings);
         if disable_thinking {
-            if let Some(Value::Object(body)) = extra_body.as_mut() {
-                if body.contains_key("enable_thinking") {
-                    body.insert("enable_thinking".into(), Value::Bool(false));
-                    body.remove("thinking_budget");
-                }
-            }
+            crate::models::apply_thinking_disabled_to_extra_body(&self.settings, &mut extra_body);
         }
         // Build wire in a scope so `openai_msgs` / ChatRequest drop before the HTTP round-trip.
         let (url, wire_body) = {
@@ -763,9 +788,9 @@ impl OpenAIProvider {
             log::warn!(
                 "chat_once_wire_schema: response_format present — disabling thinking for structured output dump_label={dump_label:?}"
             );
-            if let Some(obj) = extra_body.as_object_mut() {
-                obj.insert("enable_thinking".into(), Value::Bool(false));
-            }
+            let mut disabled = Some(extra_body);
+            crate::models::apply_thinking_disabled_to_extra_body(&self.settings, &mut disabled);
+            extra_body = disabled.unwrap_or_else(|| json!({}));
         }
         let req = ChatRequest {
             model: &self.settings.model,
@@ -1582,9 +1607,9 @@ fn stream_include_usage_enabled() -> bool {
 }
 
 fn thinking_enabled_for_wire_request(settings: &ModelSettings) -> bool {
-    crate::models::effective_chat_extra_body(settings)
-        .and_then(|eb| eb.get("enable_thinking").and_then(|v| v.as_bool()))
-        .unwrap_or(false)
+    crate::models::thinking_enabled_in_extra_body(
+        crate::models::effective_chat_extra_body(settings).as_ref(),
+    )
 }
 
 fn snapshot_from_stream_usage(u: &StreamUsage) -> LlmUsageSnapshot {

@@ -79,6 +79,10 @@ describe('settings debug-session save', () => {
 
   it('recomputes hasKey from the applied active provider', async () => {
     const store = useSettingsStore()
+    store.settings.providers = [
+      { id: 'qwen', name: '千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: 'sk-test', models: ['qwen3.5-plus'], modelConfigs: {} }
+    ]
+    store.settings.activeProviderId = 'qwen'
     const snapshot = store.createDebugSessionSnapshot()
     snapshot.providers[0].apiKey = '****'
     updateDebugSessionSettings.mockResolvedValue(snapshot)
@@ -90,6 +94,10 @@ describe('settings debug-session save', () => {
 
   it('syncs backfilled provider keys from the saved effective view', async () => {
     const store = useSettingsStore()
+    store.settings.providers = [
+      { id: 'qwen', name: '千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: 'sk-test', models: ['qwen3.5-plus'], modelConfigs: {} }
+    ]
+    store.settings.activeProviderId = 'qwen'
     // 模拟编辑保存：本地 merged 视图里该 provider 的 key 已被置空。
     const target = store.settings.providers[0].id
     store.settings.providers = store.settings.providers.map(p => ({
@@ -124,18 +132,16 @@ describe('settings debug-session save', () => {
     expect(store.settings.hasKey).toBe(true)
   })
 
-  it('uses the Rust-aligned qwen3.5-flash Computer Primary default', () => {
+  it('has no local Computer Primary default (platform tier defaults)', () => {
     const store = useSettingsStore()
-
-    expect(store.settings.computerTierLlm?.primary).toMatchObject({
-      providerId: 'qwen',
-      model: 'qwen3.5-flash',
-      thinkingBudget: 2048
-    })
+    expect(store.settings.computerTierLlm?.primary).toBeUndefined()
   })
 
   it('selects a valid model when removing the active provider', () => {
     const store = useSettingsStore()
+    store.settings.providers = [
+      { id: 'qwen', name: '千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: '', models: ['qwen3.5-plus', 'qwen3.5-flash'], modelConfigs: {} }
+    ]
     store.settings.activeProviderId = 'qwen'
     store.settings.model = 'qwen3.5-plus'
 
@@ -170,6 +176,10 @@ describe('settings debug-session save', () => {
 
   it('keeps the active provider when no replacement model exists', () => {
     const store = useSettingsStore()
+    store.settings.providers = [
+      { id: 'qwen', name: '千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: '', models: ['qwen3.5-plus'], modelConfigs: {} }
+    ]
+    store.settings.activeProviderId = 'qwen'
     const activeId = store.settings.activeProviderId
     store.settings.providers = store.settings.providers.filter(
       provider => provider.id === activeId

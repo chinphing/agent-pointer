@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import type { AppendedMessageRow } from './api'
 import type {
   AgentDef,
   AgentMode,
@@ -11,6 +12,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  PerformanceMode,
   Project,
   ProjectCreationResult,
   ProjectCursor,
@@ -49,6 +51,7 @@ export interface SendChatPayload {
   workspaceRoot?: string
   workspaceInheritDisabled?: boolean
   leadAgentId?: string
+  performanceMode?: PerformanceMode
 }
 
 export async function sendChat(payload: SendChatPayload): Promise<string> {
@@ -483,8 +486,8 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 export async function appendConversationMessages(
   conversationId: string,
   messages: ChatMessage[]
-): Promise<number> {
-  return await invoke<number>('append_conversation_messages', { conversationId, messages })
+): Promise<AppendedMessageRow[]> {
+  return await invoke<AppendedMessageRow[]>('append_conversation_messages', { conversationId, messages })
 }
 
 export async function onStream(

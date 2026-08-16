@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  detectProviderTemplateId,
-  isDoubaoProvider,
-  providerDraftForTemplate
-} from './providerParams'
+import { detectProviderTemplateId, isDoubaoProvider } from './providerParams'
 
-const globalDefaults = { temperature: 0.7, maxTokens: 2048 }
-
-describe('platform provider templates', () => {
+describe('platform provider detection', () => {
   it('recognizes doubao id and Ark endpoints as the platform doubao template', () => {
     expect(detectProviderTemplateId({ id: 'doubao', baseUrl: '' })).toBe('doubao')
     expect(
@@ -19,13 +13,9 @@ describe('platform provider templates', () => {
     expect(isDoubaoProvider({ id: 'custom', baseUrl: 'https://api.example.com/v1' })).toBe(false)
   })
 
-  it('creates a valid doubao draft', () => {
-    const draft = providerDraftForTemplate('doubao', globalDefaults)
-    expect(draft).toMatchObject({
-      id: 'doubao',
-      name: '豆包',
-      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3'
-    })
-    expect(draft.models.length).toBeGreaterThan(0)
+  it('falls back to openai_compatible for unknown providers', () => {
+    expect(
+      detectProviderTemplateId({ id: 'custom-llm', baseUrl: 'https://custom.example/v1' })
+    ).toBe('openai_compatible')
   })
 })

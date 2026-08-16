@@ -1,5 +1,4 @@
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
-import { DOUBAO_GENERATION_MODELS } from './modelCapabilities'
 
 /** Default Qwen `thinking_budget` when deep thinking is enabled. */
 export const DEFAULT_THINKING_BUDGET = 2048
@@ -21,46 +20,6 @@ export interface ProviderTemplateMeta {
 }
 
 export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
-  {
-    id: 'qwen',
-    label: '千问',
-    hint: 'DashScope 兼容；可配深度思考、思考预算',
-    defaultId: 'qwen',
-    defaultName: '千问',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    defaultModels: [
-      'qwen3.5-plus',
-      'qwen3.5-27b',
-      'qwen3.5-flash',
-      'qwen3.7-max',
-      'qwen3.7-plus',
-      'qwen3.6-plus',
-      'qwen3.6-27b',
-      'qwen3.6-flash',
-      'wan2.7-image-pro',
-      'qwen-image-2.0-pro',
-      'happyhorse-1.0-t2v',
-      'happyhorse-1.0-i2v'
-    ]
-  },
-  {
-    id: 'deepseek',
-    label: '深度求索',
-    hint: 'DeepSeek API；可配推理力度',
-    defaultId: 'deepseek',
-    defaultName: '深度求索',
-    defaultBaseUrl: 'https://api.deepseek.com/v1',
-    defaultModels: ['deepseek-v4-flash', 'deepseek-v4-pro']
-  },
-  {
-    id: 'doubao',
-    label: '豆包',
-    hint: '火山方舟 API；支持平台图像与视频模型',
-    defaultId: 'doubao',
-    defaultName: '豆包',
-    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    defaultModels: [...DOUBAO_GENERATION_MODELS]
-  },
   {
     id: 'openai_compatible',
     label: 'OpenAI 兼容',

@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
-import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, Plus, ScrollText, Settings, Sparkles, Terminal, Volume2, X } from 'lucide-vue-next'
+import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, Plus, ScrollText, Settings, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -46,7 +46,8 @@ const {
   addTerminalEnvRow,
   removeTerminalEnvRow,
   saveTerminalEnvRows,
-  activeSection
+  activeSection,
+  toolApprovalMode
 } = props.form
 
 const queueSnapshot = ref<RunQueueSnapshot | null>(null)
@@ -629,6 +630,27 @@ async function onPlaySoundToggle(checked: boolean) {
             <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
             <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 工具使用权限 -->
+    <section class="space-y-4" aria-labelledby="system-tool-approval-heading">
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+        <h4 id="system-tool-approval-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
+          <Wrench class="w-4 h-4 text-accent" />工具使用权限
+        </h4>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
+            <input v-model="toolApprovalMode" type="radio" value="auto" class="sr-only" />
+            <span class="block text-sm text-foreground">自动执行</span>
+            <span class="mt-1 block text-[11px] text-muted">AI 使用工具时自动执行，无需确认</span>
+          </label>
+          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
+            <input v-model="toolApprovalMode" type="radio" value="manual" class="sr-only" />
+            <span class="block text-sm text-foreground">敏感操作确认</span>
+            <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
+          </label>
         </div>
       </div>
     </section>

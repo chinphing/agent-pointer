@@ -36,7 +36,9 @@ const platformReadOnly = computed(() => props.form.platformReadOnly.value)
 // 分组：平台注入的 provider（source=platform）或模板内置服务（qwen/deepseek/doubao）
 // 归「平台服务」；其余为「自定义服务」。
 const isPlatformProvider = (provider: ProviderConfig) => {
-  if (provider.source === 'platform') return true
+  // Explicit provenance wins: a user may fork a built-in provider and must keep
+  // editing rights even when its id/base URL still matches a built-in template.
+  if (provider.source) return provider.source === 'platform'
   const template = detectProviderTemplateId(provider)
   return template === 'qwen' || template === 'deepseek' || template === 'doubao'
 }
@@ -253,7 +255,7 @@ function setProviderTemplate(template: ProviderTemplateId) {
 }
 
 function startEditProvider(provider: ProviderConfig) {
-  if (platformReadOnly.value) return
+  if (isPlatformProvider(provider)) return
   const pruned = pruneInheritedModelConfigs(provider, provider.modelConfigs, globalGenFallback)
   const template = detectProviderTemplateId(provider)
   providerTemplate.value = template
@@ -272,7 +274,6 @@ function startEditProvider(provider: ProviderConfig) {
 }
 
 function startAddProvider() {
-  if (platformReadOnly.value) return
   providerTemplate.value = 'openai_compatible'
   const draft = providerDraftForTemplate('openai_compatible', globalGenDefaults())
   editingProvider.value = draft
@@ -375,7 +376,6 @@ function applyProviderSnapshotToStore(
 }
 
 function flushEditingProviderToStore(reopenEdit = false): boolean {
-  if (platformReadOnly.value) return true
   if (!editingProvider.value) return true
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
@@ -386,7 +386,7 @@ function flushEditingProviderToStore(reopenEdit = false): boolean {
 }
 
 async function saveProvider() {
-  if (platformReadOnly.value) return
+  if (editingProvider.value && !showAddProvider.value && isPlatformProvider(editingProvider.value)) return
   providerSaveError.value = ''
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
@@ -424,7 +424,7 @@ async function saveProvider() {
 }
 
 function requestCustomProviderDeletion(provider: ProviderConfig) {
-  if (platformReadOnly.value || isPlatformProvider(provider)) return
+  if (isPlatformProvider(provider)) return
   pendingProviderDeletion.value = provider
 }
 
@@ -440,7 +440,7 @@ async function confirmCustomProviderDeletion() {
 }
 
 async function removeCustomProvider(provider: ProviderConfig) {
-  if (platformReadOnly.value || isPlatformProvider(provider)) return
+  if (isPlatformProvider(provider)) return
 
   const id = provider.id
   const before = {
@@ -500,9 +500,9 @@ defineExpose({
 </script>
 
 <template>
-  <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+  <div class="space-y-4">
     <!-- 自定义服务（上）：自行接入的服务优先展示 -->
-    <section class="space-y-3">
+    <section class="rounded-xl border border-border bg-card p-5 space-y-3">
       <div class="flex items-center justify-between gap-3">
         <div>
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
@@ -511,7 +511,6 @@ defineExpose({
           <p class="mt-1 text-[11px] text-muted">自行接入的 OpenAI 兼容服务</p>
         </div>
         <button
-          v-if="!platformReadOnly"
           type="button"
           class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-accent/10 hover:bg-accent/20 text-[12px] text-accent cursor-pointer transition-colors shrink-0"
           @click="startAddProvider"
@@ -530,18 +529,15 @@ defineExpose({
           <div class="flex items-start gap-3">
             <div class="mt-0.5 w-2 h-2 rounded-full shrink-0" :class="p.apiKey ? 'bg-success' : 'bg-warning'" />
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-foreground">{{ p.name }}</span>
-                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">默认全局服务商</span>
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-sm font-medium text-foreground truncate">{{ p.name }}</span>
+                <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个模型` : '未配置模型' }}</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent shrink-0">默认全局服务商</span>
               </div>
               <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
-              <div class="mt-1 flex items-center gap-3 text-[11px] text-muted">
-                <span>密钥：{{ providerKeyDisplay(p.apiKey) }}</span>
-                <span class="text-border">|</span>
-                <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
-              </div>
+              <p class="mt-1 text-[11px] text-muted">密钥：{{ providerKeyDisplay(p.apiKey) }}</p>
             </div>
-            <div v-if="!platformReadOnly" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 type="button"
                 class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
@@ -576,38 +572,23 @@ defineExpose({
         <div v-if="customProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
           <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
           <p class="text-sm text-muted">暂无自定义模型服务</p>
-          <p v-if="!platformReadOnly" class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
+          <p class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
         </div>
       </div>
     </section>
 
-    <!-- 平台服务（下）：内置服务 -->
-    <section class="space-y-3">
-      <div>
-        <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-          <Cloud class="w-4 h-4 text-accent" />平台服务
-        </h4>
-        <p class="mt-1 text-[11px] text-muted">内置千问 / 深度求索 / 豆包，由平台统一管理</p>
-      </div>
-      <!-- 普通用户：只读简化显示 -->
-      <div v-if="platformReadOnly" class="space-y-1.5">
-        <div v-if="platformProviders.length === 0" class="text-sm text-muted">暂无平台模型服务</div>
-        <div
-          v-for="p in platformProviders"
-          :key="p.id"
-          class="flex items-center gap-2 text-sm"
-        >
-          <span class="text-foreground">{{ p.name }}</span>
-          <span
-            v-if="s.settings.activeProviderId === p.id"
-            class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent"
-          >默认全局服务商</span>
+    <!-- 平台服务（下）：与自定义服务同一套卡片，不可编辑/删除 -->
+    <section class="rounded-xl border border-border bg-card p-5 space-y-3">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+            <Cloud class="w-4 h-4 text-accent" />平台服务
+          </h4>
+          <p class="mt-1 text-[11px] text-muted">登录后由平台下发，统一管理</p>
         </div>
-        <p class="text-[11px] text-muted">由平台统一管理。</p>
+        <span class="shrink-0 px-2 py-0.5 rounded-full bg-muted/50 text-[10px] text-muted font-medium">只读</span>
       </div>
-
-      <!-- 管理员：完整卡片 + 编辑入口 -->
-      <div v-else class="space-y-2">
+      <div class="space-y-2">
         <div
           v-for="p in platformProviders"
           :key="p.id"
@@ -615,33 +596,20 @@ defineExpose({
           :class="s.settings.activeProviderId === p.id ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
         >
           <div class="flex items-start gap-3">
-            <div class="mt-0.5 w-2 h-2 rounded-full shrink-0" :class="p.apiKey ? 'bg-success' : 'bg-warning'" />
+            <div class="mt-0.5 w-2 h-2 rounded-full shrink-0 bg-accent/50" />
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-foreground">{{ p.name }}</span>
-                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">默认全局服务商</span>
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-sm font-medium text-foreground truncate">{{ p.name }}</span>
+                <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个模型` : '未配置模型' }}</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent shrink-0">默认全局服务商</span>
               </div>
               <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
-              <div class="mt-1 flex items-center gap-3 text-[11px] text-muted">
-                <span>密钥：{{ providerKeyDisplay(p.apiKey) }}</span>
-                <span class="text-border">|</span>
-                <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
-              </div>
             </div>
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                type="button"
-                class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
-                :title="`编辑 ${p.name}`"
-                :aria-label="`编辑 ${p.name}`"
-                @click="startEditProvider(p)"
-              >
-                <Wrench class="w-3.5 h-3.5 text-muted" />
-              </button>
-              <button
                 v-if="s.settings.activeProviderId !== p.id"
                 type="button"
-                class="ml-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
+                class="h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
                 @click="s.setActiveProvider(p.id)"
               >
                 设为默认
@@ -649,10 +617,10 @@ defineExpose({
             </div>
           </div>
         </div>
-
         <div v-if="platformProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
           <Cloud class="w-8 h-8 text-muted/80 mx-auto mb-2" />
           <p class="text-sm text-muted">暂无平台模型服务</p>
+          <p class="text-xs text-muted/80 mt-1">登录后由平台下发</p>
         </div>
       </div>
     </section>

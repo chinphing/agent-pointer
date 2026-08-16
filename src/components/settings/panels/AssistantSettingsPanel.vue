@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../../types/chat'
 import { useSettingsStore } from '../../../stores/settings'
-import { Bot, CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, Wrench, X } from 'lucide-vue-next'
+import { Bot, CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, X } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import SceneTierModelsModal from '../SceneTierModelsModal.vue'
 
@@ -40,24 +40,11 @@ const {
   computerInitialTier,
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
-  userCodingRules,
-  toolApprovalMode
+  userCodingRules
 } = props.form
 
-const COMPUTER_TIER_DESCRIPTIONS = {
-  primary: '轻量视觉，响应更快',
-  intermediate: '速度与准确度平衡',
-  advanced: '最强视觉，适合复杂界面'
-} as const
+const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
 
-const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS.map(option => ({
-  ...option,
-  desc: COMPUTER_TIER_DESCRIPTIONS[option.value]
-}))
-
-const computerTierDesc = computed(() =>
-  COMPUTER_TIER_CARDS.find(opt => opt.value === computerInitialTier.value)?.desc ?? ''
-)
 </script>
 
 <template>
@@ -73,15 +60,10 @@ const computerTierDesc = computed(() =>
 
     <!-- 场景档位 -->
     <section class="space-y-4" aria-labelledby="assistant-scene-heading">
-      <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="assistant-scene-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">场景档位</h4>
-        <div class="flex-1 h-px bg-border/60" />
-      </div>
-
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
         <div>
           <div class="flex items-center gap-1.5">
-            <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+            <h4 id="assistant-scene-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
               <Gauge class="w-4 h-4 text-accent" />场景档位
             </h4>
             <button
@@ -195,7 +177,7 @@ const computerTierDesc = computed(() =>
             <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <Monitor class="w-4 h-4 text-accent shrink-0" />
               <span class="text-[12px] font-medium text-foreground">电脑操控</span>
-              <span class="text-[10px] text-muted">{{ computerTierDesc }}</span>
+              <span class="text-[10px] text-muted">桌面操作、浏览器自动化与文件处理</span>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
@@ -233,8 +215,8 @@ const computerTierDesc = computed(() =>
           </div>
 
           <div class="rounded-lg border border-border bg-card/50 overflow-hidden">
-            <div class="px-3.5 pt-3 pb-2 border-b border-border">
-              <h5 class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">媒体理解</h5>
+            <div class="px-3.5 pt-3 pb-2 border-b border-border flex items-center">
+              <h5 class="h-6 flex items-center text-[11px] font-semibold uppercase tracking-wider text-muted/80">媒体理解</h5>
             </div>
             <div class="divide-y divide-border">
           <div
@@ -285,34 +267,11 @@ const computerTierDesc = computed(() =>
       </div>
     </section>
 
-    <!-- 行为偏好 -->
-    <section class="space-y-4" aria-labelledby="assistant-behavior-heading">
-      <div class="flex items-center gap-2 px-1 pt-3 pb-1">
-        <h4 id="assistant-behavior-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">行为偏好</h4>
-        <div class="flex-1 h-px bg-border/60" />
-      </div>
-
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-          <Wrench class="w-4 h-4 text-accent" />工具使用权限
-        </h4>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
-            <input v-model="toolApprovalMode" type="radio" value="auto" class="sr-only" />
-            <span class="block text-sm text-foreground">自动执行</span>
-            <span class="mt-1 block text-[11px] text-muted">AI 使用工具时自动执行，无需确认</span>
-          </label>
-          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
-            <input v-model="toolApprovalMode" type="radio" value="manual" class="sr-only" />
-            <span class="block text-sm text-foreground">敏感操作确认</span>
-            <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
-          </label>
-        </div>
-      </div>
-
+    <!-- 个性化 -->
+    <section class="space-y-4" aria-labelledby="assistant-personalize-heading">
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <div>
-          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+          <h4 id="assistant-personalize-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
             <UserRound class="w-4 h-4 text-accent" />个性化
           </h4>
           <p class="mt-1 text-[11px] text-muted">

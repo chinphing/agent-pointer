@@ -33,6 +33,7 @@ import type { GitChange, WorkspaceEntry, WorkspaceFilePreview as WorkspaceFilePr
 import { isTauriRuntime } from '../../lib/runtime'
 import { lastTurnFileChanges } from '../../lib/lastTurnFileChanges'
 import { useChatStore } from '../../stores/chat'
+import { useConsoleStore } from '../../stores/console'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 import { workspaceRelativeDisplayPath } from '../../lib/toolCallDisplay'
 import {
@@ -110,6 +111,15 @@ type ContextMenuState =
 
 const workspacePanelStore = useWorkspacePanelStore()
 const chat = useChatStore()
+const consoleStore = useConsoleStore()
+/** 当前工作区+会话下已开启的终端会话数（与 TerminalPanel 的 workspaceTabs 口径一致）。 */
+const terminalCount = computed(() =>
+  consoleStore.tabs.filter(
+    tab =>
+      tab.workspaceRoot === props.workspaceRoot &&
+      tab.conversationId === (props.conversationId ?? '')
+  ).length
+)
 const WIDTH_STORAGE_KEY = 'pointer.workspacePanel.width'
 const CHANGES_REFRESH_TTL_MS = 1_500
 const activeView = ref<PrimaryView | string>('files')
@@ -1139,6 +1149,7 @@ onBeforeUnmount(() => {
         @click="activatePrimaryView('terminal')"
       >
         <SquareTerminal class="w-3.5 h-3.5" />
+        <span v-if="terminalCount" class="workspace-tab-badge">{{ terminalCount }}</span>
       </button>
       <div class="workspace-preview-tabs">
         <button
@@ -1168,12 +1179,16 @@ onBeforeUnmount(() => {
     <div v-else-if="error" class="p-4 text-xs text-danger break-words">{{ error }}</div>
 
     <template v-else>
-      <TerminalPanel
-        v-if="activeView === 'terminal'"
-        :workspace-root="workspaceRoot"
-        :conversation-id="conversationId ?? ''"
-        active
-      />
+      <!-- KeepAlive keeps Terminal mounted across view switches so split panes
+           + focused pane survive (v-if alone would drop the layout tree). -->
+      <KeepAlive>
+        <TerminalPanel
+          v-if="activeView === 'terminal'"
+          :workspace-root="workspaceRoot"
+          :conversation-id="conversationId ?? ''"
+          active
+        />
+      </KeepAlive>
       <div v-if="refreshWarning" class="workspace-refresh-warning" role="status">{{ refreshWarning }}</div>
       <!-- Keep Files / Changes mounted so scroll + expanded folders survive tab switches. -->
       <div

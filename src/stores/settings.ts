@@ -29,13 +29,10 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { applyTheme } from '../lib/theme'
 import {
-  DOUBAO_GENERATION_MODELS,
   modelCanGenerateImage,
   modelCanGenerateVideo,
   modelSupportsAudioTranscription,
   modelSupportsVision,
-  QWEN_AUDIO_TRANSCRIPTION_MODELS,
-  QWEN_GENERATION_MODELS,
   seedProviderModelCapabilities
 } from '../lib/modelCapabilities'
 import {
@@ -43,41 +40,16 @@ import {
   DEFAULT_MODEL_TEMPERATURE,
   pruneInheritedModelConfigs
 } from '../composables/useRuntimeParams'
+import { normalizePlatformProviderTemplates } from '../lib/platformTierDefaults'
 
-function defaultModeLlm(
-  providerId: string,
-  fast: string,
-  standard: string,
-  expert: string
-): Record<PerformanceMode, ComputerTierLlmConfig> {
-  return {
-    fast: { providerId, model: fast, enableThinking: true, thinkingBudget: 2048 },
-    standard: { providerId, model: standard, enableThinking: true, thinkingBudget: 2048 },
-    expert: { providerId, model: expert, enableThinking: true, thinkingBudget: 8192 }
-  }
-}
-
-const defaultAgentModeLlm = () => ({
-  general: {
-    fast: { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 },
-    standard: { providerId: 'deepseek', model: 'deepseek-v4-pro', enableThinking: true, thinkingBudget: 2048 },
-    expert: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
-  },
-  coder: {
-    fast: { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 },
-    standard: { providerId: 'deepseek', model: 'deepseek-v4-pro', enableThinking: true, thinkingBudget: 2048 },
-    expert: { providerId: 'qwen', model: 'qwen3.7-max', enableThinking: true, thinkingBudget: 8192 }
-  }
-})
-
-const defaultMediaModeLlm = () => ({
-  image: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus'),
-  audio: defaultModeLlm('qwen', 'qwen3-asr-flash', 'fun-asr', 'fun-asr'),
-  video: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus')
-})
+// 场景档位默认由平台目录下发（tierDefaults）；本地不内置任何平台模型固定配置。
+const defaultAgentModeLlm = () => ({})
+const defaultMediaModeLlm = () => ({})
 
 const defaultPlatformSettings = (): PlatformSettings => ({
   providers: defaultProviders,
+  modelCatalog: {},
+  tierDefaults: {},
   mediaOss: undefined,
   datiApiUrl: '',
   datiAuthcode: '',
@@ -156,6 +128,13 @@ function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxToke
   }
 }
 
+/** 兜底：后端尚未把平台模板建成 provider 时，由前端按 platformProviders 构建平台服务商。 */
+function platformTemplateProviders(
+  templates?: PlatformSettings['platformProviders']
+): ProviderConfig[] {
+  return normalizePlatformProviderTemplates(templates)
+}
+
 /**
  * WEB non-admin responses omit `terminalEnvOverrides`. Keep the in-memory map when
  * the field is absent. Empty `{}` from an authoritative session save is kept as-is
@@ -170,47 +149,8 @@ function retainTerminalEnvOverrides(
   return { ...mergedIn }
 }
 
-const defaultProviders: ProviderConfig[] = [
-  seedProviderModelCapabilities({
-    id: 'qwen',
-    name: '千问',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    apiKey: '',
-    models: [
-      'qwen3.5-plus',
-      'qwen3.5-27b',
-      'qwen3.5-flash',
-      'qwen3.7-max',
-      'qwen3.7-plus',
-      'qwen3.6-plus',
-      'qwen3.6-27b',
-      'qwen3.6-flash',
-      ...QWEN_AUDIO_TRANSCRIPTION_MODELS,
-      ...QWEN_GENERATION_MODELS
-    ],
-    reasoningInMessages: false,
-    enableThinking: true,
-    thinkingBudget: 2048,
-    modelConfigs: {}
-  }),
-  seedProviderModelCapabilities({
-    id: 'deepseek',
-    name: '深度求索',
-    baseUrl: 'https://api.deepseek.com/v1',
-    apiKey: '',
-    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
-    reasoningInMessages: true,
-    modelConfigs: {}
-  }),
-  seedProviderModelCapabilities({
-    id: 'doubao',
-    name: '豆包',
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    apiKey: '',
-    models: [...DOUBAO_GENERATION_MODELS],
-    modelConfigs: {}
-  })
-]
+// 平台服务商完全由平台目录下发；本地不再内置任何平台模型固定配置。
+const defaultProviders: ProviderConfig[] = []
 
 /** Normalize provider entries from API; merge legacy root `reasoningInMessages` when per-provider value is absent. */
 function normalizeProvider(
@@ -252,7 +192,7 @@ function normalizeProviders(
   legacyReasoning?: boolean,
   globalFallback?: { temperature: () => number; maxTokens: () => number }
 ): ProviderConfig[] {
-  const raw = list?.length ? list : defaultProviders
+  const raw = list ?? []
   return raw.map(p => normalizeProvider(p, legacyReasoning, globalFallback))
 }
 
@@ -260,7 +200,7 @@ function normalizeAgentDefaultModels(
   raw: Record<string, AgentModelRef> | Record<string, unknown> | undefined,
   activeProviderId: string
 ): Record<string, AgentModelRef> {
-  const fid = (activeProviderId || 'qwen').trim() || 'qwen'
+  const fid = activeProviderId.trim()
   const out: Record<string, AgentModelRef> = {}
   if (!raw || typeof raw !== 'object') return out
   for (const [k, v] of Object.entries(raw)) {
@@ -287,8 +227,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
   const settings = ref<ModelSettings>({
     ...defaultPlatformSettings(),
-    activeProviderId: 'qwen',
-    model: 'qwen3.5-plus',
+    activeProviderId: '',
+    model: '',
     temperature: 0.3,
     maxTokens: 64_000,
     hasKey: false,
@@ -316,24 +256,15 @@ export const useSettingsStore = defineStore('settings', () => {
     computerAnnotatedScreenViewEnabled: false,
     captchaSliderOffsetPx: 0,
     agentUiOverrides: {},
-    mediaModelOverrides: {
-      image: { providerId: 'qwen', model: 'qwen3.5-plus' },
-      audio: { providerId: 'qwen', model: 'qwen3-asr-flash' },
-      imageGeneration: { providerId: 'doubao', model: 'doubao-seedream-5-0-lite-260128' },
-      videoGeneration: { providerId: 'doubao', model: 'doubao-seedance-2-0-fast-260128' }
-    },
-    computerTierLlm: {
-      primary: { providerId: 'qwen', model: 'qwen3.5-flash', enableThinking: true, thinkingBudget: 2048 },
-      intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
-      advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
-    },
+    mediaModelOverrides: {},
+    computerTierLlm: {},
     computerPipelineLlm: {
-      decision: 'qwen3.5-flash',
-      position: 'qwen3.5-plus',
-      verify: 'qwen3.5-flash',
-      decisionProviderId: 'qwen',
-      positionProviderId: 'qwen',
-      verifyProviderId: 'qwen',
+      decision: '',
+      position: '',
+      verify: '',
+      decisionProviderId: '',
+      positionProviderId: '',
+      verifyProviderId: '',
       positionThinkingBudget: 1024,
       verifyThinkingBudget: 256
     },
@@ -363,16 +294,47 @@ export const useSettingsStore = defineStore('settings', () => {
       mergedIn.terminalEnvOverrides,
       prevMerged.terminalEnvOverrides
     )
+    const fromTemplates = platformTemplateProviders(platformIn.platformProviders)
+    const platformSource = platformIn.providers?.length
+      ? platformIn.providers
+      : fromTemplates
+    const normalizedPlatformProviders = normalizeProviders(
+      platformSource,
+      undefined,
+      globalGenFallbackFrom(mergedIn)
+    )
     platformSettings.value = {
       ...defaultPlatformSettings(),
       ...platformIn,
-      providers: normalizeProviders(platformIn.providers, undefined, globalGenFallbackFrom(mergedIn))
+      providers: normalizedPlatformProviders
     }
     canEditPlatform.value = view.canEditPlatform
     isPlatformAdmin.value = view.isPlatformAdmin
-    const activeId = mergedIn.activeProviderId || 'qwen'
+    const activeId = mergedIn.activeProviderId || ''
+    const platformById = new Map(normalizedPlatformProviders.map(provider => [provider.id, provider]))
+    const seenMerged = new Set<string>()
+    const mergedProviders = (mergedIn.providers ?? []).map(provider => {
+      seenMerged.add(provider.id)
+      const plat = platformById.get(provider.id)
+      if (!plat) return provider
+      // Platform directory owns name / URL / model list for platform services.
+      // New models appear as soon as the platform directory is refreshed.
+      return {
+        ...provider,
+        source: provider.source ?? 'platform',
+        name: plat.name || provider.name,
+        baseUrl: plat.baseUrl || provider.baseUrl,
+        models: plat.models.length ? [...plat.models] : (provider.models ?? []),
+        modelConfigs: { ...(plat.modelConfigs ?? {}), ...(provider.modelConfigs ?? {}) }
+      }
+    })
+    for (const plat of normalizedPlatformProviders) {
+      if (seenMerged.has(plat.id)) continue
+      mergedProviders.push({ ...plat, source: plat.source ?? 'platform' })
+    }
     const nextMerged = {
       ...mergedIn,
+      providers: mergedProviders,
       // Keep session debug toggles when WEB omitted them from the response.
       debugMenusEnabled:
         mergedIn.debugMenusEnabled ?? prevMerged.debugMenusEnabled,
@@ -405,14 +367,14 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  const activeProvider = computed((): ProviderConfig => {
+  const activeProvider = computed((): ProviderConfig | undefined => {
     const list = settings.value.providers
-    if (!list.length) return defaultProviders[0]
+    if (!list.length) return undefined
     return list.find(p => p.id === settings.value.activeProviderId) ?? list[0]
   })
 
-  const activeBaseUrl = computed(() => activeProvider.value.baseUrl)
-  const activeModelList = computed(() => activeProvider.value.models ?? [])
+  const activeBaseUrl = computed(() => activeProvider.value?.baseUrl ?? '')
+  const activeModelList = computed(() => activeProvider.value?.models ?? [])
 
   /** Effective reasoning flag for active provider + current `settings.model` (model override wins). */
   const effectiveReasoningInMessages = computed((): boolean => {
@@ -544,7 +506,26 @@ export const useSettingsStore = defineStore('settings', () => {
       temperature: mergedIn.temperature ?? settings.value.temperature,
       maxTokens: mergedIn.maxTokens ?? settings.value.maxTokens,
       hasKey: mergedIn.hasKey ?? settings.value.hasKey,
-      theme: user.theme
+      theme: user.theme,
+      // 场景档位是用户层配置，必须写回 merged，否则输入框/下一轮仍读旧值。
+      computerInitialTier: normalizeComputerInitialTier(
+        mergedIn.computerInitialTier ?? user.computerInitialTier ?? settings.value.computerInitialTier
+      ),
+      agentPerformanceModes: {
+        ...(settings.value.agentPerformanceModes ?? {}),
+        ...(user.agentPerformanceModes ?? {}),
+        ...(mergedIn.agentPerformanceModes ?? {})
+      },
+      mediaUnderstandingModes: {
+        ...(settings.value.mediaUnderstandingModes ?? {}),
+        ...(user.mediaUnderstandingModes ?? {}),
+        ...(mergedIn.mediaUnderstandingModes ?? {})
+      },
+      agentModeLlm: mergedIn.agentModeLlm ?? user.agentModeLlm ?? settings.value.agentModeLlm,
+      mediaModeLlm: mergedIn.mediaModeLlm ?? user.mediaModeLlm ?? settings.value.mediaModeLlm,
+      computerTierLlm: mergedIn.computerTierLlm ?? user.computerTierLlm ?? settings.value.computerTierLlm,
+      computerPipelineLlm:
+        mergedIn.computerPipelineLlm ?? user.computerPipelineLlm ?? settings.value.computerPipelineLlm
     }
     applyTheme(user.theme)
   }

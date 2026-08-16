@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent, provide } from 'vue'
 import {
   Plus,
   Search,
-  Settings,
   MessageSquare,
   Loader2,
   Trash2,
@@ -11,7 +10,6 @@ import {
   X,
   Bot,
   PanelLeftClose,
-  PanelLeftOpen,
   PanelRightOpen,
   FolderGit2,
   FolderOpen,
@@ -43,7 +41,10 @@ import { useSidebarSectionCollapse } from '../../composables/useSidebarSectionCo
 import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
 import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
+import AccountMenu from './AccountMenu.vue'
+import ChatTopBar from '../chat/ChatTopBar.vue'
 import { isTauriRuntime } from '../../lib/runtime'
+import { OpenSettingsKey } from '../../lib/settingsDialogKey'
 import type { Project } from '../../types/chat'
 
 /** Lazy: DiffView + markdown preview stay out of the first paint. */
@@ -53,6 +54,9 @@ const emit = defineEmits<{
   (e: 'open-settings', section?: string): void
   (e: 'open-automation'): void
 }>()
+
+// Chat UI (ChatTopBar / Composer) opens the settings dialog through this.
+provide(OpenSettingsKey, (section?: string) => emit('open-settings', section))
 
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
@@ -474,15 +478,9 @@ const {
   close: closeWindow
 } = useWindowChrome()
 
-/** Windows / Linux: min/max/close on main top-right (or collapsed top strip). */
+/** Windows / Linux: min/max/close on main top-right. */
 const useMainAreaWindowControls = computed(
   () => showCustomControls.value && (os.value === 'windows' || os.value === 'linux')
-)
-const windowControlsOnCollapsedTop = computed(
-  () => useMainAreaWindowControls.value && sidebarCollapsed.value
-)
-const windowControlsOnMainTop = computed(
-  () => useMainAreaWindowControls.value && !sidebarCollapsed.value
 )
 
 const searchQuery = ref('')
@@ -760,45 +758,6 @@ watch(searchQuery, q => {
 
 <template>
   <div class="h-full w-full flex flex-col min-h-0">
-    <!-- H: 收起全宽顶栏 -->
-    <WindowDragRegion
-      v-if="sidebarCollapsed"
-      region="collapsed-top-chrome"
-      class="collapsed-top-chrome hidden md:flex shrink-0 items-center gap-1 pr-2 select-none bg-transparent"
-      :class="chromeEnabled && macTrafficLightPadding
-        ? 'traffic-light-inset mac-chrome-row'
-        : 'h-10 pl-2'"
-    >
-      <button
-        type="button"
-        class="chrome-icon-btn shrink-0"
-        title="展开侧栏"
-        @click="toggleSidebar"
-      >
-        <PanelLeftOpen class="w-4 h-4" />
-      </button>
-      <button
-        type="button"
-        class="chrome-icon-btn shrink-0"
-        title="新建任务"
-        @click="newTask()"
-      >
-        <Plus class="w-4 h-4" />
-      </button>
-      <div
-        v-if="chromeEnabled"
-        class="flex-1 min-w-0 h-full"
-      />
-      <WindowControls
-        v-if="windowControlsOnCollapsedTop"
-        class="window-controls-win"
-        :maximized="maximized"
-        @minimize="minimize"
-        @maximize="toggleMaximize"
-        @close="closeWindow"
-      />
-    </WindowDragRegion>
-
     <div class="flex flex-1 min-h-0">
       <aside
         class="app-sidebar hidden md:flex shrink-0 flex-col border-r border-border bg-card transition-[width] duration-200 ease-out overflow-hidden"
@@ -808,7 +767,7 @@ watch(searchQuery, q => {
         <WindowDragRegion
           v-if="!sidebarCollapsed"
           region="sidebar-top-chrome"
-          class="sidebar-chrome shrink-0 flex items-center gap-1 pr-2 select-none bg-transparent"
+          class="sidebar-chrome shrink-0 flex items-center gap-1 pr-2 select-none bg-transparent whitespace-nowrap"
           :class="chromeEnabled && macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
         >
           <div
@@ -1403,56 +1362,44 @@ watch(searchQuery, q => {
           <!-- F: 侧栏底栏 -->
           <div class="p-2 border-t border-border flex shrink-0 items-center gap-1">
             <DesktopSnapshotButton v-if="!isTauriRuntime()" />
-            <button
-              class="chrome-icon-btn"
-              title="设置"
-              @click="$emit('open-settings')"
-            >
-              <Settings class="w-4 h-4" />
-            </button>
+            <AccountMenu @open-settings="section => $emit('open-settings', section)" />
           </div>
         </div>
       </aside>
 
       <div class="chat-main flex-1 min-w-0 flex flex-col">
-        <!-- D: 主区顶栏 -->
-        <WindowDragRegion
-          v-if="chromeEnabled && !sidebarCollapsed"
-          region="main-top-chrome"
-          class="main-top-chrome hidden md:flex shrink-0 items-stretch select-none min-h-10"
-          :class="macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
+        <!-- D0: 对话区顶栏：品牌 + 项目框（应用左上角）；侧栏收缩时并入展开/新建按钮保持单行 -->
+        <ChatTopBar
+          :collapsed="sidebarCollapsed"
+          :traffic-light-padding="chromeEnabled && macTrafficLightPadding"
+          :show-brand="chromeEnabled"
+          @expand-sidebar="toggleSidebar"
+          @new-task="newTask"
         >
-          <div class="main-chrome-drag flex-1 min-w-0 h-full min-h-10" />
-          <button
-            v-if="!workspacePanelOpen"
-            type="button"
-            class="chrome-icon-btn self-center mr-1"
-            title="打开工作区"
-            @click="setWorkspacePanelOpen(true)"
-          >
-            <PanelRightOpen class="w-4 h-4" />
-          </button>
-          <WindowControls
-            v-if="windowControlsOnMainTop"
-            class="window-controls-win"
-            :maximized="maximized"
-            @minimize="minimize"
-            @maximize="toggleMaximize"
-            @close="closeWindow"
-          />
-        </WindowDragRegion>
+          <template #actions>
+            <button
+              v-if="!workspacePanelOpen"
+              type="button"
+              class="chrome-icon-btn"
+              title="打开工作区"
+              aria-label="打开工作区"
+              @click="setWorkspacePanelOpen(true)"
+            >
+              <PanelRightOpen class="w-4 h-4" />
+            </button>
+            <WindowControls
+              v-if="useMainAreaWindowControls"
+              class="window-controls-win"
+              :maximized="maximized"
+              @minimize="minimize"
+              @maximize="toggleMaximize"
+              @close="closeWindow"
+            />
+          </template>
+        </ChatTopBar>
 
         <!-- E: 聊天正文 -->
         <WindowDragRegion region="chat-body" as="main" class="flex-1 min-h-0 flex flex-col relative">
-          <button
-            v-if="!workspacePanelOpen && (!chromeEnabled || sidebarCollapsed)"
-            type="button"
-            class="hidden lg:flex absolute right-2 top-2 z-10 chrome-icon-btn"
-            title="打开工作区"
-            @click="setWorkspacePanelOpen(true)"
-          >
-            <PanelRightOpen class="w-4 h-4" />
-          </button>
           <slot />
         </WindowDragRegion>
       </div>

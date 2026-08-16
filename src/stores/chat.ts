@@ -25,6 +25,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  PerformanceMode,
   Project,
   OutboundQueueItem,
   StreamEvent,
@@ -702,6 +703,7 @@ export const useChatStore = defineStore('chat', () => {
             enabledSkillIds: [],
             agentMode: effectiveConversationAgentMode(conv),
             leadAgentId: effectiveConversationLeadAgentId(conv),
+            performanceMode: effectiveConversationPerformanceMode(conv),
             toolRoundsUsed: 0,
             toolRoundsUsedSupervisor: 0,
             workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
@@ -890,6 +892,14 @@ export const useChatStore = defineStore('chat', () => {
     return id || DEFAULT_LEAD_AGENT_ID
   }
 
+  /** Per-conversation performance mode; falls back to the global default for the effective lead agent. */
+  function effectiveConversationPerformanceMode(conv?: Conversation | null): PerformanceMode | undefined {
+    if (conv?.performanceMode === 'fast' || conv?.performanceMode === 'standard' || conv?.performanceMode === 'expert') {
+      return conv.performanceMode
+    }
+    return undefined
+  }
+
   function applySessionAgentToConversation(
     conv: Conversation,
     leadAgentId: string,
@@ -897,6 +907,11 @@ export const useChatStore = defineStore('chat', () => {
   ) {
     conv.leadAgentId = leadAgentId.trim() || DEFAULT_LEAD_AGENT_ID
     conv.agentMode = agentMode
+    conv.updatedAt = Date.now()
+  }
+
+  function applySessionPerformanceModeToConversation(conv: Conversation, mode: PerformanceMode) {
+    conv.performanceMode = mode
     conv.updatedAt = Date.now()
   }
 
@@ -1001,6 +1016,7 @@ export const useChatStore = defineStore('chat', () => {
       workspaceInheritDisabled: m.workspaceInheritDisabled,
       leadAgentId: m.leadAgentId,
       agentMode: m.agentMode,
+      performanceMode: m.performanceMode,
       messageCount: m.messageCount
     }
   }
@@ -1611,6 +1627,17 @@ export const useChatStore = defineStore('chat', () => {
           }
         }
       }
+    } else if (conv.messages.length > 0 && messagePageByConv.value[convId]) {
+      // 方案B兜底：trim 发生在 append 落库写回 position 之前（stream 消息
+      // 尚未带 position）。丢弃建会话时的假分页基线，让 loadOlderMessages
+      // 用权威分页自愈重建。
+      console.info(
+        '[chat] trimmed history without positions; dropping paging baseline',
+        convId
+      )
+      const next = { ...messagePageByConv.value }
+      delete next[convId]
+      messagePageByConv.value = next
     }
     console.info(
       '[chat] trimmed conversation history',
@@ -1822,7 +1849,8 @@ export const useChatStore = defineStore('chat', () => {
       workspaceUserSet: c.workspaceUserSet,
       workspaceInheritDisabled: c.workspaceInheritDisabled,
       leadAgentId: c.leadAgentId,
-      agentMode: c.agentMode
+      agentMode: c.agentMode,
+      performanceMode: c.performanceMode
     }
   }
 
@@ -1912,9 +1940,20 @@ export const useChatStore = defineStore('chat', () => {
         stripped.messages.length
       )
     }
-    appendConversationMessages(conversationId, messages).catch(e =>
-      console.error('append messages error', e)
-    )
+    appendConversationMessages(conversationId, messages)
+      .then(rows => {
+        // 方案B：落库返回写入行的 SQLite position，写回内存消息对象，
+        // 让 trimConversationHistory 的分页游标维护对新建会话生效。
+        if (!rows?.length) return
+        const byId = new Map(rows.map(r => [r.messageId, r.position]))
+        const conv = conversations.value.find(c => c.id === conversationId)
+        if (!conv) return
+        for (const m of conv.messages) {
+          const pos = byId.get(m.id)
+          if (pos != null) m.position = pos
+        }
+      })
+      .catch(e => console.error('append messages error', e))
   }
 
   function nextConversationActivityAt(now: number): number {
@@ -1955,6 +1994,12 @@ export const useChatStore = defineStore('chat', () => {
       hydratedIds.value.add(existingBlank.id)
       replacePersistedMessageIds(existingBlank.id, [])
       markMetaDirty(existingBlank.id)
+      applyMessagePageState(existingBlank.id, {
+        hasMoreOlder: false,
+        hasMoreNewer: false,
+        oldestPosition: null,
+        newestPosition: null
+      })
       return existingBlank
     }
     const createdAt = Date.now()
@@ -1983,6 +2028,15 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value.add(c.id)
     replacePersistedMessageIds(c.id, [])
     markMetaDirty(c.id)
+    // 方案B：新建会话即建假分页基线。stream 消息经 persistAppend 落库写回
+    // position 后，trim 直接维护 oldestPosition/hasMoreOlder；若在写回前
+    // trim，fallback 会丢弃该基线并走自愈。
+    applyMessagePageState(c.id, {
+      hasMoreOlder: false,
+      hasMoreNewer: false,
+      oldestPosition: null,
+      newestPosition: null
+    })
     return c
   }
 
@@ -2898,6 +2952,12 @@ export const useChatStore = defineStore('chat', () => {
     markMetaDirty(conv.id)
   }
 
+  function setConversationPerformanceMode(mode: PerformanceMode) {
+    const conv = current.value ?? newConversation()
+    applySessionPerformanceModeToConversation(conv, mode)
+    markMetaDirty(conv.id)
+  }
+
   function clearPlatformLoginErrorMessages() {
     const conv = current.value
     if (!conv) return
@@ -3007,6 +3067,7 @@ export const useChatStore = defineStore('chat', () => {
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, setConversationProject, setConversationAgent,
+    setConversationPerformanceMode,
     effectiveConversationLeadAgentId, effectiveConversationAgentMode,
     showUiToast,
     clearPlatformLoginErrorMessages,

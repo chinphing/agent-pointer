@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import type { Component } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Check, ChevronDown, FolderOpen, FolderPlus, Paperclip, Send, Square } from 'lucide-vue-next'
+import { Check, ChevronDown, Gauge, Paperclip, Rocket, Send, Settings2, Square, Zap } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
@@ -9,8 +10,8 @@ import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel, RESEARCH_COMPOSER_UI_ENABLED } from '../../lib/agentUi'
 import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import { useAgentsCatalog } from '../../composables/useAgentUi'
-import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest, ComposerAttachment } from '../../types/chat'
-import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
+import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest, ComposerAttachment, PerformanceMode } from '../../types/chat'
+import { DEFAULT_LEAD_AGENT_ID, PERFORMANCE_MODE_OPTIONS } from '../../types/chat'
 import {
   getMacosComputerPermissions,
   listComputerMonitors,
@@ -18,8 +19,7 @@ import {
   saveChatAttachment,
   setComputerConversationMonitor,
   confirmComputerMonitorPick,
-  cancelComputerMonitorPick,
-  createProject
+  cancelComputerMonitorPick
 } from '../../lib/api'
 import { getLocalFileSize } from '../../lib/tauri'
 import { detectDesktopOs } from '../../lib/desktopOs'
@@ -62,15 +62,9 @@ import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
 import { primaryComputerMonitor } from '../../lib/computerMonitorLayout'
 import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
-import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from '../../lib/projectCreation'
+import { OpenSettingsKey } from '../../lib/settingsDialogKey'
 import { resolveComposerPlaceholder } from '../../lib/webBranding'
 import { randomUuid } from '../../lib/randomUuid'
-import SkillDirectoryPicker from '../skills/SkillDirectoryPicker.vue'
-
-function isEphemeralWorkspacePath(path: string): boolean {
-  const normalized = path.replace(/\\/g, '/')
-  return normalized.includes('/session-sandboxes/') || normalized.includes('/coder-sandboxes/')
-}
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT_PX = 250
 /** ≈ one line with py-2 + leading-5; must not stay on :style during measure. */
@@ -109,7 +103,6 @@ const showAgentPicker = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const agentBtnRef = ref<HTMLButtonElement | null>(null)
 const agentPickerRef = ref<HTMLDivElement | null>(null)
-const workspaceInputRef = ref<HTMLInputElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const composerDropZoneRef = ref<HTMLDivElement | null>(null)
 const attachmentHint = ref<string | null>(null)
@@ -169,38 +162,6 @@ const isMacDesktop = computed(
 /** Shortcut labels: prefer OS (incl. web), not only Tauri desktop. */
 const isMacOs = computed(() => detectDesktopOs() === 'macos')
 
-const showWorkspacePicker = computed(() => true)
-const projectLocked = computed(() => !!chat.current?.projectId || (chat.current?.messages.length ?? 0) > 0)
-const selectedProject = computed(() =>
-  chat.projectById(chat.current?.projectId ?? chat.current?.pendingProjectId)
-)
-const projectPickerOpen = ref(false)
-const projectPickerButtonRef = ref<HTMLButtonElement | null>(null)
-const projectPickerRef = ref<HTMLElement | null>(null)
-const projectCreationPending = ref(false)
-const projectDropdownDirection = ref<'up' | 'down'>('up')
-const projectDropdownMaxHeight = ref<number | null>(null)
-
-/** 项目选择弹窗内容较多，打开时按按钮上下可用空间动态选方向并限制高度，避免超出视口。 */
-function updateProjectDropdownPlacement() {
-  const btn = projectPickerButtonRef.value
-  if (!btn) return
-  const rect = btn.getBoundingClientRect()
-  const viewportHeight = window.innerHeight
-  const spaceAbove = rect.top
-  const spaceBelow = viewportHeight - rect.bottom
-  const preferUp = spaceAbove >= spaceBelow
-  projectDropdownDirection.value = preferUp ? 'up' : 'down'
-  const available = Math.max(120, preferUp ? spaceAbove : spaceBelow)
-  projectDropdownMaxHeight.value = Math.min(available - 8, 416)
-}
-
-watch(projectPickerOpen, open => {
-  if (open) {
-    void nextTick(updateProjectDropdownPlacement)
-  }
-})
-
 const supervisorRoundsLabel = computed(() => {
   if (sessionAgentMode.value !== 'supervisor' || !chat.current) return ''
   const used = chat.current.toolRoundsUsedSupervisor ?? 0
@@ -208,21 +169,9 @@ const supervisorRoundsLabel = computed(() => {
   return `子任务轮次 ${used}/${max}`
 })
 
-const workspaceTooltip = computed(() => {
-  const p = chat.current?.workspaceRoot?.trim()
-  if (!p) return '留空时将继承上一会话工作目录；清除后发送则使用临时目录'
-  if (isEphemeralWorkspacePath(p)) return `临时工作目录：${p}`
-  return p
-})
-
 const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value, sessionAgentSettings.value))
 
 const currentAgentIcon = computed(() => iconForAgent(selectedWorker.value, sessionAgentSettings.value))
-
-const workspaceNeedsAttention = computed(() => {
-  const p = chat.current?.workspaceRoot?.trim() ?? ''
-  return !p || isEphemeralWorkspacePath(p)
-})
 
 const canSend = computed(() => {
   const attachments = composerAttachments.value
@@ -276,103 +225,39 @@ async function onOpenBilling() {
 }
 
 
-function selectProject(projectId: string) {
-  if (projectLocked.value) return
-  const currentProjectId = chat.current?.projectId ?? chat.current?.pendingProjectId
-  // 点击已选中的目录 → 自动取消选择，且不退出下拉框
-  if (projectId === currentProjectId) {
-    clearWorkspace()
-    return
-  }
-  if (chat.setConversationProject(projectId)) projectPickerOpen.value = false
+// ── 模式设置（快速/标准/高级）──
+const openSettings = inject(OpenSettingsKey, undefined)
+const modePickerOpen = ref(false)
+const modePickerButtonRef = ref<HTMLButtonElement | null>(null)
+const modePickerRef = ref<HTMLDivElement | null>(null)
+
+const performanceMode = computed(() => {
+  const convMode = chat.current?.performanceMode
+  if (convMode === 'fast' || convMode === 'standard' || convMode === 'expert') return convMode
+  return settings.getAgentPerformanceMode(sessionLeadAgentId.value)
+})
+
+/** 模式档位图标：快速 ⚡ / 标准 仪表 / 高级 火箭 */
+const PERFORMANCE_MODE_ICONS: Record<PerformanceMode, Component> = {
+  fast: Zap,
+  standard: Gauge,
+  expert: Rocket
 }
 
-async function createOrSelectWorkspaceProject(workspaceRoot: string): Promise<boolean> {
-  const root = workspaceRoot.trim()
-  if (!root || projectCreationPending.value || projectLocked.value) return false
-  projectCreationPending.value = true
-  try {
-    const result = await createProject(projectNameFromWorkspaceRoot(root), root)
-    await applyProjectCreationResult(result, {
-      refreshProjects: chat.refreshProjects,
-      selectProject: async projectId => {
-        if (!chat.setConversationProject(projectId)) {
-          throw new Error('conversation project selection is locked')
-        }
-      },
-      notify: message => chat.showUiToast(message, 'warning')
-    })
-    projectPickerOpen.value = false
-    return true
-  } catch (error) {
-    console.error('[composer] create project from workspace failed', { workspaceRoot: root, error })
-    chat.showUiToast('项目创建失败，请重试', 'error')
-    return false
-  } finally {
-    projectCreationPending.value = false
-  }
+const performanceModeIcon = computed(() => PERFORMANCE_MODE_ICONS[performanceMode.value])
+
+const performanceModeLabel = computed(
+  () => PERFORMANCE_MODE_OPTIONS.find(o => o.value === performanceMode.value)?.label ?? '标准'
+)
+
+function selectMode(mode: PerformanceMode) {
+  chat.setConversationPerformanceMode(mode)
+  modePickerOpen.value = false
 }
 
-async function onSkillDirectorySelect(dir: { name: string; path: string }) {
-  const ok = await createOrSelectWorkspaceProject(dir.path)
-  // 技能目录项目默认使用 coder agent（技能脚本/代码工程类任务）
-  if (ok && !projectLocked.value) {
-    chat.setConversationAgent('coder', 'single')
-  }
-}
-
-async function pickWorkspaceFolder() {
-  if (!isTauriRuntime()) return
-  const conv = chat.current || chat.newConversation()
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const current = conv.workspaceRoot?.trim()
-    const dir = await open({
-      directory: true,
-      multiple: false,
-      ...(current ? { defaultPath: current } : {})
-    })
-    if (typeof dir === 'string' && dir) {
-      await createOrSelectWorkspaceProject(dir)
-    }
-  } catch (e) {
-    console.error('[composer] pick workspace folder failed', e)
-    chat.showUiToast('目录选择失败，请重试', 'error')
-  }
-}
-
-const workspaceComposing = ref(false)
-
-async function commitWorkspaceInput() {
-  await createOrSelectWorkspaceProject(chat.current?.workspaceRoot ?? '')
-}
-
-/** Enter commits the workspace path — but never while an IME is composing (Chinese candidate confirm). */
-function onWorkspaceEnter(event: KeyboardEvent) {
-  if (event.isComposing || workspaceComposing.value) return
-  event.preventDefault()
-  void commitWorkspaceInput()
-}
-
-/** Guard the post-compositionend window where the confirming Enter still arrives. */
-function onWorkspaceCompositionEnd() {
-  setTimeout(() => {
-    workspaceComposing.value = false
-  }, 50)
-}
-
-function onWorkspaceInputChange() {
-  chat.setConversationWorkspace(chat.current?.workspaceRoot ?? '')
-}
-
-function clearWorkspace() {
-  chat.setConversationWorkspace('')
-}
-
-function onWorkspaceInput(e: Event) {
-  const conv = chat.current || chat.newConversation()
-  conv.workspaceRoot = (e.target as HTMLInputElement).value
-  onWorkspaceInputChange()
+function openAgentSettings() {
+  modePickerOpen.value = false
+  openSettings?.('assistant')
 }
 
 function send() {
@@ -1522,18 +1407,20 @@ function handleClickOutside(e: MouseEvent) {
       showAgentPicker.value = false
     }
   }
-  if (projectPickerOpen.value && projectPickerButtonRef.value && projectPickerRef.value) {
-    if (!projectPickerButtonRef.value.contains(target) && !projectPickerRef.value.contains(target)) {
-      projectPickerOpen.value = false
+  if (modePickerOpen.value && modePickerButtonRef.value && modePickerRef.value) {
+    if (
+      !modePickerButtonRef.value.contains(target) &&
+      !modePickerRef.value.contains(target)
+    ) {
+      modePickerOpen.value = false
     }
   }
 }
 
 function handleDocumentKeydown(e: KeyboardEvent) {
-  if (e.key !== 'Escape' || !projectPickerOpen.value) return
+  if (e.key !== 'Escape' || !modePickerOpen.value) return
   e.preventDefault()
-  projectPickerOpen.value = false
-  nextTick(() => projectPickerButtonRef.value?.focus())
+  modePickerOpen.value = false
 }
 
 watch(composerPrefill, (draft) => {
@@ -1758,86 +1645,49 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <div v-if="showWorkspacePicker" class="relative flex min-w-0 items-center gap-1">
+              <div class="relative flex min-w-0 items-center">
                 <button
-                  ref="projectPickerButtonRef"
+                  ref="modePickerButtonRef"
                   type="button"
-                  class="composer-agent-trigger max-w-[200px]"
-                  :class="projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
-                  :title="projectLocked ? '项目已锁定' : workspaceTooltip"
-                  :disabled="projectLocked"
-                  @click="projectPickerOpen = !projectPickerOpen"
+                  class="composer-agent-trigger"
+                  title="模式设置：快速、标准、高级"
+                  @click="modePickerOpen = !modePickerOpen"
                 >
-                  <FolderOpen class="w-3 h-3 shrink-0" :class="workspaceNeedsAttention ? 'text-warning' : 'text-accent'" />
-                  <span class="truncate max-w-[150px]">
-                    {{ selectedProject ? (selectedProject.isDefault ? '默认项目' : selectedProject.name) : '选择项目' }}
-                  </span>
+                  <component :is="performanceModeIcon" class="w-3 h-3 shrink-0 text-accent" />
+                  <span class="whitespace-nowrap">{{ performanceModeLabel }}</span>
+                  <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
                 </button>
                 <div
-                  v-if="projectPickerOpen && !projectLocked"
-                  ref="projectPickerRef"
-                  class="composer-dropdown composer-project-dropdown flex flex-col"
-                  :class="projectDropdownDirection === 'down' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
-                  :style="projectDropdownMaxHeight != null ? { maxHeight: `${projectDropdownMaxHeight}px` } : undefined"
+                  v-if="modePickerOpen"
+                  ref="modePickerRef"
+                  class="composer-dropdown composer-mode-dropdown flex flex-col"
+                  :class="props.placement === 'inline' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
                 >
-                  <div
-                    class="p-1.5"
-                    :class="projectDropdownDirection === 'down' ? 'order-0 border-b border-border' : 'order-last border-t border-border'"
-                  >
+                  <!-- 右上角快速入口：进入智能体设置页设置模型 -->
+                  <div class="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-border">
+                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">模式</div>
                     <button
-                      v-if="isTauriRuntime()"
                       type="button"
-                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-                      :disabled="projectCreationPending"
-                      @click="pickWorkspaceFolder"
+                      class="inline-flex items-center gap-1 rounded p-1 text-accent hover:bg-hover cursor-pointer transition-colors"
+                      title="模型设置"
+                      @click="openAgentSettings"
                     >
-                      <FolderPlus class="w-3.5 h-3.5 shrink-0" />
-                      <span class="whitespace-nowrap text-accent">
-                        {{ projectCreationPending ? '正在创建项目…' : '本地目录' }}
-                      </span>
-                    </button>
-                    <input
-                      v-else
-                      ref="workspaceInputRef"
-                      :value="chat.current?.workspaceRoot ?? ''"
-                      type="text"
-                      placeholder="输入本地目录创建新项目"
-                      aria-label="输入本地目录创建新项目"
-                      class="composer-workspace-input"
-                      :title="workspaceTooltip"
-                      @input="onWorkspaceInput"
-                      @keydown.enter="onWorkspaceEnter"
-                      @compositionstart="workspaceComposing = true"
-                      @compositionend="onWorkspaceCompositionEnd"
-                    />
-                  </div>
-                  <div class="px-3 pb-1 pt-2">
-                    <div class="text-[10px] text-muted font-medium whitespace-nowrap">已有项目</div>
-                  </div>
-                  <div class="max-h-44 space-y-0.5 overflow-y-auto p-1">
-                    <button
-                      v-for="project in chat.projects.filter(p => !p.isArchived)"
-                      :key="project.id"
-                      type="button"
-                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-                      :class="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId) ? 'composer-dropdown-item-active' : ''"
-                      @click="selectProject(project.id)"
-                    >
-                      <FolderOpen class="w-3 h-3 shrink-0" />
-                      <span class="flex-1 truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
-                      <Check
-                        v-if="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)"
-                        class="h-3 w-3 shrink-0 text-accent"
-                      />
+                      <Settings2 class="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <div class="border-t border-border p-1.5">
-                    <SkillDirectoryPicker
-                      title="技能目录"
-                      variant="list"
-                      :disabled="projectCreationPending"
-                      @select="onSkillDirectorySelect"
-                    />
+                  <div class="p-1 space-y-0.5">
+                    <button
+                      v-for="m in PERFORMANCE_MODE_OPTIONS"
+                      :key="m.value"
+                      type="button"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      :class="m.value === performanceMode ? 'composer-dropdown-item-active' : ''"
+                      @click="selectMode(m.value)"
+                    >
+                      <component :is="PERFORMANCE_MODE_ICONS[m.value]" class="w-3 h-3 shrink-0" />
+                      <span class="flex-1 whitespace-nowrap">{{ m.label }}</span>
+                      <Check v-if="m.value === performanceMode" class="h-3 w-3 shrink-0 text-accent" />
+                    </button>
                   </div>
                 </div>
               </div>

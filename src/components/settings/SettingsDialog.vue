@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, UserCircle, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -12,7 +12,6 @@ import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
 import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
 import ModelSettingsPanel from './panels/ModelSettingsPanel.vue'
 import DebugSettingsPanel from './panels/DebugSettingsPanel.vue'
-import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
@@ -24,7 +23,7 @@ const emit = defineEmits<{
 const props = withDefaults(defineProps<{
   initialSection?: string
 }>(), {
-  initialSection: 'account'
+  initialSection: 'assistant'
 })
 
 const s = useSettingsStore()
@@ -95,12 +94,6 @@ interface SidebarGroup {
 }
 
 const sections = computed<SidebarGroup[]>(() => {
-  const account: SidebarItem = {
-    id: 'account',
-    label: '账户',
-    desc: '余额、登录与凭据',
-    icon: UserCircle
-  }
   const about: SidebarItem = {
     id: 'about',
     label: '关于',
@@ -109,8 +102,6 @@ const sections = computed<SidebarGroup[]>(() => {
   }
 
   const groups: SidebarGroup[] = [
-    // 账户：高频，单独置顶
-    { items: [account] },
     // 智能体与配置：决定 AI 怎么工作、怎么显示
     {
       items: [
@@ -258,11 +249,6 @@ onMounted(() => {
           <!-- ==================== Generation Section (系统设置) ==================== -->
           <section v-else-if="activeSection === 'generation'" class="p-6 min-h-full flex flex-col">
             <GenerationSettingsPanel :form="form" />
-          </section>
-
-          <!-- ==================== Platform account (desktop) ==================== -->
-          <section v-else-if="activeSection === 'account'" class="p-6 min-h-full flex flex-col">
-            <AccountSettingsPanel :form="form" />
           </section>
 
           <section v-else-if="activeSection === 'cloud'" class="p-6 min-h-full flex flex-col">

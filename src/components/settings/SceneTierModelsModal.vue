@@ -5,6 +5,12 @@ import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm
 import { detectProviderTemplateId } from '../../lib/providerParams'
 import { composerAgentLabel } from '../../lib/agentUi'
 import { useSettingsStore } from '../../stores/settings'
+import {
+  isSameTierRef,
+  platformAgentModeDefault,
+  platformComputerTierDefault,
+  platformMediaModeDefault
+} from '../../lib/platformTierDefaults'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -74,22 +80,15 @@ function variantValue(config: { enableThinking?: boolean; thinkingBudget?: numbe
 }
 
 function modeOverridden(config: { providerId: string; model: string }, mode: string, group: 'agent' | 'media' | 'computer', id?: string) {
-  if (group === 'computer') {
-    const defaults: Record<string, string> = { primary: 'qwen:qwen3.5-flash', intermediate: 'qwen:qwen3.5-plus', advanced: 'qwen:qwen3.7-plus' }
-    return `${config.providerId}:${config.model}` !== defaults[mode]
-  }
-  if (group === 'agent') {
-    const defaults: Record<string, string> = {
-      fast: 'deepseek:deepseek-v4-flash',
-      standard: 'deepseek:deepseek-v4-pro',
-      expert: `qwen:${id === 'coder' ? 'qwen3.7-max' : 'qwen3.7-plus'}`
-    }
-    return `${config.providerId}:${config.model}` !== defaults[mode]
-  }
-  const defaults = id === 'audio'
-    ? { fast: 'qwen:qwen3-asr-flash', standard: 'qwen:fun-asr', expert: 'qwen:fun-asr' }
-    : { fast: 'qwen:qwen3.5-flash', standard: 'qwen:qwen3.5-plus', expert: 'qwen:qwen3.6-plus' }
-  return `${config.providerId}:${config.model}` !== (defaults as Record<string, string>)[mode]
+  const tierDefaults = s.platformSettings.tierDefaults
+  const fallback =
+    group === 'computer'
+      ? platformComputerTierDefault(tierDefaults, mode)
+      : group === 'agent'
+        ? platformAgentModeDefault(tierDefaults, id ?? '', mode)
+        : platformMediaModeDefault(tierDefaults, id ?? '', mode)
+  if (!fallback) return Boolean(config.providerId && config.model)
+  return !isSameTierRef(config, fallback)
 }
 </script>
 

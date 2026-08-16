@@ -38,6 +38,14 @@ import { usePlatformAuthStore } from '../stores/platformAuth'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { splitProviderModelValue } from '../lib/modelSelectValue'
+import {
+  emptyTierConfig,
+  platformAgentModeDefault,
+  platformComputerPipelineDefault,
+  platformComputerTierDefault,
+  platformMediaModeDefault,
+  withInheritedThinking
+} from '../lib/platformTierDefaults'
 
 export type SettingsDialogForm = ReturnType<typeof createSettingsDialogForm>
 
@@ -147,26 +155,15 @@ function createSettingsDialogForm(deps: {
 
   function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
   const m = s.settings.agentModeLlm?.[agentId]?.[mode]
-  if (m) return m
-  if (mode === 'fast') {
-    return { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 }
-  }
-  if (mode === 'expert') {
-    const expertModel = agentId === 'general' ? 'qwen3.7-plus' : 'qwen3.7-max'
-    return { providerId: 'qwen', model: expertModel, enableThinking: true, thinkingBudget: 8192 }
-  }
-  return { providerId: 'deepseek', model: 'deepseek-v4-pro', enableThinking: true, thinkingBudget: 2048 }
+  if (m?.providerId && m.model) return m
+  const fallback = platformAgentModeDefault(s.platformSettings.tierDefaults, agentId, mode)
+  return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
   }
 
   function patchMediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
   const next = { ...(s.settings.mediaModeLlm ?? {}) }
   const kindMap = { ...(next[kind] ?? {}) }
-  const prev = kindMap[mode] ?? {
-    providerId: 'qwen',
-    model: mode === 'fast' ? 'qwen3.5-flash' : mode === 'expert' ? 'qwen3.6-plus' : 'qwen3.5-plus',
-    enableThinking: true,
-    thinkingBudget: mode === 'expert' ? 8192 : 2048
-  }
+  const prev = kindMap[mode] ?? mediaModeLlm(kind, mode)
   kindMap[mode] = { ...prev, ...patch }
   next[kind] = kindMap
   s.settings.mediaModeLlm = next
@@ -175,33 +172,16 @@ function createSettingsDialogForm(deps: {
 
   function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): ComputerTierLlmConfig {
   const m = s.settings.mediaModeLlm?.[kind]?.[mode]
-  if (m) return m
-  if (kind === 'audio') {
-    return {
-      providerId: 'qwen',
-      model: mode === 'fast' ? 'qwen3-asr-flash' : 'fun-asr',
-      enableThinking: true,
-      thinkingBudget: mode === 'expert' ? 8192 : 2048
-    }
-  }
-  return {
-    providerId: 'qwen',
-    model: mode === 'fast' ? 'qwen3.5-flash' : mode === 'expert' ? 'qwen3.6-plus' : 'qwen3.5-plus',
-    enableThinking: true,
-    thinkingBudget: mode === 'expert' ? 8192 : 2048
-  }
+  if (m?.providerId && m.model) return m
+  const fallback = platformMediaModeDefault(s.platformSettings.tierDefaults, kind, mode)
+  return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
   }
 
   function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
   const m = s.settings.computerTierLlm?.[key]
-  return (
-    m ?? {
-      providerId: 'qwen',
-      model: key === 'primary' ? 'qwen3.5-flash' : key === 'advanced' ? 'qwen3.7-plus' : 'qwen3.5-plus',
-      enableThinking: true,
-      thinkingBudget: key === 'advanced' ? 8192 : 2048
-    }
-  )
+  if (m?.providerId && m.model) return m
+  const fallback = platformComputerTierDefault(s.platformSettings.tierDefaults, key)
+  return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
   }
 
   function patchComputerTierLlm(key: ComputerTierKey, patch: Partial<ComputerTierLlmConfig>) {
@@ -226,17 +206,18 @@ function createSettingsDialogForm(deps: {
   }
 
   function computerPipelineLlm(): ComputerPipelineLlmSettings {
-  const defaults = {
-    decision: 'qwen3.5-flash',
-    position: 'qwen3.5-plus',
-    verify: 'qwen3.5-flash',
-    decisionProviderId: 'qwen',
-    positionProviderId: 'qwen',
-    verifyProviderId: 'qwen',
-    positionThinkingBudget: 1024,
-    verifyThinkingBudget: 256
+  const platformPipe = platformComputerPipelineDefault(s.platformSettings.tierDefaults)
+  const current = s.settings.computerPipelineLlm ?? {}
+  return {
+    decision: current.decision || platformPipe.decision || '',
+    position: current.position || platformPipe.position || '',
+    verify: current.verify || platformPipe.verify || '',
+    decisionProviderId: current.decisionProviderId || platformPipe.decisionProviderId || '',
+    positionProviderId: current.positionProviderId || platformPipe.positionProviderId || '',
+    verifyProviderId: current.verifyProviderId || platformPipe.verifyProviderId || '',
+    positionThinkingBudget: current.positionThinkingBudget ?? 1024,
+    verifyThinkingBudget: current.verifyThinkingBudget ?? 256
   }
-  return { ...defaults, ...s.settings.computerPipelineLlm }
   }
 
   function patchComputerPipelineLlm(patch: Partial<ComputerPipelineLlmSettings>) {
@@ -246,7 +227,7 @@ function createSettingsDialogForm(deps: {
 
   function computerPipelineVerifyValue(): string {
   const p = computerPipelineLlm()
-  return `${p.verifyProviderId ?? 'qwen'}:${p.verify ?? 'qwen3.5-flash'}`
+  return p.verifyProviderId && p.verify ? `${p.verifyProviderId}:${p.verify}` : ''
   }
 
   function selectComputerPipelineVerify(value: string) {
@@ -510,6 +491,7 @@ function createSettingsDialogForm(deps: {
   mediaImageGenerationModel.value = getMediaModelWithProvider('imageGeneration')
   mediaVideoGenerationModel.value = getMediaModelWithProvider('videoGeneration')
   agentPerformanceModesLocal.value = {
+    ...(s.settings.agentPerformanceModes ?? {}),
     general: s.getAgentPerformanceMode('general'),
     coder: s.getAgentPerformanceMode('coder')
   }
@@ -772,12 +754,34 @@ function createSettingsDialogForm(deps: {
   let assistantSaveTimer: number | undefined
   let debugSaveTimer: number | undefined
 
+  function applyAssistantPrefsToRuntime() {
+    const payload = assistantPreferencesPayload()
+    const prevModes = s.settings.agentPerformanceModes ?? {}
+    s.settings.computerInitialTier = payload.computerInitialTier
+    s.settings.agentPerformanceModes = { ...payload.agentPerformanceModes }
+    s.settings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
+    s.settings.computerHumanLike = payload.computerHumanLike
+    s.settings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
+    const conv = chat.current
+    if (conv) {
+      const lead = chat.effectiveConversationLeadAgentId(conv)
+      const mode = payload.agentPerformanceModes[lead]
+      if (
+        (mode === 'fast' || mode === 'standard' || mode === 'expert') &&
+        mode !== prevModes[lead]
+      ) {
+        chat.setConversationPerformanceMode(mode)
+      }
+    }
+    return payload
+  }
+
   function scheduleAssistantSave() {
     if (!autosaveReady) return
+    const payload = applyAssistantPrefsToRuntime()
     if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
     assistantSaveTimer = window.setTimeout(() => {
       assistantSaveTimer = undefined
-      const payload = assistantPreferencesPayload()
       void (async () => {
         try {
           await s.saveAgentPreferences(payload)

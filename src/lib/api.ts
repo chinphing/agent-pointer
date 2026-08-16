@@ -10,6 +10,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  PerformanceMode,
   Project,
   ProjectCreationResult,
   ProjectCursor,
@@ -70,6 +71,12 @@ export type ConversationMessagePage = {
   oldestPosition: number | null
   newestPosition: number | null
   messageCount: number
+}
+
+/** One row actually written by `append_conversation_messages` (wire-only). */
+export type AppendedMessageRow = {
+  messageId: string
+  position: number
 }
 
 /** Default user-turn window for first paint / load-more / around. */
@@ -149,6 +156,8 @@ export interface SendChatPayload {
   workspaceInheritDisabled?: boolean
   /** Session lead worker for this run (`single` mode). */
   leadAgentId?: string
+  /** Per-conversation performance tier override (Composer picker); unset = global default. */
+  performanceMode?: PerformanceMode
 }
 
 export interface ConsoleSessionInfo {
@@ -267,7 +276,10 @@ export interface RuntimeApi {
   readLocalFileForAttachment(path: string): Promise<LocalFileAttachmentPayload>
   saveConversationMeta(metas: ConversationMeta[]): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
-  appendConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<number>
+  appendConversationMessages(
+    conversationId: string,
+    messages: ChatMessage[]
+  ): Promise<AppendedMessageRow[]>
   onStream(
     handler: (e: StreamEvent) => void,
     conversationId?: string,

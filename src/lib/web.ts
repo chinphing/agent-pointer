@@ -1,3 +1,4 @@
+import type { AppendedMessageRow } from './api'
 import type {
   AgentDef,
   AgentMode,
@@ -9,6 +10,7 @@ import type {
   ConversationCursor,
   ConversationMeta,
   ConversationMetaPage,
+  PerformanceMode,
   Project,
   ProjectCreationResult,
   ProjectCursor,
@@ -62,6 +64,7 @@ export interface SendChatPayload {
   toolRoundsUsedSupervisor?: number
   workspaceRoot?: string
   workspaceInheritDisabled?: boolean
+  performanceMode?: PerformanceMode
 }
 
 async function request<T>(path: string, init?: WebRequestInit): Promise<T> {
@@ -732,12 +735,12 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 export async function appendConversationMessages(
   conversationId: string,
   messages: import('../types/chat').ChatMessage[]
-): Promise<number> {
-  const written = await request<number>(
+): Promise<AppendedMessageRow[]> {
+  const appended = await request<AppendedMessageRow[]>(
     `/api/conversations/${encodeURIComponent(conversationId)}/messages/append`,
     { method: 'POST', body: JSON.stringify(messages) }
   )
-  return written ?? 0
+  return appended ?? []
 }
 
 export interface PlatformSessionView {

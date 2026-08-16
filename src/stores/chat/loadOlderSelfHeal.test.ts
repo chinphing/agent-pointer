@@ -66,6 +66,11 @@ describe('chat loadOlderMessages self-heal', () => {
     // (marked hydrated, never paged) and grew by streaming only.
     conv.messages = [msg('m1', 1), msg('m2', 2)]
     conv.messageCount = 200
+    // 方案B: trim fallback（stream 消息尚未写回 position 时）会丢弃建会话
+    // 的假分页基线——模拟该状态后自愈必须仍能重建基线。
+    const next = { ...store.messagePageByConv }
+    delete next[conv.id]
+    store.messagePageByConv = next
 
     loadConversationMessagesPage
       .mockResolvedValueOnce({
@@ -106,6 +111,10 @@ describe('chat loadOlderMessages self-heal', () => {
     const store = useChatStore()
     const conv = store.newConversation()
     conv.messages = [msg('m1', 1)]
+    // 同上：模拟方案B trim fallback 丢弃假基线后的自愈场景。
+    const next = { ...store.messagePageByConv }
+    delete next[conv.id]
+    store.messagePageByConv = next
 
     loadConversationMessagesPage.mockResolvedValueOnce({
       messages: [msg('m1', 1)],

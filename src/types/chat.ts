@@ -354,6 +354,8 @@ export interface Conversation {
   leadAgentId?: string
   /** Per-conversation orchestration mode. */
   agentMode?: AgentMode
+  /** Per-conversation performance tier override (Composer picker); unset = global default. */
+  performanceMode?: PerformanceMode
   /** DB-backed message count (populated on meta-only list load; not present on legacy full-load). */
   messageCount?: number
 }
@@ -376,6 +378,7 @@ export type ConversationMetaBase = Pick<
   | 'workspaceInheritDisabled'
   | 'leadAgentId'
   | 'agentMode'
+  | 'performanceMode'
 >
 
 /** Result of creating a project; duplicate workspace roots reuse the persisted project. */
@@ -650,12 +653,46 @@ export interface DebugSessionSettings {
   mediaModeLlm: MediaModeLlmMap
 }
 
+/** 平台模型条目（name + 可选模型级参数；未设置的字段继承服务商默认）。 */
+export interface PlatformProviderModelTemplate {
+  name: string
+  reasoningInMessages?: boolean
+  temperature?: number
+  maxTokens?: number
+  enableThinking?: boolean
+  thinkingBudget?: number
+  reasoningEffort?: string
+  supportsVision?: boolean
+  canGenerateImage?: boolean
+  canGenerateVideo?: boolean
+}
+
+/** 平台服务商完整模板（由平台目录下发；客户端据此创建服务商，不再本地内置）。 */
+export interface PlatformProviderTemplate {
+  id?: string
+  name: string
+  baseUrl: string
+  models: Array<string | PlatformProviderModelTemplate>
+  reasoningInMessages?: boolean
+  enableThinking?: boolean
+  thinkingBudget?: number
+  reasoningEffort?: string
+  temperature?: number
+  maxTokens?: number
+}
+
 /** Platform/runtime fields (in-memory only; never persisted). Only session-scoped /
  *  sensitive config lives here: runtime providers (with injected keys), OAuth media
  *  OSS credentials, and server-side DaTi CAPTCHA settings. All user-editable
  *  preferences (incl. debug) live in `UserSettings` / merged `ModelSettings`. */
 export interface PlatformSettings {
   providers: ProviderConfig[]
+  /** Read-only platform model directory; never included in user settings saves. */
+  modelCatalog?: Record<string, string[]>
+  /** 平台服务商完整模板（数组或 id -> 模板；登录后据此创建服务商）。 */
+  platformProviders?: Record<string, PlatformProviderTemplate> | PlatformProviderTemplate[]
+  /** 场景档位默认（agent/media/computer 快速/标准/高级默认模型映射）。 */
+  tierDefaults?: Record<string, unknown>
   mediaOss?: MediaOssConfig
   datiApiUrl?: string
   datiAuthcode?: string

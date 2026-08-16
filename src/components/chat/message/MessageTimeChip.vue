@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Clock } from 'lucide-vue-next'
-import { formatMessageTimeFull, formatMessageTimeMinuteSecond } from '../../../lib/formatMessageTime'
+import { formatMessageTimeClock, formatMessageTimeFull } from '../../../lib/formatMessageTime'
 
 const props = defineProps<{ createdAt: number }>()
 
-const label = computed(() => formatMessageTimeMinuteSecond(props.createdAt))
+const label = computed(() => formatMessageTimeClock(props.createdAt))
 const title = computed(() => formatMessageTimeFull(props.createdAt))
 </script>
 

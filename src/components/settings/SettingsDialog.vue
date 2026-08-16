@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, Bug, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -72,10 +72,6 @@ const form = provideSettingsDialogForm({
 })
 
 const {
-  theme,
-  themeLabel,
-  cycleTheme,
-  currentThemeIcon,
   initFormFromStore
 } = form
 
@@ -153,24 +149,10 @@ onMounted(() => {
       <WindowDragRegion
         as="header"
         region="settings-top-chrome"
-        class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0"
+        class="px-6 h-10 flex items-center gap-2 border-b border-border shrink-0"
         :class="chromeEnabled && macTrafficLightPadding ? 'pl-[4.75rem]' : ''"
       >
         <div class="flex-1" />
-        <div class="mr-1">
-          <button
-            type="button"
-            class="h-7 w-7 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center justify-center"
-            :title="`主题：${themeLabel(theme)}（点击切换）`"
-            @click="cycleTheme"
-          >
-            <component
-              :is="currentThemeIcon"
-              class="w-4 h-4"
-              :class="theme === 'light' ? 'text-amber-400' : theme === 'dark' ? 'text-indigo-400' : 'text-emerald-400'"
-            />
-          </button>
-        </div>
       </WindowDragRegion>
 
       <div class="flex flex-1 min-h-0">

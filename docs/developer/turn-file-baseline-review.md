@@ -6,7 +6,10 @@
 2. **轮次基线**：同一会话**主 Agent 用户轮次**内，某路径**第一次** `file_edit` / `file_write` 前，把当时全文（新建则为空）写入应用数据目录。
    - `turn_id` 必须是 lead 用户消息 id；子 Agent 的 host stub / scoped 用户行**不能**当作锚点（否则会出现「未找到本轮修改前快照」）。
    - 子 Agent 内的 `file_edit` / `file_write` 同样走 registry 的 `TurnBaselineGuard`，与主 Agent 共用上述 `turn_id`。
-3. **输入框上方**：只列出**最近一轮**改过的文件（含该轮内 scoped 子 Agent 的成功写文件工具）；点击打开右侧工作区面板，对比「基线 ↔ 当前磁盘文件」。
+3. **对话页脚**：每一轮结尾列出该轮改过的文件（含 scoped 子 Agent）。
+   点击打开右侧工作区面板。
+   对比「本轮基线 ↔ 其后同一路径的下一份基线」；没有下一份则对比磁盘。
+   交互与文案见 [`../ui/turn-change-summary.md`](../ui/turn-change-summary.md)。
 4. **右侧栏主导航**：文件夹 / Git 图标（hover：工作区文件、变更文件）。本轮净 diff 走预览 Tab。
 5. **Git「变更文件」预览**：整文件 structured diff（可折叠未改行），不是 `git diff` hunk 文本。
    - 有未暂存 / 未跟踪 → index（或空）↔ 工作区磁盘

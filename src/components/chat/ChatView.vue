@@ -2,7 +2,6 @@
 import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
-import ChangeSummary from './ChangeSummary.vue'
 import ExperienceHomePanel from './ExperienceHomePanel.vue'
 import ExperienceHotPreview from './ExperienceHotPreview.vue'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
@@ -76,7 +75,6 @@ const showMessageListPlaceholder = computed(() =>
     deferMainPane.value
   )
 )
-const conversationMessages = computed(() => chat.current?.messages ?? [])
 const showWelcomeHome = computed(() =>
   shouldShowWelcomeHome(
     chat.current !== null,
@@ -402,11 +400,6 @@ const toastClass = computed(() => {
             :search-query="debouncedPageSearchQuery"
           />
         </div>
-      </div>
-    </div>
-    <div v-if="!showWelcomeHome && !isHydratingMessages" class="chat-shell shrink-0 bg-background">
-      <div class="chat-column">
-        <ChangeSummary :messages="conversationMessages" />
       </div>
     </div>
     <Composer v-if="showFooterComposer" />

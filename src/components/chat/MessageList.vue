@@ -8,6 +8,7 @@ import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
 import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
 import ContextCompressingMarker from './message/ContextCompressingMarker.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
+import ChangeSummary from './ChangeSummary.vue'
 import { useChatStore } from '../../stores/chat'
 import { buildCompressionProgressLabel } from '../../lib/compressionMessage'
 import { useSettingsStore } from '../../stores/settings'
@@ -50,6 +51,7 @@ import {
   type MessageListScrollAnchor
 } from '../../lib/messageListScrollAnchor'
 import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
+import { fileChangesByTurn } from '../../lib/lastTurnFileChanges'
 
 const props = withDefaults(defineProps<{
   searchMatchIds?: string[]
@@ -910,6 +912,9 @@ const activeBoard = computed(() => flatMessages.value.find(
 
 const expandedTurnIds = ref<Set<string>>(new Set())
 const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
+const expandedChangeTurnIds = ref<Set<string>>(new Set())
+const collapsedChangeTurnIds = ref<Set<string>>(new Set())
+const turnFileChanges = computed(() => fileChangesByTurn(chat.current?.messages))
 
 // Live ticking clock for the running turn's elapsed label. The interval runs
 // only while at least one turn is still active; otherwise nothing re-renders.
@@ -960,6 +965,28 @@ function resizeTurnRow(turnId: string) {
   if (!row) return
   // Preserve every neighboring measurement; resetting the cache shifts the viewport.
   rowVirtualizer.value.resizeItem(turnIndex, row.offsetHeight)
+}
+
+function changeSummaryExpanded(turnId: string): boolean {
+  if (collapsedChangeTurnIds.value.has(turnId)) return false
+  if (expandedChangeTurnIds.value.has(turnId)) return true
+  const count = turnFileChanges.value.get(turnId)?.length ?? 0
+  return count > 1 && count < 3
+}
+
+function toggleChangeSummary(turnId: string) {
+  const expanded = new Set(expandedChangeTurnIds.value)
+  const collapsed = new Set(collapsedChangeTurnIds.value)
+  if (changeSummaryExpanded(turnId)) {
+    expanded.delete(turnId)
+    collapsed.add(turnId)
+  } else {
+    collapsed.delete(turnId)
+    expanded.add(turnId)
+  }
+  expandedChangeTurnIds.value = expanded
+  collapsedChangeTurnIds.value = collapsed
+  void nextTick(() => resizeTurnRow(turnId))
 }
 
 function toggleTurn(turnId: string) {
@@ -1032,6 +1059,8 @@ watch(() => chat.currentId, () => {
   layoutCacheHold = null
   expandedTurnIds.value = new Set()
   manuallyCollapsedTurnIds.value = new Set()
+  expandedChangeTurnIds.value = new Set()
+  collapsedChangeTurnIds.value = new Set()
   activeBoardInlineScrollTop.value = null
   activeBoardIsSticky.value = false
 })
@@ -1308,7 +1337,7 @@ function entrySpacing(
                 (entry.type === 'message' && entry.message.id === row.turn.id && !turnHasTaskBoard(row.turn))
                 || (entry.type === 'task_board' && entry.anchorMessageId === row.turn.id)
               )"
-              class="mt-1.5"
+              class="mt-1.5 px-3"
             >
               <button
                 type="button"
@@ -1323,6 +1352,17 @@ function entrySpacing(
             </div>
           </div>
         </template>
+        <div
+          v-if="turnFileChanges.get(row.turn.id)?.length"
+          class="mt-1.5 px-3"
+        >
+          <ChangeSummary
+            :turn-id="row.turn.id"
+            :files="turnFileChanges.get(row.turn.id) ?? []"
+            :expanded="changeSummaryExpanded(row.turn.id)"
+            @toggle="toggleChangeSummary(row.turn.id)"
+          />
+        </div>
       </div>
     </div>
 

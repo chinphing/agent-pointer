@@ -40,42 +40,20 @@ function pathBasename(path: string): string {
 }
 
 function isLeadUserMessage(message: ChatMessage): boolean {
-  // Sub-agent host stubs / nested user rows must not become the turn anchor —
-  // baselines and Review use the real lead user message id.
   return message.role === 'user' && Boolean(message.id?.trim()) && !message.anchorMessageId?.trim()
 }
 
-/**
- * Latest user-anchored turn's successful file_edit / file_write paths.
- * Includes nested/scoped assistant tool calls that belong to the same lead turn.
- */
-export function lastTurnFileChanges(messages: ChatMessage[] | undefined | null): LastTurnFileChanges | null {
-  const list = messages ?? []
-  let turnId: string | null = null
-  let turnStart = -1
-  for (let i = 0; i < list.length; i++) {
-    const message = list[i]!
-    if (isLeadUserMessage(message)) {
-      turnId = message.id
-      turnStart = i
-    }
-  }
-  if (!turnId || turnStart < 0) return null
+function filesFromToolCalls(toolCalls: ToolCall[]): FileChangeSummary[] {
+  const mutating = toolCalls.filter(tc => tc.status === 'success' && isFileMutatingTool(tc))
+  if (!mutating.length) return []
 
-  const toolCalls = list
-    .slice(turnStart)
-    .flatMap(message => message.toolCalls ?? [])
-    .filter(tc => tc.status === 'success' && isFileMutatingTool(tc))
-
-  if (!toolCalls.length) return null
-
-  const fromDiffs = buildFileChangeSummaries(toolCalls)
+  const fromDiffs = buildFileChangeSummaries(mutating)
   const byPath = new Map<string, FileChangeSummary>()
   for (const summary of fromDiffs) {
     byPath.set(summary.path.replace(/\\/g, '/').toLocaleLowerCase(), summary)
   }
 
-  for (const tc of toolCalls) {
+  for (const tc of mutating) {
     const path = pathFromToolCall(tc)
     if (!path) continue
     const key = path.replace(/\\/g, '/').toLocaleLowerCase()
@@ -90,10 +68,62 @@ export function lastTurnFileChanges(messages: ChatMessage[] | undefined | null):
     })
   }
 
-  const files = [...byPath.values()].sort((a, b) => {
+  return [...byPath.values()].sort((a, b) => {
     const byName = a.fileName.localeCompare(b.fileName, undefined, { sensitivity: 'base' })
     if (byName !== 0) return byName
     return a.path.localeCompare(b.path, undefined, { sensitivity: 'base' })
   })
-  return files.length ? { turnId, files } : null
+}
+
+/** Lead-user turn ranges: [start, end) in transcript order. */
+function leadTurnRanges(list: ChatMessage[]): Array<{ turnId: string; start: number; end: number }> {
+  const starts: Array<{ turnId: string; start: number }> = []
+  for (let i = 0; i < list.length; i++) {
+    const message = list[i]!
+    if (isLeadUserMessage(message)) {
+      starts.push({ turnId: message.id, start: i })
+    }
+  }
+  return starts.map((item, index) => ({
+    turnId: item.turnId,
+    start: item.start,
+    end: starts[index + 1]?.start ?? list.length
+  }))
+}
+
+export function fileChangesByTurn(
+  messages: ChatMessage[] | undefined | null
+): Map<string, FileChangeSummary[]> {
+  const list = messages ?? []
+  const out = new Map<string, FileChangeSummary[]>()
+  for (const range of leadTurnRanges(list)) {
+    const toolCalls = list
+      .slice(range.start, range.end)
+      .flatMap(message => message.toolCalls ?? [])
+    const files = filesFromToolCalls(toolCalls)
+    if (files.length) out.set(range.turnId, files)
+  }
+  return out
+}
+
+export function fileChangesForTurn(
+  messages: ChatMessage[] | undefined | null,
+  turnId: string
+): LastTurnFileChanges | null {
+  const files = fileChangesByTurn(messages).get(turnId)
+  return files?.length ? { turnId, files } : null
+}
+
+/**
+ * Latest user-anchored turn's successful file_edit / file_write paths.
+ * Includes nested/scoped assistant tool calls that belong to the same lead turn.
+ */
+export function lastTurnFileChanges(messages: ChatMessage[] | undefined | null): LastTurnFileChanges | null {
+  const list = messages ?? []
+  let turnId: string | null = null
+  for (const message of list) {
+    if (isLeadUserMessage(message)) turnId = message.id
+  }
+  if (!turnId) return null
+  return fileChangesForTurn(list, turnId)
 }

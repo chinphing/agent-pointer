@@ -4,8 +4,11 @@
 //! plus a sibling `.path` file recording the absolute path for debugging.
 //!
 //! On the first successful mutating file tool in a turn for a path, callers persist
-//! the pre-write content. UI later diffs that snapshot against the on-disk file.
+//! the pre-write content. Review diffs that snapshot against the next later
+//! baseline for the same path, or the on-disk file when none exists.
 
+use crate::message_context::is_synthetic_user_content;
+use crate::models::{is_scoped_sub_message, ChatMessage, Role};
 use crate::storage;
 use crate::text_diff::compute_diff_lines;
 use anyhow::{anyhow, Context, Result};
@@ -147,6 +150,74 @@ fn read_baseline_content(
     Ok(Some(text))
 }
 
+fn read_baseline_either(
+    conversation_id: &str,
+    turn_id: &str,
+    abs: &Path,
+    raw_abs: &Path,
+) -> Result<Option<String>> {
+    match read_baseline_content(conversation_id, turn_id, abs)? {
+        Some(text) => Ok(Some(text)),
+        None if raw_abs.as_os_str() != abs.as_os_str() => {
+            read_baseline_content(conversation_id, turn_id, raw_abs)
+        }
+        None => Ok(None),
+    }
+}
+
+fn is_lead_user_message(message: &ChatMessage) -> bool {
+    matches!(message.role, Role::User)
+        && !is_synthetic_user_content(&message.content)
+        && !is_scoped_sub_message(message)
+        && !message.id.trim().is_empty()
+}
+
+fn subsequent_lead_turn_ids(history: &[ChatMessage], current_turn_id: &str) -> Vec<String> {
+    let ids: Vec<String> = history
+        .iter()
+        .filter(|message| is_lead_user_message(message))
+        .map(|message| message.id.trim().to_string())
+        .collect();
+    let Some(index) = ids.iter().position(|id| id == current_turn_id) else {
+        return Vec::new();
+    };
+    ids.into_iter().skip(index + 1).collect()
+}
+
+fn load_subsequent_lead_turn_ids(conversation_id: &str, turn_id: &str) -> Vec<String> {
+    match crate::conversation_store::global_store() {
+        Ok(store) => match store.load_messages(conversation_id) {
+            Ok(messages) => subsequent_lead_turn_ids(&messages, turn_id),
+            Err(error) => {
+                warn!(
+                    "turn_file_baseline: load_messages failed for next baseline conversation_id={conversation_id}: {error:#}"
+                );
+                Vec::new()
+            }
+        },
+        Err(error) => {
+            warn!(
+                "turn_file_baseline: global_store unavailable for next baseline conversation_id={conversation_id}: {error:#}"
+            );
+            Vec::new()
+        }
+    }
+}
+
+fn read_next_path_baseline(
+    conversation_id: &str,
+    subsequent_turn_ids: &[String],
+    abs: &Path,
+    raw_abs: &Path,
+) -> Result<Option<(String, String)>> {
+    for next_turn in subsequent_turn_ids {
+        if let Some(text) = read_baseline_either(conversation_id, next_turn, abs, raw_abs)? {
+            return Ok(Some((next_turn.clone(), text)));
+        }
+    }
+    Ok(None)
+}
+
 fn resolve_abs_path(workspace_root: &Path, path: &str) -> Result<PathBuf> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
@@ -170,7 +241,8 @@ pub struct TurnFileDiff {
     pub diff_stats: serde_json::Value,
 }
 
-/// Diff turn baseline (first pre-write content) against the current on-disk file.
+/// Diff this turn's baseline against the next later baseline for the same path,
+/// or the current on-disk file when no later snapshot exists.
 pub fn turn_file_diff(
     conversation_id: &str,
     turn_id: &str,
@@ -184,17 +256,18 @@ pub fn turn_file_diff(
     let display_path = abs.to_string_lossy().replace('\\', "/");
     // Tool results often store a non-canonical absolute path; try both keys.
     let raw_abs = PathBuf::from(path.trim());
-    let baseline = match read_baseline_content(conversation_id, turn_id, &abs)? {
-        Some(text) => Some(text),
-        None if raw_abs.as_os_str() != abs.as_os_str() => {
-            read_baseline_content(conversation_id, turn_id, &raw_abs)?
-        }
-        None => None,
-    };
+    let baseline = read_baseline_either(conversation_id, turn_id, &abs, &raw_abs)?;
     let baseline_missing = baseline.is_none();
     let before = baseline.unwrap_or_default();
 
-    let after = if abs.exists() {
+    let subsequent = load_subsequent_lead_turn_ids(conversation_id, turn_id);
+    let next_baseline = read_next_path_baseline(conversation_id, &subsequent, &abs, &raw_abs)?;
+    let after = if let Some((next_turn_id, text)) = next_baseline {
+        info!(
+            "turn_file_baseline: after=next_baseline conversation_id={conversation_id} turn_id={turn_id} next_turn_id={next_turn_id} path={display_path}"
+        );
+        text
+    } else if abs.exists() {
         let meta = fs::metadata(&abs).with_context(|| format!("stat {}", abs.display()))?;
         if !meta.is_file() {
             return Err(anyhow!("不是常规文件: {}", abs.display()));
@@ -204,8 +277,8 @@ pub fn turn_file_diff(
         String::new()
     };
 
-    // File did not exist at baseline (empty snapshot) and exists now.
-    let created = before.is_empty() && abs.exists() && !baseline_missing;
+    // File did not exist at baseline (empty snapshot) and has content after this turn.
+    let created = before.is_empty() && !after.is_empty() && !baseline_missing;
 
     let (diff_lines, diff_stats) = compute_diff_lines(&before, &after);
     if baseline_missing {
@@ -270,5 +343,53 @@ mod tests {
         let a = path_key(Path::new("/tmp/Foo/bar.ts"));
         let b = path_key(Path::new("/tmp/Foo\\bar.ts"));
         assert_eq!(a, b);
+    }
+
+    fn user_msg(id: &str, content: &str) -> ChatMessage {
+        let mut message = ChatMessage::user_text(content);
+        message.id = id.to_string();
+        message
+    }
+
+    #[test]
+    fn subsequent_lead_turns_skip_scoped_and_current() {
+        let mut scoped = user_msg("scoped", "Begin. Your assigned task is in the system prompt under **Assigned task**.");
+        scoped.anchor_message_id = Some("a1".into());
+        let history = vec![
+            user_msg("u1", "first"),
+            scoped,
+            user_msg("u2", "second"),
+            user_msg("u3", "third"),
+        ];
+        assert_eq!(
+            subsequent_lead_turn_ids(&history, "u1"),
+            vec!["u2".to_string(), "u3".to_string()]
+        );
+        assert_eq!(subsequent_lead_turn_ids(&history, "u3"), Vec::<String>::new());
+        assert_eq!(subsequent_lead_turn_ids(&history, "missing"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn next_path_baseline_stops_at_first_existing() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        let path = Path::new("/ws/file.ts");
+        {
+            let _guard = TurnBaselineGuard::enter("conv", "u2");
+            ensure_baseline(path, "after-u1").unwrap();
+        }
+        {
+            let _guard = TurnBaselineGuard::enter("conv", "u3");
+            ensure_baseline(path, "after-u2").unwrap();
+        }
+        let found = read_next_path_baseline(
+            "conv",
+            &["u2".into(), "u3".into()],
+            path,
+            path,
+        )
+        .unwrap();
+        assert_eq!(found, Some(("u2".into(), "after-u1".into())));
     }
 }

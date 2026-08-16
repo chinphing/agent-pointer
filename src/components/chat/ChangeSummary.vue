@@ -1,38 +1,55 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ChevronDown, FileCode2 } from 'lucide-vue-next'
-import type { ChatMessage } from '../../types/chat'
-import { lastTurnFileChanges } from '../../lib/lastTurnFileChanges'
+import { computed } from 'vue'
+import { ChevronDown, FileText } from 'lucide-vue-next'
+import type { FileChangeSummary } from '../../lib/toolCallDisplay'
 import { workspaceRelativeDisplayPath } from '../../lib/toolCallDisplay'
 import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 
 const props = defineProps<{
-  messages: ChatMessage[]
+  turnId: string
+  files: FileChangeSummary[]
+  expanded: boolean
+}>()
+
+const emit = defineEmits<{
+  toggle: []
 }>()
 
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
-const drawerOpen = ref(false)
 
-const turnChanges = computed(() => lastTurnFileChanges(props.messages))
-const files = computed(() => turnChanges.value?.files ?? [])
+const singleFile = computed(() => (props.files.length === 1 ? props.files[0] : null))
+
+const headerLabel = computed(() => {
+  if (singleFile.value) {
+    return `修改了 ${singleFile.value.fileName}`
+  }
+  return `修改了 ${props.files.length} 个文件`
+})
+
+const totals = computed(() => {
+  let adds = 0
+  let dels = 0
+  for (const file of props.files) {
+    adds += file.adds
+    dels += file.dels
+  }
+  return { adds, dels }
+})
+
+const showTotals = computed(() => totals.value.adds > 0 || totals.value.dels > 0)
 
 function displayPath(path: string): string {
   return workspaceRelativeDisplayPath(path, chat.current?.workspaceRoot)
 }
 
-function toggleDrawer(): void {
-  drawerOpen.value = !drawerOpen.value
-}
-
 function openFile(path: string): void {
-  const turnId = turnChanges.value?.turnId
   const conversationId = chat.current?.id
   const workspaceRoot = chat.current?.workspaceRoot?.trim()
-  if (!turnId || !conversationId || !workspaceRoot) {
+  if (!props.turnId || !conversationId || !workspaceRoot) {
     console.warn('[ChangeSummary] cannot open turn diff', {
-      turnId,
+      turnId: props.turnId,
       conversationId,
       hasWorkspace: Boolean(workspaceRoot),
       path
@@ -41,40 +58,51 @@ function openFile(path: string): void {
   }
   workspacePanel.openTurnDiff({
     conversationId,
-    turnId,
+    turnId: props.turnId,
     path
   })
+}
+
+function onHeaderClick(): void {
+  if (singleFile.value) {
+    openFile(singleFile.value.path)
+    return
+  }
+  emit('toggle')
 }
 </script>
 
 <template>
-  <section
-    v-if="files.length"
-    class="change-summary mb-2 overflow-hidden rounded-xl border border-border panel-elevated shadow-sm"
-  >
+  <section v-if="files.length" class="change-summary">
     <button
       type="button"
       class="change-summary-header"
-      :aria-expanded="drawerOpen"
-      @click="toggleDrawer"
+      :aria-expanded="singleFile ? undefined : expanded"
+      :title="singleFile ? displayPath(singleFile.path) : undefined"
+      @click="onHeaderClick"
     >
-      <FileCode2 class="h-3.5 w-3.5 shrink-0 text-muted" />
-      <span class="text-xs font-medium text-foreground/85">本轮修改</span>
-      <span class="min-w-0 flex-1 truncate text-left text-[11px] text-muted">
-        {{ files.length }} 个文件
+      <FileText class="h-3.5 w-3.5 shrink-0 text-muted" />
+      <span class="min-w-0 truncate text-left text-[13px] text-muted">{{ headerLabel }}</span>
+      <span
+        v-if="showTotals"
+        class="inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums"
+      >
+        <span class="text-green-500">+{{ totals.adds }}</span>
+        <span class="text-red-500">-{{ totals.dels }}</span>
       </span>
       <ChevronDown
-        class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
-        :class="drawerOpen ? 'rotate-180' : ''"
+        v-if="!singleFile"
+        class="ml-auto h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
+        :class="expanded ? 'rotate-180' : ''"
       />
     </button>
 
-    <div v-if="drawerOpen" class="change-summary-files">
+    <div v-if="!singleFile && expanded" class="change-summary-files">
       <button
         v-for="change in files"
         :key="change.path"
         type="button"
-        class="change-summary-file-toggle"
+        class="change-summary-file"
         :title="displayPath(change.path)"
         @click="openFile(change.path)"
       >
@@ -95,16 +123,22 @@ function openFile(path: string): void {
 </template>
 
 <style scoped>
+.change-summary {
+  min-width: 15.5rem;
+  width: max-content;
+  max-width: min(22rem, 100%);
+  @apply overflow-hidden rounded-lg border border-border/80 bg-card;
+}
 .change-summary-header {
-  min-height: 38px;
+  min-height: 34px;
   @apply flex w-full items-center gap-2 px-3 text-left transition-colors hover:bg-hover/40;
 }
 .change-summary-files {
-  max-height: min(28vh, 12rem);
-  @apply divide-y divide-border overflow-y-auto border-t border-border bg-accent-muted/10;
+  max-height: 12rem;
+  @apply divide-y divide-border/80 overflow-y-auto border-t border-border/80;
 }
-.change-summary-file-toggle {
-  min-height: 34px;
-  @apply flex w-full cursor-pointer items-center gap-2 px-3 text-[11px] text-muted transition-colors hover:bg-hover/60 hover:text-foreground/85;
+.change-summary-file {
+  min-height: 32px;
+  @apply flex w-full cursor-pointer items-center gap-2 px-3 text-[12px] text-muted transition-colors hover:bg-hover/40 hover:text-foreground/85;
 }
 </style>

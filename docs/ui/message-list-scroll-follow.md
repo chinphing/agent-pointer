@@ -28,7 +28,7 @@
 2. **切换/挂载 settle**：会话切换会 remount 列表，行高先用估算值；
    `toBottom({ settle: true })` 在随后两帧再贴一次，减少测量校正后的下跳与裁切。
 3. **视口变矮**：`ResizeObserver` 在跟随态下侦测 scroller `clientHeight`
-   （Composer / ChangeSummary / 草稿增高），再按视口差值补偿 `scrollTop`。
+   （Composer / 草稿增高），再按视口差值补偿 `scrollTop`。
 4. **总高度变化**：跟随态下 virtualizer `getTotalSize()` 变化时再贴一次真底部
    （覆盖切换后 estimate→measure 与末轮展开）。
 

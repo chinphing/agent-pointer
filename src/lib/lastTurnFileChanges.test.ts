@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, ToolCall } from '../types/chat'
-import { lastTurnFileChanges } from './lastTurnFileChanges'
+import { fileChangesByTurn, lastTurnFileChanges } from './lastTurnFileChanges'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name'>): ToolCall {
   return {
@@ -140,5 +140,45 @@ describe('lastTurnFileChanges', () => {
 
     expect(result?.turnId).toBe('u1')
     expect(result?.files.map(f => f.path)).toEqual(['/ws/from-sub.ts'])
+  })
+
+  it('maps successful writes onto each lead turn without merging later turns', () => {
+    const byTurn = fileChangesByTurn([
+      msg({
+        id: 'u1',
+        role: 'user',
+        content: 'first',
+        toolCalls: [
+          tc({
+            id: 'old',
+            name: 'file_edit',
+            result: JSON.stringify({
+              path: '/ws/old.ts',
+              success: true,
+              replaced: 1,
+              stats: { adds: 1, dels: 0 }
+            })
+          })
+        ]
+      }),
+      msg({ id: 'a1', role: 'assistant', content: 'done' }),
+      msg({ id: 'u2', role: 'user', content: 'second' }),
+      msg({
+        id: 'a2',
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          tc({
+            id: 'w1',
+            name: 'file_write',
+            result: JSON.stringify({ path: '/ws/new.ts', success: true, bytesWritten: 3 })
+          })
+        ]
+      })
+    ])
+
+    expect([...byTurn.keys()]).toEqual(['u1', 'u2'])
+    expect(byTurn.get('u1')?.map(f => f.path)).toEqual(['/ws/old.ts'])
+    expect(byTurn.get('u2')?.map(f => f.path)).toEqual(['/ws/new.ts'])
   })
 })

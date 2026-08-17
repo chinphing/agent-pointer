@@ -13,6 +13,14 @@
 4. **hydrate 与 focus**：未 hydrate 且 `messageCount > 0` 时
    `isCurrentConversationHydrating` 为 true，pending focus 仍会等加载完成。
 
+## 行尾操作（置顶 / 删除）
+
+Hover 时标题从左侧淡入操作区，不要用整段 `backdrop-blur` 盖住图标。
+
+- 渐变只在**左图标左侧**约 20px，接到与当前行相同的底色（侧栏 / hover / 选中）。
+- 两个图标坐在**不透明底**上，缝里不能透出标题字。
+- 图标本身保持清晰。桌面与网页同一套样式（`AppShell` `.sidebar-row-actions`）。
+
 启动时恢复上次选中会话见 [last-conversation-restore.md](last-conversation-restore.md)。
 
 ## 相关代码

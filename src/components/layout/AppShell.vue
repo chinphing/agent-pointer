@@ -1127,9 +1127,9 @@ watch(searchQuery, q => {
                 <div
                   v-for="c in pinnedConversations"
                   :key="c.id"
-                  class="group flex h-9 items-center gap-2 px-3 rounded-lg cursor-pointer transition-colors"
+                  class="sidebar-conv-row group relative flex h-9 items-center gap-2 px-3 rounded-lg cursor-pointer transition-colors"
                   :class="chat.currentId === c.id
-                    ? 'bg-foreground/10'
+                    ? 'is-selected bg-foreground/10'
                     : 'hover:bg-hover'"
                   @click="onRowClick(c)"
                   @contextmenu="openConversationMenu($event, c)"
@@ -1155,42 +1155,50 @@ watch(searchQuery, q => {
                     :title="c.title"
                     @dblclick.stop="startEdit(c)"
                   >{{ c.title }}</div>
-                  <template v-if="pendingDeleteId === c.id">
-                    <button
-                      type="button"
-                      class="p-1 rounded hover:bg-hover cursor-pointer"
-                      title="取消"
-                      @click.stop="cancelDeleteConversation()"
-                    >
-                      <X class="w-3.5 h-3.5 text-muted" />
-                    </button>
-                    <button
-                      type="button"
-                      class="p-1 rounded hover:bg-danger/15 cursor-pointer"
-                      title="确认删除"
-                      @click.stop="confirmDeleteConversation(c)"
-                    >
-                      <Check class="w-3.5 h-3.5 text-danger" />
-                    </button>
-                  </template>
-                  <template v-else>
-                    <button
-                      type="button"
-                      class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                      title="取消置顶"
-                      @click.stop="toggleConversationPin(c)"
-                    >
-                      <PinOff class="w-3.5 h-3.5 text-muted" />
-                    </button>
-                    <button
-                      type="button"
-                      class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                      title="删除"
-                      @click.stop="askDeleteConversation(c)"
-                    >
+                  <div
+                    class="sidebar-row-actions"
+                    :class="pendingDeleteId === c.id && 'is-pending'"
+                  >
+                    <div class="sidebar-row-actions-fade" aria-hidden="true" />
+                    <div class="sidebar-row-actions-btns">
+                    <template v-if="pendingDeleteId === c.id">
+                      <button
+                        type="button"
+                        class="p-1 rounded hover:bg-hover cursor-pointer"
+                        title="取消"
+                        @click.stop="cancelDeleteConversation()"
+                      >
+                        <X class="w-3.5 h-3.5 text-muted" />
+                      </button>
+                      <button
+                        type="button"
+                        class="p-1 rounded hover:bg-danger/15 cursor-pointer"
+                        title="确认删除"
+                        @click.stop="confirmDeleteConversation(c)"
+                      >
+                        <Check class="w-3.5 h-3.5 text-danger" />
+                      </button>
+                    </template>
+                    <template v-else>
+                      <button
+                        type="button"
+                        class="p-1 rounded hover:bg-hover cursor-pointer"
+                        title="取消置顶"
+                        @click.stop="toggleConversationPin(c)"
+                      >
+                        <PinOff class="w-3.5 h-3.5 text-muted" />
+                      </button>
+                      <button
+                        type="button"
+                        class="p-1 rounded hover:bg-hover cursor-pointer"
+                        title="删除"
+                        @click.stop="askDeleteConversation(c)"
+                      >
                       <Trash2 class="w-3.5 h-3.5 text-muted" />
                     </button>
-                  </template>
+                    </template>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1269,9 +1277,9 @@ watch(searchQuery, q => {
             <div
               v-for="c in sidebarRows"
               :key="c.id"
-              class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+              class="sidebar-conv-row group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
               :class="chat.currentId === c.id
-                ? 'bg-foreground/10'
+                ? 'is-selected bg-foreground/10'
                 : 'hover:bg-hover'"
               @click="onRowClick(c)"
               @contextmenu="openConversationMenu($event, c)"
@@ -1304,38 +1312,46 @@ watch(searchQuery, q => {
                   :title="c.snippet"
                 >{{ c.snippet }}</div>
               </div>
-              <template v-if="pendingDeleteId === c.id">
-                <button
-                  class="p-1 rounded hover:bg-hover cursor-pointer"
-                  @click.stop="cancelDeleteConversation()"
-                  title="取消"
-                >
-                  <X class="w-3.5 h-3.5 text-muted" />
-                </button>
-                <button
-                  class="p-1 rounded hover:bg-danger/15 cursor-pointer"
-                  @click.stop="confirmDeleteConversation(c)"
-                  title="确认删除"
-                >
-                  <Check class="w-3.5 h-3.5 text-danger" />
-                </button>
-              </template>
-              <template v-else>
-                <button
-                  class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                  @click.stop="toggleConversationPin(c)"
-                  title="置顶"
-                >
-                  <Pin class="w-3.5 h-3.5 text-muted" />
-                </button>
-                <button
-                  class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                  @click.stop="askDeleteConversation(c)"
-                  title="删除"
-                >
-                  <Trash2 class="w-3.5 h-3.5 text-muted" />
-                </button>
-              </template>
+              <div
+                class="sidebar-row-actions"
+                :class="pendingDeleteId === c.id && 'is-pending'"
+              >
+                <div class="sidebar-row-actions-fade" aria-hidden="true" />
+                <div class="sidebar-row-actions-btns">
+                <template v-if="pendingDeleteId === c.id">
+                  <button
+                    class="p-1 rounded hover:bg-hover cursor-pointer"
+                    @click.stop="cancelDeleteConversation()"
+                    title="取消"
+                  >
+                    <X class="w-3.5 h-3.5 text-muted" />
+                  </button>
+                  <button
+                    class="p-1 rounded hover:bg-danger/15 cursor-pointer"
+                    @click.stop="confirmDeleteConversation(c)"
+                    title="确认删除"
+                  >
+                    <Check class="w-3.5 h-3.5 text-danger" />
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    class="p-1 rounded hover:bg-hover cursor-pointer"
+                    @click.stop="toggleConversationPin(c)"
+                    title="置顶"
+                  >
+                    <Pin class="w-3.5 h-3.5 text-muted" />
+                  </button>
+                  <button
+                    class="p-1 rounded hover:bg-hover cursor-pointer"
+                    @click.stop="askDeleteConversation(c)"
+                    title="删除"
+                  >
+                    <Trash2 class="w-3.5 h-3.5 text-muted" />
+                  </button>
+                </template>
+                </div>
+              </div>
             </div>
             <!-- Sentinel for infinite scroll; observed by IntersectionObserver -->
             <div ref="sentinel" v-if="!searchQuery.trim()" class="h-1 w-full" />
@@ -1576,6 +1592,51 @@ watch(searchQuery, q => {
 .sidebar-section-scroll {
   margin-right: -0.5rem; /* match section px-2 */
   padding-right: 0.5rem;
+}
+
+/* Conversation row: fade title into the action cluster; keep icons sharp. */
+.sidebar-conv-row {
+  --sidebar-row-fill: hsl(var(--shell-sidebar));
+}
+.sidebar-conv-row:hover {
+  --sidebar-row-fill: hsl(var(--hover));
+}
+.sidebar-conv-row.is-selected,
+.sidebar-conv-row.is-selected:hover {
+  --sidebar-row-fill: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 10%,
+    hsl(var(--shell-sidebar))
+  );
+}
+.sidebar-row-actions {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  padding-right: 0.5rem;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+.sidebar-conv-row:hover .sidebar-row-actions,
+.sidebar-row-actions.is-pending {
+  opacity: 1;
+  pointer-events: auto;
+}
+.sidebar-row-actions-fade {
+  width: 1.25rem;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--sidebar-row-fill));
+}
+.sidebar-row-actions-btns {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  background: var(--sidebar-row-fill);
 }
 
 .sidebar-workbench-link {

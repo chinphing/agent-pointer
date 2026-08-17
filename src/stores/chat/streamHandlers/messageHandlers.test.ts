@@ -6,6 +6,7 @@ import {
 import {
   handleAssistantJsonPartial,
   handleDelta,
+  handleRawContentDelta,
   handleMessageEnd,
   handleMessageStart
 } from './messageHandlers'
@@ -167,5 +168,59 @@ describe('messageHandlers', () => {
     })
     expect(conv.messages.find(m => m.id === 'sub-round-1')?.contentStreaming).toBe(false)
     expect(clearRunState).not.toHaveBeenCalled()
+  })
+
+  describe('rawContent capture gating (rawContentViewEnabled)', () => {
+    it('handleRawContentDelta accumulates while capture is enabled', () => {
+      const conv = sampleConversation()
+      conv.messages.push(sampleAssistantMessage('a1'))
+      const ctx = createMockStreamHandlerContext([conv], {
+        rawContentCaptureEnabled: () => true
+      })
+      handleRawContentDelta(ctx, { kind: 'raw_content_delta', messageId: 'a1', text: 'part-1' })
+      handleRawContentDelta(ctx, { kind: 'raw_content_delta', messageId: 'a1', text: 'part-2' })
+      expect(conv.messages[0].rawContent).toBe('part-1part-2')
+    })
+
+    it('handleRawContentDelta skips capture while disabled', () => {
+      const conv = sampleConversation()
+      conv.messages.push(sampleAssistantMessage('a1'))
+      const ctx = createMockStreamHandlerContext([conv], {
+        rawContentCaptureEnabled: () => false
+      })
+      handleRawContentDelta(ctx, { kind: 'raw_content_delta', messageId: 'a1', text: 'part-1' })
+      expect(conv.messages[0].rawContent).toBeUndefined()
+    })
+
+    it('handleMessageEnd applies rawContent only while capture is enabled', () => {
+      const conv = sampleConversation()
+      conv.messages.push({ ...sampleAssistantMessage('a1'), content: 'done' })
+      const ctx = createMockStreamHandlerContext([conv], {
+        rawContentCaptureEnabled: () => false
+      })
+      handleMessageEnd(ctx, {
+        kind: 'message_end',
+        messageId: 'a1',
+        content: 'done',
+        rawContent: 'done\n\nMEDIA:/tmp/x.png'
+      })
+      expect(conv.messages[0].rawContent).toBeUndefined()
+      expect(conv.messages[0].content).toBe('done')
+    })
+
+    it('handleMessageEnd applies rawContent when capture is enabled', () => {
+      const conv = sampleConversation()
+      conv.messages.push({ ...sampleAssistantMessage('a1'), content: 'done' })
+      const ctx = createMockStreamHandlerContext([conv], {
+        rawContentCaptureEnabled: () => true
+      })
+      handleMessageEnd(ctx, {
+        kind: 'message_end',
+        messageId: 'a1',
+        content: 'done',
+        rawContent: 'done\n\nMEDIA:/tmp/x.png'
+      })
+      expect(conv.messages[0].rawContent).toBe('done\n\nMEDIA:/tmp/x.png')
+    })
   })
 })

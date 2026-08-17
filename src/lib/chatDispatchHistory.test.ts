@@ -116,3 +116,45 @@ describe('conversationNeedsHydration', () => {
     ).toBe(false)
   })
 })
+
+describe('rawContent wire stripping', () => {
+  it('messagesForChatDispatch strips rawContent but keeps reasoning', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'hello',
+        status: 'done',
+        createdAt: 1,
+        toolCalls: [],
+        rawContent: 'hello\n\nMEDIA:/tmp/x.png',
+        reasoning: 'thinking…'
+      }
+    ]
+    const out = messagesForChatDispatch(messages)
+    expect(out).toHaveLength(1)
+    expect(out[0].rawContent).toBeUndefined()
+    // reasoning must survive: DeepSeek-style models require reasoning_content round-trip.
+    expect(out[0].reasoning).toBe('thinking…')
+    expect(out[0].content).toBe('hello')
+  })
+
+  it('messagesForPersistAppend strips rawContent but keeps reasoning', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'hello',
+        status: 'done',
+        createdAt: 1,
+        toolCalls: [],
+        rawContent: 'hello\n\nMEDIA:/tmp/x.png',
+        reasoning: 'thinking…'
+      }
+    ]
+    const out = messagesForPersistAppend(messages)
+    expect(out).toHaveLength(1)
+    expect(out[0].rawContent).toBeUndefined()
+    expect(out[0].reasoning).toBe('thinking…')
+  })
+})

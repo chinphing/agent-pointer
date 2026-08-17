@@ -38,6 +38,8 @@ export interface StreamHandlerContext {
   persistMeta(): void
   markMetaDirty(id: string): void
   persistAppend(conversationId: string): void
+  /** Live check: capture rawContent (debug wire data) only while the raw-content view is enabled. */
+  rawContentCaptureEnabled(): boolean
   showUiToast(message: string, level: 'success' | 'warning' | 'error'): void
 
   patchRunState(id: string, patch: ConversationRunStatePatch): void

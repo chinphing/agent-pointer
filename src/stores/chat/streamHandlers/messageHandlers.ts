@@ -110,20 +110,22 @@ export function handleDelta(_ctx: StreamHandlerContext, e: Delta) {
 export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDelta) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
+  // rawContent is UI-only debug data; skip capture when the raw-content view is off.
+  const capture = ctx.rawContentCaptureEnabled()
   const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
   if (target) {
-    target.rawContent = (target.rawContent || '') + e.text
+    if (capture) target.rawContent = (target.rawContent || '') + e.text
     markAssistantStreaming(target)
     return
   }
   if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
     const session = ensureSubTraceSession(trace)
-    session.rawContent = (session.rawContent || '') + e.text
+    if (capture) session.rawContent = (session.rawContent || '') + e.text
     session.contentStreaming = true
     return
   }
-  r.msg.rawContent = (r.msg.rawContent || '') + e.text
+  if (capture) r.msg.rawContent = (r.msg.rawContent || '') + e.text
   markAssistantStreaming(r.msg)
 }
 
@@ -161,7 +163,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     if (scopedTarget && e.scopedMessageId?.trim()) {
       scopedTarget.contentStreaming = false
       if (e.content != null) scopedTarget.content = e.content
-      if (e.rawContent != null) scopedTarget.rawContent = e.rawContent
+      if (e.rawContent != null && ctx.rawContentCaptureEnabled()) scopedTarget.rawContent = e.rawContent
       // toolRawOutput is debug-only and must not accumulate on UI messages.
       if (e.attachments?.length) scopedTarget.attachments = e.attachments
       if (e.thoughts != null && e.thoughts.trim() !== '') scopedTarget.thoughts = e.thoughts
@@ -202,7 +204,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     delete r.msg.toolNamePreview
     if (e.content != null) r.msg.content = e.content
     if (e.attachments?.length) r.msg.attachments = e.attachments
-    if (e.rawContent != null) r.msg.rawContent = e.rawContent
+    if (e.rawContent != null && ctx.rawContentCaptureEnabled()) r.msg.rawContent = e.rawContent
     // toolRawOutput is debug-only and must not accumulate on UI messages.
     delete r.msg.responseTextDraft
     if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts

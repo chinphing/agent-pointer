@@ -2741,6 +2741,7 @@ export const useChatStore = defineStore('chat', () => {
       persistMeta,
       markMetaDirty,
       persistAppend,
+      rawContentCaptureEnabled: () => useSettingsStore().settings.rawContentViewEnabled === true,
       showUiToast,
       patchRunState,
       clearRunState,

@@ -29,6 +29,13 @@ function isDispatchableMessage(m: ChatMessage): boolean {
   return true
 }
 
+/** rawContent is UI-only debug data — never ship it to the backend (wire / DB). */
+function cloneWithoutRawContent(m: ChatMessage): ChatMessage {
+  const clone = JSON.parse(JSON.stringify(m)) as ChatMessage
+  delete clone.rawContent
+  return clone
+}
+
 /** Messages included in the next `sendChat` / dispatcher history snapshot. */
 export function messagesForChatDispatch(
   messages: ChatMessage[],
@@ -41,7 +48,7 @@ export function messagesForChatDispatch(
       if (persisted?.has(m.id)) return false
       return true
     })
-    .map(m => JSON.parse(JSON.stringify(m)) as ChatMessage)
+    .map(cloneWithoutRawContent)
 }
 
 export interface MessagesForPersistAppendOptions {
@@ -67,7 +74,7 @@ export function messagesForPersistAppend(
       if (persisted?.has(m.id)) return false
       return true
     })
-    .map(m => JSON.parse(JSON.stringify(m)) as ChatMessage)
+    .map(cloneWithoutRawContent)
 }
 
 /** Ids safe to treat as on-disk after hydration / append (excludes outbound queue rows). */

@@ -292,7 +292,7 @@ const statusInfo = computed(() => {
     case 'running': return { label: '执行中', color: 'text-accent' }
     case 'success': return { label: '成功', color: 'text-success' }
     case 'failed': return { label: '失败', color: 'text-muted/45' }
-    case 'rejected': return { label: '已拒绝', color: 'text-slate-400' }
+    case 'rejected': return { label: '已拒绝', color: 'text-muted' }
   }
   return { label: '', color: '' }
 })
@@ -419,7 +419,7 @@ function openSourceUrl(url: string) {
     <div v-if="open" class="pb-2 space-y-2">
       <template v-if="isTerminal">
         <div>
-          <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+          <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
             <span>执行命令</span>
             <button
               v-if="effectiveStatus === 'running'"
@@ -428,25 +428,25 @@ function openSourceUrl(url: string) {
               @click.stop="abortTerminalOnly"
             >结束命令</button>
           </div>
-          <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-green-400 font-mono max-h-64">{{ terminalCommand || '—' }}</pre>
+          <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground font-mono max-h-64">{{ terminalCommand || '—' }}</pre>
         </div>
         <div v-if="showResults && (toolCall.result || toolCall.terminalOutput)">
-          <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+          <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
             <span>控制台输出</span>
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
           </div>
-          <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64">{{ terminalOutput || '—' }}</pre>
+          <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-64">{{ terminalOutput || '—' }}</pre>
         </div>
       </template>
 
       <template v-else-if="isWebSearch">
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">搜索问题</div>
-          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ webSearchQuery || '—' }}</pre>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">搜索问题</div>
+          <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ webSearchQuery || '—' }}</pre>
         </div>
         <div v-if="webSearchSourcesView.length">
-          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">来源</div>
-          <ul class="text-[12px] space-y-1.5 text-slate-300">
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">来源</div>
+          <ul class="text-[12px] space-y-1.5 text-foreground">
             <li v-for="{ source: s, siteLabel } in webSearchSourcesView" :key="s.url + s.index" class="min-w-0">
               <div class="flex items-baseline gap-1 min-w-0 truncate">
                 <span class="text-muted shrink-0">{{ s.index }}.</span>
@@ -467,16 +467,16 @@ function openSourceUrl(url: string) {
           </ul>
         </div>
         <div v-if="webSearchOutput || effectiveStatus === 'running'">
-          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">回答</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">回答</div>
           <div
             v-if="webSearchAnswerHtml"
             ref="webSearchAnswerRef"
-            class="md-body text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 text-slate-200 max-h-64 overflow-y-auto"
+            class="md-body text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border text-foreground max-h-64 overflow-y-auto"
             v-html="webSearchAnswerHtml"
           />
           <pre
             v-else
-            class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64 whitespace-pre-wrap"
+            class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-64 whitespace-pre-wrap"
           >{{ webSearchOutput || (effectiveStatus === 'running' ? '…' : '—') }}</pre>
         </div>
       </template>
@@ -492,14 +492,14 @@ function openSourceUrl(url: string) {
         <div>
           <div
             class="text-[10px] uppercase tracking-wider mb-1"
-            :class="argsParseError ? 'text-danger' : 'text-slate-500'"
+            :class="argsParseError ? 'text-danger' : 'text-muted'"
           >{{ argsParseError ? '参数解析失败 · 原始参数' : '参数' }}</div>
           <div v-if="argsParseError" class="text-[11px] text-danger mb-1 break-words">{{ argsParseError }}</div>
-          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ prettyArgs || '—' }}</pre>
+          <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ prettyArgs || '—' }}</pre>
         </div>
         <div v-if="showResults && toolCall.result">
-          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">结果</div>
-          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-48">{{ toolCall.result }}</pre>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">结果</div>
+          <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-48">{{ toolCall.result }}</pre>
         </div>
       </template>
 

@@ -525,7 +525,7 @@ defineExpose({
               <div class="flex items-center gap-2 min-w-0">
                 <span class="text-sm font-medium text-foreground truncate">{{ p.name }}</span>
                 <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个模型` : '未配置模型' }}</span>
-                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent shrink-0">默认全局服务商</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground shrink-0">默认全局服务商</span>
               </div>
               <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
               <p class="mt-1 text-[11px] text-muted">密钥：{{ providerKeyDisplay(p.apiKey) }}</p>
@@ -538,7 +538,7 @@ defineExpose({
                 :aria-label="`编辑 ${p.name}`"
                 @click="startEditProvider(p)"
               >
-                <Wrench class="w-3.5 h-3.5 text-muted" />
+                <Wrench class="w-3.5 h-3.5 text-accent" />
               </button>
               <button
                 type="button"
@@ -561,7 +561,7 @@ defineExpose({
           </div>
         </div>
 
-        <p v-if="providerSaveError" class="text-[12px] text-red-400" role="alert">{{ providerSaveError }}</p>
+        <p v-if="providerSaveError" class="text-[12px] text-danger" role="alert">{{ providerSaveError }}</p>
         <div v-if="customProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
           <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
           <p class="text-sm text-muted">暂无自定义模型服务</p>
@@ -594,7 +594,7 @@ defineExpose({
               <div class="flex items-center gap-2 min-w-0">
                 <span class="text-sm font-medium text-foreground truncate">{{ p.name }}</span>
                 <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个模型` : '未配置模型' }}</span>
-                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent shrink-0">默认全局服务商</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground shrink-0">默认全局服务商</span>
               </div>
               <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
             </div>
@@ -621,7 +621,7 @@ defineExpose({
   <Teleport to="body">
     <div
       v-if="editingProvider"
-      class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-black/55 p-4"
+      class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-foreground/32 p-4"
       role="presentation"
       @click.self="cancelEditProvider"
     >
@@ -716,7 +716,7 @@ defineExpose({
                 <button
                   type="button"
                   class="shrink-0 h-7 px-3 rounded-lg text-[11px] cursor-pointer transition-colors"
-                  :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'bg-accent/10 text-accent hover:bg-accent/20'"
+                  :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'bg-hover/60 text-muted hover:bg-hover hover:text-foreground'"
                   @click="openModelConfigModal(mid)"
                 >
                   {{ modelConfigMode(mid) === 'custom' ? '编辑' : '配置' }}
@@ -729,9 +729,9 @@ defineExpose({
 
         </div>
         <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 shrink-0">
-          <p v-if="providerSaveError" class="mr-auto text-[12px] text-red-400">{{ providerSaveError }}</p>
+          <p v-if="providerSaveError" class="mr-auto text-[12px] text-danger">{{ providerSaveError }}</p>
           <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelEditProvider">取消</button>
-          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="!editingProvider.id?.trim() || !editingProvider.name?.trim() || !editingProvider.baseUrl?.trim()" @click="saveProvider">
+          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="!editingProvider.id?.trim() || !editingProvider.name?.trim() || !editingProvider.baseUrl?.trim()" @click="saveProvider">
             {{ showAddProvider ? '添加' : '保存' }}
           </button>
         </div>
@@ -743,7 +743,7 @@ defineExpose({
   <Teleport to="body">
     <div
       v-if="pendingProviderDeletion"
-      class="pointer-events-auto fixed inset-0 z-[10003] flex items-center justify-center bg-black/55 p-4"
+      class="pointer-events-auto fixed inset-0 z-[10003] flex items-center justify-center bg-foreground/32 p-4"
       role="presentation"
       @click.self="cancelCustomProviderDeletion"
     >
@@ -763,7 +763,7 @@ defineExpose({
   <Teleport to="body">
     <div
       v-if="modelConfigModalId && editingProvider"
-      class="pointer-events-auto fixed inset-0 z-[10003] flex items-center justify-center bg-black/55 p-4"
+      class="pointer-events-auto fixed inset-0 z-[10003] flex items-center justify-center bg-foreground/32 p-4"
       role="presentation"
       @click.self="closeModelConfigModal"
     >
@@ -792,7 +792,7 @@ defineExpose({
             @click="setModelConfigMode(modelConfigModalId, 'same')"
           >恢复默认</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
-          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>
         </div>
       </div>
     </div>

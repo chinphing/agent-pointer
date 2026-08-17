@@ -31,12 +31,6 @@ const activeTabId = ref<string | null>(null)
 const loadingSlug = ref<string | null>(null)
 const loadErr = ref<string | null>(null)
 
-const CARD_TONES = [
-  'experience-card--sky',
-  'experience-card--rose',
-  'experience-card--sand',
-] as const
-
 const isSearching = computed(() => searchQuery.value.length > 0)
 const featuredItems = computed(() => home.value?.featured ?? [])
 const categoryBlocks = computed(() => home.value?.categories ?? [])
@@ -102,8 +96,8 @@ onMounted(async () => {
   }
 })
 
-function cardTone(index: number): string {
-  return CARD_TONES[index % CARD_TONES.length]
+function cardTone(_index: number): string {
+  return ''
 }
 
 function resolveAgentId(raw: string | undefined | null): string {
@@ -206,8 +200,8 @@ async function onSelect(item: ExperienceListItem) {
               class="inline-flex h-7 shrink-0 items-center rounded-full px-3 text-xs font-medium leading-none transition-colors"
               :class="
                 activeTab?.id === tab.id
-                  ? 'bg-accent text-white'
-                  : 'bg-accent/10 text-muted hover:text-foreground'
+                  ? 'bg-hover text-foreground'
+                  : 'text-muted hover:text-foreground hover:bg-hover'
               "
               :aria-selected="activeTab?.id === tab.id"
               @click="activeTabId = tab.id"

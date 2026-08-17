@@ -87,7 +87,7 @@ function rowLabel(item: TaskBoardItem): string {
       >
         active
       </span>
-      <span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted text-accent shrink-0">{{ metaStatus }}</span>
+      <span class="text-[10px] px-1.5 py-0.5 rounded bg-hover text-muted shrink-0">{{ metaStatus }}</span>
     </summary>
     <div class="border-t border-border px-3 py-2 space-y-1 max-h-48 overflow-y-auto">
       <div

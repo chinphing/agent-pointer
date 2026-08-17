@@ -198,12 +198,12 @@ export const CHART_SLICE_PALETTE = [
 
 export function readChartThemeColors(): ChartThemeColors {
   return {
-    foreground: canvasRgb('--foreground', '222 47% 11%'),
-    muted: canvasRgb('--muted', '215 16% 47%'),
-    border: canvasRgb('--border', '220 13% 91%'),
+    foreground: canvasRgb('--foreground', '240 6% 10%'),
+    muted: canvasRgb('--muted', '240 4% 42%'),
+    border: canvasRgb('--border', '240 6% 90%'),
     card: canvasRgb('--card', '0 0% 100%'),
-    accent: canvasRgb('--accent', '250 42% 52%'),
-    grid: canvasRgb('--border', '220 13% 91%', 0.45),
+    accent: canvasRgb('--accent', '211 100% 46%'),
+    grid: canvasRgb('--border', '240 6% 90%', 0.45),
   }
 }
 
@@ -818,7 +818,7 @@ export function applyChartTheme(config: ChartJsConfig): ChartJsConfig {
           enabled: true,
           mode: 'index',
           intersect: false,
-          backgroundColor: canvasRgb('--foreground', '222 47% 11%', 0.92),
+          backgroundColor: canvasRgb('--foreground', '240 6% 10%', 0.92),
           titleColor: canvasRgb('--card', '0 0% 100%'),
           bodyColor: canvasRgb('--card', '0 0% 100%'),
           borderColor: theme.border,

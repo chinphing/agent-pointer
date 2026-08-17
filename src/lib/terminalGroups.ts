@@ -100,3 +100,24 @@ export function setGroupFocusedPane(state: TerminalGroupsState, groupId: string,
   const group = findGroup(state, groupId)
   if (group) group.focusedPaneId = paneId
 }
+
+/**
+ * Rebuild one group per existing session. `activeSessionId` selects which group
+ * is focused; group ids come from `nextGroupId` (never use session ids as group ids).
+ */
+export function rebuildGroupsFromExistingTabs(
+  tabs: ReadonlyArray<{ id: string }>,
+  activeSessionId: string | null,
+  nextGroupId: () => string
+): { state: TerminalGroupsState; activeGroup: TerminalGroup | null } {
+  const state = createTerminalGroupsState()
+  if (tabs.length === 0) return { state, activeGroup: null }
+  const targetTabId = tabs.find(tab => tab.id === activeSessionId)?.id ?? tabs[0].id
+  let activeGroup: TerminalGroup | null = null
+  for (const tab of tabs) {
+    const group = addGroup(state, nextGroupId(), tab.id)
+    if (tab.id === targetTabId) activeGroup = group
+  }
+  if (activeGroup) activateGroup(state, activeGroup.id, null)
+  return { state, activeGroup }
+}

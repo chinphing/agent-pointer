@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Columns2, Copy, FolderPlus, Loader2, RotateCcw, Rows2, SquareTerminal, X } from 'lucide-vue-next'
+
+defineOptions({ name: 'WorkspaceTerminalPanel' })
+import { Columns2, Copy, FolderPlus, Loader2, RotateCcw, Rows2, X } from 'lucide-vue-next'
 import { useConsoleStore, type WorkspaceConsoleTab } from '../../stores/console'
 import {
   collectLeaves,
@@ -19,6 +21,7 @@ import {
   createTerminalGroupsState,
   findGroup,
   getActiveGroup,
+  rebuildGroupsFromExistingTabs,
   removeGroup,
   setGroupLayout,
   type TerminalGroup,
@@ -304,19 +307,15 @@ async function copyPath(group: TerminalGroup) {
 
 /** 按当前 workspaceTabs 重建分组：每个现有 session 一个 group，激活 activeSessionId 对应组。 */
 function rebuildGroupsFromTabs() {
-  groupsState.value = createTerminalGroupsState()
   focusedPaneId.value = null
-  const tabs = workspaceTabs.value
-  const targetId =
-    tabs.find(tab => tab.id === consoleStore.activeSessionId)?.id ?? tabs[0]?.id ?? null
-  if (!targetId) return null
-  for (const tab of tabs) {
-    addGroup(groupsState.value, nextGroupId(), tab.id)
-  }
-  activateGroup(groupsState.value, targetId, null)
-  const target = findGroup(groupsState.value, targetId)
-  if (target) focusGroupPane(target)
-  return target
+  const { state, activeGroup } = rebuildGroupsFromExistingTabs(
+    workspaceTabs.value,
+    consoleStore.activeSessionId,
+    nextGroupId
+  )
+  groupsState.value = state
+  if (activeGroup) focusGroupPane(activeGroup)
+  return activeGroup
 }
 
 watch(contextMenu, menu => {
@@ -403,7 +402,6 @@ onBeforeUnmount(() => {
 <template>
   <section class="terminal-panel relative flex min-h-0 flex-1 flex-col bg-card text-foreground" @click.self="closeContextMenu">
     <header class="console-chrome flex h-8 shrink-0 items-center gap-1 border-b border-border px-2 text-[11px]">
-      <SquareTerminal class="h-3.5 w-3.5 shrink-0 text-accent" />
       <div class="console-tabs min-w-0 flex-1" role="tablist" aria-label="终端标签">
         <button
           v-for="(group, index) in groupsState.groups"
@@ -418,7 +416,7 @@ onBeforeUnmount(() => {
           @contextmenu.prevent="openContextMenu($event, group)"
         >
           <span class="truncate">{{ groupLabel(index) }}</span>
-          <span v-if="groupHasExited(group)" class="text-amber-300">•</span>
+          <span v-if="groupHasExited(group)" class="text-warning">•</span>
           <X class="h-3 w-3 shrink-0 opacity-60 hover:opacity-100" @click.stop="closeTab(group.id)" />
         </button>
         <button
@@ -431,7 +429,7 @@ onBeforeUnmount(() => {
           @click="createTab()"
         ><FolderPlus class="h-3.5 w-3.5" /></button>
       </div>
-      <span v-if="loading" class="flex items-center gap-1 text-slate-400"><Loader2 class="h-3 w-3 animate-spin" />启动中</span>
+      <span v-if="loading" class="flex items-center gap-1 text-muted"><Loader2 class="h-3 w-3 animate-spin" />启动中</span>
       <button type="button" class="terminal-action" title="左右拆分窗格" aria-label="左右拆分窗格" :disabled="!canSplit" @click="splitPane('row')"><Columns2 class="h-3.5 w-3.5" /></button>
       <button type="button" class="terminal-action" title="上下拆分窗格" aria-label="上下拆分窗格" :disabled="!canSplit" @click="splitPane('column')"><Rows2 class="h-3.5 w-3.5" /></button>
       <button type="button" class="terminal-action" title="重启当前 Shell" :disabled="loading || !activePaneTab" @click="restartActiveTab"><RotateCcw class="h-3.5 w-3.5" /></button>
@@ -446,12 +444,12 @@ onBeforeUnmount(() => {
       <button type="button" role="menuitem" @click="copyPath(contextMenu.group)"><Copy class="h-3.5 w-3.5" />复制完整路径</button>
       <button type="button" role="menuitem" @click="closeTab(contextMenu.group.id); closeContextMenu()"><X class="h-3.5 w-3.5" />关闭 Shell</button>
     </div>
-    <p v-if="!hasWorkspace" class="m-auto max-w-56 text-center text-xs text-slate-400">请先在输入区选择项目目录，再启动调试终端。</p>
-    <div v-else-if="groupsState.groups.length === 0 && !loading" class="m-auto flex flex-col items-center gap-3 text-center text-xs text-slate-400">
+    <p v-if="!hasWorkspace" class="m-auto max-w-56 text-center text-xs text-muted">请先在输入区选择项目目录，再启动调试终端。</p>
+    <div v-else-if="groupsState.groups.length === 0 && !loading" class="m-auto flex flex-col items-center gap-3 text-center text-xs text-muted">
       <p>新建一个独立 Shell；每个标签有自己的目录、环境和前台进程。</p>
       <button type="button" class="console-create-first" @click="createTab()"><FolderPlus class="h-3.5 w-3.5" />新建终端</button>
     </div>
-    <p v-if="error" class="absolute inset-x-3 top-11 z-10 rounded border border-red-400/40 bg-red-950/90 p-2 text-xs text-red-200">{{ error }}</p>
+    <p v-if="error" class="absolute inset-x-3 top-11 z-10 rounded border border-danger/40 bg-danger/10 p-2 text-xs text-danger">{{ error }}</p>
     <div
       v-show="hasWorkspace && groupsState.groups.length > 0"
       class="terminal-layout min-h-0 flex-1 p-2"
@@ -489,7 +487,7 @@ onBeforeUnmount(() => {
 .console-tabs { @apply flex min-w-0 items-center gap-1 overflow-x-auto; }
 .console-tab { @apply flex max-w-32 items-center gap-1 rounded px-1.5 py-1 text-muted; }
 .console-tab:hover { background: hsl(var(--hover)); color: hsl(var(--foreground)); }
-.console-tab.is-active { background: hsl(var(--accent-muted)); color: hsl(var(--accent)); }
+.console-tab.is-active { background: hsl(var(--hover)); color: hsl(var(--foreground)); }
 .console-new-tab, .terminal-action { @apply shrink-0 rounded p-1 text-muted disabled:cursor-not-allowed disabled:opacity-40; }
 .console-new-tab:hover, .terminal-action:hover { background: hsl(var(--hover)); color: hsl(var(--foreground)); }
 .console-context-menu { @apply fixed z-20 min-w-36 rounded border p-1 shadow-lg; border-color: hsl(var(--border)); background: hsl(var(--card)); transform: translateY(2px); }

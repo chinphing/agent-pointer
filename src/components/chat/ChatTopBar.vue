@@ -238,17 +238,17 @@ onUnmounted(() => {
         <button
           ref="projectPickerButtonRef"
           type="button"
-          class="composer-agent-trigger max-w-[240px]"
-          :class="projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
+          class="composer-agent-trigger chat-topbar-project-btn max-w-[240px]"
+          :class="[
+            projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+            workspaceNeedsAttention ? 'is-warning' : ''
+          ]"
           :title="projectLocked ? '项目已锁定' : workspaceTooltip"
           :disabled="projectLocked"
           @click="projectPickerOpen = !projectPickerOpen"
         >
-          <FolderOpen
-            class="w-3 h-3 shrink-0"
-            :class="workspaceNeedsAttention ? 'text-warning' : 'text-accent'"
-          />
-          <span class="truncate max-w-[180px]">{{ workspaceLabel }}</span>
+          <FolderOpen class="chat-topbar-project-icon w-3.5 h-3.5 shrink-0 text-muted" />
+          <span class="truncate max-w-[180px] text-foreground">{{ workspaceLabel }}</span>
         </button>
         <div
           v-if="projectPickerOpen && !projectLocked"
@@ -269,7 +269,7 @@ onUnmounted(() => {
               @click="pickWorkspaceFolder"
             >
               <FolderPlus class="w-3.5 h-3.5 shrink-0" />
-              <span class="whitespace-nowrap text-accent">
+              <span class="whitespace-nowrap text-foreground">
                 {{ projectCreationPending ? '正在创建项目…' : '本地目录' }}
               </span>
             </button>
@@ -304,7 +304,7 @@ onUnmounted(() => {
               <span class="flex-1 truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
               <Check
                 v-if="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)"
-                class="h-3 w-3 shrink-0 text-accent"
+                class="h-3 w-3 shrink-0 text-muted"
               />
             </button>
           </div>
@@ -328,5 +328,9 @@ onUnmounted(() => {
 <style scoped>
 .composer-project-dropdown {
   width: min(200px, calc(100vw - 2rem));
+}
+
+.chat-topbar-project-btn.is-warning :deep(svg) {
+  color: hsl(var(--warning));
 }
 </style>

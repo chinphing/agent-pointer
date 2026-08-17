@@ -1522,7 +1522,7 @@ onUnmounted(() => {
           </p>
           <button
             type="button"
-            class="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+            class="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer"
             @click="onOpenBilling"
           >
             去充值
@@ -1569,7 +1569,7 @@ onUnmounted(() => {
         </div>
         <p
           v-if="attachmentHint"
-          class="hidden md:block px-3 pb-2 text-[11px] text-amber-600"
+          class="hidden md:block px-3 pb-2 text-[11px] text-warning"
         >
           {{ attachmentHint }}
         </p>
@@ -1615,7 +1615,7 @@ onUnmounted(() => {
                   class="composer-agent-trigger cursor-pointer"
                   @click="showAgentPicker = !showAgentPicker"
                 >
-                  <component :is="currentAgentIcon" class="w-3 h-3 shrink-0 text-accent" />
+                  <component :is="currentAgentIcon" class="w-3 h-3 shrink-0 text-muted" />
                   <span class="whitespace-nowrap">{{ currentAgentLabel }}</span>
                   <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
                 </button>
@@ -1653,7 +1653,7 @@ onUnmounted(() => {
                   title="模式设置：快速、标准、高级"
                   @click="modePickerOpen = !modePickerOpen"
                 >
-                  <component :is="performanceModeIcon" class="w-3 h-3 shrink-0 text-accent" />
+                  <component :is="performanceModeIcon" class="w-3 h-3 shrink-0 text-muted" />
                   <span class="whitespace-nowrap">{{ performanceModeLabel }}</span>
                   <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
                 </button>
@@ -1668,7 +1668,7 @@ onUnmounted(() => {
                     <div class="text-[11px] text-muted font-medium whitespace-nowrap">模式</div>
                     <button
                       type="button"
-                      class="inline-flex items-center gap-1 rounded p-1 text-accent hover:bg-hover cursor-pointer transition-colors"
+                      class="inline-flex items-center gap-1 rounded p-1 text-muted hover:bg-hover hover:text-foreground cursor-pointer transition-colors"
                       title="模型设置"
                       @click="openAgentSettings"
                     >
@@ -1686,7 +1686,7 @@ onUnmounted(() => {
                     >
                       <component :is="PERFORMANCE_MODE_ICONS[m.value]" class="w-3 h-3 shrink-0" />
                       <span class="flex-1 whitespace-nowrap">{{ m.label }}</span>
-                      <Check v-if="m.value === performanceMode" class="h-3 w-3 shrink-0 text-accent" />
+                      <Check v-if="m.value === performanceMode" class="h-3 w-3 shrink-0 text-muted" />
                     </button>
                   </div>
                 </div>
@@ -1702,7 +1702,7 @@ onUnmounted(() => {
             <button
               class="h-9 w-9 shrink-0 rounded-xl flex items-center justify-center transition md:h-10 md:w-10"
               :class="canSend
-                ? 'bg-accent text-white hover:opacity-90 cursor-pointer'
+                ? 'bg-accent text-accent-foreground hover:opacity-90 cursor-pointer'
                 : 'bg-hover text-muted cursor-not-allowed'"
               :disabled="!canSend"
               :title="generating

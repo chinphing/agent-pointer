@@ -1470,7 +1470,7 @@ function entrySpacing(
     <Teleport to="body">
       <div
         v-if="newConversationConfirmOpen"
-        class="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+        class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-conversation-confirm-title"
@@ -1491,7 +1491,7 @@ function entrySpacing(
             </button>
             <button
               type="button"
-              class="h-9 rounded-lg bg-accent px-4 text-sm font-medium text-white transition-opacity hover:opacity-95"
+              class="h-9 rounded-lg bg-accent px-4 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-95"
               @click="confirmNewConversation"
             >
               确认新建

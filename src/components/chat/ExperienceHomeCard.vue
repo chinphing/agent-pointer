@@ -46,7 +46,7 @@ const emit = defineEmits<{
 .experience-card {
   --experience-hint-gap: 3px;
   --experience-hint-row: 14px;
-  @apply relative flex h-[8.5rem] w-full flex-col rounded-2xl px-4 pt-4;
+  @apply relative flex h-[8.5rem] w-full flex-col rounded-2xl border border-border bg-card px-4 pt-4;
   padding-bottom: calc(var(--experience-hint-gap) + var(--experience-hint-row) + var(--experience-hint-gap));
 }
 
@@ -61,7 +61,7 @@ const emit = defineEmits<{
 }
 
 .experience-card__badge {
-  @apply h-6 w-6 shrink-0 rounded-md bg-white/85 object-contain p-0.5 shadow-sm ring-1 ring-black/10;
+  @apply h-6 w-6 shrink-0 rounded-md bg-card object-contain p-0.5 ring-1 ring-border;
 }
 
 .experience-card__title {
@@ -81,37 +81,8 @@ const emit = defineEmits<{
   bottom: var(--experience-hint-gap);
 }
 
-.experience-card--sky {
-  background: #eef4ff;
-}
-.experience-card--rose {
-  background: #fff0f3;
-}
-.experience-card--sand {
-  background: #fff8eb;
-}
-
 .experience-card:hover {
-  filter: brightness(0.98);
-  transform: translateY(-1px);
-}
-
-html.dark .experience-card__badge {
-  @apply bg-white/10 ring-white/10;
-}
-
-html.dark .experience-card--sky {
-  background: hsl(220 60% 18% / 0.55);
-}
-html.dark .experience-card--rose {
-  background: hsl(350 45% 18% / 0.55);
-}
-html.dark .experience-card--sand {
-  background: hsl(38 45% 16% / 0.55);
-}
-
-html.dark .experience-card:hover {
-  filter: brightness(1.08);
+  background: hsl(var(--hover));
 }
 
 @media (hover: none) {

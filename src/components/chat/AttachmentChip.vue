@@ -131,7 +131,7 @@ const canRetryUpload = computed(() => props.attachment.uploadState === 'error')
       <div class="flex items-center gap-2">
         <p
           class="min-w-0 flex-1 truncate text-[10px]"
-          :class="attachment.uploadState === 'error' ? 'text-red-500' : 'text-muted'"
+          :class="attachment.uploadState === 'error' ? 'text-danger' : 'text-muted'"
           :title="uploadLabel(attachment)"
         >
           {{ uploadLabel(attachment) }}

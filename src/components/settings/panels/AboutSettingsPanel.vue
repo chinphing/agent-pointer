@@ -106,7 +106,7 @@ function handleCheckUpdate() {
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button
-            class="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
+            class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
             @click="applyUpdateNow"
           >
             立即更新
@@ -144,7 +144,7 @@ function handleCheckUpdate() {
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button
-            class="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
+            class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
             @click="applyUpdateNow"
           >
             立即更新

@@ -17,7 +17,8 @@ export default {
         border: 'hsl(var(--border) / <alpha-value>)',
         accent: {
           DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
-          muted: 'hsl(var(--accent-muted) / <alpha-value>)'
+          muted: 'hsl(var(--accent-muted) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-foreground) / <alpha-value>)'
         },
         /** Legacy alias → accent (P0) */
         primary: {

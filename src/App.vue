@@ -132,11 +132,13 @@ watch(showSettings, open => {
     <template v-else>
       <SettingsView
         v-if="showSettings"
+        class="min-h-0 flex-1 overflow-hidden"
         :initial-section="settingsInitialSection"
         @close="showSettings = false"
       />
       <AppShell
         v-else
+        class="min-h-0 flex-1 overflow-hidden"
         @open-settings="openSettings"
         @open-automation="openAutomation"
       >

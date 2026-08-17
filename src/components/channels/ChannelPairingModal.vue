@@ -75,7 +75,7 @@ watch(
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="IM 配对审批"
@@ -123,7 +123,7 @@ watch(
               :disabled="busy"
             />
           </div>
-          <p v-if="error" class="text-xs text-red-500">{{ error }}</p>
+          <p v-if="error" class="text-xs text-danger">{{ error }}</p>
         </div>
 
         <footer class="flex justify-end gap-2 border-t border-border px-5 py-4">
@@ -137,7 +137,7 @@ watch(
           </button>
           <button
             type="button"
-            class="h-9 cursor-pointer rounded-lg bg-accent px-4 text-sm font-medium text-white transition-opacity hover:opacity-95 disabled:opacity-50"
+            class="h-9 cursor-pointer rounded-lg bg-accent px-4 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-95 disabled:opacity-50"
             :disabled="busy || !pairingCode.trim()"
             @click="approve"
           >

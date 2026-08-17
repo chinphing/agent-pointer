@@ -87,7 +87,7 @@ describe('markdownChart', () => {
   })
 
   it('emits classic comma hsl for canvas', () => {
-    const color = canvasHsl('--muted', '215 16% 47%')
+    const color = canvasHsl('--muted', '240 4% 42%')
     expect(color.startsWith('hsl(') || color.startsWith('hsla(')).toBe(true)
     expect(color.includes(',')).toBe(true)
   })

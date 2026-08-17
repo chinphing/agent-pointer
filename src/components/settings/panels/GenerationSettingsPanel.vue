@@ -641,12 +641,12 @@ async function onPlaySoundToggle(checked: boolean) {
           <Wrench class="w-4 h-4 text-accent" />工具使用权限
         </h4>
         <div class="grid grid-cols-2 gap-3">
-          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
+          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
             <input v-model="toolApprovalMode" type="radio" value="auto" class="sr-only" />
             <span class="block text-sm text-foreground">自动执行</span>
             <span class="mt-1 block text-[11px] text-muted">AI 使用工具时自动执行，无需确认</span>
           </label>
-          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
+          <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
             <input v-model="toolApprovalMode" type="radio" value="manual" class="sr-only" />
             <span class="block text-sm text-foreground">敏感操作确认</span>
             <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
@@ -659,7 +659,7 @@ async function onPlaySoundToggle(checked: boolean) {
     <Teleport to="body">
       <div
         v-if="queueModalOpen"
-        class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4"
+        class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-foreground/32 p-4"
         role="presentation"
         @click.self="queueModalOpen = false"
       >
@@ -695,7 +695,7 @@ async function onPlaySoundToggle(checked: boolean) {
                   class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
                   :title="`${w.runId} · ${w.conversationId}`"
                 >
-                  <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(w.triggerSource) }}</span>
+                  <span class="shrink-0 rounded px-1 py-0.5 bg-hover text-muted text-[10px]">{{ triggerSourceLabel(w.triggerSource) }}</span>
                   <span class="truncate">{{ shortId(w.conversationId, 28) }}</span>
                 </li>
               </ul>
@@ -713,7 +713,7 @@ async function onPlaySoundToggle(checked: boolean) {
                   class="text-[11px] text-muted flex items-center gap-1.5 min-w-0"
                   :title="run.runId"
                 >
-                  <span class="shrink-0 rounded px-1 py-0.5 bg-accent-muted text-accent text-[10px]">{{ triggerSourceLabel(run.triggerSource) }}</span>
+                  <span class="shrink-0 rounded px-1 py-0.5 bg-hover text-muted text-[10px]">{{ triggerSourceLabel(run.triggerSource) }}</span>
                   <span class="truncate flex-1">{{ shortId(run.conversationId, 24) }}</span>
                   <span class="shrink-0 text-[10px] text-muted/70">{{ new Date(run.createdAtMs).toLocaleTimeString() }}</span>
                 </li>
@@ -738,7 +738,7 @@ async function onPlaySoundToggle(checked: boolean) {
     <Teleport to="body">
       <div
         v-if="mediaDepsModalOpen"
-        class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4"
+        class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-foreground/32 p-4"
         role="presentation"
         @click.self="mediaDepsModalOpen = false"
       >
@@ -762,7 +762,7 @@ async function onPlaySoundToggle(checked: boolean) {
             <p class="text-[11px] text-muted">IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。</p>
             <p
               class="text-[11px] mt-1"
-              :class="mediaDeps?.status === 'ready' ? 'text-emerald-600' : 'text-amber-600'"
+              :class="mediaDeps?.status === 'ready' ? 'text-success' : 'text-warning'"
             >
               {{ ffmpegStatusLabel }}
             </p>

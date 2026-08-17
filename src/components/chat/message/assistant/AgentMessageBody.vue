@@ -435,7 +435,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
             <button
               v-if="showBalanceRecharge"
               type="button"
-              class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+              class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer"
               @click="onOpenBilling"
             >
               去充值

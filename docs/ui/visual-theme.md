@@ -5,23 +5,37 @@
 CSS variables in `src/styles/globals.css`:
 
 - `--background`, `--foreground`, `--card`, `--card-elevated`, `--border`
-- `--accent`, `--accent-muted`, `--hover`, `--composer-bg`, `--code-bg`
+- `--accent`, `--accent-muted`, `--accent-foreground`, `--hover`, `--composer-bg`, `--code-bg`
   (`--composer-bg` fills `.composer-shell`; light = white, not `--card-elevated`)
 - Semantic: `--success`, `--danger`, `--warning`, `--info`
+- Search hit: `--search-mark`
 
 `html.dark` and default (`:root`) define light; dark overrides on `html.dark`.
 
+Surfaces are **neutral gray** (Codex / Apple grouped). Hue stays near 240 with
+near-zero saturation. Dark canvas is charcoal, not blue-black.
+
+New UI must use these tokens (or Tailwind aliases `bg-background`, `text-muted`,
+`border-border`, `bg-accent`, …). Do **not** add `slate-*` / `zinc-*` / hardcoded
+hex / `bg-black/*` scrims in product UI. Diff views (`DiffView` and related) are
+exempt and keep their own colors.
+
 ### Accent
 
-Brand accent is intentionally **low-saturation** so it reads as a tool, not a
-consumer-purple product, especially in light mode:
+One calm **system blue** for primary actions, toggles-on, focus rings, and links.
+Do not tint selected list rows or avatars with accent.
 
-- Light: `--accent: 250 42% 52%`, `--accent-muted: 250 28% 95%`
-- Dark:  `--accent: 250 45% 68%`, `--accent-muted: 250 28% 16%`
+- Light: `--accent: 211 100% 46%`, `--accent-muted: 211 80% 96%`, `--accent-foreground: 0 0% 100%`
+- Dark:  `--accent: 211 100% 58%`, `--accent-muted: 211 40% 16%`, `--accent-foreground: 0 0% 100%`
 
-Keep saturation ≤ ~50% in light; raise lightness in dark so `text-accent` stays
-readable on `--card`. Do not bump saturation back to 80%+ — that reintroduces
-the neon-purple feel in light chat.
+Primary buttons: `bg-accent text-accent-foreground` (never hardcode `text-white`
+on accent fills). Selected rows: `bg-hover` / `bg-foreground/10`, not
+`bg-accent-muted text-accent`.
+
+Composer toolbar icons (clip, agent, mode), the chat top-bar project
+folder, and the workspace panel header folder use `text-muted`, not
+accent. Send / stop stay semantic (`bg-accent` / `text-danger`).
+Workspace-needed warning on the folder may still use `--warning`.
 
 ## Chat column width
 
@@ -50,13 +64,13 @@ from available width while the workspace panel is open.
 
 - `.panel` — flat card (`bg-card` + `border-border`)
 - `.panel-elevated` — slightly raised surface
-- `.brand-text` — accent-colored title text
+- `.brand-text` — title text (`text-foreground`)
 - Markdown GFM / HTML tables (`.md-body .table-wrapper`): rounded outer border; `th`/`td` theme cells (works without `<thead>`/`<tbody>`); honor GFM align + HTML column `width` / status colors; see [markdown-media-boundaries.md](markdown-media-boundaries.md), `markdownConfig.ts` / `globals.css`
 - Markdown fenced code (`.md-body .code-block`): same rounded outer border; whole block uses `--card` (same white fill as table body); copy button stays top-right and appears on hover (same as before); see `markdownConfig.ts` / `useMarkdownCodeCopy`
 - Markdown charts (`.md-body .md-chart`): same card chrome; Chart.js from `chartjs`/`chart` JSON fences; theme axis/legend colors from CSS variables; see [markdown-charts.md](markdown-charts.md)
 - Markdown SVG diagrams (`.md-body .md-svg`): same card chrome; sanitized `svg` fences; see [markdown-svg.md](markdown-svg.md)
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`
-- Interactive chat controls (e.g. `ask_user`): selected state should derive from `foreground` / `background` (opacity OK) so light and dark both stay readable — avoid fixed gray hex and accent purple fills in light chat
+- Interactive chat controls (e.g. `ask_user`): selected state should derive from `foreground` / `background` (opacity OK) so light and dark both stay readable — avoid fixed gray hex and accent-tinted fills in light chat
 - Sub-agent frame (`SubAgentFrame`): default `border-border` + `bg-card`; failed → `border-danger/35` + `bg-danger/5`; chevrons `text-muted` — not accent purple
 - `.settings-input`, `.settings-toggle-track`, `.settings-segment*` — shared controls in settings forms
 

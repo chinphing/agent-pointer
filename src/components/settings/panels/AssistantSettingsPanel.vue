@@ -295,7 +295,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
     <Teleport to="body">
       <div
         v-if="moreModal"
-        class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-black/55 p-4"
+        class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-foreground/32 p-4"
         role="presentation"
         @click.self="moreModal = false"
       >

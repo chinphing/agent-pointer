@@ -543,24 +543,24 @@ onBeforeUnmount(() => {
 .file-preview-scroll { @apply flex-1 min-h-0 overflow-auto; }
 .file-preview-code { @apply min-w-full w-max py-1 font-mono text-xs; }
 .file-preview-row { @apply flex min-h-[1.55rem] leading-[1.55rem]; }
-.file-preview-row.has-match { background: hsl(48 96% 53% / 0.08); }
+.file-preview-row.has-match { background: hsl(var(--search-mark) / 0.18); }
 .file-preview-line-number { @apply sticky left-0 z-[1] w-12 shrink-0 select-none border-r border-border bg-card px-2 text-right text-[11px] text-muted; }
-.file-preview-row.has-match .file-preview-line-number { background: hsl(48 96% 53% / 0.08); }
+.file-preview-row.has-match .file-preview-line-number { background: hsl(var(--search-mark) / 0.18); }
 .file-preview-row code { @apply block px-3 text-foreground whitespace-pre; tab-size: 2; }
 .file-preview-code.wrap-lines { @apply w-full min-w-0; }
 .file-preview-code.wrap-lines .file-preview-row code { @apply min-w-0 flex-1 whitespace-pre-wrap break-words; }
 .file-preview-search-mark,
 :deep(.file-preview-search-mark) {
   color: inherit;
-  background: hsl(48 96% 53% / 0.72);
+  background: hsl(var(--search-mark) / 0.5);
   border-radius: 0.2rem;
-  box-shadow: 0 0 0 1px hsl(48 96% 53% / 0.35);
+  box-shadow: 0 0 0 1px hsl(var(--search-mark) / 0.28);
   padding: 0 0.08em;
 }
 .file-preview-search-mark.is-active-match,
 :deep(.file-preview-search-mark.is-active-match) {
-  background: hsl(48 96% 53% / 0.95);
-  box-shadow: 0 0 0 1px hsl(32 95% 44% / 0.8);
+  background: hsl(var(--search-mark) / 0.72);
+  box-shadow: 0 0 0 1px hsl(var(--warning) / 0.55);
 }
 .token-comment { @apply text-neutral-500 italic; }
 .token-string { color: #ce9178; }

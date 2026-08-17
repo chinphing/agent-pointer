@@ -27,7 +27,7 @@ const MessageListSkeleton = defineComponent({
         'div',
         {
           class:
-            'h-full flex flex-col items-center justify-center gap-3 text-slate-500 text-sm px-6 text-center'
+            'h-full flex flex-col items-center justify-center gap-3 text-muted text-sm px-6 text-center'
         },
         [
           h('div', {

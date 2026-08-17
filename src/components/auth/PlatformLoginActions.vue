@@ -172,7 +172,7 @@ watch(isStandalone, standalone => {
         </div>
         <button
           type="submit"
-          class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-white cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-accent-foreground cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           :disabled="localSubmitting || loading"
         >
           <Loader2 v-if="localSubmitting || loading" class="h-4 w-4 shrink-0 animate-spin" />
@@ -202,7 +202,7 @@ watch(isStandalone, standalone => {
         <div class="flex w-[calc(100%+0.75rem)] items-center justify-center gap-2">
           <button
             type="button"
-            class="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-white cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            class="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-accent-foreground cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             :disabled="loading"
             @click="emit('login')"
           >
@@ -227,7 +227,7 @@ watch(isStandalone, standalone => {
       >
         <button
           type="button"
-          class="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-accent px-3 text-sm font-medium text-white cursor-pointer transition-all hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          class="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-accent px-3 text-sm font-medium text-accent-foreground cursor-pointer transition-all hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           :disabled="loading"
           @click="emit('login')"
         >

@@ -69,7 +69,7 @@ async function onSelect(item: ExperienceListItem) {
     >
       <button
         type="button"
-        class="inline-flex max-w-full rounded-full border border-border/50 bg-accent/5 px-3 py-1.5 text-left text-xs font-medium text-muted transition-colors hover:border-border/70 hover:bg-accent/10 hover:text-foreground/80 disabled:cursor-wait disabled:opacity-60"
+        class="inline-flex max-w-full rounded-full border border-border bg-card px-3 py-1.5 text-left text-xs font-medium text-muted transition-colors hover:border-border hover:bg-hover hover:text-foreground disabled:cursor-wait disabled:opacity-60"
         :disabled="loadingSlug === item.slug"
         :aria-describedby="chipHint(item) ? `experience-hot-hint-${item.id}` : undefined"
         @click="onSelect(item)"

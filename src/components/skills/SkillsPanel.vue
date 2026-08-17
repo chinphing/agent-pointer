@@ -151,8 +151,8 @@ async function onImportFile(event: Event) {
         type="button"
         class="rounded-xl border p-4 text-left transition-all cursor-pointer"
         :class="skillEnabled(skill.id)
-          ? 'border-accent/30 bg-accent/5 shadow-sm'
-          : 'border-border bg-hover/40 hover:bg-hover/60'"
+          ? 'border-accent/30 bg-accent/5'
+          : 'border-border bg-card hover:bg-hover'"
         @click="toggleSkill(skill.id)"
       >
         <div class="flex items-center gap-2 min-w-0">

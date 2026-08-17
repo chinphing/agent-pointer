@@ -7,6 +7,7 @@
 | [**cross-platform-build.md**](cross-platform-build.md) | **Windows / macOS / Linux 开发与打包**（环境、命令、产物、CI） |
 | [**versioning.md**](versioning.md) | **版本号单一来源**（`VERSION` + `npm run version:sync`） |
 | [**macos-window-chrome.md**](macos-window-chrome.md) | **macOS 红绿灯与顶栏对齐**（reapply/repair、紧凑模式、常量同步、排查） |
+| [../ui/visual-theme.md](../ui/visual-theme.md) | **界面颜色 token**（灰阶表面 + 系统蓝；禁止 `slate-*` / 硬编码 hex；Diff 除外） |
 | [web-media-and-desktop-snapshot.md](web-media-and-desktop-snapshot.md) | Web 媒体与桌面快照 |
 | [coder-agent-offline-eval-setup.md](coder-agent-offline-eval-setup.md) | Coder 离线评测环境搭建 |
 

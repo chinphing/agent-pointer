@@ -81,7 +81,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div
-      class="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 p-4"
+      class="fixed inset-0 z-[250] flex items-center justify-center bg-foreground/32 p-4"
       role="dialog"
       aria-modal="true"
       :aria-label="title"

@@ -46,7 +46,7 @@ watch(
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[200] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="截图处理预览"

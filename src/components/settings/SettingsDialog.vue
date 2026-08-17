@@ -142,7 +142,7 @@ onMounted(() => {
 
 <template>
   <div
-    class="app-content-no-drag h-full w-full min-h-0 flex flex-col bg-background"
+    class="app-content-no-drag h-full w-full min-h-0 flex flex-col overflow-hidden bg-background"
     data-tauri-drag-region="false"
   >
       <!-- Header: reserve the native macOS traffic-light zone and drag from empty space. -->
@@ -155,9 +155,10 @@ onMounted(() => {
         <div class="flex-1" />
       </WindowDragRegion>
 
-      <div class="flex flex-1 min-h-0">
-        <!-- Sidebar -->
-        <aside class="w-56 shrink-0 border-r border-border p-3 bg-[hsl(var(--card-elevated))]">
+      <!-- h-0 + flex-1: row height is the leftover viewport, not the long
+           系统设置 content. Only <main> scrolls; the nav stays put. -->
+      <div class="flex h-0 min-h-0 flex-1 overflow-hidden">
+        <aside class="flex h-full w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-[hsl(var(--card-elevated))] p-3">
           <!-- 返回按钮：仿栏位结构但弱化（muted 色、hover 才加深，不参与选中态） -->
           <button
             type="button"
@@ -178,12 +179,12 @@ onMounted(() => {
               v-for="item in group.items"
               :key="item.id"
               class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
-              :class="activeSection === item.id ? 'bg-accent/10 border border-accent/30' : 'border border-transparent hover:bg-hover'"
+              :class="activeSection === item.id ? 'bg-hover border border-transparent' : 'border border-transparent hover:bg-hover'"
               @click="activeSection = item.id"
             >
               <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-                   :class="activeSection === item.id ? 'bg-accent/15' : 'bg-hover group-hover:bg-hover'">
-                <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-accent' : 'text-muted'" />
+                   :class="activeSection === item.id ? 'bg-hover' : 'bg-hover group-hover:bg-hover'">
+                <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-foreground' : 'text-muted'" />
               </div>
               <span class="min-w-0">
                 <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
@@ -194,10 +195,10 @@ onMounted(() => {
         </aside>
 
         <!-- Main Content -->
-        <main ref="mainEl" class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
+        <main ref="mainEl" class="app-content-no-drag min-h-0 flex-1 overflow-y-auto overscroll-none" data-tauri-drag-region="false">
           <div
             v-if="renderError"
-            class="sticky top-0 z-20 mx-4 mt-3 px-3 py-2 rounded-lg border border-red-400/30 bg-red-400/10 text-[11px] text-red-400"
+            class="sticky top-0 z-20 mx-4 mt-3 px-3 py-2 rounded-lg border border-danger/30 bg-danger/10 text-[11px] text-danger"
           >
             设置页渲染异常：{{ renderError }}
           </div>

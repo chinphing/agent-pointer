@@ -107,7 +107,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       :class="
         fullscreen
           ? 'bg-[hsl(var(--card-elevated))]'
-          : 'flex items-center justify-center bg-black/60 p-4'
+          : 'flex items-center justify-center bg-foreground/32 p-4'
       "
       role="dialog"
       aria-modal="true"
@@ -126,8 +126,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           class="flex shrink-0 items-start gap-3 border-b border-border px-5 py-4"
           :class="fullscreen ? 'pr-24' : 'pr-20'"
         >
-          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/15">
-            <Terminal class="h-4 w-4 text-accent" />
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-hover">
+            <Terminal class="h-4 w-4 text-muted" />
           </div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -166,13 +166,13 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         <div class="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
           <div class="shrink-0">
             <div class="mb-1 text-[10px] uppercase tracking-wider text-muted">执行命令</div>
-            <pre class="max-h-64 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-black/50 p-2.5 text-green-400">{{ command || '—' }}</pre>
+            <pre class="max-h-64 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-[hsl(var(--code-bg))] p-2.5 text-foreground">{{ command || '—' }}</pre>
           </div>
           <div class="flex min-h-0 flex-1 flex-col">
             <div class="mb-1 shrink-0 text-[10px] uppercase tracking-wider text-muted">控制台输出</div>
             <pre
               ref="outputEl"
-              class="min-h-0 flex-1 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-black/50 p-2.5 text-slate-200"
+              class="min-h-0 flex-1 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-[hsl(var(--code-bg))] p-2.5 text-foreground"
               @scroll="onOutputScroll"
               @wheel="onOutputWheel"
               @touchstart.passive="onOutputTouchStart"

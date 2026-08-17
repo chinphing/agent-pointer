@@ -49,7 +49,7 @@ watch(
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="选择屏幕"
@@ -95,8 +95,8 @@ watch(
                 type="button"
                 class="absolute rounded-lg border-2 transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 px-1 text-center overflow-hidden"
                 :class="hoveredId === rect.id
-                  ? 'border-accent bg-accent/15 shadow-[0_0_0_1px_hsl(var(--accent)/0.35)]'
-                  : 'border-border bg-card/90 hover:border-accent/60 hover:bg-hover'"
+                  ? 'border-foreground/40 bg-hover'
+                  : 'border-border bg-card/90 hover:border-border hover:bg-hover'"
                 :style="{
                   left: `${rect.x}px`,
                   top: `${rect.y}px`,

@@ -779,8 +779,8 @@ watch(searchQuery, q => {
             v-else
             class="flex items-center gap-2 min-w-0 flex-1 pl-2"
           >
-            <div class="w-7 h-7 rounded-lg bg-accent/15 border border-border flex items-center justify-center shrink-0">
-              <Bot class="w-3.5 h-3.5 text-accent" />
+            <div class="w-7 h-7 rounded-lg bg-hover border border-border flex items-center justify-center shrink-0">
+              <Bot class="w-3.5 h-3.5 text-muted" />
             </div>
             <div class="text-[13px] font-semibold tracking-wide brand-text truncate">Pointer</div>
           </div>
@@ -901,7 +901,7 @@ watch(searchQuery, q => {
             <Teleport to="body">
               <div
                 v-if="showProjectCreator"
-                class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-foreground/32 p-4"
                 @click.self="showProjectCreator = false"
               >
                 <section class="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby="project-create-title">
@@ -1022,7 +1022,6 @@ watch(searchQuery, q => {
                       role="button"
                       tabindex="0"
                       class="sidebar-project-conversation flex-1 min-w-0"
-                      :class="chat.currentId === conversation.id && 'is-active'"
                       :title="conversation.title"
                       @click="onRowClick(conversation)"
                       @keydown.enter="onRowClick(conversation)"
@@ -1128,17 +1127,17 @@ watch(searchQuery, q => {
                 <div
                   v-for="c in pinnedConversations"
                   :key="c.id"
-                  class="group flex h-9 items-center gap-2 px-3 rounded-lg cursor-pointer transition border"
+                  class="group flex h-9 items-center gap-2 px-3 rounded-lg cursor-pointer transition-colors"
                   :class="chat.currentId === c.id
-                    ? 'bg-accent-muted border-accent/40'
-                    : 'hover:bg-hover border-transparent'"
+                    ? 'bg-foreground/10'
+                    : 'hover:bg-hover'"
                   @click="onRowClick(c)"
                   @contextmenu="openConversationMenu($event, c)"
                 >
                   <Loader2
                     v-if="chat.isConversationGenerating(c.id)"
                     class="w-3.5 h-3.5 shrink-0 animate-spin"
-                    :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                    :class="chat.currentId === c.id ? 'text-foreground' : 'text-muted'"
                   />
                   <span
                     v-else-if="chat.isConversationAwaitingView(c.id)"
@@ -1149,7 +1148,7 @@ watch(searchQuery, q => {
                   <MessageSquare
                     v-else
                     class="w-3.5 h-3.5 shrink-0"
-                    :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                    :class="chat.currentId === c.id ? 'text-foreground' : 'text-muted'"
                   />
                   <div
                     class="flex-1 min-w-0 text-[13px] text-foreground truncate"
@@ -1270,17 +1269,17 @@ watch(searchQuery, q => {
             <div
               v-for="c in sidebarRows"
               :key="c.id"
-              class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition border"
+              class="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
               :class="chat.currentId === c.id
-                ? 'bg-accent-muted border-accent/40'
-                : 'hover:bg-hover border-transparent'"
+                ? 'bg-foreground/10'
+                : 'hover:bg-hover'"
               @click="onRowClick(c)"
               @contextmenu="openConversationMenu($event, c)"
             >
               <Loader2
                 v-if="chat.isConversationGenerating(c.id)"
                 class="w-3.5 h-3.5 shrink-0 animate-spin"
-                :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                :class="chat.currentId === c.id ? 'text-foreground' : 'text-muted'"
               />
               <span
                 v-else-if="chat.isConversationAwaitingView(c.id)"
@@ -1291,7 +1290,7 @@ watch(searchQuery, q => {
               <MessageSquare
                 v-else
                 class="w-3.5 h-3.5 shrink-0"
-                :class="chat.currentId === c.id ? 'text-accent' : 'text-muted'"
+                :class="chat.currentId === c.id ? 'text-foreground' : 'text-muted'"
               />
               <div class="flex-1 min-w-0">
                 <div
@@ -1464,7 +1463,7 @@ watch(searchQuery, q => {
     </Teleport>
     <div
       v-if="renameTarget"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-foreground/32 p-4"
       @click.self="cancelRename"
     >
       <section
@@ -1509,7 +1508,7 @@ watch(searchQuery, q => {
     </div>
     <div
       v-if="projectEditing"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-foreground/32 p-4"
       @click.self="projectEditing = null"
     >
       <section class="w-full max-w-md rounded-xl border border-border bg-card p-4 shadow-xl">
@@ -1600,7 +1599,7 @@ watch(searchQuery, q => {
 }
 
 .sidebar-section-header-action.is-active {
-  @apply bg-accent-muted text-accent;
+  @apply bg-hover text-foreground;
 }
 
 .sidebar-section-search-wrap {
@@ -1638,7 +1637,7 @@ watch(searchQuery, q => {
 }
 
 .project-dialog-primary {
-  @apply rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50;
+  @apply rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .sidebar-project-input {
@@ -1646,15 +1645,16 @@ watch(searchQuery, q => {
 }
 
 .sidebar-project-create {
-  @apply w-full rounded-md bg-accent px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50;
+  @apply w-full rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .sidebar-project-row {
   @apply w-full h-9 pl-1 pr-8 rounded-lg inline-flex items-center gap-0.5 text-[13px] text-muted text-left hover:bg-hover hover:text-foreground transition-colors;
 }
 
-.sidebar-project-row.is-active {
-  @apply bg-accent-muted text-accent;
+.sidebar-project-row.is-active,
+.sidebar-project-row.is-active:hover {
+  @apply bg-foreground/10 text-foreground;
 }
 
 .sidebar-project-expand {
@@ -1666,11 +1666,15 @@ watch(searchQuery, q => {
 }
 
 .sidebar-project-conversation {
-  @apply w-full h-7 px-2 rounded-md inline-flex items-center gap-2 text-[12px] text-muted text-left hover:bg-hover hover:text-foreground transition-colors;
+  @apply h-7 px-2 inline-flex items-center gap-2 text-[12px] text-muted text-left hover:text-foreground transition-colors;
 }
 
-.sidebar-project-conversation.is-active {
-  @apply bg-accent-muted text-accent;
+button.sidebar-project-conversation {
+  @apply w-full rounded-md hover:bg-hover;
+}
+
+.sidebar-project-task-row .sidebar-project-conversation {
+  @apply rounded-none bg-transparent hover:bg-transparent;
 }
 
 .sidebar-project-task-row:hover {
@@ -1679,7 +1683,11 @@ watch(searchQuery, q => {
 
 .sidebar-project-task-row.is-active,
 .sidebar-project-task-row.is-active:hover {
-  @apply bg-accent-muted;
+  @apply bg-foreground/10 text-foreground;
+}
+
+.sidebar-project-task-row.is-active .sidebar-project-conversation {
+  @apply text-foreground;
 }
 
 .project-task-action {

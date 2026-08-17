@@ -50,10 +50,10 @@ defineExpose({ save })
       扫码授权成功后会自动连接；手填凭证需点「连接」。底部「保存」写入全部通道配置。飞书 / 企微为 WSS 长连接，钉钉为 Stream 长连接。
     </p>
 
-    <div v-if="error" class="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">
+    <div v-if="error" class="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
       {{ error }}
     </div>
-    <div v-if="pairingSuccess" class="rounded-lg border border-green-500/30 bg-green-500/5 px-3 py-2 text-sm text-green-600">
+    <div v-if="pairingSuccess" class="rounded-lg border border-success/30 bg-success/5 px-3 py-2 text-sm text-success">
       {{ pairingSuccess }}
     </div>
 
@@ -437,11 +437,11 @@ defineExpose({ save })
 }
 
 .tab-dot {
-  @apply w-1.5 h-1.5 rounded-full bg-green-500;
+  @apply w-1.5 h-1.5 rounded-full bg-success;
 }
 
 .tab-dot-warn {
-  @apply w-1.5 h-1.5 rounded-full bg-amber-500;
+  @apply w-1.5 h-1.5 rounded-full bg-warning;
 }
 
 .qr-hero {
@@ -465,7 +465,7 @@ defineExpose({ save })
 }
 
 .btn-scan {
-  @apply inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50;
+  @apply inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50;
 }
 
 .btn-connect {
@@ -473,7 +473,7 @@ defineExpose({ save })
 }
 
 .btn-connect-live {
-  @apply border-green-500/40 text-green-700;
+  @apply border-success/40 text-success;
 }
 
 .common-settings-card {
@@ -573,7 +573,7 @@ defineExpose({ save })
 }
 
 .btn-primary {
-  @apply rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50;
+  @apply rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50;
 }
 
 .btn-compact {

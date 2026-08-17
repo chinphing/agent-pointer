@@ -33,7 +33,7 @@ defineProps<{
   <template v-else-if="message.role === 'assistant' && isDiscardableEmptyAssistant(message)" />
   <div
     v-else
-    class="text-xs text-slate-500 border border-white/10 rounded-lg px-3 py-2"
+    class="text-xs text-muted border border-border rounded-lg px-3 py-2"
   >
     [{{ message.role }}] {{ message.content }}
   </div>

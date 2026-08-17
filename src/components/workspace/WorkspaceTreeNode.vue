@@ -77,5 +77,5 @@ function openContextMenu(event: MouseEvent, node: WorkspaceTreeNodeModel) {
 
 <style scoped>
 .tree-row { @apply w-full flex items-center gap-1.5 pr-3 py-1.5 text-left text-xs hover:bg-hover disabled:cursor-default select-none; }
-.tree-row.is-selected { @apply bg-accent/10 text-foreground; }
+.tree-row.is-selected { @apply bg-hover text-foreground; }
 </style>

@@ -447,7 +447,7 @@ onMounted(() => {
       <p class="text-sm text-muted">登录账户后可管理云主机</p>
       <button
         type="button"
-        class="h-8 px-4 rounded-lg bg-accent text-sm font-medium text-white hover:opacity-95 cursor-pointer"
+        class="h-8 px-4 rounded-lg bg-accent text-sm font-medium text-accent-foreground hover:opacity-95 cursor-pointer"
         @click="loginPlatformAccount"
       >
         浏览器登录
@@ -464,7 +464,7 @@ onMounted(() => {
         <button
           v-if="isBalanceExhaustedMessage(error)"
           type="button"
-          class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+          class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer"
           @click="openPlatformBillingPage"
         >
           去充值
@@ -497,7 +497,7 @@ onMounted(() => {
           </button>
           <button
             type="button"
-            class="h-8 px-3 rounded-lg bg-accent text-xs font-medium text-white hover:opacity-95 cursor-pointer inline-flex items-center gap-1.5"
+            class="h-8 px-3 rounded-lg bg-accent text-xs font-medium text-accent-foreground hover:opacity-95 cursor-pointer inline-flex items-center gap-1.5"
             @click="openPurchaseModal"
           >
             <Sparkles class="w-3.5 h-3.5" />
@@ -519,7 +519,7 @@ onMounted(() => {
           class="h-7 px-3 rounded-full text-xs border cursor-pointer transition-colors"
           :class="
             statusFilter === f[0]
-              ? 'border-accent/40 bg-accent/10 text-accent'
+              ? 'border-border bg-hover text-foreground'
               : 'border-border text-muted hover:bg-hover'
           "
           @click="statusFilter = f[0]"
@@ -571,7 +571,7 @@ onMounted(() => {
             <button
               v-if="canOpenCloudAgent(agent)"
               type="button"
-              class="h-8 px-3 rounded-lg bg-accent text-xs font-medium text-white hover:opacity-95 cursor-pointer disabled:opacity-50"
+              class="h-8 px-3 rounded-lg bg-accent text-xs font-medium text-accent-foreground hover:opacity-95 cursor-pointer disabled:opacity-50"
               :disabled="openingAgentId === agent.id"
               @click="onOpenAgent(agent)"
             >
@@ -617,7 +617,7 @@ onMounted(() => {
     <!-- Purchase modal -->
     <div
       v-if="purchaseOpen"
-      class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/55 backdrop-blur-[2px] p-3 sm:p-4"
+      class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-foreground/32 backdrop-blur-[2px] p-3 sm:p-4"
       @click.self="closePurchaseModal"
     >
       <div
@@ -774,7 +774,7 @@ onMounted(() => {
           </button>
           <button
             type="button"
-            class="h-9 px-4 rounded-lg bg-accent text-xs font-medium text-white hover:opacity-95 disabled:opacity-50 cursor-pointer inline-flex items-center gap-1.5"
+            class="h-9 px-4 rounded-lg bg-accent text-xs font-medium text-accent-foreground hover:opacity-95 disabled:opacity-50 cursor-pointer inline-flex items-center gap-1.5"
             :disabled="purchaseSubmitting || purchasePreviewLoading || !purchasePreview"
             @click="confirmPurchase"
           >
@@ -788,7 +788,7 @@ onMounted(() => {
     <!-- Renew modal -->
     <div
       v-if="renewAgent"
-      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/32 p-4"
       @click.self="renewAgent = null"
     >
       <div class="w-full max-w-sm rounded-xl border border-border bg-[hsl(var(--card))] p-5 space-y-4">
@@ -799,7 +799,7 @@ onMounted(() => {
           <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs" @click="renewAgent = null">取消</button>
           <button
             type="button"
-            class="h-8 px-3 rounded-lg bg-accent text-xs text-white disabled:opacity-50"
+            class="h-8 px-3 rounded-lg bg-accent text-xs text-accent-foreground disabled:opacity-50"
             :disabled="renewSubmitting || !renewPreview"
             @click="confirmRenew"
           >
@@ -812,7 +812,7 @@ onMounted(() => {
     <!-- Release confirm -->
     <div
       v-if="releaseAgent"
-      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/32 p-4"
       @click.self="releaseAgent = null"
     >
       <div class="w-full max-w-sm rounded-xl border border-border bg-[hsl(var(--card))] p-5 space-y-4">

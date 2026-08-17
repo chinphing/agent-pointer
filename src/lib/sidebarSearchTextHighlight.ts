@@ -138,9 +138,9 @@ function fallbackMarkRanges(
       // Keep the visual treatment self-contained: older WebKit builds can expose
       // CSS Custom Highlight APIs without painting ::highlight() reliably.
       mark.style.setProperty('color', 'inherit')
-      mark.style.setProperty('background', 'hsl(48 96% 53% / 0.72)')
+      mark.style.setProperty('background', 'hsl(var(--search-mark) / 0.5)')
       mark.style.setProperty('border-radius', '0.2rem')
-      mark.style.setProperty('box-shadow', '0 0 0 1px hsl(48 96% 53% / 0.35)')
+      mark.style.setProperty('box-shadow', '0 0 0 1px hsl(var(--search-mark) / 0.28)')
       mark.style.setProperty('padding', '0 0.08em')
       cursor.parentNode?.insertBefore(mark, cursor)
       mark.appendChild(cursor)

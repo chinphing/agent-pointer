@@ -1113,7 +1113,7 @@ onBeforeUnmount(() => {
     <div class="workspace-resize-handle" title="拖动调整宽度" @mousedown="beginResize" />
 
     <header class="h-10 shrink-0 flex items-center gap-2 px-3 border-b border-border">
-      <FolderOpen class="w-4 h-4 text-accent" />
+      <FolderOpen class="w-4 h-4 text-muted" />
       <span class="text-xs font-semibold truncate flex-1" :title="workspaceRoot">{{ workspaceName || '工作区' }}</span>
       <button class="chrome-icon-btn" title="关闭工作区" type="button" @click="$emit('close')"><X class="w-4 h-4" /></button>
     </header>
@@ -1179,14 +1179,14 @@ onBeforeUnmount(() => {
     <div v-else-if="error" class="p-4 text-xs text-danger break-words">{{ error }}</div>
 
     <template v-else>
-      <!-- KeepAlive keeps Terminal mounted across view switches so split panes
-           + focused pane survive (v-if alone would drop the layout tree). -->
+      <!-- KeepAlive + named async panel: leaving Terminal must not remount
+           (that used to spawn a new PTY even when sessions already existed). -->
       <KeepAlive>
         <TerminalPanel
           v-if="activeView === 'terminal'"
           :workspace-root="workspaceRoot"
           :conversation-id="conversationId ?? ''"
-          active
+          :active="activeView === 'terminal'"
         />
       </KeepAlive>
       <div v-if="refreshWarning" class="workspace-refresh-warning" role="status">{{ refreshWarning }}</div>
@@ -1202,7 +1202,7 @@ onBeforeUnmount(() => {
           class="sticky top-0 z-20 mx-2 mb-2 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1.5 shadow-lg backdrop-blur"
           role="search"
         >
-          <Search class="ml-1 h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+          <Search class="ml-1 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
           <input
             ref="treeSearchInput"
             v-model="treeSearchQuery"
@@ -1431,10 +1431,10 @@ onBeforeUnmount(() => {
   @apply relative inline-flex items-center justify-center px-2.5;
 }
 .workspace-tab-badge {
-  @apply absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-accent px-1 text-[9px] leading-3 text-white;
+  @apply absolute -right-0.5 -top-0.5 min-w-3.5 rounded-full bg-accent px-1 text-[9px] leading-3 text-accent-foreground;
 }
 .workspace-empty { @apply p-4 text-xs text-muted flex items-center justify-center gap-2; }
-.workspace-refresh-warning { @apply shrink-0 border-b border-amber-300/40 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200; }
+.workspace-refresh-warning { @apply shrink-0 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-[11px] text-warning; }
 .workspace-action-btn { @apply rounded border border-border px-2.5 py-1.5 text-xs text-foreground hover:bg-hover disabled:opacity-50; }
 .change-row { @apply w-full flex items-center gap-1.5 px-3 py-1.5 text-left text-xs hover:bg-hover; }
 .change-row.is-selected { @apply bg-accent/10 text-foreground; }
@@ -1442,7 +1442,7 @@ onBeforeUnmount(() => {
 .workspace-context-menu { @apply fixed z-[301] w-52 rounded-md border border-border bg-card p-1 shadow-xl select-none; }
 .workspace-context-separator { @apply my-1 border-t border-border; }
 .workspace-context-menu button { @apply w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-foreground hover:bg-hover; }
-.workspace-context-menu button :deep(svg) { @apply w-3.5 h-3.5 text-muted; }
+.workspace-context-menu button :deep(svg) { @apply w-3.5 h-3.5 text-accent; }
 .workspace-context-menu button.is-danger { @apply text-danger; }
 .workspace-context-menu button.is-danger :deep(svg) { @apply text-danger; }
 </style>

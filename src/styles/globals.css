@@ -4,42 +4,46 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98%;
-    --foreground: 222 47% 11%;
+    --background: 240 5% 96%;
+    --foreground: 240 6% 10%;
     --card: 0 0% 100%;
-    --card-elevated: 220 14% 96%;
-    --muted: 215 16% 47%;
-    --border: 220 13% 91%;
-    --accent: 250 42% 52%;
-    --accent-muted: 250 28% 95%;
+    --card-elevated: 240 5% 94%;
+    --muted: 240 4% 42%;
+    --border: 240 6% 90%;
+    --accent: 211 100% 46%;
+    --accent-muted: 211 80% 96%;
+    --accent-foreground: 0 0% 100%;
     --composer-bg: 0 0% 100%;
-    --hover: 220 14% 96%;
-    --code-bg: 220 14% 96%;
-    --success: 142 71% 45%;
-    --danger: 0 84% 60%;
-    --warning: 38 92% 50%;
-    --info: 199 89% 48%;
+    --hover: 240 5% 93%;
+    --code-bg: 240 5% 94%;
+    --success: 142 48% 36%;
+    --danger: 4 78% 50%;
+    --warning: 36 80% 42%;
+    --info: 211 100% 46%;
+    --search-mark: 48 80% 70%;
   }
 
   html.dark {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    --card: 222 40% 10%;
-    --card-elevated: 222 35% 13%;
-    --muted: 215 20% 65%;
-    --border: 222 30% 18%;
-    --accent: 250 45% 68%;
-    --accent-muted: 250 28% 16%;
-    --composer-bg: 222 40% 9%;
-    --hover: 222 30% 14%;
-    --code-bg: 222 47% 5%;
-    --success: 142 71% 45%;
-    --danger: 0 72% 51%;
-    --warning: 38 92% 50%;
-    --info: 199 89% 48%;
+    --background: 240 4% 8%;
+    --foreground: 240 6% 96%;
+    --card: 240 4% 11%;
+    --card-elevated: 240 4% 14%;
+    --muted: 240 5% 64%;
+    --border: 240 4% 18%;
+    --accent: 211 100% 58%;
+    --accent-muted: 211 40% 16%;
+    --accent-foreground: 0 0% 100%;
+    --composer-bg: 240 4% 10%;
+    --hover: 240 4% 16%;
+    --code-bg: 240 4% 7%;
+    --success: 142 40% 48%;
+    --danger: 4 72% 58%;
+    --warning: 36 70% 52%;
+    --info: 211 100% 58%;
+    --search-mark: 48 70% 42%;
   }
 
-  html, body, #app { height: 100%; height: 100dvh; }
+  html, body, #app { height: 100%; height: 100dvh; overflow: hidden; }
   body {
     background: hsl(var(--background));
     color: hsl(var(--foreground));
@@ -139,7 +143,7 @@
   }
 
   .brand-text {
-    @apply text-accent font-semibold;
+    @apply text-foreground font-semibold;
   }
   .typing-dot {
     @apply inline-block w-1.5 h-1.5 rounded-full bg-accent mx-0.5 animate-pulseDot;
@@ -225,7 +229,7 @@
     pointer-events: none;
   }
   .composer-dropdown-item-active {
-    @apply bg-accent/10 text-accent;
+    @apply bg-hover text-foreground;
   }
   .composer-workspace-input {
     @apply h-auto min-w-[100px] max-w-[200px] border-0 bg-transparent px-1 py-1
@@ -622,16 +626,16 @@
 
 .sidebar-search-text-mark {
   color: inherit;
-  background: hsl(48 96% 53% / 0.65);
+  background: hsl(var(--search-mark) / 0.45);
   border-radius: 0.2rem;
-  box-shadow: 0 0 0 1px hsl(48 96% 53% / 0.35);
+  box-shadow: 0 0 0 1px hsl(var(--search-mark) / 0.28);
   padding: 0 0.08em;
 }
 
 ::highlight(sidebar-search-text) {
   color: inherit;
-  background-color: hsl(48 96% 53% / 0.72);
-  text-decoration: underline hsl(38 92% 45% / 0.9) 1px;
+  background-color: hsl(var(--search-mark) / 0.5);
+  text-decoration: underline hsl(var(--warning) / 0.7) 1px;
 }
 
 /* Tauri: no webkit drag regions — window move only via startDragging() on .window-drag-region */

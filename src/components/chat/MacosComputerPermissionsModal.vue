@@ -328,7 +328,7 @@ onUnmounted(() => {
                     stepState(s.id) === 'done'
                       ? 'bg-success/15 text-success'
                       : stepState(s.id) === 'active'
-                        ? 'bg-accent text-white'
+                        ? 'bg-accent text-accent-foreground'
                         : 'bg-hover text-muted'
                   "
                 >
@@ -350,7 +350,7 @@ onUnmounted(() => {
                   </p>
                   <button
                     type="button"
-                    class="w-full h-9 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50"
+                    class="w-full h-9 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50"
                     :disabled="busy"
                     @click="onDragGrant(s.id)"
                   >
@@ -417,7 +417,7 @@ onUnmounted(() => {
           <button
             v-if="allWizardDone"
             type="button"
-            class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95"
+            class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95"
             @click="onContinue"
           >
             {{ allGranted ? '继续' : '仍要继续' }}

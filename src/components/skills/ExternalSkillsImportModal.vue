@@ -71,7 +71,7 @@ watch(
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="导入外部 Skills"
@@ -139,7 +139,7 @@ watch(
           </button>
           <button
             type="button"
-            class="h-9 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity disabled:opacity-50"
+            class="h-9 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity disabled:opacity-50"
             :disabled="importing || selected.size === 0"
             @click="onImport"
           >

@@ -174,7 +174,7 @@ onBeforeUnmount(() => {
     <button
       ref="triggerRef"
       type="button"
-      class="account-menu-trigger flex h-9 max-w-[11rem] items-center gap-2 rounded-lg border border-transparent px-2 text-left hover:bg-hover transition-colors cursor-pointer"
+      class="account-menu-trigger flex h-8 max-w-[11rem] items-center gap-1.5 rounded-lg border border-transparent px-1.5 text-left hover:bg-hover transition-colors cursor-pointer"
       :aria-expanded="menuOpen"
       aria-haspopup="menu"
       @click="toggleMenu"
@@ -182,7 +182,7 @@ onBeforeUnmount(() => {
       <img
         src="/app-icon.png"
         alt=""
-        class="h-7 w-7 shrink-0 rounded-full object-cover"
+        class="h-5 w-5 shrink-0 rounded-full object-cover"
         draggable="false"
       >
       <span class="min-w-0 flex-1 truncate text-[13px] text-foreground/90">{{ platformAccountTitle }}</span>
@@ -227,7 +227,7 @@ onBeforeUnmount(() => {
                 i === 0 ? 'group-hover:translate-x-0 group-hover:opacity-100' : '',
                 i === 1 ? 'delay-75 group-hover:translate-x-0 group-hover:opacity-100' : '',
                 i === 2 ? 'delay-150 group-hover:translate-x-0 group-hover:opacity-100' : '',
-                theme === t ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-hover hover:text-foreground'
+                theme === t ? 'bg-hover text-foreground' : 'text-muted hover:bg-hover hover:text-foreground'
               ]"
               :title="themeLabel(t)"
               :aria-label="themeLabel(t)"
@@ -329,7 +329,7 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="showLogin"
-        class="fixed inset-0 z-[400] flex items-center justify-center bg-black/40 p-4"
+        class="fixed inset-0 z-[400] flex items-center justify-center bg-foreground/32 p-4"
         @click.self="showLogin = false"
       >
         <section

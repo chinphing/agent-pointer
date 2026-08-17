@@ -62,14 +62,14 @@ async function forceSend(itemId: string) {
       <span class="text-[12px] font-medium text-foreground flex-1 min-w-0 truncate">
         待发送
       </span>
-      <span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted text-accent shrink-0 tabular-nums">
+      <span class="text-[10px] px-1.5 py-0.5 rounded bg-hover text-muted shrink-0 tabular-nums">
         {{ count }}
       </span>
       <span class="hidden sm:inline text-[10px] text-muted shrink-0">
         Enter 立即发送队首 · ⌘/Ctrl+Enter 停止并发送
       </span>
       <ChevronDown
-        class="w-3.5 h-3.5 text-muted shrink-0 transition-transform duration-200"
+        class="w-3.5 h-3.5 text-accent shrink-0 transition-transform duration-200"
         :class="expanded ? 'rotate-180' : ''"
         aria-hidden="true"
       />

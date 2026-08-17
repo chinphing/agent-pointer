@@ -94,7 +94,7 @@ function skillLabel(skillId: string): string {
                 :key="w.id"
                 class="rounded-xl border p-3 transition-all"
                 :class="[
-                  isLeadWorkerSelected(w.id) ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))]',
+                  isLeadWorkerSelected(w.id) ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))]',
                   isLeadAgentSelectable(w) ? 'cursor-pointer hover:border-border' : ''
                 ]"
                 @click="selectLeadWorker(w)"
@@ -102,15 +102,15 @@ function skillLabel(skillId: string): string {
                 <div class="flex items-start gap-3">
                   <!-- Icon -->
                   <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                       :class="isLeadWorkerSelected(w.id) ? 'bg-accent/10' : 'bg-[hsl(var(--card-elevated))]'">
-                    <Bot class="w-4 h-4" :class="isLeadWorkerSelected(w.id) ? 'text-accent' : 'text-muted'" />
+                       :class="isLeadWorkerSelected(w.id) ? 'bg-hover' : 'bg-[hsl(var(--card-elevated))]'">
+                    <Bot class="w-4 h-4" :class="isLeadWorkerSelected(w.id) ? 'text-foreground' : 'text-muted'" />
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(w, s.settings) }}</span>
                       <span class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted font-mono">{{ w.name }}</span>
                       <span v-if="!isLeadAgentSelectable(w)" class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted">子智能体</span>
-                      <span v-else-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
+                      <span v-else-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground">已选择</span>
                     </div>
                     <p class="mt-0.5 text-[11px] text-muted">{{ w.description || '通用智能体' }}</p>
 
@@ -317,18 +317,18 @@ function skillLabel(skillId: string): string {
               <div
                 v-if="supervisorAgent"
                 class="rounded-xl border p-3 cursor-pointer transition-all"
-                :class="agentMode === 'supervisor' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
+                :class="agentMode === 'supervisor' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
                 @click="agentMode = 'supervisor'"
               >
                 <div class="flex items-start gap-3">
                   <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                       :class="agentMode === 'supervisor' ? 'bg-accent/10' : 'bg-[hsl(var(--card-elevated))]'">
-                    <Users class="w-4 h-4" :class="agentMode === 'supervisor' ? 'text-accent' : 'text-muted'" />
+                       :class="agentMode === 'supervisor' ? 'bg-hover' : 'bg-[hsl(var(--card-elevated))]'">
+                    <Users class="w-4 h-4" :class="agentMode === 'supervisor' ? 'text-foreground' : 'text-muted'" />
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(supervisorAgent, s.settings) }}</span>
-                      <span v-if="agentMode === 'supervisor'" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
+                      <span v-if="agentMode === 'supervisor'" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground">已选择</span>
                     </div>
                     <p class="mt-0.5 text-[11px] text-muted">多子智能体编排与结果整合</p>
 

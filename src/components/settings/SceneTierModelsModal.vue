@@ -96,7 +96,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
   <Teleport to="body">
     <div
       v-if="open"
-      class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-black/55 p-4"
+      class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-foreground/32 p-4"
       role="presentation"
       @click.self="emit('close')"
     >
@@ -122,7 +122,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             <div v-for="tier in modeTiers" :key="'agent-' + scene + '-' + tier.key" class="space-y-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.agentModeLlm(scene, tier.key), tier.key, 'agent', scene)" class="rounded bg-amber-400/15 px-1 text-[9px] text-amber-600">已覆盖</span>
+                <span v-if="modeOverridden(form.agentModeLlm(scene, tier.key), tier.key, 'agent', scene)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">已覆盖</span>
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
@@ -152,7 +152,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             <div v-for="tier in modeTiers" :key="'media-' + scene + '-' + tier.key" class="space-y-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.mediaModeLlm(mediaKind, tier.key), tier.key, 'media', mediaKind)" class="rounded bg-amber-400/15 px-1 text-[9px] text-amber-600">已覆盖</span>
+                <span v-if="modeOverridden(form.mediaModeLlm(mediaKind, tier.key), tier.key, 'media', mediaKind)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">已覆盖</span>
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
@@ -182,7 +182,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             <div v-for="tier in computerTiers" :key="'computer-' + tier.key" class="space-y-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.computerTierLlm(tier.key), tier.key, 'computer')" class="rounded bg-amber-400/15 px-1 text-[9px] text-amber-600">已覆盖</span>
+                <span v-if="modeOverridden(form.computerTierLlm(tier.key), tier.key, 'computer')" class="rounded bg-warning/15 px-1 text-[9px] text-warning">已覆盖</span>
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select

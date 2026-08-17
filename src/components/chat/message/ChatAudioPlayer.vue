@@ -30,7 +30,7 @@ const bubbleClass = computed(() =>
 
 const playBtnClass = computed(() =>
   props.variant === 'user'
-    ? 'bg-accent text-white hover:bg-accent/90'
+    ? 'bg-accent text-accent-foreground hover:bg-accent/90'
     : 'bg-foreground/10 text-foreground hover:bg-foreground/15'
 )
 

@@ -1,6 +1,6 @@
 # 配置界面重构 — 实现方案
 
-> 分支：`refactor/settings-ui`（独立 worktree：`/Users/starliu/pointer-all/pointer-app-settings`）
+> 分支：`refactor/settings-ui`（独立 worktree 已拆除；设置页以 `main` 为准）
 > 基线：`main @ 418d36f1`
 > 状态：已评审并完成界面迭代（2026-08-08）：O4 明确 = 平台配置由 **pointer-official 官网 API** 下发；设置已调整为全屏、余额仅账户页、豆包归平台、调试仅保留请求保存。
 

@@ -53,13 +53,13 @@ const compactShell = computed(() => toolOnly.value || desktopNotice.value)
       :class="
         kind === 'injected_notice'
           ? 'w-6 h-6 bg-hover'
-          : 'w-8 h-8 bg-accent/15'
+          : 'w-8 h-8 bg-hover'
       "
       :title="messageUi.composerLabel"
     >
       <component
         :is="kind === 'injected_notice' ? Bot : avatarIcon"
-        :class="kind === 'injected_notice' ? 'w-3 h-3 text-muted' : 'w-4 h-4 text-accent'"
+        :class="kind === 'injected_notice' ? 'w-3 h-3 text-muted' : 'w-4 h-4 text-muted'"
       />
     </div>
 

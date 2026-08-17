@@ -30,7 +30,7 @@ const emit = defineEmits<{
         class="h-6 w-6 rounded-md hover:bg-hover inline-flex items-center justify-center cursor-pointer shrink-0"
         @click="emit('dismiss')"
       >
-        <X class="w-3.5 h-3.5 text-muted" />
+        <X class="w-3.5 h-3.5 text-accent" />
       </button>
     </div>
 
@@ -44,7 +44,7 @@ const emit = defineEmits<{
 
     <div class="flex items-center gap-2">
       <button
-        class="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
+        class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
         @click="emit('apply')"
       >
         立即更新

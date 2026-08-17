@@ -584,7 +584,7 @@ onMounted(() => {
             <RefreshCw class="w-3.5 h-3.5" :class="loadingJobs ? 'animate-spin text-muted' : 'text-muted'" />
           </button>
           <button
-            class="h-7 px-3 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+            class="h-7 px-3 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
             @click="openCreateForm"
           >
             <Plus class="w-3.5 h-3.5 shrink-0" />新建
@@ -592,7 +592,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <p v-if="jobsError" class="text-xs text-red-500 mb-2">{{ jobsError }}</p>
+      <p v-if="jobsError" class="text-xs text-danger mb-2">{{ jobsError }}</p>
 
       <div v-if="!loadingJobs && jobs.length === 0" class="text-xs text-muted py-4 text-center">
         暂无定时任务
@@ -647,7 +647,7 @@ onMounted(() => {
               <button
                 class="h-7 w-7 rounded-md inline-flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                 :class="cronViewSessionId(job)
-                  ? 'border border-accent/40 bg-accent/10 text-accent hover:bg-accent/15 cursor-pointer'
+                  ? 'border border-border bg-hover text-foreground hover:bg-hover cursor-pointer'
                   : 'border border-border text-muted cursor-not-allowed'"
                 :title="cronViewSessionId(job) ? '查看会话' : '任务尚未触发，暂无会话可查看'"
                 :disabled="!cronViewSessionId(job)"
@@ -677,7 +677,7 @@ onMounted(() => {
           </div>
           <p
             v-if="job.lastDeliveryError"
-            class="text-[11px] text-amber-600 dark:text-amber-400 truncate pl-11"
+            class="text-[11px] text-warning truncate pl-11"
             :title="job.lastDeliveryError"
           >
             投递失败：{{ job.lastDeliveryError }}
@@ -727,7 +727,7 @@ onMounted(() => {
                 取消
               </button>
               <button
-                class="h-7 px-3 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
+                class="h-7 px-3 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
                 :disabled="savingDeliver"
                 @click="saveEditDeliver(job)"
               >
@@ -792,11 +792,11 @@ onMounted(() => {
             </p>
           </div>
         </div>
-        <p v-if="formError" class="text-xs text-red-500">{{ formError }}</p>
+        <p v-if="formError" class="text-xs text-danger">{{ formError }}</p>
         <div class="flex items-center justify-end gap-2">
           <button class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer" @click="showForm = false">取消</button>
           <button
-            class="h-8 px-4 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
+            class="h-8 px-4 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
             :disabled="creating"
             @click="submitCreate"
           >
@@ -832,7 +832,7 @@ onMounted(() => {
             <RefreshCw class="w-3.5 h-3.5" :class="loadingWebhook ? 'animate-spin text-muted' : 'text-muted'" />
           </button>
           <button
-            class="h-7 px-3 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+            class="h-7 px-3 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
             @click="openWebhookCreateForm"
           >
             <Plus class="w-3.5 h-3.5 shrink-0" />新建
@@ -840,15 +840,15 @@ onMounted(() => {
         </div>
       </div>
 
-      <p v-if="webhookInfo" class="text-xs text-emerald-600 mb-2">{{ webhookInfo }}</p>
-      <p v-if="webhookError" class="text-xs text-red-500 mb-2">{{ webhookError }}</p>
+      <p v-if="webhookInfo" class="text-xs text-success mb-2">{{ webhookInfo }}</p>
+      <p v-if="webhookError" class="text-xs text-danger mb-2">{{ webhookError }}</p>
 
       <div v-if="webhook" class="space-y-3">
         <div
           v-if="webhook.legacyConfigured"
-          class="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs"
+          class="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs"
         >
-          <AlertTriangle class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <AlertTriangle class="w-3.5 h-3.5 text-warning shrink-0" />
           <span
             class="min-w-0 flex-1 truncate text-foreground"
             :title="`检测到旧版全局 Token（${webhook.legacyPreview}），${LEGACY_TOKEN_DESC}`"
@@ -874,7 +874,7 @@ onMounted(() => {
             :key="s.src"
             class="flex items-center gap-2 rounded-lg border border-border bg-card/40 px-3 py-2 min-w-0"
           >
-            <ShieldCheck class="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <ShieldCheck class="w-3.5 h-3.5 text-success shrink-0" />
             <div
               class="min-w-0 flex-1 flex items-center gap-1.5 text-[12px] truncate"
               :title="`${s.src} · ${s.preview}${s.authHeaderName ? ` · ${s.authHeaderName}` : ''} · ${webhookIngressUrl(s.src)}`"
@@ -890,7 +890,7 @@ onMounted(() => {
                   : (copiedWebhookTokenSrc === s.src ? '已复制 Token' : '复制 Token')"
                 @click="copyWebhookToken(s)"
               >
-                <span v-if="copiedWebhookTokenSrc === s.src" class="text-emerald-500">已复制</span>
+                <span v-if="copiedWebhookTokenSrc === s.src" class="text-success">已复制</span>
                 <span v-else-if="revealingWebhookTokenSrc === s.src" class="text-muted">复制中…</span>
                 <span v-else>{{ s.preview }}</span>
               </button>
@@ -915,7 +915,7 @@ onMounted(() => {
               <button
                 class="h-7 w-7 rounded-md inline-flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                 :class="webhookViewSessionId(s)
-                  ? 'border border-accent/40 bg-accent/10 text-accent hover:bg-accent/15 cursor-pointer'
+                  ? 'border border-border bg-hover text-foreground hover:bg-hover cursor-pointer'
                   : 'border border-border text-muted cursor-not-allowed'"
                 :title="webhookViewSessionId(s) ? '查看会话' : '尚未触发，暂无会话可查看'"
                 :disabled="!webhookViewSessionId(s)"
@@ -929,7 +929,7 @@ onMounted(() => {
                 :title="revealingWebhookTokenSrc === s.src ? '获取 Token 中…' : '复制 curl'"
                 @click="copyWebhookCurl(s)"
               >
-                <Check v-if="copiedWebhookCurlSrc === s.src" class="w-3.5 h-3.5 text-emerald-500" />
+                <Check v-if="copiedWebhookCurlSrc === s.src" class="w-3.5 h-3.5 text-success" />
                 <Copy v-else class="w-3.5 h-3.5" />
               </button>
               <button
@@ -1037,7 +1037,7 @@ onMounted(() => {
               </select>
             </label>
           </div>
-          <p v-if="webhookFormError" class="text-xs text-red-500">{{ webhookFormError }}</p>
+          <p v-if="webhookFormError" class="text-xs text-danger">{{ webhookFormError }}</p>
           <div class="flex items-center justify-end gap-2 shrink-0">
             <button
               class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
@@ -1046,7 +1046,7 @@ onMounted(() => {
               取消
             </button>
             <button
-              class="h-8 px-4 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
+              class="h-8 px-4 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
               :disabled="settingToken"
               @click="submitWebhookSource"
             >

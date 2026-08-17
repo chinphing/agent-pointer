@@ -64,7 +64,7 @@ async function resetOverride() {
 
 <template>
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-foreground/32 backdrop-blur-sm"
     @click.self="$emit('close')"
   >
     <div class="w-[720px] max-w-[92vw] max-h-[80vh] glass-strong rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden">
@@ -95,13 +95,13 @@ async function resetOverride() {
           aria-label="关闭"
           @click="$emit('close')"
         >
-          <X class="w-4 h-4 text-muted" />
+          <X class="w-4 h-4 text-accent" />
         </button>
       </header>
 
       <div class="px-5 pt-3 shrink-0">
         <div class="flex items-center gap-2 h-10 px-3 rounded-lg border border-border bg-card">
-          <Search class="w-4 h-4 text-muted shrink-0" />
+          <Search class="w-4 h-4 text-accent shrink-0" />
           <input
             v-model="query"
             type="text"
@@ -123,7 +123,7 @@ async function resetOverride() {
             class="text-left rounded-lg p-4 border transition-colors disabled:opacity-60"
             :class="enabledIds.has(skill.id)
               ? 'border-accent/30 bg-accent/5'
-              : 'border-border bg-hover/40 hover:bg-hover/60'"
+              : 'border-border bg-card hover:bg-hover'"
             :disabled="Boolean(savingId)"
             @click="toggleSkill(skill.id)"
           >
@@ -133,7 +133,7 @@ async function resetOverride() {
                 {{ skill.builtin ? '内置' : '外部' }}
               </span>
               <span class="ml-auto inline-flex items-center gap-2 shrink-0">
-                <span class="text-[10px] text-muted">{{ enabledIds.has(skill.id) ? '已启用' : '未启用' }}</span>
+                <span class="text-[10px]" :class="enabledIds.has(skill.id) ? 'text-accent' : 'text-muted'">{{ enabledIds.has(skill.id) ? '已启用' : '未启用' }}</span>
                 <span
                   class="relative w-8 h-[18px] rounded-full transition-colors"
                   :class="enabledIds.has(skill.id) ? 'bg-accent' : 'bg-[hsl(var(--code-bg))]'"

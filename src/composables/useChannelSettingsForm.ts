@@ -147,11 +147,11 @@ export function useChannelSettingsForm() {
   const statusToneClass = computed(() => {
     switch (activeStatus.value.tone) {
       case 'success':
-        return 'text-green-600'
+        return 'text-success'
       case 'warn':
-        return 'text-amber-600'
+        return 'text-warning'
       case 'error':
-        return 'text-red-500'
+        return 'text-danger'
       default:
         return 'text-muted'
     }

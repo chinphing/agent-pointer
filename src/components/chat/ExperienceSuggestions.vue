@@ -16,12 +16,6 @@ const loadingSlug = ref<string | null>(null)
 
 const visible = computed(() => items.value.length > 0)
 
-const CARD_TONES = [
-  'experience-card--sky',
-  'experience-card--rose',
-  'experience-card--sand',
-] as const
-
 onMounted(async () => {
   if (platformAuth.isStandalone) return
   try {
@@ -30,10 +24,6 @@ onMounted(async () => {
     console.warn('experience suggestions load failed', e)
   }
 })
-
-function cardTone(index: number): string {
-  return CARD_TONES[index % CARD_TONES.length]
-}
 
 async function onSelect(item: ExperienceListItem) {
   if (loadingSlug.value) return
@@ -57,11 +47,10 @@ async function onSelect(item: ExperienceListItem) {
   <section v-if="visible" class="w-full">
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <button
-        v-for="(item, index) in items"
+        v-for="item in items"
         :key="item.id"
         type="button"
         class="experience-card group text-left transition-all disabled:cursor-wait disabled:opacity-60"
-        :class="cardTone(index)"
         :disabled="loadingSlug === item.slug"
         @click="onSelect(item)"
       >
@@ -80,7 +69,7 @@ async function onSelect(item: ExperienceListItem) {
 
 <style scoped>
 .experience-card {
-  @apply flex h-full flex-col rounded-2xl px-4 py-5;
+  @apply flex h-full flex-col rounded-2xl border border-border bg-card px-4 py-5;
 }
 
 .experience-card__title {
@@ -92,32 +81,7 @@ async function onSelect(item: ExperienceListItem) {
   @apply mt-2.5 min-h-[3.75rem] text-xs leading-relaxed text-muted;
 }
 
-.experience-card--sky {
-  background: #eef4ff;
-}
-.experience-card--rose {
-  background: #fff0f3;
-}
-.experience-card--sand {
-  background: #fff8eb;
-}
-
 .experience-card:hover {
-  filter: brightness(0.98);
-  transform: translateY(-1px);
-}
-
-html.dark .experience-card--sky {
-  background: hsl(220 60% 18% / 0.55);
-}
-html.dark .experience-card--rose {
-  background: hsl(350 45% 18% / 0.55);
-}
-html.dark .experience-card--sand {
-  background: hsl(38 45% 16% / 0.55);
-}
-
-html.dark .experience-card:hover {
-  filter: brightness(1.08);
+  background: hsl(var(--hover));
 }
 </style>

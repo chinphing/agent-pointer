@@ -5,6 +5,7 @@ import {
   createTerminalGroupsState,
   findGroup,
   getActiveGroup,
+  rebuildGroupsFromExistingTabs,
   removeGroup,
   setGroupFocusedPane,
   setGroupLayout
@@ -88,6 +89,29 @@ describe('terminalGroups', () => {
     expect(state.groups).toHaveLength(1)
     expect(state.activeGroupId).toBe('g-1')
     expect(newLeaf.tabId).toBeNull()
+  })
+
+  it('rebuildGroupsFromExistingTabs maps sessions to groups and activates by session id', () => {
+    let n = 0
+    const { state, activeGroup } = rebuildGroupsFromExistingTabs(
+      [{ id: 'sess-a' }, { id: 'sess-b' }],
+      'sess-b',
+      () => {
+        n += 1
+        return `g-${n}`
+      }
+    )
+    expect(state.groups.map(g => g.id)).toEqual(['g-1', 'g-2'])
+    expect(activeGroup?.id).toBe('g-2')
+    expect(state.activeGroupId).toBe('g-2')
+    expect(collectLeaves(state.groups[0]!.layout!)[0]?.tabId).toBe('sess-a')
+    expect(collectLeaves(state.groups[1]!.layout!)[0]?.tabId).toBe('sess-b')
+  })
+
+  it('rebuildGroupsFromExistingTabs returns null when there are no sessions', () => {
+    const { state, activeGroup } = rebuildGroupsFromExistingTabs([], 'sess-a', () => 'g-1')
+    expect(state.groups).toHaveLength(0)
+    expect(activeGroup).toBeNull()
   })
 
   it('getActiveGroup mirrors activeGroupId', () => {

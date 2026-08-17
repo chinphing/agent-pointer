@@ -1,6 +1,8 @@
 import type { ChatMessage, ToolCall } from '../types/chat'
 import { buildFileChangeSummaries, type FileChangeSummary } from './toolCallDisplay'
 import { toolCallBaseName } from './messageTooling'
+import { isScopedSubMessage } from './subAgentMessages'
+import { isRealUserTaskMessage } from './threadLayoutGlue'
 
 export type LastTurnFileChanges = {
   turnId: string
@@ -12,21 +14,32 @@ function isFileMutatingTool(tc: ToolCall): boolean {
   return base === 'file_edit' || base === 'file_write'
 }
 
+function pathFromUnknownRecord(row: Record<string, unknown>): string {
+  const path = row.path ?? row.file ?? row.file_path ?? row.filePath
+  return typeof path === 'string' && path.trim() ? path.trim() : ''
+}
+
 function pathFromToolCall(tc: ToolCall): string {
   if (tc.result) {
-    try {
-      const parsed = JSON.parse(tc.result) as { path?: unknown; success?: unknown }
-      if (parsed.success === true && typeof parsed.path === 'string' && parsed.path.trim()) {
-        return parsed.path.trim()
+    if (typeof tc.result === 'object' && tc.result && !Array.isArray(tc.result)) {
+      const path = pathFromUnknownRecord(tc.result as Record<string, unknown>)
+      if (path) return path
+    } else {
+      try {
+        const parsed = JSON.parse(String(tc.result)) as unknown
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const path = pathFromUnknownRecord(parsed as Record<string, unknown>)
+          if (path) return path
+        }
+      } catch {
+        /* fall through */
       }
-    } catch {
-      /* fall through */
     }
   }
   try {
     const args = JSON.parse(tc.arguments || '{}') as Record<string, unknown>
-    const path = args.path ?? args.file
-    if (typeof path === 'string' && path.trim()) return path.trim()
+    const path = pathFromUnknownRecord(args)
+    if (path) return path
   } catch {
     /* ignore */
   }
@@ -40,7 +53,7 @@ function pathBasename(path: string): string {
 }
 
 export function isLeadUserMessage(message: ChatMessage): boolean {
-  return message.role === 'user' && Boolean(message.id?.trim()) && !message.anchorMessageId?.trim()
+  return isRealUserTaskMessage(message) && !isScopedSubMessage(message)
 }
 
 type LeadStartsMemo = {
@@ -84,86 +97,6 @@ export function collectLeadTurnStarts(
   scanLeadStarts(list, 0, starts)
   leadStartsMemo.set(list, { length: list.length, starts })
   return starts
-}
-
-/**
- * One assistant (or scoped) row's tool batch: in-flight until every tool
- * leaves pending / running / pending_approval.
- */
-export type ToolRoundPart = {
-  messageId: string
-  index: number
-  inflight: boolean
-  toolCount: number
-  hasSuccessfulFileWrite: boolean
-}
-
-function isInFlightTool(tc: ToolCall): boolean {
-  return tc.status === 'running' || tc.status === 'pending' || tc.status === 'pending_approval'
-}
-
-export function lastTurnToolRounds(
-  list: ChatMessage[],
-  start: number,
-  end: number
-): ToolRoundPart[] {
-  const parts: ToolRoundPart[] = []
-  for (let i = start; i < end; i++) {
-    const message = list[i]!
-    const calls = message.toolCalls
-    if (!calls?.length) continue
-    let inflight = false
-    let hasSuccessfulFileWrite = false
-    for (const tc of calls) {
-      if (isInFlightTool(tc)) inflight = true
-      if (isFileMutatingTool(tc) && tc.status === 'success') hasSuccessfulFileWrite = true
-    }
-    parts.push({
-      messageId: message.id,
-      index: i,
-      inflight,
-      toolCount: calls.length,
-      hasSuccessfulFileWrite
-    })
-  }
-  return parts
-}
-
-export function toolRoundSettleKey(parts: ToolRoundPart[]): string {
-  return parts
-    .map(part => (
-      part.inflight
-        ? `${part.messageId}:inflight`
-        : `${part.messageId}:settled:${part.toolCount}`
-    ))
-    .join('\0')
-}
-
-function parseSettleKey(settleKey: string): Map<string, string> {
-  const previous = new Map<string, string>()
-  if (!settleKey) return previous
-  for (const segment of settleKey.split('\0')) {
-    const split = segment.indexOf(':')
-    if (split < 0) continue
-    previous.set(segment.slice(0, split), segment.slice(split + 1))
-  }
-  return previous
-}
-
-/** Message indexes whose tool batch just settled and that batch wrote files. */
-export function newlySettledFileWriteIndexes(
-  previousSettleKey: string,
-  parts: ToolRoundPart[]
-): number[] {
-  const previous = parseSettleKey(previousSettleKey)
-  const indexes: number[] = []
-  for (const part of parts) {
-    if (part.inflight || !part.hasSuccessfulFileWrite) continue
-    const was = previous.get(part.messageId)
-    const now = `settled:${part.toolCount}`
-    if (was !== now) indexes.push(part.index)
-  }
-  return indexes
 }
 
 export type ActiveTurnFileCache = {
@@ -225,25 +158,28 @@ function keepPreviousSettle(
   return previous
 }
 
-/** Update the file list when a tool batch settles and that batch wrote files. */
+function mutatingToolsKey(toolCalls: ToolCall[]): string {
+  return toolCalls.map(tc => tc.id).join('\0')
+}
+
+/**
+ * Active turn: merge each successful file_edit / file_write as soon as it
+ * completes. Do not wait for later search/read tools on the same assistant
+ * message — those stay inflight for the whole ReAct loop.
+ */
 export function resolveActiveTurnFileChanges(
   list: ChatMessage[],
   turnId: string,
   start: number,
   previous: ActiveTurnFileCache | null
 ): ActiveTurnFileCache {
-  const parts = lastTurnToolRounds(list, start, list.length)
-  const settleKey = toolRoundSettleKey(parts)
+  const mutating = collectSuccessfulFileMutations(list, start, list.length)
+  const settleKey = mutatingToolsKey(mutating)
   if (previous && previous.turnId === turnId && previous.settleKey === settleKey) {
     return previous
   }
   if (previous && previous.turnId === turnId) {
-    const settledIndexes = newlySettledFileWriteIndexes(previous.settleKey, parts)
-    if (!settledIndexes.length) {
-      return keepPreviousSettle(previous, settleKey)
-    }
-    const incomingTools = collectSuccessfulFileMutationsFromIndexes(list, settledIndexes)
-      .filter(tc => !previous.mergedToolIds.has(tc.id))
+    const incomingTools = mutating.filter(tc => !previous.mergedToolIds.has(tc.id))
     if (!incomingTools.length) {
       return keepPreviousSettle(previous, settleKey)
     }
@@ -256,7 +192,6 @@ export function resolveActiveTurnFileChanges(
       mergedToolIds
     }
   }
-  const mutating = collectSuccessfulFileMutations(list, start, list.length)
   return {
     turnId,
     settleKey,
@@ -265,12 +200,26 @@ export function resolveActiveTurnFileChanges(
   }
 }
 
-function pushSuccessfulFileMutations(into: ToolCall[], calls: ToolCall[] | undefined): void {
+function pushSuccessfulFileMutations(
+  into: ToolCall[],
+  seen: Set<string>,
+  calls: ToolCall[] | undefined
+): void {
   if (!calls?.length) return
   for (const tc of calls) {
     if (!isFileMutatingTool(tc)) continue
     if (tc.status !== 'success') continue
+    if (seen.has(tc.id)) continue
+    seen.add(tc.id)
     into.push(tc)
+  }
+}
+
+function pushSuccessfulFileMutationsFromMessage(into: ToolCall[], seen: Set<string>, message: ChatMessage | undefined): void {
+  if (!message) return
+  pushSuccessfulFileMutations(into, seen, message.toolCalls)
+  for (const trace of message.agentTrace ?? []) {
+    pushSuccessfulFileMutations(into, seen, trace.session?.toolCalls)
   }
 }
 
@@ -280,19 +229,9 @@ function collectSuccessfulFileMutations(
   end: number
 ): ToolCall[] {
   const mutating: ToolCall[] = []
+  const seen = new Set<string>()
   for (let i = start; i < end; i++) {
-    pushSuccessfulFileMutations(mutating, list[i]?.toolCalls)
-  }
-  return mutating
-}
-
-function collectSuccessfulFileMutationsFromIndexes(
-  list: ChatMessage[],
-  indexes: number[]
-): ToolCall[] {
-  const mutating: ToolCall[] = []
-  for (const index of indexes) {
-    pushSuccessfulFileMutations(mutating, list[index]?.toolCalls)
+    pushSuccessfulFileMutationsFromMessage(mutating, seen, list[i])
   }
   return mutating
 }
@@ -330,7 +269,20 @@ function filesFromToolCalls(toolCalls: ToolCall[]): FileChangeSummary[] {
     })
   }
 
-  return sortFileChangeSummaries([...byPath.values()])
+  const files = sortFileChangeSummaries([...byPath.values()])
+  if (!files.length) {
+    console.warn('[turnFileChanges] successful file tools produced no path summaries', {
+      count: mutating.length,
+      tools: mutating.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        status: tc.status,
+        hasResult: Boolean(tc.result),
+        hasArguments: Boolean(tc.arguments?.trim())
+      }))
+    })
+  }
+  return files
 }
 
 export type FrozenFileChangesCache = {
@@ -415,7 +367,8 @@ export function fileChangesForTurn(
 
 /**
  * Latest user-anchored turn's successful file_edit / file_write paths.
- * Includes nested/scoped assistant tool calls that belong to the same lead turn.
+ * Includes nested/scoped assistant tool calls and agentTrace.session writes
+ * that belong to the same lead turn.
  * Only reads the last lead-turn slice (not earlier turns' tools).
  */
 export function lastTurnFileChanges(messages: ChatMessage[] | undefined | null): LastTurnFileChanges | null {

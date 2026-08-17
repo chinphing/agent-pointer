@@ -114,6 +114,134 @@ describe('lastTurnFileChanges', () => {
     ).toBeNull()
   })
 
+  it('keeps edits after an empty-reply retry inject on the original user turn', () => {
+    const result = lastTurnFileChanges([
+      msg({ id: 'u1', role: 'user', content: 'edit files' }),
+      msg({ id: 'a1', role: 'assistant', content: '' }),
+      msg({
+        id: 'fmt_retry_1',
+        role: 'user',
+        content: '你的上一次回复为空，请重新输出。'
+      }),
+      msg({
+        id: 'a2',
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          tc({
+            id: 'e1',
+            name: 'file_edit',
+            result: JSON.stringify({
+              path: '/ws/Composer.vue',
+              success: true,
+              replaced: 1,
+              stats: { adds: 2, dels: 0 }
+            })
+          })
+        ]
+      })
+    ])
+    expect(result?.turnId).toBe('u1')
+    expect(result?.files.map(f => f.path)).toEqual(['/ws/Composer.vue'])
+  })
+
+  it('includes file_edit on agentTrace.session while the parent run_subagent is still running', () => {
+    const result = lastTurnFileChanges([
+      msg({ id: 'u1', role: 'user', content: 'edit via m4' }),
+      msg({
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          tc({
+            id: 'run1',
+            name: 'run_subagent',
+            status: 'running',
+            arguments: JSON.stringify({ agent: 'explore' })
+          })
+        ],
+        agentTrace: [
+          {
+            id: 'task_a:explore',
+            name: 'm4',
+            role: 'explore',
+            status: 'running',
+            session: {
+              collapsed: true,
+              userExpanded: false,
+              stats: { searchCount: 2, readCount: 1 },
+              toolCalls: [
+                tc({
+                  id: 'e1',
+                  name: 'file_edit',
+                  result: JSON.stringify({
+                    path: '/ws/AttachmentChip.vue',
+                    success: true,
+                    replaced: 1,
+                    stats: { adds: 4, dels: 1 }
+                  })
+                })
+              ]
+            }
+          }
+        ]
+      })
+    ])
+    expect(result?.turnId).toBe('u1')
+    expect(result?.files.map(f => f.path)).toEqual(['/ws/AttachmentChip.vue'])
+  })
+
+  it('resolveActiveTurnFileChanges settles a nested session without waiting for run_subagent', () => {
+    const nestedEdit = tc({
+      id: 'e1',
+      name: 'file_edit',
+      status: 'running',
+      result: ''
+    })
+    const list = [
+      msg({ id: 'u1', role: 'user', content: 'go' }),
+      msg({
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          tc({
+            id: 'run1',
+            name: 'run_subagent',
+            status: 'running',
+            arguments: '{}'
+          })
+        ],
+        agentTrace: [
+          {
+            id: 'task_a:explore',
+            name: 'm4',
+            role: 'explore',
+            status: 'running',
+            session: {
+              collapsed: true,
+              userExpanded: false,
+              stats: { searchCount: 0, readCount: 0 },
+              toolCalls: [nestedEdit]
+            }
+          }
+        ]
+      })
+    ]
+    const inflight = resolveActiveTurnFileChanges(list, 'u1', 0, null)
+    expect(inflight.files).toEqual([])
+
+    nestedEdit.status = 'success'
+    nestedEdit.result = JSON.stringify({
+      path: '/ws/Composer.vue',
+      success: true,
+      replaced: 1,
+      stats: { adds: 2, dels: 0 }
+    })
+    const settled = resolveActiveTurnFileChanges(list, 'u1', 0, inflight)
+    expect(settled.files.map(f => f.path)).toEqual(['/ws/Composer.vue'])
+  })
+
   it('anchors to the lead user turn when a scoped sub-agent stub follows', () => {
     const result = lastTurnFileChanges([
       msg({ id: 'u1', role: 'user', content: 'edit via coder' }),
@@ -220,7 +348,7 @@ describe('lastTurnFileChanges', () => {
     expect(result).toBeNull()
   })
 
-  it('resolveActiveTurnFileChanges waits until the tool batch settles', () => {
+  it('resolveActiveTurnFileChanges merges a successful edit while later tools on the same message are still running', () => {
     const edit = tc({
       id: 'e1',
       name: 'file_edit',
@@ -247,15 +375,15 @@ describe('lastTurnFileChanges', () => {
       replaced: 1,
       stats: { adds: 2, dels: 1 }
     })
-    const stillWaiting = resolveActiveTurnFileChanges(list, 'u1', 0, inflight)
-    expect(stillWaiting).toBe(inflight)
-    expect(stillWaiting.files).toEqual([])
+    const afterEdit = resolveActiveTurnFileChanges(list, 'u1', 0, inflight)
+    expect(afterEdit.files.map(f => f.path)).toEqual(['/ws/a.ts'])
+    expect(grep.status).toBe('running')
 
     grep.status = 'success'
     grep.result = JSON.stringify({ matches: 3 })
-    const settled = resolveActiveTurnFileChanges(list, 'u1', 0, stillWaiting)
-    expect(settled).not.toBe(stillWaiting)
-    expect(settled.files.map(f => f.path)).toEqual(['/ws/a.ts'])
+    const afterGrep = resolveActiveTurnFileChanges(list, 'u1', 0, afterEdit)
+    expect(afterGrep).toBe(afterEdit)
+    expect(afterGrep.files).toBe(afterEdit.files)
   })
 
   it('resolveActiveTurnFileChanges keeps the same files array after a grep-only batch', () => {

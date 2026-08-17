@@ -28,6 +28,7 @@ type ChartHostState = {
   chart: ChartInstance | null
   boundConfig: string
   resizeObserver: ResizeObserver | null
+  pending: boolean
 }
 
 export type MarkdownChartsOptions = {
@@ -43,6 +44,87 @@ export function useMarkdownCharts(
 ) {
   const hosts = new Map<HTMLElement, ChartHostState>()
   const isStreaming = () => options.isStreaming?.() === true
+  let attachRaf = 0
+  let domObserver: MutationObserver | null = null
+
+  function hostIsLive(host: HTMLElement): boolean {
+    const root = rootRef.value
+    return !!root && host.isConnected && root.contains(host)
+  }
+
+  function measureChartBox(box: HTMLElement): { w: number; h: number } {
+    const rect = box.getBoundingClientRect()
+    const w = Math.max(0, Math.floor(box.clientWidth || rect.width))
+    const h = Math.max(0, Math.floor(box.clientHeight || rect.height || 360))
+    return { w, h }
+  }
+
+  function waitForChartBoxSize(
+    box: HTMLElement,
+    stillValid: () => boolean
+  ): Promise<{ w: number; h: number }> {
+    const first = measureChartBox(box)
+    if (first.w >= 8 && first.h >= 8) return Promise.resolve(first)
+
+    return new Promise(resolve => {
+      let settled = false
+      let ro: ResizeObserver | null = null
+      const finish = (reason: string) => {
+        if (settled) return
+        settled = true
+        try {
+          ro?.disconnect()
+        } catch (err) {
+          console.warn('[markdownCharts] size observer disconnect failed', err)
+        }
+        const m = measureChartBox(box)
+        console.info('[markdownCharts] chart box sized', reason, m)
+        resolve(m)
+      }
+
+      if (typeof ResizeObserver !== 'undefined') {
+        ro = new ResizeObserver(() => {
+          if (!stillValid()) {
+            finish('invalid')
+            return
+          }
+          const m = measureChartBox(box)
+          if (m.w >= 8 && m.h >= 8) finish('resize')
+        })
+        try {
+          ro.observe(box)
+        } catch (err) {
+          console.warn('[markdownCharts] size observe failed', err)
+        }
+      }
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!stillValid()) {
+            finish('invalid')
+            return
+          }
+          const m = measureChartBox(box)
+          if (m.w >= 8 && m.h >= 8) {
+            finish('raf')
+            return
+          }
+          window.setTimeout(() => {
+            if (!stillValid()) {
+              finish('invalid')
+              return
+            }
+            const later = measureChartBox(box)
+            if (later.w >= 8 && later.h >= 8) finish('timeout-ok')
+            else {
+              console.warn('[markdownCharts] chart box still unlaid-out', later)
+              finish('timeout-small')
+            }
+          }, 250)
+        })
+      })
+    })
+  }
 
   function destroyHost(host: HTMLElement) {
     const state = hosts.get(host)
@@ -367,12 +449,27 @@ export function useMarkdownCharts(
       setToolbarVisible(host, true)
       return
     }
+    // Chart.js is a lazy chunk — a second attach during import must not wipe the canvas.
+    if (prev?.boundConfig === encoded && prev.pending) {
+      return
+    }
+    // 0-size box: ResizeObserver will schedule attach; do not rebuild the host.
+    if (prev?.boundConfig === encoded && !prev.chart && prev.resizeObserver) {
+      return
+    }
 
     if (prev?.chart) {
       try {
         prev.chart.destroy()
       } catch (err) {
         console.warn('[markdownCharts] rebuild destroy failed', err)
+      }
+    }
+    if (prev?.resizeObserver) {
+      try {
+        prev.resizeObserver.disconnect()
+      } catch (err) {
+        console.warn('[markdownCharts] rebuild observer disconnect failed', err)
       }
     }
 
@@ -397,65 +494,64 @@ export function useMarkdownCharts(
       openDiagramZoom(canvas)
     })
     wrap.appendChild(box)
+    hosts.set(host, { chart: null, boundConfig: encoded, resizeObserver: null, pending: true })
+
+    const stillValid = () =>
+      hostIsLive(host) &&
+      host.getAttribute('data-chart-config') === encoded &&
+      hosts.get(host)?.pending === true &&
+      hosts.get(host)?.boundConfig === encoded
 
     try {
       const Chart = await loadChartCtor()
-      // Host may have been torn down / reconfigured while Chart.js was loading.
-      if (hosts.get(host)?.boundConfig === encoded && hosts.get(host)?.chart) return
-      if (host.getAttribute('data-chart-config') !== encoded) return
+      if (!stillValid()) {
+        if (!hostIsLive(host) || host.getAttribute('data-chart-config') !== encoded) {
+          console.warn('[markdownCharts] host replaced while Chart.js loaded; retry attach')
+          scheduleAttach()
+        }
+        return
+      }
 
       const themed = applyChartTheme(parsed.config)
-      // Size the canvas from the laid-out box before Chart.js reads it (WKWebView).
-      let w = Math.max(0, Math.floor(box.clientWidth || box.getBoundingClientRect().width))
-      let h = Math.max(0, Math.floor(box.clientHeight || 360))
-      // First paint inside a not-yet-laid-out host → 0×0 canvas looks blank.
-      // Wait one frame (and ResizeObserver) before constructing Chart.js.
-      if (w < 8 || h < 8) {
-        await new Promise<void>(resolve => {
-          let settled = false
-          const done = () => {
-            if (settled) return
-            settled = true
-            resolve()
-          }
-          const ro =
-            typeof ResizeObserver !== 'undefined'
-              ? new ResizeObserver(() => {
-                  const nw = Math.floor(box.clientWidth || 0)
-                  const nh = Math.floor(box.clientHeight || 0)
-                  if (nw >= 8 && nh >= 8) {
-                    ro?.disconnect()
-                    done()
-                  }
-                })
-              : null
-          ro?.observe(box)
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              const nw = Math.floor(box.clientWidth || 0)
-              const nh = Math.floor(box.clientHeight || 0)
-              if (nw >= 8 && nh >= 8) {
-                ro?.disconnect()
-                done()
-              } else {
-                // Give layout a bit longer; still proceed so we never hang forever.
-                window.setTimeout(() => {
-                  ro?.disconnect()
-                  done()
-                }, 120)
-              }
-            })
-          })
-        })
-        if (host.getAttribute('data-chart-config') !== encoded) return
-        w = Math.max(1, Math.floor(box.clientWidth || box.getBoundingClientRect().width))
-        h = Math.max(1, Math.floor(box.clientHeight || 360))
-      } else {
-        w = Math.max(1, w)
-        h = Math.max(1, h)
+      const size = await waitForChartBoxSize(box, stillValid)
+      if (!stillValid()) {
+        if (!hostIsLive(host) || host.getAttribute('data-chart-config') !== encoded) {
+          console.warn('[markdownCharts] host replaced while waiting for layout; retry attach')
+          scheduleAttach()
+        }
+        return
       }
-      canvas.style.width = `${w}px`
-      canvas.style.height = `${h}px`
+      if (size.w < 8 || size.h < 8) {
+        console.warn('[markdownCharts] skip Chart.js on 0-size box; wait for layout', size)
+        const layoutObserver =
+          typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => {
+                const next = measureChartBox(box)
+                if (next.w < 8 || next.h < 8) return
+                try {
+                  layoutObserver?.disconnect()
+                } catch (err) {
+                  console.warn('[markdownCharts] layout observer disconnect failed', err)
+                }
+                const state = hosts.get(host)
+                if (state) {
+                  state.pending = false
+                  state.resizeObserver = null
+                }
+                console.info('[markdownCharts] chart box became visible; remount')
+                scheduleAttach()
+              })
+            : null
+        layoutObserver?.observe(box)
+        hosts.set(host, {
+          chart: null,
+          boundConfig: encoded,
+          resizeObserver: layoutObserver,
+          pending: false,
+        })
+        return
+      }
+
       const chart = new Chart(canvas, themed as never)
       const resizeObserver =
         typeof ResizeObserver !== 'undefined'
@@ -468,10 +564,11 @@ export function useMarkdownCharts(
             })
           : null
       resizeObserver?.observe(box)
-      hosts.set(host, { chart, boundConfig: encoded, resizeObserver })
+      hosts.set(host, { chart, boundConfig: encoded, resizeObserver, pending: false })
       host.dataset.chartBound = encoded
       const finish = () => {
         try {
+          if (!hostIsLive(host)) return
           chart.resize()
           if (chartPixelsLookSquashed(chart)) {
             console.warn('[markdownCharts] squashed series on WKWebView; repairing scale')
@@ -496,6 +593,8 @@ export function useMarkdownCharts(
       )
     } catch (err) {
       console.error('[markdownCharts] Chart.js failed', err)
+      const state = hosts.get(host)
+      if (state) state.pending = false
       showStatus(host, '图表渲染失败', 'error')
     }
   }
@@ -509,9 +608,47 @@ export function useMarkdownCharts(
     })
   }
 
+  function scheduleAttach() {
+    if (attachRaf) return
+    attachRaf = window.requestAnimationFrame(() => {
+      attachRaf = 0
+      attach()
+    })
+  }
+
+  function bindDomObserver(root: HTMLElement | null) {
+    if (domObserver) {
+      try {
+        domObserver.disconnect()
+      } catch (err) {
+        console.warn('[markdownCharts] dom observer disconnect failed', err)
+      }
+      domObserver = null
+    }
+    if (!root || typeof MutationObserver === 'undefined') return
+    // v-html / virtual-list patches replace .md-chart hosts without changing
+    // markdown source — remount so Chart.js is not left on a detached canvas.
+    domObserver = new MutationObserver(() => {
+      scheduleAttach()
+    })
+    try {
+      domObserver.observe(root, { childList: true, subtree: true })
+    } catch (err) {
+      console.warn('[markdownCharts] dom observe failed', err)
+    }
+  }
+
   onMounted(() => {
     nextTick(attach)
   })
+
+  watch(
+    rootRef,
+    el => {
+      bindDomObserver(el)
+      nextTick(attach)
+    }
+  )
 
   watch(getTickSource, () => {
     nextTick(attach)
@@ -526,6 +663,11 @@ export function useMarkdownCharts(
   )
 
   onBeforeUnmount(() => {
+    if (attachRaf) {
+      window.cancelAnimationFrame(attachRaf)
+      attachRaf = 0
+    }
+    bindDomObserver(null)
     for (const host of [...hosts.keys()]) destroyHost(host)
   })
 }

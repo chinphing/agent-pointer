@@ -173,17 +173,17 @@ const showThoughtsPanel = computed(() => {
   return props.thoughtsDebugEnabled === true
 })
 
-useMarkdownCodeCopy(bodyRef, () => markdownSource.value)
-useMarkdownCharts(bodyRef, () => markdownSource.value, {
+useMarkdownCodeCopy(bodyRef, () => html.value)
+useMarkdownCharts(bodyRef, () => html.value, {
   isStreaming: () => isContentStreaming.value,
 })
-useMarkdownSvgs(bodyRef, () => markdownSource.value, {
+useMarkdownSvgs(bodyRef, () => html.value, {
   isStreaming: () => isContentStreaming.value,
 })
-useMarkdownMermaid(bodyRef, () => markdownSource.value, {
+useMarkdownMermaid(bodyRef, () => html.value, {
   isStreaming: () => isContentStreaming.value,
 })
-useMarkdownExternalLinks(bodyRef, () => markdownSource.value)
+useMarkdownExternalLinks(bodyRef, () => html.value)
 
 const tools = computed(() => {
   if (!props.messageUi.showToolCalls) return []

@@ -18,11 +18,11 @@ const summaryBody = computed(() => compressionSummaryBody(props.message.content)
 
 const html = computed(() => parseMarkdown(summaryBody.value))
 
-useMarkdownCodeCopy(bodyRef, () => summaryBody.value)
-useMarkdownCharts(bodyRef, () => summaryBody.value)
-useMarkdownSvgs(bodyRef, () => summaryBody.value)
-useMarkdownMermaid(bodyRef, () => summaryBody.value)
-useMarkdownExternalLinks(bodyRef, () => summaryBody.value)
+useMarkdownCodeCopy(bodyRef, () => html.value)
+useMarkdownCharts(bodyRef, () => html.value)
+useMarkdownSvgs(bodyRef, () => html.value)
+useMarkdownMermaid(bodyRef, () => html.value)
+useMarkdownExternalLinks(bodyRef, () => html.value)
 </script>
 
 <template>

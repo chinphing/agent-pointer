@@ -41,11 +41,11 @@ const {
   onRevealInFinder
 } = useChatAttachmentDisplay(attachments)
 
-useMarkdownCodeCopy(bodyRef, () => props.message.content)
-useMarkdownCharts(bodyRef, () => props.message.content)
-useMarkdownSvgs(bodyRef, () => props.message.content)
-useMarkdownMermaid(bodyRef, () => props.message.content)
-useMarkdownExternalLinks(bodyRef, () => props.message.content)
+useMarkdownCodeCopy(bodyRef, () => html.value)
+useMarkdownCharts(bodyRef, () => html.value)
+useMarkdownSvgs(bodyRef, () => html.value)
+useMarkdownMermaid(bodyRef, () => html.value)
+useMarkdownExternalLinks(bodyRef, () => html.value)
 
 async function onOpenAttachment(att: RenderableAttachment) {
   try {

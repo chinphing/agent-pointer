@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FileText, Image as ImageIcon, Mic, Video, X } from 'lucide-vue-next'
 import type { ComposerAttachment } from '../../types/chat'
 import { getComposerAttachmentPreviewUrl } from '../../lib/attachmentPayloadStore'
@@ -16,24 +16,48 @@ defineEmits<{
 }>()
 
 const resolvedPreview = ref<string | null>(getComposerAttachmentPreviewUrl(props.attachment))
+/** Blob URL created by this chip (web video stream preview); revoked on replace/unmount. */
+let ownedPreviewUrl: string | null = null
+/** Monotonic guard: stale in-flight previews must not clobber newer state. */
+let previewSeq = 0
+
+function revokeOwnedPreview() {
+  if (ownedPreviewUrl) {
+    URL.revokeObjectURL(ownedPreviewUrl)
+    ownedPreviewUrl = null
+  }
+}
 
 async function refreshVideoPreview() {
   const att = props.attachment
   if (att.kind !== 'video') return
   if (resolvedPreview.value) return
+  const seq = ++previewSeq
   const url =
     (await resolveVideoPreviewUrl(att)) ??
     (att.localSourcePath ? await videoPreviewUrlFromLocalPath(att.localSourcePath) : null)
-  if (url) resolvedPreview.value = url
+  if (seq !== previewSeq) {
+    // A newer request (or a watch reset) superseded this one; drop its stale result.
+    if (url?.startsWith('blob:')) URL.revokeObjectURL(url)
+    return
+  }
+  if (!url) return
+  if (ownedPreviewUrl && ownedPreviewUrl !== url) revokeOwnedPreview()
+  if (url.startsWith('blob:')) ownedPreviewUrl = url
+  resolvedPreview.value = url
 }
 
 onMounted(() => {
   void refreshVideoPreview()
 })
 
+onBeforeUnmount(revokeOwnedPreview)
+
 watch(
   () => [props.attachment.storageRelPath, props.attachment.previewUrl, props.attachment.localSourcePath],
   () => {
+    revokeOwnedPreview()
+    previewSeq++ // invalidate any in-flight refresh before resetting the preview
     resolvedPreview.value = getComposerAttachmentPreviewUrl(props.attachment)
     void refreshVideoPreview()
   }

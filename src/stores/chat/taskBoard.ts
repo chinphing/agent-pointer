@@ -220,6 +220,8 @@ export interface TaskBoardManager {
     taskId?: string,
     anchorMessageId?: string
   ): Promise<void>
+  /** Drop cached board state for a conversation (eviction / deletion). */
+  clearConversation(convId: string): void
   activeParentBoardDocument(
     convId: string | null,
     messageId?: string | null
@@ -418,6 +420,21 @@ export function createTaskBoardManager(deps: {
     )
   }
 
+  function clearConversation(convId: string) {
+    const key = convId.trim()
+    if (!key) return
+    for (const timerKey of [...debounceTimers.keys()]) {
+      if (timerKey.startsWith(`${key}\u{0}|`)) {
+        const t = debounceTimers.get(timerKey)
+        if (t != null) window.clearTimeout(t)
+        debounceTimers.delete(timerKey)
+      }
+    }
+    if (deps.taskBoards.value[key]) {
+      delete deps.taskBoards.value[key]
+    }
+  }
+
   async function refreshTaskBoard(
     conversationId: string,
     taskId?: string,
@@ -530,6 +547,7 @@ export function createTaskBoardManager(deps: {
     applyTaskBoardDocument,
     applyTaskBoardDocumentDebounced,
     refreshTaskBoard,
+    clearConversation,
     activeParentBoardDocument,
     activeParentBoardBinding,
     compactTaskBoardDocument,

@@ -41,6 +41,7 @@ import { withRetries } from '../lib/retry'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
+import { isPersistableAttachmentPreviewUrl } from '../lib/attachmentSupport'
 import {
   clearLastConversationId,
   readLastConversationId,
@@ -534,6 +535,8 @@ export const useChatStore = defineStore('chat', () => {
     delete nextPages[id]
     messagePageByConv.value = nextPages
     lastAccessed.delete(id)
+    messageViewedAtByConv.delete(id)
+    taskBoardMgr.clearConversation(id)
   }
 
   /** Evict all conversations idle longer than `IDLE_EVICTION_MINUTES`. Called on each conversation switch. */
@@ -2348,6 +2351,8 @@ export const useChatStore = defineStore('chat', () => {
     runByConversation.value = nextRuns
     clearOutboundQueue(id)
     clearRunState(id)
+    messageViewedAtByConv.delete(id)
+    taskBoardMgr.clearConversation(id)
     // Explicitly delete the row + its messages + sandbox. persistMeta() is a
     // pure upsert now (paginated subset), so it can no longer delete for us.
     await deleteConversationApi(id).catch(err =>
@@ -2627,6 +2632,10 @@ export const useChatStore = defineStore('chat', () => {
   function clearActiveComposer() {
     composerDraftHydrating.value = true
     composerText.value = ''
+    // Web video stream previews are blob URLs; release them once the draft is gone.
+    for (const att of composerAttachments.value) {
+      if (att.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(att.previewUrl)
+    }
     composerAttachments.value = []
     if (currentId.value) {
       const next = { ...composerDraftByConvId.value }
@@ -2851,14 +2860,12 @@ export const useChatStore = defineStore('chat', () => {
     for (const a of attachments) {
       const isOssVideo = a.kind === 'video' && !!a.remoteUrl?.trim()
       const contentBase64 = isOssVideo ? undefined : getComposerAttachmentContentBase64(a) ?? undefined
+      // data: preview URLs are UI-only (base64 in memory + disk); keep http(s) only.
+      // Bubble previews fall back to the lazy previewChatMedia path via storageRelPath.
       const previewRaw = getComposerAttachmentDataUrl(a) ?? a.previewUrl
-      const previewUrl =
-        previewRaw &&
-        (previewRaw.startsWith('data:') ||
-          previewRaw.startsWith('http://') ||
-          previewRaw.startsWith('https://'))
-          ? previewRaw
-          : undefined
+      const previewUrl = isPersistableAttachmentPreviewUrl(previewRaw)
+        ? previewRaw!.trim()
+        : undefined
       let storageRelPath = a.storageRelPath?.trim() || undefined
       // Composer should already persist on add; keep a last-chance save for older drafts.
       if (!isOssVideo && !storageRelPath) {

@@ -1047,6 +1047,8 @@ async function setupTauriComposerDragDrop() {
 function removePendingAttachment(id: string) {
   abortAttachmentUpload(id)
   videoCompressByAttachmentId.delete(id)
+  const row = composerAttachments.value.find(a => a.id === id)
+  if (row?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(row.previewUrl)
   composerAttachments.value = composerAttachments.value.filter(a => a.id !== id)
   releaseComposerAttachment(id)
 }

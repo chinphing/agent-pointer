@@ -9,6 +9,12 @@ export function isUsableAttachmentPreviewUrl(url: string | undefined | null): bo
   return u.startsWith('data:') || u.startsWith('http://') || u.startsWith('https://')
 }
 
+/** Only http(s) preview URLs are safe to persist; data: URLs are stripped before disk. */
+export function isPersistableAttachmentPreviewUrl(url: string | undefined | null): boolean {
+  const u = url?.trim()
+  return !!u && (u.startsWith('http://') || u.startsWith('https://'))
+}
+
 /** Align with host `COMPOSER_VIDEO_ADVISORY_BYTES` — compress via code after user confirms. */
 export const COMPOSER_VIDEO_ADVISORY_BYTES = 500 * 1024 * 1024
 

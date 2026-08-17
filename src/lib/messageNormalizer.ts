@@ -1,4 +1,4 @@
-import { isUsableAttachmentPreviewUrl } from './attachmentSupport'
+import { isPersistableAttachmentPreviewUrl, isUsableAttachmentPreviewUrl } from './attachmentSupport'
 import type { ChatMessage, MediaAttachment, MediaAttachmentKind } from '../types/chat'
 import { getComposerAttachmentPreviewUrl } from './attachmentPayloadStore'
 import type { ComposerAttachment } from '../types/chat'
@@ -209,7 +209,8 @@ export function stripWireAttachmentFields(messages: ChatMessage[]): ChatMessage[
         return {
           ...rest,
           ...(keepBase64 ? { contentBase64: contentBase64!.trim() } : {}),
-          ...(isUsableAttachmentPreviewUrl(previewUrl) ? { previewUrl: previewUrl!.trim() } : {})
+          // data: URLs are UI-only (base64 in memory + disk); only http(s) survive persist.
+          ...(isPersistableAttachmentPreviewUrl(previewUrl) ? { previewUrl: previewUrl!.trim() } : {})
         }
       })
     }

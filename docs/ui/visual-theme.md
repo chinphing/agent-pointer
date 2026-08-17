@@ -15,6 +15,11 @@ CSS variables in `src/styles/globals.css`:
 Surfaces are **neutral gray** (Codex / Apple grouped). Hue stays near 240 with
 near-zero saturation. Dark canvas is charcoal, not blue-black.
 
+**Shell:** the conversation column (`.chat-main`, top bar, composer footer)
+uses `--card` (light = white). The left sidebar uses `--background` so it
+sits one step quieter than the transcript. Do not invert this (white
+sidebar + gray chat).
+
 New UI must use these tokens (or Tailwind aliases `bg-background`, `text-muted`,
 `border-border`, `bg-accent`, …). Do **not** add `slate-*` / `zinc-*` / hardcoded
 hex / `bg-black/*` scrims in product UI. Diff views (`DiffView` and related) are
@@ -34,8 +39,7 @@ on accent fills). Selected rows: `bg-hover` / `bg-foreground/10`, not
 
 Composer toolbar icons (clip, agent, mode), the chat top-bar project
 folder, and the workspace panel header folder use `text-muted`, not
-accent. Send / stop stay semantic (`bg-accent` / `text-danger`).
-Workspace-needed warning on the folder may still use `--warning`.
+accent or `--warning`. Send / stop stay semantic (`bg-accent` / `text-danger`).
 
 ## Chat column width
 
@@ -67,6 +71,7 @@ from available width while the workspace panel is open.
 - `.brand-text` — title text (`text-foreground`)
 - Markdown GFM / HTML tables (`.md-body .table-wrapper`): rounded outer border; `th`/`td` theme cells (works without `<thead>`/`<tbody>`); honor GFM align + HTML column `width` / status colors; see [markdown-media-boundaries.md](markdown-media-boundaries.md), `markdownConfig.ts` / `globals.css`
 - Markdown fenced code (`.md-body .code-block`): same rounded outer border; whole block uses `--card` (same white fill as table body); copy button stays top-right and appears on hover (same as before); see `markdownConfig.ts` / `useMarkdownCodeCopy`
+- Markdown inline code (`.md-body code`): accent text only, **no** `--code-bg` chip / padding
 - Markdown charts (`.md-body .md-chart`): same card chrome; Chart.js from `chartjs`/`chart` JSON fences; theme axis/legend colors from CSS variables; see [markdown-charts.md](markdown-charts.md)
 - Markdown SVG diagrams (`.md-body .md-svg`): same card chrome; sanitized `svg` fences; see [markdown-svg.md](markdown-svg.md)
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`

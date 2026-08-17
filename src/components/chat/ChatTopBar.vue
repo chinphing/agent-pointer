@@ -80,11 +80,6 @@ const workspaceLabel = computed(() =>
     : '选择项目'
 )
 
-const workspaceNeedsAttention = computed(() => {
-  const p = chat.current?.workspaceRoot?.trim() ?? ''
-  return !p || isEphemeralWorkspacePath(p)
-})
-
 function selectProject(projectId: string) {
   if (projectLocked.value) return
   const currentProjectId = chat.current?.projectId ?? chat.current?.pendingProjectId
@@ -205,7 +200,7 @@ onUnmounted(() => {
 <template>
   <WindowDragRegion
     region="main-top-chrome"
-    class="chat-topbar flex h-10 shrink-0 items-center gap-1.5 bg-background px-4"
+    class="chat-topbar flex h-10 shrink-0 items-center gap-1.5 bg-card px-4"
   >
     <div
       v-if="collapsed"
@@ -239,10 +234,7 @@ onUnmounted(() => {
           ref="projectPickerButtonRef"
           type="button"
           class="composer-agent-trigger chat-topbar-project-btn max-w-[240px]"
-          :class="[
-            projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-            workspaceNeedsAttention ? 'is-warning' : ''
-          ]"
+          :class="projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
           :title="projectLocked ? '项目已锁定' : workspaceTooltip"
           :disabled="projectLocked"
           @click="projectPickerOpen = !projectPickerOpen"
@@ -328,9 +320,5 @@ onUnmounted(() => {
 <style scoped>
 .composer-project-dropdown {
   width: min(200px, calc(100vw - 2rem));
-}
-
-.chat-topbar-project-btn.is-warning :deep(svg) {
-  color: hsl(var(--warning));
 }
 </style>

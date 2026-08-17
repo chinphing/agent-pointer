@@ -392,8 +392,8 @@
 .md-body p { @apply my-3; }
 .md-body h1, .md-body h2, .md-body h3 { @apply font-semibold mt-4 mb-2; }
 .md-body code:not(pre code) {
-  @apply px-1.5 py-0.5 rounded text-[13px];
-  background: hsl(var(--code-bg));
+  @apply text-[13px];
+  background: transparent;
   color: hsl(var(--accent));
   overflow-wrap: anywhere;
 }

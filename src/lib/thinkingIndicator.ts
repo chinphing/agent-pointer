@@ -10,8 +10,31 @@ export interface ThinkingStreamBody {
   toolCalls?: ToolCall[]
 }
 
+/** First-tier: each of the first 10 dots covers this many streamed chars. */
 export const CHARS_PER_THINKING_DOT = 100
+/** After every this many dots, chars-per-dot doubles. */
+export const THINKING_DOTS_PER_TIER = 10
 export const MAX_THINKING_DOTS = 48
+/** Trailing dots that keep waving after the count hits the cap. */
+export const THINKING_LIVE_DOT_COUNT = 3
+
+/** Cumulative streamed chars covered by `dotCount` dots (capped at max). */
+export function charsCoveredByThinkingDots(dotCount: number): number {
+  const dots = Math.max(0, Math.min(MAX_THINKING_DOTS, Math.floor(dotCount)))
+  let remaining = dots
+  let perDot = CHARS_PER_THINKING_DOT
+  let total = 0
+  while (remaining > 0) {
+    const inTier = Math.min(THINKING_DOTS_PER_TIER, remaining)
+    total += inTier * perDot
+    remaining -= inTier
+    perDot *= 2
+  }
+  return total
+}
+
+/** 48 dots: 10×100 + 10×200 + 10×400 + 10×800 + 8×1600 = 27800. */
+export const MAX_THINKING_DOT_CHARS = charsCoveredByThinkingDots(MAX_THINKING_DOTS)
 
 export function streamedCharCountFromBody(body: ThinkingStreamBody): number {
   const c = body.content?.length ?? 0
@@ -36,8 +59,31 @@ export function streamedCharCountFromMessage(message: ChatMessage): number {
 
 export function thinkingDotCount(streamedCharCount: number): number {
   const n = streamedCharCount
-  const segments = n <= 0 ? 1 : Math.ceil(n / CHARS_PER_THINKING_DOT)
-  return Math.min(MAX_THINKING_DOTS, segments)
+  if (n <= 0) return 1
+  if (n > MAX_THINKING_DOT_CHARS) return MAX_THINKING_DOTS
+
+  let remaining = n
+  let perDot = CHARS_PER_THINKING_DOT
+  let dots = 0
+  while (dots < MAX_THINKING_DOTS && remaining > 0) {
+    const tierCap = Math.min(THINKING_DOTS_PER_TIER, MAX_THINKING_DOTS - dots)
+    const need = Math.min(tierCap, Math.ceil(remaining / perDot))
+    dots += need
+    remaining -= need * perDot
+    perDot *= 2
+  }
+  return dots
+}
+
+export function thinkingDotsAtCap(streamedCharCount: number): boolean {
+  return thinkingDotCount(streamedCharCount) >= MAX_THINKING_DOTS
+}
+
+/** Dots that stay still; live trailing dots are rendered separately when capped. */
+export function thinkingSteadyDotCount(streamedCharCount: number): number {
+  const dots = thinkingDotCount(streamedCharCount)
+  if (dots >= MAX_THINKING_DOTS) return MAX_THINKING_DOTS - THINKING_LIVE_DOT_COUNT
+  return dots
 }
 
 export function thinkingLabel(streamedCharCount: number): string {

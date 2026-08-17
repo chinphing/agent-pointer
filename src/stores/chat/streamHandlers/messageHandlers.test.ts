@@ -222,5 +222,63 @@ describe('messageHandlers', () => {
       })
       expect(conv.messages[0].rawContent).toBe('done\n\nMEDIA:/tmp/x.png')
     })
+
+    it('handleRawContentDelta skips legacy session capture while disabled', () => {
+      const conv = sampleConversation()
+      conv.messages.push(sampleAssistantMessage('a1'))
+      const ctx = createMockStreamHandlerContext([conv], {
+        rawContentCaptureEnabled: () => false
+      })
+      handleRawContentDelta(ctx, {
+        kind: 'raw_content_delta',
+        messageId: 'a1',
+        text: 'sub-part',
+        traceId: 'trace-1'
+      })
+      expect(conv.messages[0].agentTrace?.[0]?.session?.rawContent).toBeUndefined()
+    })
+
+    it('handleRawContentDelta captures legacy session while enabled', () => {
+      const conv = sampleConversation()
+      conv.messages.push(sampleAssistantMessage('a1'))
+      const ctx = createMockStreamHandlerContext([conv], {
+        rawContentCaptureEnabled: () => true
+      })
+      handleRawContentDelta(ctx, {
+        kind: 'raw_content_delta',
+        messageId: 'a1',
+        text: 'sub-part',
+        traceId: 'trace-1'
+      })
+      expect(conv.messages[0].agentTrace?.[0]?.session?.rawContent).toBe('sub-part')
+    })
+
+    it('handleMessageEnd skips scoped sub-message rawContent while disabled', () => {
+      const conv = sampleConversation()
+      conv.messages.push({
+        ...sampleAssistantMessage('a1'),
+        content: 'delegating…',
+        contentStreaming: false,
+        toolCalls: [{ id: 'rs1', name: 'run_subagent', status: 'running', arguments: '{}' }]
+      })
+      conv.messages.push({
+        ...sampleAssistantMessage('sub-round-1'),
+        content: 'sub done',
+        contentStreaming: true
+      })
+      const ctx = createMockStreamHandlerContext([conv], {
+        isConversationGenerating: () => true,
+        rawContentCaptureEnabled: () => false
+      })
+      handleMessageEnd(ctx, {
+        kind: 'message_end',
+        messageId: 'a1',
+        scopedMessageId: 'sub-round-1',
+        traceId: 'trace-1',
+        content: 'sub done',
+        rawContent: 'sub done\n\nMEDIA:/tmp/y.png'
+      })
+      expect(conv.messages.find(m => m.id === 'sub-round-1')?.rawContent).toBeUndefined()
+    })
   })
 })

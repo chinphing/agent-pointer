@@ -31,8 +31,11 @@ function isDispatchableMessage(m: ChatMessage): boolean {
 
 /** rawContent is UI-only debug data — never ship it to the backend (wire / DB). */
 function cloneWithoutRawContent(m: ChatMessage): ChatMessage {
-  const clone = JSON.parse(JSON.stringify(m)) as ChatMessage
-  delete clone.rawContent
+  // The replacer omits rawContent at every nesting level (top-level,
+  // agentTrace[].session, scoped rows) and never serializes the debug payload.
+  const clone = JSON.parse(
+    JSON.stringify(m, (key, value) => (key === 'rawContent' ? undefined : value))
+  ) as ChatMessage
   return clone
 }
 

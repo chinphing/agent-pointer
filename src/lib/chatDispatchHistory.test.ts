@@ -157,4 +157,39 @@ describe('rawContent wire stripping', () => {
     expect(out[0].rawContent).toBeUndefined()
     expect(out[0].reasoning).toBe('thinking…')
   })
+
+  it('strips nested agentTrace session rawContent too', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'delegating',
+        status: 'done',
+        createdAt: 1,
+        toolCalls: [],
+        rawContent: 'delegating\n\nMEDIA:/tmp/x.png',
+        agentTrace: [
+          {
+            id: 'trace-1',
+            name: 'coder',
+            role: 'worker',
+            status: 'done',
+            session: {
+              rawContent: 'sub raw wire',
+              reasoning: 'sub thinking',
+              stats: { searchCount: 0, readCount: 0 },
+              collapsed: false,
+              userExpanded: false
+            }
+          }
+        ]
+      }
+    ]
+    const out = messagesForPersistAppend(messages)
+    expect(out[0].rawContent).toBeUndefined()
+    expect(out[0].agentTrace?.[0]?.session?.rawContent).toBeUndefined()
+    // non-debug session fields survive
+    expect(out[0].agentTrace?.[0]?.session?.reasoning).toBe('sub thinking')
+    expect(out[0].agentTrace?.[0]?.name).toBe('coder')
+  })
 })

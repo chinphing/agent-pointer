@@ -5,7 +5,7 @@
 CSS variables in `src/styles/globals.css`:
 
 - `--background`, `--foreground`, `--card`, `--card-elevated`, `--border`
-- `--accent`, `--accent-muted`, `--accent-foreground`, `--hover`, `--composer-bg`, `--code-bg`
+- `--accent`, `--accent-muted`, `--accent-foreground`, `--hover`, `--composer-bg`, `--code-bg`, `--fence-bg`
   (`--composer-bg` fills `.composer-shell`; light = white, not `--card-elevated`)
 - Semantic: `--success`, `--danger`, `--warning`, `--info`
 - Search hit: `--search-mark`
@@ -15,10 +15,14 @@ CSS variables in `src/styles/globals.css`:
 Surfaces are **neutral gray** (Codex / Apple grouped). Hue stays near 240 with
 near-zero saturation. Dark canvas is charcoal, not blue-black.
 
-**Shell:** the conversation column (`.chat-main`, top bar, composer footer)
-uses `--card` (light = white). The left sidebar uses `--background` so it
-sits one step quieter than the transcript. Do not invert this (white
-sidebar + gray chat).
+**Shell:** `--shell-chat` / `--shell-sidebar` (classes `.shell-chat` /
+`.shell-sidebar`). Light: conversation column white, sidebar one step
+quieter. Dark: conversation column **darker** than the sidebar (do not
+keep a light chat pane on a darker rail). Sticky overlays in the
+conversation column (e.g. the active task board) use opaque
+`.shell-chat` so scrolling content does not show through — not
+`bg-background/95` or `backdrop-blur` (those composite darker than the
+canvas).
 
 New UI must use these tokens (or Tailwind aliases `bg-background`, `text-muted`,
 `border-border`, `bg-accent`, …). Do **not** add `slate-*` / `zinc-*` / hardcoded
@@ -70,7 +74,7 @@ from available width while the workspace panel is open.
 - `.panel-elevated` — slightly raised surface
 - `.brand-text` — title text (`text-foreground`)
 - Markdown GFM / HTML tables (`.md-body .table-wrapper`): rounded outer border; `th`/`td` theme cells (works without `<thead>`/`<tbody>`); honor GFM align + HTML column `width` / status colors; see [markdown-media-boundaries.md](markdown-media-boundaries.md), `markdownConfig.ts` / `globals.css`
-- Markdown fenced code (`.md-body .code-block`): same rounded outer border; whole block uses `--card` (same white fill as table body); copy button stays top-right and appears on hover (same as before); see `markdownConfig.ts` / `useMarkdownCodeCopy`
+- Markdown fenced code (`.md-body .code-block`): `--fence-bg` vs the chat canvas — light: gray well on white; dark: keep the previous `--card` fill (`240 4% 11%`). Copy button stays top-right on hover; see `markdownConfig.ts` / `useMarkdownCodeCopy`
 - Markdown inline code (`.md-body code`): accent text only, **no** `--code-bg` chip / padding
 - Markdown charts (`.md-body .md-chart`): same card chrome; Chart.js from `chartjs`/`chart` JSON fences; theme axis/legend colors from CSS variables; see [markdown-charts.md](markdown-charts.md)
 - Markdown SVG diagrams (`.md-body .md-svg`): same card chrome; sanitized `svg` fences; see [markdown-svg.md](markdown-svg.md)

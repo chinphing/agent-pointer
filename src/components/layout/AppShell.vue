@@ -760,7 +760,7 @@ watch(searchQuery, q => {
   <div class="h-full w-full flex flex-col min-h-0">
     <div class="flex flex-1 min-h-0">
       <aside
-        class="app-sidebar hidden md:flex shrink-0 flex-col border-r border-border bg-background transition-[width] duration-200 ease-out overflow-hidden"
+        class="app-sidebar shell-sidebar hidden md:flex shrink-0 flex-col border-r border-border transition-[width] duration-200 ease-out overflow-hidden"
         :class="sidebarCollapsed ? 'w-0 border-r-0' : 'w-[260px]'"
       >
         <!-- A: 侧栏顶栏 -->
@@ -1366,7 +1366,7 @@ watch(searchQuery, q => {
         </div>
       </aside>
 
-      <div class="chat-main flex-1 min-w-0 flex flex-col bg-card">
+      <div class="chat-main shell-chat flex-1 min-w-0 flex flex-col">
         <!-- D0: 对话区顶栏：品牌 + 项目框（应用左上角）；侧栏收缩时并入展开/新建按钮保持单行 -->
         <ChatTopBar
           :collapsed="sidebarCollapsed"

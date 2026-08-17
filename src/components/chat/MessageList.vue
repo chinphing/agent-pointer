@@ -947,8 +947,9 @@ let activeFileChangesCache: {
   mergedToolIds: Set<string>
 } = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
 
-/** Latest turn: rebuild when a tool batch settles and that batch wrote files. */
+/** Latest turn: add a file as soon as its edit/write succeeds. */
 const activeTurnFileChanges = computed(() => {
+  void messageListLayout.value
   const list = chat.current?.messages ?? []
   const last = leadTurnStarts.value[leadTurnStarts.value.length - 1]
   if (!last) {
@@ -1179,6 +1180,20 @@ watch(
 )
 
 watch(
+  () => {
+    const last = conversationTurns.value[conversationTurns.value.length - 1]
+    if (!last) return ''
+    return `${last.id}:${turnFileChanges.value.get(last.id)?.length ?? 0}`
+  },
+  (current, previous) => {
+    if (!current || current === previous) return
+    const sep = current.lastIndexOf(':')
+    if (sep < 0) return
+    void nextTick(() => resizeTurnRow(current.slice(0, sep)))
+  }
+)
+
+watch(
   () => conversationTurns.value.map(turn => turn.id),
   (turnIds, previousTurnIds) => {
     const previousLastId = previousTurnIds[previousTurnIds.length - 1]
@@ -1304,7 +1319,7 @@ function entrySpacing(
       v-if="activeBoard && activeBoardIsSticky"
       class="sticky top-0 z-30 h-0 overflow-visible"
     >
-      <div :class="[parentTaskBoardShellClass, 'bg-background/95 backdrop-blur-sm']">
+      <div :class="[parentTaskBoardShellClass, 'shell-chat']">
         <TaskBoardPanel
           :document="activeBoard.document"
           :is-active="activeBoard.isActive"

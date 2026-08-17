@@ -1491,7 +1491,7 @@ onUnmounted(() => {
   <div
     :class="props.placement === 'inline'
       ? 'w-full'
-      : 'chat-shell shrink-0 bg-card pt-2 pb-5'"
+      : 'chat-shell shell-chat shrink-0 pt-2 pb-5'"
   >
     <div :class="props.placement === 'inline' ? 'w-full' : 'chat-column'">
       <div v-if="showLoginBanner" class="mb-2 flex w-fit max-w-full flex-col gap-1.5">

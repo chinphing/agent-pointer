@@ -200,7 +200,7 @@ onUnmounted(() => {
 <template>
   <WindowDragRegion
     region="main-top-chrome"
-    class="chat-topbar flex h-10 shrink-0 items-center gap-1.5 bg-card px-4"
+    class="chat-topbar shell-chat flex h-10 shrink-0 items-center gap-1.5 px-4"
   >
     <div
       v-if="collapsed"

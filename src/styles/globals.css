@@ -16,11 +16,16 @@
     --composer-bg: 0 0% 100%;
     --hover: 240 5% 93%;
     --code-bg: 240 5% 94%;
+    /* Inset well vs chat canvas (light: gray on white). */
+    --fence-bg: 240 5% 95%;
     --success: 142 48% 36%;
     --danger: 4 78% 50%;
     --warning: 36 80% 42%;
     --info: 211 100% 46%;
     --search-mark: 48 80% 70%;
+    /* Shell: chat column white, sidebar one step quieter. */
+    --shell-sidebar: 240 5% 96%;
+    --shell-chat: 0 0% 100%;
   }
 
   html.dark {
@@ -36,6 +41,11 @@
     --composer-bg: 240 4% 10%;
     --hover: 240 4% 16%;
     --code-bg: 240 4% 7%;
+    /* Same fill as before (was --card on dark chat). */
+    --fence-bg: 240 4% 11%;
+    /* Shell: chat column darker than the sidebar. */
+    --shell-sidebar: 240 4% 11%;
+    --shell-chat: 240 4% 8%;
     --success: 142 40% 48%;
     --danger: 4 72% 58%;
     --warning: 36 70% 52%;
@@ -66,6 +76,12 @@
   }
   .panel-elevated {
     @apply bg-[hsl(var(--card-elevated))] border border-border;
+  }
+  .shell-sidebar {
+    background-color: hsl(var(--shell-sidebar));
+  }
+  .shell-chat {
+    background-color: hsl(var(--shell-chat));
   }
 
   /* Computer compact dock: only the bar has a fill; window + webview corners stay transparent. */
@@ -397,10 +413,10 @@
   color: hsl(var(--accent));
   overflow-wrap: anywhere;
 }
-/* Fenced code: rounded frame + same white/card fill as table body. */
+/* Fenced code: inset well vs chat canvas (same step in light and dark). */
 .md-body .code-block {
   @apply my-3 relative overflow-hidden rounded-lg border border-border;
-  background: hsl(var(--card));
+  background: hsl(var(--fence-bg));
 }
 .md-body .code-block pre {
   @apply my-0 border-0 rounded-none p-4 overflow-x-auto text-[13px];
@@ -429,7 +445,7 @@
 /* Legacy bare `<pre>` outside `.code-block`. */
 .md-body pre:not(.code-block pre) {
   @apply my-3 p-4 rounded-lg overflow-x-auto text-[13px] relative border border-border;
-  background: hsl(var(--card));
+  background: hsl(var(--fence-bg));
 }
 .md-body ul { @apply list-disc pl-6 my-3; }
 .md-body ol { @apply list-decimal pl-6 my-3; }

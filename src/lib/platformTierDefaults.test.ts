@@ -100,8 +100,10 @@ describe('platformTierDefaults', () => {
     expect(cfg).toEqual({
       providerId: 'qwen',
       model: 'qwen-next',
+      thinkingIntensity: 'max',
       enableThinking: true,
-      thinkingBudget: 8192
+      thinkingBudget: 8192,
+      reasoningEffort: 'max'
     })
   })
 })

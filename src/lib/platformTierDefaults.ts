@@ -7,12 +7,12 @@ import type {
   PlatformSettings,
   ProviderConfig
 } from '../types/chat'
-import { parseThinkingIntensity } from './thinkingIntensity'
+import { parseThinkingIntensity, thinkingPatchFromProviderModel } from './thinkingIntensity'
 
 export type PlatformTierRef = { providerId: string; model: string }
 
 export function emptyTierConfig(): ComputerTierLlmConfig {
-  return { providerId: '', model: '', enableThinking: true }
+  return { providerId: '', model: '' }
 }
 
 export function platformModelName(entry: string | PlatformProviderModelTemplate | unknown): string {
@@ -129,15 +129,10 @@ export function withInheritedThinking(
   ref: PlatformTierRef,
   providers: ProviderConfig[]
 ): ComputerTierLlmConfig {
-  const provider = providers.find(item => item.id === ref.providerId)
-  const model = provider?.modelConfigs?.[ref.model]
   return {
     providerId: ref.providerId,
     model: ref.model,
-    enableThinking: model?.enableThinking ?? provider?.enableThinking ?? true,
-    thinkingBudget: model?.thinkingBudget ?? provider?.thinkingBudget,
-    reasoningEffort: model?.reasoningEffort ?? provider?.reasoningEffort,
-    thinkingIntensity: model?.thinkingIntensity ?? provider?.thinkingIntensity
+    ...thinkingPatchFromProviderModel(providers, ref.providerId, ref.model)
   }
 }
 

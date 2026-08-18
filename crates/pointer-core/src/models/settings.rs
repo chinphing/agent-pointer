@@ -905,6 +905,9 @@ pub struct ModelSettings {
     pub round_reasoning_effort: Option<String>,
     #[serde(skip)]
     pub round_thinking_intensity: Option<String>,
+    /// Scene-tier / computer mapping applied this round: ignore provider modelDefaults.
+    #[serde(skip)]
+    pub round_thinking_locked: bool,
 }
 
 macro_rules! build_cfg_str {
@@ -1248,6 +1251,7 @@ impl Default for ModelSettings {
             round_thinking_budget: None,
             round_reasoning_effort: None,
             round_thinking_intensity: None,
+            round_thinking_locked: false,
         }
     }
 }
@@ -2351,6 +2355,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         round_thinking_budget: None,
         round_reasoning_effort: None,
         round_thinking_intensity: None,
+        round_thinking_locked: false,
     };
     apply_platform_tier_defaults(&mut settings, &platform.tier_defaults, &platform.providers);
     settings

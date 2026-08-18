@@ -20,8 +20,10 @@ OpenAI Python SDK 的展平行为。
 | `auto` | 按服务商 URL / id 推断 | 默认 |
 | `custom` | 仅 `extraBody`，忽略强度 | 自建端点 |
 
-强度解析顺序：本轮 `round_thinking_intensity` → 模型/服务商 `thinkingIntensity` →
+强度解析顺序：本轮 `round_thinking_intensity`（场景档位选出的强度）→
+未走档位映射时再读模型/服务商 `thinkingIntensity` →
 遗留 `reasoningEffort` / `enableThinking` + `thinkingBudget`。
+档位映射一旦套用，不再回读模型目录默认。
 
 设置界面与平台目录都只选「思考强度」。
 `thinkingProtocol` 由客户端按服务商 URL / id 推断，官网不下发、不转换。

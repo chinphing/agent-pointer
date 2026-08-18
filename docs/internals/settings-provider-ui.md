@@ -58,8 +58,8 @@
   OpenRouter→`reasoning`，智谱/自定义 OpenAI 兼容→顶层 `reasoning_effort`。
   平台目录只下发强度，不下发协议。
 - 场景三档映射同样只选强度。
-- Agent 模式映射写入的思考参数会在 `apply_agent_model_defaults` 时落到本轮
-  `round_*` 覆盖（含 `round_thinking_intensity`），再由策略翻译到请求体。
+- **选模型时**把该模型在服务商/模型目录上的默认思考强度写进档位；之后改强度只改档位。
+- Agent / 电脑 / 媒体理解执行只认档位上选出的强度（`round_thinking_*`），不再回读模型目录默认。
 
 ## 保存后界面「空白」
 

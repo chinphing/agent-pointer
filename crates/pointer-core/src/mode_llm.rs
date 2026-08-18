@@ -85,6 +85,20 @@ pub fn resolve_agent_mode_llm_config<'a>(
     Some(cfg)
 }
 
+pub fn resolve_media_mode_llm_config<'a>(
+    settings: &'a ModelSettings,
+    kind: &str,
+) -> Option<&'a ComputerTierLlmConfig> {
+    let kind = kind.trim();
+    let mode = media_understanding_mode(settings, kind);
+    let inner = settings.media_mode_llm.get(kind)?;
+    let cfg = inner.get(mode)?;
+    if cfg.model.trim().is_empty() {
+        return None;
+    }
+    Some(cfg)
+}
+
 pub fn resolve_media_mode_llm(settings: &ModelSettings, kind: &str) -> AgentModelRef {
     let kind = kind.trim();
     let mode = media_understanding_mode(settings, kind);

@@ -2,6 +2,7 @@ use crate::agents::DEFAULT_LEAD_AGENT_ID;
 use crate::mode_llm::resolve_agent_mode_llm_config;
 use crate::models::ModelSettings;
 use crate::provider::OpenAIProvider;
+use crate::thinking_strategy::apply_tier_thinking_to_round;
 
 /// Apply per-agent default model from `agent_default_models` when `agent_id` has an entry.
 /// Returns true when provider and/or model were overridden.
@@ -10,13 +11,9 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
     if key.is_empty() {
         return false;
     }
-    if let Some(cfg) = resolve_agent_mode_llm_config(settings, key) {
+    if let Some(cfg) = resolve_agent_mode_llm_config(settings, key).cloned() {
         let provider_id = cfg.provider_id.trim().to_string();
         let model = cfg.model.trim().to_string();
-        let enable_thinking = cfg.enable_thinking;
-        let thinking_budget = cfg.thinking_budget;
-        let reasoning_effort = cfg.reasoning_effort.clone();
-        let thinking_intensity = cfg.thinking_intensity.clone();
         let mut applied = false;
         if !provider_id.is_empty() {
             settings.active_provider_id = provider_id;
@@ -27,10 +24,7 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
             applied = true;
         }
         if applied {
-            settings.round_enable_thinking = Some(enable_thinking);
-            settings.round_thinking_budget = thinking_budget;
-            settings.round_reasoning_effort = reasoning_effort;
-            settings.round_thinking_intensity = thinking_intensity;
+            apply_tier_thinking_to_round(settings, &cfg);
             return true;
         }
     }
@@ -350,6 +344,9 @@ mod tests {
         assert!(apply_agent_model_defaults(&mut settings, "coder"));
         assert_eq!(settings.active_provider_id, "deepseek");
         assert_eq!(settings.model, "deepseek-v4-flash");
+        assert!(settings.round_thinking_locked);
+        assert_eq!(settings.round_thinking_intensity, None);
+        assert_eq!(settings.round_enable_thinking, None);
     }
 
     #[test]

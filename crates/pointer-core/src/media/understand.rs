@@ -19,6 +19,24 @@ fn user_content_with_goal(base: &str, goal: &str) -> String {
     format!("{base}\n\nUser analysis goal:\n{goal}")
 }
 
+fn prepare_media_model_settings(
+    settings: &ModelSettings,
+    model: &AgentModelRef,
+    kind: &str,
+) -> ModelSettings {
+    let mut s = settings.clone();
+    if !model.provider_id.trim().is_empty() {
+        s.active_provider_id = model.provider_id.trim().to_string();
+    }
+    if !model.model.trim().is_empty() {
+        s.model = model.model.trim().to_string();
+    }
+    if let Some(cfg) = crate::mode_llm::resolve_media_mode_llm_config(settings, kind) {
+        crate::thinking_strategy::apply_tier_thinking_to_round(&mut s, cfg);
+    }
+    s
+}
+
 fn resolve_provider_api_key(settings: &ModelSettings, fallback_api_key: &str) -> String {
     let pid = settings.active_provider_id.trim();
     if let Some(p) = settings.providers.iter().find(|p| p.id == pid) {
@@ -40,13 +58,7 @@ pub async fn describe_image_with_model(
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
-    let mut image_settings = settings.clone();
-    if !image_model.provider_id.trim().is_empty() {
-        image_settings.active_provider_id = image_model.provider_id.trim().to_string();
-    }
-    if !image_model.model.trim().is_empty() {
-        image_settings.model = image_model.model.trim().to_string();
-    }
+    let image_settings = prepare_media_model_settings(settings, image_model, "image");
     let api_key = resolve_provider_api_key(&image_settings, api_key_fallback);
     if api_key.is_empty() {
         anyhow::bail!("no API key for image understanding model");
@@ -122,13 +134,7 @@ pub async fn describe_images_with_model(
     if images_base64.is_empty() {
         anyhow::bail!("no images to describe");
     }
-    let mut image_settings = settings.clone();
-    if !image_model.provider_id.trim().is_empty() {
-        image_settings.active_provider_id = image_model.provider_id.trim().to_string();
-    }
-    if !image_model.model.trim().is_empty() {
-        image_settings.model = image_model.model.trim().to_string();
-    }
+    let image_settings = prepare_media_model_settings(settings, image_model, "image");
     let api_key = resolve_provider_api_key(&image_settings, api_key_fallback);
     if api_key.is_empty() {
         anyhow::bail!("no API key for image understanding model");
@@ -319,13 +325,7 @@ pub async fn describe_pdf_pages_with_model(
     if page_base64s.is_empty() {
         anyhow::bail!("no pdf page images to describe");
     }
-    let mut image_settings = settings.clone();
-    if !image_model.provider_id.trim().is_empty() {
-        image_settings.active_provider_id = image_model.provider_id.trim().to_string();
-    }
-    if !image_model.model.trim().is_empty() {
-        image_settings.model = image_model.model.trim().to_string();
-    }
+    let image_settings = prepare_media_model_settings(settings, image_model, "image");
     let api_key = resolve_provider_api_key(&image_settings, api_key_fallback);
     if api_key.is_empty() {
         anyhow::bail!("no API key for pdf image understanding model");
@@ -401,13 +401,7 @@ pub async fn describe_video_with_model(
     if frame_base64s.is_empty() {
         anyhow::bail!("no video frames to describe");
     }
-    let mut video_settings = settings.clone();
-    if !video_model.provider_id.trim().is_empty() {
-        video_settings.active_provider_id = video_model.provider_id.trim().to_string();
-    }
-    if !video_model.model.trim().is_empty() {
-        video_settings.model = video_model.model.trim().to_string();
-    }
+    let video_settings = prepare_media_model_settings(settings, video_model, "video");
     let api_key = resolve_provider_api_key(&video_settings, api_key_fallback);
     if api_key.is_empty() {
         anyhow::bail!("no API key for video understanding model");

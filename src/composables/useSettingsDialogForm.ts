@@ -46,6 +46,7 @@ import {
   platformMediaModeDefault,
   withInheritedThinking
 } from '../lib/platformTierDefaults'
+import { mergeTierLlmPatch, thinkingPatchFromProviderModel } from '../lib/thinkingIntensity'
 
 export type SettingsDialogForm = ReturnType<typeof createSettingsDialogForm>
 

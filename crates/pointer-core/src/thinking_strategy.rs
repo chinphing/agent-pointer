@@ -6,8 +6,8 @@
 use serde_json::{Map, Value};
 
 use crate::models::{
-    provider_uses_dashscope_compatible_api, provider_uses_deepseek_api, ModelRuntimeOverrides,
-    ModelSettings, ProviderConfig, DEFAULT_THINKING_BUDGET,
+    provider_uses_dashscope_compatible_api, provider_uses_deepseek_api, ComputerTierLlmConfig,
+    ModelRuntimeOverrides, ModelSettings, ProviderConfig, DEFAULT_THINKING_BUDGET,
 };
 
 /// Unified product ladder for 「思考强度」.
@@ -194,6 +194,36 @@ fn intensity_from_budget(budget: u32) -> ThinkingIntensity {
     }
 }
 
+/// Copy scene-tier / computer mapping thinking onto this round.
+/// Model catalog defaults are not consulted here — they are stamped at select time.
+pub fn apply_tier_thinking_to_round(settings: &mut ModelSettings, cfg: &ComputerTierLlmConfig) {
+    settings.round_thinking_locked = true;
+    match cfg
+        .thinking_intensity
+        .as_deref()
+        .and_then(ThinkingIntensity::parse)
+    {
+        Some(ThinkingIntensity::Off) => {
+            settings.round_thinking_intensity = Some(ThinkingIntensity::Off.as_str().into());
+            settings.round_enable_thinking = Some(false);
+            settings.round_thinking_budget = None;
+            settings.round_reasoning_effort = None;
+        }
+        Some(level) => {
+            settings.round_thinking_intensity = Some(level.as_str().into());
+            settings.round_enable_thinking = Some(true);
+            settings.round_thinking_budget = cfg.thinking_budget;
+            settings.round_reasoning_effort = cfg.reasoning_effort.clone();
+        }
+        None => {
+            settings.round_thinking_intensity = None;
+            settings.round_enable_thinking = None;
+            settings.round_thinking_budget = None;
+            settings.round_reasoning_effort = None;
+        }
+    }
+}
+
 /// Resolve product intensity from round overrides + provider/model fields + legacy fields.
 pub fn resolve_thinking_intensity(
     settings: &ModelSettings,
@@ -202,6 +232,30 @@ pub fn resolve_thinking_intensity(
 ) -> Option<ThinkingIntensity> {
     if settings.round_enable_thinking == Some(false) {
         return Some(ThinkingIntensity::Off);
+    }
+    if settings.round_thinking_locked {
+        if let Some(raw) = settings.round_thinking_intensity.as_deref() {
+            if let Some(i) = ThinkingIntensity::parse(raw) {
+                return Some(i);
+            }
+        }
+        if let Some(effort) = settings.round_reasoning_effort.as_deref() {
+            if let Some(i) = ThinkingIntensity::parse(effort) {
+                return Some(i);
+            }
+            match effort.trim().to_ascii_lowercase().as_str() {
+                "high" => return Some(ThinkingIntensity::High),
+                "max" => return Some(ThinkingIntensity::Max),
+                _ => {}
+            }
+        }
+        if let Some(budget) = settings.round_thinking_budget.filter(|&n| n > 0) {
+            return Some(intensity_from_budget(budget));
+        }
+        if settings.round_enable_thinking == Some(true) {
+            return Some(ThinkingIntensity::Medium);
+        }
+        return None;
     }
     let stored_enable = settings
         .round_enable_thinking
@@ -312,6 +366,9 @@ impl ThinkingStrategy for BudgetStrategy {
             Some(ThinkingIntensity::Off) => (false, None),
             Some(level) => (true, Some(budget_for_intensity(level))),
             None => {
+                if settings.round_thinking_locked {
+                    return;
+                }
                 let enable = settings
                     .round_enable_thinking
                     .or_else(|| model_over.and_then(|o| o.enable_thinking))
@@ -387,11 +444,17 @@ impl ThinkingStrategy for EffortStrategy {
         let enable = match intensity {
             Some(ThinkingIntensity::Off) => false,
             Some(_) => true,
-            None => settings
-                .round_enable_thinking
-                .or_else(|| model_over.and_then(|o| o.enable_thinking))
-                .or(provider.enable_thinking)
-                .unwrap_or(true),
+            None => {
+                if settings.round_thinking_locked {
+                    false
+                } else {
+                    settings
+                        .round_enable_thinking
+                        .or_else(|| model_over.and_then(|o| o.enable_thinking))
+                        .or(provider.enable_thinking)
+                        .unwrap_or(true)
+                }
+            }
         };
         if !enable {
             m.remove("reasoning_effort");
@@ -485,7 +548,9 @@ impl ThinkingStrategy for KimiStrategy {
         m.remove("thinking");
         m.remove("reasoning_effort");
         let Some(intensity) = intensity else {
-            insert_thinking_type(m, true);
+            if !_settings.round_thinking_locked {
+                insert_thinking_type(m, true);
+            }
             return;
         };
         match intensity {
@@ -738,6 +803,29 @@ mod tests {
     }
 
     #[test]
+    fn locked_mapping_ignores_provider_model_intensity() {
+        let mut s = sample_settings();
+        s.providers[0].thinking_intensity = Some("max".into());
+        s.round_thinking_locked = true;
+        s.round_thinking_intensity = Some("low".into());
+        s.round_enable_thinking = Some(true);
+        let p = &s.providers[0];
+        assert_eq!(
+            resolve_thinking_intensity(&s, p, None),
+            Some(ThinkingIntensity::Low)
+        );
+
+        s.round_thinking_intensity = None;
+        s.round_enable_thinking = None;
+        s.round_thinking_budget = None;
+        assert_eq!(resolve_thinking_intensity(&s, p, None), None);
+        let mut m = Map::new();
+        apply_thinking_strategy(&s, p, "qwen-plus", None, &mut m);
+        assert!(m.get("enable_thinking").is_none());
+        assert!(m.get("thinking_budget").is_none());
+    }
+
+    #[test]
     fn auto_picks_budget_for_qwen() {
         let s = sample_settings();
         let p = &s.providers[0];
@@ -745,6 +833,25 @@ mod tests {
             resolve_thinking_strategy_id(p, None),
             ThinkingStrategyId::Budget
         );
+    }
+
+    #[test]
+    fn apply_tier_thinking_to_round_stamps_selected_intensity() {
+        let mut s = sample_settings();
+        apply_tier_thinking_to_round(
+            &mut s,
+            &ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "qwen-plus".into(),
+                enable_thinking: true,
+                thinking_budget: Some(4096),
+                reasoning_effort: None,
+                thinking_intensity: Some("high".into()),
+            },
+        );
+        assert!(s.round_thinking_locked);
+        assert_eq!(s.round_thinking_intensity.as_deref(), Some("high"));
+        assert_eq!(s.round_enable_thinking, Some(true));
     }
 
     #[test]

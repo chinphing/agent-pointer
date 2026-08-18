@@ -229,6 +229,50 @@ export function patchTierThinkingIntensity(
   }
 }
 
+/** Copy a provider/model catalog thinking default into a scene-tier mapping. */
+export function thinkingPatchFromProviderModel(
+  providers: { id: string; thinkingIntensity?: string; enableThinking?: boolean; thinkingBudget?: number; reasoningEffort?: 'high' | 'max'; modelConfigs?: Record<string, {
+    thinkingIntensity?: string
+    enableThinking?: boolean
+    thinkingBudget?: number
+    reasoningEffort?: 'high' | 'max'
+  }> }[],
+  providerId: string,
+  model: string
+): Partial<ComputerTierLlmConfig> {
+  const provider = providers.find(item => item.id === providerId)
+  const over = provider?.modelConfigs?.[model]
+  return patchTierThinkingIntensity(
+    intensityFromLegacy({
+      thinkingIntensity: over?.thinkingIntensity ?? provider?.thinkingIntensity,
+      enableThinking: over?.enableThinking ?? provider?.enableThinking,
+      thinkingBudget: over?.thinkingBudget ?? provider?.thinkingBudget,
+      reasoningEffort: over?.reasoningEffort ?? provider?.reasoningEffort
+    })
+  )
+}
+
+const TIER_THINKING_KEYS = [
+  'thinkingIntensity',
+  'enableThinking',
+  'thinkingBudget',
+  'reasoningEffort'
+] as const
+
+/** Merge a tier patch; `undefined` thinking fields mean 「不设置」 and drop prior values. */
+export function mergeTierLlmPatch(
+  prev: ComputerTierLlmConfig,
+  patch: Partial<ComputerTierLlmConfig>
+): ComputerTierLlmConfig {
+  const next: ComputerTierLlmConfig = { ...prev, ...patch }
+  for (const key of TIER_THINKING_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] === undefined) {
+      delete next[key]
+    }
+  }
+  return next
+}
+
 export function tierThinkingIntensityValue(config: {
   thinkingIntensity?: string
   enableThinking?: boolean

@@ -16,13 +16,15 @@ Surfaces are **neutral gray** (Codex / Apple grouped). Hue stays near 240 with
 near-zero saturation. Dark canvas is charcoal, not blue-black.
 
 **Shell:** `--shell-chat` / `--shell-sidebar` (classes `.shell-chat` /
-`.shell-sidebar`). Light: conversation column white, sidebar one step
-quieter. Dark: conversation column **darker** than the sidebar (do not
-keep a light chat pane on a darker rail). Sticky overlays in the
-conversation column (e.g. the active task board) use opaque
-`.shell-chat` so scrolling content does not show through — not
-`bg-background/95` or `backdrop-blur` (those composite darker than the
-canvas).
+`.shell-sidebar`). **Left rail** uses `.shell-sidebar`. **Conversation
+column and the right workspace panel** both use `.shell-chat` so light
+and dark keep the same contrast: light = white chat + workspace, gray
+left rail; dark = both panes darker than the left rail. Do not paint
+the workspace with `bg-card` — in dark mode `--card` matches the left
+rail and the right pane looks brighter than chat.
+
+Sticky overlays on `.shell-chat` (task board, workspace find) stay
+opaque `.shell-chat`, not `bg-background/95` or `backdrop-blur`.
 
 New UI must use these tokens (or Tailwind aliases `bg-background`, `text-muted`,
 `border-border`, `bg-accent`, …). Do **not** add `slate-*` / `zinc-*` / hardcoded

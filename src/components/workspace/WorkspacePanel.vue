@@ -1103,7 +1103,7 @@ onBeforeUnmount(() => {
 <template>
   <aside
     ref="panelRoot"
-    class="workspace-panel hidden lg:flex shrink-0 flex-col min-h-0 overflow-hidden border-l border-border bg-card relative"
+    class="workspace-panel hidden lg:flex shrink-0 flex-col min-h-0 overflow-hidden border-l border-border shell-chat relative"
     data-workspace-panel
     :class="resizing && 'is-resizing'"
     :style="panelStyle"
@@ -1199,7 +1199,7 @@ onBeforeUnmount(() => {
       >
         <div
           v-if="treeSearchOpen"
-          class="sticky top-0 z-20 mx-2 mb-2 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1.5 shadow-lg backdrop-blur"
+          class="sticky top-0 z-20 mx-2 mb-2 flex items-center gap-1 rounded-lg border border-border shell-chat p-1.5 shadow-lg"
           role="search"
         >
           <Search class="ml-1 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />

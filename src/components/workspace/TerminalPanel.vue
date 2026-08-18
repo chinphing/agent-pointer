@@ -400,7 +400,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="terminal-panel relative flex min-h-0 flex-1 flex-col bg-card text-foreground" @click.self="closeContextMenu">
+  <section class="terminal-panel relative flex min-h-0 flex-1 flex-col bg-transparent text-foreground" @click.self="closeContextMenu">
     <header class="console-chrome flex h-8 shrink-0 items-center gap-1 border-b border-border px-2 text-[11px]">
       <div class="console-tabs min-w-0 flex-1" role="tablist" aria-label="终端标签">
         <button

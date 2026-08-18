@@ -37,6 +37,5 @@ pub struct ChatRunContext<'a> {
     pub history: &'a mut Vec<ChatMessage>,
     pub enabled_skill_ids: &'a mut Vec<String>,
     pub consumed_single: &'a mut u32,
-    pub consumed_supervisor: &'a mut u32,
     pub cancel: CancellationToken,
 }

@@ -129,7 +129,6 @@ pub async fn run_chat(
         Some(span)
     };
     let mut consumed_single = 0u32;
-    let mut consumed_supervisor = 0u32;
     let run_req = super::context::ChatRunRequest {
         agent_mode: agent_mode.clone(),
         lead_agent_id_override: lead_agent_id_override.clone(),
@@ -150,7 +149,6 @@ pub async fn run_chat(
         history: &mut history,
         enabled_skill_ids: &mut enabled_skill_ids,
         consumed_single: &mut consumed_single,
-        consumed_supervisor: &mut consumed_supervisor,
         cancel: cancel.clone(),
     };
     let mut result = super::session_inner::run_chat_inner(&mut run_ctx, &run_req).await;
@@ -230,7 +228,6 @@ pub async fn run_chat(
                         );
                         enabled_skill_ids.clear();
                         consumed_single = 0;
-                        consumed_supervisor = 0;
                         let mut retry_ctx = super::context::ChatRunContext {
                             stream: stream.clone(),
                             state: state.clone(),
@@ -238,7 +235,6 @@ pub async fn run_chat(
                             history: &mut history,
                             enabled_skill_ids: &mut enabled_skill_ids,
                             consumed_single: &mut consumed_single,
-                            consumed_supervisor: &mut consumed_supervisor,
                             cancel: cancel.clone(),
                         };
                         result =
@@ -323,16 +319,15 @@ pub async fn run_chat(
     super::conversation_persist::patch_tool_rounds(
         &conversation_id,
         consumed_single,
-        consumed_supervisor,
+        0,
         super::util::now_ms(),
     );
     log::info!(
-        "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} consumed_this_run_supervisor={} max_tool_rounds_attached={}",
+        "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} max_tool_rounds_attached={}",
         conversation_id,
         if result.is_ok() { "Ok" } else { "Err" },
         history.len(),
         consumed_single,
-        consumed_supervisor,
         max_tr,
     );
     let main_store_key = state
@@ -359,7 +354,7 @@ pub async fn run_chat(
         StreamEvent::Done {
             conversation_id: conversation_id.clone(),
             tool_rounds_used_total: Some(consumed_single),
-            tool_rounds_used_supervisor_total: Some(consumed_supervisor),
+            tool_rounds_used_supervisor_total: Some(0),
             max_tool_rounds: Some(max_tr),
             started_at_ms: Some(run_started_at_ms),
             finished_at_ms: Some(super::util::now_ms()),

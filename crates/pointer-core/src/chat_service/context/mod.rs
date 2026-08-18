@@ -22,9 +22,7 @@ pub use budget::ToolBudgetExhaustionScope;
 #[allow(unused_imports)]
 pub use chat_run::{ChatRunContext, ChatRunRequest};
 #[allow(unused_imports)]
-pub use loop_ctx::{
-    LeadAgentLoopContext, SubAgentLoopContext, SubagentDelegationContext, SupervisorLoopContext,
-};
+pub use loop_ctx::{LeadAgentLoopContext, SubAgentLoopContext, SubagentDelegationContext};
 #[allow(unused_imports)]
 pub use post_assistant::PostAssistantContext;
 #[allow(unused_imports)]

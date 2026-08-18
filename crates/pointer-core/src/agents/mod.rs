@@ -20,18 +20,13 @@ pub mod coder;
 /// Read-only explore sub-agent for delegated breadth reconnaissance.
 pub mod explore;
 
-/// Deep research agent runtime (SearchAgent web_search path, extension hooks).
-pub mod research;
-
 pub mod agent_ui;
 pub use agent_ui::{agent_display_label, resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
 
 pub const AGENT_MODE_SINGLE: &str = "single";
-pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
 pub const DEFAULT_AGENT_ID: &str = "general";
 /// Default worker selected in single-agent mode when `leadAgentId` is unset.
 pub const DEFAULT_LEAD_AGENT_ID: &str = "general";
-pub const SUPERVISOR_AGENT_ID: &str = "supervisor";
 const AGENTS_DIR: &str = "agents";
 const AGENT_MANIFEST: &str = "AGENT.md";
 const AGENT_COMMUNICATION: &str = "COMMUNICATION.md";
@@ -157,11 +152,6 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
         communication: include_str!("general/COMMUNICATION.md"),
     },
     BuiltinAgentBundle {
-        id: "supervisor",
-        manifest: include_str!("supervisor/AGENT.md"),
-        communication: include_str!("supervisor/COMMUNICATION.md"),
-    },
-    BuiltinAgentBundle {
         id: "coder",
         manifest: include_str!("coder/AGENT.md"),
         communication: include_str!("coder/COMMUNICATION.md"),
@@ -170,11 +160,6 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
         id: "explore",
         manifest: include_str!("explore/AGENT.md"),
         communication: include_str!("explore/COMMUNICATION.md"),
-    },
-    BuiltinAgentBundle {
-        id: "research",
-        manifest: include_str!("research/AGENT.md"),
-        communication: include_str!("research/COMMUNICATION.md"),
     },
     BuiltinAgentBundle {
         id: "computer",
@@ -412,23 +397,6 @@ pub struct AgentRunResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct AgentRunLimits {
-    pub max_sub_agents: usize,
-    pub max_rounds: usize,
-    pub timeout_ms: u64,
-}
-
-impl Default for AgentRunLimits {
-    fn default() -> Self {
-        Self {
-            max_sub_agents: 4,
-            max_rounds: 1,
-            timeout_ms: 120_000,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct BaseAgent {
     pub def: AgentDef,
     pub system_prompt: String,
@@ -610,13 +578,9 @@ impl AgentOrchestrator {
         tools: &ToolRegistry,
         enabled_skill_ids: &[String],
         agent_skill_overrides: &HashMap<String, Vec<String>>,
-        mode: &str,
+        _mode: &str,
         lead_worker_id: Option<&str>,
     ) -> AgentPlan {
-        let normalized_mode = match mode {
-            AGENT_MODE_SUPERVISOR => AGENT_MODE_SUPERVISOR,
-            _ => AGENT_MODE_SINGLE,
-        };
         let default_agent = agents.get(DEFAULT_LEAD_AGENT_ID).or_else(|| {
             agents.get(DEFAULT_AGENT_ID).or_else(|| {
                 agents
@@ -627,83 +591,41 @@ impl AgentOrchestrator {
             })
         });
 
-        if normalized_mode == AGENT_MODE_SINGLE {
-            let mut agent = default_agent
-                .as_ref()
-                .map(|a| a.def())
-                .unwrap_or_else(default_agent_def);
-            if let Some(raw) = lead_worker_id {
-                let tid = raw.trim();
-                if !tid.is_empty() {
-                    if let Some(exec) = agents.get(tid) {
-                        let d = exec.def();
-                        if d.role == "worker" && d.enabled {
-                            agent = d;
-                        }
+        let mut agent = default_agent
+            .as_ref()
+            .map(|a| a.def())
+            .unwrap_or_else(default_agent_def);
+        if let Some(raw) = lead_worker_id {
+            let tid = raw.trim();
+            if !tid.is_empty() {
+                if let Some(exec) = agents.get(tid) {
+                    let d = exec.def();
+                    if d.role == "worker" && d.enabled {
+                        agent = d;
                     }
                 }
             }
-            let session_skill_ids =
-                resolve_skill_ids(&agent, enabled_skill_ids, agent_skill_overrides);
-            let (skill_prompts, session_tools) = skills.progressive_context(&session_skill_ids);
-            let allowed_tool_names = resolve_tools(&agent.access_policy, &session_tools, tools);
-            let lead_prompt = agents.get(&agent.id).map(|a| a.system_prompt());
-            let mut system_prompts = vec![agent_prompt(&agent, lead_prompt)];
-            let active_system_prompt = system_prompts[0].clone();
-            system_prompts.extend(skill_prompts.clone());
-
-            return AgentPlan {
-                mode: normalized_mode.into(),
-                lead_agent_id: agent.id.clone(),
-                lead_agent_name: agent_ui::agent_display_label(&agent),
-                system_prompts,
-                active_def: agent.clone(),
-                active_system_prompt,
-                resolved_skill_ids: session_skill_ids,
-                resolved_skill_prompts: skill_prompts,
-                allowed_tool_names,
-                allow_agents: normalize_allow_agents(&agent.allow_agents),
-            };
         }
-
-        let supervisor = agents.get(SUPERVISOR_AGENT_ID);
-        let lead = supervisor
-            .as_ref()
-            .map(|a| a.def())
-            .unwrap_or_else(supervisor_agent_def);
-        let worker_agents = agents.enabled_workers();
-        let (skill_prompts, session_tools) = skills.progressive_context(&[]);
-        let mut allowed_tool_names = Vec::new();
-        for agent in &worker_agents {
-            for tool in resolve_tools(&agent.access_policy, &session_tools, tools) {
-                if !allowed_tool_names.contains(&tool) {
-                    allowed_tool_names.push(tool);
-                }
-            }
-        }
-        if allowed_tool_names.is_empty() {
-            allowed_tool_names = resolve_tools(&lead.access_policy, &session_tools, tools);
-        }
-
-        let mut system_prompts = vec![supervisor_prompt(
-            &lead,
-            supervisor.as_ref().map(|a| a.system_prompt()),
-            &worker_agents,
-        )];
+        let session_skill_ids =
+            resolve_skill_ids(&agent, enabled_skill_ids, agent_skill_overrides);
+        let (skill_prompts, session_tools) = skills.progressive_context(&session_skill_ids);
+        let allowed_tool_names = resolve_tools(&agent.access_policy, &session_tools, tools);
+        let lead_prompt = agents.get(&agent.id).map(|a| a.system_prompt());
+        let mut system_prompts = vec![agent_prompt(&agent, lead_prompt)];
         let active_system_prompt = system_prompts[0].clone();
         system_prompts.extend(skill_prompts.clone());
 
         AgentPlan {
-            mode: normalized_mode.into(),
-            lead_agent_id: lead.id.clone(),
-            lead_agent_name: agent_ui::agent_display_label(&lead),
+            mode: AGENT_MODE_SINGLE.into(),
+            lead_agent_id: agent.id.clone(),
+            lead_agent_name: agent_ui::agent_display_label(&agent),
             system_prompts,
-            active_def: lead.clone(),
+            active_def: agent.clone(),
             active_system_prompt,
-            resolved_skill_ids: Vec::new(),
+            resolved_skill_ids: session_skill_ids,
             resolved_skill_prompts: skill_prompts,
             allowed_tool_names,
-            allow_agents: normalize_allow_agents(&lead.allow_agents),
+            allow_agents: normalize_allow_agents(&agent.allow_agents),
         }
     }
 
@@ -750,34 +672,6 @@ fn default_agent_def() -> AgentDef {
         profile: AgentProfile::General,
         default_skill_ids: Vec::new(),
         skills_policy: SkillsPolicy::UserConfigurable,
-        access_policy: AccessPolicy::default(),
-        builtin: true,
-        enabled: true,
-        tool_names: Vec::new(),
-        source: None,
-        resource_files: Vec::new(),
-        allow_agents: Vec::new(),
-        config: HashMap::new(),
-        ui: AgentUiConfig::default(),
-    })
-}
-
-fn supervisor_agent_def() -> AgentDef {
-    load_builtin_agent(
-        BUILTIN_AGENT_BUNDLES[1].id,
-        BUILTIN_AGENT_BUNDLES[1].manifest,
-        BUILTIN_AGENT_BUNDLES[1].communication,
-    )
-    .map(|agent| agent.def)
-    .unwrap_or_else(|_| AgentDef {
-        id: SUPERVISOR_AGENT_ID.into(),
-        name: "团队模式".into(),
-        description:
-            "Understands goals, decomposes work, selects worker agents, and merges answers.".into(),
-        role: "supervisor".into(),
-        profile: AgentProfile::Supervisor,
-        default_skill_ids: Vec::new(),
-        skills_policy: SkillsPolicy::Disabled,
         access_policy: AccessPolicy::default(),
         builtin: true,
         enabled: true,
@@ -1226,39 +1120,6 @@ fn agent_prompt(agent: &AgentDef, prompt: Option<String>) -> String {
         agent.profile,
         agent.description,
         prompt.unwrap_or_else(|| format!("You are {}. {}", agent.name, agent.description))
-    )
-}
-
-fn supervisor_prompt(lead: &AgentDef, lead_prompt: Option<String>, agents: &[AgentDef]) -> String {
-    let mut roster = String::new();
-    for agent in agents {
-        roster.push_str(&format!(
-            "- id: {}\n  name: {}\n  role: {}\n  profile: {:?}\n  description: {}\n",
-            agent.id, agent.name, agent.role, agent.profile, agent.description
-        ));
-        if !agent.tool_names.is_empty() {
-            roster.push_str(&format!("  tools: {}\n", agent.tool_names.join(", ")));
-        }
-        if !agent.default_skill_ids.is_empty() {
-            roster.push_str(&format!(
-                "  skills: {}\n",
-                agent.default_skill_ids.join(", ")
-            ));
-        }
-    }
-
-    format!(
-        "{}\n\nYou operate in a multi-agent orchestration architecture.\n\nLead agent:\n- id: {}\n- name: {}\n- profile: {:?}\n- description: {}\n\nRoles:\n- Supervisor: understand the user goal, decompose work, pick worker agents by profile, merge their outputs.\n- Default agent: routine and unclassified fallback tasks.\n- Worker agents: execute subtasks per their profile; use tools when needed.\n- Reviewer/critic: check for gaps, conflicts, risk, and feasibility before final output.\n\nAvailable workers:\n{}\nProtocol:\n1. Decide whether multiple agents are needed; prefer the default agent or a single pass for simple work.\n2. For complex work, decompose explicitly and assign to the best-matching profile above.\n3. Tools and skills are shared pools; respect each agent's allow/deny policies.\n4. To use full skill text, call **`skill_read`**—do not invent skill details.\n5. Final replies should integrate conclusions only; briefly note which agents contributed when useful.",
-        lead_prompt.unwrap_or_else(|| "You are the multi-agent Supervisor.".into()),
-        lead.id,
-        lead.name,
-        lead.profile,
-        lead.description,
-        if roster.is_empty() {
-            "- id: general\n  name: general-assistant\n  role: worker\n  profile: general\n  description: General-purpose fallback agent.\n".to_string()
-        } else {
-            roster
-        }
     )
 }
 
@@ -1876,26 +1737,5 @@ mod builtin_agent_tests {
         let ids = resolve_skill_ids(&coder, &["docx".into()], &HashMap::new());
         assert_eq!(ids.len(), 8);
         assert!(ids.iter().any(|id| id == "skill-manager"));
-    }
-
-    #[test]
-    fn research_builtin_manifest_parses_and_loads() {
-        let raw = include_str!("research/AGENT.md");
-        let comm = include_str!("research/COMMUNICATION.md");
-        let agent = load_builtin_agent("research", raw, comm).expect("load builtin research");
-        assert_eq!(agent.def.id, "research");
-        assert_eq!(agent.def.name, "深度研究");
-        assert_eq!(agent.def.profile, AgentProfile::Analyst);
-        assert_eq!(agent.def.ui.show_sub_agent_trace, Some(true));
-        assert_eq!(agent.def.ui.user_selectable, Some(false));
-        assert_eq!(agent.def.ui.show_in_composer, Some(false));
-        assert!(
-            agent
-                .def
-                .access_policy
-                .allow_tools
-                .contains(&"web_search".to_string()),
-            "research should allow web_search"
-        );
     }
 }

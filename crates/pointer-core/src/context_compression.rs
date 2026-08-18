@@ -717,11 +717,6 @@ fn build_summary_system_prompt(ui: &CompressionUiContext, keep_users: u32) -> St
                     "\n\nSub-agent scope: read-only explore worker. Prioritize paths:lines, call chains, \
                      negative greps, and corrections to lead assumptions — not full file bodies.",
                 );
-            } else if ui.sub_agent_id.as_deref() == Some("research") {
-                prompt.push_str(
-                    "\n\nSub-agent scope: web-only research worker. Prioritize cited URLs, cross-checked \
-                     external facts, and source-backed summaries — not codebase paths.",
-                );
             } else if let Some(name) = ui.sub_agent_name.as_deref().filter(|s| !s.is_empty()) {
                 prompt.push_str(&format!(
                     "\n\nSub-agent scope: {name}. Preserve handoff conclusions the lead agent will need."

@@ -473,14 +473,6 @@ pub enum StreamEvent {
         #[serde(rename = "annotatedRelPath")]
         annotated_rel_path: String,
     },
-    /// Supervisor finished planning; UI may show a task checklist.
-    SupervisorPlan {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        tasks: Vec<SupervisorPlanTask>,
-    },
     /// Task board document changed (for chat UI panel).
     TaskBoardUpdated {
         #[serde(rename = "conversationId")]
@@ -534,14 +526,6 @@ pub enum StreamEvent {
         #[serde(rename = "monitorId")]
         monitor_id: Option<String>,
     },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupervisorPlanTask {
-    pub id: String,
-    pub title: String,
-    #[serde(rename = "agentId")]
-    pub agent_id: String,
 }
 
 /// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).

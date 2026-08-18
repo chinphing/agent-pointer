@@ -1,11 +1,11 @@
 //! Environment snippets: **calendar date only** in trailing `[Environment]` `system` text;
-//! **full date+time** in Computer `[CUR_SCREEN]` inject and Supervisor `chat_once` templates.
+//! **full date+time** in Computer `[CUR_SCREEN]` inject.
 //! Both include brief **OS** and **Time baseline** usage lines for every agent.
 
 use chrono::Local;
 use std::env;
 
-/// Full local wall-clock string (date + time + zone label). Used in Computer screen inject and Supervisor `chat_once` paths.
+/// Full local wall-clock string (date + time + zone label). Used in Computer screen inject.
 pub fn format_local_wall_clock_full() -> String {
     Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string()
 }
@@ -68,18 +68,6 @@ pub fn build_environment_system_prompt_slice() -> String {
     )
 }
 
-/// OS + locale + full local time — embedded in Supervisor `chat_once` templates.
-pub fn build_environment_context_full() -> String {
-    let os = os_label();
-    format!(
-        "Environment:\n- OS: {os}\n{}\n- Locale hint: {}\n- Local time: {}\n{}",
-        os_usage(os),
-        locale_hint(),
-        format_local_wall_clock_full(),
-        time_baseline_usage("Local time")
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,16 +81,5 @@ mod tests {
         assert!(slice.contains("Time baseline:"));
         assert!(slice.contains("**Local date**"));
         assert!(slice.contains("authoritative clock"));
-    }
-
-    #[test]
-    fn environment_full_includes_time_baseline_for_local_time() {
-        let ctx = build_environment_context_full();
-        assert!(ctx.contains("Local time:"));
-        assert!(ctx.contains("OS usage:"));
-        assert!(ctx.contains("host platform"));
-        assert!(ctx.contains("Time baseline:"));
-        assert!(ctx.contains("**Local time**"));
-        assert!(ctx.contains("authoritative clock"));
     }
 }

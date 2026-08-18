@@ -115,7 +115,7 @@ pub struct ResolvedAgentUi {
 }
 
 fn default_composer_label(profile: &AgentProfile, role: &str, id: &str) -> String {
-    if role == "supervisor" || id == "supervisor" {
+    if role == "supervisor" {
         return "团队模式".into();
     }
     match id {
@@ -124,7 +124,6 @@ fn default_composer_label(profile: &AgentProfile, role: &str, id: &str) -> Strin
         "computer" => "电脑操控".into(),
         "explore" => "代码探索".into(),
         "general-worker" => "通用执行".into(),
-        "research" => "深度研究".into(),
         _ => match profile {
             AgentProfile::Computer => "电脑操控".into(),
             AgentProfile::Coder => "氛围编程".into(),
@@ -137,10 +136,10 @@ fn default_composer_label(profile: &AgentProfile, role: &str, id: &str) -> Strin
 }
 
 fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAgentUi {
-    let is_supervisor = role == "supervisor" || id == "supervisor";
+    let is_supervisor = role == "supervisor";
     let is_computer = matches!(profile, AgentProfile::Computer) || id == "computer";
     let is_coder = matches!(profile, AgentProfile::Coder) || id == "coder";
-    let is_research = matches!(profile, AgentProfile::Analyst) || id == "research";
+    let is_research = matches!(profile, AgentProfile::Analyst);
     let has_task_board = !is_supervisor;
     ResolvedAgentUi {
         show_in_composer: !is_supervisor,
@@ -175,7 +174,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
             "coder".into()
         } else if matches!(profile, AgentProfile::Explore) || id == "explore" {
             "explore".into()
-        } else if matches!(profile, AgentProfile::Analyst) || id == "research" {
+        } else if matches!(profile, AgentProfile::Analyst) {
             "research".into()
         } else {
             "general".into()

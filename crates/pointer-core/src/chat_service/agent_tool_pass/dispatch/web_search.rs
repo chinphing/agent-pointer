@@ -3,9 +3,7 @@
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::models::ToolCall;
 use crate::provider::OpenAIProvider;
-use crate::tools::web_search::{
-    dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
-};
+use crate::tools::web_search::{dispatch_to_tool_json_async, WebSearchDispatchContext};
 use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
@@ -16,7 +14,6 @@ use super::super::types::{SubToolPassConfig, ToolExecResult};
 pub(in crate::chat_service::agent_tool_pass) struct WebSearchInvocation {
     usage_scope: AgentInstanceScope,
     agent_id: Option<String>,
-    research_sub_agent: bool,
     trace_id: Option<String>,
     scoped_message_id: Option<String>,
 }
@@ -41,7 +38,6 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_web_search_invocation(
         agent_id: sub
             .map(|s| s.active.def.id.clone())
             .or_else(|| lead_agent_id.map(str::to_string)),
-        research_sub_agent: sub.map(|s| s.active.def.id.as_str()) == Some("research"),
         trace_id: sub.map(|s| s.trace_id.clone()),
         scoped_message_id: sub.map(|s| s.scoped_message_id.clone()),
     })
@@ -57,14 +53,6 @@ pub(super) async fn dispatch_web_search(
     cancel: &CancellationToken,
     invocation: WebSearchInvocation,
 ) -> ToolExecResult {
-    let invoke = if invocation.research_sub_agent {
-        WebSearchInvokeContext::ResearchSubAgent {
-            history,
-            exclude_message_id: message_id,
-        }
-    } else {
-        WebSearchInvokeContext::Tool
-    };
     dispatch_to_tool_json_async(WebSearchDispatchContext {
         settings: &provider.settings,
         agent_id: invocation.agent_id.as_deref(),
@@ -75,7 +63,6 @@ pub(super) async fn dispatch_web_search(
         tool_call_id: tc.id.clone(),
         history,
         exclude_message_id: message_id,
-        invoke,
         usage_scope: invocation.usage_scope,
         trace_id: invocation.trace_id,
         scoped_message_id: invocation.scoped_message_id,
@@ -99,7 +86,7 @@ mod tests {
         let sub = AgentInstanceScope::with_instance_id(
             "run-sub",
             "conversation",
-            "research",
+            "coder",
             "sub-instance",
         );
 

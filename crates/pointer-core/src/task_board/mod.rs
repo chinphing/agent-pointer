@@ -6,7 +6,6 @@ pub mod checkpoint;
 pub mod coordination;
 pub mod evidence;
 pub mod finalize;
-pub mod gateway;
 pub mod history_trim;
 pub mod init_policy;
 pub mod inject;
@@ -35,11 +34,6 @@ pub use coordination::{
 };
 pub use evidence::history_has_recent_action_tools;
 pub use finalize::maybe_auto_finalize_if_complete;
-pub use gateway::{
-    check_dependencies, dispatch_to_child, report_child_status,
-    sync_parent_board_from_supervisor_plan, DependencyCheck, DispatchContext,
-    SupervisorPlanSyncStats,
-};
 pub use history_trim::{
     default_agent_task_board_history_trim_table, is_task_board_history_trim_enabled,
     maybe_trim_after_tool_pass, trim_history_after_task_board, TaskBoardTrimHook,

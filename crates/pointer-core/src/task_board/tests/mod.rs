@@ -4,7 +4,6 @@ mod apply_tests {
     use crate::task_board::migrate::normalize_stored_value;
     use crate::task_board::model::ItemStatus;
     use crate::task_board::store::TaskBoardStore;
-    use crate::task_board::{check_dependencies, report_child_status, DependencyCheck};
     use serde_json::json;
 
     #[test]
@@ -97,38 +96,6 @@ mod apply_tests {
         let doc = normalize_stored_value("k", raw);
         assert_eq!(doc.version, 4);
         assert_eq!(doc.global_milestones.len(), 1);
-    }
-
-    #[test]
-    fn dependency_gate_blocks() {
-        let store = TaskBoardStore::new();
-        let key = "parent";
-        store
-            .apply(
-                key,
-                "init",
-                &json!({
-                    "goal": "g",
-                    "items": [
-                        {"id": "sub_01", "title": "first", "status": "pending"},
-                        {"id": "sub_02", "title": "second", "status": "pending", "depends_on": ["sub_01"]}
-                    ]
-                }),
-            )
-            .expect("init");
-        let doc = store.document(key);
-        assert!(matches!(
-            check_dependencies(&doc, "sub_02"),
-            DependencyCheck::Blocked { .. }
-        ));
-        let mut doc = store.document(key);
-        report_child_status(&mut doc, "sub_01", ItemStatus::Done, "ok").expect("report");
-        store.save_document(key, doc);
-        let doc = store.document(key);
-        assert!(matches!(
-            check_dependencies(&doc, "sub_02"),
-            DependencyCheck::Ready
-        ));
     }
 
     #[test]

@@ -14,17 +14,6 @@ use super::tool_mode;
 use super::web_search_error_json;
 
 /// How to build DashScope `input.messages` for this invocation.
-#[derive(Debug, Clone)]
-pub(crate) enum WebSearchInvokeContext<'a> {
-    /// Generic tool: single user message = `query` only.
-    Tool,
-    /// Research sub-agent: AGENT.md system + local history + query.
-    ResearchSubAgent {
-        history: &'a [ChatMessage],
-        exclude_message_id: &'a str,
-    },
-}
-
 pub(crate) struct WebSearchDispatchContext<'a> {
     pub settings: &'a ModelSettings,
     pub agent_id: Option<&'a str>,
@@ -35,13 +24,12 @@ pub(crate) struct WebSearchDispatchContext<'a> {
     pub tool_call_id: String,
     pub history: &'a [ChatMessage],
     pub exclude_message_id: &'a str,
-    pub invoke: WebSearchInvokeContext<'a>,
     pub usage_scope: AgentInstanceScope,
     pub trace_id: Option<String>,
     pub scoped_message_id: Option<String>,
 }
 
-/// Execute `web_search` (Tool or ResearchSubAgent mode) and record tokens.
+/// Execute `web_search` (generic Tool mode) and record tokens.
 pub(crate) async fn dispatch(ctx: WebSearchDispatchContext<'_>) -> Result<WebSearchResult> {
     let citation_base_index =
         super::client::compute_citation_base_index(ctx.history, ctx.exclude_message_id);
@@ -58,26 +46,8 @@ pub(crate) async fn dispatch(ctx: WebSearchDispatchContext<'_>) -> Result<WebSea
         citation_base_index,
     };
 
-    let result = match &ctx.invoke {
-        WebSearchInvokeContext::Tool => {
-            tool_mode::execute(ctx.settings, ctx.agent_id, &ctx.args, ctx.cancel, ui).await
-        }
-        WebSearchInvokeContext::ResearchSubAgent {
-            history,
-            exclude_message_id,
-        } => {
-            crate::agents::research::web_search::execute(
-                ctx.settings,
-                ctx.agent_id,
-                history,
-                exclude_message_id,
-                &ctx.args,
-                ctx.cancel,
-                ui,
-            )
-            .await
-        }
-    }?;
+    let result =
+        tool_mode::execute(ctx.settings, ctx.agent_id, &ctx.args, ctx.cancel, ui).await?;
 
     let result = super::client::apply_citation_base_index(result, citation_base_index);
     let result = super::client::finalize_web_search_result(result);

@@ -50,19 +50,6 @@ pub struct SubAgentLoopContext<'a> {
     pub max_spawn_depth: u32,
 }
 
-/// Supervisor orchestration loop.
-pub struct SupervisorLoopContext<'a> {
-    pub session: SessionRefsArc<'a>,
-    pub history: &'a mut Vec<ChatMessage>,
-    pub enabled_skill_ids: &'a [String],
-    pub agent_skill_overrides: &'a HashMap<String, Vec<String>>,
-    pub provider: OpenAIProvider,
-    pub main_task_board_store_key: &'a str,
-    pub tool_budget: &'a mut SessionToolBudget,
-    pub llm_stats: &'a mut ConversationLlmStats,
-    pub run_id: &'a str,
-}
-
 /// Nested `run_subagent` delegation from a tool pass.
 pub struct SubagentDelegationContext<'a> {
     pub session: SessionRefs<'a>,

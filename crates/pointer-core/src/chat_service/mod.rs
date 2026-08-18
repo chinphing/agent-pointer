@@ -2,7 +2,7 @@
 //!
 //! Small helpers live in sibling modules; entrypoint `session::run_chat`, orchestration `session_inner`,
 //! single-agent `single_agent` (+ `_prompt` / `_stream` / `_post_stream` / `_tools` thin wrappers),
-//! sub-agent `sub_agent` (+ `_prompt` / `_stream`), supervisor `supervisor` (+ `_plan` / `_synth`),
+//! sub-agent `sub_agent` (+ `_prompt` / `_stream`),
 //! shared `agent_stream_round` / `agent_post_stream` / `agent_round_lifecycle` / `agent_tool_pass` / `run_subagent_delegation`.
 
 mod agent_post_stream;
@@ -37,9 +37,6 @@ mod sub_agent_prompt;
 mod sub_agent_stream;
 mod sub_agent_task_prompt;
 pub(crate) mod sub_message;
-mod supervisor;
-mod supervisor_plan;
-mod supervisor_synth;
 pub use crate::task_board::sub_agent_task_board_store_key;
 mod util;
 

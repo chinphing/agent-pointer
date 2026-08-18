@@ -149,7 +149,6 @@ impl ExtensionRegistry {
 /// Register framework defaults by delegating to profile-specific modules (Computer, …).
 pub fn register_builtin_extensions(registry: &mut ExtensionRegistry) {
     crate::agents::computer::extension_hooks::register(registry);
-    crate::agents::research::extension_hooks::register(registry);
     registry.register_message_loop_prompts_after(Arc::new(
         common_user_dynamic_inject_hook::CommonUserDynamicInjectHook,
     ));

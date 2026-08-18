@@ -1,8 +1,6 @@
 //! Inner orchestration (`run_chat_inner`): settings, supervisor vs single-agent loop.
 
-use crate::agents::{
-    delegatable_sub_agents_system_block, AgentOrchestrator, AGENT_MODE_SUPERVISOR,
-};
+use crate::agents::{delegatable_sub_agents_system_block, AgentOrchestrator};
 use crate::dispatcher::TriggerSource;
 use crate::llm_token_stats::ChatLlmTokenSession;
 use crate::models::{effective_reasoning_in_messages, ChatMessage, ModelSettings, StreamEvent};
@@ -381,12 +379,10 @@ pub(super) async fn run_chat_inner(
             .system_prompts
             .push(crate::scheduler::auto_deliver_system_prompt());
     }
-    if agent_plan.mode != AGENT_MODE_SUPERVISOR {
-        if let Some(block) =
-            delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)
-        {
-            agent_plan.system_prompts.push(block);
-        }
+    if let Some(block) =
+        delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)
+    {
+        agent_plan.system_prompts.push(block);
     }
     let provider = OpenAIProvider::new(settings.clone(), api_key);
     let model_name = if settings.model.trim().is_empty() {
@@ -409,33 +405,9 @@ pub(super) async fn run_chat_inner(
     // cumulatively across the whole conversation. Cron ticks, follow-up sends,
     // and long transcripts therefore each get a fresh budget up to max_cap.
     let tool_budget_single_start = 0;
-    let tool_budget_supervisor_start = 0;
 
     let main_task_board_store_key =
         choose_main_task_board_store_key(state.as_ref(), conversation_id, ctx.history);
-
-    if agent_plan.mode == AGENT_MODE_SUPERVISOR {
-        let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_supervisor_start);
-        let mut sup_ctx = super::context::SupervisorLoopContext {
-            session: super::context::SessionRefsArc {
-                stream: &stream,
-                state: state.clone(),
-                conversation_id,
-                cancel: cancel.clone(),
-            },
-            history: ctx.history,
-            enabled_skill_ids: ctx.enabled_skill_ids,
-            agent_skill_overrides: &req.agent_skill_overrides,
-            provider,
-            main_task_board_store_key: &main_task_board_store_key,
-            tool_budget: &mut tool_budget,
-            llm_stats: &mut llm_token_session.stats,
-            run_id,
-        };
-        let r = super::supervisor::run_supervisor_chat(&mut sup_ctx).await;
-        tool_budget.sync_out(ctx.consumed_supervisor);
-        return r;
-    }
 
     let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_single_start);
     let reasoning_in_messages = effective_reasoning_in_messages(&provider.settings);

@@ -572,15 +572,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_supervisor_even_if_listed() {
-        let reg = AgentRegistry::new();
-        register_builtin_agents(&reg);
-        let allow = vec!["supervisor".to_string()];
-        let r = validate_run_subagent_target(&reg, &allow, "general", "supervisor");
-        assert!(r.is_err());
-    }
-
-    #[test]
     fn own_agent_id_is_rewritten_to_a_self_fork() {
         let allow = vec!["explore".to_string()];
         let mut args = json!({

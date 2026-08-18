@@ -1,7 +1,6 @@
 mod client;
 mod dispatch;
 mod generation;
-mod responses;
 mod sse_drain;
 mod stream_ui;
 mod token;
@@ -20,14 +19,8 @@ pub use client::{
     WebSearchMessage, WebSearchRequest, WebSearchResult, WebSearchSource,
     DEFAULT_TOOL_WEB_SEARCH_STRATEGY, DEFAULT_WEB_SEARCH_STRATEGY,
 };
-pub(crate) use dispatch::{
-    dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
-};
+pub(crate) use dispatch::{dispatch_to_tool_json_async, WebSearchDispatchContext};
 pub use generation::{execute_generation_web_search, DEFAULT_TOOL_WEB_SEARCH_MODEL};
-pub use responses::{
-    build_responses_request_body, dashscope_responses_url, execute_responses_web_search,
-    parse_responses_response,
-};
 pub use sse_drain::{
     drain_search_sse_chunk, read_dashscope_search_sse, read_dashscope_search_sse_from_str,
     SearchStreamEvent,
@@ -52,9 +45,6 @@ pub fn register_all(reg: &ToolRegistry) {
         h,
     ));
 }
-
-/// Default `search_options.search_strategy` for research sub-agent (Responses API metadata).
-pub const DEFAULT_RESEARCH_WEB_SEARCH_STRATEGY: &str = "max";
 
 fn parse_web_search_args_with_defaults(
     args: &Value,
@@ -109,11 +99,6 @@ pub fn parse_tool_web_search_args(args: &Value) -> Result<WebSearchRequest> {
     parse_web_search_args_with_defaults(args, DEFAULT_TOOL_WEB_SEARCH_STRATEGY, false)
 }
 
-/// Parse tool args for research sub-agent (Responses API, `max` + thinking default).
-pub fn parse_research_web_search_args(args: &Value) -> Result<WebSearchRequest> {
-    parse_web_search_args_with_defaults(args, DEFAULT_RESEARCH_WEB_SEARCH_STRATEGY, true)
-}
-
 /// Backward-compatible alias for generic tool parsing.
 pub fn parse_web_search_args(args: &Value) -> Result<WebSearchRequest> {
     parse_tool_web_search_args(args)
@@ -148,13 +133,6 @@ mod tests {
         assert_eq!(req.search_strategy, "pro_max");
         assert!(!req.enable_thinking);
         assert!(!req.forced_search);
-    }
-
-    #[test]
-    fn parse_research_args_defaults() {
-        let req = parse_research_web_search_args(&json!({"query": "Rust 2024 edition"})).unwrap();
-        assert_eq!(req.search_strategy, "max");
-        assert!(req.enable_thinking);
     }
 
     #[test]

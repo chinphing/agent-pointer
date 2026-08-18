@@ -1085,7 +1085,7 @@ mod tests {
             }],
             web_search_model: "qwen3.6-plus".into(),
             agent_default_models: [(
-                "research".into(),
+                "explore".into(),
                 AgentModelRef {
                     provider_id: "qwen".into(),
                     model: "qwen3.6-plus".into(),
@@ -1095,7 +1095,7 @@ mod tests {
             .collect(),
             ..Default::default()
         };
-        let cfg = resolve_dashscope_search_config(&settings, Some("research")).unwrap();
+        let cfg = resolve_dashscope_search_config(&settings, Some("explore")).unwrap();
         assert_eq!(cfg.model, "qwen3-max");
         assert!(cfg.generation_url.contains("text-generation"));
     }

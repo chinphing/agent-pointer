@@ -399,17 +399,19 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 
 ## 8. 未来实施路线（启动时参照，当前不执行）
 
-> 以下为将来启动开发时的建议顺序与验收标准；**当前不实施任何阶段**。启动前需重新核对代码现状（本设计基于 2026-08-18 的仓库快照）。
+> 以下为将来启动开发时的建议顺序与验收标准。启动前需重新核对代码现状（本设计基于 2026-08-18 的仓库快照）。
+>
+> **进度（2026-08-18 核对）**：**P0 观测基线已完成**——Rust 侧 ①–⑤ 全部落地（`crates/pointer-core/src/observability/`：trace / pipeline / exporters / redact，埋点覆盖 LLM、Tool、审批、重试，含单测）。**⑥ 前端 Run 概览 + 工具耗时详情经用户决策不做**（P0 范围收敛为日志侧观测，不引入 RealtimeExporter 与前端时间线端点）。下一步进入 **P1 插件核心**。
 
 | 阶段 | 内容 | 依赖 | 验收标准 |
 |---|---|---|---|
-| **P0 观测基线** | ① 接通 `pre/post_tool_call`；② 新增 LLM before/after hook（统一 provider 包装，见 §8.1）；③ 观测 TraceContext（trace_id = run_id，见 §7.1 注 7.1）贯穿 Run→LLM→Tool；④ 异步管道（有界 channel + 后台消费）+ ExporterRegistry（LogExporter + RealtimeExporter）；⑤ 脱敏器；⑥ 前端 Run 概览 + 工具耗时详情（协议见 §7.6 注 7.6） | 无 | 任意 Run 可在结构化日志与前端时间线看到 LLM/Tool/审批/重试 Span，含耗时与 Token；埋点为 try_send 非阻塞，channel 满时丢弃计数不阻塞主循环 |
+| **P0 观测基线** ✅ 已完成（2026-08-18 核对） | ① 接通 `pre/post_tool_call`；② 新增 LLM before/after hook（统一 provider 包装，见 §8.1）；③ 观测 TraceContext（trace_id = run_id，见 §7.1 注 7.1）贯穿 Run→LLM→Tool；④ 异步管道（有界 channel + 后台消费）+ ExporterRegistry（LogExporter）；⑤ 脱敏器；~~⑥ 前端 Run 概览 + 工具耗时详情~~（**用户决策：不做**，见下注） | 无 | 任意 Run 可在结构化日志看到 LLM/Tool/审批/重试 Span，含耗时与 Token；埋点为 try_send 非阻塞，channel 满时丢弃计数不阻塞主循环 |
 | **P1 插件核心** | ① `pointer-plugin.toml` 解析 + 校验（`[[tools.tool]]` 必须有 `exec` 执行载体，见 §4.1 注 4.1.1）；② PluginRegistry + 状态机 + 授权（manifest + 文件清单哈希留痕，见 §4.3 注 4.3.1）；③ Skill/Agent/Rule 单元接入现有 Registry；④ `AGENTS.md`（嵌套）发现链；⑤ **导入转换器**（Claude `plugin.json` / Codex 插件目录 → 原生格式，含导入报告）；⑥ 冲突遮蔽 UI；⑦ **`ProcessToolProvider` 基础版**（stdio + JSON 协议，承载 `[[tools.tool]]` 的 `exec`） | P0 | 一个含 skills+agents+rules+sidecar 工具的示例插件目录可被发现、授权、启用，能力出现在对应 Registry 且带 plugin_id；一个 Claude 格式插件目录可成功导入为原生插件 |
 | **P2 MCP Client** | ① stdio 传输 + initialize/tools/list/tools/call；② `McpToolProvider` 注册（`mcp.<server>.<tool>`）；③ 健康检查 + 崩溃重启；④ `McpRequest` Span；⑤ 审批/allowlist 接入 | P1（前置：同步×异步桥接方案定稿，§6 注 6.1） | 接入一个本地 stdio MCP server，工具可被模型调用，审批生效，Span 可查 |
 | **P3 外部 Hook** | ① `hooks.json` 执行器（stdin JSON / exit code / JSON 决策）；② PreToolUse 阻断语义（回传通道见 §5 注 5.2）；③ fail-open/fail-closed 策略；④ `Hook` Span | P0 | 一个 PreToolUse hook 可阻断 terminal 调用并在 UI/trace 显示原因 |
 | **P4 分发与导出** | ① marketplace（GitHub 仓库 + 兼容 Claude `marketplace.json`，安装即走导入转换器）；② Sidecar 高级能力（守护进程管理、热更新，可选；基础版已在 P1）；③ `OtlpExporter`（TraceEvent→OTLP，脱敏后导出，作为 ExporterRegistry 的一个插件实现）；④ 可选：Pointer MCP Server（白名单只读能力） | P1–P3 | 从 GitHub 仓库安装一个 Claude 格式插件（经导入转换后启用）；OTLP 导出到本地 Collector 可验证 |
 
-### P0 前置探索（启动后第一项工作，审查注 8.1，2026-08-18）
+### P0 前置探索（已完成，审查注 8.1，2026-08-18）
 
 1. 读 `dispatcher/hooks.rs` 与 `chat_service/agent_tool_pass/`，确认 `pre/post_tool_call` 接线点（原风险表已列）；
 2. **全量 LLM 调用点清单**：`single_agent_stream.rs` / `sub_agent_stream.rs` / `supervisor.rs` / `computer_pipeline_loop.rs` 等，据此决定 LlmBefore/LlmAfter 是统一 provider 包装还是逐点埋点——逐点埋点与"最小改动"原则张力最大，倾向统一包装；

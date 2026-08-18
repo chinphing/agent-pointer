@@ -595,6 +595,12 @@ export interface UserSettings {
   contextKeepRecentUserTurns?: number
   contextSummaryMaxTokens?: number
   maxToolRounds?: number
+  /** Max UTF-8 bytes returned by one file_read (default 65536). */
+  fileReadMaxBytes?: number
+  /** Max UTF-8 bytes kept from one physical line in file_read / file_grep (default 1024). */
+  fileLineMaxBytes?: number
+  /** Max file_grep hit rows (default 50). */
+  fileGrepMaxResults?: number
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number
   rawContentViewEnabled?: boolean
@@ -761,6 +767,12 @@ export interface ModelSettings {
   contextSummaryMaxTokens: number
   /** Max tool-call rounds per user message (assistant loop), default 100 */
   maxToolRounds: number
+  /** Max UTF-8 bytes returned by one file_read (default 65536) */
+  fileReadMaxBytes?: number
+  /** Max UTF-8 bytes kept from one physical line (default 1024) */
+  fileLineMaxBytes?: number
+  /** Max file_grep hit rows (default 50) */
+  fileGrepMaxResults?: number
   /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop */
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number

@@ -59,7 +59,13 @@ Do **not** retry the same failing patch blindly.
 
 ### When `file_read` hits caps or errors
 
-**`file_read`** is **one file per call**. If the result says **file too large** for **`maxBytes`**, or the call fails: use **`lineStart`** / **`lineEnd`**, a **smaller `maxBytes`**, or **`file_grep`** to locate the region first—then re-read. For multiple files, issue **parallel** **`file_read`** calls (do not batch paths in one call). If your conclusion depends on truncated content, say so in the user-facing summary.
+**`file_read`** / **`file_grep`** ceilings are **enforced**.
+**`maxBytes`** / **`maxResults`** cannot be raised past the runtime limit.
+If **`truncated`** or **`skippedLargeFileCount`** is set: use **`lineStart`** /
+**`lineEnd`**, a **narrower `path`**, or a **tighter pattern**—then re-read.
+Do not retry the same oversized dump.
+For multiple files, issue **parallel** **`file_read`** calls (do not batch paths in one call).
+If a conclusion depends on truncated content, say so in the user-facing summary.
 
 ---
 

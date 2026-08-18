@@ -35,9 +35,16 @@ concurrently).
 On Windows prefer forward slashes in JSON (`C:/project/foo.rs`) or escape each `\` as `\\` —
 unescaped `\` makes arguments invalid JSON.
 
-**Context discipline:** Each read returns the file body (after **`lineStart`** / **`lineEnd`** /
-**`maxBytes`**). Prefer **`grep`** first, use line ranges on huge files, lower **`maxBytes`** when
-a snippet is enough, and split across parallel **`file_read`** calls when you need several files.
+**Context discipline:** Each **`file_read`** is capped by host settings
+(defaults: **64 KiB** body, **1 KiB** per line). **`maxBytes`** may only
+**lower** the current ceiling. If **`truncated`** is true, do not retry
+with a larger **`maxBytes`** — use **`lineStart`** / **`lineEnd`** or
+**`file_grep`** first.
+**`file_grep`** caps hit count (default **50**), per-line snippets
+(default **1 KiB**), and total hit payload (same as the body ceiling).
+**`maxResults`** cannot raise those ceilings. Oversized files (**> 2 MiB**)
+are skipped and counted in **`skippedLargeFileCount`**.
+Prefer **`grep`** first, then a tight line window.
 
 #### Methods
 
@@ -58,8 +65,10 @@ a snippet is enough, and split across parallel **`file_read`** calls when you ne
   **Windows paths:** prefer `"D:/workspace/src/foo.rs"`, or escape backslashes — `\\` for each `\`.
 - **`lineStart`** — Optional; 1-based first line to include. Default: start of file. Alias **`line_start`**.
 - **`lineEnd`** — Optional; 1-based **exclusive** end line. Alias **`line_end`**.
-- **`maxBytes`** — Optional; max bytes for the **returned content** (default **262144**,
-  256 KiB). Alias **`max_bytes`**.
+- **`maxBytes`** — Optional; max bytes for the **returned content**.
+  Alias **`max_bytes`**. Default and ceiling come from host settings
+  (default **65536** / 64 KiB). Values above the ceiling are clamped.
+  Each physical line is capped (default **1024** bytes).
   With **`lineStart`** / **`lineEnd`**, the whole-file size is **not** a hard reject —
   only the selected window is returned (and may be truncated to **`maxBytes`**).
   Without a line window, files larger than **`maxBytes`** are rejected.
@@ -144,7 +153,9 @@ Example:
 
 - **`pattern`** — Rust regex syntax (via the same matcher stack ripgrep uses for line search). Keep patterns reasonably short (≤ **512** characters). Matching is **line-oriented** (not multi-line across `\n` within one match). When **`fixedString`** is `true`, `pattern` is treated as a literal string, not a regex.
 - **`path`** — **Required**; same idea as **`grep -R pattern PATH`**: **`PATH`** must be an **existing** file or directory. Prefer **narrow** workspace-relative paths (e.g. `src/`, `crates/pointer-core/src/`). Use **`path: "."`** only when you **deliberately** need a whole-repo search. If the path does not exist, the error includes **可能的路径** — sibling directories under the nearest existing parent (or workspace root) to help correct typos like `ui` → `src`.
-- **`maxResults`** — Optional cap on hit rows (default bounded by runtime).
+- **`maxResults`** — Optional cap on hit rows (default from host settings, **50**).
+  Raising it cannot exceed the host ceiling or the body-byte payload cap.
+  Each **`matchLine`** / context line is clipped (default **1 KiB**).
 - **`maxDepth`** — Optional directory walk depth cap (ignored when **`path`** targets a single file).
 - **`contextLines`** — Optional lines of context above/below each match (default **2**, clamped up to **5**). Alias **`context_lines`**.
 - **`includeGlobs`** — Optional array of include glob patterns (e.g. `["*.rs", "src/**/*"]`). Only files matching any pattern are searched. When combined with **`fileTypes`**, those globs are merged (duplicates removed).
@@ -182,7 +193,9 @@ Example:
 - **`ignoreCase`** — Optional boolean; when `true` case-insensitive matching is enabled. Default `false`.
 - **`includeHidden`** — Optional boolean; when `true` hidden files and directories are included in the walk (overrides the default skip-hidden behavior). Default `false`.
 
-Binary files are skipped heuristically (NUL byte). Very large files (> **2 MiB**) are skipped per file.
+Binary files are skipped heuristically (NUL byte). Files larger than **2 MiB**
+are skipped (see **`skippedLargeFileCount`** / **`warning`**).
+Do not assume “no hits” means the pattern is absent when that count is > 0.
 
 Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
 

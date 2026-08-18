@@ -44,6 +44,7 @@
 | 文档 | 说明 |
 |------|------|
 | [file-tool-write-scope.md](file-tool-write-scope.md) | `file_write` / `file_edit` 允许的写入目录 |
+| [file-tool-output-limits.md](file-tool-output-limits.md) | `file_read` / `file_grep` 输出硬上限（防超大正文回灌上下文） |
 | [turn-file-baseline-review.md](turn-file-baseline-review.md) | 轮次页脚修改摘要、文件基线与右侧栏 Review |
 | [web-search-tool.md](web-search-tool.md) | `web_search` 工具行为与 DashScope API |
 | [web-fetch-tool.md](web-fetch-tool.md) | `web_fetch` 抓取公开 URL（Hermes `web_extract` 对齐） |

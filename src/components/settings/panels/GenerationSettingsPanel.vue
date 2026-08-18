@@ -32,6 +32,9 @@ const {
   contextBudgetTokens,
   contextKeepRecentUserTurns,
   maxToolRounds,
+  fileReadMaxKb,
+  fileLineMaxBytes,
+  fileGrepMaxResults,
   parallelToolExecutionEnabled,
   maxParallelToolCalls,
   maxParallelSubAgents,
@@ -629,6 +632,46 @@ async function onPlaySoundToggle(checked: boolean) {
           <div>
             <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
             <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+        <h4 class="text-sm font-medium text-foreground">文件读取与搜索</h4>
+        <p class="text-[11px] text-muted">限制智能体读文件和搜索的返回量。工具参数只能下调，不能突破这里的上限。</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-[12px] text-muted mb-1.5">正文上限（KB）</label>
+            <input
+              v-model.number="fileReadMaxKb"
+              type="number"
+              min="4"
+              max="1024"
+              step="1"
+              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-[12px] text-muted mb-1.5">单行上限（字节）</label>
+            <input
+              v-model.number="fileLineMaxBytes"
+              type="number"
+              min="256"
+              max="16384"
+              step="1"
+              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+            />
+          </div>
+          <div>
+            <label class="block text-[12px] text-muted mb-1.5">搜索命中条数</label>
+            <input
+              v-model.number="fileGrepMaxResults"
+              type="number"
+              min="1"
+              max="200"
+              step="1"
+              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+            />
           </div>
         </div>
       </div>

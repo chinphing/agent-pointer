@@ -22,9 +22,9 @@ pub use path::{set_runtime_workspace_root, AgentWorkspaceGuard, ConversationWork
 
 use edit::execute_file_edit_payload;
 use glob::execute_file_glob_payload;
-use grep::execute_file_grep_payload;
+use grep::{execute_file_grep_payload, execute_file_grep_payload_with};
 use list::execute_file_list_payload;
-use read::execute_file_read;
+use read::{execute_file_read, execute_file_read_with};
 use write::execute_file_write_payload;
 
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.
@@ -34,13 +34,48 @@ const FILE_DOC_SOURCE: &str = "tools/prompts/file.md";
 /// Standalone schemas for flat file tools (no `method` enum).
 const FILE_SCHEMA_YAML: &str = include_str!("../prompts/file.schema.yaml");
 
-pub(crate) const MAX_FILE_READ_BYTES: usize = 256 * 1024;
-pub(crate) const MAX_GREP_RESULTS: usize = 200;
 pub(crate) const MAX_GREP_FILE_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const MAX_GLOB_RESULTS: usize = 500;
 pub(crate) const MAX_LIST_ENTRIES: usize = 2000;
 pub(crate) const MAX_WALK_DEPTH: usize = 64;
 pub(crate) const CONTEXT_LINES: usize = 2;
+
+/// Runtime caps for `file_read` / `file_grep`. Tool arguments may only lower them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FileToolLimits {
+    pub read_max_bytes: usize,
+    pub line_max_bytes: usize,
+    pub grep_max_results: usize,
+}
+
+impl Default for FileToolLimits {
+    fn default() -> Self {
+        Self {
+            read_max_bytes: crate::models::DEFAULT_FILE_READ_MAX_BYTES as usize,
+            line_max_bytes: crate::models::DEFAULT_FILE_LINE_MAX_BYTES as usize,
+            grep_max_results: crate::models::DEFAULT_FILE_GREP_MAX_RESULTS as usize,
+        }
+    }
+}
+
+impl FileToolLimits {
+    pub(crate) fn from_user(user: &crate::models::UserSettings) -> Self {
+        Self {
+            read_max_bytes: crate::models::clamp_file_read_max_bytes(user.file_read_max_bytes)
+                as usize,
+            line_max_bytes: crate::models::clamp_file_line_max_bytes(user.file_line_max_bytes)
+                as usize,
+            grep_max_results: crate::models::clamp_file_grep_max_results(user.file_grep_max_results)
+                as usize,
+        }
+    }
+
+    pub(crate) fn from_saved_user() -> Self {
+        crate::storage::load_user_settings()
+            .map(|u| Self::from_user(&u))
+            .unwrap_or_default()
+    }
+}
 
 pub fn register_all(reg: &ToolRegistry) {
     let doc = super::tool_doc::doc_markdown_without_schema_fence(FILE_MD);
@@ -69,7 +104,7 @@ pub fn register_all(reg: &ToolRegistry) {
         let handler: ToolHandler = match name.as_str() {
             "file_read" => Arc::new(move |args| {
                 let root = resolve_tool_workspace_root()?;
-                execute_file_read(&args, &root)
+                execute_file_read_with(&args, &root, &FileToolLimits::from_saved_user())
             }),
             "file_write" => Arc::new(move |args| {
                 let root = resolve_tool_workspace_root()?;
@@ -87,7 +122,7 @@ pub fn register_all(reg: &ToolRegistry) {
             }),
             "file_grep" => Arc::new(move |args| {
                 let root = resolve_tool_workspace_root()?;
-                execute_file_grep_payload(&args, &root)
+                execute_file_grep_payload_with(&args, &root, &FileToolLimits::from_saved_user())
             }),
             "file_list" => Arc::new(move |args| {
                 let root = resolve_tool_workspace_root()?;
@@ -132,8 +167,9 @@ mod tests {
     use super::path::writable_path_roots;
     use super::{
         execute_file_edit_payload, execute_file_glob_payload, execute_file_grep_payload,
-        execute_file_list_payload, execute_file_read, execute_file_write_payload,
-        resolve_accessible_path, resolve_within_workspace_root, resolve_writable_path,
+        execute_file_grep_payload_with, execute_file_list_payload, execute_file_read,
+        execute_file_write_payload, resolve_accessible_path, resolve_within_workspace_root,
+        resolve_writable_path, FileToolLimits,
     };
     use serde_json::json;
     use std::fs;
@@ -196,6 +232,37 @@ mod tests {
         let err =
             execute_file_read(&json!({ "path": "big.txt", "maxBytes": 1000 }), root).unwrap_err();
         assert!(err.to_string().contains("文件过大"), "{err}");
+    }
+
+    #[test]
+    fn file_read_hard_caps_overlong_line_without_loading_it() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let mut body = "x".repeat(20_000);
+        body.push_str("\ntail\n");
+        fs::write(root.join("wide.txt"), &body).unwrap();
+        let out = execute_file_read(&json!({ "path": "wide.txt" }), root).expect("read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["truncated"], true);
+        let content = v["content"].as_str().unwrap();
+        assert!(content.len() < 20_000, "must not return the full line");
+        assert!(
+            content.len() <= FileToolLimits::default().line_max_bytes + 16,
+            "line cap exceeded: {}",
+            content.len()
+        );
+        assert!(v["warning"].as_str().unwrap().contains("hard size cap"));
+    }
+
+    #[test]
+    fn file_read_clamps_max_bytes_above_ceiling() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("ok.txt"), "hello\n").unwrap();
+        let out = execute_file_read(&json!({ "path": "ok.txt", "maxBytes": 99_000_000 }), root)
+            .expect("clamped maxBytes must still read small files");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(v["content"].as_str().unwrap().contains("hello"));
     }
 
     #[test]
@@ -611,6 +678,89 @@ mod tests {
         let out2 = execute_file_grep_payload(&args_exc, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
         assert_eq!(v2["count"], 1, "excludeGlobs should filter");
+    }
+
+    #[test]
+    fn file_grep_clips_overlong_match_line() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let mut line = String::from("NEEDLE");
+        line.push_str(&"x".repeat(8_000));
+        line.push('\n');
+        fs::write(root.join("wide.txt"), &line).unwrap();
+        let out = execute_file_grep_payload(
+            &json!({
+                "pattern": "NEEDLE",
+                "path": "wide.txt",
+                "contextLines": 0,
+                "maxResults": 20
+            }),
+            root,
+        )
+        .expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let hit = &v["results"].as_array().unwrap()[0];
+        let match_line = hit["matchLine"].as_str().unwrap();
+        assert!(
+            match_line.len() <= FileToolLimits::default().line_max_bytes + 8,
+            "matchLine too long: {}",
+            match_line.len()
+        );
+        assert!(match_line.contains("NEEDLE"));
+    }
+
+    #[test]
+    fn file_grep_stops_at_hard_output_byte_cap() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let mut body = String::new();
+        for i in 0..120 {
+            body.push_str(&format!("HIT{i} {}\n", "y".repeat(2_000)));
+        }
+        fs::write(root.join("many.txt"), &body).unwrap();
+        let out = execute_file_grep_payload_with(
+            &json!({
+                "pattern": "HIT",
+                "path": "many.txt",
+                "contextLines": 0,
+                "maxResults": 200
+            }),
+            root,
+            &FileToolLimits {
+                read_max_bytes: 64 * 1024,
+                line_max_bytes: 1024,
+                grep_max_results: 200,
+            },
+        )
+        .expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["truncated"], true);
+        assert_eq!(v["truncatedByOutputBytes"], true);
+        let count = v["count"].as_u64().unwrap();
+        assert!(count < 120, "expected output-byte cap, got {count} hits");
+        assert!(count > 0, "should still return some hits");
+    }
+
+    #[test]
+    fn file_grep_reports_skipped_oversized_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let mut huge = String::from("UNIQUE_TOKEN ");
+        huge.push_str(&"z".repeat(super::MAX_GREP_FILE_BYTES + 64));
+        fs::write(root.join("huge.txt"), &huge).unwrap();
+        let out = execute_file_grep_payload(
+            &json!({
+                "pattern": "UNIQUE_TOKEN",
+                "path": "huge.txt",
+                "maxResults": 20
+            }),
+            root,
+        )
+        .expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["count"], 0);
+        assert_eq!(v["skippedLargeFileCount"], 1);
+        assert!(v["warning"].as_str().unwrap().contains("skipped"));
     }
 
     #[test]

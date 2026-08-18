@@ -3,7 +3,8 @@ use super::path::{
     build_glob_set, deduplicate_globs, expand_file_types, path_display_abs, path_error_with_hints,
     resolve_existing_read_path, SKIP_EXT,
 };
-use super::{CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_GREP_RESULTS, MAX_WALK_DEPTH};
+use super::{FileToolLimits, CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_WALK_DEPTH};
+use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{
@@ -23,22 +24,36 @@ fn should_skip_grep(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn clip_grep_line(s: &str, max_bytes: usize) -> String {
+    truncate_bytes(s, max_bytes)
+}
+
 /// One `file:grep` hit in the JSON response (same fields as the legacy walker).
 struct GrepJsonSink<'a> {
     path_abs: String,
     results: &'a mut Vec<serde_json::Value>,
     max_results: usize,
+    hit_line_max: usize,
+    output_max: usize,
+    output_bytes: &'a mut usize,
+    output_capped: &'a mut bool,
     stanza: Vec<(u64, String)>,
     pending_match_line: Option<u64>,
     pending_match_text: Option<String>,
 }
 
 impl GrepJsonSink<'_> {
-    fn bytes_to_line(s: &[u8]) -> String {
-        String::from_utf8_lossy(s)
-            .trim_end_matches('\n')
-            .trim_end_matches('\r')
-            .to_string()
+    fn bytes_to_line(&self, s: &[u8]) -> String {
+        clip_grep_line(
+            String::from_utf8_lossy(s)
+                .trim_end_matches('\n')
+                .trim_end_matches('\r'),
+            self.hit_line_max,
+        )
+    }
+
+    fn at_limit(&self) -> bool {
+        *self.output_capped || self.results.len() >= self.max_results
     }
 
     fn flush(&mut self) -> Result<(), io::Error> {
@@ -48,21 +63,41 @@ impl GrepJsonSink<'_> {
             return Ok(());
         };
         let match_line = self.pending_match_text.take().unwrap_or_default();
-        let context = self
+        let mut context = self
             .stanza
             .iter()
             .map(|(n, s)| format!("{n}: {s}"))
             .collect::<Vec<_>>()
             .join("\n");
         self.stanza.clear();
-        if self.results.len() < self.max_results {
+        context = crate::text_util::truncate_bytes(&context, self.hit_line_max.saturating_mul(8));
+        if self.at_limit() {
+            return Ok(());
+        }
+        let est = self.path_abs.len() + match_line.len() + context.len() + 64;
+        if *self.output_bytes + est > self.output_max {
+            let slim_est = self.path_abs.len() + match_line.len() + 64;
+            if *self.output_bytes + slim_est > self.output_max {
+                *self.output_capped = true;
+                return Ok(());
+            }
+            *self.output_bytes += slim_est;
             self.results.push(serde_json::json!({
                 "path": &self.path_abs,
                 "line": match_ln,
                 "matchLine": match_line,
-                "context": context,
+                "context": "",
             }));
+            *self.output_capped = true;
+            return Ok(());
         }
+        *self.output_bytes += est;
+        self.results.push(serde_json::json!({
+            "path": &self.path_abs,
+            "line": match_ln,
+            "matchLine": match_line,
+            "context": context,
+        }));
         Ok(())
     }
 }
@@ -71,13 +106,16 @@ impl Sink for GrepJsonSink<'_> {
     type Error = io::Error;
 
     fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, io::Error> {
-        if self.results.len() >= self.max_results {
+        if self.pending_match_line.is_some() {
+            self.flush()?;
+        }
+        if self.at_limit() {
             return Ok(false);
         }
         let ln = mat
             .line_number()
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "grep: missing line number"))?;
-        let text = Self::bytes_to_line(mat.bytes());
+        let text = self.bytes_to_line(mat.bytes());
         self.stanza.push((ln, text.clone()));
         self.pending_match_line = Some(ln);
         self.pending_match_text = Some(text);
@@ -85,20 +123,20 @@ impl Sink for GrepJsonSink<'_> {
     }
 
     fn context(&mut self, _searcher: &Searcher, ctx: &SinkContext<'_>) -> Result<bool, io::Error> {
-        if self.results.len() >= self.max_results {
+        if self.at_limit() {
             return Ok(false);
         }
         let ln = ctx
             .line_number()
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "grep: missing line number"))?;
-        let text = Self::bytes_to_line(ctx.bytes());
+        let text = self.bytes_to_line(ctx.bytes());
         self.stanza.push((ln, text));
         Ok(true)
     }
 
     fn context_break(&mut self, _searcher: &Searcher) -> Result<bool, io::Error> {
         self.flush()?;
-        Ok(self.results.len() < self.max_results)
+        Ok(!self.at_limit())
     }
 
     fn finish(&mut self, _searcher: &Searcher, _finish: &SinkFinish) -> Result<(), io::Error> {
@@ -112,8 +150,12 @@ fn grep_one_path_with_searcher(
     file_path: &Path,
     results: &mut Vec<serde_json::Value>,
     max_results: usize,
+    output_bytes: &mut usize,
+    output_capped: &mut bool,
+    skipped_large: &mut usize,
+    limits: &FileToolLimits,
 ) -> Result<()> {
-    if results.len() >= max_results {
+    if *output_capped || results.len() >= max_results {
         return Ok(());
     }
     if should_skip_grep(file_path) {
@@ -124,6 +166,13 @@ fn grep_one_path_with_searcher(
         Err(_) => return Ok(()),
     };
     if meta.len() > MAX_GREP_FILE_BYTES as u64 {
+        *skipped_large += 1;
+        warn!(
+            "file_grep: skip oversized file bytes={} cap={} path={}",
+            meta.len(),
+            MAX_GREP_FILE_BYTES,
+            file_path.display()
+        );
         return Ok(());
     }
     let path_abs = path_display_abs(file_path);
@@ -131,6 +180,10 @@ fn grep_one_path_with_searcher(
         path_abs,
         results,
         max_results,
+        hit_line_max: limits.line_max_bytes,
+        output_max: limits.read_max_bytes,
+        output_bytes,
+        output_capped,
         stanza: Vec::new(),
         pending_match_line: None,
         pending_match_text: None,
@@ -141,6 +194,14 @@ fn grep_one_path_with_searcher(
 }
 
 pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
+    execute_file_grep_payload_with(args, root, &FileToolLimits::default())
+}
+
+pub(crate) fn execute_file_grep_payload_with(
+    args: &serde_json::Value,
+    root: &Path,
+    limits: &FileToolLimits,
+) -> Result<String> {
     let root = root
         .canonicalize()
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
@@ -151,11 +212,16 @@ pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -
     if pattern.len() > 512 {
         return Err(anyhow!("正则过长"));
     }
-    let max_results = args
-        .get("maxResults")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(MAX_GREP_RESULTS as u64)
-        .min(MAX_GREP_RESULTS as u64) as usize;
+    let ceiling = limits.grep_max_results as u64;
+    let requested_max = args.get("maxResults").and_then(|v| v.as_u64());
+    if requested_max.is_some_and(|n| n > ceiling) {
+        warn!(
+            "file_grep: maxResults={} exceeds ceiling {}, clamping",
+            requested_max.unwrap(),
+            ceiling
+        );
+    }
+    let max_results = requested_max.unwrap_or(ceiling).min(ceiling) as usize;
     let max_depth = args
         .get("maxDepth")
         .and_then(|v| v.as_u64())
@@ -280,6 +346,9 @@ pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -
     };
 
     let mut results: Vec<serde_json::Value> = Vec::new();
+    let mut output_bytes: usize = 0;
+    let mut output_capped = false;
+    let mut skipped_large: usize = 0;
     let (root_field, single_file) = match &scope {
         GrepScope::Walk { start, .. } => (path_display_abs(start), false),
         GrepScope::SingleFile { file } => (path_display_abs(file), true),
@@ -287,7 +356,17 @@ pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -
 
     match scope {
         GrepScope::SingleFile { file } => {
-            grep_one_path_with_searcher(&mut searcher, &matcher, &file, &mut results, max_results)?;
+            grep_one_path_with_searcher(
+                &mut searcher,
+                &matcher,
+                &file,
+                &mut results,
+                max_results,
+                &mut output_bytes,
+                &mut output_capped,
+                &mut skipped_large,
+                limits,
+            )?;
         }
         GrepScope::Walk { start, max_depth } => {
             let mut walk = WalkBuilder::new(&start);
@@ -296,7 +375,7 @@ pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -
             walk.max_depth(Some(max_depth));
             walk.filter_entry(|e| !should_skip_grep(e.path()));
             for entry in walk.build() {
-                if results.len() >= max_results {
+                if output_capped || results.len() >= max_results {
                     break;
                 }
                 let entry = match entry {
@@ -323,25 +402,56 @@ pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -
                         }
                     }
                 }
-                let meta = match fs::metadata(p) {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-                if meta.len() > MAX_GREP_FILE_BYTES as u64 {
-                    continue;
-                }
-                grep_one_path_with_searcher(&mut searcher, &matcher, p, &mut results, max_results)?;
+                grep_one_path_with_searcher(
+                    &mut searcher,
+                    &matcher,
+                    p,
+                    &mut results,
+                    max_results,
+                    &mut output_bytes,
+                    &mut output_capped,
+                    &mut skipped_large,
+                    limits,
+                )?;
             }
         }
     }
 
+    let truncated = results.len() >= max_results || output_capped;
+    if truncated {
+        info!(
+            "file_grep truncated hits={} output_bytes={} output_capped={} max_results={} skipped_large={}",
+            results.len(),
+            output_bytes,
+            output_capped,
+            max_results,
+            skipped_large
+        );
+    }
     let mut out = serde_json::json!({
         "root": root_field,
         "pattern": pattern,
         "results": results,
         "count": results.len(),
-        "truncated": results.len() >= max_results
+        "truncated": truncated,
+        "skippedLargeFileCount": skipped_large
     });
+    if output_capped {
+        out["truncatedByOutputBytes"] = serde_json::json!(true);
+    }
+    if skipped_large > 0 {
+        out["warning"] = serde_json::json!(format!(
+            "skipped {skipped_large} file(s) larger than {MAX_GREP_FILE_BYTES} bytes; narrow path or split the file"
+        ));
+    } else if output_capped {
+        out["warning"] = serde_json::json!(
+            "grep output hit the hard byte cap; narrow path/pattern — maxResults cannot raise the payload ceiling"
+        );
+    } else if truncated {
+        out["warning"] = serde_json::json!(
+            "grep hit the hard result cap; narrow path/pattern — maxResults cannot be raised above the runtime ceiling"
+        );
+    }
     if single_file {
         out["singleFile"] = serde_json::json!(true);
     }

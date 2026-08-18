@@ -393,7 +393,10 @@ fn infer_model_generation_capability_flags(model: &str) -> ModelRuntimeOverrides
     over
 }
 
-fn resolve_supports_vision(provider: &ProviderConfig, model_over: Option<&ModelRuntimeOverrides>) -> bool {
+fn resolve_supports_vision(
+    provider: &ProviderConfig,
+    model_over: Option<&ModelRuntimeOverrides>,
+) -> bool {
     model_over
         .and_then(|o| o.supports_vision)
         .or_else(|| provider_default_supports_vision(provider))
@@ -697,6 +700,18 @@ pub struct ModelSettings {
     /// Max tool-call rounds per assistant turn. Default 100.
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
+    /// Max UTF-8 bytes returned by one `file_read` (tool `maxBytes` can only lower this).
+    #[serde(default = "default_file_read_max_bytes", rename = "fileReadMaxBytes")]
+    pub file_read_max_bytes: u32,
+    /// Max UTF-8 bytes kept from one physical line in `file_read` / `file_grep`.
+    #[serde(default = "default_file_line_max_bytes", rename = "fileLineMaxBytes")]
+    pub file_line_max_bytes: u32,
+    /// Max `file_grep` hit rows (tool `maxResults` can only lower this).
+    #[serde(
+        default = "default_file_grep_max_results",
+        rename = "fileGrepMaxResults"
+    )]
+    pub file_grep_max_results: u32,
     /// Max tool-call rounds **inside** each `run_sub_agent` run (separate from the lead conversation pool).
     #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     pub max_sub_agent_tool_rounds: u32,
@@ -1009,6 +1024,9 @@ fn default_computer_human_like() -> bool {
 pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     strip_session_placeholder_model_configs(user);
     strip_platform_source_providers(user);
+    user.file_read_max_bytes = clamp_file_read_max_bytes(user.file_read_max_bytes);
+    user.file_line_max_bytes = clamp_file_line_max_bytes(user.file_line_max_bytes);
+    user.file_grep_max_results = clamp_file_grep_max_results(user.file_grep_max_results);
 }
 
 /// User-layer provider rows are tagged `source=user` or omitted; `source=platform`
@@ -1112,6 +1130,40 @@ fn default_max_tool_rounds() -> u32 {
     build_cfg_u32!("MAX_TOOL_ROUNDS", 100)
 }
 
+pub const DEFAULT_FILE_READ_MAX_BYTES: u32 = 64 * 1024;
+pub const DEFAULT_FILE_LINE_MAX_BYTES: u32 = 1024;
+pub const DEFAULT_FILE_GREP_MAX_RESULTS: u32 = 50;
+pub const FLOOR_FILE_READ_MAX_BYTES: u32 = 4 * 1024;
+pub const CEILING_FILE_READ_MAX_BYTES: u32 = 1024 * 1024;
+pub const FLOOR_FILE_LINE_MAX_BYTES: u32 = 256;
+pub const CEILING_FILE_LINE_MAX_BYTES: u32 = 16 * 1024;
+pub const FLOOR_FILE_GREP_MAX_RESULTS: u32 = 1;
+pub const CEILING_FILE_GREP_MAX_RESULTS: u32 = 200;
+
+fn default_file_read_max_bytes() -> u32 {
+    DEFAULT_FILE_READ_MAX_BYTES
+}
+
+fn default_file_line_max_bytes() -> u32 {
+    DEFAULT_FILE_LINE_MAX_BYTES
+}
+
+fn default_file_grep_max_results() -> u32 {
+    DEFAULT_FILE_GREP_MAX_RESULTS
+}
+
+pub fn clamp_file_read_max_bytes(n: u32) -> u32 {
+    n.clamp(FLOOR_FILE_READ_MAX_BYTES, CEILING_FILE_READ_MAX_BYTES)
+}
+
+pub fn clamp_file_line_max_bytes(n: u32) -> u32 {
+    n.clamp(FLOOR_FILE_LINE_MAX_BYTES, CEILING_FILE_LINE_MAX_BYTES)
+}
+
+pub fn clamp_file_grep_max_results(n: u32) -> u32 {
+    n.clamp(FLOOR_FILE_GREP_MAX_RESULTS, CEILING_FILE_GREP_MAX_RESULTS)
+}
+
 fn default_max_sub_agent_spawn_depth() -> u32 {
     build_cfg_u32!("MAX_SUB_AGENT_SPAWN_DEPTH", 2)
 }
@@ -1199,6 +1251,9 @@ impl Default for ModelSettings {
             context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
             context_summary_max_tokens: default_context_summary_max_tokens(),
             max_tool_rounds: default_max_tool_rounds(),
+            file_read_max_bytes: default_file_read_max_bytes(),
+            file_line_max_bytes: default_file_line_max_bytes(),
+            file_grep_max_results: default_file_grep_max_results(),
             max_sub_agent_tool_rounds: default_max_tool_rounds(),
             max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
@@ -1530,6 +1585,15 @@ pub struct UserSettings {
     pub context_summary_max_tokens: u32,
     #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
+    #[serde(default = "default_file_read_max_bytes", rename = "fileReadMaxBytes")]
+    pub file_read_max_bytes: u32,
+    #[serde(default = "default_file_line_max_bytes", rename = "fileLineMaxBytes")]
+    pub file_line_max_bytes: u32,
+    #[serde(
+        default = "default_file_grep_max_results",
+        rename = "fileGrepMaxResults"
+    )]
+    pub file_grep_max_results: u32,
     #[serde(
         default = "platform_default_max_tool_rounds",
         rename = "maxSubAgentToolRounds"
@@ -1684,6 +1748,9 @@ impl Default for UserSettings {
             context_keep_recent_user_turns: platform_default_context_keep_recent_user_turns(),
             context_summary_max_tokens: platform_default_context_summary_max_tokens(),
             max_tool_rounds: platform_default_max_tool_rounds(),
+            file_read_max_bytes: default_file_read_max_bytes(),
+            file_line_max_bytes: default_file_line_max_bytes(),
+            file_grep_max_results: default_file_grep_max_results(),
             max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
             max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
@@ -2262,7 +2329,8 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
     // Providers are user-owned (persisted in user_settings.json). Runtime keys
     // (OAuth / server.toml injection) live in platform.providers and are overlaid
     // by provider id so user edits never wipe injected credentials.
-    let mut providers = user.providers.clone();    let platform_keys: HashMap<String, String> = platform
+    let mut providers = user.providers.clone();
+    let platform_keys: HashMap<String, String> = platform
         .providers
         .iter()
         .map(|p| (p.id.clone(), p.api_key.clone()))
@@ -2304,6 +2372,9 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         context_keep_recent_user_turns: user.context_keep_recent_user_turns,
         context_summary_max_tokens: user.context_summary_max_tokens,
         max_tool_rounds: user.max_tool_rounds,
+        file_read_max_bytes: clamp_file_read_max_bytes(user.file_read_max_bytes),
+        file_line_max_bytes: clamp_file_line_max_bytes(user.file_line_max_bytes),
+        file_grep_max_results: clamp_file_grep_max_results(user.file_grep_max_results),
         max_sub_agent_tool_rounds: user.max_sub_agent_tool_rounds,
         max_sub_agent_spawn_depth: user.max_sub_agent_spawn_depth,
         raw_content_view_enabled: user.raw_content_view_enabled,
@@ -2470,7 +2541,11 @@ pub fn apply_platform_tier_defaults(
 }
 
 fn agent_ref_from_json(v: &serde_json::Value) -> Option<AgentModelRef> {
-    let pid = v.get("providerId").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let pid = v
+        .get("providerId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
     let model = v.get("model").and_then(|v| v.as_str()).unwrap_or("").trim();
     if pid.is_empty() || model.is_empty() {
         None
@@ -2788,10 +2863,16 @@ mod user_settings_defaults_tests {
             Some("deepseek-v4-flash")
         );
         assert_eq!(
-            user.agent_default_models.get("coder").map(|r| r.model.as_str()),
+            user.agent_default_models
+                .get("coder")
+                .map(|r| r.model.as_str()),
             Some("custom-model")
         );
-        let general = user.agent_mode_llm.get("general").cloned().unwrap_or_default();
+        let general = user
+            .agent_mode_llm
+            .get("general")
+            .cloned()
+            .unwrap_or_default();
         assert_eq!(
             general.get("fast").map(|c| c.model.as_str()),
             Some("qwen3.5-flash")
@@ -3083,7 +3164,9 @@ mod user_settings_defaults_tests {
     #[test]
     fn platform_only_provider_does_not_duplicate_existing_user_provider() {
         let mut platform = PlatformSettings::default();
-        platform.providers.push(sample_settings().providers.remove(0));
+        platform
+            .providers
+            .push(sample_settings().providers.remove(0));
         platform.providers[0].api_key = "platform-qwen-key".into();
         let mut user = UserSettings::default();
         user.providers.push(sample_settings().providers.remove(0));
@@ -3309,7 +3392,9 @@ mod effective_extra_body_tests {
     #[test]
     fn web_effective_settings_view_omits_dati_fields() {
         let mut platform = PlatformSettings::default();
-        platform.providers.push(sample_settings().providers.remove(0));
+        platform
+            .providers
+            .push(sample_settings().providers.remove(0));
         platform.dati_api_url = "https://dati.example".into();
         platform.dati_authcode = "secret-auth".into();
         platform.dati_typeno = "501057".into();

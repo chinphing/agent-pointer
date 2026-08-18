@@ -1,9 +1,65 @@
 use super::path::{path_display_abs, path_display_for_read_request, resolve_accessible_path};
-use super::{json_u64_opt, MAX_FILE_READ_BYTES};
+use super::{json_u64_opt, FileToolLimits};
+use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
+use log::{info, warn};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader};
 use std::path::Path;
+
+/// Read one line, never buffering more than `max_line_bytes` of that line.
+/// Remaining bytes until `\n` (or EOF) are discarded. Returns `None` at EOF
+/// with no leftover. The `bool` is true when the physical line was longer
+/// than the cap.
+fn read_line_capped<R: BufRead>(
+    reader: &mut R,
+    max_line_bytes: usize,
+) -> io::Result<Option<(String, bool)>> {
+    let mut collected: Vec<u8> = Vec::new();
+    let mut skipped_rest = false;
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.is_empty() {
+            if collected.is_empty() && !skipped_rest {
+                return Ok(None);
+            }
+            break;
+        }
+        if let Some(nl) = buf.iter().position(|&b| b == b'\n') {
+            if !skipped_rest {
+                let room = max_line_bytes.saturating_sub(collected.len());
+                let take = nl.min(room);
+                if take > 0 {
+                    collected.extend_from_slice(&buf[..take]);
+                }
+                if nl > take {
+                    skipped_rest = true;
+                }
+            }
+            reader.consume(nl + 1);
+            break;
+        }
+        if skipped_rest || collected.len() >= max_line_bytes {
+            skipped_rest = true;
+            let n = buf.len();
+            reader.consume(n);
+            continue;
+        }
+        let room = max_line_bytes - collected.len();
+        let buf_len = buf.len();
+        let n = buf_len.min(room);
+        collected.extend_from_slice(&buf[..n]);
+        reader.consume(n);
+        if buf_len > n {
+            skipped_rest = true;
+        }
+    }
+    if collected.last() == Some(&b'\r') {
+        collected.pop();
+    }
+    let text = String::from_utf8_lossy(&collected).into_owned();
+    Ok(Some((text, skipped_rest)))
+}
 
 fn file_read_one_json(
     root: &Path,
@@ -11,6 +67,7 @@ fn file_read_one_json(
     line_start: usize,
     line_end_exclusive: Option<usize>,
     max_bytes: usize,
+    line_max_bytes: usize,
 ) -> serde_json::Value {
     let full = match resolve_accessible_path(root, path_str) {
         Ok(p) => p,
@@ -60,7 +117,7 @@ fn file_read_one_json(
             });
         }
     };
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
     let mut selected: Vec<String> = Vec::new();
     let mut selected_bytes: usize = 0;
     let mut truncated = false;
@@ -68,9 +125,10 @@ fn file_read_one_json(
     let start_idx = line_start.saturating_sub(1);
     let end_idx = line_end_exclusive.map(|le| le.saturating_sub(1));
 
-    for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(l) => l,
+    loop {
+        let (mut line, line_was_capped) = match read_line_capped(&mut reader, line_max_bytes) {
+            Ok(Some(v)) => v,
+            Ok(None) => break,
             Err(e) => {
                 return serde_json::json!({
                     "path": full_display,
@@ -78,21 +136,24 @@ fn file_read_one_json(
                 });
             }
         };
-        // Reject non-UTF-8 via lossy check: BufRead::lines requires UTF-8 and errors on invalid.
-        let line_no = total_lines; // 0-based before increment
+        if line_was_capped {
+            truncated = true;
+            line = truncate_bytes(&line, line_max_bytes);
+        }
+        let line_no = total_lines;
         total_lines += 1;
 
         let in_window = line_no >= start_idx && end_idx.map(|e| line_no < e).unwrap_or(true);
         if !in_window {
             continue;
         }
-        if truncated {
+        if truncated && selected_bytes >= max_bytes {
             continue;
         }
         let add = if selected.is_empty() {
             line.len()
         } else {
-            line.len() + 1 // joining newline
+            line.len() + 1
         };
         if selected_bytes + add > max_bytes {
             truncated = true;
@@ -100,18 +161,33 @@ fn file_read_one_json(
         }
         selected_bytes += add;
         selected.push(line);
+        if line_was_capped {
+            truncated = true;
+        }
     }
 
     let content = selected.join("\n");
     let line_end_exclusive_out = line_end_exclusive.unwrap_or(total_lines.saturating_add(1));
-    serde_json::json!({
+    if truncated {
+        info!(
+            "file_read truncated path={} total_lines={} returned_bytes={} max_bytes={}",
+            full_display, total_lines, selected_bytes, max_bytes
+        );
+    }
+    let mut obj = serde_json::json!({
         "path": full_display,
         "lineStart": line_start,
         "lineEndExclusive": line_end_exclusive_out,
         "totalLines": total_lines,
         "content": content,
         "truncated": truncated,
-    })
+    });
+    if truncated {
+        obj["warning"] = serde_json::json!(
+            "output hit a hard size cap; use lineStart/lineEnd or grep — maxBytes cannot be raised above the runtime ceiling"
+        );
+    }
+    obj
 }
 
 fn resolve_file_read_path(args: &serde_json::Value) -> Result<String> {
@@ -133,8 +209,16 @@ fn resolve_file_read_path(args: &serde_json::Value) -> Result<String> {
         })
 }
 
-/// Core logic for `file_read` (one file per call). Used by tests with an explicit root.
+/// Core logic for `file_read` (one file per call). Tests use default caps.
 pub(crate) fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
+    execute_file_read_with(args, root, &FileToolLimits::default())
+}
+
+pub(crate) fn execute_file_read_with(
+    args: &serde_json::Value,
+    root: &Path,
+    limits: &FileToolLimits,
+) -> Result<String> {
     if args.is_null() {
         return Err(anyhow!(
             "tool arguments 无效或不是合法 JSON（常见原因：Windows 路径里的 \\ 未写成 \\\\）。\
@@ -147,14 +231,28 @@ pub(crate) fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result
         .unwrap_or(1)
         .max(1) as usize;
     let line_end_exclusive = json_u64_opt(args, "lineEnd", "line_end").map(|n| n.max(1) as usize);
-    let max_bytes = args
+    let ceiling = limits.read_max_bytes as u64;
+    let requested_max = args
         .get("maxBytes")
         .or_else(|| args.get("max_bytes"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(MAX_FILE_READ_BYTES as u64)
-        .min(MAX_FILE_READ_BYTES as u64) as usize;
+        .and_then(|v| v.as_u64());
+    if requested_max.is_some_and(|n| n > ceiling) {
+        warn!(
+            "file_read: maxBytes={} exceeds ceiling {}, clamping",
+            requested_max.unwrap(),
+            ceiling
+        );
+    }
+    let max_bytes = requested_max.unwrap_or(ceiling).min(ceiling) as usize;
 
-    let v = file_read_one_json(root, &path, line_start, line_end_exclusive, max_bytes);
+    let v = file_read_one_json(
+        root,
+        &path,
+        line_start,
+        line_end_exclusive,
+        max_bytes,
+        limits.line_max_bytes,
+    );
     if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
         return Err(anyhow!("{err}"));
     }

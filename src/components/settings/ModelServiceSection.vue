@@ -31,15 +31,8 @@ const props = defineProps<{
 
 const s = useSettingsStore()
 const platformReadOnly = computed(() => props.form.platformReadOnly.value)
-// 分组：平台注入的 provider（source=platform）或模板内置服务（qwen/deepseek/doubao）
-// 归「平台服务」；其余为「自定义服务」。
-const isPlatformProvider = (provider: ProviderConfig) => {
-  // Explicit provenance wins: a user may fork a built-in provider and must keep
-  // editing rights even when its id/base URL still matches a built-in template.
-  if (provider.source) return provider.source === 'platform'
-  const template = detectProviderTemplateId(provider)
-  return template === 'qwen' || template === 'deepseek' || template === 'doubao'
-}
+// 分组只看 source：platform 归「平台服务」，其余（含缺 source、用户 fork）为自定义。
+const isPlatformProvider = (provider: ProviderConfig) => provider.source === 'platform'
 const platformProviders = computed(() =>
   s.settings.providers.filter(isPlatformProvider)
 )
@@ -48,9 +41,10 @@ const customProviders = computed(() =>
 )
 const editableTemplateOptions = computed(() => {
   if (showAddProvider.value) {
-    // 添加服务：内置平台服务不可自建，只提供自定义模板可选。
+    // 添加服务：目录已下发的平台服务商（source=platform）不要再用同 id 模板自建。
+    const platformIds = new Set(platformProviders.value.map(p => p.id))
     return PROVIDER_TEMPLATE_OPTIONS.filter(
-      option => option.id !== 'qwen' && option.id !== 'deepseek' && option.id !== 'doubao'
+      option => !option.defaultId || !platformIds.has(option.defaultId)
     )
   }
   // 编辑已有服务：类型锁定为当前服务的类型，只显示一个按钮，

@@ -6,11 +6,20 @@ export interface ModelCapabilityFlags {
   canGenerateVideo?: boolean
 }
 
-/** Fixed provider defaults for vision (no model-name heuristics). */
-export function providerDefaultSupportsVision(providerId: string): boolean | undefined {
-  const id = providerId.trim().toLowerCase()
-  if (id === 'qwen') return true
-  if (id === 'deepseek') return false
+function dashscopeCompatibleUrl(baseUrl?: string): boolean {
+  return /dashscope\.aliyuncs\.com|dashscope-intl\.aliyuncs\.com/i.test(baseUrl || '')
+}
+
+function deepseekApiUrl(baseUrl?: string): boolean {
+  return /api\.deepseek\.com/i.test(baseUrl || '')
+}
+
+/** Vision default from API dialect (base URL), not provider id. */
+export function providerDefaultSupportsVision(
+  provider: Pick<ProviderConfig, 'id' | 'baseUrl'>
+): boolean | undefined {
+  if (dashscopeCompatibleUrl(provider.baseUrl)) return true
+  if (deepseekApiUrl(provider.baseUrl)) return false
   return undefined
 }
 
@@ -68,7 +77,8 @@ export function resolvedModelCapabilities(
 ): Required<ModelCapabilityFlags> {
   const over = modelOverride(providers, providerId, model)
   const inferred = inferModelGenerationCapabilities(model)
-  const providerVision = providerDefaultSupportsVision(providerId)
+  const provider = providers.find(x => x.id === providerId) ?? providers[0]
+  const providerVision = provider ? providerDefaultSupportsVision(provider) : undefined
   return {
     supportsVision: over?.supportsVision ?? providerVision ?? false,
     canGenerateImage: over?.canGenerateImage ?? inferred.canGenerateImage ?? false,
@@ -113,15 +123,13 @@ export function modelSupportsAudioTranscription(
 /** Seed provider-fixed vision defaults and generation flags (no overwrite of explicit values). */
 export function seedProviderModelCapabilities(provider: ProviderConfig): ProviderConfig {
   const configs = { ...(provider.modelConfigs ?? {}) }
-  const providerVision = providerDefaultSupportsVision(provider.id)
+  const providerVision = providerDefaultSupportsVision(provider)
   for (const model of provider.models ?? []) {
     const inferred = inferModelGenerationCapabilities(model)
     const prev = configs[model] ?? {}
     const next: ModelRuntimeOverrides = { ...prev }
-    if (provider.id === 'deepseek') {
+    if (deepseekApiUrl(provider.baseUrl)) {
       next.supportsVision = false
-    } else if (provider.id === 'qwen') {
-      if (next.supportsVision === undefined) next.supportsVision = true
     } else if (next.supportsVision === undefined && providerVision !== undefined) {
       next.supportsVision = providerVision
     }

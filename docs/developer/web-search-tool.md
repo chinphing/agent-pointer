@@ -38,7 +38,7 @@ History still receives the final **`WebSearchResult` JSON** on the tool message 
 
 1. Configure the **Qwen** provider in settings (default base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`).
 2. Set the **Qwen provider API key** — web search reuses this key directly (no separate search key or env var).
-3. Optional: **`webSearchModel`** in platform settings. When empty, tool path defaults to **`qwen3-max`**; research Responses path defaults to **`qwen3-max-2026-01-23`**. Any configured model id is passed through (with Generation API fallback routing when needed).
+3. Optional: **`webSearchModel`** in settings. When empty, use the first model on a DashScope-compatible provider; compile-time `WEB_SEARCH_MODEL` / `DEFAULT_WEB_SEARCH_MODEL` is last resort. Any configured model id is passed through (with Generation API fallback routing when needed).
 4. Optional env: **`POINTER_WEB_SEARCH_MODEL`** overrides the search model.
 
 International accounts: use a provider base URL on `dashscope-intl.aliyuncs.com`; the client derives the matching native API host.

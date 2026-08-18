@@ -30,19 +30,10 @@ pub fn find_dashscope_provider(settings: &ModelSettings) -> Option<&ProviderConf
 }
 
 pub fn find_volcengine_provider(settings: &ModelSettings) -> Option<&ProviderConfig> {
-    settings
-        .providers
-        .iter()
-        .find(|p| {
-            let id = p.id.to_ascii_lowercase();
-            id == "doubao" || id == "volcengine" || id == "ark"
-        })
-        .or_else(|| {
-            settings.providers.iter().find(|p| {
-                let url = p.base_url.to_ascii_lowercase();
-                url.contains("volces.com") || url.contains("volcengineapi.com")
-            })
-        })
+    settings.providers.iter().find(|p| {
+        let url = p.base_url.to_ascii_lowercase();
+        url.contains("volces.com") || url.contains("volcengineapi.com")
+    })
 }
 
 fn pick_override<'a>(
@@ -71,25 +62,30 @@ fn default_model_for_provider(provider_id: &str, kind: GenerationKind) -> &'stat
     }
 }
 
-/// Infer the intended provider from a model name string.
-/// Returns `Some("qwen")` for DashScope models or `Some("doubao")` for Volcengine models.
-fn provider_for_model(model: &str) -> Option<&'static str> {
+/// Infer the intended **API dialect** from a model name when providerId is missing.
+fn protocol_for_model(model: &str) -> Option<&'static str> {
     let m = model.trim().to_ascii_lowercase();
     if m.starts_with("wan") || m.starts_with("qwen") || m.contains("happyhorse") {
-        Some("qwen")
-    } else if m.starts_with("doubao") {
-        Some("doubao")
+        Some("dashscope")
+    } else if m.starts_with("doubao") || m.contains("seedance") || m.contains("seedream") {
+        Some("volcengine")
     } else {
         None
     }
 }
 
-fn provider_configured(settings: &ModelSettings, pid: &str) -> bool {
-    match pid {
-        "qwen" => find_dashscope_provider(settings).is_some(),
-        "doubao" => find_volcengine_provider(settings).is_some(),
-        _ => false,
+fn first_generation_provider_id(settings: &ModelSettings) -> String {
+    if let Some(p) = find_volcengine_provider(settings) {
+        return p.id.clone();
     }
+    if let Some(p) = find_dashscope_provider(settings) {
+        return p.id.clone();
+    }
+    settings
+        .providers
+        .first()
+        .map(|p| p.id.clone())
+        .unwrap_or_default()
 }
 
 /// Provider from settings `mediaModelOverrides.*Generation` only (not tool args).
@@ -101,18 +97,22 @@ fn resolve_provider_id(settings: &ModelSettings, model_ref: Option<&AgentModelRe
         }
         let model = r.model.trim();
         if !model.is_empty() {
-            if let Some(pid) = provider_for_model(model) {
-                if provider_configured(settings, pid) {
-                    return pid.to_string();
+            match protocol_for_model(model) {
+                Some("dashscope") => {
+                    if let Some(p) = find_dashscope_provider(settings) {
+                        return p.id.clone();
+                    }
                 }
+                Some("volcengine") => {
+                    if let Some(p) = find_volcengine_provider(settings) {
+                        return p.id.clone();
+                    }
+                }
+                _ => {}
             }
         }
     }
-    if find_volcengine_provider(settings).is_some() {
-        "doubao".into()
-    } else {
-        "qwen".into()
-    }
+    first_generation_provider_id(settings)
 }
 
 pub fn resolve_generation_config(
@@ -123,17 +123,22 @@ pub fn resolve_generation_config(
     let model_ref = pick_override(overrides, kind);
     let provider_id = resolve_provider_id(settings, model_ref);
 
-    let provider = if provider_id.eq_ignore_ascii_case("doubao")
-        || provider_id.eq_ignore_ascii_case("volcengine")
-        || provider_id.eq_ignore_ascii_case("ark")
-    {
-        find_volcengine_provider(settings)
-    } else {
-        find_dashscope_provider(settings)
-    }
+    let provider = settings
+        .providers
+        .iter()
+        .find(|p| p.id.eq_ignore_ascii_case(&provider_id))
+        .or_else(|| {
+            if provider_is_volcengine(&provider_id, "") {
+                find_volcengine_provider(settings)
+            } else {
+                find_dashscope_provider(settings)
+            }
+        })
+        .or_else(|| find_dashscope_provider(settings))
+        .or_else(|| find_volcengine_provider(settings))
     .ok_or_else(|| {
         anyhow::anyhow!(
-            "No {} provider configured. Add Qwen (DashScope) or Doubao (Volcengine Ark) in settings.",
+            "No {} provider configured. Add a DashScope- or Volcengine-compatible provider in settings.",
             match kind {
                 GenerationKind::Image => "image generation",
                 GenerationKind::Video => "video generation",
@@ -249,11 +254,12 @@ pub fn volcengine_video_task_url(base_url: &str, task_id: &str) -> String {
 }
 
 pub fn provider_is_volcengine(provider_id: &str, base_url: &str) -> bool {
-    let id = provider_id.to_ascii_lowercase();
-    if id == "doubao" || id == "volcengine" || id == "ark" {
+    let url = base_url.to_ascii_lowercase();
+    if url.contains("volces.com") || url.contains("volcengineapi.com") {
         return true;
     }
-    base_url.to_ascii_lowercase().contains("volces.com")
+    let id = provider_id.to_ascii_lowercase();
+    id == "doubao" || id == "volcengine" || id == "ark"
 }
 
 pub fn is_happyhorse_model(model: &str) -> bool {

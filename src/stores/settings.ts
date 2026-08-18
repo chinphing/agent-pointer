@@ -474,7 +474,17 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function createUserSnapshot(patch: Partial<UserSettings>): UserSettings {
-    return cloneJson({ ...userSettings.value, ...patch })
+    // Live tier maps live on the merged view. userSettings can still be the
+    // last GET (empty maps for non-admins before this fix). Spreading only
+    // userSettings would persist stale defaults and wipe a custom fast tier
+    // when saving another field (e.g. switching the standard-tier model).
+    return cloneJson({
+      ...userSettings.value,
+      agentModeLlm: settings.value.agentModeLlm ?? userSettings.value.agentModeLlm,
+      mediaModeLlm: settings.value.mediaModeLlm ?? userSettings.value.mediaModeLlm,
+      computerTierLlm: settings.value.computerTierLlm ?? userSettings.value.computerTierLlm,
+      ...patch
+    })
   }
 
   async function saveUserSnapshot(snapshot: UserSettings) {

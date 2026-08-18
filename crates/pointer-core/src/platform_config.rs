@@ -404,26 +404,48 @@ pub fn apply_login_media_oss(
     log::debug!("platform_config: injected media_oss from platform login");
 }
 
+fn provider_id_in_list(providers: &[ProviderConfig], id: &str) -> Option<String> {
+    providers
+        .iter()
+        .find(|p| p.id.eq_ignore_ascii_case(id))
+        .map(|p| p.id.clone())
+}
+
+/// Map login `llm_provider` to a row that **exists** in the current provider list.
+/// Historical aliases (`aliyun_qwen` → `qwen`) apply only when that id is present.
 fn resolve_llm_provider_id(
     llm_provider: Option<&str>,
     providers: &[ProviderConfig],
 ) -> Option<String> {
     if let Some(raw) = llm_provider.map(str::trim).filter(|s| !s.is_empty()) {
         let lower = raw.to_ascii_lowercase();
-        if providers.iter().any(|p| p.id == lower) {
-            return Some(lower);
+        if let Some(id) = provider_id_in_list(providers, &lower) {
+            return Some(id);
         }
-        if lower == "aliyun_qwen" || lower == "qwen" {
-            return Some("qwen".into());
+        if lower == "aliyun_qwen" || lower == "aliyun" {
+            if let Some(id) = provider_id_in_list(providers, "qwen") {
+                return Some(id);
+            }
         }
         if lower.contains("deepseek") {
-            return Some("deepseek".into());
+            if let Some(id) = provider_id_in_list(providers, "deepseek") {
+                return Some(id);
+            }
         }
         for p in providers {
             if p.name.to_ascii_lowercase().contains(&lower) || lower.contains(&p.id) {
                 return Some(p.id.clone());
             }
         }
+        if let Some(first) = providers.first() {
+            log::warn!(
+                "platform_config: llm_provider={raw:?} not in provider list; using {}",
+                first.id
+            );
+            return Some(first.id.clone());
+        }
+        log::warn!("platform_config: llm_provider={raw:?} but provider list is empty");
+        return None;
     }
     providers.first().map(|p| p.id.clone())
 }
@@ -479,6 +501,19 @@ mod tests {
         let qwen = platform.providers.iter().find(|p| p.id == "qwen").unwrap();
         assert_eq!(qwen.api_key, "sk-test");
         assert_eq!(qwen.source.as_deref(), Some("platform"));
+    }
+
+    #[test]
+    fn resolve_llm_provider_missing_qwen_alias_uses_first() {
+        let mut providers: Vec<ProviderConfig> = Vec::new();
+        let mut tpl = qwen_template();
+        tpl.id = "new-platform-llm".into();
+        tpl.name = "新平台服务".into();
+        apply_login_platform_providers(&mut providers, &[tpl]);
+        assert_eq!(
+            resolve_llm_provider_id(Some("aliyun_qwen"), &providers).as_deref(),
+            Some("new-platform-llm")
+        );
     }
 
     #[test]

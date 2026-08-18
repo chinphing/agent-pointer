@@ -27,14 +27,14 @@ pub fn resolve_dashscope_generation_config(
 ) -> Result<DashScopeSearchConfig> {
     let provider = find_dashscope_provider(settings).ok_or_else(|| {
         anyhow!(
-            "No Qwen provider configured. Add a Qwen/DashScope provider in settings before using web search."
+            "No DashScope-compatible provider configured. Add one in settings before using web search."
         )
     })?;
 
     let api_key = provider.api_key.trim();
     if api_key.is_empty() {
         return Err(anyhow!(
-            "Qwen provider API key is missing. Configure the Qwen provider API key in settings."
+            "DashScope provider API key is missing. Configure the provider API key in settings."
         ));
     }
 

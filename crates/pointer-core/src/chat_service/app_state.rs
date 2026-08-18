@@ -646,9 +646,11 @@ impl AppState {
     /// patch），这里做两类保护后直接落盘——
     /// 1. WEB 非 admin GET 会剥掉调试字段，回传 serde 默认值会清掉服务端调试
     ///    配置；非 admin 保存时用现有 user 值强改回（admin round-trip 正常更新）。
+    ///    三档模型映射不是调试字段，非 admin PUT 必须保留 incoming 值。
     /// 2. WEB 非 admin 的 providers apiKey 被脱敏成 "****"/空，不能因此清掉用户
     ///    加密保存的 key；空/脱敏时回填现有用户 key。
-    /// 平台注入 key 不进入 user 层（前端发的是 user 切片，本不含平台 key）。
+    /// 平台注入 key 不进入 user 层：`source=platform` 的服务商条目一律不落盘
+    /// （与服务商 id 无关；前端 fork 须标 `source=user`）。
     pub fn update_user_settings(
         &self,
         mut incoming: UserSettings,
@@ -681,13 +683,9 @@ impl AppState {
                 }
             }
         }
-        // 过滤 platform 独有项（source=platform 且 user 层没有）→ 不落盘：
-        // 平台注入的 key 不进 user 层，merged 视图每次从 platform 内存叠加。
-        // 用户编辑 platform 项保存时前端把它标成 source=user（fork）→ 正常落盘。
-        incoming.providers.retain(|p| {
-            existing.providers.iter().any(|e| e.id == p.id)
-                || p.source.as_deref() != Some("platform")
-        });
+        // 只按 source 分层：source=platform 永不进用户文件（与目录里有哪些
+        // id 无关）。用户 fork 必须标 source=user 才会落盘。
+        incoming.providers.retain(|p| p.source.as_deref() != Some("platform"));
         self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
     }

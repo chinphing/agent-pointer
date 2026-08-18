@@ -490,7 +490,7 @@ export function hasEffectiveModelOverride(
   ) {
     return true
   }
-  const defaultVision = providerDefaultSupportsVision(p.id) ?? false
+  const defaultVision = providerDefaultSupportsVision(p) ?? false
   if (o.supportsVision !== undefined && o.supportsVision !== defaultVision) {
     return true
   }

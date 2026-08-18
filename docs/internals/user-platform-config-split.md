@@ -6,7 +6,7 @@ Runtime configuration is split into two layers:
 
 | Layer | Contents | Persistence | Editable by |
 |-------|----------|-------------|-------------|
-| **User** | Everything the user can edit, incl. debug fields: theme, coding rules, completion sound, providers (structure, no secrets), active provider/model/temperature/maxTokens, tool approval, agent mode, context settings, tool rounds, mode/tier LLM maps, Computer prefs, parallel limits | `user_settings.json` — **full snapshot, no whitelist**. User-typed provider keys are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound) | All users (debug fields: `is_platform_admin` only) |
+| **User** | Everything the user can edit: theme, coding rules, completion sound, providers (structure, no secrets), active provider/model/temperature/maxTokens, tool approval, agent mode, context settings, tool rounds, **scene tier LLM maps** (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`), Computer prefs, parallel limits. Debug-only toggles: completion dump, raw content, terminal env, etc. | `user_settings.json` — **full snapshot, no whitelist**. User-typed provider keys are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound) | All users for tier maps and regular prefs; debug toggles: `is_platform_admin` only |
 | **Platform** | In-memory only: runtime provider list (with injected OAuth/TOML keys), platform model directory (`platformProviders` + `tierDefaults`), media OSS credentials, server-side DaTi CAPTCHA config | Directory is cached locally for offline restart; never copied into `user_settings.json` | Platform admin on the control plane |
 
 Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, platform)` (user fields + platform runtime keys/media_oss/dati) and used by chat, tools, and the UI.
@@ -15,7 +15,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 
 - **OAuth refresh token**: encrypted in `{data_dir}/PointerApp/auth.dat` (AES-256-GCM, machine-bound key via HKDF). No OS keyring.
 - **Login / refresh**: `/auth/app/token` returns `api_key`, `llm_provider`, `user.is_platform_admin`, and the platform model directory (`platformProviders` + `tierDefaults`). The client creates/updates platform providers from that directory and does not keep a local allowlist of platform models.
-- **Normal users**: use platform-issued API key; cannot edit debug fields in the UI.
+- **Normal users**: use platform-issued API key; cannot edit debug toggles in the UI. They **can** override scene tier models; those maps persist.
 - **Platform admins**: may override provider/model/debug settings; all user-owned fields persist to `user_settings.json`; apiKey stays in memory / OAuth-injected.
 
 ### Settings save actions
@@ -35,7 +35,8 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 ## Web server
 
 - No platform login; `canEditPlatform` is always `false`.
-- Non-admin GET strips debug fields from `user` slice too; non-admin PUT preserves server debug values (serde defaults never wipe them).
+- Non-admin GET strips **debug** fields from `user` / `merged`. Scene tier maps stay.
+- Non-admin PUT preserves server **debug** values (serde defaults never wipe them). Incoming `agentModeLlm` / `mediaModeLlm` / `computerTierLlm` are kept.
 - `PUT /api/platform-settings` returns an error (read-only).
 
 ## Migration from legacy `settings.json`
@@ -61,7 +62,8 @@ The control plane is the only place that adds, removes, or reorders platform mod
 - Login / token refresh applies `platformProviders` as a complete directory: create missing providers, replace their model lists and model-level params, and drop `source=platform` providers that the directory no longer lists.
 - This client does not read `modelCatalog` to build providers. That field stays on the official login APIs so older clients keep working; the new client only consumes `platformProviders` + `tierDefaults`.
 - Scene defaults (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm` / `computerPipelineLlm` / `mediaGeneration`) come from `tierDefaults`. The settings UI compares “已覆盖” against this directory, not against names compiled into the client.
-- User settings never persist qwen / deepseek / doubao. After login, those services appear from the platform directory, so a newly published model is selectable on the next refresh without a client update.
+- User settings never persist provider records with `source=platform` (id does not matter; the catalog can add or replace vendors). A user fork of the same id must be `source=user`. Scene **tier maps** may point at platform provider ids — that is a user override, not a provider record.
+- DashScope / DeepSeek / Volcengine **API dialect** is inferred from base URL (and directory capability fields), not from a frozen vendor id list.
 - Capability flags (`supportsVision` / `canGenerateImage` / `canGenerateVideo`) should be set on the platform model entry when the name heuristic would be wrong. Name-based inference is only a fallback.
 - Billing rate lives on each official model row on the control plane. Login payloads and the directory hash omit rate fields, so a rate-only edit does not rebuild client providers.
 

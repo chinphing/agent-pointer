@@ -9,8 +9,10 @@
 > **调试权限**：调试分区仅对平台管理员或 standalone 本地管理员显示。它包含「保存每轮对话请求」「原始内容查看」「标记截图查看」；普通用户不可见也不可修改后两项。
 
 > **WEB 回读**：平台管理员（含 standalone 本地管理员）的 `/api/settings` 响应会保留
-> `agentModeLlm` / `debugMenusEnabled` 等调试字段，保存后再打开设置不会退回内置默认。
-> 非管理员响应仍省略这些字段；后端保存时保留平台调试字段，前端在字段缺失时保留当前内存值。
+> `debugMenusEnabled` 等调试字段。三档映射（`agentModeLlm` / `mediaModeLlm` /
+> `computerTierLlm`）是普通用户偏好，**非管理员 GET/PUT 也必须回传**，否则改标准档
+> 会把已自定义的快速档冲回平台默认。
+> 其余调试字段非管理员响应仍省略；后端保存时保留平台调试字段。
 
 ## 持久化边界
 
@@ -38,13 +40,13 @@
   必须保留与默认值不同的 `supportsVision` / `canGenerateImage` / `canGenerateVideo`。
 - 图片/视频生成下拉、vision 能力检测会读取 `modelConfigs` 中对应字段。
   平台模型以目录下发的 `supportsVision` / `canGenerateImage` / `canGenerateVideo` /
-  服务商 `reasoningInMessages` 为准；未下发时才按服务商 id / 模型名推断（自定义服务）。
+  服务商 `reasoningInMessages` 为准；未下发时才按 **API 地址** 推断（DashScope → 视觉，DeepSeek API → 无视觉），不按服务商 id。
 - 千问 / 豆包模型清单（含 Wan、Seedream、Seedance 等生成模型）**由平台目录下发**，本地不再内置默认模型列表。平台新增模型后，用户下次登录或刷新凭据即可在下拉中看到，无需发客户端版本。
 - 场景档位「已覆盖」以平台 `tierDefaults` 为准，不要在界面里写死模型名来判断是否默认。
 
 ## 模式选择与调试模型映射
 
-- 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 模型配置** 中调整场景档位；`agentModeLlm` / `mediaModeLlm` / `computerTierLlm` 作为用户覆盖通过 `updateUserSettings` 持久化，重启后保留。
+- 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 模型配置** 中调整场景档位；`agentModeLlm` / `mediaModeLlm` / `computerTierLlm` 作为用户覆盖通过 `updateUserSettings` 持久化，重启后保留。用户层服务商只按 `source` 分层：`source=platform` 不落盘、读盘删除；不得按服务商 id 认平台。档位映射引用平台 id 仍是用户覆盖。
 - **电脑操控档位 / Verify**：调试下拉使用全部已配置服务商的 `allModels`（值为 `providerId:model`），写入 `providerId` + `model`；运行时 `apply_round_settings` / `apply_pipeline_phase_settings` 会同时切换 `activeProviderId` 与 `model`。
 - **API Key 回退**：主会话 / 子 Agent 按模式解析出的 Provider **没有可用 API Key**，但当前活跃 Provider 有 Key 时，自动回退到活跃 Provider；模型优先用原活跃模型，若不在该 Provider 的 `models` 列表中则改用列表首项（打 warn 日志）。有 Key 时仍优先用模式映射，不静默改道。
 
@@ -87,8 +89,8 @@
 
 ## 新增自定义服务
 
-- 添加服务仅提供**自定义模板**（OpenAI 兼容 / OpenRouter / Kimi / 智谱）；千问 / 深度求索 / 豆包由平台目录管理，不再出现在添加列表。
-- 编辑已有服务时，服务类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问面板）；平台注入服务（`source=platform`）只读，不可编辑删除。
+- 添加服务只列出自定义协议模板（OpenAI 兼容 / OpenRouter / Kimi / 智谱）。若某模板的默认 id 已出现在当前 `source=platform` 列表中，添加列表不再给出该项（避免自建一份平台目录已有的服务）。
+- 编辑已有服务时，服务类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问协议面板）；平台注入服务（`source=platform`）只读，不可编辑删除。
 - 配置流程与自定义服务相同：服务商级 `RuntimeParamsForm` → 模型列表 → 各模型「同上 / 定制」→ 定制弹窗内同一套 `RuntimeParamsForm`。
 - 预设与识别逻辑在 `src/lib/providerParams.ts`（`PROVIDER_TEMPLATE_OPTIONS`、`detectProviderTemplateId`）。
 

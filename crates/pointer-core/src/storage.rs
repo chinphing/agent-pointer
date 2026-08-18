@@ -648,6 +648,9 @@ pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
     let mut to_save = user.clone();
     to_save.media_oss = Default::default();
+    to_save
+        .providers
+        .retain(|p| p.source.as_deref() != Some("platform"));
     // Encrypt non-empty, non-masked keys inline. "****" is the web redaction
     // sentinel and must not be persisted — it is re-attached from existing data
     // by update_user_settings before reaching here.
@@ -778,7 +781,11 @@ fn normalize_disk_agent_defaults(
 fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
     let legacy_reasoning = stored.legacy_reasoning_in_messages;
     let active = if stored.active_provider_id.trim().is_empty() {
-        "qwen".to_string()
+        stored
+            .providers
+            .first()
+            .map(|p| p.id.clone())
+            .unwrap_or_default()
     } else {
         stored.active_provider_id.clone()
     };

@@ -361,13 +361,15 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
     }
 }
 
-/// Fixed provider defaults for vision (no model-name heuristics).
-/// Qwen: all models support vision; DeepSeek: none do.
-pub fn provider_default_supports_vision(provider_id: &str) -> Option<bool> {
-    match provider_id.trim().to_ascii_lowercase().as_str() {
-        "qwen" => Some(true),
-        "deepseek" => Some(false),
-        _ => None,
+/// Vision default from **API dialect** (base URL), not provider id.
+/// DashScope-compatible endpoints typically accept images; DeepSeek API does not.
+pub fn provider_default_supports_vision(provider: &ProviderConfig) -> Option<bool> {
+    if provider_uses_dashscope_compatible_api(provider) {
+        Some(true)
+    } else if provider_uses_deepseek_api(provider) {
+        Some(false)
+    } else {
+        None
     }
 }
 
@@ -391,29 +393,26 @@ fn infer_model_generation_capability_flags(model: &str) -> ModelRuntimeOverrides
     over
 }
 
-fn resolve_supports_vision(provider_id: &str, model_over: Option<&ModelRuntimeOverrides>) -> bool {
+fn resolve_supports_vision(provider: &ProviderConfig, model_over: Option<&ModelRuntimeOverrides>) -> bool {
     model_over
         .and_then(|o| o.supports_vision)
-        .or_else(|| provider_default_supports_vision(provider_id))
+        .or_else(|| provider_default_supports_vision(provider))
         .unwrap_or(false)
 }
 
 /// Seed provider-fixed vision defaults and generation flags on provider models when unset.
 pub fn ensure_provider_model_capability_defaults(settings: &mut ModelSettings) {
     for provider in &mut settings.providers {
-        let provider_id = provider.id.clone();
         let models: Vec<String> = provider.models.clone();
+        let is_deepseek_api = provider_uses_deepseek_api(provider);
+        let default_vision = provider_default_supports_vision(provider);
         for model in models {
             let inferred = infer_model_generation_capability_flags(&model);
             let entry = provider.model_configs.entry(model).or_default();
-            if provider_id.eq_ignore_ascii_case("deepseek") {
+            if is_deepseek_api {
                 entry.supports_vision = Some(false);
-            } else if provider_id.eq_ignore_ascii_case("qwen") {
-                if entry.supports_vision.is_none() {
-                    entry.supports_vision = Some(true);
-                }
             } else if entry.supports_vision.is_none() {
-                if let Some(v) = provider_default_supports_vision(&provider_id) {
+                if let Some(v) = default_vision {
                     entry.supports_vision = Some(v);
                 }
             }
@@ -440,14 +439,14 @@ pub fn model_capability_flags(
         .or_else(|| settings.providers.first());
     let Some(p) = provider else {
         return (
-            provider_default_supports_vision(provider_id).unwrap_or(false),
+            false,
             inferred.can_generate_image.unwrap_or(false),
             inferred.can_generate_video.unwrap_or(false),
         );
     };
     let over = p.model_configs.get(model.trim());
     (
-        resolve_supports_vision(&p.id, over),
+        resolve_supports_vision(p, over),
         over.and_then(|o| o.can_generate_image)
             .or(inferred.can_generate_image)
             .unwrap_or(false),
@@ -606,9 +605,6 @@ pub fn qwen_explicit_system_cache_enabled(settings: &ModelSettings) -> bool {
 }
 
 pub fn provider_uses_dashscope_compatible_api(provider: &ProviderConfig) -> bool {
-    if provider.id.eq_ignore_ascii_case("qwen") {
-        return true;
-    }
     let url = provider.base_url.to_ascii_lowercase();
     url.contains("dashscope.aliyuncs.com") || url.contains("dashscope-intl.aliyuncs.com")
 }
@@ -624,9 +620,6 @@ pub fn chat_request_flattens_extra_body(_settings: &ModelSettings) -> bool {
 }
 
 pub fn provider_uses_deepseek_api(provider: &ProviderConfig) -> bool {
-    if provider.id.eq_ignore_ascii_case("deepseek") {
-        return true;
-    }
     provider
         .base_url
         .to_ascii_lowercase()
@@ -1005,57 +998,22 @@ fn default_computer_human_like() -> bool {
 /// Clean up legacy settings loaded from disk:
 /// 1. `session-provider`/`session-worker` placeholder entries left by the legacy
 ///    debug-session write path are removed so the UI falls back to real defaults;
-/// 2. legacy user-layer platform providers (qwen/deepseek/doubao) and tier maps
-///    pointing at them are removed — platform model config now comes entirely
-///    from the platform directory on login.
-/// Existing user choices are preserved; platform defaults are no longer backfilled
-/// locally (platform model config comes from the platform directory on login).
+/// 2. user-layer **provider records** with `source=platform` are removed (those
+///    belong on the platform layer). Distinction is the `source` field, not
+///    provider id — a user fork may keep id `qwen` with `source=user`.
+///    Tier maps that **reference** a platform provider id are user overrides
+///    and are kept.
 pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     strip_session_placeholder_model_configs(user);
-    strip_legacy_platform_config(user);
+    strip_platform_source_providers(user);
 }
 
-/// 清理旧版本地平台配置：移除用户层 qwen/deepseek/doubao 服务商及其档位映射。
-/// 平台模型配置现全部由平台目录下发（登录后创建服务商并补齐档位默认），
-/// 本地不再保留任何平台模型固定配置。
-fn strip_legacy_platform_config(user: &mut UserSettings) {
-    const LEGACY: [&str; 3] = ["qwen", "deepseek", "doubao"];
-    user.providers.retain(|p| !LEGACY.contains(&p.id.as_str()));
-    for (_, modes) in user.agent_mode_llm.iter_mut() {
-        modes.retain(|_, cfg| !LEGACY.contains(&cfg.provider_id.as_str()));
-    }
-    for (_, modes) in user.media_mode_llm.iter_mut() {
-        modes.retain(|_, cfg| !LEGACY.contains(&cfg.provider_id.as_str()));
-    }
-    user.computer_tier_llm
-        .retain(|_, cfg| !LEGACY.contains(&cfg.provider_id.as_str()));
-    user.agent_default_models
-        .retain(|_, r| !LEGACY.contains(&r.provider_id.as_str()));
-    let pipeline = &mut user.computer_pipeline_llm;
-    for (model, pid) in [
-        (&mut pipeline.decision, &mut pipeline.decision_provider_id),
-        (&mut pipeline.position, &mut pipeline.position_provider_id),
-        (&mut pipeline.verify, &mut pipeline.verify_provider_id),
-    ] {
-        if LEGACY.contains(&pid.as_str()) {
-            *model = String::new();
-            *pid = String::new();
-        }
-    }
-    let overrides = &mut user.media_model_overrides;
-    for slot in [
-        &mut overrides.image_generation,
-        &mut overrides.video_generation,
-        &mut overrides.image,
-        &mut overrides.audio,
-        &mut overrides.video,
-    ] {
-        if let Some(r) = slot {
-            if LEGACY.contains(&r.provider_id.as_str()) {
-                *slot = None;
-            }
-        }
-    }
+/// User-layer provider rows are tagged `source=user` or omitted; `source=platform`
+/// is directory-owned and must not sit in `user_settings.json`. Do not key this
+/// off provider id: the platform catalog can add/rename/replace vendors.
+fn strip_platform_source_providers(user: &mut UserSettings) {
+    user.providers
+        .retain(|p| p.source.as_deref() != Some("platform"));
 }
 
 /// Remove `session-provider` / `session-worker` entries from per-mode LLM maps.
@@ -1312,21 +1270,20 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
     if !configured.is_empty() {
         return configured.to_string();
     }
+    if let Some(model) = find_dashscope_provider(settings)
+        .and_then(|p| p.models.iter().find(|m| !m.trim().is_empty()))
+    {
+        return model.clone();
+    }
     DEFAULT_WEB_SEARCH_MODEL.to_string()
 }
 
-/// First Qwen provider, or any provider whose base URL is DashScope compatible.
+/// First provider whose base URL is DashScope compatible.
 pub fn find_dashscope_provider(settings: &ModelSettings) -> Option<&ProviderConfig> {
     settings
         .providers
         .iter()
-        .find(|p| p.id.eq_ignore_ascii_case("qwen"))
-        .or_else(|| {
-            settings
-                .providers
-                .iter()
-                .find(|p| provider_uses_dashscope_compatible_api(p))
-        })
+        .find(|p| provider_uses_dashscope_compatible_api(p))
 }
 
 // ── User / platform config split ─────────────────────────────────────────────
@@ -2098,7 +2055,12 @@ const DATI_SETTINGS_JSON_KEYS: &[&str] =
 /// Omitted from pointer-server Web API responses for **non-admin** users so
 /// casual clients do not round-trip session-only debug state. Platform admins
 /// (including standalone local admin) receive these fields so settings UI save
-/// → reopen keeps providers / mode LLM maps / debug toggles.
+/// → reopen keeps debug toggles.
+///
+/// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`) are
+/// **user preferences**, not debug state: every user can edit them in Settings
+/// and they must round-trip on GET/PUT. Do not list them here or non-admin
+/// saves will drop a custom fast-tier model when another tier is changed.
 const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "rawContentViewEnabled",
     "debugDumpLlmPrompts",
@@ -2107,10 +2069,7 @@ const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "taskBoardShowChildBoards",
     "computerAnnotatedScreenViewEnabled",
     "agentUiOverrides",
-    "computerTierLlm",
     "computerPipelineLlm",
-    "agentModeLlm",
-    "mediaModeLlm",
     "agentTaskBoardHistoryTrim",
     "maxSubAgentToolRounds",
     "maxSubAgentSpawnDepth",
@@ -2245,10 +2204,6 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.agent_task_board_history_trim = user.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_tool_rounds = user.max_sub_agent_tool_rounds;
     incoming.max_sub_agent_spawn_depth = user.max_sub_agent_spawn_depth;
-    // Mode LLM maps are also omitted for non-admins; keep server values.
-    incoming.agent_mode_llm = user.agent_mode_llm.clone();
-    incoming.media_mode_llm = user.media_mode_llm.clone();
-    incoming.computer_tier_llm = user.computer_tier_llm.clone();
     incoming.computer_pipeline_llm = user.computer_pipeline_llm.clone();
 }
 
@@ -2270,10 +2225,6 @@ pub fn preserve_platform_debug_settings_in_user(
     incoming.agent_task_board_history_trim = existing.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_tool_rounds = existing.max_sub_agent_tool_rounds;
     incoming.max_sub_agent_spawn_depth = existing.max_sub_agent_spawn_depth;
-    // Mode LLM maps are also omitted for non-admins; keep server values.
-    incoming.agent_mode_llm = existing.agent_mode_llm.clone();
-    incoming.media_mode_llm = existing.media_mode_llm.clone();
-    incoming.computer_tier_llm = existing.computer_tier_llm.clone();
     incoming.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
 }
 
@@ -2646,8 +2597,8 @@ mod model_capability_vision_tests {
     use super::*;
 
     #[test]
-    fn qwen_models_default_support_vision() {
-        let s = ModelSettings::default();
+    fn dashscope_url_models_default_support_vision() {
+        let s = sample_settings();
         let (vision, _, _) = model_capability_flags(&s, "qwen", "qwen3.5-plus");
         assert!(vision);
         let (vision, _, _) = model_capability_flags(&s, "qwen", "qwen3.5-flash");
@@ -2655,8 +2606,33 @@ mod model_capability_vision_tests {
     }
 
     #[test]
-    fn deepseek_models_do_not_support_vision() {
+    fn provider_id_alone_does_not_imply_vision() {
         let mut s = ModelSettings::default();
+        s.providers.push(ProviderConfig {
+            id: "qwen".into(),
+            name: "not dashscope".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            api_key: String::new(),
+            models: vec!["gpt-4o".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
+            extra_body: None,
+            source: Some("user".into()),
+        });
+        let (vision, _, _) = model_capability_flags(&s, "qwen", "gpt-4o");
+        assert!(!vision);
+    }
+
+    #[test]
+    fn deepseek_api_models_do_not_support_vision() {
+        let mut s = sample_settings();
         ensure_provider_model_capability_defaults(&mut s);
         let (vision, _, _) = model_capability_flags(&s, "deepseek", "deepseek-v4-flash");
         assert!(!vision);
@@ -2689,12 +2665,30 @@ mod user_settings_defaults_tests {
     use super::*;
 
     #[test]
-    fn strips_legacy_platform_providers_and_tier_maps() {
-        // 旧 user_settings.json 中的平台服务商与指向它们的档位映射应被清理。
+    fn strips_platform_source_providers_keeps_tier_maps() {
+        // source=platform 的服务商条目应清理；source=user（含同 id 的 fork）和档位映射保留。
         let mut user = UserSettings::default();
         user.providers.push(ProviderConfig {
+            id: "new-platform-llm".into(),
+            name: "平台新服务".into(),
+            base_url: "https://platform.example/v1".into(),
+            api_key: String::new(),
+            models: vec!["qwen3.5-plus".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: None,
+            extra_body: None,
+            source: Some("platform".into()),
+        });
+        user.providers.push(ProviderConfig {
             id: "qwen".into(),
-            name: "千问".into(),
+            name: "千问 fork".into(),
             base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
             api_key: String::new(),
             models: vec!["qwen3.5-plus".into()],
@@ -2761,26 +2755,42 @@ mod user_settings_defaults_tests {
 
         ensure_user_settings_defaults(&mut user);
 
-        // 平台服务商全部清理；自定义服务商保留。
         assert!(
-            !user
-                .providers
+            user.providers
                 .iter()
-                .any(|p| ["qwen", "deepseek", "doubao"].contains(&p.id.as_str())),
-            "legacy platform providers must be stripped"
+                .all(|p| p.source.as_deref() != Some("platform")),
+            "source=platform provider records must be stripped"
+        );
+        assert!(
+            !user.providers.iter().any(|p| p.id == "new-platform-llm"),
+            "directory-owned provider must not remain in user layer"
+        );
+        assert!(
+            user.providers
+                .iter()
+                .any(|p| p.id == "qwen" && p.source.as_deref() == Some("user")),
+            "user fork must be kept even when id matches a platform vendor"
         );
         assert!(
             user.providers.iter().any(|p| p.id == "custom-llm"),
             "custom provider should be preserved"
         );
-        // 指向平台 provider 的档位/默认清理；自定义保留。
-        assert!(!user.agent_default_models.contains_key("general"));
+        // 服务商条目清理；指向平台 id 的档位/默认是用户覆盖，要保留。
+        assert_eq!(
+            user.agent_default_models
+                .get("general")
+                .map(|r| r.model.as_str()),
+            Some("deepseek-v4-flash")
+        );
         assert_eq!(
             user.agent_default_models.get("coder").map(|r| r.model.as_str()),
             Some("custom-model")
         );
         let general = user.agent_mode_llm.get("general").cloned().unwrap_or_default();
-        assert!(general.is_empty(), "qwen tier map should be stripped");
+        assert_eq!(
+            general.get("fast").map(|c| c.model.as_str()),
+            Some("qwen3.5-flash")
+        );
     }
 
     #[test]
@@ -3004,21 +3014,19 @@ mod user_settings_defaults_tests {
             general.get("standard").is_none(),
             "session placeholder removed"
         );
-        // media video expert 指向平台 provider（qwen）→ 被清理
-        assert!(
+        // media / computer 指向平台 provider（qwen）的用户覆盖必须保留
+        assert_eq!(
             user.media_mode_llm
                 .get("video")
-                .map(|m| m.is_empty())
-                .unwrap_or(true),
-            "qwen tier map should be stripped"
+                .and_then(|m| m.get("expert"))
+                .map(|c| c.model.as_str()),
+            Some("qwen3.6-plus")
         );
-        // computer advanced 指向平台 provider（qwen）→ 被清理
-        assert!(
+        assert_eq!(
             user.computer_tier_llm
                 .get("advanced")
-                .map(|c| c.provider_id.as_str())
-                .is_none_or(|pid| pid != "qwen"),
-            "qwen computer tier should be stripped"
+                .map(|c| (c.provider_id.as_str(), c.model.as_str())),
+            Some(("qwen", "qwen3.7-max"))
         );
     }
 
@@ -3372,6 +3380,100 @@ mod effective_extra_body_tests {
         assert!(incoming.raw_content_view_enabled);
         assert!(incoming.debug_menus_enabled);
         assert_eq!(incoming.max_sub_agent_tool_rounds, 42);
+    }
+
+    #[test]
+    fn preserve_user_debug_keeps_incoming_scene_tier_maps() {
+        let mut existing = UserSettings::default();
+        existing.debug_menus_enabled = true;
+        existing.agent_mode_llm.insert(
+            "general".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "qwen".into(),
+                    model: "platform-fast".into(),
+                    enable_thinking: true,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let mut incoming = UserSettings::default();
+        incoming.debug_menus_enabled = false;
+        incoming.agent_mode_llm.insert(
+            "general".into(),
+            [
+                (
+                    "fast".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "custom".into(),
+                        model: "custom-fast".into(),
+                        enable_thinking: true,
+                        thinking_budget: None,
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+                (
+                    "standard".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "custom".into(),
+                        model: "custom-standard".into(),
+                        enable_thinking: true,
+                        thinking_budget: None,
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        preserve_platform_debug_settings_in_user(&mut incoming, &existing);
+        assert!(incoming.debug_menus_enabled);
+        let general = incoming.agent_mode_llm.get("general").expect("general");
+        assert_eq!(general["fast"].model, "custom-fast");
+        assert_eq!(general["standard"].model, "custom-standard");
+    }
+
+    #[test]
+    fn web_effective_settings_view_keeps_scene_tier_maps_for_non_admin() {
+        let platform = PlatformSettings::default();
+        let mut user = UserSettings::default();
+        user.agent_mode_llm.insert(
+            "general".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "custom".into(),
+                    model: "custom-fast".into(),
+                    enable_thinking: true,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let merged = merge_user_platform(&user, &platform);
+        let view = EffectiveSettingsView {
+            user,
+            platform,
+            merged,
+            can_edit_platform: false,
+            is_platform_admin: false,
+        };
+        let json = serde_json::to_string(&WebEffectiveSettingsView(view)).unwrap();
+        assert!(json.contains("custom-fast"));
+        assert!(json.contains("agentModeLlm"));
+        assert!(!json.contains("debugMenusEnabled"));
     }
 
     #[test]

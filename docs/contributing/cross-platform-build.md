@@ -31,7 +31,16 @@ Vue 统一界面
 |------|----------|----------|
 | Node.js | 20+ | `node -v` |
 | npm | 随 Node | `npm -v` |
-| Rust | stable | `rustc --version` / `cargo --version` |
+| Rust | **stable ≥ 1.94**（Cursor 内置 rust-analyzer 下限） | `rustc --version` / `cargo --version` |
+
+本仓库 `rust-toolchain.toml` 跟踪 rustup `stable`，并安装 `rustfmt` / `clippy` / `rust-analyzer`。若 IDE 提示 toolchain 过旧，在项目根执行：
+
+```bash
+rustup update stable
+rustup component add rust-analyzer rustfmt clippy
+```
+
+然后重载 rust-analyzer（Command Palette → **Rust Analyzer: Restart server**）。不要用低于 1.94 的 rustc 给 Cursor 做分析。
 
 Tauri CLI 由项目 devDependency 提供，**不要依赖全局 `tauri` 命令**，统一使用 `npm run tauri:*`。
 

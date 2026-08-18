@@ -82,7 +82,7 @@ function terminalTheme() {
   const accent = `hsl(${styles.getPropertyValue('--accent').trim()})`
   const accentMuted = `hsl(${styles.getPropertyValue('--accent-muted').trim()})`
   return {
-    background: `hsl(${styles.getPropertyValue('--card').trim()})`,
+    background: `hsl(${styles.getPropertyValue('--shell-chat').trim()})`,
     foreground: `hsl(${styles.getPropertyValue('--foreground').trim()})`,
     cursor: accent,
     selectionBackground: accentMuted
@@ -407,7 +407,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.terminal-pane { position: relative; background: hsl(var(--card)); }
+.terminal-pane { position: relative; background: hsl(var(--shell-chat)); }
 .terminal-pane.is-focused { outline: 1px solid hsl(var(--accent)); outline-offset: -1px; }
 .terminal-pane :deep(.xterm) { height: 100%; }
 .terminal-pane :deep(.xterm-screen) { user-select: none; }
@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
 }
 .terminal-pane :deep(.xterm-viewport) {
   /* xterm 默认 #000 会在 FitAddon 不能填满最后一行时露出为底部黑条。 */
-  background-color: hsl(var(--card)) !important;
+  background-color: hsl(var(--shell-chat)) !important;
   overflow-y: auto !important;
   overscroll-behavior: contain;
 }

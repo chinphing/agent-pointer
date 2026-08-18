@@ -21,7 +21,9 @@ column and the right workspace panel** both use `.shell-chat` so light
 and dark keep the same contrast: light = white chat + workspace, gray
 left rail; dark = both panes darker than the left rail. Do not paint
 the workspace with `bg-card` — in dark mode `--card` matches the left
-rail and the right pane looks brighter than chat.
+rail and the right pane looks brighter than chat. The workspace
+terminal pane (xterm `theme.background` and `.xterm-viewport`) uses
+`--shell-chat` for the same reason.
 
 Sticky overlays on `.shell-chat` (task board, workspace find) stay
 opaque `.shell-chat`, not `bg-background/95` or `backdrop-blur`.

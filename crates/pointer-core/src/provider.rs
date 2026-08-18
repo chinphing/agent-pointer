@@ -298,9 +298,60 @@ struct StreamFn {
     arguments: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct OpenAIProvider {
     pub settings: ModelSettings,
     pub api_key: String,
+    pub trace: Option<LlmTraceScope>,
+}
+
+/// Optional observability scope attached to a provider instance. When set,
+/// `chat_once_with_thinking_override` / `stream_chat_wired` emit an `LlmCall`
+/// span (trace id = `run_id`) on completion.
+#[derive(Clone)]
+pub struct LlmTraceScope {
+    pub bus: std::sync::Arc<crate::observability::TraceBus>,
+    pub run_id: String,
+    pub conversation_id: String,
+    pub label: String,
+}
+
+/// Ends + emits an in-flight LLM span on drop, so `?` early-returns still
+/// produce a span. The wrapper sets status/attributes before drop.
+struct LlmSpanGuard {
+    bus: std::sync::Arc<crate::observability::TraceBus>,
+    span: crate::observability::TraceEvent,
+}
+
+impl LlmSpanGuard {
+    fn new(scope: &LlmTraceScope) -> Self {
+        let mut span = crate::observability::TraceEvent::new(
+            scope.run_id.clone(),
+            uuid::Uuid::new_v4().to_string(),
+            crate::observability::SpanKind::LlmCall,
+            scope.label.clone(),
+        );
+        span.parent_span_id = Some("run-root".to_string());
+        span.run_id = scope.run_id.clone();
+        span.conversation_id = scope.conversation_id.clone();
+        Self {
+            bus: scope.bus.clone(),
+            span,
+        }
+    }
+
+    fn set_error(&mut self, code: &str, message: impl Into<String>) {
+        self.span.set_error(code, message);
+    }
+}
+
+impl Drop for LlmSpanGuard {
+    fn drop(&mut self) {
+        if self.span.ended_at_ms.is_none() {
+            self.span.end();
+        }
+        self.bus.emit(self.span.clone());
+    }
 }
 
 /// Built HTTP request for `stream_chat` (`openai_msgs` Values already dropped after serialize).
@@ -380,7 +431,16 @@ fn parse_chat_once_tool_calls(raw: Option<&[ChatApiToolCall]>) -> Vec<ToolCall> 
 
 impl OpenAIProvider {
     pub fn new(settings: ModelSettings, api_key: String) -> Self {
-        Self { settings, api_key }
+        Self {
+            settings,
+            api_key,
+            trace: None,
+        }
+    }
+
+    pub fn with_trace(mut self, scope: LlmTraceScope) -> Self {
+        self.trace = Some(scope);
+        self
     }
 
     pub async fn test(&self) -> Result<u128> {
@@ -469,6 +529,51 @@ impl OpenAIProvider {
     }
 
     async fn chat_once_with_thinking_override(
+        &self,
+        messages: &[ChatMessage],
+        system: &SystemPromptSections,
+        native_tools: Vec<Value>,
+        cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
+        disable_thinking: bool,
+    ) -> Result<ChatOnceOutput> {
+        let mut guard = self.trace.as_ref().map(LlmSpanGuard::new);
+        let result = self
+            .chat_once_with_thinking_override_inner(
+                messages,
+                system,
+                native_tools,
+                cancel,
+                max_tokens_override,
+                dump_label,
+                disable_thinking,
+            )
+            .await;
+        match &result {
+            Ok(out) => {
+                if let Some(g) = guard.as_mut() {
+                    g.span.attributes = match &out.usage {
+                        Some(u) => serde_json::json!({
+                            "tokens_in": u.prompt_tokens,
+                            "tokens_out": u.output_tokens(),
+                            "tokens_cached": u.cached_tokens,
+                            "model": out.model,
+                        }),
+                        None => serde_json::json!({ "model": out.model }),
+                    };
+                }
+            }
+            Err(e) => {
+                if let Some(g) = guard.as_mut() {
+                    g.set_error("llm_failed", e.to_string());
+                }
+            }
+        }
+        result
+    }
+
+    async fn chat_once_with_thinking_override_inner(
         &self,
         messages: &[ChatMessage],
         system: &SystemPromptSections,
@@ -1355,6 +1460,26 @@ impl OpenAIProvider {
         cancel: CancellationToken,
         dump_label: Option<&str>,
     ) -> Result<()> {
+        let mut guard = self.trace.as_ref().map(LlmSpanGuard::new);
+        let result = self
+            .stream_chat_wired_inner(wire, tx, cancel, dump_label, guard.as_mut())
+            .await;
+        if let Err(e) = &result {
+            if let Some(g) = guard.as_mut() {
+                g.set_error("llm_failed", e.to_string());
+            }
+        }
+        result
+    }
+
+    async fn stream_chat_wired_inner(
+        &self,
+        wire: StreamChatWire,
+        tx: mpsc::Sender<ProviderEvent>,
+        cancel: CancellationToken,
+        dump_label: Option<&str>,
+        guard: Option<&mut LlmSpanGuard>,
+    ) -> Result<()> {
         let stream_t0 = Instant::now();
         let StreamChatWire {
             url,
@@ -1561,6 +1686,18 @@ impl OpenAIProvider {
                 "legacy json envelope detected; native tool calling mode expects provider tool_calls"
                     .to_string(),
             );
+        }
+
+        if let Some(g) = guard {
+            g.span.attributes = match &last_usage {
+                Some(u) => serde_json::json!({
+                    "tokens_in": u.prompt_tokens,
+                    "tokens_out": u.output_tokens(),
+                    "tokens_cached": u.cached_tokens,
+                    "model": self.settings.model,
+                }),
+                None => serde_json::json!({ "model": self.settings.model }),
+            };
         }
 
         let _ = tx

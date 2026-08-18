@@ -40,8 +40,8 @@ const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const TERMINAL_MAX_TIMEOUT_MS: u64 = 3_600_000;
 /// 自进程启动起的墙钟上限（与是否有输出无关）。
 const TERMINAL_ABS_MAX_WALL_MS: u64 = 3_600_000;
-const TERMINAL_DEFAULT_MAX_OUTPUT_BYTES: usize = 20_000;
-const TERMINAL_MAX_OUTPUT_BYTES: usize = 200_000;
+pub(crate) const TERMINAL_DEFAULT_MAX_OUTPUT_BYTES: usize = 8_000;
+pub(crate) const TERMINAL_MAX_OUTPUT_BYTES: usize = 8_000;
 const TERMINAL_DEFAULT_WAIT_FOR_INPUT_MS: u64 = 120_000;
 const TERMINAL_MAX_WAIT_FOR_INPUT_MS: u64 = 600_000;
 
@@ -1093,17 +1093,26 @@ pub fn terminal_stream_tool_status(r: &TerminalStreamingResult) -> (bool, Option
     (false, Some(msg))
 }
 
+/// Keep the **tail** of a stream when it exceeds `max_bytes` (test summaries, panic
+/// locations, and exit lines sit at the end). Prefix a marker; skip UTF-8
+/// continuation bytes so the slice does not split a codepoint.
 pub(crate) fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) {
     if bytes.len() <= max_bytes {
         return (String::from_utf8_lossy(bytes).to_string(), false);
     }
-    let mut end = max_bytes.min(bytes.len());
-    while end > 0 && std::str::from_utf8(&bytes[..end]).is_err() {
-        end -= 1;
+    const MARKER: &str = "...[output truncated]\n";
+    let keep = max_bytes.saturating_sub(MARKER.len()).max(1);
+    let mut start = bytes.len().saturating_sub(keep);
+    while start < bytes.len() && (bytes[start] & 0b1100_0000) == 0b1000_0000 {
+        start += 1;
     }
-    let mut text = String::from_utf8_lossy(&bytes[..end]).to_string();
-    text.push_str("\n...[output truncated]");
-    (text, true)
+    let tail = String::from_utf8_lossy(&bytes[start..]);
+    log::info!(
+        "terminal: truncated stream from {} bytes to last {} bytes (utf8 start={start})",
+        bytes.len(),
+        bytes.len().saturating_sub(start)
+    );
+    (format!("{MARKER}{tail}"), true)
 }
 
 /// Host-injected identity. Agent `terminal` must not mention this name in
@@ -1148,6 +1157,37 @@ mod cwd_tests {
         }))
         .unwrap_err();
         assert!(err.to_string().contains("SESSION_USER_ID"));
+    }
+
+    #[test]
+    fn truncate_output_keeps_tail_not_head() {
+        let body = format!("{}FAILURE_AT_END", "x".repeat(80));
+        let (out, truncated) = truncate_output(body.as_bytes(), 40);
+        assert!(truncated);
+        assert!(out.starts_with("...[output truncated]\n"));
+        assert!(out.contains("FAILURE_AT_END"), "tail must be kept: {out}");
+        assert!(!out.contains(&"x".repeat(40)), "head must be dropped: {out}");
+    }
+
+    #[test]
+    fn truncate_output_under_limit_is_unchanged() {
+        let (out, truncated) = truncate_output(b"hello", 40);
+        assert!(!truncated);
+        assert_eq!(out, "hello");
+    }
+
+    #[test]
+    fn truncate_output_does_not_split_multibyte_char() {
+        let mut body = "x".repeat(80);
+        body.push('中');
+        body.push_str("TAIL");
+        let (out, truncated) = truncate_output(body.as_bytes(), 40);
+        assert!(truncated);
+        assert!(out.contains("TAIL"));
+        assert!(
+            out.chars().all(|c| c != '\u{FFFD}'),
+            "must not emit replacement char: {out:?}"
+        );
     }
 
     #[test]

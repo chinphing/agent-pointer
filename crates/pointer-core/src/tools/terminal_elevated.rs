@@ -1,6 +1,7 @@
 use super::terminal::{
     effective_terminal_cwd, parse_terminal_cwd, resolve_terminal_env_files, truncate_output,
-    InputClass, TerminalStreamingResult,
+    InputClass, TerminalStreamingResult, TERMINAL_DEFAULT_MAX_OUTPUT_BYTES,
+    TERMINAL_MAX_OUTPUT_BYTES,
 };
 use crate::dotenv::build_terminal_child_environment;
 #[cfg(unix)]
@@ -77,8 +78,8 @@ pub fn run_terminal_command_elevated(
     let max_output_bytes = args
         .get("maxOutputBytes")
         .and_then(|v| v.as_u64())
-        .unwrap_or(20_000)
-        .min(200_000) as usize;
+        .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
+        .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
 
     let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
     let env_paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();

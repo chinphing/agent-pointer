@@ -28,6 +28,24 @@ pub(super) async fn run_approval_gate(
         return Ok(true);
     }
 
+    let run_id = ctx
+        .lead
+        .as_ref()
+        .map(|l| l.run_id)
+        .or_else(|| ctx.sub.as_ref().map(|s| s.instance_scope.run_id.as_str()))
+        .unwrap_or_default();
+    let conversation_id = ctx.session.conversation_id;
+    let trace_bus = ctx.session.state.trace_bus.clone();
+    let mut approval_span = crate::observability::TraceEvent::new(
+        run_id,
+        uuid::Uuid::new_v4().to_string(),
+        crate::observability::SpanKind::Approval,
+        "approval",
+    );
+    approval_span.parent_span_id = Some("run-root".to_string());
+    approval_span.run_id = run_id.to_string();
+    approval_span.conversation_id = conversation_id.to_string();
+
     let scoped_message_id = ctx.sub.as_ref().map(|s| s.scoped_message_id.as_str());
 
     emit(
@@ -58,6 +76,13 @@ pub(super) async fn run_approval_gate(
         }
         v = arx => v.unwrap_or(false),
     };
+    if approved {
+        approval_span.status = crate::observability::SpanStatus::Ok;
+    } else {
+        approval_span.status = crate::observability::SpanStatus::Cancelled;
+    }
+    approval_span.end();
+    trace_bus.emit(approval_span);
     if approved {
         return Ok(true);
     }

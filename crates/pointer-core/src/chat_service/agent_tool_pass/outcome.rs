@@ -24,6 +24,12 @@ pub(super) async fn record_tool_exec_outcome(
     let message_id = ctx.message_id.as_str();
     let stream = ctx.session.stream;
     let state = ctx.session.state;
+    let run_id = ctx
+        .lead
+        .as_ref()
+        .map(|l| l.run_id)
+        .or_else(|| ctx.sub.as_ref().map(|s| s.instance_scope.run_id.as_str()))
+        .unwrap_or_default();
 
     match exec {
         Ok((out, ok, err_note)) => {
@@ -55,6 +61,20 @@ pub(super) async fn record_tool_exec_outcome(
             let (display_label, display_summary) =
                 super::super::util::tool_display_stream_fields(&display);
             let status = if ok { "success" } else { "failed" };
+            state
+                .hooks
+                .run_post_tool_call(&crate::dispatcher::PostToolCallContext {
+                    run_id,
+                    conversation_id,
+                    message_id,
+                    tool_call_id: &tc.id,
+                    tool_name: tool_id,
+                    status,
+                    result: Some(&out),
+                    error: err_note.as_deref(),
+                    state,
+                })
+                .await;
             super::super::util::patch_assistant_tool_call_outcome(
                 ctx.transcript.history,
                 message_id,
@@ -118,6 +138,20 @@ pub(super) async fn record_tool_exec_outcome(
         }
         Err(e) => {
             let err = e.to_string();
+            state
+                .hooks
+                .run_post_tool_call(&crate::dispatcher::PostToolCallContext {
+                    run_id,
+                    conversation_id,
+                    message_id,
+                    tool_call_id: &tc.id,
+                    tool_name: tool_id,
+                    status: "failed",
+                    result: None,
+                    error: Some(err.as_str()),
+                    state,
+                })
+                .await;
             let err_snip = truncate_str(&err, 400);
             state.computer_state.record_desktop_tool_if_applicable(
                 conversation_id,

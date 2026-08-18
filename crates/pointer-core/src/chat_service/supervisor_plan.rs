@@ -193,6 +193,14 @@ pub(crate) async fn plan_agent_tasks(
         roster
     );
     let dump_lbl = format!("{conversation_id}_{assistant_message_id}_supervisor_plan");
+    let provider = (*provider)
+        .clone()
+        .with_trace(crate::provider::LlmTraceScope {
+            bus: state.trace_bus.clone(),
+            run_id: run_id.to_string(),
+            conversation_id: conversation_id.to_string(),
+            label: "supervisor_plan".to_string(),
+        });
     let out = provider
         .chat_once(
             history,

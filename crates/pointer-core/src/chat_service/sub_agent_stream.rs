@@ -39,6 +39,8 @@ pub(super) async fn run_sub_agent_stream_round(
     let cancel = ctx.cancel.clone();
     let reasoning_in_messages = ctx.reasoning_in_messages;
     let tools_appendix_enabled = input.tools_appendix_enabled;
+    let run_id = sub.instance_scope.run_id.clone();
+    let trace_bus = ctx.session.state.trace_bus.clone();
 
     let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
     let round_settings = if sub.def.profile == AgentProfile::Computer {
@@ -49,7 +51,13 @@ pub(super) async fn run_sub_agent_stream_round(
         provider.settings.clone()
     };
     let source = crate::llm_token_stats::active_provider_source(&round_settings);
-    let prov = crate::provider::OpenAIProvider::new(round_settings, provider.api_key.clone());
+    let prov = crate::provider::OpenAIProvider::new(round_settings, provider.api_key.clone())
+        .with_trace(crate::provider::LlmTraceScope {
+            bus: trace_bus.clone(),
+            run_id: run_id.clone(),
+            conversation_id: conversation_id.to_string(),
+            label: "sub".to_string(),
+        });
     let cancel_clone = cancel_owned(&cancel);
     let dump_lbl = format!("{}_{}_sub_{}", conversation_id, sub.message_id, sub.task.id);
     // Build wire from local_history + injects before spawn (no full history clone on the HTTP task).
@@ -112,6 +120,20 @@ pub(super) async fn run_sub_agent_stream_round(
                         sub.task.id,
                         delay.as_secs()
                     );
+                    {
+                        let mut span = crate::observability::TraceEvent::new(
+                            run_id.clone(),
+                            uuid::Uuid::new_v4().to_string(),
+                            crate::observability::SpanKind::Retry,
+                            "rate_limit",
+                        );
+                        span.parent_span_id = Some("run-root".to_string());
+                        span.run_id = run_id.clone();
+                        span.conversation_id = conversation_id.to_string();
+                        span.attributes = serde_json::json!({ "attempt": 1, "delay_ms": delay.as_millis() as u64 });
+                        span.end();
+                        trace_bus.emit(span);
+                    }
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {}
                         _ = cancel.cancelled() => return Err(anyhow!("请求已取消")),

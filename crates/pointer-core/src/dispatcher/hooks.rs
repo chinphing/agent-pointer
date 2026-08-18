@@ -106,7 +106,7 @@ pub struct PreToolCallContext<'a> {
     pub tool_call_id: &'a str,
     pub tool_name: &'a str,
     pub args: &'a serde_json::Value,
-    pub state: &'a Arc<AppState>,
+    pub state: &'a AppState,
 }
 
 /// Context for [`PostToolCallHook`] (firing wired in Phase 3).
@@ -119,7 +119,7 @@ pub struct PostToolCallContext<'a> {
     pub status: &'a str,
     pub result: Option<&'a str>,
     pub error: Option<&'a str>,
-    pub state: &'a Arc<AppState>,
+    pub state: &'a AppState,
 }
 
 // ---- Traits ----
@@ -176,7 +176,7 @@ pub trait PostToolCallHook: HookIdentity {
 
 /// Registry of dispatcher hooks. Owned by [`crate::dispatcher::RunDispatcher`]
 /// as `Arc<HookRegistry>`. Cheap to share.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct HookRegistry {
     on_trigger_received: Vec<Arc<dyn OnTriggerReceivedHook>>,
     pre_dispatch: Vec<Arc<dyn PreDispatchHook>>,

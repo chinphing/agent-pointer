@@ -65,6 +65,7 @@ pub mod media;
 pub mod media_generation;
 pub mod mode_llm;
 pub mod models;
+pub mod observability;
 pub mod platform_config;
 pub mod provider;
 pub mod shell_env;

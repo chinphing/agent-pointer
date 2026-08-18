@@ -13,6 +13,28 @@ use super::computer_pipeline_loop::{
 use super::emit::emit;
 use super::util::new_id;
 
+fn emit_retry_span(
+    trace_bus: &crate::observability::TraceBus,
+    run_id: &str,
+    conversation_id: &str,
+    reason: &str,
+    attempt: u32,
+    delay_ms: u64,
+) {
+    let mut span = crate::observability::TraceEvent::new(
+        run_id,
+        uuid::Uuid::new_v4().to_string(),
+        crate::observability::SpanKind::Retry,
+        reason,
+    );
+    span.parent_span_id = Some("run-root".to_string());
+    span.run_id = run_id.to_string();
+    span.conversation_id = conversation_id.to_string();
+    span.attributes = serde_json::json!({ "attempt": attempt, "delay_ms": delay_ms });
+    span.end();
+    trace_bus.emit(span);
+}
+
 pub(super) async fn run_single_agent_loop(
     ctx: &mut super::context::LeadAgentLoopContext<'_>,
 ) -> Result<()> {
@@ -27,6 +49,8 @@ pub(super) async fn run_single_agent_loop(
     let max_cap = ctx.max_cap;
     let cancel = ctx.session.cancel.clone();
     let reasoning_in_messages = ctx.reasoning_in_messages;
+    let lead_run_id = ctx.token_session.run_id.clone();
+    let trace_bus = state.trace_bus.clone();
     let lead_profile = state
         .agents
         .get(&agent_plan.lead_agent_id)
@@ -180,6 +204,14 @@ pub(super) async fn run_single_agent_loop(
                     ));
                 }
                 let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+                emit_retry_span(
+                    &trace_bus,
+                    &lead_run_id,
+                    conversation_id,
+                    "recoverable",
+                    retry_count,
+                    delay.as_millis() as u64,
+                );
                 tokio::time::sleep(delay).await;
                 continue;
             }
@@ -224,6 +256,14 @@ pub(super) async fn run_single_agent_loop(
                 );
                 ctx.tool_budget.sync_out(ctx.consumed_single);
                 let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+                emit_retry_span(
+                    &trace_bus,
+                    &lead_run_id,
+                    conversation_id,
+                    "empty",
+                    retry_count,
+                    delay.as_millis() as u64,
+                );
                 tokio::time::sleep(delay).await;
                 continue;
             }
@@ -291,6 +331,14 @@ pub(super) async fn run_single_agent_loop(
             );
             ctx.tool_budget.sync_out(ctx.consumed_single);
             let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+            emit_retry_span(
+                &trace_bus,
+                &lead_run_id,
+                conversation_id,
+                "length",
+                retry_count,
+                delay.as_millis() as u64,
+            );
             tokio::time::sleep(delay).await;
             continue;
         }

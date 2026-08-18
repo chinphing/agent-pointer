@@ -11,19 +11,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
+use crate::chart_outbound::materialize_chartjs_fences_for_im;
 use crate::config::ChannelAccountConfig;
 use crate::http_client::HttpClient;
+use crate::im_stream_outbound::ImStreamOutbound;
 use crate::media::resolve_inbound_attachments;
+use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
 use crate::session::{
     conversation_id, format_group_sender_prefix, inbound_user_message_id,
     should_prefix_group_sender,
 };
-use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
 use crate::session_agent::{agent_switch_ack, detect_agent_switch, AgentSwitchAction};
+use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
 use crate::session_reset::{self, ManualResetAction, MANUAL_RESET_ACK};
-use crate::chart_outbound::materialize_chartjs_fences_for_im;
-use crate::im_stream_outbound::ImStreamOutbound;
-use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
 use crate::traits::{ChannelPlugin, InboundMessage, OutboundContext};
 
 fn broadcast_im_session_agent(
@@ -49,9 +49,7 @@ fn sync_im_desktop_session_agent(
         &session_state.lead_agent_id,
         &session_state.agent_mode,
     ) {
-        log::warn!(
-            "channel patch session agent failed desktop={desktop_conv_id}: {e:#}"
-        );
+        log::warn!("channel patch session agent failed desktop={desktop_conv_id}: {e:#}");
     }
 }
 
@@ -294,17 +292,17 @@ impl DispatchService {
         let media_attachments = resolve_inbound_attachments(&self.http, account, &msg).await?;
         let mut user_content = user_text;
         if !media_attachments.is_empty() {
-            let failed = msg.attachments.len().saturating_sub(media_attachments.len());
+            let failed = msg
+                .attachments
+                .len()
+                .saturating_sub(media_attachments.len());
             if failed > 0 {
                 log::warn!(
                     "channel inbound {failed}/{} attachment(s) failed to download",
                     msg.attachments.len()
                 );
                 if user_content.trim().is_empty() {
-                    user_content = format!(
-                        "[{} attachment(s) could not be downloaded]",
-                        failed
-                    );
+                    user_content = format!("[{} attachment(s) could not be downloaded]", failed);
                 }
             }
         }
@@ -353,9 +351,7 @@ impl DispatchService {
 
         let im_user_id = crate::session::im_session_user_id(&msg, &account.dynamic_agents);
         if let Err(e) = store.set_session_user_id(&desktop_conv_id, &im_user_id) {
-            log::warn!(
-                "channel set session_user_id failed desktop={desktop_conv_id}: {e:#}"
-            );
+            log::warn!("channel set session_user_id failed desktop={desktop_conv_id}: {e:#}");
         }
 
         let workspace_root = store.workspace_root(&desktop_conv_id).unwrap_or_default();
@@ -370,12 +366,8 @@ impl DispatchService {
 
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
         let mut reply_text = String::new();
-        let mut stream_out = ImStreamOutbound::new(
-            plugin,
-            outbound.clone(),
-            im_outbound_cfg,
-            conv_id.clone(),
-        );
+        let mut stream_out =
+            ImStreamOutbound::new(plugin, outbound.clone(), im_outbound_cfg, conv_id.clone());
 
         let automation_auth = state.automation_execution_auth();
         let agent_mode = request_agent_mode(&im_session);
@@ -398,6 +390,7 @@ impl DispatchService {
                 None,
                 Some(TriggerSource::Im),
                 false,
+                None,
             )
         });
 

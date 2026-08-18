@@ -474,6 +474,7 @@ impl RunDispatcher {
             req.workspace_inherit_disabled,
             Some(req.trigger_source),
             im_auto_deliver,
+            Some(run_id.clone()),
         );
         let result = match std::panic::AssertUnwindSafe(run).catch_unwind().await {
             Ok(result) => result,

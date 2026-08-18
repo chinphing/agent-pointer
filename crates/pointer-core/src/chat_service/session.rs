@@ -61,6 +61,7 @@ pub async fn run_chat(
     workspace_inherit_disabled: Option<bool>,
     trigger_source: Option<TriggerSource>,
     im_auto_deliver: bool,
+    run_id: Option<String>,
 ) -> Result<()> {
     // 本轮 AI 工作区间起点（排除前端 dispatch / 排队 / 网络传输），Done 事件携带。
     let run_started_at_ms = super::util::now_ms();
@@ -115,7 +116,18 @@ pub async fn run_chat(
             }
         };
 
-    let run_id = Uuid::new_v4().to_string();
+    let run_id = run_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let mut run_span: Option<crate::observability::TraceEvent> = {
+        let mut span = crate::observability::TraceEvent::new(
+            run_id.clone(),
+            "run-root",
+            crate::observability::SpanKind::Run,
+            "run",
+        );
+        span.conversation_id = conversation_id.clone();
+        span.run_id = run_id.clone();
+        Some(span)
+    };
     let mut consumed_single = 0u32;
     let mut consumed_supervisor = 0u32;
     let run_req = super::context::ChatRunRequest {
@@ -360,6 +372,13 @@ pub async fn run_chat(
     // Soft-threshold background compress while the user is idle / composing.
     if result.is_ok() {
         crate::context_compression::maybe_spawn_precompress(state.clone(), conversation_id);
+    }
+    if let Some(mut span) = run_span.take() {
+        if let Err(err) = &result {
+            span.set_error("run_failed", err.to_string());
+        }
+        span.end();
+        state.trace_bus.emit(span);
     }
     result
 }

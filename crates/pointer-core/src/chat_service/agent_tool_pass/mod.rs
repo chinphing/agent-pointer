@@ -45,6 +45,9 @@ use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
 use outcome::record_tool_exec_outcome;
 use types::ToolExecResult;
 
+use crate::dispatcher::{HookOutcome, PreToolCallContext};
+use crate::observability::{SpanKind, TraceEvent};
+
 fn task_board_emit_anchor_for_store_key(
     ctx: &ToolPassContext<'_>,
     store_key: &str,
@@ -504,6 +507,54 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         break;
                     }
                     let prep = &prepared[idx];
+                    let prep_run_id = pass
+                        .ctx
+                        .lead
+                        .as_ref()
+                        .map(|l| l.run_id.to_string())
+                        .or_else(|| {
+                            pass.ctx
+                                .sub
+                                .as_ref()
+                                .map(|s| s.instance_scope.run_id.clone())
+                        })
+                        .unwrap_or_default();
+                    let prep_conversation_id = pass.ctx.session.conversation_id.to_string();
+                    let hook_state = pass.ctx.session.state;
+                    {
+                        let outcome = hook_state
+                            .hooks
+                            .run_pre_tool_call(&PreToolCallContext {
+                                run_id: &prep_run_id,
+                                conversation_id: &prep_conversation_id,
+                                message_id: pass.ctx.message_id.as_str(),
+                                tool_call_id: prep.tc.id.as_str(),
+                                tool_name: prep.tool_id.as_str(),
+                                args: &prep.args_value,
+                                state: hook_state,
+                            })
+                            .await?;
+                        if let HookOutcome::Reject { reason } = outcome {
+                            apply_one_outcome(
+                                &mut pass,
+                                &prepared,
+                                idx,
+                                OneToolOutcome {
+                                    index: prep.index,
+                                    exec: Ok((format!("被策略拦截: {reason}"), false, None)),
+                                    duration_ms: 0,
+                                    skipped: true,
+                                    span_id: None,
+                                },
+                                &sub_trace_id,
+                                &mut any_executed,
+                                &mut task_board_succeeded,
+                                &mut final_reply_output,
+                            )
+                            .await;
+                            continue;
+                        }
+                    }
                     if !run_approval_gate(
                         &mut pass.ctx,
                         &prep.tc,
@@ -522,6 +573,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 exec: Ok(("用户已拒绝该工具调用".into(), false, None)),
                                 duration_ms: 0,
                                 skipped: true,
+                                span_id: None,
                             },
                             &sub_trace_id,
                             &mut any_executed,
@@ -561,6 +613,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     let tc = prep.tc.clone();
                     let tool_id = prep.tool_id.clone();
                     let args = prep.args_value.clone();
+                    let span_run_id = prep_run_id.clone();
+                    let trace_bus = hook_state.trace_bus.clone();
                     let cancel = pass.cancel.clone();
                     let workspace = pass.ctx.workspace_root.to_string();
                     let prep_index = prep.index;
@@ -608,6 +662,18 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     };
 
                     exec_futures.push(async move {
+                        let mut tool_span = TraceEvent::new(
+                            span_run_id.clone(),
+                            uuid::Uuid::new_v4().to_string(),
+                            SpanKind::ToolCall,
+                            tool_id.as_str(),
+                        );
+                        tool_span.parent_span_id = Some("run-root".to_string());
+                        tool_span.run_id = span_run_id.clone();
+                        tool_span.conversation_id = conversation_id.clone();
+                        if let serde_json::Value::Object(ref mut attrs) = tool_span.attributes {
+                            attrs.insert("tool_id".into(), serde_json::json!(tool_id));
+                        }
                         let _tool_permit = tool_sem.acquire_owned().await;
                         if class == ToolConflictClass::Media {
                             let _media = media_sem.acquire_owned().await;
@@ -636,11 +702,22 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             &cancel,
                         )
                         .await;
+                        let tool_failed =
+                            matches!(&exec, Err(_)) || matches!(&exec, Ok((_, false, _)));
+                        if tool_failed {
+                            tool_span.set_error(
+                                "tool_failed",
+                                "tool execution failed or reported not ok",
+                            );
+                        }
+                        tool_span.end();
+                        trace_bus.emit(tool_span);
                         OneToolOutcome {
                             index: prep_index,
                             exec,
                             duration_ms: started.elapsed().as_millis() as u64,
                             skipped: false,
+                            span_id: None,
                         }
                     });
                     in_flight_prep.push(idx);
@@ -771,6 +848,10 @@ struct OneToolOutcome {
     exec: ToolExecResult,
     duration_ms: u64,
     skipped: bool,
+    /// ToolCall span id for the executed tool (serial path). Reserved for
+    /// future SpanStore linkage; not consumed today (out of scope).
+    #[allow(dead_code)]
+    span_id: Option<String>,
 }
 
 fn prepared_is_parallel_subagent(prepared: &PreparedTool) -> bool {
@@ -791,6 +872,42 @@ async fn run_self_fork_wave(
     let mut items = Vec::new();
     for idx in indices {
         let prep = &prepared[idx];
+        let run_id = pass
+            .ctx
+            .lead
+            .as_ref()
+            .map(|l| l.run_id.to_string())
+            .or_else(|| {
+                pass.ctx
+                    .sub
+                    .as_ref()
+                    .map(|s| s.instance_scope.run_id.clone())
+            })
+            .unwrap_or_default();
+        let conversation_id = pass.ctx.session.conversation_id.to_string();
+        let hook_state = pass.ctx.session.state;
+        {
+            let outcome = hook_state
+                .hooks
+                .run_pre_tool_call(&PreToolCallContext {
+                    run_id: &run_id,
+                    conversation_id: &conversation_id,
+                    message_id: pass.ctx.message_id.as_str(),
+                    tool_call_id: prep.tc.id.as_str(),
+                    tool_name: prep.tool_id.as_str(),
+                    args: &prep.args_value,
+                    state: hook_state,
+                })
+                .await?;
+            if let HookOutcome::Reject { reason } = outcome {
+                log::info!(
+                    "tool_batch_exec: self-fork rejected by pre_tool_call hook tool={} reason={reason}",
+                    prep.tool_id
+                );
+                *any_executed = true;
+                continue;
+            }
+        }
         if !run_approval_gate(
             &mut pass.ctx,
             &prep.tc,
@@ -1049,6 +1166,45 @@ async fn run_one_prepared(
 ) -> Result<OneToolOutcome> {
     let prep = &prepared[prep_index];
     let tc = &prep.tc;
+    let run_id = pass
+        .ctx
+        .lead
+        .as_ref()
+        .map(|l| l.run_id.to_string())
+        .or_else(|| {
+            pass.ctx
+                .sub
+                .as_ref()
+                .map(|s| s.instance_scope.run_id.clone())
+        })
+        .unwrap_or_default();
+    let conversation_id = pass.ctx.session.conversation_id.to_string();
+    let state = pass.ctx.session.state;
+
+    // Fire pre_tool_call hooks; a rejection short-circuits before approval.
+    {
+        let outcome = state
+            .hooks
+            .run_pre_tool_call(&PreToolCallContext {
+                run_id: &run_id,
+                conversation_id: &conversation_id,
+                message_id: pass.ctx.message_id.as_str(),
+                tool_call_id: tc.id.as_str(),
+                tool_name: prep.tool_id.as_str(),
+                args: &prep.args_value,
+                state,
+            })
+            .await?;
+        if let HookOutcome::Reject { reason } = outcome {
+            return Ok(OneToolOutcome {
+                index: prep.index,
+                exec: Ok((format!("被策略拦截: {reason}"), false, None)),
+                duration_ms: 0,
+                skipped: true,
+                span_id: None,
+            });
+        }
+    }
 
     if !run_approval_gate(
         &mut pass.ctx,
@@ -1064,8 +1220,23 @@ async fn run_one_prepared(
             exec: Ok(("用户已拒绝该工具调用".into(), false, None)),
             duration_ms: 0,
             skipped: true,
+            span_id: None,
         });
     }
+
+    let mut tool_span = TraceEvent::new(
+        run_id.clone(),
+        uuid::Uuid::new_v4().to_string(),
+        SpanKind::ToolCall,
+        prep.tool_id.as_str(),
+    );
+    tool_span.parent_span_id = Some("run-root".to_string());
+    tool_span.run_id = run_id.clone();
+    tool_span.conversation_id = conversation_id.clone();
+    if let serde_json::Value::Object(ref mut attrs) = tool_span.attributes {
+        attrs.insert("tool_id".into(), serde_json::json!(prep.tool_id));
+    }
+    let span_id = tool_span.span_id.clone();
 
     emit_tool_running(
         pass.ctx.session.stream,
@@ -1101,11 +1272,19 @@ async fn run_one_prepared(
     )
     .await;
 
+    let tool_failed = matches!(&exec, Err(_)) || matches!(&exec, Ok((_, false, _)));
+    if tool_failed {
+        tool_span.set_error("tool_failed", "tool execution failed or reported not ok");
+    }
+    tool_span.end();
+    state.trace_bus.emit(tool_span);
+
     Ok(OneToolOutcome {
         index: prep.index,
         exec,
         duration_ms: started.elapsed().as_millis() as u64,
         skipped: false,
+        span_id: Some(span_id),
     })
 }
 

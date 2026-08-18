@@ -286,6 +286,12 @@ pub struct AppState {
     automation_web_session: Arc<RwLock<Option<WebSessionAuth>>>,
     /// Server-global LLM credential snapshot; survives OAuth expiry and browser logout.
     automation_llm_creds: Arc<RwLock<Option<PlatformLoginCredentials>>>,
+    /// Run observability span bus (non-blocking `try_send`); instrumentation points
+    /// (run / tool / LLM / approval / retry) emit spans through this handle.
+    pub trace_bus: Arc<crate::observability::TraceBus>,
+    /// Shared lifecycle hook registry (built-in + host extra). Reused by the
+    /// dispatcher so built-in hooks are registered exactly once.
+    pub hooks: Arc<crate::dispatcher::HookRegistry>,
 }
 
 impl AppState {
@@ -370,6 +376,16 @@ impl AppState {
         let mut extension_registry = ExtensionRegistry::new();
         crate::extensions::register_builtin_extensions(&mut extension_registry);
         crate::platform_config::register_global_platform_config(platform_config.clone());
+        // Observability pipeline: start only inside a Tokio runtime (the default
+        // host always is); fall back to a no-op bus for non-async construction.
+        let trace_bus = Arc::new(if tokio::runtime::Handle::try_current().is_ok() {
+            crate::observability::start_default()
+        } else {
+            crate::observability::TraceBus::noop()
+        });
+        let mut hooks = crate::dispatcher::HookRegistry::new();
+        crate::dispatcher::hooks::register_builtin_hooks(&mut hooks);
+        let hooks = Arc::new(hooks);
         Self {
             tools,
             skills,
@@ -396,6 +412,8 @@ impl AppState {
             curator_llm_running: AtomicBool::new(false),
             automation_web_session: Arc::new(RwLock::new(None)),
             automation_llm_creds: Arc::new(RwLock::new(None)),
+            trace_bus,
+            hooks,
         }
     }
 
@@ -474,8 +492,7 @@ impl AppState {
         if let Err(e) = self.session_index.runs_reconcile_interrupted() {
             log::warn!("dispatcher: reconcile interrupted runs failed: {e:#}");
         }
-        let mut hooks = crate::dispatcher::HookRegistry::new();
-        crate::dispatcher::hooks::register_builtin_hooks(&mut hooks);
+        let mut hooks = (*self.hooks).clone();
         for hook in extra {
             hooks.register_on_run_finished(hook);
         }
@@ -685,7 +702,9 @@ impl AppState {
         }
         // 只按 source 分层：source=platform 永不进用户文件（与目录里有哪些
         // id 无关）。用户 fork 必须标 source=user 才会落盘。
-        incoming.providers.retain(|p| p.source.as_deref() != Some("platform"));
+        incoming
+            .providers
+            .retain(|p| p.source.as_deref() != Some("platform"));
         self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
     }
@@ -1115,7 +1134,10 @@ mod active_main_task_board_tests {
         let lock = crate::storage::test_app_data_dir_lock();
         let dir = tempfile::tempdir().expect("temp data dir");
         crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
-        TestDataDirGuard { _dir: dir, _lock: lock }
+        TestDataDirGuard {
+            _dir: dir,
+            _lock: lock,
+        }
     }
 
     #[test]
@@ -1163,7 +1185,8 @@ mod active_main_task_board_tests {
         let state = AppState::new();
         // 1. User types a key → encrypted into provider_keys.enc.
         let mut user = state.load_user_settings();
-        user.providers.push(provider_fixture("custom-a", "", Some("user")));
+        user.providers
+            .push(provider_fixture("custom-a", "", Some("user")));
         user.providers[0].api_key = "sk-user-typed".into();
         state.update_user_settings(user).expect("save typed key");
         assert_eq!(
@@ -1188,7 +1211,8 @@ mod active_main_task_board_tests {
         let _guard = isolate_app_data_dir();
         let state = AppState::new();
         let mut user = state.load_user_settings();
-        user.providers.push(provider_fixture("custom-a", "", Some("user")));
+        user.providers
+            .push(provider_fixture("custom-a", "", Some("user")));
         user.providers[0].api_key = "sk-user-typed".into();
         state.update_user_settings(user).expect("save typed key");
         // Empty apiKey (client did not edit) keeps the previously encrypted key.
@@ -1330,7 +1354,9 @@ mod active_main_task_board_tests {
         let merged = state.effective_settings();
         let mut debug = DebugSessionSettings::from(&merged);
         if debug.providers.is_empty() {
-            debug.providers.push(provider_fixture("qwen", "", Some("user")));
+            debug
+                .providers
+                .push(provider_fixture("qwen", "", Some("user")));
         }
         let mut provider = debug.providers[0].clone();
         provider.id = "session-provider".into();

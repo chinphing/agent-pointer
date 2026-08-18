@@ -30,6 +30,28 @@ use super::sub_message::SubMessageLinkage;
 use super::util::new_id;
 use crate::task_board::TaskBoardTrimHook;
 
+fn emit_retry_span(
+    trace_bus: &crate::observability::TraceBus,
+    run_id: &str,
+    conversation_id: &str,
+    reason: &str,
+    attempt: u32,
+    delay_ms: u64,
+) {
+    let mut span = crate::observability::TraceEvent::new(
+        run_id,
+        uuid::Uuid::new_v4().to_string(),
+        crate::observability::SpanKind::Retry,
+        reason,
+    );
+    span.parent_span_id = Some("run-root".to_string());
+    span.run_id = run_id.to_string();
+    span.conversation_id = conversation_id.to_string();
+    span.attributes = serde_json::json!({ "attempt": attempt, "delay_ms": delay_ms });
+    span.end();
+    trace_bus.emit(span);
+}
+
 /// Final handoff for `run_subagent`: prefer the latest assistant turn (final Markdown digest),
 /// fall back to accumulated stream content when that turn is empty.
 fn sub_agent_handoff_content(local_history: &[ChatMessage], accumulated: &str) -> String {
@@ -63,6 +85,7 @@ pub(crate) async fn run_sub_agent(
     let state = ctx.session.state;
     let stream = ctx.session.stream;
     let conversation_id = ctx.session.conversation_id;
+    let trace_bus = state.trace_bus.clone();
     let parent_task_board_store_key = ctx.parent_task_board_store_key;
     let message_id = ctx.message_id;
     let task = ctx.task;
@@ -88,6 +111,7 @@ pub(crate) async fn run_sub_agent(
     let skill_ids = session.skill_ids;
     let skill_prompts = session.skill_prompts;
     let instance_scope = session.instance_scope;
+    let sub_run_id = instance_scope.run_id.clone();
     let trace_id = session.trace_id;
     let session_extras = session.session_extras;
     let task_dynamic_blocks = session.task_dynamic_blocks;
@@ -276,6 +300,14 @@ pub(crate) async fn run_sub_agent(
                     ));
                 }
                 let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+                emit_retry_span(
+                    &trace_bus,
+                    &sub_run_id,
+                    conversation_id,
+                    "recoverable",
+                    retry_count,
+                    delay.as_millis() as u64,
+                );
                 tokio::time::sleep(delay).await;
                 continue;
             }
@@ -322,6 +354,14 @@ pub(crate) async fn run_sub_agent(
                 hint,
             );
             let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+            emit_retry_span(
+                &trace_bus,
+                &sub_run_id,
+                conversation_id,
+                "length",
+                retry_count,
+                delay.as_millis() as u64,
+            );
             tokio::time::sleep(delay).await;
             continue;
         }
@@ -365,6 +405,14 @@ pub(crate) async fn run_sub_agent(
                 hint,
             );
             let delay = Duration::from_secs(1u64 << (retry_count - 1).min(4));
+            emit_retry_span(
+                &trace_bus,
+                &sub_run_id,
+                conversation_id,
+                "empty",
+                retry_count,
+                delay.as_millis() as u64,
+            );
             tokio::time::sleep(delay).await;
             continue;
         }

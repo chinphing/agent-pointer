@@ -5,7 +5,9 @@ import {
   MAX_THINKING_DOTS,
   THINKING_DOTS_PER_TIER,
   THINKING_LIVE_DOT_COUNT,
+  bodyHasVisibleUserFacingOutput,
   charsCoveredByThinkingDots,
+  shouldShowThinkingIndicator,
   thinkingDotCount,
   thinkingDotsAtCap,
   thinkingLabel,
@@ -52,5 +54,43 @@ describe('thinking dots (tiered)', () => {
     expect(thinkingSteadyDotCount(101)).toBe(2)
     expect(thinkingSteadyDotCount(27800)).toBe(45)
     expect(thinkingSteadyDotCount(27800) + THINKING_LIVE_DOT_COUNT).toBe(MAX_THINKING_DOTS)
+  })
+})
+
+describe('shouldShowThinkingIndicator', () => {
+  it('hides once user-facing content or tools exist, even if thoughts are still long', () => {
+    expect(bodyHasVisibleUserFacingOutput({ thoughts: 'x'.repeat(30_000) })).toBe(false)
+    expect(
+      bodyHasVisibleUserFacingOutput({
+        thoughts: 'x'.repeat(30_000),
+        content: '继续 m2。'
+      })
+    ).toBe(true)
+    expect(
+      bodyHasVisibleUserFacingOutput({
+        thoughts: 'x'.repeat(30_000),
+        toolCalls: [{ id: 't1', name: 'grep', arguments: '{}', status: 'success' }]
+      })
+    ).toBe(true)
+
+    expect(
+      shouldShowThinkingIndicator({
+        runInProgress: true,
+        body: { thoughts: 'x'.repeat(30_000) }
+      })
+    ).toBe(true)
+    expect(
+      shouldShowThinkingIndicator({
+        runInProgress: true,
+        body: { thoughts: 'x'.repeat(30_000), content: '继续 m2。' }
+      })
+    ).toBe(false)
+    expect(
+      shouldShowThinkingIndicator({
+        runInProgress: true,
+        extraVisibleTools: true,
+        body: { thoughts: 'x'.repeat(30_000) }
+      })
+    ).toBe(false)
   })
 })

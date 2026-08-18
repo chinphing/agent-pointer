@@ -17,6 +17,7 @@ import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
 import { assistantReplyMediaForRender } from '../../../../lib/messageNormalizer'
 import ChatMessageMediaGallery from '../ChatMessageMediaGallery.vue'
+import { shouldShowThinkingIndicator } from '../../../../lib/thinkingIndicator'
 import { isBalanceExhaustedMessage, openPlatformBillingPage } from '../../../../lib/platformUrls'
 import { usePlatformAuthStore } from '../../../../stores/platformAuth'
 
@@ -289,12 +290,15 @@ const streamedCharCount = computed(() => {
   )
 })
 
-const showThinkingIndicator = computed(
-  () =>
-    isRunInProgress.value &&
-    !showMdBody.value &&
-    !showThoughtPanels.value &&
-    !showReasoningBlock.value
+const showThinkingIndicator = computed(() =>
+  shouldShowThinkingIndicator({
+    runInProgress: isRunInProgress.value,
+    markdownBodyVisible: showMdBody.value,
+    thoughtsPanelVisible: showThoughtPanels.value,
+    reasoningVisible: showReasoningBlock.value,
+    extraVisibleTools: hasTrailingTools.value || leadToolCalls.value.length > 0,
+    body: props.body
+  })
 )
 
 const hasMainBody = computed(

@@ -110,3 +110,33 @@ export function bodyHasVisibleStreamingActivity(body: ThinkingStreamBody): boole
   if ((body.toolCalls?.length ?? 0) > 0) return true
   return false
 }
+
+/**
+ * Reply text / tools the user can already see.
+ * Hidden `thoughts` / `reasoning` only drive the dot count — they must not
+ * keep「思考中」once content or a tool row is on screen.
+ */
+export function bodyHasVisibleUserFacingOutput(body: ThinkingStreamBody): boolean {
+  if (body.content?.trim()) return true
+  if (body.toolNamePreview?.trim()) return true
+  if (body.responseTextDraft?.trim()) return true
+  if ((body.toolCalls?.length ?? 0) > 0) return true
+  return false
+}
+
+export function shouldShowThinkingIndicator(args: {
+  runInProgress: boolean
+  markdownBodyVisible?: boolean
+  thoughtsPanelVisible?: boolean
+  reasoningVisible?: boolean
+  extraVisibleTools?: boolean
+  body: ThinkingStreamBody
+}): boolean {
+  if (!args.runInProgress) return false
+  if (args.markdownBodyVisible) return false
+  if (args.thoughtsPanelVisible) return false
+  if (args.reasoningVisible) return false
+  if (args.extraVisibleTools) return false
+  if (bodyHasVisibleUserFacingOutput(args.body)) return false
+  return true
+}

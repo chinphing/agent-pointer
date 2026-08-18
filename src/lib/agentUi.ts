@@ -49,13 +49,11 @@ export interface ResolvedAgentUi {
   avatar: string
 }
 
-function profileKey(profile: AgentProfile, id: string, role: string): string {
-  if (role === 'supervisor' || id === 'supervisor') return 'supervisor'
+function profileKey(profile: AgentProfile, id: string): string {
   if (typeof profile === 'string') {
     if (profile === 'computer' || id === 'computer') return 'computer'
     if (profile === 'coder' || id === 'coder') return 'coder'
     if (profile === 'explore' || id === 'explore') return 'explore'
-    if (profile === 'analyst' || id === 'research') return 'research'
   }
   return 'general'
 }
@@ -65,46 +63,35 @@ const COMPOSER_LABELS: Record<string, string> = {
   'general-worker': '通用执行',
   coder: '氛围编程',
   computer: '电脑操控',
-  supervisor: '团队模式',
-  explore: '代码探索',
-  research: '深度研究'
+  explore: '代码探索'
 }
 
-/** Temporarily hide deep research in composer and settings agent list. */
-export const RESEARCH_COMPOSER_UI_ENABLED = false
-
-function composerSelectableByProfile(id: string, key: string, isSupervisor: boolean): boolean {
-  if (isSupervisor) return false
-  if ((id === 'research' || key === 'research') && !RESEARCH_COMPOSER_UI_ENABLED) return false
+function composerSelectableByProfile(id: string, key: string): boolean {
   return (
     id === 'general' ||
     id === 'coder' ||
     id === 'computer' ||
-    id === 'research' ||
     key === 'general' ||
     key === 'coder' ||
-    key === 'computer' ||
-    key === 'research'
+    key === 'computer'
   )
 }
 
-function profileDefaults(profile: AgentProfile, id: string, role: string): ResolvedAgentUi {
-  const key = profileKey(profile, id, role)
-  const isSupervisor = key === 'supervisor'
-  const hasTaskBoard = !isSupervisor
+function profileDefaults(profile: AgentProfile, id: string): ResolvedAgentUi {
+  const key = profileKey(profile, id)
   return {
-    showInComposer: !isSupervisor,
+    showInComposer: true,
     showSidecarToolCalls: false,
     showNonSidecarToolCalls: true,
     showReasoning: false,
-    showSubAgentTrace: isSupervisor || key === 'research',
-    showToolCalls: !isSupervisor,
+    showSubAgentTrace: false,
+    showToolCalls: true,
     showToolCallResults: true,
-    hideToolNames: hasTaskBoard ? ['task_board_init', 'task_board_patch', 'task_board_replace', 'task_board_finalize', 'task_board_check_deps', 'task_board_prune'] : [],
-    showWorkspacePicker: !isSupervisor,
+    hideToolNames: ['task_board_init', 'task_board_patch', 'task_board_replace', 'task_board_finalize', 'task_board_check_deps', 'task_board_prune'],
+    showWorkspacePicker: true,
     showComputerMonitorPicker: key === 'computer',
-    showTaskBoardPanel: hasTaskBoard,
-    userSelectable: composerSelectableByProfile(id, key, isSupervisor),
+    showTaskBoardPanel: true,
+    userSelectable: composerSelectableByProfile(id, key),
     composerLabel: COMPOSER_LABELS[key] ?? COMPOSER_LABELS[id] ?? '',
     avatar: key
   }
@@ -185,9 +172,9 @@ export function resolveAgentUi(
   settings?: Pick<ModelSettings, 'agentUiOverrides'>
 ): ResolvedAgentUi {
   if (!agent) {
-    return profileDefaults('general', 'general', 'worker')
+    return profileDefaults('general', 'general')
   }
-  const base = profileDefaults(agent.profile, agent.id, agent.role)
+  const base = profileDefaults(agent.profile, agent.id)
   const overrides = settings?.agentUiOverrides?.[agent.id]
   return mergeDebugDisplayUi(settings, agent.id, mergeUi(base, agent.ui, overrides, agent.id))
 }
@@ -196,8 +183,6 @@ function leadAgentProfile(id: string): AgentProfile {
   if (id === 'computer') return 'computer'
   if (id === 'coder') return 'coder'
   if (id === 'explore') return 'explore'
-  if (id === 'research') return 'analyst'
-  if (id === 'supervisor') return 'supervisor'
   return 'general'
 }
 
@@ -205,18 +190,13 @@ export function resolveLeadAgentUi(
   settings: ModelSettings,
   agents: AgentDef[]
 ): ResolvedAgentUi {
-  if (settings.agentMode === 'supervisor') {
-    const sup = agents.find(a => a.id === 'supervisor' || a.role === 'supervisor')
-    if (sup) return resolveAgentUi(sup, settings)
-    return profileDefaults('supervisor', 'supervisor', 'supervisor')
-  }
   const id = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
   const w = agents.find(a => a.id === id) ?? agents.find(a => a.id === GENERAL_AGENT_ID)
   if (w) return resolveAgentUi(w, settings)
   return mergeDebugDisplayUi(
     settings,
     id,
-    profileDefaults(leadAgentProfile(id), id, 'worker')
+    profileDefaults(leadAgentProfile(id), id)
   )
 }
 

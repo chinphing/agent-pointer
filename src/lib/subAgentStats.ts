@@ -134,9 +134,6 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
       statSeg('其他', stats.otherCount)
     ])
   }
-  if (id === 'research') {
-    return joinStatSegments([statSeg('联网搜索', stats.webSearchCount)])
-  }
   if (id === 'coder') {
     return joinStatSegments([
       statSeg('搜索', stats.searchCount),

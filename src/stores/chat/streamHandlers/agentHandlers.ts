@@ -3,7 +3,6 @@ import type { StreamEvent } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
 type AgentStep = Extract<StreamEvent, { kind: 'agent_step' }>
-type SupervisorPlan = Extract<StreamEvent, { kind: 'supervisor_plan' }>
 
 export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
   const r = ctx.findMessage(e.messageId)
@@ -38,14 +37,4 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
       r.msg.agentTrace.push(e.agent)
     }
   }
-}
-
-export function handleSupervisorPlan(ctx: StreamHandlerContext, e: SupervisorPlan) {
-  const r = ctx.findMessage(e.messageId)
-  if (!r || r.conv.id !== e.conversationId) return
-  if (r.msg.status !== 'cancelled' && r.msg.status !== 'error' && r.msg.status !== 'done') {
-    r.msg.status = 'streaming'
-  }
-  r.msg.supervisorPlanTasks = e.tasks
-  void ctx.refreshTaskBoard(e.conversationId)
 }

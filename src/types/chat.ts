@@ -308,8 +308,6 @@ export interface ChatMessage {
   agentInstanceId?: string
   agentName?: string
   agentTrace?: AgentTrace[]
-  /** Supervisor plan checklist (stream `supervisor_plan`). */
-  supervisorPlanTasks?: SupervisorPlanTask[]
   /** Annotated PNG path under app `computer-captures/` (lazy load on preview); persisted when the stream emits it. */
   computerRoundScreenRelPath?: string
   /** UI mount hints (e.g. TaskBoard anchor). */
@@ -1063,18 +1061,11 @@ export type StreamEvent =
     }
   /** Annotated screen for one assistant message (path under computer-captures/). */
   | { kind: 'assistant_round_screen'; conversationId: string; messageId: string; annotatedRelPath: string }
-  | { kind: 'supervisor_plan'; conversationId: string; messageId: string; tasks: SupervisorPlanTask[] }
   | { kind: 'task_board_updated'; conversationId: string; storeKey: string; anchorMessageId?: string; document: TaskBoardDocument }
   | { kind: 'skills_updated'; conversationId: string; importedIds: string[]; enabledIds?: string[] }
   | { kind: 'workspace_updated'; conversationId: string; workspaceRoot: string; isEphemeralSandbox: boolean }
   | { kind: 'computer_monitor_pick_required'; conversationId: string; messageId: string; toolCallId: string; monitors: ComputerMonitor[] }
   | { kind: 'computer_monitor_updated'; conversationId: string; monitorId?: string | null }
-
-export interface SupervisorPlanTask {
-  id: string
-  title: string
-  agentId: string
-}
 
 export type TaskBoardItemStatus =
   | 'pending'

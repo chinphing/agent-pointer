@@ -133,14 +133,6 @@ const leadBody = computed((): AgentMessageBodyModel => ({
   errorMessage: props.message.errorMessage
 }))
 
-const showSupervisorPlan = computed(
-  () =>
-    !props.contentOnly &&
-    showSubAgentTrace.value &&
-    (props.message.supervisorPlanTasks?.length ?? 0) > 0 &&
-    subTraces.value.length === 0
-)
-
 const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrace.value)
 </script>
 
@@ -149,12 +141,6 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
     class="w-full max-w-full"
     :class="toolOnly ? 'space-y-0' : 'space-y-2'"
   >
-    <ModelThoughtPanels
-      v-if="showSupervisorPlan"
-      :plan-tasks="message.supervisorPlanTasks"
-      :is-streaming="isStreaming"
-    />
-
     <AgentMessageBody
       :body="leadBody"
       :lead-message="message"

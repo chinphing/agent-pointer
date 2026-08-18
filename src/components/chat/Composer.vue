@@ -7,8 +7,8 @@ import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
-import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel, RESEARCH_COMPOSER_UI_ENABLED } from '../../lib/agentUi'
-import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
+import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel } from '../../lib/agentUi'
+import { iconForAgent, sortComposerAgents } from '../../lib/agentIcons'
 import { useAgentsCatalog } from '../../composables/useAgentUi'
 import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest, ComposerAttachment, PerformanceMode } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID, PERFORMANCE_MODE_OPTIONS } from '../../types/chat'
@@ -161,13 +161,6 @@ const isMacDesktop = computed(
 
 /** Shortcut labels: prefer OS (incl. web), not only Tauri desktop. */
 const isMacOs = computed(() => detectDesktopOs() === 'macos')
-
-const supervisorRoundsLabel = computed(() => {
-  if (sessionAgentMode.value !== 'supervisor' || !chat.current) return ''
-  const used = chat.current.toolRoundsUsedSupervisor ?? 0
-  const max = settings.settings.maxSubAgentToolRounds ?? settings.settings.maxToolRounds ?? 100
-  return `子任务轮次 ${used}/${max}`
-})
 
 const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value, sessionAgentSettings.value))
 
@@ -1446,16 +1439,6 @@ onMounted(() => {
     autoResize()
     setupTextareaResizeObserver()
   })
-  if (!TEAM_MODE_UI_ENABLED && sessionAgentMode.value === 'supervisor') {
-    chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
-  }
-  if (
-    !RESEARCH_COMPOSER_UI_ENABLED
-    && chat.current
-    && chat.effectiveConversationLeadAgentId(chat.current) === 'research'
-  ) {
-    chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
-  }
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleDocumentKeydown)
   void setupTauriComposerDragDrop() // no-op on Web; required on desktop — see drag-and-drop comment block
@@ -1721,12 +1704,11 @@ onUnmounted(() => {
 
 
       <div
-        v-if="supervisorRoundsLabel || !settings.settings.hasKey"
+        v-if="!settings.settings.hasKey"
         class="flex flex-wrap items-center gap-2 mt-2"
       >
         <div class="flex-1" />
 
-        <span v-if="supervisorRoundsLabel" class="text-[10px] text-muted">{{ supervisorRoundsLabel }}</span>
         <span v-if="!settings.settings.hasKey" class="text-[10px] text-muted">未配置 Key</span>
       </div>
     </div>

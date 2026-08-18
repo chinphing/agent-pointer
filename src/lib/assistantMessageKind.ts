@@ -49,7 +49,6 @@ export function assistantHasVisibleProgress(message: ChatMessage): boolean {
   }
   if ((message.toolCalls?.length ?? 0) > 0) return true
   if ((message.agentTrace?.length ?? 0) > 0) return true
-  if ((message.supervisorPlanTasks?.length ?? 0) > 0) return true
   if (message.computerRoundScreenRelPath) return true
   return false
 }
@@ -119,8 +118,7 @@ export function isToolOnlyAssistantMessage(message: ChatMessage): boolean {
     !!(message.responseTextDraft?.trim())
 
   const hasOtherStructure =
-    (message.agentTrace?.length ?? 0) > 0 ||
-    (message.supervisorPlanTasks?.length ?? 0) > 0
+    (message.agentTrace?.length ?? 0) > 0
 
   return !hasVisibleText && !hasOtherStructure
 }

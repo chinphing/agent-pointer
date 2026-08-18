@@ -32,7 +32,7 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { applyTheme } from '../lib/theme'
 import { randomUuid } from '../lib/randomUuid'
 import { resolveAgentUi, composerAgentLabel } from '../lib/agentUi'
-import { sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../lib/agentIcons'
+import { sortComposerAgents } from '../lib/agentIcons'
 import { listAgents, checkMediaDeps } from '../lib/api'
 import { usePlatformAuthStore } from '../stores/platformAuth'
 import { useChatStore } from '../stores/chat'
@@ -147,7 +147,7 @@ function createSettingsDialogForm(deps: {
   const next = { ...(s.settings.agentModeLlm ?? {}) }
   const agentMap = { ...(next[agentId] ?? {}) }
   const prev = agentMap[mode] ?? agentModeLlm(agentId, mode)
-  agentMap[mode] = { ...prev, ...patch }
+  agentMap[mode] = mergeTierLlmPatch(prev, patch)
   next[agentId] = agentMap
   s.settings.agentModeLlm = next
   scheduleDebugModelSave()
@@ -164,7 +164,7 @@ function createSettingsDialogForm(deps: {
   const next = { ...(s.settings.mediaModeLlm ?? {}) }
   const kindMap = { ...(next[kind] ?? {}) }
   const prev = kindMap[mode] ?? mediaModeLlm(kind, mode)
-  kindMap[mode] = { ...prev, ...patch }
+  kindMap[mode] = mergeTierLlmPatch(prev, patch)
   next[kind] = kindMap
   s.settings.mediaModeLlm = next
   scheduleDebugModelSave()
@@ -186,7 +186,7 @@ function createSettingsDialogForm(deps: {
 
   function patchComputerTierLlm(key: ComputerTierKey, patch: Partial<ComputerTierLlmConfig>) {
   const next = { ...(s.settings.computerTierLlm ?? {}) }
-  next[key] = { ...computerTierLlm(key), ...patch }
+  next[key] = mergeTierLlmPatch(computerTierLlm(key), patch)
   s.settings.computerTierLlm = next
   scheduleDebugModelSave()
   }
@@ -199,7 +199,14 @@ function createSettingsDialogForm(deps: {
   function selectComputerTierModel(key: ComputerTierKey, value: string) {
     const parsed = splitProviderModelValue(value)
     if (parsed) {
-      patchComputerTierLlm(key, { providerId: parsed.providerId, model: parsed.model })
+      const next = { ...(s.settings.computerTierLlm ?? {}) }
+      next[key] = {
+        providerId: parsed.providerId,
+        model: parsed.model,
+        ...thinkingPatchFromProviderModel(s.settings.providers, parsed.providerId, parsed.model)
+      }
+      s.settings.computerTierLlm = next
+      scheduleDebugModelSave()
       return
     }
     console.warn('[settings] selectComputerTierModel: invalid value', value)
@@ -244,7 +251,7 @@ function createSettingsDialogForm(deps: {
   }
 
   const toolApprovalMode = ref<'auto' | 'manual'>('auto')
-  const agentMode = ref<'single' | 'supervisor'>('single')
+  const agentMode = ref<'single'>('single')
   const leadAgentId = ref('')
   const contextCompressionEnabled = ref(true)
   const contextBudgetTokens = ref(120_000)
@@ -343,23 +350,15 @@ function createSettingsDialogForm(deps: {
 
   function selectLeadWorker(agent: AgentDef) {
   if (!isLeadAgentSelectable(agent)) return
-  agentMode.value = 'single'
   leadAgentId.value = agent.id
   }
 
-  const supervisorAgent = computed(
-  () =>
-    agents.value.find(a => a.id === 'supervisor' && a.enabled) ||
-    agents.value.find(a => a.role === 'supervisor')
-  )
-
   const activeUiAgentId = computed(() =>
-  agentMode.value === 'supervisor' ? 'supervisor' : (leadAgentId.value?.trim() || DEFAULT_LEAD_AGENT_ID)
+  leadAgentId.value?.trim() || DEFAULT_LEAD_AGENT_ID
   )
 
   const activeUiAgentLabel = computed(() => {
   const id = activeUiAgentId.value
-  if (id === 'supervisor') return composerAgentLabel(supervisorAgent.value, s.settings)
   const agent = selectableWorkers.value.find(w => w.id === id) ?? selectableWorkers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
   return composerAgentLabel(agent, s.settings)
   })
@@ -367,9 +366,7 @@ function createSettingsDialogForm(deps: {
   const effectiveDisplayUi = computed(() => {
   const id = activeUiAgentId.value
   const agent =
-    agentMode.value === 'supervisor'
-      ? supervisorAgent.value
-      : selectableWorkers.value.find(w => w.id === id) ?? selectableWorkers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
+    selectableWorkers.value.find(w => w.id === id) ?? selectableWorkers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
   return resolveAgentUi(agent, {
     agentUiOverrides: {
       ...(s.settings.agentUiOverrides ?? {}),
@@ -379,7 +376,6 @@ function createSettingsDialogForm(deps: {
   })
 
   function isLeadWorkerSelected(agentId: string): boolean {
-  if (agentMode.value !== 'single') return false
   const id = leadAgentId.value?.trim() || DEFAULT_LEAD_AGENT_ID
   return id === agentId
   }
@@ -449,10 +445,7 @@ function createSettingsDialogForm(deps: {
 
   function initFormFromStore() {
   toolApprovalMode.value = s.settings.toolApprovalMode || 'auto'
-  agentMode.value =
-    !TEAM_MODE_UI_ENABLED && s.settings.agentMode === 'supervisor'
-      ? 'single'
-      : (s.settings.agentMode || 'single')
+  agentMode.value = 'single'
   leadAgentId.value = s.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
   contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
   contextBudgetTokens.value =
@@ -624,7 +617,16 @@ function createSettingsDialogForm(deps: {
   function selectAgentModeModel(agentId: string, mode: PerformanceModeKey, value: string) {
     const parsed = splitProviderModelValue(value)
     if (parsed) {
-      patchAgentModeLlm(agentId, mode, { providerId: parsed.providerId, model: parsed.model })
+      const next = { ...(s.settings.agentModeLlm ?? {}) }
+      const agentMap = { ...(next[agentId] ?? {}) }
+      agentMap[mode] = {
+        providerId: parsed.providerId,
+        model: parsed.model,
+        ...thinkingPatchFromProviderModel(s.settings.providers, parsed.providerId, parsed.model)
+      }
+      next[agentId] = agentMap
+      s.settings.agentModeLlm = next
+      scheduleDebugModelSave()
       return
     }
     console.warn('[settings] selectAgentModeModel: invalid value', value)
@@ -633,7 +635,16 @@ function createSettingsDialogForm(deps: {
   function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, value: string) {
     const parsed = splitProviderModelValue(value)
     if (parsed) {
-      patchMediaModeLlm(kind, mode, { providerId: parsed.providerId, model: parsed.model })
+      const next = { ...(s.settings.mediaModeLlm ?? {}) }
+      const kindMap = { ...(next[kind] ?? {}) }
+      kindMap[mode] = {
+        providerId: parsed.providerId,
+        model: parsed.model,
+        ...thinkingPatchFromProviderModel(s.settings.providers, parsed.providerId, parsed.model)
+      }
+      next[kind] = kindMap
+      s.settings.mediaModeLlm = next
+      scheduleDebugModelSave()
       return
     }
     console.warn('[settings] selectMediaModeModel: invalid value', value)
@@ -902,14 +913,12 @@ function createSettingsDialogForm(deps: {
     agents,
     enabledWorkers,
     selectableWorkers,
-    supervisorAgent,
     activeUiAgentId,
     activeUiAgentLabel,
     effectiveDisplayUi,
     platformAccountTitle,
     platformLogoutBusy,
     showDebugMenus,
-    TEAM_MODE_UI_ENABLED,
     isLeadAgentSelectable,
     selectLeadWorker,
     isLeadWorkerSelected,

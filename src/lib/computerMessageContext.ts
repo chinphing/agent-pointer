@@ -44,6 +44,5 @@ export function showAnnotatedScreenAction(
   if (message.role !== 'assistant') return false
   if (message.agentId === 'computer') return true
   if (message.computerRoundScreenRelPath?.trim()) return true
-  if (settings.agentMode === 'supervisor' && messageFromComputerAgent(message)) return true
   return false
 }

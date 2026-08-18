@@ -884,9 +884,7 @@ export const useChatStore = defineStore('chat', () => {
     return id ? runStateFor(id).contextCompressing : null
   })
 
-  function effectiveConversationAgentMode(conv?: Conversation | null): AgentMode {
-    const mode = conv?.agentMode?.trim()
-    if (mode === 'supervisor' || mode === 'single') return mode
+  function effectiveConversationAgentMode(_conv?: Conversation | null): AgentMode {
     return 'single'
   }
 

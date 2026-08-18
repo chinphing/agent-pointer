@@ -1,5 +1,5 @@
 import type { StreamEvent } from '../../../types/chat'
-import { handleAgentStep, handleSupervisorPlan } from './agentHandlers'
+import { handleAgentStep } from './agentHandlers'
 import {
   handleContextCompressed,
   handleContextCompressionApplied,
@@ -88,9 +88,6 @@ export function dispatchStreamEvent(ctx: StreamHandlerContext, e: StreamEvent): 
       break
     case 'agent_step':
       handleAgentStep(ctx, e)
-      break
-    case 'supervisor_plan':
-      handleSupervisorPlan(ctx, e)
       break
     case 'task_board_updated':
       handleTaskBoardUpdated(ctx, e)

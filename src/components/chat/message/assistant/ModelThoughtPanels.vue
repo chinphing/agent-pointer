@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { SupervisorPlanTask } from '../../../../types/chat'
 
 const props = defineProps<{
   xmlThoughts?: string
-  planTasks?: SupervisorPlanTask[]
   thoughtsDebugEnabled?: boolean
   isStreaming?: boolean
 }>()
@@ -28,8 +26,6 @@ const showThoughtsBody = computed(() => props.isStreaming || thoughtsOpen.value)
 const thoughtsCompactPreview = computed(
   () => props.isStreaming === true && !thoughtsOpen.value
 )
-
-const showPlan = computed(() => (props.planTasks?.length ?? 0) > 0)
 
 watch(
   () => props.isStreaming,
@@ -77,7 +73,7 @@ function toggleThoughts() {
   thoughtsOpen.value = !thoughtsOpen.value
 }
 
-const hasContent = computed(() => showXmlThoughts.value || showPlan.value)
+const hasContent = computed(() => showXmlThoughts.value)
 </script>
 
 <template>
@@ -113,15 +109,5 @@ const hasContent = computed(() => showXmlThoughts.value || showPlan.value)
         @wheel="onThoughtsBoxWheel"
       >{{ xmlThoughts }}</div>
     </div>
-    <ul
-      v-if="showPlan"
-      class="text-[12px] text-muted space-y-1 rounded-md border border-border/60 bg-[hsl(var(--card-elevated))]/40 px-2.5 py-2 list-none"
-    >
-      <li v-for="task in planTasks" :key="task.id" class="truncate">
-        <span class="text-accent/80">{{ task.id }}</span>
-        <span class="mx-1">·</span>
-        {{ task.title }}
-      </li>
-    </ul>
   </div>
 </template>

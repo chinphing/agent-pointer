@@ -49,9 +49,6 @@ const {
   mediaModeLlm,
   selectMediaModeModel,
   patchMediaModeLlm,
-  agentMode,
-  TEAM_MODE_UI_ENABLED,
-  supervisorAgent,
   maxSubAgentToolRounds,
   maxSubAgentSpawnDepth,
   isLeadWorkerSelected,
@@ -312,47 +309,9 @@ function skillLabel(skillId: string): string {
                   </div>
                 </div>
               </div>
-
-              <!-- 团队模式 -->
-              <div
-                v-if="supervisorAgent"
-                class="rounded-xl border p-3 cursor-pointer transition-all"
-                :class="agentMode === 'supervisor' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
-                @click="agentMode = 'supervisor'"
-              >
-                <div class="flex items-start gap-3">
-                  <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                       :class="agentMode === 'supervisor' ? 'bg-hover' : 'bg-[hsl(var(--card-elevated))]'">
-                    <Users class="w-4 h-4" :class="agentMode === 'supervisor' ? 'text-foreground' : 'text-muted'" />
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(supervisorAgent, s.settings) }}</span>
-                      <span v-if="agentMode === 'supervisor'" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground">已选择</span>
-                    </div>
-                    <p class="mt-0.5 text-[11px] text-muted">多子智能体编排与结果整合</p>
-
-                    <!-- Default Model Selector -->
-                    <div class="mt-2.5 flex items-center gap-2" @click.stop>
-                      <Sparkles class="w-3.5 h-3.5 text-accent shrink-0" />
-                      <span class="text-[11px] text-muted shrink-0">默认模型</span>
-                      <select
-                        :value="getAgentModelWithProvider('supervisor')"
-                        @change.stop="selectAgentModelWithProvider('supervisor', ($event.target as HTMLSelectElement).value)"
-                        @click.stop
-                        class="w-48 h-7 px-2 rounded bg-card border border-border text-[11px] text-foreground cursor-pointer outline-none focus:border-accent/50 transition-colors"
-                      >
-                        <option value="">使用全局默认</option>
-                        <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div
-              v-if="agentMode === 'single'"
               class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3"
             >
               <h4 class="text-sm font-medium text-foreground">子任务委托</h4>

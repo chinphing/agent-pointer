@@ -22,9 +22,7 @@ const moreWorkers = computed(() =>
 )
 // 弹窗内短中文描述，风格与左卡「通用助手/氛围编程」一致；未收录的 worker 回退英文原文截断
 const WORKER_DESC_ZH: Record<string, string> = {
-  explore: '代码库探索、符号映射与资料检索',
-  research: '深度资料检索与研究报告',
-  supervisor: '多子智能体编排与结果整合'
+  explore: '代码库探索、符号映射与资料检索'
 }
 
 const mediaModeDesc = (key: string): string => {

@@ -837,6 +837,35 @@ fn activate_mcp_servers_with(
     Ok(clients)
 }
 
+/// 把 `mcp.<server>.<tool>` 转成 OpenAI 兼容的 wire 工具名（`^[a-zA-Z0-9_-]+$`）。
+/// 非 ASCII（中文 server 名）、点号、空格等统一转为 `_` 并压缩连续下划线，
+/// 保留 ASCII 可读片段（如 `query-docs`）；handler 仍用原始 server/tool 调用。
+fn sanitize_mcp_wire_name(server: &str, tool: &str) -> String {
+    let raw = format!("mcp.{server}.{tool}");
+    let mut out = String::with_capacity(raw.len());
+    let mut pending_underscore = false;
+    for c in raw.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+            if pending_underscore && !out.is_empty() && !out.ends_with('_') {
+                out.push('_');
+            }
+            pending_underscore = false;
+            out.push(c);
+        } else {
+            pending_underscore = true;
+        }
+    }
+    while out.ends_with('_') {
+        out.pop();
+    }
+    if out.is_empty() {
+        // 极端情况：server 与 tool 全部非 ASCII
+        format!("mcp_tool_{}", tool.len())
+    } else {
+        out
+    }
+}
+
 fn register_mcp_tool(
     tools: &crate::tools::ToolRegistry,
     plugin_id: &str,
@@ -860,9 +889,10 @@ fn register_mcp_tool(
     } else {
         info.description.trim().to_string()
     };
-    // 全局 MCP 用 `mcp.<server>.<tool>` 前缀命名（与插件裸名区分；计划 §6.1）。
+    // 全局 MCP 用 `mcp.<server>.<tool>` 前缀命名（与插件裸名区分；计划 §6.1），
+    // 但必须转成 OpenAI 兼容的 wire 名（`^[a-zA-Z0-9_-]+$`，禁止点号/中文）。
     let entry_name = if plugin_id == GLOBAL_MCP_KEY {
-        format!("mcp.{}.{}", decl.name, tool_name)
+        sanitize_mcp_wire_name(&decl.name, &tool_name)
     } else {
         tool_name.clone()
     };
@@ -1130,6 +1160,98 @@ done
             Some("2025-06-18")
         );
         client.kill_child();
+    }
+
+    #[test]
+    fn sanitize_mcp_wire_name_creates_legal_openai_name() {
+        // 中文 server + 点号：转为 ASCII 合法名，保留可读 tool 片段
+        let n = sanitize_mcp_wire_name("查询技术文档", "query-docs");
+        assert!(n.starts_with("mcp_"), "got {n}");
+        assert!(n.ends_with("query-docs"), "got {n}");
+        assert!(
+            n.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            "非法 wire 名: {n}"
+        );
+        // 全 ASCII 正常保留
+        let n2 = sanitize_mcp_wire_name("my-server", "do_thing");
+        assert_eq!(n2, "mcp_my-server_do_thing");
+        // 全非 ASCII 兜底仍合法
+        let n3 = sanitize_mcp_wire_name("查询", "文档");
+        assert!(
+            n3.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            "非法 wire 名: {n3}"
+        );
+        assert!(!n3.is_empty());
+    }
+
+    #[test]
+    fn global_mcp_register_uses_legal_wire_name_and_calls_original_tool() {
+        // mock：initialize + tools/list（name=query-docs）+ tools/call（记录请求）
+        let handler: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        > = Arc::new(|_method, _headers, body| {
+            let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+            let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            match m {
+                "initialize" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"mock","version":"1"}}}"#.to_string(),
+                ),
+                "tools/list" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"query-docs","description":"Query docs","inputSchema":{"type":"object"}}]}}"#.to_string(),
+                ),
+                "tools/call" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"docs!"}]}}"#.to_string(),
+                ),
+                _ => (202, vec![], String::new()),
+            }
+        });
+        let (url, seen) = spawn_http_mock(handler);
+        let tools = crate::tools::ToolRegistry::new();
+        let decl = http_decl(url);
+        let clients = activate_mcp_servers_with(
+            &tools,
+            GLOBAL_MCP_KEY,
+            std::path::Path::new("."),
+            std::slice::from_ref(&decl),
+        )
+        .expect("activate");
+        assert_eq!(clients.len(), 1);
+
+        let defs = tools.list_defs();
+        assert_eq!(defs.len(), 1);
+        let name = &defs[0].name;
+        assert!(
+            name.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            "注册的 wire 名非法（OpenAI 会 400）: {name}"
+        );
+
+        // 通过注册名调用 → 底层应调用原始工具名 query-docs
+        tools
+            .invoke(name, json!({ "q": "tokio" }))
+            .expect("invoke");
+        std::thread::sleep(Duration::from_millis(300));
+        let seen = seen.lock();
+        let call = seen
+            .iter()
+            .find(|(_, _, b)| b.contains("\"tools/call\""))
+            .expect("应有 tools/call 请求");
+        assert!(
+            call.2.contains("\"name\":\"query-docs\""),
+            "handler 应使用原始工具名，got: {}",
+            call.2
+        );
+        clients[0].kill_child();
     }
 
     #[test]

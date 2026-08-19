@@ -109,7 +109,8 @@ exec = {{ command = "bin/demo-tool", transport = "sidecar" }}
         "#!/bin/sh\ncat >/dev/null\necho '{\"decision\":\"block\",\"reason\":\"e2e block\"}'\n",
     );
 
-    // 极简 MCP server：按 id 回显响应（initialize/tools/list/tools/call）
+    // 极简 MCP server：按 id 回显响应（initialize/tools/list/tools/call）；
+    // tools/call 参数含 "crash" 时直接退出（模拟进程崩溃，供 watchdog 测试）。
     write_script(
         &dir,
         "bin/demo-mcp",
@@ -122,6 +123,9 @@ while IFS= read -r line; do
   elif printf '%s' "$line" | grep -q '"tools/list"'; then
     echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"mcp_echo\",\"description\":\"echo via mcp\",\"inputSchema\":{\"type\":\"object\"}}]}}"
   elif printf '%s' "$line" | grep -q '"tools/call"'; then
+    if printf '%s' "$line" | grep -q '"crash"'; then
+      exit 0
+    fi
     echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"mcp-e2e-ok\"}],\"isError\":false}}"
   fi
 done
@@ -211,6 +215,311 @@ async fn full_plugin_lifecycle_hooks_mcp_and_teardown() {
     };
     let outcome2 = state.hooks.run_pre_tool_call(&ctx2).await.unwrap();
     assert!(matches!(outcome2, HookOutcome::Continue));
+}
+
+/// 收集 TraceEvent 的测试 exporter（McpRequest/Hook Span 断言用）。
+struct CollectingExporter {
+    events: std::sync::Mutex<Vec<crate::observability::trace::TraceEvent>>,
+}
+
+impl CollectingExporter {
+    fn new() -> Self {
+        Self {
+            events: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::observability::exporters::TraceExporter for CollectingExporter {
+    fn name(&self) -> &str {
+        "collecting"
+    }
+    async fn export(&self, batch: Vec<crate::observability::trace::TraceEvent>) -> Result<(), String> {
+        self.events.lock().unwrap().extend(batch);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn mcp_tool_meta_and_mcp_request_span() {
+    use crate::observability::trace::SpanKind;
+
+    let iso = isolate();
+    let plugins_root = iso.plugins_home.path().join("plugins");
+    fs::create_dir_all(&plugins_root).unwrap();
+    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+
+    // 收集 bus 替换默认（AppState.trace_bus 为 pub 字段）。
+    let collecting = Arc::new(CollectingExporter::new());
+    let mut reg = crate::observability::exporters::ExporterRegistry::new();
+    reg.register(collecting.clone());
+    let bus = crate::observability::start(Arc::new(reg));
+
+    let mut state = Arc::new(AppState::new());
+    // AppState::new 不 clone 自身（watchdog 只捕获 tools/plugins/sessions），
+    // 此处是唯一强引用，可安全替换 trace_bus 为收集 bus。
+    Arc::get_mut(&mut state).unwrap().trace_bus = Arc::new(bus);
+    state.plugin_enable("com.example.e2e").unwrap();
+    assert!(state.tools.get_def("mcp_echo").is_some());
+
+    // doc_source 解析：`plugin:{id}:mcp:{server}:{tool}`
+    let meta = state.tools.mcp_tool_meta("mcp_echo").expect("meta");
+    assert_eq!(meta.plugin_id, "com.example.e2e");
+    assert_eq!(meta.server, "demo-mcp");
+    assert_eq!(meta.tool, "mcp_echo");
+    // 非 MCP 工具（sidecar）返回 None
+    assert!(state.tools.mcp_tool_meta("demo_hello").is_none());
+
+    // 与 dispatch 相同的 span 发射形态：成功调用
+    crate::observability::pipeline::emit_mcp_request_span(
+        &state.trace_bus,
+        "conv-1",
+        "mcp_echo",
+        &meta.plugin_id,
+        &meta.server,
+        &meta.tool,
+        "run-1",
+        Some("tool-span-1"),
+        true,
+        3,
+    );
+    // 失败调用
+    crate::observability::pipeline::emit_mcp_request_span(
+        &state.trace_bus,
+        "conv-1",
+        "mcp_echo",
+        &meta.plugin_id,
+        &meta.server,
+        &meta.tool,
+        "run-1",
+        Some("tool-span-2"),
+        false,
+        9,
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let n = collecting.events.lock().unwrap().len();
+        if n >= 2 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "span 未在预期时间内送达 exporter"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let events = collecting.events.lock().unwrap().clone();
+    let mcp: Vec<_> = events
+        .iter()
+        .filter(|e| e.kind == SpanKind::McpRequest)
+        .collect();
+    assert_eq!(mcp.len(), 2);
+    // 父 span = ToolCall span id（非 run-root）
+    assert_eq!(mcp[0].parent_span_id.as_deref(), Some("tool-span-1"));
+    assert_eq!(mcp[1].parent_span_id.as_deref(), Some("tool-span-2"));
+    assert_eq!(mcp[0].run_id, "run-1");
+    assert_eq!(mcp[0].conversation_id, "conv-1");
+    assert_eq!(
+        mcp[0].attributes.get("server").and_then(|v| v.as_str()),
+        Some("demo-mcp")
+    );
+    assert_eq!(
+        mcp[0].attributes.get("plugin_id").and_then(|v| v.as_str()),
+        Some("com.example.e2e")
+    );
+    // 成功 span 无 error；失败 span 有 error
+    assert!(mcp[0].error.is_none());
+    assert!(mcp[1].error.is_some());
+}
+
+#[tokio::test]
+async fn hook_execution_emits_hook_span() {
+    use crate::observability::trace::SpanKind;
+
+    let iso = isolate();
+    let plugins_root = iso.plugins_home.path().join("plugins");
+    fs::create_dir_all(&plugins_root).unwrap();
+    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+
+    let collecting = Arc::new(CollectingExporter::new());
+    let mut reg = crate::observability::exporters::ExporterRegistry::new();
+    reg.register(collecting.clone());
+    let bus = crate::observability::start(Arc::new(reg));
+
+    let mut state = Arc::new(AppState::new());
+    Arc::get_mut(&mut state).unwrap().trace_bus = Arc::new(bus);
+    state.plugin_enable("com.example.e2e").unwrap();
+
+    // 触发 PreToolUse hook（block 脚本）→ Reject + Hook Span
+    let ctx = PreToolCallContext {
+        run_id: "run-hook",
+        conversation_id: "conv-hook",
+        message_id: "m1",
+        tool_call_id: "t1",
+        tool_name: "terminal",
+        args: &serde_json::json!({ "command": "ls" }),
+        state: &state,
+    };
+    let outcome = state.hooks.run_pre_tool_call(&ctx).await.unwrap();
+    assert!(matches!(outcome, HookOutcome::Reject { .. }));
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let has_hook = collecting
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == SpanKind::Hook);
+        if has_hook {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Hook span 未在预期时间内送达 exporter"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let events = collecting.events.lock().unwrap().clone();
+    let hook: Vec<_> = events
+        .iter()
+        .filter(|e| e.kind == SpanKind::Hook)
+        .collect();
+    assert_eq!(hook.len(), 1);
+    // parent = run-root（与 ToolCall span 平级，计划 §7.1）
+    assert_eq!(hook[0].parent_span_id.as_deref(), Some("run-root"));
+    assert_eq!(hook[0].run_id, "run-hook");
+    assert_eq!(hook[0].conversation_id, "conv-hook");
+    assert_eq!(
+        hook[0].attributes.get("plugin_id").and_then(|v| v.as_str()),
+        Some("com.example.e2e")
+    );
+    assert_eq!(
+        hook[0].attributes.get("tool_name").and_then(|v| v.as_str()),
+        Some("terminal")
+    );
+    // block 决策 + reason 透出到 span
+    assert_eq!(
+        hook[0].attributes.get("decision").and_then(|v| v.as_str()),
+        Some("block")
+    );
+    assert_eq!(
+        hook[0].attributes.get("reason").and_then(|v| v.as_str()),
+        Some("e2e block")
+    );
+    assert!(hook[0].error.is_none());
+}
+
+#[tokio::test]
+async fn mcp_crash_recovers_via_watchdog() {
+    let iso = isolate();
+    let plugins_root = iso.plugins_home.path().join("plugins");
+    fs::create_dir_all(&plugins_root).unwrap();
+    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+
+    let state = Arc::new(AppState::new());
+    state.plugin_enable("com.example.e2e").unwrap();
+    assert!(state.tools.get_def("mcp_echo").is_some());
+    assert_eq!(
+        state
+            .tools
+            .invoke("mcp_echo", serde_json::json!({}))
+            .unwrap(),
+        "mcp-e2e-ok"
+    );
+
+    // 触发崩溃：脚本收到含 "crash" 的调用后退出（stdout EOF → alive=false）。
+    let _ = state
+        .tools
+        .invoke("mcp_echo", serde_json::json!({ "crash": true }));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while state.mcp_sessions.any_alive("com.example.e2e") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "MCP server 未在预期时间内标记崩溃"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // watchdog 一轮：重建会话 + 重新注册工具（sidecar 工具保留）。
+    crate::chat_service::app_state::mcp_watchdog_cycle(
+        &state.tools,
+        &state.plugins,
+        &state.mcp_sessions,
+    );
+    assert!(
+        state.mcp_sessions.any_alive("com.example.e2e"),
+        "watchdog 应重启 MCP server"
+    );
+    assert!(
+        state.tools.get_def("mcp_echo").is_some(),
+        "MCP 工具应重新注册"
+    );
+    assert!(
+        state.tools.get_def("demo_hello").is_some(),
+        "sidecar 工具应保留（未误注销）"
+    );
+    assert_eq!(
+        state
+            .tools
+            .invoke("mcp_echo", serde_json::json!({}))
+            .unwrap(),
+        "mcp-e2e-ok"
+    );
+}
+
+#[tokio::test]
+async fn mcp_degraded_stops_auto_restart() {
+    let iso = isolate();
+    let plugins_root = iso.plugins_home.path().join("plugins");
+    fs::create_dir_all(&plugins_root).unwrap();
+    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+
+    let state = Arc::new(AppState::new());
+    state.plugin_enable("com.example.e2e").unwrap();
+    assert!(state.mcp_sessions.has_session("com.example.e2e"));
+
+    // 连续失败达上限 → degraded（模拟 watchdog 多次重启失败）。
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    for _ in 0..crate::plugins::mcp::MAX_MCP_RESTART_FAILURES {
+        state
+            .mcp_sessions
+            .mark_failure("com.example.e2e", "boom", now);
+    }
+    assert!(state.mcp_sessions.is_degraded("com.example.e2e"));
+
+    // 先让会话崩溃，watchdog 轮应因 degraded 跳过（不重建）。
+    let _ = state
+        .tools
+        .invoke("mcp_echo", serde_json::json!({ "crash": true }));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while state.mcp_sessions.any_alive("com.example.e2e") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "MCP server 未在预期时间内标记崩溃"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    crate::chat_service::app_state::mcp_watchdog_cycle(
+        &state.tools,
+        &state.plugins,
+        &state.mcp_sessions,
+    );
+    assert!(
+        !state.mcp_sessions.any_alive("com.example.e2e"),
+        "degraded 后不应自动重启"
+    );
+    assert!(
+        state.mcp_sessions.is_degraded("com.example.e2e"),
+        "degraded 状态应保持"
+    );
 }
 
 #[test]

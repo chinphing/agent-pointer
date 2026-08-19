@@ -22,7 +22,7 @@ Pointer 插件是一个**目录**，包含：
 | `rules/` | 规则文件（`.md` / `.mdc`），每轮对话注入 | ✅ 启用即注入 |
 | `[[tools.tool]]` | 进程外工具（sidecar 可执行文件） | ✅ 启用即注册（**须带 `exec` 执行载体**） |
 | `hooks/` | hooks.json（Claude 语义） | ✅ 启用即注册（PreToolUse 阻断 / PostToolUse 观察；脚本失败默认放行，entry 可配 `fail_closed` 切换为阻断） |
-| `mcp_servers` | MCP server 声明 | ✅ 启用即启动（stdio JSON-RPC，工具自动注册；崩溃自动重启，重试达上限插件状态显示「运行异常」）。另支持**全局 MCP**（非插件）：`pointer-server.toml` 配置 `[[mcp_servers.server]]`，工具命名 `mcp.<server>.<tool>`，设置面板「MCP」分区管理 |
+| `mcp_servers` | MCP server 声明 | ✅ 启用即启动（stdio 或 http，工具自动注册；崩溃自动重启，重试达上限插件状态显示「运行异常」）。另支持**全局 MCP**（非插件）：设置面板「MCP」分区**界面直接配置**（持久化到本机用户配置，支持远程 URL / 本机命令），工具命名 `mcp.<server>.<tool>`，见 [`mcp.md`](mcp.md) |
 
 > 插件导入后是一次性**快照**：源目录后续变更不会自动同步，需要重新导入。
 

@@ -342,6 +342,11 @@ fn parse_rpc_response(v: Value) -> Result<Value> {
 /// MCP 连续重启失败达到该次数后进入 `degraded`（停止自动重启，等用户手动重开）。
 pub const MAX_MCP_RESTART_FAILURES: u32 = 5;
 
+/// 全局（非插件）MCP 会话在 [`McpSessionManager`] 中的保留 key。
+/// 工具注册命名 `mcp.<server>.<tool>`（与插件裸工具名区分），doc_source
+/// `plugin:__global__:mcp:{server}:{tool}`（复用 mcp_tool_meta / unregister_mcp_by_plugin）。
+pub const GLOBAL_MCP_KEY: &str = "__global__";
+
 /// 单个 MCP server 的运行状态。
 #[derive(Debug, Clone, Default)]
 pub struct McpServerStatus {
@@ -459,18 +464,45 @@ pub fn activate_mcp_servers(
     tools: &crate::tools::ToolRegistry,
     record: &PluginRecord,
 ) -> Result<Vec<Arc<McpClient>>> {
+    activate_mcp_servers_with(
+        tools,
+        &record.id,
+        &record.dir,
+        &record.manifest.mcp_servers.server,
+    )
+}
+
+/// P2b：启动全局（非插件）MCP server（来自 pointer-server.toml）。
+/// 相对 command 以配置文件所在目录（base_dir）为基准。
+pub fn activate_global_mcp_servers(
+    tools: &crate::tools::ToolRegistry,
+    decls: &[McpServerDecl],
+    base_dir: &Path,
+) -> Result<Vec<Arc<McpClient>>> {
+    activate_mcp_servers_with(tools, GLOBAL_MCP_KEY, base_dir, decls)
+}
+
+fn activate_mcp_servers_with(
+    tools: &crate::tools::ToolRegistry,
+    plugin_id: &str,
+    base_dir: &Path,
+    decls: &[McpServerDecl],
+) -> Result<Vec<Arc<McpClient>>> {
     let mut clients = Vec::new();
-    for decl in &record.manifest.mcp_servers.server {
-        match McpClient::connect_stdio(&record.id, &record.dir, decl) {
+    for decl in decls {
+        match McpClient::connect_stdio(plugin_id, base_dir, decl) {
             Ok(client) => {
                 let tool_infos = client.list_tools()?;
                 for info in tool_infos {
-                    register_mcp_tool(tools, record, decl, &client, info);
+                    register_mcp_tool(tools, plugin_id, decl, &client, info);
                 }
                 clients.push(client);
             }
             Err(e) => {
-                log::warn!("plugin {}: MCP server `{}` 启动失败，跳过: {e:#}", record.id, decl.name);
+                log::warn!(
+                    "MCP ({plugin_id}) server `{}` 启动失败，跳过: {e:#}",
+                    decl.name
+                );
             }
         }
     }
@@ -479,7 +511,7 @@ pub fn activate_mcp_servers(
 
 fn register_mcp_tool(
     tools: &crate::tools::ToolRegistry,
-    record: &PluginRecord,
+    plugin_id: &str,
     decl: &McpServerDecl,
     client: &Arc<McpClient>,
     info: McpToolInfo,
@@ -492,15 +524,20 @@ fn register_mcp_tool(
     // 格式 `plugin:{id}:mcp:{server}:{tool}`：`:mcp:` 标识 MCP 工具（重启时
     // 精确注销），server 供 McpRequest Span 埋点解析。
     let doc_source: std::borrow::Cow<'static, str> = std::borrow::Cow::Owned(format!(
-        "plugin:{}:mcp:{}:{}",
-        record.id, decl.name, tool_name
+        "plugin:{plugin_id}:mcp:{}:{}",
+        decl.name, tool_name
     ));
     let description = if info.description.trim().is_empty() {
         format!("{tool_name}（MCP {server}）", server = decl.name)
     } else {
         info.description.trim().to_string()
     };
-    let entry_name = tool_name.clone();
+    // 全局 MCP 用 `mcp.<server>.<tool>` 前缀命名（与插件裸名区分；计划 §6.1）。
+    let entry_name = if plugin_id == GLOBAL_MCP_KEY {
+        format!("mcp.{}.{}", decl.name, tool_name)
+    } else {
+        tool_name.clone()
+    };
     let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
         client.call_tool(&tool_name, args)
     });
@@ -513,14 +550,13 @@ fn register_mcp_tool(
         description,
         handler,
     )
-    .with_plugin_id(record.id.clone());
+    .with_plugin_id(plugin_id.to_string());
     if let Some(schema) = info.input_schema {
         entry = entry.with_schema(schema);
     }
     tools.register(entry);
     log::info!(
-        "plugin {}: MCP 工具已注册（server `{}`）",
-        record.id,
+        "MCP ({plugin_id}) 工具已注册（server `{}`）",
         decl.name
     );
 }

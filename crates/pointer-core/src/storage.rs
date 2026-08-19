@@ -31,7 +31,10 @@ static TEST_APP_DATA_DIR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Serialize tests that replace the process-global app data directory.
 #[cfg(test)]
 pub fn test_app_data_dir_lock() -> std::sync::MutexGuard<'static, ()> {
-    TEST_APP_DATA_DIR_LOCK.lock().unwrap()
+    // 容忍 panic 污染：单测断言失败不应让后续测试连锁 PoisonError。
+    TEST_APP_DATA_DIR_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Test hook: force `data_dir()` to a temp dir for the current process.

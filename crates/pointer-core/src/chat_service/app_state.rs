@@ -298,18 +298,53 @@ fn sync_mcp_sessions(
     }
 }
 
+/// P2b：按全局 MCP 配置对齐会话（不绑定插件状态）：有声明且无会话 → 启动 +
+/// 注册工具（命名 `mcp.<server>.<tool>`）；无声明 → 关闭并清理。
+fn sync_global_mcp_sessions(
+    tools: &crate::tools::ToolRegistry,
+    global_mcp: &RwLock<GlobalMcpConfig>,
+    sessions: &crate::plugins::mcp::McpSessionManager,
+) {
+    use crate::plugins::mcp::GLOBAL_MCP_KEY;
+    let cfg = global_mcp.read();
+    if cfg.decls.is_empty() {
+        let n = sessions.shutdown_plugin(GLOBAL_MCP_KEY);
+        if n > 0 {
+            log::info!("全局 MCP: 关闭 {n} 个会话（配置已清空）");
+        }
+        return;
+    }
+    if sessions.has_session(GLOBAL_MCP_KEY) {
+        return;
+    }
+    match crate::plugins::mcp::activate_global_mcp_servers(tools, &cfg.decls, &cfg.base_dir) {
+        Ok(clients) => sessions.register(GLOBAL_MCP_KEY, clients),
+        Err(e) => {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            sessions.mark_failure(GLOBAL_MCP_KEY, &format!("{e:#}"), now_ms);
+            log::warn!("全局 MCP: 装配失败: {e:#}");
+        }
+    }
+}
+
 /// MCP watchdog 轮询间隔（毫秒）。
 const MCP_WATCHDOG_INTERVAL_MS: u64 = 2_000;
 
 /// MCP watchdog 单轮：对已启用且声明了 MCP server 的插件，若会话不存在或
 /// 全部进程已退出，则（受指数退避约束）重建会话：关旧进程 → 注销 MCP 工具
 /// （保留 sidecar 工具）→ 重新启动 + 注册。连续失败达上限进入 degraded。
+/// P2b：同样处理全局（非插件）MCP 会话（key = `__global__`）。
 /// pub(crate)：供 e2e 测试手动驱动一轮。
 pub(crate) fn mcp_watchdog_cycle(
     tools: &crate::tools::ToolRegistry,
     plugins: &crate::plugins::registry::PluginRegistry,
     sessions: &crate::plugins::mcp::McpSessionManager,
+    global_mcp: &RwLock<GlobalMcpConfig>,
 ) {
+    use crate::plugins::mcp::GLOBAL_MCP_KEY;
     use crate::plugins::registry::PluginStatus;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -349,6 +384,41 @@ pub(crate) fn mcp_watchdog_cycle(
                     st.restart_count + 1
                 );
             }
+        }
+    }
+
+    // P2b：全局（非插件）MCP——配置 clone 后释放锁（避免激活阻塞热重载写锁）。
+    let (decls, base_dir) = {
+        let cfg = global_mcp.read();
+        (cfg.decls.clone(), cfg.base_dir.clone())
+    };
+    if decls.is_empty() {
+        return;
+    }
+    let alive = sessions.has_session(GLOBAL_MCP_KEY) && sessions.any_alive(GLOBAL_MCP_KEY);
+    if alive {
+        return;
+    }
+    let st = sessions.status(GLOBAL_MCP_KEY).unwrap_or_default();
+    if st.degraded {
+        return;
+    }
+    if now_ms < st.next_attempt_ms {
+        return;
+    }
+    sessions.shutdown_plugin(GLOBAL_MCP_KEY);
+    tools.unregister_mcp_by_plugin(GLOBAL_MCP_KEY);
+    match crate::plugins::mcp::activate_global_mcp_servers(tools, &decls, &base_dir) {
+        Ok(clients) => {
+            sessions.register(GLOBAL_MCP_KEY, clients);
+            log::info!("全局 MCP: 会话已（重新）建立");
+        }
+        Err(e) => {
+            sessions.mark_failure(GLOBAL_MCP_KEY, &format!("{e:#}"), now_ms);
+            log::warn!(
+                "全局 MCP: 会话建立失败（第 {} 次）: {e:#}",
+                st.restart_count + 1
+            );
         }
     }
 }
@@ -392,6 +462,49 @@ fn reconcile_enabled_plugin_skills(
         crate::storage::save_user_settings(&user)?;
     }
     Ok(())
+}
+
+/// P2b：全局（非插件）MCP 配置——来自 `pointer-server.toml` 的
+/// `[[mcp_servers.server]]` 声明 + 配置文件所在目录（相对 command 解析基准）。
+#[derive(Debug, Clone, Default)]
+pub struct GlobalMcpConfig {
+    pub decls: Vec<crate::plugins::manifest::McpServerDecl>,
+    pub base_dir: PathBuf,
+}
+
+impl GlobalMcpConfig {
+    /// 从 server 配置缓存读取；桌面/测试未走 `load_server_config` 时轻量重解析
+    /// （只读文件，无 env/部署模式副作用）。
+    pub fn from_server_config() -> Self {
+        if let Some((decls, base_dir)) = crate::server_config::mcp_servers_from_config() {
+            return Self { decls, base_dir };
+        }
+        match crate::server_config::reload_mcp_servers_config() {
+            Ok(Some((decls, base_dir))) => Self { decls, base_dir },
+            _ => Self::default(),
+        }
+    }
+}
+
+/// P2b：全局 MCP server 视图（管理 API / UI 展示）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalMcpServerView {
+    pub name: String,
+    pub command: String,
+    pub transport: String,
+    /// healthy | crashed | degraded | stopped
+    pub status: String,
+    pub restart_count: u32,
+    pub last_error: Option<String>,
+}
+
+/// P2b：全局 MCP 总览（decls + 运行状态）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalMcpView {
+    pub servers: Vec<GlobalMcpServerView>,
+    pub enabled: bool,
 }
 
 pub struct AppState {
@@ -449,6 +562,8 @@ pub struct AppState {
     pub plugins: Arc<crate::plugins::registry::PluginRegistry>,
     /// 插件 MCP server 会话（P2）：启用时启动子进程并注册其工具；禁用/卸载时关闭。
     pub mcp_sessions: Arc<crate::plugins::mcp::McpSessionManager>,
+    /// P2b 全局（非插件）MCP 配置（来自 pointer-server.toml；热重载由管理 API 驱动）。
+    pub global_mcp: Arc<RwLock<GlobalMcpConfig>>,
 }
 
 impl AppState {
@@ -552,6 +667,9 @@ impl AppState {
         apply_plugins(&tools, &skills, &agents, &extension_registry, &hooks, &plugins);
         let mcp_sessions = Arc::new(crate::plugins::mcp::McpSessionManager::new());
         sync_mcp_sessions(&tools, &plugins, &mcp_sessions);
+        // P2b：全局（非插件）MCP——pointer-server.toml 装配；不绑定插件状态。
+        let global_mcp = Arc::new(RwLock::new(GlobalMcpConfig::from_server_config()));
+        sync_global_mcp_sessions(&tools, &global_mcp, &mcp_sessions);
         // 注意：启动时的插件技能兜底（reconcile）由 server/Tauri 启动流程调用
         // `init_launch` 完成，避免 AppState::new 写入
         // user_settings（保持构造无副作用，测试隔离契约）。
@@ -593,6 +711,7 @@ impl AppState {
             hooks,
             plugins,
             mcp_sessions,
+            global_mcp,
         };
         state.spawn_mcp_watchdog();
         state
@@ -623,13 +742,72 @@ impl AppState {
         let tools = self.tools.clone();
         let plugins = self.plugins.clone();
         let sessions = self.mcp_sessions.clone();
+        let global_mcp = self.global_mcp.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(MCP_WATCHDOG_INTERVAL_MS))
                     .await;
-                mcp_watchdog_cycle(&tools, &plugins, &sessions);
+                mcp_watchdog_cycle(&tools, &plugins, &sessions, &global_mcp);
             }
         });
+    }
+
+    /// P2b：热重载全局 MCP 配置（管理 API / 测试用）：全量关闭旧会话 → 注销
+    /// 全局 MCP 工具 → 更新配置 → 重新装配。不重启进程。
+    pub fn reload_global_mcp(
+        &self,
+        decls: Vec<crate::plugins::manifest::McpServerDecl>,
+        base_dir: PathBuf,
+    ) -> anyhow::Result<()> {
+        use crate::plugins::mcp::GLOBAL_MCP_KEY;
+        self.mcp_sessions.shutdown_plugin(GLOBAL_MCP_KEY);
+        self.tools.unregister_mcp_by_plugin(GLOBAL_MCP_KEY);
+        *self.global_mcp.write() = GlobalMcpConfig { decls, base_dir };
+        sync_global_mcp_sessions(&self.tools, &self.global_mcp, &self.mcp_sessions);
+        Ok(())
+    }
+
+    /// P2b：从 `pointer-server.toml` 重新解析并热重载全局 MCP（管理 API 用）。
+    /// 无配置文件 / 非 toml / 解析失败时清空全局 MCP（等价于停用）。
+    pub fn reload_global_mcp_from_config(&self) -> anyhow::Result<GlobalMcpView> {
+        let (decls, base_dir) = crate::server_config::reload_mcp_servers_config()?
+            .unwrap_or_default();
+        self.reload_global_mcp(decls, base_dir)?;
+        Ok(self.global_mcp_view())
+    }
+
+    /// P2b：全局 MCP 运行状态视图（管理 API / UI）。
+    pub fn global_mcp_view(&self) -> GlobalMcpView {
+        use crate::plugins::mcp::GLOBAL_MCP_KEY;
+        let cfg = self.global_mcp.read();
+        let st = self.mcp_sessions.status(GLOBAL_MCP_KEY);
+        let has = self.mcp_sessions.has_session(GLOBAL_MCP_KEY);
+        let alive = has && self.mcp_sessions.any_alive(GLOBAL_MCP_KEY);
+        let degraded = st.as_ref().is_some_and(|s| s.degraded);
+        let servers = cfg
+            .decls
+            .iter()
+            .map(|d| GlobalMcpServerView {
+                name: d.name.clone(),
+                command: d.command.clone(),
+                transport: d.transport.clone(),
+                status: if degraded {
+                    "degraded".to_string()
+                } else if alive {
+                    "healthy".to_string()
+                } else if has {
+                    "crashed".to_string()
+                } else {
+                    "stopped".to_string()
+                },
+                restart_count: st.as_ref().map(|s| s.restart_count).unwrap_or(0),
+                last_error: st.as_ref().and_then(|s| s.last_error.clone()),
+            })
+            .collect();
+        GlobalMcpView {
+            servers,
+            enabled: !cfg.decls.is_empty(),
+        }
     }
 
     /// 启动兜底（所有入口统一调用）：刷新技能元数据，并把当前 Enabled 插件的
@@ -653,6 +831,23 @@ impl AppState {
         let status = self.plugins.get(id).map(|r| r.status.clone());
         if let Some(crate::plugins::registry::PluginStatus::Rejected(reason)) = status {
             return Err(anyhow::anyhow!("插件 {id} 校验失败: {reason}"));
+        }
+        // P2b：同名 MCP server 冲突——全局优先，插件启用时拒绝（避免静默覆盖）。
+        {
+            let global = self.global_mcp.read();
+            if !global.decls.is_empty() {
+                let Some(record) = self.plugins.get(id) else {
+                    return Err(anyhow::anyhow!("插件 {id} 不存在"));
+                };
+                for decl in &record.manifest.mcp_servers.server {
+                    if global.decls.iter().any(|g| g.name == decl.name) {
+                        return Err(anyhow::anyhow!(
+                            "插件 {id} 的 MCP server `{}` 与全局 MCP 同名（全局优先），请先在设置面板移除/改名全局配置",
+                            decl.name
+                        ));
+                    }
+                }
+            }
         }
         self.plugins.authorize(id)?;
         self.plugins.enable(id)?;

@@ -43,4 +43,5 @@ mod util;
 pub type StreamTx = crate::models::ChatStreamSender;
 
 pub use app_state::AppState;
+pub use app_state::GlobalMcpView;
 pub use session::run_chat;

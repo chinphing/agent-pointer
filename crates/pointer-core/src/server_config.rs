@@ -228,6 +228,9 @@ struct ServerConfigToml {
     webhooks: WebhooksSection,
     #[serde(default)]
     env: HashMap<String, String>,
+    /// P2b 全局 MCP（非插件）：`[[mcp_servers.server]]`，结构复用插件 manifest。
+    #[serde(default)]
+    mcp_servers: crate::plugins::manifest::McpServersDecl,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -237,6 +240,10 @@ struct AuthToml {
 }
 
 static PARSED_LLM: OnceLock<Option<LlmSection>> = OnceLock::new();
+
+/// P2b：全局 MCP server 声明 + 配置文件所在目录（相对 command 的解析基准）。
+static PARSED_MCP: OnceLock<Option<(crate::plugins::manifest::McpServersDecl, PathBuf)>> =
+    OnceLock::new();
 
 /// Result of loading server config from disk.
 #[derive(Debug, Clone)]
@@ -273,6 +280,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         if let Ok(text) = std::fs::read_to_string(&path) {
             if let Ok(parsed) = toml::from_str::<ServerConfigToml>(&text) {
                 let _ = PARSED_LLM.set(Some(parsed.llm));
+                let _ = PARSED_MCP.set(Some((parsed.mcp_servers, base_dir.clone())));
             }
         }
     }
@@ -730,6 +738,41 @@ pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings, user: &m
     apply_llm_section(platform, user, llm);
 }
 
+/// P2b：读取已解析的全局 MCP server 声明 + 配置文件目录（相对 command 解析基准）。
+/// 仅当 `load_server_config` 已执行（server 启动路径）时返回 Some。
+pub fn mcp_servers_from_config() -> Option<(Vec<crate::plugins::manifest::McpServerDecl>, PathBuf)> {
+    PARSED_MCP
+        .get()
+        .and_then(|v| v.as_ref())
+        .map(|(decls, base)| (decls.server.clone(), base.clone()))
+}
+
+/// P2b：重新解析配置文件中的全局 MCP 段（热重载 / 桌面端未走 `load_server_config`
+/// 时兜底）。只读文件并更新缓存，不应用 env、不改部署模式（无副作用）。
+pub fn reload_mcp_servers_config(
+) -> Result<Option<(Vec<crate::plugins::manifest::McpServerDecl>, PathBuf)>> {
+    let Some(path) = resolve_config_path()? else {
+        return Ok(None);
+    };
+    let base_dir = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext != "toml" {
+        return Ok(None); // .env 不支持 mcp_servers 段
+    }
+    let text = std::fs::read_to_string(&path)?;
+    let parsed: ServerConfigToml = toml::from_str(&text)?;
+    let server_decls = parsed.mcp_servers.server.clone();
+    let _ = PARSED_MCP.set(Some((parsed.mcp_servers, base_dir.clone())));
+    Ok(Some((server_decls, base_dir)))
+}
+
 fn apply_llm_section(platform: &mut PlatformSettings, user: &mut UserSettings, llm: &LlmSection) {
     if llm.providers.is_empty() {
         return;
@@ -928,6 +971,44 @@ public_url = "https://pointer.example.com"
             map.get("POINTER_SERVER_PUBLIC_URL").map(String::as_str),
             Some("https://pointer.example.com")
         );
+    }
+
+    #[test]
+    fn parses_global_mcp_servers_section() {
+        // P2b：`[[mcp_servers.server]]` 段结构复用插件 manifest 的 McpServerDecl。
+        let parsed: ServerConfigToml = toml::from_str(
+            r#"
+[mcp_servers]
+[[mcp_servers.server]]
+name = "demo"
+transport = "stdio"
+command = "bin/demo-mcp"
+args = ["serve"]
+env = { TOKEN = "x" }
+"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.mcp_servers.server.len(), 1);
+        let decl = &parsed.mcp_servers.server[0];
+        assert_eq!(decl.name, "demo");
+        assert_eq!(decl.transport, "stdio");
+        assert_eq!(decl.command, "bin/demo-mcp");
+        assert_eq!(decl.args, vec!["serve".to_string()]);
+        assert_eq!(decl.env.get("TOKEN").map(|s| s.as_str()), Some("x"));
+
+        // 缺省 transport 默认 stdio；未声明段时为空
+        let parsed2: ServerConfigToml = toml::from_str(
+            r#"
+[mcp_servers]
+[[mcp_servers.server]]
+name = "min"
+command = "bin/min"
+"#,
+        )
+        .unwrap();
+        assert_eq!(parsed2.mcp_servers.server[0].transport, "stdio");
+        let parsed3: ServerConfigToml = toml::from_str(r#"[server]"#).unwrap();
+        assert!(parsed3.mcp_servers.server.is_empty());
     }
 
     #[test]

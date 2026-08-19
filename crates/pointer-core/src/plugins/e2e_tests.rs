@@ -415,6 +415,165 @@ async fn hook_execution_emits_hook_span() {
 }
 
 #[tokio::test]
+async fn global_mcp_assembles_and_tools_callable() {
+    let iso = isolate();
+    let cfg_dir = iso.workspace.path().to_path_buf();
+    // 全局 MCP server 脚本（与插件测试同款：按 id 回显）
+    write_script(
+        &cfg_dir,
+        "bin/demo-mcp",
+        r#"#!/bin/bash
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  if [ -z "$id" ]; then continue; fi
+  if printf '%s' "$line" | grep -q '"initialize"'; then
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"demo-mcp\",\"version\":\"1.0\"}}}"
+  elif printf '%s' "$line" | grep -q '"tools/list"'; then
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"mcp_echo\",\"description\":\"echo via mcp\",\"inputSchema\":{\"type\":\"object\"}}]}}"
+  elif printf '%s' "$line" | grep -q '"tools/call"'; then
+    if printf '%s' "$line" | grep -q '"crash"'; then
+      exit 0
+    fi
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"mcp-e2e-ok\"}],\"isError\":false}}"
+  fi
+done
+"#,
+    );
+
+    let decl = crate::plugins::manifest::McpServerDecl {
+        name: "demo".into(),
+        transport: "stdio".into(),
+        command: "bin/demo-mcp".into(),
+        args: vec![],
+        env: std::collections::HashMap::new(),
+    };
+    let state = Arc::new(AppState::new());
+    state
+        .reload_global_mcp(vec![decl], cfg_dir.clone())
+        .unwrap();
+
+    // 全局工具命名 `mcp.<server>.<tool>`；可调用
+    assert!(state.tools.get_def("mcp.demo.mcp_echo").is_some());
+    assert_eq!(
+        state
+            .tools
+            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .unwrap(),
+        "mcp-e2e-ok"
+    );
+    assert!(state.mcp_sessions.has_session(crate::plugins::mcp::GLOBAL_MCP_KEY));
+
+    // 热重载：清空配置 → 工具注销、会话关闭
+    state.reload_global_mcp(vec![], cfg_dir.clone()).unwrap();
+    assert!(state.tools.get_def("mcp.demo.mcp_echo").is_none());
+    assert!(
+        !state
+            .mcp_sessions
+            .has_session(crate::plugins::mcp::GLOBAL_MCP_KEY)
+    );
+}
+
+#[tokio::test]
+async fn global_mcp_conflict_rejects_plugin_enable() {
+    let iso = isolate();
+    // 先写插件（AppState::new 启动扫描时需要能看到）
+    let plugins_root = iso.plugins_home.path().join("plugins");
+    fs::create_dir_all(&plugins_root).unwrap();
+    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+    let _ = dir;
+
+    let cfg_dir = iso.workspace.path().to_path_buf();
+    write_script(
+        &cfg_dir,
+        "bin/demo-mcp",
+        "#!/bin/bash\nwhile IFS= read -r line; do\n  echo '{}'\ndone\n",
+    );
+    // 全局配置同名 server `demo-mcp`（与插件 full 插件里一致 → 应触发冲突）
+    let decl = crate::plugins::manifest::McpServerDecl {
+        name: "demo-mcp".into(),
+        transport: "stdio".into(),
+        command: "bin/demo-mcp".into(),
+        args: vec![],
+        env: std::collections::HashMap::new(),
+    };
+    let state = Arc::new(AppState::new());
+    state.reload_global_mcp(vec![decl], cfg_dir.clone()).unwrap();
+
+    // 同名冲突：插件启用应被拒绝（全局优先）
+    let err = state.plugin_enable("com.example.e2e").unwrap_err();
+    assert!(err.to_string().contains("全局优先"), "err: {err}");
+}
+
+#[tokio::test]
+async fn global_mcp_crash_recovers_via_watchdog() {
+    let iso = isolate();
+    let cfg_dir = iso.workspace.path().to_path_buf();
+    // 全局 MCP server 脚本（含 crash 支持）
+    write_script(
+        &cfg_dir,
+        "bin/demo-mcp",
+        r#"#!/bin/bash
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  if [ -z "$id" ]; then continue; fi
+  if printf '%s' "$line" | grep -q '"initialize"'; then
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"demo-mcp\",\"version\":\"1.0\"}}}"
+  elif printf '%s' "$line" | grep -q '"tools/list"'; then
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"mcp_echo\",\"description\":\"echo via mcp\",\"inputSchema\":{\"type\":\"object\"}}]}}"
+  elif printf '%s' "$line" | grep -q '"tools/call"'; then
+    if printf '%s' "$line" | grep -q '"crash"'; then
+      exit 0
+    fi
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"mcp-e2e-ok\"}],\"isError\":false}}"
+  fi
+done
+"#,
+    );
+    let decl = crate::plugins::manifest::McpServerDecl {
+        name: "demo".into(),
+        transport: "stdio".into(),
+        command: "bin/demo-mcp".into(),
+        args: vec![],
+        env: std::collections::HashMap::new(),
+    };
+    // AppState::new 已 spawn watchdog（2s 周期）
+    let state = Arc::new(AppState::new());
+    state.reload_global_mcp(vec![decl], cfg_dir.clone()).unwrap();
+    assert_eq!(
+        state
+            .tools
+            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .unwrap(),
+        "mcp-e2e-ok"
+    );
+
+    // 触发崩溃：脚本退出 → 等 watchdog 自动重建（不手动驱动 cycle）
+    let _ = state
+        .tools
+        .invoke("mcp.demo.mcp_echo", serde_json::json!({ "crash": true }));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let mut recovered = false;
+    while std::time::Instant::now() < deadline {
+        if state.mcp_sessions.any_alive(crate::plugins::mcp::GLOBAL_MCP_KEY) {
+            if let Ok(out) = state
+                .tools
+                .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            {
+                if out == "mcp-e2e-ok" {
+                    recovered = true;
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert!(
+        recovered,
+        "watchdog 未在预期时间内自动恢复全局 MCP（2s 周期 + 退避）"
+    );
+}
+
+#[tokio::test]
 async fn mcp_crash_recovers_via_watchdog() {
     let iso = isolate();
     let plugins_root = iso.plugins_home.path().join("plugins");
@@ -450,6 +609,7 @@ async fn mcp_crash_recovers_via_watchdog() {
         &state.tools,
         &state.plugins,
         &state.mcp_sessions,
+        &state.global_mcp,
     );
     assert!(
         state.mcp_sessions.any_alive("com.example.e2e"),
@@ -511,6 +671,7 @@ async fn mcp_degraded_stops_auto_restart() {
         &state.tools,
         &state.plugins,
         &state.mcp_sessions,
+        &state.global_mcp,
     );
     assert!(
         !state.mcp_sessions.any_alive("com.example.e2e"),

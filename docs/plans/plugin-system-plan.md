@@ -1,8 +1,7 @@
 # Pointer 插件机制 + 运行监控 设计稿
 
-> 状态：**设计稿（Design Only），未开始开发，等待用户决定启动**。
-> 定位：为**未来功能扩展**预留的插件机制与监控设计，供日后实施时参照。
-> 硬约束：**不改动现有逻辑**——现有工具/Skills/Hook/事件/监控链路保持原样；本设计的所有"接入点"均为未来实施时的建议落点，不代表当前代码已变更。
+> 状态：**插件机制已实现（P1：manifest / 导入 / 激活 / 注册表）**；运行监控部分仍为设计。
+> 面向插件作者的用户文档见 **[`docs/user/plugins.md`](../user/plugins.md)**；本稿保留设计上下文供实施/扩展参照。
 > 创建：2026-08-18
 > 审查修订：2026-08-18（对照仓库现状逐条核查 + 设计内部一致性审查；修订以"审查注/审查补充"标注）
 > 依据：仓库现状调研（explore）+ Codex / Claude Code / Cursor 插件语义调研（官方文档 + agentskills.io 标准）
@@ -23,9 +22,9 @@
 | `ToolRegistry` / `ToolEntry`（risk/approval/parallel/conflict_class 等元数据） | `crates/pointer-core/src/tools/mod.rs` | 插件工具的落点 |
 | 内置工具编译期注册 + `.schema.yaml` 驱动 | `tools/builtin.rs`、`tools/tool_doc.rs` | 适配为 `BuiltinToolProvider` |
 | 工具执行波次（`ToolWave::Serial/Parallel/ParallelSelfFork`；SelfFork 波为 subagent 自 fork 专用）+ 计时 | `chat_service/agent_tool_pass/`（`batch.rs`） | Tool Span 采集点 |
-| Skills 注册 + `~/.agents/skills` 只读 + `~/.codex/skills` 探测 + `allowed-tools` 别名 | `skills/` | Codex 兼容面已存在 |
+| Skills 注册 + `~/.agents/skills` 只读 + `~/.codex/skills` 一次性导入探测（**非运行时加载根**） + `allowed-tools` 别名 | `skills/` | Codex 兼容面已存在 |
 | `ExtensionRegistry`（Prompt 注入扩展点） | `extensions/mod.rs` | Rule / AGENTS.md 落点 |
-| `HookRegistry`（8 钩子；`pre_tool_call`/`post_tool_call` **已声明未接线**，注释 "Phase 3"） | `dispatcher/hooks.rs` | 监控与外部 Hook 的关键前置 |
+| `HookRegistry`（8 钩子；`pre_tool_call`/`post_tool_call` **已接线**，P0 落地于 `agent_tool_pass`） | `dispatcher/hooks.rs` | 监控与外部 Hook 的关键前置 |
 | `AgentEventBus`（Run/ToolCall 生命周期事件） | `agent_events.rs` | 实时事件出口 |
 | `runs` 表状态机 + `token_usage_store` + `llm_token_stats` | `conversation_store/runs.rs` 等 | 持久化基础 |
 | SSE（`/api/runs/:run_id/events`、`/api/chat/:conversation_id/stream`）+ Tauri `chat://stream`（`src-tauri/src/chat_service.rs`、`commands.rs` 的 `STREAM_EVENT`） | `server/src/main.rs`、`src-tauri/` | 前端消费出口 |
@@ -175,7 +174,7 @@ exec = { command = "bin/cwpt-tool", transport = "sidecar" }  # 执行载体：MC
 
 ### 4.3 导入转换器（Codex / Claude → Pointer 原生）
 
-- 入口：插件管理 UI 的"导入"按钮 + CLI（`pointer plugin import <path>`）；
+- 入口：插件管理 UI 的"导入"按钮（桌面端 Tauri 目录选择弹窗，Web 端路径输入降级）+ 外部来源探测（`~/.claude/plugins` / Codex 目录，新装后主动提示可导入项；`plugins/external_probe.rs`）；CLI（`pointer plugin import <path>`）未建（当前无 CLI 二进制，可复用 `SkillRegistry::import_path` 范式后续补）；
 - 输入：Claude 插件目录（`.claude-plugin/plugin.json` + commands/agents/skills/hooks/.mcp.json）或 Codex 插件/Skills 目录；
 - 输出：写入 `~/.pointer/plugins/<id>/` 的完整原生插件（生成 `pointer-plugin.toml`，拷贝/改写能力单元文件）；
 - 转换规则：
@@ -401,12 +400,14 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 
 > 以下为将来启动开发时的建议顺序与验收标准。启动前需重新核对代码现状（本设计基于 2026-08-18 的仓库快照）。
 >
-> **进度（2026-08-18 核对）**：**P0 观测基线已完成**——Rust 侧 ①–⑤ 全部落地（`crates/pointer-core/src/observability/`：trace / pipeline / exporters / redact，埋点覆盖 LLM、Tool、审批、重试，含单测）。**⑥ 前端 Run 概览 + 工具耗时详情经用户决策不做**（P0 范围收敛为日志侧观测，不引入 RealtimeExporter 与前端时间线端点）。下一步进入 **P1 插件核心**。
+> **进度（2026-08-18 核对）**：**P0 观测基线已完成**——Rust 侧 ①–⑤ 全部落地（`crates/pointer-core/src/observability/`：trace / pipeline / exporters / redact，埋点覆盖 LLM、Tool、审批、重试，含单测）。**⑥ 前端 Run 概览 + 工具耗时详情经用户决策不做**（P0 范围收敛为日志侧观测，不引入 RealtimeExporter 与前端时间线端点）。
+>
+> **进度（2026-08-19 核对）**：**P1 插件核心已完成**——`crates/pointer-core/src/plugins/`（manifest / registry / activation / tool_provider / importer / agents_md）；ToolEntry 增 `plugin_id` 与 `ToolRegistry::unregister_by_plugin`，SkillDef/AgentDef 增 `plugin_id`，ExtensionRegistry 改内部 RwLock 支持运行时注册/移除；AppState 装配 `PluginRegistry` + `apply_plugins` + `plugin_enable/disable/uninstall/import`；server `/api/plugins*` 路由 + Tauri commands + 前端 Settings「插件」分区（PluginsPanel：列表/启用/禁用/导入）。全量 `cargo test -p pointer-core --lib` 1330 passed（3 个失败为预存，与 P1 无关）；`pnpm build` 通过。下一步进入 **P2 MCP Client**。
 
 | 阶段 | 内容 | 依赖 | 验收标准 |
 |---|---|---|---|
 | **P0 观测基线** ✅ 已完成（2026-08-18 核对） | ① 接通 `pre/post_tool_call`；② 新增 LLM before/after hook（统一 provider 包装，见 §8.1）；③ 观测 TraceContext（trace_id = run_id，见 §7.1 注 7.1）贯穿 Run→LLM→Tool；④ 异步管道（有界 channel + 后台消费）+ ExporterRegistry（LogExporter）；⑤ 脱敏器；~~⑥ 前端 Run 概览 + 工具耗时详情~~（**用户决策：不做**，见下注） | 无 | 任意 Run 可在结构化日志看到 LLM/Tool/审批/重试 Span，含耗时与 Token；埋点为 try_send 非阻塞，channel 满时丢弃计数不阻塞主循环 |
-| **P1 插件核心** | ① `pointer-plugin.toml` 解析 + 校验（`[[tools.tool]]` 必须有 `exec` 执行载体，见 §4.1 注 4.1.1）；② PluginRegistry + 状态机 + 授权（manifest + 文件清单哈希留痕，见 §4.3 注 4.3.1）；③ Skill/Agent/Rule 单元接入现有 Registry；④ `AGENTS.md`（嵌套）发现链；⑤ **导入转换器**（Claude `plugin.json` / Codex 插件目录 → 原生格式，含导入报告）；⑥ 冲突遮蔽 UI；⑦ **`ProcessToolProvider` 基础版**（stdio + JSON 协议，承载 `[[tools.tool]]` 的 `exec`） | P0 | 一个含 skills+agents+rules+sidecar 工具的示例插件目录可被发现、授权、启用，能力出现在对应 Registry 且带 plugin_id；一个 Claude 格式插件目录可成功导入为原生插件 |
+| **P1 插件核心** ✅ 已完成（2026-08-19 核对） | ① `pointer-plugin.toml` 解析 + 校验（`[[tools.tool]]` 必须有 `exec` 执行载体，见 §4.1 注 4.1.1）；② PluginRegistry + 状态机 + 授权（manifest + 文件清单哈希留痕，见 §4.3 注 4.3.1）；③ Skill/Agent/Rule 单元接入现有 Registry；④ `AGENTS.md`（嵌套）发现链；⑤ **导入转换器**（Claude `plugin.json` / Codex 插件目录 → 原生格式，含导入报告）；⑥ 冲突遮蔽 UI；⑦ **`ProcessToolProvider` 基础版**（stdio + JSON 协议，承载 `[[tools.tool]]` 的 `exec`） | P0 | 一个含 skills+agents+rules+sidecar 工具的示例插件目录可被发现、授权、启用，能力出现在对应 Registry 且带 plugin_id；一个 Claude 格式插件目录可成功导入为原生插件 |
 | **P2 MCP Client** | ① stdio 传输 + initialize/tools/list/tools/call；② `McpToolProvider` 注册（`mcp.<server>.<tool>`）；③ 健康检查 + 崩溃重启；④ `McpRequest` Span；⑤ 审批/allowlist 接入 | P1（前置：同步×异步桥接方案定稿，§6 注 6.1） | 接入一个本地 stdio MCP server，工具可被模型调用，审批生效，Span 可查 |
 | **P3 外部 Hook** | ① `hooks.json` 执行器（stdin JSON / exit code / JSON 决策）；② PreToolUse 阻断语义（回传通道见 §5 注 5.2）；③ fail-open/fail-closed 策略；④ `Hook` Span | P0 | 一个 PreToolUse hook 可阻断 terminal 调用并在 UI/trace 显示原因 |
 | **P4 分发与导出** | ① marketplace（GitHub 仓库 + 兼容 Claude `marketplace.json`，安装即走导入转换器）；② Sidecar 高级能力（守护进程管理、热更新，可选；基础版已在 P1）；③ `OtlpExporter`（TraceEvent→OTLP，脱敏后导出，作为 ExporterRegistry 的一个插件实现）；④ 可选：Pointer MCP Server（白名单只读能力） | P1–P3 | 从 GitHub 仓库安装一个 Claude 格式插件（经导入转换后启用）；OTLP 导出到本地 Collector 可验证 |

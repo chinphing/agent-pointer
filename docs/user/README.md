@@ -7,6 +7,7 @@
 | [standalone-server.md](standalone-server.md) | 独立部署 pointer-server 安装包（配置、License、登录） |
 | [getting-started.md](getting-started.md) | 安装、API Key、桌面端与 Web 端、首次对话 |
 | [skills.md](skills.md) | 导入与启用 Skills、技能库、首次外部探测 |
+| [plugins.md](plugins.md) | 编写 Pointer 插件（pointer-plugin.toml）、导入 Codex/Claude 插件 |
 | [im-channels.md](im-channels.md) | 飞书 / 钉钉 / 企微 / 微信 IM 通道配置（设置界面） |
 | [cloud-host.md](cloud-host.md) | 云主机购买、打开与切换 |
 | [subagents.md](subagents.md) | 子 Agent 相关用户设置 |

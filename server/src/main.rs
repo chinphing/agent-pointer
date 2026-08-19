@@ -29,6 +29,7 @@ use pointer_core::{
     },
     platform_auth::{PlatformAuthManager, PlatformSessionView},
     platform_config::apply_login_media_oss,
+    plugins::registry::PluginView,
     provider::OpenAIProvider,
     storage,
 };
@@ -463,6 +464,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let core = Arc::new(AppState::new());
+    // 启动兜底（统一入口）：把已启用插件的技能合并进 general 启用列表（旧代码启用过的插件也能自动恢复）。
+    if let Err(e) = core.init_launch() {
+        log::warn!("plugin skill reconcile at startup failed: {e:#}");
+    }
     if pointer_core::deployment_mode::is_standalone() {
         let mut platform = core.platform_config.write();
         let mut user = core.load_user_settings();
@@ -608,6 +613,17 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/skills/external-probe/dismiss",
             post(dismiss_external_skills_prompt),
+        )
+        .route("/api/plugins", get(list_plugins).post(import_plugin))
+        .route("/api/plugins/import-zip", post(import_plugin_zip))
+        .route("/api/plugins/discover", post(discover_plugins))
+        .route("/api/plugins/:plugin_id/enable", post(enable_plugin))
+        .route("/api/plugins/:plugin_id/disable", post(disable_plugin))
+        .route("/api/plugins/:plugin_id/uninstall", post(uninstall_plugin))
+        .route("/api/plugins/external-probe", get(probe_external_plugins))
+        .route(
+            "/api/plugins/import-external",
+            post(import_external_plugin),
         )
         .route("/api/tools", get(list_tools))
         .route("/api/agents", get(list_agents))
@@ -933,7 +949,7 @@ async fn reload_skill_meta(
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<SkillDef>>, ApiError> {
     require_platform_access(&state)?;
-    state.core.skills.reload_meta()?;
+    state.core.init_launch()?;
     Ok(Json(state.core.skills.list()))
 }
 
@@ -976,6 +992,111 @@ async fn dismiss_external_skills_prompt(
     require_platform_access(&state)?;
     pointer_core::skills::external_probe::dismiss_external_skills_prompt()?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- Plugin management API (P1) ----
+
+async fn list_plugins(State(state): State<ServerState>) -> Result<Json<Vec<PluginView>>, ApiError> {
+    require_platform_access(&state)?;
+    let views = state.core.plugin_list().iter().map(PluginView::from_record).collect();
+    Ok(Json(views))
+}
+
+#[derive(Deserialize)]
+struct PluginImportBody {
+    /// 源插件目录（自动识别 Pointer / Codex / Claude 候选）或 .zip 文件的绝对路径。
+    source: String,
+}
+
+async fn import_plugin(
+    State(state): State<ServerState>,
+    Json(body): Json<PluginImportBody>,
+) -> Result<Json<Vec<pointer_core::plugins::importer::ImportReport>>, ApiError> {
+    require_platform_access(&state)?;
+    let source = std::path::PathBuf::from(body.source.trim());
+    Ok(Json(state.core.plugin_import(&source)?))
+}
+
+/// 上传 zip 字节导入插件（web 端文件上传；目录导入走 POST /api/plugins）。
+async fn import_plugin_zip(
+    State(state): State<ServerState>,
+    body: axum::body::Bytes,
+) -> Result<Json<Vec<pointer_core::plugins::importer::ImportReport>>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(state.core.plugin_import_zip(&body)?))
+}
+
+#[derive(Deserialize)]
+struct PluginDiscoverBody {
+    /// 用户选择的顶层目录（自动发现其中的插件候选）。
+    dir: String,
+}
+
+async fn discover_plugins(
+    State(state): State<ServerState>,
+    Json(body): Json<PluginDiscoverBody>,
+) -> Result<Json<Vec<pointer_core::plugins::importer::DiscoveredPlugin>>, ApiError> {
+    require_platform_access(&state)?;
+    let dir = std::path::PathBuf::from(body.dir.trim());
+    Ok(Json(state.core.plugin_discover(&dir)?))
+}
+
+async fn enable_plugin(
+    State(state): State<ServerState>,
+    Path(plugin_id): Path<String>,
+) -> Result<Json<PluginView>, ApiError> {
+    require_platform_access(&state)?;
+    state.core.plugin_enable(&plugin_id)?;
+    let record = state
+        .core
+        .plugins
+        .get(&plugin_id)
+        .ok_or_else(|| ApiError(anyhow::anyhow!("插件不存在: {plugin_id}")))?;
+    Ok(Json(PluginView::from_record(&record)))
+}
+
+async fn disable_plugin(
+    State(state): State<ServerState>,
+    Path(plugin_id): Path<String>,
+) -> Result<Json<PluginView>, ApiError> {
+    require_platform_access(&state)?;
+    state.core.plugin_disable(&plugin_id)?;
+    let record = state
+        .core
+        .plugins
+        .get(&plugin_id)
+        .ok_or_else(|| ApiError(anyhow::anyhow!("插件不存在: {plugin_id}")))?;
+    Ok(Json(PluginView::from_record(&record)))
+}
+
+async fn uninstall_plugin(
+    State(state): State<ServerState>,
+    Path(plugin_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    state.core.plugin_uninstall(&plugin_id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn probe_external_plugins(
+    State(state): State<ServerState>,
+) -> Result<Json<pointer_core::plugins::external_probe::ExternalPluginsProbeResult>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(state.core.plugin_probe_external()?))
+}
+
+#[derive(Deserialize)]
+struct ImportExternalPluginBody {
+    #[serde(rename = "sourceId")]
+    source_id: String,
+}
+
+async fn import_external_plugin(
+    State(state): State<ServerState>,
+    Json(body): Json<ImportExternalPluginBody>,
+) -> Result<Json<pointer_core::plugins::importer::ImportReport>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(state.core.plugin_import_external(&body.source_id)?))
 }
 
 async fn list_tools(State(state): State<ServerState>) -> Result<Json<Vec<ToolDef>>, ApiError> {

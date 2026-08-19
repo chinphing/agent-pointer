@@ -57,18 +57,18 @@ pub struct PluginRecord {
 
 /// 持久化授权记录（单文件 JSON，位于用户级插件根目录 `.auth.json`）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct AuthEntry {
-    dir: String,
-    manifest_hash: String,
-    fingerprint: HashMap<String, String>,
-    enabled: bool,
-    enabled_at_ms: Option<i64>,
+pub(crate) struct AuthEntry {
+    pub(crate) dir: String,
+    pub(crate) manifest_hash: String,
+    pub(crate) fingerprint: HashMap<String, String>,
+    pub(crate) enabled: bool,
+    pub(crate) enabled_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct AuthStore {
+pub(crate) struct AuthStore {
     #[serde(default)]
-    plugins: HashMap<String, AuthEntry>,
+    pub(crate) plugins: HashMap<String, AuthEntry>,
 }
 
 #[derive(Default)]
@@ -110,7 +110,7 @@ impl PluginRegistry {
         }
     }
 
-    fn load_auth(&self) -> AuthStore {
+    pub fn load_auth(&self) -> AuthStore {
         let path = match self.auth_path() {
             Ok(p) => p,
             Err(_) => return AuthStore::default(),

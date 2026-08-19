@@ -19,6 +19,9 @@ pub mod mcp;
 pub mod registry;
 pub mod tool_provider;
 
+#[cfg(test)]
+pub mod e2e_tests;
+
 /// `pointer-plugin.toml` 文件名。
 pub const PLUGIN_MANIFEST_FILE: &str = "pointer-plugin.toml";
 /// `~/.pointer/plugins`（用户级原生插件）。

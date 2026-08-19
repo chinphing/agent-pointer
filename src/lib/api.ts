@@ -233,6 +233,7 @@ export interface RuntimeApi {
   probeExternalPlugins(): Promise<import('../types/plugin').ExternalPluginsProbeResult>
   importExternalPlugin(sourceId: string): Promise<import('../types/plugin').ImportReport>
   listMcpServers(): Promise<import('../types/mcp').GlobalMcpView>
+  saveMcpServers(servers: import('../types/mcp').McpServerDecl[]): Promise<import('../types/mcp').GlobalMcpView>
   reloadMcpServers(): Promise<import('../types/mcp').GlobalMcpView>
   restartMcpServer(): Promise<import('../types/mcp').GlobalMcpView>
   listTools(): Promise<ToolDef[]>
@@ -365,6 +366,7 @@ export const discoverPlugins = api.discoverPlugins
 export const probeExternalPlugins = api.probeExternalPlugins
 export const importExternalPlugin = api.importExternalPlugin
 export const listMcpServers = api.listMcpServers
+export const saveMcpServers = api.saveMcpServers
 export const reloadMcpServers = api.reloadMcpServers
 export const restartMcpServer = api.restartMcpServer
 export const listTools = api.listTools

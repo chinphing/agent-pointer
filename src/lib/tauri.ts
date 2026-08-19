@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { AppendedMessageRow } from './api'
 import type { ImportReport, PluginView, DiscoveredPlugin, ExternalPluginsProbeResult } from '../types/plugin'
-import type { GlobalMcpView } from '../types/mcp'
+import type { GlobalMcpView, McpServerDecl } from '../types/mcp'
 import type {
   AgentDef,
   AgentMode,
@@ -281,6 +281,10 @@ export async function importExternalPlugin(sourceId: string): Promise<ImportRepo
 
 export async function listMcpServers(): Promise<GlobalMcpView> {
   return await invoke<GlobalMcpView>('list_mcp_servers')
+}
+
+export async function saveMcpServers(servers: McpServerDecl[]): Promise<GlobalMcpView> {
+  return await invoke<GlobalMcpView>('save_mcp_servers', { servers })
 }
 
 export async function reloadMcpServers(): Promise<GlobalMcpView> {

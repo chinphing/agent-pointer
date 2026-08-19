@@ -1,6 +1,6 @@
 import type { AppendedMessageRow } from './api'
 import type { ImportReport, PluginView, DiscoveredPlugin, ExternalPluginsProbeResult } from '../types/plugin'
-import type { GlobalMcpView } from '../types/mcp'
+import type { GlobalMcpView, McpServerDecl } from '../types/mcp'
 import type {
   AgentDef,
   AgentMode,
@@ -459,6 +459,13 @@ export async function importExternalPlugin(sourceId: string): Promise<ImportRepo
 
 export async function listMcpServers(): Promise<GlobalMcpView> {
   return await request<GlobalMcpView>('/api/mcp')
+}
+
+export async function saveMcpServers(servers: McpServerDecl[]): Promise<GlobalMcpView> {
+  return await request<GlobalMcpView>('/api/mcp', {
+    method: 'PUT',
+    body: JSON.stringify(servers)
+  })
 }
 
 export async function reloadMcpServers(): Promise<GlobalMcpView> {

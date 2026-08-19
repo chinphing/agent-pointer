@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, Bug, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings, Puzzle } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -17,6 +17,7 @@ import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
 import SkillsPanel from '../skills/SkillsPanel.vue'
 import PluginsPanel from './panels/PluginsPanel.vue'
+import McpPanel from './panels/McpPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -56,6 +57,7 @@ const alwaysSections = [
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
   { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
   { id: 'plugins', label: '插件', desc: '管理 Pointer 插件', icon: Puzzle },
+  { id: 'mcp', label: 'MCP', desc: '全局 MCP server', icon: Plug },
   { id: 'assistant', label: '智能体', desc: '档位与行为', icon: Bot },
   { id: 'models', label: '模型配置', desc: '服务商与档位映射', icon: Cpu },
   { id: 'generation', label: '系统设置', desc: '界面、桌面与系统运行', icon: Settings }
@@ -225,6 +227,10 @@ onMounted(() => {
 
           <section v-else-if="activeSection === 'plugins'" class="p-6 min-h-full flex flex-col">
             <PluginsPanel />
+          </section>
+
+          <section v-else-if="activeSection === 'mcp'" class="p-6 min-h-full flex flex-col">
+            <McpPanel />
           </section>
 
           <section v-else-if="activeSection === 'debug'" class="p-6 min-h-full flex flex-col">

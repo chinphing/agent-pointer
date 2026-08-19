@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { AppendedMessageRow } from './api'
 import type { ImportReport, PluginView, DiscoveredPlugin, ExternalPluginsProbeResult } from '../types/plugin'
+import type { GlobalMcpView } from '../types/mcp'
 import type {
   AgentDef,
   AgentMode,
@@ -276,6 +277,18 @@ export async function probeExternalPlugins(): Promise<ExternalPluginsProbeResult
 
 export async function importExternalPlugin(sourceId: string): Promise<ImportReport> {
   return await invoke<ImportReport>('import_external_plugin', { sourceId })
+}
+
+export async function listMcpServers(): Promise<GlobalMcpView> {
+  return await invoke<GlobalMcpView>('list_mcp_servers')
+}
+
+export async function reloadMcpServers(): Promise<GlobalMcpView> {
+  return await invoke<GlobalMcpView>('reload_mcp_servers')
+}
+
+export async function restartMcpServer(): Promise<GlobalMcpView> {
+  return await invoke<GlobalMcpView>('restart_mcp_server')
 }
 
 export async function listTools(): Promise<ToolDef[]> {

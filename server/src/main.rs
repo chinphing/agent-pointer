@@ -30,6 +30,7 @@ use pointer_core::{
     platform_auth::{PlatformAuthManager, PlatformSessionView},
     platform_config::apply_login_media_oss,
     plugins::registry::PluginView,
+    chat_service::GlobalMcpView,
     provider::OpenAIProvider,
     storage,
 };
@@ -625,6 +626,9 @@ async fn main() -> anyhow::Result<()> {
             "/api/plugins/import-external",
             post(import_external_plugin),
         )
+        .route("/api/mcp", get(list_global_mcp))
+        .route("/api/mcp/reload", post(reload_global_mcp))
+        .route("/api/mcp/restart", post(restart_global_mcp))
         .route("/api/tools", get(list_tools))
         .route("/api/agents", get(list_agents))
         .route("/api/task-board/snapshot", get(get_task_board_snapshot))
@@ -1012,6 +1016,36 @@ async fn list_plugins(State(state): State<ServerState>) -> Result<Json<Vec<Plugi
         })
         .collect();
     Ok(Json(views))
+}
+
+// ---- Global MCP management API (P2b) ----
+
+async fn list_global_mcp(
+    State(state): State<ServerState>,
+) -> Result<Json<GlobalMcpView>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(state.core.global_mcp_view()))
+}
+
+async fn reload_global_mcp(
+    State(state): State<ServerState>,
+) -> Result<Json<GlobalMcpView>, ApiError> {
+    require_platform_access(&state)?;
+    let view = state.core.reload_global_mcp_from_config()?;
+    Ok(Json(view))
+}
+
+async fn restart_global_mcp(
+    State(state): State<ServerState>,
+) -> Result<Json<GlobalMcpView>, ApiError> {
+    require_platform_access(&state)?;
+    // 用当前配置全量重启（关旧 → 注销工具 → 重连）。
+    let (decls, base_dir) = {
+        let cfg = state.core.global_mcp.read();
+        (cfg.decls.clone(), cfg.base_dir.clone())
+    };
+    state.core.reload_global_mcp(decls, base_dir)?;
+    Ok(Json(state.core.global_mcp_view()))
 }
 
 #[derive(Deserialize)]

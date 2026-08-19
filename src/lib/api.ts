@@ -232,6 +232,9 @@ export interface RuntimeApi {
   discoverPlugins(dir: string): Promise<import('../types/plugin').DiscoveredPlugin[]>
   probeExternalPlugins(): Promise<import('../types/plugin').ExternalPluginsProbeResult>
   importExternalPlugin(sourceId: string): Promise<import('../types/plugin').ImportReport>
+  listMcpServers(): Promise<import('../types/mcp').GlobalMcpView>
+  reloadMcpServers(): Promise<import('../types/mcp').GlobalMcpView>
+  restartMcpServer(): Promise<import('../types/mcp').GlobalMcpView>
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
   getTaskBoardSnapshot(conversationId: string, taskId?: string): Promise<import('../types/chat').TaskBoardDocument>
@@ -361,6 +364,9 @@ export const importPluginZip = api.importPluginZip
 export const discoverPlugins = api.discoverPlugins
 export const probeExternalPlugins = api.probeExternalPlugins
 export const importExternalPlugin = api.importExternalPlugin
+export const listMcpServers = api.listMcpServers
+export const reloadMcpServers = api.reloadMcpServers
+export const restartMcpServer = api.restartMcpServer
 export const listTools = api.listTools
 export const listAgents = api.listAgents
 export const getTaskBoardSnapshot = api.getTaskBoardSnapshot

@@ -123,3 +123,18 @@ oauth_client_secret = "replace-me"
 # Optional: any additional env vars (KEY=VALUE)
 # [env]
 # POINTER_API_BASE = "https://pointer-api.readflowai.com"
+
+# ---------------------------------------------------------------------------
+# Global MCP servers (P2b): non-plugin MCP, independent of plugin enable state.
+# Tools are registered as `mcp.<server>.<tool>`; commands relative to this file
+# resolve from the config file directory. Edit then reload from the MCP panel
+# (or POST /api/mcp/reload); plugin enable is rejected when its MCP server name
+# collides with a global one (global wins).
+# ---------------------------------------------------------------------------
+# [mcp_servers]
+# [[mcp_servers.server]]
+# name = "demo"
+# transport = "stdio"            # stdio | (streamable http 后续支持)
+# command = "bin/demo-mcp"       # 相对本配置文件目录
+# args = ["serve"]
+# env = { TOKEN = "replace-me" }

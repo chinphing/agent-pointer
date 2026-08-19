@@ -5,6 +5,7 @@ use pointer_core::dispatcher::{
     DeliverTarget, RunDispatcher, RunQueueSnapshot, TriggerMeta, TriggerRequest, TriggerSource,
 };
 use pointer_core::plugins::registry::PluginView;
+use pointer_core::chat_service::GlobalMcpView;
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
     ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView,
@@ -423,6 +424,32 @@ pub fn disable_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Res
 #[tauri::command]
 pub fn uninstall_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<(), String> {
     state.plugin_uninstall(&plugin_id).map_err(|e| e.to_string())
+}
+
+// ---- Global MCP management commands (P2b) ----
+
+#[tauri::command]
+pub fn list_mcp_servers(state: State<'_, Arc<AppState>>) -> Result<GlobalMcpView, String> {
+    Ok(state.global_mcp_view())
+}
+
+#[tauri::command]
+pub fn reload_mcp_servers(state: State<'_, Arc<AppState>>) -> Result<GlobalMcpView, String> {
+    state
+        .reload_global_mcp_from_config()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn restart_mcp_server(state: State<'_, Arc<AppState>>) -> Result<GlobalMcpView, String> {
+    let (decls, base_dir) = {
+        let cfg = state.global_mcp.read();
+        (cfg.decls.clone(), cfg.base_dir.clone())
+    };
+    state
+        .reload_global_mcp(decls, base_dir)
+        .map_err(|e| e.to_string())?;
+    Ok(state.global_mcp_view())
 }
 
 #[tauri::command]

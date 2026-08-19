@@ -4,6 +4,7 @@ use pointer_core::chat_service::AppState;
 use pointer_core::dispatcher::{
     DeliverTarget, RunDispatcher, RunQueueSnapshot, TriggerMeta, TriggerRequest, TriggerSource,
 };
+use pointer_core::plugins::registry::PluginView;
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
     ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView,
@@ -337,7 +338,9 @@ pub fn list_skills(state: State<'_, Arc<AppState>>) -> Result<Vec<SkillDef>, Str
 
 #[tauri::command]
 pub fn reload_skill_meta(state: State<'_, Arc<AppState>>) -> Result<Vec<SkillDef>, String> {
-    state.skills.reload_meta().map_err(|e| e.to_string())?;
+    state
+        .init_launch()
+        .map_err(|e| e.to_string())?;
     Ok(state.skills.list())
 }
 
@@ -372,6 +375,87 @@ pub fn import_external_skills(
 #[tauri::command]
 pub fn dismiss_external_skills_prompt() -> Result<(), String> {
     pointer_core::skills::external_probe::dismiss_external_skills_prompt()
+        .map_err(|e| e.to_string())
+}
+
+// ---- Plugin management commands (P1) ----
+
+#[tauri::command]
+pub fn list_plugins(state: State<'_, Arc<AppState>>) -> Result<Vec<PluginView>, String> {
+    Ok(state.plugin_list().iter().map(PluginView::from_record).collect())
+}
+
+#[tauri::command]
+pub fn enable_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<PluginView, String> {
+    state.plugin_enable(&plugin_id).map_err(|e| e.to_string())?;
+    let record = state
+        .plugins
+        .get(&plugin_id)
+        .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;
+    Ok(PluginView::from_record(&record))
+}
+
+#[tauri::command]
+pub fn disable_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<PluginView, String> {
+    state.plugin_disable(&plugin_id).map_err(|e| e.to_string())?;
+    let record = state
+        .plugins
+        .get(&plugin_id)
+        .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;
+    Ok(PluginView::from_record(&record))
+}
+
+#[tauri::command]
+pub fn uninstall_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<(), String> {
+    state.plugin_uninstall(&plugin_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_plugin(
+    state: State<'_, Arc<AppState>>,
+    source: String,
+) -> Result<Vec<pointer_core::plugins::importer::ImportReport>, String> {
+    let source_path = std::path::PathBuf::from(source.trim());
+    state
+        .plugin_import(&source_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_plugin_zip(
+    state: State<'_, Arc<AppState>>,
+    zip_data: Vec<u8>,
+) -> Result<Vec<pointer_core::plugins::importer::ImportReport>, String> {
+    state.plugin_import_zip(&zip_data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn discover_plugins(
+    state: State<'_, Arc<AppState>>,
+    dir: String,
+) -> Result<Vec<pointer_core::plugins::importer::DiscoveredPlugin>, String> {
+    let dir_path = std::path::PathBuf::from(dir.trim());
+    state
+        .plugin_discover(&dir_path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn probe_external_plugins(
+    state: State<'_, Arc<AppState>>,
+) -> Result<pointer_core::plugins::external_probe::ExternalPluginsProbeResult, String> {
+    state
+        .plugin_probe_external()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_external_plugin(
+    state: State<'_, Arc<AppState>>,
+    source_id: String,
+) -> Result<pointer_core::plugins::importer::ImportReport, String> {
+    state
+        .plugin_import_external(&source_id)
         .map_err(|e| e.to_string())
 }
 

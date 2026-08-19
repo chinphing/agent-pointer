@@ -340,6 +340,10 @@ pub fn run() {
                 log::warn!("install bundled skills failed: {err}");
             }
             let app_state = Arc::new(AppState::new());
+            // 启动兜底（统一入口）：把已启用插件的技能合并进 general 启用列表（旧代码启用过的插件也能自动恢复）。
+            if let Err(err) = app_state.init_launch() {
+                log::warn!("plugin skill reconcile at startup failed: {err}");
+            }
             let auth = app_state.platform_auth.clone();
             let app_for_creds = app_state.clone();
             tauri::async_runtime::spawn(async move {
@@ -496,6 +500,15 @@ pub fn run() {
             commands::probe_external_skills,
             commands::import_external_skills,
             commands::dismiss_external_skills_prompt,
+            commands::list_plugins,
+            commands::enable_plugin,
+            commands::disable_plugin,
+            commands::uninstall_plugin,
+            commands::import_plugin,
+            commands::import_plugin_zip,
+            commands::discover_plugins,
+            commands::probe_external_plugins,
+            commands::import_external_plugin,
             commands::list_tools,
             commands::list_agents,
             commands::get_task_board_snapshot,

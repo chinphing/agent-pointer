@@ -46,8 +46,7 @@ pub(crate) async fn dispatch(ctx: WebSearchDispatchContext<'_>) -> Result<WebSea
         citation_base_index,
     };
 
-    let result =
-        tool_mode::execute(ctx.settings, ctx.agent_id, &ctx.args, ctx.cancel, ui).await?;
+    let result = tool_mode::execute(ctx.settings, ctx.agent_id, &ctx.args, ctx.cancel, ui).await?;
 
     let result = super::client::apply_citation_base_index(result, citation_base_index);
     let result = super::client::finalize_web_search_result(result);

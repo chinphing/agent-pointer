@@ -862,6 +862,10 @@ mod tests {
             .unwrap();
         assert_eq!(rows2.len(), 1, "duplicate id is skipped");
         assert_eq!(rows2[0].message_id, "m3");
-        assert_eq!(rows2[0].position, first_position + 2, "position continues after last row");
+        assert_eq!(
+            rows2[0].position,
+            first_position + 2,
+            "position continues after last row"
+        );
     }
 }

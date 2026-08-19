@@ -184,8 +184,7 @@ pub fn record_generation_usage(
         Some(&model_key),
         Some(&billing),
         source,
-    )
-    {
+    ) {
         log::warn!(
             "token_usage_store: media generation record failed {} kind={}: {e}",
             scope.log_suffix(),

@@ -299,9 +299,7 @@ pub fn apply_login_platform_providers(
         }
     }
     let before = providers.len();
-    providers.retain(|p| {
-        p.source.as_deref() != Some("platform") || incoming_ids.contains(&p.id)
-    });
+    providers.retain(|p| p.source.as_deref() != Some("platform") || incoming_ids.contains(&p.id));
     if providers.len() != before {
         log::info!(
             "platform_config: dropped {} platform provider(s) no longer in directory",
@@ -524,7 +522,10 @@ mod tests {
         assert_eq!(providers.len(), 2);
         let qwen = providers.iter().find(|p| p.id == "qwen").unwrap();
         assert_eq!(qwen.name, "千问");
-        assert_eq!(qwen.base_url, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+        assert_eq!(
+            qwen.base_url,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        );
         assert_eq!(qwen.models, vec!["qwen3.5-plus", "qwen-next"]);
         assert_eq!(qwen.source.as_deref(), Some("platform"));
     }

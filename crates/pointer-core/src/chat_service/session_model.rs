@@ -169,7 +169,10 @@ pub(crate) fn apply_session_agent_model_defaults(
     let prior_provider = settings.active_provider_id.clone();
     let prior_model = settings.model.clone();
     let key = resolve_lead_agent_key(settings, effective_agent_mode, lead_agent_id_override);
-    if let Some(mode) = performance_mode_override.map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(mode) = performance_mode_override
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         settings
             .agent_performance_modes
             .insert(key.clone(), mode.to_string());
@@ -539,7 +542,10 @@ mod tests {
         );
         let key = prepare_session_llm_settings(&mut settings, "single", None, Some("expert"));
         assert_eq!(
-            settings.agent_performance_modes.get("coder").map(String::as_str),
+            settings
+                .agent_performance_modes
+                .get("coder")
+                .map(String::as_str),
             Some("expert")
         );
         assert_eq!(settings.model, "qwen-expert");

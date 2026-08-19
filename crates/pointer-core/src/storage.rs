@@ -293,21 +293,11 @@ pub fn save_platform_model_catalog_cache_with_hash(
     catalog: &HashMap<String, Vec<String>>,
     hash: Option<&str>,
 ) -> Result<()> {
-    save_platform_model_catalog_cache_full(
-        catalog,
-        &Vec::new(),
-        &serde_json::Value::Null,
-        hash,
-    )
+    save_platform_model_catalog_cache_full(catalog, &Vec::new(), &serde_json::Value::Null, hash)
 }
 
 pub fn save_platform_model_catalog_cache(catalog: &HashMap<String, Vec<String>>) -> Result<()> {
-    save_platform_model_catalog_cache_full(
-        catalog,
-        &Vec::new(),
-        &serde_json::Value::Null,
-        None,
-    )
+    save_platform_model_catalog_cache_full(catalog, &Vec::new(), &serde_json::Value::Null, None)
 }
 
 #[derive(Debug, Serialize, Deserialize)]

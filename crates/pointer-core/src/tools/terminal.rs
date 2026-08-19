@@ -1166,7 +1166,10 @@ mod cwd_tests {
         assert!(truncated);
         assert!(out.starts_with("...[output truncated]\n"));
         assert!(out.contains("FAILURE_AT_END"), "tail must be kept: {out}");
-        assert!(!out.contains(&"x".repeat(40)), "head must be dropped: {out}");
+        assert!(
+            !out.contains(&"x".repeat(40)),
+            "head must be dropped: {out}"
+        );
     }
 
     #[test]

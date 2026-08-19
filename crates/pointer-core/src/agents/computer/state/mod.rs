@@ -21,9 +21,9 @@ use crate::agents::computer::vision::screen_overlay::{
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
 use crate::models::ToolCall;
-use crate::thinking_strategy::apply_tier_thinking_to_round;
 use crate::platform_auth::SharedPlatformAuth;
 use crate::platform_config::SharedPlatformConfig;
+use crate::thinking_strategy::apply_tier_thinking_to_round;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -322,14 +322,17 @@ impl ComputerState {
         if !o.provider_id.trim().is_empty() {
             s.active_provider_id = o.provider_id.trim().to_string();
         }
-        apply_tier_thinking_to_round(&mut s, &crate::models::ComputerTierLlmConfig {
-            provider_id: o.provider_id.clone(),
-            model: o.model.clone(),
-            enable_thinking: o.enable_thinking,
-            thinking_budget: o.thinking_budget,
-            reasoning_effort: o.reasoning_effort.clone(),
-            thinking_intensity: o.thinking_intensity.clone(),
-        });
+        apply_tier_thinking_to_round(
+            &mut s,
+            &crate::models::ComputerTierLlmConfig {
+                provider_id: o.provider_id.clone(),
+                model: o.model.clone(),
+                enable_thinking: o.enable_thinking,
+                thinking_budget: o.thinking_budget,
+                reasoning_effort: o.reasoning_effort.clone(),
+                thinking_intensity: o.thinking_intensity.clone(),
+            },
+        );
         s.model = o.model;
         s
     }

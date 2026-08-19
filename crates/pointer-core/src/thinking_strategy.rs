@@ -470,10 +470,7 @@ impl ThinkingStrategy for EffortStrategy {
                 .and_then(deepseek_reasoning_effort_wire),
         };
         if let Some(effort) = effort {
-            m.insert(
-                "reasoning_effort".into(),
-                Value::String(effort.to_string()),
-            );
+            m.insert("reasoning_effort".into(), Value::String(effort.to_string()));
         } else {
             m.remove("reasoning_effort");
         }

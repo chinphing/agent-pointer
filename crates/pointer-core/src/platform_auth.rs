@@ -77,7 +77,11 @@ pub struct PlatformProviderTemplate {
     pub base_url: String,
     #[serde(default, deserialize_with = "deserialize_platform_models")]
     pub models: Vec<PlatformProviderModel>,
-    #[serde(default, rename = "reasoningInMessages", alias = "reasoning_in_messages")]
+    #[serde(
+        default,
+        rename = "reasoningInMessages",
+        alias = "reasoning_in_messages"
+    )]
     pub reasoning_in_messages: Option<bool>,
     #[serde(default, rename = "enableThinking", alias = "enable_thinking")]
     pub enable_thinking: Option<bool>,
@@ -100,7 +104,11 @@ pub struct PlatformProviderTemplate {
 pub struct PlatformProviderModel {
     #[serde(default)]
     pub name: String,
-    #[serde(default, rename = "reasoningInMessages", alias = "reasoning_in_messages")]
+    #[serde(
+        default,
+        rename = "reasoningInMessages",
+        alias = "reasoning_in_messages"
+    )]
     pub reasoning_in_messages: Option<bool>,
     #[serde(default)]
     pub temperature: Option<f32>,
@@ -125,7 +133,9 @@ pub struct PlatformProviderModel {
 }
 
 /// models 数组元素兼容纯字符串模型名与 {name, ...模型级参数} 对象。
-fn deserialize_platform_models<'de, D>(deserializer: D) -> Result<Vec<PlatformProviderModel>, D::Error>
+fn deserialize_platform_models<'de, D>(
+    deserializer: D,
+) -> Result<Vec<PlatformProviderModel>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

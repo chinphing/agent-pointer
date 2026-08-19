@@ -353,7 +353,10 @@ mod tests {
 
     #[test]
     fn subsequent_lead_turns_skip_scoped_and_current() {
-        let mut scoped = user_msg("scoped", "Begin. Your assigned task is in the system prompt under **Assigned task**.");
+        let mut scoped = user_msg(
+            "scoped",
+            "Begin. Your assigned task is in the system prompt under **Assigned task**.",
+        );
         scoped.anchor_message_id = Some("a1".into());
         let history = vec![
             user_msg("u1", "first"),
@@ -365,8 +368,14 @@ mod tests {
             subsequent_lead_turn_ids(&history, "u1"),
             vec!["u2".to_string(), "u3".to_string()]
         );
-        assert_eq!(subsequent_lead_turn_ids(&history, "u3"), Vec::<String>::new());
-        assert_eq!(subsequent_lead_turn_ids(&history, "missing"), Vec::<String>::new());
+        assert_eq!(
+            subsequent_lead_turn_ids(&history, "u3"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            subsequent_lead_turn_ids(&history, "missing"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -383,13 +392,8 @@ mod tests {
             let _guard = TurnBaselineGuard::enter("conv", "u3");
             ensure_baseline(path, "after-u2").unwrap();
         }
-        let found = read_next_path_baseline(
-            "conv",
-            &["u2".into(), "u3".into()],
-            path,
-            path,
-        )
-        .unwrap();
+        let found =
+            read_next_path_baseline("conv", &["u2".into(), "u3".into()], path, path).unwrap();
         assert_eq!(found, Some(("u2".into(), "after-u1".into())));
     }
 }

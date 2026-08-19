@@ -496,11 +496,12 @@ fn parse_rpc_response(v: Value) -> Result<Value> {
 
 /// 解析 streamable HTTP 响应：`application/json` 直接解析；
 /// `text/event-stream` 取含 `id` 的 `data:` 事件（忽略通知/心跳）。
+/// 兼容两种 SSE 形态：整段以 `data:` 开头（简化实现），或标准 SSE 以
+/// `event:` 开头（Context7 等远程服务，`data:` 在事件名之后）。
 fn parse_http_mcp_response(text: &str) -> Result<Value> {
     let trimmed = text.trim();
-    if !trimmed.starts_with("data:") {
-        return serde_json::from_str(trimmed)
-            .map_err(|e| anyhow!("MCP HTTP 响应非 JSON: {e}"));
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        return Ok(v);
     }
     let mut last = None;
     for line in trimmed.lines() {
@@ -827,5 +828,31 @@ done
         assert_eq!(out, "mcp-echo-ok");
         client.kill_child();
         let _ = decl;
+    }
+
+    #[test]
+    fn parse_http_mcp_response_handles_plain_json() {
+        // application/json 响应：直接解析。
+        let body = "{\"result\":{\"tools\":[]},\"jsonrpc\":\"2.0\",\"id\":2}";
+        let v = parse_http_mcp_response(body).expect("parse");
+        assert_eq!(v["id"], 2);
+    }
+
+    #[test]
+    fn parse_http_mcp_response_handles_sse_data_line() {
+        // 简化 SSE：整段以 data: 开头（历史兼容）。
+        let body = "data: {\"result\":{\"tools\":[]},\"jsonrpc\":\"2.0\",\"id\":2}\n";
+        let v = parse_http_mcp_response(body).expect("parse");
+        assert_eq!(v["id"], 2);
+    }
+
+    #[test]
+    fn parse_http_mcp_response_handles_sse_event_line() {
+        // 标准 SSE（Context7 等远程 MCP）：以 event: message 开头，data: 携带响应。
+        let body =
+            "event: message\ndata: {\"result\":{\"protocolVersion\":\"2024-11-05\"},\"jsonrpc\":\"2.0\",\"id\":1}\n";
+        let v = parse_http_mcp_response(body).expect("parse");
+        assert_eq!(v["id"], 1);
+        assert_eq!(v["result"]["protocolVersion"], "2024-11-05");
     }
 }

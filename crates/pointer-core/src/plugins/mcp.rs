@@ -320,7 +320,39 @@ impl McpClient {
 
     /// streamable HTTP 单次 POST：附加 `Mcp-Session-Id` / `MCP-Protocol-Version`
     /// 头（会话协商后），并在 2xx 响应中保存服务器下发的 `Mcp-Session-Id`。
+    /// streamable HTTP 单次 POST。reqwest blocking client 内部持有 tokio runtime，
+    /// 若在 tokio 运行时线程内创建/释放会 panic（`Cannot drop a runtime...`），
+    /// 而工具 handler 恰好可能在 tokio 线程执行——因此整个请求在独立线程内
+    /// 完成（创建/释放 client 都在非 tokio 线程），调用方阻塞等待结果。
     fn http_post_once(
+        url: &str,
+        user_headers: &HeaderMap,
+        payload: &Value,
+        session_id: Option<&str>,
+        protocol_version: Option<&str>,
+        timeout: Duration,
+    ) -> Result<HttpRawResponse> {
+        let url = url.to_string();
+        let user_headers = user_headers.clone();
+        let payload = payload.clone();
+        let sid = session_id.map(|s| s.to_string());
+        let ver = protocol_version.map(|s| s.to_string());
+        let (tx, rx) = std::sync::mpsc::channel::<Result<HttpRawResponse>>();
+        std::thread::spawn(move || {
+            let _ = tx.send(Self::http_post_once_inner(
+                &url,
+                &user_headers,
+                &payload,
+                sid.as_deref(),
+                ver.as_deref(),
+                timeout,
+            ));
+        });
+        rx.recv()
+            .map_err(|_| anyhow!("MCP HTTP 请求线程意外退出"))?
+    }
+
+    fn http_post_once_inner(
         url: &str,
         user_headers: &HeaderMap,
         payload: &Value,
@@ -1270,6 +1302,46 @@ done
         assert_eq!(defs.len(), 1, "只注册 server-a 的工具");
         assert_eq!(defs[0].name, "mcp_server-a_tool-a");
         clients[0].kill_child();
+    }
+
+    #[tokio::test]
+    async fn http_requests_safe_inside_tokio_runtime() {
+        // 回归：Cannot drop a runtime panic —— 工具 handler 可能在 tokio 运行时线程执行，
+        // blocking client 的创建/释放必须发生在非 tokio 线程。
+        let handler: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        > = Arc::new(|_method, _headers, body| {
+            let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+            let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            match m {
+                "initialize" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"mock","version":"1"}}}"#.to_string(),
+                ),
+                "tools/list" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"echo","inputSchema":{"type":"object"}}]}}"#.to_string(),
+                ),
+                "tools/call" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"pong"}]}}"#.to_string(),
+                ),
+                _ => (202, vec![], String::new()),
+            }
+        });
+        let (url, _seen) = spawn_http_mock(handler);
+        // 直接在 tokio 运行时线程执行 MCP 请求（修复前 blocking client drop 会 panic）
+        let client = McpClient::connect_http("t", &http_decl(url)).expect("connect");
+        let tools = client.list_tools().expect("list_tools");
+        assert_eq!(tools.len(), 1);
+        let out = client.call_tool("echo", json!({ "x": 1 })).expect("call_tool");
+        assert_eq!(out, "pong");
+        client.kill_child();
     }
 
     #[test]

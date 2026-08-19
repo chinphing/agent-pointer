@@ -112,6 +112,7 @@ type ContextMenuState =
 const workspacePanelStore = useWorkspacePanelStore()
 const chat = useChatStore()
 const consoleStore = useConsoleStore()
+
 /** 当前工作区+会话下已开启的终端会话数（与 TerminalPanel 的 workspaceTabs 口径一致）。 */
 const terminalCount = computed(() =>
   consoleStore.tabs.filter(
@@ -122,9 +123,18 @@ const terminalCount = computed(() =>
 )
 const WIDTH_STORAGE_KEY = 'pointer.workspacePanel.width'
 const CHANGES_REFRESH_TTL_MS = 1_500
+/** 根目录分批渲染：首屏只渲染前 N 个根节点，滚动接近底部时增量加载，
+ *  避免根目录条目多时一次性渲染大量组件卡顿（逐层加载）。 */
+const ROOT_RENDER_INITIAL = 200
+const ROOT_RENDER_STEP = 200
+const ROOT_RENDER_SCROLL_THRESHOLD_PX = 240
 const activeView = ref<PrimaryView | string>('files')
 const previewTabs = ref<PreviewTab[]>([])
 const roots = ref<TreeNode[]>([])
+/** 根目录分批渲染：当前渲染的根节点数量（首屏 ROOT_RENDER_INITIAL，滚动增量）。 */
+const visibleRootCount = ref(ROOT_RENDER_INITIAL)
+const visibleRoots = computed(() => roots.value.slice(0, visibleRootCount.value))
+const rootRenderMoreVisible = computed(() => visibleRootCount.value < roots.value.length)
 const changes = ref<GitChange[]>([])
 const loadingFiles = ref(false)
 const loadingChanges = ref(false)
@@ -175,9 +185,6 @@ const panelStyle = computed(() => ({
   ...(isFullscreen.value ? { paddingBottom: `${FULLSCREEN_BOTTOM_PAD_PX}px` } : {})
 }))
 const activePreviewTab = computed(() => previewTabs.value.find(item => item.id === activeView.value) ?? null)
-const activeFileTab = computed(() => activePreviewTab.value?.kind === 'file' ? activePreviewTab.value : null)
-const activeDiffTab = computed(() => activePreviewTab.value?.kind === 'diff' ? activePreviewTab.value : null)
-const activeTurnDiffTab = computed(() => activePreviewTab.value?.kind === 'turn-diff' ? activePreviewTab.value : null)
 
 /** Row kept highlighted while its context menu is open (hover alone disappears under the overlay). */
 const contextSelectedTreePath = computed(() =>
@@ -224,9 +231,13 @@ async function loadRoot(options?: { silent?: boolean }) {
   try {
     const entries = (await listWorkspaceDirectory(workspaceRoot)).map(entry => ({ ...entry }))
     if (seq !== rootLoadSeq || props.workspaceRoot !== workspaceRoot) return
-    roots.value = silent
-      ? mergeWorkspaceTreePreserveState(roots.value, entries)
-      : entries.map(entry => ({ ...entry }))
+    if (silent) {
+      roots.value = mergeWorkspaceTreePreserveState(roots.value, entries)
+    } else {
+      roots.value = entries.map(entry => ({ ...entry }))
+      // 根目录重新加载（切换工作区/首次）后重置分批渲染。
+      visibleRootCount.value = ROOT_RENDER_INITIAL
+    }
     workspaceTransitioning.value = false
     refreshWarning.value = ''
   } catch (err) {
@@ -257,6 +268,17 @@ async function toggleDirectory(node: TreeNode) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
     node.loading = false
+  }
+}
+
+/** 根目录分批渲染：滚动接近底部时增量渲染下一批根节点。 */
+function onFilesScroll() {
+  const scroller = filesScroller.value
+  if (!scroller) return
+  if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - ROOT_RENDER_SCROLL_THRESHOLD_PX) {
+    if (visibleRootCount.value < roots.value.length) {
+      visibleRootCount.value = Math.min(roots.value.length, visibleRootCount.value + ROOT_RENDER_STEP)
+    }
   }
 }
 
@@ -470,12 +492,15 @@ function refreshActiveTab() {
     void refreshChangesBadge({ force: true })
   } else if (activeView.value === 'changes') {
     void loadChanges()
-  } else if (activeFileTab.value) {
-    void loadFileTab(activeFileTab.value)
-  } else if (activeDiffTab.value) {
-    void loadDiffTab(activeDiffTab.value)
-  } else if (activeTurnDiffTab.value) {
-    void loadTurnDiffTab(activeTurnDiffTab.value)
+  } else if (activePreviewTab.value) {
+    const previewTab = activePreviewTab.value
+    if (previewTab.kind === 'file') {
+      void loadFileTab(previewTab)
+    } else if (previewTab.kind === 'diff') {
+      void loadDiffTab(previewTab)
+    } else {
+      void loadTurnDiffTab(previewTab)
+    }
   }
 }
 
@@ -548,7 +573,8 @@ async function openWorkspaceReference(path: string) {
 }
 
 async function openMarkdownReference(href: string) {
-  const sourcePath = activeFileTab.value?.path
+  const sourceTab = activePreviewTab.value
+  const sourcePath = sourceTab?.kind === 'file' ? sourceTab.path : undefined
   if (!sourcePath) {
     console.warn('[WorkspacePanel] Markdown reference has no active source file', href)
     return
@@ -838,6 +864,15 @@ function closeTreeSearch() {
 
 async function ensureTreePathVisible(relativePath: string): Promise<TreeNode | null> {
   const normalized = relativePath.replace(/\\/g, '/')
+  if (!roots.value.length) await loadRoot({ silent: true })
+  // 分批渲染下确保命中路径的根节点已渲染（搜索定位需要节点在 DOM 中）。
+  const first = normalized.split('/')[0]
+  if (first) {
+    const rootIndex = roots.value.findIndex(node => node.path === first)
+    if (rootIndex >= 0) {
+      visibleRootCount.value = Math.max(visibleRootCount.value, rootIndex + 1)
+    }
+  }
   for (const dir of workspacePathAncestorDirs(normalized)) {
     let node = findWorkspaceTreeNode(roots.value, dir)
     if (!node) {
@@ -1196,6 +1231,7 @@ onBeforeUnmount(() => {
         ref="filesScroller"
         class="workspace-scroll-area relative flex-1 min-h-0 overflow-auto p-2 outline-none"
         tabindex="-1"
+        @scroll="onFilesScroll"
       >
         <div
           v-if="treeSearchOpen"
@@ -1246,7 +1282,7 @@ onBeforeUnmount(() => {
         <div v-if="loadingFiles || workspaceTransitioning" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载工作区…</div>
         <div v-else-if="!roots.length" class="workspace-empty">目录为空</div>
         <WorkspaceTreeNode
-          v-for="node in roots"
+          v-for="node in visibleRoots"
           :key="node.path"
           :node="node"
           :highlighted-path="contextSelectedTreePath || treeSearchActivePath"
@@ -1254,6 +1290,12 @@ onBeforeUnmount(() => {
           @activate="selectFile"
           @contextmenu="openTreeContextMenu"
         />
+        <div
+          v-if="rootRenderMoreVisible"
+          class="py-2 text-center text-[10px] tabular-nums text-muted"
+        >
+          已显示 {{ visibleRootCount }} / {{ roots.length }} 项，向下滚动加载更多
+        </div>
       </div>
 
       <div v-show="activeView === 'changes'" class="workspace-scroll-area flex-1 min-h-0 overflow-auto p-2">
@@ -1288,48 +1330,56 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="activeFileTab && activeView === activeFileTab.id" class="flex-1 min-h-0 overflow-hidden p-2">
-        <div v-if="activeFileTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载文件…</div>
-        <div v-else-if="activeFileTab.error" class="text-xs text-danger break-words p-2">{{ activeFileTab.error }}</div>
-        <WorkspaceFilePreview
-          v-else-if="activeFileTab.preview"
-          :preview="activeFileTab.preview"
-          :absolute-path="workspaceAbsolutePath(workspaceRoot, activeFileTab.path)"
-          :workspace-root="workspaceRoot"
-          :relative-path="activeFileTab.path"
-          @open-reference="openMarkdownReference"
-        />
-        <div v-else class="workspace-empty">无法显示该文件</div>
-      </div>
-
-      <div v-else-if="activeTurnDiffTab && activeView === activeTurnDiffTab.id" class="flex-1 min-h-0 overflow-hidden p-2">
-        <div v-if="activeTurnDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
-        <div v-else-if="activeTurnDiffTab.error && !activeTurnDiffTab.diffLines.length" class="text-xs text-danger break-words p-2">{{ activeTurnDiffTab.error }}</div>
+      <!-- Preview tabs stay mounted (v-show) so switching between open previews
+           does not remount DiffView / WorkspaceFilePreview and re-render large
+           diffs or markdown on every tab switch. -->
+      <div
+        v-for="previewTab in previewTabs"
+        v-show="activeView === previewTab.id"
+        :key="previewTab.id"
+        class="flex-1 min-h-0 overflow-hidden p-2"
+      >
+        <template v-if="previewTab.kind === 'file'">
+          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载文件…</div>
+          <div v-else-if="previewTab.error" class="text-xs text-danger break-words p-2">{{ previewTab.error }}</div>
+          <WorkspaceFilePreview
+            v-else-if="previewTab.preview"
+            :preview="previewTab.preview"
+            :absolute-path="workspaceAbsolutePath(workspaceRoot, previewTab.path)"
+            :workspace-root="workspaceRoot"
+            :relative-path="previewTab.path"
+            @open-reference="openMarkdownReference"
+          />
+          <div v-else class="workspace-empty">无法显示该文件</div>
+        </template>
+        <template v-else-if="previewTab.kind === 'turn-diff'">
+          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
+          <div v-else-if="previewTab.error && !previewTab.diffLines.length" class="text-xs text-danger break-words p-2">{{ previewTab.error }}</div>
+          <template v-else>
+            <p v-if="previewTab.error" class="text-[11px] text-muted px-1 pb-1">{{ previewTab.error }}</p>
+            <DiffView
+              v-if="previewTab.diffLines.length"
+              fill-height
+              :diff-lines="previewTab.diffLines"
+              :diff-stats="previewTab.diffStats"
+            />
+            <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
+          </template>
+        </template>
         <template v-else>
-          <p v-if="activeTurnDiffTab.error" class="text-[11px] text-muted px-1 pb-1">{{ activeTurnDiffTab.error }}</p>
+          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
+          <div v-else-if="previewTab.error" class="text-xs text-danger break-words p-2">{{ previewTab.error }}</div>
           <DiffView
-            v-if="activeTurnDiffTab.diffLines.length"
+            v-else-if="previewTab.diffLines.length"
             fill-height
-            :diff-lines="activeTurnDiffTab.diffLines"
-            :diff-stats="activeTurnDiffTab.diffStats"
+            :diff-lines="previewTab.diffLines"
+            :diff-stats="previewTab.diffStats"
           />
           <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
         </template>
       </div>
-
-      <div v-else-if="activeDiffTab && activeView === activeDiffTab.id" class="flex-1 min-h-0 overflow-hidden p-2">
-        <div v-if="activeDiffTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
-        <div v-else-if="activeDiffTab.error" class="text-xs text-danger break-words p-2">{{ activeDiffTab.error }}</div>
-        <DiffView
-          v-else-if="activeDiffTab.diffLines.length"
-          fill-height
-          :diff-lines="activeDiffTab.diffLines"
-          :diff-stats="activeDiffTab.diffStats"
-        />
-        <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
-      </div>
       <div
-        v-else-if="activeView !== 'terminal' && activeView !== 'files' && activeView !== 'changes'"
+        v-if="!previewTabs.length && activeView !== 'terminal' && activeView !== 'files' && activeView !== 'changes'"
         class="workspace-empty"
       >预览标签已关闭</div>
     </template>

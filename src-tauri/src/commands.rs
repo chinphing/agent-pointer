@@ -32,15 +32,20 @@ fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::Li
 }
 
 #[tauri::command]
-pub fn list_workspace_directory(
+pub async fn list_workspace_directory(
     workspace_root: String,
     relative_path: Option<String>,
 ) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
-    pointer_core::workspace_read::list_directory(
-        Path::new(&workspace_root),
-        relative_path.as_deref(),
-    )
-    .map_err(|e| e.to_string())
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::workspace_read::list_directory(
+            Path::new(&workspace_root),
+            relative_path.as_deref(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    result
 }
 
 #[tauri::command]
@@ -55,12 +60,17 @@ pub fn search_workspace_entries(
 }
 
 #[tauri::command]
-pub fn read_workspace_file(
+pub async fn read_workspace_file(
     workspace_root: String,
     relative_path: String,
 ) -> Result<pointer_core::workspace_read::WorkspaceFilePreview, String> {
-    pointer_core::workspace_read::read_file(Path::new(&workspace_root), &relative_path)
-        .map_err(|e| e.to_string())
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::workspace_read::read_file(Path::new(&workspace_root), &relative_path)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    result
 }
 
 #[tauri::command]
@@ -73,25 +83,35 @@ pub fn delete_workspace_path(
 }
 
 #[tauri::command]
-pub fn get_workspace_git_status(
+pub async fn get_workspace_git_status(
     workspace_root: String,
 ) -> Result<pointer_core::workspace_read::GitStatusResponse, String> {
-    pointer_core::workspace_read::git_status_response(Path::new(&workspace_root))
-        .map_err(|e| e.to_string())
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::workspace_read::git_status_response(Path::new(&workspace_root))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    result
 }
 
 #[tauri::command]
-pub fn get_workspace_git_diff(
+pub async fn get_workspace_git_diff(
     workspace_root: String,
     relative_path: String,
     status: Option<String>,
 ) -> Result<pointer_core::workspace_read::GitDiff, String> {
-    pointer_core::workspace_read::git_diff(
-        Path::new(&workspace_root),
-        &relative_path,
-        status.as_deref(),
-    )
-    .map_err(|e| e.to_string())
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::workspace_read::git_diff(
+            Path::new(&workspace_root),
+            &relative_path,
+            status.as_deref(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    result
 }
 
 #[tauri::command]

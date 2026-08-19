@@ -116,7 +116,8 @@ const sections = computed<SidebarGroup[]>(() => {
         alwaysSections.find(item => item.id === 'automation')!,
         alwaysSections.find(item => item.id === 'channels')!,
         alwaysSections.find(item => item.id === 'skills')!,
-        alwaysSections.find(item => item.id === 'plugins')!
+        alwaysSections.find(item => item.id === 'plugins')!,
+        alwaysSections.find(item => item.id === 'mcp')!
       ]
     }
   ]

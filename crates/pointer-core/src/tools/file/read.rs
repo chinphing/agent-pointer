@@ -137,7 +137,8 @@ fn file_read_one_json(
             }
         };
         if line_was_capped {
-            truncated = true;
+            // 超长行先截断；truncated 只在「窗口内」行被截断时置位，
+            // 窗口外的超长行不影响返回内容，不应污染 truncated 标志。
             line = truncate_bytes(&line, line_max_bytes);
         }
         let line_no = total_lines;
@@ -146,6 +147,9 @@ fn file_read_one_json(
         let in_window = line_no >= start_idx && end_idx.map(|e| line_no < e).unwrap_or(true);
         if !in_window {
             continue;
+        }
+        if line_was_capped {
+            truncated = true;
         }
         if truncated && selected_bytes >= max_bytes {
             continue;

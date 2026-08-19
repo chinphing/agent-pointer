@@ -206,6 +206,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    #[ignore = "环境依赖：依赖本机显示器数量/布局（CGDisplayBounds），多显示器顺序变化即失败"]
     fn wechat_secondary_display_quartz_center_maps_to_xcap_3() {
         let id = monitor_id_for_quartz_point(1674.0, -643.0);
         assert_eq!(id.as_deref(), Some("xcap:3"), "got {id:?}");

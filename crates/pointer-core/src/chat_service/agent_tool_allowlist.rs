@@ -8,7 +8,12 @@ pub(crate) fn resolve_agent_tools(
     tools: &ToolRegistry,
 ) -> Vec<String> {
     let mut names = if agent.access_policy.allow_tools.is_empty() {
-        session_tools.to_vec()
+        let mut base = session_tools.to_vec();
+        // 全局 MCP 工具默认对话可见（注册即生效，与主对话 resolve_tools 一致）
+        base.extend(tools.global_mcp_tool_names());
+        base.sort();
+        base.dedup();
+        base
     } else {
         agent.access_policy.allow_tools.clone()
     };

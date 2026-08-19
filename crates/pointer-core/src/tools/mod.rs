@@ -531,6 +531,17 @@ impl ToolRegistry {
             .unwrap_or(false)
     }
 
+    /// 全局 MCP 工具名（`mcp.<server>.<tool>`，plugin_id = `__global__`）。
+    /// 对话工具解析在 allow_tools 为空时默认追加它们（注册即生效，无需显式配置）。
+    pub fn global_mcp_tool_names(&self) -> Vec<String> {
+        self.inner
+            .read()
+            .values()
+            .filter(|e| e.plugin_id.as_deref() == Some(crate::plugins::mcp::GLOBAL_MCP_KEY))
+            .map(|e| e.def.name.clone())
+            .collect()
+    }
+
     pub fn is_parallel_eligible(&self, raw_name: &str) -> bool {
         let base = registry_tool_base_name(raw_name);
         self.inner

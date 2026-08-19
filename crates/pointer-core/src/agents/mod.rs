@@ -1121,7 +1121,12 @@ fn resolve_tools(
     tools: &ToolRegistry,
 ) -> Vec<String> {
     let mut names = if policy.allow_tools.is_empty() {
-        session_tools.to_vec()
+        let mut base = session_tools.to_vec();
+        // 全局 MCP 工具默认对话可见（注册即生效，与 McpPanel 文案一致）
+        base.extend(tools.global_mcp_tool_names());
+        base.sort();
+        base.dedup();
+        base
     } else {
         policy.allow_tools.clone()
     };
@@ -1234,6 +1239,60 @@ mod builtin_agent_tests {
         assert!(
             !names.contains(&"response".to_string()),
             "response must not appear in resolved tool list"
+        );
+    }
+
+    #[test]
+    fn resolve_tools_includes_global_mcp_tools_by_default() {
+        let tools = crate::tools::ToolRegistry::new();
+        // 注册一个全局 MCP 工具（plugin_id = __global__，register_mcp_tool 的真实形态）
+        let handler: crate::tools::ToolHandler = Arc::new(|_| Ok("ok".to_string()));
+        tools.register(
+            crate::tools::ToolEntry::new(
+                "mcp.查询技术文档.query-docs",
+                "plugin:__global__:mcp:查询技术文档:query-docs",
+                "low",
+                false,
+                "query docs",
+                handler,
+            )
+            .with_plugin_id(crate::plugins::mcp::GLOBAL_MCP_KEY),
+        );
+        // 插件裸名工具不应被默认加入（仅全局 MCP 有 `mcp.` 前缀）
+        let plugin_handler: crate::tools::ToolHandler = Arc::new(|_| Ok("ok".to_string()));
+        tools.register(
+            crate::tools::ToolEntry::new(
+                "plugin_tool",
+                "plugin:com.example:something",
+                "low",
+                false,
+                "plugin tool",
+                plugin_handler,
+            )
+            .with_plugin_id("com.example"),
+        );
+
+        // 默认 agent（allow_tools 为空）：全局 MCP 工具可见
+        let policy = AccessPolicy::default();
+        let names = resolve_tools(&policy, &[], &tools);
+        assert!(
+            names.contains(&"mcp.查询技术文档.query-docs".to_string()),
+            "全局 MCP 工具应默认可见，got: {names:?}"
+        );
+        assert!(
+            !names.contains(&"plugin_tool".to_string()),
+            "插件裸名工具不应被默认加入，got: {names:?}"
+        );
+
+        // 显式 allow_tools 时不自动加入（用户自定义白名单决定）
+        let policy = AccessPolicy {
+            allow_tools: vec!["terminal".into()],
+            ..Default::default()
+        };
+        let names = resolve_tools(&policy, &[], &tools);
+        assert!(
+            !names.contains(&"mcp.查询技术文档.query-docs".to_string()),
+            "显式 allow_tools 时不应自动加入 MCP 工具，got: {names:?}"
         );
     }
 

@@ -21,8 +21,8 @@ Pointer 插件是一个**目录**，包含：
 | `agents/` | AGENT.md 子代理（worker） | ✅ 启用即注册 |
 | `rules/` | 规则文件（`.md` / `.mdc`），每轮对话注入 | ✅ 启用即注入 |
 | `[[tools.tool]]` | 进程外工具（sidecar 可执行文件） | ✅ 启用即注册（**须带 `exec` 执行载体**） |
-| `hooks/` | hooks.json（Claude 语义） | ⏳ 导入时拷贝保留，运行时不执行（P3） |
-| `mcp_servers` | MCP server 声明 | ⏳ 解析校验，不启动（P2） |
+| `hooks/` | hooks.json（Claude 语义） | ✅ 启用即注册（PreToolUse 阻断 / PostToolUse 观察） |
+| `mcp_servers` | MCP server 声明 | ✅ 启用即启动（stdio JSON-RPC，工具自动注册） |
 
 > 插件导入后是一次性**快照**：源目录后续变更不会自动同步，需要重新导入。
 
@@ -41,7 +41,7 @@ my-plugin/
 │       └── AGENT.md
 ├── rules/                     # 可选：规则（.md / .mdc，递归收集）
 │   └── guardrail.md
-├── hooks/                     # 可选：hooks.json（Claude 语义，目前仅保留）
+├── hooks/                     # 可选：hooks.json（PreToolUse / PostToolUse）
 │   └── hooks.json
 ├── bin/                       # 约定：sidecar 可执行文件放这里
 │   └── demo-tool
@@ -233,8 +233,8 @@ Pointer 不直接运行时加载 Codex / Claude 格式，而是**一次性转换
 - `skipped`：源中不存在或不支持的部分（如 `agents`、`commands`）；
 - `unmapped`：manifest 中无法映射的字段（保留在 `[metadata]`，不丢信息）。
 
-> commands 在 Pointer 中并入技能（生成 `skills/<name>/SKILL.md`）；hooks 拷贝保留暂不执行；
-> MCP 解析保留暂不启动。导入后请以「启用 + 技能面板核对」验证实际能力。
+> commands 在 Pointer 中并入技能（生成 `skills/<name>/SKILL.md`）；hooks 启用后执行
+> （PreToolUse 可阻断、PostToolUse 观察）；MCP 解析保留暂不启动。导入后请以「启用 + 技能面板核对」验证实际能力。
 
 ---
 
@@ -274,7 +274,7 @@ enabled → uninstall（卸载：删目录 + 清授权 + 移除技能）
 技能 frontmatter 需要 `name` 和 `description`。
 
 **Q: hooks / MCP 什么时候能跑？**
-hooks 执行器（P3）与 MCP 接入（P2）在路线图中；当前导入会保留文件与声明，但不会执行/启动。
+hooks 执行器已实现（PreToolUse / PostToolUse，sidecar 进程 + JSON 决策）；MCP 接入（P2）仍在路线图中。
 
 **Q: 插件更新了源目录，Pointer 里还是旧的？**
 插件是快照。请重新导入（同 id 覆盖）或手动更新 `~/.pointer/plugins/<id>/` 后重启/重新启用。

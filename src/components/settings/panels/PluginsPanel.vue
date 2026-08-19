@@ -27,6 +27,12 @@ const external = ref<ExternalPluginsProbeResult | null>(null)
 const probingExternal = ref(false)
 const skillsStore = useSkillsStore()
 const zipInput = ref<HTMLInputElement | null>(null)
+/** 当前展开详情的插件 id（空 = 全部收起）。 */
+const expandedId = ref('')
+
+function toggleDetails(id: string) {
+  expandedId.value = expandedId.value === id ? '' : id
+}
 
 const STATUS_LABEL: Record<string, string> = {
   discovered: '未授权',
@@ -493,6 +499,19 @@ async function dismissExternal() {
           <div class="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
+              class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground hover:bg-hover cursor-pointer transition-colors"
+              :aria-expanded="expandedId === p.pluginId"
+              @click="toggleDetails(p.pluginId)"
+            >
+              <ChevronDown
+                class="h-3.5 w-3.5 transition-transform"
+                :class="expandedId === p.pluginId ? 'rotate-180' : ''"
+                aria-hidden="true"
+              />
+              详情
+            </button>
+            <button
+              type="button"
               class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs text-foreground hover:bg-hover cursor-pointer transition-colors disabled:opacity-50"
               :disabled="busyId === p.pluginId || p.status === 'rejected'"
               @click="toggle(p)"
@@ -510,6 +529,29 @@ async function dismissExternal() {
               卸载
             </button>
           </div>
+        </div>
+
+        <!-- 详情：能力单元清单 + 元信息 -->
+        <div
+          v-if="expandedId === p.pluginId"
+          class="mt-3 rounded-xl border border-border bg-[hsl(var(--code-bg))]/40 p-3"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[11px] font-medium text-muted">能力单元</span>
+            <span
+              v-for="cap in p.capabilities"
+              :key="cap"
+              class="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"
+            >
+              {{ cap }}
+            </span>
+            <span v-if="!p.capabilities.length" class="text-[11px] text-muted">无能力声明</span>
+          </div>
+          <p class="mt-2 text-[11px] text-muted">
+            位置：<code class="rounded bg-[hsl(var(--code-bg))] px-1 py-0.5">{{ p.isUserLevel ? '~/.pointer/plugins' : '工作区 .pointer/plugins' }}/{{ p.pluginId }}</code>
+            · 授权：{{ p.isAuthorized ? '已授权' : '未授权' }}
+            · 状态：{{ STATUS_LABEL[p.status] ?? p.status }}
+          </p>
         </div>
       </div>
     </div>

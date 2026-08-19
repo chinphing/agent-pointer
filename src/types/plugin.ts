@@ -20,6 +20,8 @@ export interface PluginView {
   statusReason?: string | null
   isAuthorized: boolean
   isEnabled: boolean
+  /** 能力单元清单（skills/agents/rules/hooks/mcp_servers/tools(n)）。 */
+  capabilities: string[]
 }
 
 export interface ImportReport {

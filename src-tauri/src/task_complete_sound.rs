@@ -11,6 +11,7 @@
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+#[cfg(not(target_os = "windows"))]
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -225,6 +226,7 @@ fn ensure_chime_wav_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+#[cfg(not(target_os = "windows"))]
 fn spawn_player(program: &str, args: &[&str]) -> Result<(), String> {
     Command::new(program)
         .args(args)

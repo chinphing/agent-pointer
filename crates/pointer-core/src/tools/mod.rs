@@ -678,7 +678,12 @@ impl ToolRegistry {
             let peers = *source_counts.get(e.doc_source.as_ref()).unwrap_or(&1);
             out.push(openai_tool_entry(
                 &e.def.name,
-                &openai_description_for_entry(&e.def.name, &e.doc_markdown, peers),
+                &openai_description_for_entry(
+                    &e.def.name,
+                    &e.doc_markdown,
+                    peers,
+                    e.doc_source.as_ref(),
+                ),
                 openai_parameters_from_doc_or_builtin(
                     &e.def.name,
                     &e.doc_markdown,
@@ -738,13 +743,22 @@ fn openai_compact_description(tool_name: &str) -> String {
 }
 
 /// OpenAI `function.description`: compact when doc is shared or long; appendix holds full docs.
-fn openai_description_for_entry(name: &str, doc: &str, peers_sharing_doc_source: usize) -> String {
+/// MCP 工具例外：没有内置 md 文档，完整 description 是模型识别其用途的唯一依据（保留至 1024）。
+fn openai_description_for_entry(
+    name: &str,
+    doc: &str,
+    peers_sharing_doc_source: usize,
+    doc_source: &str,
+) -> String {
     if peers_sharing_doc_source > 1 {
         return openai_compact_description(name);
     }
     let t = doc.trim();
     if t.is_empty() {
         return openai_compact_description(name);
+    }
+    if doc_source.contains(":mcp:") {
+        return t.chars().take(1024).collect();
     }
     const SHORT_DOC_MAX: usize = 240;
     if t.chars().count() <= SHORT_DOC_MAX {

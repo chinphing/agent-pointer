@@ -1236,6 +1236,19 @@ done
             "注册的 wire 名非法（OpenAI 会 400）: {name}"
         );
 
+        // OpenAI tools 载荷：description 应保留 MCP 原始描述（模型识别工具用途的唯一依据）
+        let wire = tools.openai_tools(&[name.clone()]);
+        assert_eq!(wire.len(), 1);
+        let desc = wire[0]["function"]["description"].as_str().unwrap_or("");
+        assert!(
+            desc.contains("Query docs"),
+            "MCP 工具描述不应被 compact，got: {desc:?}"
+        );
+        assert!(
+            !desc.contains("parameters in schema"),
+            "MCP 工具描述不应是 compact 占位，got: {desc:?}"
+        );
+
         // 通过注册名调用 → 底层应调用原始工具名 query-docs
         tools
             .invoke(name, json!({ "q": "tokio" }))

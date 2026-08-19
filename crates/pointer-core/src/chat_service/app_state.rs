@@ -250,23 +250,50 @@ fn apply_plugins(
     skills: &crate::skills::SkillRegistry,
     agents: &crate::agents::AgentRegistry,
     extensions: &crate::extensions::ExtensionRegistry,
+    hooks: &crate::dispatcher::HookRegistry,
     plugins: &crate::plugins::registry::PluginRegistry,
 ) {
     // 目录被外部删除的插件已从 registry 消失（遍历不到），先注销其残留能力。
     for id in plugins.take_disappeared() {
-        crate::plugins::activation::deactivate_plugin(tools, skills, agents, extensions, &id);
+        crate::plugins::activation::deactivate_plugin(tools, skills, agents, extensions, hooks, &id);
     }
     for record in plugins.list() {
         if record.status == crate::plugins::registry::PluginStatus::Enabled {
             if let Err(err) = crate::plugins::activation::activate_plugin(
-                tools, skills, agents, extensions, &record,
+                tools, skills, agents, extensions, hooks, &record,
             ) {
                 log::warn!("plugin {}: 装配失败: {err:#}", record.id);
             }
         } else {
             crate::plugins::activation::deactivate_plugin(
-                tools, skills, agents, extensions, &record.id,
+                tools, skills, agents, extensions, hooks, &record.id,
             );
+        }
+    }
+}
+
+/// 按 PluginRegistry 当前状态对齐 MCP 会话：`Enabled` 插件建立会话并注册其工具
+/// （已有会话则跳过，避免重复启动子进程）；其余状态关闭会话（工具由
+/// `deactivate_plugin` 注销）。在启动扫描 / 导入后全量对齐时调用。
+fn sync_mcp_sessions(
+    tools: &crate::tools::ToolRegistry,
+    plugins: &crate::plugins::registry::PluginRegistry,
+    sessions: &crate::plugins::mcp::McpSessionManager,
+) {
+    for record in plugins.list() {
+        if record.status == crate::plugins::registry::PluginStatus::Enabled {
+            if sessions.has_session(&record.id) {
+                continue;
+            }
+            match crate::plugins::mcp::activate_mcp_servers(tools, &record) {
+                Ok(clients) => sessions.register(&record.id, clients),
+                Err(e) => log::warn!("plugin {}: MCP 装配失败: {e:#}", record.id),
+            }
+        } else {
+            let n = sessions.shutdown_plugin(&record.id);
+            if n > 0 {
+                log::info!("plugin {}: 关闭 {} 个 MCP 会话", record.id, n);
+            }
         }
     }
 }
@@ -365,6 +392,8 @@ pub struct AppState {
     /// Pointer 原生插件注册表（P1）：发现 / 授权 / 状态机；启用时由
     /// [`AppState::apply_plugins`] 装配能力到 tools/skills/agents/extensions。
     pub plugins: Arc<crate::plugins::registry::PluginRegistry>,
+    /// 插件 MCP server 会话（P2）：启用时启动子进程并注册其工具；禁用/卸载时关闭。
+    pub mcp_sessions: Arc<crate::plugins::mcp::McpSessionManager>,
 }
 
 impl AppState {
@@ -456,8 +485,8 @@ impl AppState {
         } else {
             crate::observability::TraceBus::noop()
         });
-        let mut hooks = crate::dispatcher::HookRegistry::new();
-        crate::dispatcher::hooks::register_builtin_hooks(&mut hooks);
+        let hooks = crate::dispatcher::HookRegistry::new();
+        crate::dispatcher::hooks::register_builtin_hooks(&hooks);
         let hooks = Arc::new(hooks);
 
         // Pointer 原生插件（P1）：扫描 + 装配已启用插件到 tools/skills/agents/extensions。
@@ -465,7 +494,9 @@ impl AppState {
         if let Err(err) = plugins.scan() {
             log::warn!("plugin scan failed: {err:#}");
         }
-        apply_plugins(&tools, &skills, &agents, &extension_registry, &plugins);
+        apply_plugins(&tools, &skills, &agents, &extension_registry, &hooks, &plugins);
+        let mcp_sessions = Arc::new(crate::plugins::mcp::McpSessionManager::new());
+        sync_mcp_sessions(&tools, &plugins, &mcp_sessions);
         // 注意：启动时的插件技能兜底（reconcile）由 server/Tauri 启动流程调用
         // `init_launch` 完成，避免 AppState::new 写入
         // user_settings（保持构造无副作用，测试隔离契约）。
@@ -506,6 +537,7 @@ impl AppState {
             trace_bus,
             hooks,
             plugins,
+            mcp_sessions,
         }
     }
 
@@ -518,6 +550,7 @@ impl AppState {
             &self.skills,
             &self.agents,
             &self.extensions,
+            &self.hooks,
             &self.plugins,
         );
     }
@@ -555,8 +588,10 @@ impl AppState {
             &self.skills,
             &self.agents,
             &self.extensions,
+            &self.hooks,
             &record,
         )?;
+        sync_mcp_sessions(&self.tools, &self.plugins, &self.mcp_sessions);
         self.auto_enable_plugin_skills(id)?;
         Ok(())
     }
@@ -608,8 +643,10 @@ impl AppState {
             &self.skills,
             &self.agents,
             &self.extensions,
+            &self.hooks,
             id,
         );
+        sync_mcp_sessions(&self.tools, &self.plugins, &self.mcp_sessions);
         Ok(())
     }
 
@@ -630,8 +667,10 @@ impl AppState {
             &self.skills,
             &self.agents,
             &self.extensions,
+            &self.hooks,
             id,
         );
+        sync_mcp_sessions(&self.tools, &self.plugins, &self.mcp_sessions);
         self.remove_plugin_skills_from_overrides(id, &plugin_skill_ids)?;
         Ok(())
     }

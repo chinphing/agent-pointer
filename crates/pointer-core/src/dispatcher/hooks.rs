@@ -127,9 +127,10 @@ pub struct PostToolCallContext<'a> {
 /// Stable identity + ordering shared by all hooks (mirrors
 /// `ExtensionRegistry` semantics: re-registering the same `override_key`
 /// replaces the prior hook; `sort_key` orders execution within a point).
+/// `Cow` keys allow dynamic identity (e.g. plugin hooks `plugin:{id}:hooks:pre`).
 pub trait HookIdentity: Send + Sync {
-    fn override_key(&self) -> &'static str;
-    fn sort_key(&self) -> &'static str;
+    fn override_key(&self) -> std::borrow::Cow<'static, str>;
+    fn sort_key(&self) -> std::borrow::Cow<'static, str>;
 }
 
 #[async_trait]
@@ -176,16 +177,32 @@ pub trait PostToolCallHook: HookIdentity {
 
 /// Registry of dispatcher hooks. Owned by [`crate::dispatcher::RunDispatcher`]
 /// as `Arc<HookRegistry>`. Cheap to share.
-#[derive(Default, Clone)]
+/// Backed by internal locks so plugins can register / remove hooks at runtime (`&self`).
+#[derive(Default)]
 pub struct HookRegistry {
-    on_trigger_received: Vec<Arc<dyn OnTriggerReceivedHook>>,
-    pre_dispatch: Vec<Arc<dyn PreDispatchHook>>,
-    on_run_started: Vec<Arc<dyn OnRunStartedHook>>,
-    on_run_finished: Vec<Arc<dyn OnRunFinishedHook>>,
-    on_run_failed: Vec<Arc<dyn OnRunFailedHook>>,
-    on_run_cancelled: Vec<Arc<dyn OnRunCancelledHook>>,
-    pre_tool_call: Vec<Arc<dyn PreToolCallHook>>,
-    post_tool_call: Vec<Arc<dyn PostToolCallHook>>,
+    on_trigger_received: parking_lot::RwLock<Vec<Arc<dyn OnTriggerReceivedHook>>>,
+    pre_dispatch: parking_lot::RwLock<Vec<Arc<dyn PreDispatchHook>>>,
+    on_run_started: parking_lot::RwLock<Vec<Arc<dyn OnRunStartedHook>>>,
+    on_run_finished: parking_lot::RwLock<Vec<Arc<dyn OnRunFinishedHook>>>,
+    on_run_failed: parking_lot::RwLock<Vec<Arc<dyn OnRunFailedHook>>>,
+    on_run_cancelled: parking_lot::RwLock<Vec<Arc<dyn OnRunCancelledHook>>>,
+    pre_tool_call: parking_lot::RwLock<Vec<Arc<dyn PreToolCallHook>>>,
+    post_tool_call: parking_lot::RwLock<Vec<Arc<dyn PostToolCallHook>>>,
+}
+
+impl Clone for HookRegistry {
+    fn clone(&self) -> Self {
+        Self {
+            on_trigger_received: parking_lot::RwLock::new(self.on_trigger_received.read().clone()),
+            pre_dispatch: parking_lot::RwLock::new(self.pre_dispatch.read().clone()),
+            on_run_started: parking_lot::RwLock::new(self.on_run_started.read().clone()),
+            on_run_finished: parking_lot::RwLock::new(self.on_run_finished.read().clone()),
+            on_run_failed: parking_lot::RwLock::new(self.on_run_failed.read().clone()),
+            on_run_cancelled: parking_lot::RwLock::new(self.on_run_cancelled.read().clone()),
+            pre_tool_call: parking_lot::RwLock::new(self.pre_tool_call.read().clone()),
+            post_tool_call: parking_lot::RwLock::new(self.post_tool_call.read().clone()),
+        }
+    }
 }
 
 impl HookRegistry {
@@ -193,52 +210,92 @@ impl HookRegistry {
         Self::default()
     }
 
-    pub fn register_on_trigger_received(&mut self, hook: Arc<dyn OnTriggerReceivedHook>) {
+    pub fn register_on_trigger_received(&self, hook: Arc<dyn OnTriggerReceivedHook>) {
         let key = hook.override_key();
-        self.on_trigger_received.retain(|h| h.override_key() != key);
-        self.on_trigger_received.push(hook);
+        let mut hooks = self.on_trigger_received.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_pre_dispatch(&mut self, hook: Arc<dyn PreDispatchHook>) {
+    pub fn register_pre_dispatch(&self, hook: Arc<dyn PreDispatchHook>) {
         let key = hook.override_key();
-        self.pre_dispatch.retain(|h| h.override_key() != key);
-        self.pre_dispatch.push(hook);
+        let mut hooks = self.pre_dispatch.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_on_run_started(&mut self, hook: Arc<dyn OnRunStartedHook>) {
+    pub fn register_on_run_started(&self, hook: Arc<dyn OnRunStartedHook>) {
         let key = hook.override_key();
-        self.on_run_started.retain(|h| h.override_key() != key);
-        self.on_run_started.push(hook);
+        let mut hooks = self.on_run_started.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_on_run_finished(&mut self, hook: Arc<dyn OnRunFinishedHook>) {
+    pub fn register_on_run_finished(&self, hook: Arc<dyn OnRunFinishedHook>) {
         let key = hook.override_key();
-        self.on_run_finished.retain(|h| h.override_key() != key);
-        self.on_run_finished.push(hook);
+        let mut hooks = self.on_run_finished.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_on_run_failed(&mut self, hook: Arc<dyn OnRunFailedHook>) {
+    pub fn register_on_run_failed(&self, hook: Arc<dyn OnRunFailedHook>) {
         let key = hook.override_key();
-        self.on_run_failed.retain(|h| h.override_key() != key);
-        self.on_run_failed.push(hook);
+        let mut hooks = self.on_run_failed.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_on_run_cancelled(&mut self, hook: Arc<dyn OnRunCancelledHook>) {
+    pub fn register_on_run_cancelled(&self, hook: Arc<dyn OnRunCancelledHook>) {
         let key = hook.override_key();
-        self.on_run_cancelled.retain(|h| h.override_key() != key);
-        self.on_run_cancelled.push(hook);
+        let mut hooks = self.on_run_cancelled.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_pre_tool_call(&mut self, hook: Arc<dyn PreToolCallHook>) {
+    pub fn register_pre_tool_call(&self, hook: Arc<dyn PreToolCallHook>) {
         let key = hook.override_key();
-        self.pre_tool_call.retain(|h| h.override_key() != key);
-        self.pre_tool_call.push(hook);
+        let mut hooks = self.pre_tool_call.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_post_tool_call(&mut self, hook: Arc<dyn PostToolCallHook>) {
+    pub fn register_post_tool_call(&self, hook: Arc<dyn PostToolCallHook>) {
         let key = hook.override_key();
-        self.post_tool_call.retain(|h| h.override_key() != key);
-        self.post_tool_call.push(hook);
+        let mut hooks = self.post_tool_call.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
+    }
+
+    /// Remove a hook by `override_key` (plugin disable / uninstall lifecycle).
+    pub fn remove_pre_tool_call(&self, key: &str) -> bool {
+        let mut hooks = self.pre_tool_call.write();
+        let before = hooks.len();
+        hooks.retain(|h| h.override_key().as_ref() != key);
+        hooks.len() != before
+    }
+
+    /// Remove every hook whose `override_key` starts with `prefix`（插件按 id 前缀注销全部 matcher）。
+    pub fn remove_pre_tool_call_by_prefix(&self, prefix: &str) -> usize {
+        let mut hooks = self.pre_tool_call.write();
+        let before = hooks.len();
+        hooks.retain(|h| !h.override_key().as_ref().starts_with(prefix));
+        before - hooks.len()
+    }
+
+    /// Remove a hook by `override_key` (plugin disable / uninstall lifecycle).
+    pub fn remove_post_tool_call(&self, key: &str) -> bool {
+        let mut hooks = self.post_tool_call.write();
+        let before = hooks.len();
+        hooks.retain(|h| h.override_key().as_ref() != key);
+        hooks.len() != before
+    }
+
+    /// Remove every hook whose `override_key` starts with `prefix`（插件按 id 前缀注销全部 matcher）。
+    pub fn remove_post_tool_call_by_prefix(&self, prefix: &str) -> usize {
+        let mut hooks = self.post_tool_call.write();
+        let before = hooks.len();
+        hooks.retain(|h| !h.override_key().as_ref().starts_with(prefix));
+        before - hooks.len()
     }
 
     /// Run `on_trigger_received` hooks in sort order. The first `Reject`
@@ -380,43 +437,43 @@ impl HookRegistry {
     // ---- sort helpers ----
 
     fn sorted_trigger_received(&self) -> Vec<Arc<dyn OnTriggerReceivedHook>> {
-        let mut v: Vec<_> = self.on_trigger_received.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.on_trigger_received.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
     fn sorted_pre_dispatch(&self) -> Vec<Arc<dyn PreDispatchHook>> {
-        let mut v: Vec<_> = self.pre_dispatch.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.pre_dispatch.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
     fn sorted_run_started(&self) -> Vec<Arc<dyn OnRunStartedHook>> {
-        let mut v: Vec<_> = self.on_run_started.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.on_run_started.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
     fn sorted_run_finished(&self) -> Vec<Arc<dyn OnRunFinishedHook>> {
-        let mut v: Vec<_> = self.on_run_finished.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.on_run_finished.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
     fn sorted_run_failed(&self) -> Vec<Arc<dyn OnRunFailedHook>> {
-        let mut v: Vec<_> = self.on_run_failed.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.on_run_failed.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
     fn sorted_run_cancelled(&self) -> Vec<Arc<dyn OnRunCancelledHook>> {
-        let mut v: Vec<_> = self.on_run_cancelled.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.on_run_cancelled.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
     fn sorted_pre_tool_call(&self) -> Vec<Arc<dyn PreToolCallHook>> {
-        let mut v: Vec<_> = self.pre_tool_call.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.pre_tool_call.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
     fn sorted_post_tool_call(&self) -> Vec<Arc<dyn PostToolCallHook>> {
-        let mut v: Vec<_> = self.post_tool_call.iter().cloned().collect();
-        v.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut v = self.post_tool_call.read().clone();
+        v.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         v
     }
 }
@@ -432,11 +489,11 @@ impl HookRegistry {
 pub struct LifecycleLogHook;
 
 impl HookIdentity for LifecycleLogHook {
-    fn override_key(&self) -> &'static str {
-        "builtin.lifecycle_log"
+    fn override_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("builtin.lifecycle_log")
     }
-    fn sort_key(&self) -> &'static str {
-        "_10_lifecycle_log"
+    fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_10_lifecycle_log")
     }
 }
 
@@ -492,7 +549,7 @@ impl OnRunCancelledHook for LifecycleLogHook {
 /// Register framework-default hooks (lifecycle logging). Hosts call this on a
 /// fresh `HookRegistry` before wrapping it in `Arc` and passing to
 /// [`crate::dispatcher::RunDispatcher::with_hooks`].
-pub fn register_builtin_hooks(registry: &mut HookRegistry) {
+pub fn register_builtin_hooks(registry: &HookRegistry) {
     let log_hook: Arc<LifecycleLogHook> = Arc::new(LifecycleLogHook);
     registry.register_on_run_started(log_hook.clone());
     registry.register_on_run_finished(log_hook.clone());
@@ -512,11 +569,11 @@ mod tests {
         sk: &'static str,
     }
     impl HookIdentity for StaticId {
-        fn override_key(&self) -> &'static str {
-            self.key
+        fn override_key(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed(self.key)
         }
-        fn sort_key(&self) -> &'static str {
-            self.sk
+        fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed(self.sk)
         }
     }
 
@@ -562,10 +619,10 @@ mod tests {
             }
         }
         impl HookIdentity for RewriteHook {
-            fn override_key(&self) -> &'static str {
+            fn override_key(&self) -> std::borrow::Cow<'static, str> {
                 self.id.override_key()
             }
-            fn sort_key(&self) -> &'static str {
+            fn sort_key(&self) -> std::borrow::Cow<'static, str> {
                 self.id.sort_key()
             }
         }
@@ -605,10 +662,10 @@ mod tests {
             }
         }
         impl HookIdentity for RejectHook {
-            fn override_key(&self) -> &'static str {
+            fn override_key(&self) -> std::borrow::Cow<'static, str> {
                 self.0.override_key()
             }
-            fn sort_key(&self) -> &'static str {
+            fn sort_key(&self) -> std::borrow::Cow<'static, str> {
                 self.0.sort_key()
             }
         }

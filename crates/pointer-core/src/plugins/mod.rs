@@ -12,8 +12,10 @@
 pub mod activation;
 pub mod agents_md;
 pub mod external_probe;
+pub mod hooks;
 pub mod importer;
 pub mod manifest;
+pub mod mcp;
 pub mod registry;
 pub mod tool_provider;
 

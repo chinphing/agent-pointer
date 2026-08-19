@@ -4,6 +4,7 @@
 //! `deactivate` 在禁用 / 卸载时调用（按 `plugin_id` 精确注销，幂等）。
 
 use crate::agents::{AgentRegistry, BaseAgent};
+use crate::dispatcher::HookRegistry;
 use crate::extensions::{
     new_extension_message_id, now_ms, ExtensionRegistry, MessageLoopPromptsAfterContext,
     MessageLoopPromptsAfterHook,
@@ -24,20 +25,22 @@ fn plugin_rules_hook_key(plugin_id: &str) -> String {
     format!("plugin:{plugin_id}:rules")
 }
 
-/// 激活一个插件：注册其声明的工具 / skill / agent / rule 到现有 Registry。
+/// 激活一个插件：注册其声明的工具 / skill / agent / rule / hooks 到现有 Registry。
 /// 幂等：先按 plugin_id 注销再注册，重复调用安全。
 pub fn activate_plugin(
     tools: &ToolRegistry,
     skills: &SkillRegistry,
     agents: &AgentRegistry,
     extensions: &ExtensionRegistry,
+    hook_registry: &HookRegistry,
     record: &PluginRecord,
 ) -> Result<()> {
-    deactivate_plugin(tools, skills, agents, extensions, &record.id);
+    deactivate_plugin(tools, skills, agents, extensions, hook_registry, &record.id);
     activate_tools(tools, record)?;
     activate_skills(skills, record)?;
     activate_agents(agents, record)?;
     activate_rules(extensions, record)?;
+    crate::plugins::hooks::register_plugin_hooks(hook_registry, record)?;
     log::info!(
         "plugin activated: {} (dir={})",
         record.id,
@@ -46,12 +49,13 @@ pub fn activate_plugin(
     Ok(())
 }
 
-/// 注销一个插件：按 plugin_id 移除全部已注册能力。
+/// 注销一个插件：按 plugin_id 移除全部已注册能力（含 hooks）。
 pub fn deactivate_plugin(
     tools: &ToolRegistry,
     skills: &SkillRegistry,
     agents: &AgentRegistry,
     extensions: &ExtensionRegistry,
+    hook_registry: &HookRegistry,
     plugin_id: &str,
 ) {
     let n_tools = tools.unregister_by_plugin(plugin_id);
@@ -59,6 +63,7 @@ pub fn deactivate_plugin(
     let n_agents = agents.unregister_by_plugin(plugin_id);
     let removed_rule =
         extensions.remove_message_loop_prompts_after(&plugin_rules_hook_key(plugin_id));
+    crate::plugins::hooks::unregister_plugin_hooks(hook_registry, plugin_id);
     log::info!(
         "plugin deactivated: {} (tools={n_tools} skills={n_skills} agents={n_agents} rules={removed_rule})",
         plugin_id
@@ -352,12 +357,14 @@ mod tests {
         SkillRegistry,
         AgentRegistry,
         ExtensionRegistry,
+        crate::dispatcher::HookRegistry,
     ) {
         (
             ToolRegistry::new(),
             SkillRegistry::new(),
             AgentRegistry::new(),
             ExtensionRegistry::new(),
+            crate::dispatcher::HookRegistry::new(),
         )
     }
 
@@ -376,8 +383,8 @@ mod tests {
         let record = reg.get("com.example.demo").unwrap();
         assert_eq!(record.status, PluginStatus::Enabled);
 
-        let (tools, skills, agents, extensions) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &record).unwrap();
+        let (tools, skills, agents, extensions, hook_registry) = build_registries();
+        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
 
         // 工具：demo_hello 注册且带 plugin_id
         let def = tools.get_def("demo_hello").expect("tool registered");
@@ -424,13 +431,13 @@ mod tests {
         reg.scan_roots(&[(plugin_dir.clone(), true)]).unwrap();
         let record = reg.get("com.example.demo").unwrap();
 
-        let (tools, skills, agents, extensions) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &record).unwrap();
+        let (tools, skills, agents, extensions, hook_registry) = build_registries();
+        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
         assert!(tools.get_def("demo_hello").is_some());
         assert!(skills.get("demo-skill").is_some());
         assert!(agents.get("demo-agent").is_some());
 
-        deactivate_plugin(&tools, &skills, &agents, &extensions, "com.example.demo");
+        deactivate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, "com.example.demo");
         assert!(tools.get_def("demo_hello").is_none());
         assert!(skills.get("demo-skill").is_none());
         assert!(agents.get("demo-agent").is_none());
@@ -451,9 +458,9 @@ mod tests {
         reg.scan_roots(&[(plugin_dir.clone(), true)]).unwrap();
         let record = reg.get("com.example.demo").unwrap();
 
-        let (tools, skills, agents, extensions) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &record).unwrap();
-        activate_plugin(&tools, &skills, &agents, &extensions, &record).unwrap();
+        let (tools, skills, agents, extensions, hook_registry) = build_registries();
+        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
+        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
         assert!(tools.get_def("demo_hello").is_some());
         assert!(skills.get("demo-skill").is_some());
         assert!(agents.get("demo-agent").is_some());
@@ -473,8 +480,8 @@ mod tests {
         reg.scan_roots(&[(plugin_dir.clone(), true)]).unwrap();
         let record = reg.get("com.example.demo").unwrap();
 
-        let (tools, skills, agents, extensions) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &record).unwrap();
+        let (tools, skills, agents, extensions, hook_registry) = build_registries();
+        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
 
         let computer = ComputerState::with_annotate_url("http://127.0.0.1:9");
         let base: &[ChatMessage] = &[];

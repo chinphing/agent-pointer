@@ -41,11 +41,11 @@ impl ImDeliverHook {
 }
 
 impl HookIdentity for ImDeliverHook {
-    fn override_key(&self) -> &'static str {
-        OVERRIDE_KEY
+    fn override_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(OVERRIDE_KEY)
     }
-    fn sort_key(&self) -> &'static str {
-        SORT_KEY
+    fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(SORT_KEY)
     }
 }
 

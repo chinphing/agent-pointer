@@ -115,10 +115,20 @@ impl PluginRegistry {
             Ok(p) => p,
             Err(_) => return AuthStore::default(),
         };
-        std::fs::read_to_string(&path)
+        let mut store: AuthStore = std::fs::read_to_string(&path)
             .ok()
             .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // 兼容旧版：授权记录 key 曾是插件 id；现改为插件目录（dir）做 key，
+        // 使工作区级/用户级同名插件授权互不覆盖。旧记录迁移到 dir key。
+        let entries: Vec<(String, AuthEntry)> = store.plugins.drain().collect();
+        for (key, mut entry) in entries {
+            if entry.dir.trim().is_empty() {
+                entry.dir = key.clone();
+            }
+            store.plugins.insert(entry.dir.clone(), entry);
+        }
+        store
     }
 
     fn save_auth(&self, store: &AuthStore) -> Result<()> {
@@ -211,14 +221,16 @@ impl PluginRegistry {
             )
         };
         let mut auth = self.load_auth();
+        let dir_key = dir.to_string_lossy().to_string();
         let entry = AuthEntry {
-            dir: dir.to_string_lossy().to_string(),
+            dir: dir_key.clone(),
             manifest_hash,
             fingerprint,
             enabled: false,
             enabled_at_ms: None,
         };
-        auth.plugins.insert(id.to_string(), entry);
+        // key 用插件目录而非 id：用户级与各工作区级同名插件授权记录互不覆盖。
+        auth.plugins.insert(dir_key, entry);
         self.save_auth(&auth)?;
         self.refresh_record_status(id);
         Ok(())
@@ -226,8 +238,9 @@ impl PluginRegistry {
 
     /// 启用插件（须先 `authorize`；哈希不匹配时报错要求重新授权）。
     pub fn enable(&self, id: &str) -> Result<()> {
+        let dir_key = self.auth_key_for(id)?;
         let mut auth = self.load_auth();
-        let Some(entry) = auth.plugins.get_mut(id) else {
+        let Some(entry) = auth.plugins.get_mut(&dir_key) else {
             return Err(anyhow!("插件 {id} 未授权，请先授权"));
         };
         let now_ms = crate::plugins::now_ms();
@@ -240,8 +253,9 @@ impl PluginRegistry {
 
     /// 禁用插件。
     pub fn disable(&self, id: &str) -> Result<()> {
+        let dir_key = self.auth_key_for(id)?;
         let mut auth = self.load_auth();
-        if let Some(entry) = auth.plugins.get_mut(id) {
+        if let Some(entry) = auth.plugins.get_mut(&dir_key) {
             entry.enabled = false;
         }
         self.save_auth(&auth)?;
@@ -260,7 +274,7 @@ impl PluginRegistry {
             std::fs::remove_dir_all(&dir).map_err(|e| anyhow!("删除插件目录 {dir:?} 失败: {e}"))?;
         }
         let mut auth = self.load_auth();
-        auth.plugins.remove(id);
+        auth.plugins.remove(&dir.to_string_lossy().to_string());
         self.save_auth(&auth)?;
         self.inner.write().remove(id);
         // 已由卸载流程注销能力；从 seen 移除避免下次 scan 误判为「外部消失」。
@@ -268,13 +282,23 @@ impl PluginRegistry {
         Ok(())
     }
 
+    /// 查询插件授权记录 key（= 插件目录字符串）。
+    fn auth_key_for(&self, id: &str) -> Result<String> {
+        let g = self.inner.read();
+        let rec = g
+            .get(id)
+            .ok_or_else(|| anyhow!("插件不存在: {id}"))?;
+        Ok(rec.dir.to_string_lossy().to_string())
+    }
+
     fn refresh_record_status(&self, id: &str) {
         let auth = self.load_auth();
         let mut g = self.inner.write();
         if let Some(rec) = g.get_mut(id) {
+            let dir_key = rec.dir.to_string_lossy().to_string();
             rec.status = resolve_status(rec, &auth);
-            rec.authorized = auth.plugins.contains_key(id);
-            rec.enabled = auth.plugins.get(id).is_some_and(|e| e.enabled);
+            rec.authorized = auth.plugins.contains_key(&dir_key);
+            rec.enabled = auth.plugins.get(&dir_key).is_some_and(|e| e.enabled);
         }
     }
 }
@@ -292,6 +316,8 @@ pub struct PluginView {
     pub status_reason: Option<String>,
     pub is_authorized: bool,
     pub is_enabled: bool,
+    /// 能力单元清单（如 `skills`、`agents`、`rules`、`hooks`、`mcp_servers`、`tools(2)`）。
+    pub capabilities: Vec<String>,
 }
 
 impl PluginView {
@@ -313,8 +339,33 @@ impl PluginView {
             status_reason,
             is_authorized: record.authorized,
             is_enabled: record.enabled,
+            capabilities: capability_summary(&record.manifest),
         }
     }
+}
+
+/// 汇总 manifest 声明的能力单元（供 UI 展示「插件提供什么」）。
+fn capability_summary(manifest: &PluginManifest) -> Vec<String> {
+    let mut out = Vec::new();
+    if manifest.skills.is_some() {
+        out.push("skills".to_string());
+    }
+    if manifest.agents.is_some() {
+        out.push("agents".to_string());
+    }
+    if manifest.rules.is_some() {
+        out.push("rules".to_string());
+    }
+    if manifest.hooks.is_some() {
+        out.push("hooks".to_string());
+    }
+    if !manifest.mcp_servers.server.is_empty() {
+        out.push(format!("mcp_servers({})", manifest.mcp_servers.server.len()));
+    }
+    if !manifest.tools.tool.is_empty() {
+        out.push(format!("tools({})", manifest.tools.tool.len()));
+    }
+    out
 }
 
 /// 解析并校验单个插件目录，结合授权记录得到状态。
@@ -354,10 +405,11 @@ fn build_record(dir: &Path, is_user_level: bool, auth: &AuthStore) -> PluginReco
         enabled: false,
     };
     let status = resolve_status(&record, auth);
+    let dir_key = record.dir.to_string_lossy().to_string();
     PluginRecord {
         status,
-        authorized: auth.plugins.contains_key(&record.id),
-        enabled: auth.plugins.get(&record.id).is_some_and(|e| e.enabled),
+        authorized: auth.plugins.contains_key(&dir_key),
+        enabled: auth.plugins.get(&dir_key).is_some_and(|e| e.enabled),
         ..record
     }
 }
@@ -366,7 +418,8 @@ fn resolve_status(record: &PluginRecord, auth: &AuthStore) -> PluginStatus {
     if matches!(record.status, PluginStatus::Rejected(_)) {
         return record.status.clone();
     }
-    let Some(entry) = auth.plugins.get(&record.id) else {
+    let dir_key = record.dir.to_string_lossy().to_string();
+    let Some(entry) = auth.plugins.get(&dir_key) else {
         return PluginStatus::Discovered;
     };
     // 哈希留痕：manifest 或任何能力单元文件变化都触发重新授权。
@@ -449,7 +502,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         let record = build_record(&dir, true, &AuthStore::default());
         let mut auth = AuthStore::default();
         auth.plugins.insert(
-            record.id.clone(),
+            record.dir.to_string_lossy().to_string(),
             AuthEntry {
                 dir: dir.to_string_lossy().to_string(),
                 manifest_hash: record.manifest_hash.clone(),
@@ -469,7 +522,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         let record = build_record(&dir, true, &AuthStore::default());
         let mut auth = AuthStore::default();
         auth.plugins.insert(
-            record.id.clone(),
+            record.dir.to_string_lossy().to_string(),
             AuthEntry {
                 dir: dir.to_string_lossy().to_string(),
                 manifest_hash: record.manifest_hash.clone(),
@@ -491,7 +544,7 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         let record = build_record(&dir, true, &AuthStore::default());
         let mut auth = AuthStore::default();
         auth.plugins.insert(
-            record.id.clone(),
+            record.dir.to_string_lossy().to_string(),
             AuthEntry {
                 dir: dir.to_string_lossy().to_string(),
                 manifest_hash: record.manifest_hash.clone(),
@@ -610,5 +663,44 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         // 卸载后扫描：seen 已移除，不会误判为「外部消失」。
         reg.scan_roots(&[]).unwrap();
         assert!(reg.take_disappeared().is_empty());
+    }
+
+    #[test]
+    fn same_id_different_dirs_keep_isolated_auth() {
+        // 用户级与工作区级（或两个工作区）同名插件 id：授权记录按目录隔离，
+        // 一个目录的授权/启用不会写入另一个目录的 key。
+        let tmp = tempfile::tempdir().unwrap();
+        let root_a = tmp.path().join("user-level");
+        let root_b = tmp.path().join("workspace-level");
+        fs::create_dir_all(&root_a).unwrap();
+        fs::create_dir_all(&root_b).unwrap();
+        let dir_a = write_plugin(&root_a, VALID);
+        let dir_b = write_plugin(&root_b, VALID);
+        let dir_a_key = dir_a.to_string_lossy().to_string();
+        let dir_b_key = dir_b.to_string_lossy().to_string();
+
+        let reg = PluginRegistry::with_auth_path(tmp.path().join("auth.json"));
+        // 仅 a 在场：授权 + 启用 → 记录 key 是 dir_a
+        reg.scan_roots(&[(dir_a.clone(), true)]).unwrap();
+        reg.authorize("com.example.demo").unwrap();
+        reg.enable("com.example.demo").unwrap();
+        let auth = reg.load_auth();
+        assert!(auth.plugins.contains_key(&dir_a_key));
+        assert!(!auth.plugins.contains_key(&dir_b_key));
+
+        // 仅 b 在场：同名插件仍是未授权（dir_a 的记录不串到 dir_b）
+        reg.scan_roots(&[(dir_b.clone(), false)]).unwrap();
+        let rec = reg.get("com.example.demo").unwrap();
+        assert_eq!(rec.status, PluginStatus::Discovered);
+        assert!(!rec.authorized);
+
+        // b 单独授权 → 两条记录并存（互不覆盖）
+        reg.authorize("com.example.demo").unwrap();
+        reg.enable("com.example.demo").unwrap();
+        let auth = reg.load_auth();
+        assert!(auth.plugins.contains_key(&dir_a_key));
+        assert!(auth.plugins.contains_key(&dir_b_key));
+        assert_eq!(auth.plugins.len(), 2);
+        assert!(auth.plugins.get(&dir_b_key).unwrap().enabled);
     }
 }

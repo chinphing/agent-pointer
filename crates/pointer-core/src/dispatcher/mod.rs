@@ -27,7 +27,7 @@ pub mod queue;
 pub mod trigger;
 
 pub use hooks::{
-    HookOutcome, HookRegistry, OnRunCancelledHook, OnRunFailedHook, OnRunFinishedHook,
+    HookIdentity, HookOutcome, HookRegistry, OnRunCancelledHook, OnRunFailedHook, OnRunFinishedHook,
     OnRunStartedHook, OnTriggerReceivedHook, PostToolCallContext, PostToolCallHook,
     PreDispatchContext, PreDispatchHook, PreToolCallContext, PreToolCallHook, RunCancelledContext,
     RunFailedContext, RunFinishedContext, RunStartedContext, TriggerReceivedContext,

@@ -356,9 +356,39 @@ impl McpClient {
             .get("Mcp-Session-Id")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
+        let location = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
         let text = resp
             .text()
             .map_err(|e| anyhow!("读取 MCP HTTP 响应失败: {e}"))?;
+        if status == 202 {
+            // streamable HTTP：服务端以 202 Accepted 声明异步结果，须 GET Location 拉取 SSE 事件流。
+            let Some(loc) = location else {
+                return Err(anyhow!(
+                    "MCP HTTP 请求 {method_str} 返回 202 Accepted 但缺少 Location 头"
+                ));
+            };
+            let mut get_req = client
+                .get(&loc)
+                .header(reqwest::header::ACCEPT, "text/event-stream");
+            if let Some(sid) = session_id {
+                get_req = get_req.header("Mcp-Session-Id", sid);
+            }
+            let get_resp = get_req.send().map_err(|e| {
+                anyhow!("MCP HTTP 请求 {method_str} 202 后 GET 结果流失败: {e}")
+            })?;
+            let stream_text = get_resp
+                .text()
+                .map_err(|e| anyhow!("读取 MCP HTTP 202 结果流失败: {e}"))?;
+            return Ok(HttpRawResponse {
+                status,
+                session_id: new_session,
+                text: stream_text,
+            });
+        }
         if status != 404 && !(200..300).contains(&status) {
             return Err(anyhow!(
                 "MCP HTTP 请求 {method_str} 返回 {status}: {}",
@@ -819,13 +849,21 @@ fn activate_mcp_servers_with(
             McpClient::connect_stdio(plugin_id, base_dir, decl)
         };
         match client {
-            Ok(client) => {
-                let tool_infos = client.list_tools()?;
-                for info in tool_infos {
-                    register_mcp_tool(tools, plugin_id, decl, &client, info);
+            Ok(client) => match client.list_tools() {
+                Ok(tool_infos) => {
+                    for info in tool_infos {
+                        register_mcp_tool(tools, plugin_id, decl, &client, info);
+                    }
+                    clients.push(client);
                 }
-                clients.push(client);
-            }
+                Err(e) => {
+                    // 单个 server 的 tools/list 失败只跳过它，不影响其余 server 装配。
+                    log::warn!(
+                        "MCP ({plugin_id}) server `{}` tools/list 失败，跳过: {e:#}",
+                        decl.name
+                    );
+                }
+            },
             Err(e) => {
                 log::warn!(
                     "MCP ({plugin_id}) server `{}` 启动失败，跳过: {e:#}",
@@ -1114,6 +1152,124 @@ done
             url: Some(url),
             headers: None,
         }
+    }
+
+    #[test]
+    fn http_transport_follows_202_location_stream() {
+        // streamable HTTP 异步形态：POST 返回 202 + Location，客户端须 GET 拉取 SSE 结果。
+        let base_holder: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+        let base_for_handler = base_holder.clone();
+        let handler: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        > = Arc::new(move |method, _headers, body| {
+            if method.starts_with("GET") {
+                let is_init = method.contains("/result/init");
+                let payload = if is_init {
+                    r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"mock","version":"1"}}}"#
+                } else {
+                    r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"async-tool","description":"From 202 stream","inputSchema":{"type":"object"}}]}}"#
+                };
+                return (
+                    200,
+                    vec![("Content-Type".to_string(), "text/event-stream".to_string())],
+                    format!("event: message\ndata: {payload}\n"),
+                );
+            }
+            let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+            let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            let base = base_for_handler.lock().clone();
+            match m {
+                "initialize" => (
+                    202,
+                    vec![
+                        ("Location".to_string(), format!("{base}/result/init")),
+                        ("Mcp-Session-Id".to_string(), "sess-202".to_string()),
+                    ],
+                    String::new(),
+                ),
+                "tools/list" => (
+                    202,
+                    vec![("Location".to_string(), format!("{base}/result/list"))],
+                    String::new(),
+                ),
+                _ => (202, vec![], String::new()),
+            }
+        });
+        let (url, seen) = spawn_http_mock(handler);
+        *base_holder.lock() = url.clone();
+        let client = McpClient::connect_http("t", &http_decl(url)).expect("connect");
+        let tools = client.list_tools().expect("list_tools");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "async-tool");
+        let seen = seen.lock();
+        let get_req = seen
+            .iter()
+            .find(|(m, _, _)| m.starts_with("GET"))
+            .expect("应有 GET /result 拉流请求");
+        assert!(get_req.0.contains("result"), "GET 应命中 Location: {}", get_req.0);
+    }
+
+    #[test]
+    fn activate_skips_server_whose_list_tools_fails() {
+        // server A 正常；server B tools/list 返回 500 → 只跳过 B，A 的工具仍注册。
+        let handler_a: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        > = Arc::new(|_method, _headers, body| {
+            let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+            let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            match m {
+                "initialize" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"A","version":"1"}}}"#.to_string(),
+                ),
+                "tools/list" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"tool-a","description":"from A","inputSchema":{"type":"object"}}]}}"#.to_string(),
+                ),
+                _ => (202, vec![], String::new()),
+            }
+        });
+        let handler_b: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        > = Arc::new(|_method, _headers, body| {
+            let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+            let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            match m {
+                "initialize" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"B","version":"1"}}}"#.to_string(),
+                ),
+                "tools/list" => (500, vec![], "boom".to_string()),
+                _ => (202, vec![], String::new()),
+            }
+        });
+        let (url_a, _seen_a) = spawn_http_mock(handler_a);
+        let (url_b, _seen_b) = spawn_http_mock(handler_b);
+        let tools = crate::tools::ToolRegistry::new();
+        let mut decl_a = http_decl(url_a);
+        decl_a.name = "server-a".into();
+        let mut decl_b = http_decl(url_b);
+        decl_b.name = "server-b".into();
+        let clients = activate_global_mcp_servers(
+            &tools,
+            &[decl_a, decl_b],
+            std::path::Path::new("."),
+        )
+        .expect("部分 server 失败不应使整批装配失败");
+        assert_eq!(clients.len(), 1, "只有 server-a 建立会话");
+        let defs = tools.list_defs();
+        assert_eq!(defs.len(), 1, "只注册 server-a 的工具");
+        assert_eq!(defs[0].name, "mcp_server-a_tool-a");
+        clients[0].kill_child();
     }
 
     #[test]

@@ -21,8 +21,8 @@ Pointer 插件是一个**目录**，包含：
 | `agents/` | AGENT.md 子代理（worker） | ✅ 启用即注册 |
 | `rules/` | 规则文件（`.md` / `.mdc`），每轮对话注入 | ✅ 启用即注入 |
 | `[[tools.tool]]` | 进程外工具（sidecar 可执行文件） | ✅ 启用即注册（**须带 `exec` 执行载体**） |
-| `hooks/` | hooks.json（Claude 语义） | ✅ 启用即注册（PreToolUse 阻断 / PostToolUse 观察） |
-| `mcp_servers` | MCP server 声明 | ✅ 启用即启动（stdio JSON-RPC，工具自动注册） |
+| `hooks/` | hooks.json（Claude 语义） | ✅ 启用即注册（PreToolUse 阻断 / PostToolUse 观察；脚本失败默认放行，entry 可配 `fail_closed` 切换为阻断） |
+| `mcp_servers` | MCP server 声明 | ✅ 启用即启动（stdio JSON-RPC，工具自动注册；崩溃自动重启，重试达上限插件状态显示「运行异常」） |
 
 > 插件导入后是一次性**快照**：源目录后续变更不会自动同步，需要重新导入。
 
@@ -234,7 +234,7 @@ Pointer 不直接运行时加载 Codex / Claude 格式，而是**一次性转换
 - `unmapped`：manifest 中无法映射的字段（保留在 `[metadata]`，不丢信息）。
 
 > commands 在 Pointer 中并入技能（生成 `skills/<name>/SKILL.md`）；hooks 启用后执行
-> （PreToolUse 可阻断、PostToolUse 观察）；MCP 解析保留暂不启动。导入后请以「启用 + 技能面板核对」验证实际能力。
+> （PreToolUse 可阻断、PostToolUse 观察；`"fail_closed": true` 时脚本失败/超时会阻断工具调用）；MCP 解析保留暂不启动。导入后请以「启用 + 技能面板核对」验证实际能力。
 
 ---
 

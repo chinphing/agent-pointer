@@ -9,6 +9,7 @@ export type PluginStatus =
   | 'enabled'
   | 'disabled'
   | 'needs_reauth'
+  | 'degraded'
 
 export interface PluginView {
   pluginId: string

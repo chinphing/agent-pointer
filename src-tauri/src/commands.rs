@@ -382,27 +382,42 @@ pub fn dismiss_external_skills_prompt() -> Result<(), String> {
 
 #[tauri::command]
 pub fn list_plugins(state: State<'_, Arc<AppState>>) -> Result<Vec<PluginView>, String> {
-    Ok(state.plugin_list().iter().map(PluginView::from_record).collect())
+    Ok(state
+        .plugin_list()
+        .iter()
+        .map(|r| {
+            let mut v = PluginView::from_record(r);
+            // P2③：MCP 连续重启失败进入 degraded（UI 插件状态显示）。
+            if state.mcp_sessions.is_degraded(&r.id) {
+                v.status = "degraded".to_string();
+            }
+            v
+        })
+        .collect())
+}
+
+fn view_plugin(state: &AppState, plugin_id: &str) -> Result<PluginView, String> {
+    let record = state
+        .plugins
+        .get(plugin_id)
+        .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;
+    let mut v = PluginView::from_record(&record);
+    if state.mcp_sessions.is_degraded(plugin_id) {
+        v.status = "degraded".to_string();
+    }
+    Ok(v)
 }
 
 #[tauri::command]
 pub fn enable_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<PluginView, String> {
     state.plugin_enable(&plugin_id).map_err(|e| e.to_string())?;
-    let record = state
-        .plugins
-        .get(&plugin_id)
-        .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;
-    Ok(PluginView::from_record(&record))
+    view_plugin(&state, &plugin_id)
 }
 
 #[tauri::command]
 pub fn disable_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<PluginView, String> {
     state.plugin_disable(&plugin_id).map_err(|e| e.to_string())?;
-    let record = state
-        .plugins
-        .get(&plugin_id)
-        .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;
-    Ok(PluginView::from_record(&record))
+    view_plugin(&state, &plugin_id)
 }
 
 #[tauri::command]

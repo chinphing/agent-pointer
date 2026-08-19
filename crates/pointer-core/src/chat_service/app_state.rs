@@ -298,6 +298,61 @@ fn sync_mcp_sessions(
     }
 }
 
+/// MCP watchdog 轮询间隔（毫秒）。
+const MCP_WATCHDOG_INTERVAL_MS: u64 = 2_000;
+
+/// MCP watchdog 单轮：对已启用且声明了 MCP server 的插件，若会话不存在或
+/// 全部进程已退出，则（受指数退避约束）重建会话：关旧进程 → 注销 MCP 工具
+/// （保留 sidecar 工具）→ 重新启动 + 注册。连续失败达上限进入 degraded。
+/// pub(crate)：供 e2e 测试手动驱动一轮。
+pub(crate) fn mcp_watchdog_cycle(
+    tools: &crate::tools::ToolRegistry,
+    plugins: &crate::plugins::registry::PluginRegistry,
+    sessions: &crate::plugins::mcp::McpSessionManager,
+) {
+    use crate::plugins::registry::PluginStatus;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    for record in plugins.list() {
+        if record.status != PluginStatus::Enabled {
+            continue;
+        }
+        if record.manifest.mcp_servers.server.is_empty() {
+            continue;
+        }
+        let alive = sessions.has_session(&record.id) && sessions.any_alive(&record.id);
+        if alive {
+            continue;
+        }
+        let st = sessions.status(&record.id).unwrap_or_default();
+        if st.degraded {
+            continue;
+        }
+        if now_ms < st.next_attempt_ms {
+            continue;
+        }
+        // 重建：shutdown 幂等（无会话也安全）
+        sessions.shutdown_plugin(&record.id);
+        tools.unregister_mcp_by_plugin(&record.id);
+        match crate::plugins::mcp::activate_mcp_servers(tools, &record) {
+            Ok(clients) => {
+                sessions.register(&record.id, clients);
+                log::info!("plugin {}: MCP 会话已（重新）建立", record.id);
+            }
+            Err(e) => {
+                sessions.mark_failure(&record.id, &format!("{e:#}"), now_ms);
+                log::warn!(
+                    "plugin {}: MCP 会话建立失败（第 {} 次）: {e:#}",
+                    record.id,
+                    st.restart_count + 1
+                );
+            }
+        }
+    }
+}
+
 /// 把当前 Enabled 插件的注册技能幂等合并进 general 的 agentSkillOverrides（落盘）。
 /// 独立自由函数：`AppState::new` 阶段实例尚未构造完成，可直接基于 registry 调用。
 fn reconcile_enabled_plugin_skills(
@@ -508,7 +563,7 @@ impl AppState {
             log::warn!("agents_md: 无法解析 workspace root，跳过 AGENTS.md 注入");
         }
 
-        Self {
+        let state = Self {
             tools,
             skills,
             agents,
@@ -538,7 +593,9 @@ impl AppState {
             hooks,
             plugins,
             mcp_sessions,
-        }
+        };
+        state.spawn_mcp_watchdog();
+        state
     }
 
     /// 按 PluginRegistry 当前状态装配已启用插件（幂等）：对每个 `Enabled` 插件
@@ -553,6 +610,26 @@ impl AppState {
             &self.hooks,
             &self.plugins,
         );
+    }
+
+    /// P2③：MCP 健康检查 watchdog。周期探测已启用插件的 MCP 会话：崩溃 /
+    /// 启动失败按指数退避重启（见 [`mcp_watchdog_cycle`]），达上限标记
+    /// `degraded`（UI 插件状态显示）。仅在 tokio 运行时内启动（server / Tauri
+    /// 默认满足；`AppState::new` 的同步构造测试不启动）。
+    pub fn spawn_mcp_watchdog(&self) {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let tools = self.tools.clone();
+        let plugins = self.plugins.clone();
+        let sessions = self.mcp_sessions.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(MCP_WATCHDOG_INTERVAL_MS))
+                    .await;
+                mcp_watchdog_cycle(&tools, &plugins, &sessions);
+            }
+        });
     }
 
     /// 启动兜底（所有入口统一调用）：刷新技能元数据，并把当前 Enabled 插件的

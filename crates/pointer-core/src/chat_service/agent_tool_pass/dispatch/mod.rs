@@ -38,6 +38,8 @@ pub(super) async fn execute_tool_invocation(
     stats: &mut ToolInvocationStats<'_>,
     trigger_source: &Option<TriggerSource>,
     ask_user_deferred: &AtomicBool,
+    run_id: Option<&str>,
+    tool_span_id: Option<&str>,
 ) -> ToolExecResult {
     let _ = ask_user_deferred;
     let execution_scope = ToolExecutionScope::from_agent_contexts(
@@ -158,6 +160,8 @@ pub(super) async fn execute_tool_invocation(
                 lead.as_deref(),
                 sub.as_deref(),
                 execution_scope,
+                run_id,
+                tool_span_id,
             )
             .await
         }
@@ -184,6 +188,7 @@ pub(super) async fn invoke_prepared_parallel(
     web_search_invocation: Option<web_search::WebSearchInvocation>,
     web_search_history: Option<&[crate::models::ChatMessage]>,
     cancel: &CancellationToken,
+    tool_span_id: Option<String>,
 ) -> ToolExecResult {
     let execution_scope =
         ToolExecutionScope::new(conversation_id, agent_instance_id, tc.id.as_str());
@@ -258,6 +263,8 @@ pub(super) async fn invoke_prepared_parallel(
                     .or(sub_profile)
                     .unwrap_or(AgentProfile::General),
                 execution_scope,
+                lead_run_id.or(sub_run_id),
+                tool_span_id.as_deref(),
             )
             .await
         }

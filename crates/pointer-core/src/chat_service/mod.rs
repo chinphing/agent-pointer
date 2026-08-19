@@ -10,7 +10,7 @@ mod agent_round_lifecycle;
 mod agent_stream_round;
 mod agent_tool_allowlist;
 mod agent_tool_pass;
-mod app_state;
+pub(crate) mod app_state;
 mod computer_monitor_follow;
 mod computer_monitor_pick;
 mod computer_pipeline_loop;

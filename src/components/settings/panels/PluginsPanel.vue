@@ -39,7 +39,8 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: '校验失败',
   enabled: '已启用',
   disabled: '已禁用',
-  needs_reauth: '需重新授权'
+  needs_reauth: '需重新授权',
+  degraded: '运行异常'
 }
 
 const enabledCount = computed(() => plugins.value.filter(p => p.isEnabled).length)

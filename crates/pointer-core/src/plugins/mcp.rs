@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -45,6 +45,9 @@ pub struct McpClient {
     stdin: Mutex<ChildStdin>,
     pending: Arc<Mutex<HashMap<u64, std::sync::mpsc::Sender<Value>>>>,
     child: Arc<Mutex<Option<Child>>>,
+    /// 存活标记：读线程在 stdout EOF（进程退出）时置 false；`is_alive` 亦以
+    /// `try_wait` 交叉验证。watchdog 据此触发崩溃重启。
+    alive: Arc<AtomicBool>,
 }
 
 impl Drop for McpClient {
@@ -108,6 +111,7 @@ impl McpClient {
             stdin: Mutex::new(stdin),
             pending: Arc::new(Mutex::new(HashMap::new())),
             child: Arc::new(Mutex::new(Some(child))),
+            alive: Arc::new(AtomicBool::new(true)),
         });
         client.spawn_reader(stdout);
 
@@ -139,6 +143,7 @@ impl McpClient {
         let pending = self.pending.clone();
         let plugin_id = self.plugin_id.clone();
         let server_name = self.server_name.clone();
+        let alive = self.alive.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
@@ -168,7 +173,8 @@ impl McpClient {
                     let _ = tx.send(parsed);
                 }
             }
-            // stdout 关闭：清理所有 pending
+            // stdout 关闭：进程已退出，清理所有 pending 并置死标记（watchdog 据此重启）。
+            alive.store(false, Ordering::SeqCst);
             let pending = pending.lock();
             for (_, tx) in pending.iter() {
                 let _ = tx.send(json!({"error": {"code": -32000, "message": "MCP server 已退出"}}));
@@ -285,6 +291,31 @@ impl McpClient {
             let _ = child.wait();
         }
     }
+
+    /// 存活探测：读线程 EOF 标记 + `try_wait` 交叉验证（进程退出后置死标记）。
+    pub fn is_alive(&self) -> bool {
+        if !self.alive.load(Ordering::SeqCst) {
+            return false;
+        }
+        let mut guard = self.child.lock();
+        let exited = match guard.as_mut() {
+            Some(child) => match child.try_wait() {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(_) => true,
+            },
+            None => true,
+        };
+        if exited {
+            self.alive.store(false, Ordering::SeqCst);
+        }
+        !exited
+    }
+
+    /// server 名（状态展示用）。
+    pub fn server_name(&self) -> &str {
+        &self.server_name
+    }
 }
 
 fn extract_text(content: &[Value]) -> String {
@@ -308,10 +339,42 @@ fn parse_rpc_response(v: Value) -> Result<Value> {
     Ok(v.get("result").cloned().unwrap_or(Value::Null))
 }
 
-/// MCP 会话管理器：按插件 id 持有已连接的 client，禁用/卸载时关闭。
+/// MCP 连续重启失败达到该次数后进入 `degraded`（停止自动重启，等用户手动重开）。
+pub const MAX_MCP_RESTART_FAILURES: u32 = 5;
+
+/// 单个 MCP server 的运行状态。
+#[derive(Debug, Clone, Default)]
+pub struct McpServerStatus {
+    pub server_name: String,
+    pub healthy: bool,
+}
+
+/// 插件级 MCP 运行状态（watchdog 维护，供 UI degraded 展示）。
+#[derive(Debug, Clone, Default)]
+pub struct PluginMcpStatus {
+    pub servers: Vec<McpServerStatus>,
+    /// 连续重启失败次数（指数退避）。
+    pub restart_count: u32,
+    pub last_error: Option<String>,
+    /// 已达重试上限，停止自动重启（UI 显示 degraded）。
+    pub degraded: bool,
+    /// 下次重试时间（unix ms；0 = 立即）。
+    pub next_attempt_ms: u64,
+}
+
+impl PluginMcpStatus {
+    fn backoff_ms(n: u32) -> u64 {
+        // 1s → 2s → 4s → 8s → 16s → 30s（封顶）
+        (1_000u64 << n.min(5)).min(30_000)
+    }
+}
+
+/// MCP 会话管理器：按插件 id 持有已连接的 client，禁用/卸载时关闭；
+/// watchdog 通过状态表驱动崩溃重启与 degraded 展示。
 #[derive(Default)]
 pub struct McpSessionManager {
     sessions: RwLock<HashMap<String, Vec<Arc<McpClient>>>>,
+    statuses: RwLock<HashMap<String, PluginMcpStatus>>,
 }
 
 impl McpSessionManager {
@@ -320,9 +383,23 @@ impl McpSessionManager {
     }
 
     pub fn register(&self, plugin_id: &str, clients: Vec<Arc<McpClient>>) {
+        let servers = clients
+            .iter()
+            .map(|c| McpServerStatus {
+                server_name: c.server_name().to_string(),
+                healthy: true,
+            })
+            .collect();
         self.sessions
             .write()
             .insert(plugin_id.to_string(), clients);
+        self.statuses.write().insert(
+            plugin_id.to_string(),
+            PluginMcpStatus {
+                servers,
+                ..Default::default()
+            },
+        );
     }
 
     /// 是否已有该插件会话（避免重复启动子进程）。
@@ -333,6 +410,7 @@ impl McpSessionManager {
     /// 关闭某插件全部 MCP 会话并移除记录（幂等）。
     pub fn shutdown_plugin(&self, plugin_id: &str) -> usize {
         let removed = self.sessions.write().remove(plugin_id);
+        self.statuses.write().remove(plugin_id);
         let n = removed.as_ref().map(|v| v.len()).unwrap_or(0);
         if let Some(clients) = removed {
             for c in &clients {
@@ -340,6 +418,38 @@ impl McpSessionManager {
             }
         }
         n
+    }
+
+    /// 插件任一 MCP server 存活（watchdog 崩溃探测）。
+    pub fn any_alive(&self, plugin_id: &str) -> bool {
+        let g = self.sessions.read();
+        let Some(clients) = g.get(plugin_id) else {
+            return false;
+        };
+        clients.iter().any(|c| c.is_alive())
+    }
+
+    /// 插件 MCP 运行状态快照。
+    pub fn status(&self, plugin_id: &str) -> Option<PluginMcpStatus> {
+        self.statuses.read().get(plugin_id).cloned()
+    }
+
+    /// 插件 MCP 是否已进入 degraded（重试达上限，UI 显示）。
+    pub fn is_degraded(&self, plugin_id: &str) -> bool {
+        self.statuses
+            .read()
+            .get(plugin_id)
+            .is_some_and(|s| s.degraded)
+    }
+
+    /// 记录一次重启/启动失败：指数退避 + 达上限 degraded。
+    pub fn mark_failure(&self, plugin_id: &str, error: &str, now_ms: u64) {
+        let mut g = self.statuses.write();
+        let st = g.entry(plugin_id.to_string()).or_default();
+        st.restart_count += 1;
+        st.last_error = Some(error.to_string());
+        st.next_attempt_ms = now_ms + PluginMcpStatus::backoff_ms(st.restart_count);
+        st.degraded = st.restart_count >= MAX_MCP_RESTART_FAILURES;
     }
 }
 
@@ -379,8 +489,12 @@ fn register_mcp_tool(
     }
     let client = client.clone();
     let tool_name = info.name.clone();
-    let doc_source: std::borrow::Cow<'static, str> =
-        std::borrow::Cow::Owned(format!("plugin:{}:mcp:{}", record.id, tool_name));
+    // 格式 `plugin:{id}:mcp:{server}:{tool}`：`:mcp:` 标识 MCP 工具（重启时
+    // 精确注销），server 供 McpRequest Span 埋点解析。
+    let doc_source: std::borrow::Cow<'static, str> = std::borrow::Cow::Owned(format!(
+        "plugin:{}:mcp:{}:{}",
+        record.id, decl.name, tool_name
+    ));
     let description = if info.description.trim().is_empty() {
         format!("{tool_name}（MCP {server}）", server = decl.name)
     } else {

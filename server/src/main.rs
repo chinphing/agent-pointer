@@ -998,7 +998,19 @@ async fn dismiss_external_skills_prompt(
 
 async fn list_plugins(State(state): State<ServerState>) -> Result<Json<Vec<PluginView>>, ApiError> {
     require_platform_access(&state)?;
-    let views = state.core.plugin_list().iter().map(PluginView::from_record).collect();
+    let views = state
+        .core
+        .plugin_list()
+        .iter()
+        .map(|r| {
+            let mut v = PluginView::from_record(r);
+            // P2③：MCP 连续重启失败进入 degraded（UI 插件状态显示）。
+            if state.core.mcp_sessions.is_degraded(&r.id) {
+                v.status = "degraded".to_string();
+            }
+            v
+        })
+        .collect();
     Ok(Json(views))
 }
 

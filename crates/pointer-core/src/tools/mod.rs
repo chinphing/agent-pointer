@@ -278,6 +278,14 @@ pub fn normalize_tool_invoke_name(raw_name: &str, args: Value) -> (String, Value
     (raw_name.trim().to_string(), args)
 }
 
+/// MCP 工具元数据（由 `doc_source` 解析：`plugin:{id}:mcp:{server}:{tool}`）。
+#[derive(Debug, Clone)]
+pub struct McpToolMeta {
+    pub plugin_id: String,
+    pub server: String,
+    pub tool: String,
+}
+
 /// One registered tool: identity ([`ToolDef`]), OpenAI/XML documentation, approval policy, handler.
 #[derive(Clone)]
 pub struct ToolEntry {
@@ -460,6 +468,46 @@ impl ToolRegistry {
             g.remove(&name);
         }
         n
+    }
+
+    /// Remove only MCP-provided tools of a plugin (MCP restart keeps sidecar tools).
+    /// Returns the number of removed tools.
+    pub fn unregister_mcp_by_plugin(&self, plugin_id: &str) -> usize {
+        let mut g = self.inner.write();
+        let names: Vec<String> = g
+            .values()
+            .filter(|e| e.plugin_id.as_deref() == Some(plugin_id))
+            .filter(|e| e.doc_source.as_ref().contains(":mcp:"))
+            .map(|e| e.def.name.clone())
+            .collect();
+        let n = names.len();
+        for name in names {
+            g.remove(&name);
+        }
+        n
+    }
+
+    /// 若该工具是插件 MCP 工具，返回其元数据（供 McpRequest Span 埋点）。
+    pub fn mcp_tool_meta(&self, name: &str) -> Option<McpToolMeta> {
+        let g = self.inner.read();
+        let entry = g.get(name)?;
+        let doc = entry.doc_source.as_ref();
+        // 格式：plugin:{id}:mcp:{server}:{tool}
+        let mut parts = doc.split(':');
+        if parts.next() != Some("plugin") {
+            return None;
+        }
+        let plugin_id = parts.next()?.to_string();
+        if parts.next() != Some("mcp") {
+            return None;
+        }
+        let server = parts.next()?.to_string();
+        let tool = parts.next()?.to_string();
+        Some(McpToolMeta {
+            plugin_id,
+            server,
+            tool,
+        })
     }
 
     /// Tool names registered by a plugin (for re-register / UI listing).

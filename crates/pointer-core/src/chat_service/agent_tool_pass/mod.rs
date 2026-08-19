@@ -700,6 +700,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 .as_deref()
                                 .map(|history| history.as_slice()),
                             &cancel,
+                            Some(tool_span.span_id.clone()),
                         )
                         .await;
                         let tool_failed =
@@ -1269,6 +1270,8 @@ async fn run_one_prepared(
         pass.ctx.stats,
         &pass.ctx.trigger_source,
         &pass.ctx.ask_user_deferred,
+        Some(run_id.as_str()),
+        Some(span_id.as_str()),
     )
     .await;
 

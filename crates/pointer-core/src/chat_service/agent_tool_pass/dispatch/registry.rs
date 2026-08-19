@@ -59,6 +59,8 @@ pub(super) async fn dispatch_registry_invoke(
     lead: Option<&LeadToolPassConfig<'_>>,
     sub: Option<&SubToolPassConfig<'_>>,
     execution_scope: ToolExecutionScope,
+    run_id: Option<&str>,
+    parent_span_id: Option<&str>,
 ) -> ToolExecResult {
     let file_profile = lead
         .map(|l| l.file_tool_lead_for_invoke.clone())
@@ -72,6 +74,8 @@ pub(super) async fn dispatch_registry_invoke(
         workspace_root,
         file_profile,
         execution_scope,
+        run_id,
+        parent_span_id,
     )
     .await
 }
@@ -84,6 +88,8 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     workspace_root: &str,
     file_profile: AgentProfile,
     execution_scope: ToolExecutionScope,
+    run_id: Option<&str>,
+    parent_span_id: Option<&str>,
 ) -> ToolExecResult {
     let session_user_id = state
         .session_index
@@ -159,8 +165,28 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     } else {
         None
     };
-    state
+
+    // P2④：MCP 工具调用生成 McpRequest Span（ToolCall span 的子节点；
+    // input/output 只存摘要，不存原文——见计划 §7.4）。
+    let mcp_meta = state.tools.mcp_tool_meta(tool_id);
+    let started = std::time::Instant::now();
+    let result = state
         .tools
         .invoke(tool_id, args_value)
-        .map(|out| (out, true, None))
+        .map(|out| (out, true, None));
+    if let Some(meta) = mcp_meta {
+        crate::observability::pipeline::emit_mcp_request_span(
+            &state.trace_bus,
+            conversation_id,
+            tool_id,
+            &meta.plugin_id,
+            &meta.server,
+            &meta.tool,
+            run_id.unwrap_or_default(),
+            parent_span_id,
+            result.is_ok(),
+            started.elapsed().as_millis() as u64,
+        );
+    }
+    result
 }

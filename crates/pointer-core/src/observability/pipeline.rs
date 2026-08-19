@@ -157,6 +157,43 @@ pub fn start(exporters: Arc<ExporterRegistry>) -> TraceBus {
     bus
 }
 
+/// P2④：构造并发射一个 McpRequest Span（MCP 工具调用；ToolCall span 的子节点）。
+/// 由 dispatch 层调用；单独抽为 crate 可见函数供 e2e 直接断言 span 字段。
+/// input/output 只存摘要不存原文（计划 §7.4：MCP 负载仅 server/tool/耗时/状态）。
+pub(crate) fn emit_mcp_request_span(
+    bus: &TraceBus,
+    conversation_id: &str,
+    tool_id: &str,
+    plugin_id: &str,
+    server: &str,
+    tool: &str,
+    run_id: &str,
+    parent_span_id: Option<&str>,
+    ok: bool,
+    duration_ms: u64,
+) {
+    let mut span = TraceEvent::new(
+        run_id.to_string(),
+        uuid::Uuid::new_v4().to_string(),
+        super::trace::SpanKind::McpRequest,
+        tool_id,
+    );
+    span.parent_span_id = parent_span_id.map(str::to_string);
+    span.run_id = run_id.to_string();
+    span.conversation_id = conversation_id.to_string();
+    if let serde_json::Value::Object(ref mut attrs) = span.attributes {
+        attrs.insert("plugin_id".into(), serde_json::json!(plugin_id));
+        attrs.insert("server".into(), serde_json::json!(server));
+        attrs.insert("tool".into(), serde_json::json!(tool));
+        attrs.insert("duration_ms".into(), serde_json::json!(duration_ms));
+    }
+    if !ok {
+        span.set_error("mcp_call_failed", "MCP tools/call 失败");
+    }
+    span.end();
+    bus.emit(span);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

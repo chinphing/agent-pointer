@@ -10,23 +10,29 @@
 //! 协议：
 //! - 输入：stdin 写 `{"hook_event_name":"PreToolUse","tool_name":"…","tool_input":{…}}`；
 //! - 输出：stdout 写 `"allow"`、`{"decision":"allow"}` 或 `{"decision":"block","reason":"…"}`。
-//! 退出码 0 + 空输出视为 allow；非零退出码 / 超时 / 无法解析 → 记日志并放行
+//! 退出码 0 + 空输出视为 allow；非零退出码 / 超时 / 无法解析 → 默认记日志并放行
 //! （fail-open：插件已授权，脚本故障不应卡死用户工作流；block 仅在显式输出时生效）。
+//! PreToolUse entry 可配 `"fail_closed": true` 切换为 fail-closed：脚本失败 /
+//! 超时 / 无效输出时返回 `Reject`（阻断该工具调用并透出原因）。PostToolUse
+//! 是观察者，恒 fail-open（仅记日志）。
 
 use crate::dispatcher::{
     HookIdentity, HookOutcome, HookRegistry, PostToolCallContext, PostToolCallHook,
     PreToolCallContext, PreToolCallHook,
 };
+use crate::observability::{SpanKind, TraceEvent};
 use crate::plugins::registry::PluginRecord;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::Deserialize;
 use std::borrow::Cow;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::process::Command;
 
 /// hooks 声明文件名（importer 原样拷贝保留）。
 const HOOKS_FILE: &str = "hooks/hooks.json";
@@ -53,6 +59,9 @@ struct HookEntry {
     #[serde(default = "default_matcher")]
     matcher: String,
     command: String,
+    /// 失败策略：true = fail-closed（脚本失败/超时/无效输出时阻断）；默认 false = fail-open。
+    #[serde(default)]
+    fail_closed: bool,
 }
 
 fn default_matcher() -> String {
@@ -80,6 +89,7 @@ pub fn register_plugin_hooks(hook_registry: &HookRegistry, record: &PluginRecord
             command: entry.command.clone(),
             plugin_dir: record.dir.clone(),
             timeout_ms: DEFAULT_HOOK_TIMEOUT_MS,
+            fail_closed: entry.fail_closed,
         }));
     }
     for entry in parsed.hooks.PostToolUse {
@@ -115,12 +125,14 @@ fn matcher_matches(matcher: &str, tool_name: &str) -> bool {
 }
 
 /// PreToolUse hook：执行插件命令，按决策返回 Continue / Reject。
+/// `fail_closed` 为 true 时，脚本失败 / 超时 / 无效输出返回 Reject（阻断）。
 struct PluginPreToolCallHook {
     plugin_id: String,
     matcher: String,
     command: String,
     plugin_dir: PathBuf,
     timeout_ms: u64,
+    fail_closed: bool,
 }
 
 #[async_trait]
@@ -134,25 +146,62 @@ impl PreToolCallHook for PluginPreToolCallHook {
             "tool_name": ctx.tool_name,
             "tool_input": ctx.args,
         });
-        match run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await {
-            Ok(HookDecision::Allow) => Ok(HookOutcome::Continue),
-            Ok(HookDecision::Block(reason)) => {
-                log::info!(
-                    "plugin {} PreToolUse hook blocked {}: {}",
-                    self.plugin_id,
-                    ctx.tool_name,
-                    reason
-                );
-                Ok(HookOutcome::Reject { reason })
-            }
-            Err(e) => {
-                log::warn!(
-                    "plugin {} PreToolUse hook 执行失败，放行: {e:#}",
-                    self.plugin_id
-                );
-                Ok(HookOutcome::Continue)
-            }
+        // P3④：Hook Span（Run 子节点，与 ToolCall span 平级；只存元数据不存原文）。
+        let mut span = TraceEvent::new(
+            ctx.run_id.to_string(),
+            uuid::Uuid::new_v4().to_string(),
+            SpanKind::Hook,
+            format!("hook:{}:{}", self.plugin_id, ctx.tool_name),
+        );
+        span.parent_span_id = Some("run-root".to_string());
+        span.run_id = ctx.run_id.to_string();
+        span.conversation_id = ctx.conversation_id.to_string();
+        if let serde_json::Value::Object(ref mut attrs) = span.attributes {
+            attrs.insert("plugin_id".into(), serde_json::json!(self.plugin_id));
+            attrs.insert("matcher".into(), serde_json::json!(self.matcher));
+            attrs.insert("command".into(), serde_json::json!(self.command));
+            attrs.insert("tool_name".into(), serde_json::json!(ctx.tool_name));
         }
+
+        let outcome =
+            match run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await
+            {
+                Ok(HookDecision::Allow) => HookOutcome::Continue,
+                Ok(HookDecision::Block(reason)) => {
+                    log::info!(
+                        "plugin {} PreToolUse hook blocked {}: {}",
+                        self.plugin_id,
+                        ctx.tool_name,
+                        reason
+                    );
+                    if let serde_json::Value::Object(ref mut attrs) = span.attributes {
+                        attrs.insert("decision".into(), serde_json::json!("block"));
+                        attrs.insert("reason".into(), serde_json::json!(reason));
+                    }
+                    HookOutcome::Reject { reason }
+                }
+                Err(e) => {
+                    if self.fail_closed {
+                        let reason = format!("插件 hook 执行失败（fail-closed 阻断）: {e:#}");
+                        log::warn!(
+                            "plugin {} PreToolUse hook 执行失败，阻断: {e:#}",
+                            self.plugin_id
+                        );
+                        span.set_error("hook_failed", format!("{e:#}"));
+                        HookOutcome::Reject { reason }
+                    } else {
+                        log::warn!(
+                            "plugin {} PreToolUse hook 执行失败，放行: {e:#}",
+                            self.plugin_id
+                        );
+                        span.set_error("hook_failed", format!("{e:#}"));
+                        HookOutcome::Continue
+                    }
+                }
+            };
+        span.end();
+        ctx.state.trace_bus.emit(span);
+        Ok(outcome)
     }
 }
 
@@ -189,13 +238,33 @@ impl PostToolCallHook for PluginPostToolCallHook {
                 "error": ctx.error,
             },
         });
-        if let Err(e) = run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await
+        // P3④：Hook Span（观察者，仅状态；失败记 error）。
+        let mut span = TraceEvent::new(
+            ctx.run_id.to_string(),
+            uuid::Uuid::new_v4().to_string(),
+            SpanKind::Hook,
+            format!("hook:{}:{}", self.plugin_id, ctx.tool_name),
+        );
+        span.parent_span_id = Some("run-root".to_string());
+        span.run_id = ctx.run_id.to_string();
+        span.conversation_id = ctx.conversation_id.to_string();
+        if let serde_json::Value::Object(ref mut attrs) = span.attributes {
+            attrs.insert("plugin_id".into(), serde_json::json!(self.plugin_id));
+            attrs.insert("matcher".into(), serde_json::json!(self.matcher));
+            attrs.insert("command".into(), serde_json::json!(self.command));
+            attrs.insert("tool_name".into(), serde_json::json!(ctx.tool_name));
+        }
+        if let Err(e) =
+            run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await
         {
             log::warn!(
                 "plugin {} PostToolUse hook 执行失败（忽略）: {e:#}",
                 self.plugin_id
             );
+            span.set_error("hook_failed", format!("{e:#}"));
         }
+        span.end();
+        ctx.state.trace_bus.emit(span);
         Ok(())
     }
 }
@@ -230,6 +299,9 @@ fn resolve_hook_command(plugin_dir: &Path, command: &str) -> Result<PathBuf> {
     Ok(candidate)
 }
 
+/// 异步执行：spawn 进程（kill_on_drop）→ 写 stdin JSON → 读 stdout → 超时 kill。
+/// 超时分支显式 `kill` 子进程再返回（避免子进程不退出导致调用永久阻塞，
+/// fail-closed 策略也因此能及时生效）。
 async fn run_hook_command(
     plugin_dir: &Path,
     command: &str,
@@ -238,21 +310,11 @@ async fn run_hook_command(
 ) -> Result<HookDecision> {
     let command_path = resolve_hook_command(plugin_dir, command)?;
     let event = event.clone();
-    tokio::task::spawn_blocking(move || run_hook_command_blocking(&command_path, &event, timeout_ms))
-        .await
-        .map_err(|e| anyhow!("hook 执行任务失败: {e}"))?
-}
-
-/// 阻塞执行：spawn 进程 → 写 stdin JSON → 读 stdout → 超时等待 → 解析决策。
-fn run_hook_command_blocking(
-    command_path: &Path,
-    event: &serde_json::Value,
-    timeout_ms: u64,
-) -> Result<HookDecision> {
-    let mut child = Command::new(command_path)
+    let mut child = Command::new(&command_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|e| anyhow!("启动插件 hook 失败 ({}): {e}", command_path.display()))?;
 
@@ -263,46 +325,39 @@ fn run_hook_command_blocking(
             .ok_or_else(|| anyhow!("无法打开插件 hook stdin"))?;
         stdin
             .write_all(event.to_string().as_bytes())
+            .await
             .map_err(|e| anyhow!("写入插件 hook stdin 失败: {e}"))?;
-        stdin.flush().ok();
+        stdin.flush().await.ok();
     }
 
-    let mut child_owned = child;
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(String, i32)>>();
-    let waiter = std::thread::spawn(move || {
-        let mut stdout = match child_owned.stdout.take() {
-            Some(s) => s,
-            None => {
-                let _ = tx.send(Err(anyhow!("无法打开插件 hook stdout")));
-                return Ok::<(), anyhow::Error>(());
-            }
-        };
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("无法打开插件 hook stdout"))?;
+    let read = async {
         let mut out = String::new();
-        stdout
+        let mut reader = tokio::io::BufReader::new(stdout);
+        reader
             .read_to_string(&mut out)
+            .await
             .map_err(|e| anyhow!("读取插件 hook stdout 失败: {e}"))?;
-        let status = child_owned
-            .wait()
-            .map_err(|e| anyhow!("等待插件 hook 失败: {e}"))?;
-        let _ = tx.send(Ok((out, status.code().unwrap_or(-1))));
-        Ok::<(), anyhow::Error>(())
-    });
-
-    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-        Ok(Ok((stdout, code))) => {
-            waiter.join().ok();
-            parse_hook_decision(&stdout, code)
-        }
-        Ok(Err(e)) => {
-            waiter.join().ok();
-            Err(e)
-        }
+        Ok::<String, anyhow::Error>(out)
+    };
+    let out = match tokio::time::timeout(Duration::from_millis(timeout_ms), read).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(e),
         Err(_) => {
             log::warn!("插件 hook 超时 ({timeout_ms}ms): {}", command_path.display());
-            waiter.join().ok();
-            Err(anyhow!("插件 hook 执行超时（>{timeout_ms}ms）"))
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(anyhow!("插件 hook 执行超时（>{timeout_ms}ms）"));
         }
-    }
+    };
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| anyhow!("等待插件 hook 失败: {e}"))?;
+    parse_hook_decision(&out, status.code().unwrap_or(-1))
 }
 
 /// 解析 stdout 决策：`"allow"` / `{"decision":"allow"}` / `{"decision":"block","reason":…}`。
@@ -456,5 +511,83 @@ path = "hooks/"
             hook_registry.remove_pre_tool_call_by_prefix("plugin:com.example.hooks:hooks:pre"),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn fail_closed_controls_err_branch() {
+        // 隔离 storage + 插件主目录（防测试污染真实目录）
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(data_dir.path().to_path_buf());
+        let plugins_home = tempfile::tempdir().unwrap();
+        std::env::set_var("POINTER_HOME", plugins_home.path());
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("com.example.hooks");
+        fs::create_dir_all(dir.join("bin")).unwrap();
+        // 失败脚本：exit 1 且无输出 → run_hook_command 返回 Err
+        write_script(&dir, "bin/fail.sh", "#!/bin/sh\nexit 1\n");
+
+        let state = crate::chat_service::AppState::new();
+        let ctx = PreToolCallContext {
+            run_id: "r1",
+            conversation_id: "c1",
+            message_id: "m1",
+            tool_call_id: "t1",
+            tool_name: "terminal",
+            args: &serde_json::json!({ "command": "ls" }),
+            state: &state,
+        };
+
+        // fail-open（默认）：脚本失败 → Continue
+        let hook_open = PluginPreToolCallHook {
+            plugin_id: "com.example.hooks".into(),
+            matcher: "*".into(),
+            command: "bin/fail.sh".into(),
+            plugin_dir: dir.clone(),
+            timeout_ms: 5_000,
+            fail_closed: false,
+        };
+        assert!(matches!(
+            hook_open.execute(&ctx).await.unwrap(),
+            HookOutcome::Continue
+        ));
+
+        // fail-closed：脚本失败 → Reject 且 reason 透出
+        let hook_closed = PluginPreToolCallHook {
+            plugin_id: "com.example.hooks".into(),
+            matcher: "*".into(),
+            command: "bin/fail.sh".into(),
+            plugin_dir: dir.clone(),
+            timeout_ms: 5_000,
+            fail_closed: true,
+        };
+        match hook_closed.execute(&ctx).await.unwrap() {
+            HookOutcome::Reject { reason } => assert!(reason.contains("fail-closed")),
+            other => panic!("expected reject for fail-closed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn hook_timeout_kills_child_and_returns_err() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("com.example.hooks");
+        fs::create_dir_all(dir.join("bin")).unwrap();
+        // 卡死脚本：不读 stdin、不退出（若不 kill，waiter.join 会永久阻塞）
+        write_script(&dir, "bin/hang.sh", "#!/bin/sh\nsleep 30\n");
+
+        let started = std::time::Instant::now();
+        // 300ms 超时；若超时分支不 kill 子进程，此调用会在 sleep 30 结束后才返回（测试超时失败）
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            run_hook_command(&dir, "bin/hang.sh", &serde_json::json!({}), 300),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "超时分支应快速返回（子进程已 kill），当前耗时 {:?}",
+            started.elapsed()
+        );
+        assert!(result.unwrap().is_err());
     }
 }

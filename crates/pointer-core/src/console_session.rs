@@ -159,7 +159,14 @@ fn normalize_directory(input: &str, description: &str) -> Result<String> {
     if !path.is_dir() {
         return Err(anyhow!("{description}不存在: {value}"));
     }
-    Ok(path.canonicalize()?.to_string_lossy().to_string())
+    let canonical = path.canonicalize()?.to_string_lossy().to_string();
+    // Rust canonicalize() on Windows returns the `\\?\`-prefixed extended
+    // path form. Passing that as a shell cwd makes PowerShell render the
+    // prompt as `PS Microsoft.PowerShell.Core\FileSystem::\\?\C:\...`.
+    // Strip the prefix so the shell and UI see a normal `C:\...` path.
+    #[cfg(windows)]
+    let canonical = canonical.trim_start_matches(r"\\?\").to_string();
+    Ok(canonical)
 }
 
 fn directory_label(cwd: &str) -> String {
@@ -309,8 +316,9 @@ fn spawn_output_reader(session: Arc<ConsoleSession>) {
 #[cfg(test)]
 mod tests {
     use super::ConsoleSessionManager;
-    use super::{spawn_console_session, ConsoleSessionInfo};
+    use super::{normalize_directory, spawn_console_session, ConsoleSessionInfo};
     use std::io::{Read, Write};
+    use std::path::Path;
 
     #[cfg(unix)]
     #[test]
@@ -404,6 +412,25 @@ mod tests {
         assert!(
             echoed.contains("中文往返测试"),
             "PTY did not echo CJK input; read back: {echoed:?}"
+        );
+    }
+
+    #[test]
+    fn normalize_directory_strips_extended_path_prefix() {
+        // Uses the current directory so the test is portable across OSes and
+        // CI machines; on Windows canonicalize() returns a `\\?\`-prefixed
+        // path, which must be stripped before it is used as a shell cwd.
+        let cwd = std::env::current_dir().expect("current dir");
+        let input = cwd.to_string_lossy().to_string();
+        let normalized = normalize_directory(&input, "测试目录").expect("normalize");
+        assert!(
+            !normalized.starts_with(r"\\?\"),
+            "normalized path must not keep the extended prefix: {normalized}"
+        );
+        assert!(Path::new(&normalized).is_dir(), "normalized path must exist");
+        assert!(
+            Path::new(&normalized).canonicalize().is_ok(),
+            "normalized path must be resolvable"
         );
     }
 }

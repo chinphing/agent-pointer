@@ -271,14 +271,15 @@ running/enabled → disabled（用户关闭 / 版本不兼容）
 ### 6.1 全局 MCP（非插件，P2b）
 
 > 审查补充（2026-08-19）：原稿 MCP 仅作为插件能力单元（§0 目标 1、§4.1）。用户确认增加**非插件全局 MCP**：不装插件、直接在配置里挂 MCP server，独立于插件启停。
-> **进度（2026-08-19 收尾核对）**：✅ 已实现——`pointer-server.toml` 新增 `[[mcp_servers.server]]`（结构复用 `McpServerDecl`）；AppState 启动装配 + 热重载（`reload_global_mcp` / `reload_global_mcp_from_config`）；watchdog 扩展全局分支（key `__global__`，崩溃自动重启 + degraded）；管理 API `/api/mcp`（GET list / POST reload / POST restart）+ Tauri 命令；设置面板「MCP」分区（McpPanel：列表/状态/重载/重启）。工具命名 `mcp.<server>.<tool>`（与插件裸名区分）；同名冲突全局优先（plugin_enable 拒绝插件方）。
+> **进度（2026-08-19 收尾核对）**：✅ 已实现——**界面直接配置**（设置面板「MCP」分区：添加/编辑/删除表单，配置持久化到**客户端用户配置** `UserSettings.global_mcp_servers`，桌面/web 共用；`pointer-server.toml` 仅作 server 部署兼容来源，用户配置为空时才读取）；支持 **stdio**（本机命令）与 **http**（streamable HTTP，连接远程 MCP 服务，URL + 可选请求头如 Authorization）两种传输；AppState 启动装配 + 热重载（`reload_global_mcp` / `save_global_mcp_servers`）；watchdog 扩展全局分支（key `__global__`，崩溃自动重启 + degraded）；管理 API `/api/mcp`（GET list / PUT save）+ Tauri 命令；工具命名 `mcp.<server>.<tool>`（与插件裸名区分）；同名冲突全局优先（plugin_enable 拒绝插件方）。
 
-- 配置载体：`pointer-server.toml` 新增 `[[mcp_servers.server]]`（结构与插件 `McpServerDecl` 一致：name / transport / command / args / env）；桌面端与 Web 共用同一 server 配置；
-- 装配：AppState 启动时从配置加载并启动 server（复用 `McpClient::connect_stdio` + `McpSessionManager`），工具注册命名空间与插件 MCP 一致 `mcp.<server>.<tool>`；
-- 生命周期：**不绑定插件启用状态**；支持配置热更新/重载（server 重启）；崩溃重启与 `degraded` 语义同 §6；
+- 配置载体：**客户端用户配置**（`UserSettings.global_mcp_servers`，界面直接读写，桌面 `user_settings.json` / Web 同一载体）；`pointer-server.toml` 的 `[[mcp_servers.server]]` 保留为 server 部署兼容来源（仅当用户配置为空时读取）；结构复用 `McpServerDecl`（name / transport / command / args / env / url / headers）；
+- 传输：`transport = "stdio"` 启动本机进程（command/args/env）；`transport = "http"` 连接远程 MCP 服务（**url** 必填 + 可选 headers，如 `Authorization: Bearer <token>`），客户端场景主路径；
+- 装配：AppState 启动时从用户配置加载并启动 server（stdio → `connect_stdio`，http → `connect_http` + `McpSessionManager`），工具注册命名空间与插件 MCP 一致 `mcp.<server>.<tool>`；
+- 生命周期：**不绑定插件启用状态**；支持界面保存即热更新/重载；崩溃重启与 `degraded` 语义同 §6；
 - 冲突：全局配置在启动时先注册；插件启用同名 server（同 `<server>`）时插件方注册被拒并报错，避免静默覆盖；
 - 安全：与插件 MCP 同一 approval gate + allowlist 链路；
-- UI：设置面板新增「MCP」管理页（server 列表 + 状态 + 启动/停止/编辑，编辑后热重载）。
+- UI：设置面板新增「MCP」管理页（服务列表 + 状态 + 添加/编辑/删除表单弹窗，连接方式二选一：远程服务 URL / 本机程序命令，保存即生效）。
 
 ## 7. 监控设计（LangChain4j 式）
 

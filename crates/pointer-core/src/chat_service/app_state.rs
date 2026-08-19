@@ -473,9 +473,17 @@ pub struct GlobalMcpConfig {
 }
 
 impl GlobalMcpConfig {
-    /// 从 server 配置缓存读取；桌面/测试未走 `load_server_config` 时轻量重解析
-    /// （只读文件，无 env/部署模式副作用）。
+    /// 读取全局 MCP 配置：**界面配置（user_settings）优先**；为空时回退
+    /// `pointer-server.toml`（兼容旧配置）。桌面/测试未走 `load_server_config`
+    /// 时轻量重解析（只读文件，无 env/部署模式副作用）。
     pub fn from_server_config() -> Self {
+        let user = crate::storage::load_user_settings().unwrap_or_default();
+        if !user.global_mcp_servers.is_empty() {
+            return Self {
+                decls: user.global_mcp_servers,
+                base_dir: PathBuf::from("."),
+            };
+        }
         if let Some((decls, base_dir)) = crate::server_config::mcp_servers_from_config() {
             return Self { decls, base_dir };
         }
@@ -497,6 +505,10 @@ pub struct GlobalMcpServerView {
     pub status: String,
     pub restart_count: u32,
     pub last_error: Option<String>,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+    pub url: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
 }
 
 /// P2b：全局 MCP 总览（decls + 运行状态）。
@@ -776,6 +788,19 @@ impl AppState {
         Ok(self.global_mcp_view())
     }
 
+    /// P2b：**界面直接配置**——保存全局 MCP server 列表到用户设置并热重载。
+    /// 相对 command 以进程 cwd 为基准（建议界面填写绝对路径）。
+    pub fn save_global_mcp_servers(
+        &self,
+        decls: Vec<crate::plugins::manifest::McpServerDecl>,
+    ) -> anyhow::Result<GlobalMcpView> {
+        let mut user = self.load_user_settings();
+        user.global_mcp_servers = decls.clone();
+        self.save_user_settings(&user)?;
+        self.reload_global_mcp(decls, PathBuf::from("."))?;
+        Ok(self.global_mcp_view())
+    }
+
     /// P2b：全局 MCP 运行状态视图（管理 API / UI）。
     pub fn global_mcp_view(&self) -> GlobalMcpView {
         use crate::plugins::mcp::GLOBAL_MCP_KEY;
@@ -802,6 +827,10 @@ impl AppState {
                 },
                 restart_count: st.as_ref().map(|s| s.restart_count).unwrap_or(0),
                 last_error: st.as_ref().and_then(|s| s.last_error.clone()),
+                args: d.args.clone(),
+                env: d.env.clone(),
+                url: d.url.clone(),
+                headers: d.headers.clone(),
             })
             .collect();
         GlobalMcpView {

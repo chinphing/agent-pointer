@@ -446,6 +446,8 @@ done
         command: "bin/demo-mcp".into(),
         args: vec![],
         env: std::collections::HashMap::new(),
+        url: None,
+        headers: None,
     };
     let state = Arc::new(AppState::new());
     state
@@ -495,6 +497,8 @@ async fn global_mcp_conflict_rejects_plugin_enable() {
         command: "bin/demo-mcp".into(),
         args: vec![],
         env: std::collections::HashMap::new(),
+        url: None,
+        headers: None,
     };
     let state = Arc::new(AppState::new());
     state.reload_global_mcp(vec![decl], cfg_dir.clone()).unwrap();
@@ -502,6 +506,144 @@ async fn global_mcp_conflict_rejects_plugin_enable() {
     // 同名冲突：插件启用应被拒绝（全局优先）
     let err = state.plugin_enable("com.example.e2e").unwrap_err();
     assert!(err.to_string().contains("全局优先"), "err: {err}");
+}
+
+#[tokio::test]
+async fn global_mcp_saved_via_ui_persists_across_restart() {
+    let iso = isolate();
+    let cfg_dir = iso.workspace.path().to_path_buf();
+    write_script(
+        &cfg_dir,
+        "bin/demo-mcp",
+        r#"#!/bin/bash
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  if [ -z "$id" ]; then continue; fi
+  if printf '%s' "$line" | grep -q '"initialize"'; then
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"demo-mcp\",\"version\":\"1.0\"}}}"
+  elif printf '%s' "$line" | grep -q '"tools/list"'; then
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"mcp_echo\",\"description\":\"echo via mcp\",\"inputSchema\":{\"type\":\"object\"}}]}}"
+  elif printf '%s' "$line" | grep -q '"tools/call"'; then
+    echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"mcp-e2e-ok\"}],\"isError\":false}}"
+  fi
+done
+"#,
+    );
+    // 界面配置：命令用绝对路径（save 以 cwd 为基准，相对路径与脚本位置无关）
+    let command = cfg_dir.join("bin/demo-mcp").to_string_lossy().to_string();
+    let decl = crate::plugins::manifest::McpServerDecl {
+        name: "demo".into(),
+        transport: "stdio".into(),
+        command: command.clone(),
+        args: vec![],
+        env: std::collections::HashMap::new(),
+        url: None,
+        headers: None,
+    };
+
+    // 界面保存（持久化到 user_settings）
+    let state = Arc::new(AppState::new());
+    let view = state.save_global_mcp_servers(vec![decl]).unwrap();
+    assert_eq!(view.servers.len(), 1);
+    assert_eq!(view.servers[0].name, "demo");
+    assert_eq!(view.servers[0].status, "healthy");
+    assert!(state.tools.get_def("mcp.demo.mcp_echo").is_some());
+    assert_eq!(
+        state
+            .tools
+            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .unwrap(),
+        "mcp-e2e-ok"
+    );
+
+    // 模拟重启：新 AppState 从 user_settings 恢复
+    let state2 = Arc::new(AppState::new());
+    assert!(
+        state2.tools.get_def("mcp.demo.mcp_echo").is_some(),
+        "重启后全局 MCP 应从用户配置恢复"
+    );
+    assert!(state2
+        .mcp_sessions
+        .has_session(crate::plugins::mcp::GLOBAL_MCP_KEY));
+    assert_eq!(
+        state2
+            .tools
+            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .unwrap(),
+        "mcp-e2e-ok"
+    );
+}
+
+#[tokio::test]
+async fn global_mcp_http_transport_connects_remote_service() {
+    // 本地起一个最小 streamable HTTP MCP server（Python http.server）
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let py = r#"
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get('Content-Length', 0))
+        body = json.loads(self.rfile.read(n))
+        m, rid = body.get('method'), body.get('id')
+        if m == 'initialize':
+            r = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "http-mcp-demo", "version": "1.0"}}
+        elif m == 'tools/list':
+            r = {"tools": [{"name": "http_echo", "description": "echo via http mcp", "inputSchema": {"type": "object"}}]}
+        elif m == 'tools/call':
+            r = {"content": [{"type": "text", "text": "http-mcp-e2e-ok"}], "isError": False}
+        else:
+            r = {}
+        data = json.dumps({"jsonrpc": "2.0", "id": rid, "result": r}).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+    def log_message(self, *a):
+        pass
+HTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
+"#;
+    let mut server = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(py)
+        .arg(port.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn python http mcp server");
+    // 等 server 就绪
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    let decl = crate::plugins::manifest::McpServerDecl {
+        name: "httpdemo".into(),
+        transport: "http".into(),
+        command: String::new(),
+        args: vec![],
+        env: std::collections::HashMap::new(),
+        url: Some(format!("http://127.0.0.1:{port}/mcp")),
+        headers: None,
+    };
+    let state = Arc::new(AppState::new());
+    state
+        .reload_global_mcp(vec![decl], std::path::PathBuf::from("."))
+        .unwrap();
+
+    assert!(state.tools.get_def("mcp.httpdemo.http_echo").is_some());
+    assert_eq!(
+        state
+            .tools
+            .invoke("mcp.httpdemo.http_echo", serde_json::json!({}))
+            .unwrap(),
+        "http-mcp-e2e-ok"
+    );
+
+    // 清理：关会话 + 杀 server
+    state.mcp_sessions.shutdown_plugin(crate::plugins::mcp::GLOBAL_MCP_KEY);
+    let _ = server.kill();
+    let _ = server.wait();
 }
 
 #[tokio::test]
@@ -535,6 +677,8 @@ done
         command: "bin/demo-mcp".into(),
         args: vec![],
         env: std::collections::HashMap::new(),
+        url: None,
+        headers: None,
     };
     // AppState::new 已 spawn watchdog（2s 周期）
     let state = Arc::new(AppState::new());

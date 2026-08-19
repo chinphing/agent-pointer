@@ -1480,6 +1480,9 @@ impl MediaOssConfig {
 pub struct UserSettings {
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
+    /// P2b：全局（非插件）MCP server 列表（界面直接配置，优先于 pointer-server.toml）。
+    #[serde(default, rename = "globalMcpServers")]
+    pub global_mcp_servers: Vec<crate::plugins::manifest::McpServerDecl>,
     #[serde(default, rename = "userNickname")]
     pub user_nickname: Option<String>,
     /// Legacy globally enabled skill ids. Not used for runtime resolve; kept for
@@ -1718,6 +1721,7 @@ impl Default for UserSettings {
         Self {
             theme: default_theme(),
             user_nickname: None,
+            global_mcp_servers: Vec::new(),
             enabled_skill_ids: default_enabled_skill_ids(),
             agent_skill_overrides: HashMap::new(),
             memory_enabled: default_memory_enabled(),

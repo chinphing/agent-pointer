@@ -6,7 +6,7 @@
 //! 而无执行器的工具声明为无效配置。
 
 use anyhow::{anyhow, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// 插件元信息段 `[plugin]`。
@@ -68,16 +68,25 @@ pub struct McpServersDecl {
 }
 
 /// MCP server 声明 `[[mcp_servers.server]]`（P2 接入；P1 解析校验但不启动）。
-#[derive(Debug, Clone, Deserialize)]
+/// `transport=stdio` 时用 `command/args/env` 启动本地进程；
+/// `transport=http`（streamable HTTP）时用 `url` 连接远程服务（客户端场景）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerDecl {
     pub name: String,
     #[serde(default = "default_transport_stdio")]
     pub transport: String,
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// http 传输：远程服务地址（必填）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// http 传输：附加请求头（如 Authorization: Bearer ...）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
 }
 
 fn default_transport_stdio() -> String {

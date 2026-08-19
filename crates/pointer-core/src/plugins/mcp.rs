@@ -13,6 +13,7 @@ use crate::plugins::registry::PluginRecord;
 use crate::tools::{ToolEntry, ToolHandler};
 use anyhow::{anyhow, Context, Result};
 use parking_lot::{Mutex, RwLock};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -37,17 +38,32 @@ pub struct McpToolInfo {
     pub input_schema: Option<Value>,
 }
 
-/// 一个已连接的 MCP server 会话（共享引用；`shutdown` 关闭子进程）。
+/// 一个已连接的 MCP server 会话（共享引用；`shutdown` 关闭子进程/连接）。
 pub struct McpClient {
     plugin_id: String,
     server_name: String,
     next_id: AtomicU64,
-    stdin: Mutex<ChildStdin>,
+    transport: Transport,
     pending: Arc<Mutex<HashMap<u64, std::sync::mpsc::Sender<Value>>>>,
-    child: Arc<Mutex<Option<Child>>>,
-    /// 存活标记：读线程在 stdout EOF（进程退出）时置 false；`is_alive` 亦以
-    /// `try_wait` 交叉验证。watchdog 据此触发崩溃重启。
-    alive: Arc<AtomicBool>,
+}
+
+enum Transport {
+    /// stdio：本地子进程（插件自带 / 本机命令）。
+    Stdio {
+        stdin: Mutex<ChildStdin>,
+        child: Arc<Mutex<Option<Child>>>,
+        /// 存活标记：读线程在 stdout EOF（进程退出）时置 false。
+        alive: Arc<AtomicBool>,
+    },
+    /// streamable HTTP：远程服务（客户端连接别人提供的 MCP server）。
+    /// 注意：不在字段里缓存 blocking client——blocking client 内部持有 tokio
+    /// runtime，在 tokio 异步上下文创建会 panic（服务端 axum / 测试）。请求时
+    /// 在独立线程内创建/释放（工具调用频率低，可接受）。
+    Http {
+        url: String,
+        headers: HeaderMap,
+        alive: Arc<AtomicBool>,
+    },
 }
 
 impl Drop for McpClient {
@@ -108,10 +124,12 @@ impl McpClient {
             plugin_id: plugin_id.to_string(),
             server_name: decl.name.clone(),
             next_id: AtomicU64::new(1),
-            stdin: Mutex::new(stdin),
+            transport: Transport::Stdio {
+                stdin: Mutex::new(stdin),
+                child: Arc::new(Mutex::new(Some(child))),
+                alive: Arc::new(AtomicBool::new(true)),
+            },
             pending: Arc::new(Mutex::new(HashMap::new())),
-            child: Arc::new(Mutex::new(Some(child))),
-            alive: Arc::new(AtomicBool::new(true)),
         });
         client.spawn_reader(stdout);
 
@@ -139,11 +157,67 @@ impl McpClient {
         Ok(client)
     }
 
+    /// 连接远程 MCP 服务（streamable HTTP，客户端场景）。
+    /// `decl.url` 必填；`decl.headers` 附加请求头（如 Authorization）。
+    pub fn connect_http(plugin_id: &str, decl: &McpServerDecl) -> Result<Arc<McpClient>> {
+        let url = decl
+            .url
+            .clone()
+            .ok_or_else(|| anyhow!("MCP server {}: http 传输缺少 url", decl.name))?;
+        let mut headers = HeaderMap::new();
+        if let Some(hs) = &decl.headers {
+            for (k, v) in hs {
+                let name = HeaderName::from_bytes(k.as_bytes())
+                    .map_err(|_| anyhow!("MCP server {}: 非法请求头名 {k}", decl.name))?;
+                let value = HeaderValue::from_str(v)
+                    .map_err(|_| anyhow!("MCP server {}: 非法请求头值 {v}", decl.name))?;
+                headers.insert(name, value);
+            }
+        }
+
+        let mcp = Arc::new(McpClient {
+            plugin_id: plugin_id.to_string(),
+            server_name: decl.name.clone(),
+            next_id: AtomicU64::new(1),
+            transport: Transport::Http {
+                url,
+                headers,
+                alive: Arc::new(AtomicBool::new(true)),
+            },
+            pending: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        // initialize 握手
+        let init_result: Value = mcp
+            .request(
+                "initialize",
+                json!({
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": { "name": "pointer", "version": env!("CARGO_PKG_VERSION") },
+                }),
+                Duration::from_millis(DEFAULT_MCP_HANDSHAKE_TIMEOUT_MS),
+            )
+            .context("MCP initialize 握手失败")?;
+        if let Some(ver) = init_result.get("protocolVersion").and_then(|v| v.as_str()) {
+            log::info!(
+                "plugin {}: MCP server `{}` HTTP 握手成功 (protocol={ver})",
+                plugin_id,
+                decl.name
+            );
+        }
+        mcp.notify("notifications/initialized", json!({}))?;
+        Ok(mcp)
+    }
+
     fn spawn_reader(&self, stdout: ChildStdout) {
+        let Transport::Stdio { alive, .. } = &self.transport else {
+            return;
+        };
+        let alive = alive.clone();
         let pending = self.pending.clone();
         let plugin_id = self.plugin_id.clone();
         let server_name = self.server_name.clone();
-        let alive = self.alive.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
@@ -183,36 +257,86 @@ impl McpClient {
     }
 
     /// 发送 JSON-RPC 请求并等待带 `id` 的响应（带超时；纯同步，可安全用于 tokio 线程）。
+    /// stdio 走子进程管道；http 走 streamable HTTP POST。
     pub fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.pending.lock().insert(id, tx);
         let payload = json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": method,
             "params": params,
         });
-        {
-            let mut stdin = self.stdin.lock();
-            serde_json::to_writer(&mut *stdin, &payload)
-                .map_err(|e| anyhow!("写入 MCP 请求失败: {e}"))?;
-            writeln!(stdin).map_err(|e| anyhow!("写入 MCP 请求换行失败: {e}"))?;
-            stdin.flush().map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
-        }
-
-        match rx.recv_timeout(timeout) {
-            Ok(v) => {
-                self.pending.lock().remove(&id);
-                parse_rpc_response(v)
+        match &self.transport {
+            Transport::Stdio { stdin, .. } => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.pending.lock().insert(id, tx);
+                {
+                    let mut stdin = stdin.lock();
+                    serde_json::to_writer(&mut *stdin, &payload)
+                        .map_err(|e| anyhow!("写入 MCP 请求失败: {e}"))?;
+                    writeln!(stdin).map_err(|e| anyhow!("写入 MCP 请求换行失败: {e}"))?;
+                    stdin.flush().map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
+                }
+                match rx.recv_timeout(timeout) {
+                    Ok(v) => {
+                        self.pending.lock().remove(&id);
+                        parse_rpc_response(v)
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        self.pending.lock().remove(&id);
+                        Err(anyhow!("MCP 请求 {method} 超时（>{timeout:?}）"))
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        self.pending.lock().remove(&id);
+                        Err(anyhow!("MCP 请求 {method} 通道关闭（server 退出）"))
+                    }
+                }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                self.pending.lock().remove(&id);
-                Err(anyhow!("MCP 请求 {method} 超时（>{timeout:?}）"))
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                self.pending.lock().remove(&id);
-                Err(anyhow!("MCP 请求 {method} 通道关闭（server 退出）"))
+            Transport::Http {
+                url,
+                headers,
+                alive,
+            } => {
+                let url = url.clone();
+                let headers = headers.clone();
+                let method_owned = method.to_string();
+                let handle = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::builder()
+                        .timeout(Duration::from_secs(
+                            DEFAULT_MCP_CALL_TIMEOUT_MS.div_ceil(1000).max(30),
+                        ))
+                        .build()
+                        .map_err(|e| anyhow!("创建 HTTP 客户端失败: {e}"))?;
+                    let resp = client
+                        .post(&url)
+                        .headers(headers)
+                        .header(reqwest::header::ACCEPT, "application/json, text/event-stream")
+                        .json(&payload)
+                        .send()
+                        .map_err(|e| anyhow!("MCP HTTP 请求 {method_owned} 失败: {e}"))?;
+                    let status = resp.status();
+                    let text = resp
+                        .text()
+                        .map_err(|e| anyhow!("读取 MCP HTTP 响应失败: {e}"))?;
+                    if !status.is_success() {
+                        return Err(anyhow!(
+                            "MCP HTTP 请求 {method_owned} 返回 {status}: {}",
+                            text.chars().take(300).collect::<String>()
+                        ));
+                    }
+                    parse_http_mcp_response(&text)
+                });
+                match handle.join() {
+                    Ok(Ok(v)) => parse_rpc_response(v),
+                    Ok(Err(e)) => {
+                        alive.store(false, Ordering::SeqCst);
+                        Err(e)
+                    }
+                    Err(_) => {
+                        alive.store(false, Ordering::SeqCst);
+                        Err(anyhow!("MCP HTTP 请求 {method} 线程异常退出"))
+                    }
+                }
             }
         }
     }
@@ -224,12 +348,31 @@ impl McpClient {
             "method": method,
             "params": params,
         });
-        let mut stdin = self.stdin.lock();
-        serde_json::to_writer(&mut *stdin, &payload)
-            .map_err(|e| anyhow!("写入 MCP 通知失败: {e}"))?;
-        writeln!(stdin).map_err(|e| anyhow!("写入 MCP 通知换行失败: {e}"))?;
-        stdin.flush().map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
-        Ok(())
+        match &self.transport {
+            Transport::Stdio { stdin, .. } => {
+                let mut stdin = stdin.lock();
+                serde_json::to_writer(&mut *stdin, &payload)
+                    .map_err(|e| anyhow!("写入 MCP 通知失败: {e}"))?;
+                writeln!(stdin).map_err(|e| anyhow!("写入 MCP 通知换行失败: {e}"))?;
+                stdin.flush().map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
+                Ok(())
+            }
+            Transport::Http {
+                url, headers, ..
+            } => {
+                // 通知无 id，发完即弃（独立线程内发，避免 async 上下文建 blocking client）
+                let url = url.clone();
+                let headers = headers.clone();
+                std::thread::spawn(move || {
+                    let client = match reqwest::blocking::Client::builder().build() {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
+                    let _ = client.post(&url).headers(headers).json(&payload).send();
+                });
+                Ok(())
+            }
+        }
     }
 
     /// 列出 server 暴露的工具。
@@ -285,31 +428,43 @@ impl McpClient {
     }
 
     fn kill_child(&self) {
-        let mut guard = self.child.lock();
-        if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        match &self.transport {
+            Transport::Stdio { child, .. } => {
+                let mut guard = child.lock();
+                if let Some(mut child) = guard.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            Transport::Http { alive, .. } => {
+                alive.store(false, Ordering::SeqCst);
+            }
         }
     }
 
-    /// 存活探测：读线程 EOF 标记 + `try_wait` 交叉验证（进程退出后置死标记）。
+    /// 存活探测：stdio 用读线程 EOF 标记 + `try_wait` 交叉验证；http 用请求失败标记。
     pub fn is_alive(&self) -> bool {
-        if !self.alive.load(Ordering::SeqCst) {
-            return false;
+        match &self.transport {
+            Transport::Stdio { child, alive, .. } => {
+                if !alive.load(Ordering::SeqCst) {
+                    return false;
+                }
+                let mut guard = child.lock();
+                let exited = match guard.as_mut() {
+                    Some(child) => match child.try_wait() {
+                        Ok(Some(_)) => true,
+                        Ok(None) => false,
+                        Err(_) => true,
+                    },
+                    None => true,
+                };
+                if exited {
+                    alive.store(false, Ordering::SeqCst);
+                }
+                !exited
+            }
+            Transport::Http { alive, .. } => alive.load(Ordering::SeqCst),
         }
-        let mut guard = self.child.lock();
-        let exited = match guard.as_mut() {
-            Some(child) => match child.try_wait() {
-                Ok(Some(_)) => true,
-                Ok(None) => false,
-                Err(_) => true,
-            },
-            None => true,
-        };
-        if exited {
-            self.alive.store(false, Ordering::SeqCst);
-        }
-        !exited
     }
 
     /// server 名（状态展示用）。
@@ -337,6 +492,33 @@ fn parse_rpc_response(v: Value) -> Result<Value> {
         return Err(anyhow!("MCP 错误 {code}: {message}"));
     }
     Ok(v.get("result").cloned().unwrap_or(Value::Null))
+}
+
+/// 解析 streamable HTTP 响应：`application/json` 直接解析；
+/// `text/event-stream` 取含 `id` 的 `data:` 事件（忽略通知/心跳）。
+fn parse_http_mcp_response(text: &str) -> Result<Value> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with("data:") {
+        return serde_json::from_str(trimmed)
+            .map_err(|e| anyhow!("MCP HTTP 响应非 JSON: {e}"));
+    }
+    let mut last = None;
+    for line in trimmed.lines() {
+        let line = line.trim();
+        let Some(data) = line.strip_prefix("data:") else {
+            continue;
+        };
+        let data = data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<Value>(data) {
+            if v.get("id").is_some() {
+                last = Some(v);
+            }
+        }
+    }
+    last.ok_or_else(|| anyhow!("MCP HTTP SSE 响应中没有带 id 的数据事件"))
 }
 
 /// MCP 连续重启失败达到该次数后进入 `degraded`（停止自动重启，等用户手动重开）。
@@ -490,7 +672,12 @@ fn activate_mcp_servers_with(
 ) -> Result<Vec<Arc<McpClient>>> {
     let mut clients = Vec::new();
     for decl in decls {
-        match McpClient::connect_stdio(plugin_id, base_dir, decl) {
+        let client = if decl.transport == "http" {
+            McpClient::connect_http(plugin_id, decl)
+        } else {
+            McpClient::connect_stdio(plugin_id, base_dir, decl)
+        };
+        match client {
             Ok(client) => {
                 let tool_infos = client.list_tools()?;
                 for info in tool_infos {
@@ -627,6 +814,8 @@ done
             command: "bin/demo-mcp".into(),
             args: vec![],
             env: HashMap::new(),
+            url: None,
+            headers: None,
         };
 
         let client = McpClient::connect_stdio("com.example.mcp", &dir, &mcp_decl)

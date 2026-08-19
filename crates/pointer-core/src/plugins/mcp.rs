@@ -62,6 +62,10 @@ enum Transport {
     Http {
         url: String,
         headers: HeaderMap,
+        /// 服务器在 initialize 响应头下发的 `Mcp-Session-Id`（有则后续请求回传）。
+        session_id: Mutex<Option<String>>,
+        /// initialize 协商出的协议版本（后续请求回传 `MCP-Protocol-Version`）。
+        protocol_version: Mutex<Option<String>>,
         alive: Arc<AtomicBool>,
     },
 }
@@ -182,6 +186,8 @@ impl McpClient {
             transport: Transport::Http {
                 url,
                 headers,
+                session_id: Mutex::new(None),
+                protocol_version: Mutex::new(None),
                 alive: Arc::new(AtomicBool::new(true)),
             },
             pending: Arc::new(Mutex::new(HashMap::new())),
@@ -199,13 +205,23 @@ impl McpClient {
                 Duration::from_millis(DEFAULT_MCP_HANDSHAKE_TIMEOUT_MS),
             )
             .context("MCP initialize 握手失败")?;
-        if let Some(ver) = init_result.get("protocolVersion").and_then(|v| v.as_str()) {
-            log::info!(
-                "plugin {}: MCP server `{}` HTTP 握手成功 (protocol={ver})",
-                plugin_id,
-                decl.name
-            );
+        let negotiated = init_result
+            .get("protocolVersion")
+            .and_then(|v| v.as_str())
+            .unwrap_or(MCP_PROTOCOL_VERSION)
+            .to_string();
+        // 记录协商版本，后续 HTTP 请求回传 MCP-Protocol-Version 头。
+        if let Transport::Http {
+            protocol_version, ..
+        } = &mcp.transport
+        {
+            *protocol_version.lock() = Some(negotiated.clone());
         }
+        log::info!(
+            "plugin {}: MCP server `{}` HTTP 握手成功 (protocol={negotiated})",
+            plugin_id,
+            decl.name
+        );
         mcp.notify("notifications/initialized", json!({}))?;
         Ok(mcp)
     }
@@ -292,53 +308,157 @@ impl McpClient {
                     }
                 }
             }
-            Transport::Http {
-                url,
-                headers,
-                alive,
-            } => {
-                let url = url.clone();
-                let headers = headers.clone();
-                let method_owned = method.to_string();
-                let handle = std::thread::spawn(move || {
-                    let client = reqwest::blocking::Client::builder()
-                        .timeout(Duration::from_secs(
-                            DEFAULT_MCP_CALL_TIMEOUT_MS.div_ceil(1000).max(30),
-                        ))
-                        .build()
-                        .map_err(|e| anyhow!("创建 HTTP 客户端失败: {e}"))?;
-                    let resp = client
-                        .post(&url)
-                        .headers(headers)
-                        .header(reqwest::header::ACCEPT, "application/json, text/event-stream")
-                        .json(&payload)
-                        .send()
-                        .map_err(|e| anyhow!("MCP HTTP 请求 {method_owned} 失败: {e}"))?;
-                    let status = resp.status();
-                    let text = resp
-                        .text()
-                        .map_err(|e| anyhow!("读取 MCP HTTP 响应失败: {e}"))?;
-                    if !status.is_success() {
-                        return Err(anyhow!(
-                            "MCP HTTP 请求 {method_owned} 返回 {status}: {}",
-                            text.chars().take(300).collect::<String>()
-                        ));
-                    }
-                    parse_http_mcp_response(&text)
-                });
-                match handle.join() {
-                    Ok(Ok(v)) => parse_rpc_response(v),
-                    Ok(Err(e)) => {
-                        alive.store(false, Ordering::SeqCst);
-                        Err(e)
-                    }
-                    Err(_) => {
-                        alive.store(false, Ordering::SeqCst);
-                        Err(anyhow!("MCP HTTP 请求 {method} 线程异常退出"))
-                    }
+            Transport::Http { alive, .. } => {
+                let result = self.http_post(&payload, timeout);
+                if result.is_err() {
+                    alive.store(false, Ordering::SeqCst);
                 }
+                result.and_then(parse_rpc_response)
             }
         }
+    }
+
+    /// streamable HTTP 单次 POST：附加 `Mcp-Session-Id` / `MCP-Protocol-Version`
+    /// 头（会话协商后），并在 2xx 响应中保存服务器下发的 `Mcp-Session-Id`。
+    fn http_post_once(
+        url: &str,
+        user_headers: &HeaderMap,
+        payload: &Value,
+        session_id: Option<&str>,
+        protocol_version: Option<&str>,
+        timeout: Duration,
+    ) -> Result<HttpRawResponse> {
+        let method_str = payload
+            .get("method")
+            .and_then(|m| m.as_str())
+            .unwrap_or("?");
+        let client = reqwest::blocking::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|e| anyhow!("创建 HTTP 客户端失败: {e}"))?;
+        let mut req = client
+            .post(url)
+            .headers(user_headers.clone())
+            .header(reqwest::header::ACCEPT, "application/json, text/event-stream")
+            .json(payload);
+        if let Some(sid) = session_id {
+            req = req.header("Mcp-Session-Id", sid);
+        }
+        if let Some(ver) = protocol_version {
+            req = req.header("MCP-Protocol-Version", ver);
+        }
+        let resp = req
+            .send()
+            .map_err(|e| anyhow!("MCP HTTP 请求 {method_str} 失败: {e}"))?;
+        let status = resp.status().as_u16();
+        let new_session = resp
+            .headers()
+            .get("Mcp-Session-Id")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let text = resp
+            .text()
+            .map_err(|e| anyhow!("读取 MCP HTTP 响应失败: {e}"))?;
+        if status != 404 && !(200..300).contains(&status) {
+            return Err(anyhow!(
+                "MCP HTTP 请求 {method_str} 返回 {status}: {}",
+                text.chars().take(300).collect::<String>()
+            ));
+        }
+        Ok(HttpRawResponse {
+            status,
+            session_id: new_session,
+            text,
+        })
+    }
+
+    /// HTTP 传输 POST 一条 JSON-RPC 消息并解析响应（streamable HTTP）。
+    /// 带 `Mcp-Session-Id`（服务器下发过则回传）与 `MCP-Protocol-Version`
+    /// （initialize 协商版本）。收到 404（会话失效）且非 initialize 时，
+    /// 自动清空会话并重新握手，然后重试原请求一次。
+    fn http_post(&self, payload: &Value, timeout: Duration) -> Result<Value> {
+        let Transport::Http {
+            url,
+            headers,
+            session_id,
+            protocol_version,
+            ..
+        } = &self.transport
+        else {
+            return Err(anyhow!("http_post 仅用于 HTTP 传输"));
+        };
+        let url = url.clone();
+        let headers = headers.clone();
+
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            let sid = session_id.lock().clone();
+            let ver = protocol_version.lock().clone();
+            let raw = Self::http_post_once(
+                &url,
+                &headers,
+                payload,
+                sid.as_deref(),
+                ver.as_deref(),
+                timeout,
+            )?;
+            // 2xx：保存服务器下发的 session id（若有），解析响应。
+            if raw.status != 404 {
+                if let Some(new_sid) = raw.session_id {
+                    *session_id.lock() = Some(new_sid);
+                }
+                return parse_http_mcp_response(&raw.text);
+            }
+            // 404：会话失效。initialize 本身 404 无会话可重连，直接报错。
+            if payload["method"] == "initialize" {
+                return Err(anyhow!(
+                    "MCP HTTP initialize 返回 404: {}",
+                    raw.text.chars().take(300).collect::<String>()
+                ));
+            }
+            if attempt > 1 {
+                return Err(anyhow!(
+                    "MCP HTTP 请求 {} 重连后仍返回 404: {}",
+                    payload["method"],
+                    raw.text.chars().take(300).collect::<String>()
+                ));
+            }
+            log::warn!("MCP HTTP 请求 {} 返回 404，会话失效，重新握手", payload["method"]);
+            *session_id.lock() = None;
+            self.reinitialize_http(timeout)?;
+        }
+    }
+
+    /// 会话失效后重新执行 initialize 握手（不含 notifications/initialized，
+    /// 由调用方在完成后续请求前补发；此处仅更新会话与协议版本）。
+    fn reinitialize_http(&self, timeout: Duration) -> Result<()> {
+        let init_payload = json!({
+            "jsonrpc": "2.0",
+            "id": self.next_id.fetch_add(1, Ordering::SeqCst),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": { "name": "pointer", "version": env!("CARGO_PKG_VERSION") },
+            },
+        });
+        let init_result = self.http_post(&init_payload, timeout).context("MCP 重新 initialize 失败")?;
+        let negotiated = init_result
+            .get("protocolVersion")
+            .and_then(|v| v.as_str())
+            .unwrap_or(MCP_PROTOCOL_VERSION)
+            .to_string();
+        if let Transport::Http {
+            protocol_version, ..
+        } = &self.transport
+        {
+            *protocol_version.lock() = Some(negotiated.clone());
+        }
+        log::info!("MCP HTTP 会话已重建 (protocol={negotiated})");
+        // 新会话初始化完成后补发 initialized 通知。
+        self.notify("notifications/initialized", json!({}))?;
+        Ok(())
     }
 
     /// 发送 JSON-RPC 通知（无 id，不等待响应）。
@@ -358,17 +478,30 @@ impl McpClient {
                 Ok(())
             }
             Transport::Http {
-                url, headers, ..
+                url,
+                headers,
+                session_id,
+                protocol_version,
+                ..
             } => {
                 // 通知无 id，发完即弃（独立线程内发，避免 async 上下文建 blocking client）
                 let url = url.clone();
                 let headers = headers.clone();
+                let sid = session_id.lock().clone();
+                let ver = protocol_version.lock().clone();
                 std::thread::spawn(move || {
                     let client = match reqwest::blocking::Client::builder().build() {
                         Ok(c) => c,
                         Err(_) => return,
                     };
-                    let _ = client.post(&url).headers(headers).json(&payload).send();
+                    let mut req = client.post(&url).headers(headers).json(&payload);
+                    if let Some(s) = &sid {
+                        req = req.header("Mcp-Session-Id", s);
+                    }
+                    if let Some(v) = &ver {
+                        req = req.header("MCP-Protocol-Version", v);
+                    }
+                    let _ = req.send();
                 });
                 Ok(())
             }
@@ -492,6 +625,13 @@ fn parse_rpc_response(v: Value) -> Result<Value> {
         return Err(anyhow!("MCP 错误 {code}: {message}"));
     }
     Ok(v.get("result").cloned().unwrap_or(Value::Null))
+}
+
+/// HTTP 传输单次 POST 的原始响应（状态码 + 服务器下发的 session id + body）。
+struct HttpRawResponse {
+    status: u16,
+    session_id: Option<String>,
+    text: String,
 }
 
 /// 解析 streamable HTTP 响应：`application/json` 直接解析；
@@ -854,5 +994,207 @@ done
         let v = parse_http_mcp_response(body).expect("parse");
         assert_eq!(v["id"], 1);
         assert_eq!(v["result"]["protocolVersion"], "2024-11-05");
+    }
+
+    // ---- streamable HTTP：会话头回传 / 404 重连 ----
+
+    /// 最小同步 HTTP mock：每个请求调用 handler 返回 (status, headers, body)，
+    /// 并记录 (method, headers, raw_text) 供断言。返回 (base_url, seen)。
+    fn spawn_http_mock(
+        handler: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        >,
+    ) -> (
+        String,
+        Arc<Mutex<Vec<(String, HashMap<String, String>, String)>>>,
+    ) {
+        use std::io::Read as _;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let seen: Arc<Mutex<Vec<(String, HashMap<String, String>, String)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let seen2 = seen.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 4096];
+                loop {
+                    let n = match stream.read(&mut tmp) {
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(_) => break,
+                    };
+                    buf.extend_from_slice(&tmp[..n]);
+                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let Ok(text) = String::from_utf8(buf) else {
+                    continue;
+                };
+                let mut lines = text.split("\r\n");
+                let method = lines.next().unwrap_or_default().to_string();
+                let mut headers = HashMap::new();
+                let mut content_length = 0usize;
+                for line in lines {
+                    if line.is_empty() {
+                        break;
+                    }
+                    if let Some((k, v)) = line.split_once(':') {
+                        headers.insert(k.trim().to_lowercase(), v.trim().to_string());
+                        if k.trim().eq_ignore_ascii_case("content-length") {
+                            content_length = v.trim().parse().unwrap_or(0);
+                        }
+                    }
+                }
+                // 按 Content-Length 截取纯请求体（JSON-RPC 请求体单行 JSON，无 \r\n 干扰）
+                let body_start = text
+                    .find("\r\n\r\n")
+                    .map(|i| i + 4)
+                    .unwrap_or(text.len())
+                    .min(text.len());
+                let body = text[body_start..].chars().take(content_length).collect::<String>();
+                let (status, hdrs, resp_body) = handler(&method, &headers, &body);
+                let mut resp = format!("HTTP/1.1 {status} X\r\n");
+                for (k, v) in &hdrs {
+                    resp.push_str(&format!("{k}: {v}\r\n"));
+                }
+                resp.push_str(&format!(
+                    "Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    resp_body.len()
+                ));
+                let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.write_all(resp_body.as_bytes());
+                seen2.lock().push((method, headers, body));
+            }
+        });
+        (format!("http://{addr}/mcp"), seen)
+    }
+
+    fn http_decl(url: String) -> McpServerDecl {
+        McpServerDecl {
+            name: "mock".into(),
+            transport: "http".into(),
+            command: String::new(),
+            args: vec![],
+            env: HashMap::new(),
+            url: Some(url),
+            headers: None,
+        }
+    }
+
+    #[test]
+    fn http_transport_echoes_session_and_protocol_headers() {
+        let handler: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        > = Arc::new(|_method, _headers, body| {
+            let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+            let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            match m {
+                "initialize" => (
+                    200,
+                    vec![("Mcp-Session-Id".to_string(), "sess-abc".to_string())],
+                    r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"mock","version":"1"}}}"#.to_string(),
+                ),
+                "tools/list" => (
+                    200,
+                    vec![],
+                    r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"echo","inputSchema":{"type":"object"}}]}}"#.to_string(),
+                ),
+                _ => (202, vec![], String::new()),
+            }
+        });
+        let (url, seen) = spawn_http_mock(handler);
+        let client = McpClient::connect_http("t", &http_decl(url)).expect("connect");
+        let tools = client.list_tools().expect("list_tools");
+        assert_eq!(tools.len(), 1);
+        // 等待后台 initialized 通知线程落盘
+        std::thread::sleep(Duration::from_millis(300));
+        let seen = seen.lock();
+        let tool_req = seen
+            .iter()
+            .find(|(_, _, b)| b.contains("\"tools/list\""))
+            .expect("应有 tools/list 请求");
+        // 会话与协议版本头必须回传
+        assert_eq!(
+            tool_req.1.get("mcp-session-id").map(String::as_str),
+            Some("sess-abc")
+        );
+        assert_eq!(
+            tool_req.1.get("mcp-protocol-version").map(String::as_str),
+            Some("2025-06-18")
+        );
+        client.kill_child();
+    }
+
+    #[test]
+    fn http_transport_reinitializes_on_404() {
+        #[derive(Default)]
+        struct St {
+            init_count: u32,
+            list_count: u32,
+        }
+        let st = Arc::new(Mutex::new(St::default()));
+        let st2 = st.clone();
+        let handler: Arc<
+            dyn Fn(&str, &HashMap<String, String>, &str) -> (u16, Vec<(String, String)>, String)
+                + Send
+                + Sync,
+        > = Arc::new(move |_method, _headers, body| {
+            let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+            let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+            let mut st = st2.lock();
+            match m {
+                "initialize" => {
+                    st.init_count += 1;
+                    let sid = if st.init_count == 1 { "sess-old" } else { "sess-new" };
+                    (
+                        200,
+                        vec![("Mcp-Session-Id".to_string(), sid.to_string())],
+                        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"mock","version":"1"}}}"#.to_string(),
+                    )
+                }
+                "tools/list" => {
+                    st.list_count += 1;
+                    if st.list_count == 1 {
+                        // 业务请求触发 404：会话失效
+                        (404, vec![], String::new())
+                    } else {
+                        (
+                            200,
+                            vec![],
+                            r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"echo","inputSchema":{"type":"object"}}]}}"#.to_string(),
+                        )
+                    }
+                }
+                _ => (202, vec![], String::new()),
+            }
+        });
+        let (url, seen) = spawn_http_mock(handler);
+        let client = McpClient::connect_http("t", &http_decl(url)).expect("connect");
+        let tools = client.list_tools().expect("404 后自动重连应成功");
+        assert_eq!(tools.len(), 1);
+        let st = st.lock();
+        assert_eq!(st.init_count, 2, "应重新 initialize 一次");
+        assert_eq!(st.list_count, 2, "404 后应重试一次");
+        drop(st);
+        std::thread::sleep(Duration::from_millis(300));
+        let seen = seen.lock();
+        let last_tools = seen
+            .iter()
+            .filter(|(_, _, b)| b.contains("\"tools/list\""))
+            .last()
+            .unwrap();
+        assert_eq!(
+            last_tools.1.get("mcp-session-id").map(String::as_str),
+            Some("sess-new"),
+            "重连后应使用新会话 id"
+        );
+        client.kill_child();
     }
 }

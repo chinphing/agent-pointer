@@ -49,8 +49,8 @@ pub fn build_sidecar_tool_entry(
     let doc_markdown = build_doc_markdown(decl);
 
     let tool_name_for_handler = decl.name.clone();
-    let mut args = exec.args.clone();
-    let mut env = exec.env.clone();
+    let args = exec.args.clone();
+    let env = exec.env.clone();
     let timeout_ms = exec.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
 
     let handler: ToolHandler = Arc::new(move |call_args: serde_json::Value| -> Result<String> {

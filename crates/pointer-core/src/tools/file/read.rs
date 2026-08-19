@@ -214,6 +214,7 @@ fn resolve_file_read_path(args: &serde_json::Value) -> Result<String> {
 }
 
 /// Core logic for `file_read` (one file per call). Tests use default caps.
+#[allow(dead_code)] // 仅 #[cfg(test)] 引用（cargo check 不编译 tests）
 pub(crate) fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
     execute_file_read_with(args, root, &FileToolLimits::default())
 }

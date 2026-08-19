@@ -22,9 +22,9 @@ pub use path::{set_runtime_workspace_root, AgentWorkspaceGuard, ConversationWork
 
 use edit::execute_file_edit_payload;
 use glob::execute_file_glob_payload;
-use grep::{execute_file_grep_payload, execute_file_grep_payload_with};
+use grep::execute_file_grep_payload_with;
 use list::execute_file_list_payload;
-use read::{execute_file_read, execute_file_read_with};
+use read::execute_file_read_with;
 use write::execute_file_write_payload;
 
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.
@@ -166,11 +166,12 @@ mod tests {
     use super::edit::try_unique_text_replace;
     use super::path::writable_path_roots;
     use super::{
-        execute_file_edit_payload, execute_file_glob_payload, execute_file_grep_payload,
-        execute_file_grep_payload_with, execute_file_list_payload, execute_file_read,
-        execute_file_write_payload, resolve_accessible_path, resolve_within_workspace_root,
-        resolve_writable_path, FileToolLimits,
+        execute_file_edit_payload, execute_file_glob_payload, execute_file_grep_payload_with,
+        execute_file_list_payload, execute_file_write_payload, resolve_accessible_path,
+        resolve_within_workspace_root, resolve_writable_path, FileToolLimits,
     };
+    use super::grep::execute_file_grep_payload;
+    use super::read::execute_file_read;
     use serde_json::json;
     use std::fs;
     use std::io::Write;

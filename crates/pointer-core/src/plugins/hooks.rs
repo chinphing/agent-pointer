@@ -26,7 +26,6 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::Deserialize;
 use std::borrow::Cow;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -47,6 +46,7 @@ struct HooksFile {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[allow(non_snake_case)] // 字段名 = hooks.json 协议 key（Claude 约定 PreToolUse/PostToolUse）
 struct HooksDecl {
     #[serde(default)]
     PreToolUse: Vec<HookEntry>,

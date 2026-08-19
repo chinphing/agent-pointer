@@ -3,19 +3,18 @@
 //! 设计稿 §4.4 能力单元 → 现有代码映射。`activate` 在插件授权启用后调用；
 //! `deactivate` 在禁用 / 卸载时调用（按 `plugin_id` 精确注销，幂等）。
 
-use crate::agents::{AgentRegistry, BaseAgent};
+use crate::agents::AgentRegistry;
 use crate::dispatcher::HookRegistry;
 use crate::extensions::{
     new_extension_message_id, now_ms, ExtensionRegistry, MessageLoopPromptsAfterContext,
     MessageLoopPromptsAfterHook,
 };
 use crate::models::{ChatMessage, Role};
-use crate::plugins::manifest::PluginManifest;
 use crate::plugins::registry::PluginRecord;
 use crate::plugins::tool_provider::build_sidecar_tool_entry;
 use crate::skills::{external::load_skill_from_dir, SkillRegistry};
 use crate::tools::ToolRegistry;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -350,7 +349,6 @@ mod tests {
     use crate::extensions::{MessageLoopPromptsAfterContext, MessageLoopPromptsAfterHook};
     use crate::models::ChatMessage;
     use crate::plugins::registry::{PluginRegistry, PluginStatus};
-    use std::fs;
 
     fn build_registries() -> (
         ToolRegistry,

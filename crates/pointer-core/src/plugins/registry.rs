@@ -110,7 +110,7 @@ impl PluginRegistry {
         }
     }
 
-    pub fn load_auth(&self) -> AuthStore {
+    pub(crate) fn load_auth(&self) -> AuthStore {
         let path = match self.auth_path() {
             Ok(p) => p,
             Err(_) => return AuthStore::default(),

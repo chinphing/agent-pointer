@@ -193,6 +193,7 @@ fn grep_one_path_with_searcher(
         .map_err(|e| anyhow!("grep 搜索失败: {e}"))
 }
 
+#[allow(dead_code)] // 仅 #[cfg(test)] 引用（cargo check 不编译 tests）
 pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
     execute_file_grep_payload_with(args, root, &FileToolLimits::default())
 }

@@ -361,7 +361,7 @@ pub fn import_plugin_directory(source: &Path, target_root: &Path) -> Result<Impo
     if !source.is_dir() {
         return Err(anyhow!("源插件目录不存在: {}", source.display()));
     }
-    let Some((kind, root, manifest)) = detect_plugin_package(source)? else {
+    let Some((kind, root, _manifest)) = detect_plugin_package(source)? else {
         return Err(anyhow!(
             "未在该目录中发现插件元数据：{}（期望 pointer-plugin.toml / .claude-plugin/plugin.json / .codex-plugin/plugin.json）",
             source.display()

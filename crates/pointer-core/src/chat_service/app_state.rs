@@ -1141,7 +1141,7 @@ impl AppState {
         if let Err(e) = self.session_index.runs_reconcile_interrupted() {
             log::warn!("dispatcher: reconcile interrupted runs failed: {e:#}");
         }
-        let mut hooks = (*self.hooks).clone();
+        let hooks = (*self.hooks).clone();
         for hook in extra {
             hooks.register_on_run_finished(hook);
         }

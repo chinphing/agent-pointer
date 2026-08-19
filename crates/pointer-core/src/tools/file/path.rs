@@ -224,19 +224,36 @@ pub fn set_runtime_workspace_root(root: String) {
     });
 }
 
+/// Workspace root for file/terminal tools: conversation override, else settings.
+/// Does **not** fall back to process `cwd` (Dock-launched apps often use `/`).
 pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
     let raw = workspace_root_from_override_or_settings();
     let raw = raw.trim();
-    if !raw.is_empty() {
-        let p = PathBuf::from(raw);
-        if !p.is_dir() {
-            return Err(anyhow!("工作区目录无效或不存在: {}", raw));
-        }
-        return p
-            .canonicalize()
-            .map_err(|e| anyhow!("无法解析工作区路径: {e}"));
+    if raw.is_empty() {
+        return Err(anyhow!(
+            "未设置工作区：需要会话工作区或 settings.workspaceRoot，不会使用进程 cwd"
+        ));
     }
-    std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))
+    let p = PathBuf::from(raw);
+    if !p.is_dir() {
+        return Err(anyhow!("工作区目录无效或不存在: {}", raw));
+    }
+    if is_filesystem_root(&p) {
+        return Err(anyhow!("工作区不能是文件系统根: {}", raw));
+    }
+    p.canonicalize()
+        .map_err(|e| anyhow!("无法解析工作区路径: {e}"))
+}
+
+fn is_filesystem_root(path: &Path) -> bool {
+    let mut comps = path.components();
+    match comps.next() {
+        Some(std::path::Component::RootDir) => comps.next().is_none(),
+        Some(std::path::Component::Prefix(_)) => {
+            matches!(comps.next(), Some(std::path::Component::RootDir)) && comps.next().is_none()
+        }
+        _ => false,
+    }
 }
 
 fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf, pinned: Option<&Path>) {
@@ -679,4 +696,27 @@ pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result
             .map_err(|e| anyhow!("路径无效或不存在: {e}"));
     }
     resolve_within_workspace_root(&workspace_root, user_path.as_str())
+}
+
+#[cfg(test)]
+mod resolve_root_tests {
+    use super::*;
+
+    #[test]
+    fn resolve_tool_workspace_root_uses_conversation_guard() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = ConversationWorkspaceGuard::enter(dir.path().display().to_string());
+        let got = resolve_tool_workspace_root().unwrap();
+        assert_eq!(got, dir.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn resolve_tool_workspace_root_rejects_unix_filesystem_root() {
+        if !cfg!(unix) {
+            return;
+        }
+        let _g = ConversationWorkspaceGuard::enter("/".into());
+        let err = resolve_tool_workspace_root().unwrap_err().to_string();
+        assert!(err.contains("文件系统根"), "{err}");
+    }
 }

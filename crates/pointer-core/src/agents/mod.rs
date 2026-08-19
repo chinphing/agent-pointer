@@ -6,7 +6,6 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -748,9 +747,14 @@ pub fn load_external_agents() -> Result<Vec<BaseAgent>> {
 
 fn agent_roots() -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
-    if let Ok(cwd) = env::current_dir() {
-        roots.push(cwd.join(AGENTS_DIR));
-        roots.push(cwd.join(".agents").join(AGENTS_DIR));
+    let ws = crate::tools::file::workspace_root_from_override_or_settings();
+    let ws = ws.trim();
+    if !ws.is_empty() {
+        let root = PathBuf::from(ws);
+        if root.is_dir() && root.parent().is_some() {
+            roots.push(root.join(AGENTS_DIR));
+            roots.push(root.join(".agents").join(AGENTS_DIR));
+        }
     }
     if let Some(home) = dirs::home_dir() {
         roots.push(home.join(".agents").join(AGENTS_DIR));

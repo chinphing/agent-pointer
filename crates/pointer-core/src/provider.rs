@@ -1475,7 +1475,6 @@ impl OpenAIProvider {
         dump_label: Option<&str>,
         guard: Option<&mut LlmSpanGuard>,
     ) -> Result<()> {
-        let stream_t0 = Instant::now();
         let StreamChatWire {
             url,
             wire_body,
@@ -1496,17 +1495,14 @@ impl OpenAIProvider {
                 .send() => r?,
         };
         let http_until_headers_ms = t_http.elapsed().as_millis();
-        if crate::logging::internal_runtime_log_enabled() {
-            log::debug!(
-                "stream_chat: build_openai_messages_ms={} http_until_response_headers_ms={} api_message_count={} system_prompt_block_count={} dump_label={:?} pre_body_stream_wall_ms={}",
-                build_openai_messages_ms,
-                http_until_headers_ms,
-                api_message_count,
-                system_prompt_block_count,
-                dump_label,
-                stream_t0.elapsed().as_millis()
-            );
-        }
+        log::info!(
+            "stream_chat: http_until_headers_ms={} api_message_count={} system_prompt_block_count={} dump_label={:?} build_openai_messages_ms={}",
+            http_until_headers_ms,
+            api_message_count,
+            system_prompt_block_count,
+            dump_label,
+            build_openai_messages_ms,
+        );
 
         if !resp.status().is_success() {
             let status = resp.status();

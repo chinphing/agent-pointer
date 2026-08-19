@@ -17,6 +17,7 @@ use crate::task_board::TaskBoardStore;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::time::Instant;
 
 pub mod common_user_dynamic_inject_hook;
 pub mod task_board_hook;
@@ -48,6 +49,9 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     pub task_board_store_key: &'a str,
     /// Feature flag for common user dynamic inject migration.
     pub user_dynamic_inject_enabled: bool,
+    /// Conversation workspace for this round (`settings.workspace_root` after
+    /// `ensure_workspace_at_run_start`). AGENTS.md discovery uses this path.
+    pub workspace_root: &'a str,
 }
 
 impl MessageLoopPromptsAfterContext<'_> {
@@ -141,11 +145,27 @@ impl ExtensionRegistry {
         &self,
         ctx: &mut MessageLoopPromptsAfterContext<'_>,
     ) -> Result<()> {
+        let started = Instant::now();
         let mut hooks: Vec<_> = self.message_loop_prompts_after.read().clone();
         hooks.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+        let hook_count = hooks.len();
         for h in hooks {
+            let key = h.override_key().into_owned();
+            let t = Instant::now();
             h.execute(ctx).await?;
+            crate::logging::log_phase_elapsed_extra(
+                "message_loop_prompts_after_hook",
+                ctx.conversation_id,
+                t.elapsed().as_millis(),
+                &format!("key={key}"),
+            );
         }
+        crate::logging::log_phase_elapsed_extra(
+            "message_loop_prompts_after_total",
+            ctx.conversation_id,
+            started.elapsed().as_millis(),
+            &format!("hook_count={hook_count}"),
+        );
         Ok(())
     }
 
@@ -153,11 +173,27 @@ impl ExtensionRegistry {
         &self,
         ctx: &mut BeforeMainLlmCallContext<'_>,
     ) -> Result<()> {
+        let started = Instant::now();
         let mut hooks: Vec<_> = self.before_main_llm_call.read().clone();
         hooks.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+        let hook_count = hooks.len();
         for h in hooks {
+            let key = h.override_key().into_owned();
+            let t = Instant::now();
             h.execute(ctx).await?;
+            crate::logging::log_phase_elapsed_extra(
+                "before_main_llm_call_hook",
+                ctx.conversation_id,
+                t.elapsed().as_millis(),
+                &format!("key={key}"),
+            );
         }
+        crate::logging::log_phase_elapsed_extra(
+            "before_main_llm_call_total",
+            ctx.conversation_id,
+            started.elapsed().as_millis(),
+            &format!("hook_count={hook_count}"),
+        );
         Ok(())
     }
 
@@ -251,6 +287,7 @@ mod tests {
             task_board_store: Arc::new(crate::task_board::TaskBoardStore::new()),
             task_board_store_key: "test",
             user_dynamic_inject_enabled: true,
+            workspace_root: "",
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(c1.load(Ordering::SeqCst), 0);
@@ -310,6 +347,7 @@ mod tests {
             task_board_store: Arc::new(crate::task_board::TaskBoardStore::new()),
             task_board_store_key: "test",
             user_dynamic_inject_enabled: true,
+            workspace_root: "",
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(*run.lock().unwrap(), "ab");

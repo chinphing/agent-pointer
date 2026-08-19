@@ -13,6 +13,7 @@ use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::session_model::prepare_session_llm_settings;
 use std::path::Path;
+use std::time::Instant;
 
 fn settings_have_llm_key(settings: &ModelSettings) -> bool {
     settings.has_key
@@ -101,6 +102,7 @@ pub(super) async fn run_chat_inner(
     let is_local_session = crate::web_request_auth::is_local_scoped_session();
     let skip_platform_refresh = crate::deployment_mode::is_standalone() && is_local_session;
     let mut refresh_transient_error: Option<String> = None;
+    let auth_refresh_t = Instant::now();
     if !skip_platform_refresh {
         match state.active_platform_auth().refresh_if_needed().await {
             Ok(Some((_session, creds))) => {
@@ -129,6 +131,12 @@ pub(super) async fn run_chat_inner(
             }
         }
     }
+    crate::logging::log_phase_elapsed_extra(
+        "platform_auth_refresh",
+        conversation_id,
+        auth_refresh_t.elapsed().as_millis(),
+        &format!("skipped={skip_platform_refresh}"),
+    );
     let platform_logged_in = state.active_platform_auth().session_view().logged_in;
     let is_automation = req
         .trigger_source
@@ -138,6 +146,7 @@ pub(super) async fn run_chat_inner(
         // Platform balance gate once per user turn (GET /auth/partner/balance).
         // Standalone never applies. Login / llm-credentials unchanged.
         if !crate::deployment_mode::is_standalone() && platform_logged_in {
+            let balance_t = Instant::now();
             match state
                 .active_platform_auth()
                 .ensure_llm_allowed_with_balance()
@@ -177,6 +186,11 @@ pub(super) async fn run_chat_inner(
                     return Err(anyhow!(msg));
                 }
             }
+            crate::logging::log_phase_elapsed(
+                "platform_balance_gate",
+                conversation_id,
+                balance_t.elapsed().as_millis(),
+            );
         }
     } else if is_automation && has_local_llm {
         log::info!(
@@ -238,6 +252,7 @@ pub(super) async fn run_chat_inner(
     let inherit_disabled =
         req.workspace_inherit_disabled == Some(true) || workspace_inherit_disabled(conversation_id);
 
+    let workspace_t = Instant::now();
     let default_path_before = crate::session_sandbox::SessionSandbox::default_path(
         conversation_id,
         session_user_id.as_str(),
@@ -270,6 +285,12 @@ pub(super) async fn run_chat_inner(
         &effective_workspace,
         session_user_id.as_str(),
     )?;
+    crate::logging::log_phase_elapsed_extra(
+        "ensure_workspace",
+        conversation_id,
+        workspace_t.elapsed().as_millis(),
+        &format!("root={effective_workspace}"),
+    );
 
     let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
     let _work_dir_guard =
@@ -325,6 +346,7 @@ pub(super) async fn run_chat_inner(
             settings.active_provider_id
         ));
     }
+    let media_t = Instant::now();
     if let Err(e) = crate::media::apply_media_to_history(
         ctx.history,
         &settings,
@@ -337,6 +359,11 @@ pub(super) async fn run_chat_inner(
     {
         log::warn!("media: apply_media_to_history failed: {:#}", e);
     }
+    crate::logging::log_phase_elapsed(
+        "apply_media_to_history",
+        conversation_id,
+        media_t.elapsed().as_millis(),
+    );
     // apply_media persists attachments and clears wire base64; upsert + notify UI.
     for msg in ctx.history.iter() {
         if matches!(msg.role, crate::models::Role::User)

@@ -1,5 +1,5 @@
 //! Workspace-scoped file tools: single registry tool `file` with `method` (like Computer `mouse:method`).
-//! Root from settings `workspaceRoot`, else `current_dir`.
+//! Root from session/settings `workspaceRoot` (never process `cwd`).
 mod edit;
 mod glob;
 mod grep;

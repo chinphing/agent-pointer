@@ -97,8 +97,8 @@ pub(crate) fn effective_terminal_cwd(
             .map(normalize_terminal_cwd)
             .map_err(|e| anyhow!("无法解析工作区路径: {e}"));
     }
-    Ok(normalize_terminal_cwd(
-        std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))?,
+    Err(anyhow!(
+        "未设置工作区：terminal 不会使用进程 cwd 作为默认工作目录"
     ))
 }
 
@@ -1233,6 +1233,12 @@ mod cwd_tests {
         #[cfg(windows)]
         let expected = normalize_terminal_cwd(expected);
         assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn effective_terminal_cwd_errors_without_workspace() {
+        let err = effective_terminal_cwd(None, "").unwrap_err().to_string();
+        assert!(err.contains("未设置工作区"), "{err}");
     }
 }
 

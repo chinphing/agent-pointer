@@ -104,6 +104,37 @@ pub fn install_panic_hook() {
     });
 }
 
+/// Warn when a timed phase takes at least this many milliseconds.
+pub const SLOW_PHASE_MS: u128 = 1000;
+
+/// Log elapsed time for a named phase (`info`, or `warn` if ≥ [`SLOW_PHASE_MS`]).
+pub fn log_phase_elapsed(phase: &str, conversation_id: &str, elapsed_ms: u128) {
+    log_phase_elapsed_extra(phase, conversation_id, elapsed_ms, "");
+}
+
+/// Same as [`log_phase_elapsed`], with trailing `key=value` fields.
+pub fn log_phase_elapsed_extra(
+    phase: &str,
+    conversation_id: &str,
+    elapsed_ms: u128,
+    extra: &str,
+) {
+    let msg = if extra.is_empty() {
+        format!(
+            "phase_timing: phase={phase} conversation_id={conversation_id} elapsed_ms={elapsed_ms}"
+        )
+    } else {
+        format!(
+            "phase_timing: phase={phase} conversation_id={conversation_id} elapsed_ms={elapsed_ms} {extra}"
+        )
+    };
+    if elapsed_ms >= SLOW_PHASE_MS {
+        log::warn!("{msg}");
+    } else {
+        log::info!("{msg}");
+    }
+}
+
 /// Whether to log chat internals: model id, reasoning/output text, tool names/args, stream bodies.
 ///
 /// - **Release** (`not(debug_assertions)`): only when settings `debugMenusEnabled` is true.

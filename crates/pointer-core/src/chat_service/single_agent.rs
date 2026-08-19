@@ -3,7 +3,7 @@
 use crate::agents::AgentProfile;
 use crate::models::StreamEvent;
 use anyhow::{anyhow, Result};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::computer_pipeline_loop::{
     apply_pipeline_verify_to_tool_card, batch_has_desktop_root_tool, ensure_verify_before_capture,
@@ -94,12 +94,26 @@ pub(super) async fn run_single_agent_loop(
         };
 
         let effective_allowed = agent_plan.allowed_tool_names.clone();
+        let tools_prep = Instant::now();
         let tools_system_appendix = crate::tools_system_appendix::generate_tools_system_appendix(
             &state.tools,
             &effective_allowed,
         );
+        let tools_appendix_ms = tools_prep.elapsed().as_millis();
         let tools_appendix_enabled = !tools_system_appendix.is_empty();
+        let openai_tools_t = Instant::now();
         let native_tools = state.tools.openai_tools(&effective_allowed);
+        crate::logging::log_phase_elapsed_extra(
+            "single_agent_tools_prep",
+            conversation_id,
+            tools_prep.elapsed().as_millis(),
+            &format!(
+                "tools_appendix_ms={tools_appendix_ms} openai_tools_ms={} appendix_chars={} native_tool_count={}",
+                openai_tools_t.elapsed().as_millis(),
+                tools_system_appendix.len(),
+                native_tools.len()
+            ),
+        );
         let file_tool_lead_for_invoke = lead_profile.clone();
 
         let board_store_key = state
@@ -128,6 +142,7 @@ pub(super) async fn run_single_agent_loop(
         )
         .await?;
 
+        let round_settings_t = Instant::now();
         let round_settings = if lead_profile == AgentProfile::Computer {
             state
                 .computer_state
@@ -142,6 +157,11 @@ pub(super) async fn run_single_agent_loop(
             }
             s
         };
+        crate::logging::log_phase_elapsed(
+            "single_agent_round_settings",
+            conversation_id,
+            round_settings_t.elapsed().as_millis(),
+        );
 
         let mut stream_ctx = super::context::LeadStreamRoundContext {
             session: super::context::SessionRefsArc {

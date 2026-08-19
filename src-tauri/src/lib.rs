@@ -510,6 +510,7 @@ pub fn run() {
             commands::probe_external_plugins,
             commands::import_external_plugin,
             commands::list_mcp_servers,
+            commands::save_mcp_servers,
             commands::reload_mcp_servers,
             commands::restart_mcp_server,
             commands::list_tools,

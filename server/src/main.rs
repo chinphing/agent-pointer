@@ -31,6 +31,7 @@ use pointer_core::{
     platform_config::apply_login_media_oss,
     plugins::registry::PluginView,
     chat_service::GlobalMcpView,
+    plugins::manifest::McpServerDecl,
     provider::OpenAIProvider,
     storage,
 };
@@ -626,7 +627,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/plugins/import-external",
             post(import_external_plugin),
         )
-        .route("/api/mcp", get(list_global_mcp))
+        .route("/api/mcp", get(list_global_mcp).put(save_global_mcp))
         .route("/api/mcp/reload", post(reload_global_mcp))
         .route("/api/mcp/restart", post(restart_global_mcp))
         .route("/api/tools", get(list_tools))
@@ -1025,6 +1026,16 @@ async fn list_global_mcp(
 ) -> Result<Json<GlobalMcpView>, ApiError> {
     require_platform_access(&state)?;
     Ok(Json(state.core.global_mcp_view()))
+}
+
+/// P2b：界面直接配置——保存全局 MCP server 列表（user_settings 持久化 + 热重载）。
+async fn save_global_mcp(
+    State(state): State<ServerState>,
+    Json(servers): Json<Vec<McpServerDecl>>,
+) -> Result<Json<GlobalMcpView>, ApiError> {
+    require_platform_access(&state)?;
+    let view = state.core.save_global_mcp_servers(servers)?;
+    Ok(Json(view))
 }
 
 async fn reload_global_mcp(

@@ -434,6 +434,16 @@ pub fn list_mcp_servers(state: State<'_, Arc<AppState>>) -> Result<GlobalMcpView
 }
 
 #[tauri::command]
+pub fn save_mcp_servers(
+    state: State<'_, Arc<AppState>>,
+    servers: Vec<pointer_core::plugins::manifest::McpServerDecl>,
+) -> Result<GlobalMcpView, String> {
+    state
+        .save_global_mcp_servers(servers)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn reload_mcp_servers(state: State<'_, Arc<AppState>>) -> Result<GlobalMcpView, String> {
     state
         .reload_global_mcp_from_config()

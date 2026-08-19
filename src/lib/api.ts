@@ -222,6 +222,16 @@ export interface RuntimeApi {
   probeExternalSkills(): Promise<import('../types/chat').ExternalSkillsProbeResult>
   importExternalSkills(sourceIds: string[]): Promise<SkillImportResult>
   dismissExternalSkillsPrompt(): Promise<void>
+  listPlugins(): Promise<import('../types/plugin').PluginView[]>
+  enablePlugin(pluginId: string): Promise<import('../types/plugin').PluginView>
+  disablePlugin(pluginId: string): Promise<import('../types/plugin').PluginView>
+  uninstallPlugin(pluginId: string): Promise<void>
+  importPlugin(source: string): Promise<import('../types/plugin').ImportReport[]>
+  /** 上传 zip 文件导入插件（web：/api/plugins/import-zip；desktop：读文件字节后调用）。 */
+  importPluginZip(file: File): Promise<import('../types/plugin').ImportReport[]>
+  discoverPlugins(dir: string): Promise<import('../types/plugin').DiscoveredPlugin[]>
+  probeExternalPlugins(): Promise<import('../types/plugin').ExternalPluginsProbeResult>
+  importExternalPlugin(sourceId: string): Promise<import('../types/plugin').ImportReport>
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
   getTaskBoardSnapshot(conversationId: string, taskId?: string): Promise<import('../types/chat').TaskBoardDocument>
@@ -342,6 +352,15 @@ export const importSkillZip = api.importSkillZip
 export const probeExternalSkills = api.probeExternalSkills
 export const importExternalSkills = api.importExternalSkills
 export const dismissExternalSkillsPrompt = api.dismissExternalSkillsPrompt
+export const listPlugins = api.listPlugins
+export const enablePlugin = api.enablePlugin
+export const disablePlugin = api.disablePlugin
+export const uninstallPlugin = api.uninstallPlugin
+export const importPlugin = api.importPlugin
+export const importPluginZip = api.importPluginZip
+export const discoverPlugins = api.discoverPlugins
+export const probeExternalPlugins = api.probeExternalPlugins
+export const importExternalPlugin = api.importExternalPlugin
 export const listTools = api.listTools
 export const listAgents = api.listAgents
 export const getTaskBoardSnapshot = api.getTaskBoardSnapshot

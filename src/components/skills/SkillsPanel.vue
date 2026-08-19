@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { Sparkles, Search, Wrench, Upload } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
+import { listPlugins } from '../../lib/api'
+import type { SkillDef } from '../../types/chat'
 
 const AGENT_TABS = [
   { id: 'general', label: '通用助手' },
@@ -16,12 +18,55 @@ const loading = ref(false)
 const importMessage = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedAgentId = ref<string>('general')
+/** 来源筛选：all / user / system / external / plugin */
+const sourceFilter = ref<string>('all')
+/** 插件 id → 插件名（用于来源标注）。 */
+const pluginNames = ref<Record<string, string>>({})
 
 const currentAgentId = computed(() => selectedAgentId.value)
 
 onMounted(() => {
   void refreshSkills()
+  void loadPluginNames()
 })
+
+/** 拉取插件列表，构建 pluginId → 插件名 映射，供技能来源徽标显示插件名。 */
+async function loadPluginNames() {
+  try {
+    const plugins = await listPlugins()
+    pluginNames.value = Object.fromEntries(plugins.map(p => [p.pluginId, p.name]))
+  } catch {
+    pluginNames.value = {}
+  }
+}
+
+/** 技能来源：插件 > 内置 > 外部(兼容) > 用户。 */
+function skillSource(skill: SkillDef): { label: string; kind: string; title: string } {
+  if (skill.pluginId) {
+    const name = pluginNames.value[skill.pluginId] ?? skill.pluginId
+    return { label: `插件 · ${name}`, kind: 'plugin', title: `由插件 ${skill.pluginId} 提供` }
+  }
+  if (skill.builtin || skill.provenance === 'system') {
+    return { label: '内置', kind: 'system', title: 'Pointer 自带技能' }
+  }
+  if (skill.provenance === 'external') {
+    return { label: '外部', kind: 'external', title: '来自 ~/.agents/skills 兼容目录（只读）' }
+  }
+  return { label: '用户', kind: 'user', title: '来自 ~/.pointer/skills 用户技能目录' }
+}
+
+function sourceClass(kind: string): string {
+  switch (kind) {
+    case 'plugin':
+      return 'bg-accent/15 text-accent'
+    case 'system':
+      return 'bg-[hsl(var(--code-bg))] text-muted'
+    case 'external':
+      return 'bg-[hsl(var(--code-bg))] text-foreground/80'
+    default:
+      return 'bg-[hsl(var(--code-bg))] text-accent'
+  }
+}
 
 async function refreshSkills() {
   loading.value = true
@@ -34,13 +79,25 @@ async function refreshSkills() {
 
 const filtered = computed(() => {
   const keyword = q.value.trim().toLowerCase()
-  if (!keyword) return skills.skills
-  return skills.skills.filter(skill =>
-    skill.name.toLowerCase().includes(keyword) ||
-    skill.description.toLowerCase().includes(keyword) ||
-    skill.tags.join(' ').toLowerCase().includes(keyword)
-  )
+  return skills.skills.filter(skill => {
+    if (sourceFilter.value !== 'all' && skillSource(skill).kind !== sourceFilter.value) return false
+    if (!keyword) return true
+    return (
+      skill.name.toLowerCase().includes(keyword) ||
+      skill.description.toLowerCase().includes(keyword) ||
+      skill.tags.join(' ').toLowerCase().includes(keyword)
+    )
+  })
 })
+
+/** 来源筛选 chips 配置（全部 + 四类来源）。 */
+const SOURCE_FILTERS = [
+  { id: 'all', label: '全部' },
+  { id: 'user', label: '用户' },
+  { id: 'system', label: '内置' },
+  { id: 'external', label: '外部' },
+  { id: 'plugin', label: '插件' }
+] as const
 
 function skillEnabled(skillId: string): boolean {
   return skills.enabledIdsForAgent(currentAgentId.value).includes(skillId)
@@ -48,8 +105,20 @@ function skillEnabled(skillId: string): boolean {
 
 const enabledCount = computed(() => filtered.value.filter(skill => skillEnabled(skill.id)).length)
 
-function toggleSkill(skillId: string) {
-  skills.toggleForAgent(currentAgentId.value, skillId)
+/** 统计某个来源（含 all）的技能数，供筛选 chips 显示。 */
+function sourceCount(id: string): number {
+  if (id === 'all') return skills.skills.length
+  return skills.skills.filter(s => skillSource(s).kind === id).length
+}
+
+/** 插件技能只能由插件 enable/disable 生命周期管理，UI 不可手动切换。 */
+function isPluginSkill(skill: SkillDef): boolean {
+  return !!skill.pluginId
+}
+
+function toggleSkill(skill: SkillDef) {
+  if (isPluginSkill(skill)) return
+  skills.toggleForAgent(currentAgentId.value, skill.id)
 }
 
 async function onImportFile(event: Event) {
@@ -132,6 +201,22 @@ async function onImportFile(event: Event) {
         <p class="text-sm text-muted tabular-nums">已启用 {{ enabledCount }} / {{ filtered.length }}</p>
       </div>
 
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          v-for="f in SOURCE_FILTERS"
+          :key="f.id"
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] transition-colors cursor-pointer"
+          :class="sourceFilter === f.id
+            ? 'bg-accent/15 text-accent'
+            : 'text-muted hover:bg-hover hover:text-foreground'"
+          @click="sourceFilter = f.id"
+        >
+          {{ f.label }}
+          <span class="tabular-nums">{{ sourceCount(f.id) }}</span>
+        </button>
+      </div>
+
       <div class="mt-4 flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3">
         <Search class="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
         <input
@@ -149,16 +234,25 @@ async function onImportFile(event: Event) {
         v-for="skill in filtered"
         :key="skill.id"
         type="button"
-        class="rounded-xl border p-4 text-left transition-all cursor-pointer"
-        :class="skillEnabled(skill.id)
-          ? 'border-accent/30 bg-accent/5'
-          : 'border-border bg-card hover:bg-hover'"
-        @click="toggleSkill(skill.id)"
+        :aria-disabled="isPluginSkill(skill)"
+        :title="isPluginSkill(skill) ? '由插件管理，无法手动切换' : undefined"
+        class="rounded-xl border p-4 text-left transition-all"
+        :class="[
+          isPluginSkill(skill) ? 'cursor-default' : 'cursor-pointer',
+          skillEnabled(skill.id)
+            ? 'border-accent/30 bg-accent/5'
+            : 'border-border bg-card hover:bg-hover'
+        ]"
+        @click="toggleSkill(skill)"
       >
         <div class="flex items-center gap-2 min-w-0">
           <span class="truncate text-[15px] font-semibold text-foreground">{{ skill.name }}</span>
-          <span class="shrink-0 rounded bg-[hsl(var(--code-bg))] px-1.5 py-0.5 text-[10px] text-muted">
-            {{ skill.builtin ? '内置' : '外部' }}
+          <span
+            class="shrink-0 rounded px-1.5 py-0.5 text-[10px]"
+            :class="sourceClass(skillSource(skill).kind)"
+            :title="skillSource(skill).title"
+          >
+            {{ skillSource(skill).label }}
           </span>
           <span
             class="ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px]"

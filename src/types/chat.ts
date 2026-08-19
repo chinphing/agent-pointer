@@ -778,7 +778,7 @@ export interface ModelSettings {
   maxSubAgentSpawnDepth?: number
   /** 助手消息上「原始输出」调试入口（代码图标）；含正文通道原始字串与 API reasoning，不在主气泡展示 reasoning */
   rawContentViewEnabled: boolean
-  /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
+  /** Write each LLM request payload to app data `logs/llm_prompts/{conversationId}/` (debug) */
   debugDumpLlmPrompts?: boolean
   /** Debug: KEY→VALUE overlays for `terminal` child env (session memory). */
   terminalEnvOverrides?: Record<string, string>
@@ -831,9 +831,11 @@ export interface SkillDef {
   /** Always empty in catalog responses; resources read on demand via skill_read. */
   resourceFiles?: string[]
   source?: string
-  /** `system` = app data bundled; `user` = ~/.pointer/skills */
+  /** `system` = app data bundled; `user` = ~/.pointer/skills; `external` = ~/.agents/skills */
   provenance?: string
   mutable?: boolean
+  /** Set when the skill is provided by a plugin (P1). */
+  pluginId?: string
 }
 
 export interface ExternalSkillSource {

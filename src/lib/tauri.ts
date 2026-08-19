@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { AppendedMessageRow } from './api'
+import type { ImportReport, PluginView, DiscoveredPlugin, ExternalPluginsProbeResult } from '../types/plugin'
 import type {
   AgentDef,
   AgentMode,
@@ -237,6 +238,44 @@ export async function importExternalSkills(sourceIds: string[]): Promise<SkillIm
 
 export async function dismissExternalSkillsPrompt(): Promise<void> {
   await invoke('dismiss_external_skills_prompt')
+}
+
+export async function listPlugins(): Promise<PluginView[]> {
+  return await invoke<PluginView[]>('list_plugins')
+}
+
+export async function enablePlugin(pluginId: string): Promise<PluginView> {
+  return await invoke<PluginView>('enable_plugin', { pluginId })
+}
+
+export async function disablePlugin(pluginId: string): Promise<PluginView> {
+  return await invoke<PluginView>('disable_plugin', { pluginId })
+}
+
+export async function uninstallPlugin(pluginId: string): Promise<void> {
+  await invoke('uninstall_plugin', { pluginId })
+}
+
+export async function importPlugin(source: string): Promise<ImportReport[]> {
+  return await invoke<ImportReport[]>('import_plugin', { source })
+}
+
+export async function importPluginZip(file: File): Promise<ImportReport[]> {
+  // 直接传 Uint8Array（Tauri 反序列化为 Vec<u8>），避免转 number[] 的内存放大。
+  const data = new Uint8Array(await file.arrayBuffer())
+  return await invoke<ImportReport[]>('import_plugin_zip', { zipData: data })
+}
+
+export async function discoverPlugins(dir: string): Promise<DiscoveredPlugin[]> {
+  return await invoke<DiscoveredPlugin[]>('discover_plugins', { dir })
+}
+
+export async function probeExternalPlugins(): Promise<ExternalPluginsProbeResult> {
+  return await invoke<ExternalPluginsProbeResult>('probe_external_plugins')
+}
+
+export async function importExternalPlugin(sourceId: string): Promise<ImportReport> {
+  return await invoke<ImportReport>('import_external_plugin', { sourceId })
 }
 
 export async function listTools(): Promise<ToolDef[]> {

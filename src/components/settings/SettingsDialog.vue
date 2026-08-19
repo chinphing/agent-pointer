@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, Bug, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings, Puzzle } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -16,6 +16,7 @@ import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
 import SkillsPanel from '../skills/SkillsPanel.vue'
+import PluginsPanel from './panels/PluginsPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -54,6 +55,7 @@ const alwaysSections = [
   { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
   { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
+  { id: 'plugins', label: '插件', desc: '管理 Pointer 插件', icon: Puzzle },
   { id: 'assistant', label: '智能体', desc: '档位与行为', icon: Bot },
   { id: 'models', label: '模型配置', desc: '服务商与档位映射', icon: Cpu },
   { id: 'generation', label: '系统设置', desc: '界面、桌面与系统运行', icon: Settings }
@@ -111,7 +113,8 @@ const sections = computed<SidebarGroup[]>(() => {
       items: [
         alwaysSections.find(item => item.id === 'automation')!,
         alwaysSections.find(item => item.id === 'channels')!,
-        alwaysSections.find(item => item.id === 'skills')!
+        alwaysSections.find(item => item.id === 'skills')!,
+        alwaysSections.find(item => item.id === 'plugins')!
       ]
     }
   ]
@@ -218,6 +221,10 @@ onMounted(() => {
 
           <section v-else-if="activeSection === 'skills'" class="p-6 min-h-full flex flex-col">
             <SkillsPanel />
+          </section>
+
+          <section v-else-if="activeSection === 'plugins'" class="p-6 min-h-full flex flex-col">
+            <PluginsPanel />
           </section>
 
           <section v-else-if="activeSection === 'debug'" class="p-6 min-h-full flex flex-col">

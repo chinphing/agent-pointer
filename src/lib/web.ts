@@ -1,4 +1,5 @@
 import type { AppendedMessageRow } from './api'
+import type { ImportReport, PluginView, DiscoveredPlugin, ExternalPluginsProbeResult } from '../types/plugin'
 import type {
   AgentDef,
   AgentMode,
@@ -399,6 +400,60 @@ export async function importExternalSkills(sourceIds: string[]): Promise<SkillIm
 
 export async function dismissExternalSkillsPrompt(): Promise<void> {
   await request('/api/skills/external-probe/dismiss', { method: 'POST' })
+}
+
+export async function listPlugins(): Promise<PluginView[]> {
+  return await request<PluginView[]>('/api/plugins')
+}
+
+export async function enablePlugin(pluginId: string): Promise<PluginView> {
+  return await request<PluginView>(`/api/plugins/${encodeURIComponent(pluginId)}/enable`, {
+    method: 'POST'
+  })
+}
+
+export async function disablePlugin(pluginId: string): Promise<PluginView> {
+  return await request<PluginView>(`/api/plugins/${encodeURIComponent(pluginId)}/disable`, {
+    method: 'POST'
+  })
+}
+
+export async function uninstallPlugin(pluginId: string): Promise<void> {
+  await request(`/api/plugins/${encodeURIComponent(pluginId)}/uninstall`, { method: 'POST' })
+}
+
+export async function importPlugin(source: string): Promise<ImportReport[]> {
+  return await request<ImportReport[]>('/api/plugins', {
+    method: 'POST',
+    body: JSON.stringify({ source })
+  })
+}
+
+export async function importPluginZip(file: File): Promise<ImportReport[]> {
+  const data = await file.arrayBuffer()
+  return await request<ImportReport[]>('/api/plugins/import-zip', {
+    method: 'POST',
+    body: new Uint8Array(data),
+    headers: { 'Content-Type': 'application/zip' }
+  })
+}
+
+export async function discoverPlugins(dir: string): Promise<DiscoveredPlugin[]> {
+  return await request<DiscoveredPlugin[]>('/api/plugins/discover', {
+    method: 'POST',
+    body: JSON.stringify({ dir })
+  })
+}
+
+export async function probeExternalPlugins(): Promise<ExternalPluginsProbeResult> {
+  return await request<ExternalPluginsProbeResult>('/api/plugins/external-probe')
+}
+
+export async function importExternalPlugin(sourceId: string): Promise<ImportReport> {
+  return await request<ImportReport>('/api/plugins/import-external', {
+    method: 'POST',
+    body: JSON.stringify({ sourceId })
+  })
 }
 
 export async function listTools(): Promise<ToolDef[]> {

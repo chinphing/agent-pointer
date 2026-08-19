@@ -50,6 +50,22 @@ import type { Project } from '../../types/chat'
 /** Lazy: DiffView + markdown preview stay out of the first paint. */
 const WorkspacePanel = defineAsyncComponent(() => import('../workspace/WorkspacePanel.vue'))
 
+// Warm up the lazy chunks in idle time: dev mode compiles the module graph eagerly
+// (otherwise the first panel open / Terminal tab switch waits for Vite to compile
+// DiffView + preview + markdown + xterm on demand, which can take ~1s+), and prod
+// preloads the chunks.
+const warmWorkspacePanel = () => {
+  void import('../workspace/WorkspacePanel.vue')
+  // Terminal is the other lazy tab (xterm is a large dependency) — pre-compile it
+  // so the first Terminal switch does not block on Vite on-demand compilation.
+  void import('../workspace/TerminalPanel.vue')
+}
+if (typeof requestIdleCallback === 'function') {
+  requestIdleCallback(warmWorkspacePanel, { timeout: 2000 })
+} else {
+  setTimeout(warmWorkspacePanel, 1200)
+}
+
 const emit = defineEmits<{
   (e: 'open-settings', section?: string): void
   (e: 'open-automation'): void

@@ -1,12 +1,15 @@
 use crate::text_diff::compute_diff_lines;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -395,8 +398,38 @@ pub fn git_status(workspace_root: &Path) -> Result<Vec<GitChange>> {
     Ok(parse_git_status(&output))
 }
 
+/// Short-lived cache for `git status` results keyed by workspace root.
+///
+/// Spawning `git` is expensive under real-time AV scanning on Windows (the
+/// panel refreshes status on open and on every entry to Changes); the TTL
+/// avoids re-spawning within a few seconds of the last run. Errors are not
+/// cached so a transient failure retries immediately.
+const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
+static GIT_STATUS_CACHE: Mutex<Option<HashMap<String, (Instant, Vec<GitChange>)>>> =
+    Mutex::new(None);
+
 pub fn git_status_response(workspace_root: &Path) -> Result<GitStatusResponse> {
-    match git_status(workspace_root) {
+    let key = workspace_root.to_string_lossy().into_owned();
+    {
+        let cache = GIT_STATUS_CACHE.lock().unwrap();
+        if let Some(entries) = cache.as_ref() {
+            if let Some((at, changes)) = entries.get(&key) {
+                if at.elapsed() < GIT_STATUS_CACHE_TTL {
+                    return Ok(GitStatusResponse {
+                        changes: changes.clone(),
+                        error: None,
+                    });
+                }
+            }
+        }
+    }
+    let result = git_status(workspace_root);
+    if let Ok(changes) = &result {
+        let mut cache = GIT_STATUS_CACHE.lock().unwrap();
+        let entries = cache.get_or_insert_with(HashMap::new);
+        entries.insert(key, (Instant::now(), changes.clone()));
+    }
+    match result {
         Ok(changes) => Ok(GitStatusResponse {
             changes,
             error: None,
@@ -603,7 +636,20 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let output = Command::new("git")
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: git.exe is a console app; without this flag a
+        // black console window flashes when the panel runs git status/diff.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut cmd = Command::new("git");
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    };
+    #[cfg(not(windows))]
+    let mut command = Command::new("git");
+
+    let output = command
         .arg("-C")
         .arg(root)
         .args(args)

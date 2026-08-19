@@ -761,6 +761,7 @@ mod execution_provider_tests {
                 allow_agents: vec![],
                 config: HashMap::new(),
                 ui: AgentUiConfig::default(),
+                plugin_id: None,
             },
             system_prompt: "current prompt".into(),
             skill_ids: vec![],

@@ -352,6 +352,9 @@ pub struct AgentDef {
     /// Optional chat UI visibility overrides.
     #[serde(default)]
     pub ui: AgentUiConfig,
+    /// Plugin provenance: set when the agent is provided by a plugin (P1).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "pluginId")]
+    pub plugin_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -515,6 +518,27 @@ impl AgentRegistry {
         }
         Ok(count)
     }
+
+    /// Remove an agent by exact id. Returns whether it was present.
+    pub fn unregister(&self, id: &str) -> bool {
+        self.inner.write().remove(id.trim()).is_some()
+    }
+
+    /// Remove every agent provided by a plugin (plugin disable/uninstall lifecycle).
+    /// Returns the number of removed agents.
+    pub fn unregister_by_plugin(&self, plugin_id: &str) -> usize {
+        let mut g = self.inner.write();
+        let ids: Vec<String> = g
+            .values()
+            .filter(|a| a.def().plugin_id.as_deref() == Some(plugin_id))
+            .map(|a| a.def().id.clone())
+            .collect();
+        let n = ids.len();
+        for id in ids {
+            g.remove(&id);
+        }
+        n
+    }
 }
 
 pub struct AgentOrchestrator;
@@ -606,8 +630,7 @@ impl AgentOrchestrator {
                 }
             }
         }
-        let session_skill_ids =
-            resolve_skill_ids(&agent, enabled_skill_ids, agent_skill_overrides);
+        let session_skill_ids = resolve_skill_ids(&agent, enabled_skill_ids, agent_skill_overrides);
         let (skill_prompts, session_tools) = skills.progressive_context(&session_skill_ids);
         let allowed_tool_names = resolve_tools(&agent.access_policy, &session_tools, tools);
         let lead_prompt = agents.get(&agent.id).map(|a| a.system_prompt());
@@ -681,6 +704,7 @@ fn default_agent_def() -> AgentDef {
         allow_agents: Vec::new(),
         config: HashMap::new(),
         ui: AgentUiConfig::default(),
+        plugin_id: None,
     })
 }
 
@@ -737,14 +761,13 @@ fn agent_roots() -> Result<Vec<PathBuf>> {
     Ok(roots)
 }
 
-fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
+pub(crate) fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
     if !is_kebab_case_dir(dir) {
         return Err(anyhow!(
             "Agent 目录名必须使用 kebab-case: {}",
             dir.display()
         ));
     }
-
     let manifest_path = dir.join(AGENT_MANIFEST);
     if !manifest_path.exists() {
         return Err(anyhow!("未找到 {}", AGENT_MANIFEST));
@@ -847,6 +870,7 @@ fn manifest_to_agent(
         allow_agents: normalize_allow_agents(&manifest.allow_agents),
         config: manifest.config,
         ui: manifest.ui,
+        plugin_id: None,
     };
 
     Ok(BaseAgent {
@@ -1276,7 +1300,9 @@ mod builtin_agent_tests {
             "communication should require route decision"
         );
         assert!(
-            agent.system_prompt.contains("Step 1 — Apply verify outcome"),
+            agent
+                .system_prompt
+                .contains("Step 1 — Apply verify outcome"),
             "communication should include Verify step"
         );
         assert!(

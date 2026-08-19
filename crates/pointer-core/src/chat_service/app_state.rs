@@ -242,6 +242,76 @@ fn open_conversation_store_with_fallback() -> Arc<crate::conversation_store::Con
     }
 }
 
+/// 按 PluginRegistry 当前状态装配/注销插件能力（幂等）。
+/// - `Enabled` 插件 → [`crate::plugins::activation::activate_plugin`] 注册其工具/skill/agent/rule；
+/// - 其余（Discovered/Disabled/NeedsReauth/Rejected）→ 先按 plugin_id 注销（防止上次残留）。
+fn apply_plugins(
+    tools: &crate::tools::ToolRegistry,
+    skills: &crate::skills::SkillRegistry,
+    agents: &crate::agents::AgentRegistry,
+    extensions: &crate::extensions::ExtensionRegistry,
+    plugins: &crate::plugins::registry::PluginRegistry,
+) {
+    // 目录被外部删除的插件已从 registry 消失（遍历不到），先注销其残留能力。
+    for id in plugins.take_disappeared() {
+        crate::plugins::activation::deactivate_plugin(tools, skills, agents, extensions, &id);
+    }
+    for record in plugins.list() {
+        if record.status == crate::plugins::registry::PluginStatus::Enabled {
+            if let Err(err) = crate::plugins::activation::activate_plugin(
+                tools, skills, agents, extensions, &record,
+            ) {
+                log::warn!("plugin {}: 装配失败: {err:#}", record.id);
+            }
+        } else {
+            crate::plugins::activation::deactivate_plugin(
+                tools, skills, agents, extensions, &record.id,
+            );
+        }
+    }
+}
+
+/// 把当前 Enabled 插件的注册技能幂等合并进 general 的 agentSkillOverrides（落盘）。
+/// 独立自由函数：`AppState::new` 阶段实例尚未构造完成，可直接基于 registry 调用。
+fn reconcile_enabled_plugin_skills(
+    skills: &crate::skills::SkillRegistry,
+    plugins: &crate::plugins::registry::PluginRegistry,
+) -> anyhow::Result<()> {
+    let enabled_ids: Vec<String> = plugins
+        .list()
+        .iter()
+        .filter(|r| r.status == crate::plugins::registry::PluginStatus::Enabled)
+        .map(|r| r.id.clone())
+        .collect();
+    if enabled_ids.is_empty() {
+        return Ok(());
+    }
+    let mut user = crate::storage::load_user_settings().unwrap_or_default();
+    let mut changed = false;
+    for plugin_id in &enabled_ids {
+        let skill_ids: Vec<String> = skills
+            .list()
+            .iter()
+            .filter(|s| s.plugin_id.as_deref() == Some(plugin_id.as_str()))
+            .map(|s| s.id.clone())
+            .collect();
+        let overrides = user
+            .agent_skill_overrides
+            .entry("general".to_string())
+            .or_default();
+        for id in &skill_ids {
+            if !overrides.contains(id) {
+                overrides.push(id.clone());
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        crate::storage::save_user_settings(&user)?;
+    }
+    Ok(())
+}
+
 pub struct AppState {
     pub tools: Arc<ToolRegistry>,
     pub skills: Arc<SkillRegistry>,
@@ -292,6 +362,9 @@ pub struct AppState {
     /// Shared lifecycle hook registry (built-in + host extra). Reused by the
     /// dispatcher so built-in hooks are registered exactly once.
     pub hooks: Arc<crate::dispatcher::HookRegistry>,
+    /// Pointer 原生插件注册表（P1）：发现 / 授权 / 状态机；启用时由
+    /// [`AppState::apply_plugins`] 装配能力到 tools/skills/agents/extensions。
+    pub plugins: Arc<crate::plugins::registry::PluginRegistry>,
 }
 
 impl AppState {
@@ -386,6 +459,24 @@ impl AppState {
         let mut hooks = crate::dispatcher::HookRegistry::new();
         crate::dispatcher::hooks::register_builtin_hooks(&mut hooks);
         let hooks = Arc::new(hooks);
+
+        // Pointer 原生插件（P1）：扫描 + 装配已启用插件到 tools/skills/agents/extensions。
+        let plugins = Arc::new(crate::plugins::registry::PluginRegistry::new());
+        if let Err(err) = plugins.scan() {
+            log::warn!("plugin scan failed: {err:#}");
+        }
+        apply_plugins(&tools, &skills, &agents, &extension_registry, &plugins);
+        // 注意：启动时的插件技能兜底（reconcile）由 server/Tauri 启动流程调用
+        // `init_launch` 完成，避免 AppState::new 写入
+        // user_settings（保持构造无副作用，测试隔离契约）。
+
+        // AGENTS.md 工程指令发现链（根 + 子目录嵌套，子目录优先）。
+        if let Ok(workspace_root) = crate::tools::file::resolve_tool_workspace_root() {
+            crate::plugins::agents_md::register_agents_md_hook(&extension_registry, workspace_root);
+        } else {
+            log::warn!("agents_md: 无法解析 workspace root，跳过 AGENTS.md 注入");
+        }
+
         Self {
             tools,
             skills,
@@ -414,7 +505,228 @@ impl AppState {
             automation_llm_creds: Arc::new(RwLock::new(None)),
             trace_bus,
             hooks,
+            plugins,
         }
+    }
+
+    /// 按 PluginRegistry 当前状态装配已启用插件（幂等）：对每个 `Enabled` 插件
+    /// 注册能力到 tools/skills/agents/extensions；其余状态先按 plugin_id 注销。
+    /// enable/disable/uninstall 后调用（由 server/Tauri 命令层驱动）。
+    pub fn apply_plugins(&self) {
+        apply_plugins(
+            &self.tools,
+            &self.skills,
+            &self.agents,
+            &self.extensions,
+            &self.plugins,
+        );
+    }
+
+    /// 启动兜底（所有入口统一调用）：刷新技能元数据，并把当前 Enabled 插件的
+    /// 技能兜底合并进 general 启用列表。覆盖「旧代码已启用过插件 / 重启后首次
+    /// 加载」场景，使插件技能始终自动启用。
+    /// server / Tauri 启动流程必须经此初始化，避免行为分叉。
+    pub fn init_launch(&self) -> anyhow::Result<usize> {
+        let count = self.skills.reload_meta()?;
+        self.reconcile_enabled_plugin_skills()?;
+        Ok(count)
+    }
+
+    /// 遍历当前 Enabled 插件，把其注册技能幂等合并进 general 的 agentSkillOverrides。
+    fn reconcile_enabled_plugin_skills(&self) -> anyhow::Result<()> {
+        reconcile_enabled_plugin_skills(&self.skills, &self.plugins)
+    }
+
+    /// 授权并启用插件（一次性完成授权 + enable + 装配 + 自动启用其技能）。
+    /// 粒度化：只装配目标插件，避免全量重装配影响其他插件。
+    pub fn plugin_enable(&self, id: &str) -> anyhow::Result<()> {
+        let status = self.plugins.get(id).map(|r| r.status.clone());
+        if let Some(crate::plugins::registry::PluginStatus::Rejected(reason)) = status {
+            return Err(anyhow::anyhow!("插件 {id} 校验失败: {reason}"));
+        }
+        self.plugins.authorize(id)?;
+        self.plugins.enable(id)?;
+        let record = self
+            .plugins
+            .get(id)
+            .ok_or_else(|| anyhow::anyhow!("插件 {id} 不存在"))?;
+        crate::plugins::activation::activate_plugin(
+            &self.tools,
+            &self.skills,
+            &self.agents,
+            &self.extensions,
+            &record,
+        )?;
+        self.auto_enable_plugin_skills(id)?;
+        Ok(())
+    }
+
+    /// 插件启用后，把该插件注册的技能自动加入通用助手的启用列表并落盘，
+    /// 使技能面板显示「已启用」且会话默认加载。
+    /// 插件技能只能由插件 enable/disable 生命周期管理（UI 不可手动切换），
+    /// 因此这里只追加不删除；卸载时由 `remove_plugin_skills_from_overrides` 清理。
+    /// 幂等：仅追加不删除；插件技能未启用时也允许（如只有工具/规则）。
+    fn auto_enable_plugin_skills(&self, plugin_id: &str) -> anyhow::Result<()> {
+        let skill_ids: Vec<String> = self
+            .skills
+            .list()
+            .iter()
+            .filter(|s| s.plugin_id.as_deref() == Some(plugin_id))
+            .map(|s| s.id.clone())
+            .collect();
+        if skill_ids.is_empty() {
+            return Ok(());
+        }
+        let mut user = self.load_user_settings();
+        let overrides = user
+            .agent_skill_overrides
+            .entry("general".to_string())
+            .or_default();
+        let mut changed = false;
+        for id in &skill_ids {
+            if !overrides.contains(id) {
+                overrides.push(id.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            self.save_user_settings(&user)?;
+        }
+        log::info!(
+            "plugin {}: 自动启用 {} 个技能 → general",
+            plugin_id,
+            skill_ids.len()
+        );
+        Ok(())
+    }
+
+    /// 禁用插件并注销其能力（粒度化：只注销目标插件，不动其他插件）。
+    pub fn plugin_disable(&self, id: &str) -> anyhow::Result<()> {
+        self.plugins.disable(id)?;
+        crate::plugins::activation::deactivate_plugin(
+            &self.tools,
+            &self.skills,
+            &self.agents,
+            &self.extensions,
+            id,
+        );
+        Ok(())
+    }
+
+    /// 卸载插件并注销其能力，同时从其技能启用列表中移除插件技能。
+    pub fn plugin_uninstall(&self, id: &str) -> anyhow::Result<()> {
+        // 卸载前收集该插件注册的技能 id（卸载后 registry 已注销，取不到）
+        let plugin_skill_ids: Vec<String> = self
+            .skills
+            .list()
+            .iter()
+            .filter(|s| s.plugin_id.as_deref() == Some(id))
+            .map(|s| s.id.clone())
+            .collect();
+        self.plugins.uninstall(id)?;
+        // uninstall 已把记录从 registry 删除，apply_plugins 遍历不到 → 显式注销能力
+        crate::plugins::activation::deactivate_plugin(
+            &self.tools,
+            &self.skills,
+            &self.agents,
+            &self.extensions,
+            id,
+        );
+        self.remove_plugin_skills_from_overrides(id, &plugin_skill_ids)?;
+        Ok(())
+    }
+
+    /// 卸载插件后，把该插件的技能 id 从所有 agent 的启用列表移除并落盘，
+    /// 避免残留 id 出现在 `<available_skills>` 注入占位。
+    /// 幂等：仅移除不新增；插件技能为空时也允许。
+    fn remove_plugin_skills_from_overrides(
+        &self,
+        plugin_id: &str,
+        skill_ids: &[String],
+    ) -> anyhow::Result<()> {
+        if skill_ids.is_empty() {
+            return Ok(());
+        }
+        let mut user = self.load_user_settings();
+        let mut changed = false;
+        for ids in user.agent_skill_overrides.values_mut() {
+            let before = ids.len();
+            ids.retain(|s| !skill_ids.contains(s));
+            if ids.len() != before {
+                changed = true;
+            }
+        }
+        if changed {
+            self.save_user_settings(&user)?;
+        }
+        log::info!(
+            "plugin {}: 从启用列表移除 {} 个技能",
+            plugin_id,
+            skill_ids.len()
+        );
+        Ok(())
+    }
+
+    /// 从目录批量导入插件（写入 `~/.pointer/plugins/<id>/`），随后重新扫描并装配。
+    /// 导入插件：目录 → 自动识别 Pointer / Codex / Claude 候选批量导入；
+    /// `.zip` 文件 → 解压后同样自动识别导入。返回全部导入报告。
+    pub fn plugin_import(
+        &self,
+        source: &std::path::Path,
+    ) -> anyhow::Result<Vec<crate::plugins::importer::ImportReport>> {
+        let target_root = crate::plugins::user_plugins_dir()?;
+        if source.is_file() {
+            let bytes = std::fs::read(source)
+                .map_err(|e| anyhow::anyhow!("无法读取文件 {}: {e}", source.display()))?;
+            return self.plugin_import_zip(&bytes);
+        }
+        let reports = crate::plugins::importer::import_plugin_directory_all(source, &target_root)?;
+        self.plugins.scan()?;
+        self.apply_plugins();
+        Ok(reports)
+    }
+
+    /// 从 zip 字节导入插件（解压 → 目录导入 → 装配）。
+    pub fn plugin_import_zip(
+        &self,
+        bytes: &[u8],
+    ) -> anyhow::Result<Vec<crate::plugins::importer::ImportReport>> {
+        let target_root = crate::plugins::user_plugins_dir()?;
+        let reports = crate::plugins::importer::import_plugin_zip(bytes, &target_root)?;
+        self.plugins.scan()?;
+        self.apply_plugins();
+        Ok(reports)
+    }
+
+    /// 发现目录（含一层子目录）中的可导入插件候选，供 UI 列出。
+    pub fn plugin_discover(
+        &self,
+        dir: &std::path::Path,
+    ) -> anyhow::Result<Vec<crate::plugins::importer::DiscoveredPlugin>> {
+        crate::plugins::importer::discover_plugin_packages(dir)
+    }
+
+    /// 列出插件记录（发现/授权/启用状态），供 server / Tauri 命令层返回。
+    pub fn plugin_list(&self) -> Vec<crate::plugins::registry::PluginRecord> {
+        self.plugins.list()
+    }
+
+    /// 探测本机外部插件来源（Claude Code / Codex），供「导入」入口列出可导入项。
+    pub fn plugin_probe_external(
+        &self,
+    ) -> anyhow::Result<crate::plugins::external_probe::ExternalPluginsProbeResult> {
+        crate::plugins::external_probe::probe_external_plugin_sources()
+    }
+
+    /// 按来源 id 导入外部插件（转原生格式并装配）。
+    pub fn plugin_import_external(
+        &self,
+        source_id: &str,
+    ) -> anyhow::Result<crate::plugins::importer::ImportReport> {
+        let report = crate::plugins::external_probe::import_external_plugin(source_id)?;
+        self.plugins.scan()?;
+        self.apply_plugins();
+        Ok(report)
     }
 
     /// Persist LLM keys for headless automation (webhook / cron / IM).
@@ -1138,6 +1450,183 @@ mod active_main_task_board_tests {
             _dir: dir,
             _lock: lock,
         }
+    }
+
+    /// 把插件主目录指向临时目录（防测试污染真实 `~/.pointer/plugins`）。
+    /// 返回旧值以便测试结束后恢复。
+    fn isolate_plugins_home() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("temp plugins home");
+        std::env::set_var("POINTER_HOME", tmp.path());
+        tmp
+    }
+
+    /// 插件启用后：其技能自动加入 general 的 agentSkillOverrides（落盘），
+    /// 且来源标注带 plugin_id（前端据此显示「插件 · superpowers」）。
+    #[test]
+    fn plugin_enable_auto_enables_plugin_skills() {
+        let _guard = isolate_app_data_dir();
+        let _plugins_home = isolate_plugins_home();
+        let state = AppState::new();
+
+        // 构造示例插件（含 skills/demo-skill）到用户插件目录
+        let plugins_dir = crate::plugins::user_plugins_dir().expect("plugins dir");
+        let plugin_id = "com.example.auto";
+        crate::plugins::activation::write_example_plugin(&plugins_dir, plugin_id).expect("write");
+
+        state.plugins.scan().expect("scan");
+        state.plugin_enable(plugin_id).expect("enable");
+
+        // 技能已注册且带 plugin_id
+        let skill = state
+            .skills
+            .get("demo-skill")
+            .expect("plugin skill registered");
+        assert_eq!(skill.plugin_id.as_deref(), Some(plugin_id));
+        assert_eq!(skill.provenance, "external");
+
+        // 自动加入 general 启用列表并落盘
+        let user = state.load_user_settings();
+        let general = user
+            .agent_skill_overrides
+            .get("general")
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            general.contains(&"demo-skill".to_string()),
+            "general={general:?}"
+        );
+
+        // 再次 enable 幂等（不重复追加）
+        state.plugin_enable(plugin_id).expect("enable again");
+        let user2 = state.load_user_settings();
+        let general2 = user2
+            .agent_skill_overrides
+            .get("general")
+            .cloned()
+            .unwrap_or_default();
+        let count = general2
+            .iter()
+            .filter(|s| s.as_str() == "demo-skill")
+            .count();
+        assert_eq!(count, 1, "idempotent: general2={general2:?}");
+    }
+
+    /// 禁用后重新启用：技能再次注册回 registry，且仍处于启用状态（幂等恢复）。
+    #[test]
+    fn plugin_disable_then_enable_restores_skills() {
+        let _guard = isolate_app_data_dir();
+        let _plugins_home = isolate_plugins_home();
+        let state = AppState::new();
+
+        let plugins_dir = crate::plugins::user_plugins_dir().expect("plugins dir");
+        let plugin_id = "com.example.auto";
+        crate::plugins::activation::write_example_plugin(&plugins_dir, plugin_id).expect("write");
+
+        state.plugins.scan().expect("scan");
+        state.plugin_enable(plugin_id).expect("enable");
+        assert!(state.skills.get("demo-skill").is_some());
+        assert!(state
+            .load_user_settings()
+            .agent_skill_overrides
+            .get("general")
+            .cloned()
+            .unwrap_or_default()
+            .contains(&"demo-skill".to_string()));
+
+        // 禁用：技能从 registry 注销；启用列表保留（设计：禁用不清理）
+        state.plugin_disable(plugin_id).expect("disable");
+        assert!(state.skills.get("demo-skill").is_none());
+        assert!(state
+            .load_user_settings()
+            .agent_skill_overrides
+            .get("general")
+            .cloned()
+            .unwrap_or_default()
+            .contains(&"demo-skill".to_string()));
+
+        // 重新启用：技能恢复注册 + 仍在启用列表（幂等不重复）
+        state.plugin_enable(plugin_id).expect("enable again");
+        assert!(state.skills.get("demo-skill").is_some());
+        let general = state
+            .load_user_settings()
+            .agent_skill_overrides
+            .get("general")
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            general.contains(&"demo-skill".to_string()),
+            "general={general:?}"
+        );
+        let count = general
+            .iter()
+            .filter(|s| s.as_str() == "demo-skill")
+            .count();
+        assert_eq!(count, 1, "no dup: general={general:?}");
+    }
+
+    /// 卸载插件后：其技能从所有 agent 的 agentSkillOverrides 移除（落盘），
+    /// 技能 registry 注销；重新安装启用可再次自动加入。
+    #[test]
+    fn plugin_uninstall_removes_plugin_skills_from_overrides() {
+        let _guard = isolate_app_data_dir();
+        let _plugins_home = isolate_plugins_home();
+        let state = AppState::new();
+
+        let plugins_dir = crate::plugins::user_plugins_dir().expect("plugins dir");
+        let plugin_id = "com.example.auto";
+        crate::plugins::activation::write_example_plugin(&plugins_dir, plugin_id).expect("write");
+
+        state.plugins.scan().expect("scan");
+        state.plugin_enable(plugin_id).expect("enable");
+
+        // 预置：general 已有 demo-skill；给 coder 也手动加一个
+        {
+            let mut user = state.load_user_settings();
+            let overrides = user
+                .agent_skill_overrides
+                .entry("general".to_string())
+                .or_default();
+            if !overrides.contains(&"demo-skill".to_string()) {
+                overrides.push("demo-skill".to_string());
+            }
+            let coder = user
+                .agent_skill_overrides
+                .entry("coder".to_string())
+                .or_default();
+            coder.push("demo-skill".to_string());
+            coder.push("other-skill".to_string());
+            state.save_user_settings(&user).expect("save");
+        }
+
+        state.plugin_uninstall(plugin_id).expect("uninstall");
+
+        // 技能注册已注销
+        assert!(state.skills.get("demo-skill").is_none());
+
+        // general / coder 中 demo-skill 均被移除，非插件技能保留
+        let user = state.load_user_settings();
+        let general = user
+            .agent_skill_overrides
+            .get("general")
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            !general.contains(&"demo-skill".to_string()),
+            "general={general:?}"
+        );
+        let coder = user
+            .agent_skill_overrides
+            .get("coder")
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            !coder.contains(&"demo-skill".to_string()),
+            "coder={coder:?}"
+        );
+        assert!(
+            coder.contains(&"other-skill".to_string()),
+            "coder={coder:?}"
+        );
     }
 
     #[test]

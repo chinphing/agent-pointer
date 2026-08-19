@@ -470,6 +470,7 @@ mod definition_source_tests {
                 allow_agents: vec![],
                 config: HashMap::new(),
                 ui: AgentUiConfig::default(),
+                plugin_id: None,
             },
             system_prompt: "active prompt".into(),
             skill_ids: vec!["skill-a".into()],
@@ -554,6 +555,7 @@ mod definition_source_tests {
             allow_agents: vec![],
             config: HashMap::new(),
             ui: AgentUiConfig::default(),
+            plugin_id: None,
         };
         let source = SubAgentDefinitionSource::Registered(&task);
         let instance_scope = source.new_instance_scope("run", "conversation");
@@ -593,6 +595,7 @@ mod definition_source_tests {
             allow_agents: vec![],
             config: HashMap::new(),
             ui: AgentUiConfig::default(),
+            plugin_id: None,
         };
         let source = SubAgentDefinitionSource::Registered(&task);
         let instance_scope = source.new_instance_scope("run", "conversation");

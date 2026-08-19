@@ -289,7 +289,8 @@ pub struct ToolEntry {
     pub is_sidecar: bool,
     /// Repo-relative path under `crates/pointer-core/src/` to the tool prompt `.md`.
     /// Dedup key for [`crate::tools_system_appendix::generate_tools_system_appendix`].
-    pub doc_source: &'static str,
+    /// Plugin tools use a dynamic key (`plugin:{plugin_id}:{tool}`) instead of a static path.
+    pub doc_source: std::borrow::Cow<'static, str>,
     pub doc_markdown: String,
     /// Standalone JSON Schema; when present, used instead of extracting from `doc_markdown`
     /// YAML frontmatter. Set when tools are registered from `.schema.yaml` files.
@@ -306,12 +307,14 @@ pub struct ToolEntry {
     pub conflict_class: parallel::ToolConflictClass,
     /// Explicit subagent inheritance policy. `None` defaults to inheritable.
     pub inherit_to_subagent: Option<bool>,
+    /// Plugin provenance: set when the tool is registered by a plugin (P1).
+    pub plugin_id: Option<String>,
 }
 
 impl ToolEntry {
     pub fn new(
         name: impl Into<String>,
-        doc_source: &'static str,
+        doc_source: impl Into<std::borrow::Cow<'static, str>>,
         risk_level: impl Into<String>,
         requires_approval: bool,
         doc_markdown: impl Into<String>,
@@ -331,7 +334,7 @@ impl ToolEntry {
     /// Sidecar-only tools (`task_board`, …): enforced by [`ToolRegistry::is_sidecar_tool`] / envelope validation; long-form docs live in `doc_markdown` (`generate_tools_system_appendix`).
     pub fn new_sidecar(
         name: impl Into<String>,
-        doc_source: &'static str,
+        doc_source: impl Into<std::borrow::Cow<'static, str>>,
         risk_level: impl Into<String>,
         requires_approval: bool,
         doc_markdown: impl Into<String>,
@@ -350,7 +353,7 @@ impl ToolEntry {
 
     fn new_inner(
         name: impl Into<String>,
-        doc_source: &'static str,
+        doc_source: impl Into<std::borrow::Cow<'static, str>>,
         risk_level: impl Into<String>,
         requires_approval: bool,
         is_sidecar: bool,
@@ -365,7 +368,7 @@ impl ToolEntry {
             risk_level: risk_level.into(),
             requires_approval,
             is_sidecar,
-            doc_source,
+            doc_source: doc_source.into(),
             doc_markdown: doc_markdown.into(),
             schema: None,
             handler,
@@ -374,6 +377,7 @@ impl ToolEntry {
             parallel_eligible,
             conflict_class,
             inherit_to_subagent: None,
+            plugin_id: None,
         }
     }
 
@@ -408,12 +412,18 @@ impl ToolEntry {
         self.inherit_to_subagent = Some(inherit);
         self
     }
+
+    /// Mark the tool as provided by a plugin (P1 provenance for allowlist / observability).
+    pub fn with_plugin_id(mut self, plugin_id: impl Into<String>) -> Self {
+        self.plugin_id = Some(plugin_id.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct XmlToolDescriptor {
     pub name: String,
-    pub doc_source: &'static str,
+    pub doc_source: std::borrow::Cow<'static, str>,
     pub doc_markdown: String,
 }
 
@@ -429,6 +439,40 @@ impl ToolRegistry {
 
     pub fn register(&self, entry: ToolEntry) {
         self.inner.write().insert(entry.def.name.clone(), entry);
+    }
+
+    /// Remove a tool by exact registry name. Returns whether it was present.
+    pub fn unregister(&self, name: &str) -> bool {
+        self.inner.write().remove(name).is_some()
+    }
+
+    /// Remove every tool provided by a plugin (plugin disable/uninstall lifecycle).
+    /// Returns the number of removed tools.
+    pub fn unregister_by_plugin(&self, plugin_id: &str) -> usize {
+        let mut g = self.inner.write();
+        let names: Vec<String> = g
+            .values()
+            .filter(|e| e.plugin_id.as_deref() == Some(plugin_id))
+            .map(|e| e.def.name.clone())
+            .collect();
+        let n = names.len();
+        for name in names {
+            g.remove(&name);
+        }
+        n
+    }
+
+    /// Tool names registered by a plugin (for re-register / UI listing).
+    pub fn tool_names_by_plugin(&self, plugin_id: &str) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .inner
+            .read()
+            .values()
+            .filter(|e| e.plugin_id.as_deref() == Some(plugin_id))
+            .map(|e| e.def.name.clone())
+            .collect();
+        names.sort();
+        names
     }
 
     pub fn is_inheritable_to_subagent(&self, name: &str) -> bool {
@@ -522,7 +566,7 @@ impl ToolRegistry {
             .filter(|e| registry_tool_allowed(&e.def.name, allow))
             .map(|e| XmlToolDescriptor {
                 name: e.def.name.clone(),
-                doc_source: e.doc_source,
+                doc_source: e.doc_source.clone(),
                 doc_markdown: e.doc_markdown.clone(),
             })
             .collect();
@@ -567,12 +611,12 @@ impl ToolRegistry {
         let mut source_counts: std::collections::HashMap<&str, usize> =
             std::collections::HashMap::new();
         for e in &allowed {
-            *source_counts.entry(e.doc_source).or_default() += 1;
+            *source_counts.entry(e.doc_source.as_ref()).or_default() += 1;
         }
 
         let mut out: Vec<serde_json::Value> = Vec::new();
         for e in allowed {
-            let peers = *source_counts.get(e.doc_source).unwrap_or(&1);
+            let peers = *source_counts.get(e.doc_source.as_ref()).unwrap_or(&1);
             out.push(openai_tool_entry(
                 &e.def.name,
                 &openai_description_for_entry(&e.def.name, &e.doc_markdown, peers),

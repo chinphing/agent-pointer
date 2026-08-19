@@ -24,10 +24,10 @@ pub fn generate_tools_system_appendix(tools: &ToolRegistry, allow: &[String]) ->
     }
 
     let mut out = String::from("## Tools\n\n");
-    let mut seen_sources = HashSet::new();
+    let mut seen_sources = std::collections::HashSet::new();
 
     for tool in &filtered_tools {
-        if !seen_sources.insert(tool.doc_source) {
+        if !seen_sources.insert(tool.doc_source.clone()) {
             continue;
         }
         append_tool_doc(&mut out, &tool.name, &tool.doc_markdown);

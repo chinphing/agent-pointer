@@ -596,6 +596,7 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
         source: Some(dir.to_string_lossy().to_string()),
         provenance: provenance.as_str().to_string(),
         mutable,
+        plugin_id: None,
     })
 }
 

@@ -67,6 +67,7 @@ pub mod mode_llm;
 pub mod models;
 pub mod observability;
 pub mod platform_config;
+pub mod plugins;
 pub mod provider;
 pub mod shell_env;
 pub mod skills;

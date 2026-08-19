@@ -223,6 +223,7 @@ mod self_fork_preparation_tests {
             allow_agents: vec!["explore".into()],
             config: HashMap::new(),
             ui: AgentUiConfig::default(),
+            plugin_id: None,
         }
     }
 

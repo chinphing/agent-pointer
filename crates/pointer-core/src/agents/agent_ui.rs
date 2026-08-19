@@ -269,6 +269,7 @@ mod tests {
             allow_agents: vec![],
             config: Default::default(),
             ui: AgentUiConfig::default(),
+            plugin_id: None,
         }
     }
 

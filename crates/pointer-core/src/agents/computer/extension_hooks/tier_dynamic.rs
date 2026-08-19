@@ -14,12 +14,12 @@ struct ComputerTierDynamicHook;
 
 #[async_trait]
 impl BeforeMainLlmCallHook for ComputerTierDynamicHook {
-    fn override_key(&self) -> &'static str {
-        "_15_computer_tier_dynamic"
+    fn override_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_15_computer_tier_dynamic")
     }
 
-    fn sort_key(&self) -> &'static str {
-        "_15_computer_tier_dynamic"
+    fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_15_computer_tier_dynamic")
     }
 
     async fn execute(&self, ctx: &mut BeforeMainLlmCallContext<'_>) -> Result<()> {

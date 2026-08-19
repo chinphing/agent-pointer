@@ -14,12 +14,12 @@ pub struct CommonUserDynamicInjectHook;
 
 #[async_trait]
 impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
-    fn override_key(&self) -> &'static str {
-        "_99_common_user_dynamic_inject"
+    fn override_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_99_common_user_dynamic_inject")
     }
 
-    fn sort_key(&self) -> &'static str {
-        "_99_common_user_dynamic_inject"
+    fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_99_common_user_dynamic_inject")
     }
 
     async fn execute(&self, ctx: &mut MessageLoopPromptsAfterContext<'_>) -> Result<()> {

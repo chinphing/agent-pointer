@@ -28,12 +28,12 @@ pub fn append_task_board_dynamic_block(
 
 #[async_trait]
 impl BeforeMainLlmCallHook for TaskBoardSnapshotHook {
-    fn override_key(&self) -> &'static str {
-        "task_board_snapshot"
+    fn override_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("task_board_snapshot")
     }
 
-    fn sort_key(&self) -> &'static str {
-        "_90_task_board_snapshot"
+    fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_90_task_board_snapshot")
     }
 
     async fn execute(&self, ctx: &mut BeforeMainLlmCallContext<'_>) -> Result<()> {

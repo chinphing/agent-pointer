@@ -42,16 +42,33 @@ impl SkillRegistry {
     }
 
     /// Rescan skill directories and refresh external skill metadata in the registry.
+    /// Plugin-provided skills (`plugin_id` set) are preserved across rescans.
     pub fn reload_meta(&self) -> anyhow::Result<usize> {
         let external = external::load_external_skills()?;
         let count = external.len();
         let mut g = self.inner.write();
-        g.retain(|_, s| s.builtin);
+        g.retain(|_, s| s.builtin || s.plugin_id.is_some());
         for skill in external {
             g.insert(skill.id.clone(), skill);
         }
         log::info!("skill_registry: reload_meta loaded {count} external skill(s)");
         Ok(count)
+    }
+
+    /// Remove every skill provided by a plugin (plugin disable/uninstall lifecycle).
+    /// Returns the number of removed skills.
+    pub fn unregister_by_plugin(&self, plugin_id: &str) -> usize {
+        let mut g = self.inner.write();
+        let ids: Vec<String> = g
+            .values()
+            .filter(|s| s.plugin_id.as_deref() == Some(plugin_id))
+            .map(|s| s.id.clone())
+            .collect();
+        let n = ids.len();
+        for id in ids {
+            g.remove(&id);
+        }
+        n
     }
 
     pub fn reload_external(&self) -> anyhow::Result<()> {
@@ -364,6 +381,7 @@ mod tests {
             source: Some("/tmp/skills/pdf".into()),
             provenance: "system".into(),
             mutable: false,
+            plugin_id: None,
         };
         assert_eq!(
             skill_manifest_path(&skill).map(|p| p.to_string_lossy().into_owned()),
@@ -387,6 +405,7 @@ mod tests {
             source: Some("/tmp/demo-skill".into()),
             provenance: "system".into(),
             mutable: false,
+            plugin_id: None,
         });
         let (prompts, tools) = reg.progressive_context(&["demo".into()]);
         assert_eq!(tools.len(), 2);
@@ -427,6 +446,7 @@ mod tests {
             source: Some(skill_dir.to_string_lossy().into_owned()),
             provenance: "user".into(),
             mutable: true,
+            plugin_id: None,
         });
 
         let out = reg
@@ -460,6 +480,7 @@ mod tests {
             source: Some(skill_dir.to_string_lossy().into_owned()),
             provenance: "user".into(),
             mutable: true,
+            plugin_id: None,
         });
 
         let err = reg
@@ -493,6 +514,7 @@ mod tests {
             source: Some(skill_dir.to_string_lossy().into_owned()),
             provenance: "user".into(),
             mutable: true,
+            plugin_id: None,
         });
 
         let out1 = reg.read("live-skill", "SKILL.md").expect("read v1");
@@ -534,6 +556,7 @@ mod tests {
             source: Some(skill_dir.to_string_lossy().into_owned()),
             provenance: "system".into(),
             mutable: false,
+            plugin_id: None,
         });
         let out = reg.read("vid", "SKILL.md").expect("read");
         let expected = format!("{}/scripts/frame.sh", skill_dir.display());
@@ -556,6 +579,7 @@ mod tests {
             source: Some("/opt/skills/vid".into()),
             provenance: "system".into(),
             mutable: false,
+            plugin_id: None,
         });
         let err = reg.read("vid", "  ").expect_err("empty path");
         assert!(err.to_string().contains("缺少 path"));

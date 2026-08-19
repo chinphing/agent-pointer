@@ -727,7 +727,8 @@ pub struct ModelSettings {
         rename = "rawContentViewEnabled"
     )]
     pub raw_content_view_enabled: bool,
-    /// When true, each LLM round writes request `messages` + params under app data `logs/llm_prompts/`.
+    /// When true, each LLM round writes request `messages` + params under
+    /// app data `logs/llm_prompts/{conversationId}/`.
     #[serde(
         default = "default_debug_dump_llm_prompts",
         rename = "debugDumpLlmPrompts"
@@ -2620,6 +2621,9 @@ pub struct SkillDef {
     /// Whether the skill is user-managed (not pinned system copy).
     #[serde(default = "default_skill_mutable", rename = "mutable")]
     pub mutable: bool,
+    /// Plugin provenance: set when the skill is provided by a plugin (P1).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "pluginId")]
+    pub plugin_id: Option<String>,
 }
 
 fn default_skill_provenance() -> String {
@@ -3299,19 +3303,21 @@ mod effective_extra_body_tests {
         let mut s = sample_settings();
         s.model = s.providers[0].models[0].clone();
         s.providers[0].enable_thinking = Some(true);
-        s.providers[0].thinking_budget = Some(100);
+        s.providers[0].thinking_intensity = Some("low".into());
         let m = s.model.clone();
         s.providers[0].model_configs.insert(
             m,
             ModelRuntimeOverrides {
-                thinking_budget: Some(500),
+                thinking_intensity: Some("high".into()),
                 ..Default::default()
             },
         );
         let v = effective_chat_extra_body(&s).expect("merged");
         let o = v.as_object().unwrap();
         assert_eq!(o.get("enable_thinking"), Some(&Value::Bool(true)));
-        assert_eq!(o.get("thinking_budget"), Some(&Value::Number(500.into())));
+        // 档位语义（c6e7d099「执行只认档位」）：model 档位覆盖 provider 档位，
+        // budget 由档位派生（high → 4096），不再透传精确 budget。
+        assert_eq!(o.get("thinking_budget"), Some(&Value::Number(4096.into())));
     }
 
     #[test]

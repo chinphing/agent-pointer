@@ -153,12 +153,12 @@ struct ComputerScreenInject;
 
 #[async_trait]
 impl MessageLoopPromptsAfterHook for ComputerScreenInject {
-    fn override_key(&self) -> &'static str {
-        "_10_computer_screen_inject"
+    fn override_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_10_computer_screen_inject")
     }
 
-    fn sort_key(&self) -> &'static str {
-        "_10_computer_screen_inject"
+    fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("_10_computer_screen_inject")
     }
 
     async fn execute(&self, ctx: &mut MessageLoopPromptsAfterContext<'_>) -> Result<()> {

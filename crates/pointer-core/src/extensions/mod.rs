@@ -76,26 +76,29 @@ pub struct BeforeMainLlmCallContext<'a> {
 #[async_trait]
 pub trait MessageLoopPromptsAfterHook: Send + Sync {
     /// Stable id for **deduplication** (Python: source file basename). Re-registering replaces the prior hook.
-    fn override_key(&self) -> &'static str;
+    /// Plugin hooks use an owned key (`plugin:{id}:rules`) so each plugin replaces only its own.
+    fn override_key(&self) -> std::borrow::Cow<'static, str>;
 
     /// Lexicographic run order within the extension point (Python: `_10_…`, `_75_…`).
-    fn sort_key(&self) -> &'static str;
+    /// `Cow` 允许动态排序键（如插件规则按插件 id 排序，保证多插件顺序稳定）。
+    fn sort_key(&self) -> std::borrow::Cow<'static, str>;
 
     async fn execute(&self, ctx: &mut MessageLoopPromptsAfterContext<'_>) -> Result<()>;
 }
 
 #[async_trait]
 pub trait BeforeMainLlmCallHook: Send + Sync {
-    fn override_key(&self) -> &'static str;
-    fn sort_key(&self) -> &'static str;
+    fn override_key(&self) -> std::borrow::Cow<'static, str>;
+    fn sort_key(&self) -> std::borrow::Cow<'static, str>;
     async fn execute(&self, ctx: &mut BeforeMainLlmCallContext<'_>) -> Result<()>;
 }
 
 /// Registry of extension hooks. Intended as `Arc<ExtensionRegistry>` on [`crate::chat_service::AppState`].
+/// Backed by an internal lock so plugins can register / remove hooks at runtime (`&self`).
 #[derive(Default)]
 pub struct ExtensionRegistry {
-    message_loop_prompts_after: Vec<Arc<dyn MessageLoopPromptsAfterHook>>,
-    before_main_llm_call: Vec<Arc<dyn BeforeMainLlmCallHook>>,
+    message_loop_prompts_after: parking_lot::RwLock<Vec<Arc<dyn MessageLoopPromptsAfterHook>>>,
+    before_main_llm_call: parking_lot::RwLock<Vec<Arc<dyn BeforeMainLlmCallHook>>>,
 }
 
 impl ExtensionRegistry {
@@ -104,29 +107,42 @@ impl ExtensionRegistry {
     }
 
     /// Register a hook, replacing any existing hook with the same `override_key`.
-    pub fn register_message_loop_prompts_after(
-        &mut self,
-        hook: Arc<dyn MessageLoopPromptsAfterHook>,
-    ) {
+    pub fn register_message_loop_prompts_after(&self, hook: Arc<dyn MessageLoopPromptsAfterHook>) {
         let key = hook.override_key();
-        self.message_loop_prompts_after
-            .retain(|h| h.override_key() != key);
-        self.message_loop_prompts_after.push(hook);
+        let mut hooks = self.message_loop_prompts_after.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
     }
 
-    pub fn register_before_main_llm_call(&mut self, hook: Arc<dyn BeforeMainLlmCallHook>) {
+    pub fn register_before_main_llm_call(&self, hook: Arc<dyn BeforeMainLlmCallHook>) {
         let key = hook.override_key();
-        self.before_main_llm_call
-            .retain(|h| h.override_key() != key);
-        self.before_main_llm_call.push(hook);
+        let mut hooks = self.before_main_llm_call.write();
+        hooks.retain(|h| h.override_key() != key);
+        hooks.push(hook);
+    }
+
+    /// Remove a hook by `override_key` (plugin disable / uninstall lifecycle).
+    pub fn remove_message_loop_prompts_after(&self, key: &str) -> bool {
+        let mut hooks = self.message_loop_prompts_after.write();
+        let before = hooks.len();
+        hooks.retain(|h| h.override_key().as_ref() != key);
+        hooks.len() != before
+    }
+
+    /// Remove a hook by `override_key` (plugin disable / uninstall lifecycle).
+    pub fn remove_before_main_llm_call(&self, key: &str) -> bool {
+        let mut hooks = self.before_main_llm_call.write();
+        let before = hooks.len();
+        hooks.retain(|h| h.override_key().as_ref() != key);
+        hooks.len() != before
     }
 
     pub async fn run_message_loop_prompts_after(
         &self,
         ctx: &mut MessageLoopPromptsAfterContext<'_>,
     ) -> Result<()> {
-        let mut hooks: Vec<_> = self.message_loop_prompts_after.iter().cloned().collect();
-        hooks.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut hooks: Vec<_> = self.message_loop_prompts_after.read().clone();
+        hooks.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         for h in hooks {
             h.execute(ctx).await?;
         }
@@ -137,12 +153,22 @@ impl ExtensionRegistry {
         &self,
         ctx: &mut BeforeMainLlmCallContext<'_>,
     ) -> Result<()> {
-        let mut hooks: Vec<_> = self.before_main_llm_call.iter().cloned().collect();
-        hooks.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));
+        let mut hooks: Vec<_> = self.before_main_llm_call.read().clone();
+        hooks.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
         for h in hooks {
             h.execute(ctx).await?;
         }
         Ok(())
+    }
+
+    /// Snapshot of currently registered `MessageLoopPromptsAfter` hooks (tests / observability).
+    pub fn hooks_snapshot(&self) -> Vec<Arc<dyn MessageLoopPromptsAfterHook>> {
+        self.message_loop_prompts_after.read().clone()
+    }
+
+    /// Snapshot of currently registered `BeforeMainLlmCall` hooks (tests / observability).
+    pub fn before_llm_hooks_snapshot(&self) -> Vec<Arc<dyn BeforeMainLlmCallHook>> {
+        self.before_main_llm_call.read().clone()
     }
 }
 
@@ -181,12 +207,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl MessageLoopPromptsAfterHook for CountingHook {
-        fn override_key(&self) -> &'static str {
-            self.key
+        fn override_key(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed(self.key)
         }
 
-        fn sort_key(&self) -> &'static str {
-            self.order
+        fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed(self.order)
         }
 
         async fn execute(&self, _ctx: &mut MessageLoopPromptsAfterContext<'_>) -> Result<()> {
@@ -243,11 +269,11 @@ mod tests {
         }
         #[async_trait::async_trait]
         impl MessageLoopPromptsAfterHook for TagHook {
-            fn override_key(&self) -> &'static str {
-                self.key
+            fn override_key(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed(self.key)
             }
-            fn sort_key(&self) -> &'static str {
-                self.sk
+            fn sort_key(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed(self.sk)
             }
             async fn execute(&self, _ctx: &mut MessageLoopPromptsAfterContext<'_>) -> Result<()> {
                 self.run.lock().unwrap().push(self.tag);

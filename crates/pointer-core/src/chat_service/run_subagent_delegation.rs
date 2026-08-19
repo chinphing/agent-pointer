@@ -838,6 +838,7 @@ mod trace_tests {
             allow_agents: vec![],
             config: HashMap::new(),
             ui: AgentUiConfig::default(),
+            plugin_id: None,
         };
         let scope = AgentInstanceScope::with_instance_id(
             "run",
@@ -912,6 +913,7 @@ mod trace_tests {
             allow_agents: vec![],
             config: HashMap::new(),
             ui: AgentUiConfig::default(),
+            plugin_id: None,
         }
     }
 
@@ -1156,6 +1158,7 @@ mod trace_tests {
                 allow_agents: vec![],
                 config: HashMap::new(),
                 ui: AgentUiConfig::default(),
+                plugin_id: None,
             },
             system_prompt: "active prompt".into(),
             skill_ids: vec![],
@@ -1272,6 +1275,7 @@ mod trace_tests {
                             allow_agents: vec![],
                             config: HashMap::new(),
                             ui: AgentUiConfig::default(),
+                            plugin_id: None,
                         },
                         system_prompt: "active prompt".into(),
                         skill_ids: vec![],

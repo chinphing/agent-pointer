@@ -1,6 +1,6 @@
 # Pointer 插件机制 + 运行监控 设计稿
 
-> 状态：**插件机制已实现（P1：manifest / 导入 / 激活 / 注册表）**；运行监控部分仍为设计。
+> 状态：**插件机制 + 运行监控已实现（P0–P3 + P2b）**；**P4 ③ OtlpExporter 已完成（2026-08-19）**，剩余 ① marketplace / ② Sidecar 高级能力（可选）/ ④ Pointer MCP Server（可选）。
 > 面向插件作者的用户文档见 **[`docs/user/plugins.md`](../user/plugins.md)**；本稿保留设计上下文供实施/扩展参照。
 > 创建：2026-08-18
 > 审查修订：2026-08-18（对照仓库现状逐条核查 + 设计内部一致性审查；修订以"审查注/审查补充"标注）
@@ -423,6 +423,8 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 >
 > **进度（2026-08-19 收尾核对）**：**P2b 全局 MCP 已完成**——`server_config.rs` 新增 `mcp_servers` 段解析 + `PARSED_MCP` 缓存 + `reload_mcp_servers_config`（热重载/桌面兜底）；`McpSessionManager` 预留 key `__global__`，`activate_global_mcp_servers` 复用 connect_stdio/register（全局工具命名 `mcp.<server>.<tool>`，doc_source `plugin:__global__:mcp:...`）；`AppState` 新增 `global_mcp` 配置 + `reload_global_mcp(_from_config)` + `global_mcp_view`；watchdog 全局分支（崩溃自动重启 + degraded）；管理 API（GET /api/mcp、POST /api/mcp/reload|restart）+ Tauri `list_mcp_servers/reload_mcp_servers/restart_mcp_server`；设置面板「MCP」分区（McpPanel）。同名冲突全局优先（plugin_enable 拒绝）。e2e 增至 9 项（全局装配/冲突拒绝/崩溃自动恢复）。全量 `cargo test -p pointer-core --lib` 1366 passed（url_safety 除外）；`pnpm exec vue-tsc --noEmit` 通过。**P0–P2b 完成，剩余 P4 分发与导出（暂缓）。**
 
+> **进度（2026-08-19 更新）**：**P4 ③ OtlpExporter 已完成**——`crates/pointer-core/src/observability/otlp.rs`（OTLP/HTTP + JSON 编码，无 protobuf/grpc 依赖；实现 `TraceExporter` + `build_export_request` 纯函数；trace/span id 优先 uuid-hex 解码、否则 sha256 稳定派生；payload 已由 pipeline 脱敏后导出，导出故障 fail-open）。激活走标准 OTel 环境变量：`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT`（协议仅支持 `http/json`，其余打 warn 跳过）+ `OTEL_SERVICE_NAME`；`start_default()` 检测到 env 时自动追加进 ExporterRegistry。`cargo test -p pointer-core --lib observability::` 18 passed（含本地回环 mock collector 的 HTTP 集成测试；全量 1358 passed，30 个失败为 Windows 预存环境问题，与本次改动无关）。剩余 P4 ① marketplace / ② Sidecar 高级（可选）/ ④ Pointer MCP Server（可选）。
+
 | 阶段 | 内容 | 依赖 | 验收标准 |
 |---|---|---|---|
 | **P0 观测基线** ✅ 已完成（2026-08-18 核对） | ① 接通 `pre/post_tool_call`；② 新增 LLM before/after hook（统一 provider 包装，见 §8.1）；③ 观测 TraceContext（trace_id = run_id，见 §7.1 注 7.1）贯穿 Run→LLM→Tool；④ 异步管道（有界 channel + 后台消费）+ ExporterRegistry（LogExporter）；⑤ 脱敏器；~~⑥ 前端 Run 概览 + 工具耗时详情~~（**用户决策：不做**，见下注） | 无 | 任意 Run 可在结构化日志看到 LLM/Tool/审批/重试 Span，含耗时与 Token；埋点为 try_send 非阻塞，channel 满时丢弃计数不阻塞主循环 |
@@ -430,7 +432,7 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 | **P2 MCP Client（插件内）** ✅ 已完成（2026-08-19 核对） | ① stdio 传输 + initialize/tools/list/tools/call；② `McpToolProvider` 注册（`mcp.<server>.<tool>`）；③ 健康检查 + 崩溃重启；④ `McpRequest` Span；⑤ 审批/allowlist 接入 | P1（前置：同步×异步桥接方案定稿，§6 注 6.1） | 接入一个本地 stdio MCP server，工具可被模型调用，审批生效，Span 可查 |
 | **P2b 全局 MCP（非插件）** ✅ 已完成（2026-08-19 核对） | ① `pointer-server.toml` 新增 `[[mcp_servers.server]]`（结构复用 `McpServerDecl`）；② AppState 启动装配（复用 McpClient + McpSessionManager），工具命名 `mcp.<server>.<tool>`；③ 热更新/重载（server 重启）+ 崩溃重启；④ 设置面板 MCP 管理页（列表/状态/启停/编辑）；⑤ 与插件 MCP 同一审批链路；同名冲突全局优先（§6.1） | P2（客户端与会话管理） | 在 server.toml 配置一个本地 stdio MCP server，启动后工具可被模型调用、UI 可管理，插件启用同名 server 时插件方报错不静默覆盖 |
 | **P3 外部 Hook** ✅ 已完成（2026-08-19 核对） | ① `hooks.json` 执行器（stdin JSON / exit code / JSON 决策）；② PreToolUse 阻断语义（回传通道见 §5 注 5.2）；③ fail-open/fail-closed 策略（entry 级 `fail_closed` 字段，默认 fail-open）；④ `Hook` Span | P0 | 一个 PreToolUse hook 可阻断 terminal 调用并在 UI/trace 显示原因 |
-| **P4 分发与导出** | ① marketplace（GitHub 仓库 + 兼容 Claude `marketplace.json`，安装即走导入转换器）；② Sidecar 高级能力（守护进程管理、热更新，可选；基础版已在 P1）；③ `OtlpExporter`（TraceEvent→OTLP，脱敏后导出，作为 ExporterRegistry 的一个插件实现）；④ 可选：Pointer MCP Server（白名单只读能力） | P1–P3 | 从 GitHub 仓库安装一个 Claude 格式插件（经导入转换后启用）；OTLP 导出到本地 Collector 可验证 |
+| **P4 分发与导出（③ 已完成）** | ① marketplace（GitHub 仓库 + 兼容 Claude `marketplace.json`，安装即走导入转换器）；② Sidecar 高级能力（守护进程管理、热更新，可选；基础版已在 P1）；③ `OtlpExporter` ✅ 已完成（2026-08-19：OTLP/HTTP + JSON，标准 OTel env 激活，见进度注）；④ 可选：Pointer MCP Server（白名单只读能力） | P1–P3 | 从 GitHub 仓库安装一个 Claude 格式插件（经导入转换后启用）；OTLP 导出到本地 Collector 可验证 |
 
 ### P0 前置探索（已完成，审查注 8.1，2026-08-18）
 

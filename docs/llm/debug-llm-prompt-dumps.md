@@ -28,9 +28,10 @@
 
 ## 输出位置与格式
 
-- 目录：`{应用数据目录}/logs/llm_prompts/`
-- 文件：`{unix_ms}_{uuid}.json`
-- 内容：包含时间戳、阶段标签、模型名、流式/温度/max tokens、**合并后的扩展参数**（与线上一致，在根级），以及 `messages` 等；消息里过长的 `data:image/...` 会替换为占位说明以控制体积。
+- 目录：`{应用数据目录}/logs/llm_prompts/{会话ID}/`
+- 文件：`{unix_ms}_{uuid后16位}.json`
+- 无会话 ID 的请求（连通性测试等）写入 `_unscoped` 子目录。
+- 内容：包含时间戳、`conversationId`、阶段标签、模型名、流式/温度/max tokens、**合并后的扩展参数**（与线上一致，在根级），以及 `messages` 等；消息里过长的 `data:image/...` 会替换为占位说明以控制体积。
 
 实现见 `crates/pointer-core/src/llm_prompt_dump.rs`。
 

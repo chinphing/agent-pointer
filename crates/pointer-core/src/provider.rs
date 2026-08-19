@@ -443,6 +443,31 @@ impl OpenAIProvider {
         self
     }
 
+    fn dump_llm_round(
+        &self,
+        label: Option<&str>,
+        phase: &str,
+        stream: bool,
+        max_tokens: u32,
+        messages: &[serde_json::Value],
+    ) {
+        let conversation_id = self
+            .trace
+            .as_ref()
+            .map(|t| t.conversation_id.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        crate::llm_prompt_dump::try_dump_round(
+            &self.settings,
+            conversation_id,
+            label,
+            phase,
+            stream,
+            max_tokens,
+            messages,
+        );
+    }
+
     pub async fn test(&self) -> Result<u128> {
         let start = std::time::Instant::now();
         // 用一次最小化 chat 请求测试连通性
@@ -620,14 +645,7 @@ impl OpenAIProvider {
                 crate::media::model_supports_vision(&self.settings),
                 crate::message_context::LlmHistoryScope::Lead,
             );
-            crate::llm_prompt_dump::try_dump_round(
-                &self.settings,
-                dump_label,
-                "chat_once",
-                false,
-                max_tok,
-                &openai_msgs,
-            );
+            self.dump_llm_round(dump_label, "chat_once", false, max_tok, &openai_msgs);
             let tools_empty = native_tools.is_empty();
             let req = ChatRequest {
                 model: &self.settings.model,
@@ -721,14 +739,7 @@ impl OpenAIProvider {
         let max_tok =
             max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
-        crate::llm_prompt_dump::try_dump_round(
-            &self.settings,
-            dump_label,
-            "chat_once_wire",
-            false,
-            max_tok,
-            &messages,
-        );
+        self.dump_llm_round(dump_label, "chat_once_wire", false, max_tok, &messages);
         let req = ChatRequest {
             model: &self.settings.model,
             messages,
@@ -864,8 +875,7 @@ impl OpenAIProvider {
             wire_messages.push(json!({ "role": "system", "content": sys }));
         }
         wire_messages.extend(messages);
-        crate::llm_prompt_dump::try_dump_round(
-            &self.settings,
+        self.dump_llm_round(
             dump_label,
             "chat_once_wire_schema",
             false,
@@ -986,14 +996,7 @@ impl OpenAIProvider {
                     .map(|p| p.base_url.clone())
                     .unwrap_or_default()
             });
-        crate::llm_prompt_dump::try_dump_round(
-            &self.settings,
-            dump_label,
-            dump_phase,
-            true,
-            max_tok,
-            &wire_messages,
-        );
+        self.dump_llm_round(dump_label, dump_phase, true, max_tok, &wire_messages);
         let stream_options = if stream_include_usage_enabled() {
             Some(json!({"include_usage": true}))
         } else {
@@ -1153,14 +1156,7 @@ impl OpenAIProvider {
                     .map(|p| p.base_url.clone())
                     .unwrap_or_default()
             });
-        crate::llm_prompt_dump::try_dump_round(
-            &self.settings,
-            dump_label,
-            dump_phase,
-            true,
-            max_tok,
-            &wire_messages,
-        );
+        self.dump_llm_round(dump_label, dump_phase, true, max_tok, &wire_messages);
         let stream_options = if stream_include_usage_enabled() {
             Some(json!({"include_usage": true}))
         } else {
@@ -1364,8 +1360,7 @@ impl OpenAIProvider {
         );
         let build_openai_messages_ms = t_build.elapsed().as_millis();
         let api_message_count = openai_msgs.len();
-        crate::llm_prompt_dump::try_dump_round(
-            &self.settings,
+        self.dump_llm_round(
             dump_label,
             "stream_chat",
             true,

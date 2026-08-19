@@ -195,9 +195,31 @@ fn redact_large_images(v: &mut Value) {
     }
 }
 
-/// 写入 `{app_data}/logs/llm_prompts/{ms}_{uuid}.json`（文件名短；`label` / `phase` 在 JSON 内）。
+const UNSCOPED_DUMP_SEGMENT: &str = "_unscoped";
+
+fn dump_file_uuid_suffix() -> String {
+    let hex = uuid::Uuid::new_v4().simple().to_string();
+    hex[hex.len().saturating_sub(16)..].to_string()
+}
+
+/// `{logs/llm_prompts}/{sanitized conversation id}` (Windows-safe; empty id → `_unscoped`).
+pub(crate) fn conversation_dump_segment(conversation_id: Option<&str>) -> String {
+    let Some(raw) = conversation_id.map(str::trim).filter(|s| !s.is_empty()) else {
+        return UNSCOPED_DUMP_SEGMENT.to_string();
+    };
+    let seg = crate::storage::sanitize_storage_dir_segment(raw);
+    if seg.is_empty() {
+        UNSCOPED_DUMP_SEGMENT.to_string()
+    } else {
+        seg
+    }
+}
+
+/// 写入 `{app_data}/logs/llm_prompts/{conversation_id}/{ms}_{uuid16}.json`
+/// （文件名短；uuid 仅后 16 位；`label` / `phase` / `conversationId` 在 JSON 内）。
 pub fn try_dump_round(
     settings: &ModelSettings,
+    conversation_id: Option<&str>,
     label: Option<&str>,
     phase: &str,
     stream: bool,
@@ -211,16 +233,17 @@ pub fn try_dump_round(
         log::warn!("llm_prompt_dump: app data dir unavailable");
         return;
     };
-    let dir = root.join("logs").join("llm_prompts");
+    let conv_seg = conversation_dump_segment(conversation_id);
+    let dir = root.join("logs").join("llm_prompts").join(&conv_seg);
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        log::warn!("llm_prompt_dump: create_dir_all: {e}");
+        log::warn!("llm_prompt_dump: create_dir_all {}: {e}", dir.display());
         return;
     }
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let fname = format!("{}_{}.json", ms, uuid::Uuid::new_v4().simple());
+    let fname = format!("{}_{}.json", ms, dump_file_uuid_suffix());
     let path = dir.join(fname);
 
     let mut msgs: Vec<Value> = messages.to_vec();
@@ -234,6 +257,7 @@ pub fn try_dump_round(
     let extra_body = crate::models::effective_chat_extra_body(settings);
     let mut body = serde_json::json!({
         "dumpedAt": Local::now().to_rfc3339(),
+        "conversationId": conversation_id.unwrap_or(""),
         "phase": phase,
         "label": label.unwrap_or(""),
         "labelStem": label.map(sanitize_stem).unwrap_or_default(),
@@ -301,5 +325,23 @@ mod tests {
             body["messages"][0]["content"].as_str().unwrap(),
             "[omitted decision system prompt, 36 chars, 2 parts]"
         );
+    }
+
+    #[test]
+    fn conversation_dump_segment_sanitizes_im_ids() {
+        assert_eq!(
+            conversation_dump_segment(Some("wecom:default:dm:chat")),
+            "wecom_default_dm_chat"
+        );
+        assert_eq!(conversation_dump_segment(None), "_unscoped");
+        assert_eq!(conversation_dump_segment(Some("  ")), "_unscoped");
+        assert_eq!(conversation_dump_segment(Some("abc-123")), "abc-123");
+    }
+
+    #[test]
+    fn dump_file_uuid_suffix_is_16_hex_chars() {
+        let s = dump_file_uuid_suffix();
+        assert_eq!(s.len(), 16);
+        assert!(s.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

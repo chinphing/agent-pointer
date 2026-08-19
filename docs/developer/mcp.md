@@ -54,12 +54,115 @@ ToolRegistry ── 工具注册 mcp.<server>.<tool>（与插件工具同一审�
 **兼容来源：** `pointer-server.toml` 的 `[[mcp_servers.server]]`（`server_config.rs`
 解析 + `PARSED_MCP` 缓存），**仅当用户配置为空时**读取（`GlobalMcpConfig::from_server_config`）。
 
-### 传输协议
+## 3. 传输协议（stdio 交互详解）
 
-- **stdio**：`Command::spawn` 子进程，stdin/stdout 逐行 JSON-RPC（newline-delimited）；
-  后台读线程按 `id` 分发响应到 `pending` 表；stdout EOF 置死标记供 watchdog。
-- **http（streamable HTTP）**：POST `url`，`Accept: application/json, text/event-stream`；
-  响应解析支持 `application/json` 直读 与 SSE `data:` 事件（取含 `id` 的事件）。
+stdio 传输的完整实现位于 `crates/pointer-core/src/plugins/mcp.rs`。
+
+### 3.1 进程建立
+
+```rust
+// connect_stdio（mcp.rs:93）
+Command::new(command)        // 用户填的启动命令
+    .args(args)              // 命令参数
+    .envs(env)               // 环境变量
+    .current_dir(base_dir)   // 插件目录 / 全局 base_dir
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .spawn()
+```
+
+子进程就是普通进程，**没有网络、没有端口**，通信全靠两根管道。
+
+### 3.2 消息格式（三种，newline-delimited）
+
+**协议 = JSON-RPC 2.0 over stdio，每行一个 JSON 对象**（写端 `serde_json::to_writer`
++ 换行 + flush；读端 `BufReader::lines()` 逐行）。
+
+| 类型 | 报文 | 说明 |
+|------|------|------|
+| 请求 | `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{...}}` | 带 `id`，**必须回响应** |
+| 通知 | `{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}` | **无 `id`**，不回 |
+| 响应 | `{"jsonrpc":"2.0","id":1,"result":{...}}` 或 `"error":{...}` | 回相同 `id` 的响应 |
+
+### 3.3 握手时序（连接时自动完成）
+
+```mermaid
+sequenceDiagram
+  participant P as Pointer (client)
+  participant S as MCP server (stdio 子进程)
+  P->>S: {"id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"pointer","version":"…"}}}
+  S-->>P: {"id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{...}}}
+  P->>S: {"method":"notifications/initialized"}  (无 id，fire-and-forget)
+  P->>S: {"id":2,"method":"tools/list"}
+  S-->>P: {"id":2,"result":{"tools":[...]}}
+  Note over P: 工具注册为 mcp.<server>.<tool>
+```
+
+- 协议版本写死 `MCP_PROTOCOL_VERSION = "2024-11-05"`（mcp.rs:27）
+- `initialize` 超时 `DEFAULT_MCP_HANDSHAKE_TIMEOUT_MS = 15_000`（mcp.rs:31）
+- 握手失败 → 杀进程，装配报错
+
+### 3.4 调用时序（tools/call）
+
+```mermaid
+sequenceDiagram
+  participant P as Pointer
+  participant S as server
+  P->>P: id = next_id++ (AtomicU64 递增)
+  P->>P: pending.insert(id, tx)  注册等待
+  P->>S: {"id":5,"method":"tools/call","params":{"name":"echo","arguments":{"text":"hi"}}}
+  S-->>P: {"id":5,"result":{"content":[{"type":"text","text":"hi"}]}}
+  P->>P: pending.remove(5) → 把 result 交给调用方
+```
+
+关键实现：
+
+- **请求→响应匹配**：写请求前先建 `mpsc channel` 塞进
+  `pending: HashMap<u64, Sender<Value>>`；后台读线程按 `id` 找到对应 `tx` 发过去
+  （mcp.rs:272-283）
+- **超时**：`rx.recv_timeout(60s)`，`tools/call` 默认 `DEFAULT_MCP_CALL_TIMEOUT_MS =
+  60_000`；超时从 pending 移除并报错
+- **调用是纯同步阻塞**，可在 tokio 线程里安全调用（不依赖 async）
+
+### 3.5 后台读线程 + 崩溃处理
+
+```rust
+// spawn_reader（mcp.rs:222）
+for line in BufReader::new(stdout).lines() {
+    // 空行跳过；无 id 的行是服务端主动通知/日志，忽略
+    let id = parsed["id"]? else { continue };
+    if let Some(tx) = pending.remove(&id) { tx.send(parsed); }
+}
+// stdout 关闭 = 进程退出
+alive = false;
+for (_, tx) in pending { tx.send(error{-32000, "MCP server 已退出"}) }
+```
+
+服务端崩溃：进程退出 → stdout EOF → 所有在等响应的调用立即收到 `-32000` 错误 →
+watchdog（2s 周期）发现进程没了 → 指数退避重建，连续失败 5 次进入「运行异常」停手。
+
+### 3.6 最小 server 示例（e2e 里的 demo）
+
+```bash
+#!/bin/bash
+while IFS= read -r line; do
+  if echo "$line" | grep -q '"initialize"'; then
+    echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"demo","version":"1.0"}}}'
+  elif echo "$line" | grep -q '"tools/list"'; then
+    echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo",...}]}}'
+  elif echo "$line" | grep -q '"tools/call"'; then
+    echo '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"pong"}]}}'
+  fi
+done
+```
+
+> 真实 server 必须回**相同 id**（demo 脚本偷懒写死）；用 `tools/call` 请求里的 id
+> 原样返回即可。任何语言实现都行：逐行读 stdin、逐行回 stdout。
+
+### 3.7 http（streamable HTTP，概要）
+
+POST `url`，`Accept: application/json, text/event-stream`；响应解析支持
+`application/json` 直读 与 SSE `data:` 事件（取含 `id` 的事件）。
 
 > ⚠️ **async 安全**：`reqwest::blocking::Client` 内部持有 tokio runtime，在 tokio
 > 异步上下文（axum handler / `#[tokio::test]`）创建会 panic。因此 HTTP 请求在
@@ -67,7 +170,7 @@ ToolRegistry ── 工具注册 mcp.<server>.<tool>（与插件工具同一审�
 > 已知限制：每次调用独立线程 + 独立连接，无连接复用；工具调用频率低时可接受，
 > 若远程服务成为主力路径再评估连接池。
 
-## 3. 生命周期
+## 4. 生命周期
 
 | 环节 | 行为 |
 |------|------|
@@ -76,13 +179,13 @@ ToolRegistry ── 工具注册 mcp.<server>.<tool>（与插件工具同一审�
 | watchdog | `mcp_watchdog_cycle`（2s 周期）：会话不存在或全部进程退出 → 重建（指数退避）；连续失败 ≥ `MAX_MCP_RESTART_FAILURES`(5) → degraded（停止自动重启） |
 | 关闭 | `McpSessionManager::shutdown_plugin`（幂等）；`McpClient::drop` → kill 子进程 / 置死标记 |
 
-## 4. 命名与冲突
+## 5. 命名与冲突
 
 - 工具命名：`mcp.<server>.<tool>`（与插件裸工具名区分）
 - `doc_source`：`plugin:__global__:mcp:<server>:<tool>`（全局）/ `plugin:<id>:mcp:<server>:<tool>`（插件）
 - **同名冲突全局优先**：全局 server 先注册；插件启用同名 server 时 `plugin_enable` 拒绝（不静默覆盖）
 
-## 5. 管理 API
+## 6. 管理 API
 
 ### HTTP（web / 本地服务）
 
@@ -103,7 +206,7 @@ ToolRegistry ── 工具注册 mcp.<server>.<tool>（与插件工具同一审�
 服务列表 + 状态 + 添加/编辑/删除弹窗（连接方式二选一：远程服务 URL / 本机程序命令）。
 API 适配：`src/lib/api.ts` / `tauri.ts` / `web.ts`（`listMcpServers` / `saveMcpServers` / `restartMcpServer`）。
 
-## 6. 测试
+## 7. 测试
 
 `crates/pointer-core/src/plugins/e2e_tests.rs`（`cargo test -p pointer-core --lib plugins::e2e_tests`）：
 

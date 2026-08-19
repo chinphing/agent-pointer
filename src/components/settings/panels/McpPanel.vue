@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Plug, RefreshCw, Plus, Pencil, Trash2, X, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { Plug, RefreshCw, Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, Eye } from 'lucide-vue-next'
 import { listMcpServers, saveMcpServers, restartMcpServer } from '../../../lib/api'
 import type { GlobalMcpView, GlobalMcpServerView, McpServerDecl } from '../../../types/mcp'
 
@@ -33,6 +33,8 @@ function displayTarget(s: GlobalMcpServerView): string {
 /** 弹窗状态：null=关闭；'new'=新增；index=编辑第几项。 */
 const modalOpen = ref(false)
 const editingIndex = ref<null | 'new' | number>(null)
+/** 工具列表弹窗：正在查看哪个服务。 */
+const toolsModal = ref<GlobalMcpServerView | null>(null)
 /** 连接方式：http=远程服务；stdio=本机命令 */
 const connType = ref<'http' | 'stdio'>('http')
 const form = ref<McpServerDecl>({ name: '', transport: 'http', command: '', args: [], env: {}, url: '', headers: null })
@@ -142,7 +144,8 @@ async function save() {
         args: [],
         env: {},
         url: form.value.url.trim(),
-        headers: Object.keys(headers).length ? headers : null
+        headers: Object.keys(headers).length ? headers : null,
+        tools: []
       }
     } else {
       if (!form.value.command.trim()) {
@@ -158,7 +161,8 @@ async function save() {
         restartCount: 0,
         lastError: null,
         args: parseArgs(argsText.value),
-        env: parseEnv(envText.value)
+        env: parseEnv(envText.value),
+        tools: []
       }
     }
     const servers = [...view.value.servers]
@@ -323,6 +327,15 @@ onMounted(() => {
             type="button"
             class="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors"
             :disabled="saving"
+            title="查看工具"
+            @click="toolsModal = s"
+          >
+            <Eye class="w-4 h-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors"
+            :disabled="saving"
             title="编辑"
             @click="openEdit(index)"
           >
@@ -445,6 +458,61 @@ onMounted(() => {
               @click="save"
             >
               {{ saving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 工具列表弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="toolsModal"
+        class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-foreground/32 p-4"
+        role="presentation"
+        @click.self="toolsModal = null"
+      >
+        <div class="w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
+          <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
+            <div class="min-w-0">
+              <h4 class="text-sm font-semibold text-foreground">{{ toolsModal.name }} · 工具列表</h4>
+              <p class="mt-0.5 text-[11px] text-muted">已注册的工具可被对话中的模型直接调用</p>
+            </div>
+            <button
+              type="button"
+              class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
+              title="关闭"
+              @click="toolsModal = null"
+            >
+              <X class="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+
+          <div class="px-5 py-4 overflow-y-auto flex flex-col gap-2">
+            <div
+              v-if="toolsModal.tools.length === 0"
+              class="text-sm text-muted py-6 text-center"
+            >
+              {{ toolsModal.status === 'healthy' ? '该服务当前未注册任何工具' : '服务未连接，暂无工具列表' }}
+            </div>
+            <div
+              v-for="t in toolsModal.tools"
+              :key="t.name"
+              class="rounded-lg border border-border bg-hover/50 px-3 py-2"
+            >
+              <div class="text-xs font-mono font-medium text-foreground break-all">{{ t.name }}</div>
+              <p v-if="t.description" class="mt-1 text-[11px] text-muted leading-relaxed whitespace-pre-line">{{ t.description }}</p>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 shrink-0">
+            <span class="text-[11px] text-muted mr-auto">{{ toolsModal.tools.length }} 个工具</span>
+            <button
+              type="button"
+              class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
+              @click="toolsModal = null"
+            >
+              关闭
             </button>
           </div>
         </div>

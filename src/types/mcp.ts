@@ -3,6 +3,12 @@
  * 对应 Rust `pointer_core::chat_service::app_state::GlobalMcpView`。
  */
 
+/** 单个 MCP 工具简要信息（注册后可见；对应 Rust McpToolBrief）。 */
+export interface McpToolBrief {
+  name: string
+  description: string
+}
+
 export interface GlobalMcpServerView {
   name: string
   command: string
@@ -15,6 +21,8 @@ export interface GlobalMcpServerView {
   env: Record<string, string>
   url?: string | null
   headers?: Record<string, string> | null
+  /** 该服务当前已注册的工具（未连接/注册失败时为空数组） */
+  tools: McpToolBrief[]
 }
 
 export interface GlobalMcpView {

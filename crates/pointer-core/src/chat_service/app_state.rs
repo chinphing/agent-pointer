@@ -510,6 +510,8 @@ pub struct GlobalMcpServerView {
     pub env: HashMap<String, String>,
     pub url: Option<String>,
     pub headers: Option<HashMap<String, String>>,
+    /// 该 server 当前已注册的工具（未连接/注册失败时为空）。
+    pub tools: Vec<crate::tools::McpToolBrief>,
 }
 
 /// P2b：全局 MCP 总览（decls + 运行状态）。
@@ -828,6 +830,7 @@ impl AppState {
                 env: d.env.clone(),
                 url: d.url.clone(),
                 headers: d.headers.clone(),
+                tools: self.tools.mcp_tools_for_server(GLOBAL_MCP_KEY, &d.name),
             })
             .collect();
         GlobalMcpView {

@@ -260,6 +260,36 @@ pub fn normalize_allowed_tool_names(
     names.dedup();
 }
 
+/// MCP 工具简要信息（UI 展示用）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolBrief {
+    pub name: String,
+    pub description: String,
+}
+
+impl ToolRegistry {
+    /// 某 MCP server（plugin_id + server 名）当前已注册的工具。
+    /// 按 doc_source `plugin:{plugin_id}:mcp:{server}:{tool}` 前缀匹配。
+    pub fn mcp_tools_for_server(&self, plugin_id: &str, server: &str) -> Vec<McpToolBrief> {
+        let g = self.inner.read();
+        let prefix = format!("plugin:{plugin_id}:mcp:{server}:");
+        let mut out: Vec<McpToolBrief> = g
+            .values()
+            .filter(|e| {
+                e.plugin_id.as_deref() == Some(plugin_id)
+                    && e.doc_source.starts_with(prefix.as_str())
+            })
+            .map(|e| McpToolBrief {
+                name: e.def.name.clone(),
+                description: e.doc_markdown.clone(),
+            })
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    }
+}
+
 /// Registry tool id (trimmed); must match the flat name registered in [`ToolRegistry`].
 pub fn registry_tool_base_name(raw: &str) -> &str {
     raw.trim()

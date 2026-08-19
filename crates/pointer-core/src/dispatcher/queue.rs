@@ -388,55 +388,53 @@ impl LaneRegistryInner {
         cancel: CancellationToken,
         meta: QueueWaitMeta,
     ) -> Result<LaneSlotGuard, QueueError> {
-        loop {
-            if cancel.is_cancelled() {
+        if cancel.is_cancelled() {
+            return Err(QueueError::Cancelled);
+        }
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let need_wait = {
+            let mut lanes = self.lanes.lock();
+            let max = self.max_for_lane(lane);
+            let state = lanes
+                .entry(lane.to_string())
+                .or_insert_with(|| LaneState::new(max));
+            state.max_concurrent = max;
+            if state.active < state.max_concurrent {
+                state.active += 1;
+                false
+            } else {
+                state.queue.push_back(QueuedEntry {
+                    cancel: cancel.clone(),
+                    waker: tx,
+                    meta,
+                });
+                true
+            }
+        };
+
+        if !need_wait {
+            return Ok(LaneSlotGuard {
+                lane: lane.to_string(),
+                registry: Arc::clone(self),
+            });
+        }
+
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => {
+                self.purge_cancelled_waiters(lane);
                 return Err(QueueError::Cancelled);
             }
-
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            let need_wait = {
-                let mut lanes = self.lanes.lock();
-                let max = self.max_for_lane(lane);
-                let state = lanes
-                    .entry(lane.to_string())
-                    .or_insert_with(|| LaneState::new(max));
-                state.max_concurrent = max;
-                if state.active < state.max_concurrent {
-                    state.active += 1;
-                    false
-                } else {
-                    state.queue.push_back(QueuedEntry {
-                        cancel: cancel.clone(),
-                        waker: tx,
-                        meta,
+            res = rx => match res {
+                Ok(()) => {
+                    return Ok(LaneSlotGuard {
+                        lane: lane.to_string(),
+                        registry: Arc::clone(self),
                     });
-                    true
                 }
-            };
-
-            if !need_wait {
-                return Ok(LaneSlotGuard {
-                    lane: lane.to_string(),
-                    registry: Arc::clone(self),
-                });
-            }
-
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => {
-                    self.purge_cancelled_waiters(lane);
-                    return Err(QueueError::Cancelled);
-                }
-                res = rx => match res {
-                    Ok(()) => {
-                        return Ok(LaneSlotGuard {
-                            lane: lane.to_string(),
-                            registry: Arc::clone(self),
-                        });
-                    }
-                    Err(_) => return Err(QueueError::Closed),
-                },
-            }
+                Err(_) => return Err(QueueError::Closed),
+            },
         }
     }
 

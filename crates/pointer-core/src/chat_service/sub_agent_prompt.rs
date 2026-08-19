@@ -289,8 +289,15 @@ pub(super) fn init_sub_agent_session(
         spawn_capability,
     ));
 
+    let tools_prep = Instant::now();
     let tools_system_appendix =
         crate::tools_system_appendix::generate_tools_system_appendix(&state.tools, &allowed_tools);
+    crate::logging::log_phase_elapsed_extra(
+        "sub_agent_tools_appendix",
+        conversation_id,
+        tools_prep.elapsed().as_millis(),
+        &format!("appendix_chars={}", tools_system_appendix.len()),
+    );
     let tool_approval_mode = state.effective_settings().tool_approval_mode;
     let linkage =
         build_sub_agent_linkage(anchor_message_id, task, &def, &instance_scope, spawn_depth);
@@ -354,6 +361,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: sub_task_board_key,
         user_dynamic_inject_enabled,
+        workspace_root: workspace_root.trim(),
     };
     let t = Instant::now();
     state

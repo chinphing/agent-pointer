@@ -18,7 +18,7 @@
 
 | 根 | 说明 |
 |----|------|
-| 工作区 | 会话 `workspaceRoot` 或进程 cwd |
+| 工作区 | 会话 `workspaceRoot`（不使用进程 cwd） |
 | 用户主目录 | `dirs::home_dir()`，`~` 会展开到此 |
 | 系统临时目录 | `std::env::temp_dir()`（含 `TMPDIR` 等） |
 | 用户数据 / 配置 / 缓存 | `dirs::data_dir()`、`config_dir()`、`cache_dir()` |

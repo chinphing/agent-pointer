@@ -63,6 +63,21 @@ On conversation delete, Pointer removes:
 
 It does **not** remove a shared user sandbox `{session-sandboxes}/{session_user_id}/`.
 
+## AGENTS.md scan vs session workspace
+
+Each LLM round, the `AGENTS.md` hook scans **`settings.workspace_root`** (the path from `ensure_workspace_at_run_start`: user project or session sandbox). It does not use process `cwd`.
+
+Empty workspace or a filesystem root (`/` / `C:\`) is skipped. Nested walks still ignore `Volumes` / `mnt` / `media` and generated dirs (`node_modules`, `.git`, …).
+
+`resolve_tool_workspace_root()` (file / terminal / `read_lints` / workspace plugins) uses the conversation override or settings `workspaceRoot` only. It does **not** fall back to process `cwd`.
+
+Logs:
+
+- `agents_md: registered hook (scan conversation workspace_root each round)` at process start
+- `agents_md: scan conversation_id=... root=... elapsed_ms=... dirs_visited=... files=... injected=...` on each prompt round (`warn` if `elapsed_ms >= 1000`)
+- Per-hook and other pre-stream phases: `phase_timing: phase=... conversation_id=... elapsed_ms=...`
+- After HTTP POST: `stream_chat: http_until_headers_ms=...` then `stream_chat: first_token_ms=...`
+
 ## Related
 
 - [session-user-id.md](session-user-id.md) — how `session_user_id` is set

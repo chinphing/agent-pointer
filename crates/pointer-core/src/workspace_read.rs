@@ -11,6 +11,13 @@ use std::process::{Command, Output};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// 子进程不创建控制台窗口（避免 Windows 上 git 命令闪现黑框 / 拖慢工作区面板）。
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceEntry {
@@ -636,25 +643,13 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(root).args(args);
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     #[cfg(windows)]
-    let mut command = {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: git.exe is a console app; without this flag a
-        // black console window flashes when the panel runs git status/diff.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let mut cmd = Command::new("git");
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd
-    };
-    #[cfg(not(windows))]
-    let mut command = Command::new("git");
-
-    let output = command
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .output()
-        .map_err(git_spawn_error)?;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().map_err(git_spawn_error)?;
     parse_git_output(output)
 }
 

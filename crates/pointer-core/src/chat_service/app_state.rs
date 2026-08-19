@@ -111,9 +111,10 @@ impl FileWriteLockManager {
         let absolute = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            std::env::current_dir()
-                .map_err(|error| anyhow::anyhow!("无法解析文件锁工作目录: {error}"))?
-                .join(path)
+            let root = crate::tools::file::resolve_tool_workspace_root().map_err(|error| {
+                anyhow::anyhow!("无法解析文件锁工作目录: {error}")
+            })?;
+            root.join(path)
         };
         // Callers (file_write/file_edit) must pass already-resolved paths.
         // Strip `.` and reject `..` before walking parents so missing targets
@@ -686,12 +687,8 @@ impl AppState {
         // `init_launch` 完成，避免 AppState::new 写入
         // user_settings（保持构造无副作用，测试隔离契约）。
 
-        // AGENTS.md 工程指令发现链（根 + 子目录嵌套，子目录优先）。
-        if let Ok(workspace_root) = crate::tools::file::resolve_tool_workspace_root() {
-            crate::plugins::agents_md::register_agents_md_hook(&extension_registry, workspace_root);
-        } else {
-            log::warn!("agents_md: 无法解析 workspace root，跳过 AGENTS.md 注入");
-        }
+        // AGENTS.md: scan the per-round conversation workspace (not process cwd).
+        crate::plugins::agents_md::register_agents_md_hook(&extension_registry);
 
         let state = Self {
             tools,

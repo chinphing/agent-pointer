@@ -41,6 +41,9 @@
   - `message_loop_prompts_after`
   - `before_main_llm_call`
 - 运行时对列表快照按 `sort_key` 排序后依次 `execute`；错误通过 `anyhow::Result` 向上传播，可中断本轮请求。
+- 每个钩子执行后写 `phase_timing: phase=message_loop_prompts_after_hook` / `before_main_llm_call_hook`（含 `key=`）；合计写 `*_total`。超过 1 秒为 `warn`。
+
+其它发流前阶段（登录刷新、余额、工作区、附件、工具 schema）同样走 `phase_timing:`，见 [`workspace-root.md`](workspace-root.md#agentsmd-scan-vs-session-workspace)。
 
 ### 3.2 `override_key` 与 `sort_key`
 
@@ -67,6 +70,7 @@
 | `stream` | 可选的 `ChatStreamSender`；若存在，钩子可发送 **`StreamEvent::UiToast`**（仅界面横幅提醒，**不**写入聊天记录、**不**进入模型 payload）。 |
 | `round_assistant_message_id` | 可选；本轮助手消息 id（与主循环 `MessageStart` 一致，或 Supervisor 子任务下**父级**助手气泡 id）。注入用它发送 **`StreamEvent::AssistantRoundScreen`**。 |
 | `round_screen_dump_prefix` | 可选；落盘调试图时的文件名前缀，缺省同 `round_assistant_message_id`。子 Agent 每轮迭代用自己的 id，避免与父消息 id 混用。 |
+| `workspace_root` | 本轮会话工作区（`ensure_workspace_at_run_start` 之后）。`AGENTS.md` 只扫这个目录。 |
 
 **`StreamEvent::AssistantRoundScreen`** 只携带 `annotatedRelPath`（相对于与设置/技能相同的应用数据根目录下的 `PointerApp/computer-captures/`；**仅 `debugMenusEnabled` 调试模式**时落盘），避免把大图 base64 塞进流与内存；UI 在点击预览时读盘：**Tauri** 用 `preview_computer_round_screen`，**pointer-server** 用 `GET /api/computer/round-screen-preview?relPath=…`（与 `GET /api/computer/annotated-preview` 对应 Tauri 的 `preview_computer_annotated_screen`）。**桌面端与 server 端启动时**都会执行相同的 **7 天**截图目录清理（`capture_debug::CAPTURE_RETENTION_DAYS`），若有删除则向事件总线发送 **`UiToast`**（`conversationId` 为空 = 全局「截图过期已清理」）。
 

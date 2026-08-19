@@ -498,6 +498,7 @@ mod tests {
             task_board_store: Arc::new(crate::task_board::TaskBoardStore::new()),
             task_board_store_key: "test",
             user_dynamic_inject_enabled: true,
+            workspace_root: "",
         };
 
         // 取出 rules hook 手动执行（模拟 run_message_loop_prompts_after）

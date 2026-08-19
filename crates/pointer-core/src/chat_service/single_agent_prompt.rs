@@ -42,6 +42,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: main_task_board_store_key,
         user_dynamic_inject_enabled: settings.user_dynamic_inject_enabled,
+        workspace_root: settings.workspace_root.trim(),
     };
     let t = Instant::now();
     state

@@ -1121,15 +1121,15 @@ fn resolve_tools(
     tools: &ToolRegistry,
 ) -> Vec<String> {
     let mut names = if policy.allow_tools.is_empty() {
-        let mut base = session_tools.to_vec();
-        // 全局 MCP 工具默认对话可见（注册即生效，与 McpPanel 文案一致）
-        base.extend(tools.global_mcp_tool_names());
-        base.sort();
-        base.dedup();
-        base
+        session_tools.to_vec()
     } else {
         policy.allow_tools.clone()
     };
+    // 全局 MCP 工具默认对所有 agent 可见（用户主动添加的外部服务，注册即生效；
+    // 可通过 denyTools 排除）。
+    names.extend(tools.global_mcp_tool_names());
+    names.sort();
+    names.dedup();
     let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
     let deny: HashSet<_> = policy.deny_tools.iter().cloned().collect();
     names.retain(|name| {
@@ -1284,15 +1284,27 @@ mod builtin_agent_tests {
             "插件裸名工具不应被默认加入，got: {names:?}"
         );
 
-        // 显式 allow_tools 时不自动加入（用户自定义白名单决定）
+        // 显式 allow_tools 时也默认加入（general agent 白名单非空，用户主对话场景）
         let policy = AccessPolicy {
             allow_tools: vec!["terminal".into()],
             ..Default::default()
         };
         let names = resolve_tools(&policy, &[], &tools);
         assert!(
+            names.contains(&"mcp.查询技术文档.query-docs".to_string()),
+            "显式 allow_tools 时也应默认加入 MCP 工具，got: {names:?}"
+        );
+
+        // denyTools 可排除 MCP 工具
+        let policy = AccessPolicy {
+            allow_tools: vec!["terminal".into()],
+            deny_tools: vec!["mcp.查询技术文档.query-docs".into()],
+            ..Default::default()
+        };
+        let names = resolve_tools(&policy, &[], &tools);
+        assert!(
             !names.contains(&"mcp.查询技术文档.query-docs".to_string()),
-            "显式 allow_tools 时不应自动加入 MCP 工具，got: {names:?}"
+            "denyTools 应能排除 MCP 工具，got: {names:?}"
         );
     }
 

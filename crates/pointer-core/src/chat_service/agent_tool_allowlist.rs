@@ -8,15 +8,15 @@ pub(crate) fn resolve_agent_tools(
     tools: &ToolRegistry,
 ) -> Vec<String> {
     let mut names = if agent.access_policy.allow_tools.is_empty() {
-        let mut base = session_tools.to_vec();
-        // 全局 MCP 工具默认对话可见（注册即生效，与主对话 resolve_tools 一致）
-        base.extend(tools.global_mcp_tool_names());
-        base.sort();
-        base.dedup();
-        base
+        session_tools.to_vec()
     } else {
         agent.access_policy.allow_tools.clone()
     };
+    // 全局 MCP 工具默认对所有 agent 可见（用户主动添加的外部服务，注册即生效；
+    // 可通过 denyTools 排除）。
+    names.extend(tools.global_mcp_tool_names());
+    names.sort();
+    names.dedup();
     let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
     let deny: HashSet<_> = agent.access_policy.deny_tools.iter().cloned().collect();
     names.retain(|name| {

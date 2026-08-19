@@ -10,7 +10,7 @@
 
 ## 0. 目标
 
-1. **插件机制**：Pointer 拥有自己的原生插件注册格式（`pointer-plugin.toml`，**唯一运行时格式**）；Codex / Claude Code 插件通过**导入**（一次性转换为原生格式）支持，不直接运行时加载其格式；能力单元（Skills、MCP、Hooks、Subagents、Rules、AGENTS.md）统一由 Pointer 内部模型承载。
+1. **插件机制**：Pointer 拥有自己的原生插件注册格式（`pointer-plugin.toml`，**唯一运行时格式**）；Codex / Claude Code 插件通过**导入**（一次性转换为原生格式）支持，不直接运行时加载其格式；能力单元（Skills、MCP、Hooks、Subagents、Rules、AGENTS.md）统一由 Pointer 内部模型承载；MCP 除插件声明外，另支持**非插件全局配置**（独立于插件启停），见 §6.1 与阶段表 P2b。
 2. **运行监控**：LangChain4j 式全链路观测——一次 Run 内 LLM 调用、工具调用、审批、重试、插件来源、耗时、Token、错误可追踪；**只做 trace 语义 + 异步非阻塞管道 + 可插拔 Exporter**（默认日志 + 实时事件/前端时间线）；OTel（OTLP）是 Exporter 之一，P4 可选；SQLite 持久化不做，未来按需以 `SqliteExporter` 补充。
 
 ## 1. 现状基线（调研结论）
@@ -268,6 +268,17 @@ running/enabled → disabled（用户关闭 / 版本不兼容）
 
 > 审查注 6.1（2026-08-18）：**同步 handler × 异步 MCP 桥接**：`ToolHandler` 是同步闭包（`tools/mod.rs:34`），而 MCP `tools/call` 是异步进程 I/O。桥接方案（P2 前置决策）：MCP 调用在独立异步任务中执行，handler 内经 oneshot channel + 超时（如 60s）等待结果后同步返回；同步等待会短暂占用 wave 执行器，接受该约束（超时上限 + 并发信号量控制），**不改动** `ToolRegistry::invoke` 现有同步接口（最小改动原则）。若未来 MCP 工具成为主要路径，再评估引入 async invoke 链（单独 RFC）。
 
+### 6.1 全局 MCP（非插件，P2b）
+
+> 审查补充（2026-08-19）：原稿 MCP 仅作为插件能力单元（§0 目标 1、§4.1）。用户确认增加**非插件全局 MCP**：不装插件、直接在配置里挂 MCP server，独立于插件启停。
+
+- 配置载体：`pointer-server.toml` 新增 `[[mcp_servers.server]]`（结构与插件 `McpServerDecl` 一致：name / transport / command / args / env）；桌面端与 Web 共用同一 server 配置；
+- 装配：AppState 启动时从配置加载并启动 server（复用 `McpClient::connect_stdio` + `McpSessionManager`），工具注册命名空间与插件 MCP 一致 `mcp.<server>.<tool>`；
+- 生命周期：**不绑定插件启用状态**；支持配置热更新/重载（server 重启）；崩溃重启与 `degraded` 语义同 §6；
+- 冲突：全局配置在启动时先注册；插件启用同名 server（同 `<server>`）时插件方注册被拒并报错，避免静默覆盖；
+- 安全：与插件 MCP 同一 approval gate + allowlist 链路；
+- UI：设置面板新增「MCP」管理页（server 列表 + 状态 + 启动/停止/编辑，编辑后热重载）。
+
 ## 7. 监控设计（LangChain4j 式）
 
 ### 7.1 Trace 模型
@@ -403,12 +414,15 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 > **进度（2026-08-18 核对）**：**P0 观测基线已完成**——Rust 侧 ①–⑤ 全部落地（`crates/pointer-core/src/observability/`：trace / pipeline / exporters / redact，埋点覆盖 LLM、Tool、审批、重试，含单测）。**⑥ 前端 Run 概览 + 工具耗时详情经用户决策不做**（P0 范围收敛为日志侧观测，不引入 RealtimeExporter 与前端时间线端点）。
 >
 > **进度（2026-08-19 核对）**：**P1 插件核心已完成**——`crates/pointer-core/src/plugins/`（manifest / registry / activation / tool_provider / importer / agents_md）；ToolEntry 增 `plugin_id` 与 `ToolRegistry::unregister_by_plugin`，SkillDef/AgentDef 增 `plugin_id`，ExtensionRegistry 改内部 RwLock 支持运行时注册/移除；AppState 装配 `PluginRegistry` + `apply_plugins` + `plugin_enable/disable/uninstall/import`；server `/api/plugins*` 路由 + Tauri commands + 前端 Settings「插件」分区（PluginsPanel：列表/启用/禁用/导入）。全量 `cargo test -p pointer-core --lib` 1330 passed（3 个失败为预存，与 P1 无关）；`pnpm build` 通过。下一步进入 **P2 MCP Client**。
+>
+> **进度（2026-08-19 更新）**：**P2 MCP Client（插件内）部分完成**——`crates/pointer-core/src/plugins/mcp.rs`（stdio 客户端 + `McpSessionManager`）+ manifest `[[mcp_servers.server]]` + 插件启用时 `tools/list` 注册 `mcp.<server>.<tool>`、禁用/卸载注销 + e2e 真实链路测试（`plugins::e2e_tests`）；P2 ① ② ⑤ 已落地，③ 健康检查/崩溃重启 与 ④ McpRequest Span 待补。同日用户决策新增 **P2b 全局 MCP（非插件）**（§6.1）：启动时从 `pointer-server.toml` 装配。全量 `cargo test -p pointer-core --lib` 1355 passed（url_safety 网络用例受沙箱 DNS 影响偶发失败，与改动无关）。
 
 | 阶段 | 内容 | 依赖 | 验收标准 |
 |---|---|---|---|
 | **P0 观测基线** ✅ 已完成（2026-08-18 核对） | ① 接通 `pre/post_tool_call`；② 新增 LLM before/after hook（统一 provider 包装，见 §8.1）；③ 观测 TraceContext（trace_id = run_id，见 §7.1 注 7.1）贯穿 Run→LLM→Tool；④ 异步管道（有界 channel + 后台消费）+ ExporterRegistry（LogExporter）；⑤ 脱敏器；~~⑥ 前端 Run 概览 + 工具耗时详情~~（**用户决策：不做**，见下注） | 无 | 任意 Run 可在结构化日志看到 LLM/Tool/审批/重试 Span，含耗时与 Token；埋点为 try_send 非阻塞，channel 满时丢弃计数不阻塞主循环 |
 | **P1 插件核心** ✅ 已完成（2026-08-19 核对） | ① `pointer-plugin.toml` 解析 + 校验（`[[tools.tool]]` 必须有 `exec` 执行载体，见 §4.1 注 4.1.1）；② PluginRegistry + 状态机 + 授权（manifest + 文件清单哈希留痕，见 §4.3 注 4.3.1）；③ Skill/Agent/Rule 单元接入现有 Registry；④ `AGENTS.md`（嵌套）发现链；⑤ **导入转换器**（Claude `plugin.json` / Codex 插件目录 → 原生格式，含导入报告）；⑥ 冲突遮蔽 UI；⑦ **`ProcessToolProvider` 基础版**（stdio + JSON 协议，承载 `[[tools.tool]]` 的 `exec`） | P0 | 一个含 skills+agents+rules+sidecar 工具的示例插件目录可被发现、授权、启用，能力出现在对应 Registry 且带 plugin_id；一个 Claude 格式插件目录可成功导入为原生插件 |
-| **P2 MCP Client** | ① stdio 传输 + initialize/tools/list/tools/call；② `McpToolProvider` 注册（`mcp.<server>.<tool>`）；③ 健康检查 + 崩溃重启；④ `McpRequest` Span；⑤ 审批/allowlist 接入 | P1（前置：同步×异步桥接方案定稿，§6 注 6.1） | 接入一个本地 stdio MCP server，工具可被模型调用，审批生效，Span 可查 |
+| **P2 MCP Client（插件内）** ✅ ①②⑤ 已完成（2026-08-19 核对；③④ 待补） | ① stdio 传输 + initialize/tools/list/tools/call；② `McpToolProvider` 注册（`mcp.<server>.<tool>`）；③ 健康检查 + 崩溃重启；④ `McpRequest` Span；⑤ 审批/allowlist 接入 | P1（前置：同步×异步桥接方案定稿，§6 注 6.1） | 接入一个本地 stdio MCP server，工具可被模型调用，审批生效，Span 可查 |
+| **P2b 全局 MCP（非插件）** | ① `pointer-server.toml` 新增 `[[mcp_servers.server]]`（结构复用 `McpServerDecl`）；② AppState 启动装配（复用 McpClient + McpSessionManager），工具命名 `mcp.<server>.<tool>`；③ 热更新/重载（server 重启）+ 崩溃重启；④ 设置面板 MCP 管理页（列表/状态/启停/编辑）；⑤ 与插件 MCP 同一审批链路；同名冲突全局优先（§6.1） | P2（客户端与会话管理） | 在 server.toml 配置一个本地 stdio MCP server，启动后工具可被模型调用、UI 可管理，插件启用同名 server 时插件方报错不静默覆盖 |
 | **P3 外部 Hook** | ① `hooks.json` 执行器（stdin JSON / exit code / JSON 决策）；② PreToolUse 阻断语义（回传通道见 §5 注 5.2）；③ fail-open/fail-closed 策略；④ `Hook` Span | P0 | 一个 PreToolUse hook 可阻断 terminal 调用并在 UI/trace 显示原因 |
 | **P4 分发与导出** | ① marketplace（GitHub 仓库 + 兼容 Claude `marketplace.json`，安装即走导入转换器）；② Sidecar 高级能力（守护进程管理、热更新，可选；基础版已在 P1）；③ `OtlpExporter`（TraceEvent→OTLP，脱敏后导出，作为 ExporterRegistry 的一个插件实现）；④ 可选：Pointer MCP Server（白名单只读能力） | P1–P3 | 从 GitHub 仓库安装一个 Claude 格式插件（经导入转换后启用）；OTLP 导出到本地 Collector 可验证 |
 
@@ -445,6 +459,7 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 | 脱敏器误伤业务字段 | 报销/医疗场景字段多 | P0 提供字段级白名单配置，默认保守（多脱敏） |
 | 插件工具执行载体 | 插件不带代码（禁 dylib），`[[tools.tool]]` 需进程外载体 | 已定：`exec` 必填 + `ProcessToolProvider` 提前至 P1（§4.1 注 4.1.1） |
 | 同步 handler × 异步 MCP | `ToolHandler` 为同步闭包，MCP 调用为异步 I/O | 桥接方案已定：独立任务 + oneshot + 超时（§6 注 6.1），P2 前验证 |
+| 全局 MCP 配置载体与热更新 | 现状无独立配置段，MCP 仅插件声明 | P2b：配置结构复用 `McpServerDecl` + AppState 启动装配 + 热重载重启（§6.1） |
 | `[permissions]` enforcement | 现状无按插件粒度的网络/文件权限执行点 | P1 最小集：env/secrets 进程级剥离 + filesystem 复用工作区边界；network 白名单 P2 或审批兜底（§4.5 注 4.5.1） |
 
 ## 11. 参考来源

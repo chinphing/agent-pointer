@@ -57,7 +57,7 @@ const alwaysSections = [
   { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
   { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
   { id: 'plugins', label: '插件', desc: '管理 Pointer 插件', icon: Puzzle },
-  { id: 'mcp', label: 'MCP', desc: '全局 MCP server', icon: Plug },
+  { id: 'mcp', label: 'MCP', desc: '外部工具服务', icon: Plug },
   { id: 'assistant', label: '智能体', desc: '档位与行为', icon: Bot },
   { id: 'models', label: '模型配置', desc: '服务商与档位映射', icon: Cpu },
   { id: 'generation', label: '系统设置', desc: '界面、桌面与系统运行', icon: Settings }

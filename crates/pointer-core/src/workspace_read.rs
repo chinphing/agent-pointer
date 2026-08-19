@@ -8,6 +8,13 @@ use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// 子进程不创建控制台窗口（避免 Windows 上 git 命令闪现黑框 / 拖慢工作区面板）。
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceEntry {
@@ -603,12 +610,13 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .output()
-        .map_err(git_spawn_error)?;
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(root).args(args);
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd.output().map_err(git_spawn_error)?;
     parse_git_output(output)
 }
 

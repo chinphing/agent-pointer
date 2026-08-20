@@ -44,7 +44,8 @@ Example:
 - Oversized `scales.*.min` / `max` / `suggested*` (large empty headroom above the series) are stripped so data is not glued to the floor.
 - **Streaming:** do not mount Chart.js while the assistant turn is still streaming; show “图表生成中…” until the turn settles, then render once with complete fence JSON. While streaming, `parseMarkdown(..., { streamingCharts: true })` collapses every `chartjs` / `chart` fence to a **fixed** pending host so throttled `v-html` updates do not flash the card on each token.
 - Invalid / incomplete JSON shows a pending or error state inside the same card.
-- **Mount timing (web + desktop):** Chart.js is a lazy chunk. `useMarkdownCharts` must remount if `v-html` or the virtual list replaces the host while the chunk loads, and must not construct a chart on a 0×0 box (blank canvas until refresh). Tick source is the rendered HTML, not raw markdown. A `MutationObserver` on the markdown root retries attach when hosts are recreated.
+- **Mount timing (web + desktop):** Chart.js is a lazy chunk. `useMarkdownCharts` must remount if `v-html` or the virtual list replaces the host while the chunk loads, and must not construct a chart on a 0×0 box (blank canvas until refresh). Tick source is the rendered HTML, not raw markdown. A `MutationObserver` on the markdown root retries attach when **`.md-chart` hosts** are added/removed (canvas/toolbar mutations inside a host do not remount).
+- **Switch / scroll performance:** do not `new Chart()` for hosts more than ~240px outside the chat scroller (or the viewport if there is no `.chat-scroll-area`). Construct at most two Chart instances per animation frame so switching a conversation full of charts does not freeze the UI. App and web share this path.
 
 ## vs GFM tables
 

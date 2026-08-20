@@ -6,6 +6,12 @@ import {
   exportChartCanvasPngDataUrl,
   tryParseChartConfig,
 } from '../lib/markdownChart'
+import {
+  isNearViewport,
+  mutationTouchesChartHost,
+  observeUntilNearViewport,
+  scheduleChartConstruct,
+} from '../lib/markdownChartMount'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
 import { openDiagramZoom, zoomIconSvg } from '../lib/diagramZoom'
 
@@ -28,6 +34,7 @@ type ChartHostState = {
   chart: ChartInstance | null
   boundConfig: string
   resizeObserver: ResizeObserver | null
+  visibilityObserver: IntersectionObserver | null
   pending: boolean
 }
 
@@ -78,7 +85,9 @@ export function useMarkdownCharts(
           console.warn('[markdownCharts] size observer disconnect failed', err)
         }
         const m = measureChartBox(box)
-        console.info('[markdownCharts] chart box sized', reason, m)
+        if (import.meta.env.DEV) {
+          console.info('[markdownCharts] chart box sized', reason, m)
+        }
         resolve(m)
       }
 
@@ -128,6 +137,13 @@ export function useMarkdownCharts(
 
   function destroyHost(host: HTMLElement) {
     const state = hosts.get(host)
+    if (state?.visibilityObserver) {
+      try {
+        state.visibilityObserver.disconnect()
+      } catch (err) {
+        console.warn('[markdownCharts] visibilityObserver disconnect failed', err)
+      }
+    }
     if (state?.resizeObserver) {
       try {
         state.resizeObserver.disconnect()
@@ -182,16 +198,18 @@ export function useMarkdownCharts(
       const area = yScale.bottom - yScale.top
       if (!(area > 8)) return false
       const actualFrac = (yScale.bottom - py) / area
-      console.info('[markdownCharts] scale check', {
-        dataMin,
-        dataMax,
-        scaleMin: yScale.min,
-        scaleMax: yScale.max,
-        expectedFrac,
-        actualFrac,
-        top: yScale.top,
-        bottom: yScale.bottom,
-      })
+      if (import.meta.env.DEV) {
+        console.info('[markdownCharts] scale check', {
+          dataMin,
+          dataMax,
+          scaleMin: yScale.min,
+          scaleMax: yScale.max,
+          expectedFrac,
+          actualFrac,
+          top: yScale.top,
+          bottom: yScale.bottom,
+        })
+      }
       // Data belongs in the upper half, but the point is stuck near the floor.
       return expectedFrac > 0.55 && actualFrac < 0.3 && dataMax - dataMin > span * 0.2
     } catch (err) {
@@ -453,9 +471,47 @@ export function useMarkdownCharts(
     if (prev?.boundConfig === encoded && prev.pending) {
       return
     }
+    // Waiting to enter the viewport — IntersectionObserver will remount.
+    if (prev?.boundConfig === encoded && prev.visibilityObserver && !isNearViewport(host)) {
+      return
+    }
     // 0-size box: ResizeObserver will schedule attach; do not rebuild the host.
     if (prev?.boundConfig === encoded && !prev.chart && prev.resizeObserver) {
       return
+    }
+
+    if (!isNearViewport(host)) {
+      if (prev?.visibilityObserver) {
+        try {
+          prev.visibilityObserver.disconnect()
+        } catch (err) {
+          console.warn('[markdownCharts] visibilityObserver rebuild disconnect failed', err)
+        }
+      }
+      const visibilityObserver = observeUntilNearViewport(host, () => {
+        const state = hosts.get(host)
+        if (state) state.visibilityObserver = null
+        if (import.meta.env.DEV) {
+          console.info('[markdownCharts] chart entered viewport; remount')
+        }
+        scheduleAttach()
+      })
+      hosts.set(host, {
+        chart: prev?.chart ?? null,
+        boundConfig: encoded,
+        resizeObserver: prev?.resizeObserver ?? null,
+        visibilityObserver,
+        pending: false,
+      })
+      return
+    }
+
+    if (prev?.visibilityObserver) {
+      try {
+        prev.visibilityObserver.disconnect()
+      } catch (err) {
+        console.warn('[markdownCharts] visibilityObserver disconnect before mount failed', err)
+      }
     }
 
     if (prev?.chart) {
@@ -494,7 +550,13 @@ export function useMarkdownCharts(
       openDiagramZoom(canvas)
     })
     wrap.appendChild(box)
-    hosts.set(host, { chart: null, boundConfig: encoded, resizeObserver: null, pending: true })
+    hosts.set(host, {
+      chart: null,
+      boundConfig: encoded,
+      resizeObserver: null,
+      visibilityObserver: null,
+      pending: true,
+    })
 
     const stillValid = () =>
       hostIsLive(host) &&
@@ -547,8 +609,18 @@ export function useMarkdownCharts(
           chart: null,
           boundConfig: encoded,
           resizeObserver: layoutObserver,
+          visibilityObserver: null,
           pending: false,
         })
+        return
+      }
+
+      await scheduleChartConstruct()
+      if (!stillValid()) {
+        if (!hostIsLive(host) || host.getAttribute('data-chart-config') !== encoded) {
+          console.warn('[markdownCharts] host replaced while queued for Chart.js; retry attach')
+          scheduleAttach()
+        }
         return
       }
 
@@ -564,7 +636,13 @@ export function useMarkdownCharts(
             })
           : null
       resizeObserver?.observe(box)
-      hosts.set(host, { chart, boundConfig: encoded, resizeObserver, pending: false })
+      hosts.set(host, {
+        chart,
+        boundConfig: encoded,
+        resizeObserver,
+        visibilityObserver: null,
+        pending: false,
+      })
       host.dataset.chartBound = encoded
       const finish = () => {
         try {
@@ -586,11 +664,13 @@ export function useMarkdownCharts(
       // Two frames: first layout after paint, second after WebKit settles canvas backing store.
       requestAnimationFrame(() => requestAnimationFrame(finish))
       const sample = (themed.data as { datasets?: { data?: unknown[] }[] })?.datasets?.[0]?.data
-      console.info(
-        '[markdownCharts] mounted',
-        themed.type,
-        Array.isArray(sample) ? sample.slice(0, 3) : null
-      )
+      if (import.meta.env.DEV) {
+        console.info(
+          '[markdownCharts] mounted',
+          themed.type,
+          Array.isArray(sample) ? sample.slice(0, 3) : null
+        )
+      }
     } catch (err) {
       console.error('[markdownCharts] Chart.js failed', err)
       const state = hosts.get(host)
@@ -628,7 +708,10 @@ export function useMarkdownCharts(
     if (!root || typeof MutationObserver === 'undefined') return
     // v-html / virtual-list patches replace .md-chart hosts without changing
     // markdown source — remount so Chart.js is not left on a detached canvas.
-    domObserver = new MutationObserver(() => {
+    // Ignore canvas/toolbar mutations inside an existing host (those used to
+    // re-attach every chart in the message on each Chart.js paint).
+    domObserver = new MutationObserver(mutations => {
+      if (!mutationTouchesChartHost(mutations)) return
       scheduleAttach()
     })
     try {

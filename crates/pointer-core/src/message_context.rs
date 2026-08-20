@@ -153,6 +153,22 @@ pub fn is_context_dependent_user_content(content: &str) -> bool {
     )
 }
 
+/// Index of the newest context-included, non-synthetic user turn.
+pub fn find_last_context_user_index(msgs: &[ChatMessage]) -> Option<usize> {
+    for i in (0..msgs.len()).rev() {
+        if !is_context_included(&msgs[i]) {
+            continue;
+        }
+        if matches!(msgs[i].role, Role::User)
+            && !is_synthetic_user_content(&msgs[i].content)
+            && !is_context_dependent_user_content(&msgs[i].content)
+        {
+            return Some(i);
+        }
+    }
+    None
+}
+
 /// Start index of the Nth **context-included** user message from the end.
 pub fn find_split_at_user_boundary(msgs: &[ChatMessage], keep_last_n_users: usize) -> usize {
     if keep_last_n_users == 0 || msgs.is_empty() {
@@ -242,6 +258,7 @@ mod tests {
         ];
         assert_eq!(find_split_at_user_boundary(&msgs, 1), 3);
         assert_eq!(find_split_at_user_boundary(&msgs, 2), 0);
+        assert_eq!(find_last_context_user_index(&msgs), Some(3));
     }
 
     #[test]

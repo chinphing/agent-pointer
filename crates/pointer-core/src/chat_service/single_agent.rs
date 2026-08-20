@@ -64,6 +64,7 @@ pub(super) async fn run_single_agent_loop(
 
     const MAX_RETRIES: u32 = 3;
     let mut retry_count: u32 = 0;
+    let mut overflow_recoveries: u32 = 0;
 
     loop {
         match super::agent_round_lifecycle::check_loop_guards(&cancel, ctx.tool_budget) {
@@ -79,6 +80,25 @@ pub(super) async fn run_single_agent_loop(
                     max_cap
                 ));
             }
+        }
+
+        crate::context_compression::prepare_history_between_llm_rounds(
+            state.clone(),
+            conversation_id,
+            ctx.history,
+            settings,
+            provider,
+            &stream,
+            cancel.clone(),
+            crate::context_compression::CompressionUiContext::main(
+                ctx.token_session.lead_scope.clone(),
+            ),
+            ctx.token_session.stats.last_round_prompt_tokens,
+        )
+        .await;
+        if cancel.is_cancelled() {
+            ctx.tool_budget.sync_out(ctx.consumed_single);
+            return Err(anyhow!("已停止生成"));
         }
 
         let assistant_id = {
@@ -193,6 +213,18 @@ pub(super) async fn run_single_agent_loop(
         )
         .await?;
         let buf = match stream_outcome {
+            super::single_agent_stream::ProviderRoundOutcome::RetryAfterOverflowCompress => {
+                overflow_recoveries += 1;
+                if overflow_recoveries > crate::context_compression::MAX_OVERFLOW_RECOVERIES {
+                    ctx.tool_budget.sync_out(ctx.consumed_single);
+                    state.computer_state.mark_cancelled(conversation_id);
+                    return Err(super::emit::chat_run_err(
+                        "上下文超限且压缩后仍无法继续，请新开对话或删减内容。",
+                        Some(assistant_id.clone()),
+                    ));
+                }
+                continue;
+            }
             super::single_agent_stream::ProviderRoundOutcome::RetryAfterRecoveryHint => {
                 retry_count += 1;
                 if retry_count > MAX_RETRIES {

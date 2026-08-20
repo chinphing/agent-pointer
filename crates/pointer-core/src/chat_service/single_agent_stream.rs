@@ -31,6 +31,8 @@ pub(super) enum ProviderRoundOutcome {
     Completed(SingleAgentRoundStream),
     /// Recoverable wire error: caller should `continue` the outer tool loop.
     RetryAfterRecoveryHint,
+    /// Context overflow: history was pruned/compressed; retry the LLM round.
+    RetryAfterOverflowCompress,
 }
 
 pub(super) async fn run_provider_stream_round(
@@ -104,6 +106,68 @@ pub(super) async fn run_provider_stream_round(
     match send_handle.await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
+            if settings.context_compression_enabled
+                && crate::context_compression::is_context_overflow_error(&e)
+            {
+                log::warn!(
+                    "run_chat: context overflow in stream conversation_id={} assistant_id={} err={e:#}",
+                    conversation_id,
+                    assistant_id
+                );
+                crate::context_compression::discard_pending_compression(&conversation_id);
+                emit(
+                    &stream,
+                    StreamEvent::UiToast {
+                        conversation_id: conversation_id.clone(),
+                        message: "上下文超限，正在压缩后继续".into(),
+                        level: "warning".into(),
+                    },
+                );
+                emit(
+                    &stream,
+                    StreamEvent::MessageEnd {
+                        message_id: assistant_id.clone(),
+                        content: None,
+                        raw_content: None,
+                        tool_raw_output: None,
+                        thoughts: None,
+                        headline: None,
+                        trace_id: None,
+                        scoped_message_id: None,
+                        attachments: None,
+                    },
+                );
+                let recovered = crate::context_compression::recover_history_after_overflow(
+                    ctx.history,
+                    settings,
+                    provider,
+                    &conversation_id,
+                    &stream,
+                    cancel.clone(),
+                    crate::context_compression::CompressionUiContext::main(
+                        ctx.token_session.lead_scope.clone(),
+                    ),
+                    ctx.token_session.stats.last_round_prompt_tokens,
+                )
+                .await;
+                ctx.tool_budget.sync_out(ctx.consumed_single);
+                if recovered && !cancel.is_cancelled() {
+                    log::info!(
+                        "run_chat: overflow recovered in-loop conversation_id={}",
+                        conversation_id
+                    );
+                    return Ok(ProviderRoundOutcome::RetryAfterOverflowCompress);
+                }
+                log::warn!(
+                    "run_chat: overflow recover did not shrink history conversation_id={}",
+                    conversation_id
+                );
+                state.computer_state.mark_cancelled(&conversation_id);
+                return Err(super::emit::chat_run_err(
+                    "上下文过大且无法压缩，请新开对话或删减内容",
+                    Some(assistant_id.clone()),
+                ));
+            }
             let rate_limit_delay = rate_limit_retry_delay(&e, ctx.history);
             let retryable = tools_appendix_enabled
                 && is_recoverable_provider_stream_error(&e)

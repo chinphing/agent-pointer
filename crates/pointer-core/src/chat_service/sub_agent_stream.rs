@@ -24,6 +24,8 @@ pub(super) enum SubAgentStreamOutcome {
     Completed(StreamRoundBuffers),
     /// Recoverable wire error: caller should `continue` the outer tool loop.
     RetryAfterRecoveryHint,
+    /// Context overflow: local history was pruned/compressed; retry the LLM round.
+    RetryAfterOverflowCompress,
 }
 
 pub(super) async fn run_sub_agent_stream_round(
@@ -104,6 +106,48 @@ pub(super) async fn run_sub_agent_stream_round(
     match handle.await {
         Ok(Ok(())) => Ok(SubAgentStreamOutcome::Completed(buffers)),
         Ok(Err(err)) => {
+            if provider.settings.context_compression_enabled
+                && crate::context_compression::is_context_overflow_error(&err)
+            {
+                log::warn!(
+                    "sub_agent: context overflow task_id={} agent={} err={err:#}",
+                    sub.task.id,
+                    sub.def.id
+                );
+                crate::context_compression::discard_pending_compression(conversation_id);
+                emit(
+                    stream,
+                    StreamEvent::UiToast {
+                        conversation_id: conversation_id.to_string(),
+                        message: "子任务上下文超限，正在压缩后继续".into(),
+                        level: "warning".into(),
+                    },
+                );
+                let recovered = crate::context_compression::recover_history_after_overflow(
+                    sub.local_history,
+                    &provider.settings,
+                    provider,
+                    conversation_id,
+                    stream,
+                    cancel.clone(),
+                    crate::context_compression::CompressionUiContext::sub_agent(
+                        sub.instance_scope.clone(),
+                        sub.message_id,
+                        &sub.def.id,
+                        &agent_display_label(sub.def),
+                        &sub.task.id,
+                    ),
+                    sub.llm_stats.last_round_prompt_tokens,
+                )
+                .await;
+                if recovered && !cancel.is_cancelled() {
+                    return Ok(SubAgentStreamOutcome::RetryAfterOverflowCompress);
+                }
+                state.computer_state.mark_cancelled(conversation_id);
+                return Err(anyhow!(
+                    "子任务上下文过大且无法压缩，请新开对话或缩小任务范围"
+                ));
+            }
             let rate_limit_delay = rate_limit_retry_delay(&err, sub.local_history);
             let retryable = tools_appendix_enabled
                 && is_recoverable_provider_stream_error(&err)

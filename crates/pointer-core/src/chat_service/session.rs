@@ -234,7 +234,7 @@ pub async fn run_chat(
                             level: "warning".into(),
                         },
                     );
-                    let compressed = crate::context_compression::maybe_compress_history(
+                    let compressed = crate::context_compression::recover_history_after_overflow(
                         &mut history,
                         &llm_settings,
                         &provider,
@@ -242,10 +242,17 @@ pub async fn run_chat(
                         &stream,
                         cancel.clone(),
                         ui,
-                        Some(state.memory_store.as_ref()),
                         last_api,
                     )
                     .await;
+                    if compressed {
+                        if let Err(e) = state
+                            .memory_store
+                            .reload_snapshot_for_conversation(&conversation_id)
+                        {
+                            log::warn!("memory: reload after overflow recover failed: {e:#}");
+                        }
+                    }
                     if compressed && !started && !cancel.is_cancelled() {
                         log::info!(
                             "run_chat: retrying after overflow compress conversation_id={}",
@@ -266,7 +273,7 @@ pub async fn run_chat(
                             super::session_inner::run_chat_inner(&mut retry_ctx, &run_req).await;
                     } else if !compressed && !started {
                         log::warn!(
-                            "run_chat: overflow but compress did not apply (keep window too large?) conversation_id={}",
+                            "run_chat: overflow but recover did not shrink history conversation_id={}",
                             conversation_id
                         );
                         emit(

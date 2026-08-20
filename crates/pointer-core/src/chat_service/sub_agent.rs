@@ -144,6 +144,7 @@ pub(crate) async fn run_sub_agent(
 
     const MAX_RETRIES: u32 = 3;
     let mut retry_count: u32 = 0;
+    let mut overflow_recoveries: u32 = 0;
 
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
     let _agent_guard =
@@ -282,6 +283,17 @@ pub(crate) async fn run_sub_agent(
             run_sub_agent_stream_round(&mut stream_ctx, &mut stream_refs, stream_input).await?;
 
         let buf = match stream_outcome {
+            SubAgentStreamOutcome::RetryAfterOverflowCompress => {
+                overflow_recoveries += 1;
+                if overflow_recoveries > crate::context_compression::MAX_OVERFLOW_RECOVERIES {
+                    state.computer_state.mark_cancelled(conversation_id);
+                    return Err(super::emit::chat_run_err(
+                        "子任务上下文超限且压缩后仍无法继续，请新开对话或缩小任务范围。",
+                        Some(message_id.to_string()),
+                    ));
+                }
+                continue;
+            }
             SubAgentStreamOutcome::RetryAfterRecoveryHint => {
                 retry_count += 1;
                 if retry_count > MAX_RETRIES {

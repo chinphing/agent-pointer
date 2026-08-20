@@ -37,4 +37,10 @@ describe('withRetries', () => {
     await expect(withRetries(fn, { maxAttempts: 3, baseDelayMs: 10 })).rejects.toThrow(/上传已取消/)
     expect(fn).toHaveBeenCalledTimes(1)
   })
+
+  it('does not retry oversized uploads', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('文件超过 100 MB 上限'))
+    await expect(withRetries(fn, { maxAttempts: 3, baseDelayMs: 10 })).rejects.toThrow(/文件超过/)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
 })

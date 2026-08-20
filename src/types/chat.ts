@@ -590,9 +590,13 @@ export interface UserSettings {
   agentMode?: AgentMode
   workspaceRoot?: string
   leadAgentId?: string
+  /** Summarize older turns when estimated context exceeds budget */
   contextCompressionEnabled?: boolean
+  /** Token budget; over this triggers compression. Verbatim tail is a fraction of this. */
   contextBudgetTokens?: number
+  /** Legacy persisted field; split is token-tail + latest user, not keep-N. */
   contextKeepRecentUserTurns?: number
+  /** Not used by chat compression (summary length is computed). Kept for other callers. */
   contextSummaryMaxTokens?: number
   maxToolRounds?: number
   /** Max UTF-8 bytes returned by one file_read (default 65536). */
@@ -601,6 +605,8 @@ export interface UserSettings {
   fileLineMaxBytes?: number
   /** Max file_grep hit rows (default 50). */
   fileGrepMaxResults?: number
+  /** Max bytes for a non-video chat attachment upload (default 100 MiB). */
+  attachmentUploadMaxBytes?: number
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number
   rawContentViewEnabled?: boolean
@@ -759,11 +765,11 @@ export interface ModelSettings {
   leadAgentId: string
   /** Summarize older turns when estimated context exceeds budget */
   contextCompressionEnabled: boolean
-  /** Estimated token budget for messages; over this triggers compression when enabled */
+  /** Token budget; over this triggers compression. Verbatim tail is a fraction of this. */
   contextBudgetTokens: number
-  /** Keep this many most recent user messages (and tail) verbatim */
+  /** Legacy persisted field; split is token-tail + latest user, not keep-N. */
   contextKeepRecentUserTurns: number
-  /** Max tokens for the summarization API call */
+  /** Not used by chat compression (summary length is computed). Kept for other callers. */
   contextSummaryMaxTokens: number
   /** Max tool-call rounds per user message (assistant loop), default 100 */
   maxToolRounds: number
@@ -773,6 +779,8 @@ export interface ModelSettings {
   fileLineMaxBytes?: number
   /** Max file_grep hit rows (default 50) */
   fileGrepMaxResults?: number
+  /** Max bytes for a non-video chat attachment upload (default 100 MiB) */
+  attachmentUploadMaxBytes?: number
   /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop */
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number

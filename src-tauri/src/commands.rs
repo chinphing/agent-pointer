@@ -688,14 +688,8 @@ fn resolve_reveal_path(raw: &str) -> Result<std::path::PathBuf, String> {
     pointer_core::media::resolve_local_media_path(raw).map_err(|e| e.to_string())
 }
 
-const MAX_LOCAL_ATTACHMENT_BYTES: u64 = 30 * 1024 * 1024;
-
 fn max_attachment_bytes(file_name: &str) -> u64 {
-    if pointer_core::media::is_video_file_name(file_name) {
-        pointer_core::media::MAX_VIDEO_BYTES as u64
-    } else {
-        MAX_LOCAL_ATTACHMENT_BYTES
-    }
+    pointer_core::media::composer_attachment_max_bytes(file_name)
 }
 
 #[derive(serde::Serialize)]
@@ -1051,6 +1045,8 @@ pub async fn save_chat_attachment(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content_base64.trim())
         .map_err(|e| format!("decode attachment base64: {e}"))?;
+    pointer_core::media::ensure_composer_attachment_size(bytes.len() as u64, &file_name)
+        .map_err(|e| e.to_string())?;
     pointer_core::media::save_attachment_bytes(&conversation_id, &attachment_id, &bytes, &file_name)
         .map_err(|e| e.to_string())
 }

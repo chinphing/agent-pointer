@@ -33,6 +33,19 @@ export function isSupportedChatAttachmentFile(file: Pick<File, 'name' | 'size' |
   return !!name
 }
 
+export const DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024
+
+export function composerAttachmentUploadMaxBytes(raw?: number): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES
+  return Math.min(512 * 1024 * 1024, Math.max(1024 * 1024, Math.round(n)))
+}
+
+export function composerAttachmentTooLargeMessage(fileName: string, limitBytes: number): string {
+  const limitMb = Math.max(1, Math.floor(limitBytes / (1024 * 1024)))
+  return `「${fileName}」超过 ${limitMb} MB 上限`
+}
+
 export function mediaKindFromFile(
   file: Pick<File, 'name' | 'type'>
 ): 'image' | 'document' | 'audio' | 'video' | 'file' {

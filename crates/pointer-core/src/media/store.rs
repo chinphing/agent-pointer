@@ -24,6 +24,28 @@ pub const SESSION_SANDBOXES_PREFIX: &str = "session-sandboxes/";
 pub const SANDBOX_ATTACHMENTS_DIR: &str = "attachments";
 pub const SHORT_ATTACHMENT_ID_LEN: usize = 12;
 
+/// Non-video composer uploads use the user setting (default 100 MB). Videos keep
+/// the OSS/local video ceiling.
+pub fn composer_attachment_max_bytes(file_name: &str) -> u64 {
+    if super::video::is_video_file_name(file_name) {
+        super::video::MAX_VIDEO_BYTES as u64
+    } else {
+        crate::models::clamp_attachment_upload_max_bytes(
+            crate::storage::load_user_settings()
+                .unwrap_or_default()
+                .attachment_upload_max_bytes,
+        ) as u64
+    }
+}
+
+pub fn ensure_composer_attachment_size(len: u64, file_name: &str) -> Result<()> {
+    let limit = composer_attachment_max_bytes(file_name);
+    if len > limit {
+        anyhow::bail!("文件超过 {} MB 上限", (limit / (1024 * 1024)).max(1));
+    }
+    Ok(())
+}
+
 /// True for rel paths stored directly under `{app_data}/` (not conversation attachment layout).
 pub fn is_app_data_subtree_rel(raw: &str) -> bool {
     let rel = raw.trim().trim_start_matches('/');

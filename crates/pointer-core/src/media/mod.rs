@@ -85,7 +85,8 @@ pub use public_download::{
 pub use reply_attachments::attachments_from_reply_paths;
 pub use resolve::{is_storage_rel_path, resolve_local_media_path};
 pub use store::{
-    chat_media_file_meta, chat_media_ref_file_meta, is_app_data_subtree_rel, media_abs_path,
+    chat_media_file_meta, chat_media_ref_file_meta, composer_attachment_max_bytes,
+    ensure_composer_attachment_size, is_app_data_subtree_rel, media_abs_path,
     path_is_under_app_data, read_chat_media_preview, read_media_bytes, read_media_ref_preview,
     save_attachment_bytes,
 };

@@ -678,20 +678,23 @@ pub struct ModelSettings {
         rename = "contextCompressionEnabled"
     )]
     pub context_compression_enabled: bool,
-    /// Estimated token budget for included messages; compression runs when heuristic exceeds this.
+    /// Estimated token budget for included messages. Hard trigger; soft precompress
+    /// at 80%. Verbatim tail is ~20% of this (tighter on overflow).
     #[serde(
         default = "default_context_budget_tokens",
         rename = "contextBudgetTokens",
         alias = "contextBudgetChars"
     )]
     pub context_budget_tokens: u32,
-    /// Keep this many most recent user messages (and everything after the cutoff) verbatim.
+    /// Legacy: no longer a keep-N floor. Split is token tail + latest real user.
+    /// Still persisted and echoed on compression events for older clients.
     #[serde(
         default = "default_context_keep_recent_user_turns",
         rename = "contextKeepRecentUserTurns"
     )]
     pub context_keep_recent_user_turns: u32,
-    /// Max tokens for the one-off summarization chat completion.
+    /// Not used by chat compression (summary `max_tokens` is computed from prefix).
+    /// Still used by background review.
     #[serde(
         default = "default_context_summary_max_tokens",
         rename = "contextSummaryMaxTokens"
@@ -712,6 +715,12 @@ pub struct ModelSettings {
         rename = "fileGrepMaxResults"
     )]
     pub file_grep_max_results: u32,
+    /// Max bytes for a non-video composer / chat attachment upload.
+    #[serde(
+        default = "default_attachment_upload_max_bytes",
+        rename = "attachmentUploadMaxBytes"
+    )]
+    pub attachment_upload_max_bytes: u32,
     /// Max tool-call rounds **inside** each `run_sub_agent` run (separate from the lead conversation pool).
     #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     pub max_sub_agent_tool_rounds: u32,
@@ -1028,6 +1037,8 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     user.file_read_max_bytes = clamp_file_read_max_bytes(user.file_read_max_bytes);
     user.file_line_max_bytes = clamp_file_line_max_bytes(user.file_line_max_bytes);
     user.file_grep_max_results = clamp_file_grep_max_results(user.file_grep_max_results);
+    user.attachment_upload_max_bytes =
+        clamp_attachment_upload_max_bytes(user.attachment_upload_max_bytes);
 }
 
 /// User-layer provider rows are tagged `source=user` or omitted; `source=platform`
@@ -1165,6 +1176,51 @@ pub fn clamp_file_grep_max_results(n: u32) -> u32 {
     n.clamp(FLOOR_FILE_GREP_MAX_RESULTS, CEILING_FILE_GREP_MAX_RESULTS)
 }
 
+pub const DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES: u32 = 100 * 1024 * 1024;
+pub const FLOOR_ATTACHMENT_UPLOAD_MAX_BYTES: u32 = 1024 * 1024;
+pub const CEILING_ATTACHMENT_UPLOAD_MAX_BYTES: u32 = 512 * 1024 * 1024;
+
+fn default_attachment_upload_max_bytes() -> u32 {
+    DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES
+}
+
+pub fn clamp_attachment_upload_max_bytes(n: u32) -> u32 {
+    n.clamp(
+        FLOOR_ATTACHMENT_UPLOAD_MAX_BYTES,
+        CEILING_ATTACHMENT_UPLOAD_MAX_BYTES,
+    )
+}
+
+/// Axum body cap for `POST /api/chat/save-attachment` (setting ceiling + multipart overhead).
+pub fn attachment_upload_http_body_limit() -> usize {
+    CEILING_ATTACHMENT_UPLOAD_MAX_BYTES as usize + 1024 * 1024
+}
+
+#[cfg(test)]
+mod attachment_upload_limit_tests {
+    use super::*;
+
+    #[test]
+    fn clamps_attachment_upload_max_bytes() {
+        assert_eq!(
+            clamp_attachment_upload_max_bytes(0),
+            FLOOR_ATTACHMENT_UPLOAD_MAX_BYTES
+        );
+        assert_eq!(
+            clamp_attachment_upload_max_bytes(DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES),
+            DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES
+        );
+        assert_eq!(
+            clamp_attachment_upload_max_bytes(u32::MAX),
+            CEILING_ATTACHMENT_UPLOAD_MAX_BYTES
+        );
+        assert_eq!(
+            attachment_upload_http_body_limit(),
+            CEILING_ATTACHMENT_UPLOAD_MAX_BYTES as usize + 1024 * 1024
+        );
+    }
+}
+
 fn default_max_sub_agent_spawn_depth() -> u32 {
     build_cfg_u32!("MAX_SUB_AGENT_SPAWN_DEPTH", 2)
 }
@@ -1255,6 +1311,7 @@ impl Default for ModelSettings {
             file_read_max_bytes: default_file_read_max_bytes(),
             file_line_max_bytes: default_file_line_max_bytes(),
             file_grep_max_results: default_file_grep_max_results(),
+            attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: default_max_tool_rounds(),
             max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
@@ -1599,6 +1656,11 @@ pub struct UserSettings {
     )]
     pub file_grep_max_results: u32,
     #[serde(
+        default = "default_attachment_upload_max_bytes",
+        rename = "attachmentUploadMaxBytes"
+    )]
+    pub attachment_upload_max_bytes: u32,
+    #[serde(
         default = "platform_default_max_tool_rounds",
         rename = "maxSubAgentToolRounds"
     )]
@@ -1756,6 +1818,7 @@ impl Default for UserSettings {
             file_read_max_bytes: default_file_read_max_bytes(),
             file_line_max_bytes: default_file_line_max_bytes(),
             file_grep_max_results: default_file_grep_max_results(),
+            attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
             max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
@@ -2380,6 +2443,9 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         file_read_max_bytes: clamp_file_read_max_bytes(user.file_read_max_bytes),
         file_line_max_bytes: clamp_file_line_max_bytes(user.file_line_max_bytes),
         file_grep_max_results: clamp_file_grep_max_results(user.file_grep_max_results),
+        attachment_upload_max_bytes: clamp_attachment_upload_max_bytes(
+            user.attachment_upload_max_bytes,
+        ),
         max_sub_agent_tool_rounds: user.max_sub_agent_tool_rounds,
         max_sub_agent_spawn_depth: user.max_sub_agent_spawn_depth,
         raw_content_view_enabled: user.raw_content_view_enabled,

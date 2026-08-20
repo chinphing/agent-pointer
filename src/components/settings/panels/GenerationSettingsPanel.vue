@@ -30,11 +30,11 @@ const {
   maxConcurrentRuns,
   contextCompressionEnabled,
   contextBudgetTokens,
-  contextKeepRecentUserTurns,
   maxToolRounds,
   fileReadMaxKb,
   fileLineMaxBytes,
   fileGrepMaxResults,
+  attachmentUploadMaxMb,
   parallelToolExecutionEnabled,
   maxParallelToolCalls,
   maxParallelSubAgents,
@@ -618,21 +618,33 @@ async function onPlaySoundToggle(checked: boolean) {
             <div class="settings-toggle-track"></div>
           </label>
         </div>
-        <p class="text-[11px] text-muted">当历史消息超过预算时，自动生成摘要并保留最近若干轮对话原文。</p>
+        <p class="text-[11px] text-muted">超过预算时把较早对话收成摘要。尾部按预算比例保留原文，最新一条用户消息始终保留。</p>
 
-        <div v-if="contextCompressionEnabled" class="grid grid-cols-3 gap-3 pt-2 border-t border-border">
-          <div>
-            <label class="block text-[12px] text-muted mb-1.5">触发预算（tokens）</label>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border">
+          <div v-if="contextCompressionEnabled">
+            <label class="block text-[12px] text-muted mb-1.5">上下文预算（tokens）</label>
             <input v-model.number="contextBudgetTokens" type="number" min="4096" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-          </div>
-          <div>
-            <label class="block text-[12px] text-muted mb-1.5">保留最近用户轮数</label>
-            <input v-model.number="contextKeepRecentUserTurns" type="number" min="1" max="50" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
           </div>
           <div>
             <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
             <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
           </div>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+        <h4 class="text-sm font-medium text-foreground">附件上传</h4>
+        <p class="text-[11px] text-muted">对话里上传文件（不含视频）的大小上限。视频仍走独立压缩与 OSS 规则。</p>
+        <div>
+          <label class="block text-[12px] text-muted mb-1.5">大小上限（MB）</label>
+          <input
+            v-model.number="attachmentUploadMaxMb"
+            type="number"
+            min="1"
+            max="512"
+            step="1"
+            class="w-full max-w-[12rem] h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+          />
         </div>
       </div>
 

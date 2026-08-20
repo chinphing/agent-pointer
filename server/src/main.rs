@@ -710,7 +710,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/media/public-download", get(public_media_download))
         .route(
             "/api/chat/save-attachment",
-            post(save_chat_attachment).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+            post(save_chat_attachment).layer(DefaultBodyLimit::max(
+                pointer_core::models::attachment_upload_http_body_limit(),
+            )),
         )
         .route(
             "/api/chat/upload-video-oss",
@@ -1527,6 +1529,8 @@ async fn save_chat_attachment(
         )));
     }
     let bytes = file_bytes.ok_or_else(|| ApiError(anyhow::anyhow!("file field required")))?;
+    pointer_core::media::ensure_composer_attachment_size(bytes.len() as u64, &file_name)
+        .map_err(ApiError::from)?;
     let uid = state
         .core
         .active_platform_auth()
@@ -4187,6 +4191,9 @@ impl IntoResponse for ApiError {
         }
         if msg.contains("media file not found") || msg.contains("download path outside") {
             return (StatusCode::NOT_FOUND, msg).into_response();
+        }
+        if msg.contains("文件超过") || msg.contains("too large") {
+            return (StatusCode::PAYLOAD_TOO_LARGE, msg).into_response();
         }
         (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
     }

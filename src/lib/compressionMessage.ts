@@ -19,16 +19,15 @@ export function compressionSummaryBody(content: string): string {
 }
 
 export function buildCompressionNoticeContent(info: ContextCompressionInfo): string {
-  const keep = info.keepRecentUserTurns
   const dropped = info.droppedCount
   if (info.scope === 'sub_agent') {
     const name = info.subAgentName?.trim() || '子 Agent'
     return `【压缩】${name} 子任务内已将较早 ${dropped} 条记录摘要为 1 条（主对话不变）。`
   }
   if (info.reason === 'tool_limit') {
-    return `【压缩】工具轮次触发的压缩：已将较早 ${dropped} 条对话摘要为 1 条，保留最近 ${keep} 轮用户消息。`
+    return `【压缩】工具轮次触发：已将较早 ${dropped} 条对话摘要为 1 条，并保留最近对话原文。`
   }
-  return `【压缩】已将较早 ${dropped} 条对话摘要为 1 条，保留最近 ${keep} 轮用户消息。`
+  return `【压缩】已将较早 ${dropped} 条对话摘要为 1 条，并保留最近对话原文。`
 }
 
 /** In-thread tool-row label while compression LLM is running. */

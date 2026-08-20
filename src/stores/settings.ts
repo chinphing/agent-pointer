@@ -93,6 +93,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     fileReadMaxBytes: s.fileReadMaxBytes ?? 65_536,
     fileLineMaxBytes: s.fileLineMaxBytes ?? 1024,
     fileGrepMaxResults: s.fileGrepMaxResults ?? 50,
+    attachmentUploadMaxBytes: s.attachmentUploadMaxBytes ?? 100 * 1024 * 1024,
     maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 200,
     maxSubAgentSpawnDepth: s.maxSubAgentSpawnDepth ?? 2,
     rawContentViewEnabled: s.rawContentViewEnabled === true,
@@ -247,6 +248,7 @@ export const useSettingsStore = defineStore('settings', () => {
     fileReadMaxBytes: 65_536,
     fileLineMaxBytes: 1024,
     fileGrepMaxResults: 50,
+    attachmentUploadMaxBytes: 100 * 1024 * 1024,
     maxSubAgentToolRounds: 200,
     maxSubAgentSpawnDepth: 2,
     rawContentViewEnabled: false,
@@ -525,6 +527,10 @@ export const useSettingsStore = defineStore('settings', () => {
       fileLineMaxBytes: mergedIn.fileLineMaxBytes ?? user.fileLineMaxBytes ?? settings.value.fileLineMaxBytes,
       fileGrepMaxResults:
         mergedIn.fileGrepMaxResults ?? user.fileGrepMaxResults ?? settings.value.fileGrepMaxResults,
+      attachmentUploadMaxBytes:
+        mergedIn.attachmentUploadMaxBytes
+        ?? user.attachmentUploadMaxBytes
+        ?? settings.value.attachmentUploadMaxBytes,
       hasKey: mergedIn.hasKey ?? settings.value.hasKey,
       theme: user.theme,
       // 场景档位是用户层配置，必须写回 merged，否则输入框/下一轮仍读旧值。

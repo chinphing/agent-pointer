@@ -37,6 +37,8 @@ import {
   CHAT_ATTACHMENT_ACCEPT,
   composerVideoCompressConfirmMessage,
   composerVideoCompressHint,
+  composerAttachmentTooLargeMessage,
+  composerAttachmentUploadMaxBytes,
   dataUrlToBase64,
   isLargeComposerVideo,
   isSupportedChatAttachmentFile,
@@ -106,6 +108,20 @@ const agentPickerRef = ref<HTMLDivElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const composerDropZoneRef = ref<HTMLDivElement | null>(null)
 const attachmentHint = ref<string | null>(null)
+
+function attachmentUploadLimitBytes(): number {
+  return composerAttachmentUploadMaxBytes(settings.settings.attachmentUploadMaxBytes)
+}
+
+function rejectOversizedNonVideo(fileName: string, sizeBytes: number): boolean {
+  if (isVideoAttachmentFile({ name: fileName, type: '' })) return false
+  const limit = attachmentUploadLimitBytes()
+  if (sizeBytes > limit) {
+    attachmentHint.value = composerAttachmentTooLargeMessage(fileName, limit)
+    return true
+  }
+  return false
+}
 const composerDragDepth = ref(0)
 const isComposerDragOver = computed(() => composerDragDepth.value > 0)
 /** Disposer for the shared Tauri window drop listener (see composerTauriDragDrop). */
@@ -570,6 +586,7 @@ async function addAttachmentFile(file: File) {
     await addVideoAttachment(file)
     return
   }
+  if (rejectOversizedNonVideo(file.name, file.size)) return
   // Instant chip via object URL; persist in background (multipart on web).
   await addNonVideoFileOptimistic(file)
 }
@@ -595,6 +612,12 @@ async function addAttachmentFromLocalPath(path: string) {
     const placeholder = new File([], name)
     await addVideoAttachment(placeholder, path)
     return
+  }
+  try {
+    const sizeBytes = await getLocalFileSize(path)
+    if (rejectOversizedNonVideo(name, sizeBytes)) return
+  } catch (err) {
+    console.warn('[composer] getLocalFileSize failed', path, err)
   }
   const attachmentId = uid()
   const pending: ComposerAttachment = {

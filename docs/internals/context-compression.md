@@ -14,6 +14,16 @@
 - **不截断**保留区内的工具输出或 assistant 正文。缩小上下文只靠把前缀换成摘要。
   当前用户消息之后、仍落在保留区内的工具行保持原文。
 
+## 用户可调参数
+
+系统设置里只保留：
+
+- 开关 `contextCompressionEnabled`
+- **上下文预算** `contextBudgetTokens`（硬阈值；软预压缩约 80%；原文尾部约 20%，超限约 12%）
+
+`contextKeepRecentUserTurns` 仍写入用户配置和压缩事件，但**不再**作为切分地板。
+`contextSummaryMaxTokens` 不参与对话压缩（摘要长度按前缀动态计算），后台 review 仍可能用到。
+
 ## 同轮超限恢复
 
 Provider 在本轮工具循环中返回上下文过长时：

@@ -261,6 +261,7 @@ function createSettingsDialogForm(deps: {
   const fileReadMaxKb = ref(64)
   const fileLineMaxBytes = ref(1024)
   const fileGrepMaxResults = ref(50)
+  const attachmentUploadMaxMb = ref(100)
   const maxSubAgentToolRounds = ref(100)
   const parallelToolExecutionEnabled = ref(true)
   const maxParallelToolCalls = ref<number | ''>('')
@@ -461,6 +462,10 @@ function createSettingsDialogForm(deps: {
   fileReadMaxKb.value = Math.max(4, Math.round((s.settings.fileReadMaxBytes ?? 65_536) / 1024))
   fileLineMaxBytes.value = s.settings.fileLineMaxBytes ?? 1024
   fileGrepMaxResults.value = s.settings.fileGrepMaxResults ?? 50
+  attachmentUploadMaxMb.value = Math.max(
+    1,
+    Math.round((s.settings.attachmentUploadMaxBytes ?? 100 * 1024 * 1024) / (1024 * 1024))
+  )
   parallelToolExecutionEnabled.value = s.settings.parallelToolExecutionEnabled !== false
   maxParallelToolCalls.value = s.settings.maxParallelToolCalls ?? ''
   maxParallelSubAgents.value = s.settings.maxParallelSubAgents ?? ''
@@ -762,6 +767,10 @@ function createSettingsDialogForm(deps: {
     fileReadMaxBytes: Math.min(1024 * 1024, Math.max(4096, Math.round(Number(fileReadMaxKb.value) || 64) * 1024)),
     fileLineMaxBytes: Math.min(16 * 1024, Math.max(256, Math.floor(Number(fileLineMaxBytes.value) || 1024))),
     fileGrepMaxResults: Math.min(200, Math.max(1, Math.floor(Number(fileGrepMaxResults.value) || 50))),
+    attachmentUploadMaxBytes: Math.min(
+      512 * 1024 * 1024,
+      Math.max(1024 * 1024, Math.round(Number(attachmentUploadMaxMb.value) || 100) * 1024 * 1024)
+    ),
     agentPerformanceModes: { ...agentPerformanceModesLocal.value },
     mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
     rawContentViewEnabled: rawContentViewEnabled.value,
@@ -786,6 +795,7 @@ function createSettingsDialogForm(deps: {
     s.settings.fileReadMaxBytes = payload.fileReadMaxBytes
     s.settings.fileLineMaxBytes = payload.fileLineMaxBytes
     s.settings.fileGrepMaxResults = payload.fileGrepMaxResults
+    s.settings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
     const conv = chat.current
     if (conv) {
       const lead = chat.effectiveConversationLeadAgentId(conv)
@@ -843,6 +853,7 @@ function createSettingsDialogForm(deps: {
       fileReadMaxKb,
       fileLineMaxBytes,
       fileGrepMaxResults,
+      attachmentUploadMaxMb,
       parallelToolExecutionEnabled,
       maxParallelToolCalls,
       maxParallelSubAgents,
@@ -898,6 +909,7 @@ function createSettingsDialogForm(deps: {
     fileReadMaxKb,
     fileLineMaxBytes,
     fileGrepMaxResults,
+    attachmentUploadMaxMb,
     parallelToolExecutionEnabled,
     maxParallelToolCalls,
     maxParallelSubAgents,

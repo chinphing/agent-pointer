@@ -14,7 +14,7 @@ function defaultShouldRetry(err: unknown): boolean {
   if (!msg.trim()) return true
   // Permanent / client-side conditions — do not burn retries.
   if (
-    /缺少上传|缺少附件|请先登录|platform_login|账户余额|不支持|无法创建会话|413|payload too large|entity too large|文件过大|unsupported|上传已取消|aborted/.test(
+    /缺少上传|缺少附件|请先登录|platform_login|账户余额|不支持|无法创建会话|413|payload too large|entity too large|文件过大|文件超过|unsupported|上传已取消|aborted/.test(
       msg
     )
   ) {

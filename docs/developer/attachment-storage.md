@@ -45,9 +45,15 @@ desktop, web, and channel writes sharing the same sandbox filesystem.
 | `fileName` | yes* | Optional if multipart filename is present |
 | `file` | yes | Raw file bytes |
 
-Body limit on this route: **32 MiB**. Prefer uploading when the user adds the
-file (Composer), then send chat with `storageRelPath` only. Composer and
-`sendChat` auto-retry transient failures up to 3 attempts.
+Non-video uploads are capped by the user setting **`attachmentUploadMaxBytes`**
+(Settings → system → attachment upload). Default **100 MB**, allowed range
+**1–512 MB**. The HTTP route body limit is the range ceiling plus multipart
+overhead; the configured value is what actually accepts or rejects a file.
+Video still uses the OSS / 5 GB path and is not limited by this setting.
+
+Prefer uploading when the user adds the file (Composer), then send chat with
+`storageRelPath` only. Composer and `sendChat` auto-retry transient failures
+up to 3 attempts.
 
 ## Compatibility
 

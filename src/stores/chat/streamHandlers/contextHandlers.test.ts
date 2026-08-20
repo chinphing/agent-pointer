@@ -34,12 +34,16 @@ describe('contextHandlers', () => {
     handleContextCompressionStarted(ctx, {
       kind: 'context_compression_started',
       conversationId: 'conv1',
-      scope: 'main'
+      scope: 'main',
+      insertBeforeMessageId: 'anchor'
     })
     expect(patchRunState).toHaveBeenCalledWith(
       'conv1',
       expect.objectContaining({
-        contextCompressing: expect.objectContaining({ scope: 'main' })
+        contextCompressing: expect.objectContaining({
+          scope: 'main',
+          insertBeforeMessageId: 'anchor'
+        })
       })
     )
   })

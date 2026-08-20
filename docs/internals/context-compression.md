@@ -144,7 +144,9 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 
 ## UI 进度标记
 
-压缩真正开始摘要 LLM 时发送 **`context_compression_started`**（临时事件，不落库）。
+压缩真正开始摘要 LLM 时发送 **`context_compression_started`**（临时事件，不落库），
+带上切分点 `insertBeforeMessageId`。前端把「正在压缩较早记录」插在该消息之前
+（摘要落地后的同一位置）。找不到该消息时回退到当前回合或列表末尾。
 
 完成后仍用 **`UiToast`** 提示压缩结果（成功或摘要失败后的 drop）。
 

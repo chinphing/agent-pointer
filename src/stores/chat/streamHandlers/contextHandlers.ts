@@ -40,6 +40,7 @@ export function handleContextCompressionStarted(
     contextCompressing: {
       scope: e.scope || 'main',
       messageId: e.messageId,
+      insertBeforeMessageId: e.insertBeforeMessageId,
       subAgentId: e.subAgentId,
       subAgentName: e.subAgentName,
       startedAt: Date.now()

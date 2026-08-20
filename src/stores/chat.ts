@@ -183,6 +183,7 @@ function isPlatformLoginErrorMessage(msg: ChatMessage): boolean {
 interface ContextCompressingState {
   scope: string
   messageId?: string
+  insertBeforeMessageId?: string
   subAgentId?: string
   subAgentName?: string
   startedAt: number

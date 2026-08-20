@@ -26,6 +26,7 @@ import {
   buildMessageListLayout,
   entryContainsMessageId,
   entryKey,
+  insertContextCompressingMarker,
   type FlatEntry,
   type MessageListLayoutCache
 } from '../../lib/messageListLayout'
@@ -451,7 +452,8 @@ function entryPrimaryMessageId(entry: FlatEntry): string | undefined {
     }
     return undefined
   }
-  return entry.anchorMessageId
+  if (entry.type === 'task_board') return entry.anchorMessageId
+  return undefined
 }
 
 function entryIsFocusHighlight(entry: FlatEntry): boolean {
@@ -910,7 +912,17 @@ const messageListLayout = computed(() => {
 })
 
 const flatMessages = computed(() => messageListLayout.value.entries)
-const conversationTurns = computed(() => messageListLayout.value.turns)
+const conversationTurns = computed(() => {
+  const state = chat.contextCompressing
+  const label = contextCompressingLabel.value
+  if (!state || !label) return messageListLayout.value.turns
+  return insertContextCompressingMarker(
+    messageListLayout.value.turns,
+    state.insertBeforeMessageId,
+    state.messageId,
+    label
+  )
+})
 
 const activeBoard = computed(() => flatMessages.value.find(
   (entry): entry is Extract<FlatEntry, { type: 'task_board' }> =>
@@ -1261,6 +1273,10 @@ function entrySpacing(
     return 'mt-1.5'
   }
 
+  if (entry.type === 'context_compressing') {
+    return prevIsToolRun || prevIsTaskBoard ? 'mt-0.5' : 'mt-1.5'
+  }
+
   if (entry.type === 'message') {
     const isCompact = entry.compact === true
     const isDesktopNotice =
@@ -1413,6 +1429,12 @@ function entrySpacing(
               </template>
             </div>
             <div
+              v-else-if="entry.type === 'context_compressing'"
+              class="tool-segments chat-column"
+            >
+              <ContextCompressingMarker :label="entry.label" />
+            </div>
+            <div
               v-else
               :data-active-parent-board-inline="entry === activeBoard ? entry.storeKey : undefined"
               :class="[
@@ -1461,13 +1483,6 @@ function entrySpacing(
           />
         </div>
       </div>
-    </div>
-
-    <div
-      v-if="contextCompressingLabel"
-      class="chat-column tool-segments pt-1"
-    >
-      <ContextCompressingMarker :label="contextCompressingLabel" />
     </div>
   </div>
 

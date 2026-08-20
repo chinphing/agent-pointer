@@ -12,6 +12,7 @@ import type {
 export interface ContextCompressingState {
   scope: string
   messageId?: string
+  insertBeforeMessageId?: string
   subAgentId?: string
   subAgentName?: string
   startedAt: number

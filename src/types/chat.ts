@@ -1057,6 +1057,8 @@ export type StreamEvent =
       conversationId: string
       scope: 'main' | 'sub_agent' | string
       messageId?: string
+      /** First kept message after the split; progress marker renders just before it. */
+      insertBeforeMessageId?: string
       subAgentId?: string
       subAgentName?: string
     }

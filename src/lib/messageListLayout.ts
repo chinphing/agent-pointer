@@ -37,6 +37,7 @@ export type FlatEntry =
       document: TaskBoardDocument
       isActive: boolean
     }
+  | { type: 'context_compressing'; label: string }
 
 export type MessageListBoardBinding = {
   storeKey: string
@@ -293,6 +294,7 @@ function rebindFlatEntry(
   byId: Map<string, ChatMessage>,
   deps: FlattenDeps
 ): FlatEntry {
+  if (entry.type === 'context_compressing') return entry
   if (entry.type === 'message') {
     const message = rebindMessage(entry.message, byId)
     const trailingToolGroups = entry.trailingToolGroups?.map(group => {
@@ -359,6 +361,7 @@ function rebindTurn(
 export function entryContainsMessageId(entry: FlatEntry, messageId: string): boolean {
   const id = messageId.trim()
   if (!id) return false
+  if (entry.type === 'context_compressing') return false
   if (entry.type === 'message') return entry.message.id === id
   if (entry.type === 'tool_run') {
     return entry.items.some(item =>
@@ -371,6 +374,7 @@ export function entryContainsMessageId(entry: FlatEntry, messageId: string): boo
 }
 
 export function entryKey(entry: FlatEntry): string {
+  if (entry.type === 'context_compressing') return 'context-compressing'
   if (entry.type === 'message') return `message-${entry.message.id}`
   if (entry.type === 'tool_run') {
     return `tool-run-${entry.items
@@ -402,7 +406,7 @@ function entryIsSummary(entry: FlatEntry): boolean {
   // Task boards are progress chrome, not process to hide — keep running and
   // terminal boards in the collapsed projection (sticky also needs the inline
   // mount). Only compression summaries use the same keep path among messages.
-  if (entry.type === 'task_board') return true
+  if (entry.type === 'task_board' || entry.type === 'context_compressing') return true
   return entry.type === 'message' && isCompressionSummaryMessage(entry.message)
 }
 
@@ -634,4 +638,59 @@ export function buildMessageListLayout(options: {
     turns
   }
   return { entries, turns, cache, reusablePrefixTurns }
+}
+
+function spliceMarkerBefore(
+  list: FlatEntry[],
+  messageId: string,
+  marker: FlatEntry
+): boolean {
+  const index = list.findIndex(entry => entryContainsMessageId(entry, messageId))
+  if (index < 0) return false
+  list.splice(index, 0, marker)
+  return true
+}
+
+/**
+ * Place the in-progress compression marker immediately before the keep-window
+ * message (the same insert-before id used when the summary lands). Does not
+ * mutate the layout cache.
+ */
+export function insertContextCompressingMarker(
+  turns: readonly ConversationTurn<FlatEntry>[],
+  insertBeforeMessageId: string | undefined,
+  fallbackMessageId: string | undefined,
+  label: string
+): ConversationTurn<FlatEntry>[] {
+  const text = label.trim()
+  if (!text || turns.length === 0) return [...turns]
+  const marker: FlatEntry = { type: 'context_compressing', label: text }
+  const targets = [insertBeforeMessageId, fallbackMessageId]
+    .map(id => id?.trim() ?? '')
+    .filter(id => id.length > 0)
+
+  const next = turns.map(turn => ({
+    ...turn,
+    entries: [...turn.entries],
+    collapsedEntries: [...turn.collapsedEntries]
+  }))
+
+  const placeInTurn = (turn: ConversationTurn<FlatEntry>, id: string): boolean => {
+    if (!spliceMarkerBefore(turn.entries, id, marker)) return false
+    if (!spliceMarkerBefore(turn.collapsedEntries, id, marker)) {
+      turn.collapsedEntries.push(marker)
+    }
+    return true
+  }
+
+  for (const id of targets) {
+    for (const turn of next) {
+      if (placeInTurn(turn, id)) return next
+    }
+  }
+
+  const last = next[next.length - 1]!
+  last.entries.push(marker)
+  last.collapsedEntries.push(marker)
+  return next
 }

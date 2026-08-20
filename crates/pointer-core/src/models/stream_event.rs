@@ -409,6 +409,9 @@ pub enum StreamEvent {
         scope: String,
         #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
         message_id: Option<String>,
+        /// First kept message after the summary split (UI marker sits just before this).
+        #[serde(skip_serializing_if = "Option::is_none", rename = "insertBeforeMessageId")]
+        insert_before_message_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentId")]
         sub_agent_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentName")]

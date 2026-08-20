@@ -3,6 +3,7 @@ import type { ChatMessage } from '../types/chat'
 import {
   buildMessageListLayout,
   entryKey,
+  insertContextCompressingMarker,
   matchingCompletedPrefixCount,
   messageStructureFingerprint,
   splitMessageTurnSegments,
@@ -273,5 +274,21 @@ describe('buildMessageListLayout', () => {
       }]
     }
     expect(matchingCompletedPrefixCount('c1', fingerprints, cache)).toBe(0)
+  })
+})
+
+describe('insertContextCompressingMarker', () => {
+  it('places the marker immediately before the keep-window message', () => {
+    const layout = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [user('u1', 'old'), user('u2', 'keep'), assistant('a2', 'ok')],
+      deps: emptyDeps,
+      cache: null
+    })
+    const turns = insertContextCompressingMarker(layout.turns, 'u2', undefined, '正在压缩较早记录')
+    const keys = turns.flatMap(turn => turn.entries.map(entry => entryKey(entry)))
+    const split = keys.indexOf('context-compressing')
+    expect(split).toBeGreaterThanOrEqual(0)
+    expect(keys[split + 1]).toBe('message-u2')
   })
 })

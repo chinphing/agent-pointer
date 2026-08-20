@@ -258,7 +258,12 @@ fn emit_ui_toast(stream: &StreamTx, conversation_id: &str, message: &str, level:
     );
 }
 
-fn emit_compression_started(stream: &StreamTx, conversation_id: &str, ui: &CompressionUiContext) {
+fn emit_compression_started(
+    stream: &StreamTx,
+    conversation_id: &str,
+    ui: &CompressionUiContext,
+    insert_before_message_id: Option<String>,
+) {
     let scope = match ui.scope {
         CompressionScope::Main => "main",
         CompressionScope::SubAgent => "sub_agent",
@@ -269,6 +274,7 @@ fn emit_compression_started(stream: &StreamTx, conversation_id: &str, ui: &Compr
             conversation_id: conversation_id.to_string(),
             scope: scope.to_string(),
             message_id: ui.message_id.clone(),
+            insert_before_message_id,
             sub_agent_id: ui.sub_agent_id.clone(),
             sub_agent_name: ui.sub_agent_name.clone(),
         },
@@ -993,9 +999,13 @@ async fn compress_history_inner(
         return false;
     }
 
-    // In-thread tool-row marker (frontend); completion still uses UiToast.
+    // In-thread marker at the summary split (frontend); completion still uses UiToast.
     if emit_compression_ui {
-        emit_compression_started(stream, conversation_id, ui);
+        let insert_before = history
+            .get(split)
+            .map(|m| m.id.clone())
+            .filter(|id| !id.trim().is_empty());
+        emit_compression_started(stream, conversation_id, ui, insert_before);
     }
 
     let dropped_count = history[..split]

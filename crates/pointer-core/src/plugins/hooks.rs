@@ -17,9 +17,12 @@
 //! 是观察者，恒 fail-open（仅记日志）。
 
 use crate::dispatcher::{
-    HookIdentity, HookOutcome, HookRegistry, PostToolCallContext, PostToolCallHook,
-    PreToolCallContext, PreToolCallHook,
+    HookIdentity, HookOutcome, HookRegistry, OnRunCancelledHook, OnRunFailedHook,
+    OnRunFinishedHook, OnRunStartedHook, PostToolCallContext, PostToolCallHook,
+    PreToolCallContext, PreToolCallHook, RunCancelledContext, RunFailedContext,
+    RunFinishedContext, RunStartedContext,
 };
+use crate::chat_service::AppState;
 use crate::observability::{SpanKind, TraceEvent};
 use crate::plugins::registry::PluginRecord;
 use anyhow::{anyhow, Result};
@@ -46,12 +49,19 @@ struct HooksFile {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[allow(non_snake_case)] // 字段名 = hooks.json 协议 key（Claude 约定 PreToolUse/PostToolUse）
+#[allow(non_snake_case)] // 字段名 = hooks.json 协议 key（Claude 约定 PreToolUse/PostToolUse/SessionStart/SessionEnd）
 struct HooksDecl {
     #[serde(default)]
     PreToolUse: Vec<HookEntry>,
     #[serde(default)]
     PostToolUse: Vec<HookEntry>,
+    /// Run 级事件（设计稿 §5 审查注 5.3）：Pointer 中映射为每次 Run 开始/结束，
+    /// 与 Claude Code 的"整场会话"语义不同——按 Claude 语义编写的插件迁移后
+    /// SessionStart 会每 Run 触发一次。纯观察者，不可阻断，恒 fail-open。
+    #[serde(default)]
+    SessionStart: Vec<HookEntry>,
+    #[serde(default)]
+    SessionEnd: Vec<HookEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +91,8 @@ pub fn register_plugin_hooks(hook_registry: &HookRegistry, record: &PluginRecord
         .map_err(|e| anyhow!("解析 {} 失败: {e}", hooks_path.display()))?;
     let n_pre = parsed.hooks.PreToolUse.len();
     let n_post = parsed.hooks.PostToolUse.len();
+    let n_start = parsed.hooks.SessionStart.len();
+    let n_end = parsed.hooks.SessionEnd.len();
 
     for entry in parsed.hooks.PreToolUse {
         hook_registry.register_pre_tool_call(Arc::new(PluginPreToolCallHook {
@@ -101,9 +113,44 @@ pub fn register_plugin_hooks(hook_registry: &HookRegistry, record: &PluginRecord
             timeout_ms: DEFAULT_HOOK_TIMEOUT_MS,
         }));
     }
-    if n_pre > 0 || n_post > 0 {
+    // Run 级事件（§5 审查注 5.3）：SessionStart → on_run_started；
+    // SessionEnd → on_run_finished/failed/cancelled（三槽位各注册一份，
+    // 任一终态触发一次）。纯观察者，恒 fail-open。
+    for entry in parsed.hooks.SessionStart {
+        let hook = Arc::new(PluginRunStartedHook {
+            plugin_id: record.id.clone(),
+            command: entry.command.clone(),
+            plugin_dir: record.dir.clone(),
+            timeout_ms: DEFAULT_HOOK_TIMEOUT_MS,
+        });
+        hook_registry.register_on_run_started(hook);
+    }
+    for entry in parsed.hooks.SessionEnd {
+        let command = entry.command.clone();
+        let plugin_dir = record.dir.clone();
+        let plugin_id = record.id.clone();
+        hook_registry.register_on_run_finished(Arc::new(PluginRunFinishedHook {
+            plugin_id: plugin_id.clone(),
+            command: command.clone(),
+            plugin_dir: plugin_dir.clone(),
+            timeout_ms: DEFAULT_HOOK_TIMEOUT_MS,
+        }));
+        hook_registry.register_on_run_failed(Arc::new(PluginRunFailedHook {
+            plugin_id: plugin_id.clone(),
+            command: command.clone(),
+            plugin_dir: plugin_dir.clone(),
+            timeout_ms: DEFAULT_HOOK_TIMEOUT_MS,
+        }));
+        hook_registry.register_on_run_cancelled(Arc::new(PluginRunCancelledHook {
+            plugin_id,
+            command,
+            plugin_dir,
+            timeout_ms: DEFAULT_HOOK_TIMEOUT_MS,
+        }));
+    }
+    if n_pre > 0 || n_post > 0 || n_start > 0 || n_end > 0 {
         log::info!(
-            "plugin {}: 注册 hooks (PreToolUse={n_pre} PostToolUse={n_post})",
+            "plugin {}: 注册 hooks (PreToolUse={n_pre} PostToolUse={n_post} SessionStart={n_start} SessionEnd={n_end})",
             record.id
         );
     }
@@ -115,8 +162,15 @@ pub fn unregister_plugin_hooks(hook_registry: &HookRegistry, plugin_id: &str) {
     let n_pre = hook_registry.remove_pre_tool_call_by_prefix(&format!("plugin:{plugin_id}:hooks:pre"));
     let n_post =
         hook_registry.remove_post_tool_call_by_prefix(&format!("plugin:{plugin_id}:hooks:post"));
-    if n_pre + n_post > 0 {
-        log::info!("plugin {plugin_id}: 注销 hooks (pre={n_pre} post={n_post})");
+    let n_start = hook_registry.remove_on_run_started_by_prefix(&format!("plugin:{plugin_id}:hooks:start"));
+    let n_end = hook_registry
+        .remove_on_run_finished_by_prefix(&format!("plugin:{plugin_id}:hooks:end"))
+        + hook_registry.remove_on_run_failed_by_prefix(&format!("plugin:{plugin_id}:hooks:end"))
+        + hook_registry.remove_on_run_cancelled_by_prefix(&format!("plugin:{plugin_id}:hooks:end"));
+    if n_pre + n_post + n_start + n_end > 0 {
+        log::info!(
+            "plugin {plugin_id}: 注销 hooks (pre={n_pre} post={n_post} start={n_start} end={n_end})"
+        );
     }
 }
 
@@ -276,6 +330,204 @@ impl HookIdentity for PluginPostToolCallHook {
     fn sort_key(&self) -> Cow<'static, str> {
         Cow::Owned(format!("_70_plugin_hooks:post:{}", self.plugin_id))
     }
+}
+
+/// SessionStart hook（Run 级）：每次 Run 开始时执行插件命令。
+/// 纯观察者——输出/退出码不影响 Run，失败仅记日志（恒 fail-open）。
+struct PluginRunStartedHook {
+    plugin_id: String,
+    command: String,
+    plugin_dir: PathBuf,
+    timeout_ms: u64,
+}
+
+#[async_trait]
+impl OnRunStartedHook for PluginRunStartedHook {
+    async fn execute(&self, ctx: &RunStartedContext) -> Result<()> {
+        let event = serde_json::json!({
+            "hook_event_name": "SessionStart",
+            "run_id": ctx.run_id,
+            "conversation_id": ctx.conversation_id,
+        });
+        let mut span = TraceEvent::new(
+            ctx.run_id.clone(),
+            uuid::Uuid::new_v4().to_string(),
+            SpanKind::Hook,
+            format!("hook:{}:SessionStart", self.plugin_id),
+        );
+        span.parent_span_id = Some("run-root".to_string());
+        span.run_id = ctx.run_id.clone();
+        span.conversation_id = ctx.conversation_id.clone();
+        if let serde_json::Value::Object(ref mut attrs) = span.attributes {
+            attrs.insert("plugin_id".into(), serde_json::json!(self.plugin_id));
+            attrs.insert("command".into(), serde_json::json!(self.command));
+        }
+        if let Err(e) =
+            run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await
+        {
+            log::warn!(
+                "plugin {} SessionStart hook 执行失败（忽略）: {e:#}",
+                self.plugin_id
+            );
+            span.set_error("hook_failed", format!("{e:#}"));
+        }
+        span.end();
+        ctx.state.trace_bus.emit(span);
+        Ok(())
+    }
+}
+
+impl HookIdentity for PluginRunStartedHook {
+    fn override_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("plugin:{}:hooks:start", self.plugin_id))
+    }
+    fn sort_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("_70_plugin_hooks:start:{}", self.plugin_id))
+    }
+}
+
+/// SessionEnd hook（Run 级，finished 分支）：Run 正常结束时执行。
+struct PluginRunFinishedHook {
+    plugin_id: String,
+    command: String,
+    plugin_dir: PathBuf,
+    timeout_ms: u64,
+}
+
+#[async_trait]
+impl OnRunFinishedHook for PluginRunFinishedHook {
+    async fn execute(&self, ctx: &RunFinishedContext) -> Result<()> {
+        run_session_end_hook(
+            &self.plugin_id,
+            &self.plugin_dir,
+            &self.command,
+            self.timeout_ms,
+            "finished",
+            &ctx.run_id,
+            &ctx.conversation_id,
+            &ctx.state,
+        )
+        .await
+    }
+}
+
+impl HookIdentity for PluginRunFinishedHook {
+    fn override_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("plugin:{}:hooks:end", self.plugin_id))
+    }
+    fn sort_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("_70_plugin_hooks:end:{}", self.plugin_id))
+    }
+}
+
+/// SessionEnd hook（Run 级，failed 分支）：Run 失败时执行（带 error）。
+struct PluginRunFailedHook {
+    plugin_id: String,
+    command: String,
+    plugin_dir: PathBuf,
+    timeout_ms: u64,
+}
+
+#[async_trait]
+impl OnRunFailedHook for PluginRunFailedHook {
+    async fn execute(&self, ctx: &RunFailedContext) -> Result<()> {
+        run_session_end_hook(
+            &self.plugin_id,
+            &self.plugin_dir,
+            &self.command,
+            self.timeout_ms,
+            "failed",
+            &ctx.run_id,
+            &ctx.conversation_id,
+            &ctx.state,
+        )
+        .await
+    }
+}
+
+impl HookIdentity for PluginRunFailedHook {
+    fn override_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("plugin:{}:hooks:end", self.plugin_id))
+    }
+    fn sort_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("_70_plugin_hooks:end:{}", self.plugin_id))
+    }
+}
+
+/// SessionEnd hook（Run 级，cancelled 分支）：Run 被取消时执行。
+struct PluginRunCancelledHook {
+    plugin_id: String,
+    command: String,
+    plugin_dir: PathBuf,
+    timeout_ms: u64,
+}
+
+#[async_trait]
+impl OnRunCancelledHook for PluginRunCancelledHook {
+    async fn execute(&self, ctx: &RunCancelledContext) -> Result<()> {
+        run_session_end_hook(
+            &self.plugin_id,
+            &self.plugin_dir,
+            &self.command,
+            self.timeout_ms,
+            "cancelled",
+            &ctx.run_id,
+            &ctx.conversation_id,
+            &ctx.state,
+        )
+        .await
+    }
+}
+
+impl HookIdentity for PluginRunCancelledHook {
+    fn override_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("plugin:{}:hooks:end", self.plugin_id))
+    }
+    fn sort_key(&self) -> Cow<'static, str> {
+        Cow::Owned(format!("_70_plugin_hooks:end:{}", self.plugin_id))
+    }
+}
+
+/// SessionEnd 三分支共用：执行命令 + Hook Span（status 区分终态）。
+async fn run_session_end_hook(
+    plugin_id: &str,
+    plugin_dir: &Path,
+    command: &str,
+    timeout_ms: u64,
+    status: &str,
+    run_id: &str,
+    conversation_id: &str,
+    state: &AppState,
+) -> Result<()> {
+    let event = serde_json::json!({
+        "hook_event_name": "SessionEnd",
+        "status": status,
+        "run_id": run_id,
+        "conversation_id": conversation_id,
+    });
+    let mut span = TraceEvent::new(
+        run_id.to_string(),
+        uuid::Uuid::new_v4().to_string(),
+        SpanKind::Hook,
+        format!("hook:{plugin_id}:SessionEnd"),
+    );
+    span.parent_span_id = Some("run-root".to_string());
+    span.run_id = run_id.to_string();
+    span.conversation_id = conversation_id.to_string();
+    if let serde_json::Value::Object(ref mut attrs) = span.attributes {
+        attrs.insert("plugin_id".into(), serde_json::json!(plugin_id));
+        attrs.insert("command".into(), serde_json::json!(command));
+        attrs.insert("status".into(), serde_json::json!(status));
+    }
+    if let Err(e) = run_hook_command(plugin_dir, command, &event, timeout_ms).await {
+        log::warn!(
+            "plugin {plugin_id} SessionEnd hook 执行失败（忽略）: {e:#}"
+        );
+        span.set_error("hook_failed", format!("{e:#}"));
+    }
+    span.end();
+    state.trace_bus.emit(span);
+    Ok(())
 }
 
 enum HookDecision {
@@ -589,5 +841,153 @@ path = "hooks/"
             started.elapsed()
         );
         assert!(result.unwrap().is_err());
+    }
+
+    /// SessionStart/SessionEnd 注册到正确的 Run 级槽位，且可被注销。
+    /// 确定性测试（不 spawn 进程）：用 `remove_*_by_prefix` 返回值验证注册/注销。
+    #[tokio::test]
+    async fn session_hooks_register_to_run_slots_and_unregister() {
+        // 隔离 storage + 插件主目录（防测试污染真实目录）
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(data_dir.path().to_path_buf());
+        let plugins_home = tempfile::tempdir().unwrap();
+        std::env::set_var("POINTER_HOME", plugins_home.path());
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let dir = write_hooks_plugin(
+            root,
+            r#"{"hooks":{"SessionStart":[{"command":"bin/start.sh"}],"SessionEnd":[{"command":"bin/end.sh"}]}}"#,
+        );
+        // 命令文件无需可执行（本测试只验证注册/注销，不执行）
+        fs::create_dir_all(dir.join("bin")).unwrap();
+        fs::write(dir.join("bin/start.sh"), "placeholder").unwrap();
+        fs::write(dir.join("bin/end.sh"), "placeholder").unwrap();
+
+        let auth_file = tmp.path().join("auth.json");
+        let reg = PluginRegistry::with_auth_path(auth_file);
+        reg.scan_roots(&[(dir.clone(), true)]).unwrap();
+        let record = reg.get("com.example.hooks").unwrap();
+
+        let hook_registry = HookRegistry::new();
+        register_plugin_hooks(&hook_registry, &record).unwrap();
+
+        // SessionStart → on_run_started 槽位；SessionEnd → finished/failed/cancelled 三槽位
+        assert_eq!(
+            hook_registry.remove_on_run_started_by_prefix("plugin:com.example.hooks:hooks:start"),
+            1
+        );
+        assert_eq!(
+            hook_registry.remove_on_run_finished_by_prefix("plugin:com.example.hooks:hooks:end"),
+            1
+        );
+        assert_eq!(
+            hook_registry.remove_on_run_failed_by_prefix("plugin:com.example.hooks:hooks:end"),
+            1
+        );
+        assert_eq!(
+            hook_registry.remove_on_run_cancelled_by_prefix("plugin:com.example.hooks:hooks:end"),
+            1
+        );
+
+        // 重新注册后，unregister_plugin_hooks 应全部移除
+        register_plugin_hooks(&hook_registry, &record).unwrap();
+        unregister_plugin_hooks(&hook_registry, "com.example.hooks");
+        assert_eq!(
+            hook_registry.remove_on_run_started_by_prefix("plugin:com.example.hooks:hooks:start"),
+            0
+        );
+        assert_eq!(
+            hook_registry.remove_on_run_finished_by_prefix("plugin:com.example.hooks:hooks:end"),
+            0
+        );
+        assert_eq!(
+            hook_registry.remove_on_run_failed_by_prefix("plugin:com.example.hooks:hooks:end"),
+            0
+        );
+        assert_eq!(
+            hook_registry.remove_on_run_cancelled_by_prefix("plugin:com.example.hooks:hooks:end"),
+            0
+        );
+    }
+
+    /// SessionStart/SessionEnd hook 真实执行命令（marker 文件证明被调用）。
+    /// 命令扩展名按平台选择（Windows .bat / Unix .sh）。
+    #[tokio::test]
+    async fn session_start_end_hooks_execute_command() {
+        // 隔离 storage + 插件主目录（防测试污染真实目录）
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(data_dir.path().to_path_buf());
+        let plugins_home = tempfile::tempdir().unwrap();
+        std::env::set_var("POINTER_HOME", plugins_home.path());
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        #[cfg(windows)]
+        let hooks_json = r#"{"hooks":{"SessionStart":[{"command":"bin/start.bat"}],"SessionEnd":[{"command":"bin/end.bat"}]}}"#;
+        #[cfg(not(windows))]
+        let hooks_json = r#"{"hooks":{"SessionStart":[{"command":"bin/start.sh"}],"SessionEnd":[{"command":"bin/end.sh"}]}}"#;
+
+        let dir = write_hooks_plugin(root, hooks_json);
+        #[cfg(windows)]
+        {
+            fs::create_dir_all(dir.join("bin")).unwrap();
+            fs::write(
+                dir.join("bin/start.bat"),
+                "@echo off\r\necho ok > \"%~dp0start.marker\"\r\n",
+            )
+            .unwrap();
+            fs::write(
+                dir.join("bin/end.bat"),
+                "@echo off\r\necho ok > \"%~dp0end.marker\"\r\n",
+            )
+            .unwrap();
+        }
+        #[cfg(not(windows))]
+        {
+            write_script(
+                &dir,
+                "bin/start.sh",
+                "#!/bin/sh\necho ok > \"$(dirname \"$0\")/start.marker\"\n",
+            );
+            write_script(
+                &dir,
+                "bin/end.sh",
+                "#!/bin/sh\necho ok > \"$(dirname \"$0\")/end.marker\"\n",
+            );
+        }
+
+        let auth_file = tmp.path().join("auth.json");
+        let reg = PluginRegistry::with_auth_path(auth_file);
+        reg.scan_roots(&[(dir.clone(), true)]).unwrap();
+        let record = reg.get("com.example.hooks").unwrap();
+
+        let hook_registry = HookRegistry::new();
+        register_plugin_hooks(&hook_registry, &record).unwrap();
+
+        let state = Arc::new(crate::chat_service::AppState::new());
+        let start_ctx = RunStartedContext {
+            run_id: "r1".into(),
+            conversation_id: "c1".into(),
+            state: state.clone(),
+        };
+        hook_registry.run_on_run_started(&start_ctx).await;
+        assert!(
+            dir.join("bin").join("start.marker").exists(),
+            "SessionStart hook 应被执行"
+        );
+
+        let end_ctx = RunFinishedContext {
+            run_id: "r1".into(),
+            conversation_id: "c1".into(),
+            state: state.clone(),
+        };
+        hook_registry.run_on_run_finished(&end_ctx).await;
+        assert!(
+            dir.join("bin").join("end.marker").exists(),
+            "SessionEnd hook 应被执行"
+        );
     }
 }

@@ -21,10 +21,12 @@ Pointer 插件是一个**目录**，包含：
 | `agents/` | AGENT.md 子代理（worker） | ✅ 启用即注册 |
 | `rules/` | 规则文件（`.md` / `.mdc`），每轮对话注入 | ✅ 启用即注入 |
 | `[[tools.tool]]` | 进程外工具（sidecar 可执行文件） | ✅ 启用即注册（**须带 `exec` 执行载体**） |
-| `hooks/` | hooks.json（Claude 语义） | ✅ 启用即注册（PreToolUse 阻断 / PostToolUse 观察；脚本失败默认放行，entry 可配 `fail_closed` 切换为阻断） |
+| `hooks/` | hooks.json（Claude 语义） | ✅ 启用即注册（PreToolUse 阻断 / PostToolUse 观察；脚本失败默认放行，entry 可配 `fail_closed` 切换为阻断）。另支持 **SessionStart / SessionEnd**（Run 级：每次 Run 开始 / 结束触发，纯观察不可阻断；注意与 Claude"整场会话"语义不同，见下方说明） |
 | `mcp_servers` | MCP server 声明 | ✅ 启用即启动（stdio 或 http，工具自动注册；崩溃自动重启，重试达上限插件状态显示「运行异常」）。另支持**全局 MCP**（非插件）：设置面板「MCP」分区**界面直接配置**（持久化到本机用户配置，支持远程 URL / 本机命令），工具命名 `mcp.<server>.<tool>`，见 [`mcp.md`](mcp.md) |
 
 > 插件导入后是一次性**快照**：源目录后续变更不会自动同步，需要重新导入。
+
+> **SessionStart / SessionEnd 语义说明**：Pointer 中这两个事件映射为 **Run 级**——每次 Run 开始 / 结束触发一次，而非 Claude Code 的"整场会话"（打开终端一次 / 退出一次）。按 Claude 语义编写的插件迁移后，SessionStart 会**每 Run 触发一次**。SessionEnd 在 Run 的 finished / failed / cancelled 任一终态各触发一次。两者均为纯观察者（不可阻断，脚本失败仅记日志）。
 
 ---
 
@@ -41,7 +43,7 @@ my-plugin/
 │       └── AGENT.md
 ├── rules/                     # 可选：规则（.md / .mdc，递归收集）
 │   └── guardrail.md
-├── hooks/                     # 可选：hooks.json（PreToolUse / PostToolUse）
+├── hooks/                     # 可选：hooks.json（PreToolUse / PostToolUse / SessionStart / SessionEnd）
 │   └── hooks.json
 ├── bin/                       # 约定：sidecar 可执行文件放这里
 │   └── demo-tool
@@ -274,7 +276,7 @@ enabled → uninstall（卸载：删目录 + 清授权 + 移除技能）
 技能 frontmatter 需要 `name` 和 `description`。
 
 **Q: hooks / MCP 什么时候能跑？**
-hooks 执行器已实现（PreToolUse / PostToolUse，sidecar 进程 + JSON 决策）；MCP 接入（P2）仍在路线图中。
+hooks 执行器已实现（PreToolUse / PostToolUse / SessionStart / SessionEnd，sidecar 进程 + JSON 决策）；MCP 接入（P2）已完成。
 
 **Q: 插件更新了源目录，Pointer 里还是旧的？**
 插件是快照。请重新导入（同 id 覆盖）或手动更新 `~/.pointer/plugins/<id>/` 后重启/重新启用。

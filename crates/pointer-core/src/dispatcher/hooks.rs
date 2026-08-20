@@ -298,6 +298,35 @@ impl HookRegistry {
         before - hooks.len()
     }
 
+    /// Remove every hook whose `override_key` starts with `prefix`（插件按 id 前缀注销 Run 级 hooks）。
+    pub fn remove_on_run_started_by_prefix(&self, prefix: &str) -> usize {
+        let mut hooks = self.on_run_started.write();
+        let before = hooks.len();
+        hooks.retain(|h| !h.override_key().as_ref().starts_with(prefix));
+        before - hooks.len()
+    }
+
+    pub fn remove_on_run_finished_by_prefix(&self, prefix: &str) -> usize {
+        let mut hooks = self.on_run_finished.write();
+        let before = hooks.len();
+        hooks.retain(|h| !h.override_key().as_ref().starts_with(prefix));
+        before - hooks.len()
+    }
+
+    pub fn remove_on_run_failed_by_prefix(&self, prefix: &str) -> usize {
+        let mut hooks = self.on_run_failed.write();
+        let before = hooks.len();
+        hooks.retain(|h| !h.override_key().as_ref().starts_with(prefix));
+        before - hooks.len()
+    }
+
+    pub fn remove_on_run_cancelled_by_prefix(&self, prefix: &str) -> usize {
+        let mut hooks = self.on_run_cancelled.write();
+        let before = hooks.len();
+        hooks.retain(|h| !h.override_key().as_ref().starts_with(prefix));
+        before - hooks.len()
+    }
+
     /// Run `on_trigger_received` hooks in sort order. The first `Reject`
     /// aborts; `Rewrite` replaces the request for subsequent hooks; `Continue`
     /// passes through. A hook returning `Err` aborts with that error.

@@ -238,13 +238,13 @@ running/enabled → disabled（用户关闭 / 版本不兼容）
 }
 ```
 
-| 事件 | 对应现有 HookRegistry | 可阻断 |
-|---|---|---|
-| `PreToolUse` | `pre_tool_call`（未接线） | ✅ |
-| `PostToolUse` | `post_tool_call`（未接线） | ❌ 观察 |
-| `SessionStart` | `on_run_started` | ❌ |
-| `SessionEnd` | `on_run_finished/failed/cancelled` | ❌ |
-| `LlmBefore/LlmAfter` | 新增 | ❌（监控用） |
+| 事件 | 对应现有 HookRegistry | 可阻断 | 状态 |
+|---|---|---|---|
+| `PreToolUse` | `pre_tool_call` | ✅ | ✅ 已实现（P3） |
+| `PostToolUse` | `post_tool_call` | ❌ 观察 | ✅ 已实现（P3） |
+| `SessionStart` | `on_run_started` | ❌ | ✅ 已实现（2026-08-20，Run 级，见注 5.3） |
+| `SessionEnd` | `on_run_finished/failed/cancelled` | ❌ | ✅ 已实现（2026-08-20，Run 级，见注 5.3） |
+| `LlmBefore/LlmAfter` | 新增 | ❌（监控用） | ❌ 未实现（框架节点不存在） |
 
 执行协议：
 
@@ -425,13 +425,15 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 
 > **进度（2026-08-19 更新）**：**P4 ③ OtlpExporter 已完成**——`crates/pointer-core/src/observability/otlp.rs`（OTLP/HTTP + JSON 编码，无 protobuf/grpc 依赖；实现 `TraceExporter` + `build_export_request` 纯函数；trace/span id 优先 uuid-hex 解码、否则 sha256 稳定派生；payload 已由 pipeline 脱敏后导出，导出故障 fail-open）。激活走标准 OTel 环境变量：`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT`（协议仅支持 `http/json`，其余打 warn 跳过）+ `OTEL_SERVICE_NAME`；`start_default()` 检测到 env 时自动追加进 ExporterRegistry。`cargo test -p pointer-core --lib observability::` 18 passed（含本地回环 mock collector 的 HTTP 集成测试；全量 1358 passed，30 个失败为 Windows 预存环境问题，与本次改动无关）。剩余 P4 ① marketplace（**不做**，用户决策 2026-08-20，见 §9）/ ② Sidecar 高级（可选）/ ④ Pointer MCP Server（可选）。
 
+> **进度（2026-08-20 更新）**：**P3 补完 SessionStart / SessionEnd（Run 级）**——`plugins/hooks.rs` 的 `HooksDecl` 新增 `SessionStart` / `SessionEnd` 字段，桥接到 dispatcher 既有 Run 级槽位：`SessionStart` → `on_run_started`；`SessionEnd` → `on_run_finished` / `on_run_failed` / `on_run_cancelled`（三槽位各注册一份，任一终态触发一次）。纯观察者（不可阻断，恒 fail-open），复用 `run_hook_command` + `Hook` Span（attrs 含 `status` 区分终态）。`dispatcher/hooks.rs` 补 4 个 `remove_on_run_*_by_prefix`（插件禁用/卸载按前缀注销）。语义差异按审查注 5.3 在用户文档明示（Run 级 ≠ Claude 整场会话）。`LlmBefore/LlmAfter` 仍未实现（框架节点不存在）。`cargo test -p pointer-core --lib` 1377 passed / 30 failed（30 个失败为 Windows 预存环境问题，与本次改动无关；新增 2 个测试 `session_hooks_register_to_run_slots_and_unregister` / `session_start_end_hooks_execute_command` 均通过）。
+
 | 阶段 | 内容 | 依赖 | 验收标准 |
 |---|---|---|---|
 | **P0 观测基线** ✅ 已完成（2026-08-18 核对） | ① 接通 `pre/post_tool_call`；② 新增 LLM before/after hook（统一 provider 包装，见 §8.1）；③ 观测 TraceContext（trace_id = run_id，见 §7.1 注 7.1）贯穿 Run→LLM→Tool；④ 异步管道（有界 channel + 后台消费）+ ExporterRegistry（LogExporter）；⑤ 脱敏器；~~⑥ 前端 Run 概览 + 工具耗时详情~~（**用户决策：不做**，见下注） | 无 | 任意 Run 可在结构化日志看到 LLM/Tool/审批/重试 Span，含耗时与 Token；埋点为 try_send 非阻塞，channel 满时丢弃计数不阻塞主循环 |
 | **P1 插件核心** ✅ 已完成（2026-08-19 核对） | ① `pointer-plugin.toml` 解析 + 校验（`[[tools.tool]]` 必须有 `exec` 执行载体，见 §4.1 注 4.1.1）；② PluginRegistry + 状态机 + 授权（manifest + 文件清单哈希留痕，见 §4.3 注 4.3.1）；③ Skill/Agent/Rule 单元接入现有 Registry；④ `AGENTS.md`（嵌套）发现链；⑤ **导入转换器**（Claude `plugin.json` / Codex 插件目录 → 原生格式，含导入报告）；⑥ 冲突遮蔽 UI；⑦ **`ProcessToolProvider` 基础版**（stdio + JSON 协议，承载 `[[tools.tool]]` 的 `exec`） | P0 | 一个含 skills+agents+rules+sidecar 工具的示例插件目录可被发现、授权、启用，能力出现在对应 Registry 且带 plugin_id；一个 Claude 格式插件目录可成功导入为原生插件 |
 | **P2 MCP Client（插件内）** ✅ 已完成（2026-08-19 核对） | ① stdio 传输 + initialize/tools/list/tools/call；② `McpToolProvider` 注册（`mcp.<server>.<tool>`）；③ 健康检查 + 崩溃重启；④ `McpRequest` Span；⑤ 审批/allowlist 接入 | P1（前置：同步×异步桥接方案定稿，§6 注 6.1） | 接入一个本地 stdio MCP server，工具可被模型调用，审批生效，Span 可查 |
 | **P2b 全局 MCP（非插件）** ✅ 已完成（2026-08-19 核对） | ① `pointer-server.toml` 新增 `[[mcp_servers.server]]`（结构复用 `McpServerDecl`）；② AppState 启动装配（复用 McpClient + McpSessionManager），工具命名 `mcp.<server>.<tool>`；③ 热更新/重载（server 重启）+ 崩溃重启；④ 设置面板 MCP 管理页（列表/状态/启停/编辑）；⑤ 与插件 MCP 同一审批链路；同名冲突全局优先（§6.1） | P2（客户端与会话管理） | 在 server.toml 配置一个本地 stdio MCP server，启动后工具可被模型调用、UI 可管理，插件启用同名 server 时插件方报错不静默覆盖 |
-| **P3 外部 Hook** ✅ 已完成（2026-08-19 核对） | ① `hooks.json` 执行器（stdin JSON / exit code / JSON 决策）；② PreToolUse 阻断语义（回传通道见 §5 注 5.2）；③ fail-open/fail-closed 策略（entry 级 `fail_closed` 字段，默认 fail-open）；④ `Hook` Span | P0 | 一个 PreToolUse hook 可阻断 terminal 调用并在 UI/trace 显示原因 |
+| **P3 外部 Hook** ✅ 已完成（2026-08-19 核对；2026-08-20 补完 SessionStart/SessionEnd） | ① `hooks.json` 执行器（stdin JSON / exit code / JSON 决策）；② PreToolUse 阻断语义（回传通道见 §5 注 5.2）；③ fail-open/fail-closed 策略（entry 级 `fail_closed` 字段，默认 fail-open）；④ `Hook` Span；⑤ **SessionStart/SessionEnd（Run 级，2026-08-20，见 §5 注 5.3）** | P0 | 一个 PreToolUse hook 可阻断 terminal 调用并在 UI/trace 显示原因；SessionStart/SessionEnd 在 Run 开始/结束时触发 |
 | **P4 分发与导出（③ 已完成）** | ① ~~marketplace~~ **不做**（用户决策 2026-08-20，见 §9）；② Sidecar 高级能力（守护进程管理、热更新，可选；基础版已在 P1）；③ `OtlpExporter` ✅ 已完成（2026-08-19：OTLP/HTTP + JSON，标准 OTel env 激活，见进度注）；④ 可选：Pointer MCP Server（白名单只读能力） | P1–P3 | OTLP 导出到本地 Collector 可验证（原"从 GitHub 仓库安装 Claude 格式插件"验收随 ① 取消） |
 
 ### P0 前置探索（已完成，审查注 8.1，2026-08-18）

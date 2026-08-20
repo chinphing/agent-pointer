@@ -226,6 +226,13 @@ struct ServerConfigToml {
     pointer: PointerSection,
     #[serde(default)]
     webhooks: WebhooksSection,
+    /// 任意环境变量注入（仅当该 env 未设置时生效，OS 环境优先）。
+    /// 可用于配置 OTLP 导出，例如：
+    /// ```toml
+    /// [env]
+    /// OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318"
+    /// OTEL_SERVICE_NAME = "pointer-server"
+    /// ```
     #[serde(default)]
     env: HashMap<String, String>,
     /// P2b 全局 MCP（非插件）：`[[mcp_servers.server]]`，结构复用插件 manifest。
@@ -970,6 +977,31 @@ public_url = "https://pointer.example.com"
         assert_eq!(
             map.get("POINTER_SERVER_PUBLIC_URL").map(String::as_str),
             Some("https://pointer.example.com")
+        );
+    }
+
+    #[test]
+    fn toml_env_section_maps_otel_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[env]
+OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318"
+OTEL_SERVICE_NAME = "pointer-server"
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("OTEL_EXPORTER_OTLP_ENDPOINT").map(String::as_str),
+            Some("http://localhost:4318")
+        );
+        assert_eq!(
+            map.get("OTEL_SERVICE_NAME").map(String::as_str),
+            Some("pointer-server")
         );
     }
 

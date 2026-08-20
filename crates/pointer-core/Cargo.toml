@@ -62,6 +62,12 @@ ossify = "0.4.2"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 pdfium-render = { version = "0.8.37", default-features = false, features = ["image_025", "pdfium_latest", "thread_safe"] }
 pdfium-auto = "0.3"
+# OTLP/HTTP protobuf encoding for the OtlpExporter (Phoenix rejects JSON with 415).
+# Trimmed: prost-generated message types only (gen-tonic-messages) + trace signal
+# types; no tonic transport, no metrics/logs. prost 0.14 matches the version
+# opentelemetry-proto 0.32 generates against.
+opentelemetry-proto = { version = "0.32", default-features = false, features = ["gen-tonic-messages", "trace"] }
+prost = "0.14"
 
 [dev-dependencies]
 anyhow = "1"

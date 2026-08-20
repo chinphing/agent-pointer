@@ -46,7 +46,7 @@ use outcome::record_tool_exec_outcome;
 use types::ToolExecResult;
 
 use crate::dispatcher::{HookOutcome, PreToolCallContext};
-use crate::observability::{SpanKind, TraceEvent};
+use crate::observability::{capture_truncate, CAPTURE_MAX_BYTES, SpanKind, TraceEvent};
 
 fn task_board_emit_anchor_for_store_key(
     ctx: &ToolPassContext<'_>,
@@ -674,6 +674,10 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         if let serde_json::Value::Object(ref mut attrs) = tool_span.attributes {
                             attrs.insert("tool_id".into(), serde_json::json!(tool_id));
                         }
+                        tool_span.input = Some(capture_truncate(
+                            args.clone(),
+                            CAPTURE_MAX_BYTES,
+                        ));
                         let _tool_permit = tool_sem.acquire_owned().await;
                         if class == ToolConflictClass::Media {
                             let _media = media_sem.acquire_owned().await;
@@ -711,6 +715,13 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 "tool execution failed or reported not ok",
                             );
                         }
+                        tool_span.output = Some(match &exec {
+                            Ok((text, ok, _)) => capture_truncate(
+                                serde_json::json!({ "ok": ok, "result": text }),
+                                CAPTURE_MAX_BYTES,
+                            ),
+                            Err(e) => serde_json::json!({ "error": e.to_string() }),
+                        });
                         tool_span.end();
                         trace_bus.emit(tool_span);
                         OneToolOutcome {
@@ -1237,6 +1248,10 @@ async fn run_one_prepared(
     if let serde_json::Value::Object(ref mut attrs) = tool_span.attributes {
         attrs.insert("tool_id".into(), serde_json::json!(prep.tool_id));
     }
+    tool_span.input = Some(capture_truncate(
+        prep.args_value.clone(),
+        CAPTURE_MAX_BYTES,
+    ));
     let span_id = tool_span.span_id.clone();
 
     emit_tool_running(
@@ -1279,6 +1294,13 @@ async fn run_one_prepared(
     if tool_failed {
         tool_span.set_error("tool_failed", "tool execution failed or reported not ok");
     }
+    tool_span.output = Some(match &exec {
+        Ok((text, ok, _)) => capture_truncate(
+            serde_json::json!({ "ok": ok, "result": text }),
+            CAPTURE_MAX_BYTES,
+        ),
+        Err(e) => serde_json::json!({ "error": e.to_string() }),
+    });
     tool_span.end();
     state.trace_bus.emit(tool_span);
 

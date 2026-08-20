@@ -1,17 +1,22 @@
 //! OTLP exporter (plan §7.3, P4 ③).
 //!
 //! Exports [`TraceEvent`] batches to an OpenTelemetry Collector via the
-//! **OTLP/HTTP + JSON** protocol (`POST {endpoint}/v1/traces`,
-//! `Content-Type: application/json`). JSON encoding is chosen over
-//! protobuf/gRPC so no prost/tonic dependencies are needed; the OTLP spec
-//! mandates JSON as a first-class encoding and the Collector accepts it.
+//! **OTLP/HTTP + protobuf** protocol (`POST {endpoint}/v1/traces`,
+//! `Content-Type: application/x-protobuf`). Phoenix's OTLP receiver only
+//! accepts protobuf (it answers 415 to JSON), so the payload is encoded with
+//! the prost-generated `opentelemetry-proto` message types (trimmed features:
+//! no tonic transport).
 //!
 //! Activation follows the standard OpenTelemetry environment variables:
 //! - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` — full `.../v1/traces` endpoint
 //! - `OTEL_EXPORTER_OTLP_ENDPOINT` — base endpoint (signal path appended)
-//! - `OTEL_EXPORTER_OTLP_PROTOCOL` — only `http/json` (default) is supported;
-//!   `grpc` / `http/protobuf` are logged and skipped
+//! - `OTEL_EXPORTER_OTLP_PROTOCOL` — `http/protobuf` (default); `http/json`
+//!   and `grpc` are logged and skipped
 //! - `OTEL_SERVICE_NAME` — default `pointer-app`
+//!
+//! OpenInference semantics: every span carries `openinference.span.kind`
+//! (CHAIN / LLM / TOOL) plus `gen_ai.*` semconv attributes (model, token
+//! usage, conversation id, tool name) so Phoenix renders LLM/tool details.
 //!
 //! Export failures are fail-open: the pipeline logs them and continues
 //! (fault isolation is handled by [`ExporterRegistry::export_batch`]).
@@ -23,8 +28,16 @@
 use std::env;
 
 use async_trait::async_trait;
-use base64::Engine as _;
-use serde_json::{json, Value};
+use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+use opentelemetry_proto::tonic::common::v1::{
+    any_value::Value, ArrayValue, AnyValue, InstrumentationScope, KeyValue, KeyValueList,
+};
+use opentelemetry_proto::tonic::resource::v1::Resource;
+use opentelemetry_proto::tonic::trace::v1::{
+    span::SpanKind as OtlpSpanKind, ResourceSpans, ScopeSpans, Span, Status,
+};
+use prost::Message;
+use serde_json::Value as JsonValue;
 
 use sha2::{Digest, Sha256};
 
@@ -67,10 +80,10 @@ impl OtlpExporter {
     fn from_env_impl(get: impl Fn(&str) -> Option<String>) -> Option<Self> {
         if let Some(proto) = get("OTEL_EXPORTER_OTLP_PROTOCOL") {
             let proto = proto.trim().to_ascii_lowercase();
-            if !proto.is_empty() && proto != "http/json" {
+            if !proto.is_empty() && proto != "http/protobuf" {
                 log::warn!(
                     "OtlpExporter: unsupported OTEL_EXPORTER_OTLP_PROTOCOL={proto} \
-                     (only http/json); skipping OTLP export"
+                     (only http/protobuf); skipping OTLP export"
                 );
                 return None;
             }
@@ -99,8 +112,8 @@ impl TraceExporter for OtlpExporter {
         let resp = self
             .client
             .post(&self.endpoint)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .json(&payload)
+            .header(reqwest::header::CONTENT_TYPE, "application/x-protobuf")
+            .body(payload)
             .send()
             .await
             .map_err(|e| format!("otlp http request failed: {e}"))?;
@@ -111,134 +124,242 @@ impl TraceExporter for OtlpExporter {
     }
 }
 
-/// Serialize a batch into an `ExportTraceServiceRequest` JSON body
-/// (OTLP/HTTP + JSON encoding).
-pub fn build_export_request(batch: &[TraceEvent], service_name: &str) -> Value {
-    let spans: Vec<Value> = batch.iter().map(span_to_json).collect();
-    json!({
-        "resourceSpans": [{
-            "resource": {
-                "attributes": [
-                    { "key": "service.name", "value": { "stringValue": service_name } }
-                ]
-            },
-            "scopeSpans": [{
-                "scope": { "name": "pointer-core", "version": env!("CARGO_PKG_VERSION") },
-                "spans": spans
-            }]
-        }]
-    })
+/// Serialize a batch into an `ExportTraceServiceRequest` protobuf body
+/// (OTLP/HTTP + protobuf encoding).
+pub fn build_export_request(batch: &[TraceEvent], service_name: &str) -> Vec<u8> {
+    let spans: Vec<Span> = batch.iter().map(span_to_proto).collect();
+    let req = ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![KeyValue {
+                    key: "service.name".into(),
+                    value: Some(AnyValue {
+                        value: Some(Value::StringValue(service_name.to_string())),
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: Some(InstrumentationScope {
+                    name: "pointer-core".into(),
+                    version: env!("CARGO_PKG_VERSION").into(),
+                    ..Default::default()
+                }),
+                spans,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+    };
+    req.encode_to_vec()
 }
 
-fn span_to_json(ev: &TraceEvent) -> Value {
-    let b64 = base64::engine::general_purpose::STANDARD;
-    let trace_id = b64.encode(trace_id_bytes(&ev.trace_id));
-    let span_id = b64.encode(span_id_bytes(&ev.span_id));
-
+fn span_to_proto(ev: &TraceEvent) -> Span {
     let start_ns = (ev.started_at_ms.max(0) as u64).saturating_mul(1_000_000);
     let end_ms = ev.ended_at_ms.unwrap_or(ev.started_at_ms);
     let end_ns = (end_ms.max(0) as u64).saturating_mul(1_000_000);
 
-    let mut attrs = Vec::new();
-    push_attr(&mut attrs, "span.kind", json!({ "stringValue": ev.kind.as_str() }));
-    push_attr(&mut attrs, "run_id", json!({ "stringValue": ev.run_id }));
-    push_attr(
-        &mut attrs,
-        "conversation_id",
-        json!({ "stringValue": ev.conversation_id }),
-    );
-    if let Some(d) = ev.duration_ms {
-        push_attr(&mut attrs, "duration_ms", json!({ "intValue": d.to_string() }));
+    let mut attrs: Vec<KeyValue> = Vec::new();
+    // OpenInference semantics: Phoenix reads the span kind from this attribute.
+    push_attr(&mut attrs, "openinference.span.kind", openinference_kind(ev.kind));
+    push_attr(&mut attrs, "span.kind", ev.kind.as_str());
+    push_attr(&mut attrs, "run_id", &ev.run_id);
+    if !ev.conversation_id.is_empty() {
+        push_attr(&mut attrs, "conversation_id", &ev.conversation_id);
+        // OTel GenAI semconv: Phoenix synthesizes session_id from this.
+        push_attr(&mut attrs, "gen_ai.conversation.id", &ev.conversation_id);
     }
-    if let Value::Object(map) = &ev.attributes {
+    if let Some(d) = ev.duration_ms {
+        push_attr(&mut attrs, "duration_ms", &d.to_string());
+    }
+    if let JsonValue::Object(map) = &ev.attributes {
         for (k, v) in map {
             if let Some(any) = any_value(v) {
-                push_attr(&mut attrs, k, any);
+                attrs.push(KeyValue {
+                    key: k.clone(),
+                    value: Some(any),
+                    ..Default::default()
+                });
             }
         }
+        // GenAI semconv mapping: Phoenix synthesizes llm.* / tool.* from these.
+        if let Some(model) = map.get("model").and_then(|v| v.as_str()) {
+            push_attr(&mut attrs, "gen_ai.request.model", model);
+        }
+        if let Some(t) = map.get("tokens_in").and_then(|v| v.as_u64()) {
+            push_attr(&mut attrs, "gen_ai.usage.input_tokens", &t.to_string());
+        }
+        if let Some(t) = map.get("tokens_out").and_then(|v| v.as_u64()) {
+            push_attr(&mut attrs, "gen_ai.usage.output_tokens", &t.to_string());
+        }
+        if let Some(t) = map.get("tokens_cached").and_then(|v| v.as_u64()) {
+            push_attr(
+                &mut attrs,
+                "gen_ai.usage.cache_read_input_tokens",
+                &t.to_string(),
+            );
+        }
+    }
+    if matches!(ev.kind, SpanKind::ToolCall | SpanKind::McpRequest) {
+        let tool_name = ev
+            .attributes
+            .get("tool_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&ev.name);
+        push_attr(&mut attrs, "gen_ai.tool.name", tool_name);
     }
     if let Some(err) = &ev.error {
-        push_attr(
-            &mut attrs,
-            "error.code",
-            json!({ "stringValue": err.code }),
-        );
+        push_attr(&mut attrs, "error.code", &err.code);
     }
     if let Some(input) = &ev.input {
-        if let Some(any) = any_value(input) {
-            push_attr(&mut attrs, "input_summary", any);
+        if !matches!(input, JsonValue::Null) {
+            if let Some(any) = any_value(input) {
+                attrs.push(KeyValue {
+                    key: "input_summary".into(),
+                    value: Some(any),
+                    ..Default::default()
+                });
+            }
+            // OpenInference: Phoenix renders input.value (string) for the span input.
+            // Structured payloads are JSON-serialized so they stay visible there.
+            push_attr(
+                &mut attrs,
+                "input.value",
+                &match input {
+                    JsonValue::String(s) => s.clone(),
+                    other => other.to_string(),
+                },
+            );
         }
     }
     if let Some(output) = &ev.output {
-        if let Some(any) = any_value(output) {
-            push_attr(&mut attrs, "output_summary", any);
+        if !matches!(output, JsonValue::Null) {
+            if let Some(any) = any_value(output) {
+                attrs.push(KeyValue {
+                    key: "output_summary".into(),
+                    value: Some(any),
+                    ..Default::default()
+                });
+            }
+            push_attr(
+                &mut attrs,
+                "output.value",
+                &match output {
+                    JsonValue::String(s) => s.clone(),
+                    other => other.to_string(),
+                },
+            );
         }
     }
 
-    let mut status = json!({ "code": 1 }); // STATUS_CODE_OK
-    if matches!(ev.status, SpanStatus::Error | SpanStatus::Cancelled) {
-        status = json!({ "code": 2 }); // STATUS_CODE_ERROR
-        if let Some(err) = &ev.error {
-            status["message"] = json!(err.message);
-        }
-    }
+    let status = if matches!(ev.status, SpanStatus::Error | SpanStatus::Cancelled) {
+        let message = ev
+            .error
+            .as_ref()
+            .map(|e| e.message.clone())
+            .unwrap_or_default();
+        Some(Status {
+            message,
+            code: 2, // STATUS_CODE_ERROR
+        })
+    } else {
+        Some(Status {
+            message: String::new(),
+            code: 1, // STATUS_CODE_OK
+        })
+    };
 
-    let mut span = json!({
-        "traceId": trace_id,
-        "spanId": span_id,
-        "name": ev.name,
-        "kind": otlp_kind(ev.kind),
-        "startTimeUnixNano": start_ns.to_string(),
-        "endTimeUnixNano": end_ns.to_string(),
-        "attributes": attrs,
-        "status": status,
-    });
-    if let Some(parent) = &ev.parent_span_id {
-        span["parentSpanId"] = json!(b64.encode(span_id_bytes(parent)));
+    Span {
+        trace_id: trace_id_bytes(&ev.trace_id).to_vec(),
+        span_id: span_id_bytes(&ev.trace_id, &ev.span_id).to_vec(),
+        trace_state: String::new(),
+        parent_span_id: ev
+            .parent_span_id
+            .as_ref()
+            .map(|p| span_id_bytes(&ev.trace_id, p).to_vec())
+            .unwrap_or_default(),
+        name: ev.name.clone(),
+        kind: otlp_kind(ev.kind),
+        start_time_unix_nano: start_ns,
+        end_time_unix_nano: end_ns,
+        attributes: attrs,
+        dropped_attributes_count: 0,
+        events: Vec::new(),
+        dropped_events_count: 0,
+        links: Vec::new(),
+        dropped_links_count: 0,
+        status,
+        flags: 1, // sampled
     }
-    span
 }
 
-fn push_attr(attrs: &mut Vec<Value>, key: &str, value: Value) {
-    attrs.push(json!({ "key": key, "value": value }));
+fn push_attr(attrs: &mut Vec<KeyValue>, key: &str, value: &str) {
+    attrs.push(KeyValue {
+        key: key.to_string(),
+        value: Some(AnyValue {
+            value: Some(Value::StringValue(value.to_string())),
+        }),
+        ..Default::default()
+    });
 }
 
 /// OTel span kind: ToolCall / McpRequest are client calls, everything else is
 /// internal (the Run itself is the root).
 fn otlp_kind(kind: SpanKind) -> i32 {
     match kind {
-        SpanKind::ToolCall | SpanKind::McpRequest => 3, // CLIENT
-        _ => 1,                                         // INTERNAL
+        SpanKind::ToolCall | SpanKind::McpRequest => OtlpSpanKind::Client as i32,
+        _ => OtlpSpanKind::Internal as i32,
+    }
+}
+
+/// OpenInference span kind (Phoenix reads `openinference.span.kind` to render
+/// LLM / tool / chain details).
+fn openinference_kind(kind: SpanKind) -> &'static str {
+    match kind {
+        SpanKind::LlmCall => "LLM",
+        SpanKind::ToolCall | SpanKind::McpRequest => "TOOL",
+        SpanKind::Run | SpanKind::AgentLoop => "CHAIN",
+        _ => "CHAIN",
     }
 }
 
 /// Convert a JSON value into an OTLP `AnyValue`.
-fn any_value(v: &Value) -> Option<Value> {
-    match v {
-        Value::Null => None,
-        Value::Bool(b) => Some(json!({ "boolValue": b })),
-        Value::Number(n) => {
+fn any_value(v: &JsonValue) -> Option<AnyValue> {
+    let value = match v {
+        JsonValue::Null => return None,
+        JsonValue::Bool(b) => Value::BoolValue(*b),
+        JsonValue::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Some(json!({ "intValue": i.to_string() }))
+                Value::IntValue(i)
             } else if let Some(u) = n.as_u64() {
-                Some(json!({ "intValue": u.to_string() }))
+                Value::IntValue(u as i64)
             } else {
-                n.as_f64().map(|f| json!({ "doubleValue": f }))
+                n.as_f64().map(Value::DoubleValue)?
             }
         }
-        Value::String(s) => Some(json!({ "stringValue": s })),
-        Value::Array(items) => {
-            let values: Vec<Value> = items.iter().filter_map(any_value).collect();
-            Some(json!({ "arrayValue": { "values": values } }))
+        JsonValue::String(s) => Value::StringValue(s.clone()),
+        JsonValue::Array(items) => {
+            let values: Vec<AnyValue> = items.iter().filter_map(any_value).collect();
+            Value::ArrayValue(ArrayValue { values })
         }
-        Value::Object(map) => {
-            let values: Vec<Value> = map
+        JsonValue::Object(map) => {
+            let values: Vec<KeyValue> = map
                 .iter()
-                .filter_map(|(k, v)| any_value(v).map(|val| json!({ "key": k, "value": val })))
+                .filter_map(|(k, v)| {
+                    any_value(v).map(|val| KeyValue {
+                        key: k.clone(),
+                        value: Some(val),
+                        ..Default::default()
+                    })
+                })
                 .collect();
-            Some(json!({ "kvlistValue": { "values": values } }))
+            Value::KvlistValue(KeyValueList { values })
         }
-    }
+    };
+    Some(AnyValue {
+        value: Some(value),
+    })
 }
 
 /// Derive a fixed 16-byte trace id from an arbitrary string id.
@@ -255,7 +376,13 @@ fn trace_id_bytes(id: &str) -> [u8; 16] {
 }
 
 /// Derive a fixed 8-byte span id from an arbitrary string id.
-fn span_id_bytes(id: &str) -> [u8; 8] {
+///
+/// Non-hex ids (e.g. the fixed `"run-root"` label) are only unique within a
+/// trace, but Phoenix stores span ids globally unique — so the hash is scoped
+/// by `trace_id` to avoid cross-trace collisions (the second run's root span
+/// would otherwise be rejected and its children would reparent onto the first
+/// trace's run span).
+fn span_id_bytes(trace_id: &str, id: &str) -> [u8; 8] {
     if let Some(bytes) = decode_hex_compact(id) {
         if bytes.len() >= 8 {
             let mut out = [0u8; 8];
@@ -263,7 +390,7 @@ fn span_id_bytes(id: &str) -> [u8; 8] {
             return out;
         }
     }
-    let digest = Sha256::digest(id.as_bytes());
+    let digest = Sha256::digest(format!("{trace_id}:{id}").as_bytes());
     let mut out = [0u8; 8];
     out.copy_from_slice(&digest[..8]);
     out
@@ -311,7 +438,10 @@ mod tests {
         assert_eq!(trace.len(), 16);
         assert_eq!(trace[0], 0x2f);
         assert_eq!(trace[15], 0x11);
-        let span = span_id_bytes("3f5d7e9f-0000-4000-8000-222222222222");
+        let span = span_id_bytes(
+            "2f4c6d8e-0000-4000-8000-111111111111",
+            "3f5d7e9f-0000-4000-8000-222222222222",
+        );
         assert_eq!(span.len(), 8);
         assert_eq!(span[0], 0x3f);
     }
@@ -324,103 +454,214 @@ mod tests {
         assert_eq!(a, b);
         let c = trace_id_bytes("run-2");
         assert_ne!(a, c);
-        let sa = span_id_bytes("span-x");
+        let sa = span_id_bytes("run-1", "span-x");
         assert_eq!(sa.len(), 8);
-        assert_eq!(sa, span_id_bytes("span-x"));
-        assert_ne!(sa, span_id_bytes("span-y"));
+        assert_eq!(sa, span_id_bytes("run-1", "span-x"));
+        assert_ne!(sa, span_id_bytes("run-1", "span-y"));
+    }
+
+    #[test]
+    fn non_hex_span_ids_are_scoped_by_trace() {
+        // Regression: the fixed "run-root" label must not collide across
+        // traces (Phoenix enforces a global span_id uniqueness, so the second
+        // run's root span was rejected and its children reparented onto the
+        // first trace's run span).
+        let a = span_id_bytes("trace-a", "run-root");
+        let b = span_id_bytes("trace-b", "run-root");
+        assert_ne!(a, b);
+        // Stable within the same trace (parent/child consistency).
+        assert_eq!(a, span_id_bytes("trace-a", "run-root"));
+    }
+
+    fn decode_req(bytes: Vec<u8>) -> ExportTraceServiceRequest {
+        ExportTraceServiceRequest::decode(&bytes[..]).expect("decode protobuf")
+    }
+
+    fn first_span(req: &ExportTraceServiceRequest) -> &Span {
+        &req.resource_spans[0].scope_spans[0].spans[0]
+    }
+
+    fn attr_str(span: &Span, key: &str) -> Option<String> {
+        span.attributes.iter().find(|a| a.key == key).and_then(|a| {
+            a.value.as_ref().and_then(|v| match &v.value {
+                Some(Value::StringValue(s)) => Some(s.clone()),
+                _ => None,
+            })
+        })
     }
 
     #[test]
     fn build_export_request_shape() {
-        let req = build_export_request(&[sample_span()], "pointer-app");
-        let span = &req["resourceSpans"][0]["scopeSpans"][0]["spans"][0];
-        assert_eq!(req["resourceSpans"][0]["resource"]["attributes"][0]["key"], "service.name");
-        assert_eq!(span["name"], "file_read");
-        assert_eq!(span["kind"], 3); // CLIENT for ToolCall
-        assert_eq!(span["status"]["code"], 1);
-        assert!(span.get("parentSpanId").is_some());
-        assert!(span["traceId"].as_str().unwrap().len() >= 22); // base64(16)
-        assert_eq!(span["startTimeUnixNano"].as_str().unwrap(), "1700000000000000000");
-        let attrs = span["attributes"].as_array().unwrap();
-        let keys: Vec<&str> = attrs.iter().map(|a| a["key"].as_str().unwrap()).collect();
+        let req = decode_req(build_export_request(&[sample_span()], "pointer-app"));
+        let service = &req.resource_spans[0].resource.as_ref().unwrap().attributes[0];
+        assert_eq!(service.key, "service.name");
+        let span = first_span(&req);
+        assert_eq!(span.name, "file_read");
+        assert_eq!(span.kind, OtlpSpanKind::Client as i32); // CLIENT for ToolCall
+        assert_eq!(span.status.as_ref().unwrap().code, 1);
+        assert!(!span.parent_span_id.is_empty());
+        assert_eq!(span.trace_id.len(), 16);
+        assert_eq!(span.start_time_unix_nano, 1_700_000_000_000_000_000);
+        let keys: Vec<&str> = span.attributes.iter().map(|a| a.key.as_str()).collect();
+        assert!(keys.contains(&"openinference.span.kind"));
         assert!(keys.contains(&"span.kind"));
         assert!(keys.contains(&"run_id"));
         assert!(keys.contains(&"duration_ms"));
+        assert!(keys.contains(&"gen_ai.tool.name"));
     }
 
     #[test]
     fn error_span_maps_status_and_message() {
         let mut ev = sample_span();
         ev.set_error("mcp_call_failed", "MCP tools/call 失败");
-        let span = &build_export_request(&[ev], "pointer-app")["resourceSpans"][0]
-            ["scopeSpans"][0]["spans"][0];
-        assert_eq!(span["status"]["code"], 2);
-        assert_eq!(span["status"]["message"], "MCP tools/call 失败");
-        let attrs = span["attributes"].as_array().unwrap();
-        assert!(attrs.iter().any(|a| a["key"] == "error.code" && a["value"]["stringValue"] == "mcp_call_failed"));
+        let req = decode_req(build_export_request(&[ev], "pointer-app"));
+        let span = first_span(&req);
+        let status = span.status.as_ref().unwrap();
+        assert_eq!(status.code, 2);
+        assert_eq!(status.message, "MCP tools/call 失败");
+        assert!(span.attributes.iter().any(|a| a.key == "error.code"));
+    }
+
+    #[test]
+    fn openinference_kind_mapping() {
+        assert_eq!(openinference_kind(SpanKind::LlmCall), "LLM");
+        assert_eq!(openinference_kind(SpanKind::ToolCall), "TOOL");
+        assert_eq!(openinference_kind(SpanKind::McpRequest), "TOOL");
+        assert_eq!(openinference_kind(SpanKind::Run), "CHAIN");
+        assert_eq!(openinference_kind(SpanKind::AgentLoop), "CHAIN");
+        assert_eq!(openinference_kind(SpanKind::Hook), "CHAIN");
+    }
+
+    #[test]
+    fn llm_span_maps_gen_ai_attributes() {
+        let mut ev = TraceEvent::new("r1", "s1", SpanKind::LlmCall, "lead");
+        ev.conversation_id = "conv-1".into();
+        ev.attributes = serde_json::json!({
+            "model": "deepseek-v4-flash",
+            "tokens_in": 100,
+            "tokens_out": 20,
+            "tokens_cached": 80,
+        });
+        ev.end();
+        let req = decode_req(build_export_request(&[ev], "pointer-app"));
+        let span = first_span(&req);
+        assert_eq!(attr_str(span, "openinference.span.kind").as_deref(), Some("LLM"));
+        assert_eq!(attr_str(span, "gen_ai.request.model").as_deref(), Some("deepseek-v4-flash"));
+        assert_eq!(attr_str(span, "gen_ai.usage.input_tokens").as_deref(), Some("100"));
+        assert_eq!(attr_str(span, "gen_ai.usage.output_tokens").as_deref(), Some("20"));
+        assert_eq!(attr_str(span, "gen_ai.usage.cache_read_input_tokens").as_deref(), Some("80"));
+        assert_eq!(attr_str(span, "gen_ai.conversation.id").as_deref(), Some("conv-1"));
+    }
+
+    #[test]
+    fn input_output_payloads_map_to_value_attrs() {
+        let mut ev = TraceEvent::new("r1", "s1", SpanKind::ToolCall, "file_list");
+        ev.input = Some(serde_json::json!({ "path": "src", "recursive": true }));
+        ev.output = Some(serde_json::json!("ok"));
+        ev.end();
+        let req = decode_req(build_export_request(&[ev], "pointer-app"));
+        let span = first_span(&req);
+        // Structured input is JSON-serialized into input.value (OpenInference).
+        let input = attr_str(span, "input.value").expect("input.value");
+        let parsed: serde_json::Value = serde_json::from_str(&input).expect("json");
+        assert_eq!(parsed["path"], "src");
+        assert_eq!(parsed["recursive"], true);
+        // String output passes through verbatim.
+        assert_eq!(attr_str(span, "output.value").as_deref(), Some("ok"));
+        // Structured summary attrs are still present.
+        assert!(span.attributes.iter().any(|a| a.key == "input_summary"));
+        assert!(span.attributes.iter().any(|a| a.key == "output_summary"));
+
+        // Null payloads emit no value attr.
+        let mut ev2 = TraceEvent::new("r1", "s2", SpanKind::ToolCall, "noop");
+        ev2.input = Some(serde_json::Value::Null);
+        ev2.end();
+        let req2 = decode_req(build_export_request(&[ev2], "pointer-app"));
+        assert!(attr_str(first_span(&req2), "input.value").is_none());
     }
 
     #[test]
     fn any_value_recursive_shapes() {
-        let v = json!({
+        let v = serde_json::json!({
             "nested": { "ok": true, "n": 3 },
             "list": ["a", 1],
         });
         let any = any_value(&v).unwrap();
-        let values = any["kvlistValue"]["values"].as_array().unwrap();
-        let nested = values.iter().find(|e| e["key"] == "nested").expect("nested");
-        let nested_kv = nested["value"]["kvlistValue"]["values"]
-            .as_array()
-            .expect("nested kv");
-        let ok = nested_kv.iter().find(|e| e["key"] == "ok").expect("ok");
-        assert_eq!(ok["value"]["boolValue"], true);
-        let list = values.iter().find(|e| e["key"] == "list").expect("list");
-        assert_eq!(list["value"]["arrayValue"]["values"][1]["intValue"], "1");
+        let Value::KvlistValue(kv) = any.value.unwrap() else {
+            panic!("expected kvlist");
+        };
+        let nested = kv.values.iter().find(|e| e.key == "nested").expect("nested");
+        let Value::KvlistValue(nested_kv) = nested.value.as_ref().unwrap().value.as_ref().unwrap()
+        else {
+            panic!("expected nested kvlist");
+        };
+        let ok = nested_kv.values.iter().find(|e| e.key == "ok").expect("ok");
+        assert!(matches!(
+            ok.value.as_ref().unwrap().value,
+            Some(Value::BoolValue(true))
+        ));
+        let list = kv.values.iter().find(|e| e.key == "list").expect("list");
+        let Value::ArrayValue(arr) = list.value.as_ref().unwrap().value.as_ref().unwrap() else {
+            panic!("expected array");
+        };
+        assert!(matches!(arr.values[1].value, Some(Value::IntValue(1))));
     }
 
     #[tokio::test]
-    async fn export_posts_json_to_collector() {
+    async fn export_posts_protobuf_to_collector() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut sock, _) = listener.accept().await.unwrap();
             let mut buf = vec![0u8; 16 * 1024];
-            let n = sock.read(&mut buf).await.unwrap();
-            let text = String::from_utf8_lossy(&buf[..n]).to_string();
-            let header_end = text.find("\r\n\r\n").map(|i| i + 4).unwrap_or(0);
-            let headers = &text[..header_end];
-            let content_length: usize = headers
-                .lines()
-                .find_map(|l| {
-                    let lower = l.to_ascii_lowercase();
-                    lower
-                        .starts_with("content-length:")
-                        .then(|| l.split(':').nth(1)?.trim().parse().ok())
-                        .flatten()
-                })
-                .unwrap_or(0);
-            let mut body = text[header_end..].to_string();
-            while body.len() < content_length {
+            let mut raw = Vec::new();
+            loop {
                 let n = sock.read(&mut buf).await.unwrap();
                 if n == 0 {
                     break;
                 }
-                body.push_str(&String::from_utf8_lossy(&buf[..n]));
+                raw.extend_from_slice(&buf[..n]);
+                if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let header_end = pos + 4;
+                    let headers = String::from_utf8_lossy(&raw[..header_end]).to_string();
+                    let content_length: usize = headers
+                        .lines()
+                        .find_map(|l| {
+                            let lower = l.to_ascii_lowercase();
+                            lower
+                                .starts_with("content-length:")
+                                .then(|| l.split(':').nth(1)?.trim().parse().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0);
+                    while raw.len() < header_end + content_length {
+                        let n = sock.read(&mut buf).await.unwrap();
+                        if n == 0 {
+                            break;
+                        }
+                        raw.extend_from_slice(&buf[..n]);
+                    }
+                    let body = raw[header_end..header_end + content_length].to_vec();
+                    let _ = sock
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+                        .await;
+                    return (headers, body);
+                }
             }
-            let _ = sock
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
-                .await;
-            (text, body)
+            (String::new(), Vec::new())
         });
 
         let exporter = OtlpExporter::new(format!("http://{addr}/v1/traces"), "pointer-app");
         exporter.export(vec![sample_span()]).await.expect("export ok");
 
-        let (text, body) = server.await.unwrap();
-        assert!(text.starts_with("POST /v1/traces"), "{text}");
-        assert!(text.to_ascii_lowercase().contains("content-type: application/json"));
-        let req: Value = serde_json::from_str(&body).expect("json body");
-        assert_eq!(req["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"], "file_read");
+        let (headers, body) = server.await.unwrap();
+        assert!(headers.starts_with("POST /v1/traces"), "{headers}");
+        assert!(headers
+            .to_ascii_lowercase()
+            .contains("content-type: application/x-protobuf"));
+        let req = ExportTraceServiceRequest::decode(&body[..]).expect("protobuf body");
+        let span = &req.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(span.name, "file_read");
     }
 
     #[tokio::test]
@@ -489,7 +730,25 @@ mod tests {
         };
         assert!(OtlpExporter::from_env_impl(lookup).is_none());
 
-        // http/json accepted.
+        // http/protobuf accepted.
+        let env = [
+            (
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT".to_string(),
+                "http://c:4318/custom".to_string(),
+            ),
+            (
+                "OTEL_EXPORTER_OTLP_PROTOCOL".to_string(),
+                "http/protobuf".to_string(),
+            ),
+        ];
+        let lookup = |key: &str| {
+            env.iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+        };
+        assert!(OtlpExporter::from_env_impl(lookup).is_some());
+
+        // http/json rejected (Phoenix only accepts protobuf).
         let env = [
             (
                 "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT".to_string(),
@@ -505,6 +764,6 @@ mod tests {
                 .find(|(k, _)| k == key)
                 .map(|(_, v)| v.clone())
         };
-        assert!(OtlpExporter::from_env_impl(lookup).is_some());
+        assert!(OtlpExporter::from_env_impl(lookup).is_none());
     }
 }

@@ -1,6 +1,7 @@
 use crate::json_tool_caller::JsonToolFinishDiagnostics;
 use crate::llm_token_stats::LlmUsageSnapshot;
-use crate::models::{ChatMessage, ModelSettings, SystemPromptSections, ToolCall};
+use crate::models::{ChatMessage, ModelSettings, Role, SystemPromptSections, ToolCall};
+use crate::observability::{capture_truncate, CAPTURE_MAX_BYTES};
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -354,6 +355,21 @@ impl Drop for LlmSpanGuard {
     }
 }
 
+/// Last user message from an OpenAI-style `messages` array (trace capture).
+/// Returns the content string when present, otherwise the whole message.
+fn last_user_message_value(messages: Option<&Value>) -> Option<Value> {
+    let arr = messages?.as_array()?;
+    let msg = arr
+        .iter()
+        .rev()
+        .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))?;
+    if let Some(c) = msg.get("content").and_then(|c| c.as_str()) {
+        Some(Value::String(c.to_string()))
+    } else {
+        Some(msg.clone())
+    }
+}
+
 /// Built HTTP request for `stream_chat` (`openai_msgs` Values already dropped after serialize).
 pub struct StreamChatWire {
     pub url: String,
@@ -587,6 +603,23 @@ impl OpenAIProvider {
                         }),
                         None => serde_json::json!({ "model": out.model }),
                     };
+                    if let Some(user_msg) = messages
+                        .iter()
+                        .rev()
+                        .find(|m| matches!(m.role, Role::User))
+                    {
+                        g.span.input = Some(capture_truncate(
+                            Value::String(user_msg.content.clone()),
+                            CAPTURE_MAX_BYTES,
+                        ));
+                    }
+                    g.span.output = Some(capture_truncate(
+                        serde_json::json!({
+                            "text": out.text,
+                            "tool_calls": out.tool_calls,
+                        }),
+                        CAPTURE_MAX_BYTES,
+                    ));
                 }
             }
             Err(e) => {
@@ -1689,6 +1722,16 @@ impl OpenAIProvider {
                 }),
                 None => serde_json::json!({ "model": self.settings.model }),
             };
+            if let Some(user_msg) = last_user_message_value(wire_body.get("messages")) {
+                g.span.input = Some(capture_truncate(user_msg, CAPTURE_MAX_BYTES));
+            }
+            g.span.output = Some(capture_truncate(
+                serde_json::json!({
+                    "text": content_buf,
+                    "tool_calls": tool_calls,
+                }),
+                CAPTURE_MAX_BYTES,
+            ));
         }
 
         let _ = tx
@@ -1847,6 +1890,32 @@ fn rand_id() -> String {
 #[cfg(test)]
 mod native_tool_call_tests {
     use super::*;
+
+    #[test]
+    fn last_user_message_value_picks_last_user_content() {
+        let msgs = serde_json::json!([
+            { "role": "system", "content": "sys" },
+            { "role": "user", "content": "first" },
+            { "role": "assistant", "content": "hi" },
+            { "role": "user", "content": "second" },
+        ]);
+        assert_eq!(
+            last_user_message_value(Some(&msgs)),
+            Some(serde_json::Value::String("second".to_string()))
+        );
+        // Non-string content falls back to the whole message object.
+        let msgs2 = serde_json::json!([
+            { "role": "user", "content": [{ "type": "text", "text": "rich" }] },
+        ]);
+        let v = last_user_message_value(Some(&msgs2)).expect("present");
+        assert_eq!(v["content"][0]["text"], "rich");
+        // No user message / not an array / None -> None.
+        assert!(last_user_message_value(Some(&serde_json::json!([
+            { "role": "assistant", "content": "x" },
+        ]))).is_none());
+        assert!(last_user_message_value(Some(&serde_json::json!("nope"))).is_none());
+        assert!(last_user_message_value(None).is_none());
+    }
 
     #[test]
     fn native_tool_calls_from_states_orders_by_index() {

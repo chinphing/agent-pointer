@@ -139,6 +139,11 @@ async fn flush(batch: &[TraceEvent], exporters: &ExporterRegistry) {
 
 /// Build the pipeline and spawn the background consumer task.
 /// Returns the shared [`TraceBus`] handle for instrumentation points.
+///
+/// When called inside a Tokio runtime the consumer is spawned on it;
+/// otherwise (e.g. the desktop host's synchronous Tauri setup closure) a
+/// dedicated thread with a current-thread runtime is started so spans are
+/// still exported instead of silently dropped.
 pub fn start(exporters: Arc<ExporterRegistry>) -> TraceBus {
     let (tx, rx) = mpsc::channel(TRACE_CHANNEL_CAPACITY);
     let dropped = Arc::new(AtomicU64::new(0));
@@ -153,7 +158,23 @@ pub fn start(exporters: Arc<ExporterRegistry>) -> TraceBus {
         exporters,
         dropped,
     };
-    tokio::spawn(handle.run());
+    match tokio::runtime::Handle::try_current() {
+        Ok(_) => {
+            tokio::spawn(handle.run());
+        }
+        Err(_) => {
+            std::thread::Builder::new()
+                .name("trace-pipeline".into())
+                .spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("trace pipeline runtime");
+                    rt.block_on(handle.run());
+                })
+                .expect("trace pipeline thread");
+        }
+    }
     bus
 }
 
@@ -258,6 +279,77 @@ mod tests {
         }
         assert!(sent < TRACE_CHANNEL_CAPACITY * 4);
         assert!(bus.dropped_count() > 0);
+    }
+
+    #[test]
+    fn start_outside_tokio_runtime_still_exports() {
+        let collecting = Arc::new(CollectingExporter {
+            received: AtomicUsize::new(0),
+        });
+        let mut reg = ExporterRegistry::new();
+        reg.register(collecting.clone());
+        // Simulate a host that is NOT inside a tokio runtime (e.g. Tauri's
+        // synchronous setup closure): `start()` must spin up its own pipeline
+        // thread instead of falling back to a silent no-op bus.
+        let bus = std::thread::spawn(move || start(Arc::new(reg)))
+            .join()
+            .expect("pipeline thread");
+        assert!(bus.emit(sample(1)));
+
+        for _ in 0..40 {
+            if collecting.received.load(Ordering::SeqCst) >= 1 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(collecting.received.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn start_outside_runtime_exports_otlp_over_http() {
+        // Regression: the dedicated-thread pipeline must enable the tokio IO
+        // driver (enable_all), otherwise the OtlpExporter's reqwest POST
+        // panics with "IO is disabled" and traces are lost.
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("local addr");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                if let Ok(n) = sock.read(&mut buf) {
+                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}");
+                    let _ = tx.send(text);
+                }
+            }
+        });
+
+        let exporter = crate::observability::OtlpExporter::new(
+            format!("http://{addr}/v1/traces"),
+            "pointer-app",
+        );
+        let mut reg = ExporterRegistry::new();
+        reg.register(std::sync::Arc::new(exporter));
+
+        // start() from a thread with NO tokio runtime -> dedicated pipeline.
+        let bus = std::thread::spawn(move || start(std::sync::Arc::new(reg)))
+            .join()
+            .expect("pipeline thread");
+        assert!(bus.emit(sample(1)));
+
+        let text = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("otlp export request should arrive within 5s");
+        let _ = server.join();
+        assert!(text.starts_with("POST /v1/traces"), "{text}");
+        assert!(
+            text.to_ascii_lowercase()
+                .contains("content-type: application/x-protobuf"),
+            "{text}"
+        );
     }
 
     #[tokio::test]

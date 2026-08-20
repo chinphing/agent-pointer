@@ -2,6 +2,7 @@
 
 use crate::dispatcher::TriggerSource;
 use crate::models::{ChatMessage, Role, StreamEvent};
+use crate::observability::{capture_truncate, CAPTURE_MAX_BYTES};
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
 use std::backtrace::Backtrace;
@@ -43,6 +44,24 @@ fn assistant_stream_started(before: &[ChatMessage], after: &[ChatMessage]) -> bo
         }
     }
     false
+}
+
+/// Last user message content for run-span input capture (trace only).
+fn last_user_message_content(history: &[ChatMessage]) -> Option<String> {
+    history
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, Role::User))
+        .map(|m| m.content.clone())
+}
+
+/// Last non-empty assistant reply for run-span output capture (trace only).
+fn last_assistant_reply_content(history: &[ChatMessage]) -> Option<String> {
+    history
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, Role::Assistant) && !m.content.trim().is_empty())
+        .map(|m| m.content.clone())
 }
 
 pub async fn run_chat(
@@ -126,6 +145,12 @@ pub async fn run_chat(
         );
         span.conversation_id = conversation_id.clone();
         span.run_id = run_id.clone();
+        if let Some(user_msg) = last_user_message_content(&history) {
+            span.input = Some(capture_truncate(
+                serde_json::Value::String(user_msg),
+                CAPTURE_MAX_BYTES,
+            ));
+        }
         Some(span)
     };
     let mut consumed_single = 0u32;
@@ -372,8 +397,55 @@ pub async fn run_chat(
         if let Err(err) = &result {
             span.set_error("run_failed", err.to_string());
         }
+        if let Some(reply) = last_assistant_reply_content(&history) {
+            span.output = Some(capture_truncate(
+                serde_json::Value::String(reply),
+                CAPTURE_MAX_BYTES,
+            ));
+        }
         span.end();
         state.trace_bus.emit(span);
     }
     result
+}
+
+#[cfg(test)]
+mod run_span_capture_tests {
+    use super::*;
+
+    fn user(content: &str) -> ChatMessage {
+        ChatMessage::user_text(content)
+    }
+
+    fn assistant(content: &str) -> ChatMessage {
+        let mut m = ChatMessage::user_text(content);
+        m.role = Role::Assistant;
+        m
+    }
+
+    #[test]
+    fn last_user_message_content_picks_last_user() {
+        let history = vec![
+            user("first"),
+            assistant("a1"),
+            user("second"),
+            assistant("a2"),
+        ];
+        assert_eq!(last_user_message_content(&history).as_deref(), Some("second"));
+        // No user message -> None.
+        assert!(last_user_message_content(&[assistant("only")]).is_none());
+        assert!(last_user_message_content(&[]).is_none());
+    }
+
+    #[test]
+    fn last_assistant_reply_content_skips_empty() {
+        let history = vec![user("q"), assistant("real reply"), assistant("")];
+        assert_eq!(
+            last_assistant_reply_content(&history).as_deref(),
+            Some("real reply")
+        );
+        // All assistant empty -> None.
+        assert!(last_assistant_reply_content(&[user("q"), assistant("  ")]).is_none());
+        assert!(last_assistant_reply_content(&[]).is_none());
+    }
 }

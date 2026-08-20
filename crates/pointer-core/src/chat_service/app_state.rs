@@ -663,13 +663,10 @@ impl AppState {
         let mut extension_registry = ExtensionRegistry::new();
         crate::extensions::register_builtin_extensions(&mut extension_registry);
         crate::platform_config::register_global_platform_config(platform_config.clone());
-        // Observability pipeline: start only inside a Tokio runtime (the default
-        // host always is); fall back to a no-op bus for non-async construction.
-        let trace_bus = Arc::new(if tokio::runtime::Handle::try_current().is_ok() {
-            crate::observability::start_default()
-        } else {
-            crate::observability::TraceBus::noop()
-        });
+        // Observability pipeline: `start_default()` works both inside a Tokio
+        // runtime (consumer spawned on it) and outside one (dedicated thread),
+        // so the desktop host (Tauri sync setup closure) also exports traces.
+        let trace_bus = Arc::new(crate::observability::start_default());
         let hooks = crate::dispatcher::HookRegistry::new();
         crate::dispatcher::hooks::register_builtin_hooks(&hooks);
         let hooks = Arc::new(hooks);

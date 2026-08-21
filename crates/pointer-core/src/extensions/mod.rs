@@ -50,7 +50,8 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     /// Feature flag for common user dynamic inject migration.
     pub user_dynamic_inject_enabled: bool,
     /// Conversation workspace for this round (`settings.workspace_root` after
-    /// `ensure_workspace_at_run_start`). AGENTS.md discovery uses this path.
+    /// `ensure_workspace_at_run_start`). Treated as cwd for the git-root→workspace
+    /// `AGENTS.md` chain; global `~/.pointer/AGENTS.md` is resolved separately.
     pub workspace_root: &'a str,
 }
 

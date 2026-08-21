@@ -156,7 +156,8 @@ exec = { command = "bin/cwpt-tool", transport = "sidecar" }  # 执行载体：MC
 ~/.agents/skills/              # Codex/Agent 标准 Skills（只读，现有，保持）
 ~/.codex/skills/               # Codex Skills 探测（现有，保持）
 <workspace>/.pointer/plugins/  # 项目级插件（需项目显式启用）
-<workspace>/AGENTS.md          # 工程指令（根 + 子目录嵌套，子目录优先）
+~/.pointer/AGENTS.md           # 全局工程指令
+<workspace>/AGENTS.md          # 项目链：git 根 → 工作区路径上每层一份（不扫旁支）
 ```
 
 **导入来源目录**（只读探测，供"导入"入口列出可导入项，不直接生效）：

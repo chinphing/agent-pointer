@@ -1,14 +1,16 @@
-//! `AGENTS.md` 工程指令发现链（设计稿 §4.4 / §4.2）。
+//! `AGENTS.md` 工程指令（设计稿 §4.4 / §4.2）。
 //!
-//! 工作区根 + 子目录嵌套扫描（子目录优先），合并后注入
-//! [`ExtensionRegistry::MessageLoopPromptsAfter`]（作为工程指令的 Prompt 扩展点）。
+//! 对齐 Codex：全局一份 + 从 git 根沿工作区路径一路拼接，注入
+//! [`ExtensionRegistry::MessageLoopPromptsAfter`]。
 //!
 //! 规则：
-//! - 每轮使用会话工作区（`workspace_root`），不使用进程 cwd；
-//! - 只扫描 `<workspace>/AGENTS.md` 及子目录中的 `AGENTS.md`（嵌套，子目录优先）；
-//! - 跳过隐藏目录、`node_modules`、`target`、`.git` 等大型/生成目录；
-//! - 不扫描文件系统根（`/` / `C:\`），也不进入 `Volumes` / `mnt` 等挂载点目录；
-//! - 合并顺序：深度浅 → 深（子目录覆盖/追加在根之后），输出为单个 user 注入块；
+//! - 全局：`~/.pointer/AGENTS.md`（`dirs::home_dir()`，跨平台）；
+//! - 项目：会话工作区当作 cwd（不使用进程 cwd）。从该目录向上找 `.git`
+//!   （目录或 worktree 文件），再从 git 根沿路径走到工作区，每层最多一份；
+//! - 找不到 git 根时只读工作区根上的那一份；
+//! - 合并顺序：全局 → git 根 → … → 工作区（近处在后）；同一路径只注入一次；
+//! - 不扫描旁支子目录，也不按当前打开的文件动态附加；
+//! - 不读文件系统根（`/` / `C:\`）上的同名文件；
 //! - 发现 ≠ 执行：仅读取文本注入 Prompt，不改变任何运行时行为。
 
 use crate::extensions::{
@@ -17,6 +19,7 @@ use crate::extensions::{
 use crate::models::{ChatMessage, Role};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -27,33 +30,10 @@ const HOOK_KEY: &str = "workspace_agents_md";
 /// 注入排序（在 task board 等动态注入之前、内置钩子之后）。
 const SORT_KEY: &str = "_60_agents_md";
 
-/// 跳过的大型 / 生成目录（与 repo 内 `ignore` 默认习惯对齐）。
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    ".hg",
-    ".svn",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".cache",
-];
-
-/// Mount / share roots. Walking these from `/` triggers macOS “network volume”
-/// TCC prompts and multi-second stalls on SMB/AFP/NFS.
-const SKIP_MOUNT_DIR_NAMES: &[&str] = &[
-    "Volumes",
-    "Network",
-    "mnt",
-    "media",
-    "net",
-    "proc",
-    "sys",
-    "dev",
-];
+const GLOBAL_LABEL: &str = "~/.pointer/AGENTS.md";
+const WORKSPACE_LABEL: &str = "AGENTS.md";
+/// Stop walking parents / git-root→cwd components (typical repos are far shallower).
+const MAX_ANCESTORS: usize = 64;
 
 fn is_filesystem_root(path: &Path) -> bool {
     let mut comps = path.components();
@@ -66,111 +46,309 @@ fn is_filesystem_root(path: &Path) -> bool {
     }
 }
 
-/// 发现工作区根 + 子目录中的 AGENTS.md，返回按深度升序（根 → 深层）的路径列表。
-/// 子目录优先体现在合并阶段：深层内容追加在根内容之后（子目录覆盖/追加）。
-pub fn discover_agents_md(workspace_root: &Path) -> Vec<PathBuf> {
-    discover_agents_md_stats(workspace_root).0
+fn pointer_home_dir_no_create() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".pointer"))
 }
 
-fn discover_agents_md_stats(workspace_root: &Path) -> (Vec<PathBuf>, usize) {
-    if is_filesystem_root(workspace_root) {
-        log::warn!(
-            "agents_md: skip filesystem root scan root={}",
-            workspace_root.display()
-        );
-        return (Vec::new(), 0);
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
     }
-    let mut found = Vec::new();
-    let mut dirs_visited = 0usize;
-    collect_agents_md(
-        workspace_root,
-        workspace_root,
-        0,
-        &mut found,
-        &mut dirs_visited,
-    );
-    found.sort_by_key(|p| p.components().count());
-    (found, dirs_visited)
 }
 
-fn collect_agents_md(
-    base: &Path,
-    dir: &Path,
-    depth: usize,
-    out: &mut Vec<PathBuf>,
-    dirs_visited: &mut usize,
-) {
-    *dirs_visited += 1;
-    if depth > 0 {
-        let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if SKIP_DIRS.iter().any(|s| *s == name)
-            || SKIP_MOUNT_DIR_NAMES.iter().any(|s| *s == name)
-            || name.starts_with('.')
-        {
-            return;
+fn posix_rel(root: &Path, file: &Path) -> String {
+    match file.strip_prefix(root) {
+        Ok(rel) => rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+        Err(_) => AGENTS_MD.to_string(),
+    }
+}
+
+fn path_has_git_marker(dir: &Path) -> bool {
+    match std::fs::symlink_metadata(dir.join(".git")) {
+        Ok(_) => true,
+        Err(e) if e.kind() == ErrorKind::NotFound => false,
+        Err(e) => {
+            log::warn!(
+                "agents_md: .git metadata failed dir={} err={e}",
+                dir.display()
+            );
+            false
         }
     }
-    let candidate = dir.join(AGENTS_MD);
-    if candidate.is_file() {
-        out.push(candidate);
+}
+
+/// Walk up from `start` until `.git` exists. Filesystem root is never a git root.
+fn find_git_root(start: &Path) -> Option<PathBuf> {
+    let mut cursor = start.to_path_buf();
+    for depth in 0..=MAX_ANCESTORS {
+        if is_filesystem_root(&cursor) {
+            log::info!(
+                "agents_md: stop at filesystem root, no git marker start={}",
+                start.display()
+            );
+            return None;
+        }
+        if path_has_git_marker(&cursor) {
+            log::info!(
+                "agents_md: git root={} depth={} start={}",
+                cursor.display(),
+                depth,
+                start.display()
+            );
+            return Some(cursor);
+        }
+        match cursor.parent() {
+            Some(p) => cursor = p.to_path_buf(),
+            None => return None,
+        }
     }
-    if depth >= 6 {
-        return;
+    log::warn!(
+        "agents_md: ancestor walk exceeded max={} start={}",
+        MAX_ANCESTORS,
+        start.display()
+    );
+    None
+}
+
+/// Directories from git root down to cwd (inclusive). No git → cwd only. Never walks siblings.
+fn project_search_dirs(cwd: &Path) -> (Option<PathBuf>, Vec<PathBuf>) {
+    if is_filesystem_root(cwd) {
+        log::warn!(
+            "agents_md: skip filesystem root workspace={}",
+            cwd.display()
+        );
+        return (None, Vec::new());
     }
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
+    let cwd = match cwd.canonicalize() {
+        Ok(p) => p,
         Err(e) => {
-            if dir == base {
-                log::warn!(
-                    "agents_md: read_dir failed root={} err={e}",
-                    dir.display()
-                );
-            } else {
-                log::debug!("agents_md: read_dir skipped path={} err={e}", dir.display());
-            }
-            return;
+            log::warn!(
+                "agents_md: canonicalize failed path={} err={e}",
+                cwd.display()
+            );
+            cwd.to_path_buf()
         }
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_agents_md(base, &path, depth + 1, out, dirs_visited);
+    if is_filesystem_root(&cwd) {
+        log::warn!(
+            "agents_md: skip filesystem root workspace={}",
+            cwd.display()
+        );
+        return (None, Vec::new());
+    }
+    let Some(git_root) = find_git_root(&cwd) else {
+        log::info!("agents_md: no git root, cwd only cwd={}", cwd.display());
+        return (None, vec![cwd]);
+    };
+    if !cwd.starts_with(&git_root) {
+        log::warn!(
+            "agents_md: cwd not under git root, cwd only cwd={} git_root={}",
+            cwd.display(),
+            git_root.display()
+        );
+        return (None, vec![cwd]);
+    }
+    let mut dirs = Vec::new();
+    let mut cursor = git_root.clone();
+    loop {
+        dirs.push(cursor.clone());
+        if cursor == cwd {
+            break;
+        }
+        let Ok(rel) = cwd.strip_prefix(&cursor) else {
+            log::warn!(
+                "agents_md: strip_prefix failed cursor={} cwd={}",
+                cursor.display(),
+                cwd.display()
+            );
+            break;
+        };
+        let Some(next) = rel.components().next() else {
+            break;
+        };
+        cursor = cursor.join(next);
+        if dirs.len() > MAX_ANCESTORS {
+            log::warn!(
+                "agents_md: git-root-to-cwd walk exceeded max={} cwd={}",
+                MAX_ANCESTORS,
+                cwd.display()
+            );
+            break;
+        }
+    }
+    (Some(git_root), dirs)
+}
+
+/// 目录下的 `AGENTS.md`（文件或指向文件的符号链接）。目录 / 非常规文件记 warn。
+fn agents_md_in_dir(dir: &Path) -> Option<PathBuf> {
+    if is_filesystem_root(dir) {
+        log::warn!("agents_md: skip filesystem root root={}", dir.display());
+        return None;
+    }
+    let path = dir.join(AGENTS_MD);
+    match std::fs::symlink_metadata(&path) {
+        Ok(md) => {
+            let ft = md.file_type();
+            if ft.is_file() || ft.is_symlink() {
+                Some(path)
+            } else if ft.is_dir() {
+                log::warn!(
+                    "agents_md: skip, path is a directory path={}",
+                    path.display()
+                );
+                None
+            } else {
+                log::warn!(
+                    "agents_md: skip, not a regular file path={}",
+                    path.display()
+                );
+                None
+            }
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => None,
+        Err(e) => {
+            log::warn!(
+                "agents_md: metadata failed path={} err={e}",
+                path.display()
+            );
+            None
         }
     }
 }
 
-/// 读取并合并所有 AGENTS.md：每份文件输出「路径 + 内容」，根在前、子目录在后。
-pub fn read_merged_agents_md(workspace_root: &Path) -> Result<String> {
-    let files = discover_agents_md(workspace_root);
-    read_merged_from_files(workspace_root, &files)
+fn already_have(out: &[(String, PathBuf)], path: &Path) -> bool {
+    out.iter().any(|(_, p)| p == path || same_dir(p, path))
 }
 
-fn read_merged_from_files(workspace_root: &Path, files: &[PathBuf]) -> Result<String> {
-    if files.is_empty() {
-        return Ok(String::new());
+/// 全局 + git 根→工作区路径。`pointer_home` 为 `None` 时跳过全局层。
+pub fn discover_agents_md_chain(
+    workspace_root: Option<&Path>,
+    pointer_home: Option<&Path>,
+) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    if let Some(home) = pointer_home {
+        if let Some(path) = agents_md_in_dir(home) {
+            out.push((GLOBAL_LABEL.to_string(), path));
+        }
     }
-    let mut parts = Vec::new();
-    for path in files {
-        let rel = path
-            .strip_prefix(workspace_root)
-            .unwrap_or(path)
-            .to_string_lossy();
-        let content =
-            std::fs::read_to_string(path).map_err(|e| anyhow!("读取 {path:?} 失败: {e}"))?;
-        let trimmed = content.trim();
-        if trimmed.is_empty() {
+    let Some(cwd) = workspace_root else {
+        return out;
+    };
+    let (git_root, dirs) = project_search_dirs(cwd);
+    let label_root = git_root.as_deref().unwrap_or(cwd);
+    for dir in dirs {
+        let Some(path) = agents_md_in_dir(&dir) else {
+            continue;
+        };
+        if already_have(&out, &path) {
             continue;
         }
-        parts.push(format!("#### {rel}\n{trimmed}"));
+        let label = if git_root.is_some() {
+            posix_rel(label_root, &path)
+        } else {
+            WORKSPACE_LABEL.to_string()
+        };
+        out.push((label, path));
     }
-    if parts.is_empty() {
-        return Ok(String::new());
+    out
+}
+
+/// 工作区根 + 本机 `~/.pointer`（生产发现入口）。
+pub fn discover_agents_md(workspace_root: &Path) -> Vec<PathBuf> {
+    discover_agents_md_chain(Some(workspace_root), pointer_home_dir_no_create().as_deref())
+        .into_iter()
+        .map(|(_, p)| p)
+        .collect()
+}
+
+fn read_agents_md_file(path: &Path) -> Result<String> {
+    let content = std::fs::read_to_string(path).map_err(|e| anyhow!("读取 {path:?} 失败: {e}"))?;
+    Ok(content.trim().to_string())
+}
+
+fn merge_labeled_files(files: &[(String, PathBuf)]) -> Result<String> {
+    let mut parts = Vec::new();
+    for (label, path) in files {
+        let body = read_agents_md_file(path)?;
+        if body.is_empty() {
+            log::info!("agents_md: skip empty file path={}", path.display());
+            continue;
+        }
+        parts.push(format!("#### {label}\n{body}"));
     }
     Ok(parts.join("\n\n---\n\n"))
 }
 
-/// 将合并后的 AGENTS.md 注入每轮 Prompt 尾部的 hook（单例）。
-pub struct AgentsMdInjectHook;
+/// 读取全局 + 工作区根并合并。任一层缺失则跳过该层。
+pub fn read_merged_agents_md(workspace_root: &Path) -> Result<String> {
+    let files =
+        discover_agents_md_chain(Some(workspace_root), pointer_home_dir_no_create().as_deref());
+    merge_labeled_files(&files)
+}
+
+fn inject_user_block(tail: &mut Vec<ChatMessage>, content: String) {
+    tail.push(ChatMessage {
+        id: new_extension_message_id("agents_md"),
+        role: Role::User,
+        content: format!("【工程指令（AGENTS.md）】\n{content}"),
+        status: "done".into(),
+        created_at: now_ms(),
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        thoughts: None,
+        headline: None,
+        raw_content: None,
+        tool_raw_output: None,
+        agent_id: None,
+        agent_instance_id: None,
+        agent_name: None,
+        agent_trace: None,
+        image_slot_labels: None,
+        images_base64: None,
+        computer_round_screen_rel_path: None,
+        ui_bindings: None,
+        context_state: None,
+        attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
+    });
+}
+
+/// 将 AGENTS.md 注入每轮 Prompt 尾部的 hook（单例）。
+pub struct AgentsMdInjectHook {
+    /// 测试注入假 `~/.pointer`；`None` 表示运行时解析用户主目录。
+    pointer_home: Option<PathBuf>,
+}
+
+impl Default for AgentsMdInjectHook {
+    fn default() -> Self {
+        Self { pointer_home: None }
+    }
+}
+
+impl AgentsMdInjectHook {
+    fn resolved_pointer_home(&self) -> Option<PathBuf> {
+        if self.pointer_home.is_some() {
+            return self.pointer_home.clone();
+        }
+        match dirs::home_dir() {
+            Some(h) => Some(h.join(".pointer")),
+            None => {
+                log::warn!("agents_md: 无法解析用户主目录，跳过 ~/.pointer/AGENTS.md");
+                None
+            }
+        }
+    }
+}
 
 #[async_trait]
 impl MessageLoopPromptsAfterHook for AgentsMdInjectHook {
@@ -185,87 +363,71 @@ impl MessageLoopPromptsAfterHook for AgentsMdInjectHook {
     async fn execute(&self, ctx: &mut MessageLoopPromptsAfterContext<'_>) -> Result<()> {
         let started = Instant::now();
         let raw = ctx.workspace_root.trim();
-        if raw.is_empty() {
+        let pointer_home = self.resolved_pointer_home();
+
+        let workspace_root = if raw.is_empty() {
             log::info!(
                 "agents_md: skip empty workspace conversation_id={}",
                 ctx.conversation_id
             );
-            return Ok(());
-        }
-        let workspace_root = PathBuf::from(raw);
-        if !workspace_root.is_dir() {
-            log::warn!(
-                "agents_md: workspace is not a directory conversation_id={} root={}",
-                ctx.conversation_id,
-                workspace_root.display()
-            );
-            return Ok(());
-        }
-        let (files, dirs_visited) = discover_agents_md_stats(&workspace_root);
+            None
+        } else {
+            let root = PathBuf::from(raw);
+            if !root.is_dir() {
+                log::warn!(
+                    "agents_md: workspace is not a directory conversation_id={} root={}",
+                    ctx.conversation_id,
+                    root.display()
+                );
+                None
+            } else {
+                Some(root)
+            }
+        };
+
+        let files = discover_agents_md_chain(
+            workspace_root.as_deref(),
+            pointer_home.as_deref(),
+        );
         let mut injected = false;
-        let content = match read_merged_from_files(&workspace_root, &files) {
-            Ok(c) => c,
+        match merge_labeled_files(&files) {
+            Ok(content) if content.is_empty() => {}
+            Ok(content) => {
+                inject_user_block(ctx.injected_tail, content);
+                injected = true;
+            }
             Err(err) => {
                 log::warn!(
-                    "agents_md: 读取失败 conversation_id={} root={} elapsed_ms={} dirs_visited={} files={} err={err:#}",
+                    "agents_md: 读取失败 conversation_id={} workspace={} elapsed_ms={} files={} err={err:#}",
                     ctx.conversation_id,
-                    workspace_root.display(),
+                    workspace_root
+                        .as_deref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
                     started.elapsed().as_millis(),
-                    dirs_visited,
                     files.len()
                 );
                 return Ok(());
             }
-        };
-        if !content.is_empty() {
-            ctx.injected_tail.push(ChatMessage {
-                id: new_extension_message_id("agents_md"),
-                role: Role::User,
-                content: format!("【工程指令（AGENTS.md）】\n{content}"),
-                status: "done".into(),
-                created_at: now_ms(),
-                tool_calls: None,
-                tool_call_id: None,
-                error_message: None,
-                reasoning: None,
-                thoughts: None,
-                headline: None,
-                raw_content: None,
-                tool_raw_output: None,
-                agent_id: None,
-                agent_instance_id: None,
-                agent_name: None,
-                agent_trace: None,
-                image_slot_labels: None,
-                images_base64: None,
-                computer_round_screen_rel_path: None,
-                ui_bindings: None,
-                context_state: None,
-                attachments: None,
-                anchor_message_id: None,
-                trace_id: None,
-                task_id: None,
-                spawn_depth: None,
-            });
-            injected = true;
         }
+        let git_root = workspace_root
+            .as_ref()
+            .and_then(|p| p.canonicalize().ok())
+            .and_then(|c| find_git_root(&c));
         let elapsed_ms = started.elapsed().as_millis();
-        let preview: Vec<String> = files
-            .iter()
-            .take(8)
-            .map(|p| {
-                p.strip_prefix(&workspace_root)
-                    .unwrap_or(p)
-                    .display()
-                    .to_string()
-            })
-            .collect();
+        let labels: Vec<&str> = files.iter().map(|(l, _)| l.as_str()).collect();
         let msg = format!(
-            "agents_md: scan conversation_id={} root={} elapsed_ms={} dirs_visited={} files={} injected={} preview={preview:?}",
+            "agents_md: load conversation_id={} workspace={} git_root={} elapsed_ms={} files={} labels={labels:?} injected={}",
             ctx.conversation_id,
-            workspace_root.display(),
+            workspace_root
+                .as_deref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            git_root
+                .as_deref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             elapsed_ms,
-            dirs_visited,
             files.len(),
             injected
         );
@@ -278,10 +440,12 @@ impl MessageLoopPromptsAfterHook for AgentsMdInjectHook {
     }
 }
 
-/// 注册 AGENTS.md 发现链到 ExtensionRegistry（AppState 构建时调用）。
+/// 注册 AGENTS.md 注入到 ExtensionRegistry（AppState 构建时调用）。
 pub fn register_agents_md_hook(extensions: &crate::extensions::ExtensionRegistry) {
-    log::info!("agents_md: registered hook (scan conversation workspace_root each round)");
-    extensions.register_message_loop_prompts_after(std::sync::Arc::new(AgentsMdInjectHook));
+    log::info!(
+        "agents_md: registered hook (global ~/.pointer/AGENTS.md + git-root-to-workspace chain)"
+    );
+    extensions.register_message_loop_prompts_after(std::sync::Arc::new(AgentsMdInjectHook::default()));
 }
 
 #[cfg(test)]
@@ -289,52 +453,151 @@ mod tests {
     use super::*;
     use std::fs;
 
-    #[test]
-    fn discovers_nested_agents_md() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        fs::create_dir_all(root.join("src/nested")).unwrap();
-        fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
-        fs::create_dir_all(root.join("target/x")).unwrap();
-        fs::write(root.join("AGENTS.md"), "root rules\n").unwrap();
-        fs::write(root.join("src/AGENTS.md"), "src rules\n").unwrap();
-        fs::write(root.join("src/nested/AGENTS.md"), "nested rules\n").unwrap();
-        fs::write(root.join("node_modules/pkg/AGENTS.md"), "ignored\n").unwrap();
-        fs::write(root.join("target/x/AGENTS.md"), "ignored\n").unwrap();
+    fn hook_ctx<'a>(
+        computer: &'a crate::agents::computer::ComputerState,
+        base: &'a [crate::models::ChatMessage],
+        tail: &'a mut Vec<ChatMessage>,
+        workspace: &'a str,
+    ) -> MessageLoopPromptsAfterContext<'a> {
+        MessageLoopPromptsAfterContext {
+            computer_state: computer,
+            lead_agent_profile: crate::agents::AgentProfile::General,
+            base_messages: base,
+            injected_tail: tail,
+            conversation_id: "test",
+            stream: None,
+            round_assistant_message_id: None,
+            round_screen_dump_prefix: None,
+            task_board_store: std::sync::Arc::new(crate::task_board::TaskBoardStore::new()),
+            task_board_store_key: "test",
+            user_dynamic_inject_enabled: true,
+            workspace_root: workspace,
+        }
+    }
 
-        let files = discover_agents_md(root);
-        let names: Vec<String> = files
-            .iter()
-            .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string())
-            .collect();
-        assert!(names.contains(&"AGENTS.md".to_string()));
-        assert!(names.contains(&"src/AGENTS.md".to_string()));
-        assert!(names.contains(&"src/nested/AGENTS.md".to_string()));
-        assert!(!names.iter().any(|n| n.contains("node_modules")));
-        assert!(!names.iter().any(|n| n.contains("target")));
+    fn init_git(dir: &Path) {
+        fs::create_dir_all(dir.join(".git")).unwrap();
     }
 
     #[test]
-    fn merges_root_first_then_nested() {
+    fn discovers_global_then_workspace_root_only() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        fs::create_dir_all(root.join("src")).unwrap();
+        let home = tmp.path().join("pointer-home");
+        let root = tmp.path().join("project");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(root.join("src/nested")).unwrap();
+        fs::write(home.join("AGENTS.md"), "global rules\n").unwrap();
         fs::write(root.join("AGENTS.md"), "root rules\n").unwrap();
         fs::write(root.join("src/AGENTS.md"), "src rules\n").unwrap();
 
-        let merged = read_merged_agents_md(root).unwrap();
-        let root_pos = merged.find("root rules").expect("root rules present");
-        let src_pos = merged.find("src rules").expect("src rules present");
-        assert!(root_pos < src_pos, "root should come before nested");
-        assert!(merged.contains("AGENTS.md"));
-        assert!(merged.contains("src/AGENTS.md"));
+        let files = discover_agents_md_chain(Some(&root), Some(&home));
+        let labels: Vec<&str> = files.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, vec![GLOBAL_LABEL, WORKSPACE_LABEL]);
+        let merged = merge_labeled_files(&files).unwrap();
+        let g = merged.find("global rules").expect("global");
+        let r = merged.find("root rules").expect("root");
+        assert!(g < r);
+        assert!(!merged.contains("src rules"));
+    }
+
+    #[test]
+    fn workspace_only_when_global_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("pointer-home");
+        let root = tmp.path().join("project");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("AGENTS.md"), "root rules\n").unwrap();
+        let files = discover_agents_md_chain(Some(&root), Some(&home));
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, WORKSPACE_LABEL);
+    }
+
+    #[test]
+    fn skips_duplicate_when_workspace_is_pointer_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("pointer-home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(home.join("AGENTS.md"), "once\n").unwrap();
+        let files = discover_agents_md_chain(Some(&home), Some(&home));
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, GLOBAL_LABEL);
+    }
+
+    #[test]
+    fn concatenates_git_root_to_workspace_not_siblings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("pointer-home");
+        let repo = tmp.path().join("repo");
+        let web = repo.join("packages/web");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&web).unwrap();
+        fs::create_dir_all(repo.join("packages/api")).unwrap();
+        init_git(&repo);
+        fs::write(home.join("AGENTS.md"), "global rules\n").unwrap();
+        fs::write(repo.join("AGENTS.md"), "repo rules\n").unwrap();
+        fs::write(repo.join("packages/AGENTS.md"), "packages rules\n").unwrap();
+        fs::write(web.join("AGENTS.md"), "web rules\n").unwrap();
+        fs::write(repo.join("packages/api/AGENTS.md"), "api rules\n").unwrap();
+
+        let files = discover_agents_md_chain(Some(&web), Some(&home));
+        let labels: Vec<&str> = files.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec![
+                GLOBAL_LABEL,
+                "AGENTS.md",
+                "packages/AGENTS.md",
+                "packages/web/AGENTS.md",
+            ]
+        );
+        let merged = merge_labeled_files(&files).unwrap();
+        assert!(merged.find("global rules").unwrap() < merged.find("repo rules").unwrap());
+        assert!(merged.find("repo rules").unwrap() < merged.find("packages rules").unwrap());
+        assert!(merged.find("packages rules").unwrap() < merged.find("web rules").unwrap());
+        assert!(!merged.contains("api rules"));
+    }
+
+    #[test]
+    fn git_worktree_file_counts_as_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let nested = repo.join("pkg");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(repo.join(".git"), "gitdir: /tmp/fake.git\n").unwrap();
+        fs::write(repo.join("AGENTS.md"), "repo\n").unwrap();
+        fs::write(nested.join("AGENTS.md"), "pkg\n").unwrap();
+        let labels: Vec<String> = discover_agents_md_chain(Some(&nested), None)
+            .into_iter()
+            .map(|(l, _)| l)
+            .collect();
+        assert_eq!(labels, vec!["AGENTS.md".to_string(), "pkg/AGENTS.md".to_string()]);
+    }
+
+    #[test]
+    fn discover_empty_when_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("pointer-home");
+        fs::create_dir_all(&home).unwrap();
+        assert!(discover_agents_md_chain(Some(tmp.path()), Some(&home)).is_empty());
+    }
+
+    #[test]
+    fn skips_directory_named_agents_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("AGENTS.md")).unwrap();
+        assert!(discover_agents_md_chain(Some(root), None).is_empty());
     }
 
     #[tokio::test]
-    async fn hook_injects_merged_content() {
+    async fn hook_injects_global_and_workspace() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
+        let home = tmp.path().join("pointer-home");
+        let root = tmp.path().join("project");
+        fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(home.join("AGENTS.md"), "global rules\n").unwrap();
         fs::write(root.join("AGENTS.md"), "root rules\n").unwrap();
         fs::write(root.join("src/AGENTS.md"), "src rules\n").unwrap();
 
@@ -343,68 +606,75 @@ mod tests {
             crate::agents::computer::ComputerState::with_annotate_url("http://127.0.0.1:9");
         let base: &[crate::models::ChatMessage] = &[];
         let mut tail = Vec::new();
-        let mut ctx = MessageLoopPromptsAfterContext {
-            computer_state: &computer,
-            lead_agent_profile: crate::agents::AgentProfile::General,
-            base_messages: base,
-            injected_tail: &mut tail,
-            conversation_id: "test",
-            stream: None,
-            round_assistant_message_id: None,
-            round_screen_dump_prefix: None,
-            task_board_store: std::sync::Arc::new(crate::task_board::TaskBoardStore::new()),
-            task_board_store_key: "test",
-            user_dynamic_inject_enabled: true,
-            workspace_root: root_s,
+        let mut ctx = hook_ctx(&computer, base, &mut tail, root_s);
+        let hook = AgentsMdInjectHook {
+            pointer_home: Some(home),
         };
-        let hook = AgentsMdInjectHook;
         hook.execute(&mut ctx).await.unwrap();
         assert_eq!(tail.len(), 1);
         assert!(tail[0].content.contains("工程指令"));
+        assert!(tail[0].content.contains("global rules"));
         assert!(tail[0].content.contains("root rules"));
-        assert!(tail[0].content.contains("src rules"));
+        assert!(!tail[0].content.contains("src rules"));
+    }
+
+    #[tokio::test]
+    async fn hook_injects_global_when_workspace_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("pointer-home");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(home.join("AGENTS.md"), "global only\n").unwrap();
+        let computer =
+            crate::agents::computer::ComputerState::with_annotate_url("http://127.0.0.1:9");
+        let base: &[crate::models::ChatMessage] = &[];
+        let mut tail = Vec::new();
+        let mut ctx = hook_ctx(&computer, base, &mut tail, "");
+        let hook = AgentsMdInjectHook {
+            pointer_home: Some(home),
+        };
+        hook.execute(&mut ctx).await.unwrap();
+        assert_eq!(tail.len(), 1);
+        assert!(tail[0].content.contains("global only"));
     }
 
     #[tokio::test]
     async fn hook_noop_without_agents_md() {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
+        let home = tmp.path().join("pointer-home");
+        fs::create_dir_all(&home).unwrap();
+        let root_s = tmp.path().to_str().expect("utf-8 temp path");
+        let computer =
+            crate::agents::computer::ComputerState::with_annotate_url("http://127.0.0.1:9");
+        let base: &[crate::models::ChatMessage] = &[];
+        let mut tail = Vec::new();
+        let mut ctx = hook_ctx(&computer, base, &mut tail, root_s);
+        let hook = AgentsMdInjectHook {
+            pointer_home: Some(home),
+        };
+        hook.execute(&mut ctx).await.unwrap();
+        assert!(tail.is_empty());
+    }
+
+    #[tokio::test]
+    async fn hook_noop_empty_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("pointer-home");
+        let root = tmp.path().join("project");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(home.join("AGENTS.md"), "  \n").unwrap();
+        fs::write(root.join("AGENTS.md"), "  \n").unwrap();
         let root_s = root.to_str().expect("utf-8 temp path");
         let computer =
             crate::agents::computer::ComputerState::with_annotate_url("http://127.0.0.1:9");
         let base: &[crate::models::ChatMessage] = &[];
         let mut tail = Vec::new();
-        let mut ctx = MessageLoopPromptsAfterContext {
-            computer_state: &computer,
-            lead_agent_profile: crate::agents::AgentProfile::General,
-            base_messages: base,
-            injected_tail: &mut tail,
-            conversation_id: "test",
-            stream: None,
-            round_assistant_message_id: None,
-            round_screen_dump_prefix: None,
-            task_board_store: std::sync::Arc::new(crate::task_board::TaskBoardStore::new()),
-            task_board_store_key: "test",
-            user_dynamic_inject_enabled: true,
-            workspace_root: root_s,
+        let mut ctx = hook_ctx(&computer, base, &mut tail, root_s);
+        let hook = AgentsMdInjectHook {
+            pointer_home: Some(home),
         };
-        let hook = AgentsMdInjectHook;
         hook.execute(&mut ctx).await.unwrap();
         assert!(tail.is_empty());
-    }
-
-    #[test]
-    fn skips_volumes_mount_dir() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        fs::create_dir_all(root.join("Volumes/share")).unwrap();
-        fs::write(root.join("AGENTS.md"), "root\n").unwrap();
-        fs::write(root.join("Volumes/share/AGENTS.md"), "network\n").unwrap();
-        let names: Vec<String> = discover_agents_md(root)
-            .iter()
-            .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(names, vec!["AGENTS.md".to_string()]);
     }
 
     #[test]
@@ -412,8 +682,6 @@ mod tests {
         if !cfg!(unix) {
             return;
         }
-        let (files, visits) = discover_agents_md_stats(Path::new("/"));
-        assert!(files.is_empty());
-        assert_eq!(visits, 0);
+        assert!(discover_agents_md_chain(Some(Path::new("/")), None).is_empty());
     }
 }

@@ -4,7 +4,7 @@
 //! - [`registry`]：发现 / 授权 / 状态机（P1）。
 //! - [`tool_provider`]：进程外工具执行载体（sidecar，stdio + JSON 协议）。
 //! - [`importer`]：Codex / Claude 插件目录 → 原生格式的一次性导入转换。
-//! - [`agents_md`]：`AGENTS.md` 根 + 子目录嵌套发现链。
+//! - [`agents_md`]：`~/.pointer/AGENTS.md` + git 根沿工作区路径拼接（不扫旁支）。
 //!
 //! 设计铁律：发现 ≠ 执行；授权留痕（manifest + 能力单元文件清单哈希）；
 //! 插件工具与内置工具走同一审批链路。

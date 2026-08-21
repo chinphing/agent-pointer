@@ -686,7 +686,7 @@ impl AppState {
         // `init_launch` 完成，避免 AppState::new 写入
         // user_settings（保持构造无副作用，测试隔离契约）。
 
-        // AGENTS.md: scan the per-round conversation workspace (not process cwd).
+        // AGENTS.md: `~/.pointer/AGENTS.md` then git-root → workspace (no sibling walk).
         crate::plugins::agents_md::register_agents_md_hook(&extension_registry);
 
         let state = Self {

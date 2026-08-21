@@ -63,20 +63,9 @@ export function handleChannelPairingPending(e: ChannelPairingPending) {
   })
 }
 
-export function handleToolRoundsExhausted(ctx: StreamHandlerContext, e: ToolRoundsExhausted) {
-  const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
-  if (!conv) return
-  const suffix = e.willRetryAfterCompress ? '\n\n（正在压缩较早对话摘要…）' : ''
-  conv.messages.push({
-    id: uid(),
-    role: 'assistant',
-    content: `【提示】${e.message}${suffix}`,
-    status: 'done',
-    createdAt: Date.now(),
-    toolCalls: []
-  })
-  conv.updatedAt = Date.now()
-  ctx.markMetaDirty(e.conversationId)
+export function handleToolRoundsExhausted(_ctx: StreamHandlerContext, _e: ToolRoundsExhausted) {
+  // Kept for older streams. Tool-round cap is shown once as StreamEvent.Error
+  // on the assistant row; do not insert a second 【提示】 bubble.
 }
 
 export function handleWorkspaceUpdated(ctx: StreamHandlerContext, e: WorkspaceUpdated) {

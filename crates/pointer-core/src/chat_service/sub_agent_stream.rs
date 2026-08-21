@@ -221,20 +221,8 @@ pub(super) async fn run_sub_agent_stream_round(
                     spawn_depth: None,
                 });
                 if ctx.sub_tool_budget.is_exhausted() {
-                    let hint = format!(
-                        "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
-                        max_cap
-                    );
-                    emit(
-                        stream,
-                        StreamEvent::ToolRoundsExhausted {
-                            conversation_id: conversation_id.to_string(),
-                            max_rounds: max_cap,
-                            message: hint,
-                            will_retry_after_compress: provider
-                                .settings
-                                .context_compression_enabled,
-                        },
+                    log::warn!(
+                        "sub-agent tool round budget exhausted conversation_id={conversation_id} max_rounds={max_cap}"
                     );
                     let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
                         sub.local_history,

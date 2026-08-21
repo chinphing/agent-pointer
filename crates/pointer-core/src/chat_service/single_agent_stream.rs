@@ -230,18 +230,8 @@ pub(super) async fn run_provider_stream_round(
                 push_injected_format_retry_turn(&stream, &conversation_id, ctx.history, hint);
                 ctx.tool_budget.sync_out(ctx.consumed_single);
                 if ctx.tool_budget.is_exhausted() {
-                    let hint = format!(
-                        "单智能体模式下工具调用累计已达上限（{} 轮，含此前消息）。建议新开对话；将尝试压缩上下文以便查看摘要。",
-                        max_cap
-                    );
-                    emit(
-                        &stream,
-                        StreamEvent::ToolRoundsExhausted {
-                            conversation_id: conversation_id.clone(),
-                            max_rounds: max_cap,
-                            message: hint,
-                            will_retry_after_compress: settings.context_compression_enabled,
-                        },
+                    log::warn!(
+                        "tool round budget exhausted conversation_id={conversation_id} max_rounds={max_cap}"
                     );
                     let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
                         ctx.history,

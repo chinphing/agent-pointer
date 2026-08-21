@@ -351,7 +351,8 @@ pub(super) async fn decide_when_tool_calls_present(
     Ok(PostAssistantTurnAction::ExecuteTools)
 }
 
-/// After optional `tool_budget.sync_out`, if the budget is exhausted: emit, compress, cancel, and fail.
+/// After optional `tool_budget.sync_out`, if the budget is exhausted: compress, cancel, and fail.
+/// Do not emit a second chat bubble (`ToolRoundsExhausted`); the run `Error` is the only notice.
 pub(super) async fn bail_on_tool_budget_exhausted(
     ctx: &mut PostAssistantContext<'_>,
 ) -> Result<()> {
@@ -359,14 +360,10 @@ pub(super) async fn bail_on_tool_budget_exhausted(
         return Ok(());
     }
     let scope = ctx.budget.budget_scope;
-    emit(
-        ctx.session.stream,
-        StreamEvent::ToolRoundsExhausted {
-            conversation_id: ctx.session.conversation_id.to_string(),
-            max_rounds: ctx.budget.max_cap,
-            message: scope.user_hint.clone(),
-            will_retry_after_compress: ctx.llm.settings.context_compression_enabled,
-        },
+    log::warn!(
+        "tool round budget exhausted conversation_id={} max_rounds={}",
+        ctx.session.conversation_id,
+        ctx.budget.max_cap
     );
     let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
         ctx.transcript.history,

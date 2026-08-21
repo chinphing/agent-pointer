@@ -190,16 +190,28 @@ pub async fn run_chat(
                     started
                 );
                 crate::context_compression::discard_pending_compression(&conversation_id);
-                let mut llm_settings = settings.clone();
-                let mode = agent_mode
-                    .clone()
-                    .unwrap_or_else(|| llm_settings.agent_mode.clone());
-                let api_key = prepare_session_llm_settings(
-                    &mut llm_settings,
-                    &mode,
-                    lead_agent_id_override.as_deref(),
-                    performance_mode_override.as_deref(),
-                );
+                let (llm_settings, api_key) = if let Some(snap) =
+                    crate::context_compression::session_llm_for_conversation(&conversation_id)
+                {
+                    (snap.settings, snap.api_key)
+                } else {
+                    let mut llm_settings = settings.clone();
+                    let mode = agent_mode
+                        .clone()
+                        .unwrap_or_else(|| llm_settings.agent_mode.clone());
+                    let api_key = prepare_session_llm_settings(
+                        &mut llm_settings,
+                        &mode,
+                        lead_agent_id_override.as_deref(),
+                        performance_mode_override.as_deref(),
+                    );
+                    crate::context_compression::remember_session_llm(
+                        &conversation_id,
+                        &llm_settings,
+                        &api_key,
+                    );
+                    (llm_settings, api_key)
+                };
                 if !api_key.trim().is_empty() {
                     let provider = OpenAIProvider::new(llm_settings.clone(), api_key);
                     let last_api =
@@ -214,7 +226,13 @@ pub async fn run_chat(
                     let lead_role = lead_agent_id_override
                         .clone()
                         .filter(|s| !s.trim().is_empty())
-                        .unwrap_or_else(|| mode.clone());
+                        .unwrap_or_else(|| {
+                            if llm_settings.lead_agent_id.trim().is_empty() {
+                                llm_settings.agent_mode.clone()
+                            } else {
+                                llm_settings.lead_agent_id.clone()
+                            }
+                        });
                     let ui = crate::context_compression::CompressionUiContext::main(
                         crate::agent_instance_scope::AgentInstanceScope::new(
                             format!("overflow-{}", Uuid::new_v4().simple()),

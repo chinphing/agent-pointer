@@ -346,6 +346,7 @@ pub(super) async fn run_chat_inner(
             settings.active_provider_id
         ));
     }
+    crate::context_compression::remember_session_llm(conversation_id, &settings, &api_key);
     let media_t = Instant::now();
     if let Err(e) = crate::media::apply_media_to_history(
         ctx.history,

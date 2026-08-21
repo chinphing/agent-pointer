@@ -1734,6 +1734,14 @@ struct PrecompressCoordinator {
     /// `false` while running, `true` when finished (success or skip).
     inflight: Mutex<HashMap<String, tokio::sync::watch::Receiver<bool>>>,
     pending: Mutex<HashMap<String, PendingCompressionSplice>>,
+    /// Last resolved lead LLM for a conversation (same provider/model as `run_chat`).
+    session_llm: Mutex<HashMap<String, SessionLlmSnapshot>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct SessionLlmSnapshot {
+    pub settings: ModelSettings,
+    pub api_key: String,
 }
 
 impl PrecompressCoordinator {
@@ -1742,7 +1750,49 @@ impl PrecompressCoordinator {
         COORD.get_or_init(|| Self {
             inflight: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
+            session_llm: Mutex::new(HashMap::new()),
         })
+    }
+}
+
+/// Remember the lead LLM this conversation just used, so background compression
+/// does not re-resolve from global settings (which can pick a different provider).
+pub fn remember_session_llm(conversation_id: &str, settings: &ModelSettings, api_key: &str) {
+    let id = conversation_id.trim();
+    if id.is_empty() {
+        log::warn!("context_compress: remember session llm skipped (empty conversation_id)");
+        return;
+    }
+    log::info!(
+        "context_compress: remember session llm conversation_id={} provider={} model={}",
+        id,
+        settings.active_provider_id,
+        settings.model
+    );
+    PrecompressCoordinator::global()
+        .session_llm
+        .lock()
+        .insert(
+            id.to_string(),
+            SessionLlmSnapshot {
+                settings: settings.clone(),
+                api_key: api_key.to_string(),
+            },
+        );
+}
+
+pub(crate) fn session_llm_for_conversation(conversation_id: &str) -> Option<SessionLlmSnapshot> {
+    PrecompressCoordinator::global()
+        .session_llm
+        .lock()
+        .get(conversation_id.trim())
+        .cloned()
+}
+
+fn snapshot_from_provider(provider: &OpenAIProvider) -> SessionLlmSnapshot {
+    SessionLlmSnapshot {
+        settings: provider.settings.clone(),
+        api_key: provider.api_key.clone(),
     }
 }
 
@@ -2098,6 +2148,7 @@ pub async fn prepare_history_between_llm_rounds(
         conversation_id.to_string(),
         history,
         reported_prompt_tokens,
+        provider,
     );
 }
 
@@ -2122,7 +2173,13 @@ pub fn maybe_spawn_precompress(state: Arc<crate::chat_service::AppState>, conver
     };
     crate::chat_service::sub_message::strip_scoped_from_lead_history(&mut history);
     let last_api = store.get_last_lead_prompt_tokens(&id).ok().flatten();
-    spawn_precompress_if_soft_gate(state, id, &history, last_api, Some(db_messages));
+    let Some(llm) = session_llm_for_conversation(&id) else {
+        log::warn!(
+            "context_compress: precompress spawn skipped (no session llm) conversation_id={id}"
+        );
+        return;
+    };
+    spawn_precompress_if_soft_gate(state, id, &history, last_api, Some(db_messages), llm);
 }
 
 /// Same as [`maybe_spawn_precompress`], gated on the live in-memory history
@@ -2132,12 +2189,15 @@ pub fn maybe_spawn_precompress_from_history(
     conversation_id: String,
     history: &[ChatMessage],
     reported_prompt_tokens: Option<u32>,
+    provider: &OpenAIProvider,
 ) {
     let id = conversation_id.trim().to_string();
     if id.is_empty() {
         return;
     }
-    spawn_precompress_if_soft_gate(state, id, history, reported_prompt_tokens, None);
+    let llm = snapshot_from_provider(provider);
+    remember_session_llm(&id, &llm.settings, &llm.api_key);
+    spawn_precompress_if_soft_gate(state, id, history, reported_prompt_tokens, None, llm);
 }
 
 fn spawn_precompress_if_soft_gate(
@@ -2146,13 +2206,13 @@ fn spawn_precompress_if_soft_gate(
     history: &[ChatMessage],
     reported_prompt_tokens: Option<u32>,
     db_messages: Option<u32>,
+    llm: SessionLlmSnapshot,
 ) {
-    let settings = state.effective_settings();
-    if !settings.context_compression_enabled {
+    if !llm.settings.context_compression_enabled {
         return;
     }
-    let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
-    let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
+    let budget = normalize_context_budget_tokens(llm.settings.context_budget_tokens);
+    let keep_users = llm.settings.context_keep_recent_user_turns.max(1) as usize;
     let plan = plan_compression(
         history,
         reported_prompt_tokens,
@@ -2182,15 +2242,17 @@ fn spawn_precompress_if_soft_gate(
     }
 
     log::info!(
-        "context_compress: precompress spawn conversation_id={id} plan={:?} share={:.3} budget={} messages={} db_messages={}",
+        "context_compress: precompress spawn conversation_id={id} plan={:?} share={:.3} budget={} messages={} db_messages={} provider={} model={}",
         plan,
         current_turn_message_share(history),
         budget,
         history.len(),
-        db_messages.map(|n| n.to_string()).unwrap_or_else(|| "-".into())
+        db_messages.map(|n| n.to_string()).unwrap_or_else(|| "-".into()),
+        llm.settings.active_provider_id,
+        llm.settings.model
     );
     tokio::spawn(async move {
-        let outcome = run_precompress_job(state, &id).await;
+        let outcome = run_precompress_job(state, &id, llm).await;
         log::info!(
             "context_compress: precompress job finished conversation_id={id} applied={outcome}"
         );
@@ -2202,6 +2264,7 @@ fn spawn_precompress_if_soft_gate(
 async fn run_precompress_job(
     state: Arc<crate::chat_service::AppState>,
     conversation_id: &str,
+    llm: SessionLlmSnapshot,
 ) -> bool {
     let Ok(store) = crate::conversation_store::global_store() else {
         log::warn!(
@@ -2220,14 +2283,8 @@ async fn run_precompress_job(
     };
     crate::chat_service::sub_message::strip_scoped_from_lead_history(&mut history);
 
-    let mut settings = state.effective_settings();
-    let agent_mode = settings.agent_mode.clone();
-    let api_key = crate::chat_service::session_model::prepare_session_llm_settings(
-        &mut settings,
-        &agent_mode,
-        None,
-        None,
-    );
+    let settings = llm.settings;
+    let api_key = llm.api_key;
     if api_key.trim().is_empty() {
         log::info!(
             "context_compress: precompress skipped (no api key) conversation_id={conversation_id}"
@@ -2265,10 +2322,12 @@ async fn run_precompress_job(
     ));
 
     log::info!(
-        "context_compress: precompress starting conversation_id={conversation_id} plan={:?} share={:.3} messages={}",
+        "context_compress: precompress starting conversation_id={conversation_id} plan={:?} share={:.3} messages={} provider={} model={}",
         plan,
         current_turn_message_share(&history),
-        history.len()
+        history.len(),
+        settings.active_provider_id,
+        settings.model
     );
     let changed = compress_history_inner(
         &mut history,
@@ -2816,5 +2875,17 @@ mod tests {
             validate_summary_output(&summary_output("partial summary".into(), Some("length")))
                 .expect_err("length output must not be accepted");
         assert!(error.contains("finish_reason=length"));
+    }
+
+    #[test]
+    fn remember_session_llm_roundtrip() {
+        let mut settings = crate::models::ModelSettings::default();
+        settings.active_provider_id = "deepseek".into();
+        settings.model = "deepseek-v4-flash".into();
+        remember_session_llm("test-session-llm-roundtrip", &settings, "k");
+        let snap = session_llm_for_conversation("test-session-llm-roundtrip").expect("remembered");
+        assert_eq!(snap.settings.active_provider_id, "deepseek");
+        assert_eq!(snap.settings.model, "deepseek-v4-flash");
+        assert_eq!(snap.api_key, "k");
     }
 }

@@ -95,10 +95,17 @@ summary_max_tokens = clamp(
 )
 ```
 
-- 使用 `chat_once_without_thinking`。
-- 关思考走与主对话相同的协议翻译：千问 `enable_thinking=false`，
-  DeepSeek 去掉 `reasoning_effort`（不写 `thinking.type`）。
-- 验收失败则直接走 drop handoff，不再放大预算重试。
+关思考走与主对话相同的协议翻译：千问 `enable_thinking=false`，
+DeepSeek 去掉 `reasoning_effort`（不写 `thinking.type`）。
+验收失败则直接走 drop handoff，不再放大预算重试。
+
+## 摘要用哪个模型
+
+摘要走 **`chat_once_without_thinking`**，模型与 **当前这场对话 lead 已解析的 provider/model** 相同（含请求上的 lead / 性能档），不另选压缩模型。
+
+- 工具循环内压缩、超限恢复：直接用该轮 `OpenAIProvider`。
+- 后台预压缩：使用 `run_chat` 开始时记下的会话 LLM（`remember_session_llm`），**不再** `effective_settings()` + 空 override 重解析（否则可能打到另一家网关）。
+- 没有会话 LLM 记录时跳过预压缩并 warn，避免静默换模型。
 
 ## 摘要验收与失败语义
 

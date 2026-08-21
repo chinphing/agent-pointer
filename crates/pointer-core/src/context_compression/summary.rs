@@ -190,7 +190,7 @@ The user's current intent in 1-3 lines.
 Quote the latest unfulfilled ask if it is still open.
 If the latest user turn was stop / undo / never mind / a new topic,
 quote that reverse signal and do not carry the cancelled task.
-Include only constraints that still apply.
+Include constraints that still apply.
 
 ## Progress
 Bullets, not prose.
@@ -198,7 +198,10 @@ Done: one line per important action
 (tool, target, outcome). Merge repetitive rounds.
 Now: what was in flight when compression fired.
 Blocked: unresolved errors, exact messages.
-Decisions: keep the latest version only, with a short why.
+Decisions: agreed design, constraints, and technical choices
+the later assistant still needs, each with a short why.
+Keep the latest version of each topic —
+not only the last decision in the whole conversation.
 Answered questions: question + answer, so they are not repeated.
 
 ## State
@@ -206,7 +209,11 @@ Working directory / branch, test status if known.
 Files that still matter, each with a one-line note.
 Sub-agent / explore: final conclusions only
 (paths, negative greps, corrections) — not intermediate reads.
-Critical values that would be lost otherwise. Secrets stay [REDACTED].
+Literal facts that would be lost otherwise:
+env vars, agreed copy, files or surfaces to touch or skip,
+API / command / symbol names, exact values.
+Secrets stay [REDACTED].
+Do not restate decisions here — those belong in Progress.
 
 ## Open
 What remains, as context not instructions.
@@ -214,7 +221,12 @@ Pending user asks. Facts that were truncated or uncertain.
 
 Forgetting rules (do not output this section):
 - Absorb a previous conversation-summary row; do not copy it verbatim.
-- Drop superseded decisions, small talk, and raw tool dumps.
+- Silence is not a drop: carry objectives, constraints,
+  user directives, and decisions that still apply
+  even if later turns never mention them again.
+- Drop a decision only when a later turn replaces it
+  on the same topic (superseded).
+- Drop small talk and raw tool dumps.
 - Keep command + pass/fail; drop the full output after the conclusion.
 - Never invent paths, line numbers, test outcomes, or config values.
 Be dense."#;
@@ -251,19 +263,32 @@ Replace API keys, tokens, passwords, secrets, and connection strings with [REDAC
 
 ## Progress
 Bullets.
-Completed steps: tool, target, outcome.
-Merge repetitive rounds.
+Done: one line per important action
+(tool, target, outcome). Merge repetitive rounds.
+Blocked: unresolved errors, exact messages.
+Decisions made in this window: agreed design, constraints,
+and technical choices, each with a short why.
+Keep the latest version of each topic —
+not only the last decision in the whole window.
 
-## Key findings
-Facts the next turn still needs:
-paths, errors, API/data conclusions, user constraints.
+## State
+Files that still matter, each with a one-line note.
+Literal facts that would be lost otherwise:
+env vars, agreed copy, files or surfaces to touch or skip,
+API / command / symbol names, exact values.
+Secrets stay [REDACTED].
+Do not restate decisions here — those belong in Progress.
 
-## In progress
+## Next
 Current objective in one line.
-Unfinished steps, key files, open decisions.
+Unfinished steps and open questions.
 
 Forgetting rules (do not output this section):
 - Absorb a previous mid-turn summary; do not copy it verbatim.
+- Silence is not a drop: carry decisions and state
+  that still apply even if later steps never mention them again.
+- Drop a decision only when a later step replaces it
+  on the same topic (superseded).
 - Drop raw tool dumps after the conclusion.
 - Never invent paths, line numbers, or test outcomes.
 Be dense."#;
@@ -275,8 +300,8 @@ Summarize only the tool/assistant work after that user message.
 Output only these headings in order:
 
 ## Progress
-## Key findings
-## In progress
+## State
+## Next
 
 Write only the summary body. Do not include a greeting or preamble."#;
 
@@ -337,9 +362,9 @@ pub(crate) fn build_summary_system_prompt(ui: &CompressionUiContext, in_run: boo
 
 pub(crate) fn build_summary_user_prompt(formatted: &str, target_tokens: u32, in_run: bool) -> String {
     let prioritize = if in_run {
-        "Progress > Key findings > In progress."
+        "Progress (blockers and decisions) > State > Next."
     } else {
-        "Goal > Progress (blockers) > State > Open."
+        "Goal > Progress (blockers and decisions) > State > Open."
     };
     let suffix = if in_run {
         IN_RUN_SUMMARY_USER_SUFFIX

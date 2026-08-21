@@ -500,8 +500,17 @@ use crate::models::{ChatMessage, Role};
         let p = build_summary_system_prompt(&ui, false);
         assert!(p.contains("Forgetting rules"));
         assert!(p.contains("previous conversation-summary"));
-        assert!(p.contains("superseded decisions"));
+        assert!(p.contains("Silence is not a drop"));
+        assert!(p.contains("same topic (superseded)"));
+        assert!(p.contains("latest version of each topic"));
+        assert!(p.contains("env vars"));
         assert!(p.contains("command + pass/fail"));
+        let in_run = build_summary_system_prompt(&ui, true);
+        assert!(in_run.contains("Silence is not a drop"));
+        assert!(in_run.contains("same topic (superseded)"));
+        assert!(in_run.contains("## State"));
+        assert!(!in_run.contains("## Key findings"));
+        assert!(in_run.contains("agreed copy"));
     }
 
     #[test]
@@ -515,7 +524,11 @@ use crate::models::{ChatMessage, Role};
         assert!(prompt.contains("--- BEGIN SOURCE CONVERSATION ---"));
         assert!(prompt.contains("[USER]: continue the conversation"));
         assert!(prompt.contains("5400 tokens is a HARD CEILING"));
-        assert!(prompt.contains("Goal > Progress (blockers) > State > Open"));
+        assert!(prompt.contains(
+            "Goal > Progress (blockers and decisions) > State > Open"
+        ));
+        let in_run = build_summary_user_prompt("[USER]: continue the conversation", 5_400, true);
+        assert!(in_run.contains("Progress (blockers and decisions) > State > Next"));
         assert!(prompt.contains("One line per action"));
         assert!(final_instruction > source_end);
         assert!(prompt.ends_with(

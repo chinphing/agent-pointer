@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, latestToolCallForCompactStatus, resolveToolDisplayForCall, workspaceRelativeDisplayPath } from './toolCallDisplay'
+import { buildFileChangeSummaries, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatToolDurationLabel, latestToolCallForCompactStatus, resolveToolDisplayForCall, workspaceRelativeDisplayPath } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -8,6 +8,20 @@ function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'
     ...partial
   }
 }
+
+describe('formatToolDurationLabel', () => {
+  it('hides below one tenth of a second', () => {
+    expect(formatToolDurationLabel(undefined)).toBe('')
+    expect(formatToolDurationLabel(0)).toBe('')
+    expect(formatToolDurationLabel(49)).toBe('')
+  })
+
+  it('shows one decimal second and omits trailing .0', () => {
+    expect(formatToolDurationLabel(50)).toBe('0.1s')
+    expect(formatToolDurationLabel(1926)).toBe('1.9s')
+    expect(formatToolDurationLabel(2000)).toBe('2s')
+  })
+})
 
 describe('compactToolCallStatusLine', () => {
   it('formats running tool like expanded ToolCallRow', () => {

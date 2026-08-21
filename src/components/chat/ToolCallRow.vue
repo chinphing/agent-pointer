@@ -14,7 +14,7 @@ import {
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs } from '../../lib/messageTooling'
-import { fileToolDisplayPath, truncateToolSummary, effectiveToolDisplayLabel, effectiveToolDisplaySummary } from '../../lib/toolCallDisplay'
+import { fileToolDisplayPath, truncateToolSummary, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel } from '../../lib/toolCallDisplay'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 import DiffView from './DiffView.vue'
@@ -66,6 +66,7 @@ const boardSummary = computed(() => {
 })
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
+const durationLabel = computed(() => formatToolDurationLabel(props.toolCall.durationMs))
 const displaySummary = computed(() => {
   const filePath = fileToolDisplayPath(props.toolCall, chat.current?.workspaceRoot)
   if (filePath) return truncateToolSummary(filePath)
@@ -360,7 +361,7 @@ function openSourceUrl(url: string) {
         </span>
         <span v-else-if="showFailedQuiet" class="shrink-0 text-[10px] text-muted/45">{{ statusInfo.label }}</span>
         <span v-else-if="showSuccessQuiet" class="shrink-0 text-muted/45">{{ statusInfo.label }}</span>
-        <span v-if="toolCall.durationMs" class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ toolCall.durationMs }}ms</span>
+        <span v-if="durationLabel" class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ durationLabel }}</span>
         <component
           :is="open ? ChevronDown : ChevronRight"
           class="tool-call-chevron w-3 h-3 shrink-0 ml-[2ch] text-muted hidden"

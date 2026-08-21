@@ -54,6 +54,12 @@
 - 设置「显示子 Agent 边框面板」（`showSubAgentTrace`）：Supervisor 默认开；worker lead 默认关。
 - Supervisor 规划列表：`supervisor_plan` → `message.supervisorPlanTasks`，轻量 checklist（无 `<pre>` 时间线）。
 
+## 工具行耗时
+
+- 展示为秒，最多 **1 位小数**（`1.9s`）；整数秒不带小数（`2s`）。
+- 不足 **0.1s** 不显示。
+- 数据仍存 `durationMs`，只改 UI 文案。
+
 ## `ask_user` 工具行
 
 - 工具行标题只显示 **「询问用户」**（不加 `displaySummary` / 问题摘要）。

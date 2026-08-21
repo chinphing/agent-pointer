@@ -168,6 +168,6 @@
 - 侧车解析与多 `ToolCall`：`crates/pointer-core/src/tool_envelope.rs`、`crates/pointer-core/src/json_tool_caller.rs`、`crates/pointer-core/src/provider.rs`
 - 批校验与工具注册：`crates/pointer-core/src/tools/mod.rs`
 - 会话注入与执行：`crates/pointer-core/src/chat_service/`（主流程 `session_inner.rs`，单智能体 `single_agent.rs` + 薄封装，子 Agent `sub_agent.rs` + `sub_agent_prompt.rs` / `sub_agent_stream.rs`，共用 `agent_stream_round.rs` / `agent_post_stream.rs` / `agent_tool_pass.rs`）；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`
-- task_board 阶段截断：`task_board/history_trim.rs`、`context_compression.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
+- task_board 阶段截断：`task_board/history_trim.rs`、`message_context.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
 - 父子 Gateway：`task_board/gateway/`、`chat_service/supervisor.rs`（`dispatch_to_child` / `report_child_status`）
 - Computer 每轮 user 注入：`crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`；API 展平：`models.rs`（`flatten_tool_rounds_computer_style_for_api`）

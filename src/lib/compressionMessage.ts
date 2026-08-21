@@ -24,8 +24,11 @@ export function buildCompressionNoticeContent(info: ContextCompressionInfo): str
     const name = info.subAgentName?.trim() || '子 Agent'
     return `【压缩】${name} 子任务内已将较早 ${dropped} 条记录摘要为 1 条（主对话不变）。`
   }
-  if (info.reason === 'tool_limit') {
+  if (info.reason === 'tool_limit' || info.reason === 'tool_limit_in_run') {
     return `【压缩】工具轮次触发：已将较早 ${dropped} 条对话摘要为 1 条，并保留最近对话原文。`
+  }
+  if (info.reason === 'in_run' || info.reason === 'overflow_in_run' || info.reason === 'in_run_drop') {
+    return `【压缩】已将当前轮次 ${dropped} 条过程摘要为 1 条，并保留你的消息与最近原文。`
   }
   return `【压缩】已将较早 ${dropped} 条对话摘要为 1 条，并保留最近对话原文。`
 }

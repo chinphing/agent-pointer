@@ -686,7 +686,7 @@ pub struct ModelSettings {
         alias = "contextBudgetChars"
     )]
     pub context_budget_tokens: u32,
-    /// Legacy: no longer a keep-N floor. Split is token tail + latest real user.
+    /// Legacy: no longer a keep-N floor. Split is count-based tail + latest real user.
     /// Still persisted and echoed on compression events for older clients.
     #[serde(
         default = "default_context_keep_recent_user_turns",

@@ -74,7 +74,7 @@
 ## 上下文压缩进行中标记
 
 - 事件：`context_compression_started` → 会话 run state 的 `contextCompressing`。
-- 展示：插在摘要切分点（`insertBeforeMessageId` 之前），工具行样式（`ContextCompressingMarker`），含旋转「压缩中」。找不到切分消息时回退到当前回合或列表末尾。
+- 展示：插在摘要切分点（`insertBeforeMessageId` 之前），工具行样式（`ContextCompressingMarker`），含旋转「压缩中」。切点在过程行上时，收缩态不把标记挪到最终回复前（随「工作」隐藏）。找不到切分消息时回退到当前回合或列表末尾。
 - 隐藏：`context_compression_applied` / `context_compressed`，或停止 / `done` / `error` 清 run state。
 - **不**写入聊天记录，**不**进入模型上下文。详见 [`../internals/context-compression.md`](../internals/context-compression.md)。
 

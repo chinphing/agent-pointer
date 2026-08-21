@@ -381,7 +381,12 @@ export function entryContainsMessageId(entry: FlatEntry, messageId: string): boo
   const id = messageId.trim()
   if (!id) return false
   if (entry.type === 'context_compressing') return false
-  if (entry.type === 'message') return entry.message.id === id
+  if (entry.type === 'message') {
+    if (entry.message.id === id) return true
+    return (entry.trailingToolGroups ?? []).some(
+      group => group.message.id === id || group.id === id
+    )
+  }
   if (entry.type === 'tool_run') {
     return entry.items.some(item =>
       item.kind === 'tools'
@@ -421,13 +426,26 @@ function entryHasRunningTool(entry: FlatEntry): boolean {
   )
 }
 
-function entryIsSummary(entry: FlatEntry): boolean {
+/** Prefix chip on the next real user question. Mid-turn prefix (cut on tool/assistant) matches in-run. */
+function prefixChipIsTurnHeader(entry: FlatEntry, all: readonly FlatEntry[]): boolean {
+  if (entry.type !== 'message' || !isPrefixCompressionSummaryMessage(entry.message)) {
+    return false
+  }
+  const start = all.indexOf(entry)
+  if (start < 0) return false
+  for (let i = start + 1; i < all.length; i++) {
+    const next = all[i]!
+    if (next.type === 'message' && isPrefixCompressionSummaryMessage(next.message)) continue
+    return next.type === 'message' && isRealUserTaskMessage(next.message)
+  }
+  return false
+}
+
+function entryIsStickyChrome(entry: FlatEntry): boolean {
   // Task boards are progress chrome, not process to hide — keep running and
   // terminal boards in the collapsed projection (sticky also needs the inline
-  // mount). Prefix compression chips stay on the next-turn header; in-run
-  // chips are mid-turn process and collapse with tools.
-  if (entry.type === 'task_board' || entry.type === 'context_compressing') return true
-  return entry.type === 'message' && isPrefixCompressionSummaryMessage(entry.message)
+  // mount). In-progress compression markers are spliced separately.
+  return entry.type === 'task_board' || entry.type === 'context_compressing'
 }
 
 function entryIsDelivery(entry: FlatEntry): boolean {
@@ -563,8 +581,7 @@ function buildTurnsForEntries(
       && !isCompressionSummaryMessage(entry.message)
         ? entry.message.id
         : null,
-    isTurnHeader: entry =>
-      entry.type === 'message' && isPrefixCompressionSummaryMessage(entry.message),
+    isTurnHeader: entry => prefixChipIsTurnHeader(entry, entries),
     isActive: entry => entryHasStatus(entry, ['pending', 'streaming'])
       || entryHasRunningTool(entry)
       || (!!activeBoard && entryContainsMessageId(entry, activeBoard.anchorMessageId)),
@@ -572,7 +589,7 @@ function buildTurnsForEntries(
       || (entry.type === 'task_board' && entry.document.meta?.status === 'failed'),
     isCancelled: entry => entryHasStatus(entry, ['cancelled'])
       || (entry.type === 'task_board' && entry.document.meta?.status === 'cancelled'),
-    isSummary: entryIsSummary,
+    isSummary: entry => entryIsStickyChrome(entry) || prefixChipIsTurnHeader(entry, entries),
     isDelivery: entryIsDelivery,
     isInteractive: entryIsInteractive
   }, {
@@ -710,9 +727,9 @@ export function insertContextCompressingMarker(
 
   const placeInTurn = (turn: ConversationTurn<FlatEntry>, id: string): boolean => {
     if (!spliceMarkerBefore(turn.entries, id, marker)) return false
-    if (!spliceMarkerBefore(turn.collapsedEntries, id, marker)) {
-      spliceMarkerBeforeDeliveryOrStart(turn.collapsedEntries, marker)
-    }
+    // Cut on a process row is absent from the collapsed projection — omit
+    // rather than parking the marker on the final reply (same as in-run).
+    spliceMarkerBefore(turn.collapsedEntries, id, marker)
     return true
   }
 

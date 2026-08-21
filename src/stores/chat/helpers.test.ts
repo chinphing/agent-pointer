@@ -61,6 +61,30 @@ describe('chat helpers', () => {
     expect(c.messages.map(m => m.id)).toEqual(['u1', 'sum', 'a1'])
   })
 
+  it('insertMessageBeforeAnchor keeps the recorded tool-row anchor', () => {
+    const toolOnly: ChatMessage = {
+      id: 't1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 0,
+      toolCalls: [{ id: 'tc1', name: 'skill_read', status: 'success', arguments: '{}' }]
+    }
+    const c = conv([
+      { id: 'u1', role: 'user', content: 'q', status: 'done', createdAt: 0 },
+      toolOnly,
+      { id: 'a1', role: 'assistant', content: 'done', status: 'done', createdAt: 0, toolCalls: [] }
+    ])
+    insertMessageBeforeAnchor(c, 't1', {
+      id: 'sum',
+      role: 'user',
+      content: '[Conversation summary (auto-compression)]\nbody',
+      status: 'done',
+      createdAt: 0
+    })
+    expect(c.messages.map(m => m.id)).toEqual(['u1', 'sum', 't1', 'a1'])
+  })
+
   it('insertMessageBeforeAnchor uses first kept visible row when keep id is missing', () => {
     const c = conv([
       { id: 'u1', role: 'user', content: 'old', status: 'done', createdAt: 0 },

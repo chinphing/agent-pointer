@@ -86,7 +86,7 @@ drain 后 sync: [ctx, B] → 写 pos0=ctx, pos1=B
 
 | 模块 | 职责 |
 |------|------|
-| `context_compression.rs` | drain 前调用 `persist_compression_splice` |
+| `context_compression/`（`run.rs`） | drain 前调用 `persist_compression_splice` |
 | `conversation_transcript/mod.rs` | `persist_compression_splice` 包装 |
 | `conversation_store/write.rs` | `persist_context_compression_in_conn`、orphan-aware `sync_messages_ordered_with_meta_in_conn` |
 

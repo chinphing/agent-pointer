@@ -99,6 +99,38 @@ describe('splitMessageTurnSegments', () => {
     )).toEqual(['u1', 'a2'])
   })
 
+  it('treats prefix user summaries mid-turn like in-run chips', () => {
+    const summary: ChatMessage = {
+      id: 'sum',
+      role: 'user',
+      content: '[Conversation summary (auto-compression)]\nolder prefix',
+      status: 'done',
+      createdAt: 3
+    }
+    const messages = [
+      user('u1', 'task'),
+      assistant('a1', 'step'),
+      summary,
+      assistant('a2', 'done')
+    ]
+    const layout = buildMessageListLayout({
+      conversationId: 'c1',
+      messages,
+      deps: emptyDeps,
+      cache: null
+    })
+    expect(layout.turns.map(t => t.id)).toEqual(['u1'])
+    expect(layout.turns[0]!.entries.map(e => e.type === 'message' ? e.message.id : e.type)).toEqual([
+      'u1',
+      'a1',
+      'sum',
+      'a2'
+    ])
+    expect(layout.turns[0]!.collapsedEntries.map(e =>
+      e.type === 'message' ? e.message.id : e.type
+    )).toEqual(['u1', 'a2'])
+  })
+
   it('does not anchor empty-response retry injects as a new turn', () => {
     const messages = [
       user('u1', 'task'),
@@ -370,5 +402,39 @@ describe('insertContextCompressingMarker', () => {
     const split = keys.indexOf('context-compressing')
     expect(split).toBeGreaterThanOrEqual(0)
     expect(keys[split + 1]).toBe('message-a1')
+  })
+
+  it('does not park the compressing marker on the final reply when the cut is a tool', () => {
+    const toolOnly: ChatMessage = {
+      id: 't1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 3,
+      toolCalls: [{
+        id: 'tc1',
+        name: 'skill_read',
+        status: 'success',
+        arguments: '{}'
+      }]
+    }
+    const layout = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [user('u1', 'q'), assistant('a1', 'step'), toolOnly, assistant('a2', 'done')],
+      deps: emptyDeps,
+      cache: null
+    })
+    const turns = insertContextCompressingMarker(
+      layout.turns,
+      't1',
+      undefined,
+      '正在压缩较早记录'
+    )
+    const collapsedKeys = turns[0]!.collapsedEntries.map(entry => entryKey(entry))
+    expect(collapsedKeys).not.toContain('context-compressing')
+    const expandedKeys = turns[0]!.entries.map(entry => entryKey(entry))
+    const split = expandedKeys.indexOf('context-compressing')
+    expect(split).toBeGreaterThanOrEqual(0)
+    expect(expandedKeys.indexOf('message-a2')).toBeGreaterThan(split)
   })
 })

@@ -114,7 +114,10 @@ pub(super) async fn run_sub_agent_stream_round(
                     sub.task.id,
                     sub.def.id
                 );
-                crate::context_compression::discard_pending_compression(conversation_id);
+                crate::context_compression::discard_pending_compression_for_sub_agent(
+                    conversation_id,
+                    &sub.instance_scope.agent_instance_id,
+                );
                 emit(
                     stream,
                     StreamEvent::UiToast {

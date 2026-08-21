@@ -83,7 +83,7 @@
 
 ## task_board 触发的历史截断（当前实现）
 
-在 **`task_board`** 变更满足 **trim 触发** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做 **soft-exclude**（`context_state.included = false`，`ExcludedReason::TaskBoardTrim`；**不**调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 互补。实现：`task_board/history_trim.rs`，挂载：`agent_tool_pass.rs`。
+在 **`task_board`** 变更满足 **trim 触发** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做 **soft-exclude**（`context_state.included = false`，`ExcludedReason::TaskBoardTrim`；**不**调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression/) 互补。实现：`task_board/history_trim.rs`，挂载：`agent_tool_pass.rs`。
 
 **Trim 触发条件（`task_board/checkpoint.rs`，v4）：**
 

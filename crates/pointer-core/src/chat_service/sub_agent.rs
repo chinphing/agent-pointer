@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use std::time::Duration;
 
-use crate::agents::{AgentProfile, AgentRunResult};
+use crate::agents::{agent_display_label, AgentProfile, AgentRunResult};
 use crate::models::{effective_reasoning_in_messages, ChatMessage, Role, StreamEvent};
 
 use super::agent_post_stream::{
@@ -122,6 +122,12 @@ pub(crate) async fn run_sub_agent(
     let tool_approval_mode = session.tool_approval_mode;
     let mut local_history = session.local_history;
     let spawn_depth = session.spawn_depth;
+    let compress_lease = crate::context_compression::SubAgentPrecompressLease::new(
+        crate::context_compression::sub_agent_compression_queue_key(
+            conversation_id,
+            &instance_scope.agent_instance_id,
+        ),
+    );
     let sub_linkage = SubMessageLinkage {
         anchor_message_id: message_id.to_string(),
         trace_id: trace_id.clone(),
@@ -180,6 +186,29 @@ pub(crate) async fn run_sub_agent(
                     max_cap
                 ));
             }
+        }
+
+        crate::context_compression::prepare_sub_agent_history_between_llm_rounds(
+            &mut local_history,
+            &sub_provider.settings,
+            &sub_provider,
+            conversation_id,
+            stream,
+            cancel.clone(),
+            crate::context_compression::CompressionUiContext::sub_agent(
+                instance_scope.clone(),
+                message_id,
+                &def.id,
+                &agent_display_label(&def),
+                &task.id,
+            ),
+            ctx.llm_stats.last_round_prompt_tokens,
+            &compress_lease,
+        )
+        .await;
+        if cancel.is_cancelled() {
+            state.computer_state.mark_cancelled(conversation_id);
+            return Err(anyhow!("已停止生成"));
         }
 
         let round_message_id = new_id("agent_msg");

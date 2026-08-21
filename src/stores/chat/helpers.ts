@@ -1,10 +1,5 @@
-import {
-  isDiscardableEmptyAssistant,
-  isToolOnlyAssistantMessage
-} from '../../lib/assistantMessageKind'
+import { isDiscardableEmptyAssistant } from '../../lib/assistantMessageKind'
 import { randomUuid } from '../../lib/randomUuid'
-import { isScopedSubMessage } from '../../lib/subAgentMessages'
-import { isToolRunContinuityGlue } from '../../lib/threadLayoutGlue'
 import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
 /** Conversation / message client ids — UUID v4 (stable opaque segment for media paths). */
@@ -28,37 +23,20 @@ export function applyExcludedMessageIds(
   }
 }
 
-/** Rows the thread does not show as their own bubble (tools live on the assistant). */
-export function isCompressionAnchorHiddenRow(message: ChatMessage): boolean {
-  if (isScopedSubMessage(message)) return true
-  if (message.role === 'tool') return true
-  if (isToolRunContinuityGlue(message)) return true
-  if (isToolOnlyAssistantMessage(message)) return true
-  return false
-}
-
 /**
- * Index to splice a compression summary. Prefer the keep-window id; if that row
- * is a hidden tool/glue line (or missing from the live stream list), land at the
- * first visible keep message instead of appending under the latest reply.
+ * Index to splice a compression summary. Use the recorded keep-window id as-is
+ * (including tool / glue rows). Walking to the next visible bubble would park
+ * the chip on the final reply. Missing id → first non-excluded row, else append.
  */
 export function resolveCompressionInsertAt(
   messages: readonly ChatMessage[],
   insertBeforeMessageId: string,
   excludedMessageIds: readonly string[] = []
 ): number {
-  const skipHidden = (start: number): number => {
-    let i = start
-    while (i < messages.length && isCompressionAnchorHiddenRow(messages[i]!)) {
-      i += 1
-    }
-    return i
-  }
-
   const anchor = insertBeforeMessageId.trim()
   if (anchor) {
     const idx = messages.findIndex(m => m.id === anchor)
-    if (idx >= 0) return skipHidden(idx)
+    if (idx >= 0) return idx
   }
 
   const excluded = new Set(
@@ -66,7 +44,7 @@ export function resolveCompressionInsertAt(
   )
   if (excluded.size > 0) {
     const firstKept = messages.findIndex(m => !excluded.has(m.id))
-    if (firstKept >= 0) return skipHidden(firstKept)
+    if (firstKept >= 0) return firstKept
   }
 
   console.warn('[chat] compression summary insert: no keep anchor in thread', {

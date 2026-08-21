@@ -16,8 +16,8 @@
     --composer-bg: 0 0% 100%;
     --hover: 240 5% 93%;
     --code-bg: 240 5% 94%;
-    /* Inset well vs chat canvas (light: gray on white). */
-    --fence-bg: 240 5% 95%;
+    /* Same fill as table `td` / `--card` (not a separate gray well). */
+    --fence-bg: 0 0% 100%;
     --success: 142 48% 36%;
     --danger: 4 78% 50%;
     --warning: 36 80% 42%;
@@ -41,7 +41,7 @@
     --composer-bg: 240 4% 10%;
     --hover: 240 4% 16%;
     --code-bg: 240 4% 7%;
-    /* Same fill as before (was --card on dark chat). */
+    /* Same fill as table `td` / `--card`. */
     --fence-bg: 240 4% 11%;
     /* Shell: chat column darker than the sidebar. */
     --shell-sidebar: 240 4% 11%;
@@ -413,10 +413,28 @@
   color: hsl(var(--accent));
   overflow-wrap: anywhere;
 }
+/* Table chrome for non-markdown cards (ask_user, etc.). */
+.fence-block {
+  @apply overflow-hidden rounded-lg border border-border;
+  background: hsl(var(--card));
+}
+.fence-block-header {
+  @apply flex items-center justify-between gap-2 px-3 py-2.5 text-sm font-semibold border-b border-border;
+  background: hsl(var(--hover));
+  color: hsl(var(--foreground));
+}
+
 /* Fenced code: inset well vs chat canvas (same step in light and dark). */
 .md-body .code-block {
   @apply my-3 relative overflow-hidden rounded-lg border border-border;
   background: hsl(var(--fence-bg));
+}
+.md-body .code-block .fence-block-lang {
+  @apply flex items-center justify-between gap-2 px-4 min-h-8 text-[11px] leading-4 text-muted border-b border-border;
+  background: hsl(var(--hover));
+}
+.md-body .code-block:has(.fence-block-lang) pre {
+  @apply pt-3;
 }
 .md-body .code-block pre {
   @apply my-0 border-0 rounded-none p-4 overflow-x-auto text-[13px];
@@ -430,9 +448,13 @@
 }
 .md-body .code-block .code-copy-btn,
 .md-body pre:not(.code-block pre) .code-copy-btn {
-  @apply absolute top-2 right-2 p-1.5 rounded-lg transition opacity-0 group-hover:opacity-100 cursor-pointer;
+  @apply absolute top-2 right-2 inline-flex items-center justify-center p-1.5 rounded-lg transition opacity-0 group-hover:opacity-100 cursor-pointer;
   background: hsl(var(--hover));
   color: hsl(var(--muted));
+}
+.md-body .code-block .fence-block-lang .code-copy-btn {
+  @apply static shrink-0 p-1;
+  background: transparent;
 }
 .md-body .code-block:hover .code-copy-btn,
 .md-body pre:not(.code-block pre):hover .code-copy-btn {

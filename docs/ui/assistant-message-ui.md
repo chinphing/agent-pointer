@@ -57,7 +57,8 @@
 ## `ask_user` 工具行
 
 - 工具行标题只显示 **「询问用户」**（不加 `displaySummary` / 问题摘要）。
-- 问题正文只出现在交互卡片（`AskUserOptions`）内，避免标题与正文重复。
+- **问题**写在围栏 **header**（表格 `th` 同款：`--hover` 底、底部分隔线），选项在 header 下方（`--card`，与表格 `td` 一致）。
+- 问题与选项包在 **`.fence-block`** 里：外框与表格相同（`rounded-lg border-border`），不要做成白底扁平列表。
 - 宿主固定提供「其他」自由输入（对齐 Hermes）；不必要求模型在 `options` 里加 Other。
 - 选项文案（含 description）在卡片宽度内**自动换行**，不要用 `truncate` 单行截断。
 - 「其他」输入框设 `max-w-[14rem]`，不要 `flex-1` 拉满整行。

@@ -284,8 +284,11 @@ marked.use({
       }
       const body = escaped ? code : escapeHtml(code)
       const langClass = langString ? ` class="language-${escapeHtml(langString)}"` : ''
+      const langLabel = langString
+        ? `<div class="fence-block-lang">${escapeHtml(langString)}</div>`
+        : ''
       return (
-        `<div class="code-block"><pre><code${langClass}>${body}</code></pre></div>\n`
+        `<div class="code-block">${langLabel}<pre><code${langClass}>${body}</code></pre></div>\n`
       )
     },
   },

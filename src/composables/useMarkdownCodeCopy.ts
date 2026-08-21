@@ -44,7 +44,10 @@ export function useMarkdownCodeCopy(rootRef: Ref<HTMLElement | null>, getTickSou
     root.querySelectorAll('.code-block').forEach(block => {
       if (block.querySelector('.code-copy-btn')) return
       block.classList.add('group')
-      block.appendChild(makeCopyButton(copyCode))
+      const lang = block.querySelector('.fence-block-lang')
+      const btn = makeCopyButton(copyCode)
+      if (lang) lang.appendChild(btn)
+      else block.appendChild(btn)
     })
 
     // Legacy / non-wrapped `<pre>` (e.g. older HTML).

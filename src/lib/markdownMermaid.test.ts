@@ -70,6 +70,8 @@ describe('parseMarkdown mermaid fences', () => {
     const html = parseMarkdown('```js\nconst a = 1\n```')
     expect(html).not.toContain('md-mermaid')
     expect(html).toContain('code-block')
+    expect(html).toContain('fence-block-lang')
+    expect(html).toContain('>js</div>')
   })
 
   it('stubs only incomplete fences while streaming', () => {

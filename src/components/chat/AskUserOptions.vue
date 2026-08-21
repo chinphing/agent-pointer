@@ -136,10 +136,17 @@ const canConfirmMultiple = computed(
 </script>
 
 <template>
-  <div v-if="args" class="ml-4 mb-2 max-w-xl min-w-0 space-y-2" @click.stop>
-    <p class="text-[13px] leading-5 break-words text-foreground/90">{{ args.question }}</p>
+  <div
+    v-if="args"
+    class="fence-block ml-4 mb-2 max-w-xl min-w-0"
+    @click.stop
+  >
+    <div class="fence-block-header">
+      <span class="min-w-0 whitespace-normal break-words font-semibold leading-5">{{ args.question }}</span>
+    </div>
+    <div class="px-3 py-2 space-y-2">
 
-    <div class="grid gap-0 min-w-0">
+    <div class="grid gap-0 min-w-0 -mx-1">
       <button
         v-for="option in args.options"
         :key="option.label"
@@ -231,5 +238,6 @@ const canConfirmMultiple = computed(
       已选择：{{ displaySelected.join('、') }}
     </p>
     <p v-if="error" class="text-[11px] leading-4 text-danger">{{ error }}</p>
+    </div>
   </div>
 </template>

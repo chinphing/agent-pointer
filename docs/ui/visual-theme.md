@@ -78,12 +78,13 @@ from available width while the workspace panel is open.
 - `.panel-elevated` — slightly raised surface
 - `.brand-text` — title text (`text-foreground`)
 - Markdown GFM / HTML tables (`.md-body .table-wrapper`): rounded outer border; `th`/`td` theme cells (works without `<thead>`/`<tbody>`); honor GFM align + HTML column `width` / status colors; see [markdown-media-boundaries.md](markdown-media-boundaries.md), `markdownConfig.ts` / `globals.css`
-- Markdown fenced code (`.md-body .code-block`): `--fence-bg` vs the chat canvas — light: gray well on white; dark: keep the previous `--card` fill (`240 4% 11%`). Copy button stays top-right on hover; see `markdownConfig.ts` / `useMarkdownCodeCopy`
+- Markdown fenced code (`.md-body .code-block`): same palette as tables — body `--card` (token `--fence-bg` aliases it), language row `.fence-block-lang` uses `--hover` like `th`. Copy sits in that header (flex `items-center`), not `absolute` on the whole block; see `markdownConfig.ts` / `useMarkdownCodeCopy`
 - Markdown inline code (`.md-body code`): accent text only, **no** `--code-bg` chip / padding
 - Markdown charts (`.md-body .md-chart`): same card chrome; Chart.js from `chartjs`/`chart` JSON fences; theme axis/legend colors from CSS variables; see [markdown-charts.md](markdown-charts.md)
 - Markdown SVG diagrams (`.md-body .md-svg`): same card chrome; sanitized `svg` fences; see [markdown-svg.md](markdown-svg.md)
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`
-- Interactive chat controls (e.g. `ask_user`): selected state should derive from `foreground` / `background` (opacity OK) so light and dark both stay readable — avoid fixed gray hex and accent-tinted fills in light chat
+- `.fence-block` — table chrome (`rounded-lg border-border`, body `--card`); `.fence-block-header` matches table `th` (`--hover` fill, bottom border, semibold)
+- Interactive chat controls (e.g. `ask_user`): **the question** is `.fence-block-header`; options sit in the fence body. Tool line stays「询问用户」only.
 - Sub-agent frame (`SubAgentFrame`): default `border-border` + `bg-card`; failed → `border-danger/35` + `bg-danger/5`; chevrons `text-muted` — not accent purple
 - `.settings-input`, `.settings-toggle-track`, `.settings-segment*` — shared controls in settings forms
 

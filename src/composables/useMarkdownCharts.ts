@@ -7,10 +7,11 @@ import {
   tryParseChartConfig,
 } from '../lib/markdownChart'
 import {
-  isNearViewport,
+  deferUntilInView,
+  isInViewForLazyMount,
   mutationTouchesChartHost,
-  observeUntilNearViewport,
   scheduleChartConstruct,
+  type ViewportDeferral,
 } from '../lib/markdownChartMount'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
 import { openDiagramZoom, zoomIconSvg } from '../lib/diagramZoom'
@@ -35,6 +36,7 @@ type ChartHostState = {
   boundConfig: string
   resizeObserver: ResizeObserver | null
   visibilityObserver: IntersectionObserver | null
+  viewportGate: ViewportDeferral | null
   pending: boolean
 }
 
@@ -137,6 +139,13 @@ export function useMarkdownCharts(
 
   function destroyHost(host: HTMLElement) {
     const state = hosts.get(host)
+    if (state?.viewportGate) {
+      try {
+        state.viewportGate.disconnect()
+      } catch (err) {
+        console.warn('[markdownCharts] viewportGate disconnect failed', err)
+      }
+    }
     if (state?.visibilityObserver) {
       try {
         state.visibilityObserver.disconnect()
@@ -159,6 +168,63 @@ export function useMarkdownCharts(
       }
     }
     hosts.delete(host)
+  }
+
+  function disconnectHostObservers(state: ChartHostState | undefined) {
+    if (state?.visibilityObserver) {
+      try {
+        state.visibilityObserver.disconnect()
+      } catch (err) {
+        console.warn('[markdownCharts] visibilityObserver disconnect failed', err)
+      }
+    }
+    if (state?.resizeObserver) {
+      try {
+        state.resizeObserver.disconnect()
+      } catch (err) {
+        console.warn('[markdownCharts] resizeObserver disconnect failed', err)
+      }
+    }
+  }
+
+  function deferChartUntilReady(
+    host: HTMLElement,
+    encoded: string,
+    prev: ChartHostState | undefined
+  ) {
+    prev?.viewportGate?.disconnect()
+    disconnectHostObservers(prev)
+    if (prev?.chart && prev.boundConfig !== encoded) {
+      try {
+        prev.chart.destroy()
+      } catch (err) {
+        console.warn('[markdownCharts] destroy before defer failed', err)
+      }
+    }
+
+    const viewportGate = deferUntilInView(host, () => {
+      const state = hosts.get(host)
+      if (state) state.viewportGate = null
+      if (import.meta.env.DEV) {
+        console.info('[markdownCharts] chart entered view; mount')
+      }
+      scheduleAttach()
+    })
+
+    hosts.set(host, {
+      chart: prev?.boundConfig === encoded ? prev.chart : null,
+      boundConfig: encoded,
+      resizeObserver: null,
+      visibilityObserver: null,
+      viewportGate,
+      pending: false,
+    })
+    if (import.meta.env.DEV) {
+      console.info(
+        '[markdownCharts] defer Chart.js',
+        isInViewForLazyMount(host) ? 'in-view-wait' : 'offscreen-or-hidden'
+      )
+    }
   }
 
   function extractDatasetValues(chart: ChartInstance): number[] {
@@ -471,41 +537,18 @@ export function useMarkdownCharts(
     if (prev?.boundConfig === encoded && prev.pending) {
       return
     }
-    // Waiting to enter the viewport — IntersectionObserver will remount.
-    if (prev?.boundConfig === encoded && prev.visibilityObserver && !isNearViewport(host)) {
-      return
-    }
-    // 0-size box: ResizeObserver will schedule attach; do not rebuild the host.
-    if (prev?.boundConfig === encoded && !prev.chart && prev.resizeObserver) {
+
+    const inView = isInViewForLazyMount(host)
+    if (prev?.boundConfig === encoded && !prev.chart && prev.viewportGate && !inView) {
       return
     }
 
-    if (!isNearViewport(host)) {
-      if (prev?.visibilityObserver) {
-        try {
-          prev.visibilityObserver.disconnect()
-        } catch (err) {
-          console.warn('[markdownCharts] visibilityObserver rebuild disconnect failed', err)
-        }
-      }
-      const visibilityObserver = observeUntilNearViewport(host, () => {
-        const state = hosts.get(host)
-        if (state) state.visibilityObserver = null
-        if (import.meta.env.DEV) {
-          console.info('[markdownCharts] chart entered viewport; remount')
-        }
-        scheduleAttach()
-      })
-      hosts.set(host, {
-        chart: prev?.chart ?? null,
-        boundConfig: encoded,
-        resizeObserver: prev?.resizeObserver ?? null,
-        visibilityObserver,
-        pending: false,
-      })
+    if (!inView) {
+      deferChartUntilReady(host, encoded, prev)
       return
     }
 
+    prev?.viewportGate?.disconnect()
     if (prev?.visibilityObserver) {
       try {
         prev.visibilityObserver.disconnect()
@@ -555,6 +598,7 @@ export function useMarkdownCharts(
       boundConfig: encoded,
       resizeObserver: null,
       visibilityObserver: null,
+      viewportGate: null,
       pending: true,
     })
 
@@ -610,8 +654,16 @@ export function useMarkdownCharts(
           boundConfig: encoded,
           resizeObserver: layoutObserver,
           visibilityObserver: null,
+          viewportGate: null,
           pending: false,
         })
+        return
+      }
+      if (!isInViewForLazyMount(host)) {
+        const state = hosts.get(host)
+        if (state) state.pending = false
+        console.info('[markdownCharts] left viewport before Chart.js construct; defer')
+        deferChartUntilReady(host, encoded, hosts.get(host))
         return
       }
 
@@ -621,6 +673,13 @@ export function useMarkdownCharts(
           console.warn('[markdownCharts] host replaced while queued for Chart.js; retry attach')
           scheduleAttach()
         }
+        return
+      }
+      if (!isInViewForLazyMount(host)) {
+        const state = hosts.get(host)
+        if (state) state.pending = false
+        console.info('[markdownCharts] left viewport while queued for Chart.js; defer')
+        deferChartUntilReady(host, encoded, hosts.get(host))
         return
       }
 
@@ -641,6 +700,7 @@ export function useMarkdownCharts(
         boundConfig: encoded,
         resizeObserver,
         visibilityObserver: null,
+        viewportGate: null,
         pending: false,
       })
       host.dataset.chartBound = encoded

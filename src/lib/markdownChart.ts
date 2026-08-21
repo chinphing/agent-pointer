@@ -101,7 +101,21 @@ export function canvasHsl(varName: string, fallbackChannels: string, alpha = 1):
  * Resolve CSS color vars to `rgb()` / `rgba()` for WKWebView canvas.
  * Some WebKit builds mishandle hsl() in Chart.js stroke/fill paths.
  */
+const canvasRgbCache = new Map<string, string>()
+
+function canvasRgbCacheKey(varName: string, alpha: number): string {
+  const scheme =
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+      ? 'dark'
+      : 'light'
+  return `${scheme}|${varName}|${alpha}`
+}
+
 export function canvasRgb(varName: string, fallbackChannels: string, alpha = 1): string {
+  const cacheKey = canvasRgbCacheKey(varName, alpha)
+  const cached = canvasRgbCache.get(cacheKey)
+  if (cached) return cached
+
   const hsl = canvasHsl(varName, fallbackChannels, 1)
   if (typeof document === 'undefined') {
     return alpha < 1 ? canvasHsl(varName, fallbackChannels, alpha) : hsl
@@ -112,11 +126,13 @@ export function canvasRgb(varName: string, fallbackChannels: string, alpha = 1):
   document.body.appendChild(probe)
   const resolved = getComputedStyle(probe).color || hsl
   probe.remove()
+  let out = resolved
   if (alpha < 1) {
     const m = resolved.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i)
-    if (m) return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})`
+    if (m) out = `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${alpha})`
   }
-  return resolved
+  canvasRgbCache.set(cacheKey, out)
+  return out
 }
 
 export type ChartThemeColors = {

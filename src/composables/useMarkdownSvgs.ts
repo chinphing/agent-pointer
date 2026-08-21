@@ -5,6 +5,11 @@ import {
   tryParseSvgFence,
 } from '../lib/markdownSvg'
 import { STREAMING_SVG_STUB } from '../lib/markdownConfig'
+import {
+  deferUntilInView,
+  isInViewForLazyMount,
+  type ViewportDeferral,
+} from '../lib/markdownChartMount'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
 import { openDiagramZoom, zoomIconSvg } from '../lib/diagramZoom'
 
@@ -15,6 +20,7 @@ const codeIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="
 
 type SvgHostState = {
   boundConfig: string
+  viewportGate: ViewportDeferral | null
 }
 
 /** Cleaned SVG markup cache — survives v-html host recreation while trailing text streams. */
@@ -207,6 +213,30 @@ export function useMarkdownSvgs(
       return
     }
 
+    const prevEarly = hosts.get(host)
+    if (prevEarly?.boundConfig === encoded && host.querySelector('.md-svg-frame > svg')) {
+      setToolbarVisible(host, true)
+      return
+    }
+    const inView = isInViewForLazyMount(host)
+    if (prevEarly?.boundConfig === encoded && prevEarly.viewportGate && !inView) {
+      return
+    }
+    if (!inView) {
+      prevEarly?.viewportGate?.disconnect()
+      const viewportGate = deferUntilInView(host, () => {
+        const state = hosts.get(host)
+        if (state) state.viewportGate = null
+        if (import.meta.env.DEV) {
+          console.info('[markdownSvgs] diagram entered view; mount')
+        }
+        mountOrUpdate(host)
+      })
+      hosts.set(host, { boundConfig: encoded, viewportGate })
+      return
+    }
+    prevEarly?.viewportGate?.disconnect()
+
     let cleaned = cleanedSvgByConfig.get(encoded)
     if (!cleaned) {
       const parsed = tryParseSvgFence(raw)
@@ -274,7 +304,7 @@ export function useMarkdownSvgs(
         e.stopPropagation()
         openDiagramZoom(imported)
       })
-      hosts.set(host, { boundConfig: encoded })
+      hosts.set(host, { boundConfig: encoded, viewportGate: null })
       host.dataset.svgBound = encoded
       console.info('[markdownSvgs] mounted svg host')
     } catch (err) {
@@ -294,7 +324,14 @@ export function useMarkdownSvgs(
       mountOrUpdate(node)
     }
     for (const host of Array.from(hosts.keys())) {
-      if (!alive.has(host)) hosts.delete(host)
+      if (!alive.has(host)) {
+        try {
+          hosts.get(host)?.viewportGate?.disconnect()
+        } catch (err) {
+          console.warn('[markdownSvgs] viewportGate disconnect failed', err)
+        }
+        hosts.delete(host)
+      }
     }
   }
 
@@ -302,6 +339,13 @@ export function useMarkdownSvgs(
     void nextTick(sync)
   })
   onBeforeUnmount(() => {
+    for (const state of hosts.values()) {
+      try {
+        state.viewportGate?.disconnect()
+      } catch (err) {
+        console.warn('[markdownSvgs] viewportGate disconnect failed', err)
+      }
+    }
     hosts.clear()
   })
   watch(

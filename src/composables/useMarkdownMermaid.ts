@@ -5,6 +5,11 @@ import {
   sanitizeSvgMarkup,
 } from '../lib/markdownSvg'
 import { isStreamingMermaidStub } from '../lib/markdownMermaid'
+import {
+  deferUntilInView,
+  isInViewForLazyMount,
+  type ViewportDeferral,
+} from '../lib/markdownChartMount'
 import { saveDataUrlAsFile } from '../lib/saveLocalFile'
 import { openDiagramZoom, zoomIconSvg } from '../lib/diagramZoom'
 
@@ -40,6 +45,8 @@ function loadMermaid(): Promise<MermaidModule> {
 
 type MermaidHostState = {
   boundConfig: string
+  viewportGate: ViewportDeferral | null
+  pending: boolean
 }
 
 /** Sanitized SVG markup cache — survives v-html host recreation while trailing text streams. */
@@ -231,12 +238,50 @@ export function useMarkdownMermaid(
       return
     }
 
+    const prev = hosts.get(host)
+    if (prev?.boundConfig === encoded && host.querySelector('.md-mermaid-frame > svg')) {
+      setToolbarVisible(host, true)
+      return
+    }
+    if (prev?.boundConfig === encoded && prev.pending) {
+      return
+    }
+
+    const inView = isInViewForLazyMount(host)
+    if (prev?.boundConfig === encoded && prev.viewportGate && !inView) {
+      return
+    }
+    if (!inView) {
+      prev?.viewportGate?.disconnect()
+      const viewportGate = deferUntilInView(host, () => {
+        const state = hosts.get(host)
+        if (state) state.viewportGate = null
+        if (import.meta.env.DEV) {
+          console.info('[markdownMermaid] diagram entered view; mount')
+        }
+        mountOrUpdate(host)
+      })
+      hosts.set(host, {
+        boundConfig: encoded,
+        viewportGate,
+        pending: false,
+      })
+      return
+    }
+
+    prev?.viewportGate?.disconnect()
+    hosts.set(host, { boundConfig: encoded, viewportGate: null, pending: true })
+
     let cleaned = cleanedSvgByConfig.get(encoded)
     if (!cleaned) {
       try {
         const mermaid = await loadMermaid()
         // Host may have been torn down / reconfigured while Mermaid was loading.
-        if (host.getAttribute('data-mermaid-config') !== encoded) return
+        if (host.getAttribute('data-mermaid-config') !== encoded) {
+          const state = hosts.get(host)
+          if (state?.boundConfig === encoded) state.pending = false
+          return
+        }
         const holder = document.createElement('div')
         holder.id = `md-mermaid-${renderSeq++}`
         holder.style.display = 'none'
@@ -250,6 +295,8 @@ export function useMarkdownMermaid(
         }
         const parsed = sanitizeSvgMarkup(svg)
         if (!parsed.ok) {
+          const state = hosts.get(host)
+          if (state) state.pending = false
           showStatus(host, '图示渲染失败', 'error')
           return
         }
@@ -257,14 +304,18 @@ export function useMarkdownMermaid(
         cacheCleanedSvg(encoded, cleaned)
       } catch (err) {
         console.error('[markdownMermaid] render failed', err)
+        const state = hosts.get(host)
+        if (state) state.pending = false
         showStatus(host, '图示语法错误', 'error')
         return
       }
     }
 
-    const prev = hosts.get(host)
-    if (prev?.boundConfig === encoded && host.querySelector('.md-mermaid-frame > svg')) {
-      setToolbarVisible(host, true)
+    if (!isInViewForLazyMount(host)) {
+      const state = hosts.get(host)
+      if (state) state.pending = false
+      console.info('[markdownMermaid] left viewport before insert; defer')
+      mountOrUpdate(host)
       return
     }
 
@@ -311,11 +362,13 @@ export function useMarkdownMermaid(
         e.stopPropagation()
         openDiagramZoom(imported)
       })
-      hosts.set(host, { boundConfig: encoded })
+      hosts.set(host, { boundConfig: encoded, viewportGate: null, pending: false })
       host.dataset.mermaidBound = encoded
       console.info('[markdownMermaid] mounted mermaid host')
     } catch (err) {
       console.error('[markdownMermaid] mount failed', err)
+      const state = hosts.get(host)
+      if (state) state.pending = false
       showStatus(host, '图示渲染失败', 'error')
     }
   }
@@ -331,7 +384,14 @@ export function useMarkdownMermaid(
       mountOrUpdate(node)
     }
     for (const host of Array.from(hosts.keys())) {
-      if (!alive.has(host)) hosts.delete(host)
+      if (!alive.has(host)) {
+        try {
+          hosts.get(host)?.viewportGate?.disconnect()
+        } catch (err) {
+          console.warn('[markdownMermaid] viewportGate disconnect failed', err)
+        }
+        hosts.delete(host)
+      }
     }
   }
 
@@ -339,6 +399,13 @@ export function useMarkdownMermaid(
     void nextTick(sync)
   })
   onBeforeUnmount(() => {
+    for (const state of hosts.values()) {
+      try {
+        state.viewportGate?.disconnect()
+      } catch (err) {
+        console.warn('[markdownMermaid] viewportGate disconnect failed', err)
+      }
+    }
     hosts.clear()
   })
   watch(

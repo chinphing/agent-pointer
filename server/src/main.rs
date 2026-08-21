@@ -219,7 +219,7 @@ pub(crate) struct ServerState {
     /// Unified run dispatcher: the callable / event-triggered entry point.
     /// `POST /api/chat` and `POST /api/runs` (Phase 4) route through it.
     dispatcher: Arc<RunDispatcher>,
-    events: broadcast::Sender<StreamEvent>,
+    events: broadcast::Sender<pointer_core::stream_broadcast::StreamBroadcastItem>,
     channel_gateway: Arc<ChannelGateway>,
     channel_monitors: Arc<MonitorSupervisor>,
     qr_login: Arc<QrLoginState>,
@@ -507,26 +507,30 @@ async fn main() -> anyhow::Result<()> {
     }
     // Larger buffer: weak clients / high-frequency tool output lag the SSE
     // consumer; when the ring overflows we emit `resync` (see chat_stream).
-    let (events, _) = broadcast::channel::<StreamEvent>(4096);
+    let (events, _) = broadcast::channel::<pointer_core::stream_broadcast::StreamBroadcastItem>(4096);
     // Bridge global stream_broadcast -> server events so the SSE endpoint
     // (`GET /api/chat/:id/stream`) keeps working regardless of who calls
     // `run_chat`. The dispatcher calls `run_chat`, which emits via
-    // `publish_stream` -> `broadcast_stream` -> this callback -> `events`.
+    // `publish_stream` -> this callback -> `events`.
     {
         let ev_tx = events.clone();
-        pointer_core::stream_broadcast::subscribe_stream(Arc::new(move |ev| {
+        pointer_core::stream_broadcast::subscribe_stream(Arc::new(move |item| {
             // No subscribers -> send fails; ignore (matches existing behavior).
-            let _ = ev_tx.send(ev);
+            let _ = ev_tx.send(item);
         }));
     }
     match capture_debug::purge_computer_captures_older_than_days(
         capture_debug::CAPTURE_RETENTION_DAYS,
     ) {
         Ok(removed) if removed > 0 => {
-            let _ = events.send(StreamEvent::UiToast {
-                conversation_id: String::new(),
-                message: "截图过期已清理".into(),
-                level: "warning".into(),
+            let _ = events.send(pointer_core::stream_broadcast::StreamBroadcastItem {
+                conversation_id: None,
+                session_user_id: None,
+                event: StreamEvent::UiToast {
+                    conversation_id: String::new(),
+                    message: "截图过期已清理".into(),
+                    level: "warning".into(),
+                },
             });
         }
         Ok(_) => {}
@@ -3429,6 +3433,7 @@ async fn chat_stream(
     Path(conversation_id): Path<String>,
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
+    let viewer_uid = platform_session_user_id(&state);
     let mut rx = state.events.subscribe();
     let sse_padding_enabled = pointer_core::server_config::sse_padding_enabled();
     let sse_padding_bytes = pointer_core::server_config::sse_padding_bytes();
@@ -3438,48 +3443,16 @@ async fn chat_stream(
         }
         loop {
             match rx.recv().await {
-                Ok(ev) => {
-                    let belongs = conversation_id == "global" || match &ev {
-                        StreamEvent::MessageStart { conversation_id: id, .. } => id == &conversation_id,
-                        StreamEvent::Done {
-                            conversation_id: id,
-                            ..
-                        } => id == &conversation_id,
-                        StreamEvent::ContextTrimApplied { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::ContextCompressionStarted { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::ContextCompressionApplied { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::ContextCompressed { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::ToolRoundsExhausted { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::UiToast { conversation_id: id, .. } => {
-                            id.is_empty() || id == &conversation_id
-                        }
-                        StreamEvent::ChannelPairingPending { .. } => true,
-                        StreamEvent::InjectedUserMessage { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::InjectedAssistantMessage { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::InjectedAssistantMessageUpdate { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        StreamEvent::AssistantRoundScreen { conversation_id: id, .. } => {
-                            id == &conversation_id
-                        }
-                        _ => true,
-                    };
+                Ok(frame) => {
+                    let belongs = pointer_core::stream_broadcast::sse_subscription_matches(
+                        &conversation_id,
+                        &viewer_uid,
+                        frame.conversation_id.as_deref(),
+                        frame.session_user_id.as_deref(),
+                        &frame.event,
+                    );
                     if belongs {
-                        let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".into());
+                        let data = serde_json::to_string(&frame.event).unwrap_or_else(|_| "{}".into());
                         yield Ok(Event::default().event("message").data(data));
                     }
                 }

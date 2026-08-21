@@ -424,8 +424,8 @@ pub fn run() {
                 log::info!("desktop: cron scheduler disabled by POINTER_SCHEDULER_ENABLED=0");
             }
             let stream_app = app.handle().clone();
-            pointer_core::stream_broadcast::subscribe_stream(Arc::new(move |ev| {
-                if let Err(e) = stream_app.emit(commands::STREAM_EVENT, ev) {
+            pointer_core::stream_broadcast::subscribe_stream(Arc::new(move |item| {
+                if let Err(e) = stream_app.emit(commands::STREAM_EVENT, item.event) {
                     log::warn!("stream broadcast emit failed: {e}");
                 }
             }));

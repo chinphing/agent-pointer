@@ -1,11 +1,13 @@
 //! Bounded curated memory (MEMORY.md + USER.md) with frozen system-prompt snapshot.
 
 use anyhow::{anyhow, Context, Result};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::user_storage::{memories_root_dir, user_storage_segment};
 
@@ -49,53 +51,72 @@ struct MemoryStoreInner {
     user_entries: Vec<String>,
     snapshot_memory: String,
     snapshot_user: String,
+    hydrated: bool,
 }
 
+type MemorySlot = Arc<RwLock<MemoryStoreInner>>;
+
 pub struct MemoryStore {
-    inner: RwLock<MemoryStoreInner>,
+    slots: RwLock<HashMap<String, MemorySlot>>,
     memories_root: PathBuf,
-    active_session_user_id: Mutex<String>,
 }
 
 impl MemoryStore {
     pub fn open_default() -> Result<Self> {
         let memories_root = memories_root_dir()?;
         Ok(Self {
-            inner: RwLock::new(MemoryStoreInner::default()),
+            slots: RwLock::new(HashMap::new()),
             memories_root,
-            active_session_user_id: Mutex::new(String::new()),
         })
     }
 
     pub fn open_in_dir(memories_root: PathBuf) -> Self {
         let _ = fs::create_dir_all(&memories_root);
         Self {
-            inner: RwLock::new(MemoryStoreInner::default()),
+            slots: RwLock::new(HashMap::new()),
             memories_root,
-            active_session_user_id: Mutex::new(String::new()),
         }
     }
 
-    /// Switch the in-memory snapshot to one user's on-disk files.
-    pub fn ensure_session_user(&self, session_user_id: &str) -> Result<()> {
-        let key = session_user_id.trim().to_string();
-        let mut active = self.active_session_user_id.lock();
-        if *active == key {
+    fn slot_key(session_user_id: &str) -> String {
+        session_user_id.trim().to_string()
+    }
+
+    fn slot(&self, session_user_id: &str) -> MemorySlot {
+        let key = Self::slot_key(session_user_id);
+        {
+            let g = self.slots.read();
+            if let Some(slot) = g.get(&key) {
+                return slot.clone();
+            }
+        }
+        let mut g = self.slots.write();
+        g.entry(key)
+            .or_insert_with(|| Arc::new(RwLock::new(MemoryStoreInner::default())))
+            .clone()
+    }
+
+    /// Load this user's files into an isolated in-memory slot (idempotent).
+    pub fn ensure_loaded(&self, session_user_id: &str) -> Result<()> {
+        let slot = self.slot(session_user_id);
+        if slot.read().hydrated {
             return Ok(());
         }
-        *active = key.clone();
-        drop(active);
-        self.reload_snapshot_for(session_user_id)
+        self.reload_into(&slot, session_user_id)
+    }
+
+    /// Switch-style alias used by chat/tool paths; does not clobber other users.
+    pub fn ensure_session_user(&self, session_user_id: &str) -> Result<()> {
+        self.ensure_loaded(session_user_id)
     }
 
     pub fn reload_snapshot_for_conversation(&self, conversation_id: &str) -> Result<()> {
         let uid = crate::user_storage::session_user_id_for_conversation(conversation_id);
-        self.ensure_session_user(&uid)
+        self.reload_snapshot_for(&uid)
     }
 
-    pub fn memories_dir(&self) -> PathBuf {
-        let active = self.active_session_user_id.lock().clone();
-        self.user_base_dir(&active)
+    pub fn memories_dir_for_user(&self, session_user_id: &str) -> PathBuf {
+        self.user_base_dir(session_user_id)
     }
 
     fn user_base_dir(&self, session_user_id: &str) -> PathBuf {
@@ -103,24 +124,17 @@ impl MemoryStore {
             .join(user_storage_segment(session_user_id))
     }
 
-    /// Load live entries from disk and rebuild the frozen system-prompt snapshot.
-    pub fn reload_snapshot(&self) -> Result<()> {
-        let active = self.active_session_user_id.lock().clone();
-        self.reload_snapshot_for(&active)
+    pub fn reload_snapshot_for(&self, session_user_id: &str) -> Result<()> {
+        let slot = self.slot(session_user_id);
+        self.reload_into(&slot, session_user_id)
     }
 
-    fn reload_snapshot_for(&self, session_user_id: &str) -> Result<()> {
+    fn reload_into(&self, slot: &MemorySlot, session_user_id: &str) -> Result<()> {
         let base_dir = self.user_base_dir(session_user_id);
         fs::create_dir_all(&base_dir)
             .with_context(|| format!("create memories dir {}", base_dir.display()))?;
-        let memory_entries = Self::read_entries_with_legacy(
-            &base_dir.join(MemoryTarget::Memory.file_name()),
-            &self.memories_root.join(MemoryTarget::Memory.file_name()),
-        )?;
-        let user_entries = Self::read_entries_with_legacy(
-            &base_dir.join(MemoryTarget::User.file_name()),
-            &self.memories_root.join(MemoryTarget::User.file_name()),
-        )?;
+        let memory_entries = Self::read_entries(&base_dir.join(MemoryTarget::Memory.file_name()))?;
+        let user_entries = Self::read_entries(&base_dir.join(MemoryTarget::User.file_name()))?;
         let snapshot_memory = Self::render_snapshot_block(
             MemoryTarget::Memory,
             &memory_entries,
@@ -128,13 +142,15 @@ impl MemoryStore {
         );
         let snapshot_user =
             Self::render_snapshot_block(MemoryTarget::User, &user_entries, DEFAULT_USER_CHAR_LIMIT);
-        let mut g = self.inner.write();
+        let mut g = slot.write();
         g.memory_entries = memory_entries;
         g.user_entries = user_entries;
         g.snapshot_memory = snapshot_memory;
         g.snapshot_user = snapshot_user;
+        g.hydrated = true;
         log::info!(
-            "memory: reloaded snapshot memory_entries={} user_entries={}",
+            "memory: reloaded snapshot session_user_id={} memory_entries={} user_entries={}",
+            session_user_id.trim(),
             g.memory_entries.len(),
             g.user_entries.len()
         );
@@ -142,8 +158,21 @@ impl MemoryStore {
     }
 
     /// Cacheable system slices to append after `[Environment]`.
-    pub fn snapshot_blocks(&self, memory_enabled: bool, user_profile_enabled: bool) -> Vec<String> {
-        let g = self.inner.read();
+    pub fn snapshot_blocks(
+        &self,
+        session_user_id: &str,
+        memory_enabled: bool,
+        user_profile_enabled: bool,
+    ) -> Vec<String> {
+        if let Err(e) = self.ensure_loaded(session_user_id) {
+            log::warn!(
+                "memory: ensure_loaded failed session_user_id={}: {e:#}",
+                session_user_id.trim()
+            );
+            return Vec::new();
+        }
+        let slot = self.slot(session_user_id);
+        let g = slot.read();
         let mut out = Vec::new();
         if memory_enabled && !g.snapshot_memory.is_empty() {
             out.push(g.snapshot_memory.clone());
@@ -154,7 +183,7 @@ impl MemoryStore {
         out
     }
 
-    pub fn dispatch_tool(&self, args: &Value) -> Result<String> {
+    pub fn dispatch_tool(&self, session_user_id: &str, args: &Value) -> Result<String> {
         let action = args
             .get("action")
             .and_then(|v| v.as_str())
@@ -186,7 +215,7 @@ impl MemoryStore {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .ok_or_else(|| anyhow!("Content is required for 'add'."))?;
-                self.add(target, content, memory_limit, user_limit)?
+                self.add(session_user_id, target, content, memory_limit, user_limit)?
             }
             "replace" => {
                 let old_text = old_text
@@ -197,14 +226,21 @@ impl MemoryStore {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .ok_or_else(|| anyhow!("content is required for 'replace'."))?;
-                self.replace(target, old_text, content, memory_limit, user_limit)?
+                self.replace(
+                    session_user_id,
+                    target,
+                    old_text,
+                    content,
+                    memory_limit,
+                    user_limit,
+                )?
             }
             "remove" => {
                 let old_text = old_text
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .ok_or_else(|| anyhow!("old_text is required for 'remove'."))?;
-                self.remove(target, old_text)?
+                self.remove(session_user_id, target, old_text)?
             }
             _ => {
                 return Err(anyhow!(
@@ -217,14 +253,16 @@ impl MemoryStore {
 
     fn add(
         &self,
+        session_user_id: &str,
         target: MemoryTarget,
         content: &str,
         memory_limit: usize,
         user_limit: usize,
     ) -> Result<Value> {
         let limit = self.char_limit(target, memory_limit, user_limit);
-        let mut g = self.inner.write();
-        self.reload_target_under_lock(&mut g, target)?;
+        let slot = self.slot(session_user_id);
+        let mut g = slot.write();
+        self.reload_target_under_lock(session_user_id, &mut g, target)?;
         let entries = self.entries_mut(&mut g, target);
         if entries.iter().any(|e| e == content) {
             return Ok(self.success_response(
@@ -251,12 +289,13 @@ impl MemoryStore {
         }
         entries.push(content.to_string());
         let out_entries = entries.clone();
-        self.persist_under_lock(&g, target)?;
+        self.persist_under_lock(session_user_id, &g, target)?;
         Ok(self.success_response(target, &out_entries, limit, Some("Entry added.")))
     }
 
     fn replace(
         &self,
+        session_user_id: &str,
         target: MemoryTarget,
         old_text: &str,
         new_content: &str,
@@ -264,8 +303,9 @@ impl MemoryStore {
         user_limit: usize,
     ) -> Result<Value> {
         let limit = self.char_limit(target, memory_limit, user_limit);
-        let mut g = self.inner.write();
-        self.reload_target_under_lock(&mut g, target)?;
+        let slot = self.slot(session_user_id);
+        let mut g = slot.write();
+        self.reload_target_under_lock(session_user_id, &mut g, target)?;
         let entries = self.entries_mut(&mut g, target);
         let matches: Vec<usize> = entries
             .iter()
@@ -311,15 +351,16 @@ impl MemoryStore {
         }
         entries[idx] = new_content.to_string();
         let out_entries = entries.clone();
-        self.persist_under_lock(&g, target)?;
+        self.persist_under_lock(session_user_id, &g, target)?;
         Ok(self.success_response(target, &out_entries, limit, Some("Entry replaced.")))
     }
 
-    fn remove(&self, target: MemoryTarget, old_text: &str) -> Result<Value> {
+    fn remove(&self, session_user_id: &str, target: MemoryTarget, old_text: &str) -> Result<Value> {
         let limit = DEFAULT_MEMORY_CHAR_LIMIT; // usage string only
         let user_limit = DEFAULT_USER_CHAR_LIMIT;
-        let mut g = self.inner.write();
-        self.reload_target_under_lock(&mut g, target)?;
+        let slot = self.slot(session_user_id);
+        let mut g = slot.write();
+        self.reload_target_under_lock(session_user_id, &mut g, target)?;
         let entries = self.entries_mut(&mut g, target);
         let matches: Vec<usize> = entries
             .iter()
@@ -350,7 +391,7 @@ impl MemoryStore {
         }
         entries.remove(matches[0]);
         let out_entries = entries.clone();
-        self.persist_under_lock(&g, target)?;
+        self.persist_under_lock(session_user_id, &g, target)?;
         let lim = self.char_limit(target, limit, user_limit);
         Ok(self.success_response(target, &out_entries, lim, Some("Entry removed.")))
     }
@@ -381,13 +422,8 @@ impl MemoryStore {
         o
     }
 
-    fn path_for(&self, target: MemoryTarget) -> PathBuf {
-        let active = self.active_session_user_id.lock().clone();
-        self.user_base_dir(&active).join(target.file_name())
-    }
-
-    fn legacy_path_for(&self, target: MemoryTarget) -> PathBuf {
-        self.memories_root.join(target.file_name())
+    fn path_for(&self, session_user_id: &str, target: MemoryTarget) -> PathBuf {
+        self.user_base_dir(session_user_id).join(target.file_name())
     }
 
     fn char_limit(&self, target: MemoryTarget, memory_limit: usize, user_limit: usize) -> usize {
@@ -410,11 +446,11 @@ impl MemoryStore {
 
     fn reload_target_under_lock(
         &self,
+        session_user_id: &str,
         g: &mut MemoryStoreInner,
         target: MemoryTarget,
     ) -> Result<()> {
-        let path = self.path_for(target);
-        let legacy = self.legacy_path_for(target);
+        let path = self.path_for(session_user_id, target);
         if let Some(bak) = Self::detect_external_drift(
             &path,
             self.char_limit(target, DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT),
@@ -425,7 +461,7 @@ impl MemoryStore {
                 bak.display()
             ));
         }
-        let fresh = Self::read_entries_with_legacy(&path, &legacy)?;
+        let fresh = Self::read_entries(&path)?;
         match target {
             MemoryTarget::Memory => g.memory_entries = fresh,
             MemoryTarget::User => g.user_entries = fresh,
@@ -433,30 +469,17 @@ impl MemoryStore {
         Ok(())
     }
 
-    fn persist_under_lock(&self, g: &MemoryStoreInner, target: MemoryTarget) -> Result<()> {
+    fn persist_under_lock(
+        &self,
+        session_user_id: &str,
+        g: &MemoryStoreInner,
+        target: MemoryTarget,
+    ) -> Result<()> {
         let entries = match target {
             MemoryTarget::Memory => &g.memory_entries,
             MemoryTarget::User => &g.user_entries,
         };
-        Self::write_entries(&self.path_for(target), entries)
-    }
-
-    fn read_entries_with_legacy(user_path: &Path, legacy_path: &Path) -> Result<Vec<String>> {
-        if user_path.exists() {
-            return Self::read_entries(user_path);
-        }
-        if legacy_path.exists() {
-            log::info!(
-                "memory: using legacy root file {} for user dir {}",
-                legacy_path.display(),
-                user_path
-                    .parent()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default()
-            );
-            return Self::read_entries(legacy_path);
-        }
-        Ok(vec![])
+        Self::write_entries(&self.path_for(session_user_id, target), entries)
     }
 
     fn read_entries(path: &Path) -> Result<Vec<String>> {
@@ -603,30 +626,39 @@ mod tests {
         let store = MemoryStore::open_in_dir(
             std::env::temp_dir().join(format!("pointer_mem_test_{}", uuid::Uuid::new_v4())),
         );
-        store.reload_snapshot().unwrap();
+        store.reload_snapshot_for("").unwrap();
         let add = store
-            .dispatch_tool(&json!({"action": "add", "target": "memory", "content": "Prefers Rust"}))
+            .dispatch_tool(
+                "",
+                &json!({"action": "add", "target": "memory", "content": "Prefers Rust"}),
+            )
             .unwrap();
         assert!(add.contains("\"success\":true"));
         let rep = store
-            .dispatch_tool(&json!({
-                "action": "replace",
-                "target": "memory",
-                "old_text": "Rust",
-                "content": "Prefers Rust and TypeScript"
-            }))
+            .dispatch_tool(
+                "",
+                &json!({
+                    "action": "replace",
+                    "target": "memory",
+                    "old_text": "Rust",
+                    "content": "Prefers Rust and TypeScript"
+                }),
+            )
             .unwrap();
         assert!(rep.contains("\"success\":true"));
         let rem = store
-            .dispatch_tool(&json!({
-                "action": "remove",
-                "target": "memory",
-                "old_text": "TypeScript"
-            }))
+            .dispatch_tool(
+                "",
+                &json!({
+                    "action": "remove",
+                    "target": "memory",
+                    "old_text": "TypeScript"
+                }),
+            )
             .unwrap();
         assert!(rem.contains("\"success\":true"));
-        store.reload_snapshot().unwrap();
-        let blocks = store.snapshot_blocks(true, false);
+        store.reload_snapshot_for("").unwrap();
+        let blocks = store.snapshot_blocks("", true, false);
         assert!(blocks.is_empty());
     }
 
@@ -634,19 +666,27 @@ mod tests {
     fn per_user_memory_dirs_are_isolated() {
         let root = std::env::temp_dir().join(format!("pointer_mem_users_{}", uuid::Uuid::new_v4()));
         let store = MemoryStore::open_in_dir(root.clone());
-        store.ensure_session_user("user-a").unwrap();
         store
-            .dispatch_tool(&json!({"action": "add", "target": "memory", "content": "A note"}))
+            .dispatch_tool(
+                "user-a",
+                &json!({"action": "add", "target": "memory", "content": "A note"}),
+            )
             .unwrap();
-        store.ensure_session_user("user-b").unwrap();
         store
-            .dispatch_tool(&json!({"action": "add", "target": "memory", "content": "B note"}))
+            .dispatch_tool(
+                "user-b",
+                &json!({"action": "add", "target": "memory", "content": "B note"}),
+            )
             .unwrap();
-        store.ensure_session_user("user-a").unwrap();
-        let blocks = store.snapshot_blocks(true, false);
+        store.reload_snapshot_for("user-a").unwrap();
+        let blocks = store.snapshot_blocks("user-a", true, false);
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].contains("A note"));
         assert!(!blocks[0].contains("B note"));
+        store.reload_snapshot_for("user-b").unwrap();
+        let blocks_b = store.snapshot_blocks("user-b", true, false);
+        assert!(blocks_b[0].contains("B note"));
+        assert!(!blocks_b[0].contains("A note"));
         assert!(root
             .join(user_storage_segment("user-a"))
             .join("MEMORY.md")
@@ -655,6 +695,41 @@ mod tests {
             .join(user_storage_segment("user-b"))
             .join("MEMORY.md")
             .is_file());
+    }
+
+    #[test]
+    fn concurrent_users_do_not_share_snapshot_slot() {
+        let root = std::env::temp_dir().join(format!(
+            "pointer_mem_concurrent_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let store = std::sync::Arc::new(MemoryStore::open_in_dir(root));
+        std::thread::scope(|scope| {
+            let a = store.clone();
+            scope.spawn(move || {
+                a.dispatch_tool(
+                    "user-a",
+                    &json!({"action": "add", "target": "memory", "content": "A concurrent"}),
+                )
+                .unwrap();
+                a.reload_snapshot_for("user-a").unwrap();
+                let blocks = a.snapshot_blocks("user-a", true, false);
+                assert!(blocks[0].contains("A concurrent"));
+                assert!(!blocks[0].contains("B concurrent"));
+            });
+            let b = store.clone();
+            scope.spawn(move || {
+                b.dispatch_tool(
+                    "user-b",
+                    &json!({"action": "add", "target": "memory", "content": "B concurrent"}),
+                )
+                .unwrap();
+                b.reload_snapshot_for("user-b").unwrap();
+                let blocks = b.snapshot_blocks("user-b", true, false);
+                assert!(blocks[0].contains("B concurrent"));
+                assert!(!blocks[0].contains("A concurrent"));
+            });
+        });
     }
 
     #[test]

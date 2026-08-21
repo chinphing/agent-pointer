@@ -46,13 +46,12 @@ use std::sync::Arc;
 
 use futures_util::future::FutureExt;
 use parking_lot::Mutex;
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_events::{stream_event_to_agent_event, AgentEvent, AgentEventBus};
 use crate::chat_service::{run_chat, AppState};
 use crate::conversation_store::runs::RunStatus;
-use crate::models::{ChatMessage, StreamEvent};
+use crate::models::ChatMessage;
 
 /// Default global concurrency cap when settings omit an explicit value.
 pub const DEFAULT_MAX_CONCURRENT: usize = 4;
@@ -422,7 +421,13 @@ impl RunDispatcher {
         // task that converts each StreamEvent to an AgentEvent tagged with our
         // run_id. The terminal StreamEvent::Done / Error are NOT converted here
         // (the dispatcher is the single source of truth for run status).
-        let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
+        let session_user_id = self
+            .inner
+            .state
+            .session_index
+            .session_user_id(&conversation_id)
+            .unwrap_or_default();
+        let (tx, mut rx) = crate::models::ChatStreamSender::pair(&conversation_id, &session_user_id);
         let events = self.inner.events.clone();
         let run_id_fwd = run_id.clone();
         let fwd_handle = tokio::spawn(async move {

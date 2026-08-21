@@ -1014,7 +1014,7 @@ mod trace_tests {
 
     #[tokio::test]
     async fn commit_records_result_before_anchor_and_final_status() {
-        let (stream, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
         let mut history = vec![anchor_message()];
         history[0].tool_calls = Some(vec![crate::models::ToolCall {
             id: "call-1".into(),
@@ -1136,7 +1136,7 @@ mod trace_tests {
 
     #[tokio::test]
     async fn cancelled_self_fork_returns_owned_cancelled_outcome() {
-        let (stream, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
         let state = crate::chat_service::AppState::new();
         let cancel = tokio_util::sync::CancellationToken::new();
         cancel.cancel();
@@ -1226,7 +1226,7 @@ mod trace_tests {
 
     #[tokio::test]
     async fn same_task_self_forks_are_isolated_until_owned_commit() {
-        let (stream, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
         let state = crate::chat_service::AppState::new();
         let history = vec![anchor_message()];
         let traces: Vec<crate::models::AgentTrace> = Vec::new();

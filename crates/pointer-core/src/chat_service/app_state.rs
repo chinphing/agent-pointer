@@ -612,24 +612,14 @@ impl AppState {
             }
         };
         let memory_store = match crate::memory::MemoryStore::open_default() {
-            Ok(store) => {
-                let arc = Arc::new(store);
-                if let Err(e) = arc.reload_snapshot() {
-                    log::warn!("memory: initial load failed: {e:#}");
-                }
-                arc
-            }
+            Ok(store) => Arc::new(store),
             Err(e) => {
                 log::warn!("memory: open failed ({e:#}); using empty in-memory store");
-                let arc = Arc::new(crate::memory::MemoryStore::open_in_dir(
+                Arc::new(crate::memory::MemoryStore::open_in_dir(
                     crate::storage::app_data_dir()
                         .unwrap_or_else(|_| std::env::temp_dir())
                         .join("memories"),
-                ));
-                if let Err(re) = arc.reload_snapshot() {
-                    log::warn!("memory: fallback load failed: {re:#}");
-                }
-                arc
+                ))
             }
         };
         crate::tools::builtin::register_all(&tools, task_board_store.clone());

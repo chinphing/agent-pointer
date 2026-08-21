@@ -9,7 +9,7 @@ use pointer_core::models::{ChatMessage, MediaAttachment, Role, StreamEvent};
 use pointer_core::web_request_auth::run_with_optional_web_session;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex as AsyncMutex};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::chart_outbound::materialize_chartjs_fences_for_im;
 use crate::config::ChannelAccountConfig;
@@ -364,7 +364,7 @@ impl DispatchService {
         let channels_cfg = crate::config::load_channels_config().unwrap_or_default();
         let im_outbound_cfg = channels_cfg.meta.im_outbound.clone();
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
+        let (tx, mut rx) = pointer_core::models::ChatStreamSender::pair(&desktop_conv_id, &im_user_id);
         let mut reply_text = String::new();
         let mut stream_out =
             ImStreamOutbound::new(plugin, outbound.clone(), im_outbound_cfg, conv_id.clone());

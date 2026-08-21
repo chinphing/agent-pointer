@@ -243,7 +243,7 @@ pub(super) async fn run_chat_inner(
 
     if let Err(e) = state
         .memory_store
-        .ensure_session_user(session_user_id.as_str())
+        .ensure_loaded(session_user_id.as_str())
     {
         log::warn!("memory: ensure session user failed conversation_id={conversation_id}: {e:#}");
     }

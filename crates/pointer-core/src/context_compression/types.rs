@@ -1,13 +1,11 @@
 //! Compression UI scope and stream helpers.
 
 use crate::agent_instance_scope::AgentInstanceScope;
-use crate::models::{ContextCompressionInfo, StreamEvent};
+use crate::models::{ChatStreamSender, ContextCompressionInfo, StreamEvent};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
 
-
-pub(crate) type StreamTx = UnboundedSender<StreamEvent>;
+pub(crate) type StreamTx = ChatStreamSender;
 /// Whether compression UI/events target the main thread or an isolated sub-agent loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompressionScope {

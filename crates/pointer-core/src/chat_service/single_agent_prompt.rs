@@ -76,6 +76,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
     crate::memory::push_memory_to_cacheable(
         &mut cacheable,
         &state.memory_store,
+        crate::user_storage::session_user_id_for_conversation(conversation_id).as_str(),
         settings.memory_enabled,
         settings.user_profile_enabled,
     );

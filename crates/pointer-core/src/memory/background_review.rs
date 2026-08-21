@@ -171,7 +171,7 @@ async fn run_background_review(
     kind: ReviewKind,
 ) -> Result<Option<String>> {
     let session_user_id = crate::user_storage::session_user_id_for_conversation(conversation_id);
-    memory_store.ensure_session_user(&session_user_id)?;
+    memory_store.ensure_loaded(&session_user_id)?;
     let allowed = allowed_tools_for(kind);
     let native_tools = tools.openai_tools(&allowed);
     if native_tools.is_empty() {
@@ -245,8 +245,14 @@ async fn run_background_review(
                 );
                 continue;
             }
-            let result =
-                dispatch_review_tool(&memory_store, &skills, settings, &tc.name, &tc.arguments)
+            let result = dispatch_review_tool(
+                &memory_store,
+                &skills,
+                settings,
+                &session_user_id,
+                &tc.name,
+                &tc.arguments,
+            )
                     .unwrap_or_else(|e| {
                         json!({ "success": false, "error": e.to_string() }).to_string()
                     });
@@ -312,6 +318,7 @@ fn dispatch_review_tool(
     memory_store: &MemoryStore,
     _skills: &SkillRegistry,
     settings: &ModelSettings,
+    session_user_id: &str,
     name: &str,
     arguments: &str,
 ) -> Result<String> {
@@ -323,7 +330,7 @@ fn dispatch_review_tool(
                 settings.memory_char_limit,
                 settings.user_char_limit,
             );
-            memory_store.dispatch_tool(&args)
+            memory_store.dispatch_tool(session_user_id, &args)
         }
         other => Err(anyhow!("unsupported review tool: {other}")),
     }

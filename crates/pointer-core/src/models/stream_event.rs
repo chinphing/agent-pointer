@@ -531,8 +531,110 @@ pub enum StreamEvent {
     },
 }
 
-/// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).
-pub type ChatStreamSender = tokio::sync::mpsc::UnboundedSender<StreamEvent>;
+fn nonempty_id(id: &str) -> Option<&str> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+impl StreamEvent {
+    /// Conversation id carried on the event payload (empty treated as absent).
+    /// High-frequency deltas omit this field; SSE routing uses [`ChatStreamSender`].
+    pub fn conversation_id_for_sse(&self) -> Option<&str> {
+        match self {
+            Self::MessageStart { conversation_id, .. }
+            | Self::SubMessageStart { conversation_id, .. }
+            | Self::InjectedUserMessage { conversation_id, .. }
+            | Self::UserMessageAttachmentsUpdated { conversation_id, .. }
+            | Self::ImSessionForked { conversation_id, .. }
+            | Self::ImSessionAgentChanged { conversation_id, .. }
+            | Self::InjectedAssistantMessage { conversation_id, .. }
+            | Self::InjectedAssistantMessageUpdate { conversation_id, .. }
+            | Self::Error { conversation_id, .. }
+            | Self::Done { conversation_id, .. }
+            | Self::ContextTrimApplied { conversation_id, .. }
+            | Self::ContextCompressionStarted { conversation_id, .. }
+            | Self::ContextCompressionApplied { conversation_id, .. }
+            | Self::ContextCompressed { conversation_id, .. }
+            | Self::ToolRoundsExhausted { conversation_id, .. }
+            | Self::UiToast { conversation_id, .. }
+            | Self::AssistantRoundScreen { conversation_id, .. }
+            | Self::TaskBoardUpdated { conversation_id, .. }
+            | Self::SkillsUpdated { conversation_id, .. }
+            | Self::WorkspaceUpdated { conversation_id, .. }
+            | Self::ComputerMonitorPickRequired { conversation_id, .. }
+            | Self::ComputerMonitorUpdated { conversation_id, .. } => nonempty_id(conversation_id),
+            Self::Delta { .. }
+            | Self::RawContentDelta { .. }
+            | Self::ReasoningDelta { .. }
+            | Self::AssistantJsonPartial { .. }
+            | Self::AgentStep { .. }
+            | Self::ToolCallStart { .. }
+            | Self::ToolCallArgsDelta { .. }
+            | Self::ToolCallStatus { .. }
+            | Self::TerminalOutputDelta { .. }
+            | Self::ConsoleOutputDelta { .. }
+            | Self::ConsoleSessionExited { .. }
+            | Self::TerminalNeedsInput { .. }
+            | Self::WebSearchOutputDelta { .. }
+            | Self::WebSearchSourcesReady { .. }
+            | Self::MessageEnd { .. }
+            | Self::ChannelPairingPending { .. } => None,
+        }
+    }
+}
+
+/// Per-run chat UI sink. Carries conversation/user ids so SSE can route
+/// high-frequency events that do not embed `conversationId`.
+#[derive(Clone, Debug)]
+pub struct ChatStreamSender {
+    tx: tokio::sync::mpsc::UnboundedSender<StreamEvent>,
+    conversation_id: String,
+    session_user_id: String,
+}
+
+impl ChatStreamSender {
+    pub fn pair(
+        conversation_id: impl Into<String>,
+        session_user_id: impl Into<String>,
+    ) -> (Self, tokio::sync::mpsc::UnboundedReceiver<StreamEvent>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        (
+            Self {
+                tx,
+                conversation_id: conversation_id.into(),
+                session_user_id: session_user_id.into(),
+            },
+            rx,
+        )
+    }
+
+    /// Sender whose receiver is dropped; `send` fails but broadcast still runs.
+    pub fn unbound(
+        conversation_id: impl Into<String>,
+        session_user_id: impl Into<String>,
+    ) -> Self {
+        Self::pair(conversation_id, session_user_id).0
+    }
+
+    pub fn conversation_id(&self) -> &str {
+        self.conversation_id.trim()
+    }
+
+    pub fn session_user_id(&self) -> &str {
+        self.session_user_id.trim()
+    }
+
+    pub fn send(
+        &self,
+        ev: StreamEvent,
+    ) -> Result<(), tokio::sync::mpsc::error::SendError<StreamEvent>> {
+        self.tx.send(ev)
+    }
+}
 
 #[cfg(test)]
 mod tests {

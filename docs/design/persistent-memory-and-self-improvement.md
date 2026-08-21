@@ -344,7 +344,7 @@ crates/pointer-core/src/memory/
 | System 组装 | `single_agent_prompt.rs` 等                | 追加 memory snapshot 到 cacheable                        |
 | Turn 结束   | `single_agent_post_stream.rs` / finalizer | 判定 skill nudge；`spawn_background_review`              |
 | 压缩前       | `context_compression.rs`                  | 可选：摘要 prompt 追加「保留用户偏好/环境事实」指引                        |
-| 压缩后       | 同上                                        | `MemoryStore::reload_snapshot()` + 重建 cacheable       |
+| 压缩后       | 同上                                        | `reload_snapshot_for_conversation` + 重建 cacheable（按用户槽） |
 | 工具注册      | `tools/mod.rs`                            | 注册 `memory`；general lead 或配置控制可见性                     |
 | UI        | `StreamEvent::UiToast`                    | review 摘要                                             |
 

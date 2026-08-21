@@ -207,7 +207,10 @@ pub fn try_apply_pending_compression(
     if let Err(e) = state.memory_store.reload_snapshot_for_conversation(id) {
         log::warn!("memory: reload after pending compression failed: {e:#}");
     }
-    let (stream_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let stream_tx = crate::models::ChatStreamSender::unbound(
+        id,
+        crate::user_storage::session_user_id_for_conversation(id),
+    );
     let ui = CompressionUiContext {
         scope: CompressionScope::Main,
         ..Default::default()
@@ -801,7 +804,10 @@ pub(crate) async fn run_precompress_job(
     }
 
     let provider = OpenAIProvider::new(settings.clone(), api_key);
-    let (stream_tx, _stream_rx) = tokio::sync::mpsc::unbounded_channel();
+    let stream_tx = crate::models::ChatStreamSender::unbound(
+        conversation_id,
+        crate::user_storage::session_user_id_for_conversation(conversation_id),
+    );
     let cancel = CancellationToken::new();
     let run_id = format!("precompress-{}", uuid::Uuid::new_v4().simple());
     let lead_role = if settings.lead_agent_id.trim().is_empty() {

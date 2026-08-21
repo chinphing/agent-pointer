@@ -18,8 +18,7 @@ pub fn register(reg: &ToolRegistry, store: Arc<MemoryStore>) {
             inject_memory_limits(&mut args, user.memory_char_limit, user.user_char_limit);
         }
         let uid = crate::session_user_env::current_session_user_id().unwrap_or_default();
-        st.ensure_session_user(&uid)?;
-        st.dispatch_tool(&args)
+        st.dispatch_tool(&uid, &args)
     });
 
     reg.register(

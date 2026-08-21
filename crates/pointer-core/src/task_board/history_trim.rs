@@ -5,9 +5,8 @@ use crate::message_context::{
     count_context_included_messages, find_split_at_user_boundary, is_context_included,
     mark_excluded,
 };
-use crate::models::{ChatMessage, ExcludedReason, ModelSettings, Role, StreamEvent};
+use crate::models::{ChatMessage, ChatStreamSender, ExcludedReason, ModelSettings, Role, StreamEvent};
 use std::collections::HashMap;
-use tokio::sync::mpsc::UnboundedSender;
 
 /// Prefix on legacy placeholder user rows after task_board-driven trim (UI detects this for styling).
 pub const TRIM_PLACEHOLDER_PREFIX: &str = "[History trimmed after task_board update]";
@@ -21,7 +20,7 @@ const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
 const CUR_SCREEN_OMITTED: &str =
     "[CUR_SCREEN] Earlier desktop screenshots are omitted here; use only the latest [CUR_SCREEN] message in this request for images.";
 
-type StreamTx = UnboundedSender<StreamEvent>;
+type StreamTx = ChatStreamSender;
 
 #[derive(Debug, Clone)]
 pub struct TaskBoardTrimStats {
@@ -612,7 +611,7 @@ mod tests {
             settings: &ModelSettings::default(),
             agent_id: "computer",
             conversation_id: "c1",
-            stream: &tokio::sync::mpsc::unbounded_channel().0,
+            stream: &crate::models::ChatStreamSender::unbound("c1", ""),
             emit_trim_ui_event: false,
             anchor_message_id: None,
         };

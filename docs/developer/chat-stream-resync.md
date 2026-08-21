@@ -2,7 +2,16 @@
 
 ## 问题
 
-网页端通过 `GET /api/chat/:id/stream`（SSE）接收 `StreamEvent`。事件只在广播环里存活：
+网页端通过 `GET /api/chat/:id/stream`（SSE）接收 `StreamEvent`。
+
+路由：
+
+| 订阅 | 收到的事件 |
+| --- | --- |
+| `global` | 无会话 id 的进程级事件（控制台 PTY、通道配对），以及 **当前登录用户自己的** 会话事件 |
+| 具体 `conversationId` | **仅** 该会话（默认拒绝，不再把缺字段的 delta 推给所有连接） |
+
+事件只在广播环里存活：
 
 - 客户端慢 / 网络弱时，`tokio::broadcast` 会 **Lagged**，已发出的帧（含 `delta` / `done`）被丢掉且**不重放**
 - SSE 断线重连后同样拿不到断线期间的事件
@@ -11,7 +20,7 @@
 
 1. 服务端已落盘完整回复，界面要刷新才看到
 2. UI 一直停在「执行中」（`generating` 未清，或工具 / agentTrace 仍 `running`）
-3. 偶发：别的会话 `done` 响了完成音，当前会话仍显示执行中
+3. 弱网丢 `done` 后当前会话仍显示执行中
 4. **新会话首条**：`onStream` 未等 SSE 挂上就 `POST /api/chat`，广播零订阅丢帧，刷新后才看到回复
 
 桌面端走 Tauri 事件通道，无此 SSE 环；本对账逻辑对桌面无害（`onGap` 为空操作，`waitForChatStreamReady` 立即返回）。
@@ -20,7 +29,7 @@
 
 | 层 | 行为 |
 |----|------|
-| Server `chat_stream` | 广播缓冲 4096；`Lagged` 时打 warn，并向该 SSE 连接发 `event: resync` |
+| Server `chat_stream` | 广播缓冲 4096；按会话信封投递（见上文）；`Lagged` 时打 warn，并向该 SSE 连接发 `event: resync` |
 | Web `onStream` | **`chat.init` 一开始就发起**（与拉项目/会话列表并行），首次成功打开后才 resolve；断线期间 `waitForChatStreamReady` 为 false。收到 `resync`、流 body 结束、502/504/错误重连时调用 `onGap(reason)` |
 | 发送闸门 | `dispatchChatTurn` 在 `POST /api/chat` 前 `await waitForChatStreamReady()`，避免新会话首条在零订阅时把帧丢掉 |
 | 执行态对账 | `flags`：只对照 dispatcher 清/置 `generating`（online、visibility、boot） |

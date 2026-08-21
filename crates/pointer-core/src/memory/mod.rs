@@ -17,8 +17,13 @@ pub use tool::{plan_includes_memory, register as register_memory_tool};
 pub fn push_memory_to_cacheable(
     cacheable: &mut Vec<String>,
     store: &MemoryStore,
+    session_user_id: &str,
     memory_enabled: bool,
     user_profile_enabled: bool,
 ) {
-    cacheable.extend(store.snapshot_blocks(memory_enabled, user_profile_enabled));
+    cacheable.extend(store.snapshot_blocks(
+        session_user_id,
+        memory_enabled,
+        user_profile_enabled,
+    ));
 }

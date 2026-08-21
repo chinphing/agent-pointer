@@ -77,7 +77,7 @@ harden IDOR separately if needed.
 - Legacy unowned projects (`session_user_id=''`) remain visible only when the current uid is empty;
   if such a row already points at a user's sandbox, the first reconcile for that user may claim it.
 
-Legacy root-level `memories/MEMORY.md` is read as a fallback until a user-scoped file exists. New writes always go to the user subdirectory.
+Memory files live only under `memories/{session_user_id}/` (or `_anonymous/`). The in-process store keeps **one slot per user**; concurrent chats do not share a single snapshot. Root-level `memories/MEMORY.md` is not read.
 
 `save_conversation_meta` binds `session_user_id` when the platform session is logged in and the row is still empty (covers new sessions before the first message). `save_chat_attachment` requires login and binds before writing files, so attachments are not stored under `_anonymous/` after login.
 

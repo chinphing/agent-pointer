@@ -6,6 +6,7 @@ import {
   pruneInheritedModelConfigs,
   sanitizeProviderModelConfigs
 } from './useRuntimeParams'
+import { modelSupportsAudioTranscription } from '../lib/modelCapabilities'
 
 const fallback = {
   temperature: () => 0.7,
@@ -26,7 +27,7 @@ function qwenProvider(over: ProviderConfig['modelConfigs'] = {}): ProviderConfig
 }
 
 describe('model capability overrides', () => {
-  it('treats vision overrides that differ from provider defaults as effective', () => {
+    it('keeps explicit vision flags even when they match the DashScope default', () => {
     expect(
       hasEffectiveModelOverride(
         { supportsVision: false },
@@ -43,7 +44,7 @@ describe('model capability overrides', () => {
         fallback,
         'qwen3.5-plus'
       )
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('treats generation capability overrides as effective', () => {
@@ -63,7 +64,7 @@ describe('model capability overrides', () => {
         fallback,
         'wan2.7-image-pro'
       )
-    ).toBe(false)
+    ).toBe(true)
 
     expect(
       hasEffectiveModelOverride(
@@ -73,6 +74,36 @@ describe('model capability overrides', () => {
         'qwen3.5-plus'
       )
     ).toBe(true)
+  })
+
+  it('keeps catalog audio flags when pruning', () => {
+    const pruned = pruneInheritedModelConfigs(
+      qwenProvider({
+        'qwen3-asr-flash': { supportsAudio: true }
+      }),
+      { 'qwen3-asr-flash': { supportsAudio: true } },
+      fallback
+    )
+    expect(pruned['qwen3-asr-flash']).toEqual({ supportsAudio: true })
+    expect(
+      hasEffectiveModelOverride(
+        { supportsAudio: false },
+        qwenProvider(),
+        fallback,
+        'qwen3.5-plus'
+      )
+    ).toBe(true)
+  })
+
+  it('keeps catalog vision true when pruning DashScope models', () => {
+    const pruned = pruneInheritedModelConfigs(
+      qwenProvider({
+        'qwen3.5-plus': { supportsVision: true }
+      }),
+      { 'qwen3.5-plus': { supportsVision: true } },
+      fallback
+    )
+    expect(pruned['qwen3.5-plus']).toEqual({ supportsVision: true })
   })
 
   it('keeps capability-only custom entries when pruning inherited configs', () => {
@@ -89,7 +120,10 @@ describe('model capability overrides', () => {
     )
 
     expect(pruned['qwen3.5-plus']).toEqual({ supportsVision: false })
-    expect(pruned['wan2.7-image-pro']).toBeUndefined()
+    expect(pruned['wan2.7-image-pro']).toEqual({
+      canGenerateImage: true,
+      temperature: 0.7
+    })
   })
 
   it('keeps capability patches through provider save sanitization', () => {
@@ -118,5 +152,19 @@ describe('model capability overrides', () => {
 
     expect(sanitized['qwen3.5-plus']?.supportsVision).toBe(false)
     expect(sanitized['qwen3.5-plus']?.enableThinking).toBe(false)
+  })
+})
+
+describe('audio transcription picker', () => {
+  it('lists only models with explicit supportsAudio', () => {
+    const providers: ProviderConfig[] = [
+      qwenProvider({
+        'qwen3.5-plus': { supportsVision: true },
+        'qwen3-asr-flash': { supportsAudio: true }
+      })
+    ]
+    providers[0].models = ['qwen3.5-plus', 'qwen3-asr-flash']
+    expect(modelSupportsAudioTranscription(providers, 'qwen', 'qwen3-asr-flash')).toBe(true)
+    expect(modelSupportsAudioTranscription(providers, 'qwen', 'qwen3.5-plus')).toBe(false)
   })
 })

@@ -449,6 +449,8 @@ export interface ConversationSearchHit {
 export interface ModelRuntimeOverrides {
   reasoningInMessages?: boolean
   temperature?: number
+  /** Nucleus sampling (`top_p` on wire). */
+  topP?: number
   maxTokens?: number
   /** Qwen: deep thinking (`enable_thinking` on wire). */
   enableThinking?: boolean
@@ -470,6 +472,8 @@ export interface ModelRuntimeOverrides {
   thinkingIntensity?: 'off' | 'low' | 'medium' | 'high' | 'max'
   /** Whether the model accepts vision / image understanding input. */
   supportsVision?: boolean
+  /** Whether the model accepts speech-to-text / audio understanding input. */
+  supportsAudio?: boolean
   /** Whether the model can generate images (`image_generate`). */
   canGenerateImage?: boolean
   /** Whether the model can generate videos (`video_generate`). */
@@ -521,6 +525,8 @@ export interface ProviderConfig {
   reasoningInMessages?: boolean
   /** Default creativity for models without a per-model override. */
   temperature?: number
+  /** Nucleus sampling; omitted models inherit the provider default (0.95). */
+  topP?: number
   /** Default max output tokens for models without a per-model override. */
   maxTokens?: number
   modelConfigs?: Record<string, ModelRuntimeOverrides>
@@ -696,6 +702,7 @@ export interface PlatformProviderModelTemplate {
   name: string
   reasoningInMessages?: boolean
   temperature?: number
+  topP?: number
   maxTokens?: number
   enableThinking?: boolean
   thinkingBudget?: number
@@ -703,6 +710,7 @@ export interface PlatformProviderModelTemplate {
   thinkingProtocol?: string
   thinkingIntensity?: string
   supportsVision?: boolean
+  supportsAudio?: boolean
   canGenerateImage?: boolean
   canGenerateVideo?: boolean
 }
@@ -720,6 +728,7 @@ export interface PlatformProviderTemplate {
   thinkingProtocol?: string
   thinkingIntensity?: string
   temperature?: number
+  topP?: number
   maxTokens?: number
 }
 

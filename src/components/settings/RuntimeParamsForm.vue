@@ -64,7 +64,7 @@ function commitExtraBody() {
       </div>
     </div>
 
-    <!-- Row 2: creativity + reasoning in messages -->
+    <!-- Row 2: creativity / top_p / reasoning in messages -->
     <div class="flex flex-nowrap items-center gap-x-3 gap-y-2">
       <div class="flex-1 min-w-0 max-w-[min(100%,18rem)] space-y-1.5">
         <div class="flex items-center justify-between gap-2">
@@ -79,6 +79,21 @@ function commitExtraBody() {
           class="w-full accent-accent"
           :value="api.temperature()"
           @input="api.setTemperature(Number(($event.target as HTMLInputElement).value))"
+        />
+      </div>
+      <div class="flex-1 min-w-0 max-w-[min(100%,18rem)] space-y-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[12px] text-muted">top_p</span>
+          <span class="text-sm font-mono text-accent">{{ api.topP().toFixed(2) }}</span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          class="w-full accent-accent"
+          :value="api.topP()"
+          @input="api.setTopP(Number(($event.target as HTMLInputElement).value))"
         />
       </div>
       <div class="flex items-center gap-1.5 shrink-0">

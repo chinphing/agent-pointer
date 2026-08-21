@@ -2067,6 +2067,7 @@ mod active_main_task_board_tests {
             model_configs: Default::default(),
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             enable_thinking: None,
             thinking_budget: None,

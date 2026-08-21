@@ -826,6 +826,7 @@ fn apply_llm_section(platform: &mut PlatformSettings, user: &mut UserSettings, l
                 models: cfg.models.clone(),
                 reasoning_in_messages: None,
                 temperature: None,
+                top_p: None,
                 max_tokens: None,
                 model_configs: HashMap::new(),
                 enable_thinking: None,

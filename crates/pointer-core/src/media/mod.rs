@@ -35,7 +35,7 @@ pub use apply::apply_media_to_history;
 pub use attachment_lookup::{
     conversation_user_attachments, find_attachment_by_id, find_attachment_by_media_ref,
 };
-pub use capabilities::model_supports_vision;
+pub use capabilities::{model_supports_audio_transcription, model_supports_vision};
 pub use chart_render_context::{
     append_chart_render_api_context, format_chart_render_api_manifest, CHART_RENDER_MARKER,
 };

@@ -19,6 +19,7 @@ fn dashscope_settings(api_key: &str, base_url: &str) -> ModelSettings {
             models: vec!["qwen3-max".into(), "qwen3-max-2026-01-23".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: Default::default(),
             enable_thinking: None,

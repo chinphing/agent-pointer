@@ -11,14 +11,9 @@ use crate::models::ProviderConfig;
 use crate::provider::ChatOnceOutput;
 use crate::text_util::truncate_bytes;
 
-/// qwen3.5-flash and similar chat models do not accept audio; use a speech model.
+/// Use the catalogued speech model as configured. Do not remap by name.
 pub fn dashscope_audio_model_id(configured: &str) -> &str {
-    let trimmed = configured.trim();
-    let m = trimmed.to_ascii_lowercase();
-    if m.contains("asr") || m.contains("audio") {
-        return trimmed;
-    }
-    "qwen3-asr-flash"
+    configured.trim()
 }
 
 fn uses_qwen_asr_api(model_id: &str) -> bool {
@@ -269,17 +264,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flash_model_falls_back_to_qwen3_asr_flash() {
-        assert_eq!(dashscope_audio_model_id("qwen3.5-flash"), "qwen3-asr-flash");
-    }
-
-    #[test]
-    fn fun_asr_model_kept() {
+    fn configured_model_id_is_kept() {
+        assert_eq!(dashscope_audio_model_id("qwen3.5-flash"), "qwen3.5-flash");
         assert_eq!(dashscope_audio_model_id("fun-asr"), "fun-asr");
-    }
-
-    #[test]
-    fn asr_model_kept() {
         assert_eq!(
             dashscope_audio_model_id("qwen3-asr-flash"),
             "qwen3-asr-flash"

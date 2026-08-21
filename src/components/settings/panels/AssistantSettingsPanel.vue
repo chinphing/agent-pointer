@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../../types/chat'
 import { useSettingsStore } from '../../../stores/settings'
-import { CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, X } from 'lucide-vue-next'
+import { CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, Bot, X } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import SceneTierModelsModal from '../SceneTierModelsModal.vue'
 
@@ -17,8 +17,15 @@ const s = useSettingsStore()
 const sceneModal = ref<string | null>(null)
 // 「更多」弹窗：其他执行智能体（explorer 等）的档位与模型设置
 const moreModal = ref(false)
+const RETIRED_MORE_AGENT_IDS = new Set(['research', 'supervisor'])
 const moreWorkers = computed(() =>
-  enabledWorkers.value.filter(w => w.id !== 'general' && w.id !== 'coder' && w.id !== 'computer')
+  enabledWorkers.value.filter(
+    w =>
+      w.id !== 'general' &&
+      w.id !== 'coder' &&
+      w.id !== 'computer' &&
+      !RETIRED_MORE_AGENT_IDS.has(w.id)
+  )
 )
 // 弹窗内短中文描述，风格与左卡「通用助手/氛围编程」一致；未收录的 worker 回退英文原文截断
 const WORKER_DESC_ZH: Record<string, string> = {
@@ -51,20 +58,16 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
     <section class="space-y-4" aria-labelledby="assistant-scene-heading">
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
         <div>
-          <div class="flex items-center gap-1.5">
-            <h4 id="assistant-scene-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
-              <Gauge class="w-4 h-4 text-accent" />场景档位
-            </h4>
-            <button
-              type="button"
+          <h4 id="assistant-scene-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
+            <Gauge class="w-4 h-4 text-accent" />场景档位
+            <span
               class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
               :title="PERFORMANCE_MODE_HELP"
               aria-label="档位说明"
-              @click.stop
             >
               <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-            </button>
-          </div>
+            </span>
+          </h4>
           <p class="mt-1 text-[11px] text-muted">
             每个场景独立选档；点「模型」可调整各档位对应的模型。
           </p>

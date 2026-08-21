@@ -95,6 +95,8 @@ pub struct PlatformProviderTemplate {
     pub thinking_intensity: Option<String>,
     #[serde(default)]
     pub temperature: Option<f32>,
+    #[serde(default, rename = "topP", alias = "top_p")]
+    pub top_p: Option<f32>,
     #[serde(default, rename = "maxTokens", alias = "max_tokens")]
     pub max_tokens: Option<u32>,
 }
@@ -112,6 +114,8 @@ pub struct PlatformProviderModel {
     pub reasoning_in_messages: Option<bool>,
     #[serde(default)]
     pub temperature: Option<f32>,
+    #[serde(default, rename = "topP", alias = "top_p")]
+    pub top_p: Option<f32>,
     #[serde(default, rename = "maxTokens", alias = "max_tokens")]
     pub max_tokens: Option<u32>,
     #[serde(default, rename = "enableThinking", alias = "enable_thinking")]
@@ -126,6 +130,8 @@ pub struct PlatformProviderModel {
     pub thinking_intensity: Option<String>,
     #[serde(default, rename = "supportsVision", alias = "supports_vision")]
     pub supports_vision: Option<bool>,
+    #[serde(default, rename = "supportsAudio", alias = "supports_audio")]
+    pub supports_audio: Option<bool>,
     #[serde(default, rename = "canGenerateImage", alias = "can_generate_image")]
     pub can_generate_image: Option<bool>,
     #[serde(default, rename = "canGenerateVideo", alias = "can_generate_video")]

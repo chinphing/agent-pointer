@@ -32,15 +32,18 @@
 
 ## 模型能力标记
 
-- 各模型在「定制 → 设置」弹窗顶部可勾选：**支持视觉理解**、**可生成图片**、**可生成视频**。
+- 各模型在「定制 → 设置」弹窗顶部可勾选：**支持视觉理解**、**支持语音转写**、**可生成图片**、**可生成视频**。
 - 这些能力字段与温度等运行参数一样，属于有效定制覆盖；保存时不得因「仅改能力」被裁掉。
 - 定制弹窗内的能力勾选必须通过父组件替换 `editingProvider.modelConfigs` 引用写入，
   禁止在子组件里直接改 props（Vue 只读代理下会丢改动）。
 - `hasEffectiveModelOverride` / `pruneInheritedModelConfigs` / `sanitizeProviderModelConfigs`
-  必须保留与默认值不同的 `supportsVision` / `canGenerateImage` / `canGenerateVideo`。
-- 图片/视频生成下拉、vision 能力检测会读取 `modelConfigs` 中对应字段。
-  平台模型以目录下发的 `supportsVision` / `canGenerateImage` / `canGenerateVideo` /
-  服务商 `reasoningInMessages` 为准；未下发时才按 **API 地址** 推断（DashScope → 视觉，DeepSeek API → 无视觉），不按服务商 id。
+  必须保留显式的 `supportsVision` / `supportsAudio` / `canGenerateImage` / `canGenerateVideo`
+  （含目录里写明的 `true` / `false`），否则平台勾选会被裁掉，场景下拉选不到对应模型。
+  能力只认设置，不按模型名或接口地址猜测。
+  图片/视频生成默认模型来自 `tierDefaults.mediaGeneration`，设置页「平台默认」读该目录，不写死本地模型名。
+- 图片/视频生成下拉、视觉/语音能力检测读取 `modelConfigs` 中对应字段。
+  平台模型以目录下发的 `supportsVision` / `supportsAudio` / `canGenerateImage` / `canGenerateVideo` /
+  服务商 `reasoningInMessages` 为准。未勾选即为无该能力，不按模型名或接口地址猜测。
 - 千问 / 豆包模型清单（含 Wan、Seedream、Seedance 等生成模型）**由平台目录下发**，本地不再内置默认模型列表。平台新增模型后，用户下次登录或刷新凭据即可在下拉中看到，无需发客户端版本。
 - 场景档位「已覆盖」以平台 `tierDefaults` 为准，不要在界面里写死模型名来判断是否默认。
 

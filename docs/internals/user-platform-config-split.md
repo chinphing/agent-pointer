@@ -64,7 +64,10 @@ The control plane is the only place that adds, removes, or reorders platform mod
 - Scene defaults (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm` / `computerPipelineLlm` / `mediaGeneration`) come from `tierDefaults`. The settings UI compares “已覆盖” against this directory, not against names compiled into the client.
 - User settings never persist provider records with `source=platform` (id does not matter; the catalog can add or replace vendors). A user fork of the same id must be `source=user`. Scene **tier maps** may point at platform provider ids — that is a user override, not a provider record.
 - DashScope / DeepSeek / Volcengine **API dialect** is inferred from base URL (and directory capability fields), not from a frozen vendor id list.
-- Capability flags (`supportsVision` / `canGenerateImage` / `canGenerateVideo`) should be set on the platform model entry when the name heuristic would be wrong. Name-based inference is only a fallback.
+- Capability flags (`supportsVision` / `supportsAudio` / `canGenerateImage` / `canGenerateVideo`) come only from the platform model entry or the user’s checkboxes. Unset means off. Image/video understanding use vision; speech-to-text uses `supportsAudio`; image/video generation pickers use the generation flags. Do not infer from model name or API URL.
+- Explicit catalog flags must survive client merge/prune so scene pickers can list the model.
+- Default image/video generators come from `tierDefaults.mediaGeneration` and fill `mediaModelOverrides` when the user has not set them.
+- Sampling: catalog `temperature` (default 0.7) and `topP` (default 0.95) apply per provider/model and are sent as `temperature` / `top_p` on chat/completions.
 - Billing rate lives on each official model row on the control plane. Login payloads and the directory hash omit rate fields, so a rate-only edit does not rebuild client providers.
 
 ## Security notes (`auth.dat`)

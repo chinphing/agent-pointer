@@ -309,6 +309,8 @@ struct StoredModelOverrides {
     reasoning_in_messages: Option<bool>,
     #[serde(default)]
     temperature: Option<f32>,
+    #[serde(default, rename = "topP")]
+    top_p: Option<f32>,
     #[serde(default, rename = "maxTokens")]
     max_tokens: Option<u32>,
     #[serde(default, rename = "enableThinking")]
@@ -342,6 +344,8 @@ struct StoredProvider {
     reasoning_in_messages: Option<bool>,
     #[serde(default)]
     temperature: Option<f32>,
+    #[serde(default, rename = "topP")]
+    top_p: Option<f32>,
     #[serde(default, rename = "maxTokens")]
     max_tokens: Option<u32>,
     #[serde(default, rename = "enableThinking")]
@@ -701,6 +705,7 @@ fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOv
     ModelRuntimeOverrides {
         reasoning_in_messages: v.reasoning_in_messages,
         temperature: v.temperature,
+        top_p: v.top_p,
         max_tokens: v.max_tokens,
         enable_thinking,
         thinking_budget,
@@ -708,6 +713,7 @@ fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOv
         thinking_protocol: v.thinking_protocol.clone(),
         thinking_intensity: v.thinking_intensity.clone(),
         supports_vision: None,
+        supports_audio: None,
         can_generate_image: None,
         can_generate_video: None,
         extra_body: leftover_extra_body(v.extra_body.as_ref()),
@@ -737,6 +743,7 @@ fn stored_provider_to_platform(
         models: p.models.clone(),
         reasoning_in_messages: p.reasoning_in_messages.or(legacy_reasoning),
         temperature: p.temperature,
+        top_p: p.top_p,
         max_tokens: p.max_tokens,
         model_configs: p
             .model_configs
@@ -911,6 +918,7 @@ impl Default for StoredSettings {
                     models: p.models.clone(),
                     reasoning_in_messages: p.reasoning_in_messages,
                     temperature: p.temperature,
+                    top_p: p.top_p,
                     max_tokens: p.max_tokens,
                     model_configs: p
                         .model_configs
@@ -921,6 +929,7 @@ impl Default for StoredSettings {
                                 StoredModelOverrides {
                                     reasoning_in_messages: v.reasoning_in_messages,
                                     temperature: v.temperature,
+                                    top_p: v.top_p,
                                     max_tokens: v.max_tokens,
                                     enable_thinking: v.enable_thinking,
                                     thinking_budget: v.thinking_budget,

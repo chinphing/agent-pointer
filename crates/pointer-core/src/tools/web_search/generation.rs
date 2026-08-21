@@ -186,6 +186,7 @@ mod tests {
                     models: vec!["qwen3-max".into()],
                     reasoning_in_messages: None,
                     temperature: None,
+                    top_p: None,
                     max_tokens: None,
                     model_configs: Default::default(),
                     enable_thinking: None,

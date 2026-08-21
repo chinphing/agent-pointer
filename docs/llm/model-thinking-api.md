@@ -29,6 +29,9 @@ OpenAI Python SDK 的展平行为。
 `thinkingProtocol` 由客户端按服务商 URL / id 推断，官网不下发、不转换。
 自定义 OpenAI 兼容端点在 `auto` 下按 `openai_effort` 翻译强度。
 
+采样参数：`temperature` 默认 **0.7**，`top_p` 默认 **0.95**。
+可在平台目录（服务商默认或模型覆盖）与客户端模型服务里配置；发往 chat/completions 时写在请求体根级。
+
 发往 OpenAI 兼容接口前打 **debug** `openai_compat_request`：展平后的最终根级字段
 （`max_tokens` 与线路思考键），不含 `messages` / Key。
 完整请求体仍走「保存每轮对话请求」或 `POINTER_DEBUG_LLM_PROMPTS`。

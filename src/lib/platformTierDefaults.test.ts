@@ -4,6 +4,7 @@ import {
   normalizePlatformProviderTemplates,
   platformAgentModeDefault,
   platformComputerPipelineDefault,
+  platformMediaGenerationDefault,
   platformModelNames,
   withInheritedThinking
 } from './platformTierDefaults'
@@ -65,11 +66,23 @@ describe('platformTierDefaults', () => {
       },
       computerPipelineLlm: {
         verify: { providerId: 'qwen', model: 'qwen3.8-max' }
+      },
+      mediaGeneration: {
+        image: { providerId: 'doubao', model: 'doubao-seedream-5-0-lite-260128' },
+        video: { providerId: 'doubao', model: 'doubao-seedance-2-0-fast-260128' }
       }
     }
     expect(platformAgentModeDefault(tierDefaults, 'general', 'fast')).toEqual({
       providerId: 'qwen',
       model: 'qwen-next'
+    })
+    expect(platformMediaGenerationDefault(tierDefaults, 'image')).toEqual({
+      providerId: 'doubao',
+      model: 'doubao-seedream-5-0-lite-260128'
+    })
+    expect(platformMediaGenerationDefault(tierDefaults, 'video')).toEqual({
+      providerId: 'doubao',
+      model: 'doubao-seedance-2-0-fast-260128'
     })
     expect(platformComputerPipelineDefault(tierDefaults)).toEqual({
       verify: 'qwen3.8-max',

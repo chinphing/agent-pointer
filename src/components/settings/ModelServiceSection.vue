@@ -139,13 +139,14 @@ function modelCapabilitySummary(modelId: string): string {
   const caps = resolvedModelCapabilities([p], p.id, modelId)
   const parts: string[] = []
   if (caps.supportsVision) parts.push('视觉')
+  if (caps.supportsAudio) parts.push('语音')
   if (caps.canGenerateImage) parts.push('生图')
   if (caps.canGenerateVideo) parts.push('生视频')
   return parts.join(' · ')
 }
 
 function patchEditingModelCapability(
-  flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
+  flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | 'canGenerateVideo',
   value: boolean
 ) {
   const p = editingProvider.value

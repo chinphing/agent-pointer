@@ -32,15 +32,14 @@ import {
   modelCanGenerateImage,
   modelCanGenerateVideo,
   modelSupportsAudioTranscription,
-  modelSupportsVision,
-  seedProviderModelCapabilities
+  modelSupportsVision
 } from '../lib/modelCapabilities'
 import {
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
   pruneInheritedModelConfigs
 } from '../composables/useRuntimeParams'
-import { normalizePlatformProviderTemplates } from '../lib/platformTierDefaults'
+import { normalizePlatformProviderTemplates, mergePlatformModelConfigs } from '../lib/platformTierDefaults'
 
 // 场景档位默认由平台目录下发（tierDefaults）；本地不内置任何平台模型固定配置。
 const defaultAgentModeLlm = () => ({})
@@ -127,7 +126,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
 
 function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens'>) {
   return {
-    temperature: () => st?.temperature ?? 0.3,
+    temperature: () => st?.temperature ?? DEFAULT_MODEL_TEMPERATURE,
     maxTokens: () => st?.maxTokens ?? 64_000
   }
 }
@@ -162,7 +161,7 @@ function normalizeProvider(
   legacyReasoning?: boolean,
   globalFallback?: { temperature: () => number; maxTokens: () => number }
 ): ProviderConfig {
-  const base: ProviderConfig = seedProviderModelCapabilities({
+  const base: ProviderConfig = {
     ...p,
     // 旧数据或异常响应可能缺 models；设置页模板会读 models.length，必须是数组。
     models: Array.isArray(p.models) ? [...p.models] : [],
@@ -173,7 +172,7 @@ function normalizeProvider(
         : legacyReasoning !== undefined
           ? legacyReasoning
           : undefined
-  })
+  }
   const fallback = globalFallback ?? {
     temperature: () => DEFAULT_MODEL_TEMPERATURE,
     maxTokens: () => DEFAULT_MODEL_MAX_TOKENS
@@ -233,7 +232,7 @@ export const useSettingsStore = defineStore('settings', () => {
     ...defaultPlatformSettings(),
     activeProviderId: '',
     model: '',
-    temperature: 0.3,
+    temperature: DEFAULT_MODEL_TEMPERATURE,
     maxTokens: 64_000,
     hasKey: false,
     toolApprovalMode: 'auto',
@@ -333,7 +332,7 @@ export const useSettingsStore = defineStore('settings', () => {
         name: plat.name || provider.name,
         baseUrl: plat.baseUrl || provider.baseUrl,
         models: plat.models.length ? [...plat.models] : (provider.models ?? []),
-        modelConfigs: { ...(plat.modelConfigs ?? {}), ...(provider.modelConfigs ?? {}) }
+        modelConfigs: mergePlatformModelConfigs(plat.modelConfigs, provider.modelConfigs)
       }
     })
     for (const plat of normalizedPlatformProviders) {
@@ -396,9 +395,6 @@ export const useSettingsStore = defineStore('settings', () => {
     if (p.reasoningInMessages !== undefined) return p.reasoningInMessages
     return false
   })
-
-  const DEFAULT_MODEL_TEMPERATURE = 0.7
-  const DEFAULT_MODEL_MAX_TOKENS = 2048
 
   function modelGenerationFromConfig(
     p: ProviderConfig,

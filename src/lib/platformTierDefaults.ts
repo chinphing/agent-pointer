@@ -42,6 +42,7 @@ function modelEntryOverrides(entry: unknown): ModelRuntimeOverrides {
   const over: ModelRuntimeOverrides = {}
   if (raw.reasoningInMessages !== undefined) over.reasoningInMessages = raw.reasoningInMessages
   if (raw.temperature !== undefined) over.temperature = raw.temperature
+  if (raw.topP !== undefined) over.topP = raw.topP
   if (raw.maxTokens !== undefined) over.maxTokens = raw.maxTokens
   if (raw.enableThinking !== undefined) over.enableThinking = raw.enableThinking
   if (raw.thinkingBudget !== undefined) over.thinkingBudget = raw.thinkingBudget
@@ -51,6 +52,7 @@ function modelEntryOverrides(entry: unknown): ModelRuntimeOverrides {
   const intensity = parseThinkingIntensity(raw.thinkingIntensity)
   if (intensity) over.thinkingIntensity = intensity
   if (raw.supportsVision !== undefined) over.supportsVision = raw.supportsVision
+  if (raw.supportsAudio !== undefined) over.supportsAudio = raw.supportsAudio
   if (raw.canGenerateImage !== undefined) over.canGenerateImage = raw.canGenerateImage
   if (raw.canGenerateVideo !== undefined) over.canGenerateVideo = raw.canGenerateVideo
   return over
@@ -68,6 +70,28 @@ export function platformModelConfigs(
     if (Object.keys(over).length) configs[name] = over
   }
   return configs
+}
+
+/** Merge per-model overrides. Platform capability flags win when set. */
+export function mergePlatformModelConfigs(
+  platform: Record<string, ModelRuntimeOverrides> | undefined,
+  overlay: Record<string, ModelRuntimeOverrides> | undefined
+): Record<string, ModelRuntimeOverrides> {
+  const plat = platform ?? {}
+  const over = overlay ?? {}
+  const keys = new Set([...Object.keys(plat), ...Object.keys(over)])
+  const out: Record<string, ModelRuntimeOverrides> = {}
+  for (const key of keys) {
+    const a = plat[key] ?? {}
+    const b = over[key] ?? {}
+    const merged: ModelRuntimeOverrides = { ...a, ...b }
+    if (a.supportsVision !== undefined) merged.supportsVision = a.supportsVision
+    if (a.supportsAudio !== undefined) merged.supportsAudio = a.supportsAudio
+    if (a.canGenerateImage !== undefined) merged.canGenerateImage = a.canGenerateImage
+    if (a.canGenerateVideo !== undefined) merged.canGenerateVideo = a.canGenerateVideo
+    if (Object.keys(merged).length) out[key] = merged
+  }
+  return out
 }
 
 /** Accept both the array form from the API and a legacy id-keyed record. */
@@ -95,6 +119,7 @@ export function normalizePlatformProviderTemplates(
         : undefined,
     thinkingIntensity: parseThinkingIntensity(tpl.thinkingIntensity) || undefined,
     temperature: tpl.temperature,
+    topP: tpl.topP,
     maxTokens: tpl.maxTokens,
     modelConfigs: platformModelConfigs(tpl.models)
   }))
@@ -160,6 +185,14 @@ export function platformComputerTierDefault(
 ): PlatformTierRef | undefined {
   const tiers = nestedMap(tierDefaultsObject(tierDefaults), 'computerTierLlm')
   return readTierModelRef(tiers?.[tier])
+}
+
+export function platformMediaGenerationDefault(
+  tierDefaults: unknown,
+  kind: 'image' | 'video'
+): PlatformTierRef | undefined {
+  const generation = nestedMap(tierDefaultsObject(tierDefaults), 'mediaGeneration')
+  return readTierModelRef(generation?.[kind])
 }
 
 export function platformComputerPipelineDefault(

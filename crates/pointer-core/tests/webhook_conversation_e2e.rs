@@ -80,6 +80,7 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
             models: vec!["qwen-plus".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: Default::default(),
             enable_thinking: None,

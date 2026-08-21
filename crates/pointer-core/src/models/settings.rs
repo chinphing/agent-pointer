@@ -17,6 +17,9 @@ pub struct ModelRuntimeOverrides {
     pub reasoning_in_messages: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Nucleus sampling (`top_p` on the wire).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "topP")]
+    pub top_p: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
     pub max_tokens: Option<u32>,
     /// Qwen: `enable_thinking` on the chat/completions request.
@@ -61,6 +64,13 @@ pub struct ModelRuntimeOverrides {
         rename = "supportsVision"
     )]
     pub supports_vision: Option<bool>,
+    /// Whether the model accepts speech-to-text / audio understanding input.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "supportsAudio"
+    )]
+    pub supports_audio: Option<bool>,
     /// Whether the model can generate images (`image_generate`).
     #[serde(
         default,
@@ -99,6 +109,9 @@ pub struct ProviderConfig {
     /// Default creativity when a model has no per-model `temperature`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Default nucleus sampling when a model has no per-model `top_p`.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "topP")]
+    pub top_p: Option<f32>,
     /// Default max output tokens when a model has no per-model `max_tokens`.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
     pub max_tokens: Option<u32>,
@@ -291,6 +304,7 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
 }
 
 pub const DEFAULT_MODEL_TEMPERATURE: f32 = 0.7;
+pub const DEFAULT_MODEL_TOP_P: f32 = 0.95;
 pub const DEFAULT_MODEL_MAX_TOKENS: u32 = 2048;
 /// Qwen `thinking_budget` when deep thinking is enabled and no explicit budget is set.
 pub const DEFAULT_THINKING_BUDGET: u32 = 2048;
@@ -327,6 +341,26 @@ pub fn effective_temperature(settings: &ModelSettings) -> f32 {
     }
 }
 
+/// Nucleus sampling (`top_p`) for the **active** provider + **current** `settings.model`.
+pub fn effective_top_p(settings: &ModelSettings) -> f32 {
+    let raw = if let Some((p, model)) = active_provider_and_model(settings) {
+        if let Some(t) = p.model_configs.get(model).and_then(|o| o.top_p) {
+            t
+        } else if let Some(t) = p.top_p {
+            t
+        } else {
+            DEFAULT_MODEL_TOP_P
+        }
+    } else {
+        DEFAULT_MODEL_TOP_P
+    };
+    if raw.is_finite() {
+        raw.clamp(0.0, 1.0)
+    } else {
+        DEFAULT_MODEL_TOP_P
+    }
+}
+
 /// Max output tokens for the **active** provider + **current** `settings.model`.
 pub fn effective_max_tokens(settings: &ModelSettings) -> u32 {
     if let Some((p, model)) = active_provider_and_model(settings) {
@@ -355,107 +389,34 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
         if provider.temperature.is_none() {
             provider.temperature = Some(global_temp);
         }
+        if provider.top_p.is_none() {
+            provider.top_p = Some(DEFAULT_MODEL_TOP_P);
+        }
         if provider.max_tokens.is_none() {
             provider.max_tokens = Some(global_max);
         }
     }
 }
 
-/// Vision default from **API dialect** (base URL), not provider id.
-/// DashScope-compatible endpoints typically accept images; DeepSeek API does not.
-pub fn provider_default_supports_vision(provider: &ProviderConfig) -> Option<bool> {
-    if provider_uses_dashscope_compatible_api(provider) {
-        Some(true)
-    } else if provider_uses_deepseek_api(provider) {
-        Some(false)
-    } else {
-        None
-    }
-}
-
-fn infer_model_generation_capability_flags(model: &str) -> ModelRuntimeOverrides {
-    let m = model.trim().to_ascii_lowercase();
-    let mut over = ModelRuntimeOverrides::default();
-    if m.is_empty() {
-        return over;
-    }
-    if m.contains("image") || m.contains("seedream") || (m.contains("wan2.") && m.contains("image"))
-    {
-        over.can_generate_image = Some(true);
-    }
-    if m.contains("t2v")
-        || m.contains("seedance")
-        || m.contains("happyhorse")
-        || (m.contains("wan2.") && !m.contains("image"))
-    {
-        over.can_generate_video = Some(true);
-    }
-    over
-}
-
-fn resolve_supports_vision(
-    provider: &ProviderConfig,
-    model_over: Option<&ModelRuntimeOverrides>,
-) -> bool {
-    model_over
-        .and_then(|o| o.supports_vision)
-        .or_else(|| provider_default_supports_vision(provider))
-        .unwrap_or(false)
-}
-
-/// Seed provider-fixed vision defaults and generation flags on provider models when unset.
-pub fn ensure_provider_model_capability_defaults(settings: &mut ModelSettings) {
-    for provider in &mut settings.providers {
-        let models: Vec<String> = provider.models.clone();
-        let is_deepseek_api = provider_uses_deepseek_api(provider);
-        let default_vision = provider_default_supports_vision(provider);
-        for model in models {
-            let inferred = infer_model_generation_capability_flags(&model);
-            let entry = provider.model_configs.entry(model).or_default();
-            if is_deepseek_api {
-                entry.supports_vision = Some(false);
-            } else if entry.supports_vision.is_none() {
-                if let Some(v) = default_vision {
-                    entry.supports_vision = Some(v);
-                }
-            }
-            if entry.can_generate_image.is_none() {
-                entry.can_generate_image = inferred.can_generate_image;
-            }
-            if entry.can_generate_video.is_none() {
-                entry.can_generate_video = inferred.can_generate_video;
-            }
-        }
-    }
-}
+/// Capability flags are catalog / user settings only. Do not infer from URL or model name.
+pub fn ensure_provider_model_capability_defaults(_settings: &mut ModelSettings) {}
 
 pub fn model_capability_flags(
     settings: &ModelSettings,
     provider_id: &str,
     model: &str,
 ) -> (bool, bool, bool) {
-    let inferred = infer_model_generation_capability_flags(model);
-    let provider = settings
+    let mid = model.trim();
+    let over = settings
         .providers
         .iter()
         .find(|p| p.id == provider_id)
-        .or_else(|| settings.providers.first());
-    let Some(p) = provider else {
-        return (
-            false,
-            inferred.can_generate_image.unwrap_or(false),
-            inferred.can_generate_video.unwrap_or(false),
-        );
-    };
-    let over = p.model_configs.get(model.trim());
+        .or_else(|| settings.providers.first())
+        .and_then(|p| p.model_configs.get(mid));
     (
-        resolve_supports_vision(p, over),
-        over.and_then(|o| o.can_generate_image)
-            .or(inferred.can_generate_image)
-            .unwrap_or(false),
-        over.and_then(|o| o.can_generate_video)
-            .or(inferred.can_generate_video)
-            .unwrap_or(false),
+        over.and_then(|o| o.supports_vision).unwrap_or(false),
+        over.and_then(|o| o.can_generate_image).unwrap_or(false),
+        over.and_then(|o| o.can_generate_video).unwrap_or(false),
     )
 }
 
@@ -2071,6 +2032,7 @@ pub(crate) fn sample_settings() -> ModelSettings {
         models: vec!["qwen3.5-plus".into(), "qwen3.5-flash".into()],
         reasoning_in_messages: Some(false),
         temperature: None,
+        top_p: None,
         max_tokens: None,
         model_configs: HashMap::new(),
         enable_thinking: Some(true),
@@ -2089,6 +2051,7 @@ pub(crate) fn sample_settings() -> ModelSettings {
         models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
         reasoning_in_messages: Some(true),
         temperature: None,
+        top_p: None,
         max_tokens: None,
         model_configs: HashMap::new(),
         enable_thinking: None,
@@ -2148,7 +2111,7 @@ fn platform_default_raw_content_view_enabled() -> bool {
 }
 
 fn platform_default_temperature() -> f32 {
-    0.3
+    0.7
 }
 
 fn platform_default_max_tokens() -> u32 {
@@ -2751,12 +2714,18 @@ mod model_capability_vision_tests {
     use super::*;
 
     #[test]
-    fn dashscope_url_models_default_support_vision() {
+    fn capabilities_require_explicit_flags() {
         let s = sample_settings();
-        let (vision, _, _) = model_capability_flags(&s, "qwen", "qwen3.5-plus");
-        assert!(vision);
-        let (vision, _, _) = model_capability_flags(&s, "qwen", "qwen3.5-flash");
-        assert!(vision);
+        let (vision, image, video) = model_capability_flags(&s, "qwen", "qwen3.5-plus");
+        assert!(!vision);
+        assert!(!image);
+        assert!(!video);
+        let (vision, image, video) = model_capability_flags(&s, "qwen", "wan2.7-image-pro");
+        assert!(!vision);
+        assert!(!image);
+        assert!(!video);
+        let (_, _, video) = model_capability_flags(&s, "qwen", "happyhorse-1.0-t2v");
+        assert!(!video);
     }
 
     #[test]
@@ -2770,6 +2739,7 @@ mod model_capability_vision_tests {
             models: vec!["gpt-4o".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
@@ -2785,6 +2755,35 @@ mod model_capability_vision_tests {
     }
 
     #[test]
+    fn explicit_catalog_flags_are_honored() {
+        let mut s = sample_settings();
+        let qwen = s.providers.iter_mut().find(|p| p.id == "qwen").unwrap();
+        qwen.models.push("wan2.7-image-pro".into());
+        qwen.model_configs.insert(
+            "qwen3.5-plus".into(),
+            ModelRuntimeOverrides {
+                supports_vision: Some(true),
+                ..Default::default()
+            },
+        );
+        qwen.model_configs.insert(
+            "wan2.7-image-pro".into(),
+            ModelRuntimeOverrides {
+                can_generate_image: Some(true),
+                ..Default::default()
+            },
+        );
+        let (vision, image, video) = model_capability_flags(&s, "qwen", "qwen3.5-plus");
+        assert!(vision);
+        assert!(!image);
+        assert!(!video);
+        let (vision, image, video) = model_capability_flags(&s, "qwen", "wan2.7-image-pro");
+        assert!(!vision);
+        assert!(image);
+        assert!(!video);
+    }
+
+    #[test]
     fn deepseek_api_models_do_not_support_vision() {
         let mut s = sample_settings();
         ensure_provider_model_capability_defaults(&mut s);
@@ -2795,7 +2794,30 @@ mod model_capability_vision_tests {
     }
 
     #[test]
-    fn ensure_provider_resets_deepseek_vision_false() {
+    fn audio_transcription_uses_explicit_flag_only() {
+        let mut s = sample_settings();
+        assert!(!crate::media::model_supports_audio_transcription(
+            &s, "qwen", "qwen3-asr-flash"
+        ));
+        let qwen = s.providers.iter_mut().find(|p| p.id == "qwen").unwrap();
+        qwen.models.push("qwen3-asr-flash".into());
+        qwen.model_configs.insert(
+            "qwen3-asr-flash".into(),
+            ModelRuntimeOverrides {
+                supports_audio: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(crate::media::model_supports_audio_transcription(
+            &s, "qwen", "qwen3-asr-flash"
+        ));
+        assert!(!crate::media::model_supports_audio_transcription(
+            &s, "qwen", "qwen3.5-plus"
+        ));
+    }
+
+    #[test]
+    fn ensure_provider_does_not_overwrite_capability_flags() {
         let mut s = sample_settings();
         {
             let ds = s.providers.iter_mut().find(|p| p.id == "deepseek").unwrap();
@@ -2810,7 +2832,7 @@ mod model_capability_vision_tests {
         ensure_provider_model_capability_defaults(&mut s);
         let ds = s.providers.iter().find(|p| p.id == "deepseek").unwrap();
         let entry = ds.model_configs.get("deepseek-v4-flash").unwrap();
-        assert_eq!(entry.supports_vision, Some(false));
+        assert_eq!(entry.supports_vision, Some(true));
     }
 }
 
@@ -2830,6 +2852,7 @@ mod user_settings_defaults_tests {
             models: vec!["qwen3.5-plus".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
@@ -2848,6 +2871,7 @@ mod user_settings_defaults_tests {
             models: vec!["qwen3.5-plus".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
@@ -2866,6 +2890,7 @@ mod user_settings_defaults_tests {
             models: vec!["custom-model".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
@@ -2965,6 +2990,7 @@ mod user_settings_defaults_tests {
             models: vec!["openai/gpt-5.4-nano".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
@@ -3203,6 +3229,7 @@ mod user_settings_defaults_tests {
             models: vec!["qwen3.6-27b".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: Default::default(),
             enable_thinking: None,
@@ -3326,6 +3353,28 @@ mod effective_generation_tests {
             },
         );
         assert!((effective_temperature(&s) - 1.1).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn effective_top_p_defaults_to_0_95() {
+        let s = sample_settings();
+        assert!((effective_top_p(&s) - DEFAULT_MODEL_TOP_P).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn effective_top_p_provider_then_model() {
+        let mut s = sample_settings();
+        s.model = "qwen3.5-plus".into();
+        s.providers[0].top_p = Some(0.8);
+        assert!((effective_top_p(&s) - 0.8).abs() < f32::EPSILON);
+        s.providers[0].model_configs.insert(
+            "qwen3.5-plus".into(),
+            ModelRuntimeOverrides {
+                top_p: Some(0.5),
+                ..Default::default()
+            },
+        );
+        assert!((effective_top_p(&s) - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -3708,6 +3757,7 @@ mod effective_extra_body_tests {
             models: vec!["ep-demo".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,

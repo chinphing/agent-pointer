@@ -6,6 +6,7 @@ import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, Plus
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
+import { isSameTierRef, platformMediaGenerationDefault } from '../../../lib/platformTierDefaults'
 import { useSettingsStore } from '../../../stores/settings'
 
 const props = defineProps<{
@@ -13,6 +14,23 @@ const props = defineProps<{
 }>()
 
 const s = useSettingsStore()
+
+function mediaGenDefaultLabel(kind: 'image' | 'video'): string {
+  const ref = platformMediaGenerationDefault(s.platformSettings.tierDefaults, kind)
+  return ref?.model ? `平台默认（${ref.model}）` : '平台默认'
+}
+
+function mediaGenOverridden(kind: 'imageGeneration' | 'videoGeneration', platformKind: 'image' | 'video'): boolean {
+  const userRef = s.userSettings.mediaModelOverrides?.[kind]
+  if (!userRef?.model?.trim()) return false
+  const platformRef = platformMediaGenerationDefault(s.platformSettings.tierDefaults, platformKind)
+  return !isSameTierRef(userRef, platformRef)
+}
+
+const imageGenDefaultLabel = computed(() => mediaGenDefaultLabel('image'))
+const videoGenDefaultLabel = computed(() => mediaGenDefaultLabel('video'))
+const imageGenOverridden = computed(() => mediaGenOverridden('imageGeneration', 'image'))
+const videoGenOverridden = computed(() => mediaGenOverridden('videoGeneration', 'video'))
 
 const {
   TOOL_CALL_UI_FIELDS,
@@ -342,13 +360,19 @@ async function onPlaySoundToggle(checked: boolean) {
         <p class="text-[11px] text-muted">暂时支持文本和图片生成视频。</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-[12px] text-muted mb-1.5">图片生成</label>
+            <label class="block text-[12px] text-muted mb-1.5 flex items-center gap-1.5">
+              图片生成
+              <span
+                v-if="imageGenOverridden"
+                class="rounded bg-warning/15 px-1 text-[9px] text-warning"
+              >已覆盖</span>
+            </label>
             <select
               :value="mediaImageGenerationModel"
               class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
               @change="selectMediaModelWithProvider('imageGeneration', ($event.target as HTMLSelectElement).value)"
             >
-              <option value="">默认（千问 wan2.7-image-pro 或豆包 Seedream）</option>
+              <option value="">{{ imageGenDefaultLabel }}</option>
               <option
                 v-for="item in s.imageGenerationModels"
                 :key="'img-gen-' + item.providerId + ':' + item.model"
@@ -359,13 +383,19 @@ async function onPlaySoundToggle(checked: boolean) {
             </select>
           </div>
           <div>
-            <label class="block text-[12px] text-muted mb-1.5">视频生成</label>
+            <label class="block text-[12px] text-muted mb-1.5 flex items-center gap-1.5">
+              视频生成
+              <span
+                v-if="videoGenOverridden"
+                class="rounded bg-warning/15 px-1 text-[9px] text-warning"
+              >已覆盖</span>
+            </label>
             <select
               :value="mediaVideoGenerationModel"
               class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
               @change="selectMediaModelWithProvider('videoGeneration', ($event.target as HTMLSelectElement).value)"
             >
-              <option value="">默认（千问 HappyHorse 或豆包 Seedance 2.0）</option>
+              <option value="">{{ videoGenDefaultLabel }}</option>
               <option
                 v-for="item in s.videoGenerationModels"
                 :key="'vid-gen-' + item.providerId + ':' + item.model"

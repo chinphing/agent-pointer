@@ -227,7 +227,7 @@ mediaModelOverrides: {
 | `canGenerateImage` | 是否可生成图片 |
 | `canGenerateVideo` | 是否可生成视频 |
 
-**视觉理解**按服务商固化：千问下所有模型默认 `supportsVision: true`，深度求索下均为 `false`（可在 **设置 → 模型服务 → 模型定制** 按模型覆盖）。图片/视频**生成**能力仍按模型 id 关键字推断。
+**视觉 / 语音 / 生图 / 生视频**只认目录或客户端勾选；未勾选则不出现在对应列表，不按模型名或接口地址猜测。
 
 ### 旧版 `mediaModelOverrides`
 

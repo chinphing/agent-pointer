@@ -1,10 +1,6 @@
 import type { Ref } from 'vue'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
 import {
-  inferModelGenerationCapabilities,
-  providerDefaultSupportsVision
-} from '../lib/modelCapabilities'
-import {
   DEFAULT_THINKING_BUDGET,
   detectProviderTemplateId,
   isDeepSeekProvider,
@@ -23,6 +19,7 @@ import {
 } from '../lib/thinkingIntensity'
 
 export const DEFAULT_MODEL_TEMPERATURE = 0.7
+export const DEFAULT_MODEL_TOP_P = 0.95
 export const DEFAULT_MODEL_MAX_TOKENS = 2048
 
 export type RuntimeParamsVariant = 'qwen' | 'deepseek' | 'generic'
@@ -37,6 +34,8 @@ export interface RuntimeParamsApi {
   variant: RuntimeParamsVariant
   temperature: () => number
   setTemperature: (value: number) => void
+  topP: () => number
+  setTopP: (value: number) => void
   maxTokens: () => number
   setMaxTokens: (value: number) => void
   reasoningOn: () => boolean
@@ -119,6 +118,7 @@ export function useRuntimeParams(
     const configs = p.modelConfigs ?? {}
     const prev: ModelRuntimeOverrides = {
       temperature: p.temperature ?? fallbackTemperature(),
+      topP: p.topP ?? DEFAULT_MODEL_TOP_P,
       maxTokens: p.maxTokens ?? fallbackMaxTokens(),
       reasoningInMessages: p.reasoningInMessages === true,
       ...configs[id]
@@ -155,6 +155,28 @@ export function useRuntimeParams(
       patchModel(mid, prev => ({ ...prev, temperature: v }))
     } else {
       p.temperature = v
+    }
+  }
+
+  function topP(): number {
+    const p = provider.value
+    if (!p) return DEFAULT_MODEL_TOP_P
+    const mid = modelId.value
+    if (mid) {
+      return clampTopP(p.modelConfigs?.[mid]?.topP ?? p.topP ?? DEFAULT_MODEL_TOP_P)
+    }
+    return clampTopP(p.topP ?? DEFAULT_MODEL_TOP_P)
+  }
+
+  function setTopP(value: number) {
+    const p = provider.value
+    if (!p) return
+    const v = clampTopP(value)
+    const mid = modelId.value
+    if (mid) {
+      patchModel(mid, prev => ({ ...prev, topP: v }))
+    } else {
+      p.topP = v
     }
   }
 
@@ -416,6 +438,8 @@ export function useRuntimeParams(
     },
     temperature,
     setTemperature,
+    topP,
+    setTopP,
     maxTokens,
     setMaxTokens,
     reasoningOn,
@@ -446,6 +470,18 @@ export function providerDefaultTemperature(
   if (t !== undefined && Number.isFinite(t) && t >= 0) return t
   const g = globalFallback.temperature()
   return Number.isFinite(g) && g >= 0 ? g : DEFAULT_MODEL_TEMPERATURE
+}
+
+export function providerDefaultTopP(p: ProviderConfig): number {
+  const v = p.topP
+  if (v !== undefined && Number.isFinite(v) && v >= 0 && v <= 1) return v
+  return DEFAULT_MODEL_TOP_P
+}
+
+export function clampTopP(value: number): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_MODEL_TOP_P
+  return Math.min(1, Math.max(0, n))
 }
 
 export function providerDefaultMaxTokens(
@@ -490,21 +526,21 @@ export function hasEffectiveModelOverride(
   ) {
     return true
   }
-  const defaultVision = providerDefaultSupportsVision(p) ?? false
-  if (o.supportsVision !== undefined && o.supportsVision !== defaultVision) {
+  const defaultTopP = providerDefaultTopP(p)
+  if (o.topP !== undefined && Math.abs(o.topP - defaultTopP) > 1e-6) {
     return true
   }
-  const inferred = modelId ? inferModelGenerationCapabilities(modelId) : {}
-  if (
-    o.canGenerateImage !== undefined
-    && o.canGenerateImage !== (inferred.canGenerateImage ?? false)
-  ) {
+  // Keep explicit capability flags from catalog / user checkboxes.
+  if (o.supportsVision !== undefined) {
     return true
   }
-  if (
-    o.canGenerateVideo !== undefined
-    && o.canGenerateVideo !== (inferred.canGenerateVideo ?? false)
-  ) {
+  if (o.supportsAudio !== undefined) {
+    return true
+  }
+  if (o.canGenerateImage !== undefined) {
+    return true
+  }
+  if (o.canGenerateVideo !== undefined) {
     return true
   }
   if (normalizeExtraBody(o.extraBody)) {
@@ -543,6 +579,7 @@ export function sanitizeProviderModelConfigs(
     const clean: ModelRuntimeOverrides = {}
     if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
     if (o.temperature !== undefined) clean.temperature = o.temperature
+    if (o.topP !== undefined) clean.topP = o.topP
     if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
     if (o.thinkingIntensity !== undefined) clean.thinkingIntensity = o.thinkingIntensity
     if (o.thinkingProtocol !== undefined) clean.thinkingProtocol = o.thinkingProtocol
@@ -552,6 +589,7 @@ export function sanitizeProviderModelConfigs(
       clean.thinkingBudget = o.thinkingBudget
     }
     if (o.supportsVision !== undefined) clean.supportsVision = o.supportsVision
+    if (o.supportsAudio !== undefined) clean.supportsAudio = o.supportsAudio
     if (o.canGenerateImage !== undefined) clean.canGenerateImage = o.canGenerateImage
     if (o.canGenerateVideo !== undefined) clean.canGenerateVideo = o.canGenerateVideo
     const extra = normalizeExtraBody(o.extraBody)
@@ -570,7 +608,7 @@ export function sanitizeProviderModelConfigs(
 export function patchProviderModelCapability(
   provider: ProviderConfig,
   modelId: string,
-  flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
+  flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | 'canGenerateVideo',
   value: boolean
 ): ProviderConfig {
   const configs = { ...(provider.modelConfigs ?? {}) }

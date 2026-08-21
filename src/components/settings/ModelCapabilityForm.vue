@@ -10,7 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   patch: [
-    flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
+    flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | 'canGenerateVideo',
     value: boolean
   ]
 }>()
@@ -19,7 +19,7 @@ const caps = computed(() =>
   resolvedModelCapabilities([props.provider], props.provider.id, props.modelId)
 )
 
-function patch(flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo', value: boolean) {
+function patch(flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | 'canGenerateVideo', value: boolean) {
   emit('patch', flag, value)
 }
 </script>
@@ -28,7 +28,7 @@ function patch(flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
   <div class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-3 space-y-2">
     <p class="text-[12px] font-medium text-foreground">模型能力</p>
     <p class="text-[11px] text-muted">
-      用于下拉过滤与多媒体路由。千问默认支持视觉；深度求索默认不支持。
+      勾选后会出现在对应场景的模型列表中。
     </p>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input
@@ -38,6 +38,15 @@ function patch(flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
         @change="patch('supportsVision', ($event.target as HTMLInputElement).checked)"
       />
       支持视觉理解
+    </label>
+    <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
+      <input
+        type="checkbox"
+        class="rounded border-border bg-card text-accent focus:ring-accent/40"
+        :checked="caps.supportsAudio"
+        @change="patch('supportsAudio', ($event.target as HTMLInputElement).checked)"
+      />
+      支持语音转写
     </label>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input

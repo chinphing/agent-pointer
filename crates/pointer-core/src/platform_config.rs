@@ -244,6 +244,7 @@ pub fn apply_login_platform_providers(
                     ModelRuntimeOverrides {
                         reasoning_in_messages: m.reasoning_in_messages,
                         temperature: m.temperature,
+                        top_p: m.top_p,
                         max_tokens: m.max_tokens,
                         enable_thinking: m.enable_thinking,
                         thinking_budget: m.thinking_budget,
@@ -251,6 +252,7 @@ pub fn apply_login_platform_providers(
                         thinking_protocol: None,
                         thinking_intensity: m.thinking_intensity.clone(),
                         supports_vision: m.supports_vision,
+                        supports_audio: m.supports_audio,
                         can_generate_image: m.can_generate_image,
                         can_generate_video: m.can_generate_video,
                         ..Default::default()
@@ -273,6 +275,9 @@ pub fn apply_login_platform_providers(
             if tpl.temperature.is_some() {
                 p.temperature = tpl.temperature;
             }
+            if tpl.top_p.is_some() {
+                p.top_p = tpl.top_p;
+            }
             if tpl.max_tokens.is_some() {
                 p.max_tokens = tpl.max_tokens;
             }
@@ -286,6 +291,7 @@ pub fn apply_login_platform_providers(
                 models,
                 reasoning_in_messages: tpl.reasoning_in_messages,
                 temperature: tpl.temperature,
+                top_p: tpl.top_p,
                 max_tokens: tpl.max_tokens,
                 model_configs,
                 enable_thinking: tpl.enable_thinking,
@@ -586,6 +592,7 @@ mod tests {
             models: vec!["local".into()],
             reasoning_in_messages: None,
             temperature: None,
+            top_p: None,
             max_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,

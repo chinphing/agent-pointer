@@ -264,6 +264,7 @@ pub fn try_dump_round(
         "model": settings.model,
         "stream": stream,
         "temperature": crate::models::effective_temperature(settings),
+        "top_p": crate::models::effective_top_p(settings),
         "maxTokens": crate::models::effective_max_tokens(settings),
         "messages": msgs,
     });

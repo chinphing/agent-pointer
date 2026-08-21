@@ -110,6 +110,7 @@ struct ChatRequest<'a> {
     messages: Vec<Value>,
     stream: bool,
     temperature: f32,
+    top_p: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "stream_options")]
@@ -685,6 +686,7 @@ impl OpenAIProvider {
                 messages: openai_msgs,
                 stream: false,
                 temperature: crate::models::effective_temperature(&self.settings),
+                top_p: crate::models::effective_top_p(&self.settings),
                 max_tokens: Some(max_tok),
                 stream_options: None,
                 tools: if tools_empty {
@@ -778,6 +780,7 @@ impl OpenAIProvider {
             messages,
             stream: false,
             temperature: crate::models::effective_temperature(&self.settings),
+            top_p: crate::models::effective_top_p(&self.settings),
             max_tokens: Some(max_tok),
             stream_options: None,
             tools: None,
@@ -945,6 +948,7 @@ impl OpenAIProvider {
             messages: wire_messages,
             stream: false,
             temperature: crate::models::effective_temperature(&self.settings),
+            top_p: crate::models::effective_top_p(&self.settings),
             max_tokens: Some(max_tok),
             stream_options: None,
             tools: None,
@@ -1040,6 +1044,7 @@ impl OpenAIProvider {
             messages: wire_messages,
             stream: true,
             temperature: crate::models::effective_temperature(&self.settings),
+            top_p: crate::models::effective_top_p(&self.settings),
             max_tokens: Some(max_tok),
             stream_options,
             tools: None,
@@ -1201,6 +1206,7 @@ impl OpenAIProvider {
             messages: wire_messages,
             stream: true,
             temperature: crate::models::effective_temperature(&self.settings),
+            top_p: crate::models::effective_top_p(&self.settings),
             max_tokens: Some(max_tok),
             stream_options,
             tools: if tools_empty { None } else { Some(tools) },
@@ -1415,6 +1421,7 @@ impl OpenAIProvider {
                 messages: openai_msgs,
                 stream: true,
                 temperature: crate::models::effective_temperature(&self.settings),
+                top_p: crate::models::effective_top_p(&self.settings),
                 max_tokens: Some(crate::models::effective_max_tokens(&self.settings)),
                 stream_options,
                 tools: if tools_empty {

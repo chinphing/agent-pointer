@@ -112,6 +112,17 @@ Do not style user-initiated stop like a system exception.
 - Merged into the effective `ModelSettings.theme` for UI; do not treat session/platform saves as the source of truth for theme
 - Settings dialog: cycle system → light → dark; **save theme via `saveUser` before** other `save*` calls (those reload from disk via `applyEffectiveView`)
 - Applied via `src/lib/theme.ts` on load, when cycling, and when user settings save
+- Preference `system` listens to `prefers-color-scheme` (and Tauri `onThemeChanged`) so the UI switches when OS appearance changes; locked `light` / `dark` do not. Desktop also calls `setTheme(null)` so native chrome follows the OS.
+- **Cross-platform / cross-entry:** the visible UI is always `html.light` / `html.dark` + CSS tokens (same for Tauri and `web:dev`). Web never calls window theme APIs. Desktop adds `setTheme` / `onThemeChanged` as a WebView backup.
+
+| Surface | Follow-system live update | Notes |
+|---------|---------------------------|--------|
+| Web | `matchMedia` | Browser chrome stays with the browser |
+| macOS app | `matchMedia` + `onThemeChanged` | Native traffic lights / overlay chrome follow `setTheme`; `setTheme` is **app-wide** |
+| Windows app | `matchMedia` + `onThemeChanged` | Custom title buttons; theme is CSS. WebView2 usually tracks Windows app mode |
+| Linux app | same APIs | Weakest live path: some DE/portal/WebKitGTK builds only refresh `prefers-color-scheme` after focus or restart; `onThemeChanged` is the fallback. `setTheme` is **app-wide** |
+
+Canvas charts sample token colors at mount; xterm watches `html` class. Neither is OS-specific.
 - See also [user-platform-config-split.md](../internals/user-platform-config-split.md)
 
 ## Desktop window chrome (Tauri only)

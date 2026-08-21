@@ -566,15 +566,11 @@ export function canGroupToolCalls(tools: ToolCall[]): boolean {
 }
 
 /**
- * Tool-row duration for display: seconds with at most one decimal.
- * Hide below 0.1s; omit `.0` on whole seconds (`2s` not `2.0s`).
+ * Tool-row duration: whole seconds only, hide under 1s (`1s`, `2s`).
  */
 export function formatToolDurationLabel(durationMs: number | undefined): string {
-  if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return ''
-  const tenths = Math.round(durationMs / 100) / 10
-  if (tenths < 0.1) return ''
-  const text = Number.isInteger(tenths) ? String(tenths) : tenths.toFixed(1)
-  return `${text}s`
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs < 1000) return ''
+  return `${Math.floor(durationMs / 1000)}s`
 }
 
 export function truncateToolSummary(text: string, maxLen = 52): string {

@@ -10,15 +10,15 @@ function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'
 }
 
 describe('formatToolDurationLabel', () => {
-  it('hides below one tenth of a second', () => {
+  it('hides under one second', () => {
     expect(formatToolDurationLabel(undefined)).toBe('')
     expect(formatToolDurationLabel(0)).toBe('')
-    expect(formatToolDurationLabel(49)).toBe('')
+    expect(formatToolDurationLabel(999)).toBe('')
   })
 
-  it('shows one decimal second and omits trailing .0', () => {
-    expect(formatToolDurationLabel(50)).toBe('0.1s')
-    expect(formatToolDurationLabel(1926)).toBe('1.9s')
+  it('shows whole seconds only', () => {
+    expect(formatToolDurationLabel(1000)).toBe('1s')
+    expect(formatToolDurationLabel(1926)).toBe('1s')
     expect(formatToolDurationLabel(2000)).toBe('2s')
   })
 })

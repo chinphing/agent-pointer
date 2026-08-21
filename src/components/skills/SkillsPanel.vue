@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Sparkles, Search, Wrench, Upload } from 'lucide-vue-next'
+import { Search, Wrench, Upload } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
 import { listPlugins } from '../../lib/api'
 import type { SkillDef } from '../../types/chat'
@@ -150,14 +150,7 @@ async function onImportFile(event: Event) {
 
 <template>
   <div class="space-y-5">
-    <div class="flex items-start justify-between gap-4">
-      <div>
-        <h3 class="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <Sparkles class="h-5 w-5 text-accent" aria-hidden="true" />
-          技能
-        </h3>
-        <p class="mt-1 text-sm text-muted">为不同智能体启用技能，扩展可用工具与工作流程</p>
-      </div>
+    <div class="flex items-start justify-end gap-4">
       <input ref="fileInput" type="file" accept=".zip,application/zip" class="hidden" @change="onImportFile" />
       <button
         type="button"

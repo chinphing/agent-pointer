@@ -217,16 +217,7 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col gap-4">
-    <div class="flex items-start justify-between gap-4">
-      <div class="min-w-0">
-        <h3 class="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Plug class="w-4 h-4 text-accent" aria-hidden="true" />
-          外部工具服务（MCP）
-        </h3>
-        <p class="mt-0.5 text-[11px] text-muted">
-          连接外部服务提供的工具，在对话中即可直接调用，无需安装插件。配置保存在本机，添加后立即生效。
-        </p>
-      </div>
+    <div class="flex items-start justify-end gap-4">
       <div class="flex items-center gap-2 shrink-0">
         <button
           type="button"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Puzzle, RefreshCw, Plus, Power, Trash2, Upload, FolderOpen, Download, ChevronDown, FileArchive } from 'lucide-vue-next'
+import { RefreshCw, Plus, Power, Trash2, Upload, FolderOpen, Download, ChevronDown, FileArchive } from 'lucide-vue-next'
 import { open } from '@tauri-apps/plugin-dialog'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { useSkillsStore } from '../../../stores/skills'
@@ -295,14 +295,7 @@ async function dismissExternal() {
 
 <template>
   <div class="space-y-5">
-    <div class="flex items-start justify-between gap-4">
-      <div>
-        <h3 class="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-          <Puzzle class="h-5 w-5 text-accent" aria-hidden="true" />
-          插件
-        </h3>
-        <p class="mt-1 text-sm text-muted">管理 Pointer 插件，启用后能力自动接入工具 / 技能 / 智能体，支持目录或者 zip 导入，也支持 Codex、Claude 插件导入。</p>
-      </div>
+    <div class="flex items-start justify-end gap-4">
       <div class="flex shrink-0 items-center gap-2">
         <button
           type="button"

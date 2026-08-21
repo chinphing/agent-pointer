@@ -44,6 +44,7 @@ flowchart TB
 
   subgraph fe [前端]
     SHELL["AppShell.vue 顶栏布局"]
+    SETTINGS["SettingsDialog.vue 仅侧栏顶留白"]
     CSS["globals.css traffic-light-inset / mac-chrome-row"]
     UWC["useWindowChrome 防抖 reapply"]
     UCW["useComputerCompactWindow 恢复几何"]
@@ -58,7 +59,10 @@ flowchart TB
   UCW --> FULL
   UWC --> FULL
   SHELL --> CSS
+  SETTINGS --> CSS
 ```
+
+设置页不要整行顶栏。左右两列从窗口顶对齐：左侧顶行是「返回对话」（macOS 红绿灯 `traffic-light-inset` 后再 `pl-2`），右侧同等高度（`mac-chrome-row` / `h-10`）为 `main-top-chrome` 拖动区。Windows / Linux 窗口按钮放在右侧拖动行右端。导航与正文都从该行下方 `pt-3` 开始。
 
 ---
 

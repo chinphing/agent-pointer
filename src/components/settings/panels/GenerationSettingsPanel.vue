@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
-import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, Plus, ScrollText, Settings, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
+import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, Plus, ScrollText, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -153,15 +153,6 @@ async function onPlaySoundToggle(checked: boolean) {
 
 <template>
   <div class="flex-1 flex flex-col gap-5">
-    <div>
-      <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-        <Settings class="w-4 h-4 text-accent" />系统设置
-      </h3>
-      <p class="mt-0.5 text-xs text-muted">
-        界面显示、桌面自动化与系统运行
-      </p>
-    </div>
-
     <!-- 界面显示 -->
     <section class="space-y-4" aria-labelledby="system-display-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">

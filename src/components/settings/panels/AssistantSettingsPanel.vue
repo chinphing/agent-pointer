@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../../types/chat'
 import { useSettingsStore } from '../../../stores/settings'
-import { Bot, CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, X } from 'lucide-vue-next'
+import { CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, X } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import SceneTierModelsModal from '../SceneTierModelsModal.vue'
 
@@ -47,15 +47,6 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
 
 <template>
   <div class="flex-1 flex flex-col gap-5">
-    <div class="flex items-start justify-between gap-3 pb-1">
-      <div>
-        <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-          <Bot class="w-4 h-4 text-accent" />智能体
-        </h3>
-        <p class="mt-0.5 text-[11px] text-muted">先选择工作方式，再调整执行行为</p>
-      </div>
-    </div>
-
     <!-- 场景档位 -->
     <section class="space-y-4" aria-labelledby="assistant-scene-heading">
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">

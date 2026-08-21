@@ -550,14 +550,6 @@ onMounted(() => {
 
 <template>
   <div class="space-y-5">
-    <!-- Header -->
-    <div>
-      <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-        <Clock class="w-4 h-4 text-accent" />自动化触发
-      </h3>
-      <p class="mt-0.5 text-xs text-muted">定时任务（Cron）与 Webhook 调用配置</p>
-    </div>
-
     <!-- ============ Cron jobs ============ -->
     <section class="rounded-xl border border-border panel p-5">
       <div class="flex items-center justify-between gap-3 mb-3">

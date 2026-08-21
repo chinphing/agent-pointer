@@ -15,7 +15,14 @@ const props = withDefaults(
 )
 
 const attrs = useAttrs()
-const policy = computed(() => WINDOW_DRAG_REGION_POLICIES[props.region])
+const policy = computed(() => {
+  const found = WINDOW_DRAG_REGION_POLICIES[props.region]
+  if (!found) {
+    console.warn('[window-drag] unknown region, treating as non-draggable', props.region)
+    return { draggable: false, doubleClickMaximize: false }
+  }
+  return found
+})
 const { onMouseDown, onDoubleClick } = useWindowDragRegion()
 
 const regionClass = computed(() => [

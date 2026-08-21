@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Cloud, Loader2, RefreshCw, X, Minus, Plus, Sparkles } from 'lucide-vue-next'
+import { Loader2, RefreshCw, X, Minus, Plus, Sparkles } from 'lucide-vue-next'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import {
@@ -436,13 +436,6 @@ onMounted(() => {
 
 <template>
   <div class="space-y-5">
-    <div>
-      <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-        <Cloud class="w-4 h-4 text-accent" />云主机
-      </h3>
-      <p class="mt-0.5 text-xs text-muted">购买、续费与管理远程 Pointer 实例</p>
-    </div>
-
     <div v-if="!loggedIn" class="rounded-xl border border-border panel p-5 space-y-3">
       <p class="text-sm text-muted">登录账户后可管理云主机</p>
       <button

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, Bug, Monitor, Sparkles, Bot, Cpu, Gauge, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
+import WindowControls from '../layout/WindowControls.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { provideSettingsDialogForm } from '../../composables/useSettingsDialogForm'
@@ -34,7 +35,20 @@ const platformAuth = usePlatformAuthStore()
 const activeSection = ref(props.initialSection)
 const mainEl = ref<HTMLElement | null>(null)
 const renderError = ref('')
-const { enabled: chromeEnabled, macTrafficLightPadding } = useWindowChrome()
+const {
+  enabled: chromeEnabled,
+  os,
+  maximized,
+  showCustomControls,
+  macTrafficLightPadding,
+  minimize,
+  toggleMaximize,
+  close: closeWindow
+} = useWindowChrome()
+
+const useWinLinuxWindowControls = computed(
+  () => chromeEnabled && showCustomControls.value && (os.value === 'windows' || os.value === 'linux')
+)
 
 // 某个 section 渲染抛错时不再静默空白：显示错误条并阻断错误冒泡
 // （否则整个 SettingsDialog 树可能白屏）。切到其他分区后错误条保留，
@@ -151,112 +165,121 @@ onMounted(() => {
     class="app-content-no-drag h-full w-full min-h-0 flex flex-col overflow-hidden bg-background"
     data-tauri-drag-region="false"
   >
-      <!-- Header: reserve the native macOS traffic-light zone and drag from empty space. -->
-      <WindowDragRegion
-        as="header"
-        region="settings-top-chrome"
-        class="px-6 h-10 flex items-center gap-2 border-b border-border shrink-0"
-        :class="chromeEnabled && macTrafficLightPadding ? 'pl-[4.75rem]' : ''"
-      >
-        <div class="flex-1" />
-      </WindowDragRegion>
-
-      <!-- h-0 + flex-1: row height is the leftover viewport, not the long
-           系统设置 content. Only <main> scrolls; the nav stays put. -->
       <div class="flex h-0 min-h-0 flex-1 overflow-hidden">
-        <aside class="flex h-full w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-[hsl(var(--card-elevated))] p-3">
-          <!-- 返回按钮：仿栏位结构但弱化（muted 色、hover 才加深，不参与选中态） -->
-          <button
-            type="button"
-            class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
-            title="返回对话"
-            aria-label="返回对话"
-            @click="emit('close')"
+        <aside class="flex h-full w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-[hsl(var(--card-elevated))]">
+          <WindowDragRegion
+            region="settings-top-chrome"
+            class="shrink-0 flex items-center select-none pr-2"
+            :class="chromeEnabled && macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
           >
-            <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors bg-hover/40 group-hover:bg-hover/80">
-              <ArrowLeft class="w-3.5 h-3.5 text-muted/70 group-hover:text-foreground/80" />
-            </div>
-            <span class="block min-w-0 text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回对话</span>
-          </button>
-          <div class="my-2 h-px bg-border/60" />
-          <template v-for="(group, groupIndex) in sections" :key="groupIndex">
-            <div v-if="groupIndex > 0" class="my-2 h-px bg-border/60" />
+            <div
+              v-if="chromeEnabled && macTrafficLightPadding"
+              class="h-full shrink-0 traffic-light-inset"
+              aria-hidden="true"
+            />
             <button
-              v-for="item in group.items"
-              :key="item.id"
-              class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
-              :class="activeSection === item.id ? 'bg-hover border border-transparent' : 'border border-transparent hover:bg-hover'"
-              @click="activeSection = item.id"
+              type="button"
+              class="min-w-0 flex-1 h-full flex items-center gap-2 text-left transition-colors cursor-pointer group"
+              :class="chromeEnabled && macTrafficLightPadding ? 'pl-2' : 'pl-3'"
+              title="返回对话"
+              aria-label="返回对话"
+              @click="emit('close')"
             >
-              <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-                   :class="activeSection === item.id ? 'bg-hover' : 'bg-hover group-hover:bg-hover'">
-                <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-foreground' : 'text-muted'" />
-              </div>
-              <span class="min-w-0">
-                <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
-                <span class="block text-[11px] text-muted truncate">{{ item.desc }}</span>
-              </span>
+              <ArrowLeft class="w-3.5 h-3.5 shrink-0 text-muted/70 group-hover:text-foreground/80" />
+              <span class="truncate text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回对话</span>
             </button>
-          </template>
+          </WindowDragRegion>
+          <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-3 pb-3">
+            <template v-for="(group, groupIndex) in sections" :key="groupIndex">
+              <div v-if="groupIndex > 0" class="my-2 h-px bg-border/60" />
+              <button
+                v-for="item in group.items"
+                :key="item.id"
+                class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
+                :class="activeSection === item.id ? 'bg-hover border border-transparent' : 'border border-transparent hover:bg-hover'"
+                @click="activeSection = item.id"
+              >
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
+                     :class="activeSection === item.id ? 'bg-hover' : 'bg-hover group-hover:bg-hover'">
+                  <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-foreground' : 'text-muted'" />
+                </div>
+                <span class="min-w-0">
+                  <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
+                  <span class="block text-[11px] text-muted truncate">{{ item.desc }}</span>
+                </span>
+              </button>
+            </template>
+          </nav>
         </aside>
 
-        <!-- Main Content -->
-        <main ref="mainEl" class="app-content-no-drag min-h-0 flex-1 overflow-y-auto overscroll-none" data-tauri-drag-region="false">
-          <div
-            v-if="renderError"
-            class="sticky top-0 z-20 mx-4 mt-3 px-3 py-2 rounded-lg border border-danger/30 bg-danger/10 text-[11px] text-danger"
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+          <WindowDragRegion
+            region="main-top-chrome"
+            class="shrink-0 flex items-center justify-end select-none"
+            :class="chromeEnabled && macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
           >
-            设置页渲染异常：{{ renderError }}
-          </div>
-          <!-- ==================== Assistant Section ==================== -->
-          <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
-          <section v-show="activeSection === 'assistant'" class="p-6 min-h-full flex flex-col">
-            <AssistantSettingsPanel :form="form" />
-          </section>
+            <WindowControls
+              v-if="useWinLinuxWindowControls"
+              class="window-controls-win"
+              :maximized="maximized"
+              @minimize="minimize"
+              @maximize="toggleMaximize"
+              @close="closeWindow"
+            />
+          </WindowDragRegion>
+          <main ref="mainEl" class="app-content-no-drag min-h-0 flex-1 overflow-y-auto overscroll-none px-6 pt-3 pb-6" data-tauri-drag-region="false">
+            <div
+              v-if="renderError"
+              class="sticky top-0 z-20 mb-3 px-3 py-2 rounded-lg border border-danger/30 bg-danger/10 text-[11px] text-danger"
+            >
+              设置页渲染异常：{{ renderError }}
+            </div>
+            <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
+            <section v-show="activeSection === 'assistant'" class="min-h-full flex flex-col">
+              <AssistantSettingsPanel :form="form" />
+            </section>
 
-          <section v-if="activeSection === 'channels'" class="p-6 min-h-full flex flex-col">
-            <ChannelSettingsPanel />
-          </section>
+            <section v-if="activeSection === 'channels'" class="min-h-full flex flex-col">
+              <ChannelSettingsPanel />
+            </section>
 
-          <section v-else-if="activeSection === 'automation'" class="p-6 min-h-full flex flex-col">
-            <AutomationSettingsPanel @view-session="emit('close')" />
-          </section>
+            <section v-else-if="activeSection === 'automation'" class="min-h-full flex flex-col">
+              <AutomationSettingsPanel @view-session="emit('close')" />
+            </section>
 
-          <section v-else-if="activeSection === 'skills'" class="p-6 min-h-full flex flex-col">
-            <SkillsPanel />
-          </section>
+            <section v-else-if="activeSection === 'skills'" class="min-h-full flex flex-col">
+              <SkillsPanel />
+            </section>
 
-          <section v-else-if="activeSection === 'plugins'" class="p-6 min-h-full flex flex-col">
-            <PluginsPanel />
-          </section>
+            <section v-else-if="activeSection === 'plugins'" class="min-h-full flex flex-col">
+              <PluginsPanel />
+            </section>
 
-          <section v-else-if="activeSection === 'mcp'" class="p-6 min-h-full flex flex-col">
-            <McpPanel />
-          </section>
+            <section v-else-if="activeSection === 'mcp'" class="min-h-full flex flex-col">
+              <McpPanel />
+            </section>
 
-          <section v-else-if="activeSection === 'debug'" class="p-6 min-h-full flex flex-col">
-            <DebugSettingsPanel :form="form" />
-          </section>
+            <section v-else-if="activeSection === 'debug'" class="min-h-full flex flex-col">
+              <DebugSettingsPanel :form="form" />
+            </section>
 
-          <!-- ==================== Model Section ==================== -->
-          <section v-else-if="activeSection === 'models'" class="p-6 min-h-full flex flex-col">
-            <ModelSettingsPanel :form="form" />
-          </section>
+            <section v-else-if="activeSection === 'models'" class="min-h-full flex flex-col">
+              <ModelSettingsPanel :form="form" />
+            </section>
 
-          <!-- ==================== Generation Section (系统设置) ==================== -->
-          <section v-else-if="activeSection === 'generation'" class="p-6 min-h-full flex flex-col">
-            <GenerationSettingsPanel :form="form" />
-          </section>
+            <section v-else-if="activeSection === 'generation'" class="min-h-full flex flex-col">
+              <GenerationSettingsPanel :form="form" />
+            </section>
 
-          <section v-else-if="activeSection === 'cloud'" class="p-6 min-h-full flex flex-col">
-            <CloudSettingsPanel :form="form" />
-          </section>
+            <section v-else-if="activeSection === 'cloud'" class="min-h-full flex flex-col">
+              <CloudSettingsPanel :form="form" />
+            </section>
 
-          <!-- About Settings -->
-          <section v-else-if="activeSection === 'about'" class="p-6 min-h-full flex flex-col">
-            <AboutSettingsPanel />
-          </section>
-        </main>
+            <section v-else-if="activeSection === 'about'" class="min-h-full flex flex-col">
+              <AboutSettingsPanel />
+            </section>
+          </main>
+        </div>
       </div>
 
   </div>

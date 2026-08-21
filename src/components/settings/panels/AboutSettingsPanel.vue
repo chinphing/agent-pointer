@@ -58,11 +58,6 @@ function handleCheckUpdate() {
 
 <template>
   <section class="space-y-5">
-    <div>
-      <h3 class="text-sm font-semibold text-foreground">关于 Pointer</h3>
-      <p class="mt-1 text-xs text-muted">查看版本信息并检查更新</p>
-    </div>
-
     <div class="rounded-xl border border-border p-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Bug } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 
 const props = defineProps<{
@@ -11,13 +10,6 @@ const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewE
 
 <template>
   <section class="space-y-5">
-    <div>
-      <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-        <Bug class="w-4 h-4 text-accent" />调试
-      </h3>
-      <p class="mt-0.5 text-xs text-muted">仅用于排查模型请求问题</p>
-    </div>
-
     <div class="rounded-xl border border-border panel p-5">
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">

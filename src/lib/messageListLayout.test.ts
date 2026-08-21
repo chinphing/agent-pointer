@@ -38,6 +38,67 @@ describe('splitMessageTurnSegments', () => {
     expect(splitMessageTurnSegments(messages)[1]).toMatchObject({ start: 2, end: 4 })
   })
 
+  it('attaches compression summaries to the next user turn, not the previous reply', () => {
+    const summary: ChatMessage = {
+      id: 'sum',
+      role: 'user',
+      content: '[Conversation summary (auto-compression)]\nbody',
+      status: 'done',
+      createdAt: 3
+    }
+    const messages = [user('u1', 'old'), assistant('a1', 'done'), summary, user('u2', 'keep')]
+    expect(splitMessageTurnSegments(messages).map(s => s.id)).toEqual(['u1', 'u2'])
+    expect(splitMessageTurnSegments(messages)[0]).toMatchObject({ start: 0, end: 2 })
+    expect(splitMessageTurnSegments(messages)[1]).toMatchObject({ start: 2, end: 4 })
+
+    const layout = buildMessageListLayout({
+      conversationId: 'c1',
+      messages,
+      deps: emptyDeps,
+      cache: null
+    })
+    expect(layout.turns.map(t => t.id)).toEqual(['u1', 'u2'])
+    expect(layout.turns[0]!.entries.map(e => e.type === 'message' ? e.message.id : e.type)).toEqual(['u1', 'a1'])
+    expect(layout.turns[1]!.entries.map(e => e.type === 'message' ? e.message.id : e.type)).toEqual(['sum', 'u2'])
+    expect(layout.turns[1]!.collapsedEntries.map(e =>
+      e.type === 'message' ? e.message.id : e.type
+    )).toEqual(['sum', 'u2'])
+  })
+
+  it('keeps in-run assistant summaries inside the same user turn', () => {
+    const summary: ChatMessage = {
+      id: 'sum',
+      role: 'assistant',
+      content: '[Conversation summary (auto-compression)]\nmid-turn',
+      status: 'done',
+      createdAt: 3,
+      toolCalls: []
+    }
+    const messages = [
+      user('u1', 'task'),
+      assistant('a1', 'step'),
+      summary,
+      assistant('a2', 'done')
+    ]
+    expect(splitMessageTurnSegments(messages).map(s => s.id)).toEqual(['u1'])
+    const layout = buildMessageListLayout({
+      conversationId: 'c1',
+      messages,
+      deps: emptyDeps,
+      cache: null
+    })
+    expect(layout.turns.map(t => t.id)).toEqual(['u1'])
+    expect(layout.turns[0]!.entries.map(e => e.type === 'message' ? e.message.id : e.type)).toEqual([
+      'u1',
+      'a1',
+      'sum',
+      'a2'
+    ])
+    expect(layout.turns[0]!.collapsedEntries.map(e =>
+      e.type === 'message' ? e.message.id : e.type
+    )).toEqual(['u1', 'a2'])
+  })
+
   it('does not anchor empty-response retry injects as a new turn', () => {
     const messages = [
       user('u1', 'task'),
@@ -290,5 +351,24 @@ describe('insertContextCompressingMarker', () => {
     const split = keys.indexOf('context-compressing')
     expect(split).toBeGreaterThanOrEqual(0)
     expect(keys[split + 1]).toBe('message-u2')
+  })
+
+  it('does not pin the fallback marker after the last delivery', () => {
+    const layout = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [user('u1', 'q'), assistant('a1', 'reply')],
+      deps: emptyDeps,
+      cache: null
+    })
+    const turns = insertContextCompressingMarker(
+      layout.turns,
+      'missing-keep-id',
+      undefined,
+      '正在压缩较早记录'
+    )
+    const keys = turns[0]!.collapsedEntries.map(entry => entryKey(entry))
+    const split = keys.indexOf('context-compressing')
+    expect(split).toBeGreaterThanOrEqual(0)
+    expect(keys[split + 1]).toBe('message-a1')
   })
 })

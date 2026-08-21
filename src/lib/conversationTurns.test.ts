@@ -129,6 +129,26 @@ describe('conversation turns', () => {
     expect(turnContains(turns[0]!, entry => entry.id === 'hidden')).toBe(true)
   })
 
+  it('attaches turn headers to the next user turn', () => {
+    const headerClassifier = {
+      ...classifier,
+      userMessageId: (entry: Entry) => entry.role === 'user' ? entry.id : null,
+      isTurnHeader: (entry: Entry) => entry.id === 'chip'
+    }
+    const turns = buildConversationTurns<Entry>([
+      { id: 'u1', role: 'user', status: 'done' },
+      { id: 'final-1', role: 'assistant', status: 'done', delivery: true },
+      { id: 'chip', role: 'assistant', status: 'done', summary: true },
+      { id: 'u2', role: 'user', status: 'done' },
+      { id: 'final-2', role: 'assistant', status: 'done', delivery: true }
+    ], headerClassifier)
+
+    expect(turns.map(turn => turn.id)).toEqual(['u1', 'u2'])
+    expect(turns[0]!.entries.map(e => e.id)).toEqual(['u1', 'final-1'])
+    expect(turns[1]!.entries.map(e => e.id)).toEqual(['chip', 'u2', 'final-2'])
+    expect(turns[1]!.collapsedEntries.map(e => e.id)).toEqual(['chip', 'u2', 'final-2'])
+  })
+
   it('auto-expands only the latest terminal turn with hidden work', () => {
     const terminalTurns = buildConversationTurns<Entry>([
       { id: 'u1', role: 'user', status: 'done' },

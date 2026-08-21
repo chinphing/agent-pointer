@@ -53,4 +53,9 @@ describe('synthetic thread user rows', () => {
     expect(isRealUserTaskMessage(real)).toBe(true)
     expect(isSilentToolRunGlue(real)).toBe(false)
   })
+
+  it('does not treat compression chips as user-task turns', () => {
+    const chip = user('ctx_1', '[Conversation summary (auto-compression)]\nbody')
+    expect(isRealUserTaskMessage(chip)).toBe(false)
+  })
 })

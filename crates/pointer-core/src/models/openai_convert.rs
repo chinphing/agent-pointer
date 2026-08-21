@@ -224,6 +224,16 @@ fn append_stripped_user_images_note(m: &ChatMessage, content: &mut String) -> St
     content.clone()
 }
 
+fn assistant_reasoning_content_for_api(m: &ChatMessage) -> Option<String> {
+    if let Some(r) = m.reasoning.as_ref().filter(|s| !s.is_empty()) {
+        return Some(r.clone());
+    }
+    if crate::context_compression::is_compression_summary_content(&m.content) {
+        return Some(crate::context_compression::COMPRESSION_SUMMARY_REASONING.into());
+    }
+    None
+}
+
 pub fn make_openai_messages(
     msgs: &[ChatMessage],
     system: &SystemPromptSections,
@@ -342,14 +352,12 @@ pub fn make_openai_messages_with_inject(
                 obj.insert("content".into(), serde_json::Value::String(api_content));
                 // DeepSeek 等「思考模式」在流式里下发 `reasoning_content`；下一轮请求必须原样带回，
                 // 否则 400 — 可由设置 `reasoningInMessages` 关闭（关闭后勿对该类模型开思考）。
+                // In-run compression summaries stay assistant (never user). They
+                // are host-written, so inject a stand-in when stored reasoning
+                // is missing (already-persisted rows).
                 if include_reasoning_in_api {
-                    if let Some(ref r) = m.reasoning {
-                        if !r.is_empty() {
-                            obj.insert(
-                                "reasoning_content".into(),
-                                serde_json::Value::String(r.clone()),
-                            );
-                        }
+                    if let Some(r) = assistant_reasoning_content_for_api(m) {
+                        obj.insert("reasoning_content".into(), serde_json::Value::String(r));
                     }
                 }
                 if let Some(tcs) = &m.tool_calls {
@@ -562,6 +570,29 @@ mod make_openai_messages_tests {
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "answer");
         assert_eq!(out[0]["reasoning_content"], "step 1…");
+    }
+
+    #[test]
+    fn in_run_compression_summary_stays_assistant_with_reasoning_content() {
+        let mut a = msg(Role::Assistant);
+        a.content = format!(
+            "{}\nmid-turn",
+            crate::context_compression::SUMMARY_PREFIX_BUDGET
+        );
+        a.reasoning = None;
+        let out = make_openai_messages(
+            &[a],
+            &SystemPromptSections::default(),
+            true,
+            false,
+            false,
+            LEAD,
+        );
+        assert_eq!(out[0]["role"], "assistant");
+        assert_eq!(
+            out[0]["reasoning_content"],
+            crate::context_compression::COMPRESSION_SUMMARY_REASONING
+        );
     }
 
     #[test]

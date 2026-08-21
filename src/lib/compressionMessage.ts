@@ -2,12 +2,19 @@ import type { ChatMessage, ContextCompressionInfo } from '../types/chat'
 
 export const COMPRESSION_SUMMARY_PREFIX = '[Conversation summary (auto-compression'
 
-/** User-row summary injected after context compression. */
+/** Auto-compression summary chip (prefix user row, or in-run assistant row). */
 export function isCompressionSummaryMessage(message: ChatMessage): boolean {
-  return (
-    message.role === 'user' &&
-    message.content.trimStart().startsWith(COMPRESSION_SUMMARY_PREFIX)
-  )
+  return message.content.trimStart().startsWith(COMPRESSION_SUMMARY_PREFIX)
+}
+
+/** Prefix compression: user row before the next real question. */
+export function isPrefixCompressionSummaryMessage(message: ChatMessage): boolean {
+  return message.role === 'user' && isCompressionSummaryMessage(message)
+}
+
+/** In-run compression: assistant row mid-turn (process, not a turn header). */
+export function isInRunCompressionSummaryMessage(message: ChatMessage): boolean {
+  return message.role === 'assistant' && isCompressionSummaryMessage(message)
 }
 
 /** Strip the auto-compression header from a summary user row for display. */

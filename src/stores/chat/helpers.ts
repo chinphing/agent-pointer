@@ -1,7 +1,10 @@
 import {
-  isDiscardableEmptyAssistant
+  isDiscardableEmptyAssistant,
+  isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
 import { randomUuid } from '../../lib/randomUuid'
+import { isScopedSubMessage } from '../../lib/subAgentMessages'
+import { isToolRunContinuityGlue } from '../../lib/threadLayoutGlue'
 import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
 /** Conversation / message client ids — UUID v4 (stable opaque segment for media paths). */
@@ -25,15 +28,67 @@ export function applyExcludedMessageIds(
   }
 }
 
+/** Rows the thread does not show as their own bubble (tools live on the assistant). */
+export function isCompressionAnchorHiddenRow(message: ChatMessage): boolean {
+  if (isScopedSubMessage(message)) return true
+  if (message.role === 'tool') return true
+  if (isToolRunContinuityGlue(message)) return true
+  if (isToolOnlyAssistantMessage(message)) return true
+  return false
+}
+
+/**
+ * Index to splice a compression summary. Prefer the keep-window id; if that row
+ * is a hidden tool/glue line (or missing from the live stream list), land at the
+ * first visible keep message instead of appending under the latest reply.
+ */
+export function resolveCompressionInsertAt(
+  messages: readonly ChatMessage[],
+  insertBeforeMessageId: string,
+  excludedMessageIds: readonly string[] = []
+): number {
+  const skipHidden = (start: number): number => {
+    let i = start
+    while (i < messages.length && isCompressionAnchorHiddenRow(messages[i]!)) {
+      i += 1
+    }
+    return i
+  }
+
+  const anchor = insertBeforeMessageId.trim()
+  if (anchor) {
+    const idx = messages.findIndex(m => m.id === anchor)
+    if (idx >= 0) return skipHidden(idx)
+  }
+
+  const excluded = new Set(
+    excludedMessageIds.map(id => id.trim()).filter(id => id.length > 0)
+  )
+  if (excluded.size > 0) {
+    const firstKept = messages.findIndex(m => !excluded.has(m.id))
+    if (firstKept >= 0) return skipHidden(firstKept)
+  }
+
+  console.warn('[chat] compression summary insert: no keep anchor in thread', {
+    insertBeforeMessageId: anchor || null,
+    excluded: excluded.size,
+    messages: messages.length
+  })
+  return messages.length
+}
+
 export function insertMessageBeforeAnchor(
   conv: Conversation,
   insertBeforeMessageId: string,
-  message: ChatMessage
+  message: ChatMessage,
+  excludedMessageIds: readonly string[] = []
 ) {
   if (conv.messages.some(m => m.id === message.id)) return
-  const anchor = insertBeforeMessageId.trim()
-  const idx = anchor ? conv.messages.findIndex(m => m.id === anchor) : -1
-  const insertAt = idx >= 0 ? idx : conv.messages.length
+  const insertAt = resolveCompressionInsertAt(
+    conv.messages,
+    insertBeforeMessageId,
+    excludedMessageIds
+  )
   conv.messages.splice(insertAt, 0, message)
 }
 

@@ -5,7 +5,7 @@ import {
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from './assistantMessageKind'
-import { isCompressionSummaryMessage } from './compressionMessage'
+import { isCompressionSummaryMessage, isPrefixCompressionSummaryMessage } from './compressionMessage'
 import {
   buildConversationTurns,
   type ConversationTurn
@@ -82,6 +82,7 @@ function layoutKind(message: ChatMessage): LayoutKind {
 }
 
 function canAttachTrailingTools(message: ChatMessage): boolean {
+  if (isCompressionSummaryMessage(message)) return false
   return (
     message.role === 'assistant'
     && !isToolOnlyAssistantMessage(message)
@@ -101,11 +102,16 @@ export function splitMessageTurnSegments(messages: readonly ChatMessage[]): Turn
 
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]!
-    // Skip screen-inject / empty-response retry injects — they are wire-only.
+    // Compression chips belong to the next real user turn, not the previous reply.
+    if (isCompressionSummaryMessage(message)) continue
     const isUserAnchor = isRealUserTaskMessage(message) && !isScopedSubMessage(message)
     if (isUserAnchor) {
       if (current) segments.push(current)
-      current = { id: message.id, start: i, end: i + 1 }
+      let start = i
+      while (start > 0 && isCompressionSummaryMessage(messages[start - 1]!)) {
+        start -= 1
+      }
+      current = { id: message.id, start, end: i + 1 }
       continue
     }
     if (!current) {
@@ -114,7 +120,20 @@ export function splitMessageTurnSegments(messages: readonly ChatMessage[]): Turn
       current.end = i + 1
     }
   }
-  if (current) segments.push(current)
+  if (current) {
+    let end = current.end
+    while (end < messages.length && isCompressionSummaryMessage(messages[end]!)) {
+      end += 1
+    }
+    current.end = end
+    segments.push(current)
+  } else if (messages.some(isCompressionSummaryMessage)) {
+    segments.push({
+      id: `prelude-${messages[0]!.id}`,
+      start: 0,
+      end: messages.length
+    })
+  }
   return segments
 }
 
@@ -405,15 +424,17 @@ function entryHasRunningTool(entry: FlatEntry): boolean {
 function entryIsSummary(entry: FlatEntry): boolean {
   // Task boards are progress chrome, not process to hide — keep running and
   // terminal boards in the collapsed projection (sticky also needs the inline
-  // mount). Only compression summaries use the same keep path among messages.
+  // mount). Prefix compression chips stay on the next-turn header; in-run
+  // chips are mid-turn process and collapse with tools.
   if (entry.type === 'task_board' || entry.type === 'context_compressing') return true
-  return entry.type === 'message' && isCompressionSummaryMessage(entry.message)
+  return entry.type === 'message' && isPrefixCompressionSummaryMessage(entry.message)
 }
 
 function entryIsDelivery(entry: FlatEntry): boolean {
   return entry.type === 'message'
     && entry.message.role === 'assistant'
     && assistantHasDeliverableContent(entry.message)
+    && !isCompressionSummaryMessage(entry.message)
     && !isEphemeralDesktopNoticeMessage(entry.message)
     && !isToolRunContinuityGlue(entry.message)
 }
@@ -492,7 +513,7 @@ function projectCollapsedEntry(entry: FlatEntry): FlatEntry {
   }
   if (entry.type !== 'message') return entry
   if (entry.message.role !== 'assistant') return entry
-  if (entry.compact || isCompressionSummaryMessage(entry.message)) return entry
+  if (entry.compact || isPrefixCompressionSummaryMessage(entry.message)) return entry
   if (isEphemeralDesktopNoticeMessage(entry.message)) return entry
 
   const trailingToolGroups = filterInteractiveToolGroups(entry.trailingToolGroups)
@@ -536,9 +557,14 @@ function buildTurnsForEntries(
 ): ConversationTurn<FlatEntry>[] {
   return buildConversationTurns(entries, {
     key: entryKey,
-    userMessageId: entry => entry.type === 'message' && entry.message.role === 'user'
-      ? entry.message.id
-      : null,
+    userMessageId: entry =>
+      entry.type === 'message'
+      && entry.message.role === 'user'
+      && !isCompressionSummaryMessage(entry.message)
+        ? entry.message.id
+        : null,
+    isTurnHeader: entry =>
+      entry.type === 'message' && isPrefixCompressionSummaryMessage(entry.message),
     isActive: entry => entryHasStatus(entry, ['pending', 'streaming'])
       || entryHasRunningTool(entry)
       || (!!activeBoard && entryContainsMessageId(entry, activeBoard.anchorMessageId)),
@@ -651,6 +677,13 @@ function spliceMarkerBefore(
   return true
 }
 
+/** Before the last delivery bubble, not after it (avoids “chip under the reply”). */
+function spliceMarkerBeforeDeliveryOrStart(list: FlatEntry[], marker: FlatEntry) {
+  const deliveryIdx = list.findIndex(entryIsDelivery)
+  const at = deliveryIdx >= 0 ? deliveryIdx : Math.min(1, list.length)
+  list.splice(at, 0, marker)
+}
+
 /**
  * Place the in-progress compression marker immediately before the keep-window
  * message (the same insert-before id used when the summary lands). Does not
@@ -678,7 +711,7 @@ export function insertContextCompressingMarker(
   const placeInTurn = (turn: ConversationTurn<FlatEntry>, id: string): boolean => {
     if (!spliceMarkerBefore(turn.entries, id, marker)) return false
     if (!spliceMarkerBefore(turn.collapsedEntries, id, marker)) {
-      turn.collapsedEntries.push(marker)
+      spliceMarkerBeforeDeliveryOrStart(turn.collapsedEntries, marker)
     }
     return true
   }
@@ -690,7 +723,7 @@ export function insertContextCompressingMarker(
   }
 
   const last = next[next.length - 1]!
-  last.entries.push(marker)
-  last.collapsedEntries.push(marker)
+  spliceMarkerBeforeDeliveryOrStart(last.entries, marker)
+  spliceMarkerBeforeDeliveryOrStart(last.collapsedEntries, marker)
   return next
 }

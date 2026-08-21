@@ -4,6 +4,7 @@ import {
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from './assistantMessageKind'
+import { isCompressionSummaryMessage } from './compressionMessage'
 import { isSidecarToolCall, toolCallBaseName } from './messageTooling'
 
 const VERIFY_HINT_PREFIXES = [
@@ -80,9 +81,10 @@ export function isSyntheticThreadUserMessage(message: ChatMessage): boolean {
   return isScreenInjectUserMessage(message) || isInternalRetryUserMessage(message)
 }
 
-/** Real user task turn (not screen inject / internal retry inject). */
+/** Real user task turn (not screen inject / retry inject / compression chip). */
 export function isRealUserTaskMessage(message: ChatMessage): boolean {
   if (message.role !== 'user') return false
+  if (isCompressionSummaryMessage(message)) return false
   return !isSyntheticThreadUserMessage(message)
 }
 

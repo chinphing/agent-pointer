@@ -24,6 +24,15 @@ pub const SUMMARY_PREFIX_BUDGET: &str = "[Conversation summary (auto-compression
 pub const SUMMARY_PREFIX_TOOL_LIMIT: &str =
     "[Conversation summary (auto-compression after tool rounds)]";
 
+/// Host-written stand-in for in-run summary `reasoning_content`.
+/// Thinking-mode providers (DeepSeek) reject assistant rows that omit it.
+pub const COMPRESSION_SUMMARY_REASONING: &str = "[context compression]";
+
+pub fn is_compression_summary_content(content: &str) -> bool {
+    let t = content.trim_start();
+    t.starts_with(SUMMARY_PREFIX_BUDGET) || t.starts_with(SUMMARY_PREFIX_TOOL_LIMIT)
+}
+
 /// Summary output budget: `content_tokens × ratio`, clamped.
 /// Single no-thinking attempt (no retry) — budget sized so typical prefixes
 /// finish without `finish_reason=length`.
@@ -481,7 +490,7 @@ pub fn should_use_in_run_compression(msgs: &[ChatMessage]) -> bool {
 }
 
 /// Drop `[drop_start, tail_start)`; keep the latest user (`drop_start - 1`) and the count tail.
-/// `tail_start` is aligned so a tool call / tool result pair is not split.
+/// `tail_start` is aligned so an assistant + its `role: tool` rows stay on one side.
 pub fn find_in_run_drop_range(
     msgs: &[ChatMessage],
     _budget_tokens: usize,
@@ -581,8 +590,25 @@ pub fn find_summary_split(
     }
 }
 
+/// Keep window starts at `split`. Never leave an assistant in the drop window
+/// and its tool result in the keep window (or the reverse).
+///
+/// Count-based cuts often land on the **first** tool row after the owning
+/// assistant. Walking only `msgs[split - 1]` misses that case: the previous
+/// row is the assistant, so the cut stayed on the tool and produced an
+/// orphan `role: tool` after the summary.
 fn align_split_away_from_tool_group(msgs: &[ChatMessage], split: usize) -> usize {
     if split == 0 || split >= msgs.len() {
+        return split;
+    }
+    if matches!(msgs[split].role, Role::Tool) {
+        let mut i = split;
+        while i > 0 && matches!(msgs[i].role, Role::Tool) {
+            i -= 1;
+        }
+        if matches!(msgs[i].role, Role::Assistant) {
+            return i;
+        }
         return split;
     }
     let mut i = split;
@@ -1030,17 +1056,23 @@ fn mark_compressed_prefix_excluded(history: &mut [ChatMessage]) -> Vec<String> {
     excluded_message_ids
 }
 
-fn new_summary_user_message(body: String) -> ChatMessage {
+fn new_summary_message(body: String, in_run: bool) -> ChatMessage {
     ChatMessage {
         id: format!("ctx_{}", uuid::Uuid::new_v4().simple()),
-        role: Role::User,
+        // Prefix compression stays a user row (turn header before the keep
+        // question). In-run stays assistant so it does not start a new user turn.
+        role: if in_run { Role::Assistant } else { Role::User },
         content: body,
         status: "done".into(),
         created_at: now_ms(),
         tool_calls: None,
         tool_call_id: None,
         error_message: None,
-        reasoning: None,
+        reasoning: if in_run {
+            Some(COMPRESSION_SUMMARY_REASONING.into())
+        } else {
+            None
+        },
         thoughts: None,
         headline: None,
         raw_content: None,
@@ -1448,7 +1480,7 @@ async fn compress_history_inner(
                 crate::models::ExcludedReason::ContextCompression,
             );
         }
-        let summary_msg = new_summary_user_message(summary_body);
+        let summary_msg = new_summary_message(summary_body, in_run);
         let mut preview_hist = history[..drop_start].to_vec();
         preview_hist.push(summary_msg.clone());
         preview_hist.extend(history[drop_end..].iter().cloned());
@@ -1485,7 +1517,7 @@ async fn compress_history_inner(
         .filter(|m| excluded_message_ids.iter().any(|id| id == &m.id))
         .cloned()
         .collect();
-    let summary_msg = new_summary_user_message(summary_body);
+    let summary_msg = new_summary_message(summary_body, in_run);
     history.insert(drop_end, summary_msg.clone());
 
     // Persist before drain: soft-exclude payloads + shift suffix + insert summary.
@@ -2529,6 +2561,55 @@ mod tests {
     }
 
     #[test]
+    fn align_split_keeps_assistant_when_cut_lands_on_first_tool() {
+        // n=20 → 20% tail is 4 → unaligned cut index 16, which is the first
+        // tool row after its assistant.
+        let mut msgs = Vec::new();
+        msgs.push(msg("u0", Role::User, "task"));
+        for i in 0..14 {
+            msgs.push(msg(&format!("pad{i}"), Role::Assistant, "step"));
+        }
+        msgs.push(msg("a_own", Role::Assistant, "call"));
+        msgs.push(msg("t_own", Role::Tool, "result"));
+        msgs.push(msg("k0", Role::Assistant, "keep"));
+        msgs.push(msg("k1", Role::Assistant, "keep"));
+        msgs.push(msg("k2", Role::Assistant, "keep"));
+        assert_eq!(msgs.len(), 20);
+        assert_eq!(msgs[16].id, "t_own");
+        assert_eq!(tail_message_count(20, false), 4);
+        let tail_start = find_tail_start_by_count(&msgs, false);
+        assert_eq!(tail_start, 15);
+        assert_eq!(msgs[tail_start].id, "a_own");
+        let (drop_start, range_tail) =
+            find_in_run_drop_range(&msgs, 8_000, false).expect("drop window");
+        assert_eq!(drop_start, 1);
+        assert_eq!(range_tail, 15);
+        assert!(
+            !matches!(msgs[range_tail].role, Role::Tool),
+            "keep must not start on a tool row"
+        );
+    }
+
+    #[test]
+    fn align_split_still_pulls_back_when_cut_is_mid_tool_run() {
+        let mut msgs = Vec::new();
+        msgs.push(msg("u0", Role::User, "task"));
+        for i in 0..13 {
+            msgs.push(msg(&format!("pad{i}"), Role::Assistant, "step"));
+        }
+        msgs.push(msg("a_own", Role::Assistant, "call"));
+        msgs.push(msg("t0", Role::Tool, "r0"));
+        msgs.push(msg("t1", Role::Tool, "r1"));
+        msgs.push(msg("k0", Role::Assistant, "keep"));
+        msgs.push(msg("k1", Role::Assistant, "keep"));
+        msgs.push(msg("k2", Role::Assistant, "keep"));
+        assert_eq!(msgs.len(), 20);
+        assert_eq!(msgs[16].id, "t1");
+        let tail_start = find_tail_start_by_count(&msgs, false);
+        assert_eq!(msgs[tail_start].id, "a_own");
+    }
+
+    #[test]
     fn splice_pending_into_history_replaces_prefix_with_summary() {
         let mut old = u("old");
         old.id = "old".into();
@@ -2553,6 +2634,19 @@ mod tests {
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].id, "sum");
         assert_eq!(history[1].id, "keep");
+    }
+
+    #[test]
+    fn in_run_summary_is_assistant_prefix_is_user() {
+        let prefix = new_summary_message("body".into(), false);
+        assert!(matches!(prefix.role, Role::User));
+        let in_run = new_summary_message("body".into(), true);
+        assert!(matches!(in_run.role, Role::Assistant));
+        assert_eq!(
+            in_run.reasoning.as_deref(),
+            Some(COMPRESSION_SUMMARY_REASONING)
+        );
+        assert!(prefix.reasoning.is_none());
     }
 
     fn msg(id: &str, role: Role, content: &str) -> ChatMessage {

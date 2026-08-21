@@ -61,6 +61,27 @@ describe('chat helpers', () => {
     expect(c.messages.map(m => m.id)).toEqual(['u1', 'sum', 'a1'])
   })
 
+  it('insertMessageBeforeAnchor uses first kept visible row when keep id is missing', () => {
+    const c = conv([
+      { id: 'u1', role: 'user', content: 'old', status: 'done', createdAt: 0 },
+      { id: 'a1', role: 'assistant', content: 'done', status: 'done', createdAt: 0, toolCalls: [] },
+      { id: 'u2', role: 'user', content: 'keep', status: 'done', createdAt: 1 }
+    ])
+    insertMessageBeforeAnchor(
+      c,
+      'tool-not-in-ui',
+      {
+        id: 'sum',
+        role: 'user',
+        content: '[Conversation summary (auto-compression)]\nbody',
+        status: 'done',
+        createdAt: 0
+      },
+      ['u1', 'a1', 'tool-not-in-ui']
+    )
+    expect(c.messages.map(m => m.id)).toEqual(['u1', 'a1', 'sum', 'u2'])
+  })
+
   it('insertMessageBeforeAnchor skips duplicate id', () => {
     const c = conv([
       { id: 'u1', role: 'user', content: 'q', status: 'done', createdAt: 0 }

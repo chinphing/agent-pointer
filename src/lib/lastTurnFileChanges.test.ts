@@ -558,6 +558,52 @@ describe('lastTurnFileChanges', () => {
     expect(settled.files.map(f => f.path)).toEqual(['/ws/a.ts', '/ws/b.ts'])
   })
 
+  it('does not split file-change totals across an in-run compression summary', () => {
+    const editBefore = tc({
+      id: 'e1',
+      name: 'file_edit',
+      result: JSON.stringify({
+        path: '/ws/a.ts',
+        success: true,
+        replaced: 1,
+        stats: { adds: 2, dels: 1 }
+      })
+    })
+    const writeAfter = tc({
+      id: 'w1',
+      name: 'file_write',
+      result: JSON.stringify({ path: '/ws/b.ts', success: true, bytesWritten: 8 })
+    })
+    const summaries: ChatMessage[] = [
+      msg({
+        id: 'ctx_user',
+        role: 'user',
+        content: '[Conversation summary (auto-compression)]\nmid'
+      }),
+      msg({
+        id: 'ctx_asst',
+        role: 'assistant',
+        content: '[Conversation summary (auto-compression)]\nmid',
+        toolCalls: []
+      })
+    ]
+    for (const summary of summaries) {
+      const list = [
+        msg({ id: 'u1', role: 'user', content: 'task' }),
+        msg({ id: 'a1', role: 'assistant', content: 'edit', toolCalls: [editBefore] }),
+        summary,
+        msg({ id: 'a2', role: 'assistant', content: 'write', toolCalls: [writeAfter] })
+      ]
+      expect(collectLeadTurnStarts(list).map(item => item.turnId)).toEqual(['u1'])
+      const byTurn = fileChangesByTurn(list)
+      expect([...byTurn.keys()]).toEqual(['u1'])
+      expect(byTurn.get('u1')?.map(f => f.path)).toEqual(['/ws/a.ts', '/ws/b.ts'])
+      const last = lastTurnFileChanges(list)
+      expect(last?.turnId).toBe('u1')
+      expect(last?.files.map(f => f.path)).toEqual(['/ws/a.ts', '/ws/b.ts'])
+    }
+  })
+
   it('collectLeadTurnStarts reuses the same list when only length-stable', () => {
     const list = [
       msg({ id: 'u1', role: 'user', content: 'a' }),

@@ -51,6 +51,9 @@ OpenAI Python SDK 的展平行为。
 
 本实现只发第一种。产品档位 `medium` 落到 `high`。关闭思考时不发上述字段。
 
+历史里的 **assistant** 必须带回上一轮的 `reasoning_content`。Run 内压缩摘要也是 assistant，
+主机写入时带合成 reasoning；组请求时若该字段为空会补上，**不会**改成 `user`。
+
 | 设置项 | 磁盘字段 | 请求体字段 | 取值 |
 |--------|----------|------------|------|
 | 思考强度 | `thinkingIntensity` / `reasoningEffort` | `reasoning_effort` | `low` / `high` / `max` |

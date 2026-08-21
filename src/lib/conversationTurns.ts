@@ -18,6 +18,11 @@ export interface ConversationTurnClassifier<T> {
   isDelivery(entry: T): boolean
   /** Pending ask_user / approval — keep visible even while the turn is active. */
   isInteractive?(entry: T): boolean
+  /**
+   * Banner that belongs to the *next* user turn (compression chip).
+   * Must not use `userMessageId`, or it becomes its own turn under the previous reply.
+   */
+  isTurnHeader?(entry: T): boolean
 }
 
 export type BuildConversationTurnsOptions = {
@@ -45,18 +50,43 @@ export function buildConversationTurns<T>(
 ): ConversationTurn<T>[] {
   const collapseActiveTurns = options?.collapseActiveTurns === true
   const groups: Array<{ id: string; entries: T[] }> = []
+  const pendingHeaders: T[] = []
 
   for (const entry of entries) {
+    if (classifier.isTurnHeader?.(entry) && !classifier.userMessageId(entry)) {
+      pendingHeaders.push(entry)
+      continue
+    }
     const userId = classifier.userMessageId(entry)
     if (userId) {
-      groups.push({ id: userId, entries: [entry] })
+      groups.push({ id: userId, entries: [...pendingHeaders, entry] })
+      pendingHeaders.length = 0
       continue
     }
     const current = groups[groups.length - 1]
+    if (!current) {
+      groups.push({
+        id: `prelude-${classifier.key(pendingHeaders[0] ?? entry)}`,
+        entries: [...pendingHeaders, entry]
+      })
+      pendingHeaders.length = 0
+      continue
+    }
+    if (pendingHeaders.length > 0) {
+      current.entries.push(...pendingHeaders)
+      pendingHeaders.length = 0
+    }
+    current.entries.push(entry)
+  }
+  if (pendingHeaders.length > 0) {
+    const current = groups[groups.length - 1]
     if (current) {
-      current.entries.push(entry)
+      current.entries.push(...pendingHeaders)
     } else {
-      groups.push({ id: `prelude-${classifier.key(entry)}`, entries: [entry] })
+      groups.push({
+        id: `prelude-${classifier.key(pendingHeaders[0]!)}`,
+        entries: [...pendingHeaders]
+      })
     }
   }
 
@@ -71,10 +101,11 @@ export function buildConversationTurns<T>(
           ? 'failed'
           : 'completed'
 
+    const userAnchor = group.entries.find(entry => classifier.userMessageId(entry) === group.id)
     // Prelude always full. Active turns stay full unless collapse-by-default is on.
     if (
       (!collapseActiveTurns && state === 'active')
-      || !classifier.userMessageId(group.entries[0]!)
+      || !userAnchor
     ) {
       return {
         ...group,
@@ -84,7 +115,7 @@ export function buildConversationTurns<T>(
       }
     }
 
-    const keep = new Set<T>([group.entries[0]!])
+    const keep = new Set<T>([userAnchor])
     for (const entry of group.entries) {
       if (classifier.isSummary(entry)) keep.add(entry)
     }

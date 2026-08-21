@@ -67,7 +67,12 @@ export function handleContextCompressionApplied(
     ...e.summaryMessage,
     toolCalls: e.summaryMessage.toolCalls ?? undefined
   }
-  insertMessageBeforeAnchor(conv, e.insertBeforeMessageId, summary)
+  insertMessageBeforeAnchor(
+    conv,
+    e.insertBeforeMessageId,
+    summary,
+    e.excludedMessageIds
+  )
   if (summary.role === 'user' && summary.id) {
     ctx.markUserMessageViewed(e.conversationId, summary.id, Date.now())
   }

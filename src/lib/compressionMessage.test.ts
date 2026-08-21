@@ -1,5 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { buildCompressionNoticeContent, buildCompressionProgressLabel } from './compressionMessage'
+import {
+  buildCompressionNoticeContent,
+  buildCompressionProgressLabel,
+  isInRunCompressionSummaryMessage,
+  isPrefixCompressionSummaryMessage
+} from './compressionMessage'
+
+describe('compression summary roles', () => {
+  it('treats user summaries as prefix and assistant summaries as in-run', () => {
+    const prefix = {
+      id: 'p',
+      role: 'user' as const,
+      content: '[Conversation summary (auto-compression)]\nbody',
+      status: 'done' as const,
+      createdAt: 1
+    }
+    const inRun = {
+      id: 'r',
+      role: 'assistant' as const,
+      content: '[Conversation summary (auto-compression)]\nmid',
+      status: 'done' as const,
+      createdAt: 2,
+      toolCalls: []
+    }
+    expect(isPrefixCompressionSummaryMessage(prefix)).toBe(true)
+    expect(isInRunCompressionSummaryMessage(prefix)).toBe(false)
+    expect(isInRunCompressionSummaryMessage(inRun)).toBe(true)
+    expect(isPrefixCompressionSummaryMessage(inRun)).toBe(false)
+  })
+})
 
 describe('buildCompressionProgressLabel', () => {
   it('uses main-thread copy by default', () => {

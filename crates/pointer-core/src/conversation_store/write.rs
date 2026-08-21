@@ -498,6 +498,32 @@ fn sync_preserving_existing_positions(
     Ok(())
 }
 
+/// After the last excluded row (keep-window start). Never append at max+1
+/// just because the keep-window id is missing from this snapshot.
+fn insert_pos_after_excluded(
+    positions: &std::collections::HashMap<String, i64>,
+    excluded_messages: &[ChatMessage],
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<i64> {
+    let after_excluded = excluded_messages
+        .iter()
+        .filter_map(|m| positions.get(&m.id).copied())
+        .max()
+        .map(|p| p + 1);
+    let insert_pos = match after_excluded {
+        Some(p) => p,
+        None => {
+            log::warn!(
+                "conversation_store: compression insert after excluded empty conversation_id={conversation_id}; using max_position+1"
+            );
+            max_message_position(conn, conversation_id)? + 1
+        }
+    };
+    shift_positions_from(conn, conversation_id, insert_pos)?;
+    Ok(insert_pos)
+}
+
 /// Persist context compression without remapping the whole transcript:
 /// 1) upsert soft-excluded prefix payloads (positions unchanged)
 /// 2) shift rows at/after the cut point by +1
@@ -527,17 +553,17 @@ pub fn persist_context_compression_in_conn(
 
     let insert_before = insert_before_message_id.trim();
     let insert_pos = if insert_before.is_empty() {
-        max_message_position(conn, conversation_id)? + 1
+        insert_pos_after_excluded(&positions, excluded_messages, conn, conversation_id)?
     } else if let Some(&p) = positions.get(insert_before) {
         shift_positions_from(conn, conversation_id, p)?;
         p
     } else {
         log::warn!(
-            "conversation_store: compression insert_before missing id={} conversation_id={}; appending summary",
+            "conversation_store: compression insert_before missing id={} conversation_id={}; inserting after last excluded row",
             insert_before,
             conversation_id
         );
-        max_message_position(conn, conversation_id)? + 1
+        insert_pos_after_excluded(&positions, excluded_messages, conn, conversation_id)?
     };
 
     insert_message_at(conn, conversation_id, summary, insert_pos)?;
@@ -703,6 +729,53 @@ mod tests {
         );
         assert_eq!(loaded[1].id, conv.messages[1].id);
         assert_eq!(loaded[2].id, "ctx_test");
+        assert_eq!(loaded[3].id, "user_b");
+        assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
+    }
+
+    #[test]
+    fn persist_compression_missing_insert_before_uses_excluded_cut() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "T", "hello");
+        conv.messages.push(super::super::persist::msg(
+            "user_b",
+            Role::User,
+            "continue",
+            3,
+        ));
+        store.save_all(&[conv.clone()]).unwrap();
+
+        let mut excluded = conv.messages[0].clone();
+        excluded.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        let mut excluded_asst = conv.messages[1].clone();
+        excluded_asst.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        let summary = super::super::persist::msg(
+            "ctx_missing_anchor",
+            Role::User,
+            "[Conversation summary (auto-compression)] x",
+            999,
+        );
+
+        store
+            .persist_context_compression(
+                "c1",
+                &[excluded, excluded_asst],
+                &summary,
+                "tool-id-not-in-db",
+                "preview",
+            )
+            .unwrap();
+
+        let loaded = store.load_messages("c1").unwrap();
+        assert_eq!(loaded.len(), 4);
+        assert_eq!(loaded[2].id, "ctx_missing_anchor");
         assert_eq!(loaded[3].id, "user_b");
         assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
     }

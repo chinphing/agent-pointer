@@ -19,6 +19,7 @@ describe('workspace preview tabs', () => {
     expect(workspaceTabIdsToClose(ids, 'diff:a.ts', 'close')).toEqual(['diff:a.ts'])
     expect(workspaceTabIdsToClose(ids, 'diff:a.ts', 'close-others')).toEqual(['file:a.ts', 'file:b.ts'])
     expect(workspaceTabIdsToClose(ids, 'diff:a.ts', 'close-right')).toEqual(['file:b.ts'])
+    expect(workspaceTabIdsToClose(ids, 'diff:a.ts', 'close-all')).toEqual(ids)
   })
 
   it('keeps active tabs or picks right then left after closing', () => {
@@ -26,6 +27,7 @@ describe('workspace preview tabs', () => {
     expect(workspaceActiveAfterClose(ids, 'diff:a.ts', ['diff:a.ts'], 'diff:a.ts', 'changes')).toBe('file:b.ts')
     expect(workspaceActiveAfterClose(ids, 'file:b.ts', ['file:b.ts'], 'file:b.ts', 'files')).toBe('diff:a.ts')
     expect(workspaceActiveAfterClose(['file:a.ts'], 'file:a.ts', ['file:a.ts'], 'file:a.ts', 'files')).toBe('files')
+    expect(workspaceActiveAfterClose(ids, 'diff:a.ts', ids, 'diff:a.ts', 'terminal')).toBe('terminal')
   })
 
   it('keeps file/git tabs but drops other conversations turn-diffs', () => {

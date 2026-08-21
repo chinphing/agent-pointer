@@ -1,5 +1,5 @@
 export type WorkspacePreviewTabKind = 'file' | 'diff' | 'turn-diff'
-export type WorkspaceTabCloseAction = 'close' | 'close-others' | 'close-right'
+export type WorkspaceTabCloseAction = 'close' | 'close-others' | 'close-right' | 'close-all'
 
 export function workspacePreviewTabId(
   kind: WorkspacePreviewTabKind,
@@ -19,6 +19,7 @@ export function workspaceTabIdsToClose(
   if (targetIndex < 0) return []
   if (action === 'close') return [targetId]
   if (action === 'close-others') return ids.filter(id => id !== targetId)
+  if (action === 'close-all') return [...ids]
   return ids.slice(targetIndex + 1)
 }
 

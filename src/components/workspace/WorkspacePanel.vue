@@ -812,7 +812,7 @@ async function runTabContextAction(action: WorkspaceTabCloseAction | 'copy-absol
   const tabItem = previewTabs.value.find(item => item.id === menu.tabId)
   if (!tabItem) return
   try {
-    if (action === 'close' || action === 'close-others' || action === 'close-right') {
+    if (action === 'close' || action === 'close-others' || action === 'close-right' || action === 'close-all') {
       closePreviewTabs(tabItem.id, action)
     } else if (action === 'refresh') {
       await reloadPreviewTab(tabItem)
@@ -1417,6 +1417,7 @@ onBeforeUnmount(() => {
             <button type="button" role="menuitem" @click="runTabContextAction('close')"><X />关闭</button>
             <button type="button" role="menuitem" @click="runTabContextAction('close-others')"><X />关闭其他标签</button>
             <button type="button" role="menuitem" @click="runTabContextAction('close-right')"><X />关闭右侧标签</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('close-all')"><X />关闭所有标签</button>
             <button type="button" role="menuitem" @click="runTabContextAction('refresh')"><RefreshCw />刷新标签</button>
             <div class="workspace-context-separator" />
             <button type="button" role="menuitem" @click="runTabContextAction('copy-absolute')"><Copy />复制绝对路径</button>

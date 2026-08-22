@@ -140,7 +140,7 @@ Canvas charts sample token colors at mount; xterm watches `html` class. Neither 
 
 | Platform | Window controls | Sidebar top inset | Main top |
 |----------|-----------------|-------------------|----------|
-| macOS | System traffic lights (overlay) | `4.75rem` for lights | Title + drag |
+| macOS | System traffic lights (overlay) | `4.75rem` for lights; **dropped in native fullscreen** | Title + drag |
 | Windows | Custom `WindowControls` on main top-right | `pl-2` | Drag + min/max/close |
 | Linux | Custom `WindowControls` on main top-right (same as Windows) | `pl-2` | Drag + min/max/close |
 | Web (`web:dev`) | Browser chrome | Brand in sidebar top when expanded | Title only |

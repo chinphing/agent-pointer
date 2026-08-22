@@ -64,6 +64,8 @@ flowchart TB
 
 设置页不要整行顶栏。左右两列从窗口顶对齐：左侧顶行是「返回对话」（macOS 红绿灯 `traffic-light-inset` 后再 `pl-2`），右侧同等高度（`mac-chrome-row` / `h-10`）为 `main-top-chrome` 拖动区。Windows / Linux 窗口按钮放在右侧拖动行右端。导航与正文都从该行下方 `pt-3` 开始。
 
+macOS **原生全屏**时系统红绿灯随菜单栏隐藏，前端去掉 `traffic-light-inset`，设置页「返回对话」与对话侧栏顶栏收回这块空位。退出全屏后恢复留白。窗口化最大化（Option+绿灯 / 双击标题栏）红绿灯仍在，留白保持。Windows / Linux / Web 左侧没有红绿灯槽，「返回对话」本来就贴左，全屏无需再挪。
+
 ---
 
 ## 3. 关键常量（改一处要对照全部）
@@ -170,7 +172,7 @@ flowchart TB
 
 布局 class（与拖拽无关）：`.traffic-light-inset`、`.mac-chrome-row`、`.sidebar-chrome`、`.collapsed-top-chrome`、`.main-top-chrome`。
 
-`useWindowChrome().macTrafficLightPadding` 仅在 macOS 为 true，控制 `traffic-light-inset` / `mac-chrome-row`。
+`useWindowChrome().macTrafficLightPadding` 为 `macTrafficLightInsetActive(os, fullscreen)`：仅 macOS **且非原生全屏** 时为 true，控制 `traffic-light-inset`。全屏状态在 `onResized` 中读取（含 80ms 滞后补查），并缓存在 composable 模块级，避免对话↔设置切换时首帧闪回留白。
 
 ---
 
@@ -182,7 +184,8 @@ flowchart TB
 | `src-tauri/src/macos_traffic_lights.rs` | `INSET_X/Y`、`inset_traffic_lights`、紧凑圆角、显隐红绿灯 |
 | `src-tauri/src/lib.rs` | 启动配置、reapply/repair、延迟 pass、窗口事件监听 |
 | `src-tauri/src/window_chrome_commands.rs` | 紧凑 chrome 切换、`reapply_window_chrome` command、紧凑态标志 |
-| `src/composables/useWindowChrome.ts` | 最大化状态、macOS 防抖 reapply |
+| `src/composables/useWindowChrome.ts` | 最大化/全屏状态、macOS 防抖 reapply；全屏时关闭 traffic-light inset |
+| `src/lib/desktopOs.ts` | OS 检测、`macTrafficLightInsetActive` |
 | `src/composables/useComputerCompactWindow.ts` | 紧凑窗口几何与恢复顺序 |
 | `src/lib/windowDragRegions.ts` | **各区域拖拽策略表（改拖拽先改此文件）** |
 | `src/components/layout/WindowDragRegion.vue` | 按 region 应用策略的包裹组件 |
@@ -257,12 +260,13 @@ flowchart TB
 | resize 后又错位 | 保持 `schedule_macos_overlay_chrome_repair` 与 `useWindowChrome` 防抖 |
 | 紧凑模式恢复后无红绿灯 | 检查 `useComputerCompactWindow` 恢复顺序与 250ms 延迟 reapply |
 | 新窗口形态（如全屏/多窗口） | 新形态退出时调用 `reapply_window_chrome` 或挂接同类 repair |
+| 全屏后左侧空一条 | 确认 `macTrafficLightPadding` 随 `isFullscreen()` 变为 false；不是最大化（红绿灯仍在） |
 | 关窗后 Dock 点不开 | 确认 `RunEvent::Reopen` 仍调用 `show_main_window` |
 
 ---
 
 ## 12. 跨平台说明
 
-- **Windows / Linux**：全程 `decorations: false`，顶栏按钮为 `WindowControls`，**无本文档所述红绿灯逻辑**。
-- **Web**：浏览器 chrome，无 Tauri 窗口 API。
+- **Windows / Linux**：全程 `decorations: false`，顶栏按钮为 `WindowControls`（主区右上），**无本文档所述红绿灯逻辑**，左侧没有可回收的 inset。设置页「返回对话」窗口化与全屏位置相同。
+- **Web**：浏览器 chrome，无 Tauri 窗口 API，同样没有左侧红绿灯槽。
 - 任何改 `useWindowChrome` / `AppShell` 顶栏的变更须同时考虑三端（见项目开发规范「跨入口兼容」）。

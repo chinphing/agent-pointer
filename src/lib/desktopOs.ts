@@ -32,3 +32,14 @@ export const MAC_TITLEBAR_TRAFFIC_LIGHT_PADDING_PX = 76
 
 /** macOS overlay: vertical inset applied in Rust (`macos_traffic_lights.rs`). */
 export const MAC_TRAFFIC_LIGHT_POSITION_Y = 17
+
+/**
+ * Reserve leading inset for overlay traffic lights.
+ * Native fullscreen hides the lights (they may reappear on hover in the
+ * system menu bar), so the inset would otherwise leave an empty gutter.
+ * Settings back-to-chat and the conversation sidebar chrome reclaim that space.
+ * Windows / Linux never use this inset (custom controls sit on the right).
+ */
+export function macTrafficLightInsetActive(os: DesktopOs, fullscreen: boolean): boolean {
+  return os === 'macos' && !fullscreen
+}

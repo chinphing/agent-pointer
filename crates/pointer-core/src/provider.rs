@@ -604,10 +604,8 @@ impl OpenAIProvider {
                         }),
                         None => serde_json::json!({ "model": out.model }),
                     };
-                    if let Some(user_msg) = messages
-                        .iter()
-                        .rev()
-                        .find(|m| matches!(m.role, Role::User))
+                    if let Some(user_msg) =
+                        messages.iter().rev().find(|m| matches!(m.role, Role::User))
                     {
                         g.span.input = Some(capture_truncate(
                             Value::String(user_msg.content.clone()),
@@ -1919,7 +1917,8 @@ mod native_tool_call_tests {
         // No user message / not an array / None -> None.
         assert!(last_user_message_value(Some(&serde_json::json!([
             { "role": "assistant", "content": "x" },
-        ]))).is_none());
+        ])))
+        .is_none());
         assert!(last_user_message_value(Some(&serde_json::json!("nope"))).is_none());
         assert!(last_user_message_value(None).is_none());
     }

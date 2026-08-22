@@ -1,13 +1,16 @@
 //! Background precompress, pending splice, and between-round prepare.
 
 use super::budget::*;
-use super::run::{clear_last_lead_prompt_tokens, compress_history_inner, maybe_compress_history};
+use super::run::{
+    clear_last_lead_prompt_tokens, compress_history_inner, fingerprint_window_start,
+    maybe_compress_history, splice_summary_into_drop_window,
+};
 use super::types::*;
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::models::{ChatMessage, ModelSettings, StreamEvent};
 use crate::provider::OpenAIProvider;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use tokio_util::sync::CancellationToken;
@@ -66,16 +69,13 @@ pub fn remember_session_llm(conversation_id: &str, settings: &ModelSettings, api
         settings.active_provider_id,
         settings.model
     );
-    PrecompressCoordinator::global()
-        .session_llm
-        .lock()
-        .insert(
-            id.to_string(),
-            SessionLlmSnapshot {
-                settings: settings.clone(),
-                api_key: api_key.to_string(),
-            },
-        );
+    PrecompressCoordinator::global().session_llm.lock().insert(
+        id.to_string(),
+        SessionLlmSnapshot {
+            settings: settings.clone(),
+            api_key: api_key.to_string(),
+        },
+    );
 }
 
 pub(crate) fn session_llm_for_conversation(conversation_id: &str) -> Option<SessionLlmSnapshot> {
@@ -135,30 +135,7 @@ pub(crate) fn pending_fingerprint_matches(
     history: &[ChatMessage],
     pending: &PendingCompressionSplice,
 ) -> bool {
-    let n = pending.fingerprint_prefix_ids.len();
-    if n == 0 {
-        return false;
-    }
-    let insert_at = if pending.insert_before_message_id.is_empty() {
-        history.len()
-    } else {
-        match history
-            .iter()
-            .position(|m| m.id == pending.insert_before_message_id)
-        {
-            Some(i) => i,
-            None => return false,
-        }
-    };
-    if insert_at < n {
-        return false;
-    }
-    let drop_start = insert_at - n;
-    pending
-        .fingerprint_prefix_ids
-        .iter()
-        .enumerate()
-        .all(|(i, id)| history[drop_start + i].id == *id)
+    fingerprint_window_start(history, &pending.fingerprint_prefix_ids).is_some()
 }
 
 /// Apply a queued precompress splice when the conversation is idle.
@@ -255,40 +232,23 @@ pub(crate) fn splice_pending_into_history(
     history: &mut Vec<ChatMessage>,
     pending: &PendingCompressionSplice,
 ) -> bool {
-    if pending.fingerprint_prefix_ids.is_empty() {
+    let Some(drop_start) = fingerprint_window_start(history, &pending.fingerprint_prefix_ids)
+    else {
         return false;
-    }
-    let insert_at = if pending.insert_before_message_id.is_empty() {
-        history.len()
-    } else {
-        match history
-            .iter()
-            .position(|m| m.id == pending.insert_before_message_id)
-        {
-            Some(i) => i,
-            None => return false,
-        }
     };
-    let n = pending.fingerprint_prefix_ids.len();
-    if insert_at < n {
-        return false;
-    }
-    let drop_start = insert_at - n;
-    for (i, id) in pending.fingerprint_prefix_ids.iter().enumerate() {
-        if history[drop_start + i].id != *id {
-            return false;
-        }
-    }
-    for m in &mut history[drop_start..insert_at] {
-        if crate::message_context::is_context_included(m) {
-            crate::message_context::mark_excluded(
-                m,
-                crate::models::ExcludedReason::ContextCompression,
-            );
-        }
-    }
-    history.insert(insert_at, pending.summary_msg.clone());
-    history.drain(drop_start..insert_at);
+    let drop_end = drop_start + pending.fingerprint_prefix_ids.len();
+    let drop_ids: HashSet<String> = pending
+        .excluded_for_persist
+        .iter()
+        .map(|m| m.id.clone())
+        .collect();
+    splice_summary_into_drop_window(
+        history,
+        drop_start,
+        drop_end,
+        &drop_ids,
+        pending.summary_msg.clone(),
+    );
     true
 }
 
@@ -479,7 +439,9 @@ pub(crate) fn spawn_sub_agent_precompress(
                 return false;
             }
             if api_key.trim().is_empty() {
-                log::info!("context_compress: sub_agent precompress skipped (no api key) key={key}");
+                log::info!(
+                    "context_compress: sub_agent precompress skipped (no api key) key={key}"
+                );
                 return false;
             }
             let provider = OpenAIProvider::new(settings.clone(), api_key);
@@ -509,7 +471,10 @@ pub(crate) fn spawn_sub_agent_precompress(
         .await;
         log::info!("context_compress: sub_agent precompress job finished key={key} ok={applied}");
         let _ = done_tx.send(true);
-        PrecompressCoordinator::global().inflight.lock().remove(&key);
+        PrecompressCoordinator::global()
+            .inflight
+            .lock()
+            .remove(&key);
     });
 }
 
@@ -546,12 +511,7 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
     }
     let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
-    match sub_agent_between_round_compress_soft(
-        history,
-        tokens,
-        budget,
-        keep_users,
-    ) {
+    match sub_agent_between_round_compress_soft(history, tokens, budget, keep_users) {
         None => {}
         Some(false) => {
             log::info!(
@@ -568,12 +528,7 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
                     conversation_id
                 );
             }
-            let still = sub_agent_between_round_compress_soft(
-                history,
-                tokens,
-                budget,
-                keep_users,
-            );
+            let still = sub_agent_between_round_compress_soft(history, tokens, budget, keep_users);
             if matches!(still, Some(false)) && !cancel.is_cancelled() {
                 let _ = maybe_compress_history(
                     history,
@@ -630,15 +585,7 @@ pub async fn prepare_history_between_llm_rounds(
     }
     let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
-    let hard_plan = plan_compression(
-        history,
-        tokens,
-        budget,
-        keep_users,
-        false,
-        false,
-        false,
-    );
+    let hard_plan = plan_compression(history, tokens, budget, keep_users, false, false, false);
     if !matches!(hard_plan, CompressionPlan::Skip) {
         log::info!(
             "context_compress: between-round hard gate conversation_id={} plan={:?} share={:.3}",
@@ -654,15 +601,7 @@ pub async fn prepare_history_between_llm_rounds(
                 conversation_id
             );
         }
-        let still = plan_compression(
-            history,
-            tokens,
-            budget,
-            keep_users,
-            false,
-            false,
-            false,
-        );
+        let still = plan_compression(history, tokens, budget, keep_users, false, false, false);
         if !matches!(still, CompressionPlan::Skip) && !cancel.is_cancelled() {
             let _ = maybe_compress_history(
                 history,
@@ -896,4 +835,3 @@ pub(crate) async fn run_precompress_job(
     }
     changed
 }
-

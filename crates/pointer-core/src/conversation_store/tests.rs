@@ -310,12 +310,7 @@ mod tests {
                 "请核对 unique_ss_token 发票附件是否已归档",
                 1_700_000_001_000,
             ),
-            msg(
-                "msg_a",
-                Role::Assistant,
-                "Acknowledged.",
-                1_700_000_002_000,
-            ),
+            msg("msg_a", Role::Assistant, "Acknowledged.", 1_700_000_002_000),
         ];
         store.sync_conversations(&[conv]).unwrap();
 
@@ -341,11 +336,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .all(|m| m["content"]
-                .as_str()
-                .unwrap()
-                .len()
-                < 20_000));
+            .all(|m| m["content"].as_str().unwrap().len() < 20_000));
     }
 
     #[test]
@@ -369,12 +360,7 @@ mod tests {
                 &format!("请核对 {token} 是否已归档"),
                 1_700_000_001_000,
             ),
-            msg(
-                "msg_a",
-                Role::Assistant,
-                "Acknowledged.",
-                1_700_000_002_000,
-            ),
+            msg("msg_a", Role::Assistant, "Acknowledged.", 1_700_000_002_000),
         ];
         store.sync_conversations(&[conv]).unwrap();
 
@@ -444,10 +430,7 @@ mod tests {
         assert_eq!(parsed["count"], 1);
         let matches = parsed["results"][0]["matches"].as_array().unwrap();
         assert_eq!(matches.len(), 2);
-        let ids: Vec<_> = matches
-            .iter()
-            .filter_map(|m| m["id"].as_str())
-            .collect();
+        let ids: Vec<_> = matches.iter().filter_map(|m| m["id"].as_str()).collect();
         assert!(ids.contains(&"msg_a"));
         assert!(ids.contains(&"msg_c"));
         assert_eq!(parsed["results"][0]["match_count"], 2);
@@ -473,12 +456,7 @@ mod tests {
         let mut conv = sample_conv("c_clip", "Long body", "short");
         conv.messages = vec![
             msg("msg_long", Role::User, &long, 1_700_000_000_000),
-            msg(
-                "msg_a",
-                Role::Assistant,
-                "Acknowledged.",
-                1_700_000_001_000,
-            ),
+            msg("msg_a", Role::Assistant, "Acknowledged.", 1_700_000_001_000),
         ];
         store.sync_conversations(&[conv]).unwrap();
 

@@ -6,6 +6,7 @@ use super::summary::*;
 use super::types::*;
 use crate::models::{ChatMessage, ModelSettings, Role, StreamEvent};
 use crate::provider::OpenAIProvider;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -25,6 +26,123 @@ pub(crate) fn droppable_message_count(
                 && !crate::message_context::is_synthetic_user_content(&m.content)
         })
         .count() as u32
+}
+
+/// Last N real user turns (user + concluding assistant) that fall inside the
+/// drop window. Used when the summary LLM fails so those turns stay verbatim.
+pub(crate) fn drop_fallback_keep_ids(
+    history: &[ChatMessage],
+    drop_start: usize,
+    drop_end: usize,
+) -> HashSet<String> {
+    let mut keep = HashSet::new();
+    if drop_start >= drop_end || drop_end > history.len() {
+        return keep;
+    }
+    for user_idx in crate::message_context::find_recent_context_user_indices(
+        history,
+        DROP_FALLBACK_KEEP_USER_TURNS,
+    ) {
+        if user_idx >= drop_start && user_idx < drop_end {
+            keep.insert(history[user_idx].id.clone());
+        }
+        if let Some(asst_idx) =
+            crate::message_context::concluding_assistant_index(history, user_idx)
+        {
+            if asst_idx >= drop_start && asst_idx < drop_end {
+                keep.insert(history[asst_idx].id.clone());
+            }
+        }
+    }
+    keep
+}
+
+pub(crate) fn fingerprint_window_start(history: &[ChatMessage], ids: &[String]) -> Option<usize> {
+    let n = ids.len();
+    if n == 0 || history.len() < n {
+        return None;
+    }
+    (0..=history.len() - n).find(|&start| {
+        history[start..start + n]
+            .iter()
+            .zip(ids.iter())
+            .all(|(m, id)| m.id == *id)
+    })
+}
+
+/// Remove `drop_ids` from `[drop_start, drop_end)`, then insert `summary` at
+/// `drop_start` so salvaged rows stay after the handoff and before the tail.
+pub(crate) fn splice_summary_into_drop_window(
+    history: &mut Vec<ChatMessage>,
+    drop_start: usize,
+    drop_end: usize,
+    drop_ids: &HashSet<String>,
+    summary: ChatMessage,
+) {
+    if drop_start > drop_end || drop_end > history.len() {
+        log::warn!(
+            "context_compress: splice window invalid drop_start={drop_start} drop_end={drop_end} len={}",
+            history.len()
+        );
+        return;
+    }
+    for i in (drop_start..drop_end).rev() {
+        if drop_ids.contains(&history[i].id) {
+            history.remove(i);
+        }
+    }
+    let insert_at = drop_start.min(history.len());
+    history.insert(insert_at, summary);
+}
+
+struct DropSplicePlan {
+    keep_ids: HashSet<String>,
+    excluded_for_persist: Vec<ChatMessage>,
+    insert_before_message_id: String,
+    dropped_count: u32,
+}
+
+fn plan_drop_splice(
+    history: &[ChatMessage],
+    drop_start: usize,
+    drop_end: usize,
+    summary_failed: bool,
+) -> DropSplicePlan {
+    let keep_ids = if summary_failed {
+        drop_fallback_keep_ids(history, drop_start, drop_end)
+    } else {
+        HashSet::new()
+    };
+    let mut excluded_for_persist = Vec::new();
+    for m in &history[drop_start..drop_end] {
+        if keep_ids.contains(&m.id) {
+            continue;
+        }
+        if crate::message_context::is_context_included(m) {
+            let mut excluded = m.clone();
+            crate::message_context::mark_excluded(
+                &mut excluded,
+                crate::models::ExcludedReason::ContextCompression,
+            );
+            excluded_for_persist.push(excluded);
+        }
+    }
+    let dropped_count = excluded_for_persist
+        .iter()
+        .filter(|m| !crate::message_context::is_synthetic_user_content(&m.content))
+        .count() as u32;
+    let insert_before_message_id = history[drop_start..drop_end]
+        .iter()
+        .find(|m| keep_ids.contains(&m.id))
+        .or_else(|| history.get(drop_end))
+        .map(|m| m.id.clone())
+        .unwrap_or_default();
+    DropSplicePlan {
+        keep_ids,
+        excluded_for_persist,
+        insert_before_message_id,
+        dropped_count,
+    }
 }
 
 pub(crate) async fn compress_history_inner(
@@ -167,9 +285,9 @@ pub(crate) async fn compress_history_inner(
     let format_prefix_ms = t_fmt.elapsed().as_millis();
     let content_tokens = estimate_text_tokens_heuristic(&formatted);
     let max_tok = compute_summary_max_tokens(content_tokens);
-    // Provider cap gets 1.3× headroom over the target budget so the model can
-    // close out without `finish_reason=length` (mirrors Hermes). The budget
-    // itself stays the prompt target (~N tokens) and the log label.
+    // Provider cap gets 1.5× headroom over the target budget so the model can
+    // close out without `finish_reason=length`. The budget itself stays the
+    // prompt target (~N tokens) and the log label.
     let requested_max_tok = summary_max_tokens_requested(max_tok);
     let summary_user_prompt = build_summary_user_prompt(&formatted, max_tok, in_run);
     let input = ChatMessage {
@@ -223,10 +341,7 @@ pub(crate) async fn compress_history_inner(
     } else {
         "budget"
     };
-    let dump_lbl = format!(
-        "{}_context_summary_{}",
-        conversation_id, reason
-    );
+    let dump_lbl = format!("{}_context_summary_{}", conversation_id, reason);
     log::info!(
         "context_compress: summary_budget conversation_id={} content_tokens={} floor={} max_tokens={} requested={} ceiling={}",
         conversation_id,
@@ -241,9 +356,8 @@ pub(crate) async fn compress_history_inner(
     let summary_sections =
         crate::models::SystemPromptSections::all_cacheable(vec![summary_system.clone()]);
     // First attempt: no-thinking + 20% content budget (ceiling 12k), provider
-    // cap gets 1.3× headroom (mirrors Hermes). A `finish_reason=length`
-    // rejection is retried once at budget×2 before falling through to
-    // drop_without_summary.
+    // cap gets 1.5× headroom. A `finish_reason=length` rejection is retried
+    // once at budget × 3 before falling through to drop_without_summary.
     let summary_text = match provider
         .chat_once_without_thinking(
             std::slice::from_ref(&input),
@@ -357,7 +471,6 @@ pub(crate) async fn compress_history_inner(
         }
     };
 
-    let mut summary_failed = false;
     if cancel.is_cancelled() {
         log::info!(
             "context_compress: cancelled after LLM summary, aborting splice conversation_id={} wall_ms={}",
@@ -367,14 +480,32 @@ pub(crate) async fn compress_history_inner(
         return false;
     }
 
+    let summary_failed = summary_text.is_none();
+    let splice = plan_drop_splice(history, drop_start, drop_end, summary_failed);
+    let dropped_count = splice.dropped_count;
+    let insert_before_message_id = splice.insert_before_message_id.clone();
+    let fingerprint_prefix_ids: Vec<String> = history[drop_start..drop_end]
+        .iter()
+        .map(|m| m.id.clone())
+        .collect();
+    let drop_ids: HashSet<String> = splice
+        .excluded_for_persist
+        .iter()
+        .map(|m| m.id.clone())
+        .collect();
+
     let summary_body = match summary_text {
         Some(text) => build_persisted_summary(summary_prefix, &text),
         None => {
-            // Hermes default: drop the middle window with a deterministic handoff
-            // instead of leaving an over-budget transcript unchanged.
-            summary_failed = true;
+            let kept_turns = crate::message_context::find_recent_context_user_indices(
+                history,
+                DROP_FALLBACK_KEEP_USER_TURNS,
+            )
+            .into_iter()
+            .filter(|&i| i >= drop_start && i < drop_end)
+            .count();
             log::warn!(
-                "context_compress: drop_without_summary conversation_id={} scope={:?} messages={} in_run={} drop_start={} drop_end={} dropped={} wall_ms={}",
+                "context_compress: drop_without_summary conversation_id={} scope={:?} messages={} in_run={} drop_start={} drop_end={} dropped={} kept_messages={} kept_user_turns={} wall_ms={}",
                 conversation_id,
                 ui.scope,
                 messages_before,
@@ -382,9 +513,11 @@ pub(crate) async fn compress_history_inner(
                 drop_start,
                 drop_end,
                 dropped_count,
+                splice.keep_ids.len(),
+                kept_turns,
                 wall.elapsed().as_millis()
             );
-            build_drop_without_summary_body(summary_prefix, dropped_count)
+            build_drop_without_summary_body(summary_prefix, dropped_count, kept_turns)
         }
     };
     let apply_reason = if summary_failed {
@@ -401,15 +534,6 @@ pub(crate) async fn compress_history_inner(
         reason
     };
 
-    let insert_before_message_id = history
-        .get(drop_end)
-        .map(|m| m.id.clone())
-        .unwrap_or_default();
-    let fingerprint_prefix_ids: Vec<String> = history[drop_start..drop_end]
-        .iter()
-        .map(|m| m.id.clone())
-        .collect();
-
     let turn_busy = force_enqueue
         || (matches!(ui.scope, CompressionScope::Main)
             && defer_persist_state
@@ -417,20 +541,15 @@ pub(crate) async fn compress_history_inner(
                 .map(|s| s.cancels.lock().contains_key(conversation_id))
                 .unwrap_or(false));
     if turn_busy {
-        let mut excluded_for_persist: Vec<ChatMessage> = history[drop_start..drop_end]
-            .iter()
-            .filter(|m| crate::message_context::is_context_included(m))
-            .cloned()
-            .collect();
-        for m in &mut excluded_for_persist {
-            crate::message_context::mark_excluded(
-                m,
-                crate::models::ExcludedReason::ContextCompression,
-            );
-        }
         let summary_msg = new_summary_message(summary_body, in_run);
         let mut preview_hist = history[..drop_start].to_vec();
         preview_hist.push(summary_msg.clone());
+        preview_hist.extend(
+            history[drop_start..drop_end]
+                .iter()
+                .filter(|m| splice.keep_ids.contains(&m.id))
+                .cloned(),
+        );
         preview_hist.extend(history[drop_end..].iter().cloned());
         let preview_for_disk = crate::conversation_store::conversation_preview(&preview_hist);
         enqueue_pending_splice(PendingCompressionSplice {
@@ -439,7 +558,7 @@ pub(crate) async fn compress_history_inner(
             ui: ui.clone(),
             fingerprint_prefix_ids,
             insert_before_message_id,
-            excluded_for_persist,
+            excluded_for_persist: splice.excluded_for_persist,
             summary_msg,
             preview_for_disk,
             dropped_count,
@@ -448,47 +567,60 @@ pub(crate) async fn compress_history_inner(
             summary_failed,
         });
         log::info!(
-            "context_compress: enqueued splice (turn busy) conversation_id={} in_run={} drop_start={} drop_end={} dropped={} share={:.3} wall_ms={}",
+            "context_compress: enqueued splice (turn busy) conversation_id={} in_run={} drop_start={} drop_end={} dropped={} kept_messages={} share={:.3} wall_ms={}",
             conversation_id,
             in_run,
             drop_start,
             drop_end,
             dropped_count,
+            splice.keep_ids.len(),
             current_turn_message_share(history),
             wall.elapsed().as_millis()
         );
         return false;
     }
 
-    let excluded_message_ids =
-        mark_compressed_prefix_excluded(&mut history[drop_start..drop_end]);
-    let excluded_for_persist: Vec<ChatMessage> = history[drop_start..drop_end]
+    let excluded_message_ids: Vec<String> = splice
+        .excluded_for_persist
         .iter()
-        .filter(|m| excluded_message_ids.iter().any(|id| id == &m.id))
-        .cloned()
+        .map(|m| m.id.clone())
         .collect();
+    for m in &mut history[drop_start..drop_end] {
+        if drop_ids.contains(&m.id) && crate::message_context::is_context_included(m) {
+            crate::message_context::mark_excluded(
+                m,
+                crate::models::ExcludedReason::ContextCompression,
+            );
+        }
+    }
     let summary_msg = new_summary_message(summary_body, in_run);
-    history.insert(drop_end, summary_msg.clone());
-
-    // Persist before drain: soft-exclude payloads + shift suffix + insert summary.
     let mut preview_hist = history[..drop_start].to_vec();
     preview_hist.push(summary_msg.clone());
-    preview_hist.extend(history[(drop_end + 1)..].iter().cloned());
+    preview_hist.extend(
+        history[drop_start..drop_end]
+            .iter()
+            .filter(|m| splice.keep_ids.contains(&m.id))
+            .cloned(),
+    );
+    preview_hist.extend(history[drop_end..].iter().cloned());
     let preview_for_disk = crate::conversation_store::conversation_preview(&preview_hist);
     if matches!(ui.scope, CompressionScope::Main) {
         crate::conversation_transcript::persist_compression_splice(
             conversation_id,
-            &excluded_for_persist,
+            &splice.excluded_for_persist,
             &summary_msg,
             &insert_before_message_id,
             &preview_for_disk,
         );
     }
 
-    // After insert, dropped rows are still [drop_start, drop_end) and the
-    // summary sits at drop_end. Drain the dropped window so the summary
-    // slides into place (prefix path: drop_start=0).
-    history.drain(drop_start..drop_end);
+    splice_summary_into_drop_window(
+        history,
+        drop_start,
+        drop_end,
+        &drop_ids,
+        summary_msg.clone(),
+    );
 
     // Strip images from remaining messages (belt-and-suspenders: also done in session.rs).
     // The verbatim tail may still carry base64 screenshots from computer agent rounds;
@@ -514,7 +646,7 @@ pub(crate) async fn compress_history_inner(
     );
 
     log::info!(
-        "context_compress: applied conversation_id={} scope={:?} reason={} summary_failed={} messages_before={} messages_after={} in_run={} drop_start={} drop_end={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} summary_max_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
+        "context_compress: applied conversation_id={} scope={:?} reason={} summary_failed={} messages_before={} messages_after={} in_run={} drop_start={} drop_end={} dropped={} kept_messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} summary_max_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
         conversation_id,
         ui.scope,
         apply_reason,
@@ -524,6 +656,8 @@ pub(crate) async fn compress_history_inner(
         in_run,
         drop_start,
         drop_end,
+        dropped_count,
+        splice.keep_ids.len(),
         gate_tokens,
         gate_source,
         payload_est,
@@ -699,4 +833,3 @@ pub async fn recover_history_after_overflow(
     }
     changed
 }
-

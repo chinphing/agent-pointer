@@ -181,13 +181,11 @@ fn collect_fts_hits(
     }
 
     // conversation_id -> grouped hits (primary prefers a contiguous substring)
-    let mut best: std::collections::HashMap<String, ConvUiHits> =
-        std::collections::HashMap::new();
+    let mut best: std::collections::HashMap<String, ConvUiHits> = std::collections::HashMap::new();
     for row in mapped {
         let (id, message_id, role, content, title, updated_at, message_count, preview) = row?;
         let contiguous = text_contains_query(&content, raw_query);
-        let row_snippet =
-            match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "");
+        let row_snippet = match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "");
         let (snippet, resolved_message_id, resolved_role) = if contiguous {
             (row_snippet.clone(), message_id.clone(), role.clone())
         } else if let Some((mid, r, snip)) =
@@ -557,17 +555,18 @@ fn discover(
                 SESSION_SEARCH_INDEX_STUB
             ],
             |row| {
-            let content: String = row.get(3)?;
-            Ok(FtsHit {
-                conversation_id: row.get(0)?,
-                message_id: row.get(1)?,
-                role: row.get(2)?,
-                content,
-                tool_name: row.get(4)?,
-                snippet: String::new(),
-                rank: row.get(5)?,
-            })
-        })?;
+                let content: String = row.get(3)?;
+                Ok(FtsHit {
+                    conversation_id: row.get(0)?,
+                    message_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content,
+                    tool_name: row.get(4)?,
+                    snippet: String::new(),
+                    rank: row.get(5)?,
+                })
+            },
+        )?;
         for hit in mapped {
             let mut hit = hit?;
             if is_omitted_session_search_row(&hit.role, &hit.content, hit.tool_name.as_deref()) {
@@ -578,13 +577,8 @@ fn discover(
                 );
                 continue;
             }
-            hit.snippet = match_centered_snippet(
-                &hit.content,
-                query,
-                TOOL_SNIPPET_RADIUS,
-                "<b>",
-                "</b>",
-            );
+            hit.snippet =
+                match_centered_snippet(&hit.content, query, TOOL_SNIPPET_RADIUS, "<b>", "</b>");
             hits.push(hit);
         }
     }
@@ -600,8 +594,7 @@ fn discover(
         match_count: u32,
     }
 
-    let mut groups: std::collections::HashMap<String, DiscGroup> =
-        std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<String, DiscGroup> = std::collections::HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for hit in hits {
         if current_conversation_id == Some(hit.conversation_id.as_str()) {
@@ -659,13 +652,7 @@ fn discover(
         };
         let anchor_pos = message_position(&conn, &conversation_id, &group.primary.message_id)?;
         let window = if anchor_pos >= 0 {
-            load_window(
-                &conn,
-                &conversation_id,
-                anchor_pos,
-                DEFAULT_WINDOW,
-                query,
-            )?
+            load_window(&conn, &conversation_id, anchor_pos, DEFAULT_WINDOW, query)?
         } else {
             WindowView {
                 messages: vec![],
@@ -934,15 +921,16 @@ fn load_window(
     let rows = stmt.query_map(
         params![conversation_id, start, end, SESSION_SEARCH_INDEX_STUB],
         |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, i64>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, Option<String>>(5)?,
-        ))
-    })?;
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        },
+    )?;
 
     let mut messages = Vec::new();
     for row in rows {
@@ -957,8 +945,7 @@ fn load_window(
             tool_name.as_deref(),
             is_anchor,
             query,
-        )
-        {
+        ) {
             messages.push(entry);
         }
     }
@@ -997,16 +984,9 @@ fn load_bookends(
     let mut out = Vec::new();
     for row in rows {
         let (id, role, content, ts, payload) = row?;
-        if let Some(entry) = session_search_message_json(
-            id,
-            role,
-            content,
-            ts,
-            &payload,
-            None,
-            false,
-            query,
-        ) {
+        if let Some(entry) =
+            session_search_message_json(id, role, content, ts, &payload, None, false, query)
+        {
             out.push(entry);
         }
     }

@@ -46,7 +46,7 @@ use outcome::record_tool_exec_outcome;
 use types::ToolExecResult;
 
 use crate::dispatcher::{HookOutcome, PreToolCallContext};
-use crate::observability::{capture_truncate, CAPTURE_MAX_BYTES, SpanKind, TraceEvent};
+use crate::observability::{capture_truncate, SpanKind, TraceEvent, CAPTURE_MAX_BYTES};
 
 fn task_board_emit_anchor_for_store_key(
     ctx: &ToolPassContext<'_>,
@@ -674,10 +674,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         if let serde_json::Value::Object(ref mut attrs) = tool_span.attributes {
                             attrs.insert("tool_id".into(), serde_json::json!(tool_id));
                         }
-                        tool_span.input = Some(capture_truncate(
-                            args.clone(),
-                            CAPTURE_MAX_BYTES,
-                        ));
+                        tool_span.input = Some(capture_truncate(args.clone(), CAPTURE_MAX_BYTES));
                         let _tool_permit = tool_sem.acquire_owned().await;
                         if class == ToolConflictClass::Media {
                             let _media = media_sem.acquire_owned().await;
@@ -1248,10 +1245,7 @@ async fn run_one_prepared(
     if let serde_json::Value::Object(ref mut attrs) = tool_span.attributes {
         attrs.insert("tool_id".into(), serde_json::json!(prep.tool_id));
     }
-    tool_span.input = Some(capture_truncate(
-        prep.args_value.clone(),
-        CAPTURE_MAX_BYTES,
-    ));
+    tool_span.input = Some(capture_truncate(prep.args_value.clone(), CAPTURE_MAX_BYTES));
     let span_id = tool_span.span_id.clone();
 
     emit_tool_running(

@@ -254,9 +254,7 @@ async fn run_background_review(
                 &tc.name,
                 &tc.arguments,
             )
-                    .unwrap_or_else(|e| {
-                        json!({ "success": false, "error": e.to_string() }).to_string()
-                    });
+            .unwrap_or_else(|e| json!({ "success": false, "error": e.to_string() }).to_string());
 
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&result) {
                 if v.get("success").and_then(|b| b.as_bool()) == Some(true) {

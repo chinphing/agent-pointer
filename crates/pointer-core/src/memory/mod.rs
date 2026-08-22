@@ -21,9 +21,5 @@ pub fn push_memory_to_cacheable(
     memory_enabled: bool,
     user_profile_enabled: bool,
 ) {
-    cacheable.extend(store.snapshot_blocks(
-        session_user_id,
-        memory_enabled,
-        user_profile_enabled,
-    ));
+    cacheable.extend(store.snapshot_blocks(session_user_id, memory_enabled, user_profile_enabled));
 }

@@ -1,5 +1,6 @@
 //! Compression UI scope and stream helpers.
 
+use super::budget::DROP_FALLBACK_KEEP_USER_TURNS;
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::models::{ChatStreamSender, ContextCompressionInfo, StreamEvent};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -161,7 +162,10 @@ pub(crate) fn compression_done_toast(
     let msg = match ui.scope {
         CompressionScope::Main => {
             if summary_failed {
-                format!("摘要生成失败，已丢弃较早 {dropped} 条记录，并保留最近对话")
+                format!(
+                    "摘要生成失败，已丢弃较早 {dropped} 条记录，并保留最近 {keep} 轮用户消息",
+                    keep = DROP_FALLBACK_KEEP_USER_TURNS
+                )
             } else {
                 format!("已压缩较早 {dropped} 条对话为摘要，并保留最近对话")
             }
@@ -205,4 +209,3 @@ pub(crate) fn build_compression_info(
         task_id: ui.task_id.clone(),
     }
 }
-

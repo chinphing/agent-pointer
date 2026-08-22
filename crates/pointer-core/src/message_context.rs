@@ -153,20 +153,77 @@ pub fn is_context_dependent_user_content(content: &str) -> bool {
     )
 }
 
-/// Index of the newest context-included, non-synthetic user turn.
-pub fn find_last_context_user_index(msgs: &[ChatMessage]) -> Option<usize> {
+/// Whether this row is a real user turn (included, not a summary/placeholder).
+pub fn is_real_context_user(m: &ChatMessage) -> bool {
+    is_context_included(m)
+        && matches!(m.role, Role::User)
+        && !is_synthetic_user_content(&m.content)
+        && !is_context_dependent_user_content(&m.content)
+}
+
+/// Newest-to-oldest scan, then reversed: last `n` real user indices, oldest first.
+pub fn find_recent_context_user_indices(msgs: &[ChatMessage], n: usize) -> Vec<usize> {
+    if n == 0 || msgs.is_empty() {
+        return Vec::new();
+    }
+    let mut idx = Vec::new();
     for i in (0..msgs.len()).rev() {
+        if is_real_context_user(&msgs[i]) {
+            idx.push(i);
+            if idx.len() == n {
+                break;
+            }
+        }
+    }
+    idx.reverse();
+    idx
+}
+
+/// Last included assistant in this user turn that concluded the turn
+/// (no trailing `role: tool` rows, and any `tool_calls` are resolved).
+pub fn concluding_assistant_index(msgs: &[ChatMessage], user_idx: usize) -> Option<usize> {
+    if user_idx >= msgs.len() {
+        return None;
+    }
+    let end = ((user_idx + 1)..msgs.len())
+        .find(|&i| is_context_included(&msgs[i]) && matches!(msgs[i].role, Role::User))
+        .unwrap_or(msgs.len());
+    let mut last_asst = None;
+    for i in (user_idx + 1)..end {
         if !is_context_included(&msgs[i]) {
             continue;
         }
-        if matches!(msgs[i].role, Role::User)
-            && !is_synthetic_user_content(&msgs[i].content)
-            && !is_context_dependent_user_content(&msgs[i].content)
-        {
-            return Some(i);
+        if matches!(msgs[i].role, Role::Assistant) {
+            last_asst = Some(i);
         }
     }
-    None
+    let i = last_asst?;
+    let trailing_tool =
+        ((i + 1)..end).any(|j| is_context_included(&msgs[j]) && matches!(msgs[j].role, Role::Tool));
+    if trailing_tool {
+        return None;
+    }
+    if !assistant_tool_calls_resolved(&msgs[i]) {
+        return None;
+    }
+    Some(i)
+}
+
+fn assistant_tool_calls_resolved(m: &ChatMessage) -> bool {
+    match m.tool_calls.as_ref() {
+        None => true,
+        Some(calls) if calls.is_empty() => true,
+        Some(calls) => calls
+            .iter()
+            .all(|c| c.result.is_some() || c.error.as_ref().is_some_and(|e| !e.trim().is_empty())),
+    }
+}
+
+/// Index of the newest context-included, non-synthetic user turn.
+pub fn find_last_context_user_index(msgs: &[ChatMessage]) -> Option<usize> {
+    find_recent_context_user_indices(msgs, 1)
+        .into_iter()
+        .next_back()
 }
 
 /// Start index of the Nth **context-included** user message from the end.
@@ -176,13 +233,7 @@ pub fn find_split_at_user_boundary(msgs: &[ChatMessage], keep_last_n_users: usiz
     }
     let mut seen = 0usize;
     for i in (0..msgs.len()).rev() {
-        if !is_context_included(&msgs[i]) {
-            continue;
-        }
-        if matches!(msgs[i].role, Role::User)
-            && !is_synthetic_user_content(&msgs[i].content)
-            && !is_context_dependent_user_content(&msgs[i].content)
-        {
+        if is_real_context_user(&msgs[i]) {
             seen += 1;
             if seen == keep_last_n_users {
                 return i;

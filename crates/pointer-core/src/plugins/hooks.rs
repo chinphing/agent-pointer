@@ -16,13 +16,12 @@
 //! 超时 / 无效输出时返回 `Reject`（阻断该工具调用并透出原因）。PostToolUse
 //! 是观察者，恒 fail-open（仅记日志）。
 
+use crate::chat_service::AppState;
 use crate::dispatcher::{
     HookIdentity, HookOutcome, HookRegistry, OnRunCancelledHook, OnRunFailedHook,
-    OnRunFinishedHook, OnRunStartedHook, PostToolCallContext, PostToolCallHook,
-    PreToolCallContext, PreToolCallHook, RunCancelledContext, RunFailedContext,
-    RunFinishedContext, RunStartedContext,
+    OnRunFinishedHook, OnRunStartedHook, PostToolCallContext, PostToolCallHook, PreToolCallContext,
+    PreToolCallHook, RunCancelledContext, RunFailedContext, RunFinishedContext, RunStartedContext,
 };
-use crate::chat_service::AppState;
 use crate::observability::{SpanKind, TraceEvent};
 use crate::plugins::registry::PluginRecord;
 use anyhow::{anyhow, Result};
@@ -159,10 +158,12 @@ pub fn register_plugin_hooks(hook_registry: &HookRegistry, record: &PluginRecord
 
 /// 注销插件 hooks（禁用 / 卸载时调用），按 `plugin:{id}:hooks:*` 前缀精确移除。
 pub fn unregister_plugin_hooks(hook_registry: &HookRegistry, plugin_id: &str) {
-    let n_pre = hook_registry.remove_pre_tool_call_by_prefix(&format!("plugin:{plugin_id}:hooks:pre"));
+    let n_pre =
+        hook_registry.remove_pre_tool_call_by_prefix(&format!("plugin:{plugin_id}:hooks:pre"));
     let n_post =
         hook_registry.remove_post_tool_call_by_prefix(&format!("plugin:{plugin_id}:hooks:post"));
-    let n_start = hook_registry.remove_on_run_started_by_prefix(&format!("plugin:{plugin_id}:hooks:start"));
+    let n_start =
+        hook_registry.remove_on_run_started_by_prefix(&format!("plugin:{plugin_id}:hooks:start"));
     let n_end = hook_registry
         .remove_on_run_finished_by_prefix(&format!("plugin:{plugin_id}:hooks:end"))
         + hook_registry.remove_on_run_failed_by_prefix(&format!("plugin:{plugin_id}:hooks:end"))
@@ -217,42 +218,47 @@ impl PreToolCallHook for PluginPreToolCallHook {
             attrs.insert("tool_name".into(), serde_json::json!(ctx.tool_name));
         }
 
-        let outcome =
-            match run_hook_command(&self.plugin_dir, &self.command, &event, self.timeout_ms).await
-            {
-                Ok(HookDecision::Allow) => HookOutcome::Continue,
-                Ok(HookDecision::Block(reason)) => {
-                    log::info!(
-                        "plugin {} PreToolUse hook blocked {}: {}",
-                        self.plugin_id,
-                        ctx.tool_name,
-                        reason
+        let outcome = match run_hook_command(
+            &self.plugin_dir,
+            &self.command,
+            &event,
+            self.timeout_ms,
+        )
+        .await
+        {
+            Ok(HookDecision::Allow) => HookOutcome::Continue,
+            Ok(HookDecision::Block(reason)) => {
+                log::info!(
+                    "plugin {} PreToolUse hook blocked {}: {}",
+                    self.plugin_id,
+                    ctx.tool_name,
+                    reason
+                );
+                if let serde_json::Value::Object(ref mut attrs) = span.attributes {
+                    attrs.insert("decision".into(), serde_json::json!("block"));
+                    attrs.insert("reason".into(), serde_json::json!(reason));
+                }
+                HookOutcome::Reject { reason }
+            }
+            Err(e) => {
+                if self.fail_closed {
+                    let reason = format!("插件 hook 执行失败（fail-closed 阻断）: {e:#}");
+                    log::warn!(
+                        "plugin {} PreToolUse hook 执行失败，阻断: {e:#}",
+                        self.plugin_id
                     );
-                    if let serde_json::Value::Object(ref mut attrs) = span.attributes {
-                        attrs.insert("decision".into(), serde_json::json!("block"));
-                        attrs.insert("reason".into(), serde_json::json!(reason));
-                    }
+                    span.set_error("hook_failed", format!("{e:#}"));
                     HookOutcome::Reject { reason }
+                } else {
+                    log::warn!(
+                        "plugin {} PreToolUse hook 执行失败，放行: {e:#}",
+                        self.plugin_id
+                    );
+                    span.set_error("hook_failed", format!("{e:#}"));
+                    HookOutcome::Continue
                 }
-                Err(e) => {
-                    if self.fail_closed {
-                        let reason = format!("插件 hook 执行失败（fail-closed 阻断）: {e:#}");
-                        log::warn!(
-                            "plugin {} PreToolUse hook 执行失败，阻断: {e:#}",
-                            self.plugin_id
-                        );
-                        span.set_error("hook_failed", format!("{e:#}"));
-                        HookOutcome::Reject { reason }
-                    } else {
-                        log::warn!(
-                            "plugin {} PreToolUse hook 执行失败，放行: {e:#}",
-                            self.plugin_id
-                        );
-                        span.set_error("hook_failed", format!("{e:#}"));
-                        HookOutcome::Continue
-                    }
-                }
-            };
+            }
+        };
         span.end();
         ctx.state.trace_bus.emit(span);
         Ok(outcome)
@@ -261,7 +267,10 @@ impl PreToolCallHook for PluginPreToolCallHook {
 
 impl HookIdentity for PluginPreToolCallHook {
     fn override_key(&self) -> Cow<'static, str> {
-        Cow::Owned(format!("plugin:{}:hooks:pre:{}", self.plugin_id, self.matcher))
+        Cow::Owned(format!(
+            "plugin:{}:hooks:pre:{}",
+            self.plugin_id, self.matcher
+        ))
     }
     fn sort_key(&self) -> Cow<'static, str> {
         Cow::Owned(format!("_70_plugin_hooks:pre:{}", self.plugin_id))
@@ -325,7 +334,10 @@ impl PostToolCallHook for PluginPostToolCallHook {
 
 impl HookIdentity for PluginPostToolCallHook {
     fn override_key(&self) -> Cow<'static, str> {
-        Cow::Owned(format!("plugin:{}:hooks:post:{}", self.plugin_id, self.matcher))
+        Cow::Owned(format!(
+            "plugin:{}:hooks:post:{}",
+            self.plugin_id, self.matcher
+        ))
     }
     fn sort_key(&self) -> Cow<'static, str> {
         Cow::Owned(format!("_70_plugin_hooks:post:{}", self.plugin_id))
@@ -520,9 +532,7 @@ async fn run_session_end_hook(
         attrs.insert("status".into(), serde_json::json!(status));
     }
     if let Err(e) = run_hook_command(plugin_dir, command, &event, timeout_ms).await {
-        log::warn!(
-            "plugin {plugin_id} SessionEnd hook 执行失败（忽略）: {e:#}"
-        );
+        log::warn!("plugin {plugin_id} SessionEnd hook 执行失败（忽略）: {e:#}");
         span.set_error("hook_failed", format!("{e:#}"));
     }
     span.end();
@@ -599,7 +609,10 @@ async fn run_hook_command(
         Ok(Ok(out)) => out,
         Ok(Err(e)) => return Err(e),
         Err(_) => {
-            log::warn!("插件 hook 超时 ({timeout_ms}ms): {}", command_path.display());
+            log::warn!(
+                "插件 hook 超时 ({timeout_ms}ms): {}",
+                command_path.display()
+            );
             let _ = child.kill().await;
             let _ = child.wait().await;
             return Err(anyhow!("插件 hook 执行超时（>{timeout_ms}ms）"));
@@ -704,7 +717,10 @@ path = "hooks/"
             HookDecision::Block(reason) => assert_eq!(reason, "denied"),
             _ => panic!("expected block"),
         }
-        assert!(matches!(parse_hook_decision("", 0).unwrap(), HookDecision::Allow));
+        assert!(matches!(
+            parse_hook_decision("", 0).unwrap(),
+            HookDecision::Allow
+        ));
         assert!(parse_hook_decision("", 1).is_err());
         assert!(parse_hook_decision("garbage", 1).is_err());
         assert!(matches!(

@@ -299,7 +299,11 @@ mod tests {
         let out = match_centered_excerpt(&text, "北京", 40);
         assert!(out.contains("北京"), "excerpt={out}");
         assert!(!out.contains("HEAD HEAD"), "excerpt={out}");
-        assert!(out.chars().count() <= 50, "excerpt_chars={}", out.chars().count());
+        assert!(
+            out.chars().count() <= 50,
+            "excerpt_chars={}",
+            out.chars().count()
+        );
     }
 
     #[test]

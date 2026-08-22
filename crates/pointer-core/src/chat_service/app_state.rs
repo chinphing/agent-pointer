@@ -111,9 +111,8 @@ impl FileWriteLockManager {
         let absolute = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            let root = crate::tools::file::resolve_tool_workspace_root().map_err(|error| {
-                anyhow::anyhow!("无法解析文件锁工作目录: {error}")
-            })?;
+            let root = crate::tools::file::resolve_tool_workspace_root()
+                .map_err(|error| anyhow::anyhow!("无法解析文件锁工作目录: {error}"))?;
             root.join(path)
         };
         // Callers (file_write/file_edit) must pass already-resolved paths.
@@ -256,7 +255,9 @@ fn apply_plugins(
 ) {
     // 目录被外部删除的插件已从 registry 消失（遍历不到），先注销其残留能力。
     for id in plugins.take_disappeared() {
-        crate::plugins::activation::deactivate_plugin(tools, skills, agents, extensions, hooks, &id);
+        crate::plugins::activation::deactivate_plugin(
+            tools, skills, agents, extensions, hooks, &id,
+        );
     }
     for record in plugins.list() {
         if record.status == crate::plugins::registry::PluginStatus::Enabled {
@@ -666,7 +667,14 @@ impl AppState {
         if let Err(err) = plugins.scan() {
             log::warn!("plugin scan failed: {err:#}");
         }
-        apply_plugins(&tools, &skills, &agents, &extension_registry, &hooks, &plugins);
+        apply_plugins(
+            &tools,
+            &skills,
+            &agents,
+            &extension_registry,
+            &hooks,
+            &plugins,
+        );
         let mcp_sessions = Arc::new(crate::plugins::mcp::McpSessionManager::new());
         sync_mcp_sessions(&tools, &plugins, &mcp_sessions);
         // P2b：全局（非插件）MCP——pointer-server.toml 装配；不绑定插件状态。
@@ -768,8 +776,8 @@ impl AppState {
     /// P2b：从 `pointer-server.toml` 重新解析并热重载全局 MCP（管理 API 用）。
     /// 无配置文件 / 非 toml / 解析失败时清空全局 MCP（等价于停用）。
     pub fn reload_global_mcp_from_config(&self) -> anyhow::Result<GlobalMcpView> {
-        let (decls, base_dir) = crate::server_config::reload_mcp_servers_config()?
-            .unwrap_or_default();
+        let (decls, base_dir) =
+            crate::server_config::reload_mcp_servers_config()?.unwrap_or_default();
         self.reload_global_mcp(decls, base_dir)?;
         Ok(self.global_mcp_view())
     }

@@ -285,9 +285,7 @@ impl PluginRegistry {
     /// 查询插件授权记录 key（= 插件目录字符串）。
     fn auth_key_for(&self, id: &str) -> Result<String> {
         let g = self.inner.read();
-        let rec = g
-            .get(id)
-            .ok_or_else(|| anyhow!("插件不存在: {id}"))?;
+        let rec = g.get(id).ok_or_else(|| anyhow!("插件不存在: {id}"))?;
         Ok(rec.dir.to_string_lossy().to_string())
     }
 
@@ -360,7 +358,10 @@ fn capability_summary(manifest: &PluginManifest) -> Vec<String> {
         out.push("hooks".to_string());
     }
     if !manifest.mcp_servers.server.is_empty() {
-        out.push(format!("mcp_servers({})", manifest.mcp_servers.server.len()));
+        out.push(format!(
+            "mcp_servers({})",
+            manifest.mcp_servers.server.len()
+        ));
     }
     if !manifest.tools.tool.is_empty() {
         out.push(format!("tools({})", manifest.tools.tool.len()));

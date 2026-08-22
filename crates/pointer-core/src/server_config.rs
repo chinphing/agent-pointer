@@ -747,7 +747,8 @@ pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings, user: &m
 
 /// P2b：读取已解析的全局 MCP server 声明 + 配置文件目录（相对 command 解析基准）。
 /// 仅当 `load_server_config` 已执行（server 启动路径）时返回 Some。
-pub fn mcp_servers_from_config() -> Option<(Vec<crate::plugins::manifest::McpServerDecl>, PathBuf)> {
+pub fn mcp_servers_from_config() -> Option<(Vec<crate::plugins::manifest::McpServerDecl>, PathBuf)>
+{
     PARSED_MCP
         .get()
         .and_then(|v| v.as_ref())

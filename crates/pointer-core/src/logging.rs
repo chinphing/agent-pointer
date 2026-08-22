@@ -113,12 +113,7 @@ pub fn log_phase_elapsed(phase: &str, conversation_id: &str, elapsed_ms: u128) {
 }
 
 /// Same as [`log_phase_elapsed`], with trailing `key=value` fields.
-pub fn log_phase_elapsed_extra(
-    phase: &str,
-    conversation_id: &str,
-    elapsed_ms: u128,
-    extra: &str,
-) {
+pub fn log_phase_elapsed_extra(phase: &str, conversation_id: &str, elapsed_ms: u128, extra: &str) {
     let msg = if extra.is_empty() {
         format!(
             "phase_timing: phase={phase} conversation_id={conversation_id} elapsed_ms={elapsed_ms}"

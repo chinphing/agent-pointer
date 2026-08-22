@@ -212,10 +212,7 @@ fn agents_md_in_dir(dir: &Path) -> Option<PathBuf> {
         }
         Err(e) if e.kind() == ErrorKind::NotFound => None,
         Err(e) => {
-            log::warn!(
-                "agents_md: metadata failed path={} err={e}",
-                path.display()
-            );
+            log::warn!("agents_md: metadata failed path={} err={e}", path.display());
             None
         }
     }
@@ -260,10 +257,13 @@ pub fn discover_agents_md_chain(
 
 /// 工作区根 + 本机 `~/.pointer`（生产发现入口）。
 pub fn discover_agents_md(workspace_root: &Path) -> Vec<PathBuf> {
-    discover_agents_md_chain(Some(workspace_root), pointer_home_dir_no_create().as_deref())
-        .into_iter()
-        .map(|(_, p)| p)
-        .collect()
+    discover_agents_md_chain(
+        Some(workspace_root),
+        pointer_home_dir_no_create().as_deref(),
+    )
+    .into_iter()
+    .map(|(_, p)| p)
+    .collect()
 }
 
 fn read_agents_md_file(path: &Path) -> Result<String> {
@@ -286,8 +286,10 @@ fn merge_labeled_files(files: &[(String, PathBuf)]) -> Result<String> {
 
 /// 读取全局 + 工作区根并合并。任一层缺失则跳过该层。
 pub fn read_merged_agents_md(workspace_root: &Path) -> Result<String> {
-    let files =
-        discover_agents_md_chain(Some(workspace_root), pointer_home_dir_no_create().as_deref());
+    let files = discover_agents_md_chain(
+        Some(workspace_root),
+        pointer_home_dir_no_create().as_deref(),
+    );
     merge_labeled_files(&files)
 }
 
@@ -386,10 +388,7 @@ impl MessageLoopPromptsAfterHook for AgentsMdInjectHook {
             }
         };
 
-        let files = discover_agents_md_chain(
-            workspace_root.as_deref(),
-            pointer_home.as_deref(),
-        );
+        let files = discover_agents_md_chain(workspace_root.as_deref(), pointer_home.as_deref());
         let mut injected = false;
         match merge_labeled_files(&files) {
             Ok(content) if content.is_empty() => {}
@@ -446,7 +445,8 @@ pub fn register_agents_md_hook(extensions: &crate::extensions::ExtensionRegistry
     log::info!(
         "agents_md: registered hook (global ~/.pointer/AGENTS.md + git-root-to-workspace chain)"
     );
-    extensions.register_message_loop_prompts_after(std::sync::Arc::new(AgentsMdInjectHook::default()));
+    extensions
+        .register_message_loop_prompts_after(std::sync::Arc::new(AgentsMdInjectHook::default()));
 }
 
 #[cfg(test)]
@@ -572,7 +572,10 @@ mod tests {
             .into_iter()
             .map(|(l, _)| l)
             .collect();
-        assert_eq!(labels, vec!["AGENTS.md".to_string(), "pkg/AGENTS.md".to_string()]);
+        assert_eq!(
+            labels,
+            vec!["AGENTS.md".to_string(), "pkg/AGENTS.md".to_string()]
+        );
     }
 
     #[test]

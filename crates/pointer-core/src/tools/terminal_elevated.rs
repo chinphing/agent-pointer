@@ -1,6 +1,6 @@
 use super::terminal::{
-    effective_terminal_cwd, parse_terminal_cwd, resolve_max_output_bytes, resolve_terminal_env_files,
-    truncate_output, InputClass, TerminalStreamingResult,
+    effective_terminal_cwd, parse_terminal_cwd, resolve_max_output_bytes,
+    resolve_terminal_env_files, truncate_output, InputClass, TerminalStreamingResult,
 };
 use crate::dotenv::build_terminal_child_environment;
 #[cfg(unix)]

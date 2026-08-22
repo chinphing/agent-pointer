@@ -25,19 +25,21 @@ pub fn is_compression_summary_content(content: &str) -> bool {
 }
 
 /// Summary output budget: `content_tokens × ratio`, clamped.
-/// Single no-thinking attempt (no retry) — budget sized so typical prefixes
-/// finish without `finish_reason=length`.
+/// Prompt target; API cap is this value × [`SUMMARY_MAX_TOKENS_OVERRIDE_RATIO`].
 pub(crate) const SUMMARY_TOKEN_RATIO: f64 = 0.20;
 pub(crate) const MIN_SUMMARY_TOKENS: u32 = 1_500;
-/// Absolute ceiling for the one-shot summary attempt.
+/// Absolute ceiling for the summary *budget* (prompt target), not the API cap.
 pub(crate) const SUMMARY_TOKENS_CEILING: u32 = 12_000;
-/// Provider `max_tokens` headroom over the summary budget. Mirrors Hermes
-/// `_generate_summary` (`int(summary_budget * 1.3)`): the budget is the
-/// *target* length written into the prompt, while the API cap gets extra
-/// headroom so the model can close out without `finish_reason=length`.
-pub(crate) const SUMMARY_MAX_TOKENS_OVERRIDE_RATIO: f64 = 1.3;
-/// Retry headroom when the first attempt was truncated (`finish_reason=length`).
-pub(crate) const SUMMARY_RETRY_TOKENS_RATIO: f64 = 2.0;
+/// Provider `max_tokens` headroom over the summary budget (first attempt).
+/// The budget is the *target* length written into the prompt; the API cap
+/// gets extra room so the model can close out without `finish_reason=length`.
+pub(crate) const SUMMARY_MAX_TOKENS_OVERRIDE_RATIO: f64 = 1.5;
+/// Retry `max_tokens` as a multiple of the summary budget when truncated
+/// (`finish_reason=length`).
+pub(crate) const SUMMARY_RETRY_TOKENS_RATIO: f64 = 3.0;
+/// On summary LLM failure, keep this many recent real user turns (user row +
+/// concluding assistant) inside the drop window instead of discarding them.
+pub const DROP_FALLBACK_KEEP_USER_TURNS: usize = 3;
 
 /// Background precompress starts once gate tokens exceed this fraction of the
 /// hard context budget (still compresses when already over budget).
@@ -66,15 +68,15 @@ pub fn compute_summary_max_tokens(content_tokens: usize) -> u32 {
     by_content.clamp(MIN_SUMMARY_TOKENS, SUMMARY_TOKENS_CEILING)
 }
 
-/// Provider-side `max_tokens` for the summary call: budget × 1.3 headroom
-/// (mirrors Hermes `_generate_summary`). The budget stays the *target* length
-/// written into the prompt; the API cap gets extra room to close out instead
-/// of being truncated with `finish_reason=length`.
+/// Provider-side `max_tokens` for the summary call: budget × 1.5.
+/// The budget stays the *target* length written into the prompt; the API cap
+/// gets extra room to close out instead of being truncated with
+/// `finish_reason=length`.
 pub fn summary_max_tokens_requested(budget: u32) -> u32 {
     ((budget as f64) * SUMMARY_MAX_TOKENS_OVERRIDE_RATIO).ceil() as u32
 }
 
-/// Retry `max_tokens` after a `finish_reason=length` rejection: budget × 2.
+/// Retry `max_tokens` after a `finish_reason=length` rejection: budget × 3.
 pub fn summary_max_tokens_retry(budget: u32) -> u32 {
     ((budget as f64) * SUMMARY_RETRY_TOKENS_RATIO).ceil() as u32
 }
@@ -392,8 +394,13 @@ pub fn find_in_run_drop_range(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionPlan {
     Skip,
-    Prefix { split: usize },
-    InRun { drop_start: usize, tail_start: usize },
+    Prefix {
+        split: usize,
+    },
+    InRun {
+        drop_start: usize,
+        tail_start: usize,
+    },
 }
 
 /// Choose prefix vs in-run compression once the token gate is crossed.
@@ -497,4 +504,3 @@ pub(crate) fn align_split_away_from_tool_group(msgs: &[ChatMessage], split: usiz
     }
     split
 }
-

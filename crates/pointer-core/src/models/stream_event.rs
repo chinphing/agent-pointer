@@ -410,7 +410,10 @@ pub enum StreamEvent {
         #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
         message_id: Option<String>,
         /// First kept message after the summary split (UI marker sits just before this).
-        #[serde(skip_serializing_if = "Option::is_none", rename = "insertBeforeMessageId")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "insertBeforeMessageId"
+        )]
         insert_before_message_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentId")]
         sub_agent_id: Option<String>,
@@ -545,28 +548,72 @@ impl StreamEvent {
     /// High-frequency deltas omit this field; SSE routing uses [`ChatStreamSender`].
     pub fn conversation_id_for_sse(&self) -> Option<&str> {
         match self {
-            Self::MessageStart { conversation_id, .. }
-            | Self::SubMessageStart { conversation_id, .. }
-            | Self::InjectedUserMessage { conversation_id, .. }
-            | Self::UserMessageAttachmentsUpdated { conversation_id, .. }
-            | Self::ImSessionForked { conversation_id, .. }
-            | Self::ImSessionAgentChanged { conversation_id, .. }
-            | Self::InjectedAssistantMessage { conversation_id, .. }
-            | Self::InjectedAssistantMessageUpdate { conversation_id, .. }
-            | Self::Error { conversation_id, .. }
-            | Self::Done { conversation_id, .. }
-            | Self::ContextTrimApplied { conversation_id, .. }
-            | Self::ContextCompressionStarted { conversation_id, .. }
-            | Self::ContextCompressionApplied { conversation_id, .. }
-            | Self::ContextCompressed { conversation_id, .. }
-            | Self::ToolRoundsExhausted { conversation_id, .. }
-            | Self::UiToast { conversation_id, .. }
-            | Self::AssistantRoundScreen { conversation_id, .. }
-            | Self::TaskBoardUpdated { conversation_id, .. }
-            | Self::SkillsUpdated { conversation_id, .. }
-            | Self::WorkspaceUpdated { conversation_id, .. }
-            | Self::ComputerMonitorPickRequired { conversation_id, .. }
-            | Self::ComputerMonitorUpdated { conversation_id, .. } => nonempty_id(conversation_id),
+            Self::MessageStart {
+                conversation_id, ..
+            }
+            | Self::SubMessageStart {
+                conversation_id, ..
+            }
+            | Self::InjectedUserMessage {
+                conversation_id, ..
+            }
+            | Self::UserMessageAttachmentsUpdated {
+                conversation_id, ..
+            }
+            | Self::ImSessionForked {
+                conversation_id, ..
+            }
+            | Self::ImSessionAgentChanged {
+                conversation_id, ..
+            }
+            | Self::InjectedAssistantMessage {
+                conversation_id, ..
+            }
+            | Self::InjectedAssistantMessageUpdate {
+                conversation_id, ..
+            }
+            | Self::Error {
+                conversation_id, ..
+            }
+            | Self::Done {
+                conversation_id, ..
+            }
+            | Self::ContextTrimApplied {
+                conversation_id, ..
+            }
+            | Self::ContextCompressionStarted {
+                conversation_id, ..
+            }
+            | Self::ContextCompressionApplied {
+                conversation_id, ..
+            }
+            | Self::ContextCompressed {
+                conversation_id, ..
+            }
+            | Self::ToolRoundsExhausted {
+                conversation_id, ..
+            }
+            | Self::UiToast {
+                conversation_id, ..
+            }
+            | Self::AssistantRoundScreen {
+                conversation_id, ..
+            }
+            | Self::TaskBoardUpdated {
+                conversation_id, ..
+            }
+            | Self::SkillsUpdated {
+                conversation_id, ..
+            }
+            | Self::WorkspaceUpdated {
+                conversation_id, ..
+            }
+            | Self::ComputerMonitorPickRequired {
+                conversation_id, ..
+            }
+            | Self::ComputerMonitorUpdated {
+                conversation_id, ..
+            } => nonempty_id(conversation_id),
             Self::Delta { .. }
             | Self::RawContentDelta { .. }
             | Self::ReasoningDelta { .. }
@@ -613,10 +660,7 @@ impl ChatStreamSender {
     }
 
     /// Sender whose receiver is dropped; `send` fails but broadcast still runs.
-    pub fn unbound(
-        conversation_id: impl Into<String>,
-        session_user_id: impl Into<String>,
-    ) -> Self {
+    pub fn unbound(conversation_id: impl Into<String>, session_user_id: impl Into<String>) -> Self {
         Self::pair(conversation_id, session_user_id).0
     }
 

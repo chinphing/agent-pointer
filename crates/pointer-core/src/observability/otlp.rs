@@ -30,7 +30,7 @@ use std::env;
 use async_trait::async_trait;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{
-    any_value::Value, ArrayValue, AnyValue, InstrumentationScope, KeyValue, KeyValueList,
+    any_value::Value, AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList,
 };
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use opentelemetry_proto::tonic::trace::v1::{
@@ -162,7 +162,11 @@ fn span_to_proto(ev: &TraceEvent) -> Span {
 
     let mut attrs: Vec<KeyValue> = Vec::new();
     // OpenInference semantics: Phoenix reads the span kind from this attribute.
-    push_attr(&mut attrs, "openinference.span.kind", openinference_kind(ev.kind));
+    push_attr(
+        &mut attrs,
+        "openinference.span.kind",
+        openinference_kind(ev.kind),
+    );
     push_attr(&mut attrs, "span.kind", ev.kind.as_str());
     push_attr(&mut attrs, "run_id", &ev.run_id);
     if !ev.conversation_id.is_empty() {
@@ -357,9 +361,7 @@ fn any_value(v: &JsonValue) -> Option<AnyValue> {
             Value::KvlistValue(KeyValueList { values })
         }
     };
-    Some(AnyValue {
-        value: Some(value),
-    })
+    Some(AnyValue { value: Some(value) })
 }
 
 /// Derive a fixed 16-byte trace id from an arbitrary string id.
@@ -545,12 +547,30 @@ mod tests {
         ev.end();
         let req = decode_req(build_export_request(&[ev], "pointer-app"));
         let span = first_span(&req);
-        assert_eq!(attr_str(span, "openinference.span.kind").as_deref(), Some("LLM"));
-        assert_eq!(attr_str(span, "gen_ai.request.model").as_deref(), Some("deepseek-v4-flash"));
-        assert_eq!(attr_str(span, "gen_ai.usage.input_tokens").as_deref(), Some("100"));
-        assert_eq!(attr_str(span, "gen_ai.usage.output_tokens").as_deref(), Some("20"));
-        assert_eq!(attr_str(span, "gen_ai.usage.cache_read_input_tokens").as_deref(), Some("80"));
-        assert_eq!(attr_str(span, "gen_ai.conversation.id").as_deref(), Some("conv-1"));
+        assert_eq!(
+            attr_str(span, "openinference.span.kind").as_deref(),
+            Some("LLM")
+        );
+        assert_eq!(
+            attr_str(span, "gen_ai.request.model").as_deref(),
+            Some("deepseek-v4-flash")
+        );
+        assert_eq!(
+            attr_str(span, "gen_ai.usage.input_tokens").as_deref(),
+            Some("100")
+        );
+        assert_eq!(
+            attr_str(span, "gen_ai.usage.output_tokens").as_deref(),
+            Some("20")
+        );
+        assert_eq!(
+            attr_str(span, "gen_ai.usage.cache_read_input_tokens").as_deref(),
+            Some("80")
+        );
+        assert_eq!(
+            attr_str(span, "gen_ai.conversation.id").as_deref(),
+            Some("conv-1")
+        );
     }
 
     #[test]
@@ -590,7 +610,11 @@ mod tests {
         let Value::KvlistValue(kv) = any.value.unwrap() else {
             panic!("expected kvlist");
         };
-        let nested = kv.values.iter().find(|e| e.key == "nested").expect("nested");
+        let nested = kv
+            .values
+            .iter()
+            .find(|e| e.key == "nested")
+            .expect("nested");
         let Value::KvlistValue(nested_kv) = nested.value.as_ref().unwrap().value.as_ref().unwrap()
         else {
             panic!("expected nested kvlist");
@@ -652,7 +676,10 @@ mod tests {
         });
 
         let exporter = OtlpExporter::new(format!("http://{addr}/v1/traces"), "pointer-app");
-        exporter.export(vec![sample_span()]).await.expect("export ok");
+        exporter
+            .export(vec![sample_span()])
+            .await
+            .expect("export ok");
 
         let (headers, body) = server.await.unwrap();
         assert!(headers.starts_with("POST /v1/traces"), "{headers}");
@@ -675,12 +702,7 @@ mod tests {
     fn from_env_respects_protocol_and_endpoints() {
         // No config -> None.
         let empty: [(String, String); 0] = [];
-        let lookup = |key: &str| {
-            empty
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-        };
+        let lookup = |key: &str| empty.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
         assert!(OtlpExporter::from_env_impl(lookup).is_none());
 
         // Base endpoint -> /v1/traces appended.
@@ -688,11 +710,7 @@ mod tests {
             "OTEL_EXPORTER_OTLP_ENDPOINT".to_string(),
             "http://collector:4318".to_string(),
         )];
-        let lookup = |key: &str| {
-            env.iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-        };
+        let lookup = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
         let e = OtlpExporter::from_env_impl(lookup).expect("base endpoint");
         assert_eq!(e.endpoint, "http://collector:4318/v1/traces");
 
@@ -707,11 +725,7 @@ mod tests {
                 "http://c:4318/custom".to_string(),
             ),
         ];
-        let lookup = |key: &str| {
-            env.iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-        };
+        let lookup = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
         let e = OtlpExporter::from_env_impl(lookup).expect("traces endpoint");
         assert_eq!(e.endpoint, "http://c:4318/custom");
 
@@ -721,13 +735,12 @@ mod tests {
                 "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT".to_string(),
                 "http://c:4318/custom".to_string(),
             ),
-            ("OTEL_EXPORTER_OTLP_PROTOCOL".to_string(), "grpc".to_string()),
+            (
+                "OTEL_EXPORTER_OTLP_PROTOCOL".to_string(),
+                "grpc".to_string(),
+            ),
         ];
-        let lookup = |key: &str| {
-            env.iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-        };
+        let lookup = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
         assert!(OtlpExporter::from_env_impl(lookup).is_none());
 
         // http/protobuf accepted.
@@ -741,11 +754,7 @@ mod tests {
                 "http/protobuf".to_string(),
             ),
         ];
-        let lookup = |key: &str| {
-            env.iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-        };
+        let lookup = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
         assert!(OtlpExporter::from_env_impl(lookup).is_some());
 
         // http/json rejected (Phoenix only accepts protobuf).
@@ -759,11 +768,7 @@ mod tests {
                 "http/json".to_string(),
             ),
         ];
-        let lookup = |key: &str| {
-            env.iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.clone())
-        };
+        let lookup = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
         assert!(OtlpExporter::from_env_impl(lookup).is_none());
     }
 }

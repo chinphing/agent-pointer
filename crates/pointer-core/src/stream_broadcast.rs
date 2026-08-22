@@ -137,13 +137,25 @@ mod tests {
     fn per_conversation_subscription_denies_other_ids() {
         let ev = toast("conv-a");
         assert!(sse_subscription_matches(
-            "conv-a", "user-a", Some("conv-a"), Some("user-a"), &ev
+            "conv-a",
+            "user-a",
+            Some("conv-a"),
+            Some("user-a"),
+            &ev
         ));
         assert!(!sse_subscription_matches(
-            "conv-b", "user-a", Some("conv-a"), Some("user-a"), &ev
+            "conv-b",
+            "user-a",
+            Some("conv-a"),
+            Some("user-a"),
+            &ev
         ));
         assert!(!sse_subscription_matches(
-            "conv-b", "user-b", Some("conv-a"), Some("user-a"), &delta()
+            "conv-b",
+            "user-b",
+            Some("conv-a"),
+            Some("user-a"),
+            &delta()
         ));
     }
 
@@ -156,7 +168,9 @@ mod tests {
             sender_id: "s".into(),
             issued_at: 0,
         };
-        assert!(sse_subscription_matches("global", "user-a", None, None, &pairing));
+        assert!(sse_subscription_matches(
+            "global", "user-a", None, None, &pairing
+        ));
         assert!(sse_subscription_matches("global", "", None, None, &pairing));
         assert!(!sse_subscription_matches(
             "conv-a", "user-a", None, None, &pairing
@@ -167,20 +181,36 @@ mod tests {
     fn global_only_delivers_viewer_owned_chat_events() {
         let ev = delta();
         assert!(sse_subscription_matches(
-            "global", "user-a", Some("conv-a"), Some("user-a"), &ev
+            "global",
+            "user-a",
+            Some("conv-a"),
+            Some("user-a"),
+            &ev
         ));
         assert!(!sse_subscription_matches(
-            "global", "user-b", Some("conv-a"), Some("user-a"), &ev
+            "global",
+            "user-b",
+            Some("conv-a"),
+            Some("user-a"),
+            &ev
         ));
         assert!(!sse_subscription_matches(
-            "global", "", Some("conv-a"), Some("user-a"), &ev
+            "global",
+            "",
+            Some("conv-a"),
+            Some("user-a"),
+            &ev
         ));
     }
 
     #[test]
     fn empty_toast_conversation_is_process_global() {
         let ev = toast("");
-        assert!(sse_subscription_matches("global", "user-a", None, None, &ev));
-        assert!(!sse_subscription_matches("conv-a", "user-a", None, None, &ev));
+        assert!(sse_subscription_matches(
+            "global", "user-a", None, None, &ev
+        ));
+        assert!(!sse_subscription_matches(
+            "conv-a", "user-a", None, None, &ev
+        ));
     }
 }

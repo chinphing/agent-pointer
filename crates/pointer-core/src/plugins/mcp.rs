@@ -291,7 +291,9 @@ impl McpClient {
                     serde_json::to_writer(&mut *stdin, &payload)
                         .map_err(|e| anyhow!("写入 MCP 请求失败: {e}"))?;
                     writeln!(stdin).map_err(|e| anyhow!("写入 MCP 请求换行失败: {e}"))?;
-                    stdin.flush().map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
+                    stdin
+                        .flush()
+                        .map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
                 }
                 match rx.recv_timeout(timeout) {
                     Ok(v) => {
@@ -371,7 +373,10 @@ impl McpClient {
         let mut req = client
             .post(url)
             .headers(user_headers.clone())
-            .header(reqwest::header::ACCEPT, "application/json, text/event-stream")
+            .header(
+                reqwest::header::ACCEPT,
+                "application/json, text/event-stream",
+            )
             .json(payload);
         if let Some(sid) = session_id {
             req = req.header("Mcp-Session-Id", sid);
@@ -409,9 +414,9 @@ impl McpClient {
             if let Some(sid) = session_id {
                 get_req = get_req.header("Mcp-Session-Id", sid);
             }
-            let get_resp = get_req.send().map_err(|e| {
-                anyhow!("MCP HTTP 请求 {method_str} 202 后 GET 结果流失败: {e}")
-            })?;
+            let get_resp = get_req
+                .send()
+                .map_err(|e| anyhow!("MCP HTTP 请求 {method_str} 202 后 GET 结果流失败: {e}"))?;
             let stream_text = get_resp
                 .text()
                 .map_err(|e| anyhow!("读取 MCP HTTP 202 结果流失败: {e}"))?;
@@ -486,7 +491,10 @@ impl McpClient {
                     raw.text.chars().take(300).collect::<String>()
                 ));
             }
-            log::warn!("MCP HTTP 请求 {} 返回 404，会话失效，重新握手", payload["method"]);
+            log::warn!(
+                "MCP HTTP 请求 {} 返回 404，会话失效，重新握手",
+                payload["method"]
+            );
             *session_id.lock() = None;
             self.reinitialize_http(timeout)?;
         }
@@ -505,7 +513,9 @@ impl McpClient {
                 "clientInfo": { "name": "pointer", "version": env!("CARGO_PKG_VERSION") },
             },
         });
-        let init_result = self.http_post(&init_payload, timeout).context("MCP 重新 initialize 失败")?;
+        let init_result = self
+            .http_post(&init_payload, timeout)
+            .context("MCP 重新 initialize 失败")?;
         let negotiated = init_result
             .get("protocolVersion")
             .and_then(|v| v.as_str())
@@ -536,7 +546,9 @@ impl McpClient {
                 serde_json::to_writer(&mut *stdin, &payload)
                     .map_err(|e| anyhow!("写入 MCP 通知失败: {e}"))?;
                 writeln!(stdin).map_err(|e| anyhow!("写入 MCP 通知换行失败: {e}"))?;
-                stdin.flush().map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
+                stdin
+                    .flush()
+                    .map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
                 Ok(())
             }
             Transport::Http {
@@ -607,7 +619,11 @@ impl McpClient {
             json!({ "name": tool_name, "arguments": args }),
             Duration::from_millis(DEFAULT_MCP_CALL_TIMEOUT_MS),
         )?;
-        if resp.get("isError").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if resp
+            .get("isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             let err = resp
                 .get("content")
                 .and_then(|c| c.as_array())
@@ -780,9 +796,7 @@ impl McpSessionManager {
                 healthy: true,
             })
             .collect();
-        self.sessions
-            .write()
-            .insert(plugin_id.to_string(), clients);
+        self.sessions.write().insert(plugin_id.to_string(), clients);
         self.statuses.write().insert(
             plugin_id.to_string(),
             PluginMcpStatus {
@@ -966,27 +980,16 @@ fn register_mcp_tool(
     } else {
         tool_name.clone()
     };
-    let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
-        client.call_tool(&tool_name, args)
-    });
+    let handler: ToolHandler =
+        Arc::new(move |args: Value| -> Result<String> { client.call_tool(&tool_name, args) });
 
-    let mut entry = ToolEntry::new(
-        entry_name,
-        doc_source,
-        "low",
-        false,
-        description,
-        handler,
-    )
-    .with_plugin_id(plugin_id.to_string());
+    let mut entry = ToolEntry::new(entry_name, doc_source, "low", false, description, handler)
+        .with_plugin_id(plugin_id.to_string());
     if let Some(schema) = info.input_schema {
         entry = entry.with_schema(schema);
     }
     tools.register(entry);
-    log::info!(
-        "MCP ({plugin_id}) 工具已注册（server `{}`）",
-        decl.name
-    );
+    log::info!("MCP ({plugin_id}) 工具已注册（server `{}`）", decl.name);
 }
 
 #[cfg(test)]
@@ -1045,10 +1048,8 @@ while IFS= read -r line; do
 done
 "#,
         );
-        let decl = manifest::parse(
-            &fs::read_to_string(dir.join("pointer-plugin.toml")).unwrap(),
-        )
-        .unwrap();
+        let decl =
+            manifest::parse(&fs::read_to_string(dir.join("pointer-plugin.toml")).unwrap()).unwrap();
         let mcp_decl = McpServerDecl {
             name: "demo".into(),
             transport: "stdio".into(),
@@ -1059,12 +1060,13 @@ done
             headers: None,
         };
 
-        let client = McpClient::connect_stdio("com.example.mcp", &dir, &mcp_decl)
-            .expect("connect");
+        let client = McpClient::connect_stdio("com.example.mcp", &dir, &mcp_decl).expect("connect");
         let tools = client.list_tools().expect("list tools");
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name, "echo");
-        let out = client.call_tool("echo", json!({"text": "hi"})).expect("call");
+        let out = client
+            .call_tool("echo", json!({"text": "hi"}))
+            .expect("call");
         assert_eq!(out, "mcp-echo-ok");
         client.kill_child();
         let _ = decl;
@@ -1156,7 +1158,10 @@ done
                     .map(|i| i + 4)
                     .unwrap_or(text.len())
                     .min(text.len());
-                let body = text[body_start..].chars().take(content_length).collect::<String>();
+                let body = text[body_start..]
+                    .chars()
+                    .take(content_length)
+                    .collect::<String>();
                 let (status, hdrs, resp_body) = handler(&method, &headers, &body);
                 let mut resp = format!("HTTP/1.1 {status} X\r\n");
                 for (k, v) in &hdrs {
@@ -1240,7 +1245,11 @@ done
             .iter()
             .find(|(m, _, _)| m.starts_with("GET"))
             .expect("应有 GET /result 拉流请求");
-        assert!(get_req.0.contains("result"), "GET 应命中 Location: {}", get_req.0);
+        assert!(
+            get_req.0.contains("result"),
+            "GET 应命中 Location: {}",
+            get_req.0
+        );
     }
 
     #[test]
@@ -1291,12 +1300,9 @@ done
         decl_a.name = "server-a".into();
         let mut decl_b = http_decl(url_b);
         decl_b.name = "server-b".into();
-        let clients = activate_global_mcp_servers(
-            &tools,
-            &[decl_a, decl_b],
-            std::path::Path::new("."),
-        )
-        .expect("部分 server 失败不应使整批装配失败");
+        let clients =
+            activate_global_mcp_servers(&tools, &[decl_a, decl_b], std::path::Path::new("."))
+                .expect("部分 server 失败不应使整批装配失败");
         assert_eq!(clients.len(), 1, "只有 server-a 建立会话");
         let defs = tools.list_defs();
         assert_eq!(defs.len(), 1, "只注册 server-a 的工具");
@@ -1339,7 +1345,9 @@ done
         let client = McpClient::connect_http("t", &http_decl(url)).expect("connect");
         let tools = client.list_tools().expect("list_tools");
         assert_eq!(tools.len(), 1);
-        let out = client.call_tool("echo", json!({ "x": 1 })).expect("call_tool");
+        let out = client
+            .call_tool("echo", json!({ "x": 1 }))
+            .expect("call_tool");
         assert_eq!(out, "pong");
         client.kill_child();
     }
@@ -1478,9 +1486,7 @@ done
         );
 
         // 通过注册名调用 → 底层应调用原始工具名 query-docs
-        tools
-            .invoke(name, json!({ "q": "tokio" }))
-            .expect("invoke");
+        tools.invoke(name, json!({ "q": "tokio" })).expect("invoke");
         std::thread::sleep(Duration::from_millis(300));
         let seen = seen.lock();
         let call = seen
@@ -1515,7 +1521,11 @@ done
             match m {
                 "initialize" => {
                     st.init_count += 1;
-                    let sid = if st.init_count == 1 { "sess-old" } else { "sess-new" };
+                    let sid = if st.init_count == 1 {
+                        "sess-old"
+                    } else {
+                        "sess-new"
+                    };
                     (
                         200,
                         vec![("Mcp-Session-Id".to_string(), sid.to_string())],

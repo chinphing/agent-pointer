@@ -427,7 +427,10 @@ mod tests {
             !normalized.starts_with(r"\\?\"),
             "normalized path must not keep the extended prefix: {normalized}"
         );
-        assert!(Path::new(&normalized).is_dir(), "normalized path must exist");
+        assert!(
+            Path::new(&normalized).is_dir(),
+            "normalized path must exist"
+        );
         assert!(
             Path::new(&normalized).canonicalize().is_ok(),
             "normalized path must be resolvable"

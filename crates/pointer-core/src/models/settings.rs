@@ -2847,7 +2847,9 @@ mod model_capability_vision_tests {
     fn audio_transcription_uses_explicit_flag_only() {
         let mut s = sample_settings();
         assert!(!crate::media::model_supports_audio_transcription(
-            &s, "qwen", "qwen3-asr-flash"
+            &s,
+            "qwen",
+            "qwen3-asr-flash"
         ));
         let qwen = s.providers.iter_mut().find(|p| p.id == "qwen").unwrap();
         qwen.models.push("qwen3-asr-flash".into());
@@ -2859,10 +2861,14 @@ mod model_capability_vision_tests {
             },
         );
         assert!(crate::media::model_supports_audio_transcription(
-            &s, "qwen", "qwen3-asr-flash"
+            &s,
+            "qwen",
+            "qwen3-asr-flash"
         ));
         assert!(!crate::media::model_supports_audio_transcription(
-            &s, "qwen", "qwen3.5-plus"
+            &s,
+            "qwen",
+            "qwen3.5-plus"
         ));
     }
 

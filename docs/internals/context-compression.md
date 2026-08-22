@@ -100,7 +100,9 @@ Provider 返回上下文/prompt 过长类错误时：
 
 ## 摘要输出预算
 
-摘要默认 **关闭 thinking**，**单次**调用（不重试）：
+摘要默认 **关闭 thinking**。第一次请求的 API `max_tokens` 是预算的 **1.5 倍**
+（预算仍写进 prompt 当目标长度）。若 `finish_reason=length`，再按预算
+**×3** 重试一次；仍失败则走下方失败兜底。
 
 ```
 summary_max_tokens = clamp(
@@ -108,11 +110,12 @@ summary_max_tokens = clamp(
   floor = 1_500,
   ceiling = 12_000
 )
+requested_max_tokens = summary_max_tokens × 1.5
+retry_max_tokens     = summary_max_tokens × 3
 ```
 
 关思考走与主对话相同的协议翻译：千问 `enable_thinking=false`，
 DeepSeek 去掉 `reasoning_effort`（不写 `thinking.type`）。
-验收失败则直接走 drop handoff，不再放大预算重试。
 
 ## 摘要用哪个模型
 
@@ -148,10 +151,15 @@ Open / Next 是还没做完的：跨轮待问用 Open，本轮未完成用 Next�
 
 摘要尝试失败时：
 
-- **丢弃**待压缩前缀（soft-exclude + drain）；
-- 写入确定性 handoff 摘要；
+- **丢弃**窗口里除兜底保留之外的消息（soft-exclude + drain）；
+- **保留最近 3 条真实用户消息**，以及每条用户消息对应的
+  **收尾助手消息**（该回合最后一条无后续 `role: tool`、且 tool_calls 已结束的 assistant）；
+- 写入确定性 handoff 摘要（说明丢弃了什么、哪些回合仍保留原文）；
 - warning toast；
-- `reason` 记为 `budget_drop` / `tool_limit_drop` / `overflow_drop`。
+- `reason` 记为 `budget_drop` / `tool_limit_drop` / `overflow_drop` / `in_run_drop`。
+
+收尾助手若仍带着未完成的 tool_calls 或后面还有 tool 行，则只保留用户原文，不保留该助手行，避免孤儿 tool。
+工具过程与更早的用户回合仍丢弃。成功压缩路径不变，仍按条数尾部切分。
 
 ## 可压占比（仅本地兜底）
 

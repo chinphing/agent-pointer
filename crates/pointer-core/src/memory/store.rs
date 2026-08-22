@@ -699,10 +699,8 @@ mod tests {
 
     #[test]
     fn concurrent_users_do_not_share_snapshot_slot() {
-        let root = std::env::temp_dir().join(format!(
-            "pointer_mem_concurrent_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pointer_mem_concurrent_{}", uuid::Uuid::new_v4()));
         let store = std::sync::Arc::new(MemoryStore::open_in_dir(root));
         std::thread::scope(|scope| {
             let a = store.clone();

@@ -456,7 +456,10 @@ mod run_span_capture_tests {
             user("second"),
             assistant("a2"),
         ];
-        assert_eq!(last_user_message_content(&history).as_deref(), Some("second"));
+        assert_eq!(
+            last_user_message_content(&history).as_deref(),
+            Some("second")
+        );
         // No user message -> None.
         assert!(last_user_message_content(&[assistant("only")]).is_none());
         assert!(last_user_message_content(&[]).is_none());

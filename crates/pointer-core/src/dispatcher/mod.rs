@@ -27,10 +27,11 @@ pub mod queue;
 pub mod trigger;
 
 pub use hooks::{
-    HookIdentity, HookOutcome, HookRegistry, OnRunCancelledHook, OnRunFailedHook, OnRunFinishedHook,
-    OnRunStartedHook, OnTriggerReceivedHook, PostToolCallContext, PostToolCallHook,
-    PreDispatchContext, PreDispatchHook, PreToolCallContext, PreToolCallHook, RunCancelledContext,
-    RunFailedContext, RunFinishedContext, RunStartedContext, TriggerReceivedContext,
+    HookIdentity, HookOutcome, HookRegistry, OnRunCancelledHook, OnRunFailedHook,
+    OnRunFinishedHook, OnRunStartedHook, OnTriggerReceivedHook, PostToolCallContext,
+    PostToolCallHook, PreDispatchContext, PreDispatchHook, PreToolCallContext, PreToolCallHook,
+    RunCancelledContext, RunFailedContext, RunFinishedContext, RunStartedContext,
+    TriggerReceivedContext,
 };
 pub use queue::{
     resolve_global_lane, resolve_session_lane, LaneQueueView, PendingRunView, Permit, QueueError,
@@ -427,7 +428,8 @@ impl RunDispatcher {
             .session_index
             .session_user_id(&conversation_id)
             .unwrap_or_default();
-        let (tx, mut rx) = crate::models::ChatStreamSender::pair(&conversation_id, &session_user_id);
+        let (tx, mut rx) =
+            crate::models::ChatStreamSender::pair(&conversation_id, &session_user_id);
         let events = self.inner.events.clone();
         let run_id_fwd = run_id.clone();
         let fwd_handle = tokio::spawn(async move {

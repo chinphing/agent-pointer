@@ -82,7 +82,10 @@ pub(crate) fn format_message_for_summary(m: &ChatMessage) -> String {
     format!("--- {head} ---\n{body}")
 }
 
-pub(crate) fn render_selected_summary_blocks(blocks: &[(usize, String)], selected: &[usize]) -> String {
+pub(crate) fn render_selected_summary_blocks(
+    blocks: &[(usize, String)],
+    selected: &[usize],
+) -> String {
     let mut out = Vec::with_capacity(selected.len() + 1);
     let mut previous = None;
     for &selected_index in selected {
@@ -360,7 +363,11 @@ pub(crate) fn build_summary_system_prompt(ui: &CompressionUiContext, in_run: boo
     prompt
 }
 
-pub(crate) fn build_summary_user_prompt(formatted: &str, target_tokens: u32, in_run: bool) -> String {
+pub(crate) fn build_summary_user_prompt(
+    formatted: &str,
+    target_tokens: u32,
+    in_run: bool,
+) -> String {
     let prioritize = if in_run {
         "Progress (blockers and decisions) > State > Next."
     } else {
@@ -392,7 +399,9 @@ pub(crate) fn build_persisted_summary(summary_prefix: &str, summary_text: &str) 
     format!("{summary_prefix}\n{SUMMARY_REFERENCE_NOTICE}\n\n{summary_text}")
 }
 
-pub(crate) fn validate_summary_output(out: &crate::provider::ChatOnceOutput) -> Result<String, String> {
+pub(crate) fn validate_summary_output(
+    out: &crate::provider::ChatOnceOutput,
+) -> Result<String, String> {
     if let Some(reason) = out.finish_reason.as_deref() {
         if !reason.eq_ignore_ascii_case("stop") {
             return Err(format!("finish_reason={reason}"));
@@ -431,9 +440,18 @@ pub(crate) fn record_summary_usage(
     }
 }
 
-pub(crate) fn build_drop_without_summary_body(summary_prefix: &str, dropped_count: u32) -> String {
-    // Hermes inserts a deterministic handoff when the LLM summarizer fails;
-    // keep a short structured notice so the lead knows older turns were dropped.
+pub(crate) fn build_drop_without_summary_body(
+    summary_prefix: &str,
+    dropped_count: u32,
+    kept_user_turns: usize,
+) -> String {
+    let kept = if kept_user_turns == 0 {
+        "Continue only from the newer messages that follow this notice.".to_string()
+    } else {
+        format!(
+            "Kept the last {kept_user_turns} user turn(s) (user message + concluding assistant) verbatim."
+        )
+    };
     build_persisted_summary(
         summary_prefix,
         &format!(
@@ -444,7 +462,7 @@ pub(crate) fn build_drop_without_summary_body(summary_prefix: &str, dropped_coun
              ## State\n\
              (none)\n\n\
              ## Open\n\
-             Continue only from the newer messages that follow this notice. \
+             {kept} \
              Do not assume details from the dropped turns."
         ),
     )
@@ -502,4 +520,3 @@ pub(crate) fn new_summary_message(body: String, in_run: bool) -> ChatMessage {
         spawn_depth: None,
     }
 }
-

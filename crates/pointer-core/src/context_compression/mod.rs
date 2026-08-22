@@ -11,17 +11,17 @@ mod types;
 mod tests;
 
 pub use budget::{
-    compute_summary_max_tokens, compression_gate_tokens, current_turn_message_share,
+    compression_gate_tokens, compute_summary_max_tokens, current_turn_message_share,
     estimate_message_payload_tokens, estimate_one_message_payload_tokens,
     estimate_text_tokens_heuristic, evaluate_compress_gate, find_in_run_drop_range,
     find_summary_split, find_tail_start_by_count, is_compression_summary_content,
     is_context_overflow_error, normalize_context_budget_tokens, plan_compression,
     precompress_gate_threshold, should_precompress_history, should_use_in_run_compression,
     sub_agent_between_round_compress_soft, summary_max_tokens_requested, summary_max_tokens_retry,
-    tail_message_count, COMPRESSIBLE_MIN_RATIO, COMPRESSION_SUMMARY_REASONING,
-    IN_RUN_TURN_MESSAGE_RATIO, MAX_OVERFLOW_RECOVERIES, OVERFLOW_TAIL_MESSAGE_RATIO,
-    PRECOMPRESS_GATE_RATIO, SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT, TAIL_MESSAGE_RATIO,
-    CompressGateDecision, CompressionPlan,
+    tail_message_count, CompressGateDecision, CompressionPlan, COMPRESSIBLE_MIN_RATIO,
+    COMPRESSION_SUMMARY_REASONING, DROP_FALLBACK_KEEP_USER_TURNS, IN_RUN_TURN_MESSAGE_RATIO,
+    MAX_OVERFLOW_RECOVERIES, OVERFLOW_TAIL_MESSAGE_RATIO, PRECOMPRESS_GATE_RATIO,
+    SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT, TAIL_MESSAGE_RATIO,
 };
 pub use precompress::{
     discard_pending_compression, maybe_spawn_precompress, prepare_history_between_llm_rounds,
@@ -34,5 +34,5 @@ pub(crate) use precompress::{
 pub use run::{
     maybe_compress_after_tool_round_limit, maybe_compress_history, recover_history_after_overflow,
 };
-pub use types::{CompressionScope, CompressionUiContext};
 pub(crate) use types::{sub_agent_compression_queue_key, SubAgentPrecompressLease};
+pub use types::{CompressionScope, CompressionUiContext};

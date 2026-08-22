@@ -197,7 +197,10 @@ async fn full_plugin_lifecycle_hooks_mcp_and_teardown() {
     // ---- 禁用：全部注销 + MCP 会话关闭 ----
     state.plugin_disable("com.example.e2e").unwrap();
     assert!(state.tools.get_def("demo_hello").is_none(), "tool removed");
-    assert!(state.tools.get_def("mcp_echo").is_none(), "mcp tool removed");
+    assert!(
+        state.tools.get_def("mcp_echo").is_none(),
+        "mcp tool removed"
+    );
     assert!(state.skills.get("demo-skill").is_none(), "skill removed");
     assert!(
         !state.mcp_sessions.has_session("com.example.e2e"),
@@ -235,7 +238,10 @@ impl crate::observability::exporters::TraceExporter for CollectingExporter {
     fn name(&self) -> &str {
         "collecting"
     }
-    async fn export(&self, batch: Vec<crate::observability::trace::TraceEvent>) -> Result<(), String> {
+    async fn export(
+        &self,
+        batch: Vec<crate::observability::trace::TraceEvent>,
+    ) -> Result<(), String> {
         self.events.lock().unwrap().extend(batch);
         Ok(())
     }
@@ -385,10 +391,7 @@ async fn hook_execution_emits_hook_span() {
     }
 
     let events = collecting.events.lock().unwrap().clone();
-    let hook: Vec<_> = events
-        .iter()
-        .filter(|e| e.kind == SpanKind::Hook)
-        .collect();
+    let hook: Vec<_> = events.iter().filter(|e| e.kind == SpanKind::Hook).collect();
     assert_eq!(hook.len(), 1);
     // parent = run-root（与 ToolCall span 平级，计划 §7.1）
     assert_eq!(hook[0].parent_span_id.as_deref(), Some("run-root"));
@@ -463,16 +466,16 @@ done
             .unwrap(),
         "mcp-e2e-ok"
     );
-    assert!(state.mcp_sessions.has_session(crate::plugins::mcp::GLOBAL_MCP_KEY));
+    assert!(state
+        .mcp_sessions
+        .has_session(crate::plugins::mcp::GLOBAL_MCP_KEY));
 
     // 热重载：清空配置 → 工具注销、会话关闭
     state.reload_global_mcp(vec![], cfg_dir.clone()).unwrap();
     assert!(state.tools.get_def("mcp.demo.mcp_echo").is_none());
-    assert!(
-        !state
-            .mcp_sessions
-            .has_session(crate::plugins::mcp::GLOBAL_MCP_KEY)
-    );
+    assert!(!state
+        .mcp_sessions
+        .has_session(crate::plugins::mcp::GLOBAL_MCP_KEY));
 }
 
 #[tokio::test]
@@ -501,7 +504,9 @@ async fn global_mcp_conflict_rejects_plugin_enable() {
         headers: None,
     };
     let state = Arc::new(AppState::new());
-    state.reload_global_mcp(vec![decl], cfg_dir.clone()).unwrap();
+    state
+        .reload_global_mcp(vec![decl], cfg_dir.clone())
+        .unwrap();
 
     // 同名冲突：插件启用应被拒绝（全局优先）
     let err = state.plugin_enable("com.example.e2e").unwrap_err();
@@ -641,7 +646,9 @@ HTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
     );
 
     // 清理：关会话 + 杀 server
-    state.mcp_sessions.shutdown_plugin(crate::plugins::mcp::GLOBAL_MCP_KEY);
+    state
+        .mcp_sessions
+        .shutdown_plugin(crate::plugins::mcp::GLOBAL_MCP_KEY);
     let _ = server.kill();
     let _ = server.wait();
 }
@@ -682,7 +689,9 @@ done
     };
     // AppState::new 已 spawn watchdog（2s 周期）
     let state = Arc::new(AppState::new());
-    state.reload_global_mcp(vec![decl], cfg_dir.clone()).unwrap();
+    state
+        .reload_global_mcp(vec![decl], cfg_dir.clone())
+        .unwrap();
     assert_eq!(
         state
             .tools
@@ -698,7 +707,10 @@ done
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     let mut recovered = false;
     while std::time::Instant::now() < deadline {
-        if state.mcp_sessions.any_alive(crate::plugins::mcp::GLOBAL_MCP_KEY) {
+        if state
+            .mcp_sessions
+            .any_alive(crate::plugins::mcp::GLOBAL_MCP_KEY)
+        {
             if let Ok(out) = state
                 .tools
                 .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
@@ -856,6 +868,10 @@ fn workspace_level_plugin_auth_does_not_leak_to_user_level() {
     reg.authorize("com.example.same").unwrap();
     let auth = reg.load_auth();
     assert_eq!(auth.plugins.len(), 2);
-    assert!(auth.plugins.contains_key(&user_dir.to_string_lossy().to_string()));
-    assert!(auth.plugins.contains_key(&ws_dir.to_string_lossy().to_string()));
+    assert!(auth
+        .plugins
+        .contains_key(&user_dir.to_string_lossy().to_string()));
+    assert!(auth
+        .plugins
+        .contains_key(&ws_dir.to_string_lossy().to_string()));
 }

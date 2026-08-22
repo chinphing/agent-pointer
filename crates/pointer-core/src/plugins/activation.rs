@@ -383,7 +383,15 @@ mod tests {
         assert_eq!(record.status, PluginStatus::Enabled);
 
         let (tools, skills, agents, extensions, hook_registry) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
+        activate_plugin(
+            &tools,
+            &skills,
+            &agents,
+            &extensions,
+            &hook_registry,
+            &record,
+        )
+        .unwrap();
 
         // 工具：demo_hello 注册且带 plugin_id
         let def = tools.get_def("demo_hello").expect("tool registered");
@@ -431,12 +439,27 @@ mod tests {
         let record = reg.get("com.example.demo").unwrap();
 
         let (tools, skills, agents, extensions, hook_registry) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
+        activate_plugin(
+            &tools,
+            &skills,
+            &agents,
+            &extensions,
+            &hook_registry,
+            &record,
+        )
+        .unwrap();
         assert!(tools.get_def("demo_hello").is_some());
         assert!(skills.get("demo-skill").is_some());
         assert!(agents.get("demo-agent").is_some());
 
-        deactivate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, "com.example.demo");
+        deactivate_plugin(
+            &tools,
+            &skills,
+            &agents,
+            &extensions,
+            &hook_registry,
+            "com.example.demo",
+        );
         assert!(tools.get_def("demo_hello").is_none());
         assert!(skills.get("demo-skill").is_none());
         assert!(agents.get("demo-agent").is_none());
@@ -458,8 +481,24 @@ mod tests {
         let record = reg.get("com.example.demo").unwrap();
 
         let (tools, skills, agents, extensions, hook_registry) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
-        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
+        activate_plugin(
+            &tools,
+            &skills,
+            &agents,
+            &extensions,
+            &hook_registry,
+            &record,
+        )
+        .unwrap();
+        activate_plugin(
+            &tools,
+            &skills,
+            &agents,
+            &extensions,
+            &hook_registry,
+            &record,
+        )
+        .unwrap();
         assert!(tools.get_def("demo_hello").is_some());
         assert!(skills.get("demo-skill").is_some());
         assert!(agents.get("demo-agent").is_some());
@@ -480,7 +519,15 @@ mod tests {
         let record = reg.get("com.example.demo").unwrap();
 
         let (tools, skills, agents, extensions, hook_registry) = build_registries();
-        activate_plugin(&tools, &skills, &agents, &extensions, &hook_registry, &record).unwrap();
+        activate_plugin(
+            &tools,
+            &skills,
+            &agents,
+            &extensions,
+            &hook_registry,
+            &record,
+        )
+        .unwrap();
 
         let computer = ComputerState::with_annotate_url("http://127.0.0.1:9");
         let base: &[ChatMessage] = &[];

@@ -10,6 +10,23 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+pub(crate) fn droppable_message_count(
+    history: &[ChatMessage],
+    drop_start: usize,
+    drop_end: usize,
+) -> u32 {
+    if drop_start >= drop_end || drop_end > history.len() {
+        return 0;
+    }
+    history[drop_start..drop_end]
+        .iter()
+        .filter(|m| {
+            crate::message_context::is_context_included(m)
+                && !crate::message_context::is_synthetic_user_content(&m.content)
+        })
+        .count() as u32
+}
+
 pub(crate) async fn compress_history_inner(
     history: &mut Vec<ChatMessage>,
     settings: &ModelSettings,
@@ -118,6 +135,24 @@ pub(crate) async fn compress_history_inner(
         return false;
     }
 
+    let dropped_count = droppable_message_count(history, drop_start, drop_end);
+    if dropped_count == 0 {
+        log::info!(
+            "context_compress: skip_empty_drop_window conversation_id={} messages={} in_run={} drop_start={} drop_end={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} wall_ms={}",
+            conversation_id,
+            messages_before,
+            in_run,
+            drop_start,
+            drop_end,
+            gate_tokens,
+            gate_source,
+            payload_est,
+            api_prompt,
+            wall.elapsed().as_millis()
+        );
+        return false;
+    }
+
     // In-thread marker at the summary split (frontend); completion still uses UiToast.
     if emit_compression_ui {
         let insert_before = history
@@ -127,13 +162,6 @@ pub(crate) async fn compress_history_inner(
         emit_compression_started(stream, conversation_id, ui, insert_before);
     }
 
-    let dropped_count = history[drop_start..drop_end]
-        .iter()
-        .filter(|m| {
-            crate::message_context::is_context_included(m)
-                && !crate::message_context::is_synthetic_user_content(&m.content)
-        })
-        .count() as u32;
     let t_fmt = Instant::now();
     let formatted = format_prefix_for_summary(summary_source);
     let format_prefix_ms = t_fmt.elapsed().as_millis();

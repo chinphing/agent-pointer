@@ -649,3 +649,117 @@ use crate::models::{ChatMessage, Role};
         assert_eq!(snap.settings.model, "deepseek-v4-flash");
         assert_eq!(snap.api_key, "k");
     }
+
+    #[test]
+    fn pending_apply_invalidates_stale_api_tokens_and_gate_skips() {
+        let mut summary = new_summary_message("already compressed".into(), false);
+        summary.id = "sum_applied".into();
+        let mut current = u("current question");
+        current.id = "cur_applied".into();
+        let history = vec![summary, current];
+        let budget = 10_000;
+        let stale = plan_compression(
+            &history,
+            Some(200_000),
+            budget,
+            1,
+            false,
+            false,
+            false,
+        );
+        assert!(
+            !matches!(stale, CompressionPlan::Skip),
+            "stale api tokens must still trip the gate: {stale:?}"
+        );
+        let tokens = prompt_tokens_after_pending_apply(true, Some(200_000));
+        assert_eq!(tokens, None);
+        assert!(matches!(
+            plan_compression(&history, tokens, budget, 1, false, false, false),
+            CompressionPlan::Skip
+        ));
+        assert_eq!(
+            prompt_tokens_after_pending_apply(false, Some(200_000)),
+            Some(200_000)
+        );
+    }
+
+    #[test]
+    fn second_compress_allowed_when_local_estimate_still_over() {
+        let mut history = Vec::new();
+        for i in 0..8 {
+            let mut m = u(&"old turn body ".repeat(4_000));
+            m.id = format!("old_{i}");
+            history.push(m);
+        }
+        let mut current = u("keep this question");
+        current.id = "keep_q".into();
+        history.push(current);
+        let plan = plan_compression(&history, None, 2_000, 1, false, false, false);
+        assert!(
+            !matches!(plan, CompressionPlan::Skip),
+            "real leftover prefix must still compress: {plan:?}"
+        );
+        match plan {
+            CompressionPlan::Prefix { split } => {
+                assert!(super::run::droppable_message_count(&history, 0, split) > 0);
+            }
+            CompressionPlan::InRun {
+                drop_start,
+                tail_start,
+            } => {
+                assert!(
+                    super::run::droppable_message_count(&history, drop_start, tail_start) > 0
+                );
+            }
+            CompressionPlan::Skip => unreachable!(),
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_drop_window_does_not_emit_started_or_insert_summary() {
+        let mut settings = crate::models::ModelSettings::default();
+        settings.context_compression_enabled = true;
+        settings.context_budget_tokens = 1_000;
+        settings.context_keep_recent_user_turns = 1;
+        let provider = crate::provider::OpenAIProvider::new(settings.clone(), "sk-test".into());
+        let (stream, mut rx) = crate::models::ChatStreamSender::pair("c_empty_drop", "");
+        let mut summary = u(&format!(
+            "{SUMMARY_PREFIX_BUDGET}\nalready compressed"
+        ));
+        summary.id = "only_sum".into();
+        let mut current = u("current question");
+        current.id = "only_cur".into();
+        let mut history = vec![summary, current];
+        let changed = super::run::compress_history_inner(
+            &mut history,
+            &settings,
+            &provider,
+            "c_empty_drop",
+            &stream,
+            tokio_util::sync::CancellationToken::new(),
+            true,
+            false,
+            false,
+            true,
+            &CompressionUiContext::default(),
+            Some(200_000),
+            None,
+            false,
+        )
+        .await;
+        assert!(!changed);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].id, "only_sum");
+        assert_eq!(history[1].id, "only_cur");
+        drop(stream);
+        let mut saw_started = false;
+        while let Ok(ev) = rx.try_recv() {
+            if matches!(
+                ev,
+                crate::models::StreamEvent::ContextCompressionStarted { .. }
+            ) {
+                saw_started = true;
+            }
+        }
+        assert!(!saw_started);
+    }

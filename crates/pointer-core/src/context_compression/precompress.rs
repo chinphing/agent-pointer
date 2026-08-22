@@ -292,6 +292,19 @@ pub(crate) fn splice_pending_into_history(
     true
 }
 
+/// After a live pending splice, last-round `usage.prompt_tokens` describes the
+/// pre-splice request. Later gates must re-estimate from current history.
+pub(crate) fn prompt_tokens_after_pending_apply(
+    applied: bool,
+    reported_prompt_tokens: Option<u32>,
+) -> Option<u32> {
+    if applied {
+        None
+    } else {
+        reported_prompt_tokens
+    }
+}
+
 /// Apply a queued precompress splice onto the live working set, even while
 /// the current turn is still running. Safe when the compressed prefix is
 /// unchanged and new messages were only appended after the split.
@@ -523,12 +536,19 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
         );
         return;
     }
-    let _ = try_apply_pending_keyed(lease.key(), history, stream, None);
+    let mut tokens = reported_prompt_tokens;
+    if try_apply_pending_keyed(lease.key(), history, stream, None) {
+        tokens = prompt_tokens_after_pending_apply(true, tokens);
+        log::info!(
+            "context_compress: stale prompt_tokens discarded after pending splice conversation_id={} scope=sub_agent",
+            conversation_id
+        );
+    }
     let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
     match sub_agent_between_round_compress_soft(
         history,
-        reported_prompt_tokens,
+        tokens,
         budget,
         keep_users,
     ) {
@@ -541,10 +561,16 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
                 history.len()
             );
             await_inflight_precompress(lease.key()).await;
-            let _ = try_apply_pending_keyed(lease.key(), history, stream, None);
+            if try_apply_pending_keyed(lease.key(), history, stream, None) {
+                tokens = prompt_tokens_after_pending_apply(true, tokens);
+                log::info!(
+                    "context_compress: stale prompt_tokens discarded after pending splice conversation_id={} scope=sub_agent",
+                    conversation_id
+                );
+            }
             let still = sub_agent_between_round_compress_soft(
                 history,
-                reported_prompt_tokens,
+                tokens,
                 budget,
                 keep_users,
             );
@@ -558,7 +584,7 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
                     cancel,
                     ui,
                     None,
-                    reported_prompt_tokens,
+                    tokens,
                 )
                 .await;
             }
@@ -571,7 +597,7 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
                 stream.clone(),
                 cancel,
                 ui,
-                reported_prompt_tokens,
+                tokens,
                 lease,
             );
         }
@@ -594,12 +620,19 @@ pub async fn prepare_history_between_llm_rounds(
     if !settings.context_compression_enabled {
         return;
     }
-    let _ = try_apply_pending_compression_live(state.as_ref(), conversation_id, history, stream);
+    let mut tokens = reported_prompt_tokens;
+    if try_apply_pending_compression_live(state.as_ref(), conversation_id, history, stream) {
+        tokens = prompt_tokens_after_pending_apply(true, tokens);
+        log::info!(
+            "context_compress: stale prompt_tokens discarded after pending splice conversation_id={} scope=main",
+            conversation_id
+        );
+    }
     let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
     let hard_plan = plan_compression(
         history,
-        reported_prompt_tokens,
+        tokens,
         budget,
         keep_users,
         false,
@@ -614,10 +647,16 @@ pub async fn prepare_history_between_llm_rounds(
             current_turn_message_share(history)
         );
         await_inflight_precompress(conversation_id).await;
-        let _ = try_apply_pending_compression_live(state.as_ref(), conversation_id, history, stream);
+        if try_apply_pending_compression_live(state.as_ref(), conversation_id, history, stream) {
+            tokens = prompt_tokens_after_pending_apply(true, tokens);
+            log::info!(
+                "context_compress: stale prompt_tokens discarded after pending splice conversation_id={} scope=main",
+                conversation_id
+            );
+        }
         let still = plan_compression(
             history,
-            reported_prompt_tokens,
+            tokens,
             budget,
             keep_users,
             false,
@@ -634,7 +673,7 @@ pub async fn prepare_history_between_llm_rounds(
                 cancel,
                 ui,
                 None,
-                reported_prompt_tokens,
+                tokens,
             )
             .await;
         }
@@ -644,7 +683,7 @@ pub async fn prepare_history_between_llm_rounds(
         state,
         conversation_id.to_string(),
         history,
-        reported_prompt_tokens,
+        tokens,
         provider,
     );
 }

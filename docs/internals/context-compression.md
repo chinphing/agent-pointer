@@ -58,6 +58,10 @@ Provider 在本轮工具循环中返回上下文过长时：
 - 主会话摘要可在后台完成：若该会话仍有活跃回合，结果 **入队**；
   下一轮 LLM 开始前 `try_apply_pending_compression_live` 接到当前工作集
   （切分点之后新追加的消息不判过期；run 内切分点是条数尾起点）。
+  **接入 splice 后本轮不再用上一轮 `usage.prompt_tokens`**，门闩按压完后的
+  history 本地估算；真的还超才同步再压。软预压 spawn 也用失效后的 token。
+  丢弃窗口里没有可压消息（计入上下文且非合成用户行）时不发「压缩中」、
+  不落第二条摘要。
 - 仅当已经超过 **硬预算** 时主会话才同步等待（先等正在跑的后台任务，不够再当场压缩）。
 - **子 Agent 预压队列与 lead 隔离**（`sub:{conversationId}:{agentInstanceId}`）。
   过 80% 时后台摘要、下一轮 LLM 前接入；硬预算则等待 inflight 再同步。
@@ -153,6 +157,7 @@ Open / Next 是还没做完的：跨轮待问用 Open，本轮未完成用 Next�
 
 有上一轮 `usage.prompt_tokens` 时：**只比较该值与软/硬阈值**，不再扫一遍消息估 token。
 此时只要存在可摘要前缀（最新真实用户消息不在第 0 条）即可触发。
+本轮已经接入 pending splice 后不再沿用该 usage，改为本地估算。
 
 没有 usage 时才走本地启发式，并要求
 `prefix_payload / payload_est ≥ 0.30`。

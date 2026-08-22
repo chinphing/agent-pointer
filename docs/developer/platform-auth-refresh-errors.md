@@ -20,6 +20,14 @@ access token 过期后，发送消息会先 `refresh_if_needed()`。若此时官
 
 换票失败会带稳定标记：`token exchange failed http_status=502 (...)`，前端 `extractPlatformAuthHttpStatus` 优先读该字段，避免用正文里偶然出现的 `401` 误判。
 
+## 用量上报与 access 过期
+
+桌面 / Web 共用同一套 `flush_unsent_reports`。长对话可能超过 access token 有效期（默认 60 分钟，客户端提前 5 分钟视为过期），结束时 `logged_in` 会为 false。
+
+Flush **只在有 pending 且未登录时** 才 `refresh_if_needed`；短对话不换票。换票成功后立即上报，失败则 pending 留待下次。下一轮对话开头（已 refresh 之后）会再冲一次积压，避免「等这一轮也跑完才上传」。
+
+详见 [`../llm/token-usage-reporting.md`](../llm/token-usage-reporting.md)。
+
 ## 统一登录门禁（前端 / 桌面）
 
 需要「已登录」才能继续的动作，不要各自拼 `ensureFreshSession` + `logged_in` 判断。

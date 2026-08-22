@@ -1069,19 +1069,48 @@ pub fn usage_report_enabled() -> bool {
         .unwrap_or_else(|| !crate::deployment_mode::is_standalone())
 }
 
+/// Refresh the platform access token only when there is pending work and the
+/// in-memory session looks logged out (expired access, 5 min expiry buffer).
+/// Does not hit the token API when there is nothing to upload or the session
+/// is still fresh.
+async fn refresh_if_needed_for_flush(
+    auth: &crate::platform_auth::PlatformAuthManager,
+    pending_n: usize,
+) -> Result<bool> {
+    if auth.session_view().logged_in {
+        return Ok(true);
+    }
+    log::info!(
+        "token_usage_store: access expired or missing; refreshing before flush ({pending_n} pending report(s))"
+    );
+    match auth.refresh_if_needed().await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            log::warn!(
+                "token_usage_store: skip flush — not logged in; {pending_n} pending report(s) waiting"
+            );
+            return Ok(false);
+        }
+        Err(e) => {
+            log::warn!(
+                "token_usage_store: skip flush — refresh failed; {pending_n} pending report(s) waiting: {e:#}"
+            );
+            return Ok(false);
+        }
+    }
+    if !auth.session_view().logged_in {
+        log::warn!(
+            "token_usage_store: skip flush — still not logged in after refresh; {pending_n} pending report(s) waiting"
+        );
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 pub async fn flush_unsent_reports(
     auth: &crate::platform_auth::PlatformAuthManager,
 ) -> Result<usize> {
     if !usage_report_enabled() {
-        return Ok(0);
-    }
-    if !auth.session_view().logged_in {
-        let pending_n = count_unsent_reports().unwrap_or(0);
-        if pending_n > 0 {
-            log::warn!(
-                "token_usage_store: skip flush — not logged in; {pending_n} pending report(s) waiting"
-            );
-        }
         return Ok(0);
     }
     let pending = {
@@ -1090,6 +1119,9 @@ pub async fn flush_unsent_reports(
         read_unsent_reports(&conn)?
     };
     if pending.is_empty() {
+        return Ok(0);
+    }
+    if !refresh_if_needed_for_flush(auth, pending.len()).await? {
         return Ok(0);
     }
     let platform_agent_id = auth.platform_agent_id();

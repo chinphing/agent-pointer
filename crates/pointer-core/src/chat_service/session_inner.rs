@@ -137,6 +137,14 @@ pub(super) async fn run_chat_inner(
         auth_refresh_t.elapsed().as_millis(),
         &format!("skipped={skip_platform_refresh}"),
     );
+    // Leftover pending from a previous turn whose end-of-run flush skipped
+    // (expired access token, or refresh failed). Session is fresh now — do not
+    // wait until this turn ends.
+    if let Err(e) =
+        crate::token_usage_store::flush_unsent_reports(&state.active_platform_auth()).await
+    {
+        log::warn!("token_usage_store: flush before chat failed: {e}");
+    }
     let platform_logged_in = state.active_platform_auth().session_view().logged_in;
     let is_automation = req
         .trigger_source
@@ -241,10 +249,7 @@ pub(super) async fn run_chat_inner(
         .session_user_id(conversation_id)
         .unwrap_or_default();
 
-    if let Err(e) = state
-        .memory_store
-        .ensure_loaded(session_user_id.as_str())
-    {
+    if let Err(e) = state.memory_store.ensure_loaded(session_user_id.as_str()) {
         log::warn!("memory: ensure session user failed conversation_id={conversation_id}: {e:#}");
     }
 

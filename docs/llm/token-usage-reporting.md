@@ -28,7 +28,11 @@ All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, ag
 
 During the run, `record_round` inserts or updates rows with `report_status = accumulating`.
 
-After each `run_chat`, `finalize_run(run_id, …)` sets `report_status = pending` for that run's rows with usage (optional conversation archive zip). Token counts are **not** cleared.
+After each `run_chat`, `finalize_run(run_id, …)` sets `report_status = pending` for that run's rows with usage (optional conversation archive zip). Token counts are **not** cleared. Then `flush_unsent_reports` uploads immediately.
+
+Access token is ~60 minutes (client treats it expired 5 minutes early). A long turn can outlive that window. Flush therefore calls `refresh_if_needed` **only when there is pending work and the session is not logged in** — short turns do not hit the token API. If refresh fails or there is no session, pending stays for retry.
+
+The next `run_chat` also flushes leftover pending right after its start-of-turn refresh, so a previous skip does not wait until that next turn ends.
 
 On app startup or exit, `finalize_all_stale_accum` promotes interrupted `accumulating` rows with usage to `pending` (no history archive), then `flush_unsent_reports` (alias `flush_pending_reports`) uploads pending rows and marks them `sent` on success. Failed uploads stay `pending` for retry.
 

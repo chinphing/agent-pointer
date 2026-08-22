@@ -132,7 +132,9 @@ Passwords and yes/no prompts use an **in-app modal** — never put secrets in
 | **`cwd`** | no | Existing directory |
 | **`timeoutMs`** | no | See **Timeouts** |
 | **`maxWallMs`** | no | See **Timeouts** |
-| **`maxOutputBytes`** | no | Per stream; default and max **8000**. Oversize streams keep the **tail** (prefix `...[output truncated]`) |
+| **`maxOutputBytes`** | no | Per stream; default and ceiling from host settings
+  (default **16 KiB**). Tool arg can only **lower**. Oversize streams keep the
+  **tail** (prefix `...[output truncated]`) |
 | **`stdin`** | no | Non-sensitive one-shot stdin at spawn |
 | **`waitForInputMs`** | no | Max wait for in-app input after prompt detect |
 | **`envFiles`** | no | `.env` path or array |

@@ -49,6 +49,7 @@ const {
   fileReadMaxKb,
   fileLineMaxBytes,
   fileGrepMaxResults,
+  terminalOutputMaxKb,
   attachmentUploadMaxMb,
   parallelToolExecutionEnabled,
   autoParallelLimit,
@@ -653,9 +654,9 @@ async function onPlaySoundToggle(checked: boolean) {
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
         <div>
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <FileText class="w-4 h-4 text-accent" />文件
+            <FileText class="w-4 h-4 text-accent" />内容上限
           </h4>
-          <p class="mt-1 text-[11px] text-muted">对话上传、读取和搜索的上限。视频上传仍走独立压缩。工具参数只能下调，不能突破这里的上限。</p>
+          <p class="mt-1 text-[11px] text-muted">上传、读文件、搜索和终端输出回给 AI 的上限。视频上传仍走独立压缩。工具参数只能下调，不能突破这里的上限。</p>
         </div>
         <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
           <div>
@@ -738,6 +739,27 @@ async function onPlaySoundToggle(checked: boolean) {
               type="number"
               min="1"
               max="200"
+              step="1"
+              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+            />
+          </div>
+          <div>
+            <div class="flex items-center gap-1 mb-1.5">
+              <span class="text-[12px] text-muted">终端（KB）</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="终端命令每路输出回给 AI 的上限，超限只保留末尾。"
+                aria-label="终端输出上限说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+            <input
+              v-model.number="terminalOutputMaxKb"
+              type="number"
+              min="4"
+              max="256"
               step="1"
               class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
             />

@@ -113,6 +113,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     fileReadMaxBytes: s.fileReadMaxBytes ?? 65_536,
     fileLineMaxBytes: s.fileLineMaxBytes ?? 1024,
     fileGrepMaxResults: s.fileGrepMaxResults ?? 50,
+    terminalOutputMaxBytes: s.terminalOutputMaxBytes ?? 16_384,
     attachmentUploadMaxBytes: s.attachmentUploadMaxBytes ?? 100 * 1024 * 1024,
     maxSubAgentToolRounds: normalizeToolRounds(s.maxSubAgentToolRounds ?? s.maxToolRounds),
     maxSubAgentSpawnDepth: s.maxSubAgentSpawnDepth ?? 2,
@@ -268,6 +269,7 @@ export const useSettingsStore = defineStore('settings', () => {
     fileReadMaxBytes: 65_536,
     fileLineMaxBytes: 1024,
     fileGrepMaxResults: 50,
+    terminalOutputMaxBytes: 16_384,
     attachmentUploadMaxBytes: 100 * 1024 * 1024,
     maxSubAgentToolRounds: DEFAULT_TOOL_ROUNDS,
     maxSubAgentSpawnDepth: 2,
@@ -544,6 +546,10 @@ export const useSettingsStore = defineStore('settings', () => {
       fileLineMaxBytes: mergedIn.fileLineMaxBytes ?? user.fileLineMaxBytes ?? settings.value.fileLineMaxBytes,
       fileGrepMaxResults:
         mergedIn.fileGrepMaxResults ?? user.fileGrepMaxResults ?? settings.value.fileGrepMaxResults,
+      terminalOutputMaxBytes:
+        mergedIn.terminalOutputMaxBytes
+        ?? user.terminalOutputMaxBytes
+        ?? settings.value.terminalOutputMaxBytes,
       attachmentUploadMaxBytes:
         mergedIn.attachmentUploadMaxBytes
         ?? user.attachmentUploadMaxBytes

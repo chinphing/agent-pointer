@@ -40,10 +40,20 @@ const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const TERMINAL_MAX_TIMEOUT_MS: u64 = 3_600_000;
 /// 自进程启动起的墙钟上限（与是否有输出无关）。
 const TERMINAL_ABS_MAX_WALL_MS: u64 = 3_600_000;
-pub(crate) const TERMINAL_DEFAULT_MAX_OUTPUT_BYTES: usize = 8_000;
-pub(crate) const TERMINAL_MAX_OUTPUT_BYTES: usize = 8_000;
 const TERMINAL_DEFAULT_WAIT_FOR_INPUT_MS: u64 = 120_000;
 const TERMINAL_MAX_WAIT_FOR_INPUT_MS: u64 = 600_000;
+
+/// Ceiling for stdout/stderr returned to the model. Tool `maxOutputBytes` may only lower it.
+pub(crate) fn resolve_max_output_bytes(args: &serde_json::Value) -> usize {
+    let ceiling = crate::storage::load_user_settings()
+        .ok()
+        .map(|u| crate::models::clamp_terminal_output_max_bytes(u.terminal_output_max_bytes))
+        .unwrap_or(crate::models::DEFAULT_TERMINAL_OUTPUT_MAX_BYTES) as u64;
+    args.get("maxOutputBytes")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(ceiling)
+        .clamp(1, ceiling) as usize
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,11 +163,7 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
         .ok_or_else(|| anyhow!("缺少 command"))?;
     let session_workspace = crate::tools::file::workspace_root_from_override_or_settings();
     let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
-    let max_output_bytes = args
-        .get("maxOutputBytes")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
-        .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
+    let max_output_bytes = resolve_max_output_bytes(&args);
     let (shell, _) = terminal_shell_command(&command);
     let env_files = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
 
@@ -248,7 +254,6 @@ pub fn run_terminal_command_streaming(
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
     let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
-    info!("terminal: cwd={}", cwd.display());
     let timeout_ms = args
         .get("timeoutMs")
         .and_then(|v| v.as_u64())
@@ -259,11 +264,12 @@ pub fn run_terminal_command_streaming(
         .and_then(|v| v.as_u64())
         .map(|v| v.clamp(1_000, TERMINAL_ABS_MAX_WALL_MS))
         .unwrap_or(TERMINAL_ABS_MAX_WALL_MS);
-    let max_output_bytes = args
-        .get("maxOutputBytes")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
-        .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
+    let max_output_bytes = resolve_max_output_bytes(&args);
+    info!(
+        "terminal: cwd={} max_output_bytes={}",
+        cwd.display(),
+        max_output_bytes
+    );
 
     let wait_for_input_ms = args
         .get("waitForInputMs")
@@ -1191,6 +1197,19 @@ mod cwd_tests {
             out.chars().all(|c| c != '\u{FFFD}'),
             "must not emit replacement char: {out:?}"
         );
+    }
+
+    #[test]
+    fn resolve_max_output_bytes_tool_arg_cannot_exceed_ceiling() {
+        let ceiling = resolve_max_output_bytes(&serde_json::json!({}));
+        assert!(ceiling >= crate::models::FLOOR_TERMINAL_OUTPUT_MAX_BYTES as usize);
+        assert!(ceiling <= crate::models::CEILING_TERMINAL_OUTPUT_MAX_BYTES as usize);
+        let lowered = resolve_max_output_bytes(&serde_json::json!({ "maxOutputBytes": 1024 }));
+        assert_eq!(lowered, 1024);
+        let raised = resolve_max_output_bytes(&serde_json::json!({
+            "maxOutputBytes": u64::from(crate::models::CEILING_TERMINAL_OUTPUT_MAX_BYTES) * 4
+        }));
+        assert_eq!(raised, ceiling);
     }
 
     #[test]

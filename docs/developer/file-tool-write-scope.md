@@ -31,7 +31,7 @@
 
 `file_read` / `file_glob` / `file_grep` / `file_list` 仍可通过绝对路径读取工作区外的**已存在**路径（见 `resolve_accessible_path`）。
 
-`file_read` / `file_grep` 的返回体有**硬上限**（调用方无法突破），见 [file-tool-output-limits.md](file-tool-output-limits.md)。
+`file_read` / `file_grep` / `terminal` 的返回体有**硬上限**（调用方无法突破），见 [file-tool-output-limits.md](file-tool-output-limits.md)。
 
 ## 未包含（有意限制）
 

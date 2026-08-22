@@ -676,6 +676,13 @@ pub struct ModelSettings {
         rename = "fileGrepMaxResults"
     )]
     pub file_grep_max_results: u32,
+    /// Max UTF-8 bytes kept from each `terminal` stdout/stderr stream
+    /// (tool `maxOutputBytes` can only lower this).
+    #[serde(
+        default = "default_terminal_output_max_bytes",
+        rename = "terminalOutputMaxBytes"
+    )]
+    pub terminal_output_max_bytes: u32,
     /// Max bytes for a non-video composer / chat attachment upload.
     #[serde(
         default = "default_attachment_upload_max_bytes",
@@ -998,6 +1005,8 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     user.file_read_max_bytes = clamp_file_read_max_bytes(user.file_read_max_bytes);
     user.file_line_max_bytes = clamp_file_line_max_bytes(user.file_line_max_bytes);
     user.file_grep_max_results = clamp_file_grep_max_results(user.file_grep_max_results);
+    user.terminal_output_max_bytes =
+        clamp_terminal_output_max_bytes(user.terminal_output_max_bytes);
     user.attachment_upload_max_bytes =
         clamp_attachment_upload_max_bytes(user.attachment_upload_max_bytes);
 }
@@ -1112,6 +1121,9 @@ pub const FLOOR_FILE_LINE_MAX_BYTES: u32 = 256;
 pub const CEILING_FILE_LINE_MAX_BYTES: u32 = 16 * 1024;
 pub const FLOOR_FILE_GREP_MAX_RESULTS: u32 = 1;
 pub const CEILING_FILE_GREP_MAX_RESULTS: u32 = 200;
+pub const DEFAULT_TERMINAL_OUTPUT_MAX_BYTES: u32 = 16 * 1024;
+pub const FLOOR_TERMINAL_OUTPUT_MAX_BYTES: u32 = 4 * 1024;
+pub const CEILING_TERMINAL_OUTPUT_MAX_BYTES: u32 = 256 * 1024;
 
 fn default_file_read_max_bytes() -> u32 {
     DEFAULT_FILE_READ_MAX_BYTES
@@ -1125,6 +1137,10 @@ fn default_file_grep_max_results() -> u32 {
     DEFAULT_FILE_GREP_MAX_RESULTS
 }
 
+fn default_terminal_output_max_bytes() -> u32 {
+    DEFAULT_TERMINAL_OUTPUT_MAX_BYTES
+}
+
 pub fn clamp_file_read_max_bytes(n: u32) -> u32 {
     n.clamp(FLOOR_FILE_READ_MAX_BYTES, CEILING_FILE_READ_MAX_BYTES)
 }
@@ -1135,6 +1151,13 @@ pub fn clamp_file_line_max_bytes(n: u32) -> u32 {
 
 pub fn clamp_file_grep_max_results(n: u32) -> u32 {
     n.clamp(FLOOR_FILE_GREP_MAX_RESULTS, CEILING_FILE_GREP_MAX_RESULTS)
+}
+
+pub fn clamp_terminal_output_max_bytes(n: u32) -> u32 {
+    n.clamp(
+        FLOOR_TERMINAL_OUTPUT_MAX_BYTES,
+        CEILING_TERMINAL_OUTPUT_MAX_BYTES,
+    )
 }
 
 pub const DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES: u32 = 100 * 1024 * 1024;
@@ -1155,6 +1178,27 @@ pub fn clamp_attachment_upload_max_bytes(n: u32) -> u32 {
 /// Axum body cap for `POST /api/chat/save-attachment` (setting ceiling + multipart overhead).
 pub fn attachment_upload_http_body_limit() -> usize {
     CEILING_ATTACHMENT_UPLOAD_MAX_BYTES as usize + 1024 * 1024
+}
+
+#[cfg(test)]
+mod terminal_output_limit_tests {
+    use super::*;
+
+    #[test]
+    fn clamps_terminal_output_max_bytes() {
+        assert_eq!(
+            clamp_terminal_output_max_bytes(0),
+            FLOOR_TERMINAL_OUTPUT_MAX_BYTES
+        );
+        assert_eq!(
+            clamp_terminal_output_max_bytes(DEFAULT_TERMINAL_OUTPUT_MAX_BYTES),
+            DEFAULT_TERMINAL_OUTPUT_MAX_BYTES
+        );
+        assert_eq!(
+            clamp_terminal_output_max_bytes(u32::MAX),
+            CEILING_TERMINAL_OUTPUT_MAX_BYTES
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1272,6 +1316,7 @@ impl Default for ModelSettings {
             file_read_max_bytes: default_file_read_max_bytes(),
             file_line_max_bytes: default_file_line_max_bytes(),
             file_grep_max_results: default_file_grep_max_results(),
+            terminal_output_max_bytes: default_terminal_output_max_bytes(),
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: default_max_tool_rounds(),
             max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
@@ -1617,6 +1662,11 @@ pub struct UserSettings {
     )]
     pub file_grep_max_results: u32,
     #[serde(
+        default = "default_terminal_output_max_bytes",
+        rename = "terminalOutputMaxBytes"
+    )]
+    pub terminal_output_max_bytes: u32,
+    #[serde(
         default = "default_attachment_upload_max_bytes",
         rename = "attachmentUploadMaxBytes"
     )]
@@ -1779,6 +1829,7 @@ impl Default for UserSettings {
             file_read_max_bytes: default_file_read_max_bytes(),
             file_line_max_bytes: default_file_line_max_bytes(),
             file_grep_max_results: default_file_grep_max_results(),
+            terminal_output_max_bytes: default_terminal_output_max_bytes(),
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
             max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
@@ -2404,6 +2455,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         file_read_max_bytes: clamp_file_read_max_bytes(user.file_read_max_bytes),
         file_line_max_bytes: clamp_file_line_max_bytes(user.file_line_max_bytes),
         file_grep_max_results: clamp_file_grep_max_results(user.file_grep_max_results),
+        terminal_output_max_bytes: clamp_terminal_output_max_bytes(user.terminal_output_max_bytes),
         attachment_upload_max_bytes: clamp_attachment_upload_max_bytes(
             user.attachment_upload_max_bytes,
         ),

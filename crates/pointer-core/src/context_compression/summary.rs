@@ -475,6 +475,7 @@ pub(crate) fn new_summary_message(body: String, in_run: bool) -> ChatMessage {
         created_at: now_ms(),
         tool_calls: None,
         tool_call_id: None,
+        tool_name: None,
         error_message: None,
         reasoning: if in_run {
             Some(COMPRESSION_SUMMARY_REASONING.into())

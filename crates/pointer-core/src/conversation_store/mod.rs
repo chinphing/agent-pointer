@@ -1055,6 +1055,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            position INTEGER NOT NULL,
            is_system_generated INTEGER NOT NULL DEFAULT 0,
            context_included INTEGER NOT NULL DEFAULT 1,
+           tool_name TEXT,
            UNIQUE(conversation_id, message_id)
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -1106,6 +1107,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
         "INTEGER NOT NULL DEFAULT 1",
     )?;
     crate::conversation_store::persist::backfill_context_included(conn)?;
+    add_column_if_missing(conn, "messages", "tool_name", "TEXT")?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
            ON messages(conversation_id, position) WHERE context_included = 1;",
@@ -1541,6 +1543,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "INTEGER NOT NULL DEFAULT 1",
     )?;
     crate::conversation_store::persist::backfill_context_included(conn)?;
+    add_column_if_missing(conn, "messages", "tool_name", "TEXT")?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
            ON messages(conversation_id, position) WHERE context_included = 1;",

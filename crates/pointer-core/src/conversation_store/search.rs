@@ -7,9 +7,12 @@ use serde_json::{json, Value};
 
 use crate::media::manifest::attachment_summaries_json;
 use crate::models::{ChatMessage, ConversationSearchHit};
-use crate::text_util::{match_centered_snippet, text_contains_query};
+use crate::text_util::{match_centered_excerpt, match_centered_snippet, text_contains_query};
 
 use super::db::DbHandle;
+use super::persist::{
+    is_session_search_tool_body, is_session_search_tool_name, SESSION_SEARCH_INDEX_STUB,
+};
 use super::ListScope;
 
 const DEFAULT_WINDOW: i64 = 5;
@@ -23,6 +26,11 @@ const UI_SEARCH_MAX_LIMIT: i64 = 100;
 /// Unicode scalars kept on each side of the matched query in sidebar snippets.
 const UI_SNIPPET_RADIUS: usize = 20;
 const TOOL_SNIPPET_RADIUS: usize = 48;
+/// Hit-centered `content` budget by role (tool outbound only; SQLite keeps full text).
+const HIT_CONTENT_CHARS_USER: usize = 4_000;
+const HIT_CONTENT_CHARS_ASSISTANT: usize = 2_500;
+const HIT_CONTENT_CHARS_TOOL: usize = 1_500;
+const HIT_CONTENT_CHARS_OTHER: usize = 1_500;
 
 /// Sidebar / UI search: FTS over **full message bodies** (`messages_fts`), with
 /// title/preview substring match as a supplement (same scope as the sidebar list).
@@ -386,34 +394,55 @@ fn discover(
     let mut hits: Vec<FtsHit> = Vec::new();
     {
         let sql = "SELECT mf.conversation_id, mf.message_id, mf.role, m.content,
-                          bm25(messages_fts) AS rank
+                          m.tool_name, bm25(messages_fts) AS rank
                    FROM messages_fts AS mf
                    INNER JOIN messages AS m ON m.id = mf.rowid
                    INNER JOIN conversations AS c ON c.id = mf.conversation_id
                    WHERE messages_fts MATCH ?1
                      AND c.session_user_id = ?2
+                     AND m.content != ?4
+                     AND COALESCE(m.tool_name, '') != 'session_search'
                    ORDER BY rank
                    LIMIT ?3";
         let mut stmt = conn.prepare(sql)?;
-        let cap = limit * 12;
-        let mapped = stmt.query_map(params![fts_query, session_user_filter, cap], |row| {
+        let cap = limit * 24;
+        let mapped = stmt.query_map(
+            params![
+                fts_query,
+                session_user_filter,
+                cap,
+                SESSION_SEARCH_INDEX_STUB
+            ],
+            |row| {
             let content: String = row.get(3)?;
             Ok(FtsHit {
                 conversation_id: row.get(0)?,
                 message_id: row.get(1)?,
                 role: row.get(2)?,
-                snippet: match_centered_snippet(
-                    &content,
-                    query,
-                    TOOL_SNIPPET_RADIUS,
-                    "<b>",
-                    "</b>",
-                ),
-                rank: row.get(4)?,
+                content,
+                tool_name: row.get(4)?,
+                snippet: String::new(),
+                rank: row.get(5)?,
             })
         })?;
         for hit in mapped {
-            hits.push(hit?);
+            let mut hit = hit?;
+            if is_omitted_session_search_row(&hit.role, &hit.content, hit.tool_name.as_deref()) {
+                log::info!(
+                    "session_search: skip_prior_tool_hit conversation_id={} message_id={}",
+                    hit.conversation_id,
+                    hit.message_id
+                );
+                continue;
+            }
+            hit.snippet = match_centered_snippet(
+                &hit.content,
+                query,
+                TOOL_SNIPPET_RADIUS,
+                "<b>",
+                "</b>",
+            );
+            hits.push(hit);
         }
     }
 
@@ -452,7 +481,13 @@ fn discover(
         };
         let anchor_pos = message_position(&conn, &hit.conversation_id, &hit.message_id)?;
         let window = if anchor_pos >= 0 {
-            load_window(&conn, &hit.conversation_id, anchor_pos, DEFAULT_WINDOW)?
+            load_window(
+                &conn,
+                &hit.conversation_id,
+                anchor_pos,
+                DEFAULT_WINDOW,
+                query,
+            )?
         } else {
             WindowView {
                 messages: vec![],
@@ -460,8 +495,8 @@ fn discover(
                 messages_after: 0,
             }
         };
-        let bookend_start = load_bookends(&conn, &hit.conversation_id, true)?;
-        let bookend_end = load_bookends(&conn, &hit.conversation_id, false)?;
+        let bookend_start = load_bookends(&conn, &hit.conversation_id, true, query)?;
+        let bookend_end = load_bookends(&conn, &hit.conversation_id, false, query)?;
 
         results.push(json!({
             "conversation_id": hit.conversation_id,
@@ -515,7 +550,7 @@ fn scroll(
         )));
     }
 
-    let view = load_window(&conn, conversation_id, anchor_pos, window)?;
+    let view = load_window(&conn, conversation_id, anchor_pos, window, "")?;
     Ok(json!({
         "success": true,
         "mode": "scroll",
@@ -538,7 +573,7 @@ fn read_session(db: &DbHandle, conversation_id: &str, session_user_filter: &str)
         )));
     };
 
-    let all = load_all_messages(&conn, conversation_id)?;
+    let all = load_all_messages(&conn, conversation_id, "")?;
     let total = all.len() as i64;
     let truncated = total > READ_HEAD + READ_TAIL;
     let window: Vec<Value> = if truncated {
@@ -591,6 +626,8 @@ struct FtsHit {
     conversation_id: String,
     message_id: String,
     role: String,
+    content: String,
+    tool_name: Option<String>,
     snippet: String,
     #[allow(dead_code)]
     rank: f64,
@@ -677,6 +714,7 @@ fn load_window(
     conversation_id: &str,
     anchor_pos: i64,
     window: i64,
+    query: &str,
 ) -> Result<WindowView> {
     let total: i64 = conn.query_row(
         "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
@@ -689,9 +727,11 @@ fn load_window(
     let messages_after = end - anchor_pos;
 
     let mut stmt = conn.prepare(
-        "SELECT message_id, role, content, created_at_ms, payload
+        "SELECT message_id, role, content, created_at_ms, payload, tool_name
          FROM messages
          WHERE conversation_id = ?1 AND position BETWEEN ?2 AND ?3
+           AND NOT (role = 'tool' AND content = ?4)
+           AND COALESCE(tool_name, '') != 'session_search'
          ORDER BY position ASC",
     )?;
     let anchor_message_id: String = conn.query_row(
@@ -699,23 +739,36 @@ fn load_window(
         params![conversation_id, anchor_pos],
         |row| row.get(0),
     )?;
-    let rows = stmt.query_map(params![conversation_id, start, end], |row| {
+    let rows = stmt.query_map(
+        params![conversation_id, start, end, SESSION_SEARCH_INDEX_STUB],
+        |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, i64>(3)?,
             row.get::<_, String>(4)?,
+            row.get::<_, Option<String>>(5)?,
         ))
     })?;
 
     let mut messages = Vec::new();
     for row in rows {
-        let (id, role, content, ts, payload) = row?;
+        let (id, role, content, ts, payload, tool_name) = row?;
         let is_anchor = id == anchor_message_id;
-        messages.push(session_search_message_json(
-            id, role, content, ts, &payload, is_anchor,
-        ));
+        if let Some(entry) = session_search_message_json(
+            id,
+            role,
+            content,
+            ts,
+            &payload,
+            tool_name.as_deref(),
+            is_anchor,
+            query,
+        )
+        {
+            messages.push(entry);
+        }
     }
 
     Ok(WindowView {
@@ -725,7 +778,12 @@ fn load_window(
     })
 }
 
-fn load_bookends(conn: &Connection, conversation_id: &str, start: bool) -> Result<Vec<Value>> {
+fn load_bookends(
+    conn: &Connection,
+    conversation_id: &str,
+    start: bool,
+    query: &str,
+) -> Result<Vec<Value>> {
     let order = if start { "ASC" } else { "DESC" };
     let sql = format!(
         "SELECT message_id, role, content, created_at_ms, payload
@@ -747,9 +805,18 @@ fn load_bookends(conn: &Connection, conversation_id: &str, start: bool) -> Resul
     let mut out = Vec::new();
     for row in rows {
         let (id, role, content, ts, payload) = row?;
-        out.push(session_search_message_json(
-            id, role, content, ts, &payload, false,
-        ));
+        if let Some(entry) = session_search_message_json(
+            id,
+            role,
+            content,
+            ts,
+            &payload,
+            None,
+            false,
+            query,
+        ) {
+            out.push(entry);
+        }
     }
     if !start {
         out.reverse();
@@ -757,30 +824,63 @@ fn load_bookends(conn: &Connection, conversation_id: &str, start: bool) -> Resul
     Ok(out)
 }
 
-fn load_all_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<Value>> {
+fn load_all_messages(conn: &Connection, conversation_id: &str, query: &str) -> Result<Vec<Value>> {
     let mut stmt = conn.prepare(
-        "SELECT message_id, role, content, created_at_ms, payload
+        "SELECT message_id, role, content, created_at_ms, payload, tool_name
          FROM messages
          WHERE conversation_id = ?1
+           AND NOT (role = 'tool' AND content = ?2)
+           AND COALESCE(tool_name, '') != 'session_search'
          ORDER BY position ASC",
     )?;
-    let rows = stmt.query_map(params![conversation_id], |row| {
+    let rows = stmt.query_map(params![conversation_id, SESSION_SEARCH_INDEX_STUB], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, i64>(3)?,
             row.get::<_, String>(4)?,
+            row.get::<_, Option<String>>(5)?,
         ))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        let (id, role, content, ts, payload) = row?;
-        out.push(session_search_message_json(
-            id, role, content, ts, &payload, false,
-        ));
+        let (id, role, content, ts, payload, tool_name) = row?;
+        if let Some(entry) = session_search_message_json(
+            id,
+            role,
+            content,
+            ts,
+            &payload,
+            tool_name.as_deref(),
+            false,
+            query,
+        ) {
+            out.push(entry);
+        }
     }
     Ok(out)
+}
+
+fn hit_content_char_limit(role: &str) -> usize {
+    match role.trim().to_ascii_lowercase().as_str() {
+        "user" => HIT_CONTENT_CHARS_USER,
+        "assistant" => HIT_CONTENT_CHARS_ASSISTANT,
+        "tool" => HIT_CONTENT_CHARS_TOOL,
+        _ => HIT_CONTENT_CHARS_OTHER,
+    }
+}
+
+fn is_omitted_session_search_row(role: &str, content: &str, tool_name: Option<&str>) -> bool {
+    if !role.eq_ignore_ascii_case("tool") {
+        return false;
+    }
+    if is_session_search_tool_name(tool_name) || content.trim() == SESSION_SEARCH_INDEX_STUB {
+        return true;
+    }
+    // Unnamed legacy rows only: inspect the already-fetched envelope head.
+    tool_name.map(str::trim).filter(|s| !s.is_empty()).is_none()
+        && is_session_search_tool_body(content)
 }
 
 fn session_search_message_json(
@@ -789,26 +889,65 @@ fn session_search_message_json(
     content: String,
     created_at_ms: i64,
     payload: &str,
+    tool_name: Option<&str>,
     anchor: bool,
-) -> Value {
+    query: &str,
+) -> Option<Value> {
+    if is_omitted_session_search_row(&role, &content, tool_name) {
+        log::info!(
+            "session_search: omit_prior_tool_result message_id={} role={}",
+            id,
+            role
+        );
+        return None;
+    }
     let mut display_content = content;
+    let mut attachments = None;
+    if let Ok(msg) = serde_json::from_str::<ChatMessage>(payload) {
+        if is_omitted_session_search_row(&role, &msg.content, msg.tool_name.as_deref()) {
+            log::info!(
+                "session_search: omit_prior_tool_result message_id={} role={}",
+                id,
+                role
+            );
+            return None;
+        }
+        display_content = msg.content;
+        attachments = msg.attachments.filter(|a| !a.is_empty());
+    }
+    let limit = hit_content_char_limit(&role);
+    let orig_chars = display_content.chars().count();
+    let truncated = orig_chars > limit;
+    if truncated {
+        display_content = match_centered_excerpt(&display_content, query, limit);
+        if orig_chars > limit.saturating_mul(4) {
+            log::info!(
+                "session_search: clip_hit_content message_id={} role={} chars={} limit={}",
+                id,
+                role,
+                orig_chars,
+                limit
+            );
+        }
+    }
     let mut entry = json!({
         "id": id,
         "role": role,
-        "content": &display_content,
+        "content": display_content,
         "timestamp": format_timestamp_ms(created_at_ms),
     });
-    if let Ok(msg) = serde_json::from_str::<ChatMessage>(payload) {
-        display_content = msg.content;
-        entry["content"] = json!(display_content);
-        if let Some(atts) = msg.attachments.filter(|a| !a.is_empty()) {
-            entry["attachments"] = json!(attachment_summaries_json(&atts));
-        }
+    if let Some(atts) = attachments {
+        entry["attachments"] = json!(attachment_summaries_json(&atts));
+    }
+    if truncated {
+        entry["truncated"] = json!(true);
+        entry["contentChars"] = json!(orig_chars);
+        entry["contentLimit"] = json!(limit);
     }
     if anchor {
         entry["anchor"] = json!(true);
     }
-    entry
+    Some(entry)
 }
 
 fn build_fts_query(raw: &str) -> String {

@@ -128,6 +128,7 @@ pub(super) fn build_final_reply_delivery_message(
         created_at: now_ms(),
         tool_calls: None,
         tool_call_id: None,
+        tool_name: None,
         error_message: None,
         reasoning: None,
         thoughts: None,
@@ -175,6 +176,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
         created_at: now_ms(),
         tool_calls: assistant_tool_calls_with_risk(final_tool_calls, state),
         tool_call_id: None,
+        tool_name: None,
         error_message: None,
         reasoning: if reasoning_in_messages && !reasoning_buf.is_empty() {
             Some(reasoning_buf)
@@ -233,6 +235,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
         created_at: now_ms(),
         tool_calls: assistant_tool_calls_with_risk(final_tool_calls, state),
         tool_call_id: None,
+        tool_name: None,
         error_message: None,
         reasoning: if reasoning_in_messages && !round_reasoning.is_empty() {
             Some(round_reasoning)

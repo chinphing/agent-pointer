@@ -151,11 +151,15 @@ impl ConversationTranscriptSession {
         tool_call_id: &str,
         content: &str,
     ) {
-        let msg = reconcile::tool_result_message(tool_call_id, content);
+        let mut msg = reconcile::tool_result_message(tool_call_id, content);
+        msg.tool_name = reconcile::tool_name_for_call(history, tool_call_id);
         if let Some(idx) =
             reconcile::find_existing_tool_index(history, tool_call_id, hint_message_id)
         {
             history[idx].content = content.to_string();
+            if history[idx].tool_name.is_none() {
+                history[idx].tool_name = msg.tool_name.clone();
+            }
             let id = history[idx].id.clone();
             session.lock().known_ids.insert(id);
         } else if let Some(idx) =
@@ -248,9 +252,13 @@ pub fn insert_tool_result_in_history(
     tool_call_id: &str,
     content: &str,
 ) {
-    let msg = reconcile::tool_result_message(tool_call_id, content);
+    let mut msg = reconcile::tool_result_message(tool_call_id, content);
+    msg.tool_name = reconcile::tool_name_for_call(history, tool_call_id);
     if let Some(idx) = reconcile::find_existing_tool_index(history, tool_call_id, hint_message_id) {
         history[idx].content = content.to_string();
+        if history[idx].tool_name.is_none() {
+            history[idx].tool_name = msg.tool_name.clone();
+        }
     } else if let Some(idx) =
         reconcile::find_tool_insert_index(history, tool_call_id, hint_message_id)
     {
@@ -372,6 +380,7 @@ mod tests {
                 display_summary: None,
             }]),
             tool_call_id: None,
+            tool_name: None,
             error_message: None,
             reasoning: None,
             thoughts: None,
@@ -406,6 +415,7 @@ mod tests {
                 created_at: 0,
                 tool_calls: None,
                 tool_call_id: None,
+                tool_name: None,
                 error_message: None,
                 reasoning: None,
                 thoughts: None,
@@ -446,6 +456,7 @@ mod tests {
                 created_at: 0,
                 tool_calls: None,
                 tool_call_id: None,
+                tool_name: None,
                 error_message: None,
                 reasoning: None,
                 thoughts: None,
@@ -483,6 +494,7 @@ mod tests {
             created_at: 0,
             tool_calls: None,
             tool_call_id: None,
+            tool_name: None,
             error_message: None,
             reasoning: None,
             thoughts: None,

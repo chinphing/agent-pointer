@@ -18,6 +18,13 @@ Call **only** when the user **explicitly** wants historical chats — find/recal
        - messages: ±5 messages around the FTS5 match, anchor flagged
        - bookend_end: last 3 user+assistant messages (resolution / decisions)
        - match_message_id, messages_before, messages_after
+     Prior session_search tool dumps are omitted by tool name
+     (not used as hits, not included in windows)
+     so old search JSON cannot stack.
+     Message content is a hit-centered excerpt with a per-role cap
+     (user 4000, assistant 2500, tool 1500 characters). Over-limit
+     rows set truncated, contentChars, contentLimit. Scroll the
+     message id to read more of that turn.
 
   2) SCROLL — pass `conversation_id` + `around_message_id`:
      session_search(conversation_id="...", around_message_id="msg_abc", window=10)
@@ -49,6 +56,9 @@ Also accepts `session_id` as an alias for `conversation_id`.
 
   Each message in discovery / scroll / read results includes:
   - id, role, content, timestamp
+  - content is clipped around the query hit when over the role cap
+  - truncated / contentChars / contentLimit when clipped
+  - prior session_search tool results are omitted
   - attachments (optional): summary list when the stored message had files
     (id, kind, fileName, mimeType, sizeBytes, ref, localPath, storageRelPath,
     remoteUrl for video, derivedText when cached). Wire payloads like

@@ -28,6 +28,64 @@ pub fn is_system_generated_user_message(msg: &ChatMessage) -> bool {
 
 const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled";
 const CONTEXT_INCLUDED_BACKFILL_META: &str = "context_included_backfilled";
+/// Indexed `messages.content` for a prior `session_search` tool row.
+/// Full JSON stays in `payload` for the UI; FTS and recall skip this stub.
+pub const SESSION_SEARCH_INDEX_STUB: &str = "[session_search]";
+
+const SESSION_SEARCH_MODES: &[&str] = &["discovery", "scroll", "read", "browse"];
+
+/// Last segment of a registry / MCP-style tool name (`mcp.session_search` → `session_search`).
+pub fn tool_name_base(name: &str) -> &str {
+    name.trim()
+        .rsplit(['.', '/', ':'])
+        .next()
+        .unwrap_or(name)
+        .trim()
+}
+
+pub fn is_session_search_tool_name(name: Option<&str>) -> bool {
+    name.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some_and(|raw| tool_name_base(raw) == "session_search")
+}
+
+/// `messages.tool_name` column: short name so SQL can use `!= 'session_search'`.
+/// Payload `toolName` keeps the original string on [`ChatMessage`].
+pub fn persist_tool_name(msg: &ChatMessage) -> Option<String> {
+    msg.tool_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(tool_name_base)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Tool body (raw or `[tool] ` prefixed) that is a `session_search` envelope.
+/// Only inspects the leading object — nested dumps inside `results` do not count.
+pub fn is_session_search_tool_body(content: &str) -> bool {
+    let mut t = content.trim();
+    if let Some(rest) = t.strip_prefix("[tool]") {
+        t = rest.trim();
+    }
+    if !t.starts_with('{') {
+        return false;
+    }
+    // Only the envelope head. `serde_json::Value` may emit keys alphabetically,
+    // so `success` can sit after a huge `results` array — do not require it.
+    let head: String = t.chars().take(240).collect();
+    let has_mode = SESSION_SEARCH_MODES.iter().any(|mode| {
+        head.contains(&format!("\"mode\":\"{mode}\""))
+            || head.contains(&format!("\"mode\": \"{mode}\""))
+    });
+    if !has_mode {
+        return false;
+    }
+    head.contains("\"results\"")
+        || head.contains("\"query\"")
+        || head.contains("\"conversation_id\"")
+        || head.contains("\"messages\"")
+}
 
 /// Column value mirroring [`crate::message_context::is_context_included`].
 pub fn context_included_column_value(msg: &ChatMessage) -> i64 {
@@ -1075,8 +1133,8 @@ pub fn upsert_conversation(
             conn.execute(
                 "INSERT INTO messages (
                    conversation_id, message_id, role, content, payload, created_at_ms, position,
-                   is_system_generated, context_included
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                   is_system_generated, context_included, tool_name
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
                 params![
                     conv.id,
                     msg.id,
@@ -1087,6 +1145,7 @@ pub fn upsert_conversation(
                     pos as i64,
                     i64::from(is_system_generated_user_message(msg)),
                     context_included_column_value(msg),
+                    persist_tool_name(msg),
                 ],
             )?;
         }
@@ -1102,6 +1161,8 @@ pub fn message_index_content(msg: &ChatMessage) -> String {
             let c = msg.content.trim();
             if c.is_empty() {
                 String::new()
+            } else if is_session_search_tool_name(msg.tool_name.as_deref()) {
+                SESSION_SEARCH_INDEX_STUB.to_string()
             } else {
                 format!("[tool] {c}")
             }
@@ -1224,6 +1285,33 @@ mod message_index_tests {
             "[attachment image id-card.jpg]"
         );
     }
+
+    #[test]
+    fn session_search_tool_indexes_as_stub_not_body() {
+        let dump = r#"{"success":true,"mode":"discovery","query":"发票","results":[],"count":0}"#;
+        let mut tool = msg("t1", Role::Tool, dump, 0);
+        tool.tool_name = Some("session_search".into());
+        assert_eq!(message_index_content(&tool), SESSION_SEARCH_INDEX_STUB);
+        assert!(is_session_search_tool_body(dump));
+        assert!(is_session_search_tool_body(&format!("[tool] {dump}")));
+        assert!(!is_session_search_tool_body(
+            r#"{"exitCode":0,"success":true,"stdout":"ok"}"#
+        ));
+        let sorted_keys = format!(
+            r#"{{"count":1,"mode":"discovery","query":"q","results":[{{"content":"{}"}}],"success":true}}"#,
+            "x".repeat(8_000)
+        );
+        assert!(is_session_search_tool_body(&sorted_keys));
+        let other = msg("t2", Role::Tool, r#"{"exitCode":0}"#, 0);
+        assert!(message_index_content(&other).starts_with("[tool] "));
+        assert!(is_session_search_tool_name(Some("session_search")));
+        assert!(is_session_search_tool_name(Some("mcp.session_search")));
+        assert!(!is_session_search_tool_name(Some("file_read")));
+        assert!(!is_session_search_tool_name(None));
+        let mut named = msg("t3", Role::Tool, r#"{"exitCode":0}"#, 0);
+        named.tool_name = Some("plugin.session_search".into());
+        assert_eq!(persist_tool_name(&named).as_deref(), Some("session_search"));
+    }
 }
 
 #[cfg(test)]
@@ -1268,6 +1356,7 @@ pub fn msg(id: &str, role: Role, content: &str, created_at: i64) -> ChatMessage 
         created_at,
         tool_calls: None,
         tool_call_id: None,
+        tool_name: None,
         error_message: None,
         reasoning: None,
         thoughts: None,

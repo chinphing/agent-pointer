@@ -225,6 +225,9 @@ pub struct ChatMessage {
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(default, rename = "toolCallId")]
     pub tool_call_id: Option<String>,
+    /// Registry name for `role: tool` rows (`session_search`, `file_read`, …).
+    #[serde(default, rename = "toolName", skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
     #[serde(default, rename = "errorMessage")]
     pub error_message: Option<String>,
     #[serde(default)]
@@ -351,6 +354,7 @@ impl ChatMessage {
             created_at: chrono::Utc::now().timestamp_millis(),
             tool_calls: None,
             tool_call_id: None,
+            tool_name: None,
             error_message: None,
             reasoning: None,
             thoughts: None,

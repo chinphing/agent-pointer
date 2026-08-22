@@ -283,6 +283,184 @@ mod tests {
     }
 
     #[test]
+    fn discover_skips_prior_session_search_tool_dump() {
+        use crate::conversation_store::persist::msg;
+        use crate::models::Role;
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let dump = json!({
+            "success": true,
+            "mode": "discovery",
+            "query": "发票附件 unique_ss_token",
+            "results": [{"conversation_id": "other", "messages": [
+                {"content": format!("{}{}", "PAD", "x".repeat(80_000))}
+            ]}],
+            "count": 1
+        })
+        .to_string();
+        let mut conv = sample_conv("c_ss", "Invoice work", "follow-up note");
+        let mut dump_msg = msg("msg_dump", Role::Tool, &dump, 1_700_000_000_000);
+        dump_msg.tool_name = Some("session_search".into());
+        conv.messages = vec![
+            dump_msg,
+            msg(
+                "msg_real",
+                Role::User,
+                "请核对 unique_ss_token 发票附件是否已归档",
+                1_700_000_001_000,
+            ),
+            msg(
+                "msg_a",
+                Role::Assistant,
+                "Acknowledged.",
+                1_700_000_002_000,
+            ),
+        ];
+        store.sync_conversations(&[conv]).unwrap();
+
+        let discover = store
+            .dispatch_tool_for_test(&json!({
+                "query": "unique_ss_token",
+                "limit": 3
+            }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&discover).unwrap();
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["count"], 1);
+        assert_eq!(parsed["results"][0]["match_message_id"], "msg_real");
+        let ids: Vec<_> = parsed["results"][0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["id"].as_str().unwrap().to_string())
+            .collect();
+        assert!(ids.contains(&"msg_real".to_string()));
+        assert!(!ids.contains(&"msg_dump".to_string()));
+        assert!(parsed["results"][0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["content"]
+                .as_str()
+                .unwrap()
+                .len()
+                < 20_000));
+    }
+
+    #[test]
+    fn discover_skips_named_session_search_without_envelope() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let token = "unique_ss_col_token";
+        let mut named = msg(
+            "msg_named_ss",
+            Role::Tool,
+            &format!("{token} leftover note, not a search envelope"),
+            1_700_000_000_000,
+        );
+        named.tool_name = Some("plugin.session_search".into());
+        let mut conv = sample_conv("c_ss_col", "Column filter", "follow-up");
+        conv.messages = vec![
+            named,
+            msg(
+                "msg_real",
+                Role::User,
+                &format!("请核对 {token} 是否已归档"),
+                1_700_000_001_000,
+            ),
+            msg(
+                "msg_a",
+                Role::Assistant,
+                "Acknowledged.",
+                1_700_000_002_000,
+            ),
+        ];
+        store.sync_conversations(&[conv]).unwrap();
+
+        let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
+        let (col, indexed): (Option<String>, String) = conn
+            .query_row(
+                "SELECT tool_name, content FROM messages WHERE message_id = ?1",
+                params!["msg_named_ss"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(col.as_deref(), Some("session_search"));
+        assert_eq!(
+            indexed,
+            crate::conversation_store::persist::SESSION_SEARCH_INDEX_STUB
+        );
+
+        let discover = store
+            .dispatch_tool_for_test(&json!({
+                "query": token,
+                "limit": 3
+            }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&discover).unwrap();
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["count"], 1);
+        assert_eq!(parsed["results"][0]["match_message_id"], "msg_real");
+        let ids: Vec<_> = parsed["results"][0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["id"].as_str().unwrap().to_string())
+            .collect();
+        assert!(ids.contains(&"msg_real".to_string()));
+        assert!(!ids.contains(&"msg_named_ss".to_string()));
+    }
+
+    #[test]
+    fn discover_clips_content_around_query_hit() {
+        use crate::conversation_store::persist::msg;
+        use crate::models::Role;
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let long = format!("{} HITWORD {}", "aaa ".repeat(2_000), "bbb ".repeat(2_000));
+        let mut conv = sample_conv("c_clip", "Long body", "short");
+        conv.messages = vec![
+            msg("msg_long", Role::User, &long, 1_700_000_000_000),
+            msg(
+                "msg_a",
+                Role::Assistant,
+                "Acknowledged.",
+                1_700_000_001_000,
+            ),
+        ];
+        store.sync_conversations(&[conv]).unwrap();
+
+        let discover = store
+            .dispatch_tool_for_test(&json!({
+                "query": "HITWORD",
+                "limit": 3
+            }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&discover).unwrap();
+        let msgs = parsed["results"][0]["messages"].as_array().unwrap();
+        let long_msg = msgs
+            .iter()
+            .find(|m| m["id"] == "msg_long")
+            .expect("long user row");
+        let body = long_msg["content"].as_str().unwrap();
+        assert!(body.contains("HITWORD"), "body={body}");
+        assert!(
+            body.starts_with('…') || body.contains("HITWORD"),
+            "expected hit-centered excerpt, body_head={:?}",
+            body.chars().take(24).collect::<String>()
+        );
+        assert!(
+            !body.starts_with("aaa aaa aaa"),
+            "must not return the document head"
+        );
+        assert_eq!(long_msg["truncated"], true);
+        assert!(long_msg["contentLimit"].as_u64().unwrap() <= 4_000);
+        assert!(body.chars().count() <= 4_200);
+    }
+
+    #[test]
     fn session_search_filters_by_session_user_id() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

@@ -208,6 +208,7 @@ mod tests {
             created_at: 1,
             tool_calls: None,
             tool_call_id: None,
+            tool_name: None,
             error_message: None,
             reasoning: None,
             thoughts: None,

@@ -115,6 +115,20 @@ pub fn match_centered_snippet(
     match_window_snippet(text, query, before, after, mark_pre, mark_post)
 }
 
+/// At most `max_chars` around the first query hit (about 1/4 before, rest after).
+/// No highlight markers. Empty query or no hit → document head.
+pub fn match_centered_excerpt(text: &str, query: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if query.trim().is_empty() {
+        return truncate_chars(text, max_chars);
+    }
+    let before = (max_chars / 4).max(1);
+    let after = max_chars.saturating_sub(before).max(1);
+    match_window_snippet(text, query, before, after, "", "")
+}
+
 fn match_window_snippet(
     text: &str,
     query: &str,
@@ -276,6 +290,16 @@ mod tests {
     fn match_centered_snippet_marks_hit() {
         let snip = match_centered_snippet("hello 北京 world", "北京", 8, "<b>", "</b>");
         assert!(snip.contains("<b>北京</b>"), "snippet={snip}");
+    }
+
+    #[test]
+    fn match_centered_excerpt_keeps_hit_not_doc_head() {
+        let prefix = "HEAD ".repeat(400);
+        let text = format!("{prefix}工作城市「北京」后续说明");
+        let out = match_centered_excerpt(&text, "北京", 40);
+        assert!(out.contains("北京"), "excerpt={out}");
+        assert!(!out.contains("HEAD HEAD"), "excerpt={out}");
+        assert!(out.chars().count() <= 50, "excerpt_chars={}", out.chars().count());
     }
 
     #[test]

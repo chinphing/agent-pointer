@@ -71,6 +71,7 @@ mod tests {
                     .collect(),
             ),
             tool_call_id: None,
+            tool_name: None,
             error_message: None,
             reasoning: None,
             thoughts: None,

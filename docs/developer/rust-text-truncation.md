@@ -15,6 +15,7 @@
 | `truncate_bytes(s, n)` | 按 UTF-8 **字节**预算截断（HTTP 错误体、provider 日志等） |
 | `truncate_for_log(s, n)` | 日志用，超出时 `…(+N chars)` |
 | `match_centered_snippet(text, query, radius, …)` | 以查询词为中心截取预览（侧边栏搜索等）；勿用 FTS5 `snippet()` 做 CJK UI 预览 |
+| `match_centered_excerpt(text, query, max_chars)` | 命中附近最多 `max_chars`（工具出站正文；无命中则文首） |
 
 ## 示例
 

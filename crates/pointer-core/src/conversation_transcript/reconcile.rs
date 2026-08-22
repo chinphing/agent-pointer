@@ -22,6 +22,15 @@ pub fn tool_message_id(tool_call_id: &str) -> String {
     format!("tool_{safe}")
 }
 
+pub fn tool_name_for_call(history: &[ChatMessage], tool_call_id: &str) -> Option<String> {
+    history.iter().rev().find_map(|m| {
+        m.tool_calls.as_ref()?.iter().find(|t| t.id == tool_call_id).map(|t| {
+            t.name.trim().to_string()
+        })
+    })
+    .filter(|s| !s.is_empty())
+}
+
 pub fn tool_result_message(tool_call_id: &str, content: &str) -> ChatMessage {
     ChatMessage {
         id: tool_message_id(tool_call_id),
@@ -31,6 +40,7 @@ pub fn tool_result_message(tool_call_id: &str, content: &str) -> ChatMessage {
         created_at: now_ms(),
         tool_calls: None,
         tool_call_id: Some(tool_call_id.to_string()),
+        tool_name: None,
         error_message: None,
         reasoning: None,
         thoughts: None,

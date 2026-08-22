@@ -254,6 +254,7 @@ impl MessageLoopPromptsAfterHook for PluginRulesHook {
             created_at: now_ms(),
             tool_calls: None,
             tool_call_id: None,
+            tool_name: None,
             error_message: None,
             reasoning: None,
             thoughts: None,

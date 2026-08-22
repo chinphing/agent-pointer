@@ -44,8 +44,8 @@
 | 文档 | 说明 |
 |------|------|
 | [file-tool-write-scope.md](file-tool-write-scope.md) | `file_write` / `file_edit` 允许的写入目录 |
-| [file-tool-output-limits.md](file-tool-output-limits.md) | `file_read` / `file_grep` 输出硬上限（防超大正文回灌上下文） |
-| [session-search-output-limits.md](session-search-output-limits.md) | `session_search` 命中附近截断；按工具名剔除旧回包（不启动全表扫） |
+| [file-tool-output-limits.md](file-tool-output-limits.md) | 读文件 / 搜索 / 终端回包上限（设置 → 内容上限） |
+| [session-search-output-limits.md](session-search-output-limits.md) | `session_search` 命中截断、按工具名剔除旧回包、工具 `matches[]` 上限；侧栏展开全部命中 |
 | [turn-file-baseline-review.md](turn-file-baseline-review.md) | 轮次页脚修改摘要、文件基线与右侧栏 Review |
 | [web-search-tool.md](web-search-tool.md) | `web_search` 工具行为与 DashScope API |
 | [web-fetch-tool.md](web-fetch-tool.md) | `web_fetch` 抓取公开 URL（Hermes `web_extract` 对齐） |

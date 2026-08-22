@@ -10,14 +10,20 @@ Call **only** when the user **explicitly** wants historical chats — find/recal
 
   1) DISCOVERY — pass `query`:
      session_search(query="auth refactor", limit=3)
-     Runs FTS5, dedupes hits by conversation, returns the top N conversations.
+     Runs FTS5, groups hits by conversation, returns the top N conversations.
      Each result carries:
        - conversation_id, title, when
-       - snippet: FTS5-highlighted match excerpt
+       - snippet: FTS5-highlighted excerpt of the primary match
+       - match_message_id: primary hit (best rank)
+       - matches: other hits in that conversation
+         (id, role, snippet only; at most 5)
+       - match_count: unique hits in the scanned window
+         (may be larger than matches.length)
        - bookend_start: first 3 user+assistant messages (the goal / kickoff)
-       - messages: ±5 messages around the FTS5 match, anchor flagged
+       - messages: ±5 around the primary match only, anchor flagged
        - bookend_end: last 3 user+assistant messages (resolution / decisions)
-       - match_message_id, messages_before, messages_after
+       - messages_before, messages_after
+     Scroll a match id to read around a non-primary hit.
      Prior session_search tool dumps are omitted by tool name
      (not used as hits, not included in windows)
      so old search JSON cannot stack.
@@ -58,6 +64,7 @@ Also accepts `session_id` as an alias for `conversation_id`.
   - id, role, content, timestamp
   - content is clipped around the query hit when over the role cap
   - truncated / contentChars / contentLimit when clipped
+  - matches[] on a discovery result is id / role / snippet only
   - prior session_search tool results are omitted
   - attachments (optional): summary list when the stored message had files
     (id, kind, fileName, mimeType, sizeBytes, ref, localPath, storageRelPath,

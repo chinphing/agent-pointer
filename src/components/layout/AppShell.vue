@@ -510,8 +510,47 @@ type SidebarRow = {
   messageId?: string
   messageCount?: number
   projectId?: string
+  matches?: { messageId: string; role?: string; snippet: string }[]
+  matchCount?: number
 }
 const searchResults = ref<SidebarRow[]>([])
+const expandedSearchId = ref<string | null>(null)
+
+function matchRoleLabel(role?: string): string {
+  switch ((role || '').trim().toLowerCase()) {
+    case 'user':
+      return '用户'
+    case 'assistant':
+      return '助手'
+    case 'tool':
+      return '工具'
+    default:
+      return '消息'
+  }
+}
+
+function toggleSearchMatches(conversationId: string) {
+  expandedSearchId.value = expandedSearchId.value === conversationId ? null : conversationId
+}
+
+function onMatchClick(
+  c: SidebarRow,
+  match: { messageId: string },
+  event: Event
+) {
+  event.stopPropagation()
+  pendingDeleteId.value = null
+  chat.openConversation(c.id, {
+    focusMessageId: match.messageId.trim() || undefined,
+    focusQueryTerm: searchQuery.value.trim() || undefined,
+    ensureShell: {
+      title: c.title,
+      updatedAt: c.updatedAt,
+      messageCount: c.messageCount,
+      projectId: c.projectId
+    }
+  })
+}
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let searchSeq = 0
 
@@ -687,7 +726,15 @@ async function runSidebarSearch(query: string) {
         snippet: h.snippet?.trim() || h.preview?.trim() || undefined,
         messageId: h.messageId?.trim() || undefined,
         messageCount: h.messageCount,
-        projectId: h.projectId
+        projectId: h.projectId,
+        matches: h.matches
+          ?.filter(m => m.messageId.trim() && m.snippet.trim())
+          .map(m => ({
+            messageId: m.messageId.trim(),
+            role: m.role,
+            snippet: m.snippet.trim()
+          })),
+        matchCount: h.matchCount
       }))
   } catch (err) {
     console.error('[sidebar] searchConversations failed', err)
@@ -757,6 +804,7 @@ watch(sidebarCollapsed, (collapsed) => {
 })
 watch(searchQuery, q => {
   pendingDeleteId.value = null
+  expandedSearchId.value = null
   if (searchTimer) clearTimeout(searchTimer)
   const trimmed = q.trim()
   if (!trimmed) {
@@ -1293,6 +1341,8 @@ watch(searchQuery, q => {
             <div
               v-for="c in sidebarRows"
               :key="c.id"
+            >
+            <div
               class="sidebar-conv-row group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
               :class="chat.currentId === c.id
                 ? 'is-selected bg-foreground/10'
@@ -1317,11 +1367,23 @@ watch(searchQuery, q => {
                 :class="chat.currentId === c.id ? 'text-foreground' : 'text-muted'"
               />
               <div class="flex-1 min-w-0">
-                <div
-                  class="text-[13px] text-foreground truncate"
-                  :title="c.title"
-                  @dblclick.stop="startEdit(c)"
-                >{{ c.title }}</div>
+                <div class="flex min-w-0 items-center gap-1.5">
+                  <div
+                    class="min-w-0 flex-1 truncate text-[13px] text-foreground"
+                    :title="c.title"
+                    @dblclick.stop="startEdit(c)"
+                  >{{ c.title }}</div>
+                  <button
+                    v-if="(c.matchCount ?? 0) > 1"
+                    type="button"
+                    class="sidebar-search-match-count"
+                    :title="`${c.matchCount} 处`"
+                    :aria-expanded="expandedSearchId === c.id"
+                    @click.stop="toggleSearchMatches(c.id)"
+                  >
+                    <span>{{ c.matchCount }}</span> 处
+                  </button>
+                </div>
                 <div
                   v-if="c.snippet"
                   class="text-[10px] text-muted truncate"
@@ -1329,6 +1391,7 @@ watch(searchQuery, q => {
                 >{{ c.snippet }}</div>
               </div>
               <div
+                v-if="!searchQuery.trim()"
                 class="sidebar-row-actions"
                 :class="pendingDeleteId === c.id && 'is-pending'"
               >
@@ -1368,6 +1431,30 @@ watch(searchQuery, q => {
                 </template>
                 </div>
               </div>
+            </div>
+            <div
+              v-if="(c.matches?.length ?? 0) > 0"
+              class="sidebar-search-matches"
+              :class="expandedSearchId === c.id && 'is-open'"
+              :aria-hidden="expandedSearchId !== c.id"
+            >
+              <div class="sidebar-search-matches-inner">
+                <div
+                  class="sidebar-search-matches-list auto-hide-scrollbar"
+                  @scroll.passive="showScrollbarWhileScrolling"
+                >
+                  <button
+                    v-for="m in c.matches"
+                    :key="m.messageId"
+                    type="button"
+                    class="sidebar-search-match-item"
+                    :title="m.snippet"
+                    :tabindex="expandedSearchId === c.id ? 0 : -1"
+                    @click.stop="onMatchClick(c, m, $event)"
+                  >{{ matchRoleLabel(m.role) }} · {{ m.snippet }}</button>
+                </div>
+              </div>
+            </div>
             </div>
             <!-- Sentinel for infinite scroll; observed by IntersectionObserver -->
             <div ref="sentinel" v-if="!searchQuery.trim()" class="h-1 w-full" />
@@ -1655,6 +1742,66 @@ watch(searchQuery, q => {
   background: var(--sidebar-row-fill);
 }
 
+.sidebar-search-match-count {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 10px;
+  line-height: 1.25rem;
+  color: hsl(var(--muted));
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sidebar-search-match-count span {
+  color: hsl(var(--accent));
+}
+
+.sidebar-search-matches {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease;
+}
+.sidebar-search-matches.is-open {
+  grid-template-rows: 1fr;
+}
+.sidebar-search-matches:not(.is-open) {
+  pointer-events: none;
+}
+.sidebar-search-matches-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.sidebar-search-matches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0 0.5rem 0.25rem 2rem;
+  max-height: 12rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.sidebar-search-match-item {
+  flex: 0 0 auto;
+  min-height: 1.5rem;
+  padding: 0.25rem 0.375rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: hsl(var(--muted));
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sidebar-search-match-item:hover {
+  background: hsl(var(--hover));
+}
+
 .sidebar-workbench-link {
   @apply w-full h-8 px-3 rounded-lg text-[13px] text-foreground inline-flex items-center gap-2 text-left hover:bg-hover transition-colors;
 }
@@ -1827,6 +1974,9 @@ button.sidebar-project-conversation {
 @media (prefers-reduced-motion: reduce) {
   .sidebar-awaiting-dot {
     animation: none;
+  }
+  .sidebar-search-matches {
+    transition: none;
   }
 }
 </style>

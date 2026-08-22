@@ -432,6 +432,13 @@ export interface ConversationMetaPage {
   nextCursor: ConversationCursor | null
 }
 
+/** One message hit inside a sidebar / discovery conversation result. */
+export interface ConversationSearchMatch {
+  messageId: string
+  role?: string
+  snippet: string
+}
+
 /** Sidebar FTS search hit (message content and/or title/preview match). */
 export interface ConversationSearchHit {
   id: string
@@ -443,6 +450,9 @@ export interface ConversationSearchHit {
   messageCount?: number
   projectId?: string
   preview?: string
+  matches?: ConversationSearchMatch[]
+  /** Unique hits in this conversation (sidebar lists all of them). */
+  matchCount?: number
 }
 
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
@@ -611,6 +621,8 @@ export interface UserSettings {
   fileLineMaxBytes?: number
   /** Max file_grep hit rows (default 50). */
   fileGrepMaxResults?: number
+  /** Max UTF-8 bytes kept from each terminal stdout/stderr stream (default 16384). */
+  terminalOutputMaxBytes?: number
   /** Max bytes for a non-video chat attachment upload (default 100 MiB). */
   attachmentUploadMaxBytes?: number
   maxSubAgentToolRounds?: number
@@ -788,6 +800,8 @@ export interface ModelSettings {
   fileLineMaxBytes?: number
   /** Max file_grep hit rows (default 50) */
   fileGrepMaxResults?: number
+  /** Max UTF-8 bytes kept from each terminal stdout/stderr stream (default 16384) */
+  terminalOutputMaxBytes?: number
   /** Max bytes for a non-video chat attachment upload (default 100 MiB) */
   attachmentUploadMaxBytes?: number
   /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop */

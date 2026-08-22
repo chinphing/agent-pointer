@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 use crate::media::manifest::attachment_summaries_json;
-use crate::models::{ChatMessage, ConversationSearchHit};
+use crate::models::{ChatMessage, ConversationSearchHit, ConversationSearchMatch};
 use crate::text_util::{match_centered_excerpt, match_centered_snippet, text_contains_query};
 
 use super::db::DbHandle;
@@ -26,6 +26,9 @@ const UI_SEARCH_MAX_LIMIT: i64 = 100;
 /// Unicode scalars kept on each side of the matched query in sidebar snippets.
 const UI_SNIPPET_RADIUS: usize = 20;
 const TOOL_SNIPPET_RADIUS: usize = 48;
+/// Extra hits listed per conversation in the **session_search tool** (`matches[]`).
+/// Sidebar UI loads every hit in that conversation (no page).
+const MATCHES_RETURN_MAX: usize = 5;
 /// Hit-centered `content` budget by role (tool outbound only; SQLite keeps full text).
 const HIT_CONTENT_CHARS_USER: usize = 4_000;
 const HIT_CONTENT_CHARS_ASSISTANT: usize = 2_500;
@@ -97,6 +100,8 @@ pub fn search_conversations_for_ui(
                 message_id: String::new(),
                 message_count: message_count.max(0) as u32,
                 preview,
+                matches: Vec::new(),
+                match_count: 0,
             }
         });
     }
@@ -104,6 +109,23 @@ pub fn search_conversations_for_ui(
     let mut out: Vec<ConversationSearchHit> = hits.into_values().collect();
     out.sort_by_key(|h| std::cmp::Reverse(h.updated_at));
     out.truncate(limit as usize);
+    for hit in &mut out {
+        match collect_all_ui_matches(&conn, &hit.id, query) {
+            Ok((matches, count)) if !matches.is_empty() => {
+                let primary = hit.message_id.clone();
+                hit.matches = matches;
+                hit.match_count = count;
+                promote_primary_match(&mut hit.matches, &primary);
+            }
+            Ok(_) => {}
+            Err(err) => {
+                log::warn!(
+                    "ui search: list matches failed conversation_id={} query={query:?}: {err:#}",
+                    hit.id
+                );
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -123,6 +145,7 @@ fn collect_fts_hits(
     // that actually contains the query string.
     let sql = "SELECT m.conversation_id,
                       m.message_id,
+                      m.role,
                       m.content,
                       c.title, c.updated_at_ms, c.message_count, c.preview
                FROM messages_fts AS mf
@@ -142,90 +165,210 @@ fn collect_fts_hits(
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, String>(3)?,
-            row.get::<_, i64>(4)?,
+            row.get::<_, String>(4)?,
             row.get::<_, i64>(5)?,
-            row.get::<_, String>(6)?,
+            row.get::<_, i64>(6)?,
+            row.get::<_, String>(7)?,
         ))
     })?;
 
-    // conversation_id -> (has_contiguous_hit, hit)
-    let mut best: std::collections::HashMap<String, (bool, ConversationSearchHit)> =
+    struct ConvUiHits {
+        primary: ConversationSearchHit,
+        has_contiguous: bool,
+        matches: Vec<ConversationSearchMatch>,
+        seen: std::collections::HashSet<String>,
+        match_count: u32,
+    }
+
+    // conversation_id -> grouped hits (primary prefers a contiguous substring)
+    let mut best: std::collections::HashMap<String, ConvUiHits> =
         std::collections::HashMap::new();
     for row in mapped {
-        let (id, message_id, content, title, updated_at, message_count, preview) = row?;
+        let (id, message_id, role, content, title, updated_at, message_count, preview) = row?;
         let contiguous = text_contains_query(&content, raw_query);
-        let (snippet, resolved_message_id) = if contiguous {
-            (
-                match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", ""),
-                message_id,
-            )
-        } else if let Some((mid, snip)) =
+        let row_snippet =
+            match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "");
+        let (snippet, resolved_message_id, resolved_role) = if contiguous {
+            (row_snippet.clone(), message_id.clone(), role.clone())
+        } else if let Some((mid, r, snip)) =
             find_contiguous_snippet_in_conversation(conn, &id, raw_query)?
         {
-            // FTS ranked a weak row first; locate a real substring hit in the same conversation.
-            (snip, mid)
+            (snip, mid, r)
         } else {
-            // Last resort: still show something from this row (may be head).
-            (
-                match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", ""),
-                message_id,
-            )
+            (row_snippet.clone(), message_id.clone(), role.clone())
         };
         let hit = ConversationSearchHit {
             id: id.clone(),
             snippet,
-            message_id: resolved_message_id,
+            message_id: resolved_message_id.clone(),
             title,
             updated_at,
             message_count: message_count.max(0) as u32,
             preview,
+            matches: Vec::new(),
+            match_count: 0,
         };
         let has_hit = contiguous || text_contains_query(&hit.snippet, raw_query);
-        match best.get(&id) {
-            Some((true, _)) => {}
-            Some((false, _)) if !has_hit => {}
-            _ => {
-                best.insert(id, (has_hit, hit));
-            }
+        let fallback_snip = hit.snippet.clone();
+        let group = best.entry(id).or_insert_with(|| ConvUiHits {
+            primary: hit.clone(),
+            has_contiguous: has_hit,
+            matches: Vec::new(),
+            seen: std::collections::HashSet::new(),
+            match_count: 0,
+        });
+        if has_hit && !group.has_contiguous {
+            group.primary = hit;
+            group.has_contiguous = true;
+        }
+        if contiguous {
+            push_search_match(
+                &mut group.matches,
+                &mut group.seen,
+                &mut group.match_count,
+                message_id,
+                role,
+                row_snippet,
+                usize::MAX,
+            );
+        } else if has_hit {
+            push_search_match(
+                &mut group.matches,
+                &mut group.seen,
+                &mut group.match_count,
+                resolved_message_id,
+                resolved_role,
+                fallback_snip,
+                usize::MAX,
+            );
         }
     }
 
-    let mut out: Vec<ConversationSearchHit> = best.into_values().map(|(_, h)| h).collect();
+    let mut out: Vec<ConversationSearchHit> = best
+        .into_values()
+        .map(|mut g| {
+            promote_primary_match(&mut g.matches, &g.primary.message_id);
+            g.primary.matches = g.matches;
+            g.primary.match_count = g.match_count;
+            g.primary
+        })
+        .collect();
     out.sort_by_key(|h| std::cmp::Reverse(h.updated_at));
     Ok(out)
 }
 
 /// Scan messages in a conversation for a contiguous query substring.
-/// Returns `(message_id, snippet)` for the first match.
+/// Returns `(message_id, role, snippet)` for the first match.
 fn find_contiguous_snippet_in_conversation(
     conn: &Connection,
     conversation_id: &str,
     raw_query: &str,
-) -> Result<Option<(String, String)>> {
+) -> Result<Option<(String, String, String)>> {
     let q = raw_query.trim();
     if q.is_empty() {
         return Ok(None);
     }
     let like = format!("%{q}%");
     let mut stmt = conn.prepare(
-        "SELECT message_id, content FROM messages
+        "SELECT message_id, role, content FROM messages
          WHERE conversation_id = ?1 AND content LIKE ?2
          ORDER BY position ASC
          LIMIT 8",
     )?;
     let mapped = stmt.query_map(params![conversation_id, like], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
     })?;
     for row in mapped {
-        let (message_id, content) = row?;
+        let (message_id, role, content) = row?;
         if text_contains_query(&content, q) {
             return Ok(Some((
                 message_id,
+                role,
                 match_centered_snippet(&content, q, UI_SNIPPET_RADIUS, "", ""),
             )));
         }
     }
     Ok(None)
+}
+
+/// Every contiguous hit in one conversation, oldest first. Sidebar expand lists these all.
+fn collect_all_ui_matches(
+    conn: &Connection,
+    conversation_id: &str,
+    raw_query: &str,
+) -> Result<(Vec<ConversationSearchMatch>, u32)> {
+    let q = raw_query.trim();
+    if q.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+    let like = format!("%{q}%");
+    let mut stmt = conn.prepare(
+        "SELECT message_id, role, content FROM messages
+         WHERE conversation_id = ?1 AND content LIKE ?2
+         ORDER BY position ASC",
+    )?;
+    let mapped = stmt.query_map(params![conversation_id, like], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut matches = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut match_count: u32 = 0;
+    for row in mapped {
+        let (message_id, role, content) = row?;
+        if !text_contains_query(&content, q) {
+            continue;
+        }
+        push_search_match(
+            &mut matches,
+            &mut seen,
+            &mut match_count,
+            message_id,
+            role,
+            match_centered_snippet(&content, q, UI_SNIPPET_RADIUS, "", ""),
+            usize::MAX,
+        );
+    }
+    Ok((matches, match_count))
+}
+
+fn push_search_match(
+    matches: &mut Vec<ConversationSearchMatch>,
+    seen: &mut std::collections::HashSet<String>,
+    match_count: &mut u32,
+    message_id: String,
+    role: String,
+    snippet: String,
+    max: usize,
+) {
+    if message_id.trim().is_empty() || !seen.insert(message_id.clone()) {
+        return;
+    }
+    *match_count = match_count.saturating_add(1);
+    if matches.len() < max {
+        matches.push(ConversationSearchMatch {
+            message_id,
+            role,
+            snippet,
+        });
+    }
+}
+
+fn promote_primary_match(matches: &mut [ConversationSearchMatch], primary_id: &str) {
+    let id = primary_id.trim();
+    if id.is_empty() {
+        return;
+    }
+    if let Some(i) = matches.iter().position(|m| m.message_id == id) {
+        matches.rotate_left(i);
+    }
 }
 
 fn title_or_preview_snippet(query: &str, title: &str, preview: &str) -> String {
@@ -450,40 +593,75 @@ fn discover(
         hits.retain(|h| roles.iter().any(|r| r.eq_ignore_ascii_case(&h.role)));
     }
 
-    let mut seen = std::collections::HashSet::new();
-    let mut deduped = Vec::new();
+    struct DiscGroup {
+        primary: FtsHit,
+        matches: Vec<ConversationSearchMatch>,
+        seen: std::collections::HashSet<String>,
+        match_count: u32,
+    }
+
+    let mut groups: std::collections::HashMap<String, DiscGroup> =
+        std::collections::HashMap::new();
+    let mut order: Vec<String> = Vec::new();
     for hit in hits {
-        if !seen.insert(hit.conversation_id.clone()) {
-            continue;
-        }
         if current_conversation_id == Some(hit.conversation_id.as_str()) {
             continue;
         }
-        deduped.push(hit);
-        if deduped.len() as i64 >= limit {
-            break;
+        if let Some(group) = groups.get_mut(&hit.conversation_id) {
+            push_search_match(
+                &mut group.matches,
+                &mut group.seen,
+                &mut group.match_count,
+                hit.message_id,
+                hit.role,
+                hit.snippet,
+                MATCHES_RETURN_MAX,
+            );
+            continue;
         }
+        if (order.len() as i64) >= limit {
+            continue;
+        }
+        let mut group = DiscGroup {
+            primary: hit.clone(),
+            matches: Vec::new(),
+            seen: std::collections::HashSet::new(),
+            match_count: 0,
+        };
+        push_search_match(
+            &mut group.matches,
+            &mut group.seen,
+            &mut group.match_count,
+            hit.message_id,
+            hit.role,
+            hit.snippet,
+            MATCHES_RETURN_MAX,
+        );
+        order.push(hit.conversation_id.clone());
+        groups.insert(hit.conversation_id, group);
     }
 
     if sort == Some("oldest") {
-        deduped.sort_by_key(|h| meta_updated_at(&conn, &h.conversation_id).unwrap_or(0));
+        order.sort_by_key(|id| meta_updated_at(&conn, id).unwrap_or(0));
     } else {
-        deduped.sort_by_key(|h| {
-            std::cmp::Reverse(meta_updated_at(&conn, &h.conversation_id).unwrap_or(0))
-        });
+        order.sort_by_key(|id| std::cmp::Reverse(meta_updated_at(&conn, id).unwrap_or(0)));
     }
 
     let mut results = Vec::new();
-    for hit in deduped {
-        let meta = load_meta(&conn, &hit.conversation_id)?;
+    for conversation_id in order {
+        let Some(mut group) = groups.remove(&conversation_id) else {
+            continue;
+        };
+        promote_primary_match(&mut group.matches, &group.primary.message_id);
+        let meta = load_meta(&conn, &conversation_id)?;
         let Some(meta) = meta else {
             continue;
         };
-        let anchor_pos = message_position(&conn, &hit.conversation_id, &hit.message_id)?;
+        let anchor_pos = message_position(&conn, &conversation_id, &group.primary.message_id)?;
         let window = if anchor_pos >= 0 {
             load_window(
                 &conn,
-                &hit.conversation_id,
+                &conversation_id,
                 anchor_pos,
                 DEFAULT_WINDOW,
                 query,
@@ -495,15 +673,28 @@ fn discover(
                 messages_after: 0,
             }
         };
-        let bookend_start = load_bookends(&conn, &hit.conversation_id, true, query)?;
-        let bookend_end = load_bookends(&conn, &hit.conversation_id, false, query)?;
+        let bookend_start = load_bookends(&conn, &conversation_id, true, query)?;
+        let bookend_end = load_bookends(&conn, &conversation_id, false, query)?;
+        let matches_json: Vec<Value> = group
+            .matches
+            .iter()
+            .map(|m| {
+                json!({
+                    "id": m.message_id,
+                    "role": m.role,
+                    "snippet": m.snippet,
+                })
+            })
+            .collect();
 
         results.push(json!({
-            "conversation_id": hit.conversation_id,
+            "conversation_id": conversation_id,
             "title": nullable_str(&meta.title),
             "when": format_timestamp_ms(meta.updated_at_ms),
-            "snippet": hit.snippet,
-            "match_message_id": hit.message_id,
+            "snippet": group.primary.snippet,
+            "match_message_id": group.primary.message_id,
+            "match_count": group.match_count,
+            "matches": matches_json,
             "messages_before": window.messages_before,
             "messages_after": window.messages_after,
             "bookend_start": bookend_start,
@@ -622,6 +813,7 @@ struct ConversationMetaRow {
     preview: String,
 }
 
+#[derive(Clone)]
 struct FtsHit {
     conversation_id: String,
     message_id: String,

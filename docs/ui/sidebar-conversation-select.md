@@ -20,6 +20,7 @@ Hover 时标题从左侧淡入操作区，不要用整段 `backdrop-blur` 盖住
 - 渐变只在**左图标左侧**约 20px，接到与当前行相同的底色（侧栏 / hover / 选中）。
 - 两个图标坐在**不透明底**上，缝里不能透出标题字。
 - 图标本身保持清晰。桌面与网页同一套样式（`AppShell` `.sidebar-row-actions`）。
+- **会话搜索结果**不展示置顶 / 删除，避免挡住「N 处」。见 [sidebar-conversation-search.md](../internals/sidebar-conversation-search.md)。
 
 启动时恢复上次选中会话见 [last-conversation-restore.md](last-conversation-restore.md)。
 

@@ -227,6 +227,16 @@ pub struct ConversationMeta {
     pub session_user_id: String,
 }
 
+/// One message hit inside a conversation search result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationSearchMatch {
+    #[serde(rename = "messageId")]
+    pub message_id: String,
+    #[serde(default)]
+    pub role: String,
+    pub snippet: String,
+}
+
 /// Lightweight sidebar search hit (FTS message match and/or title/preview match).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSearchHit {
@@ -247,6 +257,18 @@ pub struct ConversationSearchHit {
     pub message_count: u32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub preview: String,
+    /// Additional FTS hits in this conversation (primary first).
+    /// Sidebar lists every hit; `session_search` tool caps at 5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matches: Vec<ConversationSearchMatch>,
+    /// Unique contiguous hits. Sidebar: same as `matches.len()`.
+    /// Tool: may exceed `matches.len()` when the list is capped.
+    #[serde(default, rename = "matchCount", skip_serializing_if = "is_zero_u32")]
+    pub match_count: u32,
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
 }
 
 impl From<&Conversation> for ConversationMeta {

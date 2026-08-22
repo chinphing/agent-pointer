@@ -67,6 +67,7 @@ fn channel_message_with_id(
         created_at: chrono::Utc::now().timestamp_millis(),
         tool_calls: None,
         tool_call_id: None,
+        tool_name: None,
         error_message: None,
         reasoning: None,
         thoughts: None,

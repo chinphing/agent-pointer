@@ -413,6 +413,56 @@ mod tests {
     }
 
     #[test]
+    fn discover_lists_multiple_matches_in_one_conversation() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let token = "unique_mm_hit_token";
+        let mut conv = sample_conv("c_mm", "Multi hit", "follow-up");
+        conv.messages = vec![
+            msg(
+                "msg_a",
+                Role::User,
+                &format!("first {token} note"),
+                1_700_000_000_000,
+            ),
+            msg("msg_b", Role::Assistant, "ack", 1_700_000_001_000),
+            msg(
+                "msg_c",
+                Role::User,
+                &format!("second {token} note"),
+                1_700_000_002_000,
+            ),
+            msg("msg_d", Role::Assistant, "ack2", 1_700_000_003_000),
+        ];
+        store.sync_conversations(&[conv]).unwrap();
+
+        let discover = store
+            .dispatch_tool_for_test(&json!({ "query": token, "limit": 3 }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&discover).unwrap();
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["count"], 1);
+        let matches = parsed["results"][0]["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 2);
+        let ids: Vec<_> = matches
+            .iter()
+            .filter_map(|m| m["id"].as_str())
+            .collect();
+        assert!(ids.contains(&"msg_a"));
+        assert!(ids.contains(&"msg_c"));
+        assert_eq!(parsed["results"][0]["match_count"], 2);
+        let mid = parsed["results"][0]["match_message_id"].as_str().unwrap();
+        assert!(ids.contains(&mid));
+        let window_ids: Vec<_> = parsed["results"][0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["id"].as_str())
+            .collect();
+        assert!(window_ids.contains(&mid));
+    }
+
+    #[test]
     fn discover_clips_content_around_query_hit() {
         use crate::conversation_store::persist::msg;
         use crate::models::Role;
@@ -522,6 +572,48 @@ mod tests {
             .search_conversations(&ListScope::All, "Cooking", 10)
             .unwrap();
         assert!(title_hits.iter().any(|h| h.id == "c2"));
+    }
+
+    #[test]
+    fn ui_search_lists_multiple_matches_in_one_conversation() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let token = "unique_ui_mm_token";
+        let mut conv = sample_conv("c_ui_mm", "UI multi", "follow-up");
+        conv.messages = (0..16)
+            .map(|i| {
+                let ts = 1_700_000_000_000 + i * 1_000;
+                if i % 2 == 0 {
+                    msg(
+                        &format!("u_{i}"),
+                        Role::User,
+                        &format!("hit {i} {token} here"),
+                        ts,
+                    )
+                } else {
+                    msg(&format!("u_{i}"), Role::Assistant, "ack", ts)
+                }
+            })
+            .collect();
+        store.sync_conversations(&[conv]).unwrap();
+
+        let hits = store
+            .search_conversations(&ListScope::All, token, 10)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "c_ui_mm");
+        // Sidebar returns every hit (8), not the tool's 5-item cap.
+        assert_eq!(hits[0].match_count, 8);
+        assert_eq!(hits[0].matches.len(), 8);
+        let ids: Vec<_> = hits[0]
+            .matches
+            .iter()
+            .map(|m| m.message_id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            ["u_0", "u_2", "u_4", "u_6", "u_8", "u_10", "u_12", "u_14"]
+        );
     }
 
     #[test]

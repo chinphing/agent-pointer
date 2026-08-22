@@ -464,7 +464,7 @@ fn default_context_compression_enabled() -> bool {
 }
 
 fn default_context_budget_tokens() -> u32 {
-    120_000
+    256 * 1024
 }
 
 fn default_context_keep_recent_user_turns() -> u32 {
@@ -476,7 +476,7 @@ fn default_context_summary_max_tokens() -> u32 {
 }
 
 fn default_max_tool_rounds() -> u32 {
-    100
+    5000
 }
 
 fn default_max_sub_agent_spawn_depth() -> u32 {

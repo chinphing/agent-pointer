@@ -23,10 +23,12 @@
 
 ## 用户可调参数
 
-系统设置里只保留：
+**设置 → 智能体 → 上下文自动压缩** 里只保留：
 
 - 开关 `contextCompressionEnabled`
 - **上下文预算** `contextBudgetTokens`（硬阈值；软预压缩约 80%；**何时压**仍看 token。原文尾部按条数约 20%，超限约 12%）
+  设置页按 **KB** 编辑，默认 **256KB**（落盘 `256 × 1024`）。
+  读到旧默认 `100000` / `120000`（token 时代）时按 256KB 处理。
 
 `contextKeepRecentUserTurns` 仍写入用户配置和压缩事件，但**不再**作为切分地板。
 `contextSummaryMaxTokens` 不参与对话压缩（摘要长度按前缀动态计算），后台 review 仍可能用到。

@@ -1088,7 +1088,7 @@ fn default_context_compression_enabled() -> bool {
 }
 
 fn default_context_budget_tokens() -> u32 {
-    build_cfg_u32!("CONTEXT_BUDGET_TOKENS", 120_000)
+    build_cfg_u32!("CONTEXT_BUDGET_TOKENS", 256 * 1024)
 }
 
 fn default_context_keep_recent_user_turns() -> u32 {
@@ -1100,7 +1100,7 @@ fn default_context_summary_max_tokens() -> u32 {
 }
 
 fn default_max_tool_rounds() -> u32 {
-    build_cfg_u32!("MAX_TOOL_ROUNDS", 100)
+    build_cfg_u32!("MAX_TOOL_ROUNDS", 5000)
 }
 
 pub const DEFAULT_FILE_READ_MAX_BYTES: u32 = 64 * 1024;
@@ -2087,7 +2087,7 @@ fn platform_default_context_compression_enabled() -> bool {
 }
 
 fn platform_default_context_budget_tokens() -> u32 {
-    100_000
+    256 * 1024
 }
 
 fn platform_default_context_keep_recent_user_turns() -> u32 {
@@ -2099,7 +2099,7 @@ fn platform_default_context_summary_max_tokens() -> u32 {
 }
 
 fn platform_default_max_tool_rounds() -> u32 {
-    200
+    5000
 }
 
 fn platform_default_max_sub_agent_spawn_depth() -> u32 {
@@ -2159,10 +2159,11 @@ const DATI_SETTINGS_JSON_KEYS: &[&str] =
 /// (including standalone local admin) receive these fields so settings UI save
 /// → reopen keeps debug toggles.
 ///
-/// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`) are
-/// **user preferences**, not debug state: every user can edit them in Settings
-/// and they must round-trip on GET/PUT. Do not list them here or non-admin
-/// saves will drop a custom fast-tier model when another tier is changed.
+/// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`) and
+/// tool-round caps (`maxToolRounds` / `maxSubAgentToolRounds`) are **user
+/// preferences**, not debug state: every user can edit them in Settings and
+/// they must round-trip on GET/PUT. Do not list them here or non-admin saves
+/// will drop the user's value.
 const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "rawContentViewEnabled",
     "debugDumpLlmPrompts",
@@ -2173,7 +2174,6 @@ const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "agentUiOverrides",
     "computerPipelineLlm",
     "agentTaskBoardHistoryTrim",
-    "maxSubAgentToolRounds",
     "maxSubAgentSpawnDepth",
 ];
 
@@ -2304,7 +2304,6 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.computer_annotated_screen_view_enabled = user.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = user.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = user.agent_task_board_history_trim.clone();
-    incoming.max_sub_agent_tool_rounds = user.max_sub_agent_tool_rounds;
     incoming.max_sub_agent_spawn_depth = user.max_sub_agent_spawn_depth;
     incoming.computer_pipeline_llm = user.computer_pipeline_llm.clone();
 }
@@ -2325,7 +2324,6 @@ pub fn preserve_platform_debug_settings_in_user(
         existing.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = existing.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = existing.agent_task_board_history_trim.clone();
-    incoming.max_sub_agent_tool_rounds = existing.max_sub_agent_tool_rounds;
     incoming.max_sub_agent_spawn_depth = existing.max_sub_agent_spawn_depth;
     incoming.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
 }
@@ -3586,15 +3584,12 @@ mod effective_extra_body_tests {
         let mut user = UserSettings::default();
         user.raw_content_view_enabled = true;
         user.debug_menus_enabled = true;
-        user.max_sub_agent_tool_rounds = 42;
         let mut incoming = ModelSettings::default();
         incoming.raw_content_view_enabled = false;
         incoming.debug_menus_enabled = false;
-        incoming.max_sub_agent_tool_rounds = 1;
         preserve_platform_debug_settings_in_model(&mut incoming, &user);
         assert!(incoming.raw_content_view_enabled);
         assert!(incoming.debug_menus_enabled);
-        assert_eq!(incoming.max_sub_agent_tool_rounds, 42);
     }
 
     #[test]

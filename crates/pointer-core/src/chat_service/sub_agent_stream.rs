@@ -244,7 +244,7 @@ pub(super) async fn run_sub_agent_stream_round(
                     .await;
                     state.computer_state.mark_cancelled(conversation_id);
                     return Err(anyhow!(
-                        "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                        "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
                     ));
                 }
                 return Ok(SubAgentStreamOutcome::RetryAfterRecoveryHint);

@@ -75,6 +75,26 @@ function migratePlannerSettingsFields(
   return rest as unknown as ModelSettings
 }
 
+const DEFAULT_CONTEXT_BUDGET_TOKENS = 256 * 1024
+const LEGACY_CONTEXT_BUDGET_TOKENS = new Set([100_000, 120_000])
+
+const DEFAULT_TOOL_ROUNDS = 5000
+const LEGACY_TOOL_ROUNDS = new Set([100, 200])
+
+function normalizeToolRounds(raw?: number): number {
+  if (!Number.isFinite(Number(raw)) || Number(raw) < 1) return DEFAULT_TOOL_ROUNDS
+  const rounds = Math.floor(Number(raw))
+  if (LEGACY_TOOL_ROUNDS.has(rounds)) return DEFAULT_TOOL_ROUNDS
+  return rounds
+}
+
+function normalizeContextBudgetTokens(raw?: number): number {
+  if (!Number.isFinite(Number(raw)) || Number(raw) <= 0) return DEFAULT_CONTEXT_BUDGET_TOKENS
+  const tokens = Math.floor(Number(raw))
+  if (LEGACY_CONTEXT_BUDGET_TOKENS.has(tokens)) return DEFAULT_CONTEXT_BUDGET_TOKENS
+  return tokens
+}
+
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
   const migrated = migratePlannerSettingsFields(s)
   const providersNorm = normalizeProviders(migrated.providers, undefined, globalGenFallbackFrom(migrated))
@@ -84,16 +104,17 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     workspaceRoot: s.workspaceRoot ?? '',
     leadAgentId: (s.leadAgentId ?? '').trim() || DEFAULT_LEAD_AGENT_ID,
     contextCompressionEnabled: s.contextCompressionEnabled ?? true,
-    contextBudgetTokens:
-      s.contextBudgetTokens ?? (s as { contextBudgetChars?: number }).contextBudgetChars ?? 100_000,
+    contextBudgetTokens: normalizeContextBudgetTokens(
+      s.contextBudgetTokens ?? (s as { contextBudgetChars?: number }).contextBudgetChars
+    ),
     contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 3,
     contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
-    maxToolRounds: s.maxToolRounds ?? 200,
+    maxToolRounds: normalizeToolRounds(s.maxToolRounds),
     fileReadMaxBytes: s.fileReadMaxBytes ?? 65_536,
     fileLineMaxBytes: s.fileLineMaxBytes ?? 1024,
     fileGrepMaxResults: s.fileGrepMaxResults ?? 50,
     attachmentUploadMaxBytes: s.attachmentUploadMaxBytes ?? 100 * 1024 * 1024,
-    maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 200,
+    maxSubAgentToolRounds: normalizeToolRounds(s.maxSubAgentToolRounds ?? s.maxToolRounds),
     maxSubAgentSpawnDepth: s.maxSubAgentSpawnDepth ?? 2,
     rawContentViewEnabled: s.rawContentViewEnabled === true,
     debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
@@ -240,15 +261,15 @@ export const useSettingsStore = defineStore('settings', () => {
     workspaceRoot: '',
     leadAgentId: 'general',
     contextCompressionEnabled: true,
-    contextBudgetTokens: 100_000,
+    contextBudgetTokens: DEFAULT_CONTEXT_BUDGET_TOKENS,
     contextKeepRecentUserTurns: 3,
     contextSummaryMaxTokens: 1024,
-    maxToolRounds: 200,
+    maxToolRounds: DEFAULT_TOOL_ROUNDS,
     fileReadMaxBytes: 65_536,
     fileLineMaxBytes: 1024,
     fileGrepMaxResults: 50,
     attachmentUploadMaxBytes: 100 * 1024 * 1024,
-    maxSubAgentToolRounds: 200,
+    maxSubAgentToolRounds: DEFAULT_TOOL_ROUNDS,
     maxSubAgentSpawnDepth: 2,
     rawContentViewEnabled: false,
     debugDumpLlmPrompts: false,
@@ -527,6 +548,11 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.attachmentUploadMaxBytes
         ?? user.attachmentUploadMaxBytes
         ?? settings.value.attachmentUploadMaxBytes,
+      maxToolRounds: mergedIn.maxToolRounds ?? user.maxToolRounds ?? settings.value.maxToolRounds,
+      maxSubAgentToolRounds:
+        mergedIn.maxSubAgentToolRounds
+        ?? user.maxSubAgentToolRounds
+        ?? settings.value.maxSubAgentToolRounds,
       hasKey: mergedIn.hasKey ?? settings.value.hasKey,
       theme: user.theme,
       // 场景档位是用户层配置，必须写回 merged，否则输入框/下一轮仍读旧值。

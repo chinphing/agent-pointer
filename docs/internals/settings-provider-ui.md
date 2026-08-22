@@ -7,6 +7,7 @@
 > **保存语义**：模型服务、当前服务/模型、生成参数和三档模型映射均通过 `updateUserSettings` 保存到 `user_settings.json`；Provider API Key 以 `enc:v1:` 加密落盘。删除自定义服务前必须明确确认；确认后立即保存，失败时前端恢复删除前的服务列表、默认服务和模型。
 
 > **调试权限**：调试分区仅对平台管理员或 standalone 本地管理员显示。它包含「保存每轮对话请求」「原始内容查看」「标记截图查看」；普通用户不可见也不可修改后两项。
+> **工具轮次**：`maxToolRounds` / `maxSubAgentToolRounds` 是普通用户偏好，在 **设置 → 智能体 → 上下文自动压缩** 编辑，默认 5000；不要列入 WEB 调试字段剥离名单，否则非管理员改完会被服务端旧值盖回。
 
 > **WEB 回读**：平台管理员（含 standalone 本地管理员）的 `/api/settings` 响应会保留
 > `debugMenusEnabled` 等调试字段。三档映射（`agentModeLlm` / `mediaModeLlm` /

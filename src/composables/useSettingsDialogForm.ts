@@ -255,18 +255,35 @@ function createSettingsDialogForm(deps: {
   const agentMode = ref<'single'>('single')
   const leadAgentId = ref('')
   const contextCompressionEnabled = ref(true)
-  const contextBudgetTokens = ref(120_000)
+  const DEFAULT_CONTEXT_BUDGET_KB = 256
+  const contextBudgetKb = ref(DEFAULT_CONTEXT_BUDGET_KB)
   const contextKeepRecentUserTurns = ref(6)
-  const maxToolRounds = ref(100)
+  const DEFAULT_TOOL_ROUNDS = 5000
+  const LEGACY_TOOL_ROUNDS = new Set([100, 200])
+  function migrateToolRounds(raw?: number): number {
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n < 1) return DEFAULT_TOOL_ROUNDS
+    const rounds = Math.floor(n)
+    if (LEGACY_TOOL_ROUNDS.has(rounds)) return DEFAULT_TOOL_ROUNDS
+    return rounds
+  }
+  const maxToolRounds = ref(DEFAULT_TOOL_ROUNDS)
   const fileReadMaxKb = ref(64)
   const fileLineMaxBytes = ref(1024)
   const fileGrepMaxResults = ref(50)
   const attachmentUploadMaxMb = ref(100)
-  const maxSubAgentToolRounds = ref(100)
+  const maxSubAgentToolRounds = ref(5000)
   const parallelToolExecutionEnabled = ref(true)
-  const maxParallelToolCalls = ref<number | ''>('')
-  const maxParallelSubAgents = ref<number | ''>('')
-  const maxParallelMediaJobs = ref<number | ''>('')
+  const PARALLEL_LIMIT_CAP = 8
+  function defaultParallelLimit(): number {
+    const cores = Number(globalThis.navigator?.hardwareConcurrency)
+    const n = Number.isFinite(cores) && cores >= 1 ? Math.floor(cores) : 1
+    return Math.min(PARALLEL_LIMIT_CAP, Math.max(1, n))
+  }
+  const autoParallelLimit = defaultParallelLimit()
+  const maxParallelToolCalls = ref(autoParallelLimit)
+  const maxParallelSubAgents = ref(autoParallelLimit)
+  const maxParallelMediaJobs = ref(autoParallelLimit)
   const maxConcurrentRuns = ref(4)
   const maxSubAgentSpawnDepth = ref(2)
   const rawContentViewEnabled = ref(false)
@@ -453,12 +470,17 @@ function createSettingsDialogForm(deps: {
   agentMode.value = 'single'
   leadAgentId.value = s.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
   contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
-  contextBudgetTokens.value =
-    s.settings.contextBudgetTokens ??
-    (s.settings as { contextBudgetChars?: number }).contextBudgetChars ??
-    120_000
+  const storedBudgetTokens =
+    s.settings.contextBudgetTokens
+    ?? (s.settings as { contextBudgetChars?: number }).contextBudgetChars
+    ?? DEFAULT_CONTEXT_BUDGET_KB * 1024
+  const budgetTokens =
+    storedBudgetTokens === 100_000 || storedBudgetTokens === 120_000
+      ? DEFAULT_CONTEXT_BUDGET_KB * 1024
+      : storedBudgetTokens
+  contextBudgetKb.value = Math.max(4, Math.round(budgetTokens / 1024))
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
-  maxToolRounds.value = s.settings.maxToolRounds ?? 100
+  maxToolRounds.value = migrateToolRounds(s.settings.maxToolRounds)
   fileReadMaxKb.value = Math.max(4, Math.round((s.settings.fileReadMaxBytes ?? 65_536) / 1024))
   fileLineMaxBytes.value = s.settings.fileLineMaxBytes ?? 1024
   fileGrepMaxResults.value = s.settings.fileGrepMaxResults ?? 50
@@ -467,11 +489,13 @@ function createSettingsDialogForm(deps: {
     Math.round((s.settings.attachmentUploadMaxBytes ?? 100 * 1024 * 1024) / (1024 * 1024))
   )
   parallelToolExecutionEnabled.value = s.settings.parallelToolExecutionEnabled !== false
-  maxParallelToolCalls.value = s.settings.maxParallelToolCalls ?? ''
-  maxParallelSubAgents.value = s.settings.maxParallelSubAgents ?? ''
-  maxParallelMediaJobs.value = s.settings.maxParallelMediaJobs ?? ''
+  maxParallelToolCalls.value = s.settings.maxParallelToolCalls || autoParallelLimit
+  maxParallelSubAgents.value = s.settings.maxParallelSubAgents || autoParallelLimit
+  maxParallelMediaJobs.value = s.settings.maxParallelMediaJobs || autoParallelLimit
   maxConcurrentRuns.value = s.settings.maxConcurrentRuns ?? 4
-  maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
+  maxSubAgentToolRounds.value = migrateToolRounds(
+    s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds
+  )
   maxSubAgentSpawnDepth.value = s.settings.maxSubAgentSpawnDepth ?? 2
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
@@ -736,7 +760,9 @@ function createSettingsDialogForm(deps: {
     if (v === '') return null
     const n = Number(v)
     if (!Number.isFinite(n) || n < 1) return null
-    return Math.floor(n)
+    const limit = Math.floor(n)
+    if (limit === autoParallelLimit) return null
+    return limit
   }
 
   function assistantPreferencesPayload() {
@@ -761,9 +787,13 @@ function createSettingsDialogForm(deps: {
       : null,
     maxConcurrentRuns: Math.max(1, Math.min(64, Number(maxConcurrentRuns.value) || 4)),
     contextCompressionEnabled: contextCompressionEnabled.value,
-    contextBudgetTokens: Number(contextBudgetTokens.value),
+    contextBudgetTokens: Math.min(
+      2_000_000,
+      Math.max(4096, Math.round(Number(contextBudgetKb.value) || DEFAULT_CONTEXT_BUDGET_KB) * 1024)
+    ),
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
     maxToolRounds: Number(maxToolRounds.value),
+    maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
     fileReadMaxBytes: Math.min(1024 * 1024, Math.max(4096, Math.round(Number(fileReadMaxKb.value) || 64) * 1024)),
     fileLineMaxBytes: Math.min(16 * 1024, Math.max(256, Math.floor(Number(fileLineMaxBytes.value) || 1024))),
     fileGrepMaxResults: Math.min(200, Math.max(1, Math.floor(Number(fileGrepMaxResults.value) || 50))),
@@ -796,6 +826,9 @@ function createSettingsDialogForm(deps: {
     s.settings.fileLineMaxBytes = payload.fileLineMaxBytes
     s.settings.fileGrepMaxResults = payload.fileGrepMaxResults
     s.settings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
+    s.settings.maxToolRounds = payload.maxToolRounds
+    s.settings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
+    s.settings.contextBudgetTokens = payload.contextBudgetTokens
     const conv = chat.current
     if (conv) {
       const lead = chat.effectiveConversationLeadAgentId(conv)
@@ -847,9 +880,10 @@ function createSettingsDialogForm(deps: {
     [
       toolApprovalMode,
       contextCompressionEnabled,
-      contextBudgetTokens,
+      contextBudgetKb,
       contextKeepRecentUserTurns,
       maxToolRounds,
+      maxSubAgentToolRounds,
       fileReadMaxKb,
       fileLineMaxBytes,
       fileGrepMaxResults,
@@ -903,7 +937,7 @@ function createSettingsDialogForm(deps: {
     agentMode,
     leadAgentId,
     contextCompressionEnabled,
-    contextBudgetTokens,
+    contextBudgetKb,
     contextKeepRecentUserTurns,
     maxToolRounds,
     fileReadMaxKb,
@@ -911,6 +945,7 @@ function createSettingsDialogForm(deps: {
     fileGrepMaxResults,
     attachmentUploadMaxMb,
     parallelToolExecutionEnabled,
+    autoParallelLimit,
     maxParallelToolCalls,
     maxParallelSubAgents,
     maxParallelMediaJobs,

@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
-import { CalendarClock, ChevronRight, CircleHelp, Film, GitBranch, Monitor, Plus, ScrollText, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
+import { ChevronRight, CircleHelp, FileText, Film, GitBranch, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -46,14 +46,12 @@ const {
   mediaVideoGenerationModel,
   selectMediaModelWithProvider,
   maxConcurrentRuns,
-  contextCompressionEnabled,
-  contextBudgetTokens,
-  maxToolRounds,
   fileReadMaxKb,
   fileLineMaxBytes,
   fileGrepMaxResults,
   attachmentUploadMaxMb,
   parallelToolExecutionEnabled,
+  autoParallelLimit,
   maxParallelToolCalls,
   maxParallelSubAgents,
   maxParallelMediaJobs,
@@ -70,6 +68,12 @@ const {
   activeSection,
   toolApprovalMode
 } = props.form
+
+function restoreAutoParallel(value: unknown): number {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 1) return autoParallelLimit
+  return Math.floor(n)
+}
 
 const queueSnapshot = ref<RunQueueSnapshot | null>(null)
 const queueLoading = ref(false)
@@ -122,10 +126,12 @@ watch(activeSection, section => {
 const queueModalOpen = ref(false)
 const mediaDepsModalOpen = ref(false)
 
-const queueSummary = computed(() => {
-  if (queueLoading.value && !queueSnapshot.value) return '加载中…'
-  if (pendingRunCount.value > 0 || totalLaneWaiting.value > 0) {
-    return `${pendingRunCount.value} 个待执行 · ${totalLaneWaiting.value} 个在 lane 排队`
+const queueBusy = computed(() => pendingRunCount.value > 0 || totalLaneWaiting.value > 0)
+
+const queueStatusTitle = computed(() => {
+  if (queueLoading.value && !queueSnapshot.value) return '队列加载中'
+  if (queueBusy.value) {
+    return `${pendingRunCount.value} 个待执行，${totalLaneWaiting.value} 个在排队`
   }
   return '当前无排队任务'
 })
@@ -497,59 +503,7 @@ async function onPlaySoundToggle(checked: boolean) {
       </div>
     </section>
 
-    <!-- 任务调度 -->
-    <section class="space-y-4" aria-labelledby="system-scheduler-heading">
-      <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-scheduler-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">任务调度</h4>
-        <div class="flex-1 h-px bg-border/60" />
-      </div>
-
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <div class="flex items-center gap-1.5 min-w-0">
-          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <CalendarClock class="w-4 h-4 text-accent" />任务调度
-          </h4>
-          <button
-            type="button"
-            class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
-            title="同时执行的 Agent 运行数上限，聊天、Webhook、Cron 等触发源共享此配额。"
-            aria-label="任务调度说明"
-          >
-            <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-          </button>
-        </div>
-        <div class="max-w-xs">
-          <label
-            class="block text-[12px] text-muted mb-1.5"
-            title="不同会话可并行运行，同一会话仍串行"
-          >全局并发任务</label>
-          <input
-            v-model.number="maxConcurrentRuns"
-            type="number"
-            min="1"
-            max="64"
-            step="1"
-            class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
-          />
-        </div>
-        <div class="flex items-center justify-between gap-2 pt-2 border-t border-border">
-          <span class="text-[12px] font-medium text-foreground">队列状态</span>
-          <div class="flex items-center gap-3 min-w-0">
-            <span class="text-[11px] text-muted truncate">{{ queueSummary }}</span>
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
-              @click="queueModalOpen = true"
-            >
-              查看队列
-              <ChevronRight class="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 并行执行与上下文压缩 -->
+    <!-- 并发与上下文 -->
     <section class="space-y-4" aria-labelledby="system-exec-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
         <h4 id="system-exec-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">执行与上下文</h4>
@@ -557,153 +511,235 @@ async function onPlaySoundToggle(checked: boolean) {
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <div class="flex items-center justify-between gap-4">
-          <div class="flex items-center gap-1.5 min-w-0">
-            <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-              <GitBranch class="w-4 h-4 text-accent" />并行执行
-            </h4>
-            <button
-              type="button"
-              class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
-              title="同一轮多个工具调用时，无冲突的可并行；关闭后全部串行。并发上限留空时按 CPU 核数，最多 8。"
-              aria-label="并行执行说明"
-            >
-              <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-            </button>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer shrink-0">
-            <input v-model="parallelToolExecutionEnabled" type="checkbox" class="sr-only peer" />
-            <div class="settings-toggle-track"></div>
-          </label>
-        </div>
+        <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+          <GitBranch class="w-4 h-4 text-accent" />并发
+        </h4>
 
-        <div
-          v-if="parallelToolExecutionEnabled"
-          class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-border"
-        >
-          <div>
-            <label
-              class="block text-[12px] text-muted mb-1.5"
-              title="文件、终端、搜索等通用工具；留空时按 CPU 核数，上限 8"
-            >通用上限</label>
-            <input
-              v-model="maxParallelToolCalls"
-              type="number"
-              min="1"
-              max="64"
-              step="1"
-              placeholder="自动"
-              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors placeholder:text-muted/60"
-            />
+        <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-x-5">
+          <div class="min-w-0 space-y-3">
+            <div class="flex items-center gap-1">
+              <span class="text-[12px] font-medium text-foreground">任务并行</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="同时能跑几条独立任务。聊天、定时、Webhook 共用；同一会话仍排队。"
+                aria-label="任务并行说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+            <div>
+              <label class="block text-[12px] text-muted mb-1.5">同时任务数</label>
+              <div class="flex items-center gap-2">
+                <input
+                  v-model.number="maxConcurrentRuns"
+                  type="number"
+                  min="1"
+                  max="64"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
+                  :title="queueStatusTitle"
+                  :aria-label="queueStatusTitle + '，查看队列'"
+                  @click="queueModalOpen = true"
+                >
+                  <span
+                    class="w-1.5 h-1.5 rounded-full shrink-0"
+                    :class="queueBusy
+                      ? 'bg-accent animate-pulse'
+                      : 'bg-muted'"
+                    aria-hidden="true"
+                  />
+                  查看队列
+                  <ChevronRight class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
           </div>
-          <div>
-            <label
-              class="block text-[12px] text-muted mb-1.5"
-              title="run_subagent 并发；留空时与通用上限相同"
-            >子 Agent</label>
-            <input
-              v-model="maxParallelSubAgents"
-              type="number"
-              min="1"
-              max="64"
-              step="1"
-              placeholder="自动"
-              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors placeholder:text-muted/60"
-            />
-          </div>
-          <div>
-            <label
-              class="block text-[12px] text-muted mb-1.5"
-              title="图片 / 视频生成与 media_understand"
-            >媒体任务</label>
-            <input
-              v-model="maxParallelMediaJobs"
-              type="number"
-              min="1"
-              max="64"
-              step="1"
-              placeholder="自动"
-              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors placeholder:text-muted/60"
-            />
+
+          <div class="w-px bg-border shrink-0" aria-hidden="true" />
+
+          <div class="min-w-0 space-y-3">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[12px] font-medium text-foreground">工具并行</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="同一轮里多个工具一起跑；关掉则一个一个执行。"
+                aria-label="工具并行说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+              <label class="relative inline-flex items-center cursor-pointer ml-1">
+                <input v-model="parallelToolExecutionEnabled" type="checkbox" class="sr-only peer" />
+                <div class="settings-toggle-track"></div>
+              </label>
+            </div>
+            <div v-if="parallelToolExecutionEnabled" class="flex flex-wrap items-start gap-x-5 gap-y-3">
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">通用工具</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="同一轮里读文件、终端、搜索等可同时执行的数量。"
+                    aria-label="通用工具说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="maxParallelToolCalls"
+                  type="number"
+                  min="1"
+                  max="64"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                  @blur="maxParallelToolCalls = restoreAutoParallel(maxParallelToolCalls)"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">子 Agent</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="同一轮里同时派出的子 Agent 数量。"
+                    aria-label="子 Agent 说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="maxParallelSubAgents"
+                  type="number"
+                  min="1"
+                  max="64"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                  @blur="maxParallelSubAgents = restoreAutoParallel(maxParallelSubAgents)"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">媒体工具</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="同一轮里同时进行的图片、视频、多媒体理解数量。"
+                    aria-label="媒体工具说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="maxParallelMediaJobs"
+                  type="number"
+                  min="1"
+                  max="64"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                  @blur="maxParallelMediaJobs = restoreAutoParallel(maxParallelMediaJobs)"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <div class="flex items-center justify-between">
-          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <ScrollText class="w-4 h-4 text-accent" />上下文自动压缩
-          </h4>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input v-model="contextCompressionEnabled" type="checkbox" class="sr-only peer" />
-            <div class="settings-toggle-track"></div>
-          </label>
-        </div>
-        <p class="text-[11px] text-muted">超过预算时把较早对话收成摘要。尾部按预算比例保留原文，最新一条用户消息始终保留。</p>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border">
-          <div v-if="contextCompressionEnabled">
-            <label class="block text-[12px] text-muted mb-1.5">上下文预算（tokens）</label>
-            <input v-model.number="contextBudgetTokens" type="number" min="4096" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-          </div>
-          <div>
-            <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
-            <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-          </div>
-        </div>
-      </div>
-
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <h4 class="text-sm font-medium text-foreground">附件上传</h4>
-        <p class="text-[11px] text-muted">对话里上传文件（不含视频）的大小上限。视频仍走独立压缩与 OSS 规则。</p>
         <div>
-          <label class="block text-[12px] text-muted mb-1.5">大小上限（MB）</label>
-          <input
-            v-model.number="attachmentUploadMaxMb"
-            type="number"
-            min="1"
-            max="512"
-            step="1"
-            class="w-full max-w-[12rem] h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
-          />
+          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+            <FileText class="w-4 h-4 text-accent" />文件
+          </h4>
+          <p class="mt-1 text-[11px] text-muted">对话上传、读取和搜索的上限。视频上传仍走独立压缩。工具参数只能下调，不能突破这里的上限。</p>
         </div>
-      </div>
-
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <h4 class="text-sm font-medium text-foreground">文件读取与搜索</h4>
-        <p class="text-[11px] text-muted">限制智能体读文件和搜索的返回量。工具参数只能下调，不能突破这里的上限。</p>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
           <div>
-            <label class="block text-[12px] text-muted mb-1.5">正文上限（KB）</label>
+            <div class="flex items-center gap-1 mb-1.5">
+              <span class="text-[12px] text-muted">上传（MB）</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="对话里上传文件的大小上限，不含视频。"
+                aria-label="上传上限说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+            <input
+              v-model.number="attachmentUploadMaxMb"
+              type="number"
+              min="1"
+              max="512"
+              step="1"
+              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+            />
+          </div>
+          <div>
+            <div class="flex items-center gap-1 mb-1.5">
+              <span class="text-[12px] text-muted">正文（KB）</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="一次读取文件时返回的正文上限。"
+                aria-label="正文上限说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
             <input
               v-model.number="fileReadMaxKb"
               type="number"
               min="4"
               max="1024"
               step="1"
-              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
             />
           </div>
           <div>
-            <label class="block text-[12px] text-muted mb-1.5">单行上限（字节）</label>
+            <div class="flex items-center gap-1 mb-1.5">
+              <span class="text-[12px] text-muted">单行（字节）</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="读文件或搜索时，一行最多保留多少字节。"
+                aria-label="单行上限说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
             <input
               v-model.number="fileLineMaxBytes"
               type="number"
               min="256"
               max="16384"
               step="1"
-              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
             />
           </div>
           <div>
-            <label class="block text-[12px] text-muted mb-1.5">搜索命中条数</label>
+            <div class="flex items-center gap-1 mb-1.5">
+              <span class="text-[12px] text-muted">搜索条数</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="一次搜索最多返回多少条结果。"
+                aria-label="搜索条数说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
             <input
               v-model.number="fileGrepMaxResults"
               type="number"
               min="1"
               max="200"
               step="1"
-              class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
             />
           </div>
         </div>
@@ -743,7 +779,7 @@ async function onPlaySoundToggle(checked: boolean) {
           <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
             <div class="min-w-0">
               <h4 class="text-sm font-semibold text-foreground">队列详情</h4>
-              <p class="mt-0.5 text-[11px] text-muted">{{ queueSummary }}</p>
+              <p class="mt-0.5 text-[11px] text-muted">{{ queueStatusTitle }}</p>
             </div>
             <button
               type="button"

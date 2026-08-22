@@ -31,7 +31,9 @@ impl ToolBudgetExhaustionScope {
     ) -> Self {
         Self {
             compression_scope,
-            error_message: format!("子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"),
+            error_message: format!(
+                "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+            ),
             compress_for_session: false,
         }
     }

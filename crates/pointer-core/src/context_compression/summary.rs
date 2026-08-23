@@ -467,10 +467,12 @@ pub(crate) fn summary_language_instruction(lang: SummaryBodyLanguage) -> &'stati
     }
 }
 
+#[cfg(test)]
 pub(crate) fn build_summary_system_prompt(ui: &CompressionUiContext, in_run: bool) -> String {
     build_summary_system_prompt_with_language(ui, in_run, false, SummaryBodyLanguage::MatchUser)
 }
 
+#[cfg(test)]
 pub(crate) fn build_summary_system_prompt_with_style(
     ui: &CompressionUiContext,
     in_run: bool,
@@ -540,6 +542,7 @@ pub(crate) fn build_summary_system_prompt_with_language(
     prompt
 }
 
+#[cfg(test)]
 pub(crate) fn build_summary_user_prompt(
     formatted: &str,
     target_tokens: u32,
@@ -548,6 +551,7 @@ pub(crate) fn build_summary_user_prompt(
     build_summary_user_prompt_with_style(formatted, target_tokens, in_run, false)
 }
 
+#[cfg(test)]
 pub(crate) fn build_summary_user_prompt_with_style(
     formatted: &str,
     target_tokens: u32,

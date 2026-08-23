@@ -6,7 +6,7 @@
 
 - **角色头像**：用户 / 助手头像（`.message-avatar-slot`）在移动端与触控端**不显示**，避免列外绝对定位挤出边框与横向溢出。桌面宽屏仍为悬停显现。
 - **窄中栏**（右侧 Workspace 拉开后对话变窄）：`@container chat (max-width: 719px)` 时同样隐藏头像。此时 `.chat-shell` 只有 `px-8`（32px），而头像 `right-full` + `w-8` + `mr-2` 需约 40px，会探出 gutter；再叠加 `overflow-y: auto` 会算出横向滚动条。容器 ≥720px 时 gutter 升为 `6rem`，头像可悬停显示。
-- **对话区**：`.chat-scroll-area` 固定 `overflow-x: hidden`；长工具摘要 / 行内 code 在列内换行，代码块与表格仍用自身 `overflow-x-auto`。
+- **对话导航**：右缘短横条（Codex 式），悬停看出预览；横条超出一列时顶/底显示箭头。见 [conversation-nav.md](conversation-nav.md)。
 - **时间戳与复制**：`.message-footer-actions` 默认收起；桌面悬停 / `:focus-within` 显现。移动端与触控端**不强制常显**（勿再写 `hover: none` 下 `opacity: 1`）。脚注时间统一本地 `HH:mm:ss`，hover 为 `YYYY-MM-DD HH:mm:ss`。
 
 ## Composer

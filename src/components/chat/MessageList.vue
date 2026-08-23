@@ -45,13 +45,20 @@ import {
   highlightSearchText,
   highlightSidebarSearchText
 } from '../../lib/sidebarSearchTextHighlight'
-import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import {
   scrollTopForAnchor,
   turnOffsetInScroller,
   type MessageListScrollAnchor
 } from '../../lib/messageListScrollAnchor'
 import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
+import {
+  canShowNoOlderPullHint,
+  LOAD_OLDER_TOP_PX,
+  shouldAutoPrefetchOlderOnScroll,
+  shouldRearmOlderPrefetch,
+  shouldRequestOlderFromTouchPull,
+  shouldRequestOlderFromWheel
+} from '../../lib/messageListOlderPrefetch'
 import {
   closedLeadTurnsKey,
   collectLeadTurnStarts,
@@ -116,14 +123,6 @@ const SCROLL_MIN_INTERVAL_MS = 80
 const ATTACH_BOTTOM_PX = 8
 /** Scroll this far from bottom before onScroll alone detaches follow. */
 const DETACH_BOTTOM_PX = 48
-/** Prefetch older turns when within this distance of the top. */
-const LOAD_OLDER_TOP_PX = 300
-/**
- * After an older page lands, require the user to leave the top band once
- * before auto-prefetch can fire again. Prevents a restore-shortfall cascade
- * (scrollTop stays ≤ top threshold → load → OOM / white WebView).
- */
-const LOAD_OLDER_LEAVE_TOP_PX = 400
 /** Prefetch newer turns when within this distance of the bottom. */
 const LOAD_NEWER_BOTTOM_PX = 300
 /**
@@ -170,10 +169,18 @@ const currentMessagePage = computed(() => {
 })
 const showNoOlderPullHint = computed(() => noOlderPullPx.value >= NO_OLDER_HINT_REVEAL_PX)
 
+function hasMoreOlderFlag(): boolean | null {
+  const page = currentMessagePage.value
+  if (!page) return null
+  return page.hasMoreOlder
+}
+
 function canPullNoOlderHint(el: HTMLElement): boolean {
-  return currentMessagePage.value?.hasMoreOlder === false
-    && el.scrollTop <= 1
-    && programmaticScrollDepth === 0
+  return canShowNoOlderPullHint({
+    hasMoreOlder: hasMoreOlderFlag(),
+    scrollTop: el.scrollTop,
+    programmatic: programmaticScrollDepth > 0
+  })
 }
 
 function setNoOlderPullPx(px: number) {
@@ -281,6 +288,19 @@ function onWheel(event: WheelEvent) {
   if (event.deltaY < 0) unpinFollowOutput()
   const el = scroller.value
   if (!el) return
+  // At the real top, scrollTop cannot decrease, so `onScroll` never sees
+  // scrollingUp. Treat wheel-up in the top band as explicit older intent.
+  if (
+    shouldRequestOlderFromWheel({
+      deltaY: event.deltaY,
+      scrollTop: el.scrollTop,
+      hasMoreOlder: hasMoreOlderFlag()
+    })
+  ) {
+    if (noOlderPullPx.value > 0) releaseNoOlderPull()
+    void loadOlderWithScrollAnchor()
+    return
+  }
   if (event.deltaY > 0 || el.scrollTop > 1) {
     if (noOlderPullPx.value > 0) releaseNoOlderPull()
     return
@@ -309,7 +329,19 @@ function onTouchMove(event: TouchEvent) {
   // Finger moves down → content scrolls toward older messages.
   if (y - touchStartY > 8) unpinFollowOutput()
   const el = scroller.value
-  if (noOlderPullTouchY == null || !el) return
+  if (!el) return
+  if (
+    shouldRequestOlderFromTouchPull({
+      pullPx: y - touchStartY,
+      scrollTop: el.scrollTop,
+      hasMoreOlder: hasMoreOlderFlag()
+    })
+  ) {
+    if (noOlderPullPx.value > 0) releaseNoOlderPull()
+    void loadOlderWithScrollAnchor()
+    return
+  }
+  if (noOlderPullTouchY == null) return
   if (!canPullNoOlderHint(el)) {
     releaseNoOlderPull()
     return
@@ -724,7 +756,12 @@ async function loadOlderWithScrollAnchor() {
   const page = currentMessagePage.value
   // Strict serial: local lock OR store lock — previous page must fully finish
   // (IPC + prepend + scroll settle) before another load can start.
-  if (!page?.hasMoreOlder || page.loadingOlder || page.loadingNewer || olderLoadInFlight || newerLoadInFlight) return
+  if (page?.loadingOlder || page?.loadingNewer || olderLoadInFlight || newerLoadInFlight) {
+    return
+  }
+  // Missing page: still call loadOlderMessages so it can rebuild the baseline.
+  // hasMoreOlder === false is the only hard stop (then the pull hint can show).
+  if (page && page.hasMoreOlder === false) return
 
   olderLoadInFlight = true
   // Disarm auto-prefetch until the user leaves the top band.
@@ -804,10 +841,10 @@ function maybePrefetchOlder(scrollingUp: boolean) {
   if (!el || programmaticScrollDepth > 0 || locatingFocus.value) return
   if (olderLoadInFlight || newerLoadInFlight || currentMessagePage.value?.loadingOlder) return
   const atTop = el.scrollTop <= LOAD_OLDER_TOP_PX
-  if (!atTop && el.scrollTop > LOAD_OLDER_LEAVE_TOP_PX) {
+  if (shouldRearmOlderPrefetch(el.scrollTop)) {
     olderPrefetchArmed = true
   }
-  if (!atTop || !scrollingUp || !olderPrefetchArmed) return
+  if (!shouldAutoPrefetchOlderOnScroll({ atTop, scrollingUp, armed: olderPrefetchArmed })) return
   void loadOlderWithScrollAnchor()
 }
 
@@ -880,6 +917,27 @@ function stampVisibleUserMessagesViewed() {
   }
 }
 
+function updateVisibleNavMessage() {
+  if (locatingFocus.value) return
+  const el = scroller.value
+  if (!el) return
+  const turns = conversationTurns.value
+  const rows = virtualRows.value
+  if (rows.length === 0 || turns.length === 0) return
+  const marker = el.scrollTop + Math.min(72, Math.max(24, el.clientHeight * 0.18))
+  let next: string | null = null
+  for (const row of rows) {
+    if (row.start > marker) break
+    const turn = turns[row.index]
+    if (turn && !turn.id.startsWith('prelude-')) next = turn.id
+  }
+  if (!next) {
+    const first = turns[rows[0]!.index]
+    if (first && !first.id.startsWith('prelude-')) next = first.id
+  }
+  chat.setVisibleNavMessageId(next)
+}
+
 /**
  * Release old in-memory history of the *current* conversation when user
  * messages above the viewport have not been viewed within the stale window.
@@ -904,8 +962,7 @@ function maybeTrimConversationHistory() {
   }
 }
 
-function onScroll(event: Event) {
-  showScrollbarWhileScrolling(event)
+function onScroll(_event: Event) {
   const el = scroller.value
   if (el && el.scrollTop > 2 && noOlderPullPx.value > 0) {
     releaseNoOlderPull()
@@ -914,9 +971,6 @@ function onScroll(event: Event) {
   const scrollingUp = el != null && el.scrollTop < lastScrollTop - 1
   const scrollingDown = el != null && el.scrollTop > lastScrollTop + 1
   if (programmaticScrollDepth === 0) {
-    // Scrollbar drag only emits scroll (not wheel). Detect scrollTop moving
-    // toward older content and unpin immediately — otherwise follow stays on
-    // inside the attach/detach band and scheduleToBottom fights the thumb.
     followOutput = nextFollowOutputAfterScroll({
       followOutput,
       distanceFromBottom: distance,
@@ -933,6 +987,7 @@ function onScroll(event: Event) {
   maybePrefetchNewer(scrollingDown)
   if (el) lastScrollTop = el.scrollTop
   stampVisibleUserMessagesViewed()
+  updateVisibleNavMessage()
   maybeTrimConversationHistory()
 }
 
@@ -1299,6 +1354,10 @@ const renderedRows = computed(() => virtualRows.value.flatMap(virtualRow => {
   return turn ? [{ virtualRow, turn }] : []
 }))
 
+watch(virtualRows, () => {
+  updateVisibleNavMessage()
+})
+
 function setVirtualRowElement(node: Element | ComponentPublicInstance | null) {
   rowVirtualizer.value.measureElement(node instanceof HTMLDivElement ? node : null)
 }
@@ -1383,7 +1442,7 @@ function entrySpacing(
   <div class="relative h-full min-h-0">
     <div
       ref="scroller"
-      class="chat-scroll-area auto-hide-scrollbar h-full overflow-y-auto chat-shell pb-6"
+      class="chat-scroll-area scrollbar-hide h-full overflow-y-auto chat-shell pb-6"
       style="overflow-anchor: none"
       @scroll="onScroll"
       @wheel="onWheel"

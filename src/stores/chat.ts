@@ -509,6 +509,14 @@ export const useChatStore = defineStore('chat', () => {
     messageId: string
     queryTerm?: string
   } | null>(null)
+  /** User-turn currently in view (导航 highlight); not a focus request. */
+  const visibleNavMessageId = ref<string | null>(null)
+
+  function setVisibleNavMessageId(id: string | null) {
+    const next = id?.trim() || null
+    if (visibleNavMessageId.value === next) return
+    visibleNavMessageId.value = next
+  }
 
   function clearPendingFocusMessage() {
     pendingFocusMessage.value = null
@@ -1508,8 +1516,24 @@ export const useChatStore = defineStore('chat', () => {
       state = messagePageState(convId)
       if (!state) return false
     }
+    // hasMoreOlder with no cursor cannot page; rebuild from SQLite instead of
+    // returning false forever (UI would neither load nor show「没有更早的消息」).
+    if (state?.hasMoreOlder && state.oldestPosition == null && conv.messages.length > 0) {
+      console.info('[chat] loadOlderMessages: missing oldestPosition, hydrating', convId)
+      const ok = await ensureMessagesLoaded(convId, { force: true })
+      if (!ok) return false
+      state = messagePageState(convId)
+    }
     if (!state?.hasMoreOlder || state.oldestPosition == null) {
       console.info('[chat] loadOlderMessages: nothing older', convId)
+      if (state?.hasMoreOlder) {
+        applyMessagePageState(convId, {
+          hasMoreOlder: false,
+          hasMoreNewer: state.hasMoreNewer,
+          oldestPosition: state.oldestPosition,
+          newestPosition: state.newestPosition
+        })
+      }
       return false
     }
     // Strict serial: never start a second page while one is in flight.
@@ -2368,6 +2392,7 @@ export const useChatStore = defineStore('chat', () => {
     if (focusMessageId) {
       const queryTerm = options?.focusQueryTerm?.trim() || undefined
       pendingFocusMessage.value = { conversationId: id, messageId: focusMessageId, queryTerm }
+      setVisibleNavMessageId(focusMessageId)
       console.info('[chat] pending focus message', id, focusMessageId)
     } else if (pendingFocusMessage.value?.conversationId === id) {
       // Re-open without a search hit must not replay the around window.
@@ -2809,7 +2834,10 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   watch(currentId, (id, previousId) => {
-    if (id !== previousId) flushStreamDeltaBuffers()
+    if (id !== previousId) {
+      flushStreamDeltaBuffers()
+      visibleNavMessageId.value = null
+    }
     if (id) {
       clearConversationAwaitingView(id)
       writeLastConversationId(id)
@@ -3203,6 +3231,7 @@ export const useChatStore = defineStore('chat', () => {
     messagePageState,
     messagePageByConv,
     pendingFocusMessage, clearPendingFocusMessage,
+    visibleNavMessageId, setVisibleNavMessageId,
     sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,

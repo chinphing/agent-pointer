@@ -8,15 +8,16 @@
 |------|------|
 | 打开会话 | 默认加载最近 **8** 个真实用户回合（含回合内 assistant / tool / sub-agent）；**不**因空壳首次水合拉全量 |
 | SSE catch-up / cron 刷新 | `ensureMessagesLoaded({ force })` 会重新拉取，但仍是 **8 回合窗口**（`force` ≠ 全量） |
-| 加载更早 | 向上滚到距顶约 300px **自动预取**（无顶栏按钮、无加载中态） |
+| 加载更早 | 向上滚到距顶约 300px **自动预取**；**已在顶部**时继续上滑 / 下拉同样请求下一页（此时 `scrollTop` 无法再减小，不能只靠 scroll 事件）。无顶栏按钮、无加载中态 |
 | 加载更新 | 搜索定位到中间窗口后，**向下**滚到距底约 300px **自动预取**下一页更新回合；追加在下方，**不**贴底跟随，命中消息保持原位；**不**一次拉到真正的尾部 |
 | 滚动到底部 | 若当前窗口 `hasMoreNewer`，先 `ensureMessagesLoaded({ force })` 换成尾部 8 回合，再贴底。会话切换时的自动 `toBottom` **不会**强行换尾部（否则会冲掉搜索 around 窗口） |
 | 再次打开（无定位） | 清除该会话残留的 pending focus；若仍停在 around 窗口（`hasMoreNewer`），强制加载尾部。切走再回来、清空搜索后点同一行，都会回到最新对话 |
-| 没有更早 | 已到会话开头后，再往上拉出空白区域时才显示「没有更早的消息」；松手/滚回后收起 |
-| 滚顶节流 | **严格串行**：上一页 IPC+渲染锚定未完成前不发下一页；自动预取每次需先滚离顶部再武装；忙时直接 skip，不并发、不 join |
+| 没有更早 | 仅当 `hasMoreOlder === false` 且已在顶部时，再往上拉出空白才显示「没有更早的消息」；分页基线缺失时先自愈，不把「拉不动」当成已经到头 |
+| 滚顶节流 | **严格串行**：上一页 IPC+渲染锚定未完成前不发下一页；**自动**预取每次需先滚离顶部再武装（防 restore 短差连载）；**用户**在顶部继续上滑/下拉不受该武装限制；忙时直接 skip，不并发、不 join |
 | 滚动不跳 | 加载更早 / 内存裁剪后按**可见 turn id + 视口内偏移**重钉，不用 `scrollHeight` 差值（虚拟行估算高度会变） |
 | 更早页收缩 | 加载更早后对历史行做与首屏相同的中断态归一化，避免卡住的 `streaming` 被当成进行中而不收缩 |
 | 侧栏 FTS 定位 | `aroundMessageId` 拉取命中所在回合窗口，再滚动高亮 |
+| 对话导航 | 全量用户消息目录（`outline` API），点击走同一套 around 定位；**不**拉 Markdown 标题 |
 | 对话内 ⌘F | **仅搜索已加载消息**；未加载的更早内容不会命中 |
 | 内存裁剪 | 按 user 消息 `viewedAt`：加载/发送即打戳，进视口续期；超过 **10 分钟**可裁（至少保留最近 8 个 user 回合）；滚回顶部从 SQLite 再取 |
 
@@ -59,7 +60,8 @@
 
 - `crates/pointer-core/src/conversation_store/message_page.rs`
 - `src/stores/chat.ts` — `ensureMessagesLoaded` / `loadOlderMessages` / `loadNewerMessages` / `ensureMessagesAround`
-- `src/components/chat/MessageList.vue` — 滚顶/滚底自动预取、跳转最新、turn-id 视口锚定、开头提示
+- `src/components/chat/MessageList.vue` — 滚顶/滚底自动预取、顶部上滑/下拉请求更早、跳转最新、turn-id 视口锚定、开头提示
+- `src/lib/messageListOlderPrefetch.ts` — 顶部预取 vs「没有更早」提示的判定
 - `src/lib/messageListScrollAnchor.ts` — 锚定 scrollTop 计算
 
 ## Schema note (`is_system_generated`)
@@ -72,4 +74,5 @@ blocked desktop launch on large local DBs.
 ## 非目标
 
 - 对话内搜索服务端 FTS
+- 导航提取 Markdown 标题
 - 改 compression / transcript `begin()`

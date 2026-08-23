@@ -1266,6 +1266,21 @@ pub fn list_conversation_search_matches(
 }
 
 #[tauri::command]
+pub fn list_conversation_outline(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+) -> Result<Vec<pointer_core::models::ConversationOutlineItem>, String> {
+    let scope = platform_list_scope(&state);
+    let items = storage::list_conversation_outline(&scope, &conversation_id)
+        .map_err(|e| e.to_string())?;
+    log::info!(
+        "tauri::list_conversation_outline: id={conversation_id} returned {} rows",
+        items.len()
+    );
+    Ok(items)
+}
+
+#[tauri::command]
 pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMessage>, String> {
     let messages =
         storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;

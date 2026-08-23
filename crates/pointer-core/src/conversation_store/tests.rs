@@ -1839,6 +1839,61 @@ mod tests {
     }
 
     #[test]
+    fn conversation_outline_lists_real_user_turns() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("nav-1", "Nav", "first turn");
+        conv.messages.push(msg(
+            "msg_u2",
+            Role::User,
+            "second\n\nline with extra words for truncation padding 一二三四五六七八九十",
+            1_700_000_002_000,
+        ));
+        conv.messages.push(msg(
+            "msg_a2",
+            Role::Assistant,
+            "ok",
+            1_700_000_003_000,
+        ));
+        conv.messages.push(msg(
+            "u-syn",
+            Role::User,
+            "[CUR_SCREEN] shot",
+            1_700_000_004_000,
+        ));
+        let mut scoped = msg("u-scoped", Role::User, "subagent prompt", 1_700_000_005_000);
+        scoped.anchor_message_id = Some("msg_u1".into());
+        conv.messages.push(scoped);
+        conv.messages.push(msg("msg_u3", Role::User, "   ", 1_700_000_006_000));
+        store.sync_conversations(&[conv]).unwrap();
+
+        let items = store
+            .list_conversation_outline(&ListScope::All, "nav-1")
+            .unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .map(|i| i.message_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["msg_u1", "msg_u2", "msg_u3"]
+        );
+        assert_eq!(items[0].preview, "first turn");
+        assert!(items[1].preview.starts_with("second line"));
+        assert!(items[1].preview.chars().count() <= 36);
+        assert!(items[1].preview.ends_with('…'));
+        assert_eq!(items[2].preview, "（无文字）");
+
+        let err = store
+            .list_conversation_outline(&ListScope::User("other".into()), "nav-1")
+            .unwrap_err();
+        assert!(err.to_string().contains("not found"));
+        assert!(store
+            .list_conversation_outline(&ListScope::All, "")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     #[ignore]
     fn profile_ui_search_real_db() {
         let _ = env_logger::builder()

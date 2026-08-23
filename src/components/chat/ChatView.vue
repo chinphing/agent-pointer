@@ -17,6 +17,7 @@ import {
 
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
+import ConversationNav from './ConversationNav.vue'
 
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
 const MessageListSkeleton = defineComponent({
@@ -311,12 +312,8 @@ const toastClass = computed(() => {
           <X class="h-4 w-4" />
         </button>
       </div>
-      <div v-if="showMessageListPlaceholder" class="h-full flex flex-col min-h-0">
-        <MessageListSkeleton />
-      </div>
-
       <div
-        v-else-if="showWelcomeHome"
+        v-if="showWelcomeHome"
         class="chat-scroll-area auto-hide-scrollbar h-full overflow-y-auto chat-shell"
         @scroll.passive="showScrollbarWhileScrolling"
       >
@@ -390,16 +387,17 @@ const toastClass = computed(() => {
         </div>
       </div>
 
-      <div v-else class="h-full flex flex-col min-h-0">
-        <div class="flex-1 min-h-0 overflow-hidden">
-          <MessageList
-            :search-match-ids="pageSearchMatchMessageIds"
-            :search-match-tool-call-ids="pageSearchMatchToolCallIds"
-            :active-search-message-id="activePageSearchMessageId"
-            :active-search-tool-call-id="activePageSearchToolCallId"
-            :search-query="debouncedPageSearchQuery"
-          />
-        </div>
+      <div v-else class="relative h-full min-h-0">
+        <MessageListSkeleton v-if="showMessageListPlaceholder" />
+        <MessageList
+          v-else
+          :search-match-ids="pageSearchMatchMessageIds"
+          :search-match-tool-call-ids="pageSearchMatchToolCallIds"
+          :active-search-message-id="activePageSearchMessageId"
+          :active-search-tool-call-id="activePageSearchToolCallId"
+          :search-query="debouncedPageSearchQuery"
+        />
+        <ConversationNav />
       </div>
     </div>
     <Composer v-if="showFooterComposer" />

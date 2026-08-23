@@ -29,8 +29,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use crate::models::{
-    ChatMessage, Conversation, ConversationMeta, ConversationSearchHit, Project,
-    ProjectCreationResult, ProjectCursor, ProjectPage,
+    ChatMessage, Conversation, ConversationMeta, ConversationOutlineItem, ConversationSearchHit,
+    Project, ProjectCreationResult, ProjectCursor, ProjectPage,
 };
 use crate::storage::app_data_dir;
 
@@ -842,6 +842,23 @@ impl ConversationStore {
         query: &str,
     ) -> Result<Vec<crate::models::ConversationSearchMatch>> {
         search::list_conversation_search_matches(&self.db, scope, conversation_id, query)
+    }
+
+    /// Full-session real user turns for in-chat 导航 (preview only).
+    pub fn list_conversation_outline(
+        &self,
+        scope: &ListScope,
+        conversation_id: &str,
+    ) -> Result<Vec<ConversationOutlineItem>> {
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.db.conn.lock();
+        if !persist::conversation_in_scope(&conn, conversation_id, scope.filter_uid())? {
+            anyhow::bail!("conversation not found");
+        }
+        persist::load_conversation_outline(&conn, conversation_id)
     }
 
     /// Alias for tool registration / tests.

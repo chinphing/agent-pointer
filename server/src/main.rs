@@ -699,6 +699,10 @@ async fn main() -> anyhow::Result<()> {
             get(list_conversation_search_matches_handler),
         )
         .route(
+            "/api/conversations/:conversation_id/outline",
+            get(list_conversation_outline_handler),
+        )
+        .route(
             "/api/conversations/:conversation_id/messages",
             get(load_conversation_messages_handler),
         )
@@ -2041,6 +2045,21 @@ async fn list_conversation_search_matches_handler(
     let matches =
         storage::list_conversation_search_matches(&scope, &conversation_id, &q.q)?;
     Ok(Json(matches))
+}
+
+async fn list_conversation_outline_handler(
+    State(state): State<ServerState>,
+    Path(conversation_id): Path<String>,
+) -> Result<Json<Vec<pointer_core::models::ConversationOutlineItem>>, ApiError> {
+    require_platform_access(&state)?;
+    let scope = platform_list_scope(&state);
+    let items = storage::list_conversation_outline(&scope, &conversation_id)?;
+    log::info!(
+        "server: list_conversation_outline conversation_id={} returned {} rows",
+        conversation_id,
+        items.len()
+    );
+    Ok(Json(items))
 }
 
 /// `GET /api/conversations/:id/messages` — full list when no page query params;

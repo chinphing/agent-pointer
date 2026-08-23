@@ -520,6 +520,12 @@ export async function listConversationSearchMatches(
   return await invoke('list_conversation_search_matches', { conversationId, query })
 }
 
+export async function listConversationOutline(
+  conversationId: string
+): Promise<import('../types/chat').ConversationOutlineItem[]> {
+  return await invoke('list_conversation_outline', { conversationId })
+}
+
 export async function loadConversationMessages(conversationId: string): Promise<ChatMessage[]> {
   return await invoke<ChatMessage[]>('load_conversation_messages', { conversationId })
 }

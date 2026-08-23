@@ -816,6 +816,14 @@ export async function listConversationSearchMatches(
   )
 }
 
+export async function listConversationOutline(
+  conversationId: string
+): Promise<import('../types/chat').ConversationOutlineItem[]> {
+  return await request(
+    `/api/conversations/${encodeURIComponent(conversationId)}/outline`
+  )
+}
+
 export async function saveConversationMeta(metas: import('../types/chat').ConversationMeta[]): Promise<void> {
   await request('/api/conversations/meta', { method: 'PUT', body: JSON.stringify(metas) })
 }

@@ -134,4 +134,87 @@ describe('chat loadOlderMessages self-heal', () => {
       limitTurns: 8
     })
   })
+
+  it('rebuilds when hasMoreOlder is stuck true without a cursor', async () => {
+    const store = useChatStore()
+    const conv = store.newConversation()
+    conv.messages = [msg('m1', 1), msg('m2', 2)]
+    conv.messageCount = 200
+    store.messagePageByConv = {
+      ...store.messagePageByConv,
+      [conv.id]: {
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        oldestPosition: null,
+        newestPosition: null,
+        loadingOlder: false,
+        loadingNewer: false
+      }
+    }
+
+    loadConversationMessagesPage
+      .mockResolvedValueOnce({
+        messages: [msg('tail1', 190), msg('tail2', 200)],
+        positions: [100, 101],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        oldestPosition: 100,
+        newestPosition: 101,
+        messageCount: 200
+      })
+      .mockResolvedValueOnce({
+        messages: [msg('old1', 50)],
+        positions: [50],
+        hasMoreOlder: false,
+        hasMoreNewer: false,
+        oldestPosition: 50,
+        newestPosition: 50,
+        messageCount: 200
+      })
+
+    const added = await store.loadOlderMessages(conv.id)
+
+    expect(added).toBe(true)
+    expect(loadConversationMessagesPage).toHaveBeenCalledTimes(2)
+    expect(loadConversationMessagesPage).toHaveBeenNthCalledWith(1, conv.id, {
+      limitTurns: 8
+    })
+    expect(loadConversationMessagesPage).toHaveBeenNthCalledWith(2, conv.id, {
+      limitTurns: 8,
+      beforePosition: 100
+    })
+    expect(store.messagePageState(conv.id)?.hasMoreOlder).toBe(false)
+  })
+
+  it('clears hasMoreOlder when a rebuild still has no cursor', async () => {
+    const store = useChatStore()
+    const conv = store.newConversation()
+    conv.messages = [msg('m1', 1)]
+    store.messagePageByConv = {
+      ...store.messagePageByConv,
+      [conv.id]: {
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        oldestPosition: null,
+        newestPosition: null,
+        loadingOlder: false,
+        loadingNewer: false
+      }
+    }
+
+    loadConversationMessagesPage.mockResolvedValueOnce({
+      messages: [msg('m1', 1)],
+      hasMoreOlder: true,
+      hasMoreNewer: false,
+      oldestPosition: null,
+      newestPosition: null,
+      messageCount: 1
+    })
+
+    const added = await store.loadOlderMessages(conv.id)
+
+    expect(added).toBe(false)
+    expect(loadConversationMessagesPage).toHaveBeenCalledTimes(1)
+    expect(store.messagePageState(conv.id)?.hasMoreOlder).toBe(false)
+  })
 })

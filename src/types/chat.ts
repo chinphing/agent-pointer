@@ -432,6 +432,12 @@ export interface ConversationMetaPage {
   nextCursor: ConversationCursor | null
 }
 
+/** One real user-turn row in the in-chat 导航 list. */
+export interface ConversationOutlineItem {
+  messageId: string
+  preview: string
+}
+
 /** One message hit inside a sidebar / discovery conversation result. */
 export interface ConversationSearchMatch {
   messageId: string

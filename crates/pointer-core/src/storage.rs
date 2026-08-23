@@ -1138,6 +1138,13 @@ pub fn list_conversation_search_matches(
     )
 }
 
+pub fn list_conversation_outline(
+    scope: &crate::conversation_store::ListScope,
+    conversation_id: &str,
+) -> Result<Vec<crate::models::ConversationOutlineItem>> {
+    crate::conversation_store::global_store()?.list_conversation_outline(scope, conversation_id)
+}
+
 pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessage>> {
     crate::conversation_store::global_store()?.load_messages(conversation_id)
 }

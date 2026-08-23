@@ -65,9 +65,8 @@ workspace panel is resized:
   grow a full-pane horizontal scrollbar (avatar overhang / long tool lines).
   Hide `.message-avatar-slot` under `@container chat (max-width: 719px)` for the
   same reason — see [mobile-chat.md](mobile-chat.md).
-- Chat transcript / welcome / sidebar lists use `.auto-hide-scrollbar` (global):
-  thumb hidden at rest, visible while scrolling via `showScrollbarWhileScrolling`
-  (`src/lib/autoHideScrollbar.ts`).
+- Chat transcript 使用 `.scrollbar-hide`，避免右缘原生条与导航横条叠在一起；滚轮 / 触控仍可滚动对话。导航列超过一屏横条时，用顶/底箭头表示还有未露出的条目。见 [conversation-nav.md](conversation-nav.md)。
+- 侧栏列表仍用 `.auto-hide-scrollbar`：静止隐藏 thumb，滚动时由 `showScrollbarWhileScrolling`（`src/lib/autoHideScrollbar.ts`）显示。
 
 Do not switch this back to viewport-only `max-w-3xl` / `md:px-*` — that drifts
 from available width while the workspace panel is open.

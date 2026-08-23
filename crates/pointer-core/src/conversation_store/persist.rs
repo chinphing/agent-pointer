@@ -5,7 +5,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::ListScope;
 use crate::models::{
-    ChatMessage, Conversation, ConversationMeta, Project, ProjectCursor, ProjectPage, Role,
+    ChatMessage, Conversation, ConversationMeta, ConversationOutlineItem, Project, ProjectCursor,
+    ProjectPage, Role,
 };
 
 /// Scalar anchor probe row for turn paging: only real user-turn anchors.
@@ -444,6 +445,66 @@ pub(crate) fn load_anchor_probe(
     let mut out = Vec::new();
     for row in rows {
         out.push(AnchorProbeRow { position: row? });
+    }
+    Ok(out)
+}
+
+/// SQLite `substr` budget before whitespace collapse (characters, UTF-8 DB).
+const OUTLINE_CONTENT_PREFIX_CHARS: i64 = 240;
+/// In-chat 导航 one-line label (including `…` when truncated).
+const OUTLINE_PREVIEW_CHARS: usize = 36;
+
+pub(crate) fn conversation_in_scope(
+    conn: &Connection,
+    conversation_id: &str,
+    filter_uid: Option<&str>,
+) -> Result<bool> {
+    let n: i64 = match filter_uid {
+        Some(uid) => conn.query_row(
+            "SELECT COUNT(*) FROM conversations WHERE id = ?1 AND session_user_id = ?2",
+            params![conversation_id, uid],
+            |row| row.get(0),
+        )?,
+        None => conn.query_row(
+            "SELECT COUNT(*) FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )?,
+    };
+    Ok(n > 0)
+}
+
+fn conversation_nav_preview(content: &str) -> String {
+    let collapsed = crate::text_util::collapse_whitespace(content);
+    if collapsed.is_empty() {
+        return "（无文字）".to_string();
+    }
+    crate::text_util::truncate_chars_fit(&collapsed, OUTLINE_PREVIEW_CHARS)
+}
+
+/// Full-session user-turn list for in-chat 导航. Same anchor filter as turn
+/// paging (`role=user` and `is_system_generated=0`); only a content prefix,
+/// never payload / tool blobs.
+pub(crate) fn load_conversation_outline(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Vec<ConversationOutlineItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT message_id, substr(content, 1, ?2)
+         FROM messages
+         WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
+         ORDER BY position ASC",
+    )?;
+    let rows = stmt.query_map(params![conversation_id, OUTLINE_CONTENT_PREFIX_CHARS], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (message_id, content) = row?;
+        out.push(ConversationOutlineItem {
+            message_id,
+            preview: conversation_nav_preview(&content),
+        });
     }
     Ok(out)
 }

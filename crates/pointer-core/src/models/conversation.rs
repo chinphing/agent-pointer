@@ -227,6 +227,14 @@ pub struct ConversationMeta {
     pub session_user_id: String,
 }
 
+/// One real user-turn row for the in-chat navigation rail (no headings).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConversationOutlineItem {
+    #[serde(rename = "messageId")]
+    pub message_id: String,
+    pub preview: String,
+}
+
 /// One message hit inside a conversation search result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSearchMatch {

@@ -34,6 +34,10 @@ pub(crate) const SUMMARY_TOKENS_CEILING: u32 = 12_000;
 /// The budget is the *target* length written into the prompt; the API cap
 /// gets extra room so the model can close out without `finish_reason=length`.
 pub(crate) const SUMMARY_MAX_TOKENS_OVERRIDE_RATIO: f64 = 1.5;
+/// Retry prompt target as a multiple of the summary budget (`finish_reason=length`).
+/// API cap is [`SUMMARY_RETRY_TOKENS_RATIO`]; keep prompt < cap so the model
+/// can close out instead of filling `max_tokens`.
+pub(crate) const SUMMARY_RETRY_PROMPT_TOKENS_RATIO: f64 = 2.0;
 /// Retry `max_tokens` as a multiple of the summary budget when truncated
 /// (`finish_reason=length`).
 pub(crate) const SUMMARY_RETRY_TOKENS_RATIO: f64 = 3.0;
@@ -72,6 +76,11 @@ pub fn compute_summary_max_tokens(content_tokens: usize) -> u32 {
 /// `finish_reason=length`.
 pub fn summary_max_tokens_requested(budget: u32) -> u32 {
     ((budget as f64) * SUMMARY_MAX_TOKENS_OVERRIDE_RATIO).ceil() as u32
+}
+
+/// Retry prompt target after a `finish_reason=length` rejection: budget × 2.
+pub fn summary_max_tokens_retry_prompt(budget: u32) -> u32 {
+    ((budget as f64) * SUMMARY_RETRY_PROMPT_TOKENS_RATIO).ceil() as u32
 }
 
 /// Retry `max_tokens` after a `finish_reason=length` rejection: budget × 3.
@@ -347,7 +356,10 @@ pub fn find_suffix_start_for_token_share(msgs: &[ChatMessage], share: f64) -> us
     if n == 1 {
         return 0;
     }
-    let weights: Vec<usize> = msgs.iter().map(estimate_one_message_payload_tokens).collect();
+    let weights: Vec<usize> = msgs
+        .iter()
+        .map(estimate_one_message_payload_tokens)
+        .collect();
     let total: usize = weights.iter().sum();
     if total == 0 {
         return 1;

@@ -18,11 +18,11 @@ pub use budget::{
     is_compression_summary_content, is_context_overflow_error, normalize_context_budget_tokens,
     plan_compression, precompress_gate_threshold, should_precompress_history,
     should_use_in_run_compression, sub_agent_between_round_compress_soft, suffix_token_share,
-    summary_max_tokens_requested, summary_max_tokens_retry, tail_token_ratio,
-    CompressGateDecision, CompressionPlan, COMPRESSIBLE_MIN_RATIO, COMPRESSION_SUMMARY_REASONING,
-    DROP_FALLBACK_KEEP_USER_TURNS, IN_RUN_TURN_TOKEN_RATIO, MAX_OVERFLOW_RECOVERIES,
-    OVERFLOW_TAIL_TOKEN_RATIO, PRECOMPRESS_GATE_RATIO, SUMMARY_PREFIX_BUDGET,
-    SUMMARY_PREFIX_TOOL_LIMIT, TAIL_TOKEN_RATIO,
+    summary_max_tokens_requested, summary_max_tokens_retry, summary_max_tokens_retry_prompt,
+    tail_token_ratio, CompressGateDecision, CompressionPlan, COMPRESSIBLE_MIN_RATIO,
+    COMPRESSION_SUMMARY_REASONING, DROP_FALLBACK_KEEP_USER_TURNS, IN_RUN_TURN_TOKEN_RATIO,
+    MAX_OVERFLOW_RECOVERIES, OVERFLOW_TAIL_TOKEN_RATIO, PRECOMPRESS_GATE_RATIO,
+    SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT, TAIL_TOKEN_RATIO,
 };
 pub use precompress::{
     discard_pending_compression, maybe_spawn_precompress, prepare_history_between_llm_rounds,

@@ -193,7 +193,10 @@ fn align_split_keeps_assistant_when_cut_lands_on_first_tool() {
     msgs.push(msg("k2", Role::Assistant, EVEN));
     assert_eq!(msgs.len(), 20);
     assert_eq!(msgs[16].id, "t_own");
-    assert_eq!(find_suffix_start_for_token_share(&msgs, TAIL_TOKEN_RATIO), 16);
+    assert_eq!(
+        find_suffix_start_for_token_share(&msgs, TAIL_TOKEN_RATIO),
+        16
+    );
     let tail_start = find_tail_start(&msgs, false);
     assert_eq!(tail_start, 15);
     assert_eq!(msgs[tail_start].id, "a_own");
@@ -394,7 +397,11 @@ fn in_run_when_current_turn_is_most_tokens_even_if_under_count_ratio() {
         msgs.push(msg(&format!("big{i}"), Role::Assistant, &"x".repeat(8_000)));
     }
     for i in 0..3 {
-        msgs.push(msg(&format!("keep{i}"), Role::Assistant, &"y".repeat(24_000)));
+        msgs.push(msg(
+            &format!("keep{i}"),
+            Role::Assistant,
+            &"y".repeat(24_000),
+        ));
     }
     assert_eq!(msgs.len(), 19);
     let count_share = (msgs.len() - 7) as f64 / msgs.len() as f64;
@@ -657,28 +664,126 @@ fn summary_user_prompt_frames_source_and_repeats_instructions_after_it() {
     assert!(prompt.contains("--- BEGIN SOURCE CONVERSATION ---"));
     assert!(prompt.contains("[USER]: continue the conversation"));
     assert!(prompt.contains("5400 tokens is a HARD CEILING"));
+    assert!(!prompt.contains("truncated output is rejected"));
     assert!(prompt.contains("Goal > Progress (blockers and decisions) > State > Open"));
     let in_run = build_summary_user_prompt("[USER]: continue the conversation", 5_400, true);
     assert!(in_run.contains("Progress (blockers and decisions) > State > Next"));
     assert!(prompt.contains("One line per action"));
     assert!(final_instruction > source_end);
+    let language_at = prompt.find("LANGUAGE:").expect("language rule after source");
+    assert!(language_at > source_end);
+    assert!(prompt.contains("same language the USER turns mainly used"));
     assert!(prompt.ends_with(
             "Write only the summary body. Do not include a greeting, preamble, or response to the conversation."
         ));
 }
 
 #[test]
-fn summary_max_tokens_requested_uses_1_5x_headroom() {
-        assert_eq!(summary_max_tokens_requested(5_400), 8_100);
-        assert_eq!(summary_max_tokens_requested(1_500), 2_250);
-        assert_eq!(summary_max_tokens_requested(12_000), 18_000);
-    }
+fn compact_retry_prompts_drop_state_and_avoid_filling_the_cap() {
+    let ui = CompressionUiContext::main(AgentInstanceScope::new("test-run", "conv", "main"));
+    let prefix = build_summary_system_prompt_with_style(&ui, false, true);
+    assert!(prefix.contains("## Goal"));
+    assert!(prefix.contains("## Progress"));
+    assert!(prefix.contains("## Open"));
+    assert!(!prefix.contains("## State"));
+    assert!(!prefix.contains("TEMPORAL ANCHORING"));
+    assert!(prefix.contains("Do not list every tool call."));
+    assert!(prefix.contains("Do not copy raw tool dumps."));
 
-    #[test]
-    fn summary_max_tokens_retry_uses_3x_budget() {
-        assert_eq!(summary_max_tokens_retry(5_400), 16_200);
-        assert_eq!(summary_max_tokens_retry(1_500), 4_500);
-    }
+    let in_run = build_summary_system_prompt_with_style(&ui, true, true);
+    assert!(in_run.contains("## Progress"));
+    assert!(in_run.contains("## Next"));
+    assert!(!in_run.contains("## State"));
+    assert!(!in_run.contains("## Goal"));
+    assert!(!in_run.contains("TEMPORAL ANCHORING"));
+
+    let user = build_summary_user_prompt_with_style("[USER]: continue", 10_800, false, true);
+    assert!(user.contains("Stay well under 10800 tokens"));
+    assert!(user.contains("Do not fill the allowance"));
+    assert!(!user.contains("HARD CEILING"));
+    assert!(user.contains("Goal > Progress (blockers and latest decisions) > Open"));
+    assert!(!user.contains("## State"));
+    assert!(!user.contains("BEGIN TRUNCATED DRAFT"));
+
+    let in_run_user = build_summary_user_prompt_with_style("[USER]: continue", 10_800, true, true);
+    assert!(in_run_user.contains("Progress (blockers and latest decisions) > Next"));
+    assert!(in_run_user.contains("## Next"));
+    assert!(!in_run_user.contains("## State"));
+    assert!(!in_run_user.contains("BEGIN TRUNCATED DRAFT"));
+}
+
+#[test]
+fn detect_summary_body_language_follows_real_user_turns() {
+    assert_eq!(
+        detect_summary_body_language(&[u("请帮我修一下上下文压缩")]),
+        SummaryBodyLanguage::Chinese
+    );
+    assert_eq!(
+        detect_summary_body_language(&[u("please fix context compression")]),
+        SummaryBodyLanguage::English
+    );
+    let mut toolish = u("error: file not found at src/lib.rs");
+    toolish.role = Role::Tool;
+    assert_eq!(
+        detect_summary_body_language(&[u("把这个报错修好"), toolish]),
+        SummaryBodyLanguage::Chinese
+    );
+}
+
+#[test]
+fn summary_prompts_pin_body_language_after_the_source() {
+    let ui = CompressionUiContext::main(AgentInstanceScope::new("test-run", "conv", "main"));
+    let system = build_summary_system_prompt_with_language(
+        &ui,
+        false,
+        false,
+        SummaryBodyLanguage::Chinese,
+    );
+    assert!(system.contains("Write every section body in Chinese"));
+    assert!(system.contains("write 无"));
+    assert!(system.contains("Do not write bodies in English because tool output is English"));
+
+    let user = build_summary_user_prompt_with_language(
+        "--- user ---\n请继续",
+        5_400,
+        false,
+        false,
+        SummaryBodyLanguage::Chinese,
+    );
+    let source_end = user.find("--- END SOURCE CONVERSATION ---").unwrap();
+    let language_at = user.find("LANGUAGE:").unwrap();
+    assert!(language_at > source_end);
+    assert!(user.contains("Write every section body in Chinese"));
+}
+
+#[test]
+fn length_output_fallback_keeps_raw_truncated_text() {
+    assert!(length_output_for_fallback("   \n").is_none());
+    let kept = length_output_for_fallback("## Progress\nkept\n## State\nfiles").unwrap();
+    assert_eq!(kept, "## Progress\nkept\n## State\nfiles");
+    let fallback = keep_length_output_fallback("conv", Some(kept.clone()));
+    assert_eq!(fallback.as_deref(), Some(kept.as_str()));
+    assert!(keep_length_output_fallback("conv", None).is_none());
+}
+
+#[test]
+fn summary_max_tokens_requested_uses_1_5x_headroom() {
+    assert_eq!(summary_max_tokens_requested(5_400), 8_100);
+    assert_eq!(summary_max_tokens_requested(1_500), 2_250);
+    assert_eq!(summary_max_tokens_requested(12_000), 18_000);
+}
+
+#[test]
+fn summary_max_tokens_retry_uses_3x_budget() {
+    assert_eq!(summary_max_tokens_retry(5_400), 16_200);
+    assert_eq!(summary_max_tokens_retry(1_500), 4_500);
+}
+
+#[test]
+fn summary_max_tokens_retry_prompt_uses_2x_budget() {
+    assert_eq!(summary_max_tokens_retry_prompt(5_400), 10_800);
+    assert_eq!(summary_max_tokens_retry_prompt(1_500), 3_000);
+}
 
 #[test]
 fn should_retry_summary_on_reject_only_for_length() {
@@ -744,23 +849,77 @@ fn summary_output(text: String, finish_reason: Option<&str>) -> crate::provider:
     }
 }
 
+fn prefix_full_headings() -> String {
+    "## Goal\nFix compression.\n## Progress\nRetried once.\n## State\nOn main.\n## Open\nNone."
+        .into()
+}
+
+fn in_run_full_headings() -> String {
+    "## Progress\nPatched validate.\n## State\nsummary.rs.\n## Next\nRetry compact.".into()
+}
+
+fn compact_in_run_headings() -> String {
+    "## Progress\nDropped tool dump.\n## Next\nContinue the turn.".into()
+}
+
 #[test]
 fn summary_validation_accepts_nonempty_unstructured_output() {
     let summary = "用户目标：修复压缩失败。\n当前状态：继续处理。";
-    assert!(validate_summary_output(&summary_output(summary.into(), Some("stop"))).is_ok());
+    assert!(
+        validate_summary_output(&summary_output(summary.into(), Some("stop")), false, false)
+            .is_ok()
+    );
 }
 
 #[test]
 fn summary_validation_rejects_empty_output() {
-    let error = validate_summary_output(&summary_output("  \n".into(), Some("stop")))
+    let error = validate_summary_output(&summary_output("  \n".into(), Some("stop")), false, false)
         .expect_err("empty output must not be accepted");
     assert_eq!(error, "empty output");
 }
 
 #[test]
-fn summary_validation_rejects_length_finish_reason() {
-    let error = validate_summary_output(&summary_output("partial summary".into(), Some("length")))
-        .expect_err("length output must not be accepted");
+fn summary_validation_rejects_length_without_required_headings() {
+    let error = validate_summary_output(
+        &summary_output("partial summary".into(), Some("length")),
+        false,
+        false,
+    )
+    .expect_err("length output without headings must not be accepted");
+    assert!(error.contains("finish_reason=length"));
+}
+
+#[test]
+fn summary_validation_accepts_length_with_required_headings() {
+    assert!(validate_summary_output(
+        &summary_output(prefix_full_headings(), Some("length")),
+        false,
+        false,
+    )
+    .is_ok());
+    assert!(validate_summary_output(
+        &summary_output(in_run_full_headings(), Some("length")),
+        true,
+        false,
+    )
+    .is_ok());
+    assert!(validate_summary_output(
+        &summary_output(compact_in_run_headings(), Some("length")),
+        true,
+        true,
+    )
+    .is_ok());
+}
+
+#[test]
+fn summary_validation_rejects_length_when_a_heading_is_missing() {
+    let missing_state = "## Progress\nDid work.\n## Next\nContinue.";
+    let error = validate_summary_output(
+        &summary_output(missing_state.into(), Some("length")),
+        true,
+        false,
+    )
+    .expect_err("full in-run template still requires State");
     assert!(error.contains("finish_reason=length"));
 }
 

@@ -169,9 +169,8 @@ pub(crate) async fn compress_history_inner(
     let wall = Instant::now();
     let messages_before = history.len();
     let keep_users = settings.context_keep_recent_user_turns.max(1);
-    let budget_tokens = normalize_context_budget_tokens(
-        crate::models::effective_context_budget_tokens(settings),
-    );
+    let budget_tokens =
+        normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(settings));
 
     let gate = evaluate_compress_gate(
         history,
@@ -282,7 +281,19 @@ pub(crate) async fn compress_history_inner(
     // close out without `finish_reason=length`. The budget itself stays the
     // prompt target (~N tokens) and the log label.
     let requested_max_tok = summary_max_tokens_requested(max_tok);
-    let summary_user_prompt = build_summary_user_prompt(&formatted, max_tok, in_run);
+    let body_language = detect_summary_body_language(summary_source);
+    log::info!(
+        "context_compress: summary_language conversation_id={} lang={:?}",
+        conversation_id,
+        body_language
+    );
+    let summary_user_prompt = build_summary_user_prompt_with_language(
+        &formatted,
+        max_tok,
+        in_run,
+        false,
+        body_language,
+    );
     let input = ChatMessage {
         id: format!("sum_in_{}", uuid::Uuid::new_v4().simple()),
         role: Role::User,
@@ -345,12 +356,14 @@ pub(crate) async fn compress_history_inner(
         SUMMARY_TOKENS_CEILING
     );
     let t_llm = Instant::now();
-    let summary_system = build_summary_system_prompt(ui, in_run);
+    let summary_system =
+        build_summary_system_prompt_with_language(ui, in_run, false, body_language);
     let summary_sections =
         crate::models::SystemPromptSections::all_cacheable(vec![summary_system.clone()]);
-    // First attempt: no-thinking + 20% content budget (ceiling 12k), provider
-    // cap gets 1.5× headroom. A `finish_reason=length` rejection is retried
-    // once at budget × 3 before falling through to drop_without_summary.
+    // First attempt: full template, prompt target N, API cap 1.5N.
+    // Truncated output with required headings is accepted. Otherwise a
+    // compact retry rebuilds the prompt from scratch (target 2N, API cap 3N).
+    // If that retry is also truncated without headings, keep the retry text.
     let summary_text = match provider
         .chat_once_without_thinking(
             std::slice::from_ref(&input),
@@ -369,8 +382,17 @@ pub(crate) async fn compress_history_inner(
                 "no_thinking",
                 crate::llm_token_stats::active_provider_source(&provider.settings),
             );
-            match validate_summary_output(&out) {
-                Ok(text) => Some(text),
+            match validate_summary_output(&out, in_run, false) {
+                Ok(text) => {
+                    log_truncated_summary_accept(
+                        conversation_id,
+                        "no_thinking",
+                        &out,
+                        in_run,
+                        false,
+                    );
+                    Some(text)
+                }
                 Err(reason) => {
                     let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
                     log::warn!(
@@ -385,18 +407,36 @@ pub(crate) async fn compress_history_inner(
                         t_llm.elapsed().as_millis(),
                     );
                     if should_retry_summary_on_reject(&reason) {
+                        let retry_prompt_target = summary_max_tokens_retry_prompt(max_tok);
                         let retry_max = summary_max_tokens_retry(max_tok);
+                        let retry_system = build_summary_system_prompt_with_language(
+                            ui,
+                            in_run,
+                            true,
+                            body_language,
+                        );
+                        let retry_sections =
+                            crate::models::SystemPromptSections::all_cacheable(vec![retry_system]);
+                        let mut retry_input = input.clone();
+                        retry_input.content = build_summary_user_prompt_with_language(
+                            &formatted,
+                            retry_prompt_target,
+                            in_run,
+                            true,
+                            body_language,
+                        );
                         log::info!(
-                            "context summary retrying conversation_id={} attempt=retry_length budget={} requested={} summary_llm_ms={}",
+                            "context summary retrying conversation_id={} attempt=retry_length compact=true budget={} prompt_target={} requested={} summary_llm_ms={}",
                             conversation_id,
                             max_tok,
+                            retry_prompt_target,
                             retry_max,
                             t_llm.elapsed().as_millis(),
                         );
                         match provider
                             .chat_once_without_thinking(
-                                std::slice::from_ref(&input),
-                                &summary_sections,
+                                std::slice::from_ref(&retry_input),
+                                &retry_sections,
                                 Vec::new(),
                                 cancel.clone(),
                                 Some(retry_max),
@@ -413,8 +453,17 @@ pub(crate) async fn compress_history_inner(
                                         &provider.settings,
                                     ),
                                 );
-                                match validate_summary_output(&out2) {
-                                    Ok(text) => Some(text),
+                                match validate_summary_output(&out2, in_run, true) {
+                                    Ok(text) => {
+                                        log_truncated_summary_accept(
+                                            conversation_id,
+                                            "retry_length",
+                                            &out2,
+                                            in_run,
+                                            true,
+                                        );
+                                        Some(text)
+                                    }
                                     Err(reason2) => {
                                         let model2 =
                                             crate::llm_token_stats::model_name_for_usage_report(
@@ -431,15 +480,23 @@ pub(crate) async fn compress_history_inner(
                                             retry_max,
                                             t_llm.elapsed().as_millis(),
                                         );
-                                        None
+                                        if should_retry_summary_on_reject(&reason2) {
+                                            keep_length_output_fallback(
+                                                conversation_id,
+                                                length_output_for_fallback(&out2.text),
+                                            )
+                                        } else {
+                                            None
+                                        }
                                     }
                                 }
                             }
                             Err(e) => {
                                 log::warn!(
-                                    "context summary LLM call failed conversation_id={} attempt=retry_length error={e:#} budget={} requested={} summary_llm_ms={}",
+                                    "context summary LLM call failed conversation_id={} attempt=retry_length error={e:#} budget={} prompt_target={} requested={} summary_llm_ms={}",
                                     conversation_id,
                                     max_tok,
+                                    retry_prompt_target,
                                     retry_max,
                                     t_llm.elapsed().as_millis()
                                 );

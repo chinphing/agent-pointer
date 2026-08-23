@@ -1517,8 +1517,6 @@ function entrySpacing(
       </div>
     </div>
 
-    <div class="min-h-0 flex-1" aria-hidden="true" />
-
     <div
       class="chat-column relative w-full shrink-0"
       :style="{ height: `${rowVirtualizer.getTotalSize()}px` }"

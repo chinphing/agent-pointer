@@ -103,9 +103,15 @@ Provider 返回上下文/prompt 过长类错误时：
 
 ## 摘要输出预算
 
-摘要默认 **关闭 thinking**。第一次请求的 API `max_tokens` 是预算的 **1.5 倍**
-（预算仍写进 prompt 当目标长度）。若 `finish_reason=length`，再按预算
-**×3** 重试一次；仍失败则走下方失败兜底。
+摘要默认 **关闭 thinking**。第一次请求用完整章节模板：prompt 目标是预算
+**N**，API `max_tokens` 是 **1.5N**。
+
+`finish_reason=length` 时：
+
+1. 正文非空且**完整模板**标题齐全 → 直接收下截断稿。
+2. 否则用短模板**从头重试**（不带第一次截断稿）。prompt 目标约 **2N**，API **3N**。
+3. 重试仍被 `length` 截断且标题不齐 → **把重试的截断稿写入摘要**（API 上限 3N，比第一次长），不走 `drop_without_summary`。
+   重试调用失败、输出为空、或非 `length` 的失败，才走下方失败兜底。
 
 ```
 summary_max_tokens = clamp(
@@ -113,8 +119,9 @@ summary_max_tokens = clamp(
   floor = 1_500,
   ceiling = 12_000
 )
-requested_max_tokens = summary_max_tokens × 1.5
-retry_max_tokens     = summary_max_tokens × 3
+requested_max_tokens      = summary_max_tokens × 1.5
+retry_prompt_target       = summary_max_tokens × 2
+retry_max_tokens          = summary_max_tokens × 3
 ```
 
 关思考走与主对话相同的协议翻译：千问 `enable_thinking=false`，
@@ -132,13 +139,24 @@ DeepSeek 去掉 `reasoning_effort`（不写 `thinking.type`）。
 
 摘要必须满足：
 
-- `finish_reason` 为空或 `stop`；
-- 输出正文非空。
+- 输出正文非空；
+- `finish_reason` 为空或 `stop`；**或** `finish_reason=length` 且约定标题齐全。
 
-约定章节用于引导组织，不作为逐字匹配的验收条件。
+标题齐全才收下截断稿作为合格摘要。缺标题则短模板从头重试（不使用第一次截断稿）。
+重试仍被 `length` 截断则写入这次更长的正文，不再丢弃。
+重试调用失败、输出为空或非 `length` 的失败才 `drop_without_summary`。
 
-- 前缀：Goal / Progress / State / Open
-- Run 内：Progress / State / Next（用户原话仍在上下文，不写 Goal）
+约定章节：
+
+- 前缀完整：Goal / Progress / State / Open
+- 前缀短模板：Goal / Progress / Open
+- Run 内完整：Progress / State / Next（用户原话仍在上下文，不写 Goal）
+- Run 内短模板：Progress / Next
+
+章节**标题保持英文**（验收靠这些标题）。
+**正文跟用户原话的语言**（从真实用户回合检测，不看工具输出）。
+中文会话写中文；不要因为 grep / 文件内容是英文就把摘要改成英文。
+空章节用该语言的空标记（中文写「无」）。
 
 Progress 是时间线（已做、阻塞、按议题决定）。
 State 是快照（目录/文件、环境变量、约定文案、接口与命令名等字面值），

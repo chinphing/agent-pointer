@@ -97,17 +97,17 @@ export function conversationNavFisheye(distance: number): ConversationNavTickVis
   const t = Math.min(1, Math.max(0, distance) / CONVERSATION_NAV_FISHEYE_RADIUS)
   const k = (1 - t) * (1 - t)
   return {
-    widthPx: 5 + 17 * k,
-    heightPx: 2 + 1.6 * k,
+    widthPx: 4 + 12 * k,
+    heightPx: 1.25 + 1.25 * k,
     opacity: 0.2 + 0.8 * k
   }
 }
 
 export function conversationNavRestTick(isActive: boolean): ConversationNavTickVisual {
   if (isActive) {
-    return { widthPx: 7.5, heightPx: 3, opacity: 0.92 }
+    return { widthPx: 6, heightPx: 2, opacity: 0.92 }
   }
-  return { widthPx: 6.5, heightPx: 2.5, opacity: 0.28 }
+  return { widthPx: 5, heightPx: 1.5, opacity: 0.28 }
 }
 
 function isOptimisticNavUserMessage(message: ChatMessage): boolean {

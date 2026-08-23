@@ -66,8 +66,9 @@ describe('conversationNavFisheye', () => {
     expect(near.widthPx).toBeGreaterThan(far.widthPx)
     expect(center.opacity).toBeGreaterThan(near.opacity)
     expect(far.widthPx).toBe(conversationNavFisheye(10).widthPx)
-    expect(conversationNavRestTick(true).widthPx).toBe(7.5)
-    expect(conversationNavRestTick(false).widthPx).toBe(6.5)
+    expect(conversationNavRestTick(true).widthPx).toBe(6)
+    expect(conversationNavRestTick(false).widthPx).toBe(5)
+    expect(conversationNavRestTick(false).heightPx).toBe(1.5)
   })
 })
 

@@ -20,14 +20,21 @@ pub(crate) struct AnchorProbeRow {
 
 /// Whether a message row is a system-generated/special user message that must
 /// NOT count as a turn anchor: injected or synthetic user content (screenshots,
-/// compression summaries, trim placeholders) or a scoped sub-message.
+/// compression summaries, trim placeholders, provider retry glue) or a scoped
+/// sub-message.
 pub fn is_system_generated_user_message(msg: &ChatMessage) -> bool {
     matches!(msg.role, Role::User)
-        && (crate::task_board::history_trim::is_injected_or_synthetic_user_content(&msg.content)
+        && (content_marks_system_generated_user(&msg.content)
+            || msg.id.starts_with("fmt_retry_")
             || crate::models::is_scoped_sub_message(msg))
 }
 
-const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled";
+fn content_marks_system_generated_user(content: &str) -> bool {
+    crate::task_board::history_trim::is_injected_or_synthetic_user_content(content)
+        || crate::message_context::is_synthetic_user_content(content)
+}
+
+const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled_v2";
 const CONTEXT_INCLUDED_BACKFILL_META: &str = "context_included_backfilled";
 /// Indexed `messages.content` for a prior `session_search` tool row.
 /// Full JSON stays in `payload` for the UI; FTS and recall skip this stub.
@@ -193,9 +200,7 @@ pub(crate) fn backfill_is_system_generated(conn: &Connection) -> Result<()> {
     for row in rows {
         let (conversation_id, message_id, content, payload) = row?;
         scanned += 1;
-        let flag = if crate::task_board::history_trim::is_injected_or_synthetic_user_content(
-            &content,
-        ) {
+        let flag = if content_marks_system_generated_user(&content) {
             true
         } else {
             match serde_json::from_str::<ChatMessage>(&payload) {

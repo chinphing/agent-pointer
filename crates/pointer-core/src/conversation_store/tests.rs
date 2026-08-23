@@ -1641,6 +1641,12 @@ mod tests {
         let mut synthetic = msg("u-syn", Role::User, "[CUR_SCREEN] shot", 2);
         synthetic.id = "u-syn".into();
         conv.messages.push(synthetic);
+        conv.messages.push(msg(
+            "u-env",
+            Role::User,
+            "【环境反馈】本回合模型输出异常（error）。",
+            3,
+        ));
         store.replace_messages("bf-legacy", &conv.messages).unwrap();
 
         let db_path = dir.path().join("conversations.db");
@@ -1650,6 +1656,7 @@ mod tests {
             conn.execute_batch(
                 "UPDATE messages SET is_system_generated = 0;
                  DELETE FROM store_meta WHERE key = 'is_system_generated_backfilled';
+                 DELETE FROM store_meta WHERE key = 'is_system_generated_backfilled_v2';
                  UPDATE schema_version SET version = 20;",
             )
             .unwrap();
@@ -1672,12 +1679,13 @@ mod tests {
             vec![
                 ("msg_u1".to_string(), 0),
                 ("msg_a1".to_string(), 0),
-                ("u-syn".to_string(), 1)
+                ("u-syn".to_string(), 1),
+                ("u-env".to_string(), 1)
             ]
         );
         let meta: String = conn
             .query_row(
-                "SELECT value FROM store_meta WHERE key = 'is_system_generated_backfilled'",
+                "SELECT value FROM store_meta WHERE key = 'is_system_generated_backfilled_v2'",
                 [],
                 |row| row.get(0),
             )
@@ -1856,6 +1864,12 @@ mod tests {
             Role::User,
             "[CUR_SCREEN] shot",
             1_700_000_004_000,
+        ));
+        conv.messages.push(msg(
+            "u-env",
+            Role::User,
+            "【环境反馈】本回合模型输出异常（error）。",
+            1_700_000_004_500,
         ));
         let mut scoped = msg("u-scoped", Role::User, "subagent prompt", 1_700_000_005_000);
         scoped.anchor_message_id = Some("msg_u1".into());

@@ -56,6 +56,18 @@ describe('mergeConversationNavItems', () => {
     expect(merged.map(i => i.messageId)).toEqual(['u1', 'u-new'])
     expect(merged[1]?.preview).toBe('just sent')
   })
+
+  it('skips in-memory provider retry glue', () => {
+    const merged = mergeConversationNavItems(
+      [{ messageId: 'u1', preview: 'one' }],
+      [
+        user('u1', 'one'),
+        user('u-env', '【环境反馈】本回合模型输出异常（error）'),
+        user('u-len', '【输出长度】本回合因输出 token 上限被截断')
+      ]
+    )
+    expect(merged.map(i => i.messageId)).toEqual(['u1'])
+  })
 })
 
 describe('conversationNavFisheye', () => {

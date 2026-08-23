@@ -67,7 +67,8 @@
 ## Schema note (`is_system_generated`)
 
 Turn anchors use `messages.is_system_generated` (schema v21). Migration backfills
-**user rows only** (synthetic / scoped), gated by `store_meta.is_system_generated_backfilled`,
+**user rows only** (synthetic / scoped / provider retry glue such as `【环境反馈】`),
+gated by `store_meta.is_system_generated_backfilled_v2`,
 inside one transaction. Do not UPDATE every message row — that bloated the WAL and
 blocked desktop launch on large local DBs.
 

@@ -138,20 +138,20 @@ const canConfirmMultiple = computed(
 <template>
   <div
     v-if="args"
-    class="fence-block ml-4 mb-2 max-w-xl min-w-0"
+    class="fence-block mb-2 max-w-xl min-w-0"
     @click.stop
   >
-    <div class="fence-block-header">
-      <span class="min-w-0 whitespace-normal break-words font-semibold leading-5">{{ args.question }}</span>
+    <div class="fence-block-header items-start text-left">
+      <span class="w-full min-w-0 whitespace-normal break-words font-semibold leading-5 text-left">{{ args.question }}</span>
     </div>
-    <div class="px-3 py-2 space-y-2">
+    <div class="px-3 py-2 space-y-2 text-left">
 
-    <div class="grid gap-0 min-w-0 -mx-1">
+    <div class="grid gap-0 min-w-0">
       <button
         v-for="option in args.options"
         :key="option.label"
         type="button"
-        class="group w-full min-w-0 min-h-8 px-3 py-1.5 rounded-md text-left transition-colors disabled:cursor-default"
+        class="group w-full min-w-0 min-h-8 px-0 py-1.5 rounded-md text-left transition-colors disabled:cursor-default"
         :class="isSelected(option.label)
           ? 'text-foreground'
           : 'hover:bg-hover/30 text-foreground/85'"
@@ -181,7 +181,7 @@ const canConfirmMultiple = computed(
 
       <!-- Hermes: Other is always an inline field; Enter confirms. -->
       <div
-        class="flex min-w-0 items-center gap-2 min-h-8 px-3 py-1.5 rounded-md"
+        class="flex min-w-0 items-center gap-2 min-h-8 px-0 py-1.5 rounded-md"
         :class="otherActive ? 'text-foreground' : 'text-foreground/85'"
       >
         <span

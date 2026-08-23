@@ -901,29 +901,44 @@ function createSettingsDialogForm(deps: {
     return payload
   }
 
-  function persistAssistantPreferences() {
+  let assistantSaveInFlight = false
+  let assistantSaveQueued = false
+
+  async function persistAssistantPreferences() {
     const payload = applyAssistantPrefsToRuntime()
+    try {
+      await s.saveAgentPreferences(payload)
+    } catch (error) {
+      console.error('[settings] failed to save assistant preferences', error)
+    }
+  }
+
+  function flushAssistantPreferences() {
     return (async () => {
+      if (assistantSaveInFlight) {
+        assistantSaveQueued = true
+        return
+      }
+      assistantSaveInFlight = true
       try {
-        await s.saveAgentPreferences(payload)
-        await s.saveUser({
-          computerAutoCompact: payload.computerAutoCompact,
-          collapseProcessByDefault: payload.collapseProcessByDefault,
-          userCodingRules: payload.userCodingRules
-        })
-      } catch (error) {
-        console.error('[settings] failed to save assistant preferences', error)
+        do {
+          assistantSaveQueued = false
+          await persistAssistantPreferences()
+        } while (assistantSaveQueued)
+      } finally {
+        assistantSaveInFlight = false
       }
     })()
   }
 
   function scheduleAssistantSave() {
     if (!autosaveReady) return
-    applyAssistantPrefsToRuntime()
+    // Do not apply to Pinia on every keystroke / spinner tick. The form binds
+    // local refs; mutating settings + userSettings here re-renders the shell.
     if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
     assistantSaveTimer = window.setTimeout(() => {
       assistantSaveTimer = undefined
-      void persistAssistantPreferences()
+      void flushAssistantPreferences()
     }, 350)
   }
 
@@ -979,7 +994,9 @@ function createSettingsDialogForm(deps: {
     if (assistantSaveTimer) {
       window.clearTimeout(assistantSaveTimer)
       assistantSaveTimer = undefined
-      void persistAssistantPreferences()
+      void flushAssistantPreferences()
+    } else if (assistantSaveQueued) {
+      void flushAssistantPreferences()
     }
     if (debugSaveTimer) window.clearTimeout(debugSaveTimer)
     if (debugModelSaveTimer) window.clearTimeout(debugModelSaveTimer)

@@ -53,12 +53,17 @@ import {
 import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
 import {
   canShowNoOlderPullHint,
+  LOAD_NEWER_BOTTOM_PX,
+  LOAD_NEWER_LEAVE_BOTTOM_PX,
   LOAD_OLDER_TOP_PX,
   shouldAutoPrefetchOlderOnScroll,
   shouldRearmOlderPrefetch,
+  shouldRequestNewerFromTouchPull,
+  shouldRequestNewerFromWheel,
   shouldRequestOlderFromTouchPull,
   shouldRequestOlderFromWheel
 } from '../../lib/messageListOlderPrefetch'
+import { conversationNavVisibleMessageId } from '../../lib/conversationNav'
 import {
   closedLeadTurnsKey,
   collectLeadTurnStarts,
@@ -123,14 +128,6 @@ const SCROLL_MIN_INTERVAL_MS = 80
 const ATTACH_BOTTOM_PX = 8
 /** Scroll this far from bottom before onScroll alone detaches follow. */
 const DETACH_BOTTOM_PX = 48
-/** Prefetch newer turns when within this distance of the bottom. */
-const LOAD_NEWER_BOTTOM_PX = 300
-/**
- * After a newer page lands, require the user to leave the bottom band once
- * before auto-prefetch can fire again. Append does not follow, so distance
- * from bottom grows and this is a backstop against a tight loop.
- */
-const LOAD_NEWER_LEAVE_BOTTOM_PX = 400
 /** Frames to re-apply scroll restore while the virtualizer catches up. */
 const LOAD_OLDER_SETTLE_FRAMES = 4
 /** Minimum gap between two history trims (avoid churn while scrolling). */
@@ -173,6 +170,10 @@ function hasMoreOlderFlag(): boolean | null {
   const page = currentMessagePage.value
   if (!page) return null
   return page.hasMoreOlder
+}
+
+function hasMoreNewerFlag(): boolean {
+  return currentMessagePage.value?.hasMoreNewer === true
 }
 
 function canPullNoOlderHint(el: HTMLElement): boolean {
@@ -301,6 +302,17 @@ function onWheel(event: WheelEvent) {
     void loadOlderWithScrollAnchor()
     return
   }
+  if (
+    shouldRequestNewerFromWheel({
+      deltaY: event.deltaY,
+      distanceFromBottom: distanceFromBottom(),
+      hasMoreNewer: hasMoreNewerFlag()
+    })
+  ) {
+    if (noOlderPullPx.value > 0) releaseNoOlderPull()
+    void loadNewerWithoutFollow()
+    return
+  }
   if (event.deltaY > 0 || el.scrollTop > 1) {
     if (noOlderPullPx.value > 0) releaseNoOlderPull()
     return
@@ -339,6 +351,17 @@ function onTouchMove(event: TouchEvent) {
   ) {
     if (noOlderPullPx.value > 0) releaseNoOlderPull()
     void loadOlderWithScrollAnchor()
+    return
+  }
+  if (
+    shouldRequestNewerFromTouchPull({
+      pullPx: touchStartY - y,
+      distanceFromBottom: distanceFromBottom(),
+      hasMoreNewer: hasMoreNewerFlag()
+    })
+  ) {
+    if (noOlderPullPx.value > 0) releaseNoOlderPull()
+    void loadNewerWithoutFollow()
     return
   }
   if (noOlderPullTouchY == null) return
@@ -925,17 +948,31 @@ function updateVisibleNavMessage() {
   const rows = virtualRows.value
   if (rows.length === 0 || turns.length === 0) return
   const marker = el.scrollTop + Math.min(72, Math.max(24, el.clientHeight * 0.18))
-  let next: string | null = null
+  let markerTurnId: string | null = null
   for (const row of rows) {
     if (row.start > marker) break
     const turn = turns[row.index]
-    if (turn && !turn.id.startsWith('prelude-')) next = turn.id
+    if (turn && !turn.id.startsWith('prelude-')) markerTurnId = turn.id
   }
-  if (!next) {
+  if (!markerTurnId) {
     const first = turns[rows[0]!.index]
-    if (first && !first.id.startsWith('prelude-')) next = first.id
+    if (first && !first.id.startsWith('prelude-')) markerTurnId = first.id
   }
-  chat.setVisibleNavMessageId(next)
+  let lastLoadedTurnId: string | null = null
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const id = turns[i]!.id
+    if (!id.startsWith('prelude-')) {
+      lastLoadedTurnId = id
+      break
+    }
+  }
+  chat.setVisibleNavMessageId(
+    conversationNavVisibleMessageId({
+      atBottom: distanceFromBottom() <= ATTACH_BOTTOM_PX,
+      lastLoadedTurnId,
+      markerTurnId
+    })
+  )
 }
 
 /**
@@ -1451,6 +1488,7 @@ function entrySpacing(
       @touchend="onTouchEnd"
       @touchcancel="onTouchEnd"
     >
+    <div class="flex min-h-full w-full flex-col">
     <div
       class="flex shrink-0 items-center justify-center overflow-hidden"
       :style="{ height: `${noOlderPullPx}px` }"
@@ -1479,8 +1517,10 @@ function entrySpacing(
       </div>
     </div>
 
+    <div class="min-h-0 flex-1" aria-hidden="true" />
+
     <div
-      class="chat-column relative w-full"
+      class="chat-column relative w-full shrink-0"
       :style="{ height: `${rowVirtualizer.getTotalSize()}px` }"
     >
       <div
@@ -1617,6 +1657,7 @@ function entrySpacing(
           />
         </div>
       </div>
+    </div>
     </div>
   </div>
 

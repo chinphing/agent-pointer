@@ -31,6 +31,8 @@
    （Composer / 草稿增高），再按视口差值补偿 `scrollTop`。
 4. **总高度变化**：跟随态下 virtualizer `getTotalSize()` 变化时再贴一次真底部
    （覆盖切换后 estimate→measure 与末轮展开）。
+5. **内容矮于视口**：内层 `min-h-full` + 弹性空白把回合推到输入框上方，
+   避免贴顶留下大块空白、看起来还能往下滚。
 
 同约定也用于：
 

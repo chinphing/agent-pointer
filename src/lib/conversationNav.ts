@@ -135,3 +135,17 @@ export function mergeConversationNavItems(
   }
   return extra.length === 0 ? fromApi : [...fromApi, ...extra]
 }
+
+/**
+ * At the transcript's real bottom the 18% marker can still sit in an earlier
+ * turn (short lists are top-weighted). Pin to the last loaded turn so the
+ * current tick matches "cannot scroll further".
+ */
+export function conversationNavVisibleMessageId(input: {
+  atBottom: boolean
+  lastLoadedTurnId: string | null
+  markerTurnId: string | null
+}): string | null {
+  if (input.atBottom && input.lastLoadedTurnId) return input.lastLoadedTurnId
+  return input.markerTurnId
+}

@@ -13,6 +13,7 @@ import {
   conversationNavRestTick,
   conversationNavScrollAffordances,
   conversationNavTranscriptScroller,
+  conversationNavVisibleMessageId,
   mergeConversationNavItems
 } from './conversationNav'
 
@@ -182,5 +183,27 @@ describe('conversationNavPageDelta', () => {
   it('moves about one visible tick window, with a floor', () => {
     expect(conversationNavPageDelta(200)).toBe(170)
     expect(conversationNavPageDelta(20)).toBe(48)
+  })
+})
+
+describe('conversationNavVisibleMessageId', () => {
+  it('pins to the last loaded turn when the transcript is at the bottom', () => {
+    expect(
+      conversationNavVisibleMessageId({
+        atBottom: true,
+        lastLoadedTurnId: 'turn-8',
+        markerTurnId: 'turn-2'
+      })
+    ).toBe('turn-8')
+  })
+
+  it('keeps the viewport marker while the user is reading mid-thread', () => {
+    expect(
+      conversationNavVisibleMessageId({
+        atBottom: false,
+        lastLoadedTurnId: 'turn-8',
+        markerTurnId: 'turn-2'
+      })
+    ).toBe('turn-2')
   })
 })

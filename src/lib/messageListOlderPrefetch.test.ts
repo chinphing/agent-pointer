@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   canShowNoOlderPullHint,
+  LOAD_NEWER_BOTTOM_PX,
   LOAD_OLDER_LEAVE_TOP_PX,
   LOAD_OLDER_TOP_PX,
   shouldAutoPrefetchOlderOnScroll,
   shouldRearmOlderPrefetch,
+  shouldRequestNewerFromTouchPull,
+  shouldRequestNewerFromWheel,
   shouldRequestOlderFromTouchPull,
   shouldRequestOlderFromWheel
 } from './messageListOlderPrefetch'
@@ -137,5 +140,79 @@ describe('shouldAutoPrefetchOlderOnScroll', () => {
   it('rearms only after leaving the top band', () => {
     expect(shouldRearmOlderPrefetch(LOAD_OLDER_LEAVE_TOP_PX)).toBe(false)
     expect(shouldRearmOlderPrefetch(LOAD_OLDER_LEAVE_TOP_PX + 1)).toBe(true)
+  })
+})
+
+describe('shouldRequestNewerFromWheel', () => {
+  it('loads newer when the user wheels down at the real bottom', () => {
+    expect(
+      shouldRequestNewerFromWheel({
+        deltaY: 40,
+        distanceFromBottom: 0,
+        hasMoreNewer: true
+      })
+    ).toBe(true)
+  })
+
+  it('loads newer while still inside the bottom band', () => {
+    expect(
+      shouldRequestNewerFromWheel({
+        deltaY: 12,
+        distanceFromBottom: LOAD_NEWER_BOTTOM_PX,
+        hasMoreNewer: true
+      })
+    ).toBe(true)
+  })
+
+  it('does nothing when the window is already the tail', () => {
+    expect(
+      shouldRequestNewerFromWheel({
+        deltaY: 40,
+        distanceFromBottom: 0,
+        hasMoreNewer: false
+      })
+    ).toBe(false)
+  })
+
+  it('ignores wheel-down far from the bottom', () => {
+    expect(
+      shouldRequestNewerFromWheel({
+        deltaY: 40,
+        distanceFromBottom: LOAD_NEWER_BOTTOM_PX + 1,
+        hasMoreNewer: true
+      })
+    ).toBe(false)
+  })
+
+  it('ignores wheel-up', () => {
+    expect(
+      shouldRequestNewerFromWheel({
+        deltaY: -40,
+        distanceFromBottom: 0,
+        hasMoreNewer: true
+      })
+    ).toBe(false)
+  })
+})
+
+describe('shouldRequestNewerFromTouchPull', () => {
+  it('loads newer when flicking up while already at the bottom', () => {
+    expect(
+      shouldRequestNewerFromTouchPull({
+        pullPx: 20,
+        distanceFromBottom: 0,
+        hasMoreNewer: true
+      })
+    ).toBe(true)
+  })
+
+  it('leaves native scroll alone when the list can still move', () => {
+    expect(
+      shouldRequestNewerFromTouchPull({
+        pullPx: 40,
+        distanceFromBottom: 80,
+        hasMoreNewer: true
+      })
+    ).toBe(false)
   })
 })

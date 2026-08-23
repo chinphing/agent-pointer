@@ -404,12 +404,8 @@ pub fn list_conversation_search_matches(
     if !conversation_in_scope(&conn, conversation_id, scope.filter_uid())? {
         return Err(anyhow::anyhow!("conversation not found"));
     }
-    let mut by_conv = collect_ui_matches_via_fts(
-        &conn,
-        &[conversation_id.to_string()],
-        query,
-        &fts_query,
-    )?;
+    let mut by_conv =
+        collect_ui_matches_via_fts(&conn, &[conversation_id.to_string()], query, &fts_query)?;
     Ok(by_conv
         .remove(conversation_id)
         .map(|(matches, _)| matches)

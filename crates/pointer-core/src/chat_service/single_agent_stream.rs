@@ -106,8 +106,7 @@ pub(super) async fn run_provider_stream_round(
     match send_handle.await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
-            if crate::context_compression::is_context_overflow_error(&e)
-            {
+            if crate::context_compression::is_context_overflow_error(&e) {
                 log::warn!(
                     "run_chat: context overflow in stream conversation_id={} assistant_id={} err={e:#}",
                     conversation_id,

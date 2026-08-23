@@ -183,126 +183,124 @@ pub async fn run_chat(
         if crate::context_compression::is_context_overflow_error(err) {
             let settings = state.effective_settings();
             let started = assistant_stream_started(&history_before, &history);
-                log::warn!(
+            log::warn!(
                     "run_chat: context overflow conversation_id={} assistant_stream_started={} err={err:#}",
                     conversation_id,
                     started
                 );
-                crate::context_compression::discard_pending_compression(&conversation_id);
-                let (llm_settings, api_key) = if let Some(snap) =
-                    crate::context_compression::session_llm_for_conversation(&conversation_id)
-                {
-                    (snap.settings, snap.api_key)
-                } else {
-                    let mut llm_settings = settings.clone();
-                    let mode = agent_mode
-                        .clone()
-                        .unwrap_or_else(|| llm_settings.agent_mode.clone());
-                    let api_key = prepare_session_llm_settings(
-                        &mut llm_settings,
-                        &mode,
-                        lead_agent_id_override.as_deref(),
-                        performance_mode_override.as_deref(),
-                    );
-                    crate::context_compression::remember_session_llm(
-                        &conversation_id,
-                        &llm_settings,
-                        &api_key,
-                    );
-                    (llm_settings, api_key)
-                };
-                if !api_key.trim().is_empty() {
-                    let provider = OpenAIProvider::new(llm_settings.clone(), api_key);
-                    let last_api =
-                        crate::conversation_store::global_store()
+            crate::context_compression::discard_pending_compression(&conversation_id);
+            let (llm_settings, api_key) = if let Some(snap) =
+                crate::context_compression::session_llm_for_conversation(&conversation_id)
+            {
+                (snap.settings, snap.api_key)
+            } else {
+                let mut llm_settings = settings.clone();
+                let mode = agent_mode
+                    .clone()
+                    .unwrap_or_else(|| llm_settings.agent_mode.clone());
+                let api_key = prepare_session_llm_settings(
+                    &mut llm_settings,
+                    &mode,
+                    lead_agent_id_override.as_deref(),
+                    performance_mode_override.as_deref(),
+                );
+                crate::context_compression::remember_session_llm(
+                    &conversation_id,
+                    &llm_settings,
+                    &api_key,
+                );
+                (llm_settings, api_key)
+            };
+            if !api_key.trim().is_empty() {
+                let provider = OpenAIProvider::new(llm_settings.clone(), api_key);
+                let last_api = crate::conversation_store::global_store()
+                    .ok()
+                    .and_then(|store| {
+                        store
+                            .get_last_lead_prompt_tokens(&conversation_id)
                             .ok()
-                            .and_then(|store| {
-                                store
-                                    .get_last_lead_prompt_tokens(&conversation_id)
-                                    .ok()
-                                    .flatten()
-                            });
-                    let lead_role = lead_agent_id_override
-                        .clone()
-                        .filter(|s| !s.trim().is_empty())
-                        .unwrap_or_else(|| {
-                            if llm_settings.lead_agent_id.trim().is_empty() {
-                                llm_settings.agent_mode.clone()
-                            } else {
-                                llm_settings.lead_agent_id.clone()
-                            }
-                        });
-                    let ui = crate::context_compression::CompressionUiContext::main(
-                        crate::agent_instance_scope::AgentInstanceScope::new(
-                            format!("overflow-{}", Uuid::new_v4().simple()),
-                            conversation_id.clone(),
-                            lead_role,
-                        ),
+                            .flatten()
+                    });
+                let lead_role = lead_agent_id_override
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        if llm_settings.lead_agent_id.trim().is_empty() {
+                            llm_settings.agent_mode.clone()
+                        } else {
+                            llm_settings.lead_agent_id.clone()
+                        }
+                    });
+                let ui = crate::context_compression::CompressionUiContext::main(
+                    crate::agent_instance_scope::AgentInstanceScope::new(
+                        format!("overflow-{}", Uuid::new_v4().simple()),
+                        conversation_id.clone(),
+                        lead_role,
+                    ),
+                );
+                emit(
+                    &stream,
+                    StreamEvent::UiToast {
+                        conversation_id: conversation_id.clone(),
+                        message: if started {
+                            "上下文超限，正在压缩（请之后重发）".into()
+                        } else {
+                            "上下文超限，正在压缩后重试".into()
+                        },
+                        level: "warning".into(),
+                    },
+                );
+                let compressed = crate::context_compression::recover_history_after_overflow(
+                    &mut history,
+                    &llm_settings,
+                    &provider,
+                    &conversation_id,
+                    &stream,
+                    cancel.clone(),
+                    ui,
+                    last_api,
+                )
+                .await;
+                if compressed {
+                    if let Err(e) = state
+                        .memory_store
+                        .reload_snapshot_for_conversation(&conversation_id)
+                    {
+                        log::warn!("memory: reload after overflow recover failed: {e:#}");
+                    }
+                }
+                if compressed && !started && !cancel.is_cancelled() {
+                    log::info!(
+                        "run_chat: retrying after overflow compress conversation_id={}",
+                        conversation_id
+                    );
+                    enabled_skill_ids.clear();
+                    consumed_single = 0;
+                    let mut retry_ctx = super::context::ChatRunContext {
+                        stream: stream.clone(),
+                        state: state.clone(),
+                        conversation_id: &conversation_id,
+                        history: &mut history,
+                        enabled_skill_ids: &mut enabled_skill_ids,
+                        consumed_single: &mut consumed_single,
+                        cancel: cancel.clone(),
+                    };
+                    result = super::session_inner::run_chat_inner(&mut retry_ctx, &run_req).await;
+                } else if !compressed && !started {
+                    log::warn!(
+                        "run_chat: overflow but recover did not shrink history conversation_id={}",
+                        conversation_id
                     );
                     emit(
                         &stream,
                         StreamEvent::UiToast {
                             conversation_id: conversation_id.clone(),
-                            message: if started {
-                                "上下文超限，正在压缩（请之后重发）".into()
-                            } else {
-                                "上下文超限，正在压缩后重试".into()
-                            },
-                            level: "warning".into(),
+                            message: "上下文过大且无法压缩保留区，请新开对话或删减内容".into(),
+                            level: "error".into(),
                         },
                     );
-                    let compressed = crate::context_compression::recover_history_after_overflow(
-                        &mut history,
-                        &llm_settings,
-                        &provider,
-                        &conversation_id,
-                        &stream,
-                        cancel.clone(),
-                        ui,
-                        last_api,
-                    )
-                    .await;
-                    if compressed {
-                        if let Err(e) = state
-                            .memory_store
-                            .reload_snapshot_for_conversation(&conversation_id)
-                        {
-                            log::warn!("memory: reload after overflow recover failed: {e:#}");
-                        }
-                    }
-                    if compressed && !started && !cancel.is_cancelled() {
-                        log::info!(
-                            "run_chat: retrying after overflow compress conversation_id={}",
-                            conversation_id
-                        );
-                        enabled_skill_ids.clear();
-                        consumed_single = 0;
-                        let mut retry_ctx = super::context::ChatRunContext {
-                            stream: stream.clone(),
-                            state: state.clone(),
-                            conversation_id: &conversation_id,
-                            history: &mut history,
-                            enabled_skill_ids: &mut enabled_skill_ids,
-                            consumed_single: &mut consumed_single,
-                            cancel: cancel.clone(),
-                        };
-                        result =
-                            super::session_inner::run_chat_inner(&mut retry_ctx, &run_req).await;
-                    } else if !compressed && !started {
-                        log::warn!(
-                            "run_chat: overflow but recover did not shrink history conversation_id={}",
-                            conversation_id
-                        );
-                        emit(
-                            &stream,
-                            StreamEvent::UiToast {
-                                conversation_id: conversation_id.clone(),
-                                message: "上下文过大且无法压缩保留区，请新开对话或删减内容".into(),
-                                level: "error".into(),
-                            },
-                        );
-                    }
                 }
+            }
         }
     }
 

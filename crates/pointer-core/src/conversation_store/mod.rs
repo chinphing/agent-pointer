@@ -1673,9 +1673,7 @@ fn ensure_fts_schema(conn: &Connection) -> Result<()> {
     } else if !fts_table_exists(conn)? {
         create_fts_table(conn)?;
     } else {
-        log::warn!(
-            "conversation_store: FTS index empty while messages exist; rebuilding in place"
-        );
+        log::warn!("conversation_store: FTS index empty while messages exist; rebuilding in place");
     }
 
     rebuild_fts_index(conn)?;
@@ -1717,7 +1715,10 @@ fn messages_exist(conn: &Connection) -> Result<bool> {
 }
 
 fn rebuild_fts_index(conn: &Connection) -> Result<()> {
-    let n = conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')", [])?;
+    let n = conn.execute(
+        "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')",
+        [],
+    )?;
     log::info!("conversation_store: FTS rebuilt from messages, rows={n}");
     Ok(())
 }

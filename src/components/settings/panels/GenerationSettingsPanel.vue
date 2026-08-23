@@ -516,19 +516,21 @@ async function onPlaySoundToggle(checked: boolean) {
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5">
         <div class="grid grid-cols-1 min-[960px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-x-5 gap-y-6">
           <div class="min-w-0 space-y-3">
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center h-5">
               <span class="text-[12px] font-medium text-foreground">任务并行</span>
-              <button
-                type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="同时能跑几条独立任务。聊天、定时、Webhook 共用；同一会话仍排队。"
-                aria-label="任务并行说明"
-              >
-                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-              </button>
             </div>
             <div>
-              <label class="block text-[12px] text-muted mb-1.5">同时任务数</label>
+              <div class="flex items-center gap-1 mb-1.5">
+                <span class="text-[12px] text-muted">同时任务数</span>
+                <button
+                  type="button"
+                  class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                  title="同时能跑几条独立任务。聊天、定时、Webhook 共用；同一会话仍排队。"
+                  aria-label="同时任务数说明"
+                >
+                  <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                </button>
+              </div>
               <div class="flex items-center gap-2">
                 <input
                   v-model.number="maxConcurrentRuns"
@@ -561,88 +563,90 @@ async function onPlaySoundToggle(checked: boolean) {
 
           <div class="hidden min-[960px]:block w-px bg-border shrink-0" aria-hidden="true" />
 
-          <div class="min-w-0 space-y-3">
-            <div class="flex items-center gap-1.5">
-              <span class="text-[12px] font-medium text-foreground">工具并行</span>
-              <button
-                type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="同一轮里多个工具一起跑；关掉则一个一个执行。"
-                aria-label="工具并行说明"
-              >
-                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-              </button>
-              <label class="relative inline-flex items-center cursor-pointer ml-1">
-                <input v-model="parallelToolExecutionEnabled" type="checkbox" class="sr-only peer" />
-                <div class="settings-toggle-track"></div>
-              </label>
-            </div>
-            <div v-if="parallelToolExecutionEnabled" class="flex flex-wrap items-start gap-x-5 gap-y-3">
-              <div>
-                <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">通用工具</span>
-                  <button
-                    type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="同一轮里读文件、终端、搜索等可同时执行的数量。"
-                    aria-label="通用工具说明"
-                  >
-                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-                  </button>
-                </div>
-                <input
-                  v-model.number="maxParallelToolCalls"
-                  type="number"
-                  min="1"
-                  max="64"
-                  step="1"
-                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-                  @blur="maxParallelToolCalls = restoreAutoParallel(maxParallelToolCalls)"
-                />
+          <div class="min-w-0">
+            <div class="w-max max-w-full space-y-3">
+              <div class="flex items-center justify-between gap-4 h-5">
+                <span class="text-[12px] font-medium text-foreground">工具并行</span>
+                <label
+                  class="relative inline-flex items-center cursor-pointer shrink-0"
+                  title="同一轮里多个工具一起跑；关掉则一个一个执行。"
+                >
+                  <input
+                    v-model="parallelToolExecutionEnabled"
+                    type="checkbox"
+                    class="sr-only peer"
+                    aria-label="工具并行"
+                  />
+                  <div class="settings-toggle-track"></div>
+                </label>
               </div>
-              <div>
-                <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">子 Agent</span>
-                  <button
-                    type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="同一轮里同时派出的子 Agent 数量。"
-                    aria-label="子 Agent 说明"
-                  >
-                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-                  </button>
+              <div v-if="parallelToolExecutionEnabled" class="flex flex-wrap items-start gap-x-5 gap-y-3">
+                <div>
+                  <div class="flex items-center gap-1 mb-1.5">
+                    <span class="text-[12px] text-muted">通用工具</span>
+                    <button
+                      type="button"
+                      class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                      title="同一轮里读文件、终端、搜索等可同时执行的数量。"
+                      aria-label="通用工具说明"
+                    >
+                      <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                    </button>
+                  </div>
+                  <input
+                    v-model.number="maxParallelToolCalls"
+                    type="number"
+                    min="1"
+                    max="64"
+                    step="1"
+                    class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                    @blur="maxParallelToolCalls = restoreAutoParallel(maxParallelToolCalls)"
+                  />
                 </div>
-                <input
-                  v-model.number="maxParallelSubAgents"
-                  type="number"
-                  min="1"
-                  max="64"
-                  step="1"
-                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-                  @blur="maxParallelSubAgents = restoreAutoParallel(maxParallelSubAgents)"
-                />
-              </div>
-              <div>
-                <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">媒体工具</span>
-                  <button
-                    type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="同一轮里同时进行的图片、视频、多媒体理解数量。"
-                    aria-label="媒体工具说明"
-                  >
-                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-                  </button>
+                <div>
+                  <div class="flex items-center gap-1 mb-1.5">
+                    <span class="text-[12px] text-muted">子 Agent</span>
+                    <button
+                      type="button"
+                      class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                      title="同一轮里同时派出的子 Agent 数量。"
+                      aria-label="子 Agent 说明"
+                    >
+                      <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                    </button>
+                  </div>
+                  <input
+                    v-model.number="maxParallelSubAgents"
+                    type="number"
+                    min="1"
+                    max="64"
+                    step="1"
+                    class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                    @blur="maxParallelSubAgents = restoreAutoParallel(maxParallelSubAgents)"
+                  />
                 </div>
-                <input
-                  v-model.number="maxParallelMediaJobs"
-                  type="number"
-                  min="1"
-                  max="64"
-                  step="1"
-                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-                  @blur="maxParallelMediaJobs = restoreAutoParallel(maxParallelMediaJobs)"
-                />
+                <div>
+                  <div class="flex items-center gap-1 mb-1.5">
+                    <span class="text-[12px] text-muted">媒体工具</span>
+                    <button
+                      type="button"
+                      class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                      title="同一轮里同时进行的图片、视频、多媒体理解数量。"
+                      aria-label="媒体工具说明"
+                    >
+                      <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                    </button>
+                  </div>
+                  <input
+                    v-model.number="maxParallelMediaJobs"
+                    type="number"
+                    min="1"
+                    max="64"
+                    step="1"
+                    class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                    @blur="maxParallelMediaJobs = restoreAutoParallel(maxParallelMediaJobs)"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -650,16 +654,8 @@ async function onPlaySoundToggle(checked: boolean) {
           <div class="hidden min-[960px]:block w-px bg-border shrink-0" aria-hidden="true" />
 
           <div class="min-w-0 space-y-3">
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center h-5">
               <span class="text-[12px] font-medium text-foreground">轮次</span>
-              <button
-                type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="限制一轮对话和子任务能连续调用工具的次数。"
-                aria-label="轮次说明"
-              >
-                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-              </button>
             </div>
             <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
               <div>

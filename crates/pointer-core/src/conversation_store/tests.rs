@@ -1849,12 +1849,8 @@ mod tests {
             "second\n\nline with extra words for truncation padding 一二三四五六七八九十",
             1_700_000_002_000,
         ));
-        conv.messages.push(msg(
-            "msg_a2",
-            Role::Assistant,
-            "ok",
-            1_700_000_003_000,
-        ));
+        conv.messages
+            .push(msg("msg_a2", Role::Assistant, "ok", 1_700_000_003_000));
         conv.messages.push(msg(
             "u-syn",
             Role::User,
@@ -1864,7 +1860,8 @@ mod tests {
         let mut scoped = msg("u-scoped", Role::User, "subagent prompt", 1_700_000_005_000);
         scoped.anchor_message_id = Some("msg_u1".into());
         conv.messages.push(scoped);
-        conv.messages.push(msg("msg_u3", Role::User, "   ", 1_700_000_006_000));
+        conv.messages
+            .push(msg("msg_u3", Role::User, "   ", 1_700_000_006_000));
         store.sync_conversations(&[conv]).unwrap();
 
         let items = store

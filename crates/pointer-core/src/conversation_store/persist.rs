@@ -495,9 +495,10 @@ pub(crate) fn load_conversation_outline(
          WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
          ORDER BY position ASC",
     )?;
-    let rows = stmt.query_map(params![conversation_id, OUTLINE_CONTENT_PREFIX_CHARS], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?;
+    let rows = stmt.query_map(
+        params![conversation_id, OUTLINE_CONTENT_PREFIX_CHARS],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )?;
     let mut out = Vec::new();
     for row in rows {
         let (message_id, content) = row?;

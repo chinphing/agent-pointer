@@ -47,18 +47,16 @@ pub const PRECOMPRESS_GATE_RATIO: f64 = 0.80;
 /// Compress only when the droppable prefix is at least this share of
 /// **payload** tokens. Used only on the local-estimate fallback path
 /// (no provider `prompt_tokens`) **and** when the current user turn is
-/// not large enough to take the in-run path.
+/// not large enough in tokens to take the in-run path.
 pub const COMPRESSIBLE_MIN_RATIO: f64 = 0.30;
 /// If the latest real user message through the newest message is this
-/// share of working-set **message count**, summarize inside that turn
+/// share of working-set **payload tokens**, summarize inside that turn
 /// instead of the older prefix.
-pub const IN_RUN_TURN_MESSAGE_RATIO: f64 = 0.70;
-/// Verbatim tail as a fraction of working-set **message count**.
-pub const TAIL_MESSAGE_RATIO: f64 = 0.20;
+pub const IN_RUN_TURN_TOKEN_RATIO: f64 = 0.70;
+/// Verbatim tail as a fraction of working-set **payload tokens**.
+pub const TAIL_TOKEN_RATIO: f64 = 0.20;
 /// Tighter tail when recovering from a provider overflow.
-pub const OVERFLOW_TAIL_MESSAGE_RATIO: f64 = 0.12;
-/// Always keep at least this many trailing messages (capped at n-1).
-pub(crate) const MIN_TAIL_MESSAGES: usize = 3;
+pub const OVERFLOW_TAIL_TOKEN_RATIO: f64 = 0.12;
 /// At most this many overflow recoveries per lead/sub-agent loop.
 pub const MAX_OVERFLOW_RECOVERIES: u32 = 2;
 /// Dynamic summary `max_tokens`: `content × ratio`, floored at
@@ -325,50 +323,78 @@ pub fn compression_gate_tokens(
     (payload_est, payload_est, None, "payload_est")
 }
 
-pub fn tail_message_count(message_count: usize, overflow: bool) -> usize {
-    if message_count == 0 {
-        return 0;
+/// Payload token share of `msgs[start..]`.
+pub fn suffix_token_share(msgs: &[ChatMessage], start: usize) -> f64 {
+    if msgs.is_empty() {
+        return 0.0;
     }
-    let ratio = if overflow {
-        OVERFLOW_TAIL_MESSAGE_RATIO
-    } else {
-        TAIL_MESSAGE_RATIO
-    };
-    let by_ratio = ((message_count as f64) * ratio).ceil().max(1.0) as usize;
-    let max_keep = message_count.saturating_sub(1).max(1);
-    let min_tail = MIN_TAIL_MESSAGES.min(max_keep);
-    by_ratio.max(min_tail).min(max_keep)
+    let total = estimate_message_payload_tokens(msgs);
+    if total == 0 {
+        return 0.0;
+    }
+    let start = start.min(msgs.len());
+    let part = estimate_message_payload_tokens(&msgs[start..]);
+    part as f64 / total as f64
 }
 
-/// Index where the protected verbatim tail starts (last ~20% of messages).
-pub fn find_tail_start_by_count(msgs: &[ChatMessage], overflow: bool) -> usize {
+/// Smallest index `i` such that `suffix_token_share(msgs, i) >= share`.
+/// Always leaves at least one droppable message when `msgs.len() > 1`.
+pub fn find_suffix_start_for_token_share(msgs: &[ChatMessage], share: f64) -> usize {
     if msgs.is_empty() {
         return 0;
     }
-    let keep = tail_message_count(msgs.len(), overflow);
-    let cut = msgs.len().saturating_sub(keep);
-    if cut == 0 {
+    let n = msgs.len();
+    if n == 1 {
         return 0;
     }
+    let weights: Vec<usize> = msgs.iter().map(estimate_one_message_payload_tokens).collect();
+    let total: usize = weights.iter().sum();
+    if total == 0 {
+        return 1;
+    }
+    let need = ((total as f64) * share).ceil().max(1.0) as usize;
+    let mut acc = 0usize;
+    let mut i = n;
+    while i > 1 {
+        i -= 1;
+        acc += weights[i];
+        if acc >= need {
+            return i;
+        }
+    }
+    1
+}
+
+pub fn tail_token_ratio(overflow: bool) -> f64 {
+    if overflow {
+        OVERFLOW_TAIL_TOKEN_RATIO
+    } else {
+        TAIL_TOKEN_RATIO
+    }
+}
+
+/// Index where the protected verbatim tail starts (newest ~20% of payload tokens).
+pub fn find_tail_start(msgs: &[ChatMessage], overflow: bool) -> usize {
+    if msgs.is_empty() {
+        return 0;
+    }
+    let cut = find_suffix_start_for_token_share(msgs, tail_token_ratio(overflow));
     align_split_away_from_tool_group(msgs, cut)
 }
 
-/// Share of working-set messages from the latest real user through the end.
-pub fn current_turn_message_share(msgs: &[ChatMessage]) -> f64 {
-    if msgs.is_empty() {
-        return 0.0;
-    }
+/// Share of working-set **payload tokens** from the latest real user through the end.
+pub fn current_turn_token_share(msgs: &[ChatMessage]) -> f64 {
     let Some(last_user) = crate::message_context::find_last_context_user_index(msgs) else {
         return 0.0;
     };
-    (msgs.len() - last_user) as f64 / msgs.len() as f64
+    suffix_token_share(msgs, last_user)
 }
 
 pub fn should_use_in_run_compression(msgs: &[ChatMessage]) -> bool {
-    current_turn_message_share(msgs) >= IN_RUN_TURN_MESSAGE_RATIO
+    current_turn_token_share(msgs) >= IN_RUN_TURN_TOKEN_RATIO
 }
 
-/// Drop `[drop_start, tail_start)`; keep the latest user (`drop_start - 1`) and the count tail.
+/// Drop `[drop_start, tail_start)`; keep the latest user (`drop_start - 1`) and the token tail.
 /// `tail_start` is aligned so an assistant + its `role: tool` rows stay on one side.
 pub fn find_in_run_drop_range(
     msgs: &[ChatMessage],
@@ -379,8 +405,7 @@ pub fn find_in_run_drop_range(
         return None;
     }
     let last_user = crate::message_context::find_last_context_user_index(msgs)?;
-    let mut tail_start = find_tail_start_by_count(msgs, overflow);
-    tail_start = align_split_away_from_tool_group(msgs, tail_start);
+    let tail_start = find_tail_start(msgs, overflow);
     let mut drop_start = last_user.saturating_add(1);
     while drop_start < tail_start && matches!(msgs[drop_start].role, Role::Tool) {
         drop_start += 1;
@@ -436,7 +461,7 @@ pub fn plan_compression(
         log::info!(
             "context_compress: in-run preferred but drop window empty messages={} share={:.3}",
             history.len(),
-            current_turn_message_share(history)
+            current_turn_token_share(history)
         );
     }
     let split = find_summary_split(history, budget_tokens, keep_users.max(1), overflow);
@@ -451,7 +476,7 @@ pub fn plan_compression(
 
 /// Summarize `[..split]`; keep `[split..]` verbatim.
 ///
-/// Count-based tail (~20% of messages). The latest real user turn is never
+/// Token-based tail (~20% of payload tokens). The latest real user turn is never
 /// summarized (it may sit before the tail when the current turn is huge).
 /// Fixed "keep N users" is no longer a floor — a giant previous turn can be
 /// compressed even if it would have fallen inside keep-3/keep-6.
@@ -465,7 +490,7 @@ pub fn find_summary_split(
     if msgs.is_empty() {
         return 0;
     }
-    let tail_start = find_tail_start_by_count(msgs, overflow);
+    let tail_start = find_tail_start(msgs, overflow);
     let last_user = crate::message_context::find_last_context_user_index(msgs).unwrap_or(0);
     if last_user < tail_start {
         last_user
@@ -477,7 +502,7 @@ pub fn find_summary_split(
 /// Keep window starts at `split`. Never leave an assistant in the drop window
 /// and its tool result in the keep window (or the reverse).
 ///
-/// Count-based cuts often land on the **first** tool row after the owning
+/// Token or count cuts can land on the **first** tool row after the owning
 /// assistant. Walking only `msgs[split - 1]` misses that case: the previous
 /// row is the assistant, so the cut stayed on the tool and produced an
 /// orphan `role: tool` after the summary.

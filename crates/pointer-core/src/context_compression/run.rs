@@ -213,7 +213,7 @@ pub(crate) async fn compress_history_inner(
                 gate.ratio,
                 gate.threshold,
                 gate.split,
-                current_turn_message_share(history),
+                current_turn_token_share(history),
                 budget_tokens,
                 wall.elapsed().as_millis()
             );
@@ -574,7 +574,7 @@ pub(crate) async fn compress_history_inner(
             drop_end,
             dropped_count,
             splice.keep_ids.len(),
-            current_turn_message_share(history),
+            current_turn_token_share(history),
             wall.elapsed().as_millis()
         );
         return false;

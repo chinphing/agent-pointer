@@ -145,51 +145,56 @@ fn evaluate_compress_gate_requires_prefix_ratio() {
 }
 
 #[test]
-fn count_tail_split_compresses_older_turn_despite_keep_users() {
-    // Three user turns: keep-3 would be split=0. Count tail (~20%, min 3 capped
-    // at n-1) still leaves the oldest message outside the keep window.
+fn token_tail_split_compresses_older_turn_despite_keep_users() {
+    // Three user turns: keep-3 would be split=0. Token tail (~20%) still
+    // leaves the oldest (token-heavy) message outside the keep window.
     let msgs = vec![u(&"old ".repeat(40_000)), u("follow-up"), u("current")];
     assert_eq!(find_split_at_user_boundary(&msgs, 3), 0);
     let budget = 20_000;
     let split = find_summary_split(&msgs, budget, 3, false);
     assert!(
         split > 0,
-        "oldest turn must be outside the count tail, split={split}"
+        "oldest turn must be outside the token tail, split={split}"
     );
     let d = evaluate_compress_gate(&msgs, None, budget, 3, true);
     assert!(d.should_trigger);
     assert!(d.ratio >= COMPRESSIBLE_MIN_RATIO);
 }
 
+const EVEN: &str = "xxxxxxxx";
+
 #[test]
-fn tail_message_count_is_twenty_percent_with_floor() {
-    assert_eq!(tail_message_count(10, false), 3); // max(ceil(2), 3)
-    assert_eq!(tail_message_count(20, false), 4);
-    assert_eq!(tail_message_count(20, true), 3); // overflow 12% → ceil(2.4)=3
-    assert_eq!(
-        find_tail_start_by_count(&(0..10).map(|_| u("a")).collect::<Vec<_>>(), false),
-        7
-    );
+fn token_tail_keeps_newest_twenty_percent() {
+    let msgs: Vec<_> = (0..20)
+        .map(|i| msg(&format!("m{i}"), Role::Assistant, EVEN))
+        .collect();
+    let start = find_suffix_start_for_token_share(&msgs, TAIL_TOKEN_RATIO);
+    assert_eq!(start, 16);
+    assert!(suffix_token_share(&msgs, start) >= TAIL_TOKEN_RATIO);
+    assert!(suffix_token_share(&msgs, start + 1) < TAIL_TOKEN_RATIO);
+    let overflow_start = find_suffix_start_for_token_share(&msgs, OVERFLOW_TAIL_TOKEN_RATIO);
+    assert!(overflow_start >= start);
+    assert_eq!(find_tail_start(&msgs, false), start);
 }
 
 #[test]
 fn align_split_keeps_assistant_when_cut_lands_on_first_tool() {
-    // n=20 → 20% tail is 4 → unaligned cut index 16, which is the first
-    // tool row after its assistant.
+    // 20 equal-size rows → 20% token tail is 4 → unaligned cut index 16,
+    // which is the first tool row after its assistant.
     let mut msgs = Vec::new();
-    msgs.push(msg("u0", Role::User, "task"));
+    msgs.push(msg("u0", Role::User, EVEN));
     for i in 0..14 {
-        msgs.push(msg(&format!("pad{i}"), Role::Assistant, "step"));
+        msgs.push(msg(&format!("pad{i}"), Role::Assistant, EVEN));
     }
-    msgs.push(msg("a_own", Role::Assistant, "call"));
-    msgs.push(msg("t_own", Role::Tool, "result"));
-    msgs.push(msg("k0", Role::Assistant, "keep"));
-    msgs.push(msg("k1", Role::Assistant, "keep"));
-    msgs.push(msg("k2", Role::Assistant, "keep"));
+    msgs.push(msg("a_own", Role::Assistant, EVEN));
+    msgs.push(msg("t_own", Role::Tool, EVEN));
+    msgs.push(msg("k0", Role::Assistant, EVEN));
+    msgs.push(msg("k1", Role::Assistant, EVEN));
+    msgs.push(msg("k2", Role::Assistant, EVEN));
     assert_eq!(msgs.len(), 20);
     assert_eq!(msgs[16].id, "t_own");
-    assert_eq!(tail_message_count(20, false), 4);
-    let tail_start = find_tail_start_by_count(&msgs, false);
+    assert_eq!(find_suffix_start_for_token_share(&msgs, TAIL_TOKEN_RATIO), 16);
+    let tail_start = find_tail_start(&msgs, false);
     assert_eq!(tail_start, 15);
     assert_eq!(msgs[tail_start].id, "a_own");
     let (drop_start, range_tail) =
@@ -205,19 +210,19 @@ fn align_split_keeps_assistant_when_cut_lands_on_first_tool() {
 #[test]
 fn align_split_still_pulls_back_when_cut_is_mid_tool_run() {
     let mut msgs = Vec::new();
-    msgs.push(msg("u0", Role::User, "task"));
+    msgs.push(msg("u0", Role::User, EVEN));
     for i in 0..13 {
-        msgs.push(msg(&format!("pad{i}"), Role::Assistant, "step"));
+        msgs.push(msg(&format!("pad{i}"), Role::Assistant, EVEN));
     }
-    msgs.push(msg("a_own", Role::Assistant, "call"));
-    msgs.push(msg("t0", Role::Tool, "r0"));
-    msgs.push(msg("t1", Role::Tool, "r1"));
-    msgs.push(msg("k0", Role::Assistant, "keep"));
-    msgs.push(msg("k1", Role::Assistant, "keep"));
-    msgs.push(msg("k2", Role::Assistant, "keep"));
+    msgs.push(msg("a_own", Role::Assistant, EVEN));
+    msgs.push(msg("t0", Role::Tool, EVEN));
+    msgs.push(msg("t1", Role::Tool, EVEN));
+    msgs.push(msg("k0", Role::Assistant, EVEN));
+    msgs.push(msg("k1", Role::Assistant, EVEN));
+    msgs.push(msg("k2", Role::Assistant, EVEN));
     assert_eq!(msgs.len(), 20);
     assert_eq!(msgs[16].id, "t1");
-    let tail_start = find_tail_start_by_count(&msgs, false);
+    let tail_start = find_tail_start(&msgs, false);
     assert_eq!(msgs[tail_start].id, "a_own");
 }
 
@@ -357,26 +362,76 @@ fn msg(id: &str, role: Role, content: &str) -> ChatMessage {
 }
 
 #[test]
-fn current_turn_share_selects_in_run_at_seventy_percent() {
+fn current_turn_share_selects_in_run_by_tokens() {
     let mut long_turn = vec![msg("u0", Role::User, "task")];
     for i in 0..9 {
         long_turn.push(msg(&format!("a{i}"), Role::Assistant, "step"));
     }
     assert!(should_use_in_run_compression(&long_turn));
-    assert!((current_turn_message_share(&long_turn) - 1.0).abs() < f64::EPSILON);
+    assert!((current_turn_token_share(&long_turn) - 1.0).abs() < f64::EPSILON);
 
     let mixed = vec![
-        msg("u0", Role::User, "old"),
-        msg("a0", Role::Assistant, "ok"),
-        msg("u1", Role::User, "next"),
-        msg("a1", Role::Assistant, "ok"),
+        msg("u0", Role::User, "old-goal-text"),
+        msg("a0", Role::Assistant, "old-reply-ok"),
+        msg("u1", Role::User, "new-goal-text"),
+        msg("a1", Role::Assistant, "new-reply-ok"),
     ];
-    assert!(current_turn_message_share(&mixed) < IN_RUN_TURN_MESSAGE_RATIO);
+    assert!(current_turn_token_share(&mixed) < IN_RUN_TURN_TOKEN_RATIO);
     assert!(!should_use_in_run_compression(&mixed));
 }
 
 #[test]
-fn plan_compression_in_run_when_latest_turn_dominates_count() {
+fn in_run_when_current_turn_is_most_tokens_even_if_under_count_ratio() {
+    // Last user at 7 → count share 12/19 ≈ 0.63. Prefix is tiny; current-turn
+    // assistants hold the tokens. Newest keep rows cover the 20% token tail
+    // so in-run still has a drop window.
+    let mut msgs = Vec::new();
+    for i in 0..7 {
+        msgs.push(msg(&format!("old{i}"), Role::Assistant, EVEN));
+    }
+    msgs.push(msg("u_now", Role::User, EVEN));
+    for i in 0..8 {
+        msgs.push(msg(&format!("big{i}"), Role::Assistant, &"x".repeat(8_000)));
+    }
+    for i in 0..3 {
+        msgs.push(msg(&format!("keep{i}"), Role::Assistant, &"y".repeat(24_000)));
+    }
+    assert_eq!(msgs.len(), 19);
+    let count_share = (msgs.len() - 7) as f64 / msgs.len() as f64;
+    assert!(count_share < IN_RUN_TURN_TOKEN_RATIO);
+    assert!(current_turn_token_share(&msgs) >= IN_RUN_TURN_TOKEN_RATIO);
+    match plan_compression(&msgs, None, 8_000, 1, false, false, true) {
+        CompressionPlan::InRun { drop_start, .. } => assert_eq!(drop_start, 8),
+        other => panic!("expected InRun, got {other:?}"),
+    }
+}
+
+#[test]
+fn prefix_when_current_turn_is_many_short_rows_but_few_tokens() {
+    let mut msgs = vec![
+        msg("u0", Role::User, "old"),
+        msg("a0", Role::Assistant, &"x".repeat(80_000)),
+    ];
+    msgs.push(msg("u1", Role::User, "now"));
+    for i in 0..20 {
+        msgs.push(msg(&format!("a{i}"), Role::Assistant, "ok"));
+    }
+    let last_user = 2usize;
+    let count_share = (msgs.len() - last_user) as f64 / msgs.len() as f64;
+    assert!(count_share > IN_RUN_TURN_TOKEN_RATIO);
+    assert!(current_turn_token_share(&msgs) < IN_RUN_TURN_TOKEN_RATIO);
+    assert!(!should_use_in_run_compression(&msgs));
+    match plan_compression(&msgs, None, 8_000, 1, false, false, true) {
+        CompressionPlan::Prefix { split } => {
+            assert!(split > 0);
+            assert!(split <= last_user);
+        }
+        other => panic!("expected Prefix, got {other:?}"),
+    }
+}
+
+#[test]
+fn plan_compression_in_run_when_latest_turn_dominates_tokens() {
     let mut msgs = vec![msg("u0", Role::User, "task")];
     for i in 0..12 {
         msgs.push(msg(&format!("a{i}"), Role::Assistant, &"x".repeat(8_000)));

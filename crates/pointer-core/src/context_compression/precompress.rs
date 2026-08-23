@@ -430,7 +430,7 @@ pub(crate) fn spawn_sub_agent_precompress(
     let cid = conversation_id.to_string();
     log::info!(
         "context_compress: sub_agent precompress spawn key={key} share={:.3} messages={}",
-        current_turn_message_share(history),
+        current_turn_token_share(history),
         history.len()
     );
     tokio::spawn(async move {
@@ -517,7 +517,7 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
             log::info!(
                 "context_compress: sub_agent between-round hard gate conversation_id={} share={:.3} messages={}",
                 conversation_id,
-                current_turn_message_share(history),
+                current_turn_token_share(history),
                 history.len()
             );
             await_inflight_precompress(lease.key()).await;
@@ -591,7 +591,7 @@ pub async fn prepare_history_between_llm_rounds(
             "context_compress: between-round hard gate conversation_id={} plan={:?} share={:.3}",
             conversation_id,
             hard_plan,
-            current_turn_message_share(history)
+            current_turn_token_share(history)
         );
         await_inflight_precompress(conversation_id).await;
         if try_apply_pending_compression_live(state.as_ref(), conversation_id, history, stream) {
@@ -700,7 +700,7 @@ pub(crate) fn spawn_precompress_if_soft_gate(
     if matches!(plan, CompressionPlan::Skip) {
         log::debug!(
             "context_compress: precompress spawn not needed conversation_id={id} plan=Skip share={:.3}",
-            current_turn_message_share(history)
+            current_turn_token_share(history)
         );
         return;
     }
@@ -719,7 +719,7 @@ pub(crate) fn spawn_precompress_if_soft_gate(
     log::info!(
         "context_compress: precompress spawn conversation_id={id} plan={:?} share={:.3} budget={} messages={} db_messages={} provider={} model={}",
         plan,
-        current_turn_message_share(history),
+        current_turn_token_share(history),
         budget,
         history.len(),
         db_messages.map(|n| n.to_string()).unwrap_or_else(|| "-".into()),
@@ -776,7 +776,7 @@ pub(crate) async fn run_precompress_job(
     if matches!(plan, CompressionPlan::Skip) {
         log::debug!(
             "context_compress: precompress not needed conversation_id={conversation_id} plan=Skip share={:.3}",
-            current_turn_message_share(&history)
+            current_turn_token_share(&history)
         );
         return false;
     }
@@ -802,7 +802,7 @@ pub(crate) async fn run_precompress_job(
     log::info!(
         "context_compress: precompress starting conversation_id={conversation_id} plan={:?} share={:.3} messages={} provider={} model={}",
         plan,
-        current_turn_message_share(&history),
+        current_turn_token_share(&history),
         history.len(),
         settings.active_provider_id,
         settings.model

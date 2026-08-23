@@ -35,9 +35,11 @@ import {
   modelSupportsVision
 } from '../lib/modelCapabilities'
 import {
+  DEFAULT_CONTEXT_BUDGET_TOKENS,
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
-  pruneInheritedModelConfigs
+  pruneInheritedModelConfigs,
+  type RuntimeGenFallback
 } from '../composables/useRuntimeParams'
 import { normalizePlatformProviderTemplates, mergePlatformModelConfigs } from '../lib/platformTierDefaults'
 
@@ -75,7 +77,6 @@ function migratePlannerSettingsFields(
   return rest as unknown as ModelSettings
 }
 
-const DEFAULT_CONTEXT_BUDGET_TOKENS = 256 * 1024
 const LEGACY_CONTEXT_BUDGET_TOKENS = new Set([100_000, 120_000])
 
 const DEFAULT_TOOL_ROUNDS = 5000
@@ -146,10 +147,11 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
   }
 }
 
-function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens'>) {
+function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens' | 'contextBudgetTokens'>): RuntimeGenFallback {
   return {
     temperature: () => st?.temperature ?? DEFAULT_MODEL_TEMPERATURE,
-    maxTokens: () => st?.maxTokens ?? 64_000
+    maxTokens: () => st?.maxTokens ?? 64_000,
+    contextBudgetTokens: () => st?.contextBudgetTokens ?? DEFAULT_CONTEXT_BUDGET_TOKENS
   }
 }
 
@@ -181,7 +183,7 @@ const defaultProviders: ProviderConfig[] = []
 function normalizeProvider(
   p: ProviderConfig,
   legacyReasoning?: boolean,
-  globalFallback?: { temperature: () => number; maxTokens: () => number }
+  globalFallback?: RuntimeGenFallback
 ): ProviderConfig {
   const base: ProviderConfig = {
     ...p,
@@ -197,7 +199,8 @@ function normalizeProvider(
   }
   const fallback = globalFallback ?? {
     temperature: () => DEFAULT_MODEL_TEMPERATURE,
-    maxTokens: () => DEFAULT_MODEL_MAX_TOKENS
+    maxTokens: () => DEFAULT_MODEL_MAX_TOKENS,
+    contextBudgetTokens: () => DEFAULT_CONTEXT_BUDGET_TOKENS
   }
   return {
     ...base,
@@ -215,7 +218,7 @@ function normalizeComputerInitialTier(v: unknown): ComputerInitialTier {
 function normalizeProviders(
   list: ProviderConfig[] | undefined,
   legacyReasoning?: boolean,
-  globalFallback?: { temperature: () => number; maxTokens: () => number }
+  globalFallback?: RuntimeGenFallback
 ): ProviderConfig[] {
   const raw = list ?? []
   return raw.map(p => normalizeProvider(p, legacyReasoning, globalFallback))
@@ -390,10 +393,11 @@ export const useSettingsStore = defineStore('settings', () => {
     applyTheme(settings.value.theme)
   }
 
-  function storeGlobalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens'>) {
+  function storeGlobalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens' | 'contextBudgetTokens'>): RuntimeGenFallback {
     return {
       temperature: () => st?.temperature ?? settings.value.temperature,
-      maxTokens: () => st?.maxTokens ?? settings.value.maxTokens
+      maxTokens: () => st?.maxTokens ?? settings.value.maxTokens,
+      contextBudgetTokens: () => st?.contextBudgetTokens ?? settings.value.contextBudgetTokens
     }
   }
 

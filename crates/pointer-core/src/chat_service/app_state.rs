@@ -2067,6 +2067,7 @@ mod active_main_task_board_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             enable_thinking: None,
             thinking_budget: None,
             reasoning_effort: None,

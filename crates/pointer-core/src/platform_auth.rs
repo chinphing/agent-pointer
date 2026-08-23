@@ -99,6 +99,12 @@ pub struct PlatformProviderTemplate {
     pub top_p: Option<f32>,
     #[serde(default, rename = "maxTokens", alias = "max_tokens")]
     pub max_tokens: Option<u32>,
+    #[serde(
+        default,
+        rename = "contextBudgetTokens",
+        alias = "context_budget_tokens"
+    )]
+    pub context_budget_tokens: Option<u32>,
 }
 
 /// 平台模型条目（name + 模型级参数；未设置的字段继承服务商级默认）。
@@ -118,6 +124,12 @@ pub struct PlatformProviderModel {
     pub top_p: Option<f32>,
     #[serde(default, rename = "maxTokens", alias = "max_tokens")]
     pub max_tokens: Option<u32>,
+    #[serde(
+        default,
+        rename = "contextBudgetTokens",
+        alias = "context_budget_tokens"
+    )]
+    pub context_budget_tokens: Option<u32>,
     #[serde(default, rename = "enableThinking", alias = "enable_thinking")]
     pub enable_thinking: Option<bool>,
     #[serde(default, rename = "thinkingBudget", alias = "thinking_budget")]

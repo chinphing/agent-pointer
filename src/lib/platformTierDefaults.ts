@@ -44,6 +44,7 @@ function modelEntryOverrides(entry: unknown): ModelRuntimeOverrides {
   if (raw.temperature !== undefined) over.temperature = raw.temperature
   if (raw.topP !== undefined) over.topP = raw.topP
   if (raw.maxTokens !== undefined) over.maxTokens = raw.maxTokens
+  if (raw.contextBudgetTokens !== undefined) over.contextBudgetTokens = raw.contextBudgetTokens
   if (raw.enableThinking !== undefined) over.enableThinking = raw.enableThinking
   if (raw.thinkingBudget !== undefined) over.thinkingBudget = raw.thinkingBudget
   if (raw.reasoningEffort === 'high' || raw.reasoningEffort === 'max') {
@@ -121,6 +122,7 @@ export function normalizePlatformProviderTemplates(
     temperature: tpl.temperature,
     topP: tpl.topP,
     maxTokens: tpl.maxTokens,
+    contextBudgetTokens: tpl.contextBudgetTokens,
     modelConfigs: platformModelConfigs(tpl.models)
   }))
 }

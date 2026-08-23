@@ -82,6 +82,7 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: Default::default(),
             enable_thinking: None,
             thinking_budget: None,

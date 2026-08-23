@@ -313,6 +313,8 @@ struct StoredModelOverrides {
     top_p: Option<f32>,
     #[serde(default, rename = "maxTokens")]
     max_tokens: Option<u32>,
+    #[serde(default, rename = "contextBudgetTokens")]
+    context_budget_tokens: Option<u32>,
     #[serde(default, rename = "enableThinking")]
     enable_thinking: Option<bool>,
     #[serde(default, rename = "thinkingBudget")]
@@ -348,6 +350,8 @@ struct StoredProvider {
     top_p: Option<f32>,
     #[serde(default, rename = "maxTokens")]
     max_tokens: Option<u32>,
+    #[serde(default, rename = "contextBudgetTokens")]
+    context_budget_tokens: Option<u32>,
     #[serde(default, rename = "enableThinking")]
     enable_thinking: Option<bool>,
     #[serde(default, rename = "thinkingBudget")]
@@ -707,6 +711,7 @@ fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOv
         temperature: v.temperature,
         top_p: v.top_p,
         max_tokens: v.max_tokens,
+        context_budget_tokens: v.context_budget_tokens,
         enable_thinking,
         thinking_budget,
         reasoning_effort,
@@ -745,6 +750,7 @@ fn stored_provider_to_platform(
         temperature: p.temperature,
         top_p: p.top_p,
         max_tokens: p.max_tokens,
+        context_budget_tokens: p.context_budget_tokens,
         model_configs: p
             .model_configs
             .iter()
@@ -920,6 +926,7 @@ impl Default for StoredSettings {
                     temperature: p.temperature,
                     top_p: p.top_p,
                     max_tokens: p.max_tokens,
+                    context_budget_tokens: p.context_budget_tokens,
                     model_configs: p
                         .model_configs
                         .iter()
@@ -931,6 +938,7 @@ impl Default for StoredSettings {
                                     temperature: v.temperature,
                                     top_p: v.top_p,
                                     max_tokens: v.max_tokens,
+                                    context_budget_tokens: v.context_budget_tokens,
                                     enable_thinking: v.enable_thinking,
                                     thinking_budget: v.thinking_budget,
                                     reasoning_effort: v.reasoning_effort.clone(),

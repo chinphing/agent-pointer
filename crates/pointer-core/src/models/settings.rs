@@ -22,6 +22,14 @@ pub struct ModelRuntimeOverrides {
     pub top_p: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
     pub max_tokens: Option<u32>,
+    /// Context budget in tokens; unset inherits the provider default.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "contextBudgetTokens",
+        alias = "contextBudgetChars"
+    )]
+    pub context_budget_tokens: Option<u32>,
     /// Qwen: `enable_thinking` on the chat/completions request.
     #[serde(
         default,
@@ -115,6 +123,14 @@ pub struct ProviderConfig {
     /// Default max output tokens when a model has no per-model `max_tokens`.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
     pub max_tokens: Option<u32>,
+    /// Default context budget (tokens) when a model has no per-model override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "contextBudgetTokens",
+        alias = "contextBudgetChars"
+    )]
+    pub context_budget_tokens: Option<u32>,
     /// Key = model id string (same as entries in `models`). Values override provider default.
     #[serde(default, rename = "modelConfigs")]
     pub model_configs: HashMap<String, ModelRuntimeOverrides>,
@@ -374,7 +390,32 @@ pub fn effective_max_tokens(settings: &ModelSettings) -> u32 {
     settings.max_tokens.max(64)
 }
 
-/// Migrate legacy global `temperature` / `max_tokens` onto each provider default.
+pub const CONTEXT_BUDGET_TOKENS_FLOOR: u32 = 4096;
+pub const CONTEXT_BUDGET_TOKENS_CEILING: u32 = 2_097_152;
+
+pub fn clamp_context_budget_tokens(n: u32) -> u32 {
+    n.clamp(CONTEXT_BUDGET_TOKENS_FLOOR, CONTEXT_BUDGET_TOKENS_CEILING)
+}
+
+/// Context budget for the **active** provider + **current** `settings.model`.
+pub fn effective_context_budget_tokens(settings: &ModelSettings) -> u32 {
+    if let Some((p, model)) = active_provider_and_model(settings) {
+        if let Some(n) = p
+            .model_configs
+            .get(model)
+            .and_then(|o| o.context_budget_tokens)
+        {
+            return clamp_context_budget_tokens(n);
+        }
+        if let Some(n) = p.context_budget_tokens {
+            return clamp_context_budget_tokens(n);
+        }
+    }
+    clamp_context_budget_tokens(settings.context_budget_tokens)
+}
+
+/// Migrate legacy global `temperature` / `max_tokens` / `context_budget_tokens`
+/// onto each provider default.
 ///
 /// Do **not** auto-fill `model_configs` for every model: an empty entry means「同上」(inherit
 /// provider). Filling per-model entries on load made「同上」 impossible to persist.
@@ -385,6 +426,7 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
         DEFAULT_MODEL_TEMPERATURE
     };
     let global_max = settings.max_tokens.max(64);
+    let global_ctx = clamp_context_budget_tokens(settings.context_budget_tokens);
     for provider in &mut settings.providers {
         if provider.temperature.is_none() {
             provider.temperature = Some(global_temp);
@@ -394,6 +436,9 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
         }
         if provider.max_tokens.is_none() {
             provider.max_tokens = Some(global_max);
+        }
+        if provider.context_budget_tokens.is_none() {
+            provider.context_budget_tokens = Some(global_ctx);
         }
     }
 }
@@ -639,8 +684,9 @@ pub struct ModelSettings {
         rename = "contextCompressionEnabled"
     )]
     pub context_compression_enabled: bool,
-    /// Estimated token budget for included messages. Hard trigger; soft precompress
-    /// at 80%. Verbatim tail is ~20% of this (tighter on overflow).
+    /// Fallback context budget when the active provider/model has no override.
+    /// Prefer provider / model `contextBudgetTokens`. Hard trigger; soft
+    /// precompress at 80%. Verbatim tail is ~20% of this (tighter on overflow).
     #[serde(
         default = "default_context_budget_tokens",
         rename = "contextBudgetTokens",
@@ -2085,6 +2131,7 @@ pub(crate) fn sample_settings() -> ModelSettings {
         temperature: None,
         top_p: None,
         max_tokens: None,
+        context_budget_tokens: None,
         model_configs: HashMap::new(),
         enable_thinking: Some(true),
         thinking_budget: Some(2048),
@@ -2104,6 +2151,7 @@ pub(crate) fn sample_settings() -> ModelSettings {
         temperature: None,
         top_p: None,
         max_tokens: None,
+        context_budget_tokens: None,
         model_configs: HashMap::new(),
         enable_thinking: None,
         thinking_budget: None,
@@ -2791,6 +2839,7 @@ mod model_capability_vision_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
             thinking_budget: None,
@@ -2910,6 +2959,7 @@ mod user_settings_defaults_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
             thinking_budget: None,
@@ -2929,6 +2979,7 @@ mod user_settings_defaults_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
             thinking_budget: None,
@@ -2948,6 +2999,7 @@ mod user_settings_defaults_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
             thinking_budget: None,
@@ -3048,6 +3100,7 @@ mod user_settings_defaults_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
             thinking_budget: None,
@@ -3287,6 +3340,7 @@ mod user_settings_defaults_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: Default::default(),
             enable_thinking: None,
             thinking_budget: None,
@@ -3446,6 +3500,32 @@ mod effective_generation_tests {
             },
         );
         assert_eq!(effective_max_tokens(&s), 4096);
+    }
+
+    #[test]
+    fn effective_context_budget_tokens_provider_then_model() {
+        let mut s = sample_settings();
+        s.model = "qwen3.5-plus".into();
+        s.context_budget_tokens = 32_768;
+        s.providers[0].context_budget_tokens = Some(128_000);
+        assert_eq!(effective_context_budget_tokens(&s), 128_000);
+        s.providers[0].model_configs.insert(
+            "qwen3.5-plus".into(),
+            ModelRuntimeOverrides {
+                context_budget_tokens: Some(64_000),
+                ..Default::default()
+            },
+        );
+        assert_eq!(effective_context_budget_tokens(&s), 64_000);
+    }
+
+    #[test]
+    fn ensure_provider_generation_defaults_fills_context_budget() {
+        let mut s = sample_settings();
+        s.context_budget_tokens = 80_000;
+        s.providers[0].context_budget_tokens = None;
+        ensure_provider_generation_defaults(&mut s);
+        assert_eq!(s.providers[0].context_budget_tokens.unwrap(), 80_000);
     }
 
     #[test]
@@ -3812,6 +3892,7 @@ mod effective_extra_body_tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
             thinking_budget: None,

@@ -10,7 +10,8 @@ import { modelSupportsAudioTranscription } from '../lib/modelCapabilities'
 
 const fallback = {
   temperature: () => 0.7,
-  maxTokens: () => 2048
+  maxTokens: () => 2048,
+  contextBudgetTokens: () => 262144
 }
 
 function qwenProvider(over: ProviderConfig['modelConfigs'] = {}): ProviderConfig {

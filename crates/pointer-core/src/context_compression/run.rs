@@ -178,7 +178,9 @@ pub(crate) async fn compress_history_inner(
         return false;
     }
     let keep_users = settings.context_keep_recent_user_turns.max(1);
-    let budget_tokens = normalize_context_budget_tokens(settings.context_budget_tokens);
+    let budget_tokens = normalize_context_budget_tokens(
+        crate::models::effective_context_budget_tokens(settings),
+    );
 
     let gate = evaluate_compress_gate(
         history,

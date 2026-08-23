@@ -21,6 +21,15 @@ import {
 export const DEFAULT_MODEL_TEMPERATURE = 0.7
 export const DEFAULT_MODEL_TOP_P = 0.95
 export const DEFAULT_MODEL_MAX_TOKENS = 2048
+export const DEFAULT_CONTEXT_BUDGET_TOKENS = 262_144
+export const CONTEXT_BUDGET_TOKENS_MIN = 4096
+export const CONTEXT_BUDGET_TOKENS_MAX = 2_097_152
+
+export type RuntimeGenFallback = {
+  temperature: () => number
+  maxTokens: () => number
+  contextBudgetTokens: () => number
+}
 
 export type RuntimeParamsVariant = 'qwen' | 'deepseek' | 'generic'
 
@@ -38,6 +47,8 @@ export interface RuntimeParamsApi {
   setTopP: (value: number) => void
   maxTokens: () => number
   setMaxTokens: (value: number) => void
+  contextBudgetTokens: () => number
+  setContextBudgetTokens: (value: number) => void
   reasoningOn: () => boolean
   setReasoningOn: (on: boolean) => void
   deepThinkingOn: () => boolean
@@ -94,10 +105,16 @@ export function parseExtraBodyJson(
   }
 }
 
+export function clampContextBudgetTokens(value: number): number {
+  const n = Math.round(Number(value))
+  if (!Number.isFinite(n)) return DEFAULT_CONTEXT_BUDGET_TOKENS
+  return Math.min(CONTEXT_BUDGET_TOKENS_MAX, Math.max(CONTEXT_BUDGET_TOKENS_MIN, n))
+}
+
 export function useRuntimeParams(
   provider: Ref<ProviderConfig | null>,
   modelId: Ref<string | null>,
-  globalFallback: { temperature: () => number; maxTokens: () => number }
+  globalFallback: RuntimeGenFallback
 ): RuntimeParamsApi {
   function fallbackTemperature(): number {
     const t = globalFallback.temperature()
@@ -107,6 +124,12 @@ export function useRuntimeParams(
   function fallbackMaxTokens(): number {
     const n = globalFallback.maxTokens()
     return n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS
+  }
+
+  function fallbackContextBudgetTokens(): number {
+    return clampContextBudgetTokens(
+      globalFallback.contextBudgetTokens() || DEFAULT_CONTEXT_BUDGET_TOKENS
+    )
   }
 
   function patchModel(
@@ -120,6 +143,7 @@ export function useRuntimeParams(
       temperature: p.temperature ?? fallbackTemperature(),
       topP: p.topP ?? DEFAULT_MODEL_TOP_P,
       maxTokens: p.maxTokens ?? fallbackMaxTokens(),
+      contextBudgetTokens: p.contextBudgetTokens ?? fallbackContextBudgetTokens(),
       reasoningInMessages: p.reasoningInMessages === true,
       ...configs[id]
     }
@@ -203,6 +227,32 @@ export function useRuntimeParams(
       patchModel(mid, prev => ({ ...prev, maxTokens: v }))
     } else {
       p.maxTokens = v
+    }
+  }
+
+  function contextBudgetTokens(): number {
+    const p = provider.value
+    if (!p) return fallbackContextBudgetTokens()
+    const mid = modelId.value
+    if (mid) {
+      return clampContextBudgetTokens(
+        p.modelConfigs?.[mid]?.contextBudgetTokens
+        ?? p.contextBudgetTokens
+        ?? fallbackContextBudgetTokens()
+      )
+    }
+    return clampContextBudgetTokens(p.contextBudgetTokens ?? fallbackContextBudgetTokens())
+  }
+
+  function setContextBudgetTokens(value: number) {
+    const p = provider.value
+    if (!p) return
+    const v = clampContextBudgetTokens(value)
+    const mid = modelId.value
+    if (mid) {
+      patchModel(mid, prev => ({ ...prev, contextBudgetTokens: v }))
+    } else {
+      p.contextBudgetTokens = v
     }
   }
 
@@ -442,6 +492,8 @@ export function useRuntimeParams(
     setTopP,
     maxTokens,
     setMaxTokens,
+    contextBudgetTokens,
+    setContextBudgetTokens,
     reasoningOn,
     setReasoningOn,
     deepThinkingOn,
@@ -494,11 +546,23 @@ export function providerDefaultMaxTokens(
   return g && g >= 64 ? g : DEFAULT_MODEL_MAX_TOKENS
 }
 
+export function providerDefaultContextBudgetTokens(
+  p: ProviderConfig,
+  globalFallback: { contextBudgetTokens: () => number }
+): number {
+  if (p.contextBudgetTokens !== undefined) {
+    return clampContextBudgetTokens(p.contextBudgetTokens)
+  }
+  return clampContextBudgetTokens(
+    globalFallback.contextBudgetTokens() || DEFAULT_CONTEXT_BUDGET_TOKENS
+  )
+}
+
 /** True when overrides differ from provider defaults (empty / omitted means「同上」). */
 export function hasEffectiveModelOverride(
   o: ModelRuntimeOverrides,
   p: ProviderConfig,
-  globalFallback: { temperature: () => number; maxTokens: () => number },
+  globalFallback: RuntimeGenFallback,
   modelId = ''
 ): boolean {
   if (o.thinkingIntensity !== undefined || o.thinkingProtocol !== undefined) {
@@ -523,6 +587,13 @@ export function hasEffectiveModelOverride(
   if (
     o.maxTokens !== undefined
     && o.maxTokens !== providerDefaultMaxTokens(p, globalFallback)
+  ) {
+    return true
+  }
+  if (
+    o.contextBudgetTokens !== undefined
+    && clampContextBudgetTokens(o.contextBudgetTokens)
+      !== providerDefaultContextBudgetTokens(p, globalFallback)
   ) {
     return true
   }
@@ -552,7 +623,7 @@ export function hasEffectiveModelOverride(
 export function pruneInheritedModelConfigs(
   p: ProviderConfig,
   configs: ProviderConfig['modelConfigs'] | undefined,
-  globalFallback: { temperature: () => number; maxTokens: () => number }
+  globalFallback: RuntimeGenFallback
 ): NonNullable<ProviderConfig['modelConfigs']> {
   const src = configs ?? {}
   const out: Record<string, ModelRuntimeOverrides> = {}
@@ -569,7 +640,7 @@ export function sanitizeProviderModelConfigs(
   provider: ProviderConfig,
   modelIds: string[],
   configs: ProviderConfig['modelConfigs'] | undefined,
-  globalFallback: { temperature: () => number; maxTokens: () => number }
+  globalFallback: RuntimeGenFallback
 ): NonNullable<ProviderConfig['modelConfigs']> {
   const nextMc: Record<string, ModelRuntimeOverrides> = {}
   const src = configs ?? {}
@@ -581,6 +652,9 @@ export function sanitizeProviderModelConfigs(
     if (o.temperature !== undefined) clean.temperature = o.temperature
     if (o.topP !== undefined) clean.topP = o.topP
     if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
+    if (o.contextBudgetTokens !== undefined) {
+      clean.contextBudgetTokens = clampContextBudgetTokens(o.contextBudgetTokens)
+    }
     if (o.thinkingIntensity !== undefined) clean.thinkingIntensity = o.thinkingIntensity
     if (o.thinkingProtocol !== undefined) clean.thinkingProtocol = o.thinkingProtocol
     if (o.reasoningEffort !== undefined) clean.reasoningEffort = o.reasoningEffort
@@ -619,13 +693,17 @@ export function patchProviderModelCapability(
 /** Build per-model custom entry from provider defaults (explicit fields). */
 export function buildCustomModelEntryFromProvider(
   p: ProviderConfig,
-  globalFallback: { temperature: () => number; maxTokens: () => number }
+  globalFallback: RuntimeGenFallback
 ): ModelRuntimeOverrides {
   const temp = globalFallback.temperature()
   const max = globalFallback.maxTokens()
+  const ctx = globalFallback.contextBudgetTokens()
   const entry: ModelRuntimeOverrides = {
     temperature: p.temperature ?? (Number.isFinite(temp) && temp >= 0 ? temp : DEFAULT_MODEL_TEMPERATURE),
     maxTokens: p.maxTokens ?? (max && max >= 64 ? max : DEFAULT_MODEL_MAX_TOKENS),
+    contextBudgetTokens: clampContextBudgetTokens(
+      p.contextBudgetTokens ?? ctx ?? DEFAULT_CONTEXT_BUDGET_TOKENS
+    ),
     reasoningInMessages: p.reasoningInMessages === true
   }
   if (isQwenProvider(p)) {

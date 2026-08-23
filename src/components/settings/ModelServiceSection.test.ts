@@ -37,6 +37,7 @@ vi.mock('../../stores/settings', () => ({
 }))
 
 vi.mock('../../composables/useRuntimeParams', () => ({
+  DEFAULT_CONTEXT_BUDGET_TOKENS: 262_144,
   DEFAULT_MODEL_MAX_TOKENS: 64_000,
   DEFAULT_MODEL_TEMPERATURE: 0.3,
   buildCustomModelEntryFromProvider: vi.fn(),

@@ -509,7 +509,7 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
             conversation_id
         );
     }
-    let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
+    let budget = normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(settings));
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
     match sub_agent_between_round_compress_soft(history, tokens, budget, keep_users) {
         None => {}
@@ -583,7 +583,7 @@ pub async fn prepare_history_between_llm_rounds(
             conversation_id
         );
     }
-    let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
+    let budget = normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(settings));
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
     let hard_plan = plan_compression(history, tokens, budget, keep_users, false, false, false);
     if !matches!(hard_plan, CompressionPlan::Skip) {
@@ -686,7 +686,9 @@ pub(crate) fn spawn_precompress_if_soft_gate(
     if !llm.settings.context_compression_enabled {
         return;
     }
-    let budget = normalize_context_budget_tokens(llm.settings.context_budget_tokens);
+    let budget = normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(
+        &llm.settings,
+    ));
     let keep_users = llm.settings.context_keep_recent_user_turns.max(1) as usize;
     let plan = plan_compression(
         history,
@@ -766,7 +768,9 @@ pub(crate) async fn run_precompress_job(
         );
         return false;
     }
-    let budget = normalize_context_budget_tokens(settings.context_budget_tokens);
+    let budget = normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(
+        &settings,
+    ));
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
     let last_api = store
         .get_last_lead_prompt_tokens(conversation_id)

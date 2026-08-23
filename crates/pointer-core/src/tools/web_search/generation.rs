@@ -188,6 +188,7 @@ mod tests {
                     temperature: None,
                     top_p: None,
                     max_tokens: None,
+                    context_budget_tokens: None,
                     model_configs: Default::default(),
                     enable_thinking: None,
                     thinking_budget: None,

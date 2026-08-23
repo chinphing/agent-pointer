@@ -829,6 +829,7 @@ fn apply_llm_section(platform: &mut PlatformSettings, user: &mut UserSettings, l
                 temperature: None,
                 top_p: None,
                 max_tokens: None,
+                context_budget_tokens: None,
                 model_configs: HashMap::new(),
                 enable_thinking: None,
                 thinking_budget: None,

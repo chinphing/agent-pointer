@@ -13,6 +13,7 @@ import {
 } from '../../lib/providerParams'
 import {
   buildCustomModelEntryFromProvider,
+  DEFAULT_CONTEXT_BUDGET_TOKENS,
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
   patchProviderModelCapability,
@@ -68,7 +69,8 @@ const providerTemplate = ref<ProviderTemplateId>('openai_compatible')
 
 const globalGenFallback = {
   temperature: () => s.settings.temperature,
-  maxTokens: () => s.settings.maxTokens
+  maxTokens: () => s.settings.maxTokens,
+  contextBudgetTokens: () => s.settings.contextBudgetTokens
 }
 
 const providerRuntimeApi = useRuntimeParams(editingProvider, providerScopeModelId, globalGenFallback)
@@ -211,9 +213,11 @@ function copyOriginalKey() {
 function globalGenDefaults() {
   const t = s.settings.temperature
   const n = s.settings.maxTokens
+  const ctx = s.settings.contextBudgetTokens
   return {
     temperature: Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE,
-    maxTokens: n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS
+    maxTokens: n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS,
+    contextBudgetTokens: ctx && ctx >= 4096 ? ctx : DEFAULT_CONTEXT_BUDGET_TOKENS
   }
 }
 

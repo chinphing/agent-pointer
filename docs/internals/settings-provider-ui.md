@@ -70,7 +70,7 @@
 系统设置里走自动保存的项（并发、内容上限，以及同页的工具权限 / 桌面行为 / 界面开关）写在用户设置里。弹窗是 `v-if`，关掉再打开从表单 store 的 **merged** `settings`（收缩类开关读 `userSettings`）回填，不是直接读磁盘。
 
 - `assistantPreferencesPayload` 里的字段必须在**落盘前**写回 `settings` **和** `userSettings`。只写 merged 的话，之后一次只带部分字段的 `saveUser` 会用旧 user 快照把刚改的值盖掉。
-- 数字框（上下文预算、内容上限、轮次、并发）绑的是表单本地 ref。输入过程中不要同步改 Pinia：每次改都会重绘设置页和外壳。350ms 防抖后再 `apply` + 一次 `saveAgentPreferences`。
+- 数字框（内容上限、轮次、并发）绑的是表单本地 ref。输入过程中不要同步改 Pinia：每次改都会重绘设置页和外壳。350ms 防抖后再 `apply` + 一次 `saveAgentPreferences`。
 - 不要在自动保存里再跟一次只含部分字段的 `saveUser`：`createUserSnapshot` 会深拷贝整份用户设置（含服务商），回写还会整体替换 merged。
 - `saveUserSnapshot` 保存成功后要把这些字段写回 merged。`maxParallel*` 为 `null` / 省略表示跟 CPU（上限 8），不要用旧 merged 数字兜底。
 - WEB 非 admin 会剥掉调试字段（如 `taskBoardShowChildBoards`）：响应里省略时保留内存值，不能当成 false。
@@ -101,6 +101,7 @@
 
 - `RuntimeParamsForm` + `useRuntimeParams`：服务商级用 `providerScopeModelId === null`，模型定制用 `modelConfigModalId`。
 - 改 `modelConfigs` 时替换顶层对象引用（见 `useRuntimeParams.patchModel`）。
+- **最大输出 / 上下文**：同一行两个数字框；服务商默认 + 单模型覆盖，和温度一样。官网目录字段 `maxTokens` / `contextBudgetTokens`。
 - **扩展参数 `extraBody`**：JSON 对象；失焦时解析写入。服务商级与模型级均可配；模型覆盖浅合并服务商。
   请求时一律展平到 chat/completions 根级（对齐 Hermes）。详见 [`../llm/model-thinking-api.md`](../llm/model-thinking-api.md)。
 

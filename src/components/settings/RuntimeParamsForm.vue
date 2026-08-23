@@ -47,6 +47,18 @@ function commitExtraBody() {
           @input="api.setMaxTokens(Number(($event.target as HTMLInputElement).value))"
         />
       </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <span class="text-[12px] text-muted whitespace-nowrap">上下文</span>
+        <input
+          type="number"
+          min="4096"
+          max="2097152"
+          step="1024"
+          class="w-[5.5rem] h-8 px-1.5 rounded-lg bg-card border border-border text-foreground text-[12px] text-right font-mono outline-none focus:border-accent/50"
+          :value="api.contextBudgetTokens()"
+          @input="api.setContextBudgetTokens(Number(($event.target as HTMLInputElement).value))"
+        />
+      </div>
 
       <div class="flex items-center gap-1.5 shrink-0">
         <span class="text-[12px] text-muted whitespace-nowrap">思考强度</span>

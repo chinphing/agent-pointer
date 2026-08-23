@@ -468,6 +468,8 @@ export interface ModelRuntimeOverrides {
   /** Nucleus sampling (`top_p` on wire). */
   topP?: number
   maxTokens?: number
+  /** Context budget in tokens; unset inherits the provider default. */
+  contextBudgetTokens?: number
   /** Qwen: deep thinking (`enable_thinking` on wire). */
   enableThinking?: boolean
   /** Qwen: thinking token budget when `enableThinking` is true. */
@@ -545,6 +547,8 @@ export interface ProviderConfig {
   topP?: number
   /** Default max output tokens for models without a per-model override. */
   maxTokens?: number
+  /** Default context budget (tokens) for models without a per-model override. */
+  contextBudgetTokens?: number
   modelConfigs?: Record<string, ModelRuntimeOverrides>
   /** Qwen: deep thinking (`enable_thinking` on wire). */
   enableThinking?: boolean
@@ -612,9 +616,9 @@ export interface UserSettings {
   agentMode?: AgentMode
   workspaceRoot?: string
   leadAgentId?: string
-  /** Summarize older turns when estimated context exceeds budget */
+  /** Summarize older turns when estimated context exceeds the provider/model budget */
   contextCompressionEnabled?: boolean
-  /** Token budget; over this triggers compression. Verbatim tail is a fraction of this. */
+  /** Legacy global fallback; compression uses provider / model `contextBudgetTokens`. */
   contextBudgetTokens?: number
   /** Legacy persisted field; split is token-tail + latest user, not keep-N. */
   contextKeepRecentUserTurns?: number
@@ -722,6 +726,7 @@ export interface PlatformProviderModelTemplate {
   temperature?: number
   topP?: number
   maxTokens?: number
+  contextBudgetTokens?: number
   enableThinking?: boolean
   thinkingBudget?: number
   reasoningEffort?: string
@@ -748,6 +753,7 @@ export interface PlatformProviderTemplate {
   temperature?: number
   topP?: number
   maxTokens?: number
+  contextBudgetTokens?: number
 }
 
 /** Platform/runtime fields (in-memory only; never persisted). Only session-scoped /

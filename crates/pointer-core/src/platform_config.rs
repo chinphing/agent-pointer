@@ -246,6 +246,7 @@ pub fn apply_login_platform_providers(
                         temperature: m.temperature,
                         top_p: m.top_p,
                         max_tokens: m.max_tokens,
+                        context_budget_tokens: m.context_budget_tokens,
                         enable_thinking: m.enable_thinking,
                         thinking_budget: m.thinking_budget,
                         reasoning_effort: m.reasoning_effort.clone(),
@@ -281,6 +282,9 @@ pub fn apply_login_platform_providers(
             if tpl.max_tokens.is_some() {
                 p.max_tokens = tpl.max_tokens;
             }
+            if tpl.context_budget_tokens.is_some() {
+                p.context_budget_tokens = tpl.context_budget_tokens;
+            }
             p.source = Some("platform".into());
         } else {
             providers.push(ProviderConfig {
@@ -293,6 +297,7 @@ pub fn apply_login_platform_providers(
                 temperature: tpl.temperature,
                 top_p: tpl.top_p,
                 max_tokens: tpl.max_tokens,
+                context_budget_tokens: tpl.context_budget_tokens,
                 model_configs,
                 enable_thinking: tpl.enable_thinking,
                 thinking_budget: tpl.thinking_budget,
@@ -537,6 +542,23 @@ mod tests {
     }
 
     #[test]
+    fn apply_login_platform_providers_copies_context_budget() {
+        let mut providers: Vec<ProviderConfig> = Vec::new();
+        let mut tpl = qwen_template();
+        tpl.context_budget_tokens = Some(128_000);
+        tpl.models[0].context_budget_tokens = Some(64_000);
+        apply_login_platform_providers(&mut providers, &[tpl]);
+        let qwen = providers.iter().find(|p| p.id == "qwen").unwrap();
+        assert_eq!(qwen.context_budget_tokens, Some(128_000));
+        assert_eq!(
+            qwen.model_configs
+                .get("qwen3.5-plus")
+                .and_then(|m| m.context_budget_tokens),
+            Some(64_000)
+        );
+    }
+
+    #[test]
     fn apply_login_provider_api_keys_maps_aliyun_qwen_alias() {
         let mut platform = PlatformSettings::default();
         let templates = vec![qwen_template(), deepseek_template()];
@@ -594,6 +616,7 @@ mod tests {
             temperature: None,
             top_p: None,
             max_tokens: None,
+            context_budget_tokens: None,
             model_configs: HashMap::new(),
             enable_thinking: None,
             thinking_budget: None,

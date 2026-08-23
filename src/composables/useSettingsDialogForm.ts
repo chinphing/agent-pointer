@@ -255,8 +255,6 @@ function createSettingsDialogForm(deps: {
   const agentMode = ref<'single'>('single')
   const leadAgentId = ref('')
   const contextCompressionEnabled = ref(true)
-  const DEFAULT_CONTEXT_BUDGET_KB = 256
-  const contextBudgetKb = ref(DEFAULT_CONTEXT_BUDGET_KB)
   const contextKeepRecentUserTurns = ref(6)
   const DEFAULT_TOOL_ROUNDS = 5000
   const LEGACY_TOOL_ROUNDS = new Set([100, 200])
@@ -475,15 +473,6 @@ function createSettingsDialogForm(deps: {
   agentMode.value = 'single'
   leadAgentId.value = s.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
   contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
-  const storedBudgetTokens =
-    s.settings.contextBudgetTokens
-    ?? (s.settings as { contextBudgetChars?: number }).contextBudgetChars
-    ?? DEFAULT_CONTEXT_BUDGET_KB * 1024
-  const budgetTokens =
-    storedBudgetTokens === 100_000 || storedBudgetTokens === 120_000
-      ? DEFAULT_CONTEXT_BUDGET_KB * 1024
-      : storedBudgetTokens
-  contextBudgetKb.value = Math.max(4, Math.round(budgetTokens / 1024))
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
   maxToolRounds.value = migrateToolRounds(s.settings.maxToolRounds)
   fileReadMaxKb.value = Math.max(4, Math.round((s.settings.fileReadMaxBytes ?? 65_536) / 1024))
@@ -796,10 +785,6 @@ function createSettingsDialogForm(deps: {
       : null,
     maxConcurrentRuns: Math.max(1, Math.min(64, Number(maxConcurrentRuns.value) || 4)),
     contextCompressionEnabled: contextCompressionEnabled.value,
-    contextBudgetTokens: Math.min(
-      2_000_000,
-      Math.max(4096, Math.round(Number(contextBudgetKb.value) || DEFAULT_CONTEXT_BUDGET_KB) * 1024)
-    ),
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
     maxToolRounds: Number(maxToolRounds.value),
     maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
@@ -847,7 +832,6 @@ function createSettingsDialogForm(deps: {
     s.settings.maxToolRounds = payload.maxToolRounds
     s.settings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
     s.settings.contextCompressionEnabled = payload.contextCompressionEnabled
-    s.settings.contextBudgetTokens = payload.contextBudgetTokens
     s.settings.contextKeepRecentUserTurns = payload.contextKeepRecentUserTurns
     s.settings.parallelToolExecutionEnabled = payload.parallelToolExecutionEnabled
     s.settings.maxParallelToolCalls = payload.maxParallelToolCalls
@@ -876,7 +860,6 @@ function createSettingsDialogForm(deps: {
     s.userSettings.maxToolRounds = payload.maxToolRounds
     s.userSettings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
     s.userSettings.contextCompressionEnabled = payload.contextCompressionEnabled
-    s.userSettings.contextBudgetTokens = payload.contextBudgetTokens
     s.userSettings.contextKeepRecentUserTurns = payload.contextKeepRecentUserTurns
     s.userSettings.parallelToolExecutionEnabled = payload.parallelToolExecutionEnabled
     s.userSettings.maxParallelToolCalls = payload.maxParallelToolCalls
@@ -958,7 +941,6 @@ function createSettingsDialogForm(deps: {
     [
       toolApprovalMode,
       contextCompressionEnabled,
-      contextBudgetKb,
       contextKeepRecentUserTurns,
       maxToolRounds,
       maxSubAgentToolRounds,
@@ -1022,7 +1004,6 @@ function createSettingsDialogForm(deps: {
     agentMode,
     leadAgentId,
     contextCompressionEnabled,
-    contextBudgetKb,
     contextKeepRecentUserTurns,
     maxToolRounds,
     fileReadMaxKb,

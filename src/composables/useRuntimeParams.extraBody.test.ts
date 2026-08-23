@@ -28,7 +28,7 @@ describe('extraBody helpers', () => {
       apiKey: '',
       models: ['m1']
     }
-    const fallback = { temperature: () => 0.7, maxTokens: () => 2048 }
+    const fallback = { temperature: () => 0.7, maxTokens: () => 2048, contextBudgetTokens: () => 262144 }
     expect(
       hasEffectiveModelOverride({ extraBody: { repetition_penalty: 1.1 } }, p, fallback, 'm1')
     ).toBe(true)

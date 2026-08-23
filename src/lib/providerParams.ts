@@ -168,7 +168,7 @@ export function stripProviderExtensionFields(
 /** Apply template defaults when adding a provider (same flow as built-in Qwen / DeepSeek). */
 export function providerDraftForTemplate(
   template: ProviderTemplateId,
-  global: { temperature: number; maxTokens: number }
+  global: { temperature: number; maxTokens: number; contextBudgetTokens?: number }
 ): ProviderConfig {
   const meta = providerTemplateMeta(template)
   return {
@@ -180,6 +180,7 @@ export function providerDraftForTemplate(
     reasoningInMessages: false,
     temperature: global.temperature,
     maxTokens: global.maxTokens,
+    contextBudgetTokens: global.contextBudgetTokens,
     modelConfigs: {},
     thinkingProtocol: defaultProtocolForTemplate(template)
   }

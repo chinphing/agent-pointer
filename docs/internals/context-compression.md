@@ -25,12 +25,13 @@
 
 ## 用户可调参数
 
-**设置 → 智能体 → 上下文自动压缩** 里只保留：
+**设置 → 智能体 → 上下文自动压缩** 只保留开关 `contextCompressionEnabled`。
 
-- 开关 `contextCompressionEnabled`
-- **上下文预算** `contextBudgetTokens`（硬阈值；软预压缩约 80%；**何时压**仍看 token。原文尾部按 token 约 20%，超限约 12%）
-  设置页按 **KB** 编辑，默认 **256KB**（落盘 `256 × 1024`）。
-  读到旧默认 `100000` / `120000`（token 时代）时按 256KB 处理。
+**上下文预算** `contextBudgetTokens` 与最大输出放在一起：
+**设置 → 模型配置** 的服务商默认，以及单模型「定制」覆盖。
+官网目录 `platformProviders` 同样可下发服务商级 / 模型级 `contextBudgetTokens`。
+硬阈值；软预压缩约 80%；**何时压**仍看 token。原文尾部按 token 约 20%，超限约 12%。
+默认 **262144** token。旧全局项仍作回退，加载时写到尚未配置的服务商。
 
 `contextKeepRecentUserTurns` 仍写入用户配置和压缩事件，但**不再**作为切分地板。
 `contextSummaryMaxTokens` 不参与对话压缩（摘要长度按前缀动态计算），后台 review 仍可能用到。

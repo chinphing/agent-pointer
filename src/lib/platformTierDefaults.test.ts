@@ -59,6 +59,24 @@ describe('platformTierDefaults', () => {
     })
   })
 
+  it('copies context budget from platform provider and model entries', () => {
+    const providers = normalizePlatformProviderTemplates([
+      {
+        id: 'qwen',
+        name: '千问',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        contextBudgetTokens: 128_000,
+        models: [
+          { name: 'qwen-next', contextBudgetTokens: 64_000 },
+          'qwen3.8-max'
+        ]
+      }
+    ])
+    expect(providers[0].contextBudgetTokens).toBe(128_000)
+    expect(providers[0].modelConfigs?.['qwen-next']?.contextBudgetTokens).toBe(64_000)
+    expect(providers[0].modelConfigs?.['qwen3.8-max']).toBeUndefined()
+  })
+
   it('reads scene defaults from platform tierDefaults', () => {
     const tierDefaults = {
       agentModeLlm: {

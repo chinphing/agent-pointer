@@ -34,6 +34,8 @@ pub struct LeadStreamRoundContext<'a> {
     pub max_cap: u32,
     pub reasoning_in_messages: bool,
     pub cancel: CancellationToken,
+    /// Consecutive overflow compress+retry cycles in this tool loop.
+    pub overflow_recoveries: u32,
 }
 
 impl<'a> LeadStreamRoundContext<'a> {
@@ -54,6 +56,8 @@ pub struct SubStreamRoundContext<'a> {
     pub max_cap: u32,
     pub reasoning_in_messages: bool,
     pub cancel: CancellationToken,
+    /// Consecutive overflow compress+retry cycles in this sub-agent loop.
+    pub overflow_recoveries: u32,
 }
 
 /// Sub-agent-specific mutable refs for one stream round.

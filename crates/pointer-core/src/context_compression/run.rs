@@ -287,13 +287,8 @@ pub(crate) async fn compress_history_inner(
         conversation_id,
         body_language
     );
-    let summary_user_prompt = build_summary_user_prompt_with_language(
-        &formatted,
-        max_tok,
-        in_run,
-        false,
-        body_language,
-    );
+    let summary_user_prompt =
+        build_summary_user_prompt_with_language(&formatted, max_tok, in_run, false, body_language);
     let input = ChatMessage {
         id: format!("sum_in_{}", uuid::Uuid::new_v4().simple()),
         role: Role::User,

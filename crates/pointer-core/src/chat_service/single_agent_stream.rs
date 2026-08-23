@@ -108,19 +108,12 @@ pub(super) async fn run_provider_stream_round(
         Ok(Err(e)) => {
             if crate::context_compression::is_context_overflow_error(&e) {
                 log::warn!(
-                    "run_chat: context overflow in stream conversation_id={} assistant_id={} err={e:#}",
+                    "run_chat: context overflow in stream conversation_id={} assistant_id={} recoveries={} err={e:#}",
                     conversation_id,
-                    assistant_id
+                    assistant_id,
+                    ctx.overflow_recoveries
                 );
                 crate::context_compression::discard_pending_compression(&conversation_id);
-                emit(
-                    &stream,
-                    StreamEvent::UiToast {
-                        conversation_id: conversation_id.clone(),
-                        message: "上下文超限，正在压缩后继续".into(),
-                        level: "warning".into(),
-                    },
-                );
                 emit(
                     &stream,
                     StreamEvent::MessageEnd {
@@ -133,6 +126,29 @@ pub(super) async fn run_provider_stream_round(
                         trace_id: None,
                         scoped_message_id: None,
                         attachments: None,
+                    },
+                );
+                ctx.tool_budget.sync_out(ctx.consumed_single);
+                if !crate::context_compression::should_recover_after_overflow(
+                    ctx.overflow_recoveries,
+                ) {
+                    log::warn!(
+                        "run_chat: overflow after {} recoveries, skipping another compress conversation_id={}",
+                        ctx.overflow_recoveries,
+                        conversation_id
+                    );
+                    state.computer_state.mark_cancelled(&conversation_id);
+                    return Err(super::emit::chat_run_err(
+                        "上下文压缩后仍然过大，请删减内容后再试。",
+                        Some(assistant_id.clone()),
+                    ));
+                }
+                emit(
+                    &stream,
+                    StreamEvent::UiToast {
+                        conversation_id: conversation_id.clone(),
+                        message: "上下文超限，正在压缩后继续".into(),
+                        level: "warning".into(),
                     },
                 );
                 let recovered = crate::context_compression::recover_history_after_overflow(
@@ -148,11 +164,12 @@ pub(super) async fn run_provider_stream_round(
                     ctx.token_session.stats.last_round_prompt_tokens,
                 )
                 .await;
-                ctx.tool_budget.sync_out(ctx.consumed_single);
                 if recovered && !cancel.is_cancelled() {
                     log::info!(
-                        "run_chat: overflow recovered in-loop conversation_id={}",
-                        conversation_id
+                        "run_chat: overflow recovered in-loop conversation_id={} recovery={}/{}",
+                        conversation_id,
+                        ctx.overflow_recoveries + 1,
+                        crate::context_compression::MAX_OVERFLOW_RECOVERIES
                     );
                     return Ok(ProviderRoundOutcome::RetryAfterOverflowCompress);
                 }

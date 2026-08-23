@@ -291,6 +291,7 @@ pub(crate) async fn run_sub_agent(
             max_cap,
             reasoning_in_messages,
             cancel: cancel.clone(),
+            overflow_recoveries,
         };
         let mut stream_refs = super::context::SubStreamRoundRefs {
             task,
@@ -315,13 +316,13 @@ pub(crate) async fn run_sub_agent(
         let buf = match stream_outcome {
             SubAgentStreamOutcome::RetryAfterOverflowCompress => {
                 overflow_recoveries += 1;
-                if overflow_recoveries > crate::context_compression::MAX_OVERFLOW_RECOVERIES {
-                    state.computer_state.mark_cancelled(conversation_id);
-                    return Err(super::emit::chat_run_err(
-                        "子任务上下文超限且压缩后仍无法继续，请新开对话或缩小任务范围。",
-                        Some(message_id.to_string()),
-                    ));
-                }
+                log::info!(
+                    "sub_agent: overflow recovery {}/{} task_id={} agent={}",
+                    overflow_recoveries,
+                    crate::context_compression::MAX_OVERFLOW_RECOVERIES,
+                    task.id,
+                    def.id
+                );
                 continue;
             }
             SubAgentStreamOutcome::RetryAfterRecoveryHint => {
@@ -353,7 +354,18 @@ pub(crate) async fn run_sub_agent(
                 tokio::time::sleep(delay).await;
                 continue;
             }
-            SubAgentStreamOutcome::Completed(b) => b,
+            SubAgentStreamOutcome::Completed(b) => {
+                if overflow_recoveries > 0 {
+                    log::info!(
+                        "sub_agent: overflow recovery streak reset after successful round task_id={} agent={} had_recoveries={}",
+                        task.id,
+                        def.id,
+                        overflow_recoveries
+                    );
+                    overflow_recoveries = 0;
+                }
+                b
+            }
         };
 
         // 截断优先于空响应：length 可能没有可见 content，但并非真正的空响应。

@@ -108,14 +108,30 @@ pub(super) async fn run_sub_agent_stream_round(
         Ok(Err(err)) => {
             if crate::context_compression::is_context_overflow_error(&err) {
                 log::warn!(
-                    "sub_agent: context overflow task_id={} agent={} err={err:#}",
+                    "sub_agent: context overflow task_id={} agent={} recoveries={} err={err:#}",
                     sub.task.id,
-                    sub.def.id
+                    sub.def.id,
+                    ctx.overflow_recoveries
                 );
                 crate::context_compression::discard_pending_compression_for_sub_agent(
                     conversation_id,
                     &sub.instance_scope.agent_instance_id,
                 );
+                if !crate::context_compression::should_recover_after_overflow(
+                    ctx.overflow_recoveries,
+                ) {
+                    log::warn!(
+                        "sub_agent: overflow after {} recoveries, skipping another compress task_id={} agent={}",
+                        ctx.overflow_recoveries,
+                        sub.task.id,
+                        sub.def.id
+                    );
+                    state.computer_state.mark_cancelled(conversation_id);
+                    return Err(super::emit::chat_run_err(
+                        "子任务上下文压缩后仍然过大，请缩小任务范围后再试。",
+                        Some(sub.message_id.to_string()),
+                    ));
+                }
                 emit(
                     stream,
                     StreamEvent::UiToast {
@@ -142,6 +158,13 @@ pub(super) async fn run_sub_agent_stream_round(
                 )
                 .await;
                 if recovered && !cancel.is_cancelled() {
+                    log::info!(
+                        "sub_agent: overflow recovered in-loop task_id={} agent={} recovery={}/{}",
+                        sub.task.id,
+                        sub.def.id,
+                        ctx.overflow_recoveries + 1,
+                        crate::context_compression::MAX_OVERFLOW_RECOVERIES
+                    );
                     return Ok(SubAgentStreamOutcome::RetryAfterOverflowCompress);
                 }
                 state.computer_state.mark_cancelled(conversation_id);

@@ -541,6 +541,14 @@ fn is_context_overflow_error_matches_common_phrases() {
 }
 
 #[test]
+fn should_recover_after_overflow_caps_consecutive_streak() {
+    assert!(should_recover_after_overflow(0));
+    assert!(should_recover_after_overflow(MAX_OVERFLOW_RECOVERIES - 1));
+    assert!(!should_recover_after_overflow(MAX_OVERFLOW_RECOVERIES));
+    assert!(!should_recover_after_overflow(MAX_OVERFLOW_RECOVERIES + 1));
+}
+
+#[test]
 fn should_precompress_history_uses_soft_gate_and_ratio() {
     let budget = 100_000;
     let soft = precompress_gate_threshold(budget);
@@ -670,7 +678,9 @@ fn summary_user_prompt_frames_source_and_repeats_instructions_after_it() {
     assert!(in_run.contains("Progress (blockers and decisions) > State > Next"));
     assert!(prompt.contains("One line per action"));
     assert!(final_instruction > source_end);
-    let language_at = prompt.find("LANGUAGE:").expect("language rule after source");
+    let language_at = prompt
+        .find("LANGUAGE:")
+        .expect("language rule after source");
     assert!(language_at > source_end);
     assert!(prompt.contains("same language the USER turns mainly used"));
     assert!(prompt.ends_with(
@@ -733,12 +743,8 @@ fn detect_summary_body_language_follows_real_user_turns() {
 #[test]
 fn summary_prompts_pin_body_language_after_the_source() {
     let ui = CompressionUiContext::main(AgentInstanceScope::new("test-run", "conv", "main"));
-    let system = build_summary_system_prompt_with_language(
-        &ui,
-        false,
-        false,
-        SummaryBodyLanguage::Chinese,
-    );
+    let system =
+        build_summary_system_prompt_with_language(&ui, false, false, SummaryBodyLanguage::Chinese);
     assert!(system.contains("Write every section body in Chinese"));
     assert!(system.contains("write 无"));
     assert!(system.contains("Do not write bodies in English because tool output is English"));

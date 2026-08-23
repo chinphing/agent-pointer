@@ -61,8 +61,17 @@ pub const IN_RUN_TURN_TOKEN_RATIO: f64 = 0.70;
 pub const TAIL_TOKEN_RATIO: f64 = 0.20;
 /// Tighter tail when recovering from a provider overflow.
 pub const OVERFLOW_TAIL_TOKEN_RATIO: f64 = 0.12;
-/// At most this many overflow recoveries per lead/sub-agent loop.
-pub const MAX_OVERFLOW_RECOVERIES: u32 = 2;
+/// Max consecutive overflow recoveries in one lead/sub-agent loop.
+/// Each recovery compresses history and **retries the LLM**.
+/// A successful LLM round resets the streak so a long tool loop is not
+/// killed by earlier recoveries.
+pub const MAX_OVERFLOW_RECOVERIES: u32 = 3;
+
+/// `recoveries` is how many compress+retry cycles already ran in this streak.
+pub fn should_recover_after_overflow(recoveries: u32) -> bool {
+    recoveries < MAX_OVERFLOW_RECOVERIES
+}
+
 /// Dynamic summary `max_tokens`: `content × ratio`, floored at
 /// [`MIN_SUMMARY_TOKENS`], capped at [`SUMMARY_TOKENS_CEILING`].
 pub fn compute_summary_max_tokens(content_tokens: usize) -> u32 {

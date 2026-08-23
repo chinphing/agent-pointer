@@ -199,6 +199,7 @@ pub(super) async fn run_single_agent_loop(
             max_cap,
             reasoning_in_messages,
             cancel: cancel.clone(),
+            overflow_recoveries,
         };
         let stream_input = super::context::StreamRoundInput {
             injected_tail: round_prompts.injected_tail,
@@ -215,14 +216,12 @@ pub(super) async fn run_single_agent_loop(
         let buf = match stream_outcome {
             super::single_agent_stream::ProviderRoundOutcome::RetryAfterOverflowCompress => {
                 overflow_recoveries += 1;
-                if overflow_recoveries > crate::context_compression::MAX_OVERFLOW_RECOVERIES {
-                    ctx.tool_budget.sync_out(ctx.consumed_single);
-                    state.computer_state.mark_cancelled(conversation_id);
-                    return Err(super::emit::chat_run_err(
-                        "上下文超限且压缩后仍无法继续，请新开对话或删减内容。",
-                        Some(assistant_id.clone()),
-                    ));
-                }
+                log::info!(
+                    "run_chat: overflow recovery {}/{} conversation_id={}",
+                    overflow_recoveries,
+                    crate::context_compression::MAX_OVERFLOW_RECOVERIES,
+                    conversation_id
+                );
                 continue;
             }
             super::single_agent_stream::ProviderRoundOutcome::RetryAfterRecoveryHint => {
@@ -267,7 +266,17 @@ pub(super) async fn run_single_agent_loop(
                 tokio::time::sleep(delay).await;
                 continue;
             }
-            super::single_agent_stream::ProviderRoundOutcome::Completed(b) => b,
+            super::single_agent_stream::ProviderRoundOutcome::Completed(b) => {
+                if overflow_recoveries > 0 {
+                    log::info!(
+                        "run_chat: overflow recovery streak reset after successful round conversation_id={} had_recoveries={}",
+                        conversation_id,
+                        overflow_recoveries
+                    );
+                    overflow_recoveries = 0;
+                }
+                b
+            }
         };
 
         // ── 空响应检测 ──

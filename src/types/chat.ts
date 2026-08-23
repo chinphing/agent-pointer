@@ -616,7 +616,7 @@ export interface UserSettings {
   agentMode?: AgentMode
   workspaceRoot?: string
   leadAgentId?: string
-  /** Summarize older turns when estimated context exceeds the provider/model budget */
+  /** Always on. Kept for older JSON; load/save force true. */
   contextCompressionEnabled?: boolean
   /** Legacy global fallback; compression uses provider / model `contextBudgetTokens`. */
   contextBudgetTokens?: number
@@ -796,7 +796,7 @@ export interface ModelSettings {
   workspaceRoot: string
   /** When agentMode is single, worker agent id (kebab-case); empty = computer agent */
   leadAgentId: string
-  /** Summarize older turns when estimated context exceeds budget */
+  /** Always on. Kept for older JSON; load/save force true. */
   contextCompressionEnabled: boolean
   /** Token budget; over this triggers compression. Verbatim tail is a fraction of this. */
   contextBudgetTokens: number

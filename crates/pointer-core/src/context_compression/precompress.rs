@@ -491,9 +491,6 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
     reported_prompt_tokens: Option<u32>,
     lease: &SubAgentPrecompressLease,
 ) {
-    if !settings.context_compression_enabled {
-        return;
-    }
     if ui.scope != CompressionScope::SubAgent {
         log::warn!(
             "context_compress: prepare_sub_agent_history called with non-sub scope conversation_id={}",
@@ -572,9 +569,6 @@ pub async fn prepare_history_between_llm_rounds(
     ui: CompressionUiContext,
     reported_prompt_tokens: Option<u32>,
 ) {
-    if !settings.context_compression_enabled {
-        return;
-    }
     let mut tokens = reported_prompt_tokens;
     if try_apply_pending_compression_live(state.as_ref(), conversation_id, history, stream) {
         tokens = prompt_tokens_after_pending_apply(true, tokens);
@@ -683,9 +677,6 @@ pub(crate) fn spawn_precompress_if_soft_gate(
     db_messages: Option<u32>,
     llm: SessionLlmSnapshot,
 ) {
-    if !llm.settings.context_compression_enabled {
-        return;
-    }
     let budget = normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(
         &llm.settings,
     ));

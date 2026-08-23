@@ -809,7 +809,7 @@ fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
         agent_mode: stored.agent_mode.clone(),
         workspace_root: stored.workspace_root.clone(),
         lead_agent_id: stored.lead_agent_id.clone(),
-        context_compression_enabled: stored.context_compression_enabled,
+        context_compression_enabled: true,
         context_budget_tokens: stored.context_budget_tokens,
         context_keep_recent_user_turns: stored.context_keep_recent_user_turns,
         context_summary_max_tokens: stored.context_summary_max_tokens,

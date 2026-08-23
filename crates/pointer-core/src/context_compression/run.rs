@@ -168,15 +168,6 @@ pub(crate) async fn compress_history_inner(
 ) -> bool {
     let wall = Instant::now();
     let messages_before = history.len();
-    if !settings.context_compression_enabled {
-        log::info!(
-            "context_compress: skip_disabled conversation_id={} messages={} wall_ms={}",
-            conversation_id,
-            messages_before,
-            wall.elapsed().as_millis()
-        );
-        return false;
-    }
     let keep_users = settings.context_keep_recent_user_turns.max(1);
     let budget_tokens = normalize_context_budget_tokens(
         crate::models::effective_context_budget_tokens(settings),

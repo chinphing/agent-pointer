@@ -4,12 +4,12 @@ Pointer 可通过 **run_subagent** 将子任务委派给专用 worker（如 **ex
 
 ## 用户设置
 
-在 **设置 → 智能体 → 上下文自动压缩**（或 `settings.json`）中可调整：
+在 **设置 → 系统设置 → 执行 → 轮次**（或 `settings.json`）中可调整：
 
 | 键 | 界面 | 说明 |
 |----|------|------|
-| `maxToolRounds` | 单轮最大工具调用轮次 | 主会话本轮工具循环上限（默认 **5000**） |
-| `maxSubAgentToolRounds` | 子 Agent 内工具轮次上限 | 每次子 Agent 内部工具循环上限，与主会话独立（默认 **5000**） |
+| `maxToolRounds` | 本轮 | 主会话本轮工具循环上限（默认 **5000**） |
+| `maxSubAgentToolRounds` | 子任务 | 每次子任务内部工具循环上限，与主会话独立（默认 **5000**） |
 | `maxSubAgentSpawnDepth` | （当前无界面） | 嵌套委派最大深度（默认 **2**：主 Agent + 一层子委派） |
 
 ## 内置行为

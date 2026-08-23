@@ -52,7 +52,7 @@
 - 排队顺序：先等 session slot，再等 global slot；**不会在等 session 时占用 global 名额**（修复旧 Semaphore 模型的饥饿问题）。
 - 队列深度：每 lane 为无界 FIFO；`maxConcurrent` 只限制**同时执行**数，不限制排队长度。
 - 运行时可通过 `RunDispatcher::set_max_concurrent` 热更新 main/cron 上限并唤醒等待者。
-- 可观测：`GET /api/dispatcher/queue`（web）/ Tauri `get_dispatcher_queue_snapshot` 返回各 lane 的 active/waiting 与排队 run 列表；设置 → 系统设置 → 并发（任务并行）每 2.5s 轮询展示。
+- 可观测：`GET /api/dispatcher/queue`（web）/ Tauri `get_dispatcher_queue_snapshot` 返回各 lane 的 active/waiting 与排队 run 列表；设置 → 系统设置 → 执行（任务并行）每 2.5s 轮询展示。
 
 ### 聊天会话出站队列（对齐 Hermes `busy_input_mode: queue`）
 

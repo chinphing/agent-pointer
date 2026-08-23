@@ -678,7 +678,7 @@ pub struct ModelSettings {
     /// When agentMode is single, which worker id leads (kebab-case). Empty = computer agent.
     #[serde(default, rename = "leadAgentId")]
     pub lead_agent_id: String,
-    /// When true, summarize older turns via a separate model call when estimated context exceeds budget.
+    /// Always on. Kept in JSON for older clients; load/save force true.
     #[serde(
         default = "default_context_compression_enabled",
         rename = "contextCompressionEnabled"
@@ -2495,7 +2495,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         agent_mode: user.agent_mode.clone(),
         workspace_root: user.workspace_root.clone(),
         lead_agent_id: user.lead_agent_id.clone(),
-        context_compression_enabled: user.context_compression_enabled,
+        context_compression_enabled: true,
         context_budget_tokens: user.context_budget_tokens,
         context_keep_recent_user_turns: user.context_keep_recent_user_turns,
         context_summary_max_tokens: user.context_summary_max_tokens,

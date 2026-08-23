@@ -182,8 +182,7 @@ pub async fn run_chat(
     if let Err(err) = &result {
         if crate::context_compression::is_context_overflow_error(err) {
             let settings = state.effective_settings();
-            if settings.context_compression_enabled {
-                let started = assistant_stream_started(&history_before, &history);
+            let started = assistant_stream_started(&history_before, &history);
                 log::warn!(
                     "run_chat: context overflow conversation_id={} assistant_stream_started={} err={err:#}",
                     conversation_id,
@@ -304,7 +303,6 @@ pub async fn run_chat(
                         );
                     }
                 }
-            }
         }
     }
 

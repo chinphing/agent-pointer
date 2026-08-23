@@ -446,7 +446,7 @@ When they **do** ask for version-control steps: run **`git status`** / **`git di
 
 ## Context compression and sub-agents
 
-**Main thread:** When `contextCompressionEnabled` is on, older turns may be summarized before the next lead round (`maybe_compress_history`). The UI receives `UiToast`, `history_replaced` (with compression metadata), a `【压缩】` notice row, and a dedicated summary bubble for `[Conversation summary (auto-compression)]` user rows.
+**Main thread:** Older turns may be summarized before the next lead round when the context budget is exceeded. The UI receives `UiToast`, `history_replaced` (with compression metadata), a `【压缩】` notice row, and a dedicated summary bubble for `[Conversation summary (auto-compression)]` user rows.
 
 **Delegated workers (`explore`, etc.):** `run_subagent` runs an **isolated** `local_history`. Compression there does **not** replace the main chat; the host emits `context_compressed` scoped to the parent assistant message and updates the sub-agent **`agent_trace`** detail. When designing or debugging compression UX, read **`context_compression.rs`**, **`sub_agent_stream.rs`**, and **`src/stores/chat.ts`** together—main and sub-agent paths differ.
 

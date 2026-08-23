@@ -104,7 +104,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     providers: providersNorm,
     workspaceRoot: s.workspaceRoot ?? '',
     leadAgentId: (s.leadAgentId ?? '').trim() || DEFAULT_LEAD_AGENT_ID,
-    contextCompressionEnabled: s.contextCompressionEnabled ?? true,
+    contextCompressionEnabled: true,
     contextBudgetTokens: normalizeContextBudgetTokens(
       s.contextBudgetTokens ?? (s as { contextBudgetChars?: number }).contextBudgetChars
     ),
@@ -573,10 +573,7 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.captchaSliderOffsetPx
         ?? user.captchaSliderOffsetPx
         ?? settings.value.captchaSliderOffsetPx,
-      contextCompressionEnabled:
-        mergedIn.contextCompressionEnabled
-        ?? user.contextCompressionEnabled
-        ?? settings.value.contextCompressionEnabled,
+      contextCompressionEnabled: true,
       contextBudgetTokens:
         mergedIn.contextBudgetTokens
         ?? user.contextBudgetTokens

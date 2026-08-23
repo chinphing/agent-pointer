@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../../types/chat'
 import { useSettingsStore } from '../../../stores/settings'
-import { CircleHelp, Code, Film, Gauge, Monitor, ScrollText, SlidersHorizontal, UserRound, Bot, X } from 'lucide-vue-next'
+import { CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, Bot, X } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import SceneTierModelsModal from '../SceneTierModelsModal.vue'
 
@@ -45,10 +45,7 @@ const {
   computerInitialTier,
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
-  userCodingRules,
-  contextCompressionEnabled,
-  maxToolRounds,
-  maxSubAgentToolRounds
+  userCodingRules
 } = props.form
 
 const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
@@ -257,32 +254,6 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
             </div>
           </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="space-y-4" aria-labelledby="assistant-context-heading">
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <div class="flex items-center justify-between">
-          <h4 id="assistant-context-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
-            <ScrollText class="w-4 h-4 text-accent" />上下文自动压缩
-          </h4>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input v-model="contextCompressionEnabled" type="checkbox" class="sr-only peer" />
-            <div class="settings-toggle-track"></div>
-          </label>
-        </div>
-        <p class="text-[11px] text-muted">超过预算时把较早对话收成摘要。尾部按预算比例保留原文，最新一条用户消息始终保留。预算在模型配置里与最大输出一起设置。</p>
-
-        <div class="flex flex-wrap items-start gap-x-6 gap-y-3 pt-2 border-t border-border">
-          <div>
-            <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
-            <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-          </div>
-          <div>
-            <label class="block text-[12px] text-muted mb-1.5">子 Agent 内工具轮次上限</label>
-            <input v-model.number="maxSubAgentToolRounds" type="number" min="1" max="10000" step="1" class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
           </div>
         </div>
       </div>

@@ -106,8 +106,7 @@ pub(super) async fn run_sub_agent_stream_round(
     match handle.await {
         Ok(Ok(())) => Ok(SubAgentStreamOutcome::Completed(buffers)),
         Ok(Err(err)) => {
-            if provider.settings.context_compression_enabled
-                && crate::context_compression::is_context_overflow_error(&err)
+            if crate::context_compression::is_context_overflow_error(&err)
             {
                 log::warn!(
                     "sub_agent: context overflow task_id={} agent={} err={err:#}",

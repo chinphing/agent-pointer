@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
-import { ChevronRight, CircleHelp, FileText, Film, GitBranch, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
+import { ChevronRight, CircleHelp, FileText, Film, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -45,6 +45,8 @@ const {
   mediaImageGenerationModel,
   mediaVideoGenerationModel,
   selectMediaModelWithProvider,
+  maxToolRounds,
+  maxSubAgentToolRounds,
   maxConcurrentRuns,
   fileReadMaxKb,
   fileLineMaxBytes,
@@ -504,21 +506,17 @@ async function onPlaySoundToggle(checked: boolean) {
       </div>
     </section>
 
-    <!-- 并发与上下文 -->
+    <!-- 执行 -->
     <section class="space-y-4" aria-labelledby="system-exec-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-exec-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">执行与上下文</h4>
+        <h4 id="system-exec-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">执行</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-          <GitBranch class="w-4 h-4 text-accent" />并发
-        </h4>
-
-        <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-x-5">
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5">
+        <div class="grid grid-cols-1 min-[960px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-x-5 gap-y-6">
           <div class="min-w-0 space-y-3">
-            <div class="flex items-center gap-1">
+            <div class="flex items-center gap-1.5">
               <span class="text-[12px] font-medium text-foreground">任务并行</span>
               <button
                 type="button"
@@ -561,7 +559,7 @@ async function onPlaySoundToggle(checked: boolean) {
             </div>
           </div>
 
-          <div class="w-px bg-border shrink-0" aria-hidden="true" />
+          <div class="hidden min-[960px]:block w-px bg-border shrink-0" aria-hidden="true" />
 
           <div class="min-w-0 space-y-3">
             <div class="flex items-center gap-1.5">
@@ -644,6 +642,66 @@ async function onPlaySoundToggle(checked: boolean) {
                   step="1"
                   class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
                   @blur="maxParallelMediaJobs = restoreAutoParallel(maxParallelMediaJobs)"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="hidden min-[960px]:block w-px bg-border shrink-0" aria-hidden="true" />
+
+          <div class="min-w-0 space-y-3">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[12px] font-medium text-foreground">轮次</span>
+              <button
+                type="button"
+                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                title="限制一轮对话和子任务能连续调用工具的次数。"
+                aria-label="轮次说明"
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+            <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">本轮</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="这一轮里最多连续调用多少次工具。"
+                    aria-label="本轮轮次说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="maxToolRounds"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">子任务</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="每个子任务内部最多连续调用多少次工具。"
+                    aria-label="子任务轮次说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="maxSubAgentToolRounds"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
                 />
               </div>
             </div>

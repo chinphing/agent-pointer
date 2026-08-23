@@ -254,7 +254,6 @@ function createSettingsDialogForm(deps: {
   const toolApprovalMode = ref<'auto' | 'manual'>('auto')
   const agentMode = ref<'single'>('single')
   const leadAgentId = ref('')
-  const contextCompressionEnabled = ref(true)
   const contextKeepRecentUserTurns = ref(6)
   const DEFAULT_TOOL_ROUNDS = 5000
   const LEGACY_TOOL_ROUNDS = new Set([100, 200])
@@ -472,7 +471,6 @@ function createSettingsDialogForm(deps: {
   toolApprovalMode.value = s.settings.toolApprovalMode || 'auto'
   agentMode.value = 'single'
   leadAgentId.value = s.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
-  contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
   maxToolRounds.value = migrateToolRounds(s.settings.maxToolRounds)
   fileReadMaxKb.value = Math.max(4, Math.round((s.settings.fileReadMaxBytes ?? 65_536) / 1024))
@@ -784,7 +782,7 @@ function createSettingsDialogForm(deps: {
       ? optionalParallelLimit(maxParallelMediaJobs.value)
       : null,
     maxConcurrentRuns: Math.max(1, Math.min(64, Number(maxConcurrentRuns.value) || 4)),
-    contextCompressionEnabled: contextCompressionEnabled.value,
+    contextCompressionEnabled: true,
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
     maxToolRounds: Number(maxToolRounds.value),
     maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
@@ -940,7 +938,6 @@ function createSettingsDialogForm(deps: {
   watch(
     [
       toolApprovalMode,
-      contextCompressionEnabled,
       contextKeepRecentUserTurns,
       maxToolRounds,
       maxSubAgentToolRounds,
@@ -1003,7 +1000,6 @@ function createSettingsDialogForm(deps: {
     toolApprovalMode,
     agentMode,
     leadAgentId,
-    contextCompressionEnabled,
     contextKeepRecentUserTurns,
     maxToolRounds,
     fileReadMaxKb,

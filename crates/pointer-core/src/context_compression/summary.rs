@@ -468,6 +468,7 @@ pub(crate) fn build_drop_without_summary_body(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn mark_compressed_prefix_excluded(history: &mut [ChatMessage]) -> Vec<String> {
     let mut excluded_message_ids = Vec::new();
     for m in history {

@@ -451,7 +451,7 @@ export interface ConversationSearchHit {
   projectId?: string
   preview?: string
   matches?: ConversationSearchMatch[]
-  /** Unique hits in this conversation (sidebar lists all of them). */
+  /** Unique FTS hits; expand loads the full snippet list. */
   matchCount?: number
 }
 

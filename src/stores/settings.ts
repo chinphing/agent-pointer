@@ -559,6 +559,61 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.maxSubAgentToolRounds
         ?? user.maxSubAgentToolRounds
         ?? settings.value.maxSubAgentToolRounds,
+      toolApprovalMode: mergedIn.toolApprovalMode ?? user.toolApprovalMode ?? settings.value.toolApprovalMode,
+      computerHumanLike: mergedIn.computerHumanLike ?? user.computerHumanLike ?? settings.value.computerHumanLike,
+      computerAutoSwitchMonitor:
+        mergedIn.computerAutoSwitchMonitor
+        ?? user.computerAutoSwitchMonitor
+        ?? settings.value.computerAutoSwitchMonitor,
+      captchaSliderOffsetPx:
+        mergedIn.captchaSliderOffsetPx
+        ?? user.captchaSliderOffsetPx
+        ?? settings.value.captchaSliderOffsetPx,
+      contextCompressionEnabled:
+        mergedIn.contextCompressionEnabled
+        ?? user.contextCompressionEnabled
+        ?? settings.value.contextCompressionEnabled,
+      contextBudgetTokens:
+        mergedIn.contextBudgetTokens
+        ?? user.contextBudgetTokens
+        ?? settings.value.contextBudgetTokens,
+      contextKeepRecentUserTurns:
+        mergedIn.contextKeepRecentUserTurns
+        ?? user.contextKeepRecentUserTurns
+        ?? settings.value.contextKeepRecentUserTurns,
+      // WEB 非 admin 会剥掉调试字段：省略时保留内存值，不能当成 false。
+      taskBoardShowChildBoards:
+        mergedIn.taskBoardShowChildBoards
+        ?? user.taskBoardShowChildBoards
+        ?? settings.value.taskBoardShowChildBoards,
+      rawContentViewEnabled:
+        mergedIn.rawContentViewEnabled
+        ?? user.rawContentViewEnabled
+        ?? settings.value.rawContentViewEnabled,
+      computerAnnotatedScreenViewEnabled:
+        mergedIn.computerAnnotatedScreenViewEnabled
+        ?? user.computerAnnotatedScreenViewEnabled
+        ?? settings.value.computerAnnotatedScreenViewEnabled,
+      agentUiOverrides:
+        mergedIn.agentUiOverrides
+        ?? user.agentUiOverrides
+        ?? settings.value.agentUiOverrides,
+      mediaModelOverrides:
+        mergedIn.mediaModelOverrides
+        ?? user.mediaModelOverrides
+        ?? settings.value.mediaModelOverrides,
+      // 并发项必须写回 merged：设置弹窗关闭再开会从 settings 回填。
+      // Option 字段省略表示「跟 CPU」，不能用旧 merged 数字兜底，否则改回自动后界面仍显示上次的值。
+      parallelToolExecutionEnabled:
+        mergedIn.parallelToolExecutionEnabled
+        ?? user.parallelToolExecutionEnabled
+        ?? settings.value.parallelToolExecutionEnabled
+        ?? true,
+      maxParallelToolCalls: mergedIn.maxParallelToolCalls ?? user.maxParallelToolCalls ?? null,
+      maxParallelSubAgents: mergedIn.maxParallelSubAgents ?? user.maxParallelSubAgents ?? null,
+      maxParallelMediaJobs: mergedIn.maxParallelMediaJobs ?? user.maxParallelMediaJobs ?? null,
+      maxConcurrentRuns:
+        mergedIn.maxConcurrentRuns ?? user.maxConcurrentRuns ?? settings.value.maxConcurrentRuns ?? 4,
       hasKey: mergedIn.hasKey ?? settings.value.hasKey,
       theme: user.theme,
       // 场景档位是用户层配置，必须写回 merged，否则输入框/下一轮仍读旧值。
@@ -857,6 +912,8 @@ export const useSettingsStore = defineStore('settings', () => {
       const pid = (ref.providerId || '').trim() || settings.value.activeProviderId
       next[kind] = { providerId: pid, model: ref.model.trim() }
     }
+    settings.value = { ...settings.value, mediaModelOverrides: next }
+    userSettings.value = { ...userSettings.value, mediaModelOverrides: next }
     await saveAgentPreferences({ mediaModelOverrides: next })
   }
 

@@ -258,11 +258,12 @@ pub struct ConversationSearchHit {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub preview: String,
     /// Additional FTS hits in this conversation (primary first).
-    /// Sidebar lists every hit; `session_search` tool caps at 5.
+    /// Sidebar search returns the primary only; expand loads the rest.
+    /// `session_search` tool caps at 5.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub matches: Vec<ConversationSearchMatch>,
-    /// Unique contiguous hits. Sidebar: same as `matches.len()`.
-    /// Tool: may exceed `matches.len()` when the list is capped.
+    /// Unique FTS hits (dumps skipped). Sidebar expand may list fewer after
+    /// contiguous-prefix filtering. Tool: may exceed `matches.len()` when capped.
     #[serde(default, rename = "matchCount", skip_serializing_if = "is_zero_u32")]
     pub match_count: u32,
 }

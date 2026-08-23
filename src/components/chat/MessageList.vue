@@ -124,6 +124,14 @@ const LOAD_OLDER_TOP_PX = 300
  * (scrollTop stays ≤ top threshold → load → OOM / white WebView).
  */
 const LOAD_OLDER_LEAVE_TOP_PX = 400
+/** Prefetch newer turns when within this distance of the bottom. */
+const LOAD_NEWER_BOTTOM_PX = 300
+/**
+ * After a newer page lands, require the user to leave the bottom band once
+ * before auto-prefetch can fire again. Append does not follow, so distance
+ * from bottom grows and this is a backstop against a tight loop.
+ */
+const LOAD_NEWER_LEAVE_BOTTOM_PX = 400
 /** Frames to re-apply scroll restore while the virtualizer catches up. */
 const LOAD_OLDER_SETTLE_FRAMES = 4
 /** Minimum gap between two history trims (avoid churn while scrolling). */
@@ -140,6 +148,9 @@ let lastScrollTop = 0
 let olderLoadInFlight = false
 /** Auto-prefetch is one-shot per visit to the top; re-arm after leaving it. */
 let olderPrefetchArmed = true
+let newerLoadInFlight = false
+/** Auto-prefetch is one-shot per visit to the bottom band; re-arm after leaving it. */
+let newerPrefetchArmed = true
 let lastHistoryTrimAt = 0
 let historyTrimTimer: ReturnType<typeof setInterval> | null = null
 let focusAroundRequestedId: string | null = null
@@ -410,6 +421,8 @@ onBeforeUnmount(() => {
 
 watch(() => chat.currentId, async () => {
   followOutput = true
+  olderPrefetchArmed = true
+  newerPrefetchArmed = true
   releaseNoOlderPull()
   await nextTick()
   rowVirtualizer.value.measure()
@@ -612,6 +625,10 @@ async function tryLocatePendingFocus() {
     if (precise.count > 0) focusMarkedRoot = settledEl
     const scrollTarget = precise.scrollTarget ?? settledEl
     scrollTarget.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // Stay on the hit. Around windows are not the real tail — do not follow
+    // the loaded bottom or hide the jump-to-latest control.
+    followOutput = false
+    showScrollButton.value = true
     clearFocusHighlightSoon(targetId)
     chat.clearPendingFocusMessage()
     console.info('[MessageList] focused search hit message', targetId)
@@ -707,7 +724,7 @@ async function loadOlderWithScrollAnchor() {
   const page = currentMessagePage.value
   // Strict serial: local lock OR store lock — previous page must fully finish
   // (IPC + prepend + scroll settle) before another load can start.
-  if (!page?.hasMoreOlder || page.loadingOlder || olderLoadInFlight) return
+  if (!page?.hasMoreOlder || page.loadingOlder || page.loadingNewer || olderLoadInFlight || newerLoadInFlight) return
 
   olderLoadInFlight = true
   // Disarm auto-prefetch until the user leaves the top band.
@@ -782,18 +799,71 @@ function restoreVisibleTurnAnchor(anchor: MessageListScrollAnchor | null): boole
   return true
 }
 
-function maybePrefetchOlder() {
+function maybePrefetchOlder(scrollingUp: boolean) {
   const el = scroller.value
   if (!el || programmaticScrollDepth > 0 || locatingFocus.value) return
-  if (olderLoadInFlight || currentMessagePage.value?.loadingOlder) return
+  if (olderLoadInFlight || newerLoadInFlight || currentMessagePage.value?.loadingOlder) return
   const atTop = el.scrollTop <= LOAD_OLDER_TOP_PX
   if (!atTop && el.scrollTop > LOAD_OLDER_LEAVE_TOP_PX) {
     olderPrefetchArmed = true
   }
-  const scrollingUp = el.scrollTop < lastScrollTop - 1
-  lastScrollTop = el.scrollTop
   if (!atTop || !scrollingUp || !olderPrefetchArmed) return
   void loadOlderWithScrollAnchor()
+}
+
+/** Append newer turns below the around window without jumping the viewport. */
+async function loadNewerWithoutFollow() {
+  const page = currentMessagePage.value
+  if (!page?.hasMoreNewer || page.loadingNewer || page.loadingOlder || newerLoadInFlight || olderLoadInFlight) {
+    return
+  }
+  if (locatingFocus.value) return
+  chat.clearStuckNewerLoading()
+  newerLoadInFlight = true
+  newerPrefetchArmed = false
+  followOutput = false
+  try {
+    const added = await chat.loadNewerMessages()
+    if (added) {
+      console.info('[MessageList] appended newer page without follow')
+    }
+  } finally {
+    newerLoadInFlight = false
+  }
+}
+
+function maybePrefetchNewer(scrollingDown: boolean) {
+  const el = scroller.value
+  if (!el || programmaticScrollDepth > 0 || locatingFocus.value) return
+  if (newerLoadInFlight || olderLoadInFlight || currentMessagePage.value?.loadingNewer) return
+  if (chat.isCurrentConversationHydrating) return
+  const distance = distanceFromBottom()
+  const atBottomBand = distance <= LOAD_NEWER_BOTTOM_PX
+  if (!atBottomBand && distance > LOAD_NEWER_LEAVE_BOTTOM_PX) {
+    newerPrefetchArmed = true
+  }
+  if (!atBottomBand || !scrollingDown || !newerPrefetchArmed) return
+  void loadNewerWithoutFollow()
+}
+
+/**
+ * Jump button: if the loaded window is not the real tail, replace it with the
+ * latest turns, then stick to bottom. Do not do this from the currentId watcher
+ * — that would wipe a search around-window on the same frame as locate.
+ */
+async function jumpToLatest() {
+  const convId = chat.currentId?.trim()
+  const page = currentMessagePage.value
+  if (convId && page?.hasMoreNewer) {
+    beginProgrammaticScroll()
+    try {
+      await chat.ensureMessagesLoaded(convId, { force: true })
+      await nextTick()
+    } finally {
+      endProgrammaticScroll()
+    }
+  }
+  toBottom({ settle: true })
 }
 
 /** Stamp every user message currently inside the virtual viewport as "viewed". */
@@ -819,7 +889,7 @@ function stampVisibleUserMessagesViewed() {
 function maybeTrimConversationHistory() {
   const convId = chat.currentId?.trim()
   if (!convId || locatingFocus.value || programmaticScrollDepth > 0) return
-  if (olderLoadInFlight) return
+  if (olderLoadInFlight || newerLoadInFlight) return
   if (Date.now() - lastHistoryTrimAt < TRIM_HISTORY_COOLDOWN_MS) return
   const anchor = captureVisibleTurnAnchor()
   const removed = chat.trimConversationHistory(convId)
@@ -841,11 +911,12 @@ function onScroll(event: Event) {
     releaseNoOlderPull()
   }
   const distance = distanceFromBottom()
+  const scrollingUp = el != null && el.scrollTop < lastScrollTop - 1
+  const scrollingDown = el != null && el.scrollTop > lastScrollTop + 1
   if (programmaticScrollDepth === 0) {
     // Scrollbar drag only emits scroll (not wheel). Detect scrollTop moving
     // toward older content and unpin immediately — otherwise follow stays on
     // inside the attach/detach band and scheduleToBottom fights the thumb.
-    const scrollingUp = el != null && el.scrollTop < lastScrollTop - 1
     followOutput = nextFollowOutputAfterScroll({
       followOutput,
       distanceFromBottom: distance,
@@ -853,10 +924,14 @@ function onScroll(event: Event) {
       attachPx: ATTACH_BOTTOM_PX,
       detachPx: DETACH_BOTTOM_PX
     })
+    // Loaded bottom of an around window is not the transcript tail.
+    if (currentMessagePage.value?.hasMoreNewer) followOutput = false
   }
-  showScrollButton.value = !followOutput
+  showScrollButton.value = !followOutput || Boolean(currentMessagePage.value?.hasMoreNewer)
   updateActiveBoardStickyState()
-  maybePrefetchOlder()
+  maybePrefetchOlder(scrollingUp)
+  maybePrefetchNewer(scrollingDown)
+  if (el) lastScrollTop = el.scrollTop
   stampVisibleUserMessagesViewed()
   maybeTrimConversationHistory()
 }
@@ -1535,7 +1610,7 @@ function entrySpacing(
       v-if="showScrollButton"
       type="button"
       class="absolute bottom-4 right-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
-      @click="toBottom({ settle: true })"
+      @click="jumpToLatest"
       title="滚动到底部"
     >
       <ArrowDown class="w-5 h-5 text-foreground" />

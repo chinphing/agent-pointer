@@ -465,6 +465,22 @@ pub(crate) fn first_position_at_or_after(
     .map_err(Into::into)
 }
 
+/// Position of the first message row strictly after `position` (any role).
+/// Used as the inclusive start of `after` windows toward the transcript tail.
+pub(crate) fn first_position_after(
+    conn: &Connection,
+    conversation_id: &str,
+    position: i64,
+) -> Result<Option<i64>> {
+    conn.query_row(
+        "SELECT MIN(position) FROM messages
+         WHERE conversation_id = ?1 AND position > ?2",
+        params![conversation_id, position],
+        |row| row.get::<_, Option<i64>>(0),
+    )
+    .map_err(Into::into)
+}
+
 /// Position of an arbitrary message row (any role), for `around` windows whose
 /// target may be an assistant/tool row not present in the anchor probe.
 pub(crate) fn message_position(

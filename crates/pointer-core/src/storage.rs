@@ -1126,6 +1126,18 @@ pub fn search_conversations(
     crate::conversation_store::global_store()?.search_conversations(scope, query, limit)
 }
 
+pub fn list_conversation_search_matches(
+    scope: &crate::conversation_store::ListScope,
+    conversation_id: &str,
+    query: &str,
+) -> Result<Vec<crate::models::ConversationSearchMatch>> {
+    crate::conversation_store::global_store()?.list_conversation_search_matches(
+        scope,
+        conversation_id,
+        query,
+    )
+}
+
 pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessage>> {
     crate::conversation_store::global_store()?.load_messages(conversation_id)
 }

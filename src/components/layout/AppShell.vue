@@ -28,7 +28,7 @@ import {
 import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 import {
-  createProject, searchConversations, updateProject, revealInFinder
+  createProject, searchConversations, listConversationSearchMatches, updateProject, revealInFinder
 } from '../../lib/api'
 import { GIT_INITIALIZATION_TASK } from '../../lib/workspacePanel'
 import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from '../../lib/projectCreation'
@@ -529,8 +529,35 @@ function matchRoleLabel(role?: string): string {
   }
 }
 
-function toggleSearchMatches(conversationId: string) {
-  expandedSearchId.value = expandedSearchId.value === conversationId ? null : conversationId
+async function toggleSearchMatches(conversationId: string) {
+  if (expandedSearchId.value === conversationId) {
+    expandedSearchId.value = null
+    return
+  }
+  const row = searchResults.value.find(r => r.id === conversationId)
+  const q = searchQuery.value.trim()
+  if (row && q && (row.matchCount ?? 0) > (row.matches?.length ?? 0)) {
+    try {
+      const matches = await listConversationSearchMatches(conversationId, q)
+      searchResults.value = searchResults.value.map(item =>
+        item.id === conversationId
+          ? {
+              ...item,
+              matches: matches
+                .filter(m => m.messageId.trim() && m.snippet.trim())
+                .map(m => ({
+                  messageId: m.messageId.trim(),
+                  role: m.role,
+                  snippet: m.snippet.trim()
+                }))
+            }
+          : item
+      )
+    } catch (err) {
+      console.error('[sidebar] listConversationSearchMatches failed', err)
+    }
+  }
+  expandedSearchId.value = conversationId
 }
 
 function onMatchClick(

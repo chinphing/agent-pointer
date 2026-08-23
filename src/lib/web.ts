@@ -684,9 +684,15 @@ export async function loadConversationMessagesPage(
   const params = new URLSearchParams()
   if (opts?.limitTurns != null) params.set('limitTurns', String(opts.limitTurns))
   if (opts?.beforePosition != null) params.set('beforePosition', String(opts.beforePosition))
+  if (opts?.afterPosition != null) params.set('afterPosition', String(opts.afterPosition))
   if (opts?.aroundMessageId?.trim()) params.set('aroundMessageId', opts.aroundMessageId.trim())
   // Always send at least limitTurns so the server returns MessagePage (not legacy Vec).
-  if (!params.has('limitTurns') && !params.has('beforePosition') && !params.has('aroundMessageId')) {
+  if (
+    !params.has('limitTurns')
+    && !params.has('beforePosition')
+    && !params.has('afterPosition')
+    && !params.has('aroundMessageId')
+  ) {
     params.set('limitTurns', '8')
   }
   const q = params.toString()
@@ -797,6 +803,17 @@ export async function searchConversations(
   params.set('q', query)
   params.set('limit', String(limit))
   return await request<ConversationSearchHit[]>(`/api/conversations/search?${params.toString()}`)
+}
+
+export async function listConversationSearchMatches(
+  conversationId: string,
+  query: string
+): Promise<import('../types/chat').ConversationSearchMatch[]> {
+  const params = new URLSearchParams()
+  params.set('q', query)
+  return await request(
+    `/api/conversations/${encodeURIComponent(conversationId)}/search-matches?${params.toString()}`
+  )
 }
 
 export async function saveConversationMeta(metas: import('../types/chat').ConversationMeta[]): Promise<void> {

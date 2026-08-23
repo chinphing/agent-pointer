@@ -65,6 +65,17 @@
 - **选模型时**把该模型在服务商/模型目录上的默认思考强度写进档位；之后改强度只改档位。
 - Agent / 电脑 / 媒体理解执行只认档位上选出的强度（`round_thinking_*`），不再回读模型目录默认。
 
+## 执行与上下文：保存后再打开
+
+系统设置里走自动保存的项（并发、内容上限，以及同页的工具权限 / 桌面行为 / 界面开关）写在用户设置里。弹窗是 `v-if`，关掉再打开从表单 store 的 **merged** `settings`（收缩类开关读 `userSettings`）回填，不是直接读磁盘。
+
+- `assistantPreferencesPayload` 里的字段必须立刻写回 `settings` **和** `userSettings`。只写 merged 的话，之后一次只带部分字段的 `saveUser` 会用旧 user 快照把刚改的值盖掉。
+- `saveUserSnapshot` 保存成功后要把这些字段写回 merged。`maxParallel*` 为 `null` / 省略表示跟 CPU（上限 8），不要用旧 merged 数字兜底。
+- WEB 非 admin 会剥掉调试字段（如 `taskBoardShowChildBoards`）：响应里省略时保留内存值，不能当成 false。
+- 关闭弹窗会拆掉表单 scope：待发送的自动保存必须先落盘，不能只清 timer。
+
+桌面与 Web 同一套前端逻辑。
+
 ## 保存后界面「空白」
 
 编辑区由 `v-if="editingProvider"` 控制。`saveProvider` 成功后**不要**把 `editingProvider` 设为 `null`，否则编辑表单消失，用户会以为配置页坏了。应使用 store 中规范化后的条目调用 `startEditProvider` 重新打开。

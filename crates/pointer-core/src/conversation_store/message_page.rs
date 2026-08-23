@@ -38,6 +38,9 @@ pub struct LoadMessagesPageOpts {
     pub limit_turns: Option<u32>,
     /// Load complete turns strictly before this SQLite `position` (exclusive).
     pub before_position: Option<i64>,
+    /// Load complete turns strictly after this SQLite `position` (exclusive).
+    /// Used to page toward the tail after an around-window search jump.
+    pub after_position: Option<i64>,
     /// Center the window on the turn that contains this message id.
     pub around_message_id: Option<String>,
 }
@@ -123,6 +126,39 @@ fn probe_window_before(
     }
 }
 
+/// `start_position` is the first row (any role) strictly after `after_position`,
+/// resolved by SQL so leftover assistant/tool rows after the cursor are included.
+fn probe_window_after(
+    probe: &[AnchorProbeRow],
+    start_position: i64,
+    limit_turns: u32,
+) -> ProbeWindow {
+    let n = limit_turns.max(1) as usize;
+    let start_idx = probe
+        .iter()
+        .position(|row| row.position >= start_position)
+        .unwrap_or(probe.len());
+    if start_idx >= probe.len() {
+        return ProbeWindow {
+            start_position,
+            end_position: i64::MAX,
+            has_more_older: start_position > 0,
+            has_more_newer: false,
+        };
+    }
+    let last_turn = (start_idx + n - 1).min(probe.len().saturating_sub(1));
+    let end_position = probe
+        .get(last_turn + 1)
+        .map(|row| row.position)
+        .unwrap_or(i64::MAX);
+    ProbeWindow {
+        start_position,
+        end_position,
+        has_more_older: start_position > 0,
+        has_more_newer: last_turn + 1 < probe.len() || end_position < i64::MAX,
+    }
+}
+
 /// `target_position` is the position of the around target message (any role),
 /// resolved by SQL (the anchor probe only knows user rows).
 fn probe_window_around(
@@ -175,12 +211,15 @@ fn probe_window_around(
 ///
 /// `before_end_position`: SQL-resolved first row (any role) at/after
 /// `before_position`, used as the exclusive end of a `before` window.
+/// `after_start_position`: SQL-resolved first row (any role) strictly after
+/// `after_position`, used as the inclusive start of an `after` window.
 /// `around_target_position`: SQL-resolved position of the around target message
 /// (any role), used to locate its containing turn.
 fn probe_window_from_rows(
     probe: &[AnchorProbeRow],
     opts: &LoadMessagesPageOpts,
     before_end_position: Option<i64>,
+    after_start_position: Option<i64>,
     around_target_position: Option<i64>,
 ) -> Result<ProbeWindow> {
     let limit = opts.limit_turns.unwrap_or(0);
@@ -208,6 +247,26 @@ fn probe_window_from_rows(
         };
         let end_position = before_end_position.unwrap_or(i64::MAX);
         return Ok(probe_window_before(probe, end_position, turns));
+    }
+    if opts.after_position.is_some() {
+        let turns = if limit == 0 {
+            DEFAULT_MESSAGE_PAGE_TURNS
+        } else {
+            limit
+        };
+        let Some(start_position) = after_start_position else {
+            // Cursor is at or past the last row — empty page, keep the exclusive
+            // bound past `after` so oldest/newest stay None (not position 0).
+            let after = opts.after_position.unwrap_or(0);
+            let start = after.saturating_add(1);
+            return Ok(ProbeWindow {
+                start_position: start,
+                end_position: start,
+                has_more_older: after >= 0,
+                has_more_newer: false,
+            });
+        };
+        return Ok(probe_window_after(probe, start_position, turns));
     }
     if limit == 0 {
         return Ok(ProbeWindow {
@@ -242,7 +301,17 @@ pub fn load_messages_page(
         Some(message_id) => persist::message_position(conn, conversation_id, message_id)?,
         None => None,
     };
-    let window = probe_window_from_rows(&probe, opts, before_end_position, around_target_position)?;
+    let after_start_position = match opts.after_position {
+        Some(after) => persist::first_position_after(conn, conversation_id, after)?,
+        None => None,
+    };
+    let window = probe_window_from_rows(
+        &probe,
+        opts,
+        before_end_position,
+        after_start_position,
+        around_target_position,
+    )?;
 
     let (messages, positions, loaded_first, loaded_last) =
         if window.start_position >= window.end_position {
@@ -287,13 +356,14 @@ pub fn load_messages_page(
         message_count,
     };
     log::info!(
-        "conversation_store: message page conversation_id={conversation_id} returned={} total={} has_more_older={} has_more_newer={} limit_turns={:?} before={:?} around={:?}",
+        "conversation_store: message page conversation_id={conversation_id} returned={} total={} has_more_older={} has_more_newer={} limit_turns={:?} before={:?} after={:?} around={:?}",
         page.messages.len(),
         page.message_count,
         page.has_more_older,
         page.has_more_newer,
         opts.limit_turns,
         opts.before_position,
+        opts.after_position,
         opts.around_message_id.as_deref()
     );
     Ok(page)
@@ -391,6 +461,35 @@ mod tests {
         slice_page(rows, start, end, has_more_older, true)
     }
 
+    fn page_after(
+        rows: &[(i64, ChatMessage)],
+        after_position: i64,
+        limit_turns: u32,
+    ) -> MessagePage {
+        let start = rows
+            .iter()
+            .position(|(pos, _)| *pos > after_position)
+            .unwrap_or(rows.len());
+        if start >= rows.len() {
+            return slice_page(rows, rows.len(), rows.len(), start > 0, false);
+        }
+
+        let anchors = user_anchor_indices(rows);
+        let start_idx = anchors
+            .iter()
+            .position(|&i| i >= start)
+            .unwrap_or(anchors.len());
+        if start_idx >= anchors.len() {
+            return slice_page(rows, start, rows.len(), start > 0, false);
+        }
+
+        let n = limit_turns.max(1) as usize;
+        let last_turn = (start_idx + n - 1).min(anchors.len().saturating_sub(1));
+        let end = turn_end_exclusive(&anchors, last_turn, rows.len());
+        let has_more_newer = last_turn + 1 < anchors.len() || end < rows.len();
+        slice_page(rows, start, end, start > 0, has_more_newer)
+    }
+
     fn page_around(
         rows: &[(i64, ChatMessage)],
         message_id: &str,
@@ -472,6 +571,15 @@ mod tests {
                 limit
             };
             return Ok(page_before(rows, before, turns));
+        }
+
+        if let Some(after) = opts.after_position {
+            let turns = if limit == 0 {
+                DEFAULT_MESSAGE_PAGE_TURNS
+            } else {
+                limit
+            };
+            return Ok(page_after(rows, after, turns));
         }
 
         if limit == 0 {
@@ -601,6 +709,58 @@ mod tests {
     }
 
     #[test]
+    fn after_loads_newer_complete_turns() {
+        let data = rows(vec![
+            ("u1", Role::User, "one"),
+            ("a1", Role::Assistant, "ok"),
+            ("u2", Role::User, "two"),
+            ("a2", Role::Assistant, "ok"),
+            ("u3", Role::User, "three"),
+            ("a3", Role::Assistant, "ok"),
+            ("u4", Role::User, "four"),
+            ("a4", Role::Assistant, "ok"),
+        ]);
+        // around u2/a2 ends at position 3 (a2). Newer page should start at u3.
+        let page = page_from_positioned(
+            &data,
+            &LoadMessagesPageOpts {
+                limit_turns: Some(1),
+                after_position: Some(3),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            page.messages
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["u3", "a3"]
+        );
+        assert!(page.has_more_older);
+        assert!(page.has_more_newer);
+
+        let rest = page_from_positioned(
+            &data,
+            &LoadMessagesPageOpts {
+                limit_turns: Some(8),
+                after_position: Some(5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            rest.messages
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["u4", "a4"]
+        );
+        assert!(rest.has_more_older);
+        assert!(!rest.has_more_newer);
+    }
+
+    #[test]
     fn around_centers_on_hit_turn() {
         let data = rows(vec![
             ("u1", Role::User, "one"),
@@ -697,11 +857,17 @@ mod tests {
         let before_end = opts
             .before_position
             .and_then(|b| before_end_position_for(rows, b));
+        let after_start = opts.after_position.and_then(|after| {
+            rows.iter()
+                .find(|(pos, _)| *pos > after)
+                .map(|(pos, _)| *pos)
+        });
         let around_target = opts
             .around_message_id
             .as_deref()
             .and_then(|id| around_target_position_for(rows, id));
-        let window = probe_window_from_rows(&probe, opts, before_end, around_target).unwrap();
+        let window =
+            probe_window_from_rows(&probe, opts, before_end, after_start, around_target).unwrap();
         let ids: Vec<&str> = rows
             .iter()
             .filter(|(pos, _)| *pos >= window.start_position && *pos < window.end_position)
@@ -787,6 +953,16 @@ mod tests {
                 around_message_id: Some("sys".into()),
                 ..Default::default()
             },
+            LoadMessagesPageOpts {
+                limit_turns: Some(2),
+                after_position: Some(4),
+                ..Default::default()
+            },
+            LoadMessagesPageOpts {
+                limit_turns: Some(8),
+                after_position: Some(10),
+                ..Default::default()
+            },
         ];
         for opts in cases {
             assert_window_matches(&data, &opts);
@@ -796,7 +972,8 @@ mod tests {
     #[test]
     fn probe_window_empty_transcript() {
         let window =
-            probe_window_from_rows(&[], &LoadMessagesPageOpts::default(), None, None).unwrap();
+            probe_window_from_rows(&[], &LoadMessagesPageOpts::default(), None, None, None)
+                .unwrap();
         assert_eq!((window.start_position, window.end_position), (0, i64::MAX));
         assert!(!window.has_more_older);
         assert!(!window.has_more_newer);

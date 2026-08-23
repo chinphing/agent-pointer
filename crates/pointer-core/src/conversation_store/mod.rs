@@ -835,6 +835,15 @@ impl ConversationStore {
         search::search_conversations_for_ui(&self.db, scope, query, limit)
     }
 
+    pub fn list_conversation_search_matches(
+        &self,
+        scope: &ListScope,
+        conversation_id: &str,
+        query: &str,
+    ) -> Result<Vec<crate::models::ConversationSearchMatch>> {
+        search::list_conversation_search_matches(&self.db, scope, conversation_id, query)
+    }
+
     /// Alias for tool registration / tests.
     pub fn dispatch_tool(&self, args: &serde_json::Value) -> Result<String> {
         self.dispatch_search_tool(args)
@@ -1606,45 +1615,93 @@ fn add_column_if_missing(
 }
 
 fn ensure_fts_schema(conn: &Connection) -> Result<()> {
-    let current: Option<String> = conn
+    const TOKENIZER: &str = "cjk_bigram";
+    /// `role` is tokenized so sidebar MATCH can use `NOT {role}: tool`.
+    const SCHEMA: &str = "role_indexed";
+
+    let tokenizer: Option<String> = conn
         .query_row(
             "SELECT value FROM store_meta WHERE key = 'fts_tokenizer'",
             [],
             |row| row.get(0),
         )
         .optional()?;
+    let schema: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = 'fts_schema'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
 
-    if current.as_deref() == Some("cjk_bigram") && fts_table_exists(conn)? {
+    let schema_ok = tokenizer.as_deref() == Some(TOKENIZER)
+        && schema.as_deref() == Some(SCHEMA)
+        && fts_table_exists(conn)?;
+    let index_empty = fts_docsize_empty(conn)?;
+    let has_messages = messages_exist(conn)?;
+
+    if schema_ok && !(index_empty && has_messages) {
         return Ok(());
     }
 
-    if fts_table_exists(conn)? {
+    if !schema_ok && fts_table_exists(conn)? {
         conn.execute_batch(
             "DROP TRIGGER IF EXISTS messages_ai;
              DROP TRIGGER IF EXISTS messages_ad;
              DROP TRIGGER IF EXISTS messages_au;
              DROP TABLE IF EXISTS messages_fts;",
         )?;
-        log::info!("conversation_store: rebuilding FTS with cjk_bigram");
+        log::info!("conversation_store: rebuilding FTS tokenizer={TOKENIZER} schema={SCHEMA}");
+        create_fts_table(conn)?;
+    } else if !fts_table_exists(conn)? {
+        create_fts_table(conn)?;
+    } else {
+        log::warn!(
+            "conversation_store: FTS index empty while messages exist; rebuilding in place"
+        );
     }
 
-    create_fts_table(conn)?;
-    conn.execute(
-        "INSERT INTO store_meta(key, value) VALUES ('fts_tokenizer', 'cjk_bigram')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        [],
-    )?;
-    // The FTS table is an external-content table (`content='messages'`); creating
-    // it leaves the index empty, so existing messages (e.g. after a restore or
-    // corruption recovery) would not be searchable. Repopulate from `messages`.
-    // This only runs when the table was (re)created, not on every open.
-    match conn.execute(
-        "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')",
-        [],
-    ) {
-        Ok(n) => log::info!("conversation_store: FTS rebuilt from messages, rows={n}"),
-        Err(e) => log::warn!("conversation_store: FTS rebuild failed: {e}"),
+    rebuild_fts_index(conn)?;
+    if has_messages && fts_docsize_empty(conn)? {
+        anyhow::bail!("FTS rebuild left an empty index while messages exist");
     }
+
+    conn.execute(
+        "INSERT INTO store_meta(key, value) VALUES ('fts_tokenizer', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![TOKENIZER],
+    )?;
+    conn.execute(
+        "INSERT INTO store_meta(key, value) VALUES ('fts_schema', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![SCHEMA],
+    )?;
+    Ok(())
+}
+
+fn fts_docsize_empty(conn: &Connection) -> Result<bool> {
+    if !fts_table_exists(conn)? {
+        return Ok(true);
+    }
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM messages_fts_docsize", [], |row| {
+            row.get(0)
+        })
+        .optional()?
+        .unwrap_or(0);
+    Ok(n == 0)
+}
+
+fn messages_exist(conn: &Connection) -> Result<bool> {
+    let n: i64 = conn.query_row("SELECT EXISTS(SELECT 1 FROM messages LIMIT 1)", [], |row| {
+        row.get(0)
+    })?;
+    Ok(n != 0)
+}
+
+fn rebuild_fts_index(conn: &Connection) -> Result<()> {
+    let n = conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')", [])?;
+    log::info!("conversation_store: FTS rebuilt from messages, rows={n}");
     Ok(())
 }
 
@@ -1663,7 +1720,7 @@ fn create_fts_table(conn: &Connection) -> Result<()> {
            content,
            conversation_id UNINDEXED,
            message_id UNINDEXED,
-           role UNINDEXED,
+           role,
            content='messages',
            content_rowid='id',
            tokenize='cjk_bigram'

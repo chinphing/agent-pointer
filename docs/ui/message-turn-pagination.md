@@ -9,6 +9,9 @@
 | 打开会话 | 默认加载最近 **8** 个真实用户回合（含回合内 assistant / tool / sub-agent）；**不**因空壳首次水合拉全量 |
 | SSE catch-up / cron 刷新 | `ensureMessagesLoaded({ force })` 会重新拉取，但仍是 **8 回合窗口**（`force` ≠ 全量） |
 | 加载更早 | 向上滚到距顶约 300px **自动预取**（无顶栏按钮、无加载中态） |
+| 加载更新 | 搜索定位到中间窗口后，**向下**滚到距底约 300px **自动预取**下一页更新回合；追加在下方，**不**贴底跟随，命中消息保持原位；**不**一次拉到真正的尾部 |
+| 滚动到底部 | 若当前窗口 `hasMoreNewer`，先 `ensureMessagesLoaded({ force })` 换成尾部 8 回合，再贴底。会话切换时的自动 `toBottom` **不会**强行换尾部（否则会冲掉搜索 around 窗口） |
+| 再次打开（无定位） | 清除该会话残留的 pending focus；若仍停在 around 窗口（`hasMoreNewer`），强制加载尾部。切走再回来、清空搜索后点同一行，都会回到最新对话 |
 | 没有更早 | 已到会话开头后，再往上拉出空白区域时才显示「没有更早的消息」；松手/滚回后收起 |
 | 滚顶节流 | **严格串行**：上一页 IPC+渲染锚定未完成前不发下一页；自动预取每次需先滚离顶部再武装；忙时直接 skip，不并发、不 join |
 | 滚动不跳 | 加载更早 / 内存裁剪后按**可见 turn id + 视口内偏移**重钉，不用 `scrollHeight` 差值（虚拟行估算高度会变） |
@@ -21,7 +24,7 @@
 
 | 时机 | `viewedAt` | 作用 |
 |------|------------|------|
-| 加载进内存（hydrate / load-older / around） | 加载时刻 | 避免「无戳永久保留」 |
+| 加载进内存（hydrate / load-older / load-newer / around） | 加载时刻 | 避免「无戳永久保留」 |
 | 新发 / IM 注入 user 消息 | `createdAt` / 产生时刻 | 新消息进入可裁时钟 |
 | 进入虚拟视口 | 刷新为当前时间 | 刚看过的回合 10 分钟内不裁 |
 
@@ -36,6 +39,7 @@
 | （无） | 兼容：返回全量 `ChatMessage[]` |
 | `limitTurns` | 回合窗口大小；`0` = 全量（`MessagePage`） |
 | `beforePosition` | 加载该 `position` **之前**的完整回合 |
+| `afterPosition` | 加载该 `position` **之后**的完整回合（用于 around 窗口向尾部翻页） |
 | `aroundMessageId` | 以该消息所在回合为中心扩窗 |
 
 有分页参数时响应为：
@@ -54,8 +58,8 @@
 ## 实现位置
 
 - `crates/pointer-core/src/conversation_store/message_page.rs`
-- `src/stores/chat.ts` — `ensureMessagesLoaded` / `loadOlderMessages` / `ensureMessagesAround`
-- `src/components/chat/MessageList.vue` — 滚顶自动预取、turn-id 视口锚定、开头提示
+- `src/stores/chat.ts` — `ensureMessagesLoaded` / `loadOlderMessages` / `loadNewerMessages` / `ensureMessagesAround`
+- `src/components/chat/MessageList.vue` — 滚顶/滚底自动预取、跳转最新、turn-id 视口锚定、开头提示
 - `src/lib/messageListScrollAnchor.ts` — 锚定 scrollTop 计算
 
 ## Schema note (`is_system_generated`)

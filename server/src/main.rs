@@ -695,6 +695,10 @@ async fn main() -> anyhow::Result<()> {
             get(search_conversations_handler),
         )
         .route(
+            "/api/conversations/:conversation_id/search-matches",
+            get(list_conversation_search_matches_handler),
+        )
+        .route(
             "/api/conversations/:conversation_id/messages",
             get(load_conversation_messages_handler),
         )
@@ -2022,14 +2026,34 @@ async fn search_conversations_handler(
     Ok(Json(hits))
 }
 
+#[derive(serde::Deserialize)]
+struct ConversationSearchMatchesQuery {
+    q: String,
+}
+
+async fn list_conversation_search_matches_handler(
+    State(state): State<ServerState>,
+    Path(conversation_id): Path<String>,
+    Query(q): Query<ConversationSearchMatchesQuery>,
+) -> Result<Json<Vec<pointer_core::models::ConversationSearchMatch>>, ApiError> {
+    require_platform_access(&state)?;
+    let scope = platform_list_scope(&state);
+    let matches =
+        storage::list_conversation_search_matches(&scope, &conversation_id, &q.q)?;
+    Ok(Json(matches))
+}
+
 /// `GET /api/conversations/:id/messages` — full list when no page query params;
-/// turn window (`MessagePage`) when `limitTurns` / `beforePosition` / `aroundMessageId` set.
+/// turn window (`MessagePage`) when `limitTurns` / `beforePosition` /
+/// `afterPosition` / `aroundMessageId` set.
 #[derive(Deserialize)]
 struct ConversationMessagesQuery {
     #[serde(default, rename = "limitTurns")]
     limit_turns: Option<u32>,
     #[serde(default, rename = "beforePosition")]
     before_position: Option<i64>,
+    #[serde(default, rename = "afterPosition")]
+    after_position: Option<i64>,
     #[serde(default, rename = "aroundMessageId")]
     around_message_id: Option<String>,
 }
@@ -2037,6 +2061,7 @@ struct ConversationMessagesQuery {
 fn conversation_messages_wants_page(q: &ConversationMessagesQuery) -> bool {
     q.limit_turns.is_some()
         || q.before_position.is_some()
+        || q.after_position.is_some()
         || q.around_message_id
             .as_ref()
             .is_some_and(|s| !s.trim().is_empty())
@@ -2052,6 +2077,7 @@ async fn load_conversation_messages_handler(
         let opts = pointer_core::conversation_store::LoadMessagesPageOpts {
             limit_turns: q.limit_turns,
             before_position: q.before_position,
+            after_position: q.after_position,
             around_message_id: q.around_message_id,
         };
         let page = storage::load_conversation_messages_page(&conversation_id, &opts)?;

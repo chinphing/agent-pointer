@@ -340,6 +340,58 @@ mod tests {
     }
 
     #[test]
+    fn discover_skips_unnamed_legacy_session_search_envelope() {
+        use crate::conversation_store::persist::msg;
+        use crate::models::Role;
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let dump = json!({
+            "success": true,
+            "mode": "discovery",
+            "query": "发票附件 unique_ss_legacy",
+            "results": [{"conversation_id": "other", "messages": [
+                {"content": format!("{}{}", "PAD", "x".repeat(80_000))}
+            ]}],
+            "count": 1
+        })
+        .to_string();
+        let mut conv = sample_conv("c_ss_legacy", "Invoice work", "follow-up note");
+        conv.messages = vec![
+            msg("msg_dump", Role::Tool, &dump, 1_700_000_000_000),
+            msg(
+                "msg_real",
+                Role::User,
+                "请核对 unique_ss_legacy 发票附件是否已归档",
+                1_700_000_001_000,
+            ),
+            msg("msg_a", Role::Assistant, "Acknowledged.", 1_700_000_002_000),
+        ];
+        store.sync_conversations(&[conv]).unwrap();
+
+        let discover = store
+            .dispatch_tool_for_test(&json!({
+                "query": "unique_ss_legacy",
+                "limit": 3
+            }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&discover).unwrap();
+        assert_eq!(parsed["success"], true);
+        assert_eq!(parsed["results"][0]["match_message_id"], "msg_real");
+
+        let ui = store
+            .search_conversations(&ListScope::All, "unique_ss_legacy", 10)
+            .unwrap();
+        assert_eq!(ui.len(), 1);
+        assert_eq!(ui[0].message_id, "msg_real");
+        assert!(
+            !ui[0].snippet.contains("PAD"),
+            "sidebar must not snippet the legacy dump, got {:?}",
+            ui[0].snippet
+        );
+    }
+
+    #[test]
     fn discover_skips_named_session_search_without_envelope() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
@@ -580,17 +632,151 @@ mod tests {
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c_ui_mm");
-        // Sidebar returns every hit (8), not the tool's 5-item cap.
+        // Keystroke path only hydrates the primary snippet; full list is on expand.
         assert_eq!(hits[0].match_count, 8);
-        assert_eq!(hits[0].matches.len(), 8);
-        let ids: Vec<_> = hits[0]
-            .matches
-            .iter()
-            .map(|m| m.message_id.as_str())
-            .collect();
+        assert_eq!(hits[0].matches.len(), 1);
+        let listed = store
+            .list_conversation_search_matches(&ListScope::All, "c_ui_mm", token)
+            .unwrap();
+        assert_eq!(listed.len(), 8);
+        let ids: Vec<_> = listed.iter().map(|m| m.message_id.as_str()).collect();
         assert_eq!(
             ids,
             ["u_0", "u_2", "u_4", "u_6", "u_8", "u_10", "u_12", "u_14"]
+        );
+    }
+
+    #[test]
+    fn ui_search_orders_assistant_before_tool() {
+        use crate::conversation_store::persist::msg;
+        use crate::models::Role;
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let token = "unique_role_ord_token";
+        let mut conv = sample_conv("c_role_ord", "Role order", "follow-up");
+        conv.messages = vec![
+            msg(
+                "t1",
+                Role::Tool,
+                &format!("tool saw {token} first"),
+                1_700_000_000_000,
+            ),
+            msg(
+                "u1",
+                Role::User,
+                &format!("user mentioned {token}"),
+                1_700_000_001_000,
+            ),
+            msg(
+                "a1",
+                Role::Assistant,
+                &format!("assistant explained {token}"),
+                1_700_000_002_000,
+            ),
+        ];
+        store.sync_conversations(&[conv]).unwrap();
+
+        let hits = store
+            .search_conversations(&ListScope::All, token, 10)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].message_id, "a1");
+        assert_eq!(hits[0].match_count, 2);
+        assert_eq!(hits[0].matches.len(), 1);
+        assert_eq!(hits[0].matches[0].message_id, "a1");
+        let listed = store
+            .list_conversation_search_matches(&ListScope::All, "c_role_ord", token)
+            .unwrap();
+        let roles: Vec<_> = listed.iter().map(|m| m.role.as_str()).collect();
+        assert_eq!(roles, ["assistant", "user"]);
+        let ids: Vec<_> = listed.iter().map(|m| m.message_id.as_str()).collect();
+        assert_eq!(ids, ["a1", "u1"]);
+
+        let discover = store
+            .dispatch_tool_for_test(&json!({ "query": token, "limit": 3 }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&discover).unwrap();
+        assert_eq!(parsed["results"][0]["match_message_id"], "a1");
+        let disc_roles: Vec<_> = parsed["results"][0]["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["role"].as_str())
+            .collect();
+        assert_eq!(disc_roles, ["assistant", "user", "tool"]);
+    }
+
+    #[test]
+    fn ui_search_skips_all_tool_rows() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let token = "unique_tool_only_token";
+        let mut conv = sample_conv("c_tool_only", "No keyword in title", "plain user line");
+        let mut tool = msg(
+            "t_grep",
+            Role::Tool,
+            &format!("file_grep saw {token}"),
+            1_700_000_002_000,
+        );
+        tool.tool_name = Some("file_grep".into());
+        conv.messages.push(tool);
+        store.sync_conversations(&[conv]).unwrap();
+
+        let hits = store
+            .search_conversations(&ListScope::All, token, 10)
+            .unwrap();
+        assert!(
+            hits.is_empty(),
+            "sidebar search must ignore tool bodies, got {hits:?}"
+        );
+        let listed = store
+            .list_conversation_search_matches(&ListScope::All, "c_tool_only", token)
+            .unwrap();
+        assert!(listed.is_empty());
+    }
+
+    #[test]
+    fn ui_search_finds_ascii_acronym_in_hyphenated_token() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c_cwpt", "报销技能", "帮我找一下报销 skill");
+        conv.messages.push(msg(
+            "a_cwpt",
+            Role::Assistant,
+            "找到了 **`cwpt-reimburse-review`** 和 CWPT_TOKEN",
+            1_700_000_002_000,
+        ));
+        store.sync_conversations(&[conv]).unwrap();
+
+        let hits = store
+            .search_conversations(&ListScope::All, "CWPT", 10)
+            .unwrap();
+        assert_eq!(hits.len(), 1, "expected CWPT body hit, got {hits:?}");
+        assert!(
+            hits[0].snippet.to_lowercase().contains("cwpt"),
+            "snippet={:?}",
+            hits[0].snippet
+        );
+    }
+
+    #[test]
+    fn ui_search_does_not_match_role_column() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .sync_conversations(&[sample_conv(
+                "c_role_tok",
+                "Weather notes",
+                "plain user line",
+            )])
+            .unwrap();
+        let hits = store
+            .search_conversations(&ListScope::All, "assistant", 10)
+            .unwrap();
+        assert!(
+            hits.is_empty(),
+            "indexing role must not make every assistant row match query assistant, got {hits:?}"
         );
     }
 
@@ -1650,5 +1836,39 @@ mod tests {
                 ("u-syn".to_string(), 1)
             ]
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn profile_ui_search_real_db() {
+        let _ = env_logger::builder()
+            .is_test(false)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+        crate::conversation_store::cjk_fts::ensure_registered().unwrap();
+        let path = std::env::var("POINTER_PROFILE_DB").expect("set POINTER_PROFILE_DB");
+        let conn = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap_or_else(|err| panic!("open {path}: {err}"));
+        let db = crate::conversation_store::db::DbHandle::wrap_connection(conn);
+        for q in ["搜索", "hello", "北京", "agent", "文件", "CWPT", "cwpt"] {
+            let started = std::time::Instant::now();
+            let hits = crate::conversation_store::search::search_conversations_for_ui(
+                &db,
+                &ListScope::All,
+                q,
+                50,
+            )
+            .unwrap();
+            let match_rows: usize = hits.iter().map(|h| h.matches.len()).sum();
+            eprintln!(
+                "profile ui search q={q:?} hits={} match_rows={} elapsed_ms={}",
+                hits.len(),
+                match_rows,
+                started.elapsed().as_millis()
+            );
+        }
     }
 }

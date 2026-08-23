@@ -1255,6 +1255,17 @@ pub fn search_conversations(
 }
 
 #[tauri::command]
+pub fn list_conversation_search_matches(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    query: String,
+) -> Result<Vec<pointer_core::models::ConversationSearchMatch>, String> {
+    let scope = platform_list_scope(&state);
+    storage::list_conversation_search_matches(&scope, &conversation_id, &query)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMessage>, String> {
     let messages =
         storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;
@@ -1270,6 +1281,7 @@ pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMes
 pub struct LoadConversationMessagesPageArgs {
     pub limit_turns: Option<u32>,
     pub before_position: Option<i64>,
+    pub after_position: Option<i64>,
     pub around_message_id: Option<String>,
 }
 
@@ -1282,6 +1294,7 @@ pub fn load_conversation_messages_page(
     let page_opts = pointer_core::conversation_store::LoadMessagesPageOpts {
         limit_turns: opts.limit_turns,
         before_position: opts.before_position,
+        after_position: opts.after_position,
         around_message_id: opts.around_message_id,
     };
     let page = storage::load_conversation_messages_page(&conversation_id, &page_opts)

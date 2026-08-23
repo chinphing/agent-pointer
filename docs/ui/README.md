@@ -17,6 +17,7 @@
 | [mobile-chat.md](mobile-chat.md) | 移动端：隐藏头像与常显时间/复制；Composer 仅附件+发送；欢迎页底部输入、无 slogan/经验区 |
 | [message-list-layout-cache.md](message-list-layout-cache.md) | 消息列表已完成 turn 结构指纹缓存，流式时只重算尾部 |
 | [message-list-scroll-follow.md](message-list-scroll-follow.md) | 流式输出贴底跟随：上滑脱离、贴底/按钮恢复 |
+| [message-turn-pagination.md](message-turn-pagination.md) | 消息按用户回合分页：滚顶更早、around 后滚底更新、跳转最新 |
 | [streaming-markdown-throttle.md](streaming-markdown-throttle.md) | 流式 Markdown 渲染节流：默认 100ms，长文 250ms |
 | [workspace-file-preview-find.md](workspace-file-preview-find.md) | 右侧工作区文本预览查找（⌘/Ctrl+F、上下匹配） |
 | [workspace-panel-refresh.md](workspace-panel-refresh.md) | 右侧工作区打开 / 切会话 / 切 Tab 时的刷新约定；文件树查找 |

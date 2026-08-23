@@ -452,9 +452,11 @@ export const useChatStore = defineStore('chat', () => {
     oldestPosition: number | null
     newestPosition: number | null
     loadingOlder: boolean
+    loadingNewer: boolean
   }
   const messagePageByConv = ref<Record<string, MessagePageState>>({})
   const olderLoadPromises = new Map<string, Promise<boolean>>()
+  const newerLoadPromises = new Map<string, Promise<boolean>>()
   /** Last-viewed timestamp per user message (current-conversation history trim). */
   const EMPTY_VIEWED_MAP: ReadonlyMap<string, number> = new Map()
   /** How long a user message can go unviewed before it becomes trim candidate. */
@@ -1341,6 +1343,7 @@ export const useChatStore = defineStore('chat', () => {
         oldestPosition: page.oldestPosition,
         newestPosition: page.newestPosition,
         loadingOlder: false,
+        loadingNewer: false,
         ...extra
       }
     }
@@ -1359,6 +1362,17 @@ export const useChatStore = defineStore('chat', () => {
       return true
     })
     return uniqueOlder.length ? [...uniqueOlder, ...existing] : existing
+  }
+
+  function appendMessagesById(existing: ChatMessage[], newer: ChatMessage[]): ChatMessage[] {
+    if (newer.length === 0) return existing
+    const seen = new Set(existing.map(m => m.id))
+    const uniqueNewer = newer.filter(m => {
+      if (seen.has(m.id)) return false
+      seen.add(m.id)
+      return true
+    })
+    return uniqueNewer.length ? [...existing, ...uniqueNewer] : existing
   }
 
   /** Copy wire-only `positions` (parallel to `page.messages`) onto the message objects. */
@@ -1500,7 +1514,12 @@ export const useChatStore = defineStore('chat', () => {
     }
     // Strict serial: never start a second page while one is in flight.
     // Do not join the in-flight promise — callers must wait and retry later.
-    if (state.loadingOlder || olderLoadPromises.has(convId)) {
+    if (
+      state.loadingOlder
+      || state.loadingNewer
+      || olderLoadPromises.has(convId)
+      || newerLoadPromises.has(convId)
+    ) {
       console.info('[chat] loadOlderMessages: busy, skip concurrent', convId)
       return false
     }
@@ -1579,6 +1598,102 @@ export const useChatStore = defineStore('chat', () => {
     if (!state?.loadingOlder || olderLoadPromises.has(convId)) return
     console.warn('[chat] clearStuckOlderLoading', convId)
     applyMessagePageState(convId, state, { loadingOlder: false })
+  }
+
+  /** Append newer complete user turns (toward the transcript tail). Returns true when rows were added. */
+  async function loadNewerMessages(id?: string): Promise<boolean> {
+    const convId = (id ?? currentId.value ?? '').trim()
+    if (!convId) return false
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv) {
+      console.warn('[chat] loadNewerMessages: missing conversation', convId)
+      return false
+    }
+    const state = messagePageState(convId)
+    if (!state?.hasMoreNewer || state.newestPosition == null) {
+      console.info('[chat] loadNewerMessages: nothing newer', convId)
+      return false
+    }
+    if (
+      state.loadingOlder
+      || state.loadingNewer
+      || olderLoadPromises.has(convId)
+      || newerLoadPromises.has(convId)
+    ) {
+      console.info('[chat] loadNewerMessages: busy, skip concurrent', convId)
+      return false
+    }
+
+    applyMessagePageState(convId, state, { loadingNewer: true })
+    const newestAtStart = state.newestPosition
+    const load = (async (): Promise<boolean> => {
+      try {
+        const page = await loadConversationMessagesPage(convId, {
+          limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
+          afterPosition: newestAtStart
+        })
+        attachPagePositions(page)
+        const stripped = stripWireAttachmentFields(
+          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+        )
+        if (stripped.length === 0) {
+          applyMessagePageState(convId, {
+            hasMoreOlder: state.hasMoreOlder,
+            hasMoreNewer: false,
+            oldestPosition: state.oldestPosition,
+            newestPosition: newestAtStart
+          })
+          return false
+        }
+        const beforeLen = conv.messages.length
+        conv.messages = appendMessagesById(conv.messages, stripped)
+        addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
+        normalizeSubAgentTraces([conv])
+        normalizeInterruptedAssistantStatuses([conv])
+        stampLoadedUserMessages(convId, stripped)
+        applyMessagePageState(convId, {
+          hasMoreOlder: state.hasMoreOlder,
+          hasMoreNewer: page.hasMoreNewer,
+          oldestPosition: state.oldestPosition,
+          newestPosition: page.newestPosition ?? newestAtStart
+        })
+        console.info(
+          '[chat] loadNewerMessages: appended',
+          convId,
+          conv.messages.length - beforeLen,
+          'hasMoreNewer',
+          page.hasMoreNewer
+        )
+        return conv.messages.length > beforeLen
+      } catch (err) {
+        console.error('[chat] loadNewerMessages failed', convId, err)
+        applyMessagePageState(convId, state, { loadingNewer: false })
+        return false
+      } finally {
+        newerLoadPromises.delete(convId)
+        const cur = messagePageByConv.value[convId]
+        if (cur?.loadingNewer) {
+          messagePageByConv.value = {
+            ...messagePageByConv.value,
+            [convId]: { ...cur, loadingNewer: false }
+          }
+        }
+      }
+    })()
+    newerLoadPromises.set(convId, load)
+    return load
+  }
+
+  /**
+   * Drop a stale `loadingNewer` flag when no request is in flight.
+   */
+  function clearStuckNewerLoading(id?: string): void {
+    const convId = (id ?? currentId.value ?? '').trim()
+    if (!convId) return
+    const state = messagePageState(convId)
+    if (!state?.loadingNewer || newerLoadPromises.has(convId)) return
+    console.warn('[chat] clearStuckNewerLoading', convId)
+    applyMessagePageState(convId, state, { loadingNewer: false })
   }
 
   /**
@@ -1672,7 +1787,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * Stamp user rows that just entered memory (hydrate / load-older / around).
+   * Stamp user rows that just entered memory (hydrate / load-older / load-newer / around).
    * `onlyMissing` preserves newer viewport renewals when merging with an
    * in-flight stream.
    */
@@ -2254,6 +2369,10 @@ export const useChatStore = defineStore('chat', () => {
       const queryTerm = options?.focusQueryTerm?.trim() || undefined
       pendingFocusMessage.value = { conversationId: id, messageId: focusMessageId, queryTerm }
       console.info('[chat] pending focus message', id, focusMessageId)
+    } else if (pendingFocusMessage.value?.conversationId === id) {
+      // Re-open without a search hit must not replay the around window.
+      pendingFocusMessage.value = null
+      console.info('[chat] cleared stale pending focus', id)
     }
     if (options?.ensureShell || !conversations.value.some(c => c.id === id)) {
       ensureConversationShell({
@@ -2266,6 +2385,9 @@ export const useChatStore = defineStore('chat', () => {
     }
     const conv = conversations.value.find(c => c.id === id)
     const needsHydration = conversationNeedsMessageHydration(conv)
+    // Around-window hydrate leaves hasMoreNewer. Opening without a hit must
+    // replace that window with the real tail (scroll-down paging stays on the hit).
+    const needsTailReload = !focusMessageId && Boolean(messagePageState(id)?.hasMoreNewer)
     if (currentId.value === id && !needsHydration) {
       touchConversation(id)
       clearConversationAwaitingView(id)
@@ -2273,6 +2395,11 @@ export const useChatStore = defineStore('chat', () => {
         queueMicrotask(() => {
           if (currentId.value !== id) return
           void ensureMessagesAround(id, focusMessageId)
+        })
+      } else if (needsTailReload) {
+        queueMicrotask(() => {
+          if (currentId.value !== id) return
+          void ensureMessagesLoaded(id, { force: true })
         })
       }
       return
@@ -2286,12 +2413,15 @@ export const useChatStore = defineStore('chat', () => {
 
     const selectedId = id
     const focusIdForHydrate = focusMessageId
+    const reloadTail = needsTailReload
     // Defer transcript hydrate / draft load / boards so they do not block the highlight frame.
     // First paint uses the default turn page (not force/full transcript).
     queueMicrotask(() => {
       if (currentId.value !== selectedId) return
       if (focusIdForHydrate) {
         void ensureMessagesAround(selectedId, focusIdForHydrate)
+      } else if (reloadTail) {
+        void ensureMessagesLoaded(selectedId, { force: true })
       } else {
         void ensureMessagesLoaded(selectedId)
       }
@@ -3039,6 +3169,7 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value = new Set()
     messagePageByConv.value = {}
     olderLoadPromises.clear()
+    newerLoadPromises.clear()
     persistedMessageIdsByConv.clear()
     messagesLoadingIds.value = new Set()
     messageHydrationPromises.clear()
@@ -3063,7 +3194,9 @@ export const useChatStore = defineStore('chat', () => {
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     loadOlderMessages,
+    loadNewerMessages,
     clearStuckOlderLoading,
+    clearStuckNewerLoading,
     trimConversationHistory,
     markUserMessageViewed,
     ensureMessagesAround,

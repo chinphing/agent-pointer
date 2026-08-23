@@ -58,6 +58,7 @@ export interface LocalFileAttachmentPayload {
 export type LoadConversationMessagesPageOpts = {
   limitTurns?: number
   beforePosition?: number
+  afterPosition?: number
   aroundMessageId?: string
 }
 
@@ -278,6 +279,10 @@ export interface RuntimeApi {
   updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'workspaceRoot' | 'isPinned' | 'isArchived'>>): Promise<Project>
   deleteProject(id: string): Promise<void>
   searchConversations(query: string, limit?: number): Promise<ConversationSearchHit[]>
+  listConversationSearchMatches(
+    conversationId: string,
+    query: string
+  ): Promise<import('../types/chat').ConversationSearchMatch[]>
   loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
   /** Turn-windowed hydrate (tail / before / around). Prefer this over full load for UI. */
   loadConversationMessagesPage(
@@ -455,6 +460,7 @@ export const createDirectory = api.createDirectory
 export const updateProject = api.updateProject
 export const deleteProject = api.deleteProject
 export const searchConversations = api.searchConversations
+export const listConversationSearchMatches = api.listConversationSearchMatches
 export const loadConversationMessages = api.loadConversationMessages
 export const loadConversationMessagesPage = api.loadConversationMessagesPage
 export const saveConversationMeta = api.saveConversationMeta

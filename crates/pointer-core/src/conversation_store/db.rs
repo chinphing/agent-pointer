@@ -38,6 +38,15 @@ impl DbHandle {
         })
     }
 
+    /// Read-only wrap for profiling an existing `conversations.db` (no schema migrate).
+    #[cfg(test)]
+    pub(crate) fn wrap_connection(conn: Connection) -> Self {
+        Self {
+            conn: Mutex::new(conn),
+            write_count: AtomicU32::new(0),
+        }
+    }
+
     pub fn execute_write<F, T>(&self, op: F) -> Result<T>
     where
         F: Fn(&Connection) -> Result<T>,

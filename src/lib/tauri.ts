@@ -513,6 +513,13 @@ export async function searchConversations(
   return await invoke<ConversationSearchHit[]>('search_conversations', { query, limit })
 }
 
+export async function listConversationSearchMatches(
+  conversationId: string,
+  query: string
+): Promise<import('../types/chat').ConversationSearchMatch[]> {
+  return await invoke('list_conversation_search_matches', { conversationId, query })
+}
+
 export async function loadConversationMessages(conversationId: string): Promise<ChatMessage[]> {
   return await invoke<ChatMessage[]>('load_conversation_messages', { conversationId })
 }
@@ -526,6 +533,7 @@ export async function loadConversationMessagesPage(
     opts: {
       limitTurns: opts?.limitTurns ?? 8,
       beforePosition: opts?.beforePosition,
+      afterPosition: opts?.afterPosition,
       aroundMessageId: opts?.aroundMessageId
     }
   })

@@ -1,5 +1,7 @@
 //! `session_search` tool queries against the canonical conversation store.
 
+use std::time::Instant;
+
 use anyhow::Result;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -27,8 +29,16 @@ const UI_SEARCH_MAX_LIMIT: i64 = 100;
 const UI_SNIPPET_RADIUS: usize = 20;
 const TOOL_SNIPPET_RADIUS: usize = 48;
 /// Extra hits listed per conversation in the **session_search tool** (`matches[]`).
-/// Sidebar UI loads every hit in that conversation (no page).
+/// Sidebar UI loads every contiguous FTS hit in that conversation (no page).
 const MATCHES_RETURN_MAX: usize = 5;
+/// Prefix of `messages.content` copied into Rust for sidebar match snippets.
+/// Full blobs (legacy `session_search` JSON) must not be loaded on each keystroke.
+const UI_MATCH_CONTENT_PREFIX: usize = 16_384;
+/// Cap sidebar per-conversation snippet rows (count can still be higher).
+const UI_MATCHES_SNIPPET_MAX: usize = 200;
+/// Unnamed tool rows larger than this are treated as legacy search dumps / huge
+/// payloads and skipped in SQL (`length()` is cheap; `substr`+`instr` is not).
+const UNNAMED_TOOL_SKIP_BYTES: i64 = 4_096;
 /// Hit-centered `content` budget by role (tool outbound only; SQLite keeps full text).
 const HIT_CONTENT_CHARS_USER: usize = 4_000;
 const HIT_CONTENT_CHARS_ASSISTANT: usize = 2_500;
@@ -47,16 +57,20 @@ pub fn search_conversations_for_ui(
     if query.is_empty() {
         return Ok(Vec::new());
     }
+    let started = Instant::now();
     let limit = limit.clamp(1, UI_SEARCH_MAX_LIMIT);
     let filter_uid = scope.filter_uid();
     let conn = db.conn.lock();
     let mut hits: std::collections::HashMap<String, ConversationSearchHit> =
         std::collections::HashMap::new();
 
-    let fts_query = build_fts_query(query);
+    let fts_query = build_ui_fts_query(query);
+    let mut fts_conv_count = 0usize;
+    let rank_started = Instant::now();
     if !fts_query.is_empty() {
-        match collect_fts_hits(&conn, query, &fts_query, limit, filter_uid) {
+        match collect_fts_hits(&conn, &fts_query, filter_uid) {
             Ok(fts_hits) => {
+                fts_conv_count = fts_hits.len();
                 for hit in fts_hits {
                     hits.insert(hit.id.clone(), hit);
                 }
@@ -66,6 +80,7 @@ pub fn search_conversations_for_ui(
             }
         }
     }
+    let rank_ms = rank_started.elapsed().as_millis();
 
     let like = format!("%{}%", query.to_lowercase());
     let mut stmt = conn.prepare(
@@ -109,232 +124,316 @@ pub fn search_conversations_for_ui(
     let mut out: Vec<ConversationSearchHit> = hits.into_values().collect();
     out.sort_by_key(|h| std::cmp::Reverse(h.updated_at));
     out.truncate(limit as usize);
-    for hit in &mut out {
-        match collect_all_ui_matches(&conn, &hit.id, query) {
-            Ok((matches, count)) if !matches.is_empty() => {
-                let primary = hit.message_id.clone();
-                hit.matches = matches;
-                hit.match_count = count;
-                promote_primary_match(&mut hit.matches, &primary);
+    if !fts_query.is_empty() {
+        fill_ui_primary_message_ids(&conn, &mut out, &fts_query)?;
+    }
+    let matches_started = Instant::now();
+    if !fts_query.is_empty() {
+        for hit in &mut out {
+            if hit.matches.is_empty() && !hit.message_id.is_empty() {
+                if let Some((role, content, _)) = load_message_body_prefix(
+                    &conn,
+                    &hit.id,
+                    &hit.message_id,
+                    UI_MATCH_CONTENT_PREFIX,
+                )? {
+                    hit.snippet =
+                        match_centered_snippet(&content, query, UI_SNIPPET_RADIUS, "", "");
+                    if !hit.snippet.is_empty() {
+                        hit.matches.push(ConversationSearchMatch {
+                            message_id: hit.message_id.clone(),
+                            role,
+                            snippet: hit.snippet.clone(),
+                        });
+                        if hit.match_count == 0 {
+                            hit.match_count = 1;
+                        }
+                    }
+                }
             }
-            Ok(_) => {}
-            Err(err) => {
-                log::warn!(
-                    "ui search: list matches failed conversation_id={} query={query:?}: {err:#}",
-                    hit.id
-                );
+            if hit.snippet.is_empty() {
+                hit.snippet = title_or_preview_snippet(query, &hit.title, &hit.preview);
             }
         }
     }
+    let matches_ms = matches_started.elapsed().as_millis();
+    log::info!(
+        "ui search: query={query:?} fts_convs={fts_conv_count} returned={} rank_ms={rank_ms} matches_ms={matches_ms} elapsed_ms={}",
+        out.len(),
+        started.elapsed().as_millis()
+    );
     Ok(out)
+}
+
+/// Skip prior `session_search` dumps in SQL without loading the full blob.
+/// Named rows use `tool_name`; unnamed legacy dumps are huge tool rows.
+fn sql_and_skip_session_search_dumps() -> String {
+    format!(
+        r#" AND COALESCE(m.tool_name, '') != 'session_search'
+            AND m.content != '{stub}'
+            AND NOT (
+              lower(m.role) = 'tool'
+              AND COALESCE(m.tool_name, '') = ''
+              AND length(m.content) > {max_unnamed}
+            )"#,
+        stub = SESSION_SEARCH_INDEX_STUB.replace('\'', "''"),
+        max_unnamed = UNNAMED_TOOL_SKIP_BYTES
+    )
+}
+
+/// Sidebar search (keystroke + expand): people do not see tool bodies in the
+/// transcript, so never rank or list `role = tool` rows. This also avoids
+/// reading `messages.content` overflow for dumps. Agent `session_search` still
+/// uses [`sql_and_skip_session_search_dumps`].
+fn sql_and_skip_ui_tool_rows() -> &'static str {
+    " AND lower(m.role) != 'tool'"
 }
 
 fn collect_fts_hits(
     conn: &Connection,
-    raw_query: &str,
     fts_query: &str,
-    limit: i64,
     filter_uid: Option<&str>,
 ) -> Result<Vec<ConversationSearchHit>> {
-    // Join `messages` for body text: FTS5 external-content can leave `mf.content`
-    // awkward to rely on; always read the canonical row.
-    //
-    // Do not keep only the first (best bm25) row per conversation — that message
-    // may match via token overlap without a contiguous query substring, which
-    // made match_centered_snippet fall back to the document head. Prefer a row
-    // that actually contains the query string.
-    let sql = "SELECT m.conversation_id,
-                      m.message_id,
-                      m.role,
-                      m.content,
-                      c.title, c.updated_at_ms, c.message_count, c.preview
-               FROM messages_fts AS mf
-               INNER JOIN messages AS m ON m.id = mf.rowid
-               INNER JOIN conversations AS c ON c.id = m.conversation_id
-               WHERE messages_fts MATCH ?1
-                 AND c.id NOT LIKE 'cron:%'
-                 AND c.id NOT LIKE 'webhook:%'
-                 AND (?3 IS NULL OR c.session_user_id = ?3)
-               ORDER BY bm25(messages_fts)
-               LIMIT ?2";
-    let cap = limit * 24;
-    let mut stmt = conn.prepare(sql)?;
-    let mapped = stmt.query_map(params![fts_query, cap, filter_uid], |row| {
+    // Full FTS recall for non-tool rows. Do not `ORDER BY bm25` (scores the
+    // whole posting list) and do not JOIN `messages.content`. GROUP BY keeps
+    // one row per conversation; primary `message_id` is filled after the UI
+    // truncates to `limit`.
+    let sql = format!(
+        "SELECT m.conversation_id,
+                COUNT(*) AS match_count,
+                c.title, c.updated_at_ms, c.message_count, c.preview
+         FROM messages_fts AS mf
+         INNER JOIN messages AS m ON m.id = mf.rowid
+         INNER JOIN conversations AS c ON c.id = m.conversation_id
+         WHERE messages_fts MATCH ?1
+           AND c.id NOT LIKE 'cron:%'
+           AND c.id NOT LIKE 'webhook:%'
+           AND (?2 IS NULL OR c.session_user_id = ?2)
+           {skip}
+         GROUP BY m.conversation_id",
+        skip = sql_and_skip_ui_tool_rows()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mapped = stmt.query_map(params![fts_query, filter_uid], |row| {
         Ok((
             row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
+            row.get::<_, i64>(1)?,
             row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, i64>(5)?,
-            row.get::<_, i64>(6)?,
-            row.get::<_, String>(7)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, String>(5)?,
         ))
     })?;
 
-    struct ConvUiHits {
-        primary: ConversationSearchHit,
-        has_contiguous: bool,
-        matches: Vec<ConversationSearchMatch>,
-        seen: std::collections::HashSet<String>,
-        match_count: u32,
-    }
-
-    // conversation_id -> grouped hits (primary prefers a contiguous substring)
-    let mut best: std::collections::HashMap<String, ConvUiHits> = std::collections::HashMap::new();
+    let mut out = Vec::new();
     for row in mapped {
-        let (id, message_id, role, content, title, updated_at, message_count, preview) = row?;
-        let contiguous = text_contains_query(&content, raw_query);
-        let row_snippet = match_centered_snippet(&content, raw_query, UI_SNIPPET_RADIUS, "", "");
-        let (snippet, resolved_message_id, resolved_role) = if contiguous {
-            (row_snippet.clone(), message_id.clone(), role.clone())
-        } else if let Some((mid, r, snip)) =
-            find_contiguous_snippet_in_conversation(conn, &id, raw_query)?
-        {
-            (snip, mid, r)
-        } else {
-            (row_snippet.clone(), message_id.clone(), role.clone())
-        };
-        let hit = ConversationSearchHit {
-            id: id.clone(),
-            snippet,
-            message_id: resolved_message_id.clone(),
+        let (id, match_count, title, updated_at, message_count, preview) = row?;
+        out.push(ConversationSearchHit {
+            id,
+            snippet: String::new(),
+            message_id: String::new(),
             title,
             updated_at,
             message_count: message_count.max(0) as u32,
             preview,
             matches: Vec::new(),
-            match_count: 0,
-        };
-        let has_hit = contiguous || text_contains_query(&hit.snippet, raw_query);
-        let fallback_snip = hit.snippet.clone();
-        let group = best.entry(id).or_insert_with(|| ConvUiHits {
-            primary: hit.clone(),
-            has_contiguous: has_hit,
-            matches: Vec::new(),
-            seen: std::collections::HashSet::new(),
-            match_count: 0,
+            match_count: match_count.max(0) as u32,
         });
-        if has_hit && !group.has_contiguous {
-            group.primary = hit;
-            group.has_contiguous = true;
-        }
-        if contiguous {
-            push_search_match(
-                &mut group.matches,
-                &mut group.seen,
-                &mut group.match_count,
-                message_id,
-                role,
-                row_snippet,
-                usize::MAX,
-            );
-        } else if has_hit {
-            push_search_match(
-                &mut group.matches,
-                &mut group.seen,
-                &mut group.match_count,
-                resolved_message_id,
-                resolved_role,
-                fallback_snip,
-                usize::MAX,
-            );
-        }
     }
-
-    let mut out: Vec<ConversationSearchHit> = best
-        .into_values()
-        .map(|mut g| {
-            promote_primary_match(&mut g.matches, &g.primary.message_id);
-            g.primary.matches = g.matches;
-            g.primary.match_count = g.match_count;
-            g.primary
-        })
-        .collect();
     out.sort_by_key(|h| std::cmp::Reverse(h.updated_at));
     Ok(out)
 }
 
-/// Scan messages in a conversation for a contiguous query substring.
-/// Returns `(message_id, role, snippet)` for the first match.
-fn find_contiguous_snippet_in_conversation(
+fn fill_ui_primary_message_ids(
     conn: &Connection,
-    conversation_id: &str,
-    raw_query: &str,
-) -> Result<Option<(String, String, String)>> {
-    let q = raw_query.trim();
-    if q.is_empty() {
-        return Ok(None);
+    hits: &mut [ConversationSearchHit],
+    fts_query: &str,
+) -> Result<()> {
+    let ids: Vec<String> = hits
+        .iter()
+        .filter(|h| h.message_id.is_empty() && h.match_count > 0)
+        .map(|h| h.id.clone())
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
     }
-    let like = format!("%{q}%");
-    let mut stmt = conn.prepare(
-        "SELECT message_id, role, content FROM messages
-         WHERE conversation_id = ?1 AND content LIKE ?2
-         ORDER BY position ASC
-         LIMIT 8",
-    )?;
-    let mapped = stmt.query_map(params![conversation_id, like], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
+    let in_list = sql_quoted_id_list(&ids);
+    let sql = format!(
+        "SELECT r.conversation_id, r.message_id
+         FROM (
+           SELECT m.conversation_id, m.message_id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY m.conversation_id
+                    ORDER BY CASE lower(m.role)
+                      WHEN 'assistant' THEN 0
+                      WHEN 'user' THEN 1
+                      ELSE 2
+                    END, m.position ASC
+                  ) AS rn
+           FROM messages_fts AS mf
+           INNER JOIN messages AS m ON m.id = mf.rowid
+           WHERE messages_fts MATCH ?1
+             AND m.conversation_id IN ({in_list})
+             {skip}
+         ) AS r
+         WHERE r.rn = 1",
+        skip = sql_and_skip_ui_tool_rows()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mapped = stmt.query_map(params![fts_query], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
+    let mut by_id = std::collections::HashMap::new();
     for row in mapped {
-        let (message_id, role, content) = row?;
-        if text_contains_query(&content, q) {
-            return Ok(Some((
-                message_id,
-                role,
-                match_centered_snippet(&content, q, UI_SNIPPET_RADIUS, "", ""),
-            )));
+        let (id, message_id) = row?;
+        by_id.insert(id, message_id);
+    }
+    for hit in hits.iter_mut() {
+        if hit.message_id.is_empty() {
+            if let Some(message_id) = by_id.remove(&hit.id) {
+                hit.message_id = message_id;
+            }
         }
     }
-    Ok(None)
+    Ok(())
 }
 
-/// Every contiguous hit in one conversation, oldest first. Sidebar expand lists these all.
-fn collect_all_ui_matches(
-    conn: &Connection,
-    conversation_id: &str,
-    raw_query: &str,
-) -> Result<(Vec<ConversationSearchMatch>, u32)> {
-    let q = raw_query.trim();
-    if q.is_empty() {
-        return Ok((Vec::new(), 0));
+fn search_hit_role_rank(role: &str) -> u8 {
+    match role.trim().to_ascii_lowercase().as_str() {
+        "assistant" => 0,
+        "user" => 1,
+        "tool" => 3,
+        _ => 2,
     }
-    let like = format!("%{q}%");
-    let mut stmt = conn.prepare(
-        "SELECT message_id, role, content FROM messages
-         WHERE conversation_id = ?1 AND content LIKE ?2
-         ORDER BY position ASC",
-    )?;
-    let mapped = stmt.query_map(params![conversation_id, like], |row| {
+}
+
+fn sort_matches_assistant_first(matches: &mut [ConversationSearchMatch]) {
+    matches.sort_by_key(|m| search_hit_role_rank(&m.role));
+}
+
+/// Contiguous hits via FTS (not `content LIKE`). One query for all listed conversations.
+/// Only a content prefix is copied into Rust so huge tool blobs stay on disk.
+fn collect_ui_matches_via_fts(
+    conn: &Connection,
+    conversation_ids: &[String],
+    raw_query: &str,
+    fts_query: &str,
+) -> Result<std::collections::HashMap<String, (Vec<ConversationSearchMatch>, u32)>> {
+    let q = raw_query.trim();
+    let mut by_conv: std::collections::HashMap<String, (Vec<ConversationSearchMatch>, u32)> =
+        std::collections::HashMap::new();
+    if q.is_empty() || fts_query.is_empty() || conversation_ids.is_empty() {
+        return Ok(by_conv);
+    }
+    let in_list = sql_quoted_id_list(conversation_ids);
+    let sql = format!(
+        "SELECT m.conversation_id, m.message_id, m.role, substr(m.content, 1, {prefix})
+         FROM messages_fts AS mf
+         INNER JOIN messages AS m ON m.id = mf.rowid
+         WHERE messages_fts MATCH ?1
+           AND m.conversation_id IN ({in_list})
+           {skip}
+         ORDER BY m.position ASC",
+        prefix = UI_MATCH_CONTENT_PREFIX,
+        skip = sql_and_skip_ui_tool_rows()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mapped = stmt.query_map(params![fts_query], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
         ))
     })?;
-    let mut matches = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    let mut match_count: u32 = 0;
+    let mut seen_by_conv: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
     for row in mapped {
-        let (message_id, role, content) = row?;
+        let (conversation_id, message_id, role, content) = row?;
+        if is_omitted_session_search_row(&role, &content, None) {
+            continue;
+        }
         if !text_contains_query(&content, q) {
             continue;
         }
+        let snippet = match_centered_snippet(&content, q, UI_SNIPPET_RADIUS, "", "");
+        let entry = by_conv
+            .entry(conversation_id.clone())
+            .or_insert_with(|| (Vec::new(), 0));
+        let seen = seen_by_conv.entry(conversation_id).or_default();
         push_search_match(
-            &mut matches,
-            &mut seen,
-            &mut match_count,
+            &mut entry.0,
+            seen,
+            &mut entry.1,
             message_id,
             role,
-            match_centered_snippet(&content, q, UI_SNIPPET_RADIUS, "", ""),
-            usize::MAX,
+            snippet,
+            UI_MATCHES_SNIPPET_MAX,
         );
     }
-    Ok((matches, match_count))
+    for (matches, _) in by_conv.values_mut() {
+        sort_matches_assistant_first(matches);
+    }
+    Ok(by_conv)
+}
+
+fn sql_quoted_id_list(ids: &[String]) -> String {
+    ids.iter()
+        .map(|id| format!("'{}'", id.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Sidebar expand: every contiguous FTS hit in one conversation (prefix only).
+pub fn list_conversation_search_matches(
+    db: &DbHandle,
+    scope: &ListScope,
+    conversation_id: &str,
+    query: &str,
+) -> Result<Vec<ConversationSearchMatch>> {
+    let query = query.trim();
+    let conversation_id = conversation_id.trim();
+    if query.is_empty() || conversation_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fts_query = build_ui_fts_query(query);
+    if fts_query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let conn = db.conn.lock();
+    if !conversation_in_scope(&conn, conversation_id, scope.filter_uid())? {
+        return Err(anyhow::anyhow!("conversation not found"));
+    }
+    let mut by_conv = collect_ui_matches_via_fts(
+        &conn,
+        &[conversation_id.to_string()],
+        query,
+        &fts_query,
+    )?;
+    Ok(by_conv
+        .remove(conversation_id)
+        .map(|(matches, _)| matches)
+        .unwrap_or_default())
+}
+
+fn conversation_in_scope(
+    conn: &Connection,
+    conversation_id: &str,
+    filter_uid: Option<&str>,
+) -> Result<bool> {
+    let n: i64 = match filter_uid {
+        Some(uid) => conn.query_row(
+            "SELECT COUNT(*) FROM conversations WHERE id = ?1 AND session_user_id = ?2",
+            params![conversation_id, uid],
+            |row| row.get(0),
+        )?,
+        None => conn.query_row(
+            "SELECT COUNT(*) FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )?,
+    };
+    Ok(n > 0)
 }
 
 fn push_search_match(
@@ -529,57 +628,40 @@ fn discover(
     current_conversation_id: Option<&str>,
     session_user_filter: &str,
 ) -> Result<String> {
+    let started = Instant::now();
     let fts_query = build_fts_query(query);
     let conn = db.conn.lock();
 
     let mut hits: Vec<FtsHit> = Vec::new();
     {
-        let sql = "SELECT mf.conversation_id, mf.message_id, mf.role, m.content,
-                          m.tool_name, bm25(messages_fts) AS rank
-                   FROM messages_fts AS mf
-                   INNER JOIN messages AS m ON m.id = mf.rowid
-                   INNER JOIN conversations AS c ON c.id = mf.conversation_id
-                   WHERE messages_fts MATCH ?1
-                     AND c.session_user_id = ?2
-                     AND m.content != ?4
-                     AND COALESCE(m.tool_name, '') != 'session_search'
-                   ORDER BY rank
-                   LIMIT ?3";
-        let mut stmt = conn.prepare(sql)?;
+        let sql = format!(
+            "SELECT mf.conversation_id, mf.message_id, mf.role,
+                    m.tool_name, bm25(messages_fts) AS rank
+             FROM messages_fts AS mf
+             INNER JOIN messages AS m ON m.id = mf.rowid
+             INNER JOIN conversations AS c ON c.id = mf.conversation_id
+             WHERE messages_fts MATCH ?1
+               AND c.session_user_id = ?2
+               {skip}
+             ORDER BY rank
+             LIMIT ?3",
+            skip = sql_and_skip_session_search_dumps()
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let cap = limit * 24;
-        let mapped = stmt.query_map(
-            params![
-                fts_query,
-                session_user_filter,
-                cap,
-                SESSION_SEARCH_INDEX_STUB
-            ],
-            |row| {
-                let content: String = row.get(3)?;
-                Ok(FtsHit {
-                    conversation_id: row.get(0)?,
-                    message_id: row.get(1)?,
-                    role: row.get(2)?,
-                    content,
-                    tool_name: row.get(4)?,
-                    snippet: String::new(),
-                    rank: row.get(5)?,
-                })
-            },
-        )?;
+        let mapped = stmt.query_map(params![fts_query, session_user_filter, cap], |row| {
+            Ok(FtsHit {
+                conversation_id: row.get(0)?,
+                message_id: row.get(1)?,
+                role: row.get(2)?,
+                content: String::new(),
+                tool_name: row.get(3)?,
+                snippet: String::new(),
+                rank: row.get(4)?,
+            })
+        })?;
         for hit in mapped {
-            let mut hit = hit?;
-            if is_omitted_session_search_row(&hit.role, &hit.content, hit.tool_name.as_deref()) {
-                log::info!(
-                    "session_search: skip_prior_tool_hit conversation_id={} message_id={}",
-                    hit.conversation_id,
-                    hit.message_id
-                );
-                continue;
-            }
-            hit.snippet =
-                match_centered_snippet(&hit.content, query, TOOL_SNIPPET_RADIUS, "<b>", "</b>");
-            hits.push(hit);
+            hits.push(hit?);
         }
     }
 
@@ -608,7 +690,7 @@ fn discover(
                 hit.message_id,
                 hit.role,
                 hit.snippet,
-                MATCHES_RETURN_MAX,
+                usize::MAX,
             );
             continue;
         }
@@ -628,7 +710,7 @@ fn discover(
             hit.message_id,
             hit.role,
             hit.snippet,
-            MATCHES_RETURN_MAX,
+            usize::MAX,
         );
         order.push(hit.conversation_id.clone());
         groups.insert(hit.conversation_id, group);
@@ -645,7 +727,22 @@ fn discover(
         let Some(mut group) = groups.remove(&conversation_id) else {
             continue;
         };
+        sort_matches_assistant_first(&mut group.matches);
+        if let Some(first) = group.matches.first() {
+            group.primary.message_id = first.message_id.clone();
+            group.primary.role = first.role.clone();
+        }
+        if group.matches.len() > MATCHES_RETURN_MAX {
+            group.matches.truncate(MATCHES_RETURN_MAX);
+        }
         promote_primary_match(&mut group.matches, &group.primary.message_id);
+        hydrate_discover_snippets(
+            &conn,
+            &conversation_id,
+            query,
+            &mut group.primary,
+            &mut group.matches,
+        )?;
         let meta = load_meta(&conn, &conversation_id)?;
         let Some(meta) = meta else {
             continue;
@@ -690,6 +787,11 @@ fn discover(
         }));
     }
 
+    log::info!(
+        "session_search: discover query={query:?} groups={} elapsed_ms={}",
+        results.len(),
+        started.elapsed().as_millis()
+    );
     Ok(json!({
         "success": true,
         "mode": "discovery",
@@ -806,6 +908,7 @@ struct FtsHit {
     message_id: String,
     role: String,
     content: String,
+    #[allow(dead_code)]
     tool_name: Option<String>,
     snippet: String,
     #[allow(dead_code)]
@@ -826,6 +929,73 @@ struct MetaRow {
 
 fn load_meta(conn: &Connection, conversation_id: &str) -> Result<Option<MetaRow>> {
     load_meta_for_session_user(conn, conversation_id, None)
+}
+
+fn hydrate_discover_snippets(
+    conn: &Connection,
+    conversation_id: &str,
+    query: &str,
+    primary: &mut FtsHit,
+    matches: &mut [ConversationSearchMatch],
+) -> Result<()> {
+    let mut ids = vec![primary.message_id.clone()];
+    for m in matches.iter() {
+        if m.message_id != primary.message_id {
+            ids.push(m.message_id.clone());
+        }
+    }
+    for id in ids {
+        let Some((role, content, tool_name)) = load_message_body(conn, conversation_id, &id)?
+        else {
+            continue;
+        };
+        if is_omitted_session_search_row(&role, &content, tool_name.as_deref()) {
+            log::info!(
+                "session_search: skip_prior_tool_hit conversation_id={conversation_id} message_id={id}"
+            );
+            continue;
+        }
+        let snippet = match_centered_snippet(&content, query, TOOL_SNIPPET_RADIUS, "<b>", "</b>");
+        if id == primary.message_id {
+            primary.content = content;
+            primary.snippet = snippet.clone();
+        }
+        if let Some(m) = matches.iter_mut().find(|m| m.message_id == id) {
+            m.snippet = snippet;
+        }
+    }
+    Ok(())
+}
+
+fn load_message_body(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<Option<(String, String, Option<String>)>> {
+    load_message_body_prefix(conn, conversation_id, message_id, usize::MAX)
+}
+
+fn load_message_body_prefix(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+    prefix: usize,
+) -> Result<Option<(String, String, Option<String>)>> {
+    let sql = if prefix == usize::MAX {
+        "SELECT role, content, tool_name FROM messages
+         WHERE conversation_id = ?1 AND message_id = ?2"
+            .to_string()
+    } else {
+        format!(
+            "SELECT role, substr(content, 1, {prefix}), tool_name FROM messages
+             WHERE conversation_id = ?1 AND message_id = ?2"
+        )
+    };
+    conn.query_row(&sql, params![conversation_id, message_id], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    })
+    .optional()
+    .map_err(Into::into)
 }
 
 fn load_meta_for_session_user(
@@ -1147,6 +1317,17 @@ fn build_fts_query(raw: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Sidebar MATCH: search `content` only, drop `role = tool` in the FTS index
+/// (`role` is a tokenized column). Agent `session_search` uses [`build_fts_query`]
+/// without this filter so tool bodies stay searchable.
+fn build_ui_fts_query(raw: &str) -> String {
+    let inner = build_fts_query(raw);
+    if inner.is_empty() {
+        return String::new();
+    }
+    format!("{{content}}: ({inner}) NOT {{role}}: tool")
 }
 
 fn contains_cjk(s: &str) -> bool {

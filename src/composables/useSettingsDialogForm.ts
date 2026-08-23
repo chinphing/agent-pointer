@@ -286,6 +286,10 @@ function createSettingsDialogForm(deps: {
   const maxParallelSubAgents = ref(autoParallelLimit)
   const maxParallelMediaJobs = ref(autoParallelLimit)
   const maxConcurrentRuns = ref(4)
+  function storedParallelLimit(v: number | null | undefined): number {
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : autoParallelLimit
+  }
   const maxSubAgentSpawnDepth = ref(2)
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
@@ -494,9 +498,9 @@ function createSettingsDialogForm(deps: {
     Math.round((s.settings.attachmentUploadMaxBytes ?? 100 * 1024 * 1024) / (1024 * 1024))
   )
   parallelToolExecutionEnabled.value = s.settings.parallelToolExecutionEnabled !== false
-  maxParallelToolCalls.value = s.settings.maxParallelToolCalls || autoParallelLimit
-  maxParallelSubAgents.value = s.settings.maxParallelSubAgents || autoParallelLimit
-  maxParallelMediaJobs.value = s.settings.maxParallelMediaJobs || autoParallelLimit
+  maxParallelToolCalls.value = storedParallelLimit(s.settings.maxParallelToolCalls)
+  maxParallelSubAgents.value = storedParallelLimit(s.settings.maxParallelSubAgents)
+  maxParallelMediaJobs.value = storedParallelLimit(s.settings.maxParallelMediaJobs)
   maxConcurrentRuns.value = s.settings.maxConcurrentRuns ?? 4
   maxSubAgentToolRounds.value = migrateToolRounds(
     s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds
@@ -826,11 +830,15 @@ function createSettingsDialogForm(deps: {
   function applyAssistantPrefsToRuntime() {
     const payload = assistantPreferencesPayload()
     const prevModes = s.settings.agentPerformanceModes ?? {}
+    // 弹窗关闭再打开从 settings / userSettings 回填。payload 里的项必须两边都写，
+    // 否则后续只带部分字段的 saveUser 会用旧 userSettings 把刚改的值盖掉。
+    s.settings.toolApprovalMode = payload.toolApprovalMode
     s.settings.computerInitialTier = payload.computerInitialTier
     s.settings.agentPerformanceModes = { ...payload.agentPerformanceModes }
     s.settings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
     s.settings.computerHumanLike = payload.computerHumanLike
     s.settings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
+    s.settings.captchaSliderOffsetPx = payload.captchaSliderOffsetPx
     s.settings.fileReadMaxBytes = payload.fileReadMaxBytes
     s.settings.fileLineMaxBytes = payload.fileLineMaxBytes
     s.settings.fileGrepMaxResults = payload.fileGrepMaxResults
@@ -838,7 +846,47 @@ function createSettingsDialogForm(deps: {
     s.settings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
     s.settings.maxToolRounds = payload.maxToolRounds
     s.settings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
+    s.settings.contextCompressionEnabled = payload.contextCompressionEnabled
     s.settings.contextBudgetTokens = payload.contextBudgetTokens
+    s.settings.contextKeepRecentUserTurns = payload.contextKeepRecentUserTurns
+    s.settings.parallelToolExecutionEnabled = payload.parallelToolExecutionEnabled
+    s.settings.maxParallelToolCalls = payload.maxParallelToolCalls
+    s.settings.maxParallelSubAgents = payload.maxParallelSubAgents
+    s.settings.maxParallelMediaJobs = payload.maxParallelMediaJobs
+    s.settings.maxConcurrentRuns = payload.maxConcurrentRuns
+    s.settings.rawContentViewEnabled = payload.rawContentViewEnabled
+    s.settings.computerAnnotatedScreenViewEnabled = payload.computerAnnotatedScreenViewEnabled
+    s.settings.taskBoardShowChildBoards = payload.taskBoardShowChildBoards
+    s.settings.agentUiOverrides = { ...payload.agentUiOverrides }
+    s.userSettings.computerAutoCompact = payload.computerAutoCompact
+    s.userSettings.collapseProcessByDefault = payload.collapseProcessByDefault
+    s.userSettings.userCodingRules = payload.userCodingRules
+    s.userSettings.toolApprovalMode = payload.toolApprovalMode
+    s.userSettings.computerInitialTier = payload.computerInitialTier
+    s.userSettings.agentPerformanceModes = { ...payload.agentPerformanceModes }
+    s.userSettings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
+    s.userSettings.computerHumanLike = payload.computerHumanLike
+    s.userSettings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
+    s.userSettings.captchaSliderOffsetPx = payload.captchaSliderOffsetPx
+    s.userSettings.fileReadMaxBytes = payload.fileReadMaxBytes
+    s.userSettings.fileLineMaxBytes = payload.fileLineMaxBytes
+    s.userSettings.fileGrepMaxResults = payload.fileGrepMaxResults
+    s.userSettings.terminalOutputMaxBytes = payload.terminalOutputMaxBytes
+    s.userSettings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
+    s.userSettings.maxToolRounds = payload.maxToolRounds
+    s.userSettings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
+    s.userSettings.contextCompressionEnabled = payload.contextCompressionEnabled
+    s.userSettings.contextBudgetTokens = payload.contextBudgetTokens
+    s.userSettings.contextKeepRecentUserTurns = payload.contextKeepRecentUserTurns
+    s.userSettings.parallelToolExecutionEnabled = payload.parallelToolExecutionEnabled
+    s.userSettings.maxParallelToolCalls = payload.maxParallelToolCalls
+    s.userSettings.maxParallelSubAgents = payload.maxParallelSubAgents
+    s.userSettings.maxParallelMediaJobs = payload.maxParallelMediaJobs
+    s.userSettings.maxConcurrentRuns = payload.maxConcurrentRuns
+    s.userSettings.rawContentViewEnabled = payload.rawContentViewEnabled
+    s.userSettings.computerAnnotatedScreenViewEnabled = payload.computerAnnotatedScreenViewEnabled
+    s.userSettings.taskBoardShowChildBoards = payload.taskBoardShowChildBoards
+    s.userSettings.agentUiOverrides = { ...payload.agentUiOverrides }
     const conv = chat.current
     if (conv) {
       const lead = chat.effectiveConversationLeadAgentId(conv)
@@ -853,24 +901,29 @@ function createSettingsDialogForm(deps: {
     return payload
   }
 
+  function persistAssistantPreferences() {
+    const payload = applyAssistantPrefsToRuntime()
+    return (async () => {
+      try {
+        await s.saveAgentPreferences(payload)
+        await s.saveUser({
+          computerAutoCompact: payload.computerAutoCompact,
+          collapseProcessByDefault: payload.collapseProcessByDefault,
+          userCodingRules: payload.userCodingRules
+        })
+      } catch (error) {
+        console.error('[settings] failed to save assistant preferences', error)
+      }
+    })()
+  }
+
   function scheduleAssistantSave() {
     if (!autosaveReady) return
-    const payload = applyAssistantPrefsToRuntime()
+    applyAssistantPrefsToRuntime()
     if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
     assistantSaveTimer = window.setTimeout(() => {
       assistantSaveTimer = undefined
-      void (async () => {
-        try {
-          await s.saveAgentPreferences(payload)
-          await s.saveUser({
-            computerAutoCompact: payload.computerAutoCompact,
-            collapseProcessByDefault: payload.collapseProcessByDefault,
-            userCodingRules: payload.userCodingRules
-          })
-        } catch (error) {
-          console.error('[settings] failed to save assistant preferences', error)
-        }
-      })()
+      void persistAssistantPreferences()
     }, 350)
   }
 
@@ -923,7 +976,11 @@ function createSettingsDialogForm(deps: {
   watch(debugDumpLlmPrompts, scheduleDebugSave)
 
   onScopeDispose(() => {
-    if (assistantSaveTimer) window.clearTimeout(assistantSaveTimer)
+    if (assistantSaveTimer) {
+      window.clearTimeout(assistantSaveTimer)
+      assistantSaveTimer = undefined
+      void persistAssistantPreferences()
+    }
     if (debugSaveTimer) window.clearTimeout(debugSaveTimer)
     if (debugModelSaveTimer) window.clearTimeout(debugModelSaveTimer)
   })

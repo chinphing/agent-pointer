@@ -24,6 +24,8 @@ export const DEFAULT_MODEL_MAX_TOKENS = 2048
 export const DEFAULT_CONTEXT_BUDGET_TOKENS = 262_144
 export const CONTEXT_BUDGET_TOKENS_MIN = 4096
 export const CONTEXT_BUDGET_TOKENS_MAX = 2_097_152
+/** Previous product defaults (decimal 100k/120k and 100/120 Ki). */
+const LEGACY_CONTEXT_BUDGET_TOKENS = new Set([100_000, 102_400, 120_000, 122_880])
 
 export type RuntimeGenFallback = {
   temperature: () => number
@@ -108,7 +110,9 @@ export function parseExtraBodyJson(
 export function clampContextBudgetTokens(value: number): number {
   const n = Math.round(Number(value))
   if (!Number.isFinite(n)) return DEFAULT_CONTEXT_BUDGET_TOKENS
-  return Math.min(CONTEXT_BUDGET_TOKENS_MAX, Math.max(CONTEXT_BUDGET_TOKENS_MIN, n))
+  const clamped = Math.min(CONTEXT_BUDGET_TOKENS_MAX, Math.max(CONTEXT_BUDGET_TOKENS_MIN, n))
+  if (LEGACY_CONTEXT_BUDGET_TOKENS.has(clamped)) return DEFAULT_CONTEXT_BUDGET_TOKENS
+  return clamped
 }
 
 export function useRuntimeParams(

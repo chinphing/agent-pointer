@@ -104,6 +104,8 @@
 - `RuntimeParamsForm` + `useRuntimeParams`：服务商级用 `providerScopeModelId === null`，模型定制用 `modelConfigModalId`。
 - 改 `modelConfigs` 时替换顶层对象引用（见 `useRuntimeParams.patchModel`）。
 - **最大输出 / 上下文**：同一行两个数字框；服务商默认 + 单模型覆盖，和温度一样。官网目录字段 `maxTokens` / `contextBudgetTokens`。
+  自定义服务新增时上下文默认 **262144**（256K），不拷贝用户设置里可能残留的全局旧值。
+  加载时把历史产品默认 `100000`/`120000`/`102400`/`122880` 升到 262144。
 - **扩展参数 `extraBody`**：JSON 对象；失焦时解析写入。服务商级与模型级均可配；模型覆盖浅合并服务商。
   请求时一律展平到 chat/completions 根级（对齐 Hermes）。详见 [`../llm/model-thinking-api.md`](../llm/model-thinking-api.md)。
 

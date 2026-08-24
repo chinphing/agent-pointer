@@ -213,11 +213,11 @@ function copyOriginalKey() {
 function globalGenDefaults() {
   const t = s.settings.temperature
   const n = s.settings.maxTokens
-  const ctx = s.settings.contextBudgetTokens
   return {
     temperature: Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE,
     maxTokens: n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS,
-    contextBudgetTokens: ctx && ctx >= 4096 ? ctx : DEFAULT_CONTEXT_BUDGET_TOKENS
+    // New custom providers always start at 256K; do not copy a leftover global.
+    contextBudgetTokens: DEFAULT_CONTEXT_BUDGET_TOKENS
   }
 }
 

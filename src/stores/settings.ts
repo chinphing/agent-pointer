@@ -38,6 +38,7 @@ import {
   DEFAULT_CONTEXT_BUDGET_TOKENS,
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
+  clampContextBudgetTokens,
   pruneInheritedModelConfigs,
   type RuntimeGenFallback
 } from '../composables/useRuntimeParams'
@@ -77,8 +78,6 @@ function migratePlannerSettingsFields(
   return rest as unknown as ModelSettings
 }
 
-const LEGACY_CONTEXT_BUDGET_TOKENS = new Set([100_000, 120_000])
-
 const DEFAULT_TOOL_ROUNDS = 5000
 const LEGACY_TOOL_ROUNDS = new Set([100, 200])
 
@@ -91,23 +90,26 @@ function normalizeToolRounds(raw?: number): number {
 
 function normalizeContextBudgetTokens(raw?: number): number {
   if (!Number.isFinite(Number(raw)) || Number(raw) <= 0) return DEFAULT_CONTEXT_BUDGET_TOKENS
-  const tokens = Math.floor(Number(raw))
-  if (LEGACY_CONTEXT_BUDGET_TOKENS.has(tokens)) return DEFAULT_CONTEXT_BUDGET_TOKENS
-  return tokens
+  return clampContextBudgetTokens(Math.floor(Number(raw)))
 }
 
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
   const migrated = migratePlannerSettingsFields(s)
-  const providersNorm = normalizeProviders(migrated.providers, undefined, globalGenFallbackFrom(migrated))
+  const contextBudgetTokens = normalizeContextBudgetTokens(
+    s.contextBudgetTokens ?? (s as { contextBudgetChars?: number }).contextBudgetChars
+  )
+  const providersNorm = normalizeProviders(
+    migrated.providers,
+    undefined,
+    globalGenFallbackFrom({ ...migrated, contextBudgetTokens })
+  )
   return {
     ...migrated,
     providers: providersNorm,
     workspaceRoot: s.workspaceRoot ?? '',
     leadAgentId: (s.leadAgentId ?? '').trim() || DEFAULT_LEAD_AGENT_ID,
     contextCompressionEnabled: true,
-    contextBudgetTokens: normalizeContextBudgetTokens(
-      s.contextBudgetTokens ?? (s as { contextBudgetChars?: number }).contextBudgetChars
-    ),
+    contextBudgetTokens,
     contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 3,
     contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
     maxToolRounds: normalizeToolRounds(s.maxToolRounds),
@@ -185,11 +187,22 @@ function normalizeProvider(
   legacyReasoning?: boolean,
   globalFallback?: RuntimeGenFallback
 ): ProviderConfig {
+  const modelConfigs: NonNullable<ProviderConfig['modelConfigs']> = {}
+  for (const [id, over] of Object.entries(p.modelConfigs ?? {})) {
+    modelConfigs[id] =
+      over.contextBudgetTokens !== undefined
+        ? { ...over, contextBudgetTokens: clampContextBudgetTokens(over.contextBudgetTokens) }
+        : { ...over }
+  }
   const base: ProviderConfig = {
     ...p,
     // 旧数据或异常响应可能缺 models；设置页模板会读 models.length，必须是数组。
     models: Array.isArray(p.models) ? [...p.models] : [],
-    modelConfigs: p.modelConfigs ? { ...p.modelConfigs } : {},
+    modelConfigs,
+    contextBudgetTokens:
+      p.contextBudgetTokens !== undefined
+        ? clampContextBudgetTokens(p.contextBudgetTokens)
+        : p.contextBudgetTokens,
     reasoningInMessages:
       p.reasoningInMessages !== undefined
         ? p.reasoningInMessages

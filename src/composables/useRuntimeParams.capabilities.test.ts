@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ProviderConfig } from '../types/chat'
 import {
+  clampContextBudgetTokens,
   hasEffectiveModelOverride,
   patchProviderModelCapability,
   pruneInheritedModelConfigs,
@@ -167,5 +168,16 @@ describe('audio transcription picker', () => {
     providers[0].models = ['qwen3.5-plus', 'qwen3-asr-flash']
     expect(modelSupportsAudioTranscription(providers, 'qwen', 'qwen3-asr-flash')).toBe(true)
     expect(modelSupportsAudioTranscription(providers, 'qwen', 'qwen3.5-plus')).toBe(false)
+  })
+})
+
+describe('legacy context budget defaults', () => {
+  it('maps old 100k/120k product defaults to 256K', () => {
+    expect(clampContextBudgetTokens(100_000)).toBe(262_144)
+    expect(clampContextBudgetTokens(102_400)).toBe(262_144)
+    expect(clampContextBudgetTokens(120_000)).toBe(262_144)
+    expect(clampContextBudgetTokens(122_880)).toBe(262_144)
+    expect(clampContextBudgetTokens(128_000)).toBe(128_000)
+    expect(clampContextBudgetTokens(80_000)).toBe(80_000)
   })
 })

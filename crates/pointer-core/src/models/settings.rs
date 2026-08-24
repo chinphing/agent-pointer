@@ -392,9 +392,53 @@ pub fn effective_max_tokens(settings: &ModelSettings) -> u32 {
 
 pub const CONTEXT_BUDGET_TOKENS_FLOOR: u32 = 4096;
 pub const CONTEXT_BUDGET_TOKENS_CEILING: u32 = 2_097_152;
+/// Previous product defaults: decimal 100k/120k and 100/120 Ki.
+const LEGACY_CONTEXT_BUDGET_TOKENS: [u32; 4] = [100_000, 102_400, 120_000, 122_880];
 
 pub fn clamp_context_budget_tokens(n: u32) -> u32 {
     n.clamp(CONTEXT_BUDGET_TOKENS_FLOOR, CONTEXT_BUDGET_TOKENS_CEILING)
+}
+
+/// Map old product defaults to the current 256K default; otherwise clamp.
+pub fn migrate_legacy_context_budget_tokens(n: u32) -> u32 {
+    if LEGACY_CONTEXT_BUDGET_TOKENS.contains(&n) {
+        default_context_budget_tokens()
+    } else {
+        clamp_context_budget_tokens(n)
+    }
+}
+
+fn migrate_provider_context_budget(provider: &mut ProviderConfig, global_ctx: u32) {
+    match provider.context_budget_tokens {
+        None => provider.context_budget_tokens = Some(global_ctx),
+        Some(n) => {
+            let migrated = migrate_legacy_context_budget_tokens(n);
+            if migrated != n {
+                log::info!(
+                    "settings: migrate provider {} context_budget_tokens {} -> {}",
+                    provider.id,
+                    n,
+                    migrated
+                );
+            }
+            provider.context_budget_tokens = Some(migrated);
+        }
+    }
+    for (model_id, over) in provider.model_configs.iter_mut() {
+        if let Some(n) = over.context_budget_tokens {
+            let migrated = migrate_legacy_context_budget_tokens(n);
+            if migrated != n {
+                log::info!(
+                    "settings: migrate model {}/{} context_budget_tokens {} -> {}",
+                    provider.id,
+                    model_id,
+                    n,
+                    migrated
+                );
+                over.context_budget_tokens = Some(migrated);
+            }
+        }
+    }
 }
 
 /// Context budget for the **active** provider + **current** `settings.model`.
@@ -405,13 +449,13 @@ pub fn effective_context_budget_tokens(settings: &ModelSettings) -> u32 {
             .get(model)
             .and_then(|o| o.context_budget_tokens)
         {
-            return clamp_context_budget_tokens(n);
+            return migrate_legacy_context_budget_tokens(n);
         }
         if let Some(n) = p.context_budget_tokens {
-            return clamp_context_budget_tokens(n);
+            return migrate_legacy_context_budget_tokens(n);
         }
     }
-    clamp_context_budget_tokens(settings.context_budget_tokens)
+    migrate_legacy_context_budget_tokens(settings.context_budget_tokens)
 }
 
 /// Migrate legacy global `temperature` / `max_tokens` / `context_budget_tokens`
@@ -426,7 +470,15 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
         DEFAULT_MODEL_TEMPERATURE
     };
     let global_max = settings.max_tokens.max(64);
-    let global_ctx = clamp_context_budget_tokens(settings.context_budget_tokens);
+    let global_ctx = migrate_legacy_context_budget_tokens(settings.context_budget_tokens);
+    if global_ctx != settings.context_budget_tokens {
+        log::info!(
+            "settings: migrate legacy context_budget_tokens {} -> {}",
+            settings.context_budget_tokens,
+            global_ctx
+        );
+        settings.context_budget_tokens = global_ctx;
+    }
     for provider in &mut settings.providers {
         if provider.temperature.is_none() {
             provider.temperature = Some(global_temp);
@@ -437,9 +489,7 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
         if provider.max_tokens.is_none() {
             provider.max_tokens = Some(global_max);
         }
-        if provider.context_budget_tokens.is_none() {
-            provider.context_budget_tokens = Some(global_ctx);
-        }
+        migrate_provider_context_budget(provider, global_ctx);
     }
 }
 
@@ -3526,6 +3576,27 @@ mod effective_generation_tests {
         s.providers[0].context_budget_tokens = None;
         ensure_provider_generation_defaults(&mut s);
         assert_eq!(s.providers[0].context_budget_tokens.unwrap(), 80_000);
+    }
+
+    #[test]
+    fn ensure_provider_generation_defaults_migrates_legacy_120kib() {
+        let mut s = sample_settings();
+        s.context_budget_tokens = 122_880;
+        s.providers[0].context_budget_tokens = None;
+        ensure_provider_generation_defaults(&mut s);
+        assert_eq!(s.context_budget_tokens, 256 * 1024);
+        assert_eq!(s.providers[0].context_budget_tokens, Some(256 * 1024));
+        assert_eq!(effective_context_budget_tokens(&s), 256 * 1024);
+    }
+
+    #[test]
+    fn migrate_legacy_context_budget_tokens_keeps_intentional_values() {
+        assert_eq!(migrate_legacy_context_budget_tokens(122_880), 256 * 1024);
+        assert_eq!(migrate_legacy_context_budget_tokens(102_400), 256 * 1024);
+        assert_eq!(migrate_legacy_context_budget_tokens(100_000), 256 * 1024);
+        assert_eq!(migrate_legacy_context_budget_tokens(120_000), 256 * 1024);
+        assert_eq!(migrate_legacy_context_budget_tokens(128_000), 128_000);
+        assert_eq!(migrate_legacy_context_budget_tokens(80_000), 80_000);
     }
 
     #[test]

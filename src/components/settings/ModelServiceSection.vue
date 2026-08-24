@@ -25,27 +25,31 @@ import { resolvedModelCapabilities } from '../../lib/modelCapabilities'
 import RuntimeParamsForm from './RuntimeParamsForm.vue'
 import ModelCapabilityForm from './ModelCapabilityForm.vue'
 import { useSettingsStore } from '../../stores/settings'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 
-const props = defineProps<{
+defineProps<{
   form: SettingsDialogForm
 }>()
 
 const s = useSettingsStore()
-const platformReadOnly = computed(() => props.form.platformReadOnly.value)
+const platformAuth = usePlatformAuthStore()
+const isStandalone = computed(() => platformAuth.isStandalone)
 // 分组只看 source：platform 归「平台服务」，其余（含缺 source、用户 fork）为自定义。
 const isPlatformProvider = (provider: ProviderConfig) => provider.source === 'platform'
 const platformProviders = computed(() =>
-  s.settings.providers.filter(isPlatformProvider)
+  isStandalone.value ? [] : s.settings.providers.filter(isPlatformProvider)
 )
 const customProviders = computed(() =>
-  s.settings.providers.filter(provider => !isPlatformProvider(provider))
+  isStandalone.value
+    ? s.settings.providers
+    : s.settings.providers.filter(provider => !isPlatformProvider(provider))
 )
 const editableTemplateOptions = computed(() => {
   if (showAddProvider.value) {
-    // 添加服务：目录已下发的平台服务商（source=platform）不要再用同 id 模板自建。
-    const platformIds = new Set(platformProviders.value.map(p => p.id))
+    // 添加服务：已有服务商 id（含平台注入）不要再用同 id 模板自建。
+    const occupiedIds = new Set(s.settings.providers.map(p => p.id))
     return PROVIDER_TEMPLATE_OPTIONS.filter(
-      option => !option.defaultId || !platformIds.has(option.defaultId)
+      option => !option.defaultId || !occupiedIds.has(option.defaultId)
     )
   }
   // 编辑已有服务：类型锁定为当前服务的类型，只显示一个按钮，
@@ -251,8 +255,12 @@ function setProviderTemplate(template: ProviderTemplateId) {
   )
 }
 
+function canEditProvider(provider: ProviderConfig) {
+  return !isPlatformProvider(provider) || isStandalone.value
+}
+
 function startEditProvider(provider: ProviderConfig) {
-  if (isPlatformProvider(provider)) return
+  if (!canEditProvider(provider)) return
   const pruned = pruneInheritedModelConfigs(provider, provider.modelConfigs, globalGenFallback)
   const template = detectProviderTemplateId(provider)
   providerTemplate.value = template
@@ -305,7 +313,7 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
     models,
     // 只有用户本次显式输入的 key 才提交。未编辑 key 时提交空串：
     // 后端 update_user_settings 会用内存里的 key 回填（空则保持空）。
-    // 平台注入的 key（OAuth / server.toml）不进入 user 层，不会落盘。
+    // 平台注入的 key（OAuth / 登录）不进入 user 层，不会落盘。
     apiKey: editingApiKey.value ? editingApiKey.value : '',
     // 编辑保存 = 用户接管该 provider：无论原来来自哪层，保存后都属于
     // user 层（platform 注入项编辑保存 = fork 到 user 层）。
@@ -378,7 +386,11 @@ function flushEditingProviderToStore(reopenEdit = false): boolean {
 }
 
 async function saveProvider() {
-  if (editingProvider.value && !showAddProvider.value && isPlatformProvider(editingProvider.value)) return
+  if (
+    editingProvider.value
+    && !showAddProvider.value
+    && !canEditProvider(editingProvider.value)
+  ) return
   providerSaveError.value = ''
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
@@ -393,7 +405,7 @@ async function saveProvider() {
   try {
     // 提交 providers 时，只有本次编辑的 provider 保留显式输入的 key；
     // 其余统一置空，由后端用「内存里的 key」回填，避免把平台注入的 key
-    // （OAuth / server.toml）误存进 user 层。
+    // （OAuth / 登录）误存进 user 层。
     // source 标记：编辑项已是 'user'（fork），非编辑的平台注入项标记
     // 'platform'，后端据此过滤不落盘。
     const providersForSave = s.settings.providers.map(p => ({
@@ -500,7 +512,9 @@ defineExpose({
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
             <Wrench class="w-4 h-4 text-accent" />自定义服务
           </h4>
-          <p class="mt-1 text-[11px] text-muted">自行接入的 OpenAI 兼容服务</p>
+          <p class="mt-1 text-[11px] text-muted">
+            {{ isStandalone ? '本实例模型服务；参数与能力与客户端自定义服务相同' : '自行接入的 OpenAI 兼容服务' }}
+          </p>
         </div>
         <button
           type="button"
@@ -540,6 +554,7 @@ defineExpose({
                 <Wrench class="w-3.5 h-3.5 text-accent" />
               </button>
               <button
+                v-if="!isPlatformProvider(p) || isStandalone"
                 type="button"
                 class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
                 :title="`删除 ${p.name}`"
@@ -569,8 +584,8 @@ defineExpose({
       </div>
     </section>
 
-    <!-- 平台服务（下）：与自定义服务同一套卡片，不可编辑/删除 -->
-    <section class="rounded-xl border border-border bg-card p-5 space-y-3">
+    <!-- 平台服务（下）：连官网时只读。standalone 全部列在上方自定义服务。 -->
+    <section v-if="!isStandalone" class="rounded-xl border border-border bg-card p-5 space-y-3">
       <div class="flex items-center justify-between gap-3">
         <div>
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">

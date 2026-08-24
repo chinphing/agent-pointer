@@ -363,8 +363,15 @@ export const useSettingsStore = defineStore('settings', () => {
       seenMerged.add(provider.id)
       const plat = platformById.get(provider.id)
       if (!plat) return provider
-      // Platform directory owns name / URL / model list for platform services.
-      // New models appear as soon as the platform directory is refreshed.
+      // source=user 自己管名称 / 地址 / 模型名单（桌面 fork 或 standalone 自定义服务）。
+      // 平台目录仍拥有未 fork 的 platform 服务，刷新后能看到新模型。
+      if (provider.source === 'user') {
+        return {
+          ...provider,
+          source: 'user',
+          modelConfigs: mergePlatformModelConfigs(plat.modelConfigs, provider.modelConfigs)
+        }
+      }
       return {
         ...provider,
         source: provider.source ?? 'platform',

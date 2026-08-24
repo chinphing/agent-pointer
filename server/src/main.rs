@@ -470,18 +470,6 @@ async fn main() -> anyhow::Result<()> {
     if let Err(e) = core.init_launch() {
         log::warn!("plugin skill reconcile at startup failed: {e:#}");
     }
-    if pointer_core::deployment_mode::is_standalone() {
-        let mut platform = core.platform_config.write();
-        let mut user = core.load_user_settings();
-        pointer_core::server_config::apply_llm_providers_from_config(&mut platform, &mut user);
-        if let Err(e) = core.save_user_settings(&user) {
-            log::warn!("pointer-server: failed to persist standalone LLM user settings: {e}");
-        }
-        log::info!(
-            "pointer-server: standalone LLM providers applied (active_provider={})",
-            user.active_provider_id
-        );
-    }
     core.start_background_tasks();
     let web_sessions = Arc::new(WebSessionStore::default());
     match resolve_server_public_url() {

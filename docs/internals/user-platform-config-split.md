@@ -7,7 +7,7 @@ Runtime configuration is split into two layers:
 | Layer | Contents | Persistence | Editable by |
 |-------|----------|-------------|-------------|
 | **User** | Everything the user can edit: theme, coding rules, completion sound, providers (structure, no secrets), active provider/model/temperature/maxTokens/contextBudgetTokens, tool approval, agent mode, context compression switch, tool rounds, **scene tier LLM maps** (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`), Computer prefs, parallel limits. Debug-only toggles: completion dump, raw content, terminal env, etc. | `user_settings.json` — **full snapshot, no whitelist**. User-typed provider keys are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound) | All users for tier maps and regular prefs; debug toggles: `is_platform_admin` only |
-| **Platform** | In-memory only: runtime provider list (with injected OAuth/TOML keys), platform model directory (`platformProviders` + `tierDefaults`), media OSS credentials, server-side DaTi CAPTCHA config | Directory is cached locally for offline restart; never copied into `user_settings.json` | Platform admin on the control plane |
+| **Platform** | In-memory only: runtime provider list (with injected OAuth keys), platform model directory (`platformProviders` + `tierDefaults`), media OSS credentials, server-side DaTi CAPTCHA config | Directory is cached locally for offline restart; never copied into `user_settings.json` | Platform admin on the control plane |
 
 Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, platform)` (user fields + platform runtime keys/media_oss/dati) and used by chat, tools, and the UI.
 
@@ -21,7 +21,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 ### Settings save actions
 
 - **智能体 / 模型服务 / 界面配置 / 调试**: all persist to `user_settings.json` (single save path; provider apiKey cleared on write).
-- **Provider keys**: only keys the user explicitly typed are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound, separate purpose key from `auth.dat`) and survive restarts. Platform-injected keys (OAuth / server.toml) are never persisted — they live only in platform memory.
+- **Provider keys**: only keys the user explicitly typed are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound, separate purpose key from `auth.dat`) and survive restarts. Platform-injected keys (OAuth / login) are never persisted — they live only in platform memory. Standalone keys are user-typed and persist the same way as desktop custom providers.
 - **平台账户**: login/logout via OAuth (`auth.dat`); no footer save.
 - Theme follows `user_settings.json` (round-trips through the API).
 

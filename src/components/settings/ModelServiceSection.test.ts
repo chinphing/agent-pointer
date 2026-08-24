@@ -32,8 +32,21 @@ const storeState = vi.hoisted(() => {
   }
 })
 
+const platformAuthState = vi.hoisted(() => {
+  const { ref } = require('vue') as typeof import('vue')
+  return { isStandalone: ref(false) }
+})
+
 vi.mock('../../stores/settings', () => ({
   useSettingsStore: () => storeState
+}))
+
+vi.mock('../../stores/platformAuth', () => ({
+  usePlatformAuthStore: () => ({
+    get isStandalone() {
+      return platformAuthState.isStandalone.value
+    }
+  })
 }))
 
 vi.mock('../../composables/useRuntimeParams', () => ({
@@ -86,6 +99,7 @@ function mountSection() {
 }
 
 beforeEach(() => {
+  platformAuthState.isStandalone.value = false
   storeState.settings.providers = [provider('qwen', 'platform'), provider('local')]
   storeState.settings.activeProviderId = 'qwen'
   storeState.settings.model = 'qwen3.5-plus'
@@ -159,5 +173,17 @@ describe('ModelServiceSection', () => {
     expect(storeState.settings.activeProviderId).toBe('qwen')
     expect(storeState.settings.model).toBe('qwen3.5-plus')
     expect(host.textContent).toContain('删除服务失败，请重试')
+  })
+
+  it('lets standalone edit and delete all providers like custom services', async () => {
+    platformAuthState.isStandalone.value = true
+    const host = mountSection()
+    await settle()
+
+    expect(host.textContent).toContain('本实例模型服务')
+    expect(host.textContent).not.toContain('只读')
+    expect(host.querySelector('[aria-label="删除 千问"]')).toBeTruthy()
+    expect(host.querySelector('[aria-label="编辑 千问"]')).toBeTruthy()
+    expect(host.querySelector('[aria-label="编辑 本地模型"]')).toBeTruthy()
   })
 })

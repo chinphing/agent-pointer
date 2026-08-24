@@ -17,7 +17,7 @@
 Standalone 模式要点：
 
 - **必须**有效 License（Ed25519 验签，公钥编译在 `crates/pointer-core/license.pub`）
-- **必须**在 TOML 配置 LLM Provider（各供应商 `api_key` 由客户自行填写）
+- **必须**在 Web 设置 → 模型配置 添加服务并填写 API Key（不要写在 TOML）
 - **使用账号密码 + 验证码登录**，不走 readflowai.com OAuth
 - 默认**不上报** Token 用量（`report_enabled = false`）
 
@@ -239,7 +239,7 @@ Environment=POINTER_SERVER_SKILLS_DIR=/usr/share/pointer-server/skills
 
 ## 6. 完整配置模板（`pointer-server.toml`）
 
-以下模板包含 standalone 所需的**全部默认段**；**仅 `api_key` 留空由客户填写**，其余使用推荐默认值。
+以下模板包含 standalone 所需的**全部默认段**。模型与 API Key 不在此文件，登录后于 **设置 → 模型配置** 填写。
 
 配置文件查找顺序：
 
@@ -249,7 +249,8 @@ Environment=POINTER_SERVER_SKILLS_DIR=/usr/share/pointer-server/skills
 ```toml
 # =============================================================================
 # pointer-server standalone 生产配置模板
-# 复制为 pointer-server.toml 后修改 api_key、auth.local、license.key、public_url
+# 复制为 pointer-server.toml 后修改 auth.local、license.key、public_url
+# 模型与 API Key 在登录后于设置 → 模型配置 填写
 # =============================================================================
 
 [deployment]
@@ -269,53 +270,6 @@ key = "REPLACE-WITH-LICENSE-KEY-FROM-POINTER"
 
 [usage]
 report_enabled = false
-
-[llm]
-active_provider = "qwen"
-
-# --- 阿里云百炼 DashScope（千问，默认主 Provider）---
-# 控制台：https://bailian.console.aliyun.com/
-[llm.providers.qwen]
-api_key = "sk-REPLACE-ME"
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-name = "千问"
-models = ["qwen3.5-plus", "qwen3.5-turbo", "qwen3.5-flash"]
-
-# --- DeepSeek 深度求索 ---
-# 控制台：https://platform.deepseek.com/
-[llm.providers.deepseek]
-api_key = "sk-REPLACE-ME"
-base_url = "https://api.deepseek.com/v1"
-name = "深度求索"
-models = ["deepseek-v4-pro", "deepseek-v4-flash"]
-
-# --- 智谱 AI GLM ---
-# 控制台：https://open.bigmodel.cn/
-[llm.providers.glm]
-api_key = "sk-REPLACE-ME"
-base_url = "https://open.bigmodel.cn/api/paas/v4"
-name = "智谱 GLM"
-models = ["glm-5", "glm-5-flash"]
-
-# --- 月之暗面 Moonshot Kimi ---
-# 控制台：https://platform.moonshot.cn/
-[llm.providers.kimi]
-api_key = "sk-REPLACE-ME"
-base_url = "https://api.moonshot.cn/v1"
-name = "Kimi"
-models = ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"]
-
-# --- OpenAI 兼容网关（vLLM / LiteLLM / 其他自建）---
-[llm.providers.openai-compatible]
-api_key = "sk-REPLACE-ME"
-base_url = "https://your-openai-compatible-gateway.example.com/v1"
-name = "OpenAI Compatible"
-models = ["gpt-4o", "gpt-4o-mini"]
-# 可选：Hermes 风格扩展参数，发请求时展平到根级（与 temperature 同级）
-# extra_body = { repetition_penalty = 1.1, top_p = 0.8 }
-# 可选：按模型覆盖（写入 modelConfigs[model].extraBody）
-# [llm.providers.openai-compatible.model_extra_body."gpt-4o"]
-# top_p = 0.9
 
 [server]
 addr = "0.0.0.0:8787"
@@ -337,17 +291,9 @@ app_data_dir = "/var/lib/pointer-server"
 
 ---
 
-## 7. LLM 供应商速查
+## 7. 模型配置
 
-| provider id | 供应商 | 默认 base_url | 默认 models |
-|-------------|--------|---------------|-------------|
-| `qwen` | 阿里云百炼 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.5-plus`, `qwen3.5-turbo`, `qwen3.5-flash` |
-| `deepseek` | DeepSeek 深度求索 | `https://api.deepseek.com/v1` | `deepseek-v4-pro`, `deepseek-v4-flash` |
-| `glm` | 智谱 AI | `https://open.bigmodel.cn/api/paas/v4` | `glm-5`, `glm-5-flash` |
-| `kimi` | 月之暗面 Moonshot | `https://api.moonshot.cn/v1` | `moonshot-v1-8k`, `moonshot-v1-32k`, `moonshot-v1-128k` |
-| `openai-compatible` | 自建兼容网关 | 客户自定 | 客户自定 |
-
-`active_provider` 决定默认对话模型来源；客户至少配置并填写**一个** Provider 的 `api_key`。本地默认不再内置平台模型（`qwen3.5-plus` 等），若 `models` 不含当前 model（或未设置），启动注入后会自动把活跃模型改成该 Provider `models` 列表的第一项。
+登录后打开 **设置 → 模型配置**，添加自定义服务（地址、模型名单、API Key、上下文、思考强度、`extra_body` 等），与桌面客户端自定义服务相同。不要在 TOML 或环境变量里配置模型；旧 `[llm]` / `POINTER_LLM_ACTIVE_PROVIDER` 已废弃。
 
 ---
 
@@ -391,7 +337,7 @@ curl -X POST http://127.0.0.1:8787/api/auth/local/login \
 
 - [ ] License `valid`，`customerId` 正确
 - [ ] 账号密码 + 验证码登录成功
-- [ ] 发送对话，LLM 正常回复（验证 `active_provider` 的 `api_key`）
+- [ ] 发送对话，LLM 正常回复（先在设置 → 模型配置添加服务并填写 API Key）
 - [ ] 对话历史写入 `{app_data_dir}/conversations.db`
 - [ ] （可选）Webhook 自动化触发
 - [ ] （可选）IM 通道扫码注册后 WSS 立即连上（见第 9 节）
@@ -435,7 +381,6 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | `skills` 或 `/usr/share/pointer-server/skills`（TOML `[server].skills_dir`） |
 | `POINTER_SERVER_PUBLIC_URL` | 浏览器访问根 URL | `https://pointer.acme-corp.com` |
 | `POINTER_APP_DATA_DIR` | 数据目录 | `/var/lib/pointer-server` |
-| `POINTER_LLM_ACTIVE_PROVIDER` | 默认 LLM provider id | `qwen` |
 | `POINTER_USAGE_REPORT_ENABLED` | 用量上报 | `false` |
 | `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | Agent `terminal` 禁止 command/stdin 含 `SESSION_USER_ID`（TOML `[server].forbid_session_user_id_in_terminal`） | 默认关闭；需要时 `true` |
 

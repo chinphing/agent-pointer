@@ -8,7 +8,6 @@
 //! Existing OS environment variables always override file values.
 
 use crate::dotenv::parse_dotenv_bytes;
-use crate::models::{PlatformSettings, ProviderConfig, UserSettings};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -52,74 +51,6 @@ struct AuthLocalSection {
     admin_token: String,
     #[serde(default)]
     sso: AuthLocalSsoSection,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct LlmProviderToml {
-    #[serde(default)]
-    api_key: String,
-    #[serde(default)]
-    base_url: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    models: Vec<String>,
-    /// Hermes-style free-form chat/completions fields (flattened to request root).
-    /// Example: `extra_body = { repetition_penalty = 1.1, top_p = 0.8 }`
-    #[serde(default)]
-    extra_body: Option<serde_json::Value>,
-    /// Per-model `extraBody` overlays (`modelConfigs[model].extraBody`).
-    /// Example:
-    /// ```toml
-    /// [llm.providers.local.model_extra_body."Qwen3.6-27B-AWQ-INT4"]
-    /// repetition_penalty = 1.1
-    /// ```
-    #[serde(default)]
-    model_extra_body: HashMap<String, serde_json::Value>,
-}
-
-/// Keep non-empty JSON objects only (same shape as runtime `ProviderConfig.extra_body`).
-fn normalize_llm_toml_extra_body(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
-    match value {
-        Some(serde_json::Value::Object(map)) if !map.is_empty() => {
-            Some(serde_json::Value::Object(map.clone()))
-        }
-        _ => None,
-    }
-}
-
-fn apply_llm_provider_extra_body(provider: &mut ProviderConfig, cfg: &LlmProviderToml) {
-    provider.extra_body = normalize_llm_toml_extra_body(cfg.extra_body.as_ref());
-    for (model, body) in &cfg.model_extra_body {
-        let model = model.trim();
-        if model.is_empty() {
-            continue;
-        }
-        let Some(body) = normalize_llm_toml_extra_body(Some(body)) else {
-            continue;
-        };
-        let entry = provider.model_configs.entry(model.to_string()).or_default();
-        entry.extra_body = Some(body);
-        log::info!(
-            "server_config: applied model_extra_body provider={} model={}",
-            provider.id,
-            model
-        );
-    }
-    if provider.extra_body.is_some() {
-        log::info!(
-            "server_config: applied provider extra_body provider={}",
-            provider.id
-        );
-    }
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct LlmSection {
-    #[serde(default)]
-    active_provider: String,
-    #[serde(default)]
-    providers: HashMap<String, LlmProviderToml>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -217,8 +148,6 @@ struct ServerConfigToml {
     #[serde(default)]
     auth: AuthToml,
     #[serde(default)]
-    llm: LlmSection,
-    #[serde(default)]
     license: LicenseSection,
     #[serde(default)]
     usage: UsageSection,
@@ -245,8 +174,6 @@ struct AuthToml {
     #[serde(default)]
     local: AuthLocalSection,
 }
-
-static PARSED_LLM: OnceLock<Option<LlmSection>> = OnceLock::new();
 
 /// P2b：全局 MCP server 声明 + 配置文件所在目录（相对 command 的解析基准）。
 static PARSED_MCP: OnceLock<Option<(crate::plugins::manifest::McpServersDecl, PathBuf)>> =
@@ -286,7 +213,6 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     if ext == "toml" {
         if let Ok(text) = std::fs::read_to_string(&path) {
             if let Ok(parsed) = toml::from_str::<ServerConfigToml>(&text) {
-                let _ = PARSED_LLM.set(Some(parsed.llm));
                 let _ = PARSED_MCP.set(Some((parsed.mcp_servers, base_dir.clone())));
             }
         }
@@ -460,12 +386,6 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
             if enabled { "true" } else { "false" }.to_string(),
         ));
     }
-    if !parsed.llm.active_provider.trim().is_empty() {
-        pairs.push((
-            "POINTER_LLM_ACTIVE_PROVIDER".to_string(),
-            parsed.llm.active_provider.trim().to_string(),
-        ));
-    }
 
     push_mapped(
         &mut pairs,
@@ -621,130 +541,6 @@ fn resolve_license_key(license: &LicenseSection, base_dir: &Path) -> Option<Stri
     }
 }
 
-/// If the active model is missing from the active provider's `models` list,
-/// switch to the first configured model (standalone TOML often replaces the
-/// built-in catalog with a single local/custom id).
-fn sync_active_model_to_provider_list(user: &mut UserSettings, providers: &[ProviderConfig]) {
-    let pid = user.active_provider_id.trim().to_string();
-    if pid.is_empty() {
-        return;
-    }
-    let Some(provider) = providers.iter().find(|p| p.id == pid) else {
-        return;
-    };
-    let first = provider
-        .models
-        .iter()
-        .map(|m| m.trim())
-        .find(|m| !m.is_empty())
-        .map(str::to_string);
-    let Some(first) = first else {
-        return;
-    };
-    let current = user.model.trim();
-    if provider.models.iter().any(|m| m.trim() == current) {
-        return;
-    }
-    log::info!(
-        "server_config: active model '{current}' not in provider {pid} models; using '{first}'"
-    );
-    user.model = first;
-}
-
-fn platform_provider_model_usable(
-    providers: &[ProviderConfig],
-    provider_id: &str,
-    model: &str,
-) -> bool {
-    let pid = provider_id.trim();
-    let model = model.trim();
-    if pid.is_empty() || model.is_empty() {
-        return false;
-    }
-    let Some(provider) = providers.iter().find(|p| p.id == pid) else {
-        return false;
-    };
-    if provider.api_key.trim().is_empty() {
-        return false;
-    }
-    if provider.models.is_empty() {
-        return true;
-    }
-    provider.models.iter().any(|m| m.trim() == model)
-}
-
-/// Rewrite `agentModeLlm` / `mediaModeLlm` rows that point at missing keys or
-/// catalog models so chat uses the standalone-configured active model.
-fn sync_mode_llm_maps_to_active(user: &mut UserSettings, providers: &[ProviderConfig]) {
-    let active_pid = user.active_provider_id.trim().to_string();
-    let active_model = user.model.trim().to_string();
-    if active_pid.is_empty() || active_model.is_empty() {
-        return;
-    }
-    if !platform_provider_model_usable(providers, &active_pid, &active_model) {
-        return;
-    }
-
-    let mut agent_rewrites: Vec<(String, String)> = Vec::new();
-    for (outer, modes) in &user.agent_mode_llm {
-        for (mode, cfg) in modes {
-            if !platform_provider_model_usable(providers, &cfg.provider_id, &cfg.model) {
-                agent_rewrites.push((outer.clone(), mode.clone()));
-            }
-        }
-    }
-    for (outer, mode) in agent_rewrites {
-        if let Some(cfg) = user
-            .agent_mode_llm
-            .get_mut(&outer)
-            .and_then(|m| m.get_mut(&mode))
-        {
-            log::info!(
-                "server_config: agentModeLlm {outer}/{mode} provider={} model={} unusable; \
-                 rewriting to active {active_pid}/{active_model}",
-                cfg.provider_id.trim(),
-                cfg.model.trim()
-            );
-            cfg.provider_id = active_pid.clone();
-            cfg.model = active_model.clone();
-        }
-    }
-
-    let mut media_rewrites: Vec<(String, String)> = Vec::new();
-    for (outer, modes) in &user.media_mode_llm {
-        for (mode, cfg) in modes {
-            if !platform_provider_model_usable(providers, &cfg.provider_id, &cfg.model) {
-                media_rewrites.push((outer.clone(), mode.clone()));
-            }
-        }
-    }
-    for (outer, mode) in media_rewrites {
-        if let Some(cfg) = user
-            .media_mode_llm
-            .get_mut(&outer)
-            .and_then(|m| m.get_mut(&mode))
-        {
-            log::info!(
-                "server_config: mediaModeLlm {outer}/{mode} provider={} model={} unusable; \
-                 rewriting to active {active_pid}/{active_model}",
-                cfg.provider_id.trim(),
-                cfg.model.trim()
-            );
-            cfg.provider_id = active_pid.clone();
-            cfg.model = active_model.clone();
-        }
-    }
-}
-
-/// Apply `[llm]` provider keys from pointer-server.toml into in-memory providers
-/// and the persisted user layer (active provider / model selection).
-pub fn apply_llm_providers_from_config(platform: &mut PlatformSettings, user: &mut UserSettings) {
-    let Some(llm) = PARSED_LLM.get().and_then(|o| o.as_ref()) else {
-        return;
-    };
-    apply_llm_section(platform, user, llm);
-}
-
 /// P2b：读取已解析的全局 MCP server 声明 + 配置文件目录（相对 command 解析基准）。
 /// 仅当 `load_server_config` 已执行（server 启动路径）时返回 Some。
 pub fn mcp_servers_from_config() -> Option<(Vec<crate::plugins::manifest::McpServerDecl>, PathBuf)>
@@ -779,73 +575,6 @@ pub fn reload_mcp_servers_config(
     let server_decls = parsed.mcp_servers.server.clone();
     let _ = PARSED_MCP.set(Some((parsed.mcp_servers, base_dir.clone())));
     Ok(Some((server_decls, base_dir)))
-}
-
-fn apply_llm_section(platform: &mut PlatformSettings, user: &mut UserSettings, llm: &LlmSection) {
-    if llm.providers.is_empty() {
-        return;
-    }
-    let active = std::env::var("POINTER_LLM_ACTIVE_PROVIDER")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| llm.active_provider.trim().to_string());
-    if !active.is_empty() {
-        user.active_provider_id = active.clone();
-    }
-    for (provider_id, cfg) in &llm.providers {
-        let pid = provider_id.trim();
-        if pid.is_empty() {
-            continue;
-        }
-        let api_key = cfg.api_key.trim();
-        if api_key.is_empty() {
-            continue;
-        }
-        if let Some(existing) = platform.providers.iter_mut().find(|p| p.id == pid) {
-            existing.api_key = api_key.to_string();
-            if !cfg.base_url.trim().is_empty() {
-                existing.base_url = cfg.base_url.trim().to_string();
-            }
-            if !cfg.name.trim().is_empty() {
-                existing.name = cfg.name.trim().to_string();
-            }
-            if !cfg.models.is_empty() {
-                existing.models = cfg.models.clone();
-            }
-            apply_llm_provider_extra_body(existing, cfg);
-            log::info!("server_config: injected llm api_key for provider {pid}");
-        } else {
-            let mut provider = ProviderConfig {
-                id: pid.to_string(),
-                name: if cfg.name.trim().is_empty() {
-                    pid.to_string()
-                } else {
-                    cfg.name.trim().to_string()
-                },
-                base_url: cfg.base_url.trim().to_string(),
-                api_key: api_key.to_string(),
-                models: cfg.models.clone(),
-                reasoning_in_messages: None,
-                temperature: None,
-                top_p: None,
-                max_tokens: None,
-                context_budget_tokens: None,
-                model_configs: HashMap::new(),
-                enable_thinking: None,
-                thinking_budget: None,
-                reasoning_effort: None,
-                thinking_protocol: None,
-                thinking_intensity: None,
-                extra_body: None,
-                source: Some("platform".into()),
-            };
-            apply_llm_provider_extra_body(&mut provider, cfg);
-            platform.providers.push(provider);
-            log::info!("server_config: added llm provider {pid} from config");
-        }
-    }
-    sync_active_model_to_provider_list(user, &platform.providers);
-    sync_mode_llm_maps_to_active(user, &platform.providers);
 }
 
 /// Whether SSE initial padding is enabled (flush proxy buffers).
@@ -1195,118 +924,33 @@ api_base = "https://legacy.example.com"
     }
 
     #[test]
-    fn apply_llm_section_syncs_active_model_to_configured_list() {
-        let _guard = env_guard();
-        std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
+    fn toml_ignores_legacy_llm_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[deployment]
+mode = "standalone"
 
-        let mut platform = PlatformSettings::default();
-        let mut user = UserSettings::default();
-        user.model = "qwen3.5-plus".into();
-        user.active_provider_id = "qwen".into();
+[llm]
+active_provider = "qwen"
 
-        let mut llm = LlmSection::default();
-        llm.active_provider = "xiaohe".into();
-        llm.providers.insert(
-            "xiaohe".into(),
-            LlmProviderToml {
-                api_key: "sk-local".into(),
-                base_url: "http://127.0.0.1:8000/v1".into(),
-                name: "xiaohe".into(),
-                models: vec!["qwen3.6-27b".into()],
-                ..Default::default()
-            },
-        );
-
-        apply_llm_section(&mut platform, &mut user, &llm);
-
-        assert_eq!(user.active_provider_id, "xiaohe");
-        assert_eq!(user.model, "qwen3.6-27b");
-        let p = platform
-            .providers
-            .iter()
-            .find(|p| p.id == "xiaohe")
-            .expect("xiaohe provider");
-        assert_eq!(p.api_key, "sk-local");
-        assert_eq!(p.models, vec!["qwen3.6-27b".to_string()]);
-    }
-
-    #[test]
-    fn apply_llm_section_keeps_active_model_when_still_listed() {
-        let _guard = env_guard();
-        std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
-
-        let mut platform = PlatformSettings::default();
-        let mut user = UserSettings::default();
-        user.model = "qwen3.5-turbo".into();
-        user.active_provider_id = "qwen".into();
-
-        let mut llm = LlmSection::default();
-        llm.active_provider = "qwen".into();
-        llm.providers.insert(
-            "qwen".into(),
-            LlmProviderToml {
-                api_key: "sk-qwen".into(),
-                base_url: String::new(),
-                name: String::new(),
-                models: vec!["qwen3.5-plus".into(), "qwen3.5-turbo".into()],
-                ..Default::default()
-            },
-        );
-
-        apply_llm_section(&mut platform, &mut user, &llm);
-
-        assert_eq!(user.active_provider_id, "qwen");
-        assert_eq!(user.model, "qwen3.5-turbo");
-    }
-
-    #[test]
-    fn apply_llm_section_injects_extra_body_and_model_extra_body() {
-        let _guard = env_guard();
-        std::env::remove_var("POINTER_LLM_ACTIVE_PROVIDER");
-
-        let mut platform = PlatformSettings::default();
-        let mut user = UserSettings::default();
-        let mut llm = LlmSection::default();
-        llm.active_provider = "local".into();
-        let mut model_extra = HashMap::new();
-        model_extra.insert(
-            "Qwen3.6-27B-AWQ-INT4".into(),
-            serde_json::json!({ "top_p": 0.9 }),
-        );
-        llm.providers.insert(
-            "local".into(),
-            LlmProviderToml {
-                api_key: "no-key".into(),
-                base_url: "http://127.0.0.1:8000/v1".into(),
-                name: "local".into(),
-                models: vec!["Qwen3.6-27B-AWQ-INT4".into()],
-                extra_body: Some(serde_json::json!({
-                    "repetition_penalty": 1.1,
-                    "top_p": 0.8
-                })),
-                model_extra_body: model_extra,
-            },
-        );
-
-        apply_llm_section(&mut platform, &mut user, &llm);
-
-        let p = platform
-            .providers
-            .iter()
-            .find(|p| p.id == "local")
-            .expect("local provider");
+[llm.providers.qwen]
+api_key = "sk-should-not-apply"
+base_url = "https://example.invalid/v1"
+name = "ignored"
+models = ["ignored-model"]
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
         assert_eq!(
-            p.extra_body,
-            Some(serde_json::json!({
-                "repetition_penalty": 1.1,
-                "top_p": 0.8
-            }))
+            map.get("POINTER_DEPLOYMENT_MODE").map(String::as_str),
+            Some("standalone")
         );
-        assert_eq!(
-            p.model_configs
-                .get("Qwen3.6-27B-AWQ-INT4")
-                .and_then(|o| o.extra_body.as_ref()),
-            Some(&serde_json::json!({ "top_p": 0.9 }))
-        );
+        assert!(!map.contains_key("POINTER_LLM_ACTIVE_PROVIDER"));
+        assert!(!map.values().any(|v| v.contains("sk-should-not-apply")));
     }
 }

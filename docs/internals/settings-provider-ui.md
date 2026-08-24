@@ -3,6 +3,8 @@
 > **默认分区**：普通入口打开设置落在「智能体」。指定分区的入口（如自动化、输入框档位）仍直达对应栏。
 
 > **可见性**：设置侧栏「模型配置」是常规分区，平台服务（千问、DeepSeek、豆包）**由平台目录下发**，客户端本地不再内置任何平台服务商/模型清单/档位默认；登录平台后按 `platformProviders` 模板自动创建，未登录时「平台服务」区为空。自定义服务包含其余 OpenAI 兼容服务。普通用户只读；平台管理员可编辑。平台服务由平台统一管理，**不显示删除入口**；仅自定义服务可删除。平台服务与自定义服务用同一套卡片（名称、地址、模型数）；平台密钥不展示，条目不可编辑/删除，可设为默认。
+>
+> **Standalone**：所有服务商都在「自定义服务」里编辑（上下文、最大输出、思考强度、能力勾选、单模型定制、密钥），与桌面客户端自定义服务相同。不显示「平台服务 / 只读」栏。保存写入用户设置，密钥 `enc:v1:` 加密落盘。不从配置文件读取模型或密钥；旧 `[llm]` 段忽略。
 
 > **保存语义**：模型服务、当前服务/模型、生成参数和三档模型映射均通过 `updateUserSettings` 保存到 `user_settings.json`；Provider API Key 以 `enc:v1:` 加密落盘。删除自定义服务前必须明确确认；确认后立即保存，失败时前端恢复删除前的服务列表、默认服务和模型。
 
@@ -21,7 +23,7 @@
   `updateUserSettings` 更新；APP 使用 Tauri command，WEB 使用
   `PUT /api/user-settings`，两端最终调用同一个 Core 用户设置持久化方法。
 - `DebugSessionSettings` / `PUT /api/debug-session-settings` 仅保留为旧 API 兼容与测试边界；当前设置页面不调用它，不能把它作为模型服务保存链路。
-- 保存模型服务时，当前编辑服务保留显式输入的 API Key；其他服务的 key 置空，由后端内存 key 池回填。`source=platform` 的平台注入服务不会写入用户层。
+- 保存模型服务时，当前编辑服务保留显式输入的 API Key；其他服务的 key 置空，由后端内存 key 池回填。`source=platform` 的平台注入服务不会写入用户层。Standalone 保存的服务均为 `source=user`，名称/地址/模型名单以用户设置为准。
 - 自定义服务删除后立即提交完整服务列表；保存失败必须恢复删除前的列表、默认服务和模型。
 - WEB 接口沿用平台访问鉴权与响应脱敏，不得在日志中记录 API Key。
 
@@ -112,7 +114,7 @@
 ## 新增自定义服务
 
 - 添加服务只列出自定义协议模板（OpenAI 兼容 / OpenRouter / Kimi / 智谱）。若某模板的默认 id 已出现在当前 `source=platform` 列表中，添加列表不再给出该项（避免自建一份平台目录已有的服务）。
-- 编辑已有服务时，服务类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问协议面板）；平台注入服务（`source=platform`）只读，不可编辑删除。
+- 编辑已有服务时，服务类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问协议面板）；连官网时平台注入服务（`source=platform`）只读，不可编辑删除。**Standalone** 下全部按自定义服务编辑、删除，保存写入用户层。
 - 配置流程与自定义服务相同：服务商级 `RuntimeParamsForm` → 模型列表 → 各模型「同上 / 定制」→ 定制弹窗内同一套 `RuntimeParamsForm`。
 - 预设与识别逻辑在 `src/lib/providerParams.ts`（`PROVIDER_TEMPLATE_OPTIONS`、`detectProviderTemplateId`）。
 

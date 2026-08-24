@@ -53,15 +53,6 @@ hmac_secret = "replace-with-long-random-secret"
 # Generate with: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 password_hmac = "..."
 
-[llm]
-active_provider = "qwen"
-
-[llm.providers.qwen]
-api_key = "sk-..."
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-name = "千问"
-models = ["qwen3.5-plus"]
-
 [license]
 key = "base64_payload.base64_signature"
 
@@ -97,7 +88,9 @@ sudo systemctl enable --now pointer-server
 sudo systemctl status pointer-server
 ```
 
-浏览器打开配置的 `public_url`（本机可先用 `http://localhost:8787`）→ 用账号、密码、验证码登录 → 开始对话。
+浏览器打开配置的 `public_url`（本机可先用 `http://localhost:8787`）→ 用账号、密码、验证码登录 → **设置 → 模型配置** 添加服务并填写 API Key → 开始对话。
+
+设置里的模型服务与桌面客户端的自定义服务相同：可改地址、模型名单、密钥、上下文、最大输出、思考强度和视觉等能力。
 
 ---
 
@@ -206,52 +199,17 @@ curl -X POST http://localhost:8787/api/auth/local/login \
 
 ---
 
-## LLM Provider 配置
+## 模型配置
 
-支持以下 Provider：
+登录后打开 **设置 → 模型配置 → 自定义服务**，添加至少一个服务商并填写 API Key。与桌面客户端自定义服务相同，可配置：
 
-| Provider ID | 默认 API Base |
-|-------------|--------------|
-| `qwen` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `deepseek` | `https://api.deepseek.com/v1` |
-| `glm` | `https://open.bigmodel.cn/api/paas/v4` |
-| `kimi` | `https://api.moonshot.cn/v1` |
-| `openai-compatible` | 自定义 |
+- 服务 ID、名称、API 地址、模型名单、密钥
+- 上下文、最大输出、思考强度、视觉等能力
+- 扩展参数 `extra_body`（本地 / vLLM 等根级采样参数）和单模型覆盖
 
-```toml
-[llm]
-active_provider = "qwen"
+保存后写入本机用户设置，密钥加密存储。不要在 `pointer-server.toml` 里写模型或密钥；旧版 `[llm]` 段会被忽略。
 
-[llm.providers.qwen]
-api_key = "sk-..."
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-name = "千问"
-models = ["qwen3.5-plus", "qwen3.5-turbo"]
-```
-
-`models` 第一项会在当前活跃模型不在列表内时作为默认对话模型（本地/自建模型名也适用）。
-
-### 扩展参数 `extra_body`（本地 / vLLM 等）
-
-部分 OpenAI 兼容端点需要根级采样参数（如 `repetition_penalty`）。可在服务商下配置，启动后写入内存，发请求时与 `temperature` 同级：
-
-```toml
-[llm]
-active_provider = "local"
-
-[llm.providers.local]
-api_key = "no-key"
-base_url = "http://127.0.0.1:8000/v1"
-name = "本地"
-models = ["Qwen3.6-27B-AWQ-INT4"]
-extra_body = { repetition_penalty = 1.1, top_p = 0.8 }
-
-# 可选：按模型覆盖（覆盖服务商 extra_body 中的同名键）
-[llm.providers.local.model_extra_body."Qwen3.6-27B-AWQ-INT4"]
-top_p = 0.9
-```
-
-修改后需重启 `pointer-server`。更多说明见 [`../llm/model-thinking-api.md`](../llm/model-thinking-api.md)。
+更多参数说明见 [`../llm/model-thinking-api.md`](../llm/model-thinking-api.md)。
 
 ---
 
@@ -305,3 +263,7 @@ License 绑定了其他机器，需要申请当前机器的 License。运行 `/u
 ### Q: 提示「请先登录」
 
 Standalone 下未登录 Web 会话。打开页面用账号密码 + 验证码登录；确认 `[auth.local]` 已配置且 `password_hmac` 与 `hmac_secret` 匹配。
+
+### Q: 登录后无法对话 / 没有模型
+
+在 **设置 → 模型配置** 添加自定义服务并填写 API Key。配置文件里的 `[llm]` 不会再生效。

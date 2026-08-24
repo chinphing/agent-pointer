@@ -1327,7 +1327,7 @@ impl AppState {
             crate::models::preserve_platform_debug_settings_in_user(&mut incoming, &existing);
         }
         // 后端内存 key 池：user 层现有 key（load 时已从 json 解密回填到内存）
-        // + platform 内存注入 key（OAuth / server.toml）。前端不回传原始 key：
+        // + platform 内存注入 key（OAuth / 登录）。前端不回传原始 key：
         // 用户没改提交空/"****"，这里从后端内存回填；用户显式输入的新 key
         // 非空，直接落盘（不走回填）。
         let mut key_pool: HashMap<String, String> = existing

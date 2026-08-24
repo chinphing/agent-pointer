@@ -7,7 +7,7 @@ pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构�
 - [部署模式（deployment_mode.rs）](#部署模式)
 - [本地认证（local_auth.rs）](#本地认证)
 - [License 系统（license/）](#license-系统)
-- [LLM Provider 注入](#llm-provider-注入)
+- [模型配置](#模型配置)
 - [API 端点](#api-端点)
 - [配置参考](#配置参考)
 - [改造文件清单](#改造文件清单)
@@ -22,7 +22,7 @@ pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构�
 | 模式             | 说明                                                                                 |
 | -------------- | ---------------------------------------------------------------------------------- |
 | `platform`（默认） | 连接 [readflowai.com](https://pointer-api.readflowai.com)，使用官方 OAuth + 云端 LLM Key 下发 |
-| `standalone`   | 脱离官方平台，使用本地账号密码登录 + TOML 注入 LLM Key + Ed25519 License 校验                           |
+| `standalone`   | 脱离官方平台，使用本地账号密码登录 + Web 设置配置模型/密钥 + Ed25519 License 校验                           |
 
 
 **余额 / LLM 门禁：** 官方账户余额校验（`ensure_llm_allowed`、`GET /auth/partner/llm-credentials`）仅在 `platform` 模式生效；`standalone` 下为 no-op，不访问官方余额 API。
@@ -230,34 +230,13 @@ curl -X POST http://localhost:8787/api/license/reload
 
 
 
-## LLM Provider 注入
+## 模型配置
 
-Standalone 模式下从 TOML 配置注入 LLM Key，替代 OAuth 下发。
+Standalone **不从** `pointer-server.toml` 读取模型、地址或 API Key。配置文件里的 `[llm]` 段会被忽略。
 
-**配置格式（**`pointer-server.toml`**）：**
+登录后打开 **设置 → 模型配置 → 自定义服务**，与桌面客户端自定义服务相同：添加服务商（id、名称、API 地址、模型名单、密钥），以及上下文、最大输出、思考强度、能力勾选、`extra_body` 和单模型覆盖。保存走 `updateUserSettings`，写入 `user_settings.json`；密钥以 `enc:v1:` 加密落盘。
 
-```toml
-[llm]
-active_provider = "qwen"
-
-[llm.providers.qwen]
-api_key = "sk-..."
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-name = "千问"
-models = ["qwen3.5-plus", "qwen3.5-turbo"]
-
-[llm.providers.glm]
-api_key = "sk-..."
-base_url = "https://open.bigmodel.cn/api/paas/v4"
-name = "智谱 GLM"
-models = ["glm-5", "glm-5-flash"]
-```
-
-**实现：** `server_config.rs` → `apply_llm_providers_from_config()`，启动时写入 `platform_config`（与 OAuth 注入走同一路径）。
-
-注入后会校验当前 `model` 是否仍在活跃 Provider 的 `models` 列表中；若不在（例如 TOML 只配了本地 `qwen3.6-27b`，而默认 model 为空或指向其他模型），自动改用列表中的第一个模型。模式映射（如 fast → DeepSeek）无 Key 时也会回退到该活跃 Provider + 列表内模型。本地默认不再内置任何平台服务商/模型（`activeProviderId` / `model` 默认为空），standalone 的可用模型完全来自 `server.toml [llm]`。
-
-**支持的 provider id：** `qwen`, `deepseek`, `glm`, `kimi`, `openai-compatible`（也可自定义 id，如本地网关）
+本地默认不再内置任何平台服务商/模型（`activeProviderId` / `model` 默认为空）。未在界面添加服务并填写密钥时，对话不可用。
 
 ---
 
@@ -333,14 +312,7 @@ key = "base64_payload.base64_sig"      # license key 字符串
 [usage]
 report_enabled = false                 # standalone 默认不上报用量
 
-[llm]
-active_provider = "qwen"               # 默认使用的 LLM provider
-
-[llm.providers.qwen]
-api_key = "sk-..."
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-name = "千问"
-models = ["qwen3.5-plus"]
+# 模型、密钥、extra_body 在 Web 设置 → 模型配置中填写，不要写在本文件。
 
 [server]
 addr = "0.0.0.0:8787"
@@ -393,7 +365,7 @@ skills_dir = "skills"
 | `crates/pointer-core/Cargo.toml`                        | 加 `ed25519-dalek` 依赖                                   |
 | `crates/pointer-core/build.rs`                          | 编译嵌入 `license.pub`                                     |
 | `crates/pointer-core/src/lib.rs`                        | 注册 3 个新模块                                              |
-| `crates/pointer-core/src/server_config.rs`              | 解析 `[deployment]`、`[auth.local]`、`[llm]`、`[license]` 段 |
+| `crates/pointer-core/src/server_config.rs`              | 解析 `[deployment]`、`[auth.local]`、`[license]` 段 |
 | `crates/pointer-core/src/platform_endpoints.rs`         | standalone 不回落 readflowai                              |
 | `crates/pointer-core/src/web_request_auth.rs`           | `auth_kind` 字段                                         |
 | `crates/pointer-core/src/cloud_agent_auth.rs`           | standalone 禁用云 OAuth                                   |

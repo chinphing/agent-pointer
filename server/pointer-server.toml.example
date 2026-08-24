@@ -17,24 +17,8 @@
 # secret = "replace-with-shared-hmac-secret"
 # audience = "https://pointer.example.com"
 #
-# [llm]
-# active_provider = "qwen"
-# [llm.providers.qwen]
-# api_key = "sk-..."
-# base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-# name = "千问"
-# models = ["qwen3.5-plus"]
-#
-# # Hermes-style extra_body (flattened to chat/completions root, same level as temperature):
-# # [llm.providers.local]
-# # api_key = "no-key"
-# # base_url = "http://127.0.0.1:8000/v1"
-# # name = "本地"
-# # models = ["Qwen3.6-27B-AWQ-INT4"]
-# # extra_body = { repetition_penalty = 1.1, top_p = 0.8 }
-# # Optional per-model overlay:
-# # [llm.providers.local.model_extra_body."Qwen3.6-27B-AWQ-INT4"]
-# # top_p = 0.9
+# Models, API keys, and extra_body are configured in 设置 → 模型配置
+# (same as the desktop custom-provider editor). Do not put them in this file.
 #
 # [license]
 # key = "BASE64_PAYLOAD.BASE64_SIGNATURE"

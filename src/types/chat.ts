@@ -575,7 +575,7 @@ export interface ProviderConfig {
   extraBody?: Record<string, unknown>
   /**
    * Runtime provenance: `user` (persisted user layer) or `platform`
-   * (injected by server.toml / OAuth / login). Computed by the backend
+   * (injected by OAuth / login). Computed by the backend
    * merge; not persisted on disk. Used to filter what gets saved.
    */
   source?: 'user' | 'platform'

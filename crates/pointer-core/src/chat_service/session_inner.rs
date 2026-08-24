@@ -208,7 +208,7 @@ pub(super) async fn run_chat_inner(
         );
     } else if is_automation {
         return Err(anyhow!(
-            "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」或 Web 端完成一次登录；自部署请在配置中注入 API Key"
+            "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」或 Web 端完成一次登录；自部署请在设置 → 模型配置中填写 API Key"
         ));
     } else if let Some(detail) = refresh_transient_error {
         // Access token expired and refresh hit a transport/upstream blip — not a real logout.

@@ -174,7 +174,7 @@ pub struct ProviderConfig {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
     pub extra_body: Option<Value>,
     /// Runtime-only provenance: `user` (persisted user layer) or `platform`
-    /// (injected by server.toml / OAuth / login). Computed by `merge_user_platform`
+    /// (injected by OAuth / login directory). Computed by `merge_user_platform`
     /// on every merge; not a durable attribute — the disk value is re-derived each load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -2505,7 +2505,7 @@ impl serde::Serialize for WebEffectiveSettingsView {
 /// Merge persisted user settings with in-memory platform config.
 pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> ModelSettings {
     // Providers are user-owned (persisted in user_settings.json). Runtime keys
-    // (OAuth / server.toml injection) live in platform.providers and are overlaid
+    // (OAuth / login injection) live in platform.providers and are overlaid
     // by provider id so user edits never wipe injected credentials.
     let mut providers = user.providers.clone();
     let platform_keys: HashMap<String, String> = platform
@@ -2521,10 +2521,10 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
             }
         }
     }
-    // Platform-only providers (e.g. custom providers from `pointer-server.toml`
-    // `[llm]` in standalone deployments) are appended to the merged list so the
-    // UI and runtime can use them even before the user saves a copy. User-owned
-    // providers keep precedence; duplicates by id never appear.
+    // Platform-only providers (OAuth / login directory) are appended to the
+    // merged list so the UI and runtime can use them even before the user
+    // saves a copy. User-owned providers keep precedence; duplicates by id
+    // never appear.
     let known: std::collections::HashSet<String> = providers.iter().map(|p| p.id.clone()).collect();
     for platform_provider in &platform.providers {
         if !known.contains(&platform_provider.id) {
@@ -3376,8 +3376,8 @@ mod user_settings_defaults_tests {
     }
 
     #[test]
-    fn merges_platform_only_providers_from_server_config() {
-        // server.toml [llm] 配置的自定义 provider 只进 platform 层；
+    fn merges_platform_only_providers() {
+        // OAuth / 登录目录注入的 provider 只进 platform 层；
         // merged 视图必须包含它（带 key），否则界面和运行时都不可用。
         let mut platform = PlatformSettings::default();
         platform.providers.push(ProviderConfig {

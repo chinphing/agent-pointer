@@ -93,20 +93,7 @@ OpenAI Python SDK 的展平行为。
 
 嵌套对象按服务商文档原样书写（例如部分 vLLM / NIM 的 `chat_template_kwargs`）。
 
-### pointer-server.toml
-
-独立部署可在 `[llm.providers.<id>]` 直接写（启动注入内存平台配置）：
-
-```toml
-[llm.providers.local]
-api_key = "no-key"
-base_url = "http://127.0.0.1:8000/v1"
-models = ["Qwen3.6-27B-AWQ-INT4"]
-extra_body = { repetition_penalty = 1.1, top_p = 0.8 }
-
-[llm.providers.local.model_extra_body."Qwen3.6-27B-AWQ-INT4"]
-top_p = 0.9
-```
+独立部署同样在设置页填写 `extra_body`，不要写进 `pointer-server.toml`。
 
 ## 迁移
 

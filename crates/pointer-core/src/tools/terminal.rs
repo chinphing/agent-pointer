@@ -36,10 +36,6 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const TERMINAL_MAX_TIMEOUT_MS: u64 = 3_600_000;
-/// 自进程启动起的墙钟上限（与是否有输出无关）。
-const TERMINAL_ABS_MAX_WALL_MS: u64 = 3_600_000;
 const TERMINAL_DEFAULT_WAIT_FOR_INPUT_MS: u64 = 120_000;
 const TERMINAL_MAX_WAIT_FOR_INPUT_MS: u64 = 600_000;
 
@@ -53,6 +49,34 @@ pub(crate) fn resolve_max_output_bytes(args: &serde_json::Value) -> usize {
         .and_then(|v| v.as_u64())
         .unwrap_or(ceiling)
         .clamp(1, ceiling) as usize
+}
+
+/// Idle timeout from settings (seconds). Tool `timeoutMs` may only lower it.
+pub(crate) fn resolve_timeout_ms(args: &serde_json::Value) -> u64 {
+    let ceiling = crate::storage::load_user_settings()
+        .ok()
+        .map(|u| crate::models::terminal_timeout_ms(u.terminal_timeout_seconds))
+        .unwrap_or_else(|| {
+            crate::models::terminal_timeout_ms(crate::models::DEFAULT_TERMINAL_TIMEOUT_SECONDS)
+        });
+    args.get("timeoutMs")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.clamp(1_000, ceiling.max(1_000)))
+        .unwrap_or(ceiling)
+}
+
+/// Wall-clock cap from settings (hours). Tool `maxWallMs` may only lower it.
+pub(crate) fn resolve_max_wall_ms(args: &serde_json::Value) -> u64 {
+    let ceiling = crate::storage::load_user_settings()
+        .ok()
+        .map(|u| crate::models::terminal_max_wall_ms(u.terminal_max_wall_hours))
+        .unwrap_or_else(|| {
+            crate::models::terminal_max_wall_ms(crate::models::DEFAULT_TERMINAL_MAX_WALL_HOURS)
+        });
+    args.get("maxWallMs")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.clamp(1_000, ceiling))
+        .unwrap_or(ceiling)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -254,16 +278,8 @@ pub fn run_terminal_command_streaming(
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
     let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
-    let timeout_ms = args
-        .get("timeoutMs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(TERMINAL_DEFAULT_TIMEOUT_MS)
-        .clamp(1_000, TERMINAL_MAX_TIMEOUT_MS);
-    let wall_cap_ms = args
-        .get("maxWallMs")
-        .and_then(|v| v.as_u64())
-        .map(|v| v.clamp(1_000, TERMINAL_ABS_MAX_WALL_MS))
-        .unwrap_or(TERMINAL_ABS_MAX_WALL_MS);
+    let timeout_ms = resolve_timeout_ms(&args);
+    let wall_cap_ms = resolve_max_wall_ms(&args);
     let max_output_bytes = resolve_max_output_bytes(&args);
     info!(
         "terminal: cwd={} max_output_bytes={}",
@@ -1209,6 +1225,32 @@ mod cwd_tests {
         let raised = resolve_max_output_bytes(&serde_json::json!({
             "maxOutputBytes": u64::from(crate::models::CEILING_TERMINAL_OUTPUT_MAX_BYTES) * 4
         }));
+        assert_eq!(raised, ceiling);
+    }
+
+    #[test]
+    fn resolve_max_wall_ms_tool_arg_cannot_exceed_ceiling() {
+        let ceiling = resolve_max_wall_ms(&serde_json::json!({}));
+        let floor = crate::models::terminal_max_wall_ms(crate::models::FLOOR_TERMINAL_MAX_WALL_HOURS);
+        let cap = crate::models::terminal_max_wall_ms(crate::models::CEILING_TERMINAL_MAX_WALL_HOURS);
+        assert!(ceiling >= floor);
+        assert!(ceiling <= cap);
+        let lowered = resolve_max_wall_ms(&serde_json::json!({ "maxWallMs": 3_600_000 }));
+        assert_eq!(lowered, 3_600_000);
+        let raised = resolve_max_wall_ms(&serde_json::json!({ "maxWallMs": u64::MAX }));
+        assert_eq!(raised, ceiling);
+    }
+
+    #[test]
+    fn resolve_timeout_ms_tool_arg_cannot_exceed_ceiling() {
+        let ceiling = resolve_timeout_ms(&serde_json::json!({}));
+        let floor = crate::models::terminal_timeout_ms(crate::models::FLOOR_TERMINAL_TIMEOUT_SECONDS);
+        let cap = crate::models::terminal_timeout_ms(crate::models::CEILING_TERMINAL_TIMEOUT_SECONDS);
+        assert!(ceiling >= floor);
+        assert!(ceiling <= cap);
+        let lowered = resolve_timeout_ms(&serde_json::json!({ "timeoutMs": 5_000 }));
+        assert_eq!(lowered, 5_000);
+        let raised = resolve_timeout_ms(&serde_json::json!({ "timeoutMs": u64::MAX }));
         assert_eq!(raised, ceiling);
     }
 

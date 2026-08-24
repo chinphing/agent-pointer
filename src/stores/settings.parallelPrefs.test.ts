@@ -65,6 +65,8 @@ describe('settings parallel preference round-trip', () => {
     store.settings.fileReadMaxBytes = 65_536
     store.settings.fileLineMaxBytes = 1024
     store.settings.terminalOutputMaxBytes = 16_384
+    store.settings.terminalTimeoutSeconds = 30
+    store.settings.terminalMaxWallHours = 24
     store.settings.attachmentUploadMaxBytes = 100 * 1024 * 1024
     store.settings.toolApprovalMode = 'auto'
     updateUserSettings.mockImplementation(async (snapshot: UserSettings) => {
@@ -87,6 +89,8 @@ describe('settings parallel preference round-trip', () => {
       fileReadMaxBytes: 8192,
       fileLineMaxBytes: 512,
       terminalOutputMaxBytes: 4096,
+      terminalTimeoutSeconds: 120,
+      terminalMaxWallHours: 2,
       attachmentUploadMaxBytes: 20 * 1024 * 1024,
       toolApprovalMode: 'manual'
     })
@@ -99,6 +103,8 @@ describe('settings parallel preference round-trip', () => {
     expect(store.settings.fileReadMaxBytes).toBe(8192)
     expect(store.settings.fileLineMaxBytes).toBe(512)
     expect(store.settings.terminalOutputMaxBytes).toBe(4096)
+    expect(store.settings.terminalTimeoutSeconds).toBe(120)
+    expect(store.settings.terminalMaxWallHours).toBe(2)
     expect(store.settings.attachmentUploadMaxBytes).toBe(20 * 1024 * 1024)
     expect(store.settings.toolApprovalMode).toBe('manual')
   })

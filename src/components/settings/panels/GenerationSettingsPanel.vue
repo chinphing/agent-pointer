@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
-import { ChevronRight, CircleHelp, FileText, Film, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
+import { ChevronRight, CircleHelp, Film, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -52,6 +52,8 @@ const {
   fileLineMaxBytes,
   fileGrepMaxResults,
   terminalOutputMaxKb,
+  terminalTimeoutSeconds,
+  terminalMaxWallHours,
   attachmentUploadMaxMb,
   parallelToolExecutionEnabled,
   autoParallelLimit,
@@ -76,6 +78,18 @@ function restoreAutoParallel(value: unknown): number {
   const n = Number(value)
   if (!Number.isFinite(n) || n < 1) return autoParallelLimit
   return Math.floor(n)
+}
+
+function restoreTimeoutSeconds(value: unknown): number {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 1) return 30
+  return Math.min(86_400, Math.floor(n))
+}
+
+function restoreWallHours(value: unknown): number {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 1) return 24
+  return Math.min(10_000, Math.floor(n))
 }
 
 const queueSnapshot = ref<RunQueueSnapshot | null>(null)
@@ -515,54 +529,6 @@ async function onPlaySoundToggle(checked: boolean) {
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5">
         <div class="grid grid-cols-1 min-[960px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-x-5 gap-y-6">
-          <div class="min-w-0 space-y-3">
-            <div class="flex items-center h-5">
-              <span class="text-[12px] font-medium text-foreground">任务并行</span>
-            </div>
-            <div>
-              <div class="flex items-center gap-1 mb-1.5">
-                <span class="text-[12px] text-muted">同时任务数</span>
-                <button
-                  type="button"
-                  class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                  title="同时能跑几条独立任务。聊天、定时、Webhook 共用；同一会话仍排队。"
-                  aria-label="同时任务数说明"
-                >
-                  <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-                </button>
-              </div>
-              <div class="flex items-center gap-2">
-                <input
-                  v-model.number="maxConcurrentRuns"
-                  type="number"
-                  min="1"
-                  max="64"
-                  step="1"
-                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-                />
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
-                  :title="queueStatusTitle"
-                  :aria-label="queueStatusTitle + '，查看队列'"
-                  @click="queueModalOpen = true"
-                >
-                  <span
-                    class="w-1.5 h-1.5 rounded-full shrink-0"
-                    :class="queueBusy
-                      ? 'bg-accent animate-pulse'
-                      : 'bg-muted'"
-                    aria-hidden="true"
-                  />
-                  查看队列
-                  <ChevronRight class="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="hidden min-[960px]:block w-px bg-border shrink-0" aria-hidden="true" />
-
           <div class="min-w-0">
             <div class="w-max max-w-full space-y-3">
               <div class="flex items-center justify-between gap-4 h-5">
@@ -702,121 +668,240 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
             </div>
           </div>
+
+          <div class="hidden min-[960px]:block w-px bg-border shrink-0" aria-hidden="true" />
+
+          <div class="min-w-0 space-y-3">
+            <div class="flex items-center h-5">
+              <span class="text-[12px] font-medium text-foreground">任务并行</span>
+            </div>
+            <div>
+              <div class="flex items-center gap-1 mb-1.5">
+                <span class="text-[12px] text-muted">同时任务数</span>
+                <button
+                  type="button"
+                  class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                  title="同时能跑几条独立任务。聊天、定时、Webhook 共用；同一会话仍排队。"
+                  aria-label="同时任务数说明"
+                >
+                  <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                </button>
+              </div>
+              <div class="flex items-center gap-2">
+                <input
+                  v-model.number="maxConcurrentRuns"
+                  type="number"
+                  min="1"
+                  max="64"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
+                  :title="queueStatusTitle"
+                  :aria-label="queueStatusTitle + '，查看队列'"
+                  @click="queueModalOpen = true"
+                >
+                  <span
+                    class="w-1.5 h-1.5 rounded-full shrink-0"
+                    :class="queueBusy
+                      ? 'bg-accent animate-pulse'
+                      : 'bg-muted'"
+                    aria-hidden="true"
+                  />
+                  查看队列
+                  <ChevronRight class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-        <div>
-          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <FileText class="w-4 h-4 text-accent" />内容上限
-          </h4>
-          <p class="mt-1 text-[11px] text-muted">上传、读文件、搜索和终端输出回给 AI 的上限。视频上传仍走独立压缩。工具参数只能下调，不能突破这里的上限。</p>
-        </div>
-        <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
-          <div>
-            <div class="flex items-center gap-1 mb-1.5">
-              <span class="text-[12px] text-muted">上传（MB）</span>
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5">
+        <div class="grid grid-cols-1 min-[960px]:grid-cols-[max-content_auto_max-content_minmax(2.5rem,1fr)] items-stretch gap-x-8 gap-y-6">
+          <div class="w-max max-w-full space-y-3">
+            <div class="flex items-center gap-1 h-5">
+              <span class="text-[12px] font-medium text-foreground">内容上限</span>
               <button
                 type="button"
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="对话里上传文件的大小上限，不含视频。"
-                aria-label="上传上限说明"
+                title="上传、读文件、搜索和终端输出回给 AI 的上限。视频上传仍走独立压缩。工具参数只能下调。"
+                aria-label="内容上限说明"
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
               </button>
             </div>
-            <input
-              v-model.number="attachmentUploadMaxMb"
-              type="number"
-              min="1"
-              max="512"
-              step="1"
-              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-            />
+            <div class="flex flex-wrap min-[960px]:flex-nowrap items-start gap-x-5 gap-y-3">
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">上传（MB）</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="对话里上传文件的大小上限，不含视频。"
+                    aria-label="上传上限说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="attachmentUploadMaxMb"
+                  type="number"
+                  min="1"
+                  max="512"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">正文（KB）</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="一次读取文件时返回的正文上限。"
+                    aria-label="正文上限说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="fileReadMaxKb"
+                  type="number"
+                  min="4"
+                  max="1024"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">单行（字节）</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="读文件或搜索时，一行最多保留多少字节。"
+                    aria-label="单行上限说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="fileLineMaxBytes"
+                  type="number"
+                  min="256"
+                  max="16384"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">搜索条数</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="一次搜索最多返回多少条结果。"
+                    aria-label="搜索条数说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="fileGrepMaxResults"
+                  type="number"
+                  min="1"
+                  max="200"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">终端（KB）</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="终端命令每路输出回给 AI 的上限，超限只保留末尾。"
+                    aria-label="终端输出上限说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="terminalOutputMaxKb"
+                  type="number"
+                  min="4"
+                  max="256"
+                  step="1"
+                  class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+            </div>
           </div>
-          <div>
-            <div class="flex items-center gap-1 mb-1.5">
-              <span class="text-[12px] text-muted">正文（KB）</span>
+
+          <div class="hidden min-[960px]:block w-px bg-border shrink-0" aria-hidden="true" />
+
+          <div class="w-max max-w-full space-y-3">
+            <div class="flex items-center gap-1 h-5">
+              <span class="text-[12px] font-medium text-foreground">终端超时</span>
               <button
                 type="button"
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="一次读取文件时返回的正文上限。"
-                aria-label="正文上限说明"
+                title="无输出多久结束，以及从启动起最长跑多久。工具参数只能下调。"
+                aria-label="终端超时说明"
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
               </button>
             </div>
-            <input
-              v-model.number="fileReadMaxKb"
-              type="number"
-              min="4"
-              max="1024"
-              step="1"
-              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-            />
-          </div>
-          <div>
-            <div class="flex items-center gap-1 mb-1.5">
-              <span class="text-[12px] text-muted">单行（字节）</span>
-              <button
-                type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="读文件或搜索时，一行最多保留多少字节。"
-                aria-label="单行上限说明"
-              >
-                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-              </button>
+            <div class="flex flex-nowrap items-start gap-x-5">
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">空闲（秒）</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="这段时间没有新输出就结束命令，有输出会重新计时。1–86400 秒。"
+                    aria-label="空闲超时说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="terminalTimeoutSeconds"
+                  type="number"
+                  min="1"
+                  max="86400"
+                  step="1"
+                  class="w-24 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                  @blur="terminalTimeoutSeconds = restoreTimeoutSeconds(terminalTimeoutSeconds)"
+                />
+              </div>
+              <div>
+                <div class="flex items-center gap-1 mb-1.5">
+                  <span class="text-[12px] text-muted">最长运行（小时）</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="终端命令从启动到强制结束的最长墙钟时间，1–10000 小时。"
+                    aria-label="最长运行说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <input
+                  v-model.number="terminalMaxWallHours"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  step="1"
+                  class="w-24 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
+                  @blur="terminalMaxWallHours = restoreWallHours(terminalMaxWallHours)"
+                />
+              </div>
             </div>
-            <input
-              v-model.number="fileLineMaxBytes"
-              type="number"
-              min="256"
-              max="16384"
-              step="1"
-              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-            />
-          </div>
-          <div>
-            <div class="flex items-center gap-1 mb-1.5">
-              <span class="text-[12px] text-muted">搜索条数</span>
-              <button
-                type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="一次搜索最多返回多少条结果。"
-                aria-label="搜索条数说明"
-              >
-                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-              </button>
-            </div>
-            <input
-              v-model.number="fileGrepMaxResults"
-              type="number"
-              min="1"
-              max="200"
-              step="1"
-              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-            />
-          </div>
-          <div>
-            <div class="flex items-center gap-1 mb-1.5">
-              <span class="text-[12px] text-muted">终端（KB）</span>
-              <button
-                type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="终端命令每路输出回给 AI 的上限，超限只保留末尾。"
-                aria-label="终端输出上限说明"
-              >
-                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
-              </button>
-            </div>
-            <input
-              v-model.number="terminalOutputMaxKb"
-              type="number"
-              min="4"
-              max="256"
-              step="1"
-              class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-            />
           </div>
         </div>
       </div>

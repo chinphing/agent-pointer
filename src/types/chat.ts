@@ -633,6 +633,10 @@ export interface UserSettings {
   fileGrepMaxResults?: number
   /** Max UTF-8 bytes kept from each terminal stdout/stderr stream (default 16384). */
   terminalOutputMaxBytes?: number
+  /** Idle timeout seconds for one terminal command (default 30, max 86400). Tool timeoutMs can only lower this. */
+  terminalTimeoutSeconds?: number
+  /** Max wall-clock hours for one terminal command (default 24, max 10000). Tool maxWallMs can only lower this. */
+  terminalMaxWallHours?: number
   /** Max bytes for a non-video chat attachment upload (default 100 MiB). */
   attachmentUploadMaxBytes?: number
   maxSubAgentToolRounds?: number
@@ -814,6 +818,10 @@ export interface ModelSettings {
   fileGrepMaxResults?: number
   /** Max UTF-8 bytes kept from each terminal stdout/stderr stream (default 16384) */
   terminalOutputMaxBytes?: number
+  /** Idle timeout seconds for one terminal command (default 30, max 86400) */
+  terminalTimeoutSeconds?: number
+  /** Max wall-clock hours for one terminal command (default 24, max 10000) */
+  terminalMaxWallHours?: number
   /** Max bytes for a non-video chat attachment upload (default 100 MiB) */
   attachmentUploadMaxBytes?: number
   /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop */

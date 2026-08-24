@@ -779,6 +779,18 @@ pub struct ModelSettings {
         rename = "terminalOutputMaxBytes"
     )]
     pub terminal_output_max_bytes: u32,
+    /// Idle timeout seconds for one `terminal` process (tool `timeoutMs` can only lower this).
+    #[serde(
+        default = "default_terminal_timeout_seconds",
+        rename = "terminalTimeoutSeconds"
+    )]
+    pub terminal_timeout_seconds: u32,
+    /// Max wall-clock hours for one `terminal` process (tool `maxWallMs` can only lower this).
+    #[serde(
+        default = "default_terminal_max_wall_hours",
+        rename = "terminalMaxWallHours"
+    )]
+    pub terminal_max_wall_hours: u32,
     /// Max bytes for a non-video composer / chat attachment upload.
     #[serde(
         default = "default_attachment_upload_max_bytes",
@@ -1103,6 +1115,8 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     user.file_grep_max_results = clamp_file_grep_max_results(user.file_grep_max_results);
     user.terminal_output_max_bytes =
         clamp_terminal_output_max_bytes(user.terminal_output_max_bytes);
+    user.terminal_timeout_seconds = clamp_terminal_timeout_seconds(user.terminal_timeout_seconds);
+    user.terminal_max_wall_hours = clamp_terminal_max_wall_hours(user.terminal_max_wall_hours);
     user.attachment_upload_max_bytes =
         clamp_attachment_upload_max_bytes(user.attachment_upload_max_bytes);
 }
@@ -1220,6 +1234,13 @@ pub const CEILING_FILE_GREP_MAX_RESULTS: u32 = 200;
 pub const DEFAULT_TERMINAL_OUTPUT_MAX_BYTES: u32 = 16 * 1024;
 pub const FLOOR_TERMINAL_OUTPUT_MAX_BYTES: u32 = 4 * 1024;
 pub const CEILING_TERMINAL_OUTPUT_MAX_BYTES: u32 = 256 * 1024;
+pub const DEFAULT_TERMINAL_TIMEOUT_SECONDS: u32 = 30;
+pub const FLOOR_TERMINAL_TIMEOUT_SECONDS: u32 = 1;
+pub const CEILING_TERMINAL_TIMEOUT_SECONDS: u32 = 86_400;
+pub const DEFAULT_TERMINAL_MAX_WALL_HOURS: u32 = 24;
+pub const FLOOR_TERMINAL_MAX_WALL_HOURS: u32 = 1;
+pub const CEILING_TERMINAL_MAX_WALL_HOURS: u32 = 10_000;
+pub const TERMINAL_MS_PER_HOUR: u64 = 3_600_000;
 
 fn default_file_read_max_bytes() -> u32 {
     DEFAULT_FILE_READ_MAX_BYTES
@@ -1235,6 +1256,14 @@ fn default_file_grep_max_results() -> u32 {
 
 fn default_terminal_output_max_bytes() -> u32 {
     DEFAULT_TERMINAL_OUTPUT_MAX_BYTES
+}
+
+fn default_terminal_timeout_seconds() -> u32 {
+    DEFAULT_TERMINAL_TIMEOUT_SECONDS
+}
+
+fn default_terminal_max_wall_hours() -> u32 {
+    DEFAULT_TERMINAL_MAX_WALL_HOURS
 }
 
 pub fn clamp_file_read_max_bytes(n: u32) -> u32 {
@@ -1254,6 +1283,28 @@ pub fn clamp_terminal_output_max_bytes(n: u32) -> u32 {
         FLOOR_TERMINAL_OUTPUT_MAX_BYTES,
         CEILING_TERMINAL_OUTPUT_MAX_BYTES,
     )
+}
+
+pub fn clamp_terminal_timeout_seconds(n: u32) -> u32 {
+    n.clamp(
+        FLOOR_TERMINAL_TIMEOUT_SECONDS,
+        CEILING_TERMINAL_TIMEOUT_SECONDS,
+    )
+}
+
+pub fn terminal_timeout_ms(seconds: u32) -> u64 {
+    u64::from(clamp_terminal_timeout_seconds(seconds)).saturating_mul(1000)
+}
+
+pub fn clamp_terminal_max_wall_hours(n: u32) -> u32 {
+    n.clamp(
+        FLOOR_TERMINAL_MAX_WALL_HOURS,
+        CEILING_TERMINAL_MAX_WALL_HOURS,
+    )
+}
+
+pub fn terminal_max_wall_ms(hours: u32) -> u64 {
+    u64::from(clamp_terminal_max_wall_hours(hours)).saturating_mul(TERMINAL_MS_PER_HOUR)
 }
 
 pub const DEFAULT_ATTACHMENT_UPLOAD_MAX_BYTES: u32 = 100 * 1024 * 1024;
@@ -1294,6 +1345,41 @@ mod terminal_output_limit_tests {
             clamp_terminal_output_max_bytes(u32::MAX),
             CEILING_TERMINAL_OUTPUT_MAX_BYTES
         );
+    }
+
+    #[test]
+    fn clamps_terminal_timeout_seconds() {
+        assert_eq!(
+            clamp_terminal_timeout_seconds(0),
+            FLOOR_TERMINAL_TIMEOUT_SECONDS
+        );
+        assert_eq!(
+            clamp_terminal_timeout_seconds(DEFAULT_TERMINAL_TIMEOUT_SECONDS),
+            DEFAULT_TERMINAL_TIMEOUT_SECONDS
+        );
+        assert_eq!(
+            clamp_terminal_timeout_seconds(u32::MAX),
+            CEILING_TERMINAL_TIMEOUT_SECONDS
+        );
+        assert_eq!(terminal_timeout_ms(30), 30_000);
+    }
+
+    #[test]
+    fn clamps_terminal_max_wall_hours() {
+        assert_eq!(
+            clamp_terminal_max_wall_hours(0),
+            FLOOR_TERMINAL_MAX_WALL_HOURS
+        );
+        assert_eq!(
+            clamp_terminal_max_wall_hours(DEFAULT_TERMINAL_MAX_WALL_HOURS),
+            DEFAULT_TERMINAL_MAX_WALL_HOURS
+        );
+        assert_eq!(
+            clamp_terminal_max_wall_hours(u32::MAX),
+            CEILING_TERMINAL_MAX_WALL_HOURS
+        );
+        assert_eq!(terminal_max_wall_ms(24), 24 * TERMINAL_MS_PER_HOUR);
+        assert_eq!(terminal_max_wall_ms(10_000), 10_000 * TERMINAL_MS_PER_HOUR);
     }
 }
 
@@ -1413,6 +1499,8 @@ impl Default for ModelSettings {
             file_line_max_bytes: default_file_line_max_bytes(),
             file_grep_max_results: default_file_grep_max_results(),
             terminal_output_max_bytes: default_terminal_output_max_bytes(),
+            terminal_timeout_seconds: default_terminal_timeout_seconds(),
+            terminal_max_wall_hours: default_terminal_max_wall_hours(),
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: default_max_tool_rounds(),
             max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
@@ -1763,6 +1851,16 @@ pub struct UserSettings {
     )]
     pub terminal_output_max_bytes: u32,
     #[serde(
+        default = "default_terminal_timeout_seconds",
+        rename = "terminalTimeoutSeconds"
+    )]
+    pub terminal_timeout_seconds: u32,
+    #[serde(
+        default = "default_terminal_max_wall_hours",
+        rename = "terminalMaxWallHours"
+    )]
+    pub terminal_max_wall_hours: u32,
+    #[serde(
         default = "default_attachment_upload_max_bytes",
         rename = "attachmentUploadMaxBytes"
     )]
@@ -1926,6 +2024,8 @@ impl Default for UserSettings {
             file_line_max_bytes: default_file_line_max_bytes(),
             file_grep_max_results: default_file_grep_max_results(),
             terminal_output_max_bytes: default_terminal_output_max_bytes(),
+            terminal_timeout_seconds: default_terminal_timeout_seconds(),
+            terminal_max_wall_hours: default_terminal_max_wall_hours(),
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
             max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
@@ -2554,6 +2654,8 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         file_line_max_bytes: clamp_file_line_max_bytes(user.file_line_max_bytes),
         file_grep_max_results: clamp_file_grep_max_results(user.file_grep_max_results),
         terminal_output_max_bytes: clamp_terminal_output_max_bytes(user.terminal_output_max_bytes),
+        terminal_timeout_seconds: clamp_terminal_timeout_seconds(user.terminal_timeout_seconds),
+        terminal_max_wall_hours: clamp_terminal_max_wall_hours(user.terminal_max_wall_hours),
         attachment_upload_max_bytes: clamp_attachment_upload_max_bytes(
             user.attachment_upload_max_bytes,
         ),

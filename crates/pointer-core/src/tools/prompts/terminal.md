@@ -9,9 +9,11 @@ schema:
     timeoutMs:
       type: integer
       minimum: 1000
+      maximum: 86400000
     maxWallMs:
       type: integer
       minimum: 1000
+      maximum: 36000000000
     maxOutputBytes:
       type: integer
       minimum: 1
@@ -98,8 +100,12 @@ polkit).
 Either limit can stop the process (**`timedOut`** in the result).
 
 - **`timeoutMs`** — idle timeout: no new stdout/stderr for this long → kill.
-  New output resets the timer. Default **30000**, max **3600000**.
-- **`maxWallMs`** — wall clock from process start. Default **3600000**.
+  New output resets the timer.
+  Settings cap this in seconds (default 30, max 86400).
+  The tool arg may only lower it.
+- **`maxWallMs`** — wall clock from process start.
+  Settings cap this in hours (default 24, max 10000).
+  The tool arg may only lower it.
 
 Interactive waits (password, MFA, login) may be silent for minutes — raise both
 limits.

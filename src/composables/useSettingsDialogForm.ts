@@ -269,6 +269,8 @@ function createSettingsDialogForm(deps: {
   const fileLineMaxBytes = ref(1024)
   const fileGrepMaxResults = ref(50)
   const terminalOutputMaxKb = ref(16)
+  const terminalTimeoutSeconds = ref(30)
+  const terminalMaxWallHours = ref(24)
   const attachmentUploadMaxMb = ref(100)
   const maxSubAgentToolRounds = ref(5000)
   const parallelToolExecutionEnabled = ref(true)
@@ -479,6 +481,14 @@ function createSettingsDialogForm(deps: {
   terminalOutputMaxKb.value = Math.max(
     4,
     Math.round((s.settings.terminalOutputMaxBytes ?? 16_384) / 1024)
+  )
+  terminalTimeoutSeconds.value = Math.min(
+    86_400,
+    Math.max(1, Math.round(Number(s.settings.terminalTimeoutSeconds) || 30))
+  )
+  terminalMaxWallHours.value = Math.min(
+    10_000,
+    Math.max(1, Math.round(Number(s.settings.terminalMaxWallHours) || 24))
   )
   attachmentUploadMaxMb.value = Math.max(
     1,
@@ -793,6 +803,14 @@ function createSettingsDialogForm(deps: {
       256 * 1024,
       Math.max(4096, Math.round(Number(terminalOutputMaxKb.value) || 16) * 1024)
     ),
+    terminalTimeoutSeconds: Math.min(
+      86_400,
+      Math.max(1, Math.round(Number(terminalTimeoutSeconds.value) || 30))
+    ),
+    terminalMaxWallHours: Math.min(
+      10_000,
+      Math.max(1, Math.round(Number(terminalMaxWallHours.value) || 24))
+    ),
     attachmentUploadMaxBytes: Math.min(
       512 * 1024 * 1024,
       Math.max(1024 * 1024, Math.round(Number(attachmentUploadMaxMb.value) || 100) * 1024 * 1024)
@@ -826,6 +844,8 @@ function createSettingsDialogForm(deps: {
     s.settings.fileLineMaxBytes = payload.fileLineMaxBytes
     s.settings.fileGrepMaxResults = payload.fileGrepMaxResults
     s.settings.terminalOutputMaxBytes = payload.terminalOutputMaxBytes
+    s.settings.terminalTimeoutSeconds = payload.terminalTimeoutSeconds
+    s.settings.terminalMaxWallHours = payload.terminalMaxWallHours
     s.settings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
     s.settings.maxToolRounds = payload.maxToolRounds
     s.settings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
@@ -854,6 +874,8 @@ function createSettingsDialogForm(deps: {
     s.userSettings.fileLineMaxBytes = payload.fileLineMaxBytes
     s.userSettings.fileGrepMaxResults = payload.fileGrepMaxResults
     s.userSettings.terminalOutputMaxBytes = payload.terminalOutputMaxBytes
+    s.userSettings.terminalTimeoutSeconds = payload.terminalTimeoutSeconds
+    s.userSettings.terminalMaxWallHours = payload.terminalMaxWallHours
     s.userSettings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
     s.userSettings.maxToolRounds = payload.maxToolRounds
     s.userSettings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
@@ -945,6 +967,8 @@ function createSettingsDialogForm(deps: {
       fileLineMaxBytes,
       fileGrepMaxResults,
       terminalOutputMaxKb,
+      terminalTimeoutSeconds,
+      terminalMaxWallHours,
       attachmentUploadMaxMb,
       parallelToolExecutionEnabled,
       maxParallelToolCalls,
@@ -1006,6 +1030,8 @@ function createSettingsDialogForm(deps: {
     fileLineMaxBytes,
     fileGrepMaxResults,
     terminalOutputMaxKb,
+    terminalTimeoutSeconds,
+    terminalMaxWallHours,
     attachmentUploadMaxMb,
     parallelToolExecutionEnabled,
     autoParallelLimit,

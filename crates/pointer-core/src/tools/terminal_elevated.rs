@@ -1,5 +1,5 @@
 use super::terminal::{
-    effective_terminal_cwd, parse_terminal_cwd, resolve_max_output_bytes,
+    effective_terminal_cwd, parse_terminal_cwd, resolve_max_output_bytes, resolve_max_wall_ms,
     resolve_terminal_env_files, truncate_output, InputClass, TerminalStreamingResult,
 };
 use crate::dotenv::build_terminal_child_environment;
@@ -69,11 +69,7 @@ pub fn run_terminal_command_elevated(
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
     let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
-    let wall_cap_ms = args
-        .get("maxWallMs")
-        .and_then(|v| v.as_u64())
-        .map(|v| v.clamp(1_000, 3_600_000))
-        .unwrap_or(3_600_000);
+    let wall_cap_ms = resolve_max_wall_ms(&args);
     let max_output_bytes = resolve_max_output_bytes(&args);
     info!(
         "terminal elevated: cwd={} max_output_bytes={}",

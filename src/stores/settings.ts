@@ -359,7 +359,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const activeId = mergedIn.activeProviderId || ''
     const platformById = new Map(normalizedPlatformProviders.map(provider => [provider.id, provider]))
     const seenMerged = new Set<string>()
-    const mergedProviders = (mergedIn.providers ?? []).map(provider => {
+    const mergedProviders: ProviderConfig[] = (mergedIn.providers ?? []).map(provider => {
       seenMerged.add(provider.id)
       const plat = platformById.get(provider.id)
       if (!plat) return provider
@@ -374,7 +374,7 @@ export const useSettingsStore = defineStore('settings', () => {
       }
       return {
         ...provider,
-        source: provider.source ?? 'platform',
+        source: (provider.source ?? 'platform') as 'user' | 'platform',
         name: plat.name || provider.name,
         baseUrl: plat.baseUrl || provider.baseUrl,
         models: plat.models.length ? [...plat.models] : (provider.models ?? []),
@@ -383,7 +383,7 @@ export const useSettingsStore = defineStore('settings', () => {
     })
     for (const plat of normalizedPlatformProviders) {
       if (seenMerged.has(plat.id)) continue
-      mergedProviders.push({ ...plat, source: plat.source ?? 'platform' })
+      mergedProviders.push({ ...plat, source: (plat.source ?? 'platform') as 'user' | 'platform' })
     }
     const nextMerged = {
       ...mergedIn,

@@ -78,6 +78,135 @@ export function removeAssistantMessage(conv: Conversation, messageId: string): b
   return true
 }
 
+/** Transcript order: SQLite `position`, then `createdAt`, then id. Missing position = in-flight → after persisted rows. */
+export function compareMessagesTranscriptOrder(a: ChatMessage, b: ChatMessage): number {
+  const aPos = a.position
+  const bPos = b.position
+  const aMissing = aPos == null
+  const bMissing = bPos == null
+  if (aMissing !== bMissing) return aMissing ? 1 : -1
+  if (!aMissing && !bMissing && aPos !== bPos) return aPos - bPos
+  const aAt = a.createdAt ?? 0
+  const bAt = b.createdAt ?? 0
+  if (aAt !== bAt) return aAt - bAt
+  return a.id.localeCompare(b.id)
+}
+
+export function sortMessagesInTranscriptOrder(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length < 2) return messages
+  return messages.slice().sort(compareMessagesTranscriptOrder)
+}
+
+function finiteCreatedAt(messages: readonly ChatMessage[]): number[] {
+  return messages
+    .map(m => m.createdAt)
+    .filter((t): t is number => typeof t === 'number' && Number.isFinite(t) && t > 0)
+}
+
+function finitePositions(messages: readonly ChatMessage[]): number[] {
+  return messages
+    .map(m => m.position)
+    .filter((p): p is number => typeof p === 'number' && Number.isFinite(p))
+}
+
+/**
+ * Keep only rows that belong after the current window.
+ * Bottom prefetch must never pull earlier turns (low createdAt / low position).
+ */
+export function retainIncomingNewerMessages(
+  existing: readonly ChatMessage[],
+  incoming: ChatMessage[]
+): ChatMessage[] {
+  if (incoming.length === 0) return incoming
+  const existingPos = finitePositions(existing)
+  const existingTimes = finiteCreatedAt(existing)
+  const maxPos = existingPos.length ? Math.max(...existingPos) : null
+  const minTime = existingTimes.length ? Math.min(...existingTimes) : null
+  return incoming.filter(m => {
+    if (minTime != null && m.createdAt != null && m.createdAt > 0 && m.createdAt < minTime) {
+      return false
+    }
+    if (maxPos != null && m.position != null && m.position <= maxPos) {
+      return false
+    }
+    return true
+  })
+}
+
+/**
+ * Overlay live streaming rows onto a DB page. Rows only in memory (typically
+ * older turns already loaded) must not be appended after the tail window.
+ */
+export function mergeHydratedMessages(inMemory: ChatMessage[], fromDb: ChatMessage[]): ChatMessage[] {
+  if (inMemory.length === 0) return fromDb
+  const dbById = new Map(fromDb.map(m => [m.id, m]))
+  const longer = (a?: string, b?: string) =>
+    (a?.length ?? 0) >= (b?.length ?? 0) ? a : b
+  const merged: ChatMessage[] = []
+  for (const dbMsg of fromDb) {
+    const live = inMemory.find(m => m.id === dbMsg.id)
+    if (
+      live
+      && (live.status === 'streaming'
+        || live.status === 'pending'
+        || live.contentStreaming)
+    ) {
+      merged.push({
+        ...dbMsg,
+        ...live,
+        content: longer(live.content, dbMsg.content) ?? '',
+        reasoning: longer(live.reasoning, dbMsg.reasoning),
+        rawContent: longer(live.rawContent, dbMsg.rawContent),
+        thoughts: longer(live.thoughts, dbMsg.thoughts),
+        toolCalls:
+          (live.toolCalls?.length ?? 0) >= (dbMsg.toolCalls?.length ?? 0)
+            ? live.toolCalls
+            : dbMsg.toolCalls,
+        attachments:
+          (live.attachments?.length ?? 0) >= (dbMsg.attachments?.length ?? 0)
+            ? live.attachments
+            : dbMsg.attachments,
+        agentTrace:
+          (live.agentTrace?.length ?? 0) >= (dbMsg.agentTrace?.length ?? 0)
+            ? live.agentTrace
+            : dbMsg.agentTrace
+      })
+    } else {
+      merged.push(dbMsg)
+    }
+  }
+  for (const live of inMemory) {
+    if (!dbById.has(live.id)) merged.push(live)
+  }
+  return sortMessagesInTranscriptOrder(merged)
+}
+
+export function mergeMessagePage(
+  existing: ChatMessage[],
+  incoming: ChatMessage[],
+  direction: 'older' | 'newer'
+): ChatMessage[] {
+  if (incoming.length === 0) return existing
+  const seen = new Set(existing.map(m => m.id))
+  const unique = incoming.filter(m => {
+    if (seen.has(m.id)) return false
+    seen.add(m.id)
+    return true
+  })
+  if (unique.length === 0) return existing
+  if (direction === 'newer') {
+    const retained = retainIncomingNewerMessages(existing, unique)
+    if (retained.length === 0) {
+      console.info(
+        '[chat] mergeMessagePage: dropped older page requested as newer; bottom prefetch must not pull earlier turns'
+      )
+      return existing
+    }
+    return sortMessagesInTranscriptOrder([...existing, ...retained])
+  }
+  return sortMessagesInTranscriptOrder([...unique, ...existing])
+}
+
 export function removeTrailingDiscardableEmptyAssistant(conv: Conversation): boolean {
   const last = conv.messages[conv.messages.length - 1]
   if (!last || !isDiscardableEmptyAssistant(last)) return false

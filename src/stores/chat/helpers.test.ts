@@ -5,9 +5,12 @@ import {
   assistantTurnActivelyRunning,
   computeHistoryTrimCutByViewedAt,
   insertMessageBeforeAnchor,
+  mergeHydratedMessages,
+  mergeMessagePage,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeTrailingDiscardableEmptyAssistant,
+  retainIncomingNewerMessages,
   uid
 } from './helpers'
 
@@ -335,5 +338,95 @@ describe('chat helpers', () => {
     const few: ChatMessage[] = Array.from({ length: 6 }, (_, i) => user(i))
     const fewViewed = new Map(few.map(m => [m.id, now - 2 * staleMs]))
     expect(computeHistoryTrimCutByViewedAt(few, fewViewed, now, staleMs)).toBe(0)
+  })
+
+  it('mergeHydratedMessages keeps earlier live turns before the DB tail window', () => {
+    const hello: ChatMessage = {
+      id: 'hello',
+      role: 'user',
+      content: '哈喽',
+      status: 'done',
+      createdAt: 1,
+      position: 0
+    }
+    const helloReply: ChatMessage = {
+      id: 'hello-a',
+      role: 'assistant',
+      content: 'hi',
+      status: 'done',
+      createdAt: 2,
+      position: 1
+    }
+    const work: ChatMessage = {
+      id: 'work',
+      role: 'user',
+      content: '报销',
+      status: 'done',
+      createdAt: 100,
+      position: 40
+    }
+    const workStream: ChatMessage = {
+      id: 'work-a',
+      role: 'assistant',
+      content: '处理中',
+      status: 'streaming',
+      createdAt: 101,
+      position: 41
+    }
+    const merged = mergeHydratedMessages(
+      [hello, helloReply, work, workStream],
+      [work, { ...workStream, status: 'done' }]
+    )
+    expect(merged.map(m => m.id)).toEqual(['hello', 'hello-a', 'work', 'work-a'])
+    expect(merged[3]?.status).toBe('streaming')
+  })
+
+  it('mergeMessagePage does not append an older page below newer turns', () => {
+    const work: ChatMessage = {
+      id: 'work',
+      role: 'user',
+      content: '报销',
+      status: 'done',
+      createdAt: 100,
+      position: 40
+    }
+    const hello: ChatMessage = {
+      id: 'hello',
+      role: 'user',
+      content: '哈喽',
+      status: 'done',
+      createdAt: 1,
+      position: 0
+    }
+    const merged = mergeMessagePage([work], [hello], 'newer')
+    expect(merged.map(m => m.id)).toEqual(['work'])
+  })
+
+  it('retainIncomingNewerMessages drops earlier turns even when position is higher', () => {
+    const work: ChatMessage = {
+      id: 'work',
+      role: 'user',
+      content: '报销',
+      status: 'done',
+      createdAt: 100,
+      position: 40
+    }
+    const hello: ChatMessage = {
+      id: 'hello',
+      role: 'user',
+      content: '哈喽',
+      status: 'done',
+      createdAt: 1,
+      position: 500
+    }
+    const later: ChatMessage = {
+      id: 'later',
+      role: 'user',
+      content: '继续',
+      status: 'done',
+      createdAt: 120,
+      position: 41
+    }
+    expect(retainIncomingNewerMessages([work], [hello, later]).map(m => m.id)).toEqual(['later'])
   })
 })

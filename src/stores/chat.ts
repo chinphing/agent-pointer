@@ -104,9 +104,12 @@ import {
   assistantTurnActivelyRunning,
   computeHistoryTrimCutByViewedAt,
   hasInFlightToolCalls,
+  mergeHydratedMessages,
+  mergeMessagePage,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeAssistantMessage,
+  retainIncomingNewerMessages,
   uid
 } from './chat/helpers'
 import { activeConversationIdsFromQueueSnapshot } from './chat/dispatcherRunSync'
@@ -1287,52 +1290,6 @@ export const useChatStore = defineStore('chat', () => {
    * conversation at boot. Skips conversations currently generating unless
    * `force` is set (automation "查看会话" while a webhook/cron run is active).
    */
-  function mergeHydratedMessages(inMemory: ChatMessage[], fromDb: ChatMessage[]): ChatMessage[] {
-    if (inMemory.length === 0) return fromDb
-    const dbById = new Map(fromDb.map(m => [m.id, m]))
-    const longer = (a?: string, b?: string) =>
-      (a?.length ?? 0) >= (b?.length ?? 0) ? a : b
-    const merged: ChatMessage[] = []
-    for (const dbMsg of fromDb) {
-      const live = inMemory.find(m => m.id === dbMsg.id)
-      if (
-        live
-        && (live.status === 'streaming'
-          || live.status === 'pending'
-          || live.contentStreaming)
-      ) {
-        // Keep live streaming flags, but prefer longer persisted text / tool
-        // snapshots after SSE gaps (live often misses lagged deltas).
-        merged.push({
-          ...dbMsg,
-          ...live,
-          content: longer(live.content, dbMsg.content) ?? '',
-          reasoning: longer(live.reasoning, dbMsg.reasoning),
-          rawContent: longer(live.rawContent, dbMsg.rawContent),
-          thoughts: longer(live.thoughts, dbMsg.thoughts),
-          toolCalls:
-            (live.toolCalls?.length ?? 0) >= (dbMsg.toolCalls?.length ?? 0)
-              ? live.toolCalls
-              : dbMsg.toolCalls,
-          attachments:
-            (live.attachments?.length ?? 0) >= (dbMsg.attachments?.length ?? 0)
-              ? live.attachments
-              : dbMsg.attachments,
-          agentTrace:
-            (live.agentTrace?.length ?? 0) >= (dbMsg.agentTrace?.length ?? 0)
-              ? live.agentTrace
-              : dbMsg.agentTrace
-        })
-      } else {
-        merged.push(dbMsg)
-      }
-    }
-    for (const live of inMemory) {
-      if (!dbById.has(live.id)) merged.push(live)
-    }
-    return merged
-  }
-
   function applyMessagePageState(
     convId: string,
     page: {
@@ -1362,25 +1319,11 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function prependMessagesById(existing: ChatMessage[], older: ChatMessage[]): ChatMessage[] {
-    if (older.length === 0) return existing
-    const seen = new Set(existing.map(m => m.id))
-    const uniqueOlder = older.filter(m => {
-      if (seen.has(m.id)) return false
-      seen.add(m.id)
-      return true
-    })
-    return uniqueOlder.length ? [...uniqueOlder, ...existing] : existing
+    return mergeMessagePage(existing, older, 'older')
   }
 
   function appendMessagesById(existing: ChatMessage[], newer: ChatMessage[]): ChatMessage[] {
-    if (newer.length === 0) return existing
-    const seen = new Set(existing.map(m => m.id))
-    const uniqueNewer = newer.filter(m => {
-      if (seen.has(m.id)) return false
-      seen.add(m.id)
-      return true
-    })
-    return uniqueNewer.length ? [...existing, ...uniqueNewer] : existing
+    return mergeMessagePage(existing, newer, 'newer')
   }
 
   /** Copy wire-only `positions` (parallel to `page.messages`) onto the message objects. */
@@ -1669,12 +1612,30 @@ export const useChatStore = defineStore('chat', () => {
           })
           return false
         }
+        const retained = retainIncomingNewerMessages(conv.messages, stripped)
+        if (retained.length === 0) {
+          applyMessagePageState(convId, {
+            hasMoreOlder: state.hasMoreOlder,
+            hasMoreNewer: false,
+            oldestPosition: state.oldestPosition,
+            newestPosition: newestAtStart
+          })
+          console.warn(
+            '[chat] loadNewerMessages: ignored older page at bottom',
+            convId,
+            'afterPosition',
+            newestAtStart,
+            'dropped',
+            stripped.length
+          )
+          return false
+        }
         const beforeLen = conv.messages.length
-        conv.messages = appendMessagesById(conv.messages, stripped)
-        addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
+        conv.messages = appendMessagesById(conv.messages, retained)
+        addPersistedMessageIds(convId, persistedCandidateMessageIds(retained))
         normalizeSubAgentTraces([conv])
         normalizeInterruptedAssistantStatuses([conv])
-        stampLoadedUserMessages(convId, stripped)
+        stampLoadedUserMessages(convId, retained)
         applyMessagePageState(convId, {
           hasMoreOlder: state.hasMoreOlder,
           hasMoreNewer: page.hasMoreNewer,

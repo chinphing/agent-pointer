@@ -832,8 +832,6 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     &sub_cfg.task.id,
                     sub_cfg.active.def,
                     sub_cfg.accumulated_content,
-                    sub_cfg.reasoning_in_messages,
-                    sub_cfg.accumulated_reasoning,
                 ),
             ));
         }

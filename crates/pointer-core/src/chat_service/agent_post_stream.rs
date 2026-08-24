@@ -394,19 +394,13 @@ pub(super) fn sub_agent_run_result(
     task_id: &str,
     def: &AgentDef,
     content: String,
-    reasoning_in_messages: bool,
-    reasoning: String,
 ) -> AgentRunResult {
     AgentRunResult {
         task_id: task_id.to_string(),
         agent_id: def.id.clone(),
         agent_name: agent_display_label(def),
         content,
-        reasoning: if reasoning_in_messages && !reasoning.is_empty() {
-            Some(reasoning)
-        } else {
-            None
-        },
+        reasoning: None,
     }
 }
 

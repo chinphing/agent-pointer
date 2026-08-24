@@ -45,12 +45,8 @@ fn serialize_subagent_result_without_task_id(
         "content".to_string(),
         serde_json::Value::String(result.content.clone()),
     );
-    if let Some(reasoning) = &result.reasoning {
-        obj.insert(
-            "reasoning".to_string(),
-            serde_json::Value::String(reasoning.clone()),
-        );
-    }
+    // Parent context is the handoff body only. Sub-agent thinking stays on
+    // scoped assistant rows and must not round-trip into this tool result.
     serde_json::to_string(&serde_json::Value::Object(obj))
 }
 
@@ -808,7 +804,7 @@ mod trace_tests {
         assert!(json.contains("\"agentId\":\"coder\""));
         assert!(json.contains("\"agentName\":\"氛围编程\""));
         assert!(json.contains("\"content\":\"handoff body\""));
-        assert!(json.contains("\"reasoning\":\"thinking\""));
+        assert!(!json.contains("reasoning"));
     }
 
     #[test]

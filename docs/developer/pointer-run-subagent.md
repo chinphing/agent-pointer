@@ -76,7 +76,7 @@ general 无 Composer 工作区选择器。委派 **coder** 前应在对话中询
 
 ## 行为摘要
 
-- **`run_subagent` 返回值**：子 Agent 的侦察交付物为 **Markdown**（在工具结果的 **`content`** 字符串中）。`taskId` / `agentId` 等为元数据。子会话内仍按宿主约定使用 **JSON tool envelope**；**`content` 内不是 JSON 报告**。
+- **`run_subagent` 返回值**：父模型只看到工具结果里的 **`content`**（最后一条 assistant 的 Markdown handoff）。`agentId` / `agentName` 为元数据。**不要**把子循环的 `reasoning` 写进这份 JSON：思考只挂在子 Agent 当轮 assistant 上，供下一轮 API 原样带回。历史会话里若已写入 `reasoning` 字段，那是旧行为。
 - **`self` fork**：fork 当前 agent 的执行快照（profile、工具、skills、workspace）；独立 `local_history` 与 trace；**leaf**（无 `run_subagent`）；不消耗跨角色 spawn depth。
 - **并行 wave**：同一 assistant turn 内多个独立 **`self`** 和/或 **`explore`** 可共用 owned-outcome 并行 wave（受 `maxParallelSubAgents` 限制）；**`coder`** / **`computer`** 仍串行。依赖任务、重叠写、需用户交互或桌面控制的任务不得并行。
 - **委派 `computer`**：与 Computer lead 发送前相同，阻塞等待 macOS 权限向导（桌面端）与屏幕选择（`computer_monitor_pick_required` → `Composer.beginSubagentMonitorPickFlow`）；单屏自动选定、多屏弹窗、已选屏幕复用。

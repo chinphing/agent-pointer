@@ -77,8 +77,6 @@ pub struct SubToolPassConfig<'a> {
     pub instance_scope: &'a AgentInstanceScope,
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub accumulated_content: String,
-    pub accumulated_reasoning: String,
-    pub reasoning_in_messages: bool,
     pub trace_id: String,
     pub spawn_depth: u32,
     pub scoped_message_id: String,

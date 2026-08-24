@@ -394,7 +394,8 @@ pub struct AgentRunResult {
     #[serde(rename = "agentName")]
     pub agent_name: String,
     pub content: String,
-    #[serde(default)]
+    /// Unused for the parent `run_subagent` tool result (handoff is `content` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
 }
 

@@ -31,8 +31,9 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 
 **What the parent receives**
 
-- **`content`** — **Markdown** string: the worker’s full report (final assistant message text). Merge into your internal plan; do **not** paste full handoff to the user.
-- Sibling fields (ids, names, optional **`reasoning`**) are metadata; the reconnaissance body is **`content`**.
+- **`content`** — Markdown: the worker’s final assistant message.
+  Merge into your plan; do not paste the full handoff to the user.
+- Only **`content`**. Worker thinking is not included.
 
 **Rules**
 

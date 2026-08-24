@@ -140,7 +140,6 @@ pub(crate) async fn run_sub_agent(
     let native_tools = state.tools.openai_tools(&allowed_tools);
     let budget_scope = ToolBudgetExhaustionScope::sub_agent(max_cap, instance_scope.clone());
     let mut content = String::new();
-    let mut reasoning = String::new();
 
     if def.profile == AgentProfile::Computer {
         state
@@ -490,10 +489,6 @@ pub(crate) async fn run_sub_agent(
             },
         );
 
-        if reasoning_in_messages {
-            reasoning.push_str(&buf.reasoning_buf);
-        }
-
         let assistant_msg = build_sub_assistant_message_after_stream(
             &round_message_id,
             buf.raw_content_buf,
@@ -567,8 +562,6 @@ pub(crate) async fn run_sub_agent(
                     &task.id,
                     &def,
                     sub_agent_handoff_content(&local_history, &content),
-                    reasoning_in_messages,
-                    reasoning,
                 ));
             }
             PostAssistantTurnAction::ExecuteTools => {}
@@ -589,8 +582,6 @@ pub(crate) async fn run_sub_agent(
             instance_scope: &instance_scope,
             agent_trace: ctx.agent_trace,
             accumulated_content: content.clone(),
-            accumulated_reasoning: reasoning.clone(),
-            reasoning_in_messages,
             trace_id: sub_linkage.trace_id.clone(),
             spawn_depth,
             scoped_message_id: round_message_id.clone(),
@@ -650,8 +641,6 @@ pub(crate) async fn run_sub_agent(
                     &task.id,
                     &def,
                     output,
-                    reasoning_in_messages,
-                    reasoning,
                 ));
             }
             ToolPassResult::NoopExit => {
@@ -659,8 +648,6 @@ pub(crate) async fn run_sub_agent(
                     &task.id,
                     &def,
                     sub_agent_handoff_content(&local_history, &content),
-                    reasoning_in_messages,
-                    reasoning,
                 ));
             }
             ToolPassResult::RanTools => {}

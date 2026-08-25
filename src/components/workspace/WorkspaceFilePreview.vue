@@ -27,6 +27,20 @@ import {
   findFilePreviewMatches,
   tokenizeCodeLine
 } from '../../lib/workspaceFilePreview'
+import {
+  workspaceFileExtension,
+  workspaceRichPreviewKindFromExt,
+  workspaceTextPreviewSurface,
+  type WorkspacePreviewViewMode,
+  type WorkspaceRichPreviewKind
+} from '../../lib/workspacePreviewMode'
+import WorkspaceJsonTree from './WorkspaceJsonTree.vue'
+import {
+  collectJsonAncestorIds,
+  defaultCollapsedIds,
+  findJsonPreviewMatches,
+  parseJsonPreview
+} from '../../lib/workspaceJsonPreview'
 
 const FILE_PREVIEW_SEARCH_MARK_CLASS = 'file-preview-search-mark'
 
@@ -48,7 +62,8 @@ const markdownRoot = ref<HTMLElement | null>(null)
 
 const wrapLines = ref(false)
 const copied = ref(false)
-const markdownMode = ref<'source' | 'preview'>('preview')
+const viewMode = ref<WorkspacePreviewViewMode>('preview')
+const jsonCollapsed = ref<Set<string>>(new Set())
 const searchOpen = ref(false)
 const searchQuery = ref('')
 const activeMatchIndex = ref(0)
@@ -59,28 +74,55 @@ const mediaError = ref('')
 let mediaObjectUrl: string | null = null
 let mediaLoadSeq = 0
 
-useMarkdownCharts(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
-useMarkdownSvgs(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
-useMarkdownMermaid(markdownRoot, () => `${markdownMode.value}\n${props.preview.content ?? ''}`)
+useMarkdownCharts(markdownRoot, () => `${viewMode.value}\n${props.preview.content ?? ''}`)
+useMarkdownSvgs(markdownRoot, () => `${viewMode.value}\n${props.preview.content ?? ''}`)
+useMarkdownMermaid(markdownRoot, () => `${viewMode.value}\n${props.preview.content ?? ''}`)
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
-const ext = computed(() => {
-  const fromRelative = props.relativePath?.split('.').pop()?.toLowerCase()
-  if (fromRelative) return fromRelative
-  return props.absolutePath.split('.').pop()?.toLowerCase() || ''
-})
+const ext = computed(() =>
+  workspaceFileExtension(props.relativePath, props.preview.path, props.absolutePath)
+)
 const isImage = computed(() => IMAGE_EXTS.has(ext.value))
 const isPdf = computed(() => ext.value === 'pdf')
-const isMarkdown = computed(() => ext.value === 'md')
+const richKind = computed(() => workspaceRichPreviewKindFromExt(ext.value))
 const content = computed(() => props.preview.content ?? '')
+const jsonPreview = computed(() => {
+  if (richKind.value !== 'json' || props.preview.binary) return null
+  const parsed = parseJsonPreview(content.value)
+  if (!parsed.ok) {
+    console.warn('[WorkspaceFilePreview] JSON tree unavailable', parsed.reason, props.preview.path)
+    return null
+  }
+  return parsed.root
+})
+const richContentReady = computed(() => {
+  const kind = richKind.value
+  if (!kind) return false
+  const ready: Record<WorkspaceRichPreviewKind, boolean> = {
+    markdown: true,
+    json: jsonPreview.value != null
+  }
+  return ready[kind]
+})
+const textSurface = computed(() =>
+  workspaceTextPreviewSurface(richKind.value, viewMode.value, richContentReady.value)
+)
+const showModeSwitch = computed(() => Boolean(richKind.value) && richContentReady.value)
+const showingMarkdownPreview = computed(() => textSurface.value === 'markdown')
+const showingJsonPreview = computed(() => textSurface.value === 'json')
+const showingSource = computed(() => textSurface.value === 'source')
 const lines = computed(() => content.value.split('\n'))
 const canSearch = computed(() => !props.preview.binary && !isImage.value && !isPdf.value)
-const showingMarkdownPreview = computed(() => isMarkdown.value && markdownMode.value === 'preview')
 const searchMatches = computed(() =>
-  canSearch.value && !showingMarkdownPreview.value
+  canSearch.value && showingSource.value
     ? findFilePreviewMatches(content.value, searchQuery.value)
     : []
 )
+const jsonSearchMatches = computed(() => {
+  const root = jsonPreview.value
+  if (!root || !showingJsonPreview.value || !searchOpen.value) return []
+  return findJsonPreviewMatches(root, searchQuery.value)
+})
 
 function revokeMediaObjectUrl() {
   if (!mediaObjectUrl) return
@@ -147,7 +189,6 @@ watch(
 )
 
 const language = computed(() => {
-  const ext = props.preview.path.split('.').pop()?.toLowerCase() || ''
   const names: Record<string, string> = {
     ts: 'TypeScript', tsx: 'TSX', js: 'JavaScript', jsx: 'JSX', vue: 'Vue',
     rs: 'Rust', py: 'Python', go: 'Go', java: 'Java', kt: 'Kotlin', swift: 'Swift',
@@ -155,7 +196,7 @@ const language = computed(() => {
     md: 'Markdown', css: 'CSS', scss: 'SCSS', html: 'HTML', xml: 'XML',
     sh: 'Shell', sql: 'SQL', txt: 'Text'
   }
-  return names[ext] || (ext ? ext.toUpperCase() : 'Text')
+  return names[ext.value] || (ext.value ? ext.value.toUpperCase() : 'Text')
 })
 const sizeLabel = computed(() => {
   const bytes = props.preview.sizeBytes
@@ -163,9 +204,11 @@ const sizeLabel = computed(() => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 })
-const matchTotal = computed(() =>
-  showingMarkdownPreview.value ? markdownMatchCount.value : searchMatches.value.length
-)
+const matchTotal = computed(() => {
+  if (showingMarkdownPreview.value) return markdownMatchCount.value
+  if (showingJsonPreview.value) return jsonSearchMatches.value.length
+  return searchMatches.value.length
+})
 const matchCountLabel = computed(() => {
   if (!searchQuery.value.trim()) return '0/0'
   if (!matchTotal.value) return '0/0'
@@ -287,12 +330,47 @@ async function scrollToSourceMatch(index: number) {
   target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
 
+function expandJsonAncestors(nodeId: string) {
+  const root = jsonPreview.value
+  if (!root) return
+  const ancestors = collectJsonAncestorIds(root, nodeId)
+  const next = new Set(jsonCollapsed.value)
+  for (const id of ancestors) next.delete(id)
+  next.delete(nodeId)
+  jsonCollapsed.value = next
+}
+
+async function scrollToJsonMatch(index: number) {
+  const match = jsonSearchMatches.value[index]
+  if (!match) return
+  expandJsonAncestors(match.nodeId)
+  await nextTick()
+  const target = rootElement.value?.querySelector<HTMLElement>(
+    `[data-file-search-match="${index}"]`
+  )
+  target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+function toggleJsonNode(nodeId: string) {
+  const next = new Set(jsonCollapsed.value)
+  if (next.has(nodeId)) next.delete(nodeId)
+  else next.add(nodeId)
+  jsonCollapsed.value = next
+}
+
 async function stepMatch(direction: 1 | -1) {
   if (showingMarkdownPreview.value) {
     const marks = markdownMatchElements()
     if (!marks.length) return
     activeMatchIndex.value = (activeMatchIndex.value + direction + marks.length) % marks.length
     syncMarkdownActiveMatch()
+    return
+  }
+  if (showingJsonPreview.value) {
+    const matches = jsonSearchMatches.value
+    if (!matches.length) return
+    activeMatchIndex.value = (activeMatchIndex.value + direction + matches.length) % matches.length
+    await scrollToJsonMatch(activeMatchIndex.value)
     return
   }
   const matches = searchMatches.value
@@ -328,7 +406,7 @@ function onGlobalEscape(event: KeyboardEvent) {
 }
 
 watch(searchMatches, async matches => {
-  if (showingMarkdownPreview.value) return
+  if (showingMarkdownPreview.value || showingJsonPreview.value) return
   if (!matches.length) {
     activeMatchIndex.value = 0
     return
@@ -336,6 +414,23 @@ watch(searchMatches, async matches => {
   if (activeMatchIndex.value >= matches.length) activeMatchIndex.value = 0
   if (searchOpen.value && searchQuery.value.trim()) await scrollToSourceMatch(activeMatchIndex.value)
 })
+
+watch(jsonSearchMatches, async matches => {
+  if (!showingJsonPreview.value) return
+  if (!matches.length) {
+    activeMatchIndex.value = 0
+    return
+  }
+  if (activeMatchIndex.value >= matches.length) activeMatchIndex.value = 0
+  if (searchOpen.value && searchQuery.value.trim()) await scrollToJsonMatch(activeMatchIndex.value)
+})
+
+watch(jsonPreview, root => {
+  jsonCollapsed.value = root ? defaultCollapsedIds(root) : new Set()
+  if (root) {
+    console.info('[WorkspaceFilePreview] JSON tree ready', props.preview.path)
+  }
+}, { immediate: true })
 
 watch(
   [searchQuery, showingMarkdownPreview, () => props.preview.content, searchOpen],
@@ -356,9 +451,11 @@ watch(
   }
 )
 
-watch(markdownMode, () => {
-  activeMatchIndex.value = 0
-})
+watch(richKind, kind => {
+  if (kind) {
+    console.info('[WorkspaceFilePreview] Rich preview kind', kind, props.preview.path)
+  }
+}, { immediate: true })
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalFindShortcut, true)
@@ -381,18 +478,23 @@ onBeforeUnmount(() => {
       <span>{{ sizeLabel }}</span>
       <span v-if="preview.truncated" class="text-warning">仅显示前 1 MB</span>
       <span class="flex-1" />
-      <div v-if="isMarkdown" class="file-preview-mode-switch" role="group" aria-label="Markdown 显示模式">
+      <div
+        v-if="showModeSwitch"
+        class="file-preview-mode-switch"
+        role="group"
+        aria-label="显示模式"
+      >
         <button
           type="button"
-          :class="markdownMode === 'source' && 'is-active'"
-          :aria-pressed="markdownMode === 'source'"
-          @click="markdownMode = 'source'"
+          :class="viewMode === 'source' && 'is-active'"
+          :aria-pressed="viewMode === 'source'"
+          @click="viewMode = 'source'"
         >原文</button>
         <button
           type="button"
-          :class="markdownMode === 'preview' && 'is-active'"
-          :aria-pressed="markdownMode === 'preview'"
-          @click="markdownMode = 'preview'"
+          :class="viewMode === 'preview' && 'is-active'"
+          :aria-pressed="viewMode === 'preview'"
+          @click="viewMode = 'preview'"
         >预览</button>
       </div>
       <button
@@ -405,7 +507,7 @@ onBeforeUnmount(() => {
         <Search />
       </button>
       <button
-        v-if="!isMarkdown || markdownMode === 'source'"
+        v-if="showingSource"
         type="button"
         :class="wrapLines && 'is-active'"
         title="切换自动换行"
@@ -478,6 +580,17 @@ onBeforeUnmount(() => {
         ref="markdownRoot"
         class="file-preview-markdown md-body px-3 py-2"
         v-html="parseMarkdown(preview.content ?? '')"
+      />
+    </div>
+    <div v-else-if="showingJsonPreview && jsonPreview" class="file-preview-scroll">
+      <WorkspaceJsonTree
+        class="py-1"
+        :node="jsonPreview"
+        :collapsed="jsonCollapsed"
+        :matches="jsonSearchMatches"
+        :search-open="searchOpen && Boolean(searchQuery.trim())"
+        :active-match-index="activeMatchIndex"
+        @toggle="toggleJsonNode"
       />
     </div>
     <div v-else class="file-preview-scroll">

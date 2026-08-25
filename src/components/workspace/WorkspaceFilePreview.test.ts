@@ -46,6 +46,30 @@ describe('WorkspaceFilePreview', () => {
     expect(openReference).toHaveBeenCalledWith('docs/guide.md')
   })
 
+  it('uses one source/preview switch for Markdown', async () => {
+    const host = mountPreview({
+      preview: {
+        path: 'README.md',
+        content: '# Title\n\nHello',
+        sizeBytes: 16,
+        truncated: false,
+        binary: false
+      },
+      absolutePath: '/workspace/README.md'
+    })
+    await nextTick()
+
+    expect(host.querySelectorAll('.file-preview-mode-switch')).toHaveLength(1)
+    expect(host.querySelector('.file-preview-markdown')).toBeTruthy()
+
+    const sourceButton = [...host.querySelectorAll('.file-preview-mode-switch button')]
+      .find(button => button.textContent === '原文') as HTMLButtonElement
+    sourceButton.click()
+    await nextTick()
+    expect(host.querySelector('.file-preview-markdown')).toBeNull()
+    expect(host.querySelector('.file-preview-line-number')).toBeTruthy()
+  })
+
   it('opens find on ⌘/Ctrl+F and highlights source matches', async () => {
     const host = mountPreview({
       preview: {
@@ -78,5 +102,59 @@ describe('WorkspaceFilePreview', () => {
     const marks = host.querySelectorAll('[data-file-search-match]')
     expect(marks).toHaveLength(2)
     expect(host.textContent).toContain('1/2')
+  })
+
+  it('shows a collapsible JSON tree and can switch back to source', async () => {
+    const host = mountPreview({
+      preview: {
+        path: 'config.json',
+        content: '{"l1":{"l2":{"l3":1}}}',
+        sizeBytes: 24,
+        truncated: false,
+        binary: false
+      },
+      absolutePath: '/workspace/config.json'
+    })
+    await nextTick()
+
+    expect(host.textContent).toContain('原文')
+    expect(host.textContent).toContain('预览')
+    expect(host.querySelectorAll('.file-preview-mode-switch')).toHaveLength(1)
+    expect(host.querySelector('[data-json-node-id="$"]')).toBeTruthy()
+    expect(host.textContent).toContain('{1}')
+    expect(host.textContent).not.toContain('l3')
+
+    const toggle = host.querySelector('[data-json-node-id="$.l1.l2"] .json-toggle') as HTMLButtonElement
+    expect(toggle).toBeTruthy()
+    toggle.click()
+    await nextTick()
+    expect(host.textContent).toContain('l3')
+
+    const sourceButton = [...host.querySelectorAll('.file-preview-mode-switch button')]
+      .find(button => button.textContent === '原文') as HTMLButtonElement
+    sourceButton.click()
+    await nextTick()
+    expect(host.querySelector('[data-json-node-id="$"]')).toBeNull()
+    expect(host.querySelector('.file-preview-line-number')).toBeTruthy()
+  })
+
+  it('keeps invalid JSON on the source view without a preview switch', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const host = mountPreview({
+      preview: {
+        path: 'broken.json',
+        content: '{',
+        sizeBytes: 1,
+        truncated: false,
+        binary: false
+      },
+      absolutePath: '/workspace/broken.json'
+    })
+    await nextTick()
+
+    expect(host.textContent).not.toContain('预览')
+    expect(host.querySelector('.file-preview-line-number')).toBeTruthy()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 })

@@ -77,6 +77,7 @@
 - 展示：插在摘要切分点（`insertBeforeMessageId` 之前），工具行样式（`ContextCompressingMarker`），含旋转「压缩中」。切点在过程行上时，收缩态不把标记挪到最终回复前（随「工作」隐藏）。找不到切分消息时回退到当前回合或列表末尾。
 - 隐藏：`context_compression_applied` / `context_compressed`，或停止 / `done` / `error` 清 run state。
 - **不**写入聊天记录，**不**进入模型上下文。详见 [`../internals/context-compression.md`](../internals/context-compression.md)。
+- **超限重试**：`MessageStart` 之后 LLM 400 再同步压缩时，必须先 `message_end` 关掉空壳，再开新的 `MessageStart`。否则旧行一直 `streaming`，界面停在「思考中.」。新的 `message_start` 也会把同会话里其它空的 streaming 壳收掉。
 
 ## 空回复 / 环境恢复重试提示（对用户隐藏）
 

@@ -112,13 +112,15 @@ fn summary_max_tokens_scales_with_content_and_caps_at_12k() {
 }
 
 #[test]
-fn evaluate_compress_gate_uses_api_prompt_without_payload_walk() {
+fn evaluate_compress_gate_uses_api_prompt_when_larger_than_payload() {
     let budget = 10_000;
     let prefix_heavy = vec![u(&"old ".repeat(20_000)), u(&"keep ".repeat(500))];
     let d = evaluate_compress_gate(&prefix_heavy, Some(200_000), budget, 1, true);
     assert!(d.total > precompress_gate_threshold(budget));
     assert_eq!(d.gate_source, "api_prompt");
-    assert_eq!(d.payload_est, 0);
+    assert!(d.payload_est > 0);
+    assert!(d.payload_est < 200_000);
+    assert_eq!(d.api_prompt, Some(200_000));
     assert!(d.should_trigger);
     assert!(d.split > 0);
 }
@@ -572,13 +574,99 @@ fn normalize_context_budget_tokens_floors_small_values() {
 }
 
 #[test]
-fn compression_gate_uses_api_prompt_without_local_estimate() {
+fn apply_completion_reserve_subtracts_max_tokens_when_window_unknown() {
+    // 160k configured + 32k completion must stay under vLLM's 131840 prompt line.
+    let budget = apply_completion_reserve(160_000, None, 32_000);
+    assert_eq!(budget, 160_000 - 32_000 - PROMPT_BUDGET_MARGIN_TOKENS);
+    assert!(budget < 131_841);
+}
+
+#[test]
+fn qwen_local_soft_gate_fires_before_vllm_prompt_cap() {
+    let prompt = apply_completion_reserve(160_000, None, 32_000);
+    let soft = precompress_gate_threshold(prompt);
+    assert!(soft < 131_841);
+    // Last successful round (~62k) stays under the soft gate; a grown
+    // history (~110k) should precompress instead of waiting for 400.
+    assert!(62_489 < soft);
+    assert!(110_000 > soft);
+}
+
+#[test]
+fn apply_completion_reserve_caps_to_learned_window() {
+    let budget = apply_completion_reserve(262_144, Some(163_840), 32_000);
+    assert_eq!(budget, 163_840 - 32_000 - PROMPT_BUDGET_MARGIN_TOKENS);
+}
+
+#[test]
+fn apply_completion_reserve_keeps_smaller_configured_budget() {
+    let budget = apply_completion_reserve(64_000, Some(1_000_000), 8_192);
+    assert_eq!(budget, 64_000);
+}
+
+#[test]
+fn parse_model_context_length_from_vllm_overflow() {
+    let err = "This model's maximum context length is 163840 tokens. \
+         However, you requested 32000 output tokens and your prompt contains at least 131841 input tokens.";
+    assert_eq!(parse_model_context_length(err), Some(163_840));
+    assert_eq!(
+        parse_model_context_length("maximum context length is 128000 tokens"),
+        Some(128_000)
+    );
+    assert_eq!(parse_model_context_length("HTTP 429 rate limit"), None);
+}
+
+#[test]
+fn compress_budget_tokens_subtracts_max_tokens_from_configured() {
+    clear_remembered_model_windows_for_test();
+    let mut s = crate::models::sample_settings();
+    s.context_budget_tokens = 160_000;
+    s.max_tokens = 32_000;
+    s.providers[0].context_budget_tokens = Some(160_000);
+    s.providers[0].max_tokens = Some(32_000);
+    let budget = compress_budget_tokens(&s);
+    assert_eq!(budget, 160_000 - 32_000 - PROMPT_BUDGET_MARGIN_TOKENS);
+    assert!(budget < 131_841);
+    clear_remembered_model_windows_for_test();
+}
+
+#[test]
+fn compress_budget_tokens_caps_to_remembered_window() {
+    clear_remembered_model_windows_for_test();
+    let mut s = crate::models::sample_settings();
+    s.context_budget_tokens = 262_144;
+    s.max_tokens = 32_000;
+    s.providers[0].context_budget_tokens = Some(262_144);
+    s.providers[0].max_tokens = Some(32_000);
+    remember_model_context_window(&s, 163_840);
+    let budget = compress_budget_tokens(&s);
+    assert_eq!(budget, 163_840 - 32_000 - PROMPT_BUDGET_MARGIN_TOKENS);
+    clear_remembered_model_windows_for_test();
+}
+
+#[test]
+fn compression_gate_uses_api_prompt_when_larger_than_payload() {
     let msgs = vec![u("short")];
-    let (gate, payload, api, source) = compression_gate_tokens(&msgs, Some(150_000));
-    assert_eq!(payload, 0);
+    let payload = estimate_message_payload_tokens(&msgs);
+    let (gate, payload_est, api, source) = compression_gate_tokens(&msgs, Some(150_000));
+    assert_eq!(payload_est, payload);
+    assert!(payload_est < 150_000);
     assert_eq!(api, Some(150_000));
     assert_eq!(gate, 150_000);
     assert_eq!(source, "api_prompt");
+}
+
+#[test]
+fn compression_gate_prefers_payload_when_stale_api_is_lower() {
+    let long = "word ".repeat(25_000);
+    let msgs = vec![u(&long)];
+    let payload = estimate_message_payload_tokens(&msgs);
+    assert!(payload > 20_000);
+    let (gate, payload_est, api, source) = compression_gate_tokens(&msgs, Some(5_000));
+    assert_eq!(gate, payload);
+    assert_eq!(payload_est, payload);
+    assert_eq!(api, Some(5_000));
+    assert_eq!(source, "payload_est");
 }
 
 #[test]

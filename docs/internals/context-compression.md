@@ -38,6 +38,17 @@
 `102400` / `122880`（100/120 Ki）升到 262144；
 用户显式设置的其它值（如 128000）保持不变。
 
+设置里的数字按**模型窗口**理解。压缩真正用的 prompt 预算是
+`min(配置值, 窗口 − 本轮 max_tokens − 64)`：
+本地 163840 窗口、32000 输出预留时，160000 配置会压到约 127936，
+软预压约 102k，避免 prompt ≥ 131841 时先 400 再同步摘要。
+窗口未知时把配置值当作窗口；若 400 报了
+`maximum context length is N`，进程内记住该窗口，之后即使用户把预算
+设得比模型更大也会按真实窗口扣输出预留。
+
+门闩取 **max(上一轮 `usage.prompt_tokens`, 当前 history 的 payload 估算)**。
+工具回包会把下一轮 prompt 抬高，不能只看上一轮已经过时的 62k。
+
 `contextKeepRecentUserTurns` 仍写入用户配置和压缩事件，但**不再**作为切分地板。
 `contextSummaryMaxTokens` 不参与对话压缩（摘要长度按前缀动态计算），后台 review 仍可能用到。
 
@@ -48,6 +59,8 @@ Provider 在本轮工具循环中返回上下文过长时：
 1. 按更紧的 token 尾部（约 12%）强制摘要压缩（忽略可压占比）。
 2. **同一轮 LLM 循环内重试**（连续最多 3 次压缩，每次压缩后都会再请求模型）。
    不要求用户重发，也不因已经流式过而放弃。
+   重试前必须 `message_end` 关掉这次失败的空助手壳，再开新的 `MessageStart`，
+   否则界面会停在「思考中.」。
 3. 中间若有一轮 LLM **成功完成**，连续计数清零，避免长工具循环被早先的恢复误杀。
 4. 主会话入口仍保留「尚未产生 assistant 输出则整轮重试」作为兜底。
 5. 达到上限后若再次超限，不再压缩，明确报错，避免空转。
@@ -58,8 +71,9 @@ Provider 在本轮工具循环中返回上下文过长时：
 
 目标：接近硬预算时后台先压，**发送路径和下一次 LLM 调用都不等待**。
 
-- 软阈值：`gate > context_budget_tokens × 0.80`。
-  `gate` 优先用上一轮 `usage.prompt_tokens`；没有 usage 才本地估算。
+- 软阈值：`gate > prompt_budget × 0.80`。
+  `prompt_budget` 已扣本轮 `max_tokens`（见上）。
+  `gate` 取上一轮 `usage.prompt_tokens` 与当前 history payload 估算的较大值。
   前缀路径另要求可压占比 ≥ 0.30；当前轮已占 **≥ 70% token** 时改为 run 内压缩，不要求该占比。
 - 触发点：
   - **主会话**每一轮 LLM **之前**（同一用户回合的工具循环中间也可以）；
@@ -246,7 +260,7 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 
 | 文件 | 职责 |
 |------|------|
-| `budget.rs` | token 估算、80%/硬门闩、前缀 vs in-run 切分 |
+| `budget.rs` | token 估算、prompt 预算（扣 max_tokens / 记住窗口）、80%/硬门闩、前缀 vs in-run 切分 |
 | `summary.rs` | 摘要输入格式化、prompt、验收与落盘正文 |
 | `run.rs` | 同步压缩（预算/工具轮耗尽/超限恢复） |
 | `precompress.rs` | 后台预压、pending splice、轮间 prepare |
@@ -254,5 +268,5 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 
 ## 可观测性
 
-关键日志字段：`total` / `prefix` / `ratio` / `threshold` / `soft`，
-以及 pending enqueue / apply / stale discard、overflow retry。
+关键日志字段：`total` / `prefix` / `ratio` / `threshold` / `soft` / `budget_tokens`（已扣输出预留），
+以及 `prompt budget clamped`、`remember model window`、pending enqueue / apply / stale discard、overflow retry。

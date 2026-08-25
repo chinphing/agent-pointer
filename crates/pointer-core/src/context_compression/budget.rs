@@ -1,6 +1,8 @@
 //! Token budget, gates, and prefix vs in-run split.
 
-use crate::models::{ChatMessage, Role};
+use crate::models::{ChatMessage, ModelSettings, Role};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 
 pub(crate) const MAX_PREFIX_CHARS_FOR_API: usize = 100_000;
 pub(crate) const MAX_USER_SNIPPET_CHARS: usize = 4_000;
@@ -66,6 +68,9 @@ pub const OVERFLOW_TAIL_TOKEN_RATIO: f64 = 0.12;
 /// A successful LLM round resets the streak so a long tool loop is not
 /// killed by earlier recoveries.
 pub const MAX_OVERFLOW_RECOVERIES: u32 = 3;
+/// Hold this many tokens back from `window - max_tokens` so a prompt of
+/// exactly `window - max_tokens` does not 400 (vLLM rejects at equality).
+pub const PROMPT_BUDGET_MARGIN_TOKENS: usize = 64;
 
 /// `recoveries` is how many compress+retry cycles already ran in this streak.
 pub fn should_recover_after_overflow(recoveries: u32) -> bool {
@@ -102,6 +107,151 @@ pub fn precompress_gate_threshold(budget_tokens: usize) -> usize {
     ((budget_tokens as f64) * PRECOMPRESS_GATE_RATIO)
         .ceil()
         .max(1.0) as usize
+}
+
+fn remembered_windows() -> &'static Mutex<HashMap<String, usize>> {
+    static WINDOWS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+    WINDOWS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn logged_prompt_budget_clamps() -> &'static Mutex<HashSet<String>> {
+    static LOGGED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    LOGGED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn model_window_cache_key(settings: &ModelSettings) -> String {
+    match crate::models::active_provider_and_model(settings) {
+        Some((p, m)) => format!("{}:{m}", p.id),
+        None => format!("{}:{}", settings.active_provider_id, settings.model),
+    }
+}
+
+fn lock_mutex<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Learned model window from a prior overflow, if any.
+pub fn remembered_model_context_window(settings: &ModelSettings) -> Option<usize> {
+    let key = model_window_cache_key(settings);
+    lock_mutex(remembered_windows()).get(&key).copied()
+}
+
+/// Remember `maximum context length is N` from a provider overflow.
+pub fn remember_model_context_window(settings: &ModelSettings, window: usize) {
+    if window < 4096 {
+        log::warn!(
+            "context_compress: ignore tiny remembered window={} provider={} model={}",
+            window,
+            settings.active_provider_id,
+            settings.model
+        );
+        return;
+    }
+    let key = model_window_cache_key(settings);
+    let mut map = lock_mutex(remembered_windows());
+    if map.get(&key) == Some(&window) {
+        return;
+    }
+    log::info!(
+        "context_compress: remember model window provider={} model={} window_tokens={}",
+        settings.active_provider_id,
+        settings.model,
+        window
+    );
+    map.insert(key, window);
+}
+
+/// Parse and remember the model window from a provider overflow error.
+pub fn remember_model_context_window_from_error(settings: &ModelSettings, err: &str) {
+    if let Some(window) = parse_model_context_length(err) {
+        remember_model_context_window(settings, window);
+    }
+}
+
+/// Best-effort parse of `maximum context length is 163840` style errors.
+pub fn parse_model_context_length(err: &str) -> Option<usize> {
+    let lower = err.to_ascii_lowercase();
+    const MARKERS: &[&str] = &[
+        "this model's maximum context length is ",
+        "model's maximum context length is ",
+        "maximum context length is ",
+        "max context length is ",
+        "context length of ",
+        "max_model_len is ",
+        "max_model_len=",
+        "max_model_len ",
+    ];
+    for marker in MARKERS {
+        if let Some(idx) = lower.find(marker) {
+            let rest = &lower[idx + marker.len()..];
+            if let Some(n) = parse_leading_usize(rest) {
+                if n >= 4096 {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_leading_usize(s: &str) -> Option<usize> {
+    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// Prompt-side compress budget: `min(configured, window - max_tokens - margin)`.
+/// Unknown window is treated as the configured budget so a 160k setting on a
+/// ~164k model with 32k completion still compresses before the vLLM 400.
+pub fn apply_completion_reserve(
+    configured: usize,
+    window: Option<usize>,
+    max_out: usize,
+) -> usize {
+    let window = window.unwrap_or(configured);
+    let usable = window
+        .saturating_sub(max_out)
+        .saturating_sub(PROMPT_BUDGET_MARGIN_TOKENS);
+    configured.min(usable.max(4096))
+}
+
+/// Compress budget used by gates and summary: configured UI budget minus
+/// this round's `max_tokens`, and never above a learned model window.
+pub fn compress_budget_tokens(settings: &ModelSettings) -> usize {
+    let configured =
+        normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(settings));
+    let max_out = crate::models::effective_max_tokens(settings) as usize;
+    let window = remembered_model_context_window(settings);
+    let budget = apply_completion_reserve(configured, window, max_out);
+    if budget < configured {
+        let key = format!(
+            "{}:cfg={configured}:win={}:max={max_out}:prompt={budget}",
+            model_window_cache_key(settings),
+            window.map(|n| n.to_string()).unwrap_or_else(|| "-".into())
+        );
+        let mut logged = lock_mutex(logged_prompt_budget_clamps());
+        if logged.insert(key) {
+            log::info!(
+                "context_compress: prompt budget clamped provider={} model={} configured={} window={:?} max_tokens={} margin={} prompt_budget={}",
+                settings.active_provider_id,
+                settings.model,
+                configured,
+                window,
+                max_out,
+                PROMPT_BUDGET_MARGIN_TOKENS,
+                budget
+            );
+        }
+    }
+    budget
+}
+
+#[cfg(test)]
+pub(crate) fn clear_remembered_model_windows_for_test() {
+    lock_mutex(remembered_windows()).clear();
+    lock_mutex(logged_prompt_budget_clamps()).clear();
 }
 
 /// Decision for soft/hard compression triggers.
@@ -328,16 +478,20 @@ pub fn estimate_message_payload_tokens(msgs: &[ChatMessage]) -> usize {
 }
 
 /// Compression gate tokens.
-/// Prefer the last provider `prompt_tokens`. Walk the transcript heuristic
-/// only when that value is missing (fallback).
+/// Prefer the last provider `prompt_tokens`, but never ignore a larger
+/// local payload estimate (tool rounds can grow history after usage).
 pub fn compression_gate_tokens(
     history: &[ChatMessage],
     reported_prompt_tokens: Option<u32>,
 ) -> (usize, usize, Option<u32>, &'static str) {
-    if let Some(reported) = reported_prompt_tokens.filter(|&t| t > 0) {
-        return (reported as usize, 0, Some(reported), "api_prompt");
-    }
     let payload_est = estimate_message_payload_tokens(history);
+    if let Some(reported) = reported_prompt_tokens.filter(|&t| t > 0) {
+        let reported_n = reported as usize;
+        if payload_est > reported_n {
+            return (payload_est, payload_est, Some(reported), "payload_est");
+        }
+        return (reported_n, payload_est, Some(reported), "api_prompt");
+    }
     (payload_est, payload_est, None, "payload_est")
 }
 

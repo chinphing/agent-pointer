@@ -211,6 +211,10 @@ pub async fn run_chat(
                 );
                 (llm_settings, api_key)
             };
+            crate::context_compression::remember_model_context_window_from_error(
+                &llm_settings,
+                &err.to_string(),
+            );
             if !api_key.trim().is_empty() {
                 let provider = OpenAIProvider::new(llm_settings.clone(), api_key);
                 let last_api = crate::conversation_store::global_store()

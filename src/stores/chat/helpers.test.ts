@@ -3,6 +3,7 @@ import type { ChatMessage, Conversation } from '../../types/chat'
 import {
   applyExcludedMessageIds,
   assistantTurnActivelyRunning,
+  closeAbandonedEmptyAssistantShells,
   computeHistoryTrimCutByViewedAt,
   insertMessageBeforeAnchor,
   mergeHydratedMessages,
@@ -121,6 +122,33 @@ describe('chat helpers', () => {
       createdAt: 0
     })
     expect(c.messages).toHaveLength(1)
+  })
+
+  it('closeAbandonedEmptyAssistantShells finishes empty streaming rows except keepId', () => {
+    const c = conv([
+      {
+        id: 'old',
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        contentStreaming: true,
+        createdAt: 0,
+        toolCalls: []
+      },
+      {
+        id: 'keep',
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        contentStreaming: true,
+        createdAt: 1,
+        toolCalls: []
+      }
+    ])
+    closeAbandonedEmptyAssistantShells(c, 'keep')
+    expect(c.messages[0].status).toBe('done')
+    expect(c.messages[0].contentStreaming).toBe(false)
+    expect(c.messages[1].status).toBe('streaming')
   })
 
   it('normalizeInterruptedAssistantStatuses clears streaming flags', () => {

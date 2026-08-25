@@ -74,6 +74,48 @@ describe('messageHandlers', () => {
     expect(patchRunState).not.toHaveBeenCalled()
   })
 
+  it('handleMessageStart closes a previous empty streaming shell from overflow retry', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a_old'),
+      content: '',
+      status: 'streaming',
+      contentStreaming: true
+    })
+    const ctx = createMockStreamHandlerContext([conv])
+    handleMessageStart(ctx, {
+      kind: 'message_start',
+      conversationId: 'conv1',
+      messageId: 'a_new'
+    })
+    expect(conv.messages.find(m => m.id === 'a_old')).toMatchObject({
+      status: 'done',
+      contentStreaming: false
+    })
+    expect(conv.messages.find(m => m.id === 'a_new')).toMatchObject({
+      status: 'streaming',
+      contentStreaming: true
+    })
+  })
+
+  it('handleMessageStart keeps a previous assistant that already has content', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a_old'),
+      content: 'already replied',
+      status: 'streaming',
+      contentStreaming: false
+    })
+    const ctx = createMockStreamHandlerContext([conv])
+    handleMessageStart(ctx, {
+      kind: 'message_start',
+      conversationId: 'conv1',
+      messageId: 'a_new'
+    })
+    expect(conv.messages.find(m => m.id === 'a_old')?.status).toBe('streaming')
+    expect(conv.messages.find(m => m.id === 'a_old')?.content).toBe('already replied')
+  })
+
   it('handleAssistantJsonPartial clears planner placeholder on empty string', () => {
     const conv = sampleConversation()
     conv.messages.push({
@@ -116,6 +158,25 @@ describe('messageHandlers', () => {
     })
     expect(conv.messages[0].attachments).toHaveLength(1)
     expect(conv.messages[0].attachments?.[0]?.fileName).toBe('logo2.png')
+    expect(conv.messages[0].status).toBe('done')
+    expect(conv.messages[0].contentStreaming).toBe(false)
+  })
+
+  it('handleMessageEnd marks empty overflow shells done even while generating', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a1'),
+      content: '',
+      status: 'streaming',
+      contentStreaming: true
+    })
+    const ctx = createMockStreamHandlerContext([conv], {
+      isConversationGenerating: () => true
+    })
+    handleMessageEnd(ctx, {
+      kind: 'message_end',
+      messageId: 'a1'
+    })
     expect(conv.messages[0].status).toBe('done')
     expect(conv.messages[0].contentStreaming).toBe(false)
   })

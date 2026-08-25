@@ -1,4 +1,4 @@
-import { isDiscardableEmptyAssistant } from '../../lib/assistantMessageKind'
+import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
 import { randomUuid } from '../../lib/randomUuid'
 import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
@@ -213,6 +213,28 @@ export function removeTrailingDiscardableEmptyAssistant(conv: Conversation): boo
   conv.messages.pop()
   conv.updatedAt = Date.now()
   return true
+}
+
+/** Close empty streaming shells that a later MessageStart replaced (overflow retry). */
+export function closeAbandonedEmptyAssistantShells(conv: Conversation, keepId: string): void {
+  let closed = 0
+  for (const m of conv.messages) {
+    if (m.id === keepId) continue
+    if (m.role !== 'assistant') continue
+    if (m.status !== 'streaming' && m.status !== 'pending') continue
+    if (assistantHasVisibleProgress(m)) continue
+    m.status = 'done'
+    m.contentStreaming = false
+    closed += 1
+  }
+  if (closed > 0) {
+    console.info('[chat] closed abandoned empty assistant shells', {
+      conversationId: conv.id,
+      keepId,
+      closed
+    })
+    conv.updatedAt = Date.now()
+  }
 }
 
 /**

@@ -8,6 +8,8 @@ import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { toolCallBaseName } from '../../../lib/messageTooling'
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace, ensureSubTraceSession } from '../../../lib/subAgentSession'
+import { assistantHasVisibleProgress } from '../../../lib/assistantMessageKind'
+import { closeAbandonedEmptyAssistantShells } from '../helpers'
 import type { ChatMessage, StreamEvent } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
@@ -86,6 +88,7 @@ export function handleMessageStart(ctx: StreamHandlerContext, e: MessageStart) {
   const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
   if (!conv) return
   ctx.patchRunState(e.conversationId, { generating: true, activeMessageId: e.messageId })
+  closeAbandonedEmptyAssistantShells(conv, e.messageId)
   const existing = conv.messages.find(m => m.id === e.messageId)
   if (!existing) {
     conv.messages.push({
@@ -189,9 +192,12 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     const terminalMediaDelivery =
       (e.attachments?.length ?? 0) > 0 && !ctx.hasInFlightToolCalls(r.msg)
     // Late message_end after Stop must not wipe `cancelled` (or the inline caption disappears).
+    // Empty overflow/retry shells must not stay `streaming` while generating continues —
+    // that freezes「思考中.」on the abandoned row.
     if (r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
+      const emptyRetryShell = !e.content && !assistantHasVisibleProgress(r.msg)
       r.msg.status =
-        ctx.isConversationGenerating(r.conv.id) && !terminalMediaDelivery
+        !emptyRetryShell && ctx.isConversationGenerating(r.conv.id) && !terminalMediaDelivery
           ? 'streaming'
           : 'done'
     }

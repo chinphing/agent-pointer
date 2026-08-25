@@ -107,6 +107,10 @@ pub(super) async fn run_provider_stream_round(
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
             if crate::context_compression::is_context_overflow_error(&e) {
+                crate::context_compression::remember_model_context_window_from_error(
+                    settings,
+                    &e.to_string(),
+                );
                 log::warn!(
                     "run_chat: context overflow in stream conversation_id={} assistant_id={} recoveries={} err={e:#}",
                     conversation_id,
@@ -166,11 +170,13 @@ pub(super) async fn run_provider_stream_round(
                 .await;
                 if recovered && !cancel.is_cancelled() {
                     log::info!(
-                        "run_chat: overflow recovered in-loop conversation_id={} recovery={}/{}",
+                        "run_chat: overflow recovered in-loop conversation_id={} recovery={}/{} assistant_id={}",
                         conversation_id,
                         ctx.overflow_recoveries + 1,
-                        crate::context_compression::MAX_OVERFLOW_RECOVERIES
+                        crate::context_compression::MAX_OVERFLOW_RECOVERIES,
+                        assistant_id
                     );
+                    super::emit::emit_empty_assistant_end(&stream, assistant_id.clone(), None, None);
                     return Ok(ProviderRoundOutcome::RetryAfterOverflowCompress);
                 }
                 log::warn!(

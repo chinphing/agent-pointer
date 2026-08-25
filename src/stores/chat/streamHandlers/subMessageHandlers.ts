@@ -1,5 +1,6 @@
 import { ensureScopedChildMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace } from '../../../lib/subAgentSession'
+import { closeAbandonedEmptyAssistantShells } from '../helpers'
 import type { StreamEvent } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
@@ -24,6 +25,7 @@ export function handleSubMessageStart(ctx: StreamHandlerContext, e: SubMessageSt
     spawnDepth: e.spawnDepth,
     agentInstanceId: e.agentInstanceId
   })
+  closeAbandonedEmptyAssistantShells(conv, e.scopedMessageId)
   anchor.status = 'streaming'
   conv.updatedAt = Date.now()
 }

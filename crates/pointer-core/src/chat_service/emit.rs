@@ -65,6 +65,31 @@ pub(crate) fn emit(tx: &StreamTx, ev: StreamEvent) {
     publish_stream(tx, ev);
 }
 
+/// Close an empty streaming assistant shell before the tool loop starts a new
+/// `MessageStart`. Overflow recovery used to skip this, which left a frozen
+/// 「思考中.」 bubble in the transcript.
+pub(crate) fn emit_empty_assistant_end(
+    tx: &StreamTx,
+    message_id: impl Into<String>,
+    trace_id: Option<String>,
+    scoped_message_id: Option<String>,
+) {
+    emit(
+        tx,
+        StreamEvent::MessageEnd {
+            message_id: message_id.into(),
+            content: None,
+            raw_content: None,
+            tool_raw_output: None,
+            thoughts: None,
+            headline: None,
+            trace_id,
+            scoped_message_id,
+            attachments: None,
+        },
+    );
+}
+
 pub(crate) fn emit_agent_step(
     stream: &StreamTx,
     message_id: &str,

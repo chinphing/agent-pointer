@@ -107,6 +107,10 @@ pub(super) async fn run_sub_agent_stream_round(
         Ok(Ok(())) => Ok(SubAgentStreamOutcome::Completed(buffers)),
         Ok(Err(err)) => {
             if crate::context_compression::is_context_overflow_error(&err) {
+                crate::context_compression::remember_model_context_window_from_error(
+                    &provider.settings,
+                    &err.to_string(),
+                );
                 log::warn!(
                     "sub_agent: context overflow task_id={} agent={} recoveries={} err={err:#}",
                     sub.task.id,
@@ -159,11 +163,18 @@ pub(super) async fn run_sub_agent_stream_round(
                 .await;
                 if recovered && !cancel.is_cancelled() {
                     log::info!(
-                        "sub_agent: overflow recovered in-loop task_id={} agent={} recovery={}/{}",
+                        "sub_agent: overflow recovered in-loop task_id={} agent={} recovery={}/{} round_message_id={}",
                         sub.task.id,
                         sub.def.id,
                         ctx.overflow_recoveries + 1,
-                        crate::context_compression::MAX_OVERFLOW_RECOVERIES
+                        crate::context_compression::MAX_OVERFLOW_RECOVERIES,
+                        sub.round_message_id
+                    );
+                    super::emit::emit_empty_assistant_end(
+                        stream,
+                        sub.message_id.to_string(),
+                        super::emit::trace_id_opt(Some(sub.trace_id)),
+                        super::emit::trace_id_opt(Some(sub.round_message_id)),
                     );
                     return Ok(SubAgentStreamOutcome::RetryAfterOverflowCompress);
                 }

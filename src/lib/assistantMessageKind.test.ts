@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assistantDisplayKind,
+  isDiscardableEmptyAssistant,
   isDiscardableEmptyAssistantOnCancel,
   isGenerationCancelledMessage
 } from './assistantMessageKind'
@@ -76,5 +77,19 @@ describe('isDiscardableEmptyAssistantOnCancel', () => {
         })
       )
     ).toBe(false)
+  })
+})
+
+describe('isDiscardableEmptyAssistant', () => {
+  it('keeps the active streaming shell that has not received tokens yet', () => {
+    expect(
+      isDiscardableEmptyAssistant(msg({ status: 'streaming', contentStreaming: true, content: '' }))
+    ).toBe(false)
+  })
+
+  it('hides an empty shell after message_end cleared contentStreaming', () => {
+    expect(
+      isDiscardableEmptyAssistant(msg({ status: 'streaming', contentStreaming: false, content: '' }))
+    ).toBe(true)
   })
 })

@@ -87,8 +87,11 @@ export function isDiscardableEmptyAssistant(message: ChatMessage): boolean {
   if (message.status === 'error' || message.status === 'cancelled') return false
   if (isEphemeralDesktopNoticeMessage(message)) return false
   if (NOTICE_PREFIX_RE.test(message.content.trim())) return false
-  // Keep the active shell visible while streaming so「思考中…」can render before first delta.
-  if (isMessageStreaming(message.status)) return false
+  // Keep the *active* shell visible while it is still receiving tokens.
+  // Overflow retry starts a new MessageStart; the previous empty streaming
+  // row must hide after message_end clears contentStreaming, otherwise the
+  // thread keeps a frozen「思考中.」bubble.
+  if (isMessageStreaming(message.status) && message.contentStreaming !== false) return false
 
   return !assistantHasVisibleProgress(message)
 }

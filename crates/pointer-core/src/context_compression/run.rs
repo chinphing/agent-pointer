@@ -169,8 +169,7 @@ pub(crate) async fn compress_history_inner(
     let wall = Instant::now();
     let messages_before = history.len();
     let keep_users = settings.context_keep_recent_user_turns.max(1);
-    let budget_tokens =
-        normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(settings));
+    let budget_tokens = compress_budget_tokens(settings);
 
     let gate = evaluate_compress_gate(
         history,

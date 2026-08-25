@@ -92,6 +92,11 @@ export interface StreamHandlerContext {
   loadActiveComposerDraft(conversationId: string | null): void
   refreshConversationMessages(conversationId: string): void
   /**
+   * After force-send / stop interrupt: true when a newer turn is already active.
+   * Peek only — Error must not consume the flag, or the trailing Done leaks through.
+   */
+  isStaleStreamAfterInterrupt(conversationId: string): boolean
+  /**
    * After force-send / stop interrupt: true when this Done belongs to the cancelled
    * run while a newer turn is already active (skip timing close + clearRunState).
    */

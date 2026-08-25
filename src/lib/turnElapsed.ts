@@ -1,4 +1,11 @@
+import type { ChatMessage } from '../types/chat'
+import { isScopedSubMessage } from './subAgentMessages'
+import { isRealUserTaskMessage } from './threadLayoutGlue'
+
 const STORAGE_KEY = 'pointer.chat.turn-elapsed.v1'
+
+/** Recorded spans below 1s are usually a cancelled-run Error landing on the next turn. */
+const MIN_TRUSTED_RECORDED_MS = 1000
 
 interface ActiveTurnTiming {
   turnId: string
@@ -133,10 +140,41 @@ export function elapsedBetweenTimestamps(startedAt: number, finishedAt: number):
   return finishedAt - startedAt
 }
 
+/** Real user turn anchor (not compression chip / retry inject / scoped sub-agent stub). */
+export function isTurnElapsedAnchorUser(message: ChatMessage): boolean {
+  return isRealUserTaskMessage(message) && !isScopedSubMessage(message)
+}
+
+/**
+ * createdAt window for a user turn: from the anchor through the message before
+ * the next real user question. Scoped stubs / env-feedback rows do not close
+ * the window (they sit inside the same turn).
+ */
+export function turnMessageCreatedAtSpan(
+  messages: readonly ChatMessage[],
+  turnId: string
+): { userCreatedAt: number | null; lastMessageCreatedAt: number | null } {
+  const userIndex = messages.findIndex(
+    message => message.id === turnId && isTurnElapsedAnchorUser(message)
+  )
+  if (userIndex < 0) return { userCreatedAt: null, lastMessageCreatedAt: null }
+  const nextUserOffset = messages
+    .slice(userIndex + 1)
+    .findIndex(message => isTurnElapsedAnchorUser(message))
+  const turnEnd = nextUserOffset >= 0 ? userIndex + 1 + nextUserOffset : messages.length
+  const lastMessage = messages[turnEnd - 1]
+  return {
+    userCreatedAt: messages[userIndex]!.createdAt,
+    lastMessageCreatedAt: lastMessage?.createdAt ?? null
+  }
+}
+
 /**
  * Prefer dispatch→Done timing when present.
  * Message `createdAt` span is only a fallback (e.g. history without local timing);
  * outbound-queue items must use dispatch-time `createdAt` or this fallback includes queue wait.
+ * Sub-second recorded values lose to a longer createdAt span (cancelled-run Error
+ * often finalizes the next turn at ~0ms before the real Done arrives).
  */
 export function resolveTurnElapsedMs(options: {
   conversationId: string | null | undefined
@@ -144,13 +182,25 @@ export function resolveTurnElapsedMs(options: {
   userCreatedAt: number | null | undefined
   lastMessageCreatedAt: number | null | undefined
 }): number | null {
+  const fallback =
+    options.userCreatedAt == null || options.lastMessageCreatedAt == null
+      ? null
+      : elapsedBetweenTimestamps(options.userCreatedAt, options.lastMessageCreatedAt)
   const conversationId = options.conversationId?.trim()
   if (conversationId) {
     const recorded = turnElapsedMs(conversationId, options.turnId)
-    if (recorded != null) return recorded
+    if (recorded != null) {
+      if (
+        recorded < MIN_TRUSTED_RECORDED_MS
+        && fallback != null
+        && fallback > recorded
+      ) {
+        return fallback
+      }
+      return recorded
+    }
   }
-  if (options.userCreatedAt == null || options.lastMessageCreatedAt == null) return null
-  return elapsedBetweenTimestamps(options.userCreatedAt, options.lastMessageCreatedAt)
+  return fallback
 }
 
 export function formatTurnElapsed(elapsedMs: number | null): string {

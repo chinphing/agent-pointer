@@ -236,6 +236,12 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
   const cancelled = isGenerationCancelledMessage(e.message)
   const eventConvId = e.conversationId?.trim() || ''
   const fallbackConvId = eventConvId || ctx.currentId.value?.trim() || ''
+  // Cancelled run emits Error then Done. Force-send already started the next turn;
+  // this Error must not finalize that new turn at ~0s or clear its generating flag.
+  if (fallbackConvId && ctx.isStaleStreamAfterInterrupt(fallbackConvId)) {
+    console.info('[chat] ignore stale Error after interrupt', { conversationId: fallbackConvId })
+    return
+  }
   let affectedId: string | null = null
   if (e.messageId) {
     const r = ctx.findMessage(e.messageId, eventConvId || undefined)
@@ -314,9 +320,11 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
 
   try {
     if (convId) {
-      // 后端 run_chat 时间戳是权威工作区间（排除前端排队/网络）；缺失时回退本地计时。
+      // Backend run_chat timestamps are the authoritative work span (excludes
+      // frontend queue / network). Missing or rejected span → local dispatch clock.
       if (e.startedAtMs != null && e.finishedAtMs != null && turnId) {
-        recordTurnDoneWithSpan(convId, turnId, e.startedAtMs, e.finishedAtMs)
+        const span = recordTurnDoneWithSpan(convId, turnId, e.startedAtMs, e.finishedAtMs)
+        if (span == null) recordTurnDone(convId)
       } else {
         recordTurnDone(convId)
       }

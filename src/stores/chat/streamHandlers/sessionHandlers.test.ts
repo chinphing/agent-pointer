@@ -96,6 +96,57 @@ describe('sessionHandlers', () => {
     expect(turnElapsedMs('conv1', 'user-force-sent')).toBeNull()
   })
 
+  it('handleStreamError ignores stale cancelled Error so the next turn keeps timing', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      id: 'a-old',
+      role: 'assistant',
+      content: '',
+      status: 'cancelled',
+      createdAt: Date.now()
+    })
+    const clearRunState = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState,
+      markMetaDirty: vi.fn(),
+      isStaleStreamAfterInterrupt: () => true
+    })
+    recordTurnStart('conv1', 'user-force-sent', 50_000)
+
+    handleStreamError(ctx, {
+      kind: 'error',
+      conversationId: 'conv1',
+      messageId: 'a-old',
+      message: 'cancelled'
+    })
+
+    expect(clearRunState).not.toHaveBeenCalled()
+    expect(hasActiveTurn('conv1')).toBe(true)
+    expect(turnElapsedMs('conv1', 'user-force-sent')).toBeNull()
+    expect(disarmTaskCompleteAudio).not.toHaveBeenCalled()
+  })
+
+  it('handleDone falls back to local timing when the backend span is invalid', () => {
+    const conv = sampleConversation()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn()
+    })
+    recordTurnStart('conv1', 'user-1', 10_000)
+
+    handleDone(ctx, {
+      kind: 'done',
+      conversationId: 'conv1',
+      startedAtMs: 50_000,
+      finishedAtMs: 20_000
+    })
+
+    expect(hasActiveTurn('conv1')).toBe(false)
+    expect(turnElapsedMs('conv1', 'user-1')).toBeGreaterThan(0)
+  })
+
   it('handleDone clears only the finished conversation when another is still generating', () => {
     const convA = sampleConversation('convA')
     const convB = sampleConversation('convB')

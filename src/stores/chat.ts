@@ -2833,18 +2833,25 @@ export const useChatStore = defineStore('chat', () => {
     }, 4500)
   }
 
+  function isStaleStreamAfterInterrupt(conversationId: string): boolean {
+    const key = conversationId.trim()
+    if (!key) return false
+    const interruptAt = pendingInterruptDoneAt.get(key)
+    if (interruptAt == null) return false
+    const active = peekActiveTurn(key)
+    // Newer turn already opened after interrupt → late Error/Done is from the cancelled run.
+    return !!active && active.startedAt >= interruptAt
+  }
+
   function consumeStaleDoneAfterInterrupt(conversationId: string): boolean {
     const key = conversationId.trim()
     if (!key) return false
     const interruptAt = pendingInterruptDoneAt.get(key)
     if (interruptAt == null) return false
+    const stale = isStaleStreamAfterInterrupt(key)
+    // Done always consumes the watch so a later real Done is not skipped.
     pendingInterruptDoneAt.delete(key)
-    const active = peekActiveTurn(key)
-    // Newer turn already opened after interrupt → this Done is from the cancelled run.
-    if (active && active.startedAt >= interruptAt) {
-      return true
-    }
-    return false
+    return stale
   }
 
   function streamHandlerContext(): StreamHandlerContext {
@@ -2880,6 +2887,7 @@ export const useChatStore = defineStore('chat', () => {
         void ensureMessagesLoaded(conversationId, { force: true })
       },
       consumeStaleDoneAfterInterrupt,
+      isStaleStreamAfterInterrupt,
       markConversationAwaitingView,
       markUserMessageViewed
     }

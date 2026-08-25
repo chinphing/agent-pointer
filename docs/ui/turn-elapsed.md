@@ -39,7 +39,9 @@
   否则回退口径会把排队等待算进「工作耗时」。
 - 「立即发送」会 `interruptActiveTurn`：先 `recordTurnDone` 结算被打断的回合，再 drain 下一轮；
   `recordTurnStart` 在 turnId 变化时也会结算上一轮（双保险）。
-- 被取消 run 的迟到 `Done` 不得关掉新回合的计时 / `generating`（`consumeStaleDoneAfterInterrupt`）。
+- 被取消 run 的迟到 `Error` / `Done` 都不得关掉新回合的计时 / `generating`（`isStaleStreamAfterInterrupt` 先识别，`consumeStaleDoneAfterInterrupt` 只在 Done 上消费）。迟到 `Error` 若先结算，会把下一轮写成 **工作 0 m 00 s**。
+- 已写入的不足 1 秒记录，若同轮消息 `createdAt` 跨度更长，展示回退到消息时间戳（修复历史 0s）。
+- 回退窗口遇到子 Agent stub / 环境反馈 user 行不截断（它们不是新的用户回合）。
 
 ### Composer 快捷键（对齐 Cursor）
 

@@ -31,7 +31,12 @@ import {
   type MessageListLayoutCache
 } from '../../lib/messageListLayout'
 import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
-import { activeTurnStartedAt, formatTurnElapsed, resolveTurnElapsedMs } from '../../lib/turnElapsed'
+import {
+  activeTurnStartedAt,
+  formatTurnElapsed,
+  resolveTurnElapsedMs,
+  turnMessageCreatedAtSpan
+} from '../../lib/turnElapsed'
 import { shouldStickActiveTaskBoard } from '../../lib/taskBoardSticky'
 import {
   countLlmInvocationRounds,
@@ -1275,20 +1280,10 @@ function turnElapsedLabel(turnId: string): string {
   if (startedAt != null) {
     return formatTurnElapsed(Math.max(0, nowTick.value - startedAt))
   }
-  const messages = chat.current?.messages ?? []
-  const userIndex = messages.findIndex(message => message.id === turnId && message.role === 'user')
-  let userCreatedAt: number | null = null
-  let lastMessageCreatedAt: number | null = null
-  if (userIndex >= 0) {
-    const nextUserOffset = messages
-      .slice(userIndex + 1)
-      .findIndex(message => message.role === 'user')
-    const turnEnd = nextUserOffset >= 0 ? userIndex + 1 + nextUserOffset : messages.length
-    const turnMessages = messages.slice(userIndex, turnEnd)
-    const lastMessage = turnMessages[turnMessages.length - 1]
-    userCreatedAt = messages[userIndex]!.createdAt
-    lastMessageCreatedAt = lastMessage?.createdAt ?? null
-  }
+  const { userCreatedAt, lastMessageCreatedAt } = turnMessageCreatedAtSpan(
+    chat.current?.messages ?? [],
+    turnId
+  )
   return formatTurnElapsed(
     resolveTurnElapsedMs({
       conversationId,

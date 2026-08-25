@@ -10,8 +10,19 @@ import {
   recordTurnDoneWithSpan,
   recordTurnStart,
   resolveTurnElapsedMs,
-  turnElapsedMs
+  turnElapsedMs,
+  turnMessageCreatedAtSpan
 } from './turnElapsed'
+import type { ChatMessage } from '../types/chat'
+
+function msg(
+  id: string,
+  role: ChatMessage['role'],
+  createdAt: number,
+  extra: Partial<ChatMessage> = {}
+): ChatMessage {
+  return { id, role, content: '', status: 'done', createdAt, ...extra }
+}
 
 describe('turn elapsed', () => {
   beforeEach(() => {
@@ -116,6 +127,51 @@ describe('turn elapsed', () => {
         lastMessageCreatedAt: 25_000
       })
     ).toBe(15_000)
+  })
+
+  it('ignores a sub-second recorded span when message timestamps show longer work', () => {
+    recordTurnStart('conv-1', 'user-1', 50_000)
+    recordTurnDone('conv-1', 50_200)
+
+    expect(
+      resolveTurnElapsedMs({
+        conversationId: 'conv-1',
+        turnId: 'user-1',
+        userCreatedAt: 10_000,
+        lastMessageCreatedAt: 70_000
+      })
+    ).toBe(60_000)
+  })
+
+  it('keeps a genuine sub-second recorded span when createdAt is not longer', () => {
+    recordTurnStart('conv-1', 'user-fast', 1_000)
+    recordTurnDone('conv-1', 1_400)
+
+    expect(
+      resolveTurnElapsedMs({
+        conversationId: 'conv-1',
+        turnId: 'user-fast',
+        userCreatedAt: 1_000,
+        lastMessageCreatedAt: 1_300
+      })
+    ).toBe(400)
+  })
+
+  it('does not end the createdAt window on scoped sub-agent user stubs', () => {
+    const messages: ChatMessage[] = [
+      msg('user-1', 'user', 1_000, { content: 'go' }),
+      msg('asst-1', 'assistant', 1_500),
+      msg('sub_task_1', 'user', 1_600, {
+        content: 'Begin. Your assigned task is in the system prompt',
+        anchorMessageId: 'asst-1'
+      }),
+      msg('asst-final', 'assistant', 90_000, { content: 'done' }),
+      msg('user-2', 'user', 100_000, { content: 'next' })
+    ]
+    expect(turnMessageCreatedAtSpan(messages, 'user-1')).toEqual({
+      userCreatedAt: 1_000,
+      lastMessageCreatedAt: 90_000
+    })
   })
 
   it('formats Cursor-style minutes and zero-padded seconds with an honest fallback', () => {

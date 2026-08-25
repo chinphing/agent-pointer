@@ -375,14 +375,6 @@ pub async fn run_chat(
         0,
         super::util::now_ms(),
     );
-    log::info!(
-        "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} max_tool_rounds_attached={}",
-        conversation_id,
-        if result.is_ok() { "Ok" } else { "Err" },
-        history.len(),
-        consumed_single,
-        max_tr,
-    );
     let main_store_key = state
         .get_active_main_task_board_key(&conversation_id)
         .unwrap_or_else(|| conversation_id.clone());
@@ -402,6 +394,18 @@ pub async fn run_chat(
             doc.to_value(),
         );
     }
+    let run_finished_at_ms = super::util::now_ms();
+    log::info!(
+        "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} max_tool_rounds_attached={} started_at_ms={} finished_at_ms={} elapsed_ms={}",
+        conversation_id,
+        if result.is_ok() { "Ok" } else { "Err" },
+        history.len(),
+        consumed_single,
+        max_tr,
+        run_started_at_ms,
+        run_finished_at_ms,
+        run_finished_at_ms.saturating_sub(run_started_at_ms),
+    );
     emit(
         &stream,
         StreamEvent::Done {
@@ -410,7 +414,7 @@ pub async fn run_chat(
             tool_rounds_used_supervisor_total: Some(0),
             max_tool_rounds: Some(max_tr),
             started_at_ms: Some(run_started_at_ms),
-            finished_at_ms: Some(super::util::now_ms()),
+            finished_at_ms: Some(run_finished_at_ms),
         },
     );
     log::info!(

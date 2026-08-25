@@ -620,8 +620,10 @@ fn parse_model_context_length_from_vllm_overflow() {
 fn compress_budget_tokens_subtracts_max_tokens_from_configured() {
     clear_remembered_model_windows_for_test();
     let mut s = crate::models::sample_settings();
+    s.model = "budget-no-window".into();
     s.context_budget_tokens = 160_000;
     s.max_tokens = 32_000;
+    s.providers[0].models.push("budget-no-window".into());
     s.providers[0].context_budget_tokens = Some(160_000);
     s.providers[0].max_tokens = Some(32_000);
     let budget = compress_budget_tokens(&s);
@@ -634,8 +636,10 @@ fn compress_budget_tokens_subtracts_max_tokens_from_configured() {
 fn compress_budget_tokens_caps_to_remembered_window() {
     clear_remembered_model_windows_for_test();
     let mut s = crate::models::sample_settings();
+    s.model = "budget-with-window".into();
     s.context_budget_tokens = 262_144;
     s.max_tokens = 32_000;
+    s.providers[0].models.push("budget-with-window".into());
     s.providers[0].context_budget_tokens = Some(262_144);
     s.providers[0].max_tokens = Some(32_000);
     remember_model_context_window(&s, 163_840);
@@ -1022,11 +1026,31 @@ fn remember_session_llm_roundtrip() {
     let mut settings = crate::models::ModelSettings::default();
     settings.active_provider_id = "deepseek".into();
     settings.model = "deepseek-v4-flash".into();
-    remember_session_llm("test-session-llm-roundtrip", &settings, "k");
+    remember_session_llm(
+        "test-session-llm-roundtrip",
+        &settings,
+        "k",
+        Some(AgentInstanceScope::new(
+            "run-scope",
+            "test-session-llm-roundtrip",
+            "coder",
+        )),
+    );
     let snap = session_llm_for_conversation("test-session-llm-roundtrip").expect("remembered");
     assert_eq!(snap.settings.active_provider_id, "deepseek");
     assert_eq!(snap.settings.model, "deepseek-v4-flash");
     assert_eq!(snap.api_key, "k");
+    assert_eq!(
+        snap.agent_scope.as_ref().map(|s| s.run_id.as_str()),
+        Some("run-scope")
+    );
+    remember_session_llm("test-session-llm-roundtrip", &settings, "k2", None);
+    let snap = session_llm_for_conversation("test-session-llm-roundtrip").expect("kept scope");
+    assert_eq!(snap.api_key, "k2");
+    assert_eq!(
+        snap.agent_scope.as_ref().map(|s| s.run_id.as_str()),
+        Some("run-scope")
+    );
 }
 
 #[test]

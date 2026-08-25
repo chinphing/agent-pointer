@@ -351,7 +351,7 @@ pub(super) async fn run_chat_inner(
             settings.active_provider_id
         ));
     }
-    crate::context_compression::remember_session_llm(conversation_id, &settings, &api_key);
+    crate::context_compression::remember_session_llm(conversation_id, &settings, &api_key, None);
     let media_t = Instant::now();
     if let Err(e) = crate::media::apply_media_to_history(
         ctx.history,
@@ -431,6 +431,12 @@ pub(super) async fn run_chat_inner(
         conversation_id.to_string(),
         lead_role,
         model_name,
+    );
+    crate::context_compression::remember_session_llm(
+        conversation_id,
+        &settings,
+        &provider.api_key,
+        Some(llm_token_session.lead_scope.clone()),
     );
 
     let max_cap = settings.max_tool_rounds.clamp(1, 10_000);

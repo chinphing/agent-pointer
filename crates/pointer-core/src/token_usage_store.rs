@@ -808,7 +808,7 @@ pub fn record_round(
     };
     if let Some(u) = usage {
         let cache_hit = u.cache_hit_tokens();
-        conn.execute(
+        let n = conn.execute(
             "UPDATE usage_accum SET
                prompt_tokens = prompt_tokens + ?4,
                completion_tokens = completion_tokens + ?5,
@@ -841,6 +841,14 @@ pub fn record_round(
                 REPORT_STATUS_ACCUMULATING,
             ],
         )?;
+        if n == 0 {
+            log::warn!(
+                "token_usage_store: record_round matched 0 accumulating rows run_id={} agent_instance_id={} model={} (run already finalized?)",
+                scope.run_id,
+                scope.agent_instance_id,
+                model
+            );
+        }
     } else {
         conn.execute(
             "UPDATE usage_accum SET

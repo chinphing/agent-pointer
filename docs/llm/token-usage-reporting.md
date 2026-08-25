@@ -27,6 +27,7 @@ All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, ag
 | `sent` | Successfully reported to the platform |
 
 During the run, `record_round` inserts or updates rows with `report_status = accumulating`.
+Context-compression summary calls use the **same** `run_id` / `agent_instance_id` as the lead or sub-agent that triggered them (including background precompress). They do **not** mint a separate `precompress-*` run.
 
 After each `run_chat`, `finalize_run(run_id, …)` sets `report_status = pending` for that run's rows with usage (optional conversation archive zip). Token counts are **not** cleared. Then `flush_unsent_reports` uploads immediately.
 

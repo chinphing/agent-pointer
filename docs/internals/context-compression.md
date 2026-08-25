@@ -155,6 +155,9 @@ DeepSeek 去掉 `reasoning_effort`（不写 `thinking.type`）。
 
 - 工具循环内压缩、超限恢复：直接用该轮 `OpenAIProvider`。
 - 后台预压缩：使用 `run_chat` 开始时记下的会话 LLM（`remember_session_llm`），**不再** `effective_settings()` + 空 override 重解析（否则可能打到另一家网关）。
+- 摘要用量记入**当前回合**的 `run_id` + `agent_instance_id`，回合结束 `finalize_run` 时和对话轮次一起上传。
+  不再为预压伪造 `precompress-*` / `overflow-*` run（那种行不会随本轮 finalize，退出时会一次性刷出一堆「一次调用」）。
+  回合已 finalize 之后才跑完的闲时预压：`record_round` 会 warn，不再另开 run。
 - 没有会话 LLM 记录时跳过预压缩并 warn，避免静默换模型。
 
 ## 摘要验收与失败语义

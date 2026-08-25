@@ -42,6 +42,9 @@ pub(crate) struct PrecompressCoordinator {
 pub(crate) struct SessionLlmSnapshot {
     pub settings: ModelSettings,
     pub api_key: String,
+    /// Lead (or sub-agent) usage identity for this conversation's open turn.
+    /// Background precompress must reuse this instead of minting `precompress-*`.
+    pub agent_scope: Option<AgentInstanceScope>,
 }
 
 impl PrecompressCoordinator {
@@ -57,23 +60,42 @@ impl PrecompressCoordinator {
 
 /// Remember the lead LLM this conversation just used, so background compression
 /// does not re-resolve from global settings (which can pick a different provider).
-pub fn remember_session_llm(conversation_id: &str, settings: &ModelSettings, api_key: &str) {
+///
+/// `agent_scope` is the current turn's token-usage identity. Pass `None` to keep
+/// a previously remembered scope while refreshing provider/model.
+pub fn remember_session_llm(
+    conversation_id: &str,
+    settings: &ModelSettings,
+    api_key: &str,
+    agent_scope: Option<AgentInstanceScope>,
+) {
     let id = conversation_id.trim();
     if id.is_empty() {
         log::warn!("context_compress: remember session llm skipped (empty conversation_id)");
         return;
     }
+    let mut map = PrecompressCoordinator::global().session_llm.lock();
+    let agent_scope = agent_scope.or_else(|| map.get(id).and_then(|s| s.agent_scope.clone()));
     log::info!(
-        "context_compress: remember session llm conversation_id={} provider={} model={}",
+        "context_compress: remember session llm conversation_id={} provider={} model={} run_id={} agent_instance_id={}",
         id,
         settings.active_provider_id,
-        settings.model
+        settings.model,
+        agent_scope
+            .as_ref()
+            .map(|s| s.run_id.as_str())
+            .unwrap_or("-"),
+        agent_scope
+            .as_ref()
+            .map(|s| s.agent_instance_id.as_str())
+            .unwrap_or("-")
     );
-    PrecompressCoordinator::global().session_llm.lock().insert(
+    map.insert(
         id.to_string(),
         SessionLlmSnapshot {
             settings: settings.clone(),
             api_key: api_key.to_string(),
+            agent_scope,
         },
     );
 }
@@ -90,6 +112,7 @@ pub(crate) fn snapshot_from_provider(provider: &OpenAIProvider) -> SessionLlmSna
     SessionLlmSnapshot {
         settings: provider.settings.clone(),
         api_key: provider.api_key.clone(),
+        agent_scope: None,
     }
 }
 
@@ -618,6 +641,7 @@ pub async fn prepare_history_between_llm_rounds(
         history,
         tokens,
         provider,
+        ui.agent_scope.clone(),
     );
 }
 
@@ -659,13 +683,15 @@ pub fn maybe_spawn_precompress_from_history(
     history: &[ChatMessage],
     reported_prompt_tokens: Option<u32>,
     provider: &OpenAIProvider,
+    agent_scope: Option<AgentInstanceScope>,
 ) {
     let id = conversation_id.trim().to_string();
     if id.is_empty() {
         return;
     }
     let llm = snapshot_from_provider(provider);
-    remember_session_llm(&id, &llm.settings, &llm.api_key);
+    remember_session_llm(&id, &llm.settings, &llm.api_key, agent_scope);
+    let llm = session_llm_for_conversation(&id).unwrap_or(llm);
     spawn_precompress_if_soft_gate(state, id, history, reported_prompt_tokens, None, llm);
 }
 
@@ -778,26 +804,40 @@ pub(crate) async fn run_precompress_job(
         crate::user_storage::session_user_id_for_conversation(conversation_id),
     );
     let cancel = CancellationToken::new();
-    let run_id = format!("precompress-{}", uuid::Uuid::new_v4().simple());
-    let lead_role = if settings.lead_agent_id.trim().is_empty() {
-        settings.agent_mode.clone()
-    } else {
-        settings.lead_agent_id.clone()
+    let ui = match llm.agent_scope.clone() {
+        Some(scope) => {
+            log::info!(
+                "context_compress: precompress starting conversation_id={conversation_id} plan={:?} share={:.3} messages={} provider={} model={} run_id={} agent_instance_id={}",
+                plan,
+                current_turn_token_share(&history),
+                history.len(),
+                settings.active_provider_id,
+                settings.model,
+                scope.run_id,
+                scope.agent_instance_id
+            );
+            CompressionUiContext::main(scope)
+        }
+        None => {
+            log::warn!(
+                "context_compress: precompress has no agent_scope, summary tokens will not be reported conversation_id={conversation_id} provider={} model={}",
+                settings.active_provider_id,
+                settings.model
+            );
+            log::info!(
+                "context_compress: precompress starting conversation_id={conversation_id} plan={:?} share={:.3} messages={} provider={} model={}",
+                plan,
+                current_turn_token_share(&history),
+                history.len(),
+                settings.active_provider_id,
+                settings.model
+            );
+            CompressionUiContext {
+                scope: CompressionScope::Main,
+                ..CompressionUiContext::default()
+            }
+        }
     };
-    let ui = CompressionUiContext::main(AgentInstanceScope::new(
-        run_id,
-        conversation_id.to_string(),
-        lead_role,
-    ));
-
-    log::info!(
-        "context_compress: precompress starting conversation_id={conversation_id} plan={:?} share={:.3} messages={} provider={} model={}",
-        plan,
-        current_turn_token_share(&history),
-        history.len(),
-        settings.active_provider_id,
-        settings.model
-    );
     let changed = compress_history_inner(
         &mut history,
         &settings,

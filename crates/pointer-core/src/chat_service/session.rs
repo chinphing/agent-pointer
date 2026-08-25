@@ -189,9 +189,10 @@ pub async fn run_chat(
                     started
                 );
             crate::context_compression::discard_pending_compression(&conversation_id);
-            let (llm_settings, api_key) = if let Some(snap) =
-                crate::context_compression::session_llm_for_conversation(&conversation_id)
-            {
+            let session_snap =
+                crate::context_compression::session_llm_for_conversation(&conversation_id);
+            let overflow_scope = session_snap.as_ref().and_then(|s| s.agent_scope.clone());
+            let (llm_settings, api_key) = if let Some(snap) = session_snap {
                 (snap.settings, snap.api_key)
             } else {
                 let mut llm_settings = settings.clone();
@@ -208,6 +209,7 @@ pub async fn run_chat(
                     &conversation_id,
                     &llm_settings,
                     &api_key,
+                    None,
                 );
                 (llm_settings, api_key)
             };
@@ -235,13 +237,14 @@ pub async fn run_chat(
                             llm_settings.lead_agent_id.clone()
                         }
                     });
-                let ui = crate::context_compression::CompressionUiContext::main(
+                let ui_scope = overflow_scope.unwrap_or_else(|| {
                     crate::agent_instance_scope::AgentInstanceScope::new(
-                        format!("overflow-{}", Uuid::new_v4().simple()),
+                        run_id.clone(),
                         conversation_id.clone(),
                         lead_role,
-                    ),
-                );
+                    )
+                });
+                let ui = crate::context_compression::CompressionUiContext::main(ui_scope);
                 emit(
                     &stream,
                     StreamEvent::UiToast {

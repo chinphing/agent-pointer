@@ -272,8 +272,10 @@ marked.use({
         if (raw.trim() === STREAMING_SVG_STUB) return STREAMING_SVG_HOST_HTML
         const parsed = tryParseSvgFence(raw)
         if (parsed.ok) return svgHostHtml(parsed.svg, true)
-        // Incomplete stream (unclosed fence is stubbed); soft-pending while streaming.
-        if (parseStreamingSvgs) return STREAMING_SVG_HOST_HTML
+        // Unclosed fences are already stubbed. A closed body that fails
+        // sanitize is invalid — do not keep the streaming placeholder.
+        const incomplete = !raw.includes('</svg>')
+        if (parseStreamingSvgs && incomplete) return STREAMING_SVG_HOST_HTML
         return svgHostHtml(raw, false)
       }
       if (isHtmlFenceLang(langString)) {

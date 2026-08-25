@@ -93,6 +93,15 @@ function stripStyleExpressionsByRegex(src: string): string {
 }
 
 /**
+ * XML forbids a bare `&`. Models often put query strings in text
+ * (`id=1&key=2`), which DOMParser then rejects as an entity ref.
+ * Leave already-formed entities (`&lt;` `&#x2026;`) alone.
+ */
+export function escapeBareXmlAmpersands(src: string): string {
+  return src.replace(/&(?!(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+}
+
+/**
  * Validate + sanitize a fenced SVG body before any DOM insert.
  * Works in Node (regex path) and in the browser (DOMParser second pass when available).
  */
@@ -115,7 +124,7 @@ export function sanitizeSvgMarkup(
 
   const svgMatch = fromSvg.match(/<\s*svg\b[\s\S]*<\/\s*svg\s*>/i)
   if (!svgMatch) return { ok: false, reason: 'not_svg' }
-  let cleaned = svgMatch[0]!
+  let cleaned = escapeBareXmlAmpersands(svgMatch[0]!)
   cleaned = stripForbiddenElementsByRegex(cleaned)
   cleaned = stripEventHandlersByRegex(cleaned)
   cleaned = neutralizeDangerousUrlsByRegex(cleaned)
@@ -131,7 +140,13 @@ export function sanitizeSvgMarkup(
     try {
       const doc = new DOMParser().parseFromString(cleaned, 'image/svg+xml')
       const parseError = doc.querySelector('parsererror')
-      if (parseError) return { ok: false, reason: 'parse_error' }
+      if (parseError) {
+        console.warn(
+          '[markdownSvg] DOMParser rejected svg',
+          (parseError.textContent || '').slice(0, 240)
+        )
+        return { ok: false, reason: 'parse_error' }
+      }
       const root = doc.documentElement
       if (!root || root.localName.toLowerCase() !== 'svg') {
         return { ok: false, reason: 'not_svg' }

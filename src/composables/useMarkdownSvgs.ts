@@ -56,7 +56,6 @@ export function useMarkdownSvgs(
   options: MarkdownSvgsOptions = {}
 ) {
   const hosts = new Map<HTMLElement, SvgHostState>()
-  const isStreaming = () => options.isStreaming?.() === true
 
   function flashButton(btn: HTMLButtonElement, okTitle: string) {
     const prev = btn.innerHTML
@@ -241,9 +240,13 @@ export function useMarkdownSvgs(
     if (!cleaned) {
       const parsed = tryParseSvgFence(raw)
       if (!parsed.ok) {
-        const pending = parsed.reason === 'empty' || parsed.reason === 'parse_error'
-        const softPending = parsed.reason === 'not_svg' && !raw.includes('</svg>')
-        const asPending = pending || softPending || isStreaming()
+        // Closed fences that fail XML parse are invalid, not "still generating".
+        const asPending =
+          parsed.reason === 'empty' ||
+          (parsed.reason === 'not_svg' && !raw.includes('</svg>'))
+        if (!asPending) {
+          console.warn('[markdownSvgs] svg not mountable', parsed.reason)
+        }
         showStatus(
           host,
           asPending ? '图示生成中…' : '图示无效',

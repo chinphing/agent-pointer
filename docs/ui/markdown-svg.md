@@ -30,6 +30,7 @@ Before mount the host:
 - Removes `on*` event handlers
 - Neutralizes `javascript:` / `vbscript:` / `data:` / remote absolute URLs in `href` / `src` / similar
 - Strips dangerous `style` expressions
+- Escapes a bare `&` in markup (`&amp;`) so query-string labels do not fail XML parse
 
 Internal fragment refs (`href="#id"`) remain allowed (e.g. markers / `<use>`).
 
@@ -39,7 +40,7 @@ Internal fragment refs (`href="#id"`) remain allowed (e.g. markers / `<use>`).
 - Toolbar: copy source, export `.svg`, toggle source.
 - **Export:** builds a URI-encoded `data:image/svg+xml;charset=utf-8,…` URL. Desktop save must decode that payload to UTF-8 bytes (then base64 for `save_bytes_to_path`); do not treat the percent-encoded payload as base64 (PNG chart export uses `;base64,` and is unaffected).
 - **Layout:** mount sizes the SVG from `viewBox` (pixel width). Narrow chat panes scroll horizontally instead of crushing labels with `max-width: 100%`. Undersized `viewBox` (content drawn past the bottom/side) is expanded from geometry attributes / `getBBox` so footers are not clipped. The frame resets prose inheritance (font-size / line-height / overflow-wrap) so `.md-body` typography does not change SVG text metrics.
-- **Streaming:** while the fence is still open, show “图示生成中…”. Once the closing ` ``` ` arrives, mount immediately — do not wait for the rest of the assistant turn. Trailing prose may still be streaming.
+- **Streaming:** while the fence is still open, show “图示生成中…”. Once the closing ` ``` ` arrives, mount immediately — do not wait for the rest of the assistant turn. Trailing prose may still be streaming. A **closed** fence that still fails sanitize shows “图示无效”, not the generating placeholder.
 - **Switch / scroll:** do not parse/insert the SVG until the host is in the nearest chat or file-preview scroller (same gate as Chart.js / Mermaid). Hidden workspace tabs wait until shown.
 
 ## vs charts

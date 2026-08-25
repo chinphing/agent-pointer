@@ -33,6 +33,8 @@ Not HTML pages, not CDN scripts:
 - Do **not** include `<script>`, event handlers (`onclick=…`),
   `javascript:` / `data:` URLs, `<foreignObject>`, remote `<image>` /
   external `<use>` hrefs, or iframes.
+- XML text and attributes: write `&amp;` for `&` and `&lt;` for `<`.
+  Do not put a raw query string like `id=1&key=2` in a text node.
 - Do **not** emit raw SVG outside a fence, and do not wrap the SVG in HTML.
 - Use SVG for structure/flow; use `chartjs` for numeric trends.
 - **App / Web:** the host sanitizes and renders the fence inline.

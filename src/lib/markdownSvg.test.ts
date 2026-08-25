@@ -8,6 +8,7 @@ import {
 import {
   sanitizeSvgMarkup,
   tryParseSvgFence,
+  escapeBareXmlAmpersands,
   intrinsicSvgSizeFromViewBox,
   applySvgMountLayout,
   fitSvgViewBoxToAttributedContent,
@@ -47,6 +48,22 @@ describe('sanitizeSvgMarkup', () => {
   it('rejects non-svg markup', () => {
     expect(tryParseSvgFence('<div>hi</div>').ok).toBe(false)
     expect(tryParseSvgFence('').ok).toBe(false)
+  })
+
+  it('escapes a bare ampersand in text so XML parse can succeed', () => {
+    const raw = `<svg viewBox="0 0 200 40" xmlns="http://www.w3.org/2000/svg">
+  <text x="10" y="24">spa/.../requestid=903539&sessionkey=abc</text>
+  <text x="10" y="38">./scripts/reimburse &lt;对象&gt; &lt;动作&gt;</text>
+</svg>`
+    expect(escapeBareXmlAmpersands(raw)).toContain('903539&amp;sessionkey=abc')
+    expect(escapeBareXmlAmpersands(raw)).toContain('&lt;对象&gt;')
+    expect(escapeBareXmlAmpersands(raw)).not.toContain('&amp;lt;')
+    const parsed = sanitizeSvgMarkup(raw)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.svg).toContain('&amp;sessionkey')
+      expect(parsed.svg).toContain('&lt;对象&gt;')
+    }
   })
 
   it('allows fragment href on use', () => {
@@ -206,6 +223,14 @@ describe('parseMarkdown svg fences', () => {
     expect(html).not.toContain('图示生成中…')
     expect(html).toContain('data-svg-config=')
     expect(html).toContain('后面还有说明文字')
+  })
+
+  it('streamingSvgs does not keep pending HTML for a closed invalid svg', () => {
+    const src =
+      '```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>\nnot svg\n```\n'
+    const html = parseMarkdown(src, { streamingSvgs: true })
+    expect(html).not.toContain('图示生成中…')
+    expect(html).toContain('md-svg--invalid')
   })
 })
 

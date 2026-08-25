@@ -56,7 +56,10 @@ mod tests {
             .apply(
                 "conv-1",
                 "init",
-                &serde_json::json!({ "goal": "g", "items": [] }),
+                &serde_json::json!({
+                    "goal": "g",
+                    "items": [{"id": "m1", "title": "t", "status": "pending"}]
+                }),
             )
             .expect("init");
         assert!(task_board_init_hint(&store, "conv-1", &AgentProfile::Coder).is_none());

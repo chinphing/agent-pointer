@@ -8,6 +8,8 @@ Treat injected **`[TASK_BOARD]`** as source of truth.
 **Do not** pass a `method` field in arguments.
 
 - **`task_board_init`**: meta + `global_milestones[]` — see **Board shapes** and **Init examples**.
+  `global_milestones` is a JSON array of objects (`id`, `title`, `status`).
+  Do not quote the array as a string. At least one row is required.
 - **`task_board_patch`**: one milestone row via **`milestones[]`** — see **Patch**.
 - **`task_board_prune`**: cancel pending rows (`ids`).
 - **`task_board_finalize`**: mark board complete after all rows are terminal.
@@ -21,7 +23,9 @@ Row status:
 
 ## Board shapes
 
-All progress uses **`global_milestones[]`** only. There is **one patch surface** — milestone rows.
+The stored table is **`global_milestones[]`**.
+Patch it with **`task_board_patch`** **`milestones[]`** (one row).
+Do not send **`global_milestones`** on patch.
 
 ### Linear (non-loop)
 
@@ -54,7 +58,7 @@ Choose from **what you know at init time** — not from convenience.
 | | **Enumerated (static list)** | **Dynamic (runtime quota)** |
 | --- | --- | --- |
 | **Use when** | Every target identity is already known | Only **how many** is known; identities appear later |
-| **Init fields** | Explicit **`wi_*`** rows in **`global_milestones`** | **`dynamic_quota`** only (host seeds **`wi_*`** placeholders) |
+| **Init fields** | **`g_plan`** + every **`wi_*`** + **`g_deliver`** in **`global_milestones`** | **`g_plan`** + **`g_deliver`** in **`global_milestones`**, plus **`dynamic_quota`** (host seeds **`wi_*`**) |
 | **Row titles at init** | Real target id in each **`wi_*` `title`** | Host placeholders **`#1`…`#N`** |
 | **Before exec** | Titles set — follow **`g_plan.plan`** | Patch active row **`title`** when target id is known |
 | **Shared procedure** | **`g_plan.plan`** (+ optional **`g_plan.done_when`** for item exit) | Same — write on **`g_plan`** at init, not on each **`wi_*`** |
@@ -244,7 +248,7 @@ Confirm **`in_progress_id`** matches **Current task** before patching.
 When writing the **final summary** in assistant **`content`**:
 
 - Read `remark` on **`done`** rows under **All tasks (with status)**.
-- Call **`finalize`** in the same turn as the final summary when every row is terminal.
+- Call **`task_board_finalize`** in the same turn as the final summary when every row is terminal.
 
 ## Init examples
 
@@ -325,4 +329,4 @@ Count known, identities not — only **`g_plan`** / **`g_deliver`** in **`global
 }
 ```
 
-Examples use **`function.name`** + **`function.arguments`** only.
+Pass these objects as tool arguments (native tool name, no `method` field).

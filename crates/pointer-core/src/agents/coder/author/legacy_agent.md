@@ -237,7 +237,7 @@ Use **`task_board`** as the **visible plan and progress surface** for behavior-c
 - Keep rows compact; prefer **`[TASK_BOARD]`** over long plans in assistant message text.
 - **Session complete:** When **all** rows are **`done`** or **`cancelled`**, call **`task_board_finalize`** in the **Deliver** turn (after the last **`patch`**).
 
-When you use **`task_board_patch`**, each **`global_milestones`** row should keep:
+When you use **`task_board_patch`**, each **`milestones[]`** row should keep:
 - **`plan`**: execution plan (markdown);
 - **`done_when`**: milestone outcome acceptance criteria;
 - **`remark`**: short outcome evidence when marking **`done`**.

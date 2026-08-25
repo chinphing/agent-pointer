@@ -1,5 +1,5 @@
 use super::path::{path_display_abs, path_display_for_read_request, resolve_accessible_path};
-use super::{json_u64_opt, FileToolLimits};
+use super::{json_u64_opt_keys, FileToolLimits};
 use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
@@ -232,10 +232,32 @@ pub(crate) fn execute_file_read_with(
     }
 
     let path = resolve_file_read_path(args)?;
-    let line_start = json_u64_opt(args, "lineStart", "line_start")
-        .unwrap_or(1)
-        .max(1) as usize;
-    let line_end_exclusive = json_u64_opt(args, "lineEnd", "line_end").map(|n| n.max(1) as usize);
+    // Canonical: lineStart / lineEnd. Models trained on other IDEs often send
+    // startLine / endLine, sometimes as strings (`"2030"`). Ignoring those
+    // aliases used to default lineStart to 1 and dump from the top of the file
+    // up to lineEnd (then hit maxBytes) — tens of KB instead of ~100 lines.
+    const LINE_START_KEYS: &[&str] = &["lineStart", "line_start", "startLine", "start_line"];
+    const LINE_END_KEYS: &[&str] = &["lineEnd", "line_end", "endLine", "end_line"];
+    let line_start = match json_u64_opt_keys(args, LINE_START_KEYS) {
+        Some((n, key)) => {
+            let n = n.max(1) as usize;
+            if key != "lineStart" && key != "line_start" {
+                info!("file_read: accepted {key}={n} as lineStart path={path}");
+            }
+            n
+        }
+        None => 1,
+    };
+    let line_end_exclusive = match json_u64_opt_keys(args, LINE_END_KEYS) {
+        Some((n, key)) => {
+            let n = n.max(1) as usize;
+            if key != "lineEnd" && key != "line_end" {
+                info!("file_read: accepted {key}={n} as lineEnd path={path}");
+            }
+            Some(n)
+        }
+        None => None,
+    };
     let ceiling = limits.read_max_bytes as u64;
     let requested_max = args
         .get("maxBytes")

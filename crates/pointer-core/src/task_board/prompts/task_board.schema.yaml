@@ -15,8 +15,11 @@ task_board_init:
       type: string
     global_milestones:
       type: array
+      minItems: 1
+      maxItems: 100
       description: >
-        Milestone rows. Linear: 3–8 steps (m1…). Loop: g_plan, wi_* item rows, g_deliver.
+        JSON array of milestone rows (not a string). Linear: 3–8 steps (m1…).
+        Loop: g_plan, wi_* item rows, g_deliver.
         Enumerated loop: include every wi_* row here. Dynamic loop: g_plan + g_deliver only; host seeds wi_* from dynamic_quota.
       items:
         type: object
@@ -51,15 +54,17 @@ task_board_init:
     global_context: {}
     _conversation_id:
       type: string
-  required: [goal]
-  additionalProperties: true
+  required: [goal, global_milestones]
+  additionalProperties: false
 
 task_board_replace:
   type: object
   properties:
     global_milestones:
       type: array
-      description: Full global_milestones table (linear or loop rows).
+      minItems: 1
+      maxItems: 100
+      description: Full global_milestones table as a JSON array (not a string).
       items:
         type: object
         properties:
@@ -92,8 +97,11 @@ task_board_patch:
   properties:
     milestones:
       type: array
+      minItems: 1
+      maxItems: 1
       description: >
-        One milestone row from inject (linear step, loop item wi_*, or g_deliver).
+        JSON array of exactly one milestone row from inject (not a string).
+        Linear step, loop item wi_*, or g_deliver.
       items:
         type: object
         properties:

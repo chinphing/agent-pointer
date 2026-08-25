@@ -65,3 +65,44 @@ pub fn resolve_method_for_call(tool_id: &str, _args: &Value) -> String {
         .unwrap_or(tool_id)
         .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TASK_BOARD_SCHEMA_YAML;
+    use crate::tools::tool_doc::load_tools_from_schema_yaml;
+
+    #[test]
+    fn init_schema_requires_typed_global_milestones_array() {
+        let tools = load_tools_from_schema_yaml(TASK_BOARD_SCHEMA_YAML).expect("schema yaml");
+        let init = tools
+            .iter()
+            .find(|(n, _)| n == "task_board_init")
+            .map(|(_, s)| s)
+            .expect("task_board_init");
+        let gm = &init["properties"]["global_milestones"];
+        assert_eq!(gm["type"], "array");
+        assert_eq!(gm["minItems"], 1);
+        assert_eq!(init["additionalProperties"], false);
+        let required = init["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>();
+        assert!(required.contains(&"goal"), "{required:?}");
+        assert!(required.contains(&"global_milestones"), "{required:?}");
+        assert!(
+            init["properties"].get("milestones").is_none(),
+            "do not advertise init milestones; it is the patch field name"
+        );
+
+        let patch = tools
+            .iter()
+            .find(|(n, _)| n == "task_board_patch")
+            .map(|(_, s)| s)
+            .expect("task_board_patch");
+        assert_eq!(patch["properties"]["milestones"]["type"], "array");
+        assert_eq!(patch["properties"]["milestones"]["minItems"], 1);
+        assert_eq!(patch["additionalProperties"], false);
+    }
+}

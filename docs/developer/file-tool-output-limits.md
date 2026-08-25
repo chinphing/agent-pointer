@@ -21,6 +21,9 @@ Agent 不能靠把 `maxBytes` / `maxResults` / `maxOutputBytes` / `maxWallMs` �
 ## 行为
 
 - **`file_read`**：无行窗口且整文件大于正文上限 → **报错拒绝**；有行窗口则只返回窗口并截断。
+  对外名称只有 **`lineStart` / `lineEnd`**（1-based，`lineEnd` 开区间，JSON **integer**）。
+  Schema 不再暴露 `startLine`（`additionalProperties: false`），避免模型把未声明字段发成字符串。
+  运行时仍兼容 `startLine` / `endLine` / snake_case 以及数字字符串，以免旧调用再从第 1 行读到 `lineEnd`。
 - **`file_grep`**：命中条数、单行 snippet、命中合计体积（与正文上限相同）均截断。
 - 单文件 **> 2 MiB** 仍跳过（实现常量，不计设置），计入 `skippedLargeFileCount`。
 - **`terminal`**：stdout / stderr **各自**截到上限；超限**留尾巴、丢开头**，前缀

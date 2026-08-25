@@ -2,7 +2,7 @@
 
 use super::args::{
     constraints_from_args, context_from_args, done_when_from_args, expected_total_from_args,
-    global_rows_from_args, goal_from_args, normalize_patch_args, prune_ids_from_args,
+    global_rows_from_args_typed, goal_from_args, normalize_patch_args, prune_ids_from_args,
     reject_init_removed_fields, reject_patch_foreign_work_item_fields, replace_has_forbidden_scope,
     unified_patch_rows_from_args,
 };
@@ -178,18 +178,32 @@ fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<
     if let Some(gc) = args.get("global_context") {
         merge_global_context(&mut doc.global_context, gc);
     }
-    let global_rows = global_rows_from_args(args);
+    let global_rows = global_rows_from_args_typed(args)?;
     if !global_rows.is_empty() {
         doc.global_milestones.clear();
+        let mut dropped = 0usize;
         for v in &global_rows {
             if let Some(item) = BoardItem::from_value(v) {
                 doc.global_milestones.push(item);
+            } else {
+                dropped += 1;
             }
+        }
+        if dropped > 0 {
+            return Err(anyhow!(
+                "task_board: init dropped {dropped}/{} row(s) missing id; each global_milestones[] object needs id, title, status",
+                global_rows.len()
+            ));
         }
         validate_board_row_count(doc.global_milestones.len(), "init")?;
     }
     loop_milestones::expand_loop_milestones_on_init(doc, args)?;
     validate_board_row_count(doc.global_milestones.len(), "init")?;
+    if doc.global_milestones.is_empty() {
+        return Err(anyhow!(
+            "task_board: init requires global_milestones[] as a JSON array with at least one row (id, title, status)"
+        ));
+    }
     if loop_milestones::is_loop_milestone_board(doc) {
         loop_milestones::validate_loop_milestone_init(doc, args)?;
         loop_milestones::bootstrap_loop_milestone_board(doc);
@@ -223,9 +237,11 @@ fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<()> {
             "task_board: replace uses global_milestones[] only (not item_milestones)"
         ));
     }
-    let rows = global_rows_from_args(args);
+    let rows = global_rows_from_args_typed(args)?;
     if rows.is_empty() {
-        return Err(anyhow!("task_board: replace requires global_milestones[]"));
+        return Err(anyhow!(
+            "task_board: replace requires global_milestones[] as a JSON array"
+        ));
     }
     doc.global_milestones.clear();
     for v in &rows {

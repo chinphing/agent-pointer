@@ -39,6 +39,20 @@ See [`internals/task-board-unified-milestone-inject.md`](internals/task-board-un
 
 **Final user summary:** derive tables and counts from injected **`remark`** on `done` rows and `result_summary` on terminal work_items — not from chat memory.
 
+## Tool argument names
+
+Keep init and patch names distinct:
+
+- **`task_board_init` / `task_board_replace`**: rows in **`global_milestones[]`** (JSON array of objects with `id`, `title`, `status`). `goal` and `global_milestones` are required on init (`minItems: 1`).
+- **`task_board_patch`**: one row in **`milestones[]`**. Do not send `global_milestones` on patch.
+
+Type enforcement (schema + host):
+
+- Schema types are `array`, not string. `additionalProperties` is false so undeclared keys are not untyped strings.
+- Host **rejects** a quoted JSON string (`got string — do not quote the array`). Empty init after parse is an error (`ok: false`), not `board_len=0`.
+- Host **rejects** rows dropped for missing `id`.
+- Native-array aliases (`milestones` / `items` / `board` on init) are accepted only when the value is already a JSON array — for tests and unconstrained providers. Constrained decoding should emit **`global_milestones`**.
+
 ## Lifecycle binding rules
 
 - A taskboard is bound to a user message (`anchor_message_id` on the main-turn store key).

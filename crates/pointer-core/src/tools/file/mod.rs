@@ -155,10 +155,48 @@ pub(crate) fn json_str<'a>(
         .or_else(|| args.get(snake).and_then(|v| v.as_str()))
 }
 
-pub(crate) fn json_u64_opt(args: &serde_json::Value, camel: &str, snake: &str) -> Option<u64> {
-    args.get(camel)
-        .and_then(|v| v.as_u64())
-        .or_else(|| args.get(snake).and_then(|v| v.as_u64()))
+/// Parse a JSON number or numeric string as `u64`.
+/// Models often emit `"2030"` (string) or `2030.0` instead of an integer.
+pub(crate) fn json_value_as_u64(v: &serde_json::Value) -> Option<u64> {
+    if let Some(n) = v.as_u64() {
+        return Some(n);
+    }
+    if let Some(n) = v.as_i64() {
+        return u64::try_from(n).ok();
+    }
+    if let Some(f) = v.as_f64() {
+        if f.is_finite() && f >= 0.0 && f.fract() == 0.0 && f <= u64::MAX as f64 {
+            return Some(f as u64);
+        }
+        return None;
+    }
+    v.as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok())
+}
+
+/// First present key among `keys` that parses as a non-negative integer.
+/// Returns the matched key so callers can log aliases (`startLine` vs `lineStart`).
+pub(crate) fn json_u64_opt_keys<'a>(
+    args: &serde_json::Value,
+    keys: &[&'a str],
+) -> Option<(u64, &'a str)> {
+    for key in keys {
+        let Some(v) = args.get(*key) else {
+            continue;
+        };
+        if v.is_null() {
+            continue;
+        }
+        match json_value_as_u64(v) {
+            Some(n) => return Some((n, *key)),
+            None => {
+                warn!("file tool: {key} present but not a non-negative integer: {v}");
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -194,6 +232,42 @@ mod tests {
         fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
         let out = execute_file_read(
             &json!({ "file": "x.txt", "lineStart": 2, "lineEnd": 4 }),
+            root,
+        )
+        .expect("read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["content"].as_str().unwrap(), "p2\np3");
+    }
+
+    #[test]
+    fn file_read_accepts_start_line_alias_and_numeric_string() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("x.txt"), "p1\np2\np3\np4\np5\n").unwrap();
+        // Production miss: startLine as a string was ignored → read from line 1
+        // through lineEnd, then truncated at maxBytes.
+        let out = execute_file_read(
+            &json!({
+                "path": "x.txt",
+                "startLine": "3",
+                "lineEnd": 5
+            }),
+            root,
+        )
+        .expect("read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["content"].as_str().unwrap(), "p3\np4");
+        assert_eq!(v["lineStart"], 3);
+        assert_eq!(v["lineEndExclusive"], 5);
+    }
+
+    #[test]
+    fn file_read_accepts_end_line_alias() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
+        let out = execute_file_read(
+            &json!({ "path": "x.txt", "lineStart": 2, "endLine": 4 }),
             root,
         )
         .expect("read");

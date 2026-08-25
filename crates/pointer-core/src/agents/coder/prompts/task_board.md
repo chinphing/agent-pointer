@@ -24,7 +24,9 @@ no board does **not** mean no tests.
 
 ### Patch discipline
 
-- Status changes → **`task_board_patch`** with **`global_milestones`** (one row) in the **same turn**.
+- Status changes → **`task_board_patch`** with **`milestones`** (one row) in the **same turn**.
+  Init uses **`global_milestones`** — a JSON array of objects, not a quoted string.
+  Empty init is rejected.
 - Treat **`[TASK_BOARD]`** as authoritative snapshot.
 - **`done`** needs repeatable evidence in **`remark`** (command output or explore summary)—not "looks good".
 - Edit rows → **`done`** only after edits + **`read_lints`** when you touched code.

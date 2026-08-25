@@ -167,7 +167,7 @@ Titles should stay task-specific; avoid a generic Recon→Implement→Verify lad
   "function": {
     "name": "task_board_patch",
     "arguments": {
-      "global_milestones": [
+      "milestones": [
         {
           "id": "m3",
           "status": "done",

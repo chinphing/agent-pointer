@@ -185,6 +185,18 @@ file_write:
         for (name, schema) in &tools {
             assert_eq!(schema["type"], "object", "tool {name} missing type: object");
         }
+        let file_read = tools
+            .iter()
+            .find(|(n, _)| n == "file_read")
+            .map(|(_, s)| s)
+            .expect("file_read schema");
+        assert_eq!(file_read["properties"]["lineStart"]["type"], "integer");
+        assert_eq!(file_read["properties"]["lineEnd"]["type"], "integer");
+        assert!(
+            file_read["properties"].get("startLine").is_none(),
+            "do not advertise startLine; it is untyped under additionalProperties and models quote it"
+        );
+        assert_eq!(file_read["additionalProperties"], false);
     }
 
     #[test]

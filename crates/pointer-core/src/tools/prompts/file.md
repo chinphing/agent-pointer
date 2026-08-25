@@ -63,8 +63,12 @@ Prefer **`grep`** first, then a tight line window.
 
 - **`path`** — **Required** (alias **`file`**). One file per call.
   **Windows paths:** prefer `"D:/workspace/src/foo.rs"`, or escape backslashes — `\\` for each `\`.
-- **`lineStart`** — Optional; 1-based first line to include. Default: start of file. Alias **`line_start`**.
-- **`lineEnd`** — Optional; 1-based **exclusive** end line. Alias **`line_end`**.
+- **`lineStart`** — Optional JSON integer (unquoted, not a string).
+  1-based first line to include. Default: start of file.
+  Alias **`line_start`**.
+- **`lineEnd`** — Optional JSON integer (unquoted, not a string).
+  1-based **exclusive** end line.
+  Alias **`line_end`**.
 - **`maxBytes`** — Optional; max bytes for the **returned content**.
   Alias **`max_bytes`**. Default and ceiling come from host settings
   (default **65536** / 64 KiB). Values above the ceiling are clamped.

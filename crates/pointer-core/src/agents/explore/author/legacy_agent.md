@@ -298,7 +298,8 @@ Use **one bullet per claim**, three parts:
 
 - **Claim** — plain language; for usage/removal tasks, include the **layer** tag when relevant (`Compile`, `Type reuse`,
   `Runtime call`, `Test-only`).
-- **Where** — `` `path:startLine-endLine` `` or a **tight grep summary** (pattern + match count + example paths).
+- **Where** — `` `path:40-88` `` (1-based line range) or a **tight grep summary**
+  (pattern + match count + example paths).
 - **Why** — one short clause linking the lines to the claim.
 
 ## How to explore workdir

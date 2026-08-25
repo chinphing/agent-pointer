@@ -159,12 +159,46 @@ pub fn items_array_from_args(args: &Value) -> Option<Vec<Value>> {
     flat_patch_row_from_args(args).map(|row| vec![row])
 }
 
-/// Init / replace global milestone rows (`global_milestones` or legacy `items` / `board`).
+fn json_value_kind(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+/// Native JSON array only. A quoted JSON string is a type error (`type: array` in schema).
+pub fn typed_array_from_keys(args: &Value, keys: &[&str]) -> Result<Vec<Value>> {
+    for key in keys {
+        let Some(raw) = args.get(*key) else {
+            continue;
+        };
+        if let Some(arr) = raw.as_array() {
+            return Ok(arr.clone());
+        }
+        return Err(anyhow!(
+            "task_board: `{key}` must be a JSON array, got {} — do not quote the array as a string",
+            json_value_kind(raw)
+        ));
+    }
+    Ok(Vec::new())
+}
+
+/// Init / replace rows. Canonical key is `global_milestones` (JSON array).
+/// `milestones` / `items` / `board` are same-type aliases (array, not string).
+pub fn global_rows_from_args_typed(args: &Value) -> Result<Vec<Value>> {
+    typed_array_from_keys(
+        args,
+        &["global_milestones", "milestones", "items", "board"],
+    )
+}
+
+/// Init / replace global milestone rows (legacy silent path; prefers native arrays).
 pub fn global_rows_from_args(args: &Value) -> Vec<Value> {
-    array_from_key(args, "global_milestones")
-        .or_else(|| array_from_key(args, "items"))
-        .or_else(|| array_from_key(args, "board"))
-        .unwrap_or_default()
+    global_rows_from_args_typed(args).unwrap_or_default()
 }
 
 /// Replace-only: `item_milestones` whole table (removed — use global_milestones wi_* rows).
@@ -197,7 +231,8 @@ pub fn reject_init_removed_fields(args: &Value) -> Result<()> {
 /// Unified patch rows — always use **`milestones`** at the tool surface.
 pub fn unified_patch_rows_from_args(args: &Value) -> Result<Option<Vec<Value>>> {
     reject_removed_patch_fields(args)?;
-    if let Some(rows) = array_from_key(args, "milestones") {
+    if args.get("milestones").is_some() {
+        let rows = typed_array_from_keys(args, &["milestones"])?;
         return Ok(Some(rows));
     }
     Ok(items_array_from_args(args))
@@ -496,6 +531,20 @@ mod tests {
         });
         let items = items_array_from_args(&args).expect("items");
         assert_eq!(items.len(), 1);
+    }
+
+    #[test]
+    fn typed_array_rejects_quoted_json_string() {
+        let err = typed_array_from_keys(
+            &serde_json::json!({
+                "milestones": "[{\"id\":\"a\"}]"
+            }),
+            &["milestones"],
+        )
+        .expect_err("string is not an array");
+        let msg = err.to_string();
+        assert!(msg.contains("JSON array"), "{msg}");
+        assert!(msg.contains("string"), "{msg}");
     }
 
     #[test]

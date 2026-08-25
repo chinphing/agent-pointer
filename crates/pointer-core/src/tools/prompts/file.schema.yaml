@@ -11,12 +11,16 @@ file_read:
       type: string
     lineStart:
       type: integer
+      minimum: 1
+      description: 1-based first line (JSON integer, unquoted)
     lineEnd:
       type: integer
+      minimum: 1
+      description: 1-based exclusive end line (JSON integer, unquoted)
     maxBytes:
       type: integer
   required: [path]
-  additionalProperties: true
+  additionalProperties: false
 
 file_write:
   type: object

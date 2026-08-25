@@ -75,7 +75,7 @@ mod apply_tests {
                 "init",
                 &json!({
                     "goal": "g",
-                    "items": []
+                    "items": [{"id": "a", "title": "seed", "status": "pending"}]
                 }),
             )
             .expect("init");
@@ -86,6 +86,123 @@ mod apply_tests {
         let doc = store.document(key);
         assert_eq!(doc.global_milestones.len(), 1);
         assert_eq!(doc.global_milestones[0].id, "a");
+        assert_eq!(doc.global_milestones[0].title, "Step A");
+    }
+
+    #[test]
+    fn init_accepts_milestones_native_array_alias() {
+        let store = TaskBoardStore::new();
+        let key = "conv-init-milestones-array";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "P8",
+                    "milestones": [
+                        {"id": "p8-1", "title": "摸底", "status": "pending"},
+                        {"id": "p8-2", "title": "方案", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect("init");
+        let doc = store.document(key);
+        assert_eq!(doc.global_milestones.len(), 2);
+        assert_eq!(doc.global_milestones[0].id, "p8-1");
+    }
+
+    #[test]
+    fn init_rejects_stringified_milestones() {
+        let store = TaskBoardStore::new();
+        let err = store
+            .apply(
+                "conv-init-milestones-string",
+                "init",
+                &json!({
+                    "goal": "P8",
+                    "milestones": "[{\"id\":\"p8-1\",\"title\":\"摸底\",\"status\":\"pending\"}]"
+                }),
+            )
+            .expect_err("quoted array must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("JSON array"), "{msg}");
+        assert!(msg.contains("string"), "{msg}");
+    }
+
+    #[test]
+    fn init_rejects_goal_only_empty_board() {
+        let store = TaskBoardStore::new();
+        let err = store
+            .apply("conv-empty-init", "init", &json!({ "goal": "P7" }))
+            .expect_err("goal-only init must fail");
+        assert!(
+            err.to_string().contains("global_milestones"),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn init_rejects_empty_global_milestones_array() {
+        let store = TaskBoardStore::new();
+        let err = store
+            .apply(
+                "conv-empty-array",
+                "init",
+                &json!({ "goal": "P7", "global_milestones": [] }),
+            )
+            .expect_err("empty array must fail");
+        assert!(
+            err.to_string().contains("global_milestones"),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn init_rejects_rows_missing_id() {
+        let store = TaskBoardStore::new();
+        let err = store
+            .apply(
+                "conv-missing-id",
+                "init",
+                &json!({
+                    "goal": "P7",
+                    "global_milestones": [{"title": "摸底", "status": "pending"}]
+                }),
+            )
+            .expect_err("missing id must fail");
+        assert!(err.to_string().contains("missing id"), "{}", err);
+    }
+
+    #[test]
+    fn patch_rejects_stringified_milestones() {
+        let store = TaskBoardStore::new();
+        let key = "conv-patch-string";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "global_milestones": [
+                        {"id": "m1", "title": "One", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect("init");
+        let err = store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "milestones": "[{\"id\":\"m1\",\"status\":\"done\",\"remark\":\"ok\"}]"
+                }),
+            )
+            .expect_err("quoted patch array must fail");
+        let msg = err.to_string();
+        assert!(msg.contains("JSON array"), "{msg}");
+        assert!(msg.contains("string"), "{msg}");
     }
 
     #[test]
@@ -457,7 +574,7 @@ mod apply_tests {
                 &json!({
                     "goal": "g",
                     "global_context": { "key_findings": [finding] },
-                    "items": []
+                    "items": [{"id": "seed", "title": "seed", "status": "pending"}]
                 }),
             )
             .expect("init");
@@ -496,7 +613,7 @@ mod sqlite_tests {
                 "init",
                 &json!({
                     "goal": "g",
-                    "items": []
+                    "items": [{"id": "m1", "title": "Milestone", "status": "pending"}]
                 }),
             )
             .expect("init");

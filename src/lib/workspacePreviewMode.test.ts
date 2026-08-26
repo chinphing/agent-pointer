@@ -18,11 +18,14 @@ describe('workspace preview mode', () => {
     expect(workspaceRichPreviewKind('notes.md')).toBe('markdown')
     expect(workspaceRichPreviewKind('a.json')).toBe('json')
     expect(workspaceRichPreviewKind('b.jsonc')).toBe('json')
+    expect(workspaceRichPreviewKind('page.html')).toBe('html')
+    expect(workspaceRichPreviewKind('index.HTM')).toBe('html')
     expect(workspaceRichPreviewKind('main.ts')).toBeNull()
   })
 
-  it('keeps markdown always-ready and JSON parse-gated', () => {
+  it('keeps markdown and HTML always-ready and JSON parse-gated', () => {
     expect(workspaceRichPreviewAlwaysReady('markdown')).toBe(true)
+    expect(workspaceRichPreviewAlwaysReady('html')).toBe(true)
     expect(workspaceRichPreviewAlwaysReady('json')).toBe(false)
   })
 
@@ -31,6 +34,7 @@ describe('workspace preview mode', () => {
     expect(workspaceTextPreviewSurface('json', 'preview', false)).toBe('source')
     expect(workspaceTextPreviewSurface('json', 'source', true)).toBe('source')
     expect(workspaceTextPreviewSurface('markdown', 'preview', true)).toBe('markdown')
+    expect(workspaceTextPreviewSurface('html', 'preview', true)).toBe('html')
     expect(workspaceTextPreviewSurface(null, 'preview', true)).toBe('source')
   })
 })

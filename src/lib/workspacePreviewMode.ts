@@ -1,7 +1,7 @@
 export type WorkspacePreviewViewMode = 'source' | 'preview'
 
 /** Structured (non-source) text previews. Image / PDF / binary are a separate media path. */
-export type WorkspaceRichPreviewKind = 'markdown' | 'json'
+export type WorkspaceRichPreviewKind = 'markdown' | 'json' | 'html'
 
 export type WorkspaceTextPreviewSurface = WorkspaceRichPreviewKind | 'source'
 
@@ -17,7 +17,8 @@ export type WorkspaceRichPreviewDef = {
 
 export const WORKSPACE_RICH_PREVIEW_DEFS: readonly WorkspaceRichPreviewDef[] = [
   { kind: 'markdown', extensions: ['md'], previewAlwaysReady: true },
-  { kind: 'json', extensions: ['json', 'jsonc'], previewAlwaysReady: false }
+  { kind: 'json', extensions: ['json', 'jsonc'], previewAlwaysReady: false },
+  { kind: 'html', extensions: ['html', 'htm'], previewAlwaysReady: true }
 ]
 
 const RICH_KIND_BY_EXT = new Map<string, WorkspaceRichPreviewKind>()

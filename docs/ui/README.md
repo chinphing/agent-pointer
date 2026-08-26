@@ -23,6 +23,7 @@
 | [workspace-file-preview-mode.md](workspace-file-preview-mode.md) | 右侧工作区原文 / 预览共用模式（按扩展名注册） |
 | [workspace-file-preview-find.md](workspace-file-preview-find.md) | 右侧工作区文本预览查找（⌘/Ctrl+F、上下匹配） |
 | [workspace-file-preview-json.md](workspace-file-preview-json.md) | 右侧工作区 JSON 可折叠预览（挂在共用原文 / 预览上） |
+| [workspace-file-preview-html.md](workspace-file-preview-html.md) | 右侧工作区 HTML 沙箱预览（挂在共用原文 / 预览上） |
 | [workspace-panel-refresh.md](workspace-panel-refresh.md) | 右侧工作区打开 / 切会话 / 切 Tab 时的刷新约定；文件树查找 |
 | 轮次修改摘要 | 每轮页脚「修改了 N 个文件」，不在输入框上方。见 [`turn-change-summary.md`](turn-change-summary.md)；基线 Diff 见 [`../developer/turn-file-baseline-review.md`](../developer/turn-file-baseline-review.md) |
 | 侧边栏会话搜索 | 第二行展示命中关键词附近的 snippet；点击正文命中结果会定位到对应消息并短暂高亮。详见 [`../internals/sidebar-conversation-search.md`](../internals/sidebar-conversation-search.md) |

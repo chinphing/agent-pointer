@@ -54,6 +54,12 @@ vi.mock('../../stores/workspacePanel', () => ({
   })
 }))
 
+vi.mock('../../stores/console', () => ({
+  useConsoleStore: () => ({
+    tabs: []
+  })
+}))
+
 import WorkspacePanel from './WorkspacePanel.vue'
 
 const mountedApps: Array<ReturnType<typeof createApp>> = []
@@ -262,5 +268,28 @@ describe('WorkspacePanel Markdown references', () => {
       expect.objectContaining({ path: 'docs/missing.md' })
     )
     warn.mockRestore()
+  })
+
+  it('covers the panel while dragging the resize handle', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
+    mountedApps.push(app)
+    app.mount(host)
+    await settle()
+
+    const panel = host.querySelector('.workspace-panel')
+    const handle = host.querySelector('.workspace-resize-handle')
+    expect(panel).toBeTruthy()
+    expect(handle).toBeTruthy()
+    expect(panel?.classList.contains('is-resizing')).toBe(false)
+
+    handle?.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: 800, bubbles: true }))
+    await settle()
+    expect(panel?.classList.contains('is-resizing')).toBe(true)
+
+    window.dispatchEvent(new MouseEvent('mouseup', { button: 0, clientX: 760, bubbles: true }))
+    await settle()
+    expect(panel?.classList.contains('is-resizing')).toBe(false)
   })
 })

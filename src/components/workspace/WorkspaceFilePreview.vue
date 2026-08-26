@@ -41,6 +41,7 @@ import {
   findJsonPreviewMatches,
   parseJsonPreview
 } from '../../lib/workspaceJsonPreview'
+import { buildHtmlPreviewSrcdoc, HTML_PREVIEW_SANDBOX } from '../../lib/workspaceHtmlPreview'
 
 const FILE_PREVIEW_SEARCH_MARK_CLASS = 'file-preview-search-mark'
 
@@ -59,6 +60,7 @@ const emit = defineEmits<{
 const rootElement = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const markdownRoot = ref<HTMLElement | null>(null)
+const htmlFrame = ref<HTMLIFrameElement | null>(null)
 
 const wrapLines = ref(false)
 const copied = ref(false)
@@ -68,6 +70,7 @@ const searchOpen = ref(false)
 const searchQuery = ref('')
 const activeMatchIndex = ref(0)
 const markdownMatchCount = ref(0)
+const htmlMatchCount = ref(0)
 const mediaUrl = ref('')
 const mediaLoading = ref(false)
 const mediaError = ref('')
@@ -100,7 +103,8 @@ const richContentReady = computed(() => {
   if (!kind) return false
   const ready: Record<WorkspaceRichPreviewKind, boolean> = {
     markdown: true,
-    json: jsonPreview.value != null
+    json: jsonPreview.value != null,
+    html: true
   }
   return ready[kind]
 })
@@ -110,11 +114,15 @@ const textSurface = computed(() =>
 const showModeSwitch = computed(() => Boolean(richKind.value) && richContentReady.value)
 const showingMarkdownPreview = computed(() => textSurface.value === 'markdown')
 const showingJsonPreview = computed(() => textSurface.value === 'json')
+const showingHtmlPreview = computed(() => textSurface.value === 'html')
 const showingSource = computed(() => textSurface.value === 'source')
+const htmlPreviewSrcdoc = computed(() =>
+  showingHtmlPreview.value ? buildHtmlPreviewSrcdoc(content.value) : ''
+)
 const lines = computed(() => content.value.split('\n'))
 const canSearch = computed(() => !props.preview.binary && !isImage.value && !isPdf.value)
 const searchMatches = computed(() =>
-  canSearch.value && showingSource.value
+  canSearch.value && (showingSource.value || showingHtmlPreview.value)
     ? findFilePreviewMatches(content.value, searchQuery.value)
     : []
 )
@@ -206,6 +214,7 @@ const sizeLabel = computed(() => {
 })
 const matchTotal = computed(() => {
   if (showingMarkdownPreview.value) return markdownMatchCount.value
+  if (showingHtmlPreview.value) return searchMatches.value.length
   if (showingJsonPreview.value) return jsonSearchMatches.value.length
   return searchMatches.value.length
 })
@@ -282,6 +291,7 @@ function closeSearch() {
   searchQuery.value = ''
   activeMatchIndex.value = 0
   clearMarkdownSearchMarks()
+  clearHtmlSearchMarks()
 }
 
 function clearMarkdownSearchMarks() {
@@ -292,6 +302,59 @@ function clearMarkdownSearchMarks() {
 function markdownMatchElements(): HTMLElement[] {
   if (!markdownRoot.value) return []
   return Array.from(markdownRoot.value.querySelectorAll<HTMLElement>(`.${FILE_PREVIEW_SEARCH_MARK_CLASS}`))
+}
+
+function htmlPreviewBody(): HTMLElement | null {
+  const doc = htmlFrame.value?.contentDocument
+  return doc?.body ?? null
+}
+
+function clearHtmlSearchMarks() {
+  const body = htmlPreviewBody()
+  if (body) clearSearchTextMarks(body, FILE_PREVIEW_SEARCH_MARK_CLASS)
+  htmlMatchCount.value = 0
+}
+
+function htmlMatchElements(): HTMLElement[] {
+  const body = htmlPreviewBody()
+  if (!body) return []
+  return Array.from(body.querySelectorAll<HTMLElement>(`.${FILE_PREVIEW_SEARCH_MARK_CLASS}`))
+}
+
+function applyHtmlSearchHighlights() {
+  const body = htmlPreviewBody()
+  if (!body || !showingHtmlPreview.value || !searchOpen.value) return
+  const query = searchQuery.value.trim()
+  if (!query) {
+    clearSearchTextMarks(body, FILE_PREVIEW_SEARCH_MARK_CLASS)
+    htmlMatchCount.value = 0
+    activeMatchIndex.value = 0
+    return
+  }
+  const result = highlightSearchText(body, query, { markClass: FILE_PREVIEW_SEARCH_MARK_CLASS })
+  htmlMatchCount.value = result.count
+  if (result.count === 0) {
+    activeMatchIndex.value = 0
+    console.info('[WorkspaceFilePreview] No find matches in HTML preview')
+    return
+  }
+  if (activeMatchIndex.value >= result.count) activeMatchIndex.value = 0
+  syncHtmlActiveMatch()
+}
+
+function syncHtmlActiveMatch() {
+  const marks = htmlMatchElements()
+  marks.forEach((mark, index) => {
+    mark.classList.toggle('is-active-match', index === activeMatchIndex.value)
+  })
+  marks[activeMatchIndex.value]?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+function onHtmlPreviewLoad() {
+  const frame = htmlFrame.value
+  if (!frame) return
+  console.info('[WorkspaceFilePreview] HTML preview ready', props.preview.path)
+  applyHtmlSearchHighlights()
 }
 
 function applyMarkdownSearchHighlights() {
@@ -366,6 +429,13 @@ async function stepMatch(direction: 1 | -1) {
     syncMarkdownActiveMatch()
     return
   }
+  if (showingHtmlPreview.value) {
+    const marks = htmlMatchElements()
+    if (!marks.length) return
+    activeMatchIndex.value = (activeMatchIndex.value + direction + marks.length) % marks.length
+    syncHtmlActiveMatch()
+    return
+  }
   if (showingJsonPreview.value) {
     const matches = jsonSearchMatches.value
     if (!matches.length) return
@@ -406,7 +476,7 @@ function onGlobalEscape(event: KeyboardEvent) {
 }
 
 watch(searchMatches, async matches => {
-  if (showingMarkdownPreview.value || showingJsonPreview.value) return
+  if (showingMarkdownPreview.value || showingJsonPreview.value || showingHtmlPreview.value) return
   if (!matches.length) {
     activeMatchIndex.value = 0
     return
@@ -431,6 +501,18 @@ watch(jsonPreview, root => {
     console.info('[WorkspaceFilePreview] JSON tree ready', props.preview.path)
   }
 }, { immediate: true })
+
+watch(
+  [searchQuery, showingHtmlPreview, () => props.preview.content, searchOpen],
+  async () => {
+    if (!showingHtmlPreview.value || !searchOpen.value) {
+      clearHtmlSearchMarks()
+      return
+    }
+    await nextTick()
+    applyHtmlSearchHighlights()
+  }
+)
 
 watch(
   [searchQuery, showingMarkdownPreview, () => props.preview.content, searchOpen],
@@ -468,6 +550,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalFindShortcut, true)
   window.removeEventListener('keydown', onGlobalEscape)
   clearMarkdownSearchMarks()
+  clearHtmlSearchMarks()
 })
 </script>
 
@@ -593,6 +676,17 @@ onBeforeUnmount(() => {
         @toggle="toggleJsonNode"
       />
     </div>
+    <div v-else-if="showingHtmlPreview" class="file-preview-html">
+      <iframe
+        ref="htmlFrame"
+        class="file-preview-iframe"
+        :sandbox="HTML_PREVIEW_SANDBOX"
+        referrerpolicy="no-referrer"
+        :srcdoc="htmlPreviewSrcdoc"
+        title="HTML 预览"
+        @load="onHtmlPreviewLoad"
+      />
+    </div>
     <div v-else class="file-preview-scroll">
       <div class="file-preview-code" :class="wrapLines && 'wrap-lines'">
         <div
@@ -686,5 +780,6 @@ html.light .token-keyword { color: #0000ff; }
 .file-preview-empty strong { @apply text-foreground; }
 .file-preview-media { @apply flex-1 min-h-0 flex items-center justify-center overflow-auto; }
 .file-preview-media img { @apply max-w-full max-h-full object-contain; }
+.file-preview-html { @apply flex-1 min-h-0 flex flex-col bg-white; }
 .file-preview-iframe { @apply w-full h-full border-0; }
 </style>

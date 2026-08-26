@@ -24,4 +24,4 @@
 
 - `src/lib/workspacePreviewMode.ts`（注册表、扩展名、当前应显示原文还是哪种预览）
 - `src/components/workspace/WorkspaceFilePreview.vue`（单一 `viewMode`、工具栏、按 surface 渲染）
-- 各格式渲染：Markdown 在预览组件内；JSON 见 [workspace-file-preview-json.md](workspace-file-preview-json.md)
+- 各格式渲染：Markdown 在预览组件内；JSON 见 [workspace-file-preview-json.md](workspace-file-preview-json.md)；HTML 见 [workspace-file-preview-html.md](workspace-file-preview-html.md)

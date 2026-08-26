@@ -157,4 +157,32 @@ describe('WorkspaceFilePreview', () => {
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
+
+  it('uses one source/preview switch for HTML', async () => {
+    const host = mountPreview({
+      preview: {
+        path: 'page.html',
+        content: '<h1>Hello</h1>',
+        sizeBytes: 15,
+        truncated: false,
+        binary: false
+      },
+      absolutePath: '/workspace/page.html'
+    })
+    await nextTick()
+
+    expect(host.querySelectorAll('.file-preview-mode-switch')).toHaveLength(1)
+    const iframe = host.querySelector('.file-preview-html iframe') as HTMLIFrameElement | null
+    expect(iframe).toBeTruthy()
+    expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts allow-modals')
+    expect(iframe?.srcdoc || iframe?.getAttribute('srcdoc') || '').toContain('<h1>Hello</h1>')
+    expect(iframe?.srcdoc || iframe?.getAttribute('srcdoc') || '').toContain('charset="utf-8"')
+
+    const sourceButton = [...host.querySelectorAll('.file-preview-mode-switch button')]
+      .find(button => button.textContent === '原文') as HTMLButtonElement
+    sourceButton.click()
+    await nextTick()
+    expect(host.querySelector('.file-preview-html iframe')).toBeNull()
+    expect(host.querySelector('.file-preview-line-number')).toBeTruthy()
+  })
 })

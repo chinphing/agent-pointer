@@ -45,6 +45,10 @@ import {
 } from '../../lib/workspacePanel'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import {
+  visibleIframeOffsetWidth,
+  WORKSPACE_IFRAME_FREEZE_WIDTH_VAR
+} from '../../lib/workspaceHtmlPreview'
+import {
   filterPreviewTabsForConversation,
   workspaceActiveAfterClose,
   workspacePreviewTabId,
@@ -168,6 +172,10 @@ let treeSearchSeq = 0
 let treeSearchDebounce: ReturnType<typeof setTimeout> | null = null
 let resizeStartX = 0
 let resizeStartWidth = 0
+let resizeClientX = 0
+let resizeRaf = 0
+let resizeSavedBodyCursor = ''
+const iframeFreezeWidthPx = ref<number | null>(null)
 
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'])
 
@@ -182,6 +190,9 @@ const hasWorkspace = computed(() => !!props.workspaceRoot.trim())
 const workspaceName = computed(() => props.workspaceRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || props.workspaceRoot)
 const panelStyle = computed(() => ({
   width: `${panelWidth.value}px`,
+  ...(iframeFreezeWidthPx.value != null
+    ? { [WORKSPACE_IFRAME_FREEZE_WIDTH_VAR]: `${iframeFreezeWidthPx.value}px` }
+    : {}),
   ...(isFullscreen.value ? { paddingBottom: `${FULLSCREEN_BOTTOM_PAD_PX}px` } : {})
 }))
 const activePreviewTab = computed(() => previewTabs.value.find(item => item.id === activeView.value) ?? null)
@@ -652,21 +663,47 @@ function beginResize(event: MouseEvent) {
   event.preventDefault()
   resizing.value = true
   resizeStartX = event.clientX
+  resizeClientX = event.clientX
   resizeStartWidth = panelWidth.value
+  const freezeWidth = visibleIframeOffsetWidth(panelRoot.value)
+  iframeFreezeWidthPx.value = freezeWidth
+  if (freezeWidth != null) {
+    console.info('[WorkspacePanel] Freeze preview iframe during panel resize', freezeWidth)
+  }
+  resizeSavedBodyCursor = document.body.style.cursor
+  document.body.style.cursor = 'col-resize'
   window.addEventListener('mousemove', resizePanel)
   window.addEventListener('mouseup', finishResize)
+  window.addEventListener('blur', finishResize)
+}
+
+function applyPendingResizeWidth() {
+  panelWidth.value = clampWorkspacePanelWidth(resizeStartWidth + resizeStartX - resizeClientX)
 }
 
 function resizePanel(event: MouseEvent) {
-  panelWidth.value = clampWorkspacePanelWidth(resizeStartWidth + resizeStartX - event.clientX)
+  resizeClientX = event.clientX
+  if (resizeRaf) return
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0
+    applyPendingResizeWidth()
+  })
 }
 
 function finishResize() {
   if (!resizing.value) return
   resizing.value = false
+  if (resizeRaf) {
+    cancelAnimationFrame(resizeRaf)
+    resizeRaf = 0
+  }
+  applyPendingResizeWidth()
+  iframeFreezeWidthPx.value = null
+  document.body.style.cursor = resizeSavedBodyCursor
   localStorage.setItem(WIDTH_STORAGE_KEY, String(panelWidth.value))
   window.removeEventListener('mousemove', resizePanel)
   window.removeEventListener('mouseup', finishResize)
+  window.removeEventListener('blur', finishResize)
 }
 
 function handleViewportResize() {
@@ -1468,7 +1505,23 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.workspace-panel.is-resizing { @apply select-none; }
+.workspace-panel.is-resizing { @apply select-none cursor-col-resize; }
+.workspace-panel.is-resizing::before {
+  content: '';
+  @apply absolute inset-0 z-[15];
+  cursor: col-resize;
+}
+.workspace-panel.is-resizing :deep(.file-preview-html) {
+  overflow: hidden;
+}
+.workspace-panel.is-resizing :deep(.file-preview-iframe) {
+  /* Keep in sync with WORKSPACE_IFRAME_FREEZE_WIDTH_VAR */
+  pointer-events: none;
+  width: var(--workspace-iframe-freeze-width, 100%);
+  min-width: var(--workspace-iframe-freeze-width, 100%);
+  max-width: none;
+  flex-shrink: 0;
+}
 .workspace-scroll-area { scrollbar-gutter: stable; }
 .workspace-tabs-bar { @apply flex shrink-0 min-w-0 border-b border-border; }
 .workspace-preview-tabs { @apply flex min-w-0 flex-1 overflow-x-auto; scrollbar-width: thin; }

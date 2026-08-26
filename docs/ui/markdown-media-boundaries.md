@@ -80,4 +80,6 @@
 - **Chart fence** = 数据可视化  
 - **`html` fence** = 定宽 / 着色表格等排版补丁  
 
+工作区打开 **`.html` / `.htm` 文件** 走另一套沙箱预览，不是聊天里的 `html` fence。见 [workspace-file-preview-html.md](workspace-file-preview-html.md)。  
+
 实现：[`src/lib/markdownConfig.ts`](../../src/lib/markdownConfig.ts)、[`src/lib/markdownHtml.ts`](../../src/lib/markdownHtml.ts)、[`src/styles/globals.css`](../../src/styles/globals.css)。

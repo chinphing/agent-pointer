@@ -9,6 +9,7 @@
 - **Enter** 下一个、**Shift+Enter** 上一个、**Esc** 关闭
 - 源码视图：高亮每次出现并滚动到当前项
 - Markdown 预览：在渲染正文中高亮并导航
+- HTML 预览：按源码文本计命中（脚本沙箱跨源，无法在页面里高亮）；切到原文可看行内高亮
 - JSON 预览：搜键名和值；命中会展开祖先（见 [workspace-file-preview-json.md](workspace-file-preview-json.md)）
 - 图片 / PDF / 二进制预览不提供查找
 

@@ -579,18 +579,29 @@ export function truncateToolSummary(text: string, maxLen = 52): string {
   return `${t.slice(0, maxLen - 1)}…`
 }
 
+/** Keep the filename when a path is too long for a one-line status string. */
+export function truncatePathKeepEnd(text: string, maxLen = 52): string {
+  const t = text.trim()
+  if (t.length <= maxLen) return t
+  return `…${t.slice(-(maxLen - 1))}`
+}
+
 function toolInProgress(status: ToolCall['status']): boolean {
   return status === 'running' || status === 'pending' || status === 'pending_approval'
 }
 
 /** One-line tool status for compact dock bar (aligns with ToolCallRow label + summary + outcome). */
-export function compactToolCallStatusLine(tc: ToolCall): string {
+export function compactToolCallStatusLine(tc: ToolCall, workspaceRoot?: string): string {
   const label = effectiveToolDisplayLabel(tc)
-  let summary = effectiveToolDisplaySummary(tc)
+  const filePath = fileToolDisplayPath(tc, workspaceRoot)
+  let summary = filePath
+  if (!summary) summary = effectiveToolDisplaySummary(tc)
   if (!summary) {
     summary = taskBoardPatchSummaryFromArgs(tc.arguments)?.trim() ?? ''
   }
-  if (summary) summary = truncateToolSummary(summary)
+  if (summary) {
+    summary = filePath ? truncatePathKeepEnd(summary) : truncateToolSummary(summary)
+  }
 
   const parts: string[] = []
   parts.push(summary ? `${label} · ${summary}` : label)

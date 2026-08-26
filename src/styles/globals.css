@@ -357,6 +357,14 @@
   .tool-call-trigger:hover .tool-call-chevron {
     display: inline-flex;
   }
+  /* Prefer the tail (filename) when a path is wider than the row. */
+  .ellipsis-start {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    text-align: left;
+  }
   .tool-block-shell {
     @apply pt-2 mt-4 mb-0 pb-0;
   }

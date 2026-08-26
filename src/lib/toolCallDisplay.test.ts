@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatToolDurationLabel, latestToolCallForCompactStatus, resolveToolDisplayForCall, workspaceRelativeDisplayPath } from './toolCallDisplay'
+import { buildFileChangeSummaries, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatToolDurationLabel, latestToolCallForCompactStatus, resolveToolDisplayForCall, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -200,6 +200,27 @@ describe('workspace-relative file tool paths', () => {
         'C:\\project\\pointer-app'
       )
     ).toBe('')
+  })
+
+  it('keeps the filename when a tool-row path is too long', () => {
+    const path = 'scripts/cwpt/flows/travel_reimburse/standard_query.py'
+    expect(truncatePathKeepEnd(path, 40)).toBe('…lows/travel_reimburse/standard_query.py')
+    expect(truncatePathKeepEnd(path, 40).endsWith('standard_query.py')).toBe(true)
+    const line = compactToolCallStatusLine(
+      tc({
+        id: 'path-3',
+        name: 'file_edit',
+        status: 'success',
+        displayLabel: '编辑文件',
+        arguments: JSON.stringify({
+          path: '/tmp/project/scripts/cwpt/flows/travel_reimburse/standard_query.py'
+        })
+      }),
+      '/tmp/project'
+    )
+    expect(line.startsWith('编辑文件 · ')).toBe(true)
+    expect(line.endsWith('standard_query.py')).toBe(true)
+    expect(line).not.toContain('scripts/cwpt/flows/travel_reimburse/standard_query.py')
   })
 })
 

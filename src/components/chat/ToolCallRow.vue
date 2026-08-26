@@ -67,9 +67,11 @@ const boardSummary = computed(() => {
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
 const durationLabel = computed(() => formatToolDurationLabel(props.toolCall.durationMs))
+const filePathSummary = computed(() =>
+  fileToolDisplayPath(props.toolCall, chat.current?.workspaceRoot)
+)
 const displaySummary = computed(() => {
-  const filePath = fileToolDisplayPath(props.toolCall, chat.current?.workspaceRoot)
-  if (filePath) return truncateToolSummary(filePath)
+  if (filePathSummary.value) return filePathSummary.value
   const s = effectiveToolDisplaySummary(props.toolCall)
   if (s) return s
   if (showResults.value) {
@@ -327,7 +329,7 @@ function openSourceUrl(url: string) {
 
 <template>
   <div
-    class="tool-call-row transition-colors"
+    class="tool-call-row min-w-0 w-full max-w-full transition-colors"
     :data-tool-call-id="toolCall.id"
     :class="isActiveSearchMatch
       ? 'rounded-lg ring-2 ring-accent/60 bg-accent/10'
@@ -338,12 +340,19 @@ function openSourceUrl(url: string) {
     <div class="flex max-w-full items-center gap-1.5 min-w-0">
       <button
         type="button"
-        class="tool-call-trigger py-1 flex max-w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
+        class="tool-call-trigger py-1 flex min-w-0 flex-1 items-center gap-x-1.5 overflow-hidden text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
         @click="open = !open"
       >
         <Wrench class="w-3 h-3 text-muted/70 shrink-0" />
         <span class="shrink-0">{{ displayLabel }}</span>
-        <span v-if="displaySummary" class="min-w-0 break-words">· {{ displaySummary }}</span>
+        <template v-if="filePathSummary">
+          <span class="shrink-0">·</span>
+          <span
+            class="ellipsis-start min-w-0"
+            :title="filePathSummary"
+          >{{ filePathSummary }}&lrm;</span>
+        </template>
+        <span v-else-if="displaySummary" class="min-w-0 break-words">· {{ displaySummary }}</span>
         <span
           v-if="terminalElevated"
           class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"

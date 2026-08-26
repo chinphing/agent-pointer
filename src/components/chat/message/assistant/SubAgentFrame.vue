@@ -186,7 +186,7 @@ const summaryLine = computed(() => {
       ?? []
     const latest = latestToolCallForCompactStatus(calls)
     if (latest) {
-      return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)} · ${compactToolCallStatusLine(latest)}`
+      return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)} · ${compactToolCallStatusLine(latest, chatStore.current?.workspaceRoot)}`
     }
   }
   const stats =

@@ -162,13 +162,6 @@ function onHeaderClick(): void {
   font-size: 12px;
   white-space: nowrap;
 }
-.ellipsis-start {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-}
 .change-summary-header {
   grid-column: 1;
   min-width: 0;

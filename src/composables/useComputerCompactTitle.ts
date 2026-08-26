@@ -145,19 +145,19 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
     const body = streamBodyFromMessage(conv, msg)
 
     const computerTool = latestToolCallForCompactStatus(visibleComputerToolCalls(conv, msg))
-    if (computerTool) return compactToolCallStatusLine(computerTool)
+    if (computerTool) return compactToolCallStatusLine(computerTool, conv?.workspaceRoot)
 
     const plannerTool = latestToolCallForCompactStatus(planningToolCalls(msg))
     if (plannerTool && toolCallInProgress(plannerTool.status)) {
-      return compactToolCallStatusLine(plannerTool)
+      return compactToolCallStatusLine(plannerTool, conv?.workspaceRoot)
     }
 
     if (isPlannerPhaseThoughts(body.thoughts)) {
-      if (plannerTool) return compactToolCallStatusLine(plannerTool)
+      if (plannerTool) return compactToolCallStatusLine(plannerTool, conv?.workspaceRoot)
       return PLANNER_PHASE_THOUGHTS
     }
 
-    if (plannerTool) return compactToolCallStatusLine(plannerTool)
+    if (plannerTool) return compactToolCallStatusLine(plannerTool, conv?.workspaceRoot)
 
     if (planSummary.value) return '准备执行…'
 

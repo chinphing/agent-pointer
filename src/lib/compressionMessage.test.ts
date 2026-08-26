@@ -61,6 +61,10 @@ describe('isParentThreadCompressionProgress', () => {
   it('does not park a sub-agent cut on the parent process list', () => {
     expect(isParentThreadCompressionProgress({ scope: 'sub_agent' })).toBe(false)
   })
+
+  it('rejects a missing progress state', () => {
+    expect(isParentThreadCompressionProgress(null)).toBe(false)
+  })
 })
 
 describe('buildCompressionNoticeContent', () => {

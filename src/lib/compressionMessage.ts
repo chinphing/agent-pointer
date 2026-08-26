@@ -55,9 +55,9 @@ export function buildCompressionProgressLabel(info: {
 }
 
 /** Parent turn list only places the lead-thread cut. Sub-agent cuts belong in SubAgentFrame. */
-export function isParentThreadCompressionProgress(info: {
-  scope?: string
-} | null | undefined): boolean {
+export function isParentThreadCompressionProgress<T extends { scope?: string }>(
+  info: T | null | undefined
+): info is T {
   if (!info) return false
   const scope = info.scope?.trim() || 'main'
   return scope !== 'sub_agent'

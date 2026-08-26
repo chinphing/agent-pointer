@@ -3,6 +3,7 @@ import {
   buildCompressionNoticeContent,
   buildCompressionProgressLabel,
   isInRunCompressionSummaryMessage,
+  isParentThreadCompressionProgress,
   isPrefixCompressionSummaryMessage
 } from './compressionMessage'
 
@@ -39,6 +40,26 @@ describe('buildCompressionProgressLabel', () => {
     expect(
       buildCompressionProgressLabel({ scope: 'sub_agent', subAgentName: 'explore' })
     ).toBe('explore 子任务内正在压缩较早记录')
+  })
+
+  it('uses parent-thread copy inside the sub-agent frame', () => {
+    expect(
+      buildCompressionProgressLabel({
+        scope: 'sub_agent',
+        subAgentName: 'explore',
+        inSubAgentFrame: true
+      })
+    ).toBe('正在压缩较早记录')
+  })
+})
+
+describe('isParentThreadCompressionProgress', () => {
+  it('keeps the lead-thread marker on the parent list', () => {
+    expect(isParentThreadCompressionProgress({ scope: 'main' })).toBe(true)
+  })
+
+  it('does not park a sub-agent cut on the parent process list', () => {
+    expect(isParentThreadCompressionProgress({ scope: 'sub_agent' })).toBe(false)
   })
 })
 

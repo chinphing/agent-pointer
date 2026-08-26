@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { Conversation } from '../types/chat'
 import {
   buildSubAgentBodyModelsFromScoped,
+  buildSubAgentBodyModelsSplitAtCut,
   computeSubAgentStatsFromMessages,
   ensureScopedChildMessage,
   isSubAgentHostStubContent,
   rehydrateAgentTracesFromScopedMessages,
   scopedAssistantMessagesForTrace,
-  scopedMessagesForTrace
+  scopedMessagesForTrace,
+  subAgentFrameOwnsCompression
 } from './subAgentMessages'
 import { formatSubAgentSummaryLine } from './subAgentStats'
 
@@ -247,6 +249,113 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
     expect(bodies[0].content).toBe('微信已成功打开。')
     expect(bodies[0].toolCalls).toHaveLength(1)
     expect(isSubAgentHostStubContent(messages[0].content)).toBe(true)
+  })
+
+  it('splits process bodies at the keep-window cut', () => {
+    const messages = [
+      {
+        id: 'dropped',
+        role: 'assistant' as const,
+        content: '',
+        status: 'done' as const,
+        createdAt: 1,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        toolCalls: [{ id: 't1', name: 'skill_read', arguments: '{}', status: 'success' as const }]
+      },
+      {
+        id: 'keep',
+        role: 'assistant' as const,
+        content: '',
+        status: 'done' as const,
+        createdAt: 2,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        toolCalls: [{ id: 't2', name: 'skill_edit', arguments: '{}', status: 'success' as const }]
+      }
+    ]
+    const split = buildSubAgentBodyModelsSplitAtCut(
+      messages,
+      'lead',
+      'task:explore',
+      'keep',
+      'running'
+    )
+    expect(split.cutFound).toBe(true)
+    expect(split.before[0]?.toolCalls?.map(tc => tc.id)).toEqual(['t1'])
+    expect(split.after[0]?.toolCalls?.map(tc => tc.id)).toEqual(['t2'])
+  })
+
+  it('keeps all process rows before the marker when the cut id is missing', () => {
+    const messages = [
+      {
+        id: 'a1',
+        role: 'assistant' as const,
+        content: '',
+        status: 'done' as const,
+        createdAt: 1,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        toolCalls: [{ id: 't1', name: 'skill_read', arguments: '{}', status: 'success' as const }]
+      }
+    ]
+    const split = buildSubAgentBodyModelsSplitAtCut(
+      messages,
+      'lead',
+      'task:explore',
+      'missing-keep',
+      'running'
+    )
+    expect(split.cutFound).toBe(false)
+    expect(split.after).toEqual([])
+    expect(split.before[0]?.toolCalls?.map(tc => tc.id)).toEqual(['t1'])
+  })
+
+  it('owns compression only for the trace that contains the cut', () => {
+    const messages = [
+      {
+        id: 'keep',
+        role: 'assistant' as const,
+        content: '',
+        status: 'done' as const,
+        createdAt: 1,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        agentInstanceId: 'inst-a'
+      },
+      {
+        id: 'other',
+        role: 'assistant' as const,
+        content: '',
+        status: 'done' as const,
+        createdAt: 2,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        agentInstanceId: 'inst-b'
+      }
+    ]
+    const state = {
+      scope: 'sub_agent',
+      insertBeforeMessageId: 'keep',
+      messageId: 'lead',
+      subAgentId: 'explore'
+    }
+    expect(
+      subAgentFrameOwnsCompression(state, {
+        messages,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        agentInstanceId: 'inst-a'
+      })
+    ).toBe(true)
+    expect(
+      subAgentFrameOwnsCompression(state, {
+        messages,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        agentInstanceId: 'inst-b'
+      })
+    ).toBe(false)
   })
 
   it('counts tool stats from persisted pending status when tool result row exists', () => {

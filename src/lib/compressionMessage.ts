@@ -44,10 +44,21 @@ export function buildCompressionNoticeContent(info: ContextCompressionInfo): str
 export function buildCompressionProgressLabel(info: {
   scope?: string
   subAgentName?: string | null
+  /** Marker already sits inside that sub-agent frame — same copy as the parent thread. */
+  inSubAgentFrame?: boolean
 }): string {
-  if (info.scope === 'sub_agent') {
+  if (info.scope === 'sub_agent' && !info.inSubAgentFrame) {
     const name = info.subAgentName?.trim() || '子 Agent'
     return `${name} 子任务内正在压缩较早记录`
   }
   return '正在压缩较早记录'
+}
+
+/** Parent turn list only places the lead-thread cut. Sub-agent cuts belong in SubAgentFrame. */
+export function isParentThreadCompressionProgress(info: {
+  scope?: string
+} | null | undefined): boolean {
+  if (!info) return false
+  const scope = info.scope?.trim() || 'main'
+  return scope !== 'sub_agent'
 }

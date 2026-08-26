@@ -239,6 +239,10 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 压缩开始摘要 LLM 时发送 **`context_compression_started`**（不落库），
 带切分点 `insertBeforeMessageId`。进行中灰字插在该消息之前。
 
+- **主会话**：切点在 lead 消息列表里，标记插进父回合过程区。
+- **子 Agent**：切点在隔离 `local_history`（与 scoped 子消息同 id），
+  标记插进对应 `SubAgentFrame` 过程区，不画到外层「委派子任务」旁边。
+
 摘要行落在切分点（保留区第一条之前）。前端按记录的 `insertBeforeMessageId` 插入，
 不把切点从 tool/glue 扫到下一条可见回复。
 

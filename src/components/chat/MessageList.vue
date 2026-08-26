@@ -10,7 +10,11 @@ import ContextCompressingMarker from './message/ContextCompressingMarker.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
 import ChangeSummary from './ChangeSummary.vue'
 import { useChatStore } from '../../stores/chat'
-import { buildCompressionProgressLabel } from '../../lib/compressionMessage'
+import {
+  buildCompressionProgressLabel,
+  isCompressionSummaryMessage,
+  isParentThreadCompressionProgress
+} from '../../lib/compressionMessage'
 import { useSettingsStore } from '../../stores/settings'
 import { uiForMessageAgent, useAgentsCatalog } from '../../composables/useAgentUi'
 import { visibleToolCalls } from '../../lib/messageTooling'
@@ -19,7 +23,6 @@ import {
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
-import { isCompressionSummaryMessage } from '../../lib/compressionMessage'
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import {
@@ -113,7 +116,7 @@ provide('currentConversationActiveToolCallId', computed(() => props.activeSearch
 
 const contextCompressingLabel = computed(() => {
   const state = chat.contextCompressing
-  if (!state) return ''
+  if (!isParentThreadCompressionProgress(state)) return ''
   return buildCompressionProgressLabel(state)
 })
 

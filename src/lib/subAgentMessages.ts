@@ -3,7 +3,8 @@ import type { AgentTrace, ChatMessage, Conversation, SubAgentToolStats } from '.
 import { toolCallBaseName } from './messageTooling'
 import {
   emptySubAgentToolStats,
-  incrementSubAgentToolStats
+  incrementSubAgentToolStats,
+  subAgentIdFromTraceId
 } from './subAgentStats'
 
 export function isScopedSubMessage(msg: ChatMessage): boolean {
@@ -145,6 +146,95 @@ export function buildSubAgentBodyModelsFromScoped(
   )
   const merged = mergeScopedAssistantMessagesForDisplay(scoped, traceStatus)
   return merged ? [merged] : []
+}
+
+function sortedScopedMessagesForTrace(
+  messages: ChatMessage[],
+  anchorMessageId: string,
+  traceId: string,
+  agentInstanceId?: string
+): ChatMessage[] {
+  return scopedMessagesForTrace(messages, anchorMessageId, traceId, agentInstanceId)
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+}
+
+/**
+ * Split sub-agent process bodies at the compression keep-window cut
+ * (same insert-before id the parent thread uses).
+ */
+export function buildSubAgentBodyModelsSplitAtCut(
+  messages: ChatMessage[],
+  anchorMessageId: string,
+  traceId: string,
+  insertBeforeMessageId: string | undefined,
+  traceStatus?: string,
+  agentInstanceId?: string
+): { before: AgentMessageBodyModel[]; after: AgentMessageBodyModel[]; cutFound: boolean } {
+  const all = sortedScopedMessagesForTrace(
+    messages,
+    anchorMessageId,
+    traceId,
+    agentInstanceId
+  )
+  const cut = insertBeforeMessageId?.trim() ?? ''
+  const cutIdx = cut ? all.findIndex(m => m.id === cut) : -1
+  if (cutIdx < 0) {
+    const merged = mergeScopedAssistantMessagesForDisplay(
+      all.filter(m => m.role === 'assistant'),
+      traceStatus
+    )
+    return { before: merged ? [merged] : [], after: [], cutFound: false }
+  }
+  const beforeMerged = mergeScopedAssistantMessagesForDisplay(
+    all.slice(0, cutIdx).filter(m => m.role === 'assistant'),
+    traceStatus
+  )
+  const afterMerged = mergeScopedAssistantMessagesForDisplay(
+    all.slice(cutIdx).filter(m => m.role === 'assistant'),
+    traceStatus
+  )
+  return {
+    before: beforeMerged ? [beforeMerged] : [],
+    after: afterMerged ? [afterMerged] : [],
+    cutFound: true
+  }
+}
+
+export function subAgentFrameOwnsCompression(
+  state: {
+    scope?: string
+    insertBeforeMessageId?: string
+    messageId?: string
+    subAgentId?: string
+  } | null | undefined,
+  args: {
+    messages: ChatMessage[]
+    anchorMessageId: string
+    traceId: string
+    agentInstanceId?: string
+  }
+): boolean {
+  if (!state || state.scope !== 'sub_agent') return false
+  const cut = state.insertBeforeMessageId?.trim() ?? ''
+  const scoped = scopedMessagesForTrace(
+    args.messages,
+    args.anchorMessageId,
+    args.traceId,
+    args.agentInstanceId
+  )
+  if (cut) {
+    if (scoped.some(m => m.id === cut)) return true
+    const cutInOtherScoped = args.messages.some(
+      m => isScopedSubMessage(m) && m.id === cut
+    )
+    if (cutInOtherScoped) return false
+  }
+  const anchor = state.messageId?.trim() ?? ''
+  if (anchor && anchor !== args.anchorMessageId.trim()) return false
+  const agent = state.subAgentId?.trim() ?? ''
+  if (agent && agent !== subAgentIdFromTraceId(args.traceId)) return false
+  return true
 }
 
 export function latestSubAgentBodyModelFromScoped(

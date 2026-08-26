@@ -75,6 +75,7 @@
 
 - 事件：`context_compression_started` → 会话 run state 的 `contextCompressing`。
 - 展示：插在摘要切分点（`insertBeforeMessageId` 之前），工具行样式（`ContextCompressingMarker`），含旋转「压缩中」。切点在过程行上时，收缩态不把标记挪到最终回复前（随「工作」隐藏）。找不到切分消息时回退到当前回合或列表末尾。
+- **子 Agent**：切点在子任务隔离历史上，标记画在对应 `SubAgentFrame` 过程区同一位置，不作为与「委派子任务」同级的外层过程行。不自动展开子任务框；收缩时随过程一起隐藏（与主会话切点在过程行上时相同）。切点 id 尚未进 UI 时落在该子任务过程末尾。框内文案与主会话相同（「正在压缩较早记录」）。
 - 隐藏：`context_compression_applied` / `context_compressed`，或停止 / `done` / `error` 清 run state。
 - **不**写入聊天记录，**不**进入模型上下文。详见 [`../internals/context-compression.md`](../internals/context-compression.md)。
 - **超限重试**：`MessageStart` 之后 LLM 400 再同步压缩时，必须先 `message_end` 关掉空壳，再开新的 `MessageStart`。否则旧行一直 `streaming`，界面停在「思考中.」。新的 `message_start` 也会把同会话里其它空的 streaming 壳收掉。

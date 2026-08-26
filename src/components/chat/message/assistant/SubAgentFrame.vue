@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight, Code } from 'lucide-vue-next'
 import type { AgentTrace, ChatMessage, TaskBoardDocument } from '../../../../types/chat'
 import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
+import { buildCompressionProgressLabel } from '../../../../lib/compressionMessage'
 import {
   formatSubAgentSummaryLine,
   subAgentIdFromTraceId,
@@ -10,13 +11,16 @@ import {
 } from '../../../../lib/subAgentStats'
 import {
   buildSubAgentBodyModelsFromScoped,
+  buildSubAgentBodyModelsSplitAtCut,
   buildToolRawArgsFromMessages,
   computeSubAgentStatsFromMessages,
   latestSubAgentBodyModelFromScoped,
   scopedAssistantMessagesForTrace,
   scopedMessagesForTrace,
+  subAgentFrameOwnsCompression,
   subTraceHasVisibleActivityFromMessages
 } from '../../../../lib/subAgentMessages'
+import { useChatStore } from '../../../../stores/chat'
 import {
   subTraceHasVisibleActivity,
   isSubTraceUiCollapsed,
@@ -30,6 +34,7 @@ import { thinkingLabel, streamedCharCountFromBody } from '../../../../lib/thinki
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
+import ContextCompressingMarker from '../ContextCompressingMarker.vue'
 import RawWirePanel from './RawWirePanel.vue'
 import TaskBoardPanel from '../../TaskBoardPanel.vue'
 
@@ -56,6 +61,7 @@ const props = defineProps<{
 
 const settingsStore = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
+const chatStore = useChatStore()
 const traceLabel = computed(() =>
   traceAgentLabel(props.trace, agentsCatalog.value, settingsStore.settings)
 )
@@ -87,6 +93,23 @@ const scopedTraceMessages = computed(() =>
 const legacySession = computed(() => props.trace.session)
 
 const isRunning = computed(() => props.trace.status === 'running')
+
+const ownsCompression = computed(() =>
+  subAgentFrameOwnsCompression(chatStore.contextCompressing, {
+    messages: props.messages,
+    anchorMessageId: effectiveAnchorId.value,
+    traceId: props.trace.id,
+    agentInstanceId: props.trace.agentInstanceId
+  })
+)
+
+const compressionProgressLabel = computed(() => {
+  if (!ownsCompression.value) return ''
+  return buildCompressionProgressLabel({
+    ...chatStore.contextCompressing,
+    inSubAgentFrame: true
+  })
+})
 
 const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
 
@@ -178,7 +201,25 @@ const summaryLine = computed(() => {
   )
 })
 
-const bodyModels = computed((): AgentMessageBodyModel[] => {
+const processBodies = computed((): {
+  before: AgentMessageBodyModel[]
+  after: AgentMessageBodyModel[]
+  showMarker: boolean
+} => {
+  const showMarker = ownsCompression.value && !!compressionProgressLabel.value
+  if (showMarker) {
+    const split = buildSubAgentBodyModelsSplitAtCut(
+      props.messages,
+      effectiveAnchorId.value,
+      props.trace.id,
+      chatStore.contextCompressing?.insertBeforeMessageId,
+      props.trace.status,
+      props.trace.agentInstanceId
+    )
+    if (split.before.length > 0 || split.after.length > 0) {
+      return { before: split.before, after: split.after, showMarker: true }
+    }
+  }
   const scoped = buildSubAgentBodyModelsFromScoped(
     props.messages,
     effectiveAnchorId.value,
@@ -186,25 +227,36 @@ const bodyModels = computed((): AgentMessageBodyModel[] => {
     props.trace.status,
     props.trace.agentInstanceId
   )
-  if (scoped.length > 0) return scoped
+  if (scoped.length > 0) {
+    return { before: scoped, after: [], showMarker }
+  }
   const s = legacySession.value
-  if (!s) return []
-  return [
-    {
-      thoughts: s.thoughts,
-      toolNamePreview: s.toolNamePreview,
-      responseTextDraft: s.responseTextDraft,
-      reasoning: s.reasoning,
-      rawContent: s.rawContent,
-      content: undefined,
-      contentStreaming: s.contentStreaming === true,
-      toolCalls: s.toolCalls,
-      status: props.trace.status === 'failed' ? 'error' : isRunning.value ? 'streaming' : 'done',
-      createdAt: props.createdAt,
-      errorMessage: props.trace.status === 'failed' ? props.trace.detail : undefined
-    }
-  ]
+  if (!s) return { before: [], after: [], showMarker }
+  return {
+    before: [
+      {
+        thoughts: s.thoughts,
+        toolNamePreview: s.toolNamePreview,
+        responseTextDraft: s.responseTextDraft,
+        reasoning: s.reasoning,
+        rawContent: s.rawContent,
+        content: undefined,
+        contentStreaming: s.contentStreaming === true,
+        toolCalls: s.toolCalls,
+        status: props.trace.status === 'failed' ? 'error' : isRunning.value ? 'streaming' : 'done',
+        createdAt: props.createdAt,
+        errorMessage: props.trace.status === 'failed' ? props.trace.detail : undefined
+      }
+    ],
+    after: [],
+    showMarker
+  }
 })
+
+const bodyModels = computed((): AgentMessageBodyModel[] => [
+  ...processBodies.value.before,
+  ...processBodies.value.after
+])
 
 const subFrameActive = computed(
   () => props.generating && props.isActiveGenerationMessage && isRunning.value
@@ -319,15 +371,30 @@ const statusClass = computed(() =>
       </div>
 
       <AgentMessageBody
-        v-for="(body, index) in bodyModels"
-        :key="`${trace.id}-${index}`"
+        v-for="(body, index) in processBodies.before"
+        :key="`${trace.id}-before-${index}`"
         :body="body"
         :message-ui="messageUi"
         hide-response
         hide-copy
         :thoughts-debug-enabled="thoughtsDebugEnabled"
         :generating="generating"
-        :is-active-generation-message="subFrameActive && index === activeBodyIndex"
+        :is-active-generation-message="subFrameActive && processBodies.after.length === 0 && index === activeBodyIndex"
+      />
+      <ContextCompressingMarker
+        v-if="processBodies.showMarker"
+        :label="compressionProgressLabel"
+      />
+      <AgentMessageBody
+        v-for="(body, index) in processBodies.after"
+        :key="`${trace.id}-after-${index}`"
+        :body="body"
+        :message-ui="messageUi"
+        hide-response
+        hide-copy
+        :thoughts-debug-enabled="thoughtsDebugEnabled"
+        :generating="generating"
+        :is-active-generation-message="subFrameActive && (processBodies.before.length + index) === activeBodyIndex"
       />
 
       <RawWirePanel

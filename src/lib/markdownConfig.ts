@@ -83,10 +83,9 @@ const LIST_ITEM_RE = /^ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)/
 const FENCE_MARKER_RE = /^ {0,3}(`{3,}|~{3,})/
 
 /**
- * List items are treated as single-line. CommonMark would otherwise lazy-continue
- * the next unindented line into the last `<li>`. Insert one blank line to close
- * the list; do not insert more blanks, so later `\n` still render as line breaks.
- * Skip fenced code. Indented lines stay in the list (nested item / explicit wrap).
+ * CommonMark lazy-continues an unindented line into the last list item.
+ * Only close the list when the next line starts with `**` (bold section title);
+ * other wraps stay in the item. Insert one blank line; skip fenced code.
  */
 export function ensureBlankLineAfterListBeforeSection(src: string): string {
   if (!src.includes('\n')) return src
@@ -122,7 +121,7 @@ export function ensureBlankLineAfterListBeforeSection(src: string): string {
       continue
     }
 
-    if (inList && !/^[ \t]/.test(line)) {
+    if (inList && line.startsWith('**')) {
       out.push('')
       changed = true
       inList = false
@@ -374,8 +373,8 @@ export type ParseMarkdownOptions = {
  * Parse Markdown to HTML with shared configuration.
  *
  * Includes pre-processing that inserts blank lines after GFM / HTML tables, and
- * one blank line after a list when the next line is unindented (list items are
- * single-line), so CommonMark does not swallow that line into the last item.
+ * one blank line after a list when the next line starts with `**`, so CommonMark
+ * does not swallow a bold section title into the last item.
  */
 export function parseMarkdown(src: string, options?: ParseMarkdownOptions): string {
   if (!src.trim()) return ''

@@ -59,30 +59,36 @@
 
 ### 1.4 千问显式 Context Cache 序列化
 
-当 **`qwen_explicit_system_cache_enabled(settings)`** 为真且 **cacheable** 非空时：
+当 **`qwen_explicit_system_cache_enabled(settings)`** 为真且 **cacheable** 非空时，打最多两个 `cache_control`（官方单请求最多 4 个）：
+
+1. **system cacheable**（原有）：稳定人设单独成块。
+2. **对话历史最后一条**（新增）：`content` 改为数组并打标记，前缀随历史增长。
+3. 其后才是本轮 **`injected_tail`**（`[CUR_SCREEN]` / 任务板等），不打标记。
 
 ```json
-{
-  "role": "system",
-  "content": [
-    {
-      "type": "text",
-      "text": "<cacheable 各 slice 用 \\n\\n 合并>",
-      "cache_control": { "type": "ephemeral" }
-    },
-    {
-      "type": "text",
-      "text": "<dynamic：通常仅 [LOCKED GOAL]>"
-    }
-  ]
-}
+[
+  {
+    "role": "system",
+    "content": [
+      {
+        "type": "text",
+        "text": "<cacheable 各 slice 用 \\n\\n 合并>",
+        "cache_control": { "type": "ephemeral" }
+      },
+      {
+        "type": "text",
+        "text": "<dynamic：通常仅 [LOCKED GOAL]>"
+      }
+    ]
+  },
+  { "role": "user", "content": [{ "type": "text", "text": "<历史最后一条>", "cache_control": { "type": "ephemeral" } }] },
+  { "role": "user", "content": "<injected_tail，例如任务板>" }
+]
 ```
 
-- task board 在 `messages` 末尾追加（有内容时），不会污染 system cacheable 前缀。
-- **`[Environment]`** 仅在跨日时改变 cacheable（ acceptable）；同一天内多轮工具循环可复用 cacheable。
-- 非千问或未启用时：两分区仍按 §1.2 顺序合并为单条 `content` 字符串。
+无对话历史时只有标记 1。非千问或未启用时：两分区合并为单条 `content` 字符串，历史也不打标记。
 
-官方说明：[千问 Context Cache](https://help.aliyun.com/zh/model-studio/context-cache)；应用细节见 [`qwen-context-cache.md`](../llm/qwen-context-cache.md)。
+详见 [`qwen-context-cache.md`](../llm/qwen-context-cache.md) 与 [官方 Context Cache](https://help.aliyun.com/zh/model-studio/context-cache)。
 
 ### 1.5 Native OpenAI `tools[]`（与 system 附录分工）
 

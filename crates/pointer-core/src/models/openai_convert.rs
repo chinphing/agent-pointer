@@ -159,8 +159,10 @@ fn join_prompt_slices(slices: &[String]) -> String {
 
 /// Append HTTP `system` message(s) from [`SystemPromptSections`].
 ///
-/// When `explicit_system_cache` is on and `cacheable` is non-empty, the cache marker sits on the
-/// **cacheable** block only; `dynamic` (typically `[TASK_BOARD]` only) follows as a second content part.
+/// When `explicit_system_cache` is on and `cacheable` is non-empty, the first cache
+/// marker sits on the **cacheable** block; `dynamic` follows as a second content part
+/// (no marker). A second marker is attached to the last **history** message so the
+/// prefix grows with the transcript; per-round `injected_tail` stays after it.
 fn push_openai_system_messages(
     out: &mut Vec<serde_json::Value>,
     sections: &SystemPromptSections,
@@ -199,6 +201,47 @@ fn push_openai_system_messages(
             "role": "system",
             "content": system_text
         }));
+    }
+}
+
+/// DashScope requires `content` as an array when attaching `cache_control`.
+fn attach_ephemeral_cache_control(msg: &mut serde_json::Value) {
+    let Some(obj) = msg.as_object_mut() else {
+        log::warn!("qwen explicit cache: skip marker, message is not an object");
+        return;
+    };
+    match obj.get("content").cloned() {
+        Some(serde_json::Value::String(text)) => {
+            obj.insert(
+                "content".into(),
+                serde_json::json!([{
+                    "type": "text",
+                    "text": text,
+                    "cache_control": { "type": "ephemeral" }
+                }]),
+            );
+        }
+        Some(serde_json::Value::Array(mut parts)) => {
+            let Some(last) = parts.last_mut().and_then(|p| p.as_object_mut()) else {
+                log::warn!("qwen explicit cache: skip marker, empty multipart content");
+                return;
+            };
+            last.insert(
+                "cache_control".into(),
+                serde_json::json!({ "type": "ephemeral" }),
+            );
+            obj.insert("content".into(), serde_json::Value::Array(parts));
+        }
+        _ => {
+            obj.insert(
+                "content".into(),
+                serde_json::json!([{
+                    "type": "text",
+                    "text": "",
+                    "cache_control": { "type": "ephemeral" }
+                }]),
+            );
+        }
     }
 }
 
@@ -265,104 +308,104 @@ pub fn make_openai_messages_with_inject(
     inline_vision: bool,
     history_scope: crate::message_context::LlmHistoryScope,
 ) -> Vec<serde_json::Value> {
-    let mut included = crate::message_context::filter_messages_for_llm_scope(msgs, history_scope);
-    if !injected_tail.is_empty() {
-        included.extend(injected_tail.iter().cloned());
-    }
-    let expanded = expand_tool_messages_for_openai_request(&included);
+    let base_included = crate::message_context::filter_messages_for_llm_scope(msgs, history_scope);
+    let base_expanded = expand_tool_messages_for_openai_request(&base_included);
+    let inject_expanded = expand_tool_messages_for_openai_request(injected_tail);
     let mut out: Vec<serde_json::Value> = Vec::new();
     push_openai_system_messages(&mut out, system, explicit_system_cache);
-    for m in &expanded {
-        match m.role {
-            Role::System => out.push(serde_json::json!({
-                "role": "system", "content": m.content
-            })),
-            Role::User => {
-                let api_content = crate::media::append_user_attachments_api_context(
-                    &m.content,
-                    m.attachments.as_deref().unwrap_or(&[]),
-                );
-                if let Some(ref imgs) = m.images_base64 {
-                    if !imgs.is_empty() && !inline_vision {
-                        log::warn!(
+    for (chunk_i, chunk) in [&base_expanded, &inject_expanded].into_iter().enumerate() {
+        let history_start = out.len();
+        for m in chunk {
+            match m.role {
+                Role::System => out.push(serde_json::json!({
+                    "role": "system", "content": m.content
+                })),
+                Role::User => {
+                    let api_content = crate::media::append_user_attachments_api_context(
+                        &m.content,
+                        m.attachments.as_deref().unwrap_or(&[]),
+                    );
+                    if let Some(ref imgs) = m.images_base64 {
+                        if !imgs.is_empty() && !inline_vision {
+                            log::warn!(
                             "make_openai_messages: stripping {} inline image(s); model does not support vision",
                             imgs.len()
                         );
-                        let mut flat = api_content.clone();
-                        flat = append_stripped_user_images_note(m, &mut flat);
-                        out.push(serde_json::json!({
-                            "role": "user",
-                            "content": flat
-                        }));
-                        continue;
-                    }
-                    if !imgs.is_empty() {
-                        let mut parts: Vec<serde_json::Value> = Vec::new();
-                        if !api_content.trim().is_empty() {
-                            parts.push(serde_json::json!({
-                                "type": "text",
-                                "text": api_content
+                            let mut flat = api_content.clone();
+                            flat = append_stripped_user_images_note(m, &mut flat);
+                            out.push(serde_json::json!({
+                                "role": "user",
+                                "content": flat
                             }));
+                            continue;
                         }
-                        let labels = m.image_slot_labels.as_deref();
-                        if let Some(labs) = labels {
-                            if labs.len() != imgs.len() {
-                                log::warn!(
+                        if !imgs.is_empty() {
+                            let mut parts: Vec<serde_json::Value> = Vec::new();
+                            if !api_content.trim().is_empty() {
+                                parts.push(serde_json::json!({
+                                    "type": "text",
+                                    "text": api_content
+                                }));
+                            }
+                            let labels = m.image_slot_labels.as_deref();
+                            if let Some(labs) = labels {
+                                if labs.len() != imgs.len() {
+                                    log::warn!(
                                     "user message image_slot_labels len {} != images_base64 len {}",
                                     labs.len(),
                                     imgs.len()
                                 );
-                            }
-                        }
-                        for (i, b64) in imgs.iter().enumerate() {
-                            if let Some(lab) = labels.and_then(|labs| labs.get(i)) {
-                                if !lab.trim().is_empty() {
-                                    parts.push(serde_json::json!({
-                                        "type": "text",
-                                        "text": format!("{lab}\n")
-                                    }));
                                 }
                             }
-                            let mime = crate::agents::computer::vision::screen::image_data_url_mime_from_base64(b64);
-                            let url = format!("data:{mime};base64,{b64}");
-                            parts.push(serde_json::json!({
-                                "type": "image_url",
-                                "image_url": { "url": url }
+                            for (i, b64) in imgs.iter().enumerate() {
+                                if let Some(lab) = labels.and_then(|labs| labs.get(i)) {
+                                    if !lab.trim().is_empty() {
+                                        parts.push(serde_json::json!({
+                                            "type": "text",
+                                            "text": format!("{lab}\n")
+                                        }));
+                                    }
+                                }
+                                let mime = crate::agents::computer::vision::screen::image_data_url_mime_from_base64(b64);
+                                let url = format!("data:{mime};base64,{b64}");
+                                parts.push(serde_json::json!({
+                                    "type": "image_url",
+                                    "image_url": { "url": url }
+                                }));
+                            }
+                            out.push(serde_json::json!({
+                                "role": "user",
+                                "content": parts
                             }));
+                            continue;
                         }
-                        out.push(serde_json::json!({
-                            "role": "user",
-                            "content": parts
-                        }));
-                        continue;
                     }
+                    out.push(serde_json::json!({
+                        "role": "user", "content": api_content
+                    }));
                 }
-                out.push(serde_json::json!({
-                    "role": "user", "content": api_content
-                }));
-            }
-            Role::Assistant => {
-                let api_content = crate::media::append_delivered_attachments_api_context(
-                    &m.content,
-                    m.attachments.as_deref().unwrap_or(&[]),
-                );
-                // Host palette / custom colors actually used when rendering charts (API-only).
-                let api_content = crate::media::append_chart_render_api_context(&api_content);
-                let mut obj = serde_json::Map::new();
-                obj.insert("role".into(), "assistant".into());
-                obj.insert("content".into(), serde_json::Value::String(api_content));
-                // DeepSeek 等「思考模式」在流式里下发 `reasoning_content`；下一轮请求必须原样带回，
-                // 否则 400 — 可由设置 `reasoningInMessages` 关闭（关闭后勿对该类模型开思考）。
-                // In-run compression summaries stay assistant (never user). They
-                // are host-written, so inject a stand-in when stored reasoning
-                // is missing (already-persisted rows).
-                if include_reasoning_in_api {
-                    if let Some(r) = assistant_reasoning_content_for_api(m) {
-                        obj.insert("reasoning_content".into(), serde_json::Value::String(r));
+                Role::Assistant => {
+                    let api_content = crate::media::append_delivered_attachments_api_context(
+                        &m.content,
+                        m.attachments.as_deref().unwrap_or(&[]),
+                    );
+                    // Host palette / custom colors actually used when rendering charts (API-only).
+                    let api_content = crate::media::append_chart_render_api_context(&api_content);
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("role".into(), "assistant".into());
+                    obj.insert("content".into(), serde_json::Value::String(api_content));
+                    // DeepSeek 等「思考模式」在流式里下发 `reasoning_content`；下一轮请求必须原样带回，
+                    // 否则 400 — 可由设置 `reasoningInMessages` 关闭（关闭后勿对该类模型开思考）。
+                    // In-run compression summaries stay assistant (never user). They
+                    // are host-written, so inject a stand-in when stored reasoning
+                    // is missing (already-persisted rows).
+                    if include_reasoning_in_api {
+                        if let Some(r) = assistant_reasoning_content_for_api(m) {
+                            obj.insert("reasoning_content".into(), serde_json::Value::String(r));
+                        }
                     }
-                }
-                if let Some(tcs) = &m.tool_calls {
-                    let tool_calls: Vec<serde_json::Value> = tcs
+                    if let Some(tcs) = &m.tool_calls {
+                        let tool_calls: Vec<serde_json::Value> = tcs
                         .iter()
                         .filter(|t| {
                             !t.id.trim().is_empty()
@@ -380,17 +423,27 @@ pub fn make_openai_messages_with_inject(
                             })
                         })
                         .collect();
-                    if !tool_calls.is_empty() {
-                        obj.insert("tool_calls".into(), serde_json::Value::Array(tool_calls));
+                        if !tool_calls.is_empty() {
+                            obj.insert("tool_calls".into(), serde_json::Value::Array(tool_calls));
+                        }
                     }
+                    out.push(serde_json::Value::Object(obj));
                 }
-                out.push(serde_json::Value::Object(obj));
+                Role::Tool => out.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": m.tool_call_id.clone().unwrap_or_default(),
+                    "content": m.content
+                })),
             }
-            Role::Tool => out.push(serde_json::json!({
-                "role": "tool",
-                "tool_call_id": m.tool_call_id.clone().unwrap_or_default(),
-                "content": m.content
-            })),
+        }
+        if chunk_i == 0 && explicit_system_cache && out.len() > history_start {
+            if let Some(last) = out.last_mut() {
+                attach_ephemeral_cache_control(last);
+                log::info!(
+                    "qwen explicit cache: marked last history message before injected_tail history_api_messages={}",
+                    out.len() - history_start
+                );
+            }
         }
     }
     out
@@ -483,6 +536,53 @@ mod make_openai_messages_tests {
         assert_eq!(content[0]["cache_control"]["type"], "ephemeral");
         assert_eq!(content[1]["text"], "task board");
         assert!(content[1].get("cache_control").is_none());
+    }
+
+    fn has_ephemeral(msg: &serde_json::Value) -> bool {
+        match msg.get("content") {
+            Some(serde_json::Value::Array(parts)) => parts.iter().any(|p| {
+                p.get("cache_control")
+                    .and_then(|c| c.get("type"))
+                    .and_then(|t| t.as_str())
+                    == Some("ephemeral")
+            }),
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn history_gets_second_cache_marker_before_injected_tail() {
+        let mut base = msg(Role::User);
+        base.content = "hello".into();
+        let mut inject = msg(Role::User);
+        inject.content = "[TASK_BOARD] live".into();
+        let system = SystemPromptSections {
+            cacheable: vec!["static system".into()],
+            dynamic: vec!["locked goal".into()],
+        };
+        let out =
+            make_openai_messages_with_inject(&[base], &[inject], &system, false, true, false, LEAD);
+        assert_eq!(out.len(), 3);
+        assert!(has_ephemeral(&out[0]));
+        assert!(has_ephemeral(&out[1]));
+        assert!(!has_ephemeral(&out[2]));
+        assert_eq!(out[1]["content"][0]["text"], "hello");
+        assert_eq!(out[2]["content"], "[TASK_BOARD] live");
+    }
+
+    #[test]
+    fn injected_tail_without_history_keeps_only_system_cache_marker() {
+        let mut inject = msg(Role::User);
+        inject.content = "[CUR_SCREEN] latest".into();
+        let system = SystemPromptSections::all_cacheable(vec!["static system".into()]);
+        let out =
+            make_openai_messages_with_inject(&[], &[inject], &system, false, true, false, LEAD);
+        assert_eq!(out.len(), 2);
+        let parts = out[0]["content"].as_array().expect("multipart system");
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["cache_control"]["type"], "ephemeral");
+        assert!(!has_ephemeral(&out[1]));
+        assert_eq!(out[1]["content"], "[CUR_SCREEN] latest");
     }
 
     #[test]

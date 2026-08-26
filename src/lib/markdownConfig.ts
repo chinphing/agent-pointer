@@ -79,6 +79,62 @@ export function wrapBareHtmlTables(html: string): string {
   )
 }
 
+const LIST_ITEM_RE = /^ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)/
+const FENCE_MARKER_RE = /^ {0,3}(`{3,}|~{3,})/
+
+/**
+ * List items are treated as single-line. CommonMark would otherwise lazy-continue
+ * the next unindented line into the last `<li>`. Insert one blank line to close
+ * the list; do not insert more blanks, so later `\n` still render as line breaks.
+ * Skip fenced code. Indented lines stay in the list (nested item / explicit wrap).
+ */
+export function ensureBlankLineAfterListBeforeSection(src: string): string {
+  if (!src.includes('\n')) return src
+  const lines = src.split('\n')
+  const out: string[] = []
+  let inList = false
+  let fence: string | null = null
+  let changed = false
+
+  for (const line of lines) {
+    const fenceOpen = line.match(FENCE_MARKER_RE)
+    if (fence) {
+      out.push(line)
+      if (
+        fenceOpen &&
+        fenceOpen[1]![0] === fence[0] &&
+        fenceOpen[1]!.length >= fence.length
+      ) {
+        fence = null
+      }
+      continue
+    }
+
+    if (/^\s*$/.test(line)) {
+      inList = false
+      out.push(line)
+      continue
+    }
+
+    if (LIST_ITEM_RE.test(line)) {
+      inList = true
+      out.push(line)
+      continue
+    }
+
+    if (inList && !/^[ \t]/.test(line)) {
+      out.push('')
+      changed = true
+      inList = false
+    }
+
+    if (fenceOpen) fence = fenceOpen[1]!
+    out.push(line)
+  }
+
+  return changed ? out.join('\n') : src
+}
+
 /**
  * CommonMark treats HTML blocks as opaque until a blank line. Models often emit:
  *   </table>
@@ -317,9 +373,9 @@ export type ParseMarkdownOptions = {
 /**
  * Parse Markdown to HTML with shared configuration.
  *
- * Includes a pre-processing step that inserts a blank line after GFM tables
- * when the next line is not a pipe or whitespace, which prevents the parser
- * from swallowing the table into the following paragraph.
+ * Includes pre-processing that inserts blank lines after GFM / HTML tables, and
+ * one blank line after a list when the next line is unindented (list items are
+ * single-line), so CommonMark does not swallow that line into the last item.
  */
 export function parseMarkdown(src: string, options?: ParseMarkdownOptions): string {
   if (!src.trim()) return ''
@@ -330,6 +386,7 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
   if (streamingCharts) prepared = stabilizeStreamingChartFences(prepared)
   if (streamingSvgs) prepared = stabilizeStreamingSvgFences(prepared)
   if (streamingMermaid) prepared = stabilizeStreamingMermaidFences(prepared)
+  prepared = ensureBlankLineAfterListBeforeSection(prepared)
   prepared = ensureBlankLinesAroundHtmlTables(prepared)
   const fixed = prepared.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
   parseStreamingCharts = streamingCharts

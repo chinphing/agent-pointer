@@ -5,6 +5,7 @@
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换；对话列宽跟中间栏（含 Workspace 拖拽）自适应 |
 | [external-links.md](external-links.md) | 应用内 http(s) 链接用系统默认浏览器打开（桌面）/ 新标签（Web） |
 | [markdown-charts.md](markdown-charts.md) | Markdown `chartjs` fence → 本地 Chart.js 交互图表 |
+| [markdown-mermaid.md](markdown-mermaid.md) | Markdown `mermaid` fence → 本地 Mermaid，配色跟深浅色 token |
 | [markdown-svg.md](markdown-svg.md) | Markdown `svg` fence → 消毒后内联流程图/示意图 |
 | [markdown-media-boundaries.md](markdown-media-boundaries.md) | Markdown / SVG / Chart / HTML 功能边界与 HTML 表约定 |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |

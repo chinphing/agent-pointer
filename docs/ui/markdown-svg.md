@@ -27,6 +27,7 @@ Before mount the host:
 - Caps size (`MAX_SVG_BYTES`)
 - Requires a single `<svg>` root
 - Strips `<script>`, `<foreignObject>`, `<iframe>`, `<embed>`, `<object>`, `<link>`, `<meta>`, `<base>`
+  (Mermaid diagrams keep a sanitized `<foreignObject>` for some node labels; see [markdown-mermaid.md](markdown-mermaid.md))
 - Removes `on*` event handlers
 - Neutralizes `javascript:` / `vbscript:` / `data:` / remote absolute URLs in `href` / `src` / similar
 - Strips dangerous `style` expressions

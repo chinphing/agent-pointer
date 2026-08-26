@@ -16,6 +16,21 @@ const FORBIDDEN_TAGS = new Set([
   'base',
 ])
 
+export type SanitizeSvgOptions = {
+  /**
+   * Mermaid may put node labels in `<foreignObject>`. Keep the tag after
+   * stripping scripts / handlers. User `svg` fences must leave this off.
+   */
+  allowForeignObject?: boolean
+}
+
+function forbiddenTags(allowForeignObject: boolean): Set<string> {
+  if (!allowForeignObject) return FORBIDDEN_TAGS
+  const tags = new Set(FORBIDDEN_TAGS)
+  tags.delete('foreignobject')
+  return tags
+}
+
 const URL_ATTRS = new Set([
   'href',
   'xlink:href',
@@ -38,9 +53,9 @@ export function decodeSvgConfigAttr(encoded: string): string | null {
   return decodeChartConfigAttr(encoded)
 }
 
-function stripForbiddenElementsByRegex(src: string): string {
+function stripForbiddenElementsByRegex(src: string, allowForeignObject: boolean): string {
   let out = src
-  for (const tag of FORBIDDEN_TAGS) {
+  for (const tag of forbiddenTags(allowForeignObject)) {
     const re = new RegExp(`<${tag}\\b[^>]*(?:/>|>[\\s\\S]*?</${tag}\\s*>)`, 'gi')
     out = out.replace(re, '')
   }
@@ -106,7 +121,8 @@ export function escapeBareXmlAmpersands(src: string): string {
  * Works in Node (regex path) and in the browser (DOMParser second pass when available).
  */
 export function sanitizeSvgMarkup(
-  raw: string
+  raw: string,
+  options: SanitizeSvgOptions = {}
 ): { ok: true; svg: string } | { ok: false; reason: string } {
   const trimmed = raw.trim()
   if (!trimmed) return { ok: false, reason: 'empty' }
@@ -125,7 +141,7 @@ export function sanitizeSvgMarkup(
   const svgMatch = fromSvg.match(/<\s*svg\b[\s\S]*<\/\s*svg\s*>/i)
   if (!svgMatch) return { ok: false, reason: 'not_svg' }
   let cleaned = escapeBareXmlAmpersands(svgMatch[0]!)
-  cleaned = stripForbiddenElementsByRegex(cleaned)
+  cleaned = stripForbiddenElementsByRegex(cleaned, options.allowForeignObject === true)
   cleaned = stripEventHandlersByRegex(cleaned)
   cleaned = neutralizeDangerousUrlsByRegex(cleaned)
   cleaned = stripStyleExpressionsByRegex(cleaned)
@@ -151,9 +167,10 @@ export function sanitizeSvgMarkup(
       if (!root || root.localName.toLowerCase() !== 'svg') {
         return { ok: false, reason: 'not_svg' }
       }
+      const blocked = forbiddenTags(options.allowForeignObject === true)
       const walk = root.querySelectorAll('*')
       for (const el of Array.from(walk)) {
-        if (FORBIDDEN_TAGS.has(el.localName.toLowerCase())) {
+        if (blocked.has(el.localName.toLowerCase())) {
           el.remove()
           continue
         }

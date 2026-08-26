@@ -1,12 +1,20 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from 'vitest'
 import { parseMarkdown } from './markdownConfig'
+import { canvasRgb } from './markdownChart'
 import {
   isMermaidFenceLang,
   isStreamingMermaidStub,
   mermaidHostHtml,
+  mermaidInitializeConfig,
+  mermaidThemeCacheKey,
+  mermaidThemeScheme,
+  mermaidThemeVariables,
   STREAMING_MERMAID_FENCE,
   STREAMING_MERMAID_HOST_HTML,
   STREAMING_MERMAID_STUB,
+  stripMermaidHostThemeOverrides,
 } from './markdownMermaid'
 import { decodeSvgConfigAttr } from './markdownSvg'
 
@@ -86,5 +94,69 @@ describe('parseMarkdown mermaid fences', () => {
     )
     expect(closed).toContain('class="md-mermaid')
     expect(closed).not.toContain('md-mermaid--pending')
+  })
+})
+
+describe('mermaid host theme', () => {
+  function paintScheme(mode: 'light' | 'dark') {
+    const root = document.documentElement
+    root.classList.remove('light', 'dark')
+    root.classList.add(mode)
+    if (mode === 'dark') {
+      root.style.setProperty('--foreground', '240 6% 96%')
+      root.style.setProperty('--card', '240 4% 11%')
+      root.style.setProperty('--accent', '211 100% 58%')
+      root.style.setProperty('--danger', '4 72% 58%')
+      root.style.setProperty('--mermaid-cluster', '240 6% 20%')
+      root.style.setProperty('--mermaid-node', '211 32% 30%')
+      root.style.setProperty('--mermaid-node-border', '240 8% 48%')
+      root.style.setProperty('--mermaid-edge', '240 8% 80%')
+    } else {
+      root.style.setProperty('--foreground', '240 6% 10%')
+      root.style.setProperty('--card', '0 0% 100%')
+      root.style.setProperty('--accent', '211 100% 46%')
+      root.style.setProperty('--danger', '4 78% 50%')
+      root.style.setProperty('--mermaid-cluster', '240 5% 94%')
+      root.style.setProperty('--mermaid-node', '211 40% 93%')
+      root.style.setProperty('--mermaid-node-border', '240 8% 78%')
+      root.style.setProperty('--mermaid-edge', '240 5% 58%')
+    }
+  }
+
+  it('maps CSS tokens and follows html.dark', () => {
+    paintScheme('dark')
+    expect(mermaidThemeScheme()).toBe('dark')
+    const vars = mermaidThemeVariables()
+    expect(vars.darkMode).toBe(true)
+    expect(vars.clusterBkg).toBe(canvasRgb('--mermaid-cluster', '240 6% 20%'))
+    expect(vars.nodeBkg).toBe(canvasRgb('--mermaid-node', '211 32% 30%'))
+    expect(vars.primaryTextColor).toBe(canvasRgb('--foreground', '240 6% 96%'))
+    expect(vars.lineColor).toBe(canvasRgb('--mermaid-edge', '240 8% 80%'))
+    expect(vars.nodeBorder).toBe(canvasRgb('--mermaid-node-border', '240 8% 48%'))
+    expect(vars.strokeWidth).toBe(2)
+    expect(vars.nodeBkg).not.toBe(canvasRgb('--card', '240 4% 11%'))
+    expect(String(vars.clusterBkg)).not.toMatch(/#fff4dd|#ffffde/i)
+    expect(mermaidThemeCacheKey('abc')).toBe('dark|abc')
+
+    paintScheme('light')
+    expect(mermaidThemeScheme()).toBe('light')
+    const light = mermaidThemeVariables()
+    expect(light.darkMode).toBe(false)
+    expect(light.clusterBkg).toBe(canvasRgb('--mermaid-cluster', '240 5% 94%'))
+    expect(light.nodeBkg).toBe(canvasRgb('--mermaid-node', '211 40% 93%'))
+    expect(light.nodeBorder).toBe(canvasRgb('--mermaid-node-border', '240 8% 78%'))
+    expect(light.lineColor).toBe(canvasRgb('--mermaid-edge', '240 5% 58%'))
+    expect(mermaidInitializeConfig().theme).toBe('base')
+    expect(mermaidInitializeConfig().htmlLabels).toBe(false)
+    expect(mermaidInitializeConfig().flowchart.htmlLabels).toBe(false)
+  })
+
+  it('strips init directives and keeps the diagram body', () => {
+    const raw = `%%{init: {'theme':'dark', 'themeVariables': {'primaryColor':'#fff4dd'}}}%%\nflowchart TD\n  A[开始] --> B[结束]`
+    const stripped = stripMermaidHostThemeOverrides(raw)
+    expect(stripped).toContain('flowchart TD')
+    expect(stripped).toContain('A[开始]')
+    expect(stripped).not.toMatch(/%%\{/)
+    expect(stripped).not.toContain('#fff4dd')
   })
 })

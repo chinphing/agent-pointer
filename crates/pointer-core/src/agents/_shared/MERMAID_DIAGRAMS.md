@@ -18,6 +18,8 @@ transition** is clearer as a diagram than prose, emit a fenced Mermaid block:
 - Node shapes: `A[rect]` / `A(rounded)` / `A{decision}` / `A([stadium])` /
   `A[(database)]`; edge labels: `A -->|label| B` or `A -- label --> B`;
   groups: `subgraph Name [...]`.
+- Do not set `classDef`, `style`, `%%{init}%%`, or YAML `theme`.
+  The host paints the diagram from the app light/dark theme.
 - Keep diagrams readable: **≤ ~50 nodes** (split larger ones), short labels,
   `<br>` for line breaks, quote special characters: `A["Tool / Agent"]`.
 - Use **`svg`** (never Mermaid) for: timeline / journey / mindmap / sankey /

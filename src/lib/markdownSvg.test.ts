@@ -45,6 +45,27 @@ describe('sanitizeSvgMarkup', () => {
     }
   })
 
+  it('strips foreignObject by default but can keep a sanitized mermaid label', () => {
+    const raw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40">
+  <foreignObject x="0" y="0" width="80" height="40">
+    <div xmlns="http://www.w3.org/1999/xhtml"><span>决策</span><script>alert(1)</script></div>
+  </foreignObject>
+</svg>`
+    const blocked = sanitizeSvgMarkup(raw)
+    expect(blocked.ok).toBe(true)
+    if (blocked.ok) {
+      expect(blocked.svg.toLowerCase()).not.toContain('foreignobject')
+      expect(blocked.svg).not.toContain('决策')
+    }
+    const kept = sanitizeSvgMarkup(raw, { allowForeignObject: true })
+    expect(kept.ok).toBe(true)
+    if (kept.ok) {
+      expect(kept.svg.toLowerCase()).toContain('foreignobject')
+      expect(kept.svg).toContain('决策')
+      expect(kept.svg.toLowerCase()).not.toContain('<script')
+    }
+  })
+
   it('rejects non-svg markup', () => {
     expect(tryParseSvgFence('<div>hi</div>').ok).toBe(false)
     expect(tryParseSvgFence('').ok).toBe(false)

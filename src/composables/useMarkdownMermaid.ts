@@ -4,7 +4,13 @@ import {
   decodeSvgConfigAttr,
   sanitizeSvgMarkup,
 } from '../lib/markdownSvg'
-import { isStreamingMermaidStub } from '../lib/markdownMermaid'
+import {
+  isStreamingMermaidStub,
+  mermaidInitializeConfig,
+  mermaidThemeCacheKey,
+  mermaidThemeScheme,
+  stripMermaidHostThemeOverrides,
+} from '../lib/markdownMermaid'
 import {
   deferUntilInView,
   isInViewForLazyMount,
@@ -20,31 +26,36 @@ const codeIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="
 
 type MermaidModule = typeof import('mermaid').default
 let mermaidModulePromise: Promise<MermaidModule> | null = null
+let appliedThemeScheme: 'light' | 'dark' | null = null
 let renderSeq = 0
+
+function applyHostMermaidTheme(api: MermaidModule): boolean {
+  const scheme = mermaidThemeScheme()
+  if (appliedThemeScheme === scheme) return false
+  api.initialize(mermaidInitializeConfig())
+  appliedThemeScheme = scheme
+  cleanedSvgByConfig.clear()
+  console.info('[markdownMermaid] theme applied', scheme)
+  return true
+}
 
 function loadMermaid(): Promise<MermaidModule> {
   if (!mermaidModulePromise) {
     mermaidModulePromise = import('mermaid').then(mod => {
       const api = mod.default
-      api.initialize({
-        startOnLoad: false,
-        // Strict: no HTML labels / foreignObject in output — stays pure SVG so our
-        // sanitize pipeline is safe and layout metrics match the authored viewBox.
-        // htmlLabels MUST be top-level: mermaid 11 deprecates flowchart.htmlLabels
-        // (FLOWCHART_HTML_LABELS_DEPRECATED) and silently ignores it, which would
-        // emit <foreignObject> HTML labels that sanitizeSvgMarkup then strips —
-        // leaving empty node boxes.
-        securityLevel: 'strict',
-        htmlLabels: false,
-      })
+      applyHostMermaidTheme(api)
       return api
     })
   }
-  return mermaidModulePromise
+  return mermaidModulePromise.then(api => {
+    applyHostMermaidTheme(api)
+    return api
+  })
 }
 
 type MermaidHostState = {
   boundConfig: string
+  themeScheme: 'light' | 'dark'
   viewportGate: ViewportDeferral | null
   pending: boolean
 }
@@ -78,6 +89,8 @@ export function useMarkdownMermaid(
 ) {
   const hosts = new Map<HTMLElement, MermaidHostState>()
   const isStreaming = () => options.isStreaming?.() === true
+  let themeObserver: MutationObserver | null = null
+  let lastObservedScheme = mermaidThemeScheme()
 
   function flashButton(btn: HTMLButtonElement, okTitle: string) {
     const prev = btn.innerHTML
@@ -127,7 +140,7 @@ export function useMarkdownMermaid(
       e.preventDefault()
       e.stopPropagation()
       const encoded = host.getAttribute('data-mermaid-config')
-      const svg = encoded ? cleanedSvgByConfig.get(encoded) : null
+      const svg = encoded ? cleanedSvgByConfig.get(mermaidThemeCacheKey(encoded)) : null
       if (!svg) {
         console.warn('[markdownMermaid] export: not rendered yet')
         return
@@ -239,7 +252,12 @@ export function useMarkdownMermaid(
     }
 
     const prev = hosts.get(host)
-    if (prev?.boundConfig === encoded && host.querySelector('.md-mermaid-frame > svg')) {
+    const scheme = mermaidThemeScheme()
+    if (
+      prev?.boundConfig === encoded &&
+      prev.themeScheme === scheme &&
+      host.querySelector('.md-mermaid-frame > svg')
+    ) {
       setToolbarVisible(host, true)
       return
     }
@@ -263,6 +281,7 @@ export function useMarkdownMermaid(
       })
       hosts.set(host, {
         boundConfig: encoded,
+        themeScheme: mermaidThemeScheme(),
         viewportGate,
         pending: false,
       })
@@ -270,9 +289,15 @@ export function useMarkdownMermaid(
     }
 
     prev?.viewportGate?.disconnect()
-    hosts.set(host, { boundConfig: encoded, viewportGate: null, pending: true })
+    hosts.set(host, {
+      boundConfig: encoded,
+      themeScheme: mermaidThemeScheme(),
+      viewportGate: null,
+      pending: true,
+    })
 
-    let cleaned = cleanedSvgByConfig.get(encoded)
+    const cacheKey = mermaidThemeCacheKey(encoded)
+    let cleaned = cleanedSvgByConfig.get(cacheKey)
     if (!cleaned) {
       try {
         const mermaid = await loadMermaid()
@@ -282,18 +307,32 @@ export function useMarkdownMermaid(
           if (state?.boundConfig === encoded) state.pending = false
           return
         }
+        if (mermaidThemeScheme() !== scheme) {
+          const state = hosts.get(host)
+          if (state) state.pending = false
+          mountOrUpdate(host)
+          return
+        }
+        const source = stripMermaidHostThemeOverrides(raw)
+        if (!source) {
+          const state = hosts.get(host)
+          if (state) state.pending = false
+          console.warn('[markdownMermaid] source empty after stripping theme directives')
+          showStatus(host, '图示语法错误', 'error')
+          return
+        }
         const holder = document.createElement('div')
         holder.id = `md-mermaid-${renderSeq++}`
         holder.style.display = 'none'
         document.body.appendChild(holder)
         let svg: string
         try {
-          const result = await mermaid.render(holder.id, raw)
+          const result = await mermaid.render(holder.id, source)
           svg = result.svg
         } finally {
           holder.remove()
         }
-        const parsed = sanitizeSvgMarkup(svg)
+        const parsed = sanitizeSvgMarkup(svg, { allowForeignObject: true })
         if (!parsed.ok) {
           const state = hosts.get(host)
           if (state) state.pending = false
@@ -301,7 +340,7 @@ export function useMarkdownMermaid(
           return
         }
         cleaned = parsed.svg
-        cacheCleanedSvg(encoded, cleaned)
+        cacheCleanedSvg(cacheKey, cleaned)
       } catch (err) {
         console.error('[markdownMermaid] render failed', err)
         const state = hosts.get(host)
@@ -362,7 +401,12 @@ export function useMarkdownMermaid(
         e.stopPropagation()
         openDiagramZoom(imported)
       })
-      hosts.set(host, { boundConfig: encoded, viewportGate: null, pending: false })
+      hosts.set(host, {
+        boundConfig: encoded,
+        themeScheme: mermaidThemeScheme(),
+        viewportGate: null,
+        pending: false,
+      })
       host.dataset.mermaidBound = encoded
       console.info('[markdownMermaid] mounted mermaid host')
     } catch (err) {
@@ -395,10 +439,36 @@ export function useMarkdownMermaid(
     }
   }
 
+  function onDocumentThemeClassChange() {
+    const scheme = mermaidThemeScheme()
+    if (scheme === lastObservedScheme) return
+    lastObservedScheme = scheme
+    appliedThemeScheme = null
+    cleanedSvgByConfig.clear()
+    for (const state of hosts.values()) {
+      state.boundConfig = ''
+    }
+    console.info('[markdownMermaid] html theme changed; remount diagrams', scheme)
+    void nextTick(sync)
+  }
+
   onMounted(() => {
+    if (typeof MutationObserver !== 'undefined') {
+      themeObserver = new MutationObserver(onDocumentThemeClassChange)
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class'],
+      })
+    }
     void nextTick(sync)
   })
   onBeforeUnmount(() => {
+    try {
+      themeObserver?.disconnect()
+    } catch (err) {
+      console.warn('[markdownMermaid] theme observer disconnect failed', err)
+    }
+    themeObserver = null
     for (const state of hosts.values()) {
       try {
         state.viewportGate?.disconnect()

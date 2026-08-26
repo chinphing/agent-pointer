@@ -26,6 +26,11 @@
     /* Shell: chat column white, sidebar one step quieter. */
     --shell-sidebar: 240 5% 96%;
     --shell-chat: 0 0% 100%;
+    /* Mermaid light: same wells as table th / code header; low-chroma accent plates. */
+    --mermaid-cluster: 240 5% 94%;
+    --mermaid-node: 211 40% 93%;
+    --mermaid-node-border: 240 8% 78%;
+    --mermaid-edge: 240 5% 58%;
   }
 
   html.dark {
@@ -51,6 +56,11 @@
     --warning: 36 70% 52%;
     --info: 211 100% 58%;
     --search-mark: 48 70% 42%;
+    /* Lifted off --card (11%) so boxes and arrows stay readable. */
+    --mermaid-cluster: 240 6% 20%;
+    --mermaid-node: 211 32% 30%;
+    --mermaid-node-border: 240 8% 48%;
+    --mermaid-edge: 240 8% 80%;
   }
 
   html, body, #app { height: 100%; height: 100dvh; overflow: hidden; }
@@ -642,6 +652,59 @@
   max-width: none;
   height: auto;
   margin: 0 auto;
+}
+.md-body .md-mermaid-frame svg .edgePath .path,
+.md-body .md-mermaid-frame svg .flowchart-link {
+  stroke-width: 1.75px;
+}
+/*
+ * Mermaid prefixes rules with the SVG id (`#mermaid-xxx .cluster rect`),
+ * which beats class selectors. Host paints must use !important.
+ */
+.md-body .md-mermaid-frame svg .cluster :is(rect, polygon, path) {
+  fill: hsl(var(--mermaid-cluster)) !important;
+  stroke: hsl(var(--mermaid-node-border)) !important;
+}
+.md-body .md-mermaid-frame svg .node :is(rect, polygon, ellipse, circle) {
+  fill: hsl(var(--mermaid-node)) !important;
+  stroke: hsl(var(--mermaid-node-border)) !important;
+}
+.md-body .md-mermaid-frame svg .node .label-container,
+.md-body .md-mermaid-frame svg .node .label-container path {
+  fill: hsl(var(--mermaid-node)) !important;
+  stroke: hsl(var(--mermaid-node-border)) !important;
+}
+.md-body .md-mermaid-frame svg .node .label rect,
+.md-body .md-mermaid-frame svg rect.text {
+  fill: none !important;
+  stroke: none !important;
+}
+.md-body .md-mermaid-frame svg .edgeLabel rect {
+  fill: hsl(var(--card)) !important;
+  opacity: 1 !important;
+}
+.md-body .md-mermaid-frame svg .label text,
+.md-body .md-mermaid-frame svg .label tspan,
+.md-body .md-mermaid-frame svg .edgeLabel text,
+.md-body .md-mermaid-frame svg .edgeLabel tspan {
+  fill: hsl(var(--foreground)) !important;
+}
+.md-body .md-mermaid-frame svg .cluster-label text,
+.md-body .md-mermaid-frame svg .cluster-label tspan {
+  fill: hsl(var(--muted)) !important;
+}
+.md-body .md-mermaid-frame svg .node .label,
+.md-body .md-mermaid-frame svg .edgeLabel,
+.md-body .md-mermaid-frame svg .edgeLabel span,
+.md-body .md-mermaid-frame svg foreignObject,
+.md-body .md-mermaid-frame svg foreignObject div,
+.md-body .md-mermaid-frame svg foreignObject span,
+.md-body .md-mermaid-frame svg foreignObject p {
+  color: hsl(var(--foreground)) !important;
+}
+.md-body .md-mermaid-frame svg .cluster-label,
+.md-body .md-mermaid-frame svg .cluster-label span {
+  color: hsl(var(--muted)) !important;
 }
 .md-body .md-svg-status,
 .md-body .md-mermaid-status {

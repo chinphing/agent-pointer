@@ -8,7 +8,11 @@ CSS variables in `src/styles/globals.css`:
 - `--accent`, `--accent-muted`, `--accent-foreground`, `--hover`, `--composer-bg`, `--code-bg`, `--fence-bg`
   (`--composer-bg` fills `.composer-shell`; light = white, not `--card-elevated`)
 - Semantic: `--success`, `--danger`, `--warning`, `--info`
-- Search hit: `--search-mark`
+- `--search-mark`
+- Mermaid diagram surfaces: `--mermaid-cluster`, `--mermaid-node`, `--mermaid-node-border`, `--mermaid-edge`
+  (nodes must read against `--card`; do not use `--accent-muted` as a node fill).
+  Light uses the same grey wells as table / code headers plus a low-chroma accent plate;
+  dark uses lifted charcoal-blue plates. See [markdown-mermaid.md](markdown-mermaid.md)
 
 `html.dark` and default (`:root`) define light; dark overrides on `html.dark`.
 
@@ -80,6 +84,7 @@ from available width while the workspace panel is open.
 - Markdown fenced code (`.md-body .code-block`): same palette as tables — body `--card` (token `--fence-bg` aliases it), language row `.fence-block-lang` uses `--hover` like `th`. Copy sits in that header (flex `items-center`), not `absolute` on the whole block; see `markdownConfig.ts` / `useMarkdownCodeCopy`
 - Markdown inline code (`.md-body code`): accent text only, **no** `--code-bg` chip / padding
 - Markdown charts (`.md-body .md-chart`): same card chrome; Chart.js from `chartjs`/`chart` JSON fences; theme axis/legend colors from CSS variables; see [markdown-charts.md](markdown-charts.md)
+- Markdown Mermaid (`.md-body .md-mermaid`): same card chrome; host paints nodes/clusters/edges from CSS tokens and remounts on light/dark; see [markdown-mermaid.md](markdown-mermaid.md)
 - Markdown SVG diagrams (`.md-body .md-svg`): same card chrome; sanitized `svg` fences; see [markdown-svg.md](markdown-svg.md)
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`
 - `.fence-block` — table chrome (`rounded-lg border-border`, body `--card`); `.fence-block-header` matches table `th` (`--hover` fill, bottom border, semibold)
@@ -122,7 +127,7 @@ Do not style user-initiated stop like a system exception.
 | Windows app | `matchMedia` + `onThemeChanged` | Custom title buttons; theme is CSS. WebView2 usually tracks Windows app mode |
 | Linux app | same APIs | Weakest live path: some DE/portal/WebKitGTK builds only refresh `prefers-color-scheme` after focus or restart; `onThemeChanged` is the fallback. `setTheme` is **app-wide** |
 
-Canvas charts sample token colors at mount; xterm watches `html` class. Neither is OS-specific.
+Canvas charts sample token colors at mount; xterm and Mermaid watch `html` class. Neither is OS-specific.
 - See also [user-platform-config-split.md](../internals/user-platform-config-split.md)
 
 ## Desktop window chrome (Tauri only)

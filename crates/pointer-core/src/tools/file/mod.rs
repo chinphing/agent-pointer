@@ -35,17 +35,22 @@ const FILE_DOC_SOURCE: &str = "tools/prompts/file.md";
 const FILE_SCHEMA_YAML: &str = include_str!("../prompts/file.schema.yaml");
 
 pub(crate) const MAX_GREP_FILE_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const DEFAULT_GLOB_RESULTS: usize = 100;
 pub(crate) const MAX_GLOB_RESULTS: usize = 500;
+pub(crate) const DEFAULT_LIST_ENTRIES: usize = 100;
 pub(crate) const MAX_LIST_ENTRIES: usize = 2000;
 pub(crate) const MAX_WALK_DEPTH: usize = 64;
 pub(crate) const CONTEXT_LINES: usize = 2;
 
-/// Runtime caps for `file_read` / `file_grep`. Tool arguments may only lower them.
+/// Runtime caps for `file_read` / `file_grep`. Tool arguments may only lower
+/// byte / grep-hit ceilings. `file_read` `limit` defaults to 500 and cannot
+/// exceed `read_max_lines`.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FileToolLimits {
     pub read_max_bytes: usize,
     pub line_max_bytes: usize,
     pub grep_max_results: usize,
+    pub read_max_lines: usize,
 }
 
 impl Default for FileToolLimits {
@@ -54,6 +59,7 @@ impl Default for FileToolLimits {
             read_max_bytes: crate::models::DEFAULT_FILE_READ_MAX_BYTES as usize,
             line_max_bytes: crate::models::DEFAULT_FILE_LINE_MAX_BYTES as usize,
             grep_max_results: crate::models::DEFAULT_FILE_GREP_MAX_RESULTS as usize,
+            read_max_lines: crate::models::CEILING_FILE_READ_LIMIT as usize,
         }
     }
 }
@@ -67,6 +73,7 @@ impl FileToolLimits {
                 as usize,
             grep_max_results: crate::models::clamp_file_grep_max_results(user.file_grep_max_results)
                 as usize,
+            read_max_lines: crate::models::CEILING_FILE_READ_LIMIT as usize,
         }
     }
 
@@ -177,7 +184,6 @@ pub(crate) fn json_value_as_u64(v: &serde_json::Value) -> Option<u64> {
 }
 
 /// First present key among `keys` that parses as a non-negative integer.
-/// Returns the matched key so callers can log aliases (`startLine` vs `lineStart`).
 pub(crate) fn json_u64_opt_keys<'a>(
     args: &serde_json::Value,
     keys: &[&'a str],
@@ -222,6 +228,9 @@ mod tests {
         let out = execute_file_read(&json!({ "path": "solo.txt" }), root).expect("read");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert!(v["content"].as_str().unwrap().contains("only"));
+        assert_eq!(v["offset"], 1);
+        assert_eq!(v["limit"], crate::models::DEFAULT_FILE_READ_LIMIT);
+        assert_eq!(v["truncated"], false);
         assert!(v.get("files").is_none());
     }
 
@@ -230,49 +239,75 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
-        let out = execute_file_read(
-            &json!({ "file": "x.txt", "lineStart": 2, "lineEnd": 4 }),
-            root,
-        )
-        .expect("read");
+        let out = execute_file_read(&json!({ "file": "x.txt", "offset": 2, "limit": 2 }), root)
+            .expect("read");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["content"].as_str().unwrap(), "p2\np3");
+        assert_eq!(v["offset"], 2);
+        assert_eq!(v["limit"], 2);
     }
 
     #[test]
-    fn file_read_accepts_start_line_alias_and_numeric_string() {
+    fn file_read_defaults_limit_and_stops_before_eof() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
-        fs::write(root.join("x.txt"), "p1\np2\np3\np4\np5\n").unwrap();
-        // Production miss: startLine as a string was ignored → read from line 1
-        // through lineEnd, then truncated at maxBytes.
-        let out = execute_file_read(
-            &json!({
-                "path": "x.txt",
-                "startLine": "3",
-                "lineEnd": 5
-            }),
-            root,
-        )
-        .expect("read");
+        let default_limit = crate::models::DEFAULT_FILE_READ_LIMIT as usize;
+        let mut body = String::new();
+        for i in 1..=default_limit + 50 {
+            body.push_str(&format!("L{i}\n"));
+        }
+        fs::write(root.join("long.txt"), &body).unwrap();
+        let out = execute_file_read(&json!({ "path": "long.txt" }), root).expect("read");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["content"].as_str().unwrap(), "p3\np4");
-        assert_eq!(v["lineStart"], 3);
-        assert_eq!(v["lineEndExclusive"], 5);
+        let content = v["content"].as_str().unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), default_limit);
+        assert_eq!(lines[0], "L1");
+        assert_eq!(lines[default_limit - 1], format!("L{default_limit}"));
+        assert_eq!(v["offset"], 1);
+        assert_eq!(v["limit"], default_limit as u64);
+        assert_eq!(v["truncated"], true);
+        assert!(
+            v["warning"].as_str().unwrap().contains("line or size cap"),
+            "{}",
+            v["warning"]
+        );
     }
 
     #[test]
-    fn file_read_accepts_end_line_alias() {
+    fn file_read_ignores_legacy_line_start_end_keys() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
         let out = execute_file_read(
-            &json!({ "path": "x.txt", "lineStart": 2, "endLine": 4 }),
+            &json!({ "path": "x.txt", "lineStart": 2, "lineEnd": 4 }),
             root,
         )
         .expect("read");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["content"].as_str().unwrap(), "p2\np3");
+        // additionalProperties: false at schema, runtime ignores unknown keys.
+        assert_eq!(v["content"].as_str().unwrap(), "p1\np2\np3\np4");
+        assert_eq!(v["offset"], 1);
+        assert_eq!(v["limit"], crate::models::DEFAULT_FILE_READ_LIMIT);
+    }
+
+    #[test]
+    fn file_read_clamps_limit_above_ceiling() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let ceiling = crate::models::CEILING_FILE_READ_LIMIT as usize;
+        let mut body = String::new();
+        for i in 1..=ceiling + 20 {
+            body.push_str(&format!("L{i}\n"));
+        }
+        fs::write(root.join("huge.txt"), &body).unwrap();
+        let out = execute_file_read(&json!({ "path": "huge.txt", "limit": 99_999 }), root)
+            .expect("clamped limit");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let lines: Vec<&str> = v["content"].as_str().unwrap().lines().collect();
+        assert_eq!(lines.len(), ceiling);
+        assert_eq!(v["limit"], ceiling as u64);
+        assert_eq!(v["truncated"], true);
     }
 
     #[test]
@@ -287,8 +322,8 @@ mod tests {
         let out = execute_file_read(
             &json!({
                 "path": "big.txt",
-                "lineStart": 1,
-                "lineEnd": 2,
+                "offset": 1,
+                "limit": 1,
                 "maxBytes": 1000
             }),
             root,
@@ -296,17 +331,9 @@ mod tests {
         .expect("line window should not reject on whole-file size");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["content"].as_str().unwrap(), "head");
-        assert_eq!(v["truncated"], false);
-    }
-
-    #[test]
-    fn file_read_unbounded_still_rejects_oversized_file() {
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        fs::write(root.join("big.txt"), "x".repeat(2000)).unwrap();
-        let err =
-            execute_file_read(&json!({ "path": "big.txt", "maxBytes": 1000 }), root).unwrap_err();
-        assert!(err.to_string().contains("文件过大"), "{err}");
+        assert_eq!(v["limit"], 1);
+        // Window is complete, but the file continues — caller should page with offset.
+        assert_eq!(v["truncated"], true);
     }
 
     #[test]
@@ -326,7 +353,7 @@ mod tests {
             "line cap exceeded: {}",
             content.len()
         );
-        assert!(v["warning"].as_str().unwrap().contains("hard size cap"));
+        assert!(v["warning"].as_str().unwrap().contains("line or size cap"));
     }
 
     #[test]
@@ -483,7 +510,7 @@ mod tests {
         let args = json!({
             "pattern": "alpha",
             "path": "one.rs",
-            "maxResults": 20,
+            "limit": 20,
         });
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -504,7 +531,7 @@ mod tests {
         let args = json!({
             "pattern": "class A",
             "path": "pkg/a.java",
-            "maxResults": 20,
+            "limit": 20,
         });
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -528,7 +555,7 @@ mod tests {
         let args = json!({
             "pattern": "class",
             "path": "pkg",
-            "maxResults": 20,
+            "limit": 20,
         });
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -549,7 +576,7 @@ mod tests {
         let args = json!({
             "pattern": "read_lints",
             "path": abs_ui.to_str().unwrap(),
-            "maxResults": 20,
+            "limit": 20,
         });
         let err = execute_file_grep_payload(&args, root).unwrap_err();
         let msg = err.to_string();
@@ -565,7 +592,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::create_dir_all(root.join("src")).unwrap();
-        let args = json!({"pattern": "foo", "path": "ui", "maxResults": 20});
+        let args = json!({"pattern": "foo", "path": "ui", "limit": 20});
         let err = execute_file_grep_payload(&args, root).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("可能的路径"), "{msg}");
@@ -586,7 +613,7 @@ mod tests {
         let args_ok = json!({
             "pattern": "a",
             "path": "x.txt",
-            "maxResults": 20,
+            "limit": 20,
         });
         execute_file_grep_payload(&args_ok, root).expect("grep with path");
     }
@@ -596,7 +623,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("x.txt"), "a\n").unwrap();
-        let args = json!({"pattern": "a", "maxResults": 20});
+        let args = json!({"pattern": "a", "limit": 20});
         let err = execute_file_grep_payload(&args, root).unwrap_err();
         assert!(err.to_string().contains("缺少 path"), "{}", err);
     }
@@ -609,7 +636,7 @@ mod tests {
         fs::create_dir(root.join(".hidden_dir")).unwrap();
         fs::write(root.join(".hidden_dir").join("file.txt"), "secret\n").unwrap();
         // by default, hidden files are skipped
-        let args_default = json!({"pattern": "secret", "path": ".", "maxResults": 20});
+        let args_default = json!({"pattern": "secret", "path": ".", "limit": 20});
         let out = execute_file_grep_payload(&args_default, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["count"], 0, "hidden should be skipped by default");
@@ -618,7 +645,7 @@ mod tests {
             "pattern": "secret",
             "path": ".",
             "includeHidden": true,
-            "maxResults": 20
+            "limit": 20
         });
         let out2 = execute_file_grep_payload(&args_include, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
@@ -631,8 +658,7 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("f.txt"), "x.y)\n").unwrap();
         // regex would treat '.' as any char and ')' as literal (needs escape). But with fixedString it's literal.
-        let args =
-            json!({"pattern": "x.y)", "path": "f.txt", "fixedString": true, "maxResults": 20});
+        let args = json!({"pattern": "x.y)", "path": "f.txt", "fixedString": true, "limit": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["count"], 1, "fixedString should match literal");
@@ -644,7 +670,7 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("case.txt"), "Hello World\n").unwrap();
         // default case sensitive should not match lowercase
-        let args_sensitive = json!({"pattern": "hello", "path": "case.txt", "maxResults": 20});
+        let args_sensitive = json!({"pattern": "hello", "path": "case.txt", "limit": 20});
         let out1 = execute_file_grep_payload(&args_sensitive, root).expect("grep");
         let v1: serde_json::Value = serde_json::from_str(&out1).unwrap();
         assert_eq!(
@@ -653,7 +679,7 @@ mod tests {
         );
         // ignoreCase: true should match
         let args_ignore =
-            json!({"pattern": "hello", "path": "case.txt", "ignoreCase": true, "maxResults": 20});
+            json!({"pattern": "hello", "path": "case.txt", "ignoreCase": true, "limit": 20});
         let out2 = execute_file_grep_payload(&args_ignore, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
         assert_eq!(v2["count"], 1, "ignoreCase should match");
@@ -667,7 +693,7 @@ mod tests {
         fs::write(root.join("a.py"), "python\n").unwrap();
         // fileTypes ["rust"] should only scan .rs files and not .py
         let args =
-            json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rust"], "maxResults": 20});
+            json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rust"], "limit": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let results = v["results"].as_array().unwrap();
@@ -683,8 +709,7 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("a.rs"), "rust\n").unwrap();
         fs::write(root.join("a.py"), "python\n").unwrap();
-        let args =
-            json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rs"], "maxResults": 20});
+        let args = json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rs"], "limit": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let results = v["results"].as_array().unwrap();
@@ -704,8 +729,7 @@ mod tests {
         fs::write(root.join("main.cpp"), "int main() {}\n").unwrap();
         fs::write(root.join("readme.md"), "key: val\n").unwrap();
 
-        let args_yaml =
-            json!({"pattern": "key:", "path": ".", "fileTypes": ["yml"], "maxResults": 20});
+        let args_yaml = json!({"pattern": "key:", "path": ".", "fileTypes": ["yml"], "limit": 20});
         let out_yaml = execute_file_grep_payload(&args_yaml, root).expect("grep yaml");
         let v_yaml: serde_json::Value = serde_json::from_str(&out_yaml).unwrap();
         assert_eq!(v_yaml["count"], 1);
@@ -714,8 +738,7 @@ mod tests {
             .unwrap()
             .ends_with("cfg.yml"));
 
-        let args_cpp =
-            json!({"pattern": "main", "path": ".", "fileTypes": ["c++"], "maxResults": 20});
+        let args_cpp = json!({"pattern": "main", "path": ".", "fileTypes": ["c++"], "limit": 20});
         let out_cpp = execute_file_grep_payload(&args_cpp, root).expect("grep cpp");
         let v_cpp: serde_json::Value = serde_json::from_str(&out_cpp).unwrap();
         assert_eq!(v_cpp["count"], 1);
@@ -738,7 +761,7 @@ mod tests {
             "pattern": "code",
             "path": ".",
             "includeGlobs": ["src/**/*"],
-            "maxResults": 20
+            "limit": 20
         });
         let out1 = execute_file_grep_payload(&args_inc, root).expect("grep");
         let v1: serde_json::Value = serde_json::from_str(&out1).unwrap();
@@ -748,7 +771,7 @@ mod tests {
             "pattern": "code",
             "path": ".",
             "excludeGlobs": ["test/**/*"],
-            "maxResults": 20
+            "limit": 20
         });
         let out2 = execute_file_grep_payload(&args_exc, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
@@ -768,7 +791,7 @@ mod tests {
                 "pattern": "NEEDLE",
                 "path": "wide.txt",
                 "contextLines": 0,
-                "maxResults": 20
+                "limit": 20
             }),
             root,
         )
@@ -798,13 +821,14 @@ mod tests {
                 "pattern": "HIT",
                 "path": "many.txt",
                 "contextLines": 0,
-                "maxResults": 200
+                "limit": 200
             }),
             root,
             &FileToolLimits {
                 read_max_bytes: 64 * 1024,
                 line_max_bytes: 1024,
                 grep_max_results: 200,
+                read_max_lines: crate::models::CEILING_FILE_READ_LIMIT as usize,
             },
         )
         .expect("grep");
@@ -827,7 +851,7 @@ mod tests {
             &json!({
                 "pattern": "UNIQUE_TOKEN",
                 "path": "huge.txt",
-                "maxResults": 20
+                "limit": 20
             }),
             root,
         )
@@ -1016,7 +1040,7 @@ mod tests {
         fs::create_dir_all(root.join("empty_dir")).unwrap();
         let args = json!({
             "pattern": "**/*",
-            "maxResults": 50
+            "limit": 50
         });
         let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1042,7 +1066,7 @@ mod tests {
             "pattern": "**/.git",
             "entryType": "dir",
             "includeHidden": true,
-            "maxResults": 20
+            "limit": 20
         });
         let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1071,7 +1095,7 @@ mod tests {
         fs::write(nested.join("leaf.txt"), "y").unwrap();
         let args = json!({
             "pattern": "**/leaf.txt",
-            "maxResults": 20
+            "limit": 20
         });
         let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1080,7 +1104,7 @@ mod tests {
         let args_inc = json!({
             "pattern": "**/leaf.txt",
             "includeHidden": true,
-            "maxResults": 20
+            "limit": 20
         });
         let out2 = execute_file_glob_payload(&args_inc, root).expect("glob");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
@@ -1096,7 +1120,7 @@ mod tests {
         fs::write(skill.join("SKILL.md"), "body").unwrap();
         let args = json!({
             "pattern": ".pointer/skills/demo/**/*.md",
-            "maxResults": 20
+            "limit": 20
         });
         let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1105,7 +1129,7 @@ mod tests {
         let args_inc = json!({
             "pattern": ".pointer/skills/demo/**/*.md",
             "includeHidden": true,
-            "maxResults": 20
+            "limit": 20
         });
         let out2 = execute_file_glob_payload(&args_inc, root).expect("glob");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
@@ -1126,7 +1150,7 @@ mod tests {
         let args = json!({
             "pattern": abs_pattern,
             "base": root.display().to_string(),
-            "maxResults": 20
+            "limit": 20
         });
         let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1142,7 +1166,7 @@ mod tests {
         let args = json!({
             "pattern": "*.txt",
             "entryType": "bogus",
-            "maxResults": 10
+            "limit": 10
         });
         let err = execute_file_glob_payload(&args, root).unwrap_err();
         let msg = err.to_string();

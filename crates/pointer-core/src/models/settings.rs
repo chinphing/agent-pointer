@@ -766,7 +766,7 @@ pub struct ModelSettings {
     /// Max UTF-8 bytes kept from one physical line in `file_read` / `file_grep`.
     #[serde(default = "default_file_line_max_bytes", rename = "fileLineMaxBytes")]
     pub file_line_max_bytes: u32,
-    /// Max `file_grep` hit rows (tool `maxResults` can only lower this).
+    /// Max `file_grep` hit rows (tool `limit` can only lower this).
     #[serde(
         default = "default_file_grep_max_results",
         rename = "fileGrepMaxResults"
@@ -1225,6 +1225,10 @@ fn default_max_tool_rounds() -> u32 {
 pub const DEFAULT_FILE_READ_MAX_BYTES: u32 = 64 * 1024;
 pub const DEFAULT_FILE_LINE_MAX_BYTES: u32 = 1024;
 pub const DEFAULT_FILE_GREP_MAX_RESULTS: u32 = 50;
+/// Default `file_read` line window when `limit` is omitted.
+pub const DEFAULT_FILE_READ_LIMIT: u32 = 500;
+/// Max `file_read` `limit` (tool args cannot raise above this).
+pub const CEILING_FILE_READ_LIMIT: u32 = 2000;
 pub const FLOOR_FILE_READ_MAX_BYTES: u32 = 4 * 1024;
 pub const CEILING_FILE_READ_MAX_BYTES: u32 = 1024 * 1024;
 pub const FLOOR_FILE_LINE_MAX_BYTES: u32 = 256;

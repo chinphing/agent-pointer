@@ -81,7 +81,9 @@ Before **Deliver**, run an **internal Responsibility audit** (references, lifecy
 **Intent:** whole thread context; latest message often **refines** earlier goals.
 
 **Locate:** narrow local reads **or** **`run_subagent` → `explore`** with **`Scenario:`** + **Lead context** (see **Delegating**).
-File read discipline: grep/locate first, batch **`paths`**, line ranges, admit partial reads—see **COMMUNICATION**.
+File read discipline: grep/locate first,
+one file per **`file_read`** (parallel calls for multiple files),
+**`offset`** / **`limit`** windows, admit partial reads—see **COMMUNICATION**.
 
 ### Change
 

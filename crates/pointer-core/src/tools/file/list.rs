@@ -1,6 +1,7 @@
 use super::path::{path_display_abs, resolve_existing_read_path};
-use super::{MAX_LIST_ENTRIES, MAX_WALK_DEPTH};
+use super::{json_u64_opt_keys, DEFAULT_LIST_ENTRIES, MAX_LIST_ENTRIES, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
+use log::{info, warn};
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -27,12 +28,19 @@ pub(crate) fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -
         .get("recursive")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let max_results = args
-        .get("maxResults")
-        .or_else(|| args.get("max_results"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(100_u64)
-        .min(MAX_LIST_ENTRIES as u64) as usize;
+    let ceiling = MAX_LIST_ENTRIES as u64;
+    let requested = json_u64_opt_keys(args, &["limit"]).map(|(n, _)| n.max(1));
+    if requested.is_some_and(|n| n > ceiling) {
+        warn!(
+            "file_list: limit={} exceeds ceiling {}, clamping",
+            requested.unwrap(),
+            ceiling
+        );
+    }
+    let max_results = requested
+        .unwrap_or(DEFAULT_LIST_ENTRIES as u64)
+        .min(ceiling) as usize;
+    info!("file_list: limit={max_results} recursive={recursive}");
     let max_depth = args
         .get("maxDepth")
         .or_else(|| args.get("max_depth"))

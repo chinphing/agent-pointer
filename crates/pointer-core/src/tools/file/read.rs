@@ -64,8 +64,8 @@ fn read_line_capped<R: BufRead>(
 fn file_read_one_json(
     root: &Path,
     path_str: &str,
-    line_start: usize,
-    line_end_exclusive: Option<usize>,
+    offset: usize,
+    limit: usize,
     max_bytes: usize,
     line_max_bytes: usize,
 ) -> serde_json::Value {
@@ -85,29 +85,6 @@ fn file_read_one_json(
             "error": format!("不是文件: {}", full.display()),
         });
     }
-    let meta = match fs::metadata(&full) {
-        Ok(m) => m,
-        Err(e) => {
-            return serde_json::json!({
-                "path": full_display,
-                "error": format!("读取元数据失败: {e}"),
-            });
-        }
-    };
-    // Whole-file size gate only applies to unbounded reads (no line window).
-    // With lineStart/lineEnd, maxBytes limits the returned window content instead.
-    let has_line_window = line_start > 1 || line_end_exclusive.is_some();
-    if !has_line_window && meta.len() > max_bytes as u64 {
-        return serde_json::json!({
-            "path": full_display,
-            "error": format!(
-                "文件过大 ({} bytes)，超过上限 {}。请缩小范围或使用 grep。",
-                meta.len(),
-                max_bytes
-            ),
-        });
-    }
-
     let file = match fs::File::open(&full) {
         Ok(f) => f,
         Err(e) => {
@@ -122,8 +99,8 @@ fn file_read_one_json(
     let mut selected_bytes: usize = 0;
     let mut truncated = false;
     let mut total_lines: usize = 0;
-    let start_idx = line_start.saturating_sub(1);
-    let end_idx = line_end_exclusive.map(|le| le.saturating_sub(1));
+    let start_idx = offset.saturating_sub(1);
+    let end_idx = start_idx.saturating_add(limit.max(1));
 
     loop {
         let (mut line, line_was_capped) = match read_line_capped(&mut reader, line_max_bytes) {
@@ -144,15 +121,19 @@ fn file_read_one_json(
         let line_no = total_lines;
         total_lines += 1;
 
-        let in_window = line_no >= start_idx && end_idx.map(|e| line_no < e).unwrap_or(true);
-        if !in_window {
+        if line_no < start_idx {
             continue;
+        }
+        // Past the window: stop scanning so huge files are not fully read.
+        if line_no >= end_idx {
+            truncated = true;
+            break;
         }
         if line_was_capped {
             truncated = true;
         }
         if truncated && selected_bytes >= max_bytes {
-            continue;
+            break;
         }
         let add = if selected.is_empty() {
             line.len()
@@ -161,7 +142,7 @@ fn file_read_one_json(
         };
         if selected_bytes + add > max_bytes {
             truncated = true;
-            continue;
+            break;
         }
         selected_bytes += add;
         selected.push(line);
@@ -171,7 +152,6 @@ fn file_read_one_json(
     }
 
     let content = selected.join("\n");
-    let line_end_exclusive_out = line_end_exclusive.unwrap_or(total_lines.saturating_add(1));
     if truncated {
         info!(
             "file_read truncated path={} total_lines={} returned_bytes={} max_bytes={}",
@@ -180,15 +160,15 @@ fn file_read_one_json(
     }
     let mut obj = serde_json::json!({
         "path": full_display,
-        "lineStart": line_start,
-        "lineEndExclusive": line_end_exclusive_out,
+        "offset": offset,
+        "limit": limit,
         "totalLines": total_lines,
         "content": content,
         "truncated": truncated,
     });
     if truncated {
         obj["warning"] = serde_json::json!(
-            "output hit a hard size cap; use lineStart/lineEnd or grep — maxBytes cannot be raised above the runtime ceiling"
+            "output hit a line or size cap; continue with a higher offset or grep — limit/maxBytes cannot be raised above the runtime ceiling"
         );
     }
     obj
@@ -232,32 +212,24 @@ pub(crate) fn execute_file_read_with(
     }
 
     let path = resolve_file_read_path(args)?;
-    // Canonical: lineStart / lineEnd. Models trained on other IDEs often send
-    // startLine / endLine, sometimes as strings (`"2030"`). Ignoring those
-    // aliases used to default lineStart to 1 and dump from the top of the file
-    // up to lineEnd (then hit maxBytes) — tens of KB instead of ~100 lines.
-    const LINE_START_KEYS: &[&str] = &["lineStart", "line_start", "startLine", "start_line"];
-    const LINE_END_KEYS: &[&str] = &["lineEnd", "line_end", "endLine", "end_line"];
-    let line_start = match json_u64_opt_keys(args, LINE_START_KEYS) {
-        Some((n, key)) => {
+    let offset = json_u64_opt_keys(args, &["offset"])
+        .map(|(n, _)| n.max(1) as usize)
+        .unwrap_or(1);
+    let line_ceiling = limits.read_max_lines.max(1);
+    let default_limit = (crate::models::DEFAULT_FILE_READ_LIMIT as usize).min(line_ceiling);
+    let limit = match json_u64_opt_keys(args, &["limit"]) {
+        Some((n, _)) => {
             let n = n.max(1) as usize;
-            if key != "lineStart" && key != "line_start" {
-                info!("file_read: accepted {key}={n} as lineStart path={path}");
+            if n > line_ceiling {
+                warn!("file_read: limit={n} exceeds ceiling {line_ceiling}, clamping path={path}");
+                line_ceiling
+            } else {
+                n
             }
-            n
         }
-        None => 1,
+        None => default_limit,
     };
-    let line_end_exclusive = match json_u64_opt_keys(args, LINE_END_KEYS) {
-        Some((n, key)) => {
-            let n = n.max(1) as usize;
-            if key != "lineEnd" && key != "line_end" {
-                info!("file_read: accepted {key}={n} as lineEnd path={path}");
-            }
-            Some(n)
-        }
-        None => None,
-    };
+    info!("file_read: offset={offset} limit={limit} path={path}");
     let ceiling = limits.read_max_bytes as u64;
     let requested_max = args
         .get("maxBytes")
@@ -272,14 +244,7 @@ pub(crate) fn execute_file_read_with(
     }
     let max_bytes = requested_max.unwrap_or(ceiling).min(ceiling) as usize;
 
-    let v = file_read_one_json(
-        root,
-        &path,
-        line_start,
-        line_end_exclusive,
-        max_bytes,
-        limits.line_max_bytes,
-    );
+    let v = file_read_one_json(root, &path, offset, limit, max_bytes, limits.line_max_bytes);
     if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
         return Err(anyhow!("{err}"));
     }

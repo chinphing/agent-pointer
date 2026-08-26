@@ -1,9 +1,9 @@
 use super::list::list_entry_type_allowed;
 use super::path::{expand_user_path_for_file, path_display_abs, resolve_existing_read_path};
-use super::{MAX_GLOB_RESULTS, MAX_WALK_DEPTH};
+use super::{json_u64_opt_keys, DEFAULT_GLOB_RESULTS, MAX_GLOB_RESULTS, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
-use log::info;
+use log::{info, warn};
 use std::path::{Component, Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -116,11 +116,18 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
         .get("pattern")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("缺少 pattern"))?;
-    let max_results = args
-        .get("maxResults")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(MAX_GLOB_RESULTS as u64)
-        .min(MAX_GLOB_RESULTS as u64) as usize;
+    let ceiling = MAX_GLOB_RESULTS as u64;
+    let requested = json_u64_opt_keys(args, &["limit"]).map(|(n, _)| n.max(1));
+    if requested.is_some_and(|n| n > ceiling) {
+        warn!(
+            "file_glob: limit={} exceeds ceiling {}, clamping",
+            requested.unwrap(),
+            ceiling
+        );
+    }
+    let max_results = requested
+        .unwrap_or(DEFAULT_GLOB_RESULTS as u64)
+        .min(ceiling) as usize;
     let max_depth = args
         .get("maxDepth")
         .and_then(|v| v.as_u64())
@@ -209,7 +216,7 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
     }
 
     info!(
-        "file:glob pattern={} entryType={} includeHidden={} count={}",
+        "file_glob: limit={max_results} pattern={} entryType={} includeHidden={} count={}",
         pattern,
         entry_type,
         include_hidden,

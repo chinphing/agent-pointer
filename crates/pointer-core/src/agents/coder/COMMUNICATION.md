@@ -23,7 +23,10 @@ Use **`web_fetch`** when you already have a concrete public URL.
 
 **Returned paths:** Successful **`file`** tool JSON that names a location on disk (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses **absolute** paths (OS-canonical when available). Reuse them as **`path`** on later **`file`** calls — on Windows, convert canonical paths to forward-slash form first (e.g. `\\?\C:\project\src` → `C:/project/src`). **`file_write`** / **`file_edit`** accept workspace-relative paths or absolute / **`~`** paths under an allowed write root (workspace, home, temp, standard user data dirs, Pointer app data).
 
-**Reading discipline:** locate with **`file_grep`** (always pass **`path`** — a file or directory under the workspace root; never **`pattern`** alone) / **`file_glob`** / **`file_list`** before wide **`file_read`**; use **line ranges** and **one file per `file_read`**; treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply. **Parallelize** independent **`file_*`** calls in one turn when the host allows.
+**Reading discipline:** locate with **`file_grep`** (always pass **`path`** — a file or directory under the workspace root; never **`pattern`** alone) / **`file_glob`** / **`file_list`** before wide **`file_read`**;
+use **`offset`** / **`limit`** and **one file per `file_read`**;
+treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply.
+**Parallelize** independent **`file_*`** calls in one turn when the host allows.
 
 For **read-only** exploration (`file_read`, `file_glob`, `file_grep`, `file_list`), you may use **absolute paths** when the user explicitly asks to reference another project or tree outside the workspace—do not refuse solely because paths are outside the workspace.
 
@@ -38,7 +41,7 @@ Always carry **enough unique context** in **`oldString`**
 
 **Read before you edit** when the target is **mid-file**, **dense**, or
 **structurally complex**.
-Use **`file_read`** (with line ranges) to confirm **current text**,
+Use **`file_read`** with **`offset`** / **`limit`** to confirm **current text**,
 **indentation**, and **naming**—do not guess **`oldString`** from memory.
 
 **Large rewrites:**
@@ -59,10 +62,13 @@ Do **not** retry the same failing patch blindly.
 
 ### When `file_read` hits caps or errors
 
-**`file_read`** / **`file_grep`** ceilings are **enforced**.
-**`maxBytes`** / **`maxResults`** cannot be raised past the runtime limit.
-If **`truncated`** or **`skippedLargeFileCount`** is set: use **`lineStart`** /
-**`lineEnd`**, a **narrower `path`**, or a **tighter pattern**—then re-read.
+**`file_read`** / **`file_grep`** / **`file_glob`** / **`file_list`**
+ceilings are **enforced**.
+**`maxBytes`** / **`limit`** cannot be raised past the runtime limit.
+**`file_read`** defaults to **`limit` 500** (ceiling **2000**).
+If **`truncated`** or **`skippedLargeFileCount`** is set: page with a
+higher **`offset`**, a **narrower `path`**, or a **tighter pattern**—then
+re-read.
 Do not retry the same oversized dump.
 For multiple files, issue **parallel** **`file_read`** calls (do not batch paths in one call).
 If a conclusion depends on truncated content, say so in the user-facing summary.
@@ -93,8 +99,8 @@ Each example is one JSON object with **`function.name`** and **`function.argumen
     "name": "file_read",
     "arguments": {
       "path": "src/App.vue",
-      "lineStart": 1,
-      "lineEnd": 120
+      "offset": 1,
+      "limit": 120
     }
   }
 }

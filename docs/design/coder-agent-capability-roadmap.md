@@ -22,7 +22,7 @@
 | **Agent 身份** | `crates/pointer-core/src/agents/coder/AGENT.md`：澄清 → 探索 → 计划 → 实现 → 单测 → 集成检查 → 交付；含读盘纪律与超限应对。 |
 | **通信注入** | `agents/coder/COMMUNICATION.md`：工作区、`file` 政策、JSON 写编示例、`task_board` 与交付约定。 |
 | **工具白名单** | `AGENT.md` frontmatter：`file`、`skill`、`terminal`、`task_board`（无 `web` / 专用 `git` / `lsp` 等）。 |
-| **读文件** | `tools/file` + `tools/prompts/file.md`：`file_read` / `file_edit` **每次单文件**（`path` + 可选 `lineStart`/`lineEnd`/`maxBytes`）；多文件用同轮并行 tool call。`maxBytes` 默认 256KiB。 |
+| **读文件** | `tools/file` + `tools/prompts/file.md`：`file_read` / `file_edit` **每次单文件**（`path` + 可选 `offset`/`limit`/`maxBytes`）；未传时 `offset` 默认 1、`limit` 默认 500（上限 2000）；多文件用同轮并行 tool call。`maxBytes` 默认 64KiB。 |
 | **改文件** | `file:edit` 仅 **`edits`** 数组（1–32 项，每项 `path`+`oldString`+`newString`）；响应含 `files` / `batchPartialFailure` 等。 |
 | **上下文** | `context_compression.rs`：超字符预算时可摘要前缀（依赖设置项）；非「无限上下文」。 |
 | **技能** | `defaultSkillIds: []`，`allowSkills: []`：技能 harness 可用但未预置领域技能包。 |

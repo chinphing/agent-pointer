@@ -44,7 +44,7 @@
 | 文档 | 说明 |
 |------|------|
 | [file-tool-write-scope.md](file-tool-write-scope.md) | `file_write` / `file_edit` 允许的写入目录 |
-| [file-tool-output-limits.md](file-tool-output-limits.md) | 读文件 / 搜索 / 终端回包上限与终端超时（设置 → 内容上限 / 终端超时） |
+| [file-tool-output-limits.md](file-tool-output-limits.md) | 读文件 / glob / 列举 / 搜索 / 终端回包上限与终端超时（设置 → 内容上限 / 终端超时；`file_read` 行数、`file_glob` / `file_list` 条数为实现常量） |
 | [session-search-output-limits.md](session-search-output-limits.md) | `session_search` 命中截断、按工具名剔除旧回包、工具 `matches[]` 上限；侧栏展开全部命中 |
 | [turn-file-baseline-review.md](turn-file-baseline-review.md) | 轮次页脚修改摘要、文件基线与右侧栏 Review |
 | [web-search-tool.md](web-search-tool.md) | `web_search` 工具行为与 DashScope API |

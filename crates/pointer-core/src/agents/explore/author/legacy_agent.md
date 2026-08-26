@@ -44,8 +44,9 @@ gaps, and test/prompt drift so the parent can edit safely. Do not guess fixes; r
 ## Tools
 
 - Use **`grep`**, **`glob`**, **`list`** (file tool) to narrow **before** wide **`read`**.
-- On large files, use **`lineStart`**, **`lineEnd`**, and **`maxBytes`**; batch reads with **`paths`** when you have
-  multiple concrete paths.
+- On large files, use **`offset`** and **`limit`**
+  (default **500**, ceiling **2000**);
+  page with a higher **`offset`** when **`truncated`**.
 - **Never** call mutating **`file`** methods; the host rejects them for this profile.
 - If a tool call **errors** (path outside workdir, binary or unreadable blob, size limits, permission), record the
   **symptom + path + tool** under **`## Open questions`** (or **`## Coverage`** if it is a scope cut). Do not
@@ -226,8 +227,8 @@ Below: an earlier **`grep`** (file tool) turn, then the **final** Markdown hando
     "name": "file_read",
     "arguments": {
       "path": "crates/<api>/src/handler.rs",
-      "lineStart": 40,
-      "lineEnd": 88
+      "offset": 40,
+      "limit": 48
     }
   }
 }

@@ -190,13 +190,56 @@ file_write:
             .find(|(n, _)| n == "file_read")
             .map(|(_, s)| s)
             .expect("file_read schema");
-        assert_eq!(file_read["properties"]["lineStart"]["type"], "integer");
-        assert_eq!(file_read["properties"]["lineEnd"]["type"], "integer");
+        assert_eq!(file_read["properties"]["offset"]["type"], "integer");
+        assert_eq!(file_read["properties"]["offset"]["default"], 1);
+        assert_eq!(file_read["properties"]["limit"]["type"], "integer");
+        assert_eq!(file_read["properties"]["limit"]["default"], 500);
+        assert_eq!(file_read["properties"]["limit"]["maximum"], 2000);
+        assert!(
+            file_read["properties"].get("lineStart").is_none(),
+            "do not advertise lineStart; offset/limit is the canonical window"
+        );
         assert!(
             file_read["properties"].get("startLine").is_none(),
-            "do not advertise startLine; it is untyped under additionalProperties and models quote it"
+            "do not advertise startLine; offset/limit is the canonical window"
         );
         assert_eq!(file_read["additionalProperties"], false);
+        let file_grep = tools
+            .iter()
+            .find(|(n, _)| n == "file_grep")
+            .map(|(_, s)| s)
+            .expect("file_grep schema");
+        assert_eq!(file_grep["properties"]["limit"]["type"], "integer");
+        assert_eq!(file_grep["properties"]["limit"]["default"], 50);
+        assert_eq!(file_grep["properties"]["limit"]["maximum"], 200);
+        assert!(
+            file_grep["properties"].get("maxResults").is_none(),
+            "file_grep hit cap is limit, not maxResults"
+        );
+        let file_glob = tools
+            .iter()
+            .find(|(n, _)| n == "file_glob")
+            .map(|(_, s)| s)
+            .expect("file_glob schema");
+        assert_eq!(file_glob["properties"]["limit"]["type"], "integer");
+        assert_eq!(file_glob["properties"]["limit"]["default"], 100);
+        assert_eq!(file_glob["properties"]["limit"]["maximum"], 500);
+        assert!(
+            file_glob["properties"].get("maxResults").is_none(),
+            "file_glob hit cap is limit, not maxResults"
+        );
+        let file_list = tools
+            .iter()
+            .find(|(n, _)| n == "file_list")
+            .map(|(_, s)| s)
+            .expect("file_list schema");
+        assert_eq!(file_list["properties"]["limit"]["type"], "integer");
+        assert_eq!(file_list["properties"]["limit"]["default"], 100);
+        assert_eq!(file_list["properties"]["limit"]["maximum"], 2000);
+        assert!(
+            file_list["properties"].get("maxResults").is_none(),
+            "file_list hit cap is limit, not maxResults"
+        );
     }
 
     #[test]

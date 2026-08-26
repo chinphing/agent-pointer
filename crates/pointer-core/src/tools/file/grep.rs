@@ -1,8 +1,8 @@
-use super::json_str;
 use super::path::{
     build_glob_set, deduplicate_globs, expand_file_types, path_display_abs, path_error_with_hints,
     resolve_existing_read_path, SKIP_EXT,
 };
+use super::{json_str, json_u64_opt_keys};
 use super::{FileToolLimits, CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_WALK_DEPTH};
 use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
@@ -213,16 +213,20 @@ pub(crate) fn execute_file_grep_payload_with(
     if pattern.len() > 512 {
         return Err(anyhow!("正则过长"));
     }
-    let ceiling = limits.grep_max_results as u64;
-    let requested_max = args.get("maxResults").and_then(|v| v.as_u64());
+    let ceiling = limits.grep_max_results.max(1) as u64;
+    let requested_max = json_u64_opt_keys(args, &["limit"]).map(|(n, _)| n.max(1));
     if requested_max.is_some_and(|n| n > ceiling) {
         warn!(
-            "file_grep: maxResults={} exceeds ceiling {}, clamping",
+            "file_grep: limit={} exceeds ceiling {}, clamping",
             requested_max.unwrap(),
             ceiling
         );
     }
     let max_results = requested_max.unwrap_or(ceiling).min(ceiling) as usize;
+    info!(
+        "file_grep: limit={max_results} pattern_len={}",
+        pattern.len()
+    );
     let max_depth = args
         .get("maxDepth")
         .and_then(|v| v.as_u64())
@@ -446,11 +450,11 @@ pub(crate) fn execute_file_grep_payload_with(
         ));
     } else if output_capped {
         out["warning"] = serde_json::json!(
-            "grep output hit the hard byte cap; narrow path/pattern — maxResults cannot raise the payload ceiling"
+            "grep output hit the hard byte cap; narrow path/pattern — limit cannot raise the payload ceiling"
         );
     } else if truncated {
         out["warning"] = serde_json::json!(
-            "grep hit the hard result cap; narrow path/pattern — maxResults cannot be raised above the runtime ceiling"
+            "grep hit the hard result cap; narrow path/pattern — limit cannot be raised above the runtime ceiling"
         );
     }
     if single_file {

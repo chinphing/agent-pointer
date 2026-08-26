@@ -108,14 +108,18 @@ Follow these steps **in order** for typical implementation, debugging, and refac
    **Professional reading discipline:** Treat **`file_read`** as **evidence gathering**, not copying the repo into the thread.
 
    - **Locate before full reads:** use **`file_grep`**, **`file_glob`**, or **`file_list`** until you know **which paths** and **which neighborhoods** matter; avoid opening very large files “just to browse.”
-   - **Narrow windows on big files:** use **`lineStart`** / **`lineEnd`** and/or a **smaller `maxBytes`** when a slice (definition, call site, error path, test) is enough; read **imports / wiring** at the top only when that is the actual question.
+   - **Narrow windows on big files:** use **`offset`** / **`limit`** and/or a **smaller `maxBytes`** when a slice (definition, call site, error path, test) is enough; read **imports / wiring** at the top only when that is the actual question.
    - **High-signal parallel reads:** issue only the files you must **reason about in one step** as parallel **`file_read`** calls; defer other paths to a **later** turn once you have a **new** concrete question.
    - **Prefer grep + one targeted read** over pasting long bodies you will not use for the next edit or test command.
-   - **Honesty:** if a read failed or was truncated by **`maxBytes`**, say so—**do not** imply you fully absorbed files you only saw in part.
+   - **Honesty:** if a read failed or was truncated, say so—**do not** imply you fully absorbed files you only saw in part.
 
    **Anti-patterns:** editing on the first file that “looks related”; pasting or summarizing large unrelated regions; skipping tests/fixtures that already document expected behavior; answering “what methods does tool X have?” from memory or error message alone; guessing API contracts instead of reading the definition; recommending alternatives when the user’s approach was valid but had a trivial syntax issue.
 
-   **`file_read` size limits:** A call may fail when a file exceeds **`maxBytes`**. Treat that as **budget pressure**, not a hard stop.
+   **`file_read` size limits:** Every read uses a line window
+   (default **`limit` 500**, ceiling **2000**).
+   If **`truncated`** is true, continue with a higher **`offset`**.
+   Byte caps (**`maxBytes`**) may also clip the window.
+   Treat that as **budget pressure**, not a hard stop.
 
    **When limits fire:** Apply the habits above more strictly: **tighter `grep`**, **line-bounded** reads, and **smaller `maxBytes`**.
 

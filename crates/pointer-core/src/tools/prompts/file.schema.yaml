@@ -9,14 +9,17 @@ file_read:
       type: string
     file:
       type: string
-    lineStart:
+    offset:
       type: integer
       minimum: 1
-      description: 1-based first line (JSON integer, unquoted)
-    lineEnd:
+      default: 1
+      description: 1-based first line to read (JSON integer, unquoted). Default 1.
+    limit:
       type: integer
       minimum: 1
-      description: 1-based exclusive end line (JSON integer, unquoted)
+      maximum: 2000
+      default: 500
+      description: Max lines to return from offset (JSON integer, unquoted). Default 500, ceiling 2000.
     maxBytes:
       type: integer
   required: [path]
@@ -52,8 +55,12 @@ file_glob:
       type: string
     base:
       type: string
-    maxResults:
+    limit:
       type: integer
+      minimum: 1
+      maximum: 500
+      default: 100
+      description: Max matching paths to return (JSON integer, unquoted). Default 100, ceiling 500.
     maxDepth:
       type: integer
     entryType:
@@ -71,8 +78,12 @@ file_grep:
       type: string
     path:
       type: string
-    maxResults:
+    limit:
       type: integer
+      minimum: 1
+      maximum: 200
+      default: 50
+      description: Max matching rows to return (JSON integer, unquoted). Default 50, ceiling from host settings.
     maxDepth:
       type: integer
     contextLines:
@@ -107,8 +118,12 @@ file_list:
       type: boolean
     maxDepth:
       type: integer
-    maxResults:
+    limit:
       type: integer
+      minimum: 1
+      maximum: 2000
+      default: 100
+      description: Max directory entries to return (JSON integer, unquoted). Default 100, ceiling 2000.
     entryType:
       type: string
       enum: [all, file, dir]

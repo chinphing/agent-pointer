@@ -35,14 +35,18 @@ concurrently).
 On Windows prefer forward slashes in JSON (`C:/project/foo.rs`) or escape each `\` as `\\` —
 unescaped `\` makes arguments invalid JSON.
 
-**Context discipline:** Each **`file_read`** is capped by host settings
-(defaults: **64 KiB** body, **1 KiB** per line). **`maxBytes`** may only
-**lower** the current ceiling. If **`truncated`** is true, do not retry
-with a larger **`maxBytes`** — use **`lineStart`** / **`lineEnd`** or
-**`file_grep`** first.
+**Context discipline:** Each **`file_read`** is capped:
+**64 KiB** body and **1 KiB** per line (host settings),
+plus a **500**-line window (ceiling **2000**).
+**`maxBytes`** may only **lower** the current byte ceiling.
+**`limit`** defaults to **500** and cannot exceed **2000**.
+If **`truncated`** is true, do not retry with a larger **`maxBytes`**
+or **`limit`** — page with a higher **`offset`**, or **`file_grep`** first.
 **`file_grep`** caps hit count (default **50**), per-line snippets
 (default **1 KiB**), and total hit payload (same as the body ceiling).
-**`maxResults`** cannot raise those ceilings. Oversized files (**> 2 MiB**)
+**`file_glob`** **`limit`** defaults to **100** (ceiling **500**).
+**`file_list`** **`limit`** defaults to **100** (ceiling **2000**).
+**`limit`** cannot raise those ceilings. Oversized files (**> 2 MiB**)
 are skipped and counted in **`skippedLargeFileCount`**.
 Prefer **`grep`** first, then a tight line window.
 
@@ -55,7 +59,7 @@ Prefer **`grep`** first, then a tight line window.
 | **`edit`** | Replace one unique substring in one file via **`path`**, **`oldString`**, **`newString`**. |
 | **`glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
 | **`grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
-| **`list`** | List directory entries; **recursive by default** (depth 2); optional maxResults cap and file/directory filter. |
+| **`list`** | List directory entries; **recursive by default** (depth 2); optional **`limit`** cap and file/directory filter. |
 
 #### Parameters
 
@@ -63,19 +67,19 @@ Prefer **`grep`** first, then a tight line window.
 
 - **`path`** — **Required** (alias **`file`**). One file per call.
   **Windows paths:** prefer `"D:/workspace/src/foo.rs"`, or escape backslashes — `\\` for each `\`.
-- **`lineStart`** — Optional JSON integer (unquoted, not a string).
-  1-based first line to include. Default: start of file.
-  Alias **`line_start`**.
-- **`lineEnd`** — Optional JSON integer (unquoted, not a string).
-  1-based **exclusive** end line.
-  Alias **`line_end`**.
+- **`offset`** — Optional JSON integer (unquoted, not a string).
+  1-based first line to include. Default: **1**.
+- **`limit`** — Optional JSON integer (unquoted, not a string).
+  Maximum number of lines to return from **`offset`**.
+  Default: **500**. Ceiling: **2000** (cannot raise further).
+  Every read uses this window — omitting **`limit`** does **not**
+  read through EOF.
 - **`maxBytes`** — Optional; max bytes for the **returned content**.
   Alias **`max_bytes`**. Default and ceiling come from host settings
   (default **65536** / 64 KiB). Values above the ceiling are clamped.
   Each physical line is capped (default **1024** bytes).
-  With **`lineStart`** / **`lineEnd`**, the whole-file size is **not** a hard reject —
-  only the selected window is returned (and may be truncated to **`maxBytes`**).
-  Without a line window, files larger than **`maxBytes`** are rejected.
+  Only the selected line window is returned (and may be truncated
+  to **`maxBytes`**).
 
 Example:
 
@@ -85,8 +89,8 @@ Example:
     "name": "file_read",
     "arguments": {
       "path": "src/foo.rs",
-      "lineStart": 10,
-      "lineEnd": 80
+      "offset": 10,
+      "limit": 70
     }
   }
 }
@@ -148,7 +152,8 @@ Example:
   Absolute paths and paths starting with `~/` are also accepted.
   Dotdirs still need **`includeHidden`** when searching from a parent.
 - **`base`** — Optional; alias **`rootPath`** / **`baseDir`**. Directory to search under. Default: workspace root. Prefer putting the directory here and keeping `pattern` relative.
-- **`maxResults`** — Optional cap (default bounded by runtime, max **500**).
+- **`limit`** — Optional cap on matching paths (default **100**, ceiling **500**).
+  Raising it cannot exceed the runtime ceiling.
 - **`maxDepth`** — Optional directory walk depth cap (default **64**).
 - **`entryType`** — Optional; alias **`entry_type`**. **`file`** (default), **`dir`**, or **`all`**.
 - **`includeHidden`** — Optional boolean (default **`false`**).
@@ -157,7 +162,7 @@ Example:
 
 - **`pattern`** — Rust regex syntax (via the same matcher stack ripgrep uses for line search). Keep patterns reasonably short (≤ **512** characters). Matching is **line-oriented** (not multi-line across `\n` within one match). When **`fixedString`** is `true`, `pattern` is treated as a literal string, not a regex.
 - **`path`** — **Required**; same idea as **`grep -R pattern PATH`**: **`PATH`** must be an **existing** file or directory. Prefer **narrow** workspace-relative paths (e.g. `src/`, `crates/pointer-core/src/`). Use **`path: "."`** only when you **deliberately** need a whole-repo search. If the path does not exist, the error includes **可能的路径** — sibling directories under the nearest existing parent (or workspace root) to help correct typos like `ui` → `src`.
-- **`maxResults`** — Optional cap on hit rows (default from host settings, **50**).
+- **`limit`** — Optional cap on hit rows (default from host settings, **50**).
   Raising it cannot exceed the host ceiling or the body-byte payload cap.
   Each **`matchLine`** / context line is clipped (default **1 KiB**).
 - **`maxDepth`** — Optional directory walk depth cap (ignored when **`path`** targets a single file).
@@ -208,5 +213,6 @@ Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
 - **`path`** — Required; directory to list (alias **`directory`**).
 - **`recursive`** — Optional boolean; default **true**.
 - **`maxDepth`** — Optional when **`recursive`** is true (default **2**).
-- **`maxResults`** — Optional cap on returned entries (default **100**, max **2000**).
+- **`limit`** — Optional cap on returned entries (default **100**, ceiling **2000**).
+  Raising it cannot exceed the runtime ceiling.
 - **`entryType`** — Optional; **`all`** (default), **`file`**, or **`dir`**.

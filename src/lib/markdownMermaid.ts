@@ -64,17 +64,17 @@ function mermaidToken(varName: string, light: string, dark: string): string {
 export function mermaidThemeVariables(): Record<string, string | boolean | number> {
   const dark = mermaidThemeScheme() === 'dark'
   const foreground = mermaidToken('--foreground', '240 6% 10%', '240 6% 96%')
-  const card = mermaidToken('--card', '0 0% 100%', '240 4% 11%')
-  const cluster = mermaidToken('--mermaid-cluster', '240 5% 94%', '240 6% 20%')
-  const node = mermaidToken('--mermaid-node', '211 40% 93%', '211 32% 30%')
-  const nodeBorder = mermaidToken('--mermaid-node-border', '240 8% 78%', '240 8% 48%')
-  const edge = mermaidToken('--mermaid-edge', '240 5% 58%', '240 8% 80%')
+  const fence = mermaidToken('--fence-bg', '0 0% 100%', '240 4% 8%')
+  const cluster = mermaidToken('--mermaid-cluster', '240 5% 96%', '240 5% 16%')
+  const node = mermaidToken('--mermaid-node', '0 0% 100%', '240 5% 22%')
+  const nodeBorder = mermaidToken('--mermaid-node-border', '240 8% 82%', '240 8% 42%')
+  const edge = mermaidToken('--mermaid-edge', '240 6% 68%', '240 6% 72%')
   const accent = mermaidToken('--accent', '211 100% 46%', '211 100% 58%')
   const danger = mermaidToken('--danger', '4 78% 50%', '4 72% 58%')
 
   return {
     darkMode: dark,
-    background: card,
+    background: fence,
     primaryColor: node,
     primaryTextColor: foreground,
     primaryBorderColor: nodeBorder,
@@ -92,7 +92,7 @@ export function mermaidThemeVariables(): Record<string, string | boolean | numbe
     clusterBkg: cluster,
     clusterBorder: nodeBorder,
     titleColor: foreground,
-    edgeLabelBackground: card,
+    edgeLabelBackground: fence,
     nodeTextColor: foreground,
     defaultLinkColor: edge,
     actorBkg: node,
@@ -101,7 +101,7 @@ export function mermaidThemeVariables(): Record<string, string | boolean | numbe
     actorLineColor: edge,
     signalColor: edge,
     signalTextColor: foreground,
-    labelBoxBkgColor: card,
+    labelBoxBkgColor: fence,
     labelBoxBorderColor: nodeBorder,
     labelTextColor: foreground,
     loopTextColor: foreground,
@@ -112,7 +112,7 @@ export function mermaidThemeVariables(): Record<string, string | boolean | numbe
     noteTextColor: foreground,
     noteBorderColor: nodeBorder,
     sectionBkgColor: cluster,
-    altSectionBkgColor: card,
+    altSectionBkgColor: fence,
     sectionBkgColor2: node,
     taskBkgColor: node,
     taskTextColor: foreground,
@@ -129,15 +129,112 @@ export function mermaidThemeVariables(): Record<string, string | boolean | numbe
     todayLineColor: accent,
     errorBkgColor: danger,
     errorTextColor: foreground,
-    attributeBackgroundColorOdd: card,
+    attributeBackgroundColorOdd: fence,
     attributeBackgroundColorEven: cluster,
     relationColor: edge,
-    relationLabelBackground: card,
+    relationLabelBackground: fence,
     classText: foreground,
     fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     useGradient: false,
     dropShadow: 'none',
-    strokeWidth: 2,
+    strokeWidth: 1.5,
+  }
+}
+
+/** Flowchart `[]` nodes are sharp rects; `{decision}` diamonds are sharp polygons. */
+export const MERMAID_NODE_RX = 8
+export const MERMAID_CLUSTER_RX = 10
+
+type SvgPoint = { x: number; y: number }
+
+function parseSvgPoints(points: string): SvgPoint[] {
+  const nums = points
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number)
+    .filter(n => Number.isFinite(n))
+  const pts: SvgPoint[] = []
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    pts.push({ x: nums[i]!, y: nums[i + 1]! })
+  }
+  return pts
+}
+
+function roundedPolygonPathD(pts: SvgPoint[], radius: number): string | null {
+  const n = pts.length
+  if (n < 3) return null
+  const segs: string[] = []
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i - 1 + n) % n]!
+    const curr = pts[i]!
+    const next = pts[(i + 1) % n]!
+    const dIn = Math.hypot(curr.x - prev.x, curr.y - prev.y)
+    const dOut = Math.hypot(next.x - curr.x, next.y - curr.y)
+    if (dIn < 0.5 || dOut < 0.5) return null
+    const r = Math.min(radius, dIn / 2, dOut / 2)
+    const ax = curr.x - ((curr.x - prev.x) / dIn) * r
+    const ay = curr.y - ((curr.y - prev.y) / dIn) * r
+    const bx = curr.x + ((next.x - curr.x) / dOut) * r
+    const by = curr.y + ((next.y - curr.y) / dOut) * r
+    if (i === 0) segs.push(`M${ax.toFixed(2)} ${ay.toFixed(2)}`)
+    else segs.push(`L${ax.toFixed(2)} ${ay.toFixed(2)}`)
+    segs.push(`Q${curr.x.toFixed(2)} ${curr.y.toFixed(2)} ${bx.toFixed(2)} ${by.toFixed(2)}`)
+  }
+  segs.push('Z')
+  return segs.join(' ')
+}
+
+function roundNodePolygons(root: Element): void {
+  const ns = 'http://www.w3.org/2000/svg'
+  for (const polygon of Array.from(root.querySelectorAll('.node polygon'))) {
+    if (!(polygon instanceof Element)) continue
+    if (polygon.closest('.edgeLabel') || polygon.closest('.cluster')) continue
+    const pts = parseSvgPoints(polygon.getAttribute('points') ?? '')
+    if (pts.length < 4) continue
+    const d = roundedPolygonPathD(pts, MERMAID_NODE_RX)
+    if (!d) continue
+    const path = root.ownerDocument?.createElementNS(ns, 'path')
+    if (!path) continue
+    for (const attr of Array.from(polygon.attributes)) {
+      if (attr.name === 'points') continue
+      path.setAttribute(attr.name, attr.value)
+    }
+    path.setAttribute('d', d)
+    polygon.replaceWith(path)
+  }
+}
+
+/**
+ * Round flowchart node/cluster rects and decision diamonds so export matches
+ * on-screen rounding. Skips label/edge backplates.
+ */
+export function roundMermaidSvgRects(svg: string): string {
+  if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
+    return svg
+  }
+  try {
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml')
+    if (doc.querySelector('parsererror')) return svg
+    const root = doc.documentElement
+    if (!root || root.localName.toLowerCase() !== 'svg') return svg
+    for (const rect of Array.from(root.querySelectorAll('rect'))) {
+      if (!(rect instanceof Element)) continue
+      const cls = rect.getAttribute('class') ?? ''
+      if (cls.split(/\s+/).includes('text')) continue
+      if (rect.closest('.edgeLabel')) continue
+      if (rect.closest('.label') && !rect.closest('.label-container')) continue
+      const inCluster = Boolean(rect.closest('.cluster'))
+      const inNode = Boolean(rect.closest('.node'))
+      if (!inCluster && !inNode) continue
+      const r = inCluster && !inNode ? String(MERMAID_CLUSTER_RX) : String(MERMAID_NODE_RX)
+      rect.setAttribute('rx', r)
+      rect.setAttribute('ry', r)
+    }
+    roundNodePolygons(root)
+    return new XMLSerializer().serializeToString(root)
+  } catch (err) {
+    console.warn('[markdownMermaid] round shapes skipped', err)
+    return svg
   }
 }
 

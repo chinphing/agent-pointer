@@ -16,7 +16,7 @@
     --composer-bg: 0 0% 100%;
     --hover: 240 5% 93%;
     --code-bg: 240 5% 94%;
-    /* Same fill as table `td` / `--card` (not a separate gray well). */
+    /* Same fill as --shell-chat (chat canvas). */
     --fence-bg: 0 0% 100%;
     --success: 142 48% 36%;
     --danger: 4 78% 50%;
@@ -26,11 +26,11 @@
     /* Shell: chat column white, sidebar one step quieter. */
     --shell-sidebar: 240 5% 96%;
     --shell-chat: 0 0% 100%;
-    /* Mermaid light: same wells as table th / code header; low-chroma accent plates. */
-    --mermaid-cluster: 240 5% 94%;
-    --mermaid-node: 211 40% 93%;
-    --mermaid-node-border: 240 8% 78%;
-    --mermaid-edge: 240 5% 58%;
+    /* Mermaid light: outlined white cards on the chat canvas. */
+    --mermaid-cluster: 240 5% 96%;
+    --mermaid-node: 0 0% 100%;
+    --mermaid-node-border: 240 8% 82%;
+    --mermaid-edge: 240 6% 68%;
   }
 
   html.dark {
@@ -46,8 +46,8 @@
     --composer-bg: 240 4% 10%;
     --hover: 240 4% 16%;
     --code-bg: 240 4% 7%;
-    /* Same fill as table `td` / `--card`. */
-    --fence-bg: 240 4% 11%;
+    /* Same fill as --shell-chat (chat canvas). */
+    --fence-bg: 240 4% 8%;
     /* Shell: chat column darker than the sidebar. */
     --shell-sidebar: 240 4% 11%;
     --shell-chat: 240 4% 8%;
@@ -56,11 +56,11 @@
     --warning: 36 70% 52%;
     --info: 211 100% 58%;
     --search-mark: 48 70% 42%;
-    /* Lifted off --card (11%) so boxes and arrows stay readable. */
-    --mermaid-cluster: 240 6% 20%;
-    --mermaid-node: 211 32% 30%;
-    --mermaid-node-border: 240 8% 48%;
-    --mermaid-edge: 240 8% 80%;
+    /* Mermaid dark: charcoal plates above the chat canvas, hairline like light. */
+    --mermaid-cluster: 240 5% 16%;
+    --mermaid-node: 240 5% 22%;
+    --mermaid-node-border: 240 8% 42%;
+    --mermaid-edge: 240 6% 72%;
   }
 
   html, body, #app { height: 100%; height: 100dvh; overflow: hidden; }
@@ -434,7 +434,7 @@
   color: hsl(var(--foreground));
 }
 
-/* Fenced code: inset well vs chat canvas (same step in light and dark). */
+/* Fenced code: same fill as --shell-chat; outline only. */
 .md-body .code-block {
   @apply my-3 relative overflow-hidden rounded-lg border border-border;
   background: hsl(var(--fence-bg));
@@ -489,7 +489,7 @@
   margin-bottom: 0 !important;
 }
 .md-body a { color: hsl(var(--accent)); @apply underline underline-offset-2 cursor-pointer; }
-/* Tables (GFM + raw HTML): rounded outer frame, header tint, full cell grid. */
+/* Tables (GFM + raw HTML): rounded outer frame, header tint, body matches chat canvas. */
 .md-body .table-wrapper {
   @apply my-3 max-w-full overflow-x-auto rounded-lg border border-border;
 }
@@ -513,7 +513,7 @@
   background: hsl(var(--hover));
 }
 .md-body td {
-  background: hsl(var(--card));
+  background: hsl(var(--fence-bg));
 }
 .md-body th:last-child,
 .md-body td:last-child {
@@ -544,11 +544,11 @@
   @apply my-3 relative rounded-lg border border-border;
   /* visible: do not clip canvas tooltips / hover affordances */
   overflow: visible;
-  background: hsl(var(--card));
+  background: hsl(var(--fence-bg));
 }
 .md-body .md-chart-toolbar {
   @apply absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg p-0.5;
-  background: hsl(var(--card) / 0.92);
+  background: hsl(var(--fence-bg) / 0.92);
   color: hsl(var(--muted));
   box-shadow: 0 0 0 1px hsl(var(--border));
 }
@@ -602,12 +602,12 @@
 .md-body .md-mermaid {
   @apply my-3 relative rounded-lg border border-border;
   overflow: visible;
-  background: hsl(var(--card));
+  background: hsl(var(--fence-bg));
 }
 .md-body .md-svg-toolbar,
 .md-body .md-mermaid-toolbar {
   @apply absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg p-0.5;
-  background: hsl(var(--card) / 0.92);
+  background: hsl(var(--fence-bg) / 0.92);
   color: hsl(var(--muted));
   box-shadow: 0 0 0 1px hsl(var(--border));
 }
@@ -653,57 +653,74 @@
   height: auto;
   margin: 0 auto;
 }
-.md-body .md-mermaid-frame svg .edgePath .path,
-.md-body .md-mermaid-frame svg .flowchart-link {
-  stroke-width: 1.75px;
-}
 /*
- * Mermaid prefixes rules with the SVG id (`#mermaid-xxx .cluster rect`),
- * which beats class selectors. Host paints must use !important.
+ * Mermaid paints: in-flow (`.md-mermaid-frame`) and zoom overlay clones
+ * (`.diagram-zoom-overlay`). Mermaid prefixes its own rules with the SVG id,
+ * so host fills use !important.
  */
-.md-body .md-mermaid-frame svg .cluster :is(rect, polygon, path) {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .edgePath .path,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .flowchart-link {
+  stroke: hsl(var(--mermaid-edge)) !important;
+  stroke-width: 1.35px;
+}
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .cluster :is(rect, polygon, path),
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node :is(rect, polygon, ellipse, circle),
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node .label-container path {
+  stroke-width: 1.25px;
+}
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .cluster :is(rect, polygon, path) {
   fill: hsl(var(--mermaid-cluster)) !important;
   stroke: hsl(var(--mermaid-node-border)) !important;
 }
-.md-body .md-mermaid-frame svg .node :is(rect, polygon, ellipse, circle) {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node :is(rect, polygon, ellipse, circle),
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node path.label-container {
   fill: hsl(var(--mermaid-node)) !important;
   stroke: hsl(var(--mermaid-node-border)) !important;
 }
-.md-body .md-mermaid-frame svg .node .label-container,
-.md-body .md-mermaid-frame svg .node .label-container path {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node rect:not(.text),
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node .label-container {
+  rx: 8px;
+  ry: 8px;
+}
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .cluster > rect {
+  rx: 10px;
+  ry: 10px;
+}
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node .label-container,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node .label-container path {
   fill: hsl(var(--mermaid-node)) !important;
   stroke: hsl(var(--mermaid-node-border)) !important;
 }
-.md-body .md-mermaid-frame svg .node .label rect,
-.md-body .md-mermaid-frame svg rect.text {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node .label rect,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg rect.text {
   fill: none !important;
   stroke: none !important;
 }
-.md-body .md-mermaid-frame svg .edgeLabel rect {
-  fill: hsl(var(--card)) !important;
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .edgeLabel rect {
+  fill: hsl(var(--fence-bg)) !important;
   opacity: 1 !important;
 }
-.md-body .md-mermaid-frame svg .label text,
-.md-body .md-mermaid-frame svg .label tspan,
-.md-body .md-mermaid-frame svg .edgeLabel text,
-.md-body .md-mermaid-frame svg .edgeLabel tspan {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .label text,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .label tspan,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .edgeLabel text,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .edgeLabel tspan {
   fill: hsl(var(--foreground)) !important;
 }
-.md-body .md-mermaid-frame svg .cluster-label text,
-.md-body .md-mermaid-frame svg .cluster-label tspan {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .cluster-label text,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .cluster-label tspan {
   fill: hsl(var(--muted)) !important;
 }
-.md-body .md-mermaid-frame svg .node .label,
-.md-body .md-mermaid-frame svg .edgeLabel,
-.md-body .md-mermaid-frame svg .edgeLabel span,
-.md-body .md-mermaid-frame svg foreignObject,
-.md-body .md-mermaid-frame svg foreignObject div,
-.md-body .md-mermaid-frame svg foreignObject span,
-.md-body .md-mermaid-frame svg foreignObject p {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .node .label,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .edgeLabel,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .edgeLabel span,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg foreignObject,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg foreignObject div,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg foreignObject span,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg foreignObject p {
   color: hsl(var(--foreground)) !important;
 }
-.md-body .md-mermaid-frame svg .cluster-label,
-.md-body .md-mermaid-frame svg .cluster-label span {
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .cluster-label,
+:is(.md-body .md-mermaid-frame, .diagram-zoom-overlay) svg .cluster-label span {
   color: hsl(var(--muted)) !important;
 }
 .md-body .md-svg-status,

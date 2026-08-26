@@ -139,6 +139,7 @@ export type ChartThemeColors = {
   foreground: string
   muted: string
   border: string
+  /** Same fill as `--shell-chat` (`--fence-bg`); PNG export under the canvas. */
   card: string
   accent: string
   grid: string
@@ -217,14 +218,14 @@ export function readChartThemeColors(): ChartThemeColors {
     foreground: canvasRgb('--foreground', '240 6% 10%'),
     muted: canvasRgb('--muted', '240 4% 42%'),
     border: canvasRgb('--border', '240 6% 90%'),
-    card: canvasRgb('--card', '0 0% 100%'),
+    card: canvasRgb('--fence-bg', '0 0% 100%'),
     accent: canvasRgb('--accent', '211 100% 46%'),
     grid: canvasRgb('--border', '240 6% 90%', 0.45),
   }
 }
 
 /**
- * Export a PNG that matches on-screen chrome: card background under the
+ * Export a PNG that matches on-screen chrome: chat canvas under the
  * Chart.js bitmap (canvas alone is transparent and looks wrong in Preview).
  */
 export function exportChartCanvasPngDataUrl(

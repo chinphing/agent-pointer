@@ -102,6 +102,8 @@ export function openDiagramZoom(source: Element): () => void {
         styleEl.textContent = styleEl.textContent.split(`#${sourceId}`).join(`#${newId}`)
       }
     }
+    // Host mermaid paints target `.diagram-zoom-overlay svg` (see globals.css).
+    content.classList.add('diagram-zoom-svg')
     const vb = parseViewBox(content.getAttribute('viewBox'))
     if (vb) {
       naturalW = vb.width
@@ -122,7 +124,7 @@ export function openDiagramZoom(source: Element): () => void {
     objectFit: 'contain',
     borderRadius: '8px',
     boxShadow: '0 12px 40px hsl(var(--foreground) / 0.18)',
-    background: 'hsl(var(--card))',
+    background: 'hsl(var(--fence-bg))',
   })
   stage.appendChild(content)
 

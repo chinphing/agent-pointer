@@ -39,6 +39,7 @@ describe('diagramZoom', () => {
     // embedded style selectors are rewritten to the clone id
     expect(cloned?.querySelector('style')?.textContent).toContain('#diagram-zoom-')
     expect(cloned?.querySelector('style')?.textContent).not.toContain('#g1 ')
+    expect(cloned?.classList.contains('diagram-zoom-svg')).toBe(true)
   })
 
   it('renders canvas sources as a png data-url image', () => {

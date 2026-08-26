@@ -9,6 +9,7 @@ import {
   mermaidInitializeConfig,
   mermaidThemeCacheKey,
   mermaidThemeScheme,
+  roundMermaidSvgRects,
   stripMermaidHostThemeOverrides,
 } from '../lib/markdownMermaid'
 import {
@@ -339,7 +340,7 @@ export function useMarkdownMermaid(
           showStatus(host, '图示渲染失败', 'error')
           return
         }
-        cleaned = parsed.svg
+        cleaned = roundMermaidSvgRects(parsed.svg)
         cacheCleanedSvg(cacheKey, cleaned)
       } catch (err) {
         console.error('[markdownMermaid] render failed', err)

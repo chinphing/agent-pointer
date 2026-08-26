@@ -15,6 +15,9 @@ import {
   STREAMING_MERMAID_HOST_HTML,
   STREAMING_MERMAID_STUB,
   stripMermaidHostThemeOverrides,
+  roundMermaidSvgRects,
+  MERMAID_NODE_RX,
+  MERMAID_CLUSTER_RX,
 } from './markdownMermaid'
 import { decodeSvgConfigAttr } from './markdownSvg'
 
@@ -105,21 +108,23 @@ describe('mermaid host theme', () => {
     if (mode === 'dark') {
       root.style.setProperty('--foreground', '240 6% 96%')
       root.style.setProperty('--card', '240 4% 11%')
+      root.style.setProperty('--fence-bg', '240 4% 8%')
       root.style.setProperty('--accent', '211 100% 58%')
       root.style.setProperty('--danger', '4 72% 58%')
-      root.style.setProperty('--mermaid-cluster', '240 6% 20%')
-      root.style.setProperty('--mermaid-node', '211 32% 30%')
-      root.style.setProperty('--mermaid-node-border', '240 8% 48%')
-      root.style.setProperty('--mermaid-edge', '240 8% 80%')
+      root.style.setProperty('--mermaid-cluster', '240 5% 16%')
+      root.style.setProperty('--mermaid-node', '240 5% 22%')
+      root.style.setProperty('--mermaid-node-border', '240 8% 42%')
+      root.style.setProperty('--mermaid-edge', '240 6% 72%')
     } else {
       root.style.setProperty('--foreground', '240 6% 10%')
       root.style.setProperty('--card', '0 0% 100%')
+      root.style.setProperty('--fence-bg', '0 0% 100%')
       root.style.setProperty('--accent', '211 100% 46%')
       root.style.setProperty('--danger', '4 78% 50%')
-      root.style.setProperty('--mermaid-cluster', '240 5% 94%')
-      root.style.setProperty('--mermaid-node', '211 40% 93%')
-      root.style.setProperty('--mermaid-node-border', '240 8% 78%')
-      root.style.setProperty('--mermaid-edge', '240 5% 58%')
+      root.style.setProperty('--mermaid-cluster', '240 5% 96%')
+      root.style.setProperty('--mermaid-node', '0 0% 100%')
+      root.style.setProperty('--mermaid-node-border', '240 8% 82%')
+      root.style.setProperty('--mermaid-edge', '240 6% 68%')
     }
   }
 
@@ -128,13 +133,14 @@ describe('mermaid host theme', () => {
     expect(mermaidThemeScheme()).toBe('dark')
     const vars = mermaidThemeVariables()
     expect(vars.darkMode).toBe(true)
-    expect(vars.clusterBkg).toBe(canvasRgb('--mermaid-cluster', '240 6% 20%'))
-    expect(vars.nodeBkg).toBe(canvasRgb('--mermaid-node', '211 32% 30%'))
+    expect(vars.clusterBkg).toBe(canvasRgb('--mermaid-cluster', '240 5% 16%'))
+    expect(vars.nodeBkg).toBe(canvasRgb('--mermaid-node', '240 5% 22%'))
     expect(vars.primaryTextColor).toBe(canvasRgb('--foreground', '240 6% 96%'))
-    expect(vars.lineColor).toBe(canvasRgb('--mermaid-edge', '240 8% 80%'))
-    expect(vars.nodeBorder).toBe(canvasRgb('--mermaid-node-border', '240 8% 48%'))
-    expect(vars.strokeWidth).toBe(2)
+    expect(vars.lineColor).toBe(canvasRgb('--mermaid-edge', '240 6% 72%'))
+    expect(vars.nodeBorder).toBe(canvasRgb('--mermaid-node-border', '240 8% 42%'))
+    expect(vars.strokeWidth).toBe(1.5)
     expect(vars.nodeBkg).not.toBe(canvasRgb('--card', '240 4% 11%'))
+    expect(vars.background).toBe(canvasRgb('--fence-bg', '240 4% 8%'))
     expect(String(vars.clusterBkg)).not.toMatch(/#fff4dd|#ffffde/i)
     expect(mermaidThemeCacheKey('abc')).toBe('dark|abc')
 
@@ -142,10 +148,11 @@ describe('mermaid host theme', () => {
     expect(mermaidThemeScheme()).toBe('light')
     const light = mermaidThemeVariables()
     expect(light.darkMode).toBe(false)
-    expect(light.clusterBkg).toBe(canvasRgb('--mermaid-cluster', '240 5% 94%'))
-    expect(light.nodeBkg).toBe(canvasRgb('--mermaid-node', '211 40% 93%'))
-    expect(light.nodeBorder).toBe(canvasRgb('--mermaid-node-border', '240 8% 78%'))
-    expect(light.lineColor).toBe(canvasRgb('--mermaid-edge', '240 5% 58%'))
+    expect(light.clusterBkg).toBe(canvasRgb('--mermaid-cluster', '240 5% 96%'))
+    expect(light.nodeBkg).toBe(canvasRgb('--mermaid-node', '0 0% 100%'))
+    expect(light.background).toBe(canvasRgb('--fence-bg', '0 0% 100%'))
+    expect(light.nodeBorder).toBe(canvasRgb('--mermaid-node-border', '240 8% 82%'))
+    expect(light.lineColor).toBe(canvasRgb('--mermaid-edge', '240 6% 68%'))
     expect(mermaidInitializeConfig().theme).toBe('base')
     expect(mermaidInitializeConfig().htmlLabels).toBe(false)
     expect(mermaidInitializeConfig().flowchart.htmlLabels).toBe(false)
@@ -158,5 +165,31 @@ describe('mermaid host theme', () => {
     expect(stripped).toContain('A[开始]')
     expect(stripped).not.toMatch(/%%\{/)
     expect(stripped).not.toContain('#fff4dd')
+  })
+
+  it('rounds flowchart node and cluster rects', () => {
+    const raw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80">
+  <g class="node"><rect width="80" height="32" class="basic label-container"/></g>
+  <g class="cluster"><rect width="180" height="70"/></g>
+  <g class="node"><rect class="text" width="40" height="12"/></g>
+  <g class="edgeLabel"><rect width="20" height="10"/></g>
+</svg>`
+    const rounded = roundMermaidSvgRects(raw)
+    expect(rounded).toContain(`rx="${MERMAID_NODE_RX}"`)
+    expect(rounded).toContain(`ry="${MERMAID_NODE_RX}"`)
+    expect(rounded).toContain(`rx="${MERMAID_CLUSTER_RX}"`)
+    expect(rounded).not.toMatch(/class="text"[^>]*rx=/)
+    expect(rounded).not.toMatch(/edgeLabel[\s\S]*rx="/)
+  })
+
+  it('rounds flowchart decision diamonds into quadratic paths', () => {
+    const raw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <g class="node"><polygon class="label-container" points="60,10 110,60 60,110 10,60"/></g>
+</svg>`
+    const rounded = roundMermaidSvgRects(raw)
+    expect(rounded.toLowerCase()).not.toContain('<polygon')
+    expect(rounded).toMatch(/<path[^>]*d="M/)
+    expect(rounded).toContain('Q')
+    expect(rounded).toContain('label-container')
   })
 })

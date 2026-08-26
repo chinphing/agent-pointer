@@ -6,13 +6,13 @@ CSS variables in `src/styles/globals.css`:
 
 - `--background`, `--foreground`, `--card`, `--card-elevated`, `--border`
 - `--accent`, `--accent-muted`, `--accent-foreground`, `--hover`, `--composer-bg`, `--code-bg`, `--fence-bg`
-  (`--composer-bg` fills `.composer-shell`; light = white, not `--card-elevated`)
+  (`--composer-bg` fills `.composer-shell`; light = white, not `--card-elevated`.
+  `--fence-bg` matches `--shell-chat` in light and dark. Markdown table `td` uses it too; `th` stays `--hover`.)
 - Semantic: `--success`, `--danger`, `--warning`, `--info`
 - `--search-mark`
 - Mermaid diagram surfaces: `--mermaid-cluster`, `--mermaid-node`, `--mermaid-node-border`, `--mermaid-edge`
-  (nodes must read against `--card`; do not use `--accent-muted` as a node fill).
-  Light uses the same grey wells as table / code headers plus a low-chroma accent plate;
-  dark uses lifted charcoal-blue plates. See [markdown-mermaid.md](markdown-mermaid.md)
+  (nodes must read against `--fence-bg` / the chat canvas; do not use `--accent-muted` as a node fill).
+  Light is outlined white cards; dark is charcoal plates. See [markdown-mermaid.md](markdown-mermaid.md)
 
 `html.dark` and default (`:root`) define light; dark overrides on `html.dark`.
 
@@ -80,12 +80,12 @@ from available width while the workspace panel is open.
 - `.panel` — flat card (`bg-card` + `border-border`)
 - `.panel-elevated` — slightly raised surface
 - `.brand-text` — title text (`text-foreground`)
-- Markdown GFM / HTML tables (`.md-body .table-wrapper`): rounded outer border; `th`/`td` theme cells (works without `<thead>`/`<tbody>`); honor GFM align + HTML column `width` / status colors; see [markdown-media-boundaries.md](markdown-media-boundaries.md), `markdownConfig.ts` / `globals.css`
-- Markdown fenced code (`.md-body .code-block`): same palette as tables — body `--card` (token `--fence-bg` aliases it), language row `.fence-block-lang` uses `--hover` like `th`. Copy sits in that header (flex `items-center`), not `absolute` on the whole block; see `markdownConfig.ts` / `useMarkdownCodeCopy`
+- Markdown GFM / HTML tables (`.md-body .table-wrapper`): rounded outer border; `td` `--fence-bg` (same as chat canvas); `th` stays `--hover`; honor GFM align + HTML column `width` / status colors; see [markdown-media-boundaries.md](markdown-media-boundaries.md), `markdownConfig.ts` / `globals.css`
+- Markdown fenced code (`.md-body .code-block`): body `--fence-bg` (same as `--shell-chat`; outline only). Language row `.fence-block-lang` uses `--hover` like `th`. Copy sits in that header (flex `items-center`), not `absolute` on the whole block; see `markdownConfig.ts` / `useMarkdownCodeCopy`
 - Markdown inline code (`.md-body code`): accent text only, **no** `--code-bg` chip / padding
-- Markdown charts (`.md-body .md-chart`): same card chrome; Chart.js from `chartjs`/`chart` JSON fences; theme axis/legend colors from CSS variables; see [markdown-charts.md](markdown-charts.md)
-- Markdown Mermaid (`.md-body .md-mermaid`): same card chrome; host paints nodes/clusters/edges from CSS tokens and remounts on light/dark; see [markdown-mermaid.md](markdown-mermaid.md)
-- Markdown SVG diagrams (`.md-body .md-svg`): same card chrome; sanitized `svg` fences; see [markdown-svg.md](markdown-svg.md)
+- Markdown charts (`.md-body .md-chart`): same canvas fill as code (`--fence-bg`); Chart.js from `chartjs`/`chart` JSON fences; theme axis/legend colors from CSS variables; see [markdown-charts.md](markdown-charts.md)
+- Markdown Mermaid (`.md-body .md-mermaid`): same canvas fill; host paints nodes/clusters/edges from CSS tokens and remounts on light/dark; see [markdown-mermaid.md](markdown-mermaid.md)
+- Markdown SVG diagrams (`.md-body .md-svg`): same canvas fill; sanitized `svg` fences; see [markdown-svg.md](markdown-svg.md)
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`
 - `.fence-block` — table chrome (`rounded-lg border-border`, body `--card`); `.fence-block-header` matches table `th` (`--hover` fill, bottom border, semibold)
 - Interactive chat controls (e.g. `ask_user`): **the question** is `.fence-block-header`; options sit in the fence body. Tool line stays「询问用户」only. Card left edge matches the tool row; header/body share `px-3` (same as table `th`/`td`).

@@ -30,9 +30,9 @@ Example:
 
 ## UI
 
-- Card chrome matches GFM tables / code blocks (`--card`, rounded border).
+- Fence chrome matches code / Mermaid / SVG (`--fence-bg` = `--shell-chat`, rounded border).
 - Toolbar (always visible after render): copy JSON, export PNG (desktop: Save dialog; web: browser download), toggle source.
-  PNG export composites the chart onto the card background so it matches the on-screen look (raw canvas is transparent).
+  PNG export composites the chart onto the chat canvas so it matches the on-screen look (raw canvas is transparent).
 - Theme: axis/legend colors follow CSS variables (`--foreground`, `--muted`, `--border`).
 - Series colors: by default the host applies a soft coordinated palette of 8 hues (blue → peach → teal → sand → sage → slate → mauve → olive; cycles if more series), overriding model neon colors. With root `"pointerPalette": false`, model series colors are kept (user-requested).
 - **LLM context (API-only):** when building the next model request, assistant messages that contain chart fences get an appended `<!-- pointer-chart-render -->` block listing the host-applied (or custom) series colors. This is not stored in `msg.content` and is not shown in the UI — same pattern as delivered-attachment manifests.

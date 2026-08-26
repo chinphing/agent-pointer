@@ -10,7 +10,7 @@ import {
   mermaidThemeCacheKey,
   mermaidThemeScheme,
   roundMermaidSvgRects,
-  stripMermaidHostThemeOverrides,
+  prepareMermaidSource,
 } from '../lib/markdownMermaid'
 import {
   deferUntilInView,
@@ -314,7 +314,7 @@ export function useMarkdownMermaid(
           mountOrUpdate(host)
           return
         }
-        const source = stripMermaidHostThemeOverrides(raw)
+        const source = prepareMermaidSource(raw)
         if (!source) {
           const state = hosts.get(host)
           if (state) state.pending = false

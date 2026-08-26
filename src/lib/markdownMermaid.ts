@@ -56,6 +56,39 @@ export function stripMermaidHostThemeOverrides(raw: string): string {
   return raw.replace(/%%\{\s*init(?:ialize)?\s*:[\s\S]*?\}%%/gi, '').trim()
 }
 
+/** True when an unquoted `[]` label would confuse the flowchart parser. */
+export function flowchartLabelNeedsQuotes(inner: string): boolean {
+  const t = inner.trim()
+  if (!t) return false
+  return /[()[\]{}<>|*\\/=+#;,→←]|<br|\n/i.test(t)
+}
+
+/**
+ * Models often put `/`, `()`, `*`, or `<br/>` in `A[label]` without quotes.
+ * Unquoted `(` is parsed as a stadium node and the whole diagram fails.
+ */
+export function quoteFlowchartNodeLabels(source: string): string {
+  if (!/^\s*(?:flowchart|graph)\b/im.test(source)) return source
+  return source.replace(
+    /(^|[\s;])([A-Za-z][\w-]*)\[(?!\s*")([^\]]*)\]/gm,
+    (full, prefix: string, id: string, inner: string) => {
+      const normalized = inner.replace(/<br\s*\/?>/gi, '<br>')
+      if (!flowchartLabelNeedsQuotes(normalized)) return full
+      return `${prefix}${id}["${normalized.replace(/"/g, '#quot;')}"]`
+    }
+  )
+}
+
+/** Strip host-theme init and quote fragile flowchart labels (model output). */
+export function prepareMermaidSource(raw: string): string {
+  const stripped = stripMermaidHostThemeOverrides(raw)
+  const quoted = quoteFlowchartNodeLabels(stripped)
+  if (quoted !== stripped) {
+    console.info('[markdownMermaid] quoted flowchart node labels for parse')
+  }
+  return quoted
+}
+
 function mermaidToken(varName: string, light: string, dark: string): string {
   return canvasRgb(varName, mermaidThemeScheme() === 'dark' ? dark : light)
 }

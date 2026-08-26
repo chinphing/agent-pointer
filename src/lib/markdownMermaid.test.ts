@@ -15,6 +15,8 @@ import {
   STREAMING_MERMAID_HOST_HTML,
   STREAMING_MERMAID_STUB,
   stripMermaidHostThemeOverrides,
+  quoteFlowchartNodeLabels,
+  prepareMermaidSource,
   roundMermaidSvgRects,
   MERMAID_NODE_RX,
   MERMAID_CLUSTER_RX,
@@ -165,6 +167,42 @@ describe('mermaid host theme', () => {
     expect(stripped).toContain('A[开始]')
     expect(stripped).not.toMatch(/%%\{/)
     expect(stripped).not.toContain('#fff4dd')
+  })
+
+  it('quotes flowchart [] labels that would parse as stadium or HTML', () => {
+    expect(quoteFlowchartNodeLabels('flowchart TD\n  A[开始] --> B[结束]')).toContain('A[开始]')
+    expect(
+      quoteFlowchartNodeLabels('flowchart LR\n  F[draft.json (draft_version 2)] --> G[ok]')
+    ).toContain('F["draft.json (draft_version 2)"]')
+    const src = `flowchart LR
+    A[材料文件<br/>PDF/JPG/DOCX/zip] --> B[材料登记]
+    E[v2 语义草稿<br/>draft.json (draft_version 2)] --> F[ok]`
+    const quoted = quoteFlowchartNodeLabels(src)
+    expect(quoted).toContain('A["材料文件<br>PDF/JPG/DOCX/zip"]')
+    expect(quoted).toContain('E["v2 语义草稿<br>draft.json (draft_version 2)"]')
+    expect(prepareMermaidSource(src)).toBe(quoted)
+  })
+
+  it('leaves non-flowchart diagrams unchanged', () => {
+    const seq = 'sequenceDiagram\n  A[not a node]->>B: hi'
+    expect(quoteFlowchartNodeLabels(seq)).toBe(seq)
+  })
+
+  it('parses a model flowchart whose unquoted labels include parentheses', async () => {
+    const raw = `flowchart LR
+    A[材料文件<br/>PDF/JPG/DOCX/zip] --> B[材料登记<br/>material_registry.register]
+    B --> C[事实提取<br/>register_extract/classify<br/>facts/*.json]
+    C --> D[阶段门禁<br/>check_material_readiness<br/>check_invoice_verify<br/>check_attachment_upload]
+    D --> E[组装<br/>_assemble_draft / fast 链]
+    E --> F[v2 语义草稿<br/>draft.json (draft_version 2)]
+    F --> G[提交前校验<br/>validate_v2_before_submit]
+    G --> H[平台 flat 载荷<br/>v2_draft_to_flat → semantic_to_payload]
+    H --> I[后处理+sanitize<br/>_apply_flat_postprocess + detail_integrity]
+    I --> J[requestOperation save<br/>workflow.save]
+    J --> K[送审<br/>workflow.submit_form / _submit_opinion]`
+    const mermaid = (await import('mermaid')).default
+    mermaid.initialize(mermaidInitializeConfig())
+    await mermaid.parse(prepareMermaidSource(raw))
   })
 
   it('rounds flowchart node and cluster rects', () => {

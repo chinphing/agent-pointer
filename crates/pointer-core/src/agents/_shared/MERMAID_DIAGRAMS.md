@@ -20,8 +20,11 @@ transition** is clearer as a diagram than prose, emit a fenced Mermaid block:
   groups: `subgraph Name [...]`.
 - Do not set `classDef`, `style`, `%%{init}%%`, or YAML `theme`.
   The host paints the diagram from the app light/dark theme.
-- Keep diagrams readable: **≤ ~50 nodes** (split larger ones), short labels,
-  `<br>` for line breaks, quote special characters: `A["Tool / Agent"]`.
+- Keep diagrams readable: **≤ ~50 nodes** (split larger ones), short labels.
+- Line breaks: `<br>` (not `<br/>`).
+- Quote labels that contain `/`, `()`, `*`, or HTML:
+  `A["draft.json (v2)"]`.
+  Unquoted `(` inside `[]` is parsed as a stadium node and fails.
 - Use **`svg`** (never Mermaid) for: timeline / journey / mindmap / sankey /
   quadrant / xychart / pie / radar / gitGraph / C4 / block / treeView / venn /
   treemap / requirement / kanban / ishikawa / railroad / packet / architecture

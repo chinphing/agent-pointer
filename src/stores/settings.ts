@@ -79,6 +79,8 @@ function migratePlannerSettingsFields(
 }
 
 const DEFAULT_TOOL_ROUNDS = 5000
+const DEFAULT_SUB_AGENT_TOOL_ROUNDS = 200
+const CEILING_SUB_AGENT_TOOL_ROUNDS = 200
 const LEGACY_TOOL_ROUNDS = new Set([100, 200])
 
 function normalizeToolRounds(raw?: number): number {
@@ -86,6 +88,11 @@ function normalizeToolRounds(raw?: number): number {
   const rounds = Math.floor(Number(raw))
   if (LEGACY_TOOL_ROUNDS.has(rounds)) return DEFAULT_TOOL_ROUNDS
   return rounds
+}
+
+function normalizeSubAgentToolRounds(raw?: number): number {
+  if (!Number.isFinite(Number(raw)) || Number(raw) < 1) return DEFAULT_SUB_AGENT_TOOL_ROUNDS
+  return Math.min(Math.floor(Number(raw)), CEILING_SUB_AGENT_TOOL_ROUNDS)
 }
 
 function normalizeContextBudgetTokens(raw?: number): number {
@@ -120,7 +127,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     terminalTimeoutSeconds: s.terminalTimeoutSeconds ?? 30,
     terminalMaxWallHours: s.terminalMaxWallHours ?? 24,
     attachmentUploadMaxBytes: s.attachmentUploadMaxBytes ?? 100 * 1024 * 1024,
-    maxSubAgentToolRounds: normalizeToolRounds(s.maxSubAgentToolRounds ?? s.maxToolRounds),
+    maxSubAgentToolRounds: normalizeSubAgentToolRounds(s.maxSubAgentToolRounds),
     maxSubAgentSpawnDepth: s.maxSubAgentSpawnDepth ?? 2,
     rawContentViewEnabled: s.rawContentViewEnabled === true,
     debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
@@ -291,7 +298,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalTimeoutSeconds: 30,
     terminalMaxWallHours: 24,
     attachmentUploadMaxBytes: 100 * 1024 * 1024,
-    maxSubAgentToolRounds: DEFAULT_TOOL_ROUNDS,
+    maxSubAgentToolRounds: DEFAULT_SUB_AGENT_TOOL_ROUNDS,
     maxSubAgentSpawnDepth: 2,
     rawContentViewEnabled: false,
     debugDumpLlmPrompts: false,
@@ -591,10 +598,11 @@ export const useSettingsStore = defineStore('settings', () => {
         ?? user.attachmentUploadMaxBytes
         ?? settings.value.attachmentUploadMaxBytes,
       maxToolRounds: mergedIn.maxToolRounds ?? user.maxToolRounds ?? settings.value.maxToolRounds,
-      maxSubAgentToolRounds:
+      maxSubAgentToolRounds: normalizeSubAgentToolRounds(
         mergedIn.maxSubAgentToolRounds
         ?? user.maxSubAgentToolRounds
-        ?? settings.value.maxSubAgentToolRounds,
+        ?? settings.value.maxSubAgentToolRounds
+      ),
       toolApprovalMode: mergedIn.toolApprovalMode ?? user.toolApprovalMode ?? settings.value.toolApprovalMode,
       computerHumanLike: mergedIn.computerHumanLike ?? user.computerHumanLike ?? settings.value.computerHumanLike,
       computerAutoSwitchMonitor:

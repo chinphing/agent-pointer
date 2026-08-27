@@ -326,7 +326,9 @@ pub(super) async fn execute_owned_subagent(
         ),
     );
 
-    let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
+    let sub_cap = crate::models::clamp_max_sub_agent_tool_rounds(
+        provider.settings.max_sub_agent_tool_rounds,
+    );
     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
     let mut child_trace = Vec::new();
     let mut child_usage = ConversationLlmStats::default();
@@ -702,7 +704,9 @@ pub(super) async fn run_subagent_delegation(
                         )
                     };
                     emit_subagent_trace_step(stream, ctx, make_trace("running", Some(detail)));
-                    let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
+                    let sub_cap = crate::models::clamp_max_sub_agent_tool_rounds(
+                        provider.settings.max_sub_agent_tool_rounds,
+                    );
                     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
                     let mut sub_ctx = super::context::SubAgentLoopContext {
                         session: super::context::SessionRefs {

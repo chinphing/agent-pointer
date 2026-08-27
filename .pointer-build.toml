@@ -19,7 +19,7 @@ context_budget_tokens = 262144
 context_keep_recent_user_turns = 3
 context_summary_max_tokens = 1024
 max_tool_rounds = 5000
-max_sub_agent_tool_rounds = 5000
+max_sub_agent_tool_rounds = 200
 
 # debug
 raw_content_view_enabled = false

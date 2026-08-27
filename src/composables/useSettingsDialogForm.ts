@@ -256,6 +256,8 @@ function createSettingsDialogForm(deps: {
   const leadAgentId = ref('')
   const contextKeepRecentUserTurns = ref(6)
   const DEFAULT_TOOL_ROUNDS = 5000
+  const DEFAULT_SUB_AGENT_TOOL_ROUNDS = 200
+  const CEILING_SUB_AGENT_TOOL_ROUNDS = 200
   const LEGACY_TOOL_ROUNDS = new Set([100, 200])
   function migrateToolRounds(raw?: number): number {
     const n = Number(raw)
@@ -263,6 +265,11 @@ function createSettingsDialogForm(deps: {
     const rounds = Math.floor(n)
     if (LEGACY_TOOL_ROUNDS.has(rounds)) return DEFAULT_TOOL_ROUNDS
     return rounds
+  }
+  function migrateSubAgentToolRounds(raw?: number): number {
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n < 1) return DEFAULT_SUB_AGENT_TOOL_ROUNDS
+    return Math.min(Math.floor(n), CEILING_SUB_AGENT_TOOL_ROUNDS)
   }
   const maxToolRounds = ref(DEFAULT_TOOL_ROUNDS)
   const fileReadMaxKb = ref(64)
@@ -272,7 +279,7 @@ function createSettingsDialogForm(deps: {
   const terminalTimeoutSeconds = ref(30)
   const terminalMaxWallHours = ref(24)
   const attachmentUploadMaxMb = ref(100)
-  const maxSubAgentToolRounds = ref(5000)
+  const maxSubAgentToolRounds = ref(DEFAULT_SUB_AGENT_TOOL_ROUNDS)
   const parallelToolExecutionEnabled = ref(true)
   const PARALLEL_LIMIT_CAP = 8
   function defaultParallelLimit(): number {
@@ -499,9 +506,7 @@ function createSettingsDialogForm(deps: {
   maxParallelSubAgents.value = storedParallelLimit(s.settings.maxParallelSubAgents)
   maxParallelMediaJobs.value = storedParallelLimit(s.settings.maxParallelMediaJobs)
   maxConcurrentRuns.value = s.settings.maxConcurrentRuns ?? 4
-  maxSubAgentToolRounds.value = migrateToolRounds(
-    s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds
-  )
+  maxSubAgentToolRounds.value = migrateSubAgentToolRounds(s.settings.maxSubAgentToolRounds)
   maxSubAgentSpawnDepth.value = s.settings.maxSubAgentSpawnDepth ?? 2
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
@@ -795,7 +800,7 @@ function createSettingsDialogForm(deps: {
     contextCompressionEnabled: true,
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
     maxToolRounds: Number(maxToolRounds.value),
-    maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
+    maxSubAgentToolRounds: migrateSubAgentToolRounds(maxSubAgentToolRounds.value),
     fileReadMaxBytes: Math.min(1024 * 1024, Math.max(4096, Math.round(Number(fileReadMaxKb.value) || 64) * 1024)),
     fileLineMaxBytes: Math.min(16 * 1024, Math.max(256, Math.floor(Number(fileLineMaxBytes.value) || 1024))),
     fileGrepMaxResults: Math.min(200, Math.max(1, Math.floor(Number(fileGrepMaxResults.value) || 50))),

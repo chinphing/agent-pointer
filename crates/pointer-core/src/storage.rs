@@ -411,7 +411,10 @@ struct StoredSettings {
     context_summary_max_tokens: u32,
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     max_tool_rounds: u32,
-    #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
+    #[serde(
+        default = "default_max_sub_agent_tool_rounds",
+        rename = "maxSubAgentToolRounds"
+    )]
     max_sub_agent_tool_rounds: u32,
     #[serde(
         default = "default_max_sub_agent_spawn_depth",
@@ -481,6 +484,10 @@ fn default_context_summary_max_tokens() -> u32 {
 
 fn default_max_tool_rounds() -> u32 {
     5000
+}
+
+fn default_max_sub_agent_tool_rounds() -> u32 {
+    200
 }
 
 fn default_max_sub_agent_spawn_depth() -> u32 {

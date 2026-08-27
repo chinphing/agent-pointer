@@ -852,7 +852,10 @@ pub struct ModelSettings {
     )]
     pub attachment_upload_max_bytes: u32,
     /// Max tool-call rounds **inside** each `run_sub_agent` run (separate from the lead conversation pool).
-    #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
+    #[serde(
+        default = "default_max_sub_agent_tool_rounds",
+        rename = "maxSubAgentToolRounds"
+    )]
     pub max_sub_agent_tool_rounds: u32,
     /// Max nesting depth for `run_subagent` (1 = lead only; 2 = one nested level).
     #[serde(
@@ -1173,6 +1176,8 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     user.terminal_max_wall_hours = clamp_terminal_max_wall_hours(user.terminal_max_wall_hours);
     user.attachment_upload_max_bytes =
         clamp_attachment_upload_max_bytes(user.attachment_upload_max_bytes);
+    user.max_sub_agent_tool_rounds =
+        clamp_max_sub_agent_tool_rounds(user.max_sub_agent_tool_rounds);
 }
 
 /// User-layer provider rows are tagged `source=user` or omitted; `source=platform`
@@ -1274,6 +1279,17 @@ fn default_context_summary_max_tokens() -> u32 {
 
 fn default_max_tool_rounds() -> u32 {
     build_cfg_u32!("MAX_TOOL_ROUNDS", 5000)
+}
+
+/// Sub-agents are small-scope; keep this far below the lead `maxToolRounds`.
+pub const CEILING_MAX_SUB_AGENT_TOOL_ROUNDS: u32 = 200;
+
+fn default_max_sub_agent_tool_rounds() -> u32 {
+    build_cfg_u32!("MAX_SUB_AGENT_TOOL_ROUNDS", 200).clamp(1, CEILING_MAX_SUB_AGENT_TOOL_ROUNDS)
+}
+
+pub fn clamp_max_sub_agent_tool_rounds(n: u32) -> u32 {
+    n.clamp(1, CEILING_MAX_SUB_AGENT_TOOL_ROUNDS)
 }
 
 pub const DEFAULT_FILE_READ_MAX_BYTES: u32 = 64 * 1024;
@@ -1466,6 +1482,18 @@ mod attachment_upload_limit_tests {
     }
 }
 
+#[cfg(test)]
+mod sub_agent_tool_round_limit_tests {
+    use super::*;
+
+    #[test]
+    fn clamps_sub_agent_tool_rounds_to_small_scope_ceiling() {
+        assert_eq!(clamp_max_sub_agent_tool_rounds(0), 1);
+        assert_eq!(clamp_max_sub_agent_tool_rounds(200), 200);
+        assert_eq!(clamp_max_sub_agent_tool_rounds(5000), 200);
+    }
+}
+
 fn default_max_sub_agent_spawn_depth() -> u32 {
     build_cfg_u32!("MAX_SUB_AGENT_SPAWN_DEPTH", 2)
 }
@@ -1560,7 +1588,7 @@ impl Default for ModelSettings {
             terminal_timeout_seconds: default_terminal_timeout_seconds(),
             terminal_max_wall_hours: default_terminal_max_wall_hours(),
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
-            max_sub_agent_tool_rounds: default_max_tool_rounds(),
+            max_sub_agent_tool_rounds: default_max_sub_agent_tool_rounds(),
             max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
@@ -1924,7 +1952,7 @@ pub struct UserSettings {
     )]
     pub attachment_upload_max_bytes: u32,
     #[serde(
-        default = "platform_default_max_tool_rounds",
+        default = "platform_default_max_sub_agent_tool_rounds",
         rename = "maxSubAgentToolRounds"
     )]
     pub max_sub_agent_tool_rounds: u32,
@@ -2085,7 +2113,7 @@ impl Default for UserSettings {
             terminal_timeout_seconds: default_terminal_timeout_seconds(),
             terminal_max_wall_hours: default_terminal_max_wall_hours(),
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
-            max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
+            max_sub_agent_tool_rounds: platform_default_max_sub_agent_tool_rounds(),
             max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
@@ -2409,6 +2437,10 @@ fn platform_default_max_tool_rounds() -> u32 {
     5000
 }
 
+fn platform_default_max_sub_agent_tool_rounds() -> u32 {
+    200
+}
+
 fn platform_default_max_sub_agent_spawn_depth() -> u32 {
     2
 }
@@ -2717,7 +2749,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         attachment_upload_max_bytes: clamp_attachment_upload_max_bytes(
             user.attachment_upload_max_bytes,
         ),
-        max_sub_agent_tool_rounds: user.max_sub_agent_tool_rounds,
+        max_sub_agent_tool_rounds: clamp_max_sub_agent_tool_rounds(user.max_sub_agent_tool_rounds),
         max_sub_agent_spawn_depth: user.max_sub_agent_spawn_depth,
         raw_content_view_enabled: user.raw_content_view_enabled,
         debug_dump_llm_prompts: user.debug_dump_llm_prompts,

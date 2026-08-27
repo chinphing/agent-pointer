@@ -376,6 +376,8 @@
     opacity: 1;
     pointer-events: auto;
   }
+  /* Tools sit outside the stamp-host hover root. Hovering them still hits the
+     outer message root (avatar); hide the timestamp unless the host itself is hovered. */
   .chat-hover-root:hover .chat-hover-root:not(:hover) .message-footer-actions {
     opacity: 0;
     pointer-events: none;

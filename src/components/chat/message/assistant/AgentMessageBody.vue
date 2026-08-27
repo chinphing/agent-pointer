@@ -382,7 +382,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
     <div v-if="showToolSegments" class="tool-segments">
       <div
         v-if="showLeadUnit"
-        class="assistant-message-unit chat-hover-root w-full"
+        class="assistant-message-unit w-full"
       >
         <div
           v-if="showReasoningBlock"
@@ -406,7 +406,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
           >{{ reasoningDisplayText }}</div>
         </div>
 
-        <div v-if="hasMainBody" class="message-stamp-host w-full min-w-0">
+        <div v-if="hasMainBody" class="chat-hover-root message-stamp-host w-full min-w-0">
           <div class="break-words overflow-x-hidden">
           <ModelThoughtPanels
             v-if="showThoughtPanels"

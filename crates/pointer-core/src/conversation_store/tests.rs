@@ -644,6 +644,43 @@ mod tests {
             ids,
             ["u_0", "u_2", "u_4", "u_6", "u_8", "u_10", "u_12", "u_14"]
         );
+        assert_eq!(hits[0].match_count as usize, listed.len());
+    }
+
+    #[test]
+    fn ui_search_match_count_ignores_fts_hits_beyond_content_prefix() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let token = "unique_ui_prefix_tail_token";
+        let padding = "z".repeat(20_000);
+        let mut conv = sample_conv("c_ui_prefix", "Prefix clip", "follow-up");
+        conv.messages = vec![
+            msg(
+                "u_near",
+                Role::User,
+                &format!("near hit {token}"),
+                1_700_000_000_000,
+            ),
+            msg(
+                "u_tail",
+                Role::User,
+                &format!("{padding}{token}"),
+                1_700_000_001_000,
+            ),
+        ];
+        store.sync_conversations(&[conv]).unwrap();
+
+        let hits = store
+            .search_conversations(&ListScope::All, token, 10)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].match_count, 1);
+        let listed = store
+            .list_conversation_search_matches(&ListScope::All, "c_ui_prefix", token)
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].message_id, "u_near");
+        assert_eq!(hits[0].match_count as usize, listed.len());
     }
 
     #[test]
@@ -692,6 +729,7 @@ mod tests {
         assert_eq!(roles, ["assistant", "user"]);
         let ids: Vec<_> = listed.iter().map(|m| m.message_id.as_str()).collect();
         assert_eq!(ids, ["a1", "u1"]);
+        assert_eq!(hits[0].match_count as usize, listed.len());
 
         let discover = store
             .dispatch_tool_for_test(&json!({ "query": token, "limit": 3 }))

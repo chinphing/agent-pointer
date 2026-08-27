@@ -126,6 +126,7 @@ pub fn search_conversations_for_ui(
     out.truncate(limit as usize);
     if !fts_query.is_empty() {
         fill_ui_primary_message_ids(&conn, &mut out, &fts_query)?;
+        reconcile_ui_match_counts(&conn, &mut out, query, &fts_query)?;
     }
     let matches_started = Instant::now();
     if !fts_query.is_empty() {
@@ -293,6 +294,31 @@ fn fill_ui_primary_message_ids(
             if let Some(message_id) = by_id.remove(&hit.id) {
                 hit.message_id = message_id;
             }
+        }
+    }
+    Ok(())
+}
+
+/// Align sidebar `match_count` with expand: same FTS rows, prefix, and
+/// `text_contains_query` filters — raw `COUNT(*)` alone can over-count.
+fn reconcile_ui_match_counts(
+    conn: &Connection,
+    hits: &mut [ConversationSearchHit],
+    raw_query: &str,
+    fts_query: &str,
+) -> Result<()> {
+    let ids: Vec<String> = hits
+        .iter()
+        .filter(|h| h.match_count > 0)
+        .map(|h| h.id.clone())
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let by_conv = collect_ui_matches_via_fts(conn, &ids, raw_query, fts_query)?;
+    for hit in hits.iter_mut() {
+        if let Some((_matches, count)) = by_conv.get(&hit.id) {
+            hit.match_count = *count;
         }
     }
     Ok(())

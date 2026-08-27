@@ -539,17 +539,20 @@ async function toggleSearchMatches(conversationId: string) {
   if (row && q && (row.matchCount ?? 0) > (row.matches?.length ?? 0)) {
     try {
       const matches = await listConversationSearchMatches(conversationId, q)
+      const normalized = matches
+        .filter(m => m.messageId.trim() && m.snippet.trim())
+        .map(m => ({
+          messageId: m.messageId.trim(),
+          role: m.role,
+          snippet: m.snippet.trim()
+        }))
       searchResults.value = searchResults.value.map(item =>
         item.id === conversationId
           ? {
               ...item,
-              matches: matches
-                .filter(m => m.messageId.trim() && m.snippet.trim())
-                .map(m => ({
-                  messageId: m.messageId.trim(),
-                  role: m.role,
-                  snippet: m.snippet.trim()
-                }))
+              matches: normalized,
+              matchCount:
+                normalized.length > 0 ? normalized.length : item.matchCount
             }
           : item
       )

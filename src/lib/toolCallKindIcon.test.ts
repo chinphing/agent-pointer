@@ -7,7 +7,7 @@ import {
 } from './toolCallKindIcon'
 
 describe('toolCallKindIcon', () => {
-  it('maps known kinds and keeps labels only for 委派 / 询问 / unknown', () => {
+  it('maps known kinds and keeps labels only for 询问 / unknown', () => {
     expect(isKnownToolKind('terminal')).toBe(true)
     expect(isKnownToolKind('file_read')).toBe(true)
     expect(isKnownToolKind('mouse_click_at')).toBe(true)
@@ -21,7 +21,7 @@ describe('toolCallKindIcon', () => {
 
     expect(toolCallShowsKindLabel('terminal')).toBe(false)
     expect(toolCallShowsKindLabel('wait')).toBe(false)
-    expect(toolCallShowsKindLabel('run_subagent')).toBe(true)
+    expect(toolCallShowsKindLabel('run_subagent')).toBe(false)
     expect(toolCallShowsKindLabel('ask_user')).toBe(true)
     expect(toolCallShowsKindLabel('mystery_plugin')).toBe(true)
   })

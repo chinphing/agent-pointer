@@ -76,11 +76,11 @@ export function isKnownToolKind(name: string): boolean {
 }
 
 /**
- * Keep the kind name in the row for 委派 / 询问 / unknown tools.
- * Other kinds replace the name with the icon.
+ * Keep the kind name for 询问用户 (no summary) and unknown tools.
+ * Other kinds, including 委派, replace the name with the icon.
  */
 export function toolCallShowsKindLabel(name: string): boolean {
   const base = toolCallBaseName(name.trim())
-  if (base === 'run_subagent' || base === 'ask_user') return true
+  if (base === 'ask_user') return true
   return !isKnownToolKind(name)
 }

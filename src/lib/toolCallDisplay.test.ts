@@ -77,7 +77,7 @@ describe('compactToolCallStatusLine', () => {
         displayLabel: '委派子任务',
         displaySummary: '对比方案 B'
       })
-    )).toBe('委派子任务 · 对比方案 B')
+    )).toBe('对比方案 B')
     expect(compactToolCallLiveText(
       tc({
         id: '4',

@@ -28,9 +28,9 @@ Pointer aligns with Cursor-style **layered rules**: thin product defaults, user/
 
 ### P2 — Project rules
 
-- Discover `{workspace_root}/.pointer/rules/*.md` or `POINTER_RULES.md`
-- Inject `[PROJECT RULES]` in cacheable system (cap ~4k chars)
-- Reload on workspace root change
+- **Done (AGENTS.md):** `# Project Context` in system cacheable from `~/.pointer/AGENTS.md` + git-root → workspace chain (Hermes-style heading; see [`workspace-root.md`](../developer/workspace-root.md)).
+- **Still planned:** extra sources `{workspace_root}/.pointer/rules/*.md` or `POINTER_RULES.md`, merged into the same slice (cap ~4k for those extras).
+- Reload on workspace root change (already re-read each LLM round).
 - Version in git with the repo
 
 ### P3 — Session scope
@@ -52,14 +52,15 @@ Pointer aligns with Cursor-style **layered rules**: thin product defaults, user/
 
 ## Prompt assembly order (cacheable excerpt)
 
-See [`llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md). After agent body and before `[Environment]`:
+See [`llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md). After `[Environment]`:
 
 1. Tools appendix  
 2. `[Environment]`  
 3. `[MEMORY]` / `[USER PROFILE]` (when enabled)  
 4. **`[USER RULES]`** (when `userCodingRules` non-empty)  
+5. **`# Project Context`** (`AGENTS.md` chain: `~/.pointer` then git-root → workspace)  
 
-Future: **`[PROJECT RULES]`** after USER RULES.
+P2 (`.pointer/rules/*.md`) remains a planned extra source for the same Project Context slice.
 
 ## Cross-platform
 

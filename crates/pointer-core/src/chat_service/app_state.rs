@@ -684,8 +684,8 @@ impl AppState {
         // `init_launch` 完成，避免 AppState::new 写入
         // user_settings（保持构造无副作用，测试隔离契约）。
 
-        // AGENTS.md: `~/.pointer/AGENTS.md` then git-root → workspace (no sibling walk).
-        crate::plugins::agents_md::register_agents_md_hook(&extension_registry);
+        // AGENTS.md: `~/.pointer/AGENTS.md` then git-root → workspace (system cacheable).
+        crate::plugins::agents_md::log_agents_md_startup();
 
         let state = Self {
             tools,

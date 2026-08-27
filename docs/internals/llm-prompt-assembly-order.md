@@ -33,6 +33,7 @@
 | | 7 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |
 | | 8 | **`[MEMORY]` / `[USER PROFILE]`**（跨会话 frozen snapshot） | `memory::push_memory_to_cacheable` | 会话内冻结；**压缩成功后 reload** |
 | | 9 | **`[USER RULES]`**（用户编码偏好，`userCodingRules`） | `user_rules::push_user_coding_rules_to_cacheable` | 用户改 settings 后下一会话生效 |
+| | 10 | **`# Project Context`**（`AGENTS.md` 链） | `agents_md::push_agents_md_to_cacheable` | 随工作区与文件内容变；**不是** user 消息 |
 | **dynamic** | — | **`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
 
 **组装时机**
@@ -126,6 +127,7 @@
 | **Tools** | `tools/prompts/*.md` 等 | cacheable |
 | **Env** | `env_prompt::build_environment_system_prompt_slice` | cacheable（日历日期）；Computer **`[CUR_SCREEN]`** 含完整墙钟时间 |
 | **Task board** | `CommonUserDynamicInjectHook` | `message_loop_prompts_after` 的 user 注入（有 board 或 hint 时） |
+| **AGENTS.md** | `agents_md::push_agents_md_to_cacheable` | cacheable **`# Project Context`** |
 | **屏幕等多模态** | `screen_inject.rs` | **§1.1** `user` + 图 |
 
 ### 3.1 Coder / Explore `composed_system_body()` 顺序

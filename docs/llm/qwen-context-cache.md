@@ -33,7 +33,7 @@
 
 | 分区 | 内容 | 说明 |
 |------|------|------|
-| **cacheable** | `COMMUNICATION_PUBLIC`、Agent/Skills、工具 `## Tools`、`[Environment]` | 同一天、同会话配置下多轮不变；**`[Environment]` 仅日期按自然日变** |
+| **cacheable** | `COMMUNICATION_PUBLIC`、Agent/Skills、工具 `## Tools`、`[Environment]`、`[USER RULES]`、`# Project Context` | 同一天、同会话配置下多轮不变；**`[Environment]` 仅日期按自然日变**；**`# Project Context`** 随工作区 / `AGENTS.md` 变 |
 | **dynamic** | **`[LOCKED GOAL]`**（Computer 锁定 `tool_args.goal` 时） | 锁定 goal 每轮可能变 |
 
 task board 走 user 注入路径（有内容时）；Computer **操作历史**在 `[CUR_SCREEN]` user 消息中。

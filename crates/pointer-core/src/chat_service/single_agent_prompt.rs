@@ -84,6 +84,11 @@ pub(super) async fn prepare_single_agent_round_prompts(
         &mut cacheable,
         &settings.user_coding_rules,
     );
+    crate::plugins::agents_md::push_agents_md_to_cacheable(
+        &mut cacheable,
+        settings.workspace_root.trim(),
+        conversation_id,
+    );
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();

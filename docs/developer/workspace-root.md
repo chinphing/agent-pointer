@@ -65,21 +65,21 @@ It does **not** remove a shared user sandbox `{session-sandboxes}/{session_user_
 
 ## AGENTS.md vs session workspace
 
-Each LLM round, the `AGENTS.md` hook concatenates Codex-style layers (no sibling tree walk, no on-read nested inject):
+Each LLM round, Pointer concatenates Codex-style layers (no sibling tree walk, no on-read nested inject) and appends them as system **cacheable** `# Project Context` (Hermes-style) — **not** a per-round user message:
 
 1. **Global** — `~/.pointer/AGENTS.md` (`dirs::home_dir()` / `%USERPROFILE%\.pointer` on Windows). Missing home directory is a warn and skips this layer. Looking up the file does **not** create `~/.pointer`.
 2. **Project chain** — session `workspace_root` is **cwd** (not process `cwd`). Walk **up** until a `.git` directory or file is found (git worktrees use a file). Then, from that git root **down the single path** to `workspace_root`, take at most one `AGENTS.md` per directory. If there is no git root, only `<workspace>/AGENTS.md`. A filesystem root (`/` / `C:\`) is never used as git root or as a search directory.
 
 Merge order is global first, then git root → workspace (later files override). Duplicate paths (for example the workspace **is** `~/.pointer`) are injected once. `packages/api/AGENTS.md` is ignored when cwd is `packages/web`.
 
-Empty workspace still loads the global file. A missing file, an empty file, or a directory named `AGENTS.md` skips that layer (warn when the workspace is not a directory, the path is the filesystem root, or the path exists but is not a file). Read errors are logged and do not fail the round.
+The block uses Hermes wording: files have been loaded and should be followed. Empty workspace still loads the global file. A missing file, an empty file, or a directory named `AGENTS.md` skips that layer (warn when the workspace is not a directory, the path is the filesystem root, or the path exists but is not a file). Read errors are logged and do not fail the round.
 
 `resolve_tool_workspace_root()` (file / terminal / `read_lints` / workspace plugins) uses the conversation override or settings `workspaceRoot` only. It does **not** fall back to process `cwd`.
 
 Logs:
 
-- `agents_md: registered hook (global ~/.pointer/AGENTS.md + git-root-to-workspace chain)` at process start
-- `agents_md: load conversation_id=... workspace=... git_root=... elapsed_ms=... files=... labels=... injected=...` on each prompt round (`warn` if `elapsed_ms >= 1000`)
+- `agents_md: system cacheable inject enabled (global ~/.pointer/AGENTS.md + git-root-to-workspace chain)` at process start
+- `agents_md: load conversation_id=... workspace=... git_root=... elapsed_ms=... files=... labels=... injected=... partition=cacheable` on each prompt round (`warn` if `elapsed_ms >= 1000`)
 - Per-hook and other pre-stream phases: `phase_timing: phase=... conversation_id=... elapsed_ms=...`
 - After HTTP POST: `stream_chat: http_until_headers_ms=...` then `stream_chat: first_token_ms=...`
 

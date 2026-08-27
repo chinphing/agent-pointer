@@ -389,6 +389,11 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         cacheable.push(tools_system_appendix.to_string());
     }
     push_env_to_cacheable(&mut cacheable);
+    crate::plugins::agents_md::push_agents_md_to_cacheable(
+        &mut cacheable,
+        workspace_root.trim(),
+        conversation_id,
+    );
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();

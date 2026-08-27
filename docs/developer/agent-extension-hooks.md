@@ -70,7 +70,7 @@
 | `stream` | 可选的 `ChatStreamSender`；若存在，钩子可发送 **`StreamEvent::UiToast`**（仅界面横幅提醒，**不**写入聊天记录、**不**进入模型 payload）。 |
 | `round_assistant_message_id` | 可选；本轮助手消息 id（与主循环 `MessageStart` 一致，或 Supervisor 子任务下**父级**助手气泡 id）。注入用它发送 **`StreamEvent::AssistantRoundScreen`**。 |
 | `round_screen_dump_prefix` | 可选；落盘调试图时的文件名前缀，缺省同 `round_assistant_message_id`。子 Agent 每轮迭代用自己的 id，避免与父消息 id 混用。 |
-| `workspace_root` | 本轮会话工作区（`ensure_workspace_at_run_start` 之后）。当作 `AGENTS.md` 项目链的 cwd：从 git 根沿路径拼到该目录；全局另读 `~/.pointer/AGENTS.md`。不扫旁支子目录。 |
+| `workspace_root` | 本轮会话工作区（`ensure_workspace_at_run_start` 之后）。插件规则等 hook 可读；**`AGENTS.md` 已不再经本扩展点注入**（见 [`workspace-root.md`](workspace-root.md)）。 |
 
 **`StreamEvent::AssistantRoundScreen`** 只携带 `annotatedRelPath`（相对于与设置/技能相同的应用数据根目录下的 `PointerApp/computer-captures/`；**仅 `debugMenusEnabled` 调试模式**时落盘），避免把大图 base64 塞进流与内存；UI 在点击预览时读盘：**Tauri** 用 `preview_computer_round_screen`，**pointer-server** 用 `GET /api/computer/round-screen-preview?relPath=…`（与 `GET /api/computer/annotated-preview` 对应 Tauri 的 `preview_computer_annotated_screen`）。**桌面端与 server 端启动时**都会执行相同的 **7 天**截图目录清理（`capture_debug::CAPTURE_RETENTION_DAYS`），若有删除则向事件总线发送 **`UiToast`**（`conversationId` 为空 = 全局「截图过期已清理」）。
 
@@ -100,7 +100,7 @@
 3. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
 4. **准备 API 输入** — 只读借用基础历史（单智能体：`history`；子 Agent：`local_history`），新建空的 `injected_tail`，并填入 `round_assistant_message_id`。
 5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：仅向 `injected_tail` 追加 ephemeral 行（例如屏幕注入）。
-6. **组装 system（cacheable）** — 公共通信、Agent/Skills、工具附录，再 `push_env_to_cacheable`（`[Environment]`）。
+6. **组装 system（cacheable）** — 公共通信、Agent/Skills、工具附录，再 `push_env_to_cacheable`（`[Environment]`）、`[USER RULES]`、**`# Project Context`**（`AGENTS.md` 链）。
 7. **`before_main_llm_call`** — 钩子向 **`system_prompts_dynamic`** 追加（例如 `[LOCKED GOAL]`）。
 8. **组 wire → `stream_chat_wired`** — `build_stream_chat_wire(base, injected_tail, SystemPromptSections)` → `make_openai_messages_with_inject`（千问见 **[`qwen-context-cache.md`](../llm/qwen-context-cache.md)**）；HTTP 任务只持有 wire JSON，不再持有完整 `history` 克隆。Computer **完整墙钟时间**在 **`[CUR_SCREEN]`** `user` 消息中（`screen_inject.rs`）。
 
@@ -157,7 +157,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要写入 **`context`**（`[Prior task outputs]`），**不**拼进 `goal`。
 - 子 Agent 自己的多轮工具循环里，只在 `local_history` 上累加本轮 assistant、tool 等，与主 `history` **隔离**。
 
-系统 prompt 侧子 Agent 与主轮同构：**cacheable** 由共享函数 `push_agent_role_cacheable_prompts` 组装（`COMMUNICATION_PUBLIC` + Computer **tier** 切片，或非 Computer 的 `system_prompt`），再追加 **sub_agent_header**（Computer 仅短交接说明，不含烘焙 `agent.system_prompt()`）、skills、工具附录、Environment；task board 由末尾 user 注入提供（有内容时）。
+系统 prompt 侧子 Agent 与主轮同构：**cacheable** 由共享函数 `push_agent_role_cacheable_prompts` 组装（`COMMUNICATION_PUBLIC` + Computer **tier** 切片，或非 Computer 的 `system_prompt`），再追加 **sub_agent_header**（Computer 仅短交接说明，不含烘焙 `agent.system_prompt()`）、skills、工具附录、Environment、**`# Project Context`**（`AGENTS.md` 链）；task board 由末尾 user 注入提供（有内容时）。
 
 **结论（对话语义）**：子 Agent 在**消息列表意义上是独立的**；它只「看见」任务描述 +（可选）前置任务摘要 + 自己多轮工具产生的历史。
 

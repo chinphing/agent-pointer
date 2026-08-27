@@ -1376,9 +1376,9 @@ function autoResize(force = false) {
     el.style.setProperty('field-sizing', '')
     // Fast path: single-line text that never left the min height does NOT need a
     // layout read. Reading scrollHeight/offsetHeight while the streaming list is
-    // mid-measure forces a synchronous reflow in the keystroke frame, flushes the
-    // virtualizer's pending row measurements, and fires watch(getTotalSize) →
-    // stickScrollerToBottom immediately → the output "jumps" on every keystroke.
+    // mid-measure forces a synchronous reflow in the keystroke frame and flushes
+    // pending virtualizer row measurements. MessageList skips totalSize stick
+    // briefly after the composer shrinks the viewport, but the reflow still costs.
     if (!force && !el.value.includes('\n') && composerTextareaHeight === min) {
       return
     }

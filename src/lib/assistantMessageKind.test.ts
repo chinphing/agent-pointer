@@ -3,7 +3,8 @@ import {
   assistantDisplayKind,
   isDiscardableEmptyAssistant,
   isDiscardableEmptyAssistantOnCancel,
-  isGenerationCancelledMessage
+  isGenerationCancelledMessage,
+  isProcessThinkingShell
 } from './assistantMessageKind'
 import type { ChatMessage } from '../types/chat'
 
@@ -91,5 +92,28 @@ describe('isDiscardableEmptyAssistant', () => {
     expect(
       isDiscardableEmptyAssistant(msg({ status: 'streaming', contentStreaming: false, content: '' }))
     ).toBe(true)
+  })
+})
+
+describe('isProcessThinkingShell', () => {
+  it('matches an in-flight empty streaming assistant', () => {
+    expect(isProcessThinkingShell(msg({ status: 'streaming', content: '' }))).toBe(true)
+  })
+
+  it('does not match tool-only or reply bodies', () => {
+    expect(
+      isProcessThinkingShell(
+        msg({
+          toolCalls: [{ id: 't1', name: 'terminal', status: 'running', arguments: '{}' }]
+        })
+      )
+    ).toBe(false)
+    expect(isProcessThinkingShell(msg({ content: '计算完成。' }))).toBe(false)
+  })
+
+  it('does not match a shell after message_end cleared contentStreaming', () => {
+    expect(
+      isProcessThinkingShell(msg({ status: 'streaming', contentStreaming: false, content: '' }))
+    ).toBe(false)
   })
 })

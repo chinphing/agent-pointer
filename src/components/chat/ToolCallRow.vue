@@ -29,6 +29,8 @@ const props = defineProps<{
   showToolCallResults?: boolean
   isSearchMatch?: boolean
   isActiveSearchMatch?: boolean
+  /** Match collapsed group line height while this row is the live trailing tool. */
+  dense?: boolean
 }>()
 const chat = useChatStore()
 const open = ref(false)
@@ -39,6 +41,13 @@ watch(
     if (active) open.value = true
   },
   { immediate: true }
+)
+
+watch(
+  () => props.toolCall.id,
+  () => {
+    open.value = false
+  }
 )
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
@@ -340,10 +349,15 @@ function openSourceUrl(url: string) {
     <div class="flex max-w-full items-center gap-1.5 min-w-0">
       <button
         type="button"
-        class="tool-call-trigger py-1 flex min-w-0 items-center gap-x-1.5 overflow-hidden text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
+        class="tool-call-trigger flex min-w-0 items-center gap-x-1.5 overflow-hidden text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
+        :class="dense ? 'py-0.5 text-[13px] leading-5' : 'py-1 text-[11px]'"
+        :aria-expanded="open"
         @click="open = !open"
       >
-        <Wrench class="w-3 h-3 text-muted/70 shrink-0" />
+        <Wrench
+          v-if="!dense"
+          class="w-3 h-3 text-muted/70 shrink-0"
+        />
         <span class="shrink-0">{{ displayLabel }}</span>
         <template v-if="filePathSummary">
           <span class="shrink-0">·</span>
@@ -352,7 +366,11 @@ function openSourceUrl(url: string) {
             :title="filePathSummary"
           >{{ filePathSummary }}&lrm;</span>
         </template>
-        <span v-else-if="displaySummary" class="min-w-0 break-words">· {{ displaySummary }}</span>
+        <span
+          v-else-if="displaySummary"
+          class="min-w-0"
+          :class="dense ? 'truncate' : 'break-words'"
+        >· {{ displaySummary }}</span>
         <span
           v-if="terminalElevated"
           class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"

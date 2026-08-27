@@ -202,18 +202,12 @@ function isFileTool(base: string): boolean {
   return base.startsWith('file_')
 }
 
-/** Flatten tool name to its display category for grouping. */
-function groupCategory(name: string): string {
-  const base = toolCallBaseName(name)
-  if (isFileTool(base)) return 'file'
-  if (base === 'terminal') return 'terminal'
-  if (base === 'web_search') return 'web_search'
-  if (base === 'web_fetch') return 'web_fetch'
-  return base
+export function isToolCallInProgress(status: ToolCall['status']): boolean {
+  return status === 'running' || status === 'pending' || status === 'pending_approval'
 }
 
 function isInProgress(status: ToolCall['status']): boolean {
-  return status === 'running' || status === 'pending' || status === 'pending_approval'
+  return isToolCallInProgress(status)
 }
 
 function pathBasename(p: string): string {
@@ -404,6 +398,9 @@ export interface ToolGroupStats {
   created: number
   edited: number
   editing: number
+  skill: number
+  mediaUnderstand: number
+  other: number
 }
 
 export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
@@ -415,7 +412,10 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
     terminal: 0,
     created: 0,
     edited: 0,
-    editing: 0
+    editing: 0,
+    skill: 0,
+    mediaUnderstand: 0,
+    other: 0
   }
   const readFileSet = new Set<string>()
   const editedFileSet = new Set<string>()
@@ -477,7 +477,20 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
         continue
       }
     }
+    if (base === 'skill_read' || base === 'skill_import') {
+      stats.skill += 1
+      continue
+    }
+    if (base === 'media_understand') {
+      stats.mediaUnderstand += 1
+      continue
+    }
+    if (base === 'session_search' || base === 'memory' || base === 'read_lints') {
+      stats.fileSearch += 1
+      continue
+    }
     if (isInProgress(tc.status)) stats.editing += 1
+    else stats.other += 1
   }
 
   stats.readFiles = readFileSet.size
@@ -501,6 +514,9 @@ export function formatToolGroupSummary(stats: ToolGroupStats): string {
   if (stats.created) parts.push(`创建 ${stats.created} 个文件`)
   if (stats.edited) parts.push(`编辑 ${stats.edited} 个文件`)
   if (stats.editing) parts.push(`正在编辑 ${stats.editing} 个`)
+  if (stats.skill) parts.push(`技能 ${stats.skill} 次`)
+  if (stats.mediaUnderstand) parts.push(`理解 ${stats.mediaUnderstand} 次`)
+  if (stats.other) parts.push(`操作 ${stats.other} 次`)
   return parts.join('，')
 }
 
@@ -553,16 +569,133 @@ export function toolCallDetailText(tc: ToolCall): string {
   return toolShortLabel(tc)
 }
 
-const GROUPABLE_BASES = new Set(['file', 'terminal', 'web_search', 'web_fetch'])
+const UNGROUPABLE_BASES = new Set([
+  'ask_user',
+  'run_subagent',
+  'image_generate',
+  'video_generate'
+])
 
+/** Keep the host `run_subagent` row when the user still needs to act on it. */
+export function shouldPinSubAgentHostRow(tc: ToolCall): boolean {
+  return tc.status === 'pending_approval' || tc.waitingForInput === true
+}
+
+/** Process tools that can collapse into a Cursor-style summary row. */
 export function isGroupableToolCall(tc: ToolCall): boolean {
+  if (tc.status === 'pending_approval' || tc.waitingForInput === true) return false
   const base = toolCallBaseName(tc.name)
-  return GROUPABLE_BASES.has(groupCategory(base))
+  return !UNGROUPABLE_BASES.has(base)
 }
 
 export function canGroupToolCalls(tools: ToolCall[]): boolean {
   if (tools.length < 2) return false
   return tools.every(isGroupableToolCall)
+}
+
+export type ToolCallListItem =
+  | { kind: 'single'; tool: ToolCall }
+  | { kind: 'group'; tools: ToolCall[]; live?: ToolCall }
+
+function splitTrailingInProgress(tools: ToolCall[]): { done: ToolCall[]; live: ToolCall[] } {
+  const live: ToolCall[] = []
+  let end = tools.length
+  while (end > 0 && isInProgress(tools[end - 1]!.status)) {
+    end -= 1
+    live.unshift(tools[end]!)
+  }
+  return { done: tools.slice(0, end), live }
+}
+
+function emitGroupableRun(
+  run: ToolCall[],
+  items: ToolCallListItem[],
+  holdLiveSlot: boolean
+): void {
+  const { done, live } = splitTrailingInProgress(run)
+  // A lone in-progress tool stays a full row — an empty summary line
+  // plus a slide-in current-task looks like a blank chevron row.
+  const holdGroup = holdLiveSlot && done.length >= 1
+  if (done.length >= 2 || (done.length >= 1 && live.length > 0) || holdGroup) {
+    items.push({ kind: 'group', tools: done, live: live[0] })
+    for (const extra of live.slice(1)) items.push({ kind: 'single', tool: extra })
+    return
+  }
+  if (done.length === 1) items.push({ kind: 'single', tool: done[0]! })
+  for (const tool of live) items.push({ kind: 'single', tool })
+}
+
+/** Collapse consecutive finished process tools; keep live / interactive rows visible. */
+export function partitionCollapsedToolCalls(
+  tools: ToolCall[],
+  opts?: { holdLiveSlot?: boolean }
+): ToolCallListItem[] {
+  const holdLiveSlot = opts?.holdLiveSlot === true
+  const items: ToolCallListItem[] = []
+  let run: ToolCall[] = []
+  const flush = () => {
+    if (run.length) {
+      emitGroupableRun(run, items, holdLiveSlot)
+      run = []
+    }
+  }
+  for (const tool of tools) {
+    if (isGroupableToolCall(tool)) {
+      run.push(tool)
+    } else {
+      flush()
+      items.push({ kind: 'single', tool })
+    }
+  }
+  flush()
+  return items
+}
+
+/**
+ * Same as `partitionCollapsedToolCalls`, plus an empty live group so
+ * first-round「思考中」occupies the collapsed-run header before any tool exists.
+ */
+export function collapsedToolListItems(
+  tools: ToolCall[],
+  opts?: { holdLiveSlot?: boolean; thinkingLine?: string | null }
+): ToolCallListItem[] {
+  const items = partitionCollapsedToolCalls(tools, { holdLiveSlot: opts?.holdLiveSlot })
+  if (
+    items.length === 0
+    && opts?.holdLiveSlot === true
+    && (opts.thinkingLine ?? '').trim()
+  ) {
+    return [{ kind: 'group', tools: [] }]
+  }
+  return items
+}
+
+/** Keep the live run header mounted across thinking → first tool. */
+export function collapsedLiveRunItemKey(
+  item: ToolCallListItem,
+  index: number,
+  itemCount: number,
+  runActive: boolean
+): string {
+  if (item.kind === 'group') {
+    if (runActive && index === itemCount - 1) return 'group:live-run'
+    return `group:${item.tools[0]?.id ?? item.live?.id ?? 'run'}`
+  }
+  return item.tool.id
+}
+
+/** Collapsed group line: live tool one-liner, else Cursor-style counts. */
+export function formatCollapsedToolGroupLine(
+  tools: ToolCall[],
+  workspaceRoot?: string
+): string {
+  if (tools.length === 0) return ''
+  const latest = latestToolCallForCompactStatus(tools)
+  if (latest && isInProgress(latest.status)) {
+    return compactToolCallStatusLine(latest, workspaceRoot)
+  }
+  const summary = formatToolGroupSummary(buildToolGroupStats(tools))
+  return summary || `工具 ${tools.length} 次`
 }
 
 /**
@@ -590,8 +723,16 @@ function toolInProgress(status: ToolCall['status']): boolean {
   return status === 'running' || status === 'pending' || status === 'pending_approval'
 }
 
-/** One-line tool status for compact dock bar (aligns with ToolCallRow label + summary + outcome). */
-export function compactToolCallStatusLine(tc: ToolCall, workspaceRoot?: string): string {
+/**
+ * One-line tool copy: label · summary.
+ * Compact dock keeps `includeStatus` (aligns with ToolCallRow).
+ * Collapsed current-task line omits it — being on line 2 already means current.
+ */
+export function compactToolCallStatusLine(
+  tc: ToolCall,
+  workspaceRoot?: string,
+  opts?: { includeStatus?: boolean }
+): string {
   const label = effectiveToolDisplayLabel(tc)
   const filePath = fileToolDisplayPath(tc, workspaceRoot)
   let summary = filePath
@@ -606,7 +747,7 @@ export function compactToolCallStatusLine(tc: ToolCall, workspaceRoot?: string):
   const parts: string[] = []
   parts.push(summary ? `${label} · ${summary}` : label)
 
-  if (toolInProgress(tc.status)) {
+  if (opts?.includeStatus !== false && toolInProgress(tc.status)) {
     parts.push('执行中')
   }
 

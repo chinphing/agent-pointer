@@ -11,7 +11,8 @@ import {
   thinkingDotCount,
   thinkingDotsAtCap,
   thinkingLabel,
-  thinkingSteadyDotCount
+  thinkingSteadyDotCount,
+  collapsedProcessRunActive
 } from './thinkingIndicator'
 
 describe('thinking dots (tiered)', () => {
@@ -92,5 +93,40 @@ describe('shouldShowThinkingIndicator', () => {
         body: { thoughts: 'x'.repeat(30_000) }
       })
     ).toBe(false)
+  })
+})
+
+describe('collapsedProcessRunActive', () => {
+  it('stays active for a thinking gap on the generating host', () => {
+    expect(
+      collapsedProcessRunActive({
+        generating: true,
+        isActiveHost: true,
+        host: { content: '' },
+        toolCalls: [{ status: 'success' }]
+      })
+    ).toBe(true)
+  })
+
+  it('clears once the host has reply text even if still generating', () => {
+    expect(
+      collapsedProcessRunActive({
+        generating: true,
+        isActiveHost: true,
+        host: { content: '计算完成。' },
+        toolCalls: [{ status: 'success' }]
+      })
+    ).toBe(false)
+  })
+
+  it('stays active while a tool is still running', () => {
+    expect(
+      collapsedProcessRunActive({
+        generating: true,
+        isActiveHost: false,
+        host: { content: '计算完成。' },
+        toolCalls: [{ status: 'running' }]
+      })
+    ).toBe(true)
   })
 })

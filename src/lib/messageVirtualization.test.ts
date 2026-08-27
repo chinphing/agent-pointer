@@ -99,6 +99,7 @@ describe('message virtualization', () => {
 
   it('converts existing message spacing classes into measured row padding', () => {
     expect(messageRowSpacingPixels('mt-7')).toBe(28)
+    expect(messageRowSpacingPixels('mt-3.5')).toBe(14)
     expect(messageRowSpacingPixels('mt-1.5')).toBe(6)
     expect(messageRowSpacingPixels('mt-0')).toBe(0)
   })

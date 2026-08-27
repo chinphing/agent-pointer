@@ -35,7 +35,7 @@ const icon = computed(() => {
 </script>
 
 <template>
-  <div class="w-full">
+  <div class="message-stamp-host w-full">
     <div
       v-if="isDesktopNotice"
       class="tool-call-row px-3"

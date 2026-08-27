@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatToolDurationLabel, latestToolCallForCompactStatus, resolveToolDisplayForCall, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
+import { buildFileChangeSummaries, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -35,6 +35,21 @@ describe('compactToolCallStatusLine', () => {
       })
     )
     expect(line).toBe('鼠标 · 点击微信图标 · 执行中')
+  })
+
+  it('omits running status on the collapsed current-task line', () => {
+    const line = compactToolCallStatusLine(
+      tc({
+        id: '1',
+        name: 'terminal',
+        status: 'running',
+        displayLabel: '终端命令',
+        displaySummary: '计算 2 的 0 到 15 次方'
+      }),
+      undefined,
+      { includeStatus: false }
+    )
+    expect(line).toBe('终端命令 · 计算 2 的 0 到 15 次方')
   })
 
   it('formats success tool without duration suffix', () => {
@@ -314,5 +329,214 @@ describe('buildFileChangeSummaries', () => {
     ])
 
     expect(summaries).toEqual([])
+  })
+})
+
+describe('partitionCollapsedToolCalls', () => {
+  it('collapses consecutive finished file tools', () => {
+    const items = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'file_grep', status: 'success' }),
+      tc({ id: '3', name: 'file_read', status: 'success' })
+    ])
+    expect(items).toHaveLength(1)
+    expect(items[0]?.kind).toBe('group')
+    if (items[0]?.kind === 'group') {
+      expect(items[0].tools.map(t => t.id)).toEqual(['1', '2', '3'])
+    }
+  })
+
+  it('collapses a single finished tool when a live tool follows', () => {
+    const items = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'terminal', status: 'running' })
+    ])
+    expect(items).toHaveLength(1)
+    expect(items[0]?.kind).toBe('group')
+    if (items[0]?.kind === 'group') {
+      expect(items[0].tools.map(t => t.id)).toEqual(['1'])
+      expect(items[0].live?.id).toBe('2')
+    }
+  })
+
+  it('keeps the same group item when the trailing live tool changes', () => {
+    const first = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'file_read', status: 'success' }),
+      tc({ id: '3', name: 'terminal', status: 'running' })
+    ])
+    const next = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'file_read', status: 'success' }),
+      tc({ id: '3', name: 'terminal', status: 'success' }),
+      tc({ id: '4', name: 'file_grep', status: 'running' })
+    ])
+    expect(first).toHaveLength(1)
+    expect(next).toHaveLength(1)
+    expect(first[0]?.kind === 'group' && first[0].live?.id).toBe('3')
+    expect(next[0]?.kind === 'group' && next[0].tools.map(t => t.id)).toEqual(['1', '2', '3'])
+    expect(next[0]?.kind === 'group' && next[0].live?.id).toBe('4')
+  })
+
+  it('does not collapse a single finished tool', () => {
+    const items = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' })
+    ])
+    expect(items).toEqual([{ kind: 'single', tool: expect.objectContaining({ id: '1' }) }])
+  })
+
+  it('does not collapse a lone in-progress tool into an empty group header', () => {
+    const items = partitionCollapsedToolCalls(
+      [tc({ id: '1', name: 'terminal', status: 'running' })],
+      { holdLiveSlot: true }
+    )
+    expect(items).toEqual([{ kind: 'single', tool: expect.objectContaining({ id: '1' }) }])
+  })
+
+  it('holds a single finished tool as a group while the run is still live', () => {
+    const items = partitionCollapsedToolCalls(
+      [tc({ id: '1', name: 'file_read', status: 'success' })],
+      { holdLiveSlot: true }
+    )
+    expect(items).toHaveLength(1)
+    expect(items[0]?.kind).toBe('group')
+    if (items[0]?.kind === 'group') {
+      expect(items[0].tools.map(t => t.id)).toEqual(['1'])
+      expect(items[0].live).toBeUndefined()
+    }
+  })
+
+  it('promotes a finished tool into a group after the first live tool completes', () => {
+    const live = partitionCollapsedToolCalls(
+      [tc({ id: '1', name: 'terminal', status: 'running' })],
+      { holdLiveSlot: true }
+    )
+    const done = partitionCollapsedToolCalls(
+      [tc({ id: '1', name: 'terminal', status: 'success' })],
+      { holdLiveSlot: true }
+    )
+    expect(live[0]?.kind).toBe('single')
+    expect(done[0]?.kind).toBe('group')
+    if (done[0]?.kind === 'group') {
+      expect(done[0].tools.map(t => t.id)).toEqual(['1'])
+    }
+  })
+
+  it('collapses media_understand with neighboring process tools', () => {
+    const items = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'media_understand', status: 'success' }),
+      tc({ id: '3', name: 'file_grep', status: 'success' })
+    ])
+    expect(items).toHaveLength(1)
+    expect(items[0]?.kind).toBe('group')
+  })
+
+  it('still splits around image_generate', () => {
+    const items = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'file_read', status: 'success' }),
+      tc({ id: '3', name: 'image_generate', status: 'success' }),
+      tc({ id: '4', name: 'file_read', status: 'success' }),
+      tc({ id: '5', name: 'file_read', status: 'success' })
+    ])
+    expect(items.map(i => i.kind)).toEqual(['group', 'single', 'group'])
+  })
+
+  it('splits around ask_user and run_subagent', () => {
+    const items = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'file_read', status: 'success' }),
+      tc({ id: '3', name: 'ask_user', status: 'success' }),
+      tc({ id: '4', name: 'run_subagent', status: 'success' }),
+      tc({ id: '5', name: 'file_read', status: 'success' }),
+      tc({ id: '6', name: 'file_grep', status: 'success' })
+    ])
+    expect(items.map(i => i.kind)).toEqual(['group', 'single', 'single', 'group'])
+  })
+
+  it('pins the host run_subagent row only while the user must act', () => {
+    expect(shouldPinSubAgentHostRow(tc({ id: '1', name: 'run_subagent', status: 'success' }))).toBe(false)
+    expect(shouldPinSubAgentHostRow(tc({ id: '2', name: 'run_subagent', status: 'pending_approval' }))).toBe(true)
+    expect(
+      shouldPinSubAgentHostRow(tc({ id: '3', name: 'run_subagent', status: 'running', waitingForInput: true }))
+    ).toBe(true)
+  })
+
+  it('collapses consecutive finished tools from later rounds in one list', () => {
+    const round1 = [
+      tc({ id: '1', name: 'file_grep', status: 'success' }),
+      tc({ id: '2', name: 'file_list', status: 'success' })
+    ]
+    const round2 = [
+      tc({ id: '3', name: 'file_read', status: 'success' }),
+      tc({ id: '4', name: 'file_read', status: 'success' }),
+      tc({ id: '5', name: 'file_read', status: 'success' }),
+      tc({ id: '6', name: 'file_read', status: 'success' })
+    ]
+    const items = partitionCollapsedToolCalls([...round1, ...round2])
+    expect(items).toHaveLength(1)
+    expect(items[0]?.kind).toBe('group')
+    if (items[0]?.kind === 'group') {
+      expect(items[0].tools.map(t => t.id)).toEqual(['1', '2', '3', '4', '5', '6'])
+    }
+  })
+})
+
+describe('collapsedToolListItems', () => {
+  it('emits an empty live group so first-round thinking occupies the run header', () => {
+    const items = collapsedToolListItems([], {
+      holdLiveSlot: true,
+      thinkingLine: '思考中.'
+    })
+    expect(items).toEqual([{ kind: 'group', tools: [] }])
+  })
+
+  it('does not invent a group when the run is not live', () => {
+    expect(collapsedToolListItems([], { thinkingLine: '思考中.' })).toEqual([])
+  })
+
+  it('switches from the thinking header to a single-tool row key', () => {
+    const thinking = collapsedToolListItems([], {
+      holdLiveSlot: true,
+      thinkingLine: '思考中.'
+    })
+    const live = collapsedToolListItems(
+      [tc({ id: '1', name: 'terminal', status: 'running' })],
+      { holdLiveSlot: true, thinkingLine: '思考中.' }
+    )
+    expect(collapsedLiveRunItemKey(thinking[0]!, 0, thinking.length, true)).toBe('group:live-run')
+    expect(live[0]?.kind).toBe('single')
+    expect(collapsedLiveRunItemKey(live[0]!, 0, live.length, true)).toBe('1')
+  })
+})
+
+describe('formatCollapsedToolGroupLine', () => {
+  it('summarizes exploration like Cursor', () => {
+    const line = formatCollapsedToolGroupLine([
+      tc({
+        id: '1',
+        name: 'file_read',
+        status: 'success',
+        arguments: JSON.stringify({ path: 'a.ts' })
+      }),
+      tc({
+        id: '2',
+        name: 'file_read',
+        status: 'success',
+        arguments: JSON.stringify({ path: 'b.ts' })
+      }),
+      tc({ id: '3', name: 'file_grep', status: 'success' }),
+      tc({ id: '4', name: 'terminal', status: 'success' })
+    ])
+    expect(line).toBe('探索 2 个文件，1 次搜索，执行 1 条命令')
+  })
+
+  it('counts media_understand in the collapsed line', () => {
+    const line = formatCollapsedToolGroupLine([
+      tc({ id: '1', name: 'media_understand', status: 'success' }),
+      tc({ id: '2', name: 'media_understand', status: 'success' })
+    ])
+    expect(line).toBe('理解 2 次')
   })
 })

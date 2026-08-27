@@ -159,7 +159,7 @@ async function onOpenAttachment(att: RenderableAttachment) {
 
       <div
         v-if="displayContent"
-        class="relative w-full rounded-2xl px-3 pt-2 pb-2 panel-elevated break-words text-foreground"
+        class="message-stamp-host message-user-bubble w-full rounded-2xl panel-elevated break-words text-foreground"
       >
         <div
           ref="bodyRef"

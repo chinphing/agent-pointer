@@ -4,6 +4,7 @@ import {
   emptySubAgentToolStats,
   formatSubAgentSummaryLine,
   incrementSubAgentToolStats,
+  resolveCollapsedSubAgentView,
   subAgentIdFromTraceId,
   subTaskIdFromTraceId
 } from './subAgentStats'
@@ -36,7 +37,7 @@ describe('subAgentStats general-worker', () => {
     incrementSubAgentToolStats(stats, 'file_read', '{}')
 
     const line = formatSubAgentSummaryLine('通用执行', 'completed', stats, 'general-worker')
-    expect(line).toBe('通用执行 · 已完成 · 终端 1 次 · 技能 2 次 · 媒体 1 次 · 读文件 1 次')
+    expect(line).toBe('通用执行 · 终端 1 次 · 技能 2 次 · 媒体 1 次 · 读文件 1 次')
   })
 
   it('does not fall back to explore-only buckets for general-worker', () => {
@@ -45,7 +46,7 @@ describe('subAgentStats general-worker', () => {
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     const line = formatSubAgentSummaryLine('通用执行', 'completed', stats, 'general-worker')
     expect(line).toContain('终端 2 次')
-    expect(line).not.toBe('通用执行 · 已完成 · 工具 0 次')
+    expect(line).not.toBe('通用执行 · 工具 0 次')
   })
 })
 
@@ -56,7 +57,16 @@ describe('subAgentStats explore / self-fork summary', () => {
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     const line = formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore')
-    expect(line).toBe('代码探索 · 已完成 · 读文件 1 次 · 终端 2 次')
+    expect(line).toBe('代码探索 · 读文件 1 次 · 终端 2 次')
+  })
+
+  it('keeps 失败 on failed traces and omits 已完成 on success', () => {
+    const stats = emptySubAgentToolStats()
+    incrementSubAgentToolStats(stats, 'file_read', '{}')
+    expect(formatSubAgentSummaryLine('代码探索', 'failed', stats, 'explore')).toBe(
+      '代码探索 · 失败 · 读文件 1 次'
+    )
+    expect(formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore')).not.toContain('已完成')
   })
 
   it('includes terminal for self-fork current-agent traces', () => {
@@ -64,5 +74,78 @@ describe('subAgentStats explore / self-fork summary', () => {
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     const line = formatSubAgentSummaryLine('当前 Agent', 'completed', stats, 'current-agent')
     expect(line).toContain('终端 1 次')
+  })
+})
+
+describe('resolveCollapsedSubAgentView', () => {
+  const stats = emptySubAgentToolStats()
+  incrementSubAgentToolStats(stats, 'terminal', '{}')
+
+  it('uses the task goal and finished stats after the sub-agent completes', () => {
+    const view = resolveCollapsedSubAgentView({
+      goal: '系统信息探测',
+      fallbackLabel: '通用助手',
+      status: 'completed',
+      stats,
+      agentId: 'general-worker',
+      hasFinishedWork: true
+    })
+    expect(view.summaryLine).toBe('系统信息探测 · 终端 1 次')
+    expect(view.liveLine).toBeNull()
+  })
+
+  it('parks the live inner tool on the second line even before any work has finished', () => {
+    const view = resolveCollapsedSubAgentView({
+      goal: '磁盘占用扫描',
+      fallbackLabel: '通用助手',
+      status: 'running',
+      stats: emptySubAgentToolStats(),
+      agentId: 'general-worker',
+      liveToolLine: '终端 · df -h',
+      hasFinishedWork: false
+    })
+    expect(view.summaryLine).toBe('磁盘占用扫描')
+    expect(view.liveLine).toBe('终端 · df -h')
+  })
+
+  it('keeps finished stats on the summary and parks the current inner tool below', () => {
+    const view = resolveCollapsedSubAgentView({
+      goal: '磁盘占用扫描',
+      fallbackLabel: '通用助手',
+      status: 'running',
+      stats,
+      agentId: 'general-worker',
+      liveToolLine: '终端 · du -sh',
+      hasFinishedWork: true
+    })
+    expect(view.summaryLine).toBe('磁盘占用扫描 · 终端 1 次')
+    expect(view.liveLine).toBe('终端 · du -sh')
+  })
+
+  it('keeps thinking on the second line so the first line stays a summary', () => {
+    const view = resolveCollapsedSubAgentView({
+      goal: '磁盘占用扫描',
+      fallbackLabel: '通用助手',
+      status: 'running',
+      stats: emptySubAgentToolStats(),
+      hasFinishedWork: false,
+      thinkingLine: '思考中..'
+    })
+    expect(view.summaryLine).toBe('磁盘占用扫描')
+    expect(view.liveLine).toBe('思考中..')
+  })
+
+  it('puts thinking on the live line after finished inner work', () => {
+    const view = resolveCollapsedSubAgentView({
+      goal: '磁盘占用扫描',
+      fallbackLabel: '通用助手',
+      status: 'running',
+      stats,
+      agentId: 'general-worker',
+      hasFinishedWork: true,
+      thinkingLine: '思考中..'
+    })
+    expect(view.summaryLine).toBe('磁盘占用扫描 · 终端 1 次')
+    expect(view.liveLine).toBe('思考中..')
   })
 })

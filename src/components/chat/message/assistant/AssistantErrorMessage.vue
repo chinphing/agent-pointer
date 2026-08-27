@@ -26,7 +26,7 @@ async function onOpenBilling() {
 
 <template>
   <div
-    class="w-full rounded-2xl border border-danger/40 bg-danger/10 px-3 py-3 text-[14px] leading-relaxed text-foreground"
+    class="message-stamp-host w-full rounded-2xl border border-danger/40 bg-danger/10 px-3 text-[14px] leading-relaxed text-foreground"
     role="alert"
   >
     <div class="flex gap-2 items-start min-w-0">

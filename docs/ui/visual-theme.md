@@ -89,7 +89,8 @@ from available width while the workspace panel is open.
 - Settings dialog: use semantic tokens (`text-foreground`, `text-muted`, `border-border`, `bg-card`, `bg-hover`, `text-accent`) — **not** hardcoded `slate-*` / `bg-black/*` / `border-white/*`
 - `.fence-block` — table chrome (`rounded-lg border-border`, body `--card`); `.fence-block-header` matches table `th` (`--hover` fill, bottom border, semibold)
 - Interactive chat controls (e.g. `ask_user`): **the question** is `.fence-block-header`; options sit in the fence body. Tool line stays「询问用户」only. Card left edge matches the tool row; header/body share `px-3` (same as table `th`/`td`).
-- Sub-agent frame (`SubAgentFrame`): default `border-border` + `bg-card`; failed → `border-danger/35` + `bg-danger/5`; chevrons `text-muted` — not accent purple
+- Sub-agent frame (`SubAgentFrame`): process line like collapsed tool groups (`13px` `text-muted`, chevron after the text, hover-only when collapsed), plus an **always-visible** muted fork icon (same stroke as chevrons) so it is not mistaken for a regular tool group. Failed summary uses `text-danger`. Do not wrap the collapsed row in a card (`border-border` / `bg-card` / extra `px-1`). Hide the host「委派子任务」row when the frame is attached (unless approval / waiting for input). Nested depth still uses `marginLeft`. Chevrons stay `text-muted`, not accent.
+- `.message-stamp-host` / `.message-footer-actions` — timestamp / copy **only** under user bubbles and assistant reply text. Host uses equal `0.75rem` padding top and bottom; the chip sits in the bottom pad. Do not add extra tool-row margin after the host. Hover / `:focus-within` changes opacity only. Nested `.chat-hover-root` hides inner footers when the pointer is on the outer row. See [mobile-chat.md](mobile-chat.md).
 - `.settings-input`, `.settings-toggle-track`, `.settings-segment*` — shared controls in settings forms
 
 Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `backdrop-blur` in chat UI.
@@ -106,7 +107,7 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 |--------|-----|--------|
 | Real failure (`error`) | Red alert card / `text-danger` | e.g. network, balance exhausted |
 | User stop (`cancelled`) | Inline muted caption（`text-[11px] text-muted`），**不要**整宽描边横幅 | Always keep the assistant row after stop so「已停止生成」stays visible (empty → compact line; with tools/body → content + caption) |
-| Auto-compression summary | Same muted caption family；默认一行「自动压缩摘要 >」，点击展开正文 | `CompressionSummaryBubble` — no card / avatar / border |
+| Auto-compression summary | Same muted caption family；默认一行「自动压缩摘要」，箭头在文案后。收起时桌面悬停 / 键盘聚焦才显现（触控端始终显示）；展开后固定显示 | `CompressionSummaryBubble` — no card / avatar / border |
 | Injected notice | Same muted family as cancel | `【桌面】` / `【提示】` / `【压缩】` |
 
 Do not style user-initiated stop like a system exception.

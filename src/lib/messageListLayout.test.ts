@@ -2,14 +2,20 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../types/chat'
 import {
   buildMessageListLayout,
+  coalesceToolRunItems,
   entryKey,
+  flattenConversationMessages,
   insertContextCompressingMarker,
   matchingCompletedPrefixCount,
   messageStructureFingerprint,
   splitMessageTurnSegments,
+  toolRunHostMessage,
+  turnElapsedHostIndex,
   turnSegmentFingerprint,
+  withTurnElapsedFollowingSpacing,
   type FlattenDeps,
-  type MessageListLayoutCache
+  type MessageListLayoutCache,
+  type ToolRunGroup
 } from './messageListLayout'
 
 function user(id: string, content = 'hi'): ChatMessage {
@@ -436,5 +442,157 @@ describe('insertContextCompressingMarker', () => {
     const split = expandedKeys.indexOf('context-compressing')
     expect(split).toBeGreaterThanOrEqual(0)
     expect(expandedKeys.indexOf('message-a2')).toBeGreaterThan(split)
+  })
+})
+
+function toolGroup(id: string, status: ChatMessage['status'] = 'done'): ToolRunGroup {
+  return {
+    id,
+    toolCalls: [{ id: `tc-${id}`, name: 'file_read', status: 'success', arguments: '{}' }],
+    message: {
+      id,
+      role: 'assistant',
+      content: '',
+      status,
+      createdAt: 1,
+      toolCalls: []
+    }
+  }
+}
+
+describe('coalesceToolRunItems', () => {
+  it('merges adjacent tool-only rounds and splits on glue', () => {
+    const glue: ChatMessage = {
+      id: 'glue',
+      role: 'user',
+      content: 'retry',
+      status: 'done',
+      createdAt: 2
+    }
+    const blocks = coalesceToolRunItems([
+      { kind: 'tools', group: toolGroup('a') },
+      { kind: 'tools', group: toolGroup('b') },
+      { kind: 'glue', message: glue },
+      { kind: 'tools', group: toolGroup('c') }
+    ])
+    expect(blocks.map(b => b.kind)).toEqual(['tools', 'glue', 'tools'])
+    expect(blocks[0]?.kind === 'tools' && blocks[0].groups.map(g => g.id)).toEqual(['a', 'b'])
+    expect(blocks[2]?.kind === 'tools' && blocks[2].groups.map(g => g.id)).toEqual(['c'])
+  })
+})
+
+describe('toolRunHostMessage', () => {
+  it('prefers the streaming round', () => {
+    const host = toolRunHostMessage([
+      toolGroup('done', 'done'),
+      toolGroup('live', 'streaming')
+    ])
+    expect(host?.id).toBe('live')
+  })
+})
+
+describe('thinking shell in process-tool runs', () => {
+  it('folds a thinking shell into the preceding tool-only run', () => {
+    const toolOnly: ChatMessage = {
+      id: 't1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      toolCalls: [{ id: 'tc1', name: 'terminal', status: 'success', arguments: '{}' }]
+    }
+    const thinking: ChatMessage = {
+      id: 'th',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 3,
+      toolCalls: []
+    }
+    const entries = flattenConversationMessages(
+      [user('u1'), toolOnly, thinking],
+      emptyDeps
+    )
+    expect(entries.map(e => e.type)).toEqual(['message', 'tool_run'])
+    const run = entries[1]
+    expect(run?.type).toBe('tool_run')
+    if (run?.type !== 'tool_run') return
+    const groups = run.items
+      .filter((i): i is { kind: 'tools'; group: ToolRunGroup } => i.kind === 'tools')
+      .map(i => i.group)
+    expect(toolRunHostMessage(groups)?.id).toBe('th')
+  })
+
+  it('keeps first-round thinking as its own message when no tools exist yet', () => {
+    const thinking: ChatMessage = {
+      id: 'th',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 2,
+      toolCalls: []
+    }
+    const entries = flattenConversationMessages([user('u1'), thinking], emptyDeps)
+    expect(entries.map(e => e.type)).toEqual(['message', 'message'])
+    expect(entries[1]?.type === 'message' && entries[1].message.id).toBe('th')
+  })
+
+  it('drops the thinking shell from the tool run once reply content arrives', () => {
+    const toolOnly: ChatMessage = {
+      id: 't1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      toolCalls: [{ id: 'tc1', name: 'terminal', status: 'success', arguments: '{}' }]
+    }
+    const thinking: ChatMessage = {
+      id: 'th',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 3,
+      toolCalls: []
+    }
+    const reply: ChatMessage = {
+      id: 'a2',
+      role: 'assistant',
+      content: '计算完成。',
+      status: 'streaming',
+      createdAt: 4,
+      toolCalls: []
+    }
+    const entries = flattenConversationMessages(
+      [user('u1'), toolOnly, thinking, reply],
+      emptyDeps
+    )
+    expect(entries.map(e => e.type)).toEqual(['message', 'tool_run', 'message'])
+    const run = entries[1]
+    expect(run?.type).toBe('tool_run')
+    if (run?.type !== 'tool_run') return
+    const groupIds = run.items
+      .filter((i): i is { kind: 'tools'; group: ToolRunGroup } => i.kind === 'tools')
+      .map(i => i.group.id)
+    expect(groupIds).toEqual(['t1'])
+    expect(entries[2]?.type === 'message' && entries[2].message.id).toBe('a2')
+  })
+})
+
+describe('turn elapsed following spacing', () => {
+  it('hosts the elapsed row on the user message when there is no task board', () => {
+    const entries = flattenConversationMessages(
+      [user('u1'), assistant('a1', 'done')],
+      emptyDeps
+    )
+    expect(turnElapsedHostIndex(entries, 'u1', 2, false)).toBe(0)
+    expect(turnElapsedHostIndex(entries, 'u1', 0, false)).toBe(-1)
+  })
+
+  it('halves the user→assistant gap under the elapsed row', () => {
+    expect(withTurnElapsedFollowingSpacing('mt-7', 1, 0)).toBe('mt-1.5')
+    expect(withTurnElapsedFollowingSpacing('mt-7', 2, 1)).toBe('mt-1.5')
+    expect(withTurnElapsedFollowingSpacing('mt-1.5', 1, 0)).toBe('mt-1.5')
+    expect(withTurnElapsedFollowingSpacing('mt-7', 1, -1)).toBe('mt-7')
+    expect(withTurnElapsedFollowingSpacing('mt-7', 2, 0)).toBe('mt-7')
   })
 })

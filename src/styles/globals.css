@@ -337,25 +337,113 @@
   .auto-hide-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
     background: hsl(var(--border));
   }
+  /*
+   * Timestamp slot: equal, compact padding above and below the text.
+   * Hover only fades opacity. Do not add extra tool-row margin after this
+   * host — that made the gap below the chip larger than the gap above.
+   */
+  .message-stamp-host {
+    position: relative;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+  /* User bubble: keep text off the rounded corners; timestamp inset from the bottom edge. */
+  .message-user-bubble {
+    padding: 1rem;
+  }
+  .message-user-bubble .message-footer-actions {
+    left: 1rem;
+    right: 1rem;
+    bottom: 0.25rem;
+  }
   .message-footer-actions {
-    @apply flex items-center gap-2 overflow-hidden transition-all duration-150;
+    @apply flex items-center gap-1.5;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 0.75rem;
     opacity: 0;
-    max-height: 0;
-    margin-top: 0;
+    pointer-events: none;
+    z-index: 2;
+    transition: opacity 150ms ease;
+  }
+  .message-footer-actions .message-action-btn {
+    @apply p-0.5;
   }
   .chat-hover-root:hover .message-footer-actions,
   .message-footer-actions:focus-within {
     opacity: 1;
-    max-height: 2rem;
-    @apply mt-0.5;
+    pointer-events: auto;
   }
   .chat-hover-root:hover .chat-hover-root:not(:hover) .message-footer-actions {
     opacity: 0;
-    max-height: 0;
-    margin-top: 0;
+    pointer-events: none;
   }
-  .tool-call-trigger:hover .tool-call-chevron {
+  .tool-call-trigger:hover .tool-call-chevron,
+  .tool-call-trigger:focus-visible .tool-call-chevron,
+  .tool-call-trigger[aria-expanded="true"] .tool-call-chevron {
     display: inline-flex;
+  }
+  /* Sub-agent summary replaces the host 委派 row when a frame is attached. */
+  .tool-call-item:has(> .sub-agent-frame):not([data-keep-host="true"]) > .tool-call-row {
+    display: none;
+  }
+  .collapsed-run-live-slot {
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+    height: 1.25rem;
+    min-height: 1.25rem;
+    width: 100%;
+    overflow: hidden;
+  }
+  /* Indent on the clip (`left`), not padding. Absolute lines ignore parent padding
+     and would jump left when the resting line switches into the slide layers. */
+  .collapsed-run-live-clip {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+  .collapsed-run-live-clip-indent {
+    left: 18px;
+  }
+  .collapsed-run-live-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    box-sizing: border-box;
+    height: 1.25rem;
+    line-height: 1.25rem;
+    font-size: 13px;
+    color: hsl(var(--muted));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .collapsed-run-live-departing {
+    animation: collapsed-run-push-out 500ms ease forwards;
+    pointer-events: none;
+  }
+  .collapsed-run-live-incoming {
+    animation: collapsed-run-push-in 500ms ease forwards;
+  }
+  @keyframes collapsed-run-push-out {
+    from { transform: translateY(0); }
+    to { transform: translateY(-100%); }
+  }
+  @keyframes collapsed-run-push-in {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .collapsed-run-live-departing,
+    .collapsed-run-live-incoming {
+      animation: none;
+    }
   }
   /* Prefer the tail (filename) when a path is wider than the row. */
   .ellipsis-start {
@@ -366,7 +454,11 @@
     text-align: left;
   }
   .tool-block-shell {
-    @apply pt-2 mt-4 mb-0 pb-0;
+    @apply pt-1 mt-2 mb-0 pb-0;
+  }
+  .message-stamp-host + .tool-message-segment .tool-block-shell,
+  .message-stamp-host + .tool-message-segment .tool-block-shell-compact {
+    @apply mt-0 pt-0;
   }
   .tool-block-shell-compact {
     @apply pt-0 mt-0 mb-0 pb-0;

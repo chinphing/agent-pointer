@@ -157,7 +157,6 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
           v-for="trace in tracesUnderTool(toolCall)"
           v-show="showSubAgentTrace"
           :key="trace.id"
-          class="mt-1 mb-1"
           :trace="trace"
           :anchor-message-id="message.id"
           :messages="conversationMessages"
@@ -168,6 +167,7 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
           :is-active-generation-message="isActiveGenerationMessage"
           :show-message-actions="showMessageActions"
           :task-board="childBoardByTraceId.get(trace.id) ?? null"
+          :host-tool="toolCall"
         />
       </template>
     </AgentMessageBody>
@@ -177,6 +177,7 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
       v-for="trace in orphanTraces"
       v-show="showSubAgentFrames"
       :key="trace.id"
+      class="px-3"
       :trace="trace"
       :anchor-message-id="message.id"
       :messages="conversationMessages"

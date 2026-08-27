@@ -27,11 +27,16 @@ import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import {
   buildMessageListLayout,
+  coalesceToolRunItems,
   entryContainsMessageId,
   entryKey,
   insertContextCompressingMarker,
+  toolRunHostMessage,
+  turnElapsedHostIndex,
+  withTurnElapsedFollowingSpacing,
   type FlatEntry,
-  type MessageListLayoutCache
+  type MessageListLayoutCache,
+  type ToolRunGroup
 } from '../../lib/messageListLayout'
 import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
 import {
@@ -58,7 +63,11 @@ import {
   turnOffsetInScroller,
   type MessageListScrollAnchor
 } from '../../lib/messageListScrollAnchor'
-import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
+import {
+  nextFollowOutputAfterScroll,
+  scrollerViewportShrinkDelta,
+  shouldSkipTotalSizeStickAfterViewportShrink
+} from '../../lib/messageListScrollFollow'
 import {
   canShowNoOlderPullHint,
   LOAD_NEWER_BOTTOM_PX,
@@ -132,6 +141,8 @@ let programmaticScrollDepth = 0
 let scrollFrame: number | null = null
 /** Minimum wall-clock gap between two programmatic scroll-to-bottom calls. */
 const SCROLL_MIN_INTERVAL_MS = 80
+/** Cover nextTick + rAF after composer layout so a flushed remasure cannot restick. */
+const VIEWPORT_SHRINK_SKIP_STICK_MS = 120
 /** Must be this close to resume auto-follow after the user scrolled away. */
 const ATTACH_BOTTOM_PX = 8
 /** Scroll this far from bottom before onScroll alone detaches follow. */
@@ -144,8 +155,10 @@ const TRIM_HISTORY_COOLDOWN_MS = 30_000
 const TRIM_HISTORY_TICK_MS = 30_000
 let lastScrollTs = 0
 let touchStartY: number | null = null
-/** Last observed scroller clientHeight; re-stick when chrome shrinks the viewport. */
+/** Last observed scroller clientHeight; compensate when chrome shrinks the viewport. */
 let lastScrollerClientHeight = 0
+/** `performance.now()` of the last viewport shrink; 0 if none this session. */
+let viewportShrinkAtMs = 0
 let scrollerResizeObserver: ResizeObserver | null = null
 let mobileMediaQuery: MediaQueryList | null = null
 let lastScrollTop = 0
@@ -427,17 +440,23 @@ onMounted(() => {
     lastScrollerClientHeight = el.clientHeight
     scrollerResizeObserver = new ResizeObserver(() => {
       const scrollerEl = scroller.value
-      if (!scrollerEl || !shouldFollowOutput()) return
+      if (!scrollerEl) return
       const previousHeight = lastScrollerClientHeight
       const nextHeight = scrollerEl.clientHeight
       if (nextHeight === previousHeight) return
       lastScrollerClientHeight = nextHeight
-      if (nextHeight >= previousHeight) return
-      // Keep the same visual messages in place while the composer grows. Unlike
-      // scrollToIndex(), this compensates only for the viewport-height delta and
-      // never remeasures or jumps to a virtualized row.
+      const delta = scrollerViewportShrinkDelta(previousHeight, nextHeight)
+      if (delta <= 0) return
+      viewportShrinkAtMs = performance.now()
+      // Search locate owns scroll; still record height so the next draft wrap
+      // does not compensate against a stale taller viewport.
+      if (locatingFocus.value) return
+      // Keep the same visual messages in place while the composer grows, even
+      // when follow is off (reading the last lines, or older history). Unlike
+      // scrollToIndex(), this only applies the viewport-height delta.
       beginProgrammaticScroll()
-      scrollerEl.scrollTop += previousHeight - nextHeight
+      scrollerEl.scrollTop += delta
+      lastScrollTop = scrollerEl.scrollTop
       endProgrammaticScroll()
     })
     scrollerResizeObserver.observe(el)
@@ -484,6 +503,7 @@ onBeforeUnmount(() => {
 
 watch(() => chat.currentId, async () => {
   followOutput = true
+  viewportShrinkAtMs = 0
   olderPrefetchArmed = true
   newerPrefetchArmed = true
   releaseNoOlderPull()
@@ -740,7 +760,16 @@ watch(
       const selector = targetToolCallId
         ? `[data-tool-call-id="${CSS.escape(targetToolCallId)}"]`
         : `[data-message-id="${CSS.escape(targetMessageId)}"]`
-      const el = settledRoot.querySelector(selector) as HTMLElement | null
+      const matches = settledRoot.querySelectorAll(selector)
+      let el: HTMLElement | null = null
+      for (const node of matches) {
+        const candidate = node as HTMLElement
+        if (candidate.getClientRects().length > 0) {
+          el = candidate
+          break
+        }
+      }
+      if (!el) el = (matches[0] as HTMLElement | undefined) ?? null
       if (!el) return
       const precise = highlightSearchText(el, query, {
         markClass: PAGE_SEARCH_MARK_CLASS,
@@ -1041,11 +1070,6 @@ function isTaskBoardTerminal(status: string | undefined): boolean {
   return s === 'completed' || s === 'failed'
 }
 
-function assistantMessageHadTools(entry: FlatEntry): boolean {
-  if (entry.type !== 'message' || entry.message.role !== 'assistant') return false
-  return (entry.message.toolCalls?.length ?? 0) > 0 || (entry.trailingToolGroups?.length ?? 0) > 0
-}
-
 function visibleToolsForMessage(message: ChatMessage, toolCalls: ToolCall[]): ToolCall[] {
   const ui = uiForMessageAgent(message.agentId, message.agentName, settings.settings, agentsCatalog.value)
   if (!ui.showToolCalls) return []
@@ -1055,6 +1079,28 @@ function visibleToolsForMessage(message: ChatMessage, toolCalls: ToolCall[]): To
     ui.showSidecarToolCalls === true,
     ui.showNonSidecarToolCalls !== false
   )
+}
+
+function visibleToolsForGroups(groups: ToolRunGroup[]): ToolCall[] {
+  return groups.flatMap(group => visibleToolsForMessage(group.message, group.toolCalls))
+}
+
+function toolRunBlockKey(block: ReturnType<typeof coalesceToolRunItems>[number]): string {
+  if (block.kind === 'glue') return `glue-${block.message.id}`
+  return `tools-${block.groups.map(group => group.id).join('|')}`
+}
+
+function groupsHighlightClass(groups: ToolRunGroup[]): string {
+  if (groups.some(group => messageIdIsActiveSearchMatch(group.message.id))) {
+    return 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
+  }
+  if (groups.some(group => messageIdIsFocusHighlight(group.message.id))) {
+    return 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
+  }
+  if (groups.some(group => messageIdIsSearchMatch(group.message.id))) {
+    return 'rounded-xl bg-accent/5 transition-colors'
+  }
+  return ''
 }
 
 function shouldShowThreadGlue(message: ChatMessage): boolean {
@@ -1350,8 +1396,21 @@ watch(
     if (!shouldFollowOutput()) return
     beginProgrammaticScroll()
     void nextTick(() => {
-      stickScrollerToBottom()
-      endProgrammaticScroll()
+      try {
+        if (
+          !shouldFollowOutput() ||
+          shouldSkipTotalSizeStickAfterViewportShrink(
+            performance.now(),
+            viewportShrinkAtMs,
+            VIEWPORT_SHRINK_SKIP_STICK_MS
+          )
+        ) {
+          return
+        }
+        stickScrollerToBottom()
+      } finally {
+        endProgrammaticScroll()
+      }
     })
   }
 )
@@ -1401,19 +1460,18 @@ function spacingPixels(
   entry: FlatEntry,
   index: number,
   entries: FlatEntry[],
-  followsCollapsedTurnIndicator = false
+  elapsedHostIndex = -1
 ): number {
-  return messageRowSpacingPixels(entrySpacing(entry, index, entries, followsCollapsedTurnIndicator))
+  return messageRowSpacingPixels(entrySpacing(entry, index, entries, elapsedHostIndex))
 }
 
 function entrySpacing(
   entry: FlatEntry,
   index: number,
   entries: FlatEntry[],
-  followsCollapsedTurnIndicator = false
+  elapsedHostIndex = -1
 ): string {
   if (index === 0) return ''
-  if (followsCollapsedTurnIndicator && index === 1) return 'mt-4'
 
   const prev = entries[index - 1]
   const prevIsUser = prev.type === 'message' && prev.message.role === 'user'
@@ -1423,6 +1481,17 @@ function entrySpacing(
     && !isToolOnlyAssistantMessage(prev.message)
     && !isEphemeralDesktopNoticeMessage(prev.message)
   const prevIsToolRun = prev.type === 'tool_run'
+  const prevEndsWithProcessTools =
+    prevIsToolRun
+    || (
+      prev.type === 'message'
+      && prev.message.role === 'assistant'
+      && !prev.contentOnly
+      && (
+        (prev.trailingToolGroups?.length ?? 0) > 0
+        || (prev.message.toolCalls?.length ?? 0) > 0
+      )
+    )
   const prevIsDesktopNotice =
     prev.type === 'message'
     && prev.message.role === 'assistant'
@@ -1459,14 +1528,18 @@ function entrySpacing(
       return 'mt-1'
     }
     if (entry.message.role === 'user') return 'mt-7'
-    if (prevIsToolRun) return 'mt-4'
+    // Stamp-host top pad already matches the text-to-tool gap; extra mt-3.5
+    // stacked under the previous bottom pad and made the block look bottom-heavy.
+    if (prevEndsWithProcessTools) return 'mt-0'
     if (prevIsDesktopNotice) return 'mt-1.5'
     if (prev.type === 'message' && isCompressionSummaryMessage(prev.message)) return 'mt-1.5'
-    if (prevIsUser) return 'mt-7'
-    if (prev.type === 'message' && prev.message.role === 'assistant') {
-      return assistantMessageHadTools(prev) ? 'mt-4' : 'mt-7'
+    if (prevIsUser) {
+      return withTurnElapsedFollowingSpacing('mt-7', index, elapsedHostIndex)
     }
-    return 'mt-7'
+    if (prev.type === 'message' && prev.message.role === 'assistant') {
+      return 'mt-7'
+    }
+    return withTurnElapsedFollowingSpacing('mt-7', index, elapsedHostIndex)
   }
 
   return 'mt-4'
@@ -1541,7 +1614,12 @@ function entrySpacing(
                 entry,
                 entryIndex,
                 displayedTurnEntries(row.turn),
-                row.turn.hiddenCount > 0 && !turnIsExpanded(row.turn.id)
+                turnElapsedHostIndex(
+                  displayedTurnEntries(row.turn),
+                  row.turn.id,
+                  row.turn.hiddenCount,
+                  turnHasTaskBoard(row.turn)
+                )
               )}px`
             }"
           >
@@ -1570,31 +1648,48 @@ function entrySpacing(
               v-else-if="entry.type === 'tool_run'"
               class="tool-segments chat-column tool-only-message"
             >
-              <template v-for="item in entry.items" :key="item.kind === 'tools' ? item.group.id : item.message.id">
+              <template v-for="block in coalesceToolRunItems(entry.items)" :key="toolRunBlockKey(block)">
                 <div
-                  :data-message-id="item.kind === 'tools' ? item.group.message.id : item.message.id"
+                  v-if="block.kind === 'glue'"
+                  :data-message-id="block.message.id"
                   :class="[
-                    messageIdIsActiveSearchMatch(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                    messageIdIsActiveSearchMatch(block.message.id)
                       ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
-                      : messageIdIsFocusHighlight(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                      : messageIdIsFocusHighlight(block.message.id)
                         ? 'rounded-xl ring-2 ring-accent/60 bg-accent/10 transition-colors'
-                        : messageIdIsSearchMatch(item.kind === 'tools' ? item.group.message.id : item.message.id)
+                        : messageIdIsSearchMatch(block.message.id)
                           ? 'rounded-xl bg-accent/5 transition-colors'
                           : ''
                   ]"
                 >
                   <ToolRunGlueRow
-                    v-if="item.kind === 'glue' && shouldShowThreadGlue(item.message)"
-                    :message="item.message"
+                    v-if="shouldShowThreadGlue(block.message)"
+                    :message="block.message"
                   />
-                  <ToolMessageSegment
-                    v-else-if="item.kind === 'tools'"
-                    :message="item.group.message"
-                    :tool-calls="visibleToolsForMessage(item.group.message, item.group.toolCalls)"
-                    :message-ui="uiForMessageAgent(item.group.message.agentId, item.group.message.agentName, settings.settings, agentsCatalog)"
-                    compact-top
-                    hide-footer
+                </div>
+                <div
+                  v-else
+                  :data-message-id="block.groups[0]?.message.id"
+                  :class="groupsHighlightClass(block.groups)"
+                >
+                  <span
+                    v-for="group in block.groups.slice(1)"
+                    :key="`mid-${group.id}`"
+                    class="sr-only"
+                    :data-message-id="group.message.id"
                   />
+                  <template
+                    v-for="host in [toolRunHostMessage(block.groups)]"
+                    :key="host?.id ?? 'tools'"
+                  >
+                    <ToolMessageSegment
+                      v-if="host"
+                      :message="host"
+                      :tool-calls="visibleToolsForGroups(block.groups)"
+                      :message-ui="uiForMessageAgent(host.agentId, host.agentName, settings.settings, agentsCatalog)"
+                      compact-top
+                    />
+                  </template>
                 </div>
               </template>
             </div>
@@ -1630,13 +1725,16 @@ function entrySpacing(
             >
               <button
                 type="button"
-                class="inline-flex items-center gap-1 py-1 text-xs font-medium text-muted/70 transition-colors hover:text-foreground"
+                class="tool-call-trigger inline-flex items-center gap-1 py-1 text-xs font-medium text-muted/70 transition-colors hover:text-foreground cursor-pointer"
                 :aria-expanded="turnIsExpanded(row.turn.id)"
                 @click="toggleTurn(row.turn.id)"
               >
-                <ChevronDown v-if="turnIsExpanded(row.turn.id)" class="h-3 w-3" />
-                <ChevronRight v-else class="h-3 w-3" />
                 <span class="tabular-nums">{{ turnElapsedLabel(row.turn.id) }}</span>
+                <component
+                  :is="turnIsExpanded(row.turn.id) ? ChevronDown : ChevronRight"
+                  class="tool-call-chevron h-3 w-3 shrink-0 text-muted hidden"
+                  aria-hidden="true"
+                />
               </button>
             </div>
           </div>

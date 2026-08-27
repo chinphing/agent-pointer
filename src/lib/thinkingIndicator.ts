@@ -117,11 +117,33 @@ export function bodyHasVisibleStreamingActivity(body: ThinkingStreamBody): boole
  * keep「思考中」once content or a tool row is on screen.
  */
 export function bodyHasVisibleUserFacingOutput(body: ThinkingStreamBody): boolean {
+  if (bodyHasVisibleReplyText(body)) return true
+  if ((body.toolCalls?.length ?? 0) > 0) return true
+  return false
+}
+
+/** Reply text only — process tools on the host must not keep「思考中」stuck. */
+export function bodyHasVisibleReplyText(body: ThinkingStreamBody): boolean {
   if (body.content?.trim()) return true
   if (body.toolNamePreview?.trim()) return true
   if (body.responseTextDraft?.trim()) return true
-  if ((body.toolCalls?.length ?? 0) > 0) return true
   return false
+}
+
+export function toolCallStatusInProgress(status: string | undefined): boolean {
+  return status === 'running' || status === 'pending' || status === 'pending_approval'
+}
+
+/** Collapsed tool header stays live for in-flight tools or a thinking gap — not after reply text. */
+export function collapsedProcessRunActive(args: {
+  generating: boolean
+  isActiveHost: boolean
+  host: ThinkingStreamBody
+  toolCalls: { status?: string }[]
+}): boolean {
+  if (args.toolCalls.some(tc => toolCallStatusInProgress(tc.status))) return true
+  if (bodyHasVisibleReplyText(args.host)) return false
+  return args.generating && args.isActiveHost
 }
 
 export function shouldShowThinkingIndicator(args: {

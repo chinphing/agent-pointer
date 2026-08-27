@@ -27,10 +27,13 @@
    `scrollTop = scrollHeight - clientHeight`。
 2. **切换/挂载 settle**：会话切换会 remount 列表，行高先用估算值；
    `toBottom({ settle: true })` 在随后两帧再贴一次，减少测量校正后的下跳与裁切。
-3. **视口变矮**：`ResizeObserver` 在跟随态下侦测 scroller `clientHeight`
-   （Composer / 草稿增高），再按视口差值补偿 `scrollTop`。
+3. **视口变矮**：scroller `ResizeObserver` 侦测 `clientHeight`（Composer / 草稿增高、窗口变矮）。
+   **无论是否跟随**都记下高度，并按视口差值补偿 `scrollTop`，让当前画面里的消息留在原处
+   （读最后两行或中间历史时打字，底栏都不会盖住正文）。搜索定位期间只记高度、不补滚动。
+   视口变高（删草稿）不补，避免把内容往下拽。
 4. **总高度变化**：跟随态下 virtualizer `getTotalSize()` 变化时再贴一次真底部
-   （覆盖切换后 estimate→measure 与末轮展开）。
+   （覆盖切换后 estimate→measure 与末轮展开）。输入框刚把视口变矮的约 120ms 内跳过这次贴底，
+   避免按键触发布局把行高测矮后 `scrollToIndex` 跳到错误底部、最后两行画进 Composer。
 5. **内容矮于视口**：回合从顶部排起，空白留在消息与输入框之间。
    不要用弹性空白把短对话顶到输入框上方（新会话会像贴在底部）。
 
@@ -42,4 +45,4 @@
 ## 实现
 
 - `src/components/chat/MessageList.vue`
-- `src/lib/messageListScrollFollow.ts` — `nextFollowOutputAfterScroll`
+- `src/lib/messageListScrollFollow.ts` — `nextFollowOutputAfterScroll`、视口变矮补偿与 totalSize 贴底抑制

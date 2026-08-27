@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { parseMarkdown } from '../../../lib/markdownConfig'
 import type { ChatMessage } from '../../../types/chat'
 import { compressionSummaryBody } from '../../../lib/compressionMessage'
@@ -29,12 +30,16 @@ useMarkdownExternalLinks(bodyRef, () => html.value)
   <div class="chat-column px-3" role="group">
     <button
       type="button"
-      class="py-0.5 inline-flex items-center gap-0.5 text-[11px] text-muted hover:text-foreground/70 transition-colors cursor-pointer"
+      class="tool-call-trigger py-0.5 inline-flex items-center gap-0.5 text-[11px] text-muted hover:text-foreground/70 transition-colors cursor-pointer"
       :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
       <span>自动压缩摘要</span>
-      <span class="select-none" aria-hidden="true">{{ expanded ? '∨' : '>' }}</span>
+      <component
+        :is="expanded ? ChevronDown : ChevronRight"
+        class="tool-call-chevron h-3 w-3 shrink-0 hidden"
+        aria-hidden="true"
+      />
     </button>
 
     <div

@@ -169,5 +169,60 @@ export function formatSubAgentSummaryLine(
 ): string {
   const label = name.trim() || '子任务'
   const metrics = formatStatsForAgent(agentId ?? 'explore', stats)
-  return `${label} · ${subAgentStatusLabel(status)} · ${metrics}`
+  if (status === 'failed' || status === 'running') {
+    return `${label} · ${subAgentStatusLabel(status)} · ${metrics}`
+  }
+  return `${label} · ${metrics}`
+}
+
+export type CollapsedSubAgentView = {
+  summaryLine: string
+  liveLine: string | null
+}
+
+/**
+ * Collapsed sub-agent copy: finished inner work stays on the summary;
+ * the in-progress inner tool sits on a live line. Between tools,「思考中」
+ * occupies that line and pushes the finished tool into the summary.
+ */
+export function resolveCollapsedSubAgentView(input: {
+  goal: string
+  fallbackLabel: string
+  status: string
+  stats: SubAgentToolStats
+  agentId?: string
+  liveToolLine?: string | null
+  hasFinishedWork: boolean
+  thinkingLine?: string | null
+}): CollapsedSubAgentView {
+  const title = input.goal.trim() || input.fallbackLabel.trim() || '子任务'
+  const live = input.liveToolLine?.trim() || ''
+  const thinking = input.thinkingLine?.trim() || ''
+
+  if (thinking && !live) {
+    return {
+      summaryLine: input.hasFinishedWork
+        ? formatSubAgentSummaryLine(title, 'completed', input.stats, input.agentId)
+        : title,
+      liveLine: thinking
+    }
+  }
+
+  if (input.status === 'running' && live) {
+    return {
+      summaryLine: input.hasFinishedWork
+        ? formatSubAgentSummaryLine(title, 'completed', input.stats, input.agentId)
+        : title,
+      liveLine: live
+    }
+  }
+
+  if (input.status === 'running' && !input.hasFinishedWork) {
+    return { summaryLine: title, liveLine: null }
+  }
+
+  return {
+    summaryLine: formatSubAgentSummaryLine(title, input.status, input.stats, input.agentId),
+    liveLine: null
+  }
 }

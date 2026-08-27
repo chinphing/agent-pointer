@@ -3,6 +3,7 @@ import {
   assistantDisplayKind,
   assistantHasDeliverableContent,
   isEphemeralDesktopNoticeMessage,
+  isProcessThinkingShell,
   isToolOnlyAssistantMessage
 } from './assistantMessageKind'
 import { isCompressionSummaryMessage, isPrefixCompressionSummaryMessage } from './compressionMessage'
@@ -19,6 +20,39 @@ export type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMes
 export type ToolRunItem =
   | { kind: 'tools'; group: ToolRunGroup }
   | { kind: 'glue'; message: ChatMessage }
+
+/** Adjacent tool-only rounds, split only by visible glue. */
+export type CoalescedToolRunBlock =
+  | { kind: 'tools'; groups: ToolRunGroup[] }
+  | { kind: 'glue'; message: ChatMessage }
+
+/** Concatenate consecutive process-tool rounds so grouping is not per LLM turn. */
+export function coalesceToolRunItems(items: readonly ToolRunItem[]): CoalescedToolRunBlock[] {
+  const out: CoalescedToolRunBlock[] = []
+  for (const item of items) {
+    if (item.kind === 'glue') {
+      out.push({ kind: 'glue', message: item.message })
+      continue
+    }
+    const last = out[out.length - 1]
+    if (last?.kind === 'tools') {
+      last.groups.push(item.group)
+    } else {
+      out.push({ kind: 'tools', groups: [item.group] })
+    }
+  }
+  return out
+}
+
+/** Prefer the still-streaming round so the thinking row stays on the live tools. */
+export function toolRunHostMessage(groups: readonly ToolRunGroup[]): ChatMessage | undefined {
+  if (groups.length === 0) return undefined
+  for (let i = groups.length - 1; i >= 0; i -= 1) {
+    const message = groups[i]!.message
+    if (message.status === 'streaming' || message.status === 'pending') return message
+  }
+  return groups[groups.length - 1]!.message
+}
 
 export type FlatEntry =
   | {
@@ -38,6 +72,35 @@ export type FlatEntry =
       isActive: boolean
     }
   | { type: 'context_compressing'; label: string }
+
+/** Index of the row that hosts the 「工作」elapsed control, or -1. */
+export function turnElapsedHostIndex(
+  entries: readonly FlatEntry[],
+  turnId: string,
+  hiddenCount: number,
+  hasTaskBoard: boolean
+): number {
+  if (hiddenCount <= 0) return -1
+  return entries.findIndex(entry =>
+    (entry.type === 'message' && entry.message.id === turnId && !hasTaskBoard)
+    || (entry.type === 'task_board' && entry.anchorMessageId === turnId)
+  )
+}
+
+/**
+ * The elapsed row sits inside its host entry. The next entry used to get the
+ * full user→assistant gap (`mt-7` / 28px). Use the tighter tool-after-user
+ * gap instead (`mt-1.5` / 6px).
+ */
+export function withTurnElapsedFollowingSpacing(
+  spacingClass: string,
+  index: number,
+  elapsedHostIndex: number
+): string {
+  if (elapsedHostIndex < 0 || index !== elapsedHostIndex + 1) return spacingClass
+  if (spacingClass === 'mt-7') return 'mt-1.5'
+  return spacingClass
+}
 
 export type MessageListBoardBinding = {
   storeKey: string
@@ -250,10 +313,53 @@ export function flattenConversationMessages(
     toolRunItems = []
   }
 
+  function isEmptyThinkingGroup(group: ToolRunGroup): boolean {
+    return isProcessThinkingShell(group.message) && (group.toolCalls?.length ?? 0) === 0
+  }
+
+  function dropThinkingShells(items: ToolRunItem[]): ToolRunItem[] {
+    return items.filter(item => item.kind !== 'tools' || !isEmptyThinkingGroup(item.group))
+  }
+
+  function dropAttachedThinkingShells() {
+    toolRunItems = dropThinkingShells(toolRunItems)
+    const last = entries[entries.length - 1]
+    if (last?.type === 'tool_run') {
+      last.items = dropThinkingShells(last.items)
+    }
+    if (last?.type === 'message' && last.trailingToolGroups?.length) {
+      const next = last.trailingToolGroups.filter(group => !isEmptyThinkingGroup(group))
+      last.trailingToolGroups = next.length > 0 ? next : undefined
+    }
+  }
+
+  function attachThinkingShell(message: ChatMessage): boolean {
+    const group: ToolRunGroup = {
+      id: message.id,
+      toolCalls: message.toolCalls ?? [],
+      message
+    }
+    if (toolRunHasTools(toolRunItems)) {
+      toolRunItems.push({ kind: 'tools', group })
+      return true
+    }
+    const last = entries[entries.length - 1]
+    if (last?.type === 'tool_run') {
+      last.items.push({ kind: 'tools', group })
+      return true
+    }
+    if (last?.type === 'message' && (last.trailingToolGroups?.length ?? 0) > 0) {
+      last.trailingToolGroups = [...(last.trailingToolGroups ?? []), group]
+      return true
+    }
+    return false
+  }
+
   for (const message of messages) {
     const kind = layoutKind(message)
     if (kind === 'skip') continue
     if (kind === 'notice') {
+      dropAttachedThinkingShells()
       flushToolRun()
       entries.push({ type: 'message', message })
     } else if (kind === 'tool_only') {
@@ -277,7 +383,13 @@ export function flattenConversationMessages(
         flushToolRun()
         entries.push({ type: 'message', message, compact: true })
       }
+    } else if (isProcessThinkingShell(message)) {
+      if (!attachThinkingShell(message)) {
+        flushToolRun()
+        entries.push({ type: 'message', message })
+      }
     } else {
+      dropAttachedThinkingShells()
       flushToolRun()
       entries.push({ type: 'message', message })
     }

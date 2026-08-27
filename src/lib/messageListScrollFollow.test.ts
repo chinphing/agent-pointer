@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { nextFollowOutputAfterScroll } from './messageListScrollFollow'
+import {
+  nextFollowOutputAfterScroll,
+  scrollerViewportShrinkDelta,
+  shouldSkipTotalSizeStickAfterViewportShrink
+} from './messageListScrollFollow'
 
 describe('nextFollowOutputAfterScroll', () => {
   const attachPx = 8
@@ -60,5 +64,29 @@ describe('nextFollowOutputAfterScroll', () => {
         detachPx
       })
     ).toBe(false)
+  })
+})
+
+describe('scrollerViewportShrinkDelta', () => {
+  it('returns the lost viewport height when the scroller shrinks', () => {
+    expect(scrollerViewportShrinkDelta(800, 760)).toBe(40)
+  })
+
+  it('does not compensate when the scroller grows or stays the same', () => {
+    expect(scrollerViewportShrinkDelta(760, 800)).toBe(0)
+    expect(scrollerViewportShrinkDelta(800, 800)).toBe(0)
+  })
+
+  it('ignores an uninitialized previous height so mount does not jump', () => {
+    expect(scrollerViewportShrinkDelta(0, 800)).toBe(0)
+  })
+})
+
+describe('shouldSkipTotalSizeStickAfterViewportShrink', () => {
+  it('skips stick only inside the suppression window', () => {
+    expect(shouldSkipTotalSizeStickAfterViewportShrink(1_000, 950, 100)).toBe(true)
+    expect(shouldSkipTotalSizeStickAfterViewportShrink(1_000, 900, 100)).toBe(false)
+    expect(shouldSkipTotalSizeStickAfterViewportShrink(1_000, 1_000, 100)).toBe(true)
+    expect(shouldSkipTotalSizeStickAfterViewportShrink(1_000, 0, 100)).toBe(false)
   })
 })

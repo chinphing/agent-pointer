@@ -29,6 +29,7 @@ export function messageTurnSpacingPixels(
 export function messageRowSpacingPixels(spacingClass: string): number {
   if (spacingClass === 'mt-7') return 28
   if (spacingClass === 'mt-4') return 16
+  if (spacingClass === 'mt-3.5') return 14
   if (spacingClass === 'mt-1.5') return 6
   if (spacingClass === 'mt-1') return 4
   if (spacingClass === 'mt-0.5') return 2

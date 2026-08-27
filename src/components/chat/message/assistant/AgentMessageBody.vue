@@ -14,7 +14,6 @@ import { isGenerationCancelledMessage, isMessageStreaming } from '../../../../li
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import ToolMessageSegment from './ToolMessageSegment.vue'
 import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
-import ThinkingIndicator from './ThinkingIndicator.vue'
 import { assistantReplyMediaForRender } from '../../../../lib/messageNormalizer'
 import ChatMessageMediaGallery from '../ChatMessageMediaGallery.vue'
 import { shouldShowThinkingIndicator } from '../../../../lib/thinkingIndicator'
@@ -233,7 +232,21 @@ const trailingToolSegments = computed(() => {
   return segments
 })
 
-const hasTrailingTools = computed(() => trailingToolSegments.value.length > 0)
+const mergedProcessTools = computed(() => [
+  ...leadToolCalls.value,
+  ...trailingToolSegments.value.flatMap(segment => segment.toolCalls)
+])
+
+const processToolsHostMessage = computed((): ChatMessage | undefined => {
+  const trailingGroups = props.trailingToolGroups ?? []
+  for (let i = trailingGroups.length - 1; i >= 0; i -= 1) {
+    const message = trailingGroups[i]!.message
+    if (isMessageStreaming(message.status)) return message
+  }
+  const trailing = trailingToolSegments.value
+  if (leadToolCalls.value.length && footerMessage.value) return footerMessage.value
+  return trailing[trailing.length - 1]?.message ?? footerMessage.value
+})
 
 const showLeadUnit = computed(
   () =>
@@ -241,15 +254,22 @@ const showLeadUnit = computed(
     || hasMainBody.value
     || leadToolCalls.value.length > 0
     || isCancelled.value
+    || showThinkingIndicator.value
 )
 
-const leadToolsCompactTop = computed(() => {
-  if (hasTrailingTools.value) return true
+const processToolsCompactTop = computed(() => {
+  if (!showLeadUnit.value) return true
   return !hasMainBody.value && !showReasoningBlock.value
 })
 
+const showProcessToolSlot = computed(
+  () =>
+    !!processToolsHostMessage.value
+    && (mergedProcessTools.value.length > 0 || showThinkingIndicator.value)
+)
+
 const showToolSegments = computed(
-  () => showLeadUnit.value || hasTrailingTools.value
+  () => showLeadUnit.value || mergedProcessTools.value.length > 0 || showThinkingIndicator.value
 )
 
 function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMessage }): ToolCall[] {
@@ -279,24 +299,14 @@ const showReasoningBlock = computed(
 
 const reasoningDisplayText = computed(() => props.body.reasoning ?? '')
 
-const streamedCharCount = computed(() => {
-  const body = props.body
-  return Math.max(
-    body.content?.length ?? 0,
-    body.thoughts?.length ?? 0,
-    body.reasoning?.length ?? 0,
-    body.toolNamePreview?.length ?? 0,
-    body.responseTextDraft?.length ?? 0
-  )
-})
-
 const showThinkingIndicator = computed(() =>
+  !props.contentOnly &&
   shouldShowThinkingIndicator({
     runInProgress: isRunInProgress.value,
     markdownBodyVisible: showMdBody.value,
     thoughtsPanelVisible: showThoughtPanels.value,
     reasoningVisible: showReasoningBlock.value,
-    extraVisibleTools: hasTrailingTools.value || leadToolCalls.value.length > 0,
+    extraVisibleTools: mergedProcessTools.value.length > 0,
     body: props.body
   })
 )
@@ -307,7 +317,6 @@ const hasMainBody = computed(
     replyMediaAttachments.value.length > 0 ||
     showStreamingPlaceholderUnderThoughts.value ||
     showThoughtPanels.value ||
-    showThinkingIndicator.value ||
     props.body.status === 'error'
 )
 
@@ -397,15 +406,14 @@ onUnmounted(() => clearReasoningCollapseTimer())
           >{{ reasoningDisplayText }}</div>
         </div>
 
-        <div v-if="hasMainBody" class="relative w-full min-w-0 break-words overflow-x-hidden">
+        <div v-if="hasMainBody" class="message-stamp-host w-full min-w-0">
+          <div class="break-words overflow-x-hidden">
           <ModelThoughtPanels
             v-if="showThoughtPanels"
             :xml-thoughts="thoughtsPanelText"
             :thoughts-debug-enabled="thoughtsDebugEnabled"
             :is-streaming="isContentStreaming"
           />
-
-          <ThinkingIndicator :active="showThinkingIndicator" :char-count="streamedCharCount" />
 
           <div
             v-if="showMdBody"
@@ -445,16 +453,24 @@ onUnmounted(() => clearReasoningCollapseTimer())
               去充值
             </button>
           </div>
+          </div>
+
+          <AssistantMessageDebugChrome
+            v-if="footerMessage"
+            :message="footerMessage"
+            :copy-text="copyText"
+            :show-copy="showCopyButton || undefined"
+            :generating="generating"
+            :is-active-generation-message="isActiveGenerationMessage"
+          />
         </div>
 
         <ToolMessageSegment
-          v-if="leadToolCalls.length && footerMessage"
-          :message="footerMessage"
-          :tool-calls="leadToolCalls"
+          v-if="showProcessToolSlot && processToolsHostMessage"
+          :message="processToolsHostMessage"
+          :tool-calls="mergedProcessTools"
           :message-ui="messageUi"
-          :compact-top="leadToolsCompactTop"
-          hide-footer
-          delegated-debug-footer
+          :compact-top="processToolsCompactTop"
         >
           <template #after-tool="slotProps">
             <slot
@@ -474,25 +490,14 @@ onUnmounted(() => clearReasoningCollapseTimer())
             已停止生成
           </div>
         </div>
-
-        <AssistantMessageDebugChrome
-          v-if="footerMessage"
-          :message="footerMessage"
-          :copy-text="copyText"
-          :show-copy="showCopyButton || undefined"
-          :generating="generating"
-          :is-active-generation-message="isActiveGenerationMessage"
-        />
       </div>
 
       <ToolMessageSegment
-        v-for="segment in trailingToolSegments"
-        :key="segment.message.id"
-        :message="segment.message"
-        :tool-calls="segment.toolCalls"
+        v-else-if="showProcessToolSlot && processToolsHostMessage"
+        :message="processToolsHostMessage"
+        :tool-calls="mergedProcessTools"
         :message-ui="messageUi"
         compact-top
-        hide-footer
       >
         <template #after-tool="slotProps">
           <slot

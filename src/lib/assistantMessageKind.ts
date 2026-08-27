@@ -125,3 +125,19 @@ export function isToolOnlyAssistantMessage(message: ChatMessage): boolean {
 
   return !hasVisibleText && !hasOtherStructure
 }
+
+/**
+ * Streaming assistant with no reply yet and no tools: the「思考中」shell.
+ * Fold into the preceding process-tool run instead of a new message row.
+ */
+export function isProcessThinkingShell(message: ChatMessage): boolean {
+  if (message.role !== 'assistant') return false
+  if (!isMessageStreaming(message.status)) return false
+  if (isDiscardableEmptyAssistant(message)) return false
+  if (assistantDisplayKind(message) !== 'model') return false
+  if (assistantHasDeliverableContent(message)) return false
+  if (message.responseTextDraft?.trim()) return false
+  if ((message.toolCalls?.length ?? 0) > 0) return false
+  if ((message.agentTrace?.length ?? 0) > 0) return false
+  return true
+}

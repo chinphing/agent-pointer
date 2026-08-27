@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { ChevronDown, ChevronRight, Code } from 'lucide-vue-next'
-import type { AgentTrace, ChatMessage, TaskBoardDocument } from '../../../../types/chat'
+import { computed, inject, ref, watch, type Ref } from 'vue'
+import { Code, GitMerge } from 'lucide-vue-next'
+import type { AgentTrace, ChatMessage, TaskBoardDocument, ToolCall } from '../../../../types/chat'
 import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
 import { buildCompressionProgressLabel } from '../../../../lib/compressionMessage'
 import {
-  formatSubAgentSummaryLine,
-  subAgentIdFromTraceId,
-  subAgentStatusLabel
+  resolveCollapsedSubAgentView,
+  subAgentIdFromTraceId
 } from '../../../../lib/subAgentStats'
 import {
   buildSubAgentBodyModelsFromScoped,
@@ -17,17 +16,18 @@ import {
   latestSubAgentBodyModelFromScoped,
   scopedAssistantMessagesForTrace,
   scopedMessagesForTrace,
-  subAgentFrameOwnsCompression,
-  subTraceHasVisibleActivityFromMessages
+  subAgentFrameOwnsCompression
 } from '../../../../lib/subAgentMessages'
 import { useChatStore } from '../../../../stores/chat'
 import {
-  subTraceHasVisibleActivity,
   isSubTraceUiCollapsed,
   toggleSubTraceExpanded
 } from '../../../../lib/subAgentSession'
 import {
   compactToolCallStatusLine,
+  effectiveToolDisplaySummary,
+  formatToolDurationLabel,
+  isToolCallInProgress,
   latestToolCallForCompactStatus
 } from '../../../../lib/toolCallDisplay'
 import { thinkingLabel, streamedCharCountFromBody } from '../../../../lib/thinkingIndicator'
@@ -37,6 +37,7 @@ import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody
 import ContextCompressingMarker from '../ContextCompressingMarker.vue'
 import RawWirePanel from './RawWirePanel.vue'
 import TaskBoardPanel from '../../TaskBoardPanel.vue'
+import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
 
 export type SubAgentTaskBoardBinding = {
   document: TaskBoardDocument
@@ -57,6 +58,8 @@ const props = defineProps<{
   showMessageActions?: boolean
   /** Child task board always shown above the process UI (collapsed or expanded). */
   taskBoard?: SubAgentTaskBoardBinding | null
+  /** Parent `run_subagent` row this frame replaces when collapsed. */
+  hostTool?: ToolCall | null
 }>()
 
 const settingsStore = useSettingsStore()
@@ -113,13 +116,6 @@ const compressionProgressLabel = computed(() => {
 
 const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
 
-const hasVisibleActivity = computed(() => {
-  if (scopedMessages.value.length > 0) {
-    return subTraceHasVisibleActivityFromMessages(scopedMessages.value)
-  }
-  return subTraceHasVisibleActivity(props.trace)
-})
-
 const latestStreamBody = computed((): AgentMessageBodyModel | null => {
   const scoped = latestSubAgentBodyModelFromScoped(
     props.messages,
@@ -169,36 +165,81 @@ const showThinkingInSummary = computed(() => {
   return props.generating && props.isActiveGenerationMessage
 })
 
-const summaryLine = computed(() => {
-  if (showThinkingInSummary.value) {
-    const chars = latestStreamBody.value ? streamedCharCountFromBody(latestStreamBody.value) : 0
-    return `${traceLabel.value} · ${thinkingLabel(chars)}`
-  }
-  if (isRunning.value && !hasVisibleActivity.value) {
-    return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)}…`
-  }
-  // Collapsed frame never mounts tool cards; while running show the live tool
-  // one-liner so mid-turn activity is not mistaken for「工具 0 次」.
-  if (isRunning.value) {
-    const calls =
-      latestStreamBody.value?.toolCalls
-      ?? legacySession.value?.toolCalls
-      ?? []
-    const latest = latestToolCallForCompactStatus(calls)
-    if (latest) {
-      return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)} · ${compactToolCallStatusLine(latest, chatStore.current?.workspaceRoot)}`
+const searchToolCallIds = inject<Ref<string[]>>(
+  'currentConversationSearchToolCallIds',
+  ref<string[]>([])
+)
+
+const goalLabel = computed(() => {
+  const host = props.hostTool
+  if (!host) return ''
+  return effectiveToolDisplaySummary(host)
+})
+
+const innerToolCalls = computed((): ToolCall[] => {
+  const seen = new Set<string>()
+  const out: ToolCall[] = []
+  for (const msg of scopedMessages.value) {
+    for (const tc of msg.toolCalls ?? []) {
+      if (seen.has(tc.id)) continue
+      seen.add(tc.id)
+      out.push(tc)
     }
   }
+  if (out.length > 0) return out
+  return latestStreamBody.value?.toolCalls
+    ?? legacySession.value?.toolCalls
+    ?? []
+})
+
+const liveInnerTool = computed(() => {
+  if (!isRunning.value) return null
+  const latest = latestToolCallForCompactStatus(innerToolCalls.value)
+  if (!latest || !isToolCallInProgress(latest.status)) return null
+  return latest
+})
+
+const hasFinishedInnerWork = computed(() =>
+  innerToolCalls.value.some(tc => !isToolCallInProgress(tc.status))
+)
+
+const collapsedView = computed(() => {
   const stats =
     scopedTraceMessages.value.length > 0
       ? computeSubAgentStatsFromMessages(scopedTraceMessages.value)
       : (legacySession.value?.stats ?? { searchCount: 0, readCount: 0 })
-  return formatSubAgentSummaryLine(
-    traceLabel.value,
-    props.trace.status,
+  const thinking = showThinkingInSummary.value
+    ? thinkingLabel(latestStreamBody.value ? streamedCharCountFromBody(latestStreamBody.value) : 0)
+    : null
+  const live = liveInnerTool.value
+    ? compactToolCallStatusLine(liveInnerTool.value, chatStore.current?.workspaceRoot, {
+        includeStatus: false
+      })
+    : null
+  return resolveCollapsedSubAgentView({
+    goal: goalLabel.value,
+    fallbackLabel: traceLabel.value,
+    status: props.trace.status,
     stats,
-    subAgentIdFromTraceId(props.trace.id)
-  )
+    agentId: subAgentIdFromTraceId(props.trace.id),
+    liveToolLine: live,
+    hasFinishedWork: hasFinishedInnerWork.value,
+    thinkingLine: thinking
+  })
+})
+
+const summaryLine = computed(() => collapsedView.value.summaryLine)
+const liveLine = computed(() => (collapsed.value ? collapsedView.value.liveLine : null))
+const liveKey = computed(() => {
+  if (!collapsed.value || !isRunning.value) return null
+  if (liveInnerTool.value?.id) return liveInnerTool.value.id
+  if (liveLine.value?.trim()) return 'thinking'
+  return null
+})
+
+const durationLabel = computed(() => {
+  if (isRunning.value) return ''
+  return formatToolDurationLabel(props.hostTool?.durationMs)
 })
 
 const processBodies = computed((): {
@@ -306,20 +347,32 @@ function toggleExpanded() {
   toggleSubTraceExpanded(props.trace)
 }
 
-const statusClass = computed(() =>
-  props.trace.status === 'failed'
-    ? 'text-danger'
-    : 'text-muted'
+const isSearchHit = computed(() => {
+  const ids = searchToolCallIds.value
+  if (ids.length === 0) return false
+  const hostId = props.hostTool?.id?.trim()
+  if (hostId && ids.includes(hostId)) return true
+  return innerToolCalls.value.some(tc => ids.includes(tc.id))
+})
+
+watch(
+  isSearchHit,
+  hit => {
+    if (hit && isSubTraceUiCollapsed(props.trace)) {
+      toggleSubTraceExpanded(props.trace)
+    }
+  },
+  { immediate: true }
 )
 </script>
 
 <template>
   <div
-    class="rounded-xl my-2 overflow-hidden space-y-2"
-    :class="collapsed && !taskBoard ? 'pt-2 pb-0 px-3' : 'p-3'"
+    class="sub-agent-frame min-w-0 w-full overflow-hidden"
+    :class="collapsed && !taskBoard ? '' : 'space-y-2'"
+    :data-tool-call-id="hostTool?.id || undefined"
     :style="{
-      marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`,
-      marginBottom: collapsed ? '0' : undefined
+      marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`
     }"
   >
     <!-- Always above process UI (collapsed summary or expanded tool cards). -->
@@ -335,41 +388,42 @@ const statusClass = computed(() =>
       />
     </div>
 
-    <button
-      v-if="collapsed"
-      type="button"
-      class="w-full flex items-center gap-2 min-w-0 text-left hover:bg-hover/50 rounded-md px-1 py-0.5 transition"
-      :aria-expanded="false"
-      @click="toggleExpanded"
+    <div class="flex items-start gap-2 min-w-0">
+      <CollapsedRunHeader
+        :summary-line="summaryLine"
+        :live-line="liveLine"
+        :live-key="liveKey"
+        :expanded="!collapsed"
+        :duration-label="durationLabel"
+        :failed="trace.status === 'failed'"
+        :force-live-slot="collapsed && isRunning"
+        indent-live
+        :aria-label="`子任务 ${summaryLine}`"
+        @toggle="toggleExpanded"
+      >
+        <template #icon>
+          <GitMerge
+            class="h-3.5 w-3.5 shrink-0 text-muted/70"
+            aria-hidden="true"
+          />
+        </template>
+      </CollapsedRunHeader>
+      <button
+        v-if="!collapsed && hasRawWire"
+        type="button"
+        class="message-action-btn shrink-0"
+        :class="showRawWire ? 'text-foreground' : 'text-muted hover:text-foreground'"
+        :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+        @click.stop="showRawWire = !showRawWire"
+      >
+        <Code class="w-3.5 h-3.5" />
+      </button>
+    </div>
+
+    <div
+      v-if="!collapsed"
+      class="space-y-2"
     >
-      <ChevronRight class="w-4 h-4 shrink-0 text-muted" />
-      <span class="flex-1 min-w-0 text-[13px] text-foreground truncate">{{ summaryLine }}</span>
-    </button>
-
-    <div v-else class="space-y-2">
-      <div class="flex items-center gap-2 min-w-0">
-        <button
-          type="button"
-          class="min-w-0 flex-1 flex items-center gap-2 text-left text-[13px] font-medium text-muted hover:text-foreground transition"
-          :aria-expanded="true"
-          @click="toggleExpanded"
-        >
-          <ChevronDown class="w-4 h-4 shrink-0 text-muted" />
-          <span class="truncate">{{ traceLabel }}</span>
-          <span class="text-xs shrink-0" :class="statusClass">{{ trace.status }}</span>
-        </button>
-        <button
-          v-if="hasRawWire"
-          type="button"
-          class="message-action-btn shrink-0"
-          :class="showRawWire ? 'text-foreground' : 'text-muted hover:text-foreground'"
-          :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
-          @click.stop="showRawWire = !showRawWire"
-        >
-          <Code class="w-3.5 h-3.5" />
-        </button>
-      </div>
-
       <AgentMessageBody
         v-for="(body, index) in processBodies.before"
         :key="`${trace.id}-before-${index}`"

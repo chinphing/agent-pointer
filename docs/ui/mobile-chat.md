@@ -7,7 +7,7 @@
 - **角色头像**：用户 / 助手头像（`.message-avatar-slot`）在移动端与触控端**不显示**，避免列外绝对定位挤出边框与横向溢出。桌面宽屏仍为悬停显现。
 - **窄中栏**（右侧 Workspace 拉开后对话变窄）：`@container chat (max-width: 719px)` 时同样隐藏头像。此时 `.chat-shell` 只有 `px-8`（32px），而头像 `right-full` + `w-8` + `mr-2` 需约 40px，会探出 gutter；再叠加 `overflow-y: auto` 会算出横向滚动条。容器 ≥720px 时 gutter 升为 `6rem`，头像可悬停显示。
 - **对话导航**：右缘短横条（Codex 式），悬停看出预览；横条超出一列时顶/底显示箭头。见 [conversation-nav.md](conversation-nav.md)。
-- **时间戳与复制**：`.message-footer-actions` 默认收起；桌面悬停 / `:focus-within` 显现。移动端与触控端**不强制常显**（勿再写 `hover: none` 下 `opacity: 1`）。脚注时间统一本地 `HH:mm:ss`，hover 为 `YYYY-MM-DD HH:mm:ss`。
+- **时间戳与复制**：只出现在**用户消息**和**助手正文**下面，不要挂在工具摘要 / 工具行上。正文上下各留 `0.75rem`，时间戳在下边距里；正文后的工具块不再加额外 `mt-2`。悬停 / `:focus-within` 只改透明度。移动端与触控端**不强制常显**。脚注时间统一本地 `HH:mm:ss`，hover 为 `YYYY-MM-DD HH:mm:ss`。
 
 ## Composer
 
@@ -16,7 +16,7 @@
 - 宽屏 `md:flex-col` 下输入框必须 `md:flex-none`：若保留 `flex-1`（`flex-basis: 0%`），纵向主轴会**忽略** JS/`height`，表现为完全不撑高。窄屏横排仍用 `flex-1` 占满宽度。
 - 优先 CSS `field-sizing: content`（`.composer-textarea`）；不支持时再 JS 测高。超过上限用 `overflow-y: auto`，勿用 `overflow-hidden` 以免超限内容无法滚动。
 - 侧栏折叠 / 窗口变宽会改变换行：对 textarea 做 `ResizeObserver`，宽度变化时重测。
-- MessageList 已对 scroller 高度变化 `ResizeObserver` 贴底（Composer 增高时列表视口变矮），无需额外接线。
+- MessageList 对 scroller 高度变化 `ResizeObserver`：记下高度，视口变矮时按差值补 `scrollTop`（不跟随时也补，避免输入框盖住正文）。无需 Composer 额外接线。
 - footer / welcome `inline` 共用同一 Composer；草稿清空、发送后、IME 结束、prefill 都会触发 `autoResize`。
 - **欢迎页（空会话）**：桌面仍为居中 hero（slogan + `placement="inline"` + 经验区）。窄屏**不显示 slogan 与经验区**，输入框与有消息会话相同，使用底部 footer Composer（`shouldShowFooterComposer`）；未登录时仍可显示登录入口。
 - **智能体选择**与**项目选择**仅在 `md+` 工具栏显示；窄屏隐藏，沿用当前会话已选智能体 / 项目（或默认）。

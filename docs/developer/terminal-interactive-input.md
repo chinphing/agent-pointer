@@ -25,6 +25,7 @@ dismissed and hidden while an input request is active.
 ## Timing
 
 - Prompt heuristics run after ~**800ms** of idle output (`PROMPT_DETECT_IDLE_MS`), not the full command `timeoutMs`.
+- A trailing `:` is treated as a prompt only for a **short** line (`Username:`). Section banners (`=== …:`) and long echoed labels do **not** open the input modal.
 - Full `timeoutMs` still governs killing non-interactive pipe commands with no output.
 - Idle timeout (`timeoutMs`): user setting **空闲（秒）** is the default when omitted (1–86400, default 30). The tool arg may raise or lower it (hard cap 86400s).
 - Wall clock (`maxWallMs`) is capped by user setting **最长运行（小时）** (1–10000, default 24). The tool arg may only lower it.

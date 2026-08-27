@@ -76,10 +76,11 @@ pub fn detect_prompt_state(combined_output: &str, _idle_ms: u64) -> PromptState 
     };
 
     let trimmed_end = lower.trim_end();
+    let last_line = last_meaningful_line(&tail);
     let needs_input_likely = input_class == InputClass::Secret
         || NORMAL_PROMPT_MARKERS.iter().any(|m| lower.contains(m))
         || trimmed_end.ends_with('?')
-        || trimmed_end.ends_with(':');
+        || looks_like_colon_prompt(&last_line);
 
     let input_hint = if needs_input_likely {
         Some(last_meaningful_line(&tail))
@@ -151,6 +152,27 @@ fn last_meaningful_line(text: &str) -> String {
         .chars()
         .take(240)
         .collect()
+}
+
+/// `Username:` / `Enter path:` — not section banners like `=== 启动 attachments:`.
+fn looks_like_colon_prompt(last_line: &str) -> bool {
+    let t = last_line.trim();
+    if !t.ends_with(':') {
+        return false;
+    }
+    let body = t[..t.len() - 1].trim_end();
+    if body.is_empty() {
+        return false;
+    }
+    if body.starts_with('=') || body.starts_with('-') || body.starts_with('#') || body.starts_with('*')
+    {
+        return false;
+    }
+    // Echoed labels and JSON keys are longer than a real stdin prompt.
+    if t.len() > 48 {
+        return false;
+    }
+    true
 }
 
 fn looks_like_progress_or_log(tail: &str) -> bool {
@@ -290,6 +312,21 @@ mod tests {
     fn ignores_ssh_connecting_without_password_prompt() {
         let state = detect_prompt_state("Connecting to host...\n", 5000);
         assert!(!state.needs_input_likely);
+    }
+
+    #[test]
+    fn ignores_echoed_section_header_ending_with_colon() {
+        let text = r#"{ "status": "needs_flexible_or_supplement" }
+=== 启动fast attachments:"#;
+        let state = detect_prompt_state(text, 800);
+        assert!(!state.needs_input_likely);
+    }
+
+    #[test]
+    fn still_detects_short_colon_prompts() {
+        let state = detect_prompt_state("Username: ", 800);
+        assert!(state.needs_input_likely);
+        assert_eq!(state.input_class, InputClass::Normal);
     }
 
     #[test]

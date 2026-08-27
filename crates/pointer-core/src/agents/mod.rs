@@ -1452,12 +1452,28 @@ mod builtin_agent_tests {
             "COMMUNICATION_PUBLIC priority stack should mention USER RULES"
         );
         assert!(
+            s.contains("Project Context"),
+            "COMMUNICATION_PUBLIC priority stack should mention Project Context"
+        );
+        assert!(
             s.contains("Workspace = this chat's scratch dir"),
             "COMMUNICATION_PUBLIC should define workspace purpose"
         );
         assert!(
-            s.contains("MEDIA:"),
-            "COMMUNICATION_PUBLIC should mention MEDIA delivery for workspace artifacts"
+            s.contains("Mid-run `content`"),
+            "COMMUNICATION_PUBLIC should constrain mid-run assistant content"
+        );
+        assert!(
+            s.contains("tool rows and the task board"),
+            "COMMUNICATION_PUBLIC should send process progress to tools and the board"
+        );
+        assert!(
+            !s.contains("macro milestone"),
+            "COMMUNICATION_PUBLIC should not treat phase chatter as user-visible content"
+        );
+        assert!(
+            !s.contains("Brief progress lines"),
+            "COMMUNICATION_PUBLIC should not encourage per-step progress narration"
         );
     }
 

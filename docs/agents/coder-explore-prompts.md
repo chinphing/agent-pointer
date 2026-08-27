@@ -30,6 +30,7 @@ agents/explore/
 ## 采纳与舍弃
 
 - **保留**：coder/explore 去重；Impact > Trace；explore handoff；G2 场景路由；gap（scope、语言、并行、compression）。
+- **中途 `content`：** `COMMUNICATION_PUBLIC` — 有 `tool_calls` 时默认空；过程进度走工具行和任务板。有工具时仅「用户必须行动」或「必须知情的决策」可写。最终 Deliver / 澄清仍必须非空。
 - **不写入 prompt**：严格四段顺序；顶级 Forward/Backward trace；coder 完整 impact 表；Task Board 改造（维持现有 Pointer 机制）。
 
 ## 组装（Rust）

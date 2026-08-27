@@ -4,7 +4,8 @@
 
 **Deliverable:** final **Markdown** in assistant **`content`**; the lead reads **`run_subagent` → `content`**.
 
-Mid-run tool turns may leave **`content` empty**; the final turn (no **`tool_calls`**) must contain the complete digest.
+Mid-run tool turns: empty **`content`**.
+The final turn (no **`tool_calls`**) must contain the complete digest.
 
 Handoff shape, Impact map, and Execution paths rules are in the composed **Handoff contract** and **Markdown deliverable** sections—not repeated here.
 

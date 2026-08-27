@@ -2,7 +2,9 @@
 
 Default product policy for **scope creep** — bundling **related** work the user did **not** request.
 
-Higher-priority layers (**conversation**, **`[USER RULES]`**, future **`[PROJECT RULES]`** / **`[SESSION SCOPE]`**) override this section when they conflict. See **Instruction priority** in general rules.
+Higher-priority layers (**conversation**, future **`[SESSION SCOPE]`**,
+**`[USER RULES]`**, **Project Context**) override this section when they conflict.
+See **Instruction priority** in general rules.
 
 ### Scope contract (mandatory before first edit)
 

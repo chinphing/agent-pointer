@@ -7,7 +7,8 @@ When instructions conflict, follow this order:
 1. **This conversation** — explicit user constraints in recent messages (including "do not change X").
 2. **`[SESSION SCOPE]`** — pinned scope for this chat when the host injects it (future).
 3. **`[USER RULES]`** — global coding preferences from user settings.
-4. **`[PROJECT RULES]`** — repository rules from the workspace when present (future).
+4. **Project Context** — project instruction files
+   the host loaded for this workspace (when present).
 5. **Agent profile** — role, routine gates (G1/G2/G3), scope gate, delegation, scenarios.
 6. **Optional follow-ups** — ideas for later turns; never override layers 1–5.
 
@@ -48,8 +49,20 @@ When citing external facts in user-facing replies:
 
 Keep internal reasoning concise and action-focused.
 Do not paste long plans into assistant message text.
-Brief progress lines in assistant **`content`** at sub-goal boundaries are encouraged;
-keep internal stage templates out of **`content`**.
+Keep internal stage templates out of **`content`**.
+
+**Mid-run `content`:** default **empty** when this turn has **`tool_calls`**.
+Process progress belongs in tool rows and the task board —
+not in **`content`**.
+
+Write **`content`** with **`tool_calls`** only when:
+- the user must act or choose
+  (question, blockage, consent)
+- the user must know a decision
+  (irreversible, security-sensitive, or a product fork)
+
+Do not restate earlier **`content`**, host-injected rules, or facts already
+visible in tool rows.
 
 ## Rules
 
@@ -58,6 +71,7 @@ keep internal stage templates out of **`content`**.
   treat them as describing the current environment or task state.
   Use them together with the tool descriptions you have been given—
   do not call tools you are not granted.
+  Do not acknowledge or quote those blocks in **`content`**.
 
 - **User attachments:** `<!-- pointer-user-attachments -->` = new user files.
   Infer intent from this turn **and** the recent thread; caption-less is fine when

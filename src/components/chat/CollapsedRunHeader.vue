@@ -146,7 +146,7 @@ const summaryToneClass = computed(() =>
   >
     <span
       v-if="showSummaryRow"
-      class="inline-flex items-center gap-1 min-w-0 max-w-full h-5 rounded-md group-hover:bg-hover/50"
+      class="collapsed-run-hover-pill collapsed-run-summary-pill"
     >
       <slot name="icon" />
       <span
@@ -177,26 +177,32 @@ const summaryToneClass = computed(() =>
             v-if="incoming"
             class="collapsed-run-live-line collapsed-run-live-incoming"
           >
-            <ToolKindIcon v-if="incoming.toolName" :name="incoming.toolName" />
-            <span class="collapsed-run-live-text">{{ incoming.text }}</span>
+            <span class="collapsed-run-hover-pill">
+              <ToolKindIcon v-if="incoming.toolName" :name="incoming.toolName" />
+              <span class="collapsed-run-live-text">{{ incoming.text }}</span>
+            </span>
           </span>
           <span
             v-if="departing"
             class="collapsed-run-live-line collapsed-run-live-departing"
           >
-            <ToolKindIcon v-if="departing.toolName" :name="departing.toolName" />
-            <span class="collapsed-run-live-text">{{ departing.text }}</span>
+            <span class="collapsed-run-hover-pill">
+              <ToolKindIcon v-if="departing.toolName" :name="departing.toolName" />
+              <span class="collapsed-run-live-text">{{ departing.text }}</span>
+            </span>
           </span>
         </template>
         <span
           v-else
           class="collapsed-run-live-line"
         >
-          <ToolKindIcon v-if="resting.toolName" :name="resting.toolName" />
-          <span
-            class="collapsed-run-live-text"
-            :class="{ 'tool-live-pulse': liveBusy }"
-          >{{ resting.text }}</span>
+          <span class="collapsed-run-hover-pill">
+            <ToolKindIcon v-if="resting.toolName" :name="resting.toolName" />
+            <span
+              class="collapsed-run-live-text"
+              :class="{ 'tool-live-pulse': liveBusy }"
+            >{{ resting.text }}</span>
+          </span>
         </span>
       </span>
     </span>

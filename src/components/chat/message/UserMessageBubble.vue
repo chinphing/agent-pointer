@@ -159,13 +159,17 @@ async function onOpenAttachment(att: RenderableAttachment) {
 
       <div
         v-if="displayContent"
-        class="message-stamp-host message-user-bubble w-full rounded-2xl panel-elevated break-words text-foreground"
+        class="message-user-stamp w-fit max-w-full"
       >
         <div
-          ref="bodyRef"
-          class="md-body md-body-flow"
-          v-html="html"
-        />
+          class="message-user-bubble w-fit max-w-full rounded-2xl panel-elevated break-words text-foreground"
+        >
+          <div
+            ref="bodyRef"
+            class="md-body md-body-flow"
+            v-html="html"
+          />
+        </div>
         <MessageFooterActions
           class="justify-end"
           :created-at="message.createdAt"

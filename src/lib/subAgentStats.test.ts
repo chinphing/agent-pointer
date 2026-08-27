@@ -64,9 +64,18 @@ describe('subAgentStats explore / self-fork summary', () => {
     const stats = emptySubAgentToolStats()
     incrementSubAgentToolStats(stats, 'file_read', '{}')
     expect(formatSubAgentSummaryLine('代码探索', 'failed', stats, 'explore')).toBe(
-      '代码探索 · 失败 · 读文件 1 次'
+      '代码探索 · 读文件 1 次 · 失败'
     )
     expect(formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore')).not.toContain('已完成')
+  })
+
+  it('omits 进行中 / 执行中 while the sub-agent is still running', () => {
+    const stats = emptySubAgentToolStats()
+    incrementSubAgentToolStats(stats, 'file_read', '{}')
+    const line = formatSubAgentSummaryLine('代码探索', 'running', stats, 'explore')
+    expect(line).toBe('代码探索 · 读文件 1 次')
+    expect(line).not.toContain('进行中')
+    expect(line).not.toContain('执行中')
   })
 
   it('includes terminal for self-fork current-agent traces', () => {

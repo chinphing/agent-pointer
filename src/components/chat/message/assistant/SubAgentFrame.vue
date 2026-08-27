@@ -30,7 +30,11 @@ import {
   isToolCallInProgress,
   latestToolCallForCompactStatus
 } from '../../../../lib/toolCallDisplay'
-import { thinkingLabel, streamedCharCountFromBody } from '../../../../lib/thinkingIndicator'
+import {
+  thinkingLabel,
+  streamedCharCountFromBody,
+  subAgentThinkingActive
+} from '../../../../lib/thinkingIndicator'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
@@ -152,19 +156,6 @@ function scopedHasInProgressTools(messages: ChatMessage[]): boolean {
   return false
 }
 
-const showThinkingInSummary = computed(() => {
-  if (!isRunning.value) return false
-  if (scopedHasInProgressTools(scopedTraceMessages.value)) return false
-  const body = latestStreamBody.value
-  if (body?.toolNamePreview?.trim()) return false
-  if ((body?.toolCalls?.length ?? 0) > 0) return false
-  const streaming =
-    body?.status === 'streaming'
-    || body?.contentStreaming === true
-  if (streaming) return true
-  return props.generating && props.isActiveGenerationMessage
-})
-
 const searchToolCallIds = inject<Ref<string[]>>(
   'currentConversationSearchToolCallIds',
   ref<string[]>([])
@@ -198,6 +189,14 @@ const liveInnerTool = computed(() => {
   if (!latest || !isToolCallInProgress(latest.status)) return null
   return latest
 })
+
+const showThinkingInSummary = computed(() =>
+  subAgentThinkingActive({
+    running: isRunning.value,
+    hasInProgressTool:
+      !!liveInnerTool.value || scopedHasInProgressTools(scopedTraceMessages.value)
+  })
+)
 
 const hasFinishedInnerWork = computed(() =>
   innerToolCalls.value.some(tc => !isToolCallInProgress(tc.status))
@@ -397,6 +396,7 @@ watch(
         :duration-label="durationLabel"
         :failed="trace.status === 'failed'"
         :force-live-slot="collapsed && isRunning"
+        :live-busy="collapsed && isRunning && (!!liveInnerTool || !!liveLine?.trim())"
         indent-live
         :aria-label="`子任务 ${summaryLine}`"
         @toggle="toggleExpanded"

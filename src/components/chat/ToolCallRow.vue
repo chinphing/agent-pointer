@@ -350,7 +350,10 @@ function openSourceUrl(url: string) {
       <button
         type="button"
         class="tool-call-trigger flex min-w-0 items-center gap-x-1.5 overflow-hidden text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
-        :class="dense ? 'py-0.5 text-[13px] leading-5' : 'py-1 text-[11px]'"
+        :class="[
+          dense ? 'py-0.5 text-[13px] leading-5' : 'py-1 text-[11px]',
+          effectiveStatus === 'running' && !toolCall.waitingForInput ? 'tool-live-pulse' : ''
+        ]"
         :aria-expanded="open"
         @click="open = !open"
       >

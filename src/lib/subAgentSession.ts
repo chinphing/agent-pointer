@@ -144,8 +144,7 @@ export function subTraceHasVisibleActivity(trace: AgentTrace): boolean {
 }
 
 export function runningSubTraceSummaryLine(trace: AgentTrace): string {
-  const label = trace.name.trim() || '子任务'
-  return `${label} · ${trace.status === 'running' ? '进行中' : trace.status}…`
+  return trace.name.trim() || '子任务'
 }
 
 export function migrateLegacyTraceUiState(trace: AgentTrace): void {

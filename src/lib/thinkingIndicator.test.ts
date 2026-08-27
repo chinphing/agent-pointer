@@ -12,7 +12,8 @@ import {
   thinkingDotsAtCap,
   thinkingLabel,
   thinkingSteadyDotCount,
-  collapsedProcessRunActive
+  collapsedProcessRunActive,
+  subAgentThinkingActive
 } from './thinkingIndicator'
 
 describe('thinking dots (tiered)', () => {
@@ -128,5 +129,19 @@ describe('collapsedProcessRunActive', () => {
         toolCalls: [{ status: 'running' }]
       })
     ).toBe(true)
+  })
+})
+
+describe('subAgentThinkingActive', () => {
+  it('shows thinking before the first inner tool and between tools', () => {
+    expect(subAgentThinkingActive({ running: true, hasInProgressTool: false })).toBe(true)
+  })
+
+  it('hides thinking while an inner tool is running', () => {
+    expect(subAgentThinkingActive({ running: true, hasInProgressTool: true })).toBe(false)
+  })
+
+  it('hides thinking after the sub-agent finishes', () => {
+    expect(subAgentThinkingActive({ running: false, hasInProgressTool: false })).toBe(false)
   })
 })

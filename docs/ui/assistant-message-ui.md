@@ -47,12 +47,12 @@
 
 - 数据：`agent_step`（`depth > 0`）+ 带 `traceId` 的流式事件 → `AgentTrace.session`。
 - **单行汇总**：有子任务框时，收起态**不显示**宿主「委派子任务」工具行（等确认 / 等终端输入除外）。一行里写任务目标 + 内层工具统计，末尾可带耗时。左侧固定细线分叉图标（与工具行箭头同一套线型），用来和普通工具摘要区分（普通组没有前置图标）。
-- **当前任务**：运行时固定两行，工具收缩与子任务共用 `CollapsedRunHeader`。第一行是汇总。第二行：正在跑的工具，或工具间隙的「思考中.」。当前工具结束、思考开始时从下方顶上来；下一个工具出现时同样把「思考中」顶走。第二行只写工具名和摘要，不跟「执行中」。子任务第二行相对图标的缩进写在裁切层 `left` 上。系统「减少动态效果」时只换文案。整段结束后第二行才消失。多轮工具之间的空 streaming 壳并进当前工具段，不要当成新的助手正文（否则会误加 `mt-7`）。
+- **当前任务**：运行时固定两行，工具收缩与子任务共用 `CollapsedRunHeader`。第一行是汇总。第二行：正在跑的工具，或工具间隙的「思考中.」（子任务未完成且没有内层工具在跑时也要显示，包括首轮工具前；不要因为最新消息上已有完成的工具就藏掉）。当前工具结束、思考开始时从下方顶上来；下一个工具出现时同样把「思考中」顶走。第二行只写工具名和摘要，不跟「执行中」。子任务第二行相对图标的缩进写在裁切层 `left` 上。系统「减少动态效果」时只换文案。整段结束后第二行才消失。多轮工具之间的空 streaming 壳并进当前工具段，不要当成新的助手正文（否则会误加 `mt-7`）。
 - 布局：与主 Agent 同构（`AgentMessageBody`：thoughts / headline / 竖线 / 工具卡）。收缩态**不要**再套一层卡片（无 `rounded-xl` / 额外 `p-3` / `px-1`），与连续工具摘要同一左缘。
 - **收缩交互**：与连续工具组相同——`13px` `text-muted` 单行摘要，箭头在文案后；收起时桌面悬停 / 键盘聚焦才显现（触控端始终显示）；**展开后箭头固定显示**。失败用 `text-danger`。展开后标题仍用同一行摘要（不要改成英文 `running` / `completed`）。
 - **嵌套位置**：`AgentTrace.parentToolCallId` 指向父消息里对应的 **`run_subagent`** 工具行；UI 将子 Agent 摘要（及子任务板）挂在该工具位置（收起时替换工具行）。无该字段或找不到工具行时，回退到消息底部（兼容旧会话，补 `px-3` 对齐）。并行多个 explore / self 时各自一条汇总。owned-wave（explore / self）在拿到并发许可后立刻发 `status=running` 的 `agent_step`（已带 `parentToolCallId`），避免只在结束时才关联。
 - **默认收缩**为一行概要（工具卡片不渲染；任务板仍显示在摘要上方），执行中与完成后均如此；点击可展开。流式 `agent_step` 不得覆盖用户手动展开状态。收缩态**不**渲染工具卡片。展开后框内连续过程工具同样走 `ToolCallGroup` 收缩。
-- 收缩摘要：目标文案取宿主工具的 `displaySummary`（`title` / `goal`）；没有则回退角色名。结束后按工具分桶计数（完成态不写「已完成」），维度按子 agent `agentId`——`explore`：搜索/读文件；`coder`：搜索/读文件/终端/编辑；`computer`：鼠标/输入/其他；`research`：联网搜索。失败才带「失败」。历史 trace 中的 `general-worker` 仍按既有 metadata 渲染（`agentUi` / `subAgentStats`），registry 不再加载该 agent。
+- 收缩摘要：目标文案取宿主工具的 `displaySummary`（`title` / `goal`）；没有则回退角色名。结束后按工具分桶计数（完成态不写「已完成」，**运行中也不写「进行中」「执行中」**）。失败写在统计数字**后面**（`目标 · 读文件 1 次 · 失败`），避免插在标题和数字中间把整行撑偏。维度按子 agent `agentId`——`explore`：搜索/读文件；`coder`：搜索/读文件/终端/编辑；`computer`：鼠标/输入/其他；`research`：联网搜索。历史 trace 中的 `general-worker` 仍按既有 metadata 渲染（`agentUi` / `subAgentStats`），registry 不再加载该 agent。
 - 子 Agent **任务板**与外层相同组件 `TaskBoardPanel`，绑定在 **lead assistant 消息**（`task_board_updated.anchorMessageId` → `childBindings`），渲染在对应 `SubAgentFrame` **内、执行过程上方**；收缩与展开时都显示完整任务板，不随工具区折叠隐藏。
 - **子板统一查找**：先按绑定（trace id / 旧 lead 消息 id）命中；没有绑定再按同一 task id 找未绑定板（self-fork 时优先匹配 trace 里的 instance）。legacy 短 key 与带 `ptr_agent_instance` 的长 key 走同一套规则。
 - 设置「显示子 Agent 边框面板」（`showSubAgentTrace`）：Supervisor 默认开；worker lead 默认关。
@@ -62,6 +62,7 @@
 
 - 展示为整数秒（`1s`、`2s`），不足 **1s** 不显示。
 - 数据仍存 `durationMs`，只改 UI 文案。
+- **执行中**：工具行和收缩头当前任务行会循环呼吸，直到工具结束。不是只闪一次。系统「减少动态效果」时关掉。
 
 ## 连续工具调用收缩
 

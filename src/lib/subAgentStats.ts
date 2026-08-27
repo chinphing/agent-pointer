@@ -169,10 +169,11 @@ export function formatSubAgentSummaryLine(
 ): string {
   const label = name.trim() || '子任务'
   const metrics = formatStatsForAgent(agentId ?? 'explore', stats)
-  if (status === 'failed' || status === 'running') {
-    return `${label} · ${subAgentStatusLabel(status)} · ${metrics}`
+  const line = `${label} · ${metrics}`
+  if (status === 'failed') {
+    return `${line} · ${subAgentStatusLabel(status)}`
   }
-  return `${label} · ${metrics}`
+  return line
 }
 
 export type CollapsedSubAgentView = {

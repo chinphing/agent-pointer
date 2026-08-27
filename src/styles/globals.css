@@ -426,6 +426,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Running tool / current-task line: keep breathing until the tool finishes. */
+  .tool-live-pulse {
+    animation: tool-live-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes tool-live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.38; }
+  }
   .collapsed-run-live-departing {
     animation: collapsed-run-push-out 500ms ease forwards;
     pointer-events: none;
@@ -444,6 +452,9 @@
   @media (prefers-reduced-motion: reduce) {
     .collapsed-run-live-departing,
     .collapsed-run-live-incoming {
+      animation: none;
+    }
+    .tool-live-pulse {
       animation: none;
     }
   }

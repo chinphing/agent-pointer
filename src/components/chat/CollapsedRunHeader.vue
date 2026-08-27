@@ -17,6 +17,8 @@ const props = defineProps<{
   ariaLabel?: string
   /** Hide the chevron when there is nothing to expand. */
   showChevron?: boolean
+  /** Subtle pulse on the current-task line while a tool (or thinking) is live. */
+  liveBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -161,6 +163,7 @@ const summaryToneClass = computed(() =>
           <span
             v-if="incomingLine"
             class="collapsed-run-live-line collapsed-run-live-incoming"
+            :class="{ 'tool-live-pulse': liveBusy }"
           >{{ incomingLine }}</span>
           <span
             v-if="departingLine"
@@ -170,6 +173,7 @@ const summaryToneClass = computed(() =>
         <span
           v-else
           class="collapsed-run-live-line"
+          :class="{ 'tool-live-pulse': liveBusy }"
         >{{ restingLine }}</span>
       </span>
     </span>

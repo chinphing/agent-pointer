@@ -146,6 +146,19 @@ export function collapsedProcessRunActive(args: {
   return args.generating && args.isActiveHost
 }
 
+/**
+ * Sub-agent collapsed header: show「思考中」while the task is running and
+ * no inner tool is in flight. Do not require an empty latest tool list —
+ * finished tools belong on the summary. Inner reply text is hidden when
+ * collapsed, so it must not suppress the thinking line.
+ */
+export function subAgentThinkingActive(args: {
+  running: boolean
+  hasInProgressTool: boolean
+}): boolean {
+  return args.running && !args.hasInProgressTool
+}
+
 export function shouldShowThinkingIndicator(args: {
   runInProgress: boolean
   markdownBodyVisible?: boolean

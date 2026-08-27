@@ -85,6 +85,7 @@ function toggleExpanded() {
       :expanded="expanded"
       :force-live-slot="!expanded && forceLiveSlot"
       :show-chevron="expandedTools.length > 0"
+      :live-busy="liveTool?.status === 'running' || !!thinkingLine?.trim()"
       :aria-label="headerAriaLabel"
       @toggle="toggleExpanded"
     />

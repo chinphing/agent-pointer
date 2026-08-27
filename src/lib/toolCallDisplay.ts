@@ -1,5 +1,6 @@
 import type { ToolCall } from '../types/chat'
 import { taskBoardPatchSummaryFromArgs, toolCallBaseName } from './messageTooling'
+import { toolCallShowsKindLabel } from './toolCallKindIcon'
 
 function strField(args: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
@@ -576,7 +577,7 @@ const UNGROUPABLE_BASES = new Set([
   'video_generate'
 ])
 
-/** Keep the host `run_subagent` row when the user still needs to act on it. */
+/** Host `run_subagent` stays a normal tool row (expand args). Stats live in SubAgentFrame. */
 export function shouldPinSubAgentHostRow(tc: ToolCall): boolean {
   return tc.status === 'pending_approval' || tc.waitingForInput === true
 }
@@ -723,16 +724,10 @@ function toolInProgress(status: ToolCall['status']): boolean {
   return status === 'running' || status === 'pending' || status === 'pending_approval'
 }
 
-/**
- * One-line tool copy: label · summary.
- * Compact dock keeps `includeStatus` (aligns with ToolCallRow).
- * Collapsed current-task line omits it — being on line 2 already means current.
- */
-export function compactToolCallStatusLine(
+function compactToolCallSummary(
   tc: ToolCall,
-  workspaceRoot?: string,
-  opts?: { includeStatus?: boolean }
-): string {
+  workspaceRoot?: string
+): { label: string; summary: string } {
   const label = effectiveToolDisplayLabel(tc)
   const filePath = fileToolDisplayPath(tc, workspaceRoot)
   let summary = filePath
@@ -743,7 +738,35 @@ export function compactToolCallStatusLine(
   if (summary) {
     summary = filePath ? truncatePathKeepEnd(summary) : truncateToolSummary(summary)
   }
+  return { label, summary }
+}
 
+/**
+ * Visible text beside the kind icon (no kind name when the icon replaces it).
+ * 委派 / 询问 / unknown still include the label.
+ */
+export function compactToolCallLiveText(
+  tc: ToolCall,
+  workspaceRoot?: string
+): string {
+  const { label, summary } = compactToolCallSummary(tc, workspaceRoot)
+  if (toolCallShowsKindLabel(tc.name)) {
+    return summary ? `${label} · ${summary}` : label
+  }
+  return summary || label
+}
+
+/**
+ * One-line tool copy: label · summary.
+ * Compact dock keeps `includeStatus` (aligns with ToolCallRow).
+ * Screen readers / aria use this even when the row hides the kind name.
+ */
+export function compactToolCallStatusLine(
+  tc: ToolCall,
+  workspaceRoot?: string,
+  opts?: { includeStatus?: boolean }
+): string {
+  const { label, summary } = compactToolCallSummary(tc, workspaceRoot)
   const parts: string[] = []
   parts.push(summary ? `${label} · ${summary}` : label)
 

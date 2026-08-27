@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   agentInstanceIdFromTraceId,
   emptySubAgentToolStats,
+  formatSubAgentStatsLine,
   formatSubAgentSummaryLine,
   incrementSubAgentToolStats,
   resolveCollapsedSubAgentView,
@@ -86,75 +87,79 @@ describe('subAgentStats explore / self-fork summary', () => {
   })
 })
 
+describe('formatSubAgentStatsLine', () => {
+  it('omits the task goal so the host row can own it', () => {
+    const stats = emptySubAgentToolStats()
+    incrementSubAgentToolStats(stats, 'file_read', '{}')
+    expect(formatSubAgentStatsLine('completed', stats, 'explore')).toBe('读文件 1 次')
+    expect(formatSubAgentStatsLine('failed', stats, 'explore')).toBe('读文件 1 次 · 失败')
+  })
+})
+
 describe('resolveCollapsedSubAgentView', () => {
   const stats = emptySubAgentToolStats()
   incrementSubAgentToolStats(stats, 'terminal', '{}')
 
-  it('uses the task goal and finished stats after the sub-agent completes', () => {
+  it('uses finished stats without repeating the task goal', () => {
     const view = resolveCollapsedSubAgentView({
-      goal: '系统信息探测',
-      fallbackLabel: '通用助手',
       status: 'completed',
       stats,
-      agentId: 'general-worker',
-      hasFinishedWork: true
+      agentId: 'general-worker'
     })
-    expect(view.summaryLine).toBe('系统信息探测 · 终端 1 次')
+    expect(view.summaryLine).toBe('终端 1 次')
     expect(view.liveLine).toBeNull()
   })
 
-  it('parks the live inner tool on the second line even before any work has finished', () => {
+  it('parks the live inner tool when no counts exist yet', () => {
     const view = resolveCollapsedSubAgentView({
-      goal: '磁盘占用扫描',
-      fallbackLabel: '通用助手',
       status: 'running',
       stats: emptySubAgentToolStats(),
       agentId: 'general-worker',
-      liveToolLine: '终端 · df -h',
-      hasFinishedWork: false
+      liveToolLine: '终端 · df -h'
     })
-    expect(view.summaryLine).toBe('磁盘占用扫描')
+    expect(view.summaryLine).toBe('')
     expect(view.liveLine).toBe('终端 · df -h')
   })
 
   it('keeps finished stats on the summary and parks the current inner tool below', () => {
     const view = resolveCollapsedSubAgentView({
-      goal: '磁盘占用扫描',
-      fallbackLabel: '通用助手',
       status: 'running',
       stats,
       agentId: 'general-worker',
-      liveToolLine: '终端 · du -sh',
-      hasFinishedWork: true
+      liveToolLine: '终端 · du -sh'
     })
-    expect(view.summaryLine).toBe('磁盘占用扫描 · 终端 1 次')
+    expect(view.summaryLine).toBe('终端 1 次')
     expect(view.liveLine).toBe('终端 · du -sh')
   })
 
-  it('keeps thinking on the second line so the first line stays a summary', () => {
+  it('keeps thinking on the live line before any inner tool finishes', () => {
     const view = resolveCollapsedSubAgentView({
-      goal: '磁盘占用扫描',
-      fallbackLabel: '通用助手',
       status: 'running',
       stats: emptySubAgentToolStats(),
-      hasFinishedWork: false,
       thinkingLine: '思考中..'
     })
-    expect(view.summaryLine).toBe('磁盘占用扫描')
+    expect(view.summaryLine).toBe('')
     expect(view.liveLine).toBe('思考中..')
   })
 
   it('puts thinking on the live line after finished inner work', () => {
     const view = resolveCollapsedSubAgentView({
-      goal: '磁盘占用扫描',
-      fallbackLabel: '通用助手',
       status: 'running',
       stats,
       agentId: 'general-worker',
-      hasFinishedWork: true,
       thinkingLine: '思考中..'
     })
-    expect(view.summaryLine).toBe('磁盘占用扫描 · 终端 1 次')
+    expect(view.summaryLine).toBe('终端 1 次')
     expect(view.liveLine).toBe('思考中..')
+  })
+
+  it('prefixes the goal only for orphan frames without a host row', () => {
+    const view = resolveCollapsedSubAgentView({
+      orphanTitle: '系统信息探测',
+      status: 'completed',
+      stats,
+      agentId: 'general-worker'
+    })
+    expect(view.summaryLine).toBe('系统信息探测 · 终端 1 次')
   })
 })

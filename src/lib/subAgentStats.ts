@@ -161,6 +161,19 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
   ])
 }
 
+/** Counts only — host「委派子任务」row already shows the goal. */
+export function formatSubAgentStatsLine(
+  status: string,
+  stats: SubAgentToolStats,
+  agentId?: string
+): string {
+  const metrics = formatStatsForAgent(agentId ?? 'explore', stats)
+  if (status === 'failed') {
+    return `${metrics} · ${subAgentStatusLabel(status)}`
+  }
+  return metrics
+}
+
 export function formatSubAgentSummaryLine(
   name: string,
   status: string,
@@ -168,12 +181,7 @@ export function formatSubAgentSummaryLine(
   agentId?: string
 ): string {
   const label = name.trim() || '子任务'
-  const metrics = formatStatsForAgent(agentId ?? 'explore', stats)
-  const line = `${label} · ${metrics}`
-  if (status === 'failed') {
-    return `${line} · ${subAgentStatusLabel(status)}`
-  }
-  return line
+  return `${label} · ${formatSubAgentStatsLine(status, stats, agentId)}`
 }
 
 export type CollapsedSubAgentView = {
@@ -182,48 +190,34 @@ export type CollapsedSubAgentView = {
 }
 
 /**
- * Collapsed sub-agent copy: finished inner work stays on the summary;
- * the in-progress inner tool sits on a live line. Between tools,「思考中」
- * occupies that line and pushes the finished tool into the summary.
+ * Stats + live lines under the host「委派子任务」row.
+ * Orphan frames (no host row) still prefix the goal on the stats line.
  */
 export function resolveCollapsedSubAgentView(input: {
-  goal: string
-  fallbackLabel: string
+  orphanTitle?: string
   status: string
   stats: SubAgentToolStats
   agentId?: string
   liveToolLine?: string | null
-  hasFinishedWork: boolean
   thinkingLine?: string | null
 }): CollapsedSubAgentView {
-  const title = input.goal.trim() || input.fallbackLabel.trim() || '子任务'
+  const metrics = formatStatsForAgent(input.agentId ?? 'explore', input.stats)
+  const hasStats = input.status === 'failed' || metrics !== '工具 0 次'
+  const statsLine = hasStats
+    ? formatSubAgentStatsLine(input.status, input.stats, input.agentId)
+    : ''
+  const orphan = input.orphanTitle?.trim() || ''
+  const summaryLine = orphan
+    ? (statsLine ? `${orphan} · ${statsLine}` : orphan)
+    : statsLine
+
   const live = input.liveToolLine?.trim() || ''
   const thinking = input.thinkingLine?.trim() || ''
-
   if (thinking && !live) {
-    return {
-      summaryLine: input.hasFinishedWork
-        ? formatSubAgentSummaryLine(title, 'completed', input.stats, input.agentId)
-        : title,
-      liveLine: thinking
-    }
+    return { summaryLine, liveLine: thinking }
   }
-
-  if (input.status === 'running' && live) {
-    return {
-      summaryLine: input.hasFinishedWork
-        ? formatSubAgentSummaryLine(title, 'completed', input.stats, input.agentId)
-        : title,
-      liveLine: live
-    }
+  if (live) {
+    return { summaryLine, liveLine: live }
   }
-
-  if (input.status === 'running' && !input.hasFinishedWork) {
-    return { summaryLine: title, liveLine: null }
-  }
-
-  return {
-    summaryLine: formatSubAgentSummaryLine(title, input.status, input.stats, input.agentId),
-    liveLine: null
-  }
+  return { summaryLine, liveLine: null }
 }

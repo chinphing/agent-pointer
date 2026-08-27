@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue'
 import { parseMarkdown } from '../../lib/markdownConfig'
 import {
-  Wrench,
   ChevronDown,
   ChevronRight,
   XCircle,
@@ -13,8 +12,10 @@ import {
 } from 'lucide-vue-next'
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
-import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs } from '../../lib/messageTooling'
-import { fileToolDisplayPath, truncateToolSummary, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel } from '../../lib/toolCallDisplay'
+import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs, toolCallBaseName } from '../../lib/messageTooling'
+import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel } from '../../lib/toolCallDisplay'
+import { toolCallShowsKindLabel } from '../../lib/toolCallKindIcon'
+import ToolKindIcon from './ToolKindIcon.vue'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 import DiffView from './DiffView.vue'
@@ -51,6 +52,13 @@ watch(
 )
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
+const isRunSubagent = computed(() => toolCallBaseName(props.toolCall.name) === 'run_subagent')
+const isLivePulse = computed(
+  () =>
+    effectiveStatus.value === 'running'
+    && !props.toolCall.waitingForInput
+    && !isRunSubagent.value
+)
 const isWebSearch = computed(() => props.toolCall.name === 'web_search')
 const isFileEdit = computed(() => props.toolCall.name === 'file_edit')
 const isFileWrite = computed(() => props.toolCall.name === 'file_write')
@@ -75,6 +83,12 @@ const boardSummary = computed(() => {
 })
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
+const showKindLabel = computed(() => toolCallShowsKindLabel(props.toolCall.name))
+const rowAriaLabel = computed(() =>
+  compactToolCallStatusLine(props.toolCall, chat.current?.workspaceRoot, {
+    includeStatus: false
+  })
+)
 const durationLabel = computed(() => formatToolDurationLabel(props.toolCall.durationMs))
 const filePathSummary = computed(() =>
   fileToolDisplayPath(props.toolCall, chat.current?.workspaceRoot)
@@ -350,30 +364,35 @@ function openSourceUrl(url: string) {
       <button
         type="button"
         class="tool-call-trigger flex min-w-0 items-center gap-x-1.5 overflow-hidden text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
-        :class="[
-          dense ? 'py-0.5 text-[13px] leading-5' : 'py-1 text-[11px]',
-          effectiveStatus === 'running' && !toolCall.waitingForInput ? 'tool-live-pulse' : ''
-        ]"
+        :class="dense ? 'py-0.5 text-[13px] leading-5' : 'py-1 text-[11px]'"
         :aria-expanded="open"
+        :aria-label="rowAriaLabel"
         @click="open = !open"
       >
-        <Wrench
-          v-if="!dense"
-          class="w-3 h-3 text-muted/70 shrink-0"
-        />
-        <span class="shrink-0">{{ displayLabel }}</span>
+        <ToolKindIcon :name="toolCall.name" />
+        <span
+          v-if="showKindLabel"
+          class="shrink-0"
+          :class="{ 'tool-live-pulse': isLivePulse }"
+        >{{ displayLabel }}</span>
         <template v-if="filePathSummary">
-          <span class="shrink-0">·</span>
+          <span v-if="showKindLabel" class="shrink-0">·</span>
           <span
             class="ellipsis-start min-w-0"
+            :class="{ 'tool-live-pulse': isLivePulse }"
             :title="filePathSummary"
           >{{ filePathSummary }}&lrm;</span>
         </template>
         <span
           v-else-if="displaySummary"
           class="min-w-0"
-          :class="dense ? 'truncate' : 'break-words'"
-        >· {{ displaySummary }}</span>
+          :class="[dense ? 'truncate' : 'break-words', isLivePulse ? 'tool-live-pulse' : '']"
+        >{{ showKindLabel ? `· ${displaySummary}` : displaySummary }}</span>
+        <span
+          v-else-if="!showKindLabel"
+          class="shrink-0"
+          :class="{ 'tool-live-pulse': isLivePulse }"
+        >{{ displayLabel }}</span>
         <span
           v-if="terminalElevated"
           class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"

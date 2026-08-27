@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
+import { buildFileChangeSummaries, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -50,6 +50,50 @@ describe('compactToolCallStatusLine', () => {
       { includeStatus: false }
     )
     expect(line).toBe('终端命令 · 计算 2 的 0 到 15 次方')
+  })
+
+  it('live text drops the kind name when the icon replaces it', () => {
+    const terminal = tc({
+      id: '1',
+      name: 'terminal',
+      status: 'running',
+      displayLabel: '终端命令',
+      displaySummary: '计算 2 的 0 到 15 次方'
+    })
+    expect(compactToolCallLiveText(terminal)).toBe('计算 2 的 0 到 15 次方')
+    expect(compactToolCallLiveText(
+      tc({
+        id: '2',
+        name: 'wait',
+        status: 'running',
+        displayLabel: '等待 12 秒'
+      })
+    )).toBe('等待 12 秒')
+    expect(compactToolCallLiveText(
+      tc({
+        id: '3',
+        name: 'run_subagent',
+        status: 'running',
+        displayLabel: '委派子任务',
+        displaySummary: '对比方案 B'
+      })
+    )).toBe('委派子任务 · 对比方案 B')
+    expect(compactToolCallLiveText(
+      tc({
+        id: '4',
+        name: 'ask_user',
+        status: 'running',
+        displayLabel: '询问用户'
+      })
+    )).toBe('询问用户')
+    expect(compactToolCallLiveText(
+      tc({
+        id: '5',
+        name: 'mystery_plugin',
+        status: 'running',
+        displayLabel: 'mystery_plugin'
+      })
+    )).toBe('mystery_plugin')
   })
 
   it('formats success tool without duration suffix', () => {
@@ -236,6 +280,18 @@ describe('workspace-relative file tool paths', () => {
     expect(line.startsWith('编辑文件 · ')).toBe(true)
     expect(line.endsWith('standard_query.py')).toBe(true)
     expect(line).not.toContain('scripts/cwpt/flows/travel_reimburse/standard_query.py')
+    expect(compactToolCallLiveText(
+      tc({
+        id: 'path-3',
+        name: 'file_edit',
+        status: 'success',
+        displayLabel: '编辑文件',
+        arguments: JSON.stringify({
+          path: '/tmp/project/scripts/cwpt/flows/travel_reimburse/standard_query.py'
+        })
+      }),
+      '/tmp/project'
+    )).not.toContain('编辑文件')
   })
 })
 

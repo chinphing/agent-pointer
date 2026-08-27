@@ -387,10 +387,6 @@
   .tool-call-trigger[aria-expanded="true"] .tool-call-chevron {
     display: inline-flex;
   }
-  /* Sub-agent summary replaces the host 委派 row when a frame is attached. */
-  .tool-call-item:has(> .sub-agent-frame):not([data-keep-host="true"]) > .tool-call-row {
-    display: none;
-  }
   .collapsed-run-live-slot {
     position: relative;
     display: block;
@@ -412,27 +408,58 @@
   .collapsed-run-live-clip-indent {
     left: 18px;
   }
+  /* Inner stats / live / tools: sit under the 委派 title text
+     (fork icon 14px + row gap 6px). */
+  .sub-agent-nested {
+    padding-left: 20px;
+  }
   .collapsed-run-live-line {
     position: absolute;
     left: 0;
     right: 0;
     top: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
     box-sizing: border-box;
     height: 1.25rem;
     line-height: 1.25rem;
     font-size: 13px;
     color: hsl(var(--muted));
     overflow: hidden;
+    white-space: nowrap;
+  }
+  .collapsed-run-live-text {
+    min-width: 0;
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Running tool / current-task line: keep breathing until the tool finishes. */
+  /* Text-only shimmer: clip the highlight to glyphs, never a row overlay. */
   .tool-live-pulse {
-    animation: tool-live-pulse 1.4s ease-in-out infinite;
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted)) 40%,
+      hsl(var(--foreground) / 0.95) 50%,
+      hsl(var(--muted)) 60%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    background-position: 100% center;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: tool-live-shimmer 1.8s linear infinite;
   }
-  @keyframes tool-live-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.38; }
+  .tool-call-trigger:hover .tool-live-pulse {
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  @keyframes tool-live-shimmer {
+    0% { background-position: 100% center; }
+    100% { background-position: -100% center; }
   }
   .collapsed-run-live-departing {
     animation: collapsed-run-push-out 500ms ease forwards;
@@ -456,6 +483,11 @@
     }
     .tool-live-pulse {
       animation: none;
+      color: hsl(var(--muted));
+      -webkit-text-fill-color: unset;
+      background-image: none;
+      -webkit-background-clip: unset;
+      background-clip: unset;
     }
   }
   /* Prefer the tail (filename) when a path is wider than the row. */

@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
+import ToolKindIcon from './ToolKindIcon.vue'
 
 const SLIDE_MS = 500
+
+type LiveSnap = {
+  text: string
+  toolName: string | null
+}
 
 const props = defineProps<{
   summaryLine: string
   liveLine?: string | null
+  liveToolName?: string | null
   liveKey?: string | null
   expanded: boolean
   durationLabel?: string
@@ -26,9 +33,9 @@ const emit = defineEmits<{
 }>()
 
 const restingKey = ref<string | null>(null)
-const restingLine = ref('')
-const departingLine = ref<string | null>(null)
-const incomingLine = ref<string | null>(null)
+const resting = ref<LiveSnap>({ text: '', toolName: null })
+const departing = ref<LiveSnap | null>(null)
+const incoming = ref<LiveSnap | null>(null)
 const pushing = ref(false)
 let slideTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -37,64 +44,71 @@ function prefersReducedMotion(): boolean {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+function snapFromProps(): LiveSnap {
+  return {
+    text: (props.liveLine ?? '').trim(),
+    toolName: props.liveToolName?.trim() || null
+  }
+}
+
 function stopPush() {
   if (slideTimer != null) {
     clearTimeout(slideTimer)
     slideTimer = null
   }
-  departingLine.value = null
-  incomingLine.value = null
+  departing.value = null
+  incoming.value = null
   pushing.value = false
 }
 
-function startPush(fromLine: string, toLine: string | null) {
-  if (prefersReducedMotion() || !fromLine.trim()) {
+function startPush(from: LiveSnap, to: LiveSnap | null) {
+  if (prefersReducedMotion() || !from.text.trim()) {
     stopPush()
     return
   }
   stopPush()
-  departingLine.value = fromLine
-  incomingLine.value = toLine
+  departing.value = from
+  incoming.value = to
   pushing.value = true
   slideTimer = setTimeout(() => {
-    departingLine.value = null
-    incomingLine.value = null
+    departing.value = null
+    incoming.value = null
     pushing.value = false
     slideTimer = null
   }, SLIDE_MS)
 }
 
 watch(
-  () => [props.liveKey, props.liveLine, props.expanded, props.forceLiveSlot] as const,
+  () => [props.liveKey, props.liveLine, props.liveToolName, props.expanded, props.forceLiveSlot] as const,
   () => {
     if (props.expanded) return
     const key = props.liveKey ?? null
-    const trimmed = (props.liveLine ?? '').trim()
+    const next = snapFromProps()
     const force = props.forceLiveSlot === true
 
     // Push when the keyed current-task changes (tool ↔ 思考中).
     // Same key (thinking dots) updates the line in place.
-    if (key && trimmed) {
-      if (restingLine.value && restingKey.value !== key) {
-        startPush(restingLine.value, trimmed)
+    if (key && next.text) {
+      if (resting.value.text && restingKey.value !== key) {
+        startPush(resting.value, next)
       }
       restingKey.value = key
-      restingLine.value = trimmed
+      resting.value = next
       return
     }
 
     if (force) {
-      if (!restingLine.value && trimmed) {
+      if (!resting.value.text && next.text) {
         restingKey.value = key
-        restingLine.value = trimmed
+        resting.value = next
       }
       return
     }
 
-    if (restingLine.value) {
-      startPush(restingLine.value, null)
+    if (resting.value.text) {
+      startPush(resting.value, null)
       restingKey.value = null
-      restingLine.value = ''
+      resting.value = { text: '', toolName: null }
     }
   },
   { immediate: true }
@@ -106,7 +120,7 @@ onUnmounted(() => {
 
 const showLiveSlot = computed(() => {
   if (props.expanded) return false
-  return pushing.value || !!restingLine.value
+  return pushing.value || !!resting.value.text
 })
 
 const showSummaryRow = computed(
@@ -128,7 +142,6 @@ const summaryToneClass = computed(() =>
     class="tool-call-trigger group flex flex-col items-start gap-0.5 w-full min-w-0 max-w-full text-left hover:bg-hover/50 rounded-md py-0.5 transition cursor-pointer"
     :aria-expanded="expanded"
     :aria-label="ariaLabel || summaryLine"
-    :title="summaryLine"
     @click="emit('toggle')"
   >
     <span
@@ -161,20 +174,30 @@ const summaryToneClass = computed(() =>
       >
         <template v-if="pushing">
           <span
-            v-if="incomingLine"
+            v-if="incoming"
             class="collapsed-run-live-line collapsed-run-live-incoming"
-            :class="{ 'tool-live-pulse': liveBusy }"
-          >{{ incomingLine }}</span>
+          >
+            <ToolKindIcon v-if="incoming.toolName" :name="incoming.toolName" />
+            <span class="collapsed-run-live-text">{{ incoming.text }}</span>
+          </span>
           <span
-            v-if="departingLine"
+            v-if="departing"
             class="collapsed-run-live-line collapsed-run-live-departing"
-          >{{ departingLine }}</span>
+          >
+            <ToolKindIcon v-if="departing.toolName" :name="departing.toolName" />
+            <span class="collapsed-run-live-text">{{ departing.text }}</span>
+          </span>
         </template>
         <span
           v-else
           class="collapsed-run-live-line"
-          :class="{ 'tool-live-pulse': liveBusy }"
-        >{{ restingLine }}</span>
+        >
+          <ToolKindIcon v-if="resting.toolName" :name="resting.toolName" />
+          <span
+            class="collapsed-run-live-text"
+            :class="{ 'tool-live-pulse': liveBusy }"
+          >{{ resting.text }}</span>
+        </span>
       </span>
     </span>
   </button>

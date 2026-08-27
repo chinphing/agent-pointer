@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch, type Ref } from 'vue'
-import { Code, GitMerge } from 'lucide-vue-next'
+import { Code } from 'lucide-vue-next'
 import type { AgentTrace, ChatMessage, TaskBoardDocument, ToolCall } from '../../../../types/chat'
 import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
 import { buildCompressionProgressLabel } from '../../../../lib/compressionMessage'
 import {
+  emptySubAgentToolStats,
   resolveCollapsedSubAgentView,
   subAgentIdFromTraceId
 } from '../../../../lib/subAgentStats'
 import {
-  buildSubAgentBodyModelsFromScoped,
-  buildSubAgentBodyModelsSplitAtCut,
   buildToolRawArgsFromMessages,
   computeSubAgentStatsFromMessages,
   latestSubAgentBodyModelFromScoped,
@@ -20,13 +19,14 @@ import {
 } from '../../../../lib/subAgentMessages'
 import { useChatStore } from '../../../../stores/chat'
 import {
+  isSubResponseToolName,
   isSubTraceUiCollapsed,
   toggleSubTraceExpanded
 } from '../../../../lib/subAgentSession'
 import {
+  compactToolCallLiveText,
   compactToolCallStatusLine,
   effectiveToolDisplaySummary,
-  formatToolDurationLabel,
   isToolCallInProgress,
   latestToolCallForCompactStatus
 } from '../../../../lib/toolCallDisplay'
@@ -37,11 +37,12 @@ import {
 } from '../../../../lib/thinkingIndicator'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
-import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
+import type { AgentMessageBodyModel } from './AgentMessageBody.vue'
 import ContextCompressingMarker from '../ContextCompressingMarker.vue'
 import RawWirePanel from './RawWirePanel.vue'
 import TaskBoardPanel from '../../TaskBoardPanel.vue'
 import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
+import ToolCallRow from '../../ToolCallRow.vue'
 
 export type SubAgentTaskBoardBinding = {
   document: TaskBoardDocument
@@ -62,7 +63,7 @@ const props = defineProps<{
   showMessageActions?: boolean
   /** Child task board always shown above the process UI (collapsed or expanded). */
   taskBoard?: SubAgentTaskBoardBinding | null
-  /** Parent `run_subagent` row this frame replaces when collapsed. */
+  /** Parent `run_subagent` row; host expands to args. This frame is stats + inner tools. */
   hostTool?: ToolCall | null
 }>()
 
@@ -160,6 +161,10 @@ const searchToolCallIds = inject<Ref<string[]>>(
   'currentConversationSearchToolCallIds',
   ref<string[]>([])
 )
+const activeSearchToolCallId = inject<Ref<string | null>>(
+  'currentConversationActiveToolCallId',
+  ref<string | null>(null)
+)
 
 const goalLabel = computed(() => {
   const host = props.hostTool
@@ -198,37 +203,51 @@ const showThinkingInSummary = computed(() =>
   })
 )
 
-const hasFinishedInnerWork = computed(() =>
-  innerToolCalls.value.some(tc => !isToolCallInProgress(tc.status))
-)
+const visibleInnerTools = computed((): ToolCall[] => {
+  const tools = innerToolCalls.value.filter(tc => !isSubResponseToolName(tc.name))
+  const live = liveInnerTool.value
+  if (!live || isSubResponseToolName(live.name)) return tools
+  if (tools.some(tc => tc.id === live.id)) return tools
+  return [...tools, live]
+})
 
 const collapsedView = computed(() => {
   const stats =
     scopedTraceMessages.value.length > 0
       ? computeSubAgentStatsFromMessages(scopedTraceMessages.value)
-      : (legacySession.value?.stats ?? { searchCount: 0, readCount: 0 })
+      : (legacySession.value?.stats ?? emptySubAgentToolStats())
   const thinking = showThinkingInSummary.value
     ? thinkingLabel(latestStreamBody.value ? streamedCharCountFromBody(latestStreamBody.value) : 0)
     : null
   const live = liveInnerTool.value
-    ? compactToolCallStatusLine(liveInnerTool.value, chatStore.current?.workspaceRoot, {
-        includeStatus: false
-      })
+    ? compactToolCallLiveText(liveInnerTool.value, chatStore.current?.workspaceRoot)
     : null
   return resolveCollapsedSubAgentView({
-    goal: goalLabel.value,
-    fallbackLabel: traceLabel.value,
+    orphanTitle: props.hostTool ? '' : (goalLabel.value || traceLabel.value),
     status: props.trace.status,
     stats,
     agentId: subAgentIdFromTraceId(props.trace.id),
     liveToolLine: live,
-    hasFinishedWork: hasFinishedInnerWork.value,
     thinkingLine: thinking
   })
 })
 
 const summaryLine = computed(() => collapsedView.value.summaryLine)
 const liveLine = computed(() => (collapsed.value ? collapsedView.value.liveLine : null))
+const liveToolName = computed(() => {
+  if (!collapsed.value) return null
+  return liveInnerTool.value?.name ?? null
+})
+const liveAriaLabel = computed(() => {
+  const summary = summaryLine.value.trim()
+  if (summary) return summary
+  if (liveInnerTool.value) {
+    return compactToolCallStatusLine(liveInnerTool.value, chatStore.current?.workspaceRoot, {
+      includeStatus: false
+    })
+  }
+  return liveLine.value || '子任务过程'
+})
 const liveKey = computed(() => {
   if (!collapsed.value || !isRunning.value) return null
   if (liveInnerTool.value?.id) return liveInnerTool.value.id
@@ -236,73 +255,15 @@ const liveKey = computed(() => {
   return null
 })
 
-const durationLabel = computed(() => {
-  if (isRunning.value) return ''
-  return formatToolDurationLabel(props.hostTool?.durationMs)
-})
-
-const processBodies = computed((): {
-  before: AgentMessageBodyModel[]
-  after: AgentMessageBodyModel[]
-  showMarker: boolean
-} => {
-  const showMarker = ownsCompression.value && !!compressionProgressLabel.value
-  if (showMarker) {
-    const split = buildSubAgentBodyModelsSplitAtCut(
-      props.messages,
-      effectiveAnchorId.value,
-      props.trace.id,
-      chatStore.contextCompressing?.insertBeforeMessageId,
-      props.trace.status,
-      props.trace.agentInstanceId
-    )
-    if (split.before.length > 0 || split.after.length > 0) {
-      return { before: split.before, after: split.after, showMarker: true }
-    }
-  }
-  const scoped = buildSubAgentBodyModelsFromScoped(
-    props.messages,
-    effectiveAnchorId.value,
-    props.trace.id,
-    props.trace.status,
-    props.trace.agentInstanceId
-  )
-  if (scoped.length > 0) {
-    return { before: scoped, after: [], showMarker }
-  }
-  const s = legacySession.value
-  if (!s) return { before: [], after: [], showMarker }
-  return {
-    before: [
-      {
-        thoughts: s.thoughts,
-        toolNamePreview: s.toolNamePreview,
-        responseTextDraft: s.responseTextDraft,
-        reasoning: s.reasoning,
-        rawContent: s.rawContent,
-        content: undefined,
-        contentStreaming: s.contentStreaming === true,
-        toolCalls: s.toolCalls,
-        status: props.trace.status === 'failed' ? 'error' : isRunning.value ? 'streaming' : 'done',
-        createdAt: props.createdAt,
-        errorMessage: props.trace.status === 'failed' ? props.trace.detail : undefined
-      }
-    ],
-    after: [],
-    showMarker
-  }
-})
-
-const bodyModels = computed((): AgentMessageBodyModel[] => [
-  ...processBodies.value.before,
-  ...processBodies.value.after
-])
-
-const subFrameActive = computed(
-  () => props.generating && props.isActiveGenerationMessage && isRunning.value
+const showProcessHeader = computed(() =>
+  !!summaryLine.value.trim()
+  || !!(collapsed.value && (liveLine.value?.trim() || isRunning.value))
+  || (!collapsed.value && visibleInnerTools.value.length > 0)
 )
 
-const activeBodyIndex = computed(() => Math.max(0, bodyModels.value.length - 1))
+const showCompressionMarker = computed(
+  () => ownsCompression.value && !!compressionProgressLabel.value
+)
 
 const toolRawArgs = computed(() => {
   if (scopedMessages.value.length > 0) {
@@ -343,15 +304,14 @@ watch(rawContentViewEnabled, on => {
 })
 
 function toggleExpanded() {
+  if (visibleInnerTools.value.length === 0) return
   toggleSubTraceExpanded(props.trace)
 }
 
 const isSearchHit = computed(() => {
   const ids = searchToolCallIds.value
   if (ids.length === 0) return false
-  const hostId = props.hostTool?.id?.trim()
-  if (hostId && ids.includes(hostId)) return true
-  return innerToolCalls.value.some(tc => ids.includes(tc.id))
+  return visibleInnerTools.value.some(tc => ids.includes(tc.id))
 })
 
 watch(
@@ -367,9 +327,8 @@ watch(
 
 <template>
   <div
-    class="sub-agent-frame min-w-0 w-full overflow-hidden"
-    :class="collapsed && !taskBoard ? '' : 'space-y-2'"
-    :data-tool-call-id="hostTool?.id || undefined"
+    class="sub-agent-frame sub-agent-nested min-w-0 w-full overflow-hidden"
+    :class="taskBoard || !collapsed ? 'space-y-2' : ''"
     :style="{
       marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`
     }"
@@ -387,27 +346,23 @@ watch(
       />
     </div>
 
-    <div class="flex items-start gap-2 min-w-0">
+    <div
+      v-if="showProcessHeader"
+      class="flex items-start gap-2 min-w-0"
+    >
       <CollapsedRunHeader
         :summary-line="summaryLine"
         :live-line="liveLine"
+        :live-tool-name="liveToolName"
         :live-key="liveKey"
         :expanded="!collapsed"
-        :duration-label="durationLabel"
         :failed="trace.status === 'failed'"
         :force-live-slot="collapsed && isRunning"
-        :live-busy="collapsed && isRunning && (!!liveInnerTool || !!liveLine?.trim())"
-        indent-live
-        :aria-label="`子任务 ${summaryLine}`"
+        :show-chevron="visibleInnerTools.length > 0"
+        :live-busy="collapsed && !!liveInnerTool"
+        :aria-label="liveAriaLabel"
         @toggle="toggleExpanded"
-      >
-        <template #icon>
-          <GitMerge
-            class="h-3.5 w-3.5 shrink-0 text-muted/70"
-            aria-hidden="true"
-          />
-        </template>
-      </CollapsedRunHeader>
+      />
       <button
         v-if="!collapsed && hasRawWire"
         type="button"
@@ -422,35 +377,20 @@ watch(
 
     <div
       v-if="!collapsed"
-      class="space-y-2"
+      class="space-y-0.5"
     >
-      <AgentMessageBody
-        v-for="(body, index) in processBodies.before"
-        :key="`${trace.id}-before-${index}`"
-        :body="body"
-        :message-ui="messageUi"
-        hide-response
-        hide-copy
-        :thoughts-debug-enabled="thoughtsDebugEnabled"
-        :generating="generating"
-        :is-active-generation-message="subFrameActive && processBodies.after.length === 0 && index === activeBodyIndex"
-      />
       <ContextCompressingMarker
-        v-if="processBodies.showMarker"
+        v-if="showCompressionMarker"
         :label="compressionProgressLabel"
       />
-      <AgentMessageBody
-        v-for="(body, index) in processBodies.after"
-        :key="`${trace.id}-after-${index}`"
-        :body="body"
-        :message-ui="messageUi"
-        hide-response
-        hide-copy
-        :thoughts-debug-enabled="thoughtsDebugEnabled"
-        :generating="generating"
-        :is-active-generation-message="subFrameActive && (processBodies.before.length + index) === activeBodyIndex"
+      <ToolCallRow
+        v-for="tc in visibleInnerTools"
+        :key="tc.id"
+        :tool-call="tc"
+        :show-tool-call-results="messageUi.showToolCallResults"
+        :is-search-match="searchToolCallIds.includes(tc.id)"
+        :is-active-search-match="activeSearchToolCallId === tc.id"
       />
-
       <RawWirePanel
         v-if="showRawWire && hasRawWire"
         :reasoning="rawWireReasoning"

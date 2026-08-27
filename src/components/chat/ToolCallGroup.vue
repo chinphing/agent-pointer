@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import {
+  compactToolCallLiveText,
   compactToolCallStatusLine,
   formatCollapsedToolGroupLine
 } from '../../lib/toolCallDisplay'
@@ -39,17 +40,23 @@ const summaryLine = computed(() => {
 
 const liveLine = computed(() => {
   if (props.liveTool) {
-    return compactToolCallStatusLine(props.liveTool, chat.current?.workspaceRoot, {
-      includeStatus: false
-    })
+    return compactToolCallLiveText(props.liveTool, chat.current?.workspaceRoot)
   }
   if (props.tools.length === 0) return null
   return props.thinkingLine?.trim() || null
 })
 
-const headerAriaLabel = computed(
-  () => summaryLine.value || liveLine.value || '思考中'
-)
+const liveToolName = computed(() => props.liveTool?.name ?? null)
+
+const headerAriaLabel = computed(() => {
+  if (summaryLine.value.trim()) return summaryLine.value
+  if (props.liveTool) {
+    return compactToolCallStatusLine(props.liveTool, chat.current?.workspaceRoot, {
+      includeStatus: false
+    })
+  }
+  return liveLine.value || '思考中'
+})
 
 const liveKey = computed(() => {
   if (props.liveTool) return props.liveTool.id
@@ -81,11 +88,12 @@ function toggleExpanded() {
     <CollapsedRunHeader
       :summary-line="summaryLine"
       :live-line="expanded ? null : liveLine"
+      :live-tool-name="expanded ? null : liveToolName"
       :live-key="expanded ? null : liveKey"
       :expanded="expanded"
       :force-live-slot="!expanded && forceLiveSlot"
       :show-chevron="expandedTools.length > 0"
-      :live-busy="liveTool?.status === 'running' || !!thinkingLine?.trim()"
+      :live-busy="liveTool?.status === 'running'"
       :aria-label="headerAriaLabel"
       @toggle="toggleExpanded"
     />

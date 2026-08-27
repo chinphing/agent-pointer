@@ -850,7 +850,7 @@ async function onPlaySoundToggle(checked: boolean) {
               <button
                 type="button"
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="无输出多久结束，以及从启动起最长跑多久。工具参数只能下调。"
+                title="空闲时间为未指定时的默认值，命令可覆盖。最长运行是上限，工具参数只能下调。"
                 aria-label="终端超时说明"
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -863,7 +863,7 @@ async function onPlaySoundToggle(checked: boolean) {
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="这段时间没有新输出就结束命令，有输出会重新计时。1–86400 秒。"
+                    title="命令未指定超时时使用。这段时间没有新输出就结束命令，有输出会重新计时。1–86400 秒。"
                     aria-label="空闲超时说明"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />

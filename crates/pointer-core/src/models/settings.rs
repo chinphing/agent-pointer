@@ -833,7 +833,7 @@ pub struct ModelSettings {
         rename = "terminalOutputMaxBytes"
     )]
     pub terminal_output_max_bytes: u32,
-    /// Idle timeout seconds for one `terminal` process (tool `timeoutMs` can only lower this).
+    /// Idle timeout seconds for one `terminal` process when the tool omits `timeoutMs`.
     #[serde(
         default = "default_terminal_timeout_seconds",
         rename = "terminalTimeoutSeconds"

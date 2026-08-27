@@ -26,8 +26,8 @@ dismissed and hidden while an input request is active.
 
 - Prompt heuristics run after ~**800ms** of idle output (`PROMPT_DETECT_IDLE_MS`), not the full command `timeoutMs`.
 - Full `timeoutMs` still governs killing non-interactive pipe commands with no output.
-- Idle timeout (`timeoutMs`) is capped by user setting **空闲（秒）** (1–86400, default 30).
-- Wall clock (`maxWallMs`) is capped by user setting **最长运行（小时）** (1–10000, default 24).
+- Idle timeout (`timeoutMs`): user setting **空闲（秒）** is the default when omitted (1–86400, default 30). The tool arg may raise or lower it (hard cap 86400s).
+- Wall clock (`maxWallMs`) is capped by user setting **最长运行（小时）** (1–10000, default 24). The tool arg may only lower it.
 - Do **not** force an SSH password modal on first connect with no prior input and no clear `password:` text (avoids false prompts for key auth / hanging connects).
 
 ## Agent guidance

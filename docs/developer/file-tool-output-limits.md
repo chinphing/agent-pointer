@@ -11,11 +11,11 @@
 | glob 命中 | 默认 100，上限 500 | （实现常量） | 1 – 500 |
 | 目录列举 | 默认 100，上限 2000 | （实现常量） | 1 – 2000 |
 | 终端 stdout/stderr（各一路） | 16 KiB | `terminalOutputMaxBytes` | 4 KiB – 256 KiB |
-| 终端空闲超时 | 30 秒 | `terminalTimeoutSeconds` | 1 – 86400 秒 |
+| 终端空闲超时（未传 `timeoutMs` 时的默认） | 30 秒 | `terminalTimeoutSeconds` | 1 – 86400 秒 |
 | 终端墙钟上限 | 24 小时 | `terminalMaxWallHours` | 1 – 10000 小时 |
 
 Agent 不能靠把 `maxBytes` / `limit` / `maxOutputBytes` / `maxWallMs` 调大来突破**当前**天花板。
-工具参数只能下调。
+工具参数只能下调。空闲超时例外：`timeoutMs` 可高于设置默认值，硬上限 86400 秒。
 
 实现：`crates/pointer-core/src/tools/file/{mod,read,grep,glob,list}.rs`、
 `crates/pointer-core/src/tools/terminal.rs`；
@@ -34,7 +34,8 @@ Agent 不能靠把 `maxBytes` / `limit` / `maxOutputBytes` / `maxWallMs` 调大�
 - 单文件 **> 2 MiB** 仍跳过（实现常量，不计设置），计入 `skippedLargeFileCount`。
 - **`terminal`**：stdout / stderr **各自**截到上限；超限**留尾巴、丢开头**，前缀
   `...[output truncated]`。实时预览不按此上限截；回给模型的工具结果按此截。
-  空闲超时与墙钟上限由设置控制；工具 `timeoutMs` / `maxWallMs` 只能下调。
+  空闲超时：未传 `timeoutMs` 时用设置默认值；工具参数可在 1s–86400s 内指定，不受设置默认值封顶。
+  墙钟上限由设置控制；工具 `maxWallMs` 只能下调。
 
 ## 观测
 

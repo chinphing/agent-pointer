@@ -633,7 +633,7 @@ export interface UserSettings {
   fileGrepMaxResults?: number
   /** Max UTF-8 bytes kept from each terminal stdout/stderr stream (default 16384). */
   terminalOutputMaxBytes?: number
-  /** Idle timeout seconds for one terminal command (default 30, max 86400). Tool timeoutMs can only lower this. */
+  /** Idle timeout seconds for one terminal command when timeoutMs is omitted (default 30, max 86400). */
   terminalTimeoutSeconds?: number
   /** Max wall-clock hours for one terminal command (default 24, max 10000). Tool maxWallMs can only lower this. */
   terminalMaxWallHours?: number
@@ -818,7 +818,7 @@ export interface ModelSettings {
   fileGrepMaxResults?: number
   /** Max UTF-8 bytes kept from each terminal stdout/stderr stream (default 16384) */
   terminalOutputMaxBytes?: number
-  /** Idle timeout seconds for one terminal command (default 30, max 86400) */
+  /** Idle timeout seconds for one terminal command when timeoutMs is omitted (default 30, max 86400) */
   terminalTimeoutSeconds?: number
   /** Max wall-clock hours for one terminal command (default 24, max 10000) */
   terminalMaxWallHours?: number

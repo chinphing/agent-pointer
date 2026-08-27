@@ -51,18 +51,21 @@ pub(crate) fn resolve_max_output_bytes(args: &serde_json::Value) -> usize {
         .clamp(1, ceiling) as usize
 }
 
-/// Idle timeout from settings (seconds). Tool `timeoutMs` may only lower it.
+/// Idle timeout. Settings value is the default when `timeoutMs` is omitted.
+/// Tool `timeoutMs` is clamped to 1s–86400s and is not capped by that default.
 pub(crate) fn resolve_timeout_ms(args: &serde_json::Value) -> u64 {
-    let ceiling = crate::storage::load_user_settings()
+    let default_ms = crate::storage::load_user_settings()
         .ok()
         .map(|u| crate::models::terminal_timeout_ms(u.terminal_timeout_seconds))
         .unwrap_or_else(|| {
             crate::models::terminal_timeout_ms(crate::models::DEFAULT_TERMINAL_TIMEOUT_SECONDS)
         });
+    let hard_cap =
+        crate::models::terminal_timeout_ms(crate::models::CEILING_TERMINAL_TIMEOUT_SECONDS);
     args.get("timeoutMs")
         .and_then(|v| v.as_u64())
-        .map(|v| v.clamp(1_000, ceiling.max(1_000)))
-        .unwrap_or(ceiling)
+        .map(|v| v.clamp(1_000, hard_cap.max(1_000)))
+        .unwrap_or(default_ms)
 }
 
 /// Wall-clock cap from settings (hours). Tool `maxWallMs` may only lower it.
@@ -1242,16 +1245,18 @@ mod cwd_tests {
     }
 
     #[test]
-    fn resolve_timeout_ms_tool_arg_cannot_exceed_ceiling() {
-        let ceiling = resolve_timeout_ms(&serde_json::json!({}));
+    fn resolve_timeout_ms_uses_settings_as_default_not_ceiling() {
+        let default_ms = resolve_timeout_ms(&serde_json::json!({}));
         let floor = crate::models::terminal_timeout_ms(crate::models::FLOOR_TERMINAL_TIMEOUT_SECONDS);
         let cap = crate::models::terminal_timeout_ms(crate::models::CEILING_TERMINAL_TIMEOUT_SECONDS);
-        assert!(ceiling >= floor);
-        assert!(ceiling <= cap);
+        assert!(default_ms >= floor);
+        assert!(default_ms <= cap);
         let lowered = resolve_timeout_ms(&serde_json::json!({ "timeoutMs": 5_000 }));
         assert_eq!(lowered, 5_000);
-        let raised = resolve_timeout_ms(&serde_json::json!({ "timeoutMs": u64::MAX }));
-        assert_eq!(raised, ceiling);
+        let raised = resolve_timeout_ms(&serde_json::json!({ "timeoutMs": 120_000 }));
+        assert_eq!(raised, 120_000);
+        let over_hard_cap = resolve_timeout_ms(&serde_json::json!({ "timeoutMs": u64::MAX }));
+        assert_eq!(over_hard_cap, cap);
     }
 
     #[test]

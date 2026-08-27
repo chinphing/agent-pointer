@@ -101,8 +101,8 @@ Either limit can stop the process (**`timedOut`** in the result).
 
 - **`timeoutMs`** — idle timeout: no new stdout/stderr for this long → kill.
   New output resets the timer.
-  Settings cap this in seconds (default 30, max 86400).
-  The tool arg may only lower it.
+  If omitted, the host default applies (typically 30 seconds).
+  You may raise or lower it (1000–86400000 ms).
 - **`maxWallMs`** — wall clock from process start.
   Settings cap this in hours (default 24, max 10000).
   The tool arg may only lower it.

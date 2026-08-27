@@ -139,14 +139,14 @@ const summaryToneClass = computed(() =>
 <template>
   <button
     type="button"
-    class="tool-call-trigger group flex flex-col items-start gap-0.5 w-full min-w-0 max-w-full text-left hover:bg-hover/50 rounded-md py-0.5 transition cursor-pointer"
+    class="tool-call-trigger group flex flex-col items-start gap-0.5 w-full min-w-0 max-w-full text-left py-0.5 transition cursor-pointer"
     :aria-expanded="expanded"
     :aria-label="ariaLabel || summaryLine"
     @click="emit('toggle')"
   >
     <span
       v-if="showSummaryRow"
-      class="flex items-center gap-1 min-w-0 w-full h-5"
+      class="inline-flex items-center gap-1 min-w-0 max-w-full h-5 rounded-md group-hover:bg-hover/50"
     >
       <slot name="icon" />
       <span

@@ -340,7 +340,7 @@ function openSourceUrl(url: string) {
     <div class="flex max-w-full items-center gap-1.5 min-w-0">
       <button
         type="button"
-        class="tool-call-trigger py-1 flex min-w-0 flex-1 items-center gap-x-1.5 overflow-hidden text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
+        class="tool-call-trigger py-1 flex min-w-0 items-center gap-x-1.5 overflow-hidden text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
         @click="open = !open"
       >
         <Wrench class="w-3 h-3 text-muted/70 shrink-0" />

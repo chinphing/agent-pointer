@@ -65,3 +65,34 @@ export function shouldSkipTotalSizeStickAfterViewportShrink(
   const elapsed = nowMs - viewportShrinkAtMs
   return elapsed >= 0 && elapsed < windowMs
 }
+
+/** True while the user is typing in the footer / inline composer. */
+export function isComposerDraftingTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as { closest?: unknown }).closest !== 'function') return false
+  try {
+    return !!(target as HTMLElement).closest('.composer-shell')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * After the composer grows, keep skipping totalSize stick until the viewport
+ * grows again (draft deleted) or the user is no longer drafting.
+ * A short time window is not enough: WebKit often remasures rows hundreds of
+ * ms later and the stick still pulls the last lines under the composer.
+ */
+export function shouldSkipTotalSizeStick(opts: {
+  nowMs: number
+  viewportShrinkAtMs: number
+  windowMs: number
+  skipUntilViewportGrows: boolean
+  composerDrafting: boolean
+}): boolean {
+  if (opts.composerDrafting || opts.skipUntilViewportGrows) return true
+  return shouldSkipTotalSizeStickAfterViewportShrink(
+    opts.nowMs,
+    opts.viewportShrinkAtMs,
+    opts.windowMs
+  )
+}

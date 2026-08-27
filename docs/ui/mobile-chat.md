@@ -16,7 +16,7 @@
 - 宽屏 `md:flex-col` 下输入框必须 `md:flex-none`：若保留 `flex-1`（`flex-basis: 0%`），纵向主轴会**忽略** JS/`height`，表现为完全不撑高。窄屏横排仍用 `flex-1` 占满宽度。
 - 优先 CSS `field-sizing: content`（`.composer-textarea`）；不支持时再 JS 测高。超过上限用 `overflow-y: auto`，勿用 `overflow-hidden` 以免超限内容无法滚动。
 - 侧栏折叠 / 窗口变宽会改变换行：对 textarea 做 `ResizeObserver`，宽度变化时重测。
-- MessageList 对 scroller 高度变化 `ResizeObserver`：记下高度，视口变矮时按差值补 `scrollTop`（不跟随时也补，避免输入框盖住正文）。无需 Composer 额外接线。
+- MessageList 对 scroller **和列表根节点**高度变化 `ResizeObserver`：记下高度，视口变矮时按差值补 `scrollTop`（不跟随时也补，避免输入框盖住正文）。无需 Composer 额外接线。输入框撑高后不要再按 `getTotalSize` 贴底，直到输入框变矮或失焦。
 - footer / welcome `inline` 共用同一 Composer；草稿清空、发送后、IME 结束、prefill 都会触发 `autoResize`。
 - **欢迎页（空会话）**：桌面仍为居中 hero（slogan + `placement="inline"` + 经验区）。窄屏**不显示 slogan 与经验区**，输入框与有消息会话相同，使用底部 footer Composer（`shouldShowFooterComposer`）；未登录时仍可显示登录入口。
 - **智能体选择**与**项目选择**仅在 `md+` 工具栏显示；窄屏隐藏，沿用当前会话已选智能体 / 项目（或默认）。

@@ -64,9 +64,10 @@ import {
   type MessageListScrollAnchor
 } from '../../lib/messageListScrollAnchor'
 import {
+  isComposerDraftingTarget,
   nextFollowOutputAfterScroll,
   scrollerViewportShrinkDelta,
-  shouldSkipTotalSizeStickAfterViewportShrink
+  shouldSkipTotalSizeStick
 } from '../../lib/messageListScrollFollow'
 import {
   canShowNoOlderPullHint,
@@ -108,6 +109,7 @@ const chat = useChatStore()
 const settings = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
+const listRoot = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
 const newConversationConfirmOpen = ref(false)
 const isMobileViewport = ref(false)
@@ -141,8 +143,8 @@ let programmaticScrollDepth = 0
 let scrollFrame: number | null = null
 /** Minimum wall-clock gap between two programmatic scroll-to-bottom calls. */
 const SCROLL_MIN_INTERVAL_MS = 80
-/** Cover nextTick + rAF after composer layout so a flushed remasure cannot restick. */
-const VIEWPORT_SHRINK_SKIP_STICK_MS = 120
+/** Fallback if the grow-latch is not set yet; WebKit remasure is often later. */
+const VIEWPORT_SHRINK_SKIP_STICK_MS = 400
 /** Must be this close to resume auto-follow after the user scrolled away. */
 const ATTACH_BOTTOM_PX = 8
 /** Scroll this far from bottom before onScroll alone detaches follow. */
@@ -159,6 +161,8 @@ let touchStartY: number | null = null
 let lastScrollerClientHeight = 0
 /** `performance.now()` of the last viewport shrink; 0 if none this session. */
 let viewportShrinkAtMs = 0
+/** Stay skipped until the composer / chrome shrinks (viewport grows). */
+let skipTotalSizeStickUntilViewportGrows = false
 let scrollerResizeObserver: ResizeObserver | null = null
 let mobileMediaQuery: MediaQueryList | null = null
 let lastScrollTop = 0
@@ -429,6 +433,33 @@ function onNewConversationConfirmationKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeNewConversationConfirmation()
 }
 
+function applyScrollerViewportResize() {
+  const scrollerEl = scroller.value
+  if (!scrollerEl) return
+  const previousHeight = lastScrollerClientHeight
+  const nextHeight = scrollerEl.clientHeight
+  if (nextHeight === previousHeight) return
+  lastScrollerClientHeight = nextHeight
+  if (nextHeight > previousHeight) {
+    skipTotalSizeStickUntilViewportGrows = false
+    return
+  }
+  const delta = scrollerViewportShrinkDelta(previousHeight, nextHeight)
+  if (delta <= 0) return
+  skipTotalSizeStickUntilViewportGrows = true
+  viewportShrinkAtMs = performance.now()
+  // Search locate owns scroll; still record height so the next draft wrap
+  // does not compensate against a stale taller viewport.
+  if (locatingFocus.value) return
+  // Keep the same visual messages in place while the composer grows, even
+  // when follow is off (reading the last lines, or older history). Unlike
+  // scrollToIndex(), this only applies the viewport-height delta.
+  beginProgrammaticScroll()
+  scrollerEl.scrollTop += delta
+  lastScrollTop = scrollerEl.scrollTop
+  endProgrammaticScroll()
+}
+
 onMounted(() => {
   // Recover a stale older-load flag left after a crashed / remounted request.
   chat.clearStuckOlderLoading()
@@ -439,27 +470,12 @@ onMounted(() => {
   if (el && typeof ResizeObserver !== 'undefined') {
     lastScrollerClientHeight = el.clientHeight
     scrollerResizeObserver = new ResizeObserver(() => {
-      const scrollerEl = scroller.value
-      if (!scrollerEl) return
-      const previousHeight = lastScrollerClientHeight
-      const nextHeight = scrollerEl.clientHeight
-      if (nextHeight === previousHeight) return
-      lastScrollerClientHeight = nextHeight
-      const delta = scrollerViewportShrinkDelta(previousHeight, nextHeight)
-      if (delta <= 0) return
-      viewportShrinkAtMs = performance.now()
-      // Search locate owns scroll; still record height so the next draft wrap
-      // does not compensate against a stale taller viewport.
-      if (locatingFocus.value) return
-      // Keep the same visual messages in place while the composer grows, even
-      // when follow is off (reading the last lines, or older history). Unlike
-      // scrollToIndex(), this only applies the viewport-height delta.
-      beginProgrammaticScroll()
-      scrollerEl.scrollTop += delta
-      lastScrollTop = scrollerEl.scrollTop
-      endProgrammaticScroll()
+      applyScrollerViewportResize()
+      requestAnimationFrame(() => applyScrollerViewportResize())
     })
     scrollerResizeObserver.observe(el)
+    const root = listRoot.value
+    if (root && root !== el) scrollerResizeObserver.observe(root)
   }
   void nextTick(() => {
     toBottom({ settle: true })
@@ -1399,11 +1415,13 @@ watch(
       try {
         if (
           !shouldFollowOutput() ||
-          shouldSkipTotalSizeStickAfterViewportShrink(
-            performance.now(),
+          shouldSkipTotalSizeStick({
+            nowMs: performance.now(),
             viewportShrinkAtMs,
-            VIEWPORT_SHRINK_SKIP_STICK_MS
-          )
+            windowMs: VIEWPORT_SHRINK_SKIP_STICK_MS,
+            skipUntilViewportGrows: skipTotalSizeStickUntilViewportGrows,
+            composerDrafting: isComposerDraftingTarget(document.activeElement)
+          })
         ) {
           return
         }
@@ -1547,7 +1565,10 @@ function entrySpacing(
 </script>
 
 <template>
-  <div class="relative h-full min-h-0">
+  <div
+    ref="listRoot"
+    class="relative h-full min-h-0"
+  >
     <div
       ref="scroller"
       class="chat-scroll-area scrollbar-hide h-full overflow-y-auto chat-shell pb-6"

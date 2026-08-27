@@ -125,7 +125,8 @@ struct ChatRequest<'a> {
 
 fn chat_request_wire_json(req: &ChatRequest<'_>, settings: &ModelSettings) -> Value {
     let body = serde_json::to_value(req).expect("ChatRequest serializes");
-    let wire = crate::models::flatten_chat_extra_body_on_wire(body, settings);
+    let mut wire = crate::models::flatten_chat_extra_body_on_wire(body, settings);
+    crate::models::round_chat_sampling_numbers_on_wire(&mut wire);
     log_openai_compat_wire_debug(&wire);
     wire
 }
@@ -2038,5 +2039,37 @@ mod native_tool_call_tests {
         let snap = snapshot_from_stream_usage(&usage);
         assert_eq!(snap.cached_tokens, 100);
         assert_eq!(snap.cache_miss_tokens(), 0);
+    }
+}
+
+#[cfg(test)]
+mod chat_wire_sampling_tests {
+    use super::*;
+    use crate::models::ModelSettings;
+
+    fn sample_req(temperature: f32, top_p: f32) -> ChatRequest<'static> {
+        ChatRequest {
+            model: "qwen-plus",
+            messages: vec![],
+            stream: false,
+            temperature,
+            top_p,
+            max_tokens: Some(64),
+            stream_options: None,
+            tools: None,
+            tool_choice: None,
+            extra_body: None,
+        }
+    }
+
+    #[test]
+    fn f32_temperature_on_wire_has_at_most_two_decimals() {
+        let wire = chat_request_wire_json(&sample_req(0.7, 0.95), &ModelSettings::default());
+        let temp = serde_json::to_string(wire.get("temperature").unwrap()).unwrap();
+        let top = serde_json::to_string(wire.get("top_p").unwrap()).unwrap();
+        assert_eq!(temp, "0.7");
+        assert_eq!(top, "0.95");
+        assert!(!temp.contains("999"));
+        assert!(!top.contains("999"));
     }
 }

@@ -263,8 +263,10 @@ pub fn try_dump_round(
         "labelStem": label.map(sanitize_stem).unwrap_or_default(),
         "model": settings.model,
         "stream": stream,
-        "temperature": crate::models::effective_temperature(settings),
-        "top_p": crate::models::effective_top_p(settings),
+        "temperature": crate::models::json_number_max_2dp(
+            crate::models::effective_temperature(settings)
+        ),
+        "top_p": crate::models::json_number_max_2dp(crate::models::effective_top_p(settings)),
         "maxTokens": crate::models::effective_max_tokens(settings),
         "messages": msgs,
     });

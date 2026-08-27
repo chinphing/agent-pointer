@@ -67,7 +67,7 @@ The control plane is the only place that adds, removes, or reorders platform mod
 - Capability flags (`supportsVision` / `supportsAudio` / `canGenerateImage` / `canGenerateVideo`) come only from the platform model entry or the user’s checkboxes. Unset means off. Image/video understanding use vision; speech-to-text uses `supportsAudio`; image/video generation pickers use the generation flags. Do not infer from model name or API URL.
 - Explicit catalog flags must survive client merge/prune so scene pickers can list the model.
 - Default image/video generators come from `tierDefaults.mediaGeneration` and fill `mediaModelOverrides` when the user has not set them.
-- Sampling: catalog `temperature` (default 0.7) and `topP` (default 0.95) apply per provider/model and are sent as `temperature` / `top_p` on chat/completions.
+- Sampling: catalog `temperature` (default 0.7) and `topP` (default 0.95) apply per provider/model and are sent as `temperature` / `top_p` on chat/completions (at most 2 decimal places on the wire).
 - Billing rate lives on each official model row on the control plane. Login payloads and the directory hash omit rate fields, so a rate-only edit does not rebuild client providers.
 
 ## Security notes (`auth.dat`)

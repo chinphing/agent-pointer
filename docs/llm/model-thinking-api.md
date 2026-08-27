@@ -31,6 +31,7 @@ OpenAI Python SDK 的展平行为。
 
 采样参数：`temperature` 默认 **0.7**，`top_p` 默认 **0.95**。
 可在平台目录（服务商默认或模型覆盖）与客户端模型服务里配置；发往 chat/completions 时写在请求体根级。
+线路上最多保留 **2 位小数**（`f32` 的 `0.7` 会序列化成 `0.699999988079071`，DashScope 返回 `1210`）。
 
 发往 OpenAI 兼容接口前打 **debug** `openai_compat_request`：展平后的最终根级字段
 （`max_tokens` 与线路思考键），不含 `messages` / Key。

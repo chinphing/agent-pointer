@@ -357,6 +357,60 @@ pub fn effective_temperature(settings: &ModelSettings) -> f32 {
     }
 }
 
+/// Wire JSON number with at most 2 decimal places.
+///
+/// `0.7f32` is not binary-exact; serde emits `0.699999988079071` and DashScope
+/// rejects it (`HTTP 400` code `1210`, 小数点最多 2 位).
+pub fn json_number_max_2dp(v: f32) -> serde_json::Value {
+    json_number_max_2dp_f64(v as f64)
+}
+
+pub fn json_number_max_2dp_f64(v: f64) -> serde_json::Value {
+    if !v.is_finite() {
+        log::warn!("sampling number is not finite ({v}), sending 0");
+        return serde_json::json!(0);
+    }
+    let cents = (v * 100.0).round() as i64;
+    let sign = if cents < 0 { "-" } else { "" };
+    let abs = cents.unsigned_abs();
+    let whole = abs / 100;
+    let frac = abs % 100;
+    let s = if frac == 0 {
+        format!("{sign}{whole}")
+    } else if frac % 10 == 0 {
+        format!("{sign}{whole}.{}", frac / 10)
+    } else {
+        format!("{sign}{whole}.{frac:02}")
+    };
+    serde_json::from_str(&s).unwrap_or_else(|e| {
+        log::warn!("sampling number parse failed for {s}: {e}; sending 0");
+        serde_json::json!(0)
+    })
+}
+
+/// Round root `temperature` / `top_p` after extra_body flatten (chat/completions wire).
+pub fn round_chat_sampling_numbers_on_wire(body: &mut serde_json::Value) {
+    let Some(obj) = body.as_object_mut() else {
+        log::warn!("chat wire body is not a JSON object; skip sampling rounding");
+        return;
+    };
+    for key in ["temperature", "top_p"] {
+        match obj.get(key) {
+            Some(serde_json::Value::Number(n)) => {
+                let Some(f) = n.as_f64() else {
+                    log::warn!("chat wire {key} is not a finite JSON number; leaving as-is");
+                    continue;
+                };
+                obj.insert(key.to_string(), json_number_max_2dp_f64(f));
+            }
+            Some(other) => {
+                log::warn!("chat wire {key} is not a number ({other}); leaving as-is");
+            }
+            None => {}
+        }
+    }
+}
+
 /// Nucleus sampling (`top_p`) for the **active** provider + **current** `settings.model`.
 pub fn effective_top_p(settings: &ModelSettings) -> f32 {
     let raw = if let Some((p, model)) = active_provider_and_model(settings) {
@@ -3619,6 +3673,28 @@ mod effective_generation_tests {
             },
         );
         assert!((effective_temperature(&s) - 1.1).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn json_number_max_2dp_kills_f32_artifacts() {
+        let t = serde_json::to_string(&json_number_max_2dp(0.7)).unwrap();
+        assert_eq!(t, "0.7");
+        assert!(!t.contains("999"));
+        assert_eq!(serde_json::to_string(&json_number_max_2dp(0.95)).unwrap(), "0.95");
+        assert_eq!(serde_json::to_string(&json_number_max_2dp(1.234)).unwrap(), "1.23");
+        assert_eq!(serde_json::to_string(&json_number_max_2dp(1.0)).unwrap(), "1");
+    }
+
+    #[test]
+    fn round_chat_sampling_numbers_on_wire_rewrites_root_keys() {
+        let mut body = serde_json::json!({
+            "temperature": 0.7f32,
+            "top_p": 0.95f32,
+            "model": "qwen-plus"
+        });
+        round_chat_sampling_numbers_on_wire(&mut body);
+        assert_eq!(serde_json::to_string(body.get("temperature").unwrap()).unwrap(), "0.7");
+        assert_eq!(serde_json::to_string(body.get("top_p").unwrap()).unwrap(), "0.95");
     }
 
     #[test]

@@ -71,7 +71,7 @@ Continuation rule (model-driven):
 - Turn start: host surfaces the **active unfinished** board in planner/execution context when one exists.
 - **Continue same scope:** planner/execution **does not** call **`task_board_init`** — patch the existing board; UI anchor stays on the originating user message.
 - **New multi-step scope:** planner/execution calls **`task_board_init`** — host opens a fresh board bound to the **current** user turn.
-- **Fresh init supersede:** when `task_board_init` runs while the current main-turn key already has board content, the host opens a fresh key **and auto-abandons** the previous unfinished parent board (`meta.status=failed`), emits `task_board_updated` for it, and rebinds that abandoned board to its **original** key anchor so it does not stack as a second running bar on the current turn.
+- **Fresh init supersede:** when `task_board_init` runs while the current main-turn key already has board content, the host opens a fresh key **and auto-abandons** the previous unfinished parent board (`meta.status=failed`, open milestones `cancelled`), emits `task_board_updated` for it, and rebinds that abandoned board to its **original** key anchor so it does not stack as a second running bar on the current turn. The same `abandon` tool path cancels `pending` / `ready` / `in_progress` rows so the curtain does not keep a spinner.
 - Do not use user-message keyword heuristics for reuse vs new board.
 
 ## Work items vs standalone planner (2026-07)

@@ -2,7 +2,7 @@
 mod apply_tests {
     use crate::task_board::args::items_array_from_args;
     use crate::task_board::migrate::normalize_stored_value;
-    use crate::task_board::model::ItemStatus;
+    use crate::task_board::model::{ItemStatus, MetaStatus};
     use crate::task_board::store::TaskBoardStore;
     use serde_json::json;
 
@@ -26,6 +26,32 @@ mod apply_tests {
         let doc = store.document(key);
         assert_eq!(doc.global_milestones[0].status, ItemStatus::InProgress);
         assert_eq!(doc.global_milestones[1].status, ItemStatus::Ready);
+    }
+
+    #[test]
+    fn abandon_marks_board_failed_and_cancels_open_rows() {
+        let store = TaskBoardStore::new();
+        let key = "conv-abandon";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "batch",
+                    "items": [
+                        {"id": "m1", "title": "One", "status": "done"},
+                        {"id": "m2", "title": "Two", "status": "in_progress"},
+                        {"id": "m3", "title": "Three", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect("init");
+        store.apply(key, "abandon", &json!({})).expect("abandon");
+        let doc = store.document(key);
+        assert_eq!(doc.meta.status, MetaStatus::Failed);
+        assert_eq!(doc.global_milestones[0].status, ItemStatus::Done);
+        assert_eq!(doc.global_milestones[1].status, ItemStatus::Cancelled);
+        assert_eq!(doc.global_milestones[2].status, ItemStatus::Cancelled);
     }
 
     #[test]

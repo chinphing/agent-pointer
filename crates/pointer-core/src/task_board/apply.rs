@@ -656,10 +656,23 @@ fn apply_abandon(doc: &mut BoardDocument) -> Result<()> {
         return Err(anyhow!("task_board: nothing to abandon"));
     }
     if matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed) {
+        cancel_open_milestones(doc);
         return Ok(());
     }
     doc.meta.status = MetaStatus::Failed;
+    cancel_open_milestones(doc);
     Ok(())
+}
+
+fn cancel_open_milestones(doc: &mut BoardDocument) {
+    for item in doc.global_milestones.iter_mut() {
+        if matches!(
+            item.status,
+            ItemStatus::Pending | ItemStatus::Ready | ItemStatus::InProgress
+        ) {
+            item.status = ItemStatus::Cancelled;
+        }
+    }
 }
 
 fn apply_check_deps(doc: &mut BoardDocument, args: &Value) -> Result<Value> {

@@ -192,6 +192,7 @@ mod tests {
 
         let out = abandon_previous_board_for_fresh_init(&store, &key).expect("abandon");
         assert!(matches!(out.meta.status, MetaStatus::Failed));
+        assert_eq!(out.global_milestones[0].status, ItemStatus::Cancelled);
         assert_eq!(
             supersede_anchor_for_previous_board(&key).as_deref(),
             Some("msg-old")

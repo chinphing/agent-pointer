@@ -37,8 +37,12 @@ const childBoardsWithContent = computed(() => {
   )
 })
 
-function statusIcon(item: TaskBoardItem, current: TaskBoardItem | null = currentMilestone.value) {
-  if (milestoneShowsRunning(item, current)) return Loader2
+function statusIcon(
+  item: TaskBoardItem,
+  current: TaskBoardItem | null = currentMilestone.value,
+  boardMeta: string = metaStatus.value
+) {
+  if (milestoneShowsRunning(item, current, boardMeta)) return Loader2
   switch (item.status) {
     case 'done': return CheckCircle2
     case 'failed': return XCircle
@@ -47,8 +51,12 @@ function statusIcon(item: TaskBoardItem, current: TaskBoardItem | null = current
   }
 }
 
-function statusClass(item: TaskBoardItem, current: TaskBoardItem | null = currentMilestone.value): string {
-  if (milestoneShowsRunning(item, current)) return 'text-accent animate-spin'
+function statusClass(
+  item: TaskBoardItem,
+  current: TaskBoardItem | null = currentMilestone.value,
+  boardMeta: string = metaStatus.value
+): string {
+  if (milestoneShowsRunning(item, current, boardMeta)) return 'text-accent animate-spin'
   switch (item.status) {
     case 'done': return 'text-success'
     case 'failed': return 'text-danger'
@@ -114,9 +122,9 @@ function rowLabel(item: TaskBoardItem): string {
         class="flex items-start gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
       >
         <component
-          :is="statusIcon(row, taskBoardCurrentMilestone(child))"
+          :is="statusIcon(row, taskBoardCurrentMilestone(child), child.meta?.status)"
           class="w-3 h-3 shrink-0 mt-0.5"
-          :class="statusClass(row, taskBoardCurrentMilestone(child))"
+          :class="statusClass(row, taskBoardCurrentMilestone(child), child.meta?.status)"
         />
         <div class="min-w-0 flex-1 leading-snug break-words text-foreground">
           <div>{{ milestoneRowLabel(row) }}</div>

@@ -89,4 +89,19 @@ describe('taskBoard helpers', () => {
     ])
     expect(taskBoardVisibleMilestoneProgress(doc)).toBe('3/5')
   })
+
+  it('does not treat in-progress rows as current after the board is abandoned', () => {
+    const doc: TaskBoardDocument = {
+      version: 4,
+      task_id: 'tb_abandoned',
+      meta: { goal: 'old batch', status: 'failed' },
+      global_milestones: [
+        { id: 'm1', title: 'One', status: 'done' },
+        { id: 'm2', title: 'Two', status: 'in_progress' },
+        { id: 'm3', title: 'Three', status: 'pending' }
+      ]
+    }
+    expect(taskBoardCurrentMilestone(doc)).toBeNull()
+    expect(milestoneShowsRunning(doc.global_milestones![1]!, null, 'failed')).toBe(false)
+  })
 })

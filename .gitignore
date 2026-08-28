@@ -16,3 +16,6 @@ signing
 
 # local test/debug scratch (scripts, logs, phoenix.db, venv)
 react-check/
+
+# vite / vitest writes a compiled config next to vite.config.ts
+vite.config.ts.timestamp-*.mjs

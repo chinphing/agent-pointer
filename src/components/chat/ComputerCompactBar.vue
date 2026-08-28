@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LayoutList, Monitor, Maximize2, Square } from 'lucide-vue-next'
+import { ListChecks, Monitor, Maximize2, Square } from 'lucide-vue-next'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
 import type { TaskBoardCompactSummary } from '../../lib/taskBoardCollapsedLine'
 
@@ -36,7 +36,7 @@ const emit = defineEmits<{
           class="flex min-w-0 items-center gap-2"
           :title="planLine ?? undefined"
         >
-          <LayoutList class="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
+          <ListChecks class="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
           <span class="text-[11px] font-medium leading-[1.25rem] tabular-nums text-muted shrink-0">
             {{ planSummary.progress }}
           </span>

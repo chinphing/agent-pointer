@@ -104,5 +104,5 @@ When planner is off, execution prompts include the same Type2 `enumerated` vs `d
 - Ended taskboards should not use sticky scroll behavior.
 - Unfinished taskboards may stay sticky to support active execution.
 - With「默认收缩执行过程」, collapsed turns still keep **all** task boards (running and terminal); only process/tool rows are hidden.
-- Spinner: prefer row `in_progress`; if meta is still running and no `in_progress` exists (stale client doc), treat the first `ready`/`pending` as current (aligned with inject **Current task**). Summary bar spins whenever a current row exists (`<details>` closed by default).
+- Spinner: prefer row `in_progress`; if meta is still running and no `in_progress` exists (stale client doc), treat the first `ready`/`pending` as current (aligned with inject **Current task**). The collapsed summary does **not** spin; only the current step icon in the expanded list does. Default collapsed.
 - Messages soft-excluded by task-board trim (`contextState.included=false`) render like normal chat rows in the UI (no exclusion badge). When debug prompt dump is enabled, excluded rows are logged as `context_excluded_messages` before each LLM request.

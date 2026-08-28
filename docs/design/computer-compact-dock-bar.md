@@ -158,7 +158,7 @@ if (generating && messageHasComputerTools(msg) && hasInProgressComputerTool(msg)
 存在活跃 task board 时显示：
 
 ```
-{LayoutList icon} {done}/{total}   {当前 in_progress 里程碑 title}
+{ListChecks icon} {done}/{total}   {当前 in_progress 里程碑 title}
 ```
 
 进度为普通文字（无底色），与任务标题同一行高、垂直居中；图标与进度数字间距较紧，进度与标题间距略宽（`gap-3`）。无进行中里程碑时，标题回退为 `{goal}`。

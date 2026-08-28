@@ -53,7 +53,7 @@
 - **嵌套位置**：`AgentTrace.parentToolCallId` 指向父消息里对应的 **`run_subagent`** 工具行；UI 将统计/过程挂在该工具行**下方**（`after-tool`）。无该字段或找不到工具行时，回退到消息底部（兼容旧会话，补 `px-3` 对齐，统计行自带目标文案）。并行多个 explore / self 时各自一条。owned-wave（explore / self）在拿到并发许可后立刻发 `status=running` 的 `agent_step`（已带 `parentToolCallId`），避免只在结束时才关联。
 - **默认收缩**统计行（内层工具卡片不渲染；任务板仍显示在摘要上方），执行中与完成后均如此。流式 `agent_step` 不得覆盖用户手动展开状态。
 - 统计：结束后按工具分桶计数（完成态不写「已完成」，**运行中也不写「进行中」「执行中」**）。失败写在统计数字**后面**（`读文件 1 次 · 失败`）。维度按子 agent `agentId`——`explore`：搜索/读文件；`coder`：搜索/读文件/终端/编辑；`computer`：鼠标/输入/其他；`research`：联网搜索。历史 trace 中的 `general-worker` 仍按既有 metadata 渲染（`agentUi` / `subAgentStats`），registry 不再加载该 agent。
-- 子 Agent **任务板**与外层相同组件 `TaskBoardPanel`，绑定在 **lead assistant 消息**（`task_board_updated.anchorMessageId` → `childBindings`），渲染在对应 `SubAgentFrame` **内、执行过程上方**；收缩与展开时都显示完整任务板，不随工具区折叠隐藏。
+- 子 Agent **任务板**与外层相同组件 `TaskBoardPanel`，绑定在 **lead assistant 消息**（`task_board_updated.anchorMessageId` → `childBindings`），渲染在对应 `SubAgentFrame` **内、执行过程上方**；收缩与展开时都显示（不随工具区折叠隐藏）。样式与工具摘要同一套：默认一行 `13px` muted（**步骤勾选图标** + 目标 + 进度），点开才是步骤列表；不要卡片、不要「active」徽章。摘要只跟执行状态：进行中写「执行中」，完成不写状态，失败写「失败」。不要用空方框清单图标——那是 sidecar「任务板 · 初始化」工具行（默认隐藏；内层过程工具同样走 `visibleToolCalls`，只有设置里打开「显示 sidecar 工具调用」才出现）。嵌套看板与统计行 / 内层工具同一条左缘：缩进画在 `.sub-agent-nested` 内层（过 fork 图标对齐委派标题），不要和 `overflow-hidden` 外框叠在同一层。父会话板靠右（`justify-end` + `w-fit`）时，箭头始终占位、步骤宽度跟摘要走，避免悬停/展开把整块撑开左右跳。
 - **子板统一查找**：先按绑定（trace id / 旧 lead 消息 id）命中；没有绑定再按同一 task id 找未绑定板（self-fork 时优先匹配 trace 里的 instance）。legacy 短 key 与带 `ptr_agent_instance` 的长 key 走同一套规则。
 - 设置「显示子 Agent 边框面板」（`showSubAgentTrace`）：Supervisor 默认开；worker lead 默认关。
 - Supervisor 规划列表：`supervisor_plan` → `message.supervisorPlanTasks`，轻量 checklist（无 `<pre>` 时间线）。

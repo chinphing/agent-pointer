@@ -70,4 +70,16 @@ describe('messageTooling', () => {
       'task_board_patch'
     ])
   })
+
+  it('hides task_board_init in a mixed round unless sidecar is enabled', () => {
+    const calls: ToolCall[] = [
+      { id: '1', name: 'file_read', status: 'success', arguments: '{}', result: '{}' },
+      { id: '2', name: 'task_board_init', status: 'success', arguments: '{}', result: '{}' }
+    ]
+    expect(visibleToolCalls(calls).map(c => c.name)).toEqual(['file_read'])
+    expect(visibleToolCalls(calls, [], true).map(c => c.name)).toEqual([
+      'file_read',
+      'task_board_init'
+    ])
+  })
 })

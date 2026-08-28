@@ -4,7 +4,7 @@
 
 ## 聊天 UI 任务板面板
 
-- 会话消息列表上方 **`TaskBoardPanel`**（可折叠）：展示当前会话 **parent** 板 `goal`、里程碑状态与子板摘要。
+- 会话里的 **`TaskBoardPanel`**（可折叠）：默认一行摘要（目标 + 进度），展开看里程碑与子板；与工具摘要同一视觉层次，不是独立卡片。
 - 数据：`GET` / Tauri **`get_task_board_snapshot`**；流式 **`task_board_updated`**（`task_board` 工具成功或 Supervisor 规划同步后）。
 - Agent **`AGENT.md`** 的 **`ui.showTaskBoardPanel`** / **`ui.hideToolNames`** 控制面板与工具卡展示（见 `docs/ui/visual-theme.md` 同目录的 agent `ui` 约定）。
 

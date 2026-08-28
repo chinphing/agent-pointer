@@ -231,7 +231,7 @@ async function onPlaySoundToggle(checked: boolean) {
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示任务板面板</h4>
+            <h4 class="text-[12px] font-medium text-foreground">显示任务板</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showTaskBoardPanel')" @change="setDisplayUi('showTaskBoardPanel', ($event.target as HTMLInputElement).checked)" />
               <div class="settings-toggle-track" />

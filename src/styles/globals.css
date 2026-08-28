@@ -31,6 +31,8 @@
     --mermaid-node: 0 0% 100%;
     --mermaid-node-border: 240 8% 82%;
     --mermaid-edge: 240 6% 68%;
+    /* Glyph shimmer peak: brighter than --muted so the sweep reads on gray type. */
+    --tool-live-shimmer: 240 5% 88%;
   }
 
   html.dark {
@@ -61,6 +63,7 @@
     --mermaid-node: 240 5% 22%;
     --mermaid-node-border: 240 8% 42%;
     --mermaid-edge: 240 6% 72%;
+    --tool-live-shimmer: 240 6% 96%;
   }
 
   html, body, #app { height: 100%; height: 100dvh; overflow: hidden; }
@@ -400,6 +403,24 @@
   .tool-call-trigger[aria-expanded="true"] .tool-call-chevron {
     display: inline-flex;
   }
+  /* Right-aligned board is `w-fit` + `justify-end`. Keep the chevron in layout
+     and pin step width to the summary so hover/expand cannot grow left. */
+  .task-board-panel .tool-call-chevron {
+    display: inline-flex;
+    opacity: 0;
+  }
+  .task-board-panel .tool-call-trigger:hover .tool-call-chevron,
+  .task-board-panel .tool-call-trigger:focus-visible .tool-call-chevron,
+  .task-board-panel .tool-call-trigger[aria-expanded="true"] .tool-call-chevron {
+    opacity: 1;
+  }
+  .task-board-steps {
+    width: 0;
+    min-width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
+  }
   /* Shrink-wrap hover to the summary / live text. `w-max` avoids the old
      `min-w-0 max-w-full` inline-flex growing to the column width. */
   .collapsed-run-hover-pill {
@@ -436,8 +457,10 @@
   .collapsed-run-live-clip-indent {
     left: 18px;
   }
-  /* Inner stats / live / tools: sit under the 委派 title text
-     (fork icon 14px + row gap 6px). */
+  /* Inner stats / live / tools / nested board: sit under the 委派 title text
+     (fork icon 14px + row gap 6px). Keep padding on this inner column, not on
+     the overflow-hidden frame — otherwise a `w-fit` board can sit on the
+     host-row left edge instead of lining up with the process lines. */
   .sub-agent-nested {
     padding-left: 20px;
   }
@@ -464,23 +487,24 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Text-only shimmer: clip the highlight to glyphs, never a row overlay. */
+  /* Text-only shimmer: clip the highlight to glyphs, never a row overlay.
+     Peak is --tool-live-shimmer (light: lift toward paper; dark: near-white). */
   .tool-live-pulse {
     background-image: linear-gradient(
       90deg,
       hsl(var(--muted)) 0%,
-      hsl(var(--muted)) 40%,
-      hsl(var(--foreground) / 0.95) 50%,
-      hsl(var(--muted)) 60%,
+      hsl(var(--muted)) 32%,
+      hsl(var(--tool-live-shimmer)) 50%,
+      hsl(var(--muted)) 68%,
       hsl(var(--muted)) 100%
     );
-    background-size: 200% 100%;
+    background-size: 220% 100%;
     background-position: 100% center;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
     color: transparent;
-    animation: tool-live-shimmer 1.8s linear infinite;
+    animation: tool-live-shimmer 1.6s linear infinite;
   }
   .tool-call-trigger:hover .tool-live-pulse {
     -webkit-text-fill-color: transparent;
@@ -558,6 +582,9 @@
   @media (hover: none) {
     .tool-call-chevron {
       display: inline-flex;
+    }
+    .task-board-panel .tool-call-chevron {
+      opacity: 1;
     }
   }
   .message-avatar-slot {

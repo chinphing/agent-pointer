@@ -4,6 +4,7 @@ import {
   hasTaskBoardContent,
   milestoneShowsRunning,
   taskBoardCurrentMilestone,
+  taskBoardExecutionLabel,
   taskBoardGlobalMilestones,
   taskBoardVisibleMilestoneProgress,
   taskBoardVisibleMilestones
@@ -103,5 +104,14 @@ describe('taskBoard helpers', () => {
     }
     expect(taskBoardCurrentMilestone(doc)).toBeNull()
     expect(milestoneShowsRunning(doc.global_milestones![1]!, null, 'failed')).toBe(false)
+  })
+
+  it('maps board meta to execution labels and never paints active', () => {
+    expect(taskBoardExecutionLabel('running')).toBe('执行中')
+    expect(taskBoardExecutionLabel('active')).toBe('执行中')
+    expect(taskBoardExecutionLabel('failed')).toBe('失败')
+    expect(taskBoardExecutionLabel('paused')).toBe('已暂停')
+    expect(taskBoardExecutionLabel('completed')).toBeNull()
+    expect(taskBoardExecutionLabel('cancelled')).toBe('已取消')
   })
 })

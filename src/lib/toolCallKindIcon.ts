@@ -64,6 +64,7 @@ export function toolCallKindIcon(name: string): LucideIcon {
   if (base === 'image_generate') return ImageIcon
   if (base === 'video_generate') return Video
   if (base === 'media_understand') return ScanEye
+  // Sidecar create/patch rows only. The live board widget uses ListChecks.
   if (base.startsWith('task_board')) return ListTodo
   if (base.startsWith('captcha_verify')) return ShieldCheck
   if (base === 'read_lints') return FileSearch

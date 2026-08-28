@@ -35,6 +35,7 @@ import {
   streamedCharCountFromBody,
   subAgentThinkingActive
 } from '../../../../lib/thinkingIndicator'
+import { visibleToolCalls } from '../../../../lib/messageTooling'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import type { AgentMessageBodyModel } from './AgentMessageBody.vue'
@@ -188,9 +189,19 @@ const innerToolCalls = computed((): ToolCall[] => {
     ?? []
 })
 
+const processInnerTools = computed((): ToolCall[] => {
+  if (!props.messageUi.showToolCalls) return []
+  return visibleToolCalls(
+    innerToolCalls.value.filter(tc => !isSubResponseToolName(tc.name)),
+    props.messageUi.hideToolNames,
+    props.messageUi.showSidecarToolCalls === true,
+    props.messageUi.showNonSidecarToolCalls !== false
+  )
+})
+
 const liveInnerTool = computed(() => {
   if (!isRunning.value) return null
-  const latest = latestToolCallForCompactStatus(innerToolCalls.value)
+  const latest = latestToolCallForCompactStatus(processInnerTools.value)
   if (!latest || !isToolCallInProgress(latest.status)) return null
   return latest
 })
@@ -204,9 +215,9 @@ const showThinkingInSummary = computed(() =>
 )
 
 const visibleInnerTools = computed((): ToolCall[] => {
-  const tools = innerToolCalls.value.filter(tc => !isSubResponseToolName(tc.name))
+  const tools = processInnerTools.value
   const live = liveInnerTool.value
-  if (!live || isSubResponseToolName(live.name)) return tools
+  if (!live) return tools
   if (tools.some(tc => tc.id === live.id)) return tools
   return [...tools, live]
 })
@@ -327,16 +338,19 @@ watch(
 
 <template>
   <div
-    class="sub-agent-frame sub-agent-nested min-w-0 w-full overflow-hidden"
-    :class="taskBoard || !collapsed ? 'space-y-2' : ''"
+    class="sub-agent-frame min-w-0 w-full overflow-hidden"
     :style="{
       marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`
     }"
   >
+    <div
+      class="sub-agent-nested min-w-0 w-full"
+      :class="taskBoard || !collapsed ? 'space-y-2' : ''"
+    >
     <!-- Always above process UI (collapsed summary or expanded tool cards). -->
     <div
       v-if="taskBoard"
-      class="flex justify-start"
+      class="flex justify-start min-w-0 max-w-full"
     >
       <TaskBoardPanel
         :document="taskBoard.document"
@@ -398,6 +412,7 @@ watch(
         :tool-raw-args="toolRawArgs"
         @close="showRawWire = false"
       />
+    </div>
     </div>
   </div>
 </template>

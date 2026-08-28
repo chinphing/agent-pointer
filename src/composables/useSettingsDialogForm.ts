@@ -335,7 +335,7 @@ function createSettingsDialogForm(deps: {
 
   const AGENT_OUTPUT_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
   { key: 'showReasoning', label: '显示推理过程' },
-  { key: 'showTaskBoardPanel', label: '显示任务板面板' },
+  { key: 'showTaskBoardPanel', label: '显示任务板' },
   { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
   ]
 

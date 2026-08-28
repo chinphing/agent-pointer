@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { ListChecks, CheckCircle2, Circle, Loader2, XCircle, Ban, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
 import {
   hasTaskBoardContent,
   milestoneShowsRunning,
   taskBoardCurrentMilestone,
+  taskBoardExecutionLabel,
   taskBoardVisibleMilestones,
   taskBoardVisibleMilestoneProgress
 } from '../../lib/taskBoard'
@@ -19,15 +20,22 @@ const props = defineProps<{
   taskId?: string
 }>()
 
+const expanded = ref(false)
+
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
 const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
 const visibleMilestones = computed(() => taskBoardVisibleMilestones(props.document))
 const currentMilestone = computed(() => taskBoardCurrentMilestone(props.document))
-
 const milestoneProgress = computed(() => taskBoardVisibleMilestoneProgress(props.document))
+const executionLabel = computed(() => taskBoardExecutionLabel(metaStatus.value))
+const boardFailed = computed(() => executionLabel.value === '失败')
 
-/** Current work row (in_progress, or ready fallback) — closed-summary spinner. */
-const hasRunning = computed(() => currentMilestone.value != null)
+const summaryTitle = computed(() => goal.value || '任务板')
+const summaryAria = computed(() => {
+  const parts = [summaryTitle.value, `进度 ${milestoneProgress.value}`]
+  if (executionLabel.value) parts.push(executionLabel.value)
+  return parts.join('，')
+})
 
 const childBoardsWithContent = computed(() => {
   if (!props.isActive) return {}
@@ -56,12 +64,12 @@ function statusClass(
   current: TaskBoardItem | null = currentMilestone.value,
   boardMeta: string = metaStatus.value
 ): string {
-  if (milestoneShowsRunning(item, current, boardMeta)) return 'text-accent animate-spin'
+  if (milestoneShowsRunning(item, current, boardMeta)) return 'text-muted/70 animate-spin'
   switch (item.status) {
     case 'done': return 'text-success'
     case 'failed': return 'text-danger'
     case 'cancelled': return 'text-muted'
-    default: return 'text-muted'
+    default: return 'text-muted/70'
   }
 }
 
@@ -69,73 +77,89 @@ function rowLabel(item: TaskBoardItem): string {
   return milestoneRowLabel(item)
 }
 
+function childGoal(doc: TaskBoardDocument): string {
+  return doc.meta?.goal?.trim() || '子任务'
+}
+
+function toggleExpanded() {
+  expanded.value = !expanded.value
+}
 </script>
 
 <template>
-  <details
+  <div
     v-if="document && hasTaskBoardContent(document)"
-    class="task-board-curtain rounded-b-2xl rounded-t-lg border border-border bg-card overflow-hidden w-fit max-w-[80%] min-w-[240px] shadow-sm"
+    class="task-board-panel min-w-0 w-fit max-w-full"
   >
-    <summary
-      class="cursor-pointer select-none px-3 py-2 flex items-center gap-2 list-none hover:bg-hover transition"
+    <button
+      type="button"
+      class="tool-call-trigger group flex flex-col items-start w-fit max-w-full text-left py-0.5 transition cursor-pointer"
+      :aria-expanded="expanded"
+      :aria-label="summaryAria"
+      @click="toggleExpanded"
     >
-      <Loader2
-        v-if="hasRunning"
-        class="w-4 h-4 text-accent shrink-0 animate-spin"
-        aria-hidden="true"
-      />
-      <LayoutList v-else class="w-4 h-4 text-accent shrink-0" />
-      <span class="text-[13px] font-medium text-foreground truncate flex-1">
-        {{ goal || '任务板' }}
+      <span class="collapsed-run-hover-pill collapsed-run-summary-pill">
+        <ListChecks class="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden="true" />
+        <span class="min-w-0 text-[13px] text-muted group-hover:text-foreground truncate">
+          {{ summaryTitle }}
+        </span>
+        <span class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ milestoneProgress }}</span>
+        <span
+          v-if="executionLabel"
+          class="shrink-0 text-[13px]"
+          :class="boardFailed ? 'text-danger' : 'text-muted/45'"
+        >{{ executionLabel }}</span>
+        <component
+          :is="expanded ? ChevronDown : ChevronRight"
+          class="tool-call-chevron h-3 w-3 shrink-0 text-muted"
+          aria-hidden="true"
+        />
       </span>
-      <span class="text-[11px] text-muted shrink-0 tabular-nums">{{ milestoneProgress }}</span>
-      <span
-        v-if="isActive"
-        class="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success shrink-0"
-      >
-        active
-      </span>
-      <span class="text-[10px] px-1.5 py-0.5 rounded bg-hover text-muted shrink-0">{{ metaStatus }}</span>
-    </summary>
-    <div class="border-t border-border px-3 py-2 space-y-1 max-h-48 overflow-y-auto">
+    </button>
+
+    <div
+      v-if="expanded"
+      class="task-board-steps pl-5 space-y-0.5 pt-0.5"
+    >
       <div
         v-for="item in visibleMilestones"
         :key="item.id"
-        class="flex items-start gap-2 text-[12px] py-1 min-h-[1.5rem]"
-      >
-        <component :is="statusIcon(item)" class="w-3.5 h-3.5 shrink-0 mt-0.5" :class="statusClass(item)" />
-        <div class="min-w-0 flex-1 text-foreground leading-snug break-words">
-          <div>{{ rowLabel(item) }}</div>
-        </div>
-      </div>
-      <div v-if="!visibleMilestones.length" class="text-[11px] text-muted py-2">暂无任务步骤</div>
-    </div>
-    <div
-      v-for="(child, taskIdKey) in childBoardsWithContent"
-      :key="taskIdKey"
-      class="border-t border-border px-3 py-2 bg-accent-muted/20"
-    >
-      <div class="text-[11px] text-muted mb-1">子任务 {{ taskIdKey }}</div>
-      <div
-        v-for="row in taskBoardVisibleMilestones(child)"
-        :key="row.id"
-        class="flex items-start gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
+        class="flex items-start gap-1.5 text-[13px] py-0.5 min-w-0"
       >
         <component
-          :is="statusIcon(row, taskBoardCurrentMilestone(child), child.meta?.status)"
-          class="w-3 h-3 shrink-0 mt-0.5"
-          :class="statusClass(row, taskBoardCurrentMilestone(child), child.meta?.status)"
+          :is="statusIcon(item)"
+          class="w-3.5 h-3.5 shrink-0 mt-0.5"
+          :class="statusClass(item)"
         />
-        <div class="min-w-0 flex-1 leading-snug break-words text-foreground">
-          <div>{{ milestoneRowLabel(row) }}</div>
+        <div class="min-w-0 flex-1 text-muted leading-snug break-words">
+          {{ rowLabel(item) }}
+        </div>
+      </div>
+      <div
+        v-if="!visibleMilestones.length"
+        class="text-[13px] text-muted py-0.5"
+      >暂无步骤</div>
+      <div
+        v-for="(child, taskIdKey) in childBoardsWithContent"
+        :key="taskIdKey"
+        class="pt-1 space-y-0.5"
+      >
+        <div class="text-[13px] text-muted truncate">{{ childGoal(child) }}</div>
+        <div
+          v-for="row in taskBoardVisibleMilestones(child)"
+          :key="row.id"
+          class="flex items-start gap-1.5 text-[13px] py-0.5 min-w-0"
+        >
+          <component
+            :is="statusIcon(row, taskBoardCurrentMilestone(child), child.meta?.status)"
+            class="w-3.5 h-3.5 shrink-0 mt-0.5"
+            :class="statusClass(row, taskBoardCurrentMilestone(child), child.meta?.status)"
+          />
+          <div class="min-w-0 flex-1 leading-snug break-words text-muted">
+            {{ milestoneRowLabel(row) }}
+          </div>
         </div>
       </div>
     </div>
-  </details>
+  </div>
 </template>
-
-<style scoped>
-details > summary::-webkit-details-marker {
-  display: none;
-}
-</style>

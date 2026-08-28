@@ -37,7 +37,7 @@ export function taskBoardCurrentMilestone(
   doc: TaskBoardDocument | null | undefined
 ): TaskBoardItem | null {
   const rows = taskBoardVisibleMilestones(doc)
-  const meta = (doc?.meta?.status ?? 'running').trim()
+  const meta = (doc?.meta?.status ?? 'running').trim().toLowerCase()
   if (meta === 'completed' || meta === 'failed') return null
   const inProgress = rows.find(i => i.status === 'in_progress')
   if (inProgress) return inProgress
@@ -66,4 +66,19 @@ export function hasTaskBoardContent(doc: TaskBoardDocument | null | undefined): 
   if (!doc) return false
   if (taskBoardGlobalMilestones(doc).length > 0) return true
   return !!(doc.meta?.goal?.trim())
+}
+
+/**
+ * User-facing board execution status. Never "active" (that flag is host
+ * bookkeeping for the current parent board, not something to paint).
+ * Completed boards omit a label — progress `n/m` is enough.
+ */
+export function taskBoardExecutionLabel(status: string | undefined): string | null {
+  const s = (status ?? '').trim().toLowerCase()
+  if (s === 'failed') return '失败'
+  if (s === 'paused') return '已暂停'
+  if (s === 'completed') return null
+  if (s === 'cancelled' || s === 'canceled') return '已取消'
+  if (s === 'running' || s === 'active' || s === '') return '执行中'
+  return null
 }

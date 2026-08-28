@@ -76,6 +76,8 @@ The block uses Hermes wording: files have been loaded and should be followed. Em
 
 `resolve_tool_workspace_root()` (file / terminal / `read_lints` / workspace plugins) uses the conversation override or settings `workspaceRoot` only. It does **not** fall back to process `cwd`.
 
+Do **not** join an already-absolute path onto `workspaceRoot`. Stripping a leading `/` and concatenating produces `{sandbox}/Users/…` (macOS/Linux) which is not the real file. `workspaceAbsolutePath` and media path resolve must keep or recover the original absolute path.
+
 Logs:
 
 - `agents_md: system cacheable inject enabled (global ~/.pointer/AGENTS.md + git-root-to-workspace chain)` at process start

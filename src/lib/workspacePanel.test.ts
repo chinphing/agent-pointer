@@ -33,6 +33,17 @@ describe('workspacePanel helpers', () => {
     expect(workspaceAbsolutePath('C:\\project\\', 'src/main.ts')).toBe('C:\\project\\src\\main.ts')
   })
 
+  it('does not join an already-absolute path onto the workspace root', () => {
+    expect(
+      workspaceAbsolutePath(
+        '/Users/me/Library/Application Support/PointerApp/session-sandboxes/abc',
+        '/Users/me/.pi/agent/models.json'
+      )
+    ).toBe('/Users/me/.pi/agent/models.json')
+    expect(workspaceAbsolutePath('/tmp/project', 'C:\\Users\\me\\file.json')).toBe('C:\\Users\\me\\file.json')
+    expect(workspaceAbsolutePath('/tmp/project', '~/Desktop/a.png')).toBe('~/Desktop/a.png')
+  })
+
   it('resolves Markdown links relative to their source file', () => {
     expect(resolveWorkspaceMarkdownReference('/tmp/project', 'docs/guide/index.md', '../api.md#usage'))
       .toEqual({ kind: 'workspace', path: 'docs/api.md' })

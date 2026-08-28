@@ -76,6 +76,59 @@ pub fn is_user_filesystem_path(raw: &str) -> bool {
     Path::new(trimmed).is_absolute()
 }
 
+/// Recover an absolute user path that was joined onto a workspace/sandbox root
+/// after its leading `/` was stripped (e.g. `{sandbox}/Users/me/.pi/agent/models.json`).
+pub fn recover_nested_absolute_path(path: &Path) -> Option<PathBuf> {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    if normalized.len() < 2 {
+        return None;
+    }
+    for marker in ["/Users/", "/home/", "/tmp/", "/private/", "/opt/", "/var/"] {
+        let mut last_idx = None;
+        let mut start = 0;
+        while let Some(rel) = normalized.get(start..).and_then(|s| s.find(marker)) {
+            let idx = start + rel;
+            if idx > 0 {
+                last_idx = Some(idx);
+            }
+            start = idx + marker.len();
+            if start >= normalized.len() {
+                break;
+            }
+        }
+        if let Some(idx) = last_idx {
+            let nested = PathBuf::from(&normalized[idx..]);
+            if nested.is_file() || nested.is_dir() {
+                return Some(nested);
+            }
+        }
+    }
+    recover_nested_windows_drive_path(&normalized)
+}
+
+fn recover_nested_windows_drive_path(normalized: &str) -> Option<PathBuf> {
+    let bytes = normalized.as_bytes();
+    let mut last_drive = None;
+    let mut i = 1;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b':'
+            && bytes[i - 1].is_ascii_alphabetic()
+            && (bytes[i + 1] == b'/' || bytes[i + 1] == b'\\')
+            && i > 1
+        {
+            last_drive = Some(i - 1);
+        }
+        i += 1;
+    }
+    let idx = last_drive?;
+    let nested = PathBuf::from(&normalized[idx..]);
+    if nested.is_file() || nested.is_dir() {
+        Some(nested)
+    } else {
+        None
+    }
+}
+
 pub fn normalize_user_path(raw: &str) -> Result<PathBuf> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -124,5 +177,21 @@ mod tests {
         let home = home_dir().expect("home");
         let path = normalize_user_path("~/Desktop/baby_cover.jpg").expect("path");
         assert_eq!(path, home.join("Desktop/baby_cover.jpg"));
+    }
+
+    #[test]
+    fn recover_nested_absolute_from_sandbox_join() {
+        use std::fs;
+        let real = std::env::temp_dir().join(format!(
+            "pointer-nested-abs-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&real, b"{}").unwrap();
+        let real_unix = real.to_string_lossy().replace('\\', "/");
+        let suffix = real_unix.trim_start_matches('/');
+        let doubled = PathBuf::from(format!("/tmp/fake-session-sandbox/{suffix}"));
+        let recovered = recover_nested_absolute_path(&doubled).expect("recover nested abs");
+        assert_eq!(recovered, real);
+        let _ = fs::remove_file(&real);
     }
 }

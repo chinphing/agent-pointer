@@ -24,7 +24,16 @@ export function readWorkspacePanelWidth(value: string | null, viewportWidth?: nu
 
 export function workspaceAbsolutePath(workspaceRoot: string, relativePath: string): string {
   const root = workspaceRoot.replace(/[\\/]+$/, '')
-  const relative = relativePath.replace(/^[\\/]+/, '')
+  const trimmed = relativePath.trim()
+  if (
+    trimmed === '~'
+    || trimmed.startsWith('~/')
+    || trimmed.startsWith('~\\')
+    || isAbsoluteFilesystemPath(trimmed)
+  ) {
+    return trimmed.replace(/[\\/]+$/, '') || trimmed
+  }
+  const relative = trimmed.replace(/^[\\/]+/, '')
   if (!relative) return root
   const separator = root.includes('\\') && !root.includes('/') ? '\\' : '/'
   return `${root}${separator}${relative.replace(/[\\/]/g, separator)}`

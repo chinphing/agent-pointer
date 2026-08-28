@@ -9,7 +9,9 @@ use anyhow::{Context, Result};
 
 use crate::storage::app_data_dir;
 
-use super::access::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
+use super::access::{
+    is_user_filesystem_path, normalize_user_path, path_has_traversal, recover_nested_absolute_path,
+};
 use super::store::{
     is_app_data_subtree_rel, media_abs_path, media_abs_path_unscoped, CONVERSATION_MEDIA_DIR,
 };
@@ -44,6 +46,14 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
         let path = normalize_user_path(trimmed)?;
         if path.is_file() || path.is_dir() {
             return Ok(path);
+        }
+        if let Some(nested) = recover_nested_absolute_path(&path) {
+            log::warn!(
+                "resolve_local_media_path: recovered nested absolute path {} from {}",
+                nested.display(),
+                path.display()
+            );
+            return Ok(nested);
         }
         anyhow::bail!("media file not found: {trimmed}");
     }
@@ -169,5 +179,23 @@ mod tests {
         let raw = "session-sandboxes/user/conv/out.png";
         assert!(is_app_data_subtree_rel(raw));
         assert!(!is_storage_rel_path(raw));
+    }
+
+    #[test]
+    fn resolve_recovers_absolute_path_joined_under_sandbox() {
+        use std::fs;
+        let real = std::env::temp_dir().join(format!(
+            "pointer-media-nested-{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&real, b"{\"ok\":true}").unwrap();
+        let real_unix = real.to_string_lossy().replace('\\', "/");
+        let suffix = real_unix.trim_start_matches('/');
+        let doubled = format!(
+            "/Users/starliu/Library/Application Support/PointerApp/session-sandboxes/1530c681-176d-40ca-84b4-a90a34312628/{suffix}"
+        );
+        let path = resolve_local_media_path(&doubled).expect("recover nested media path");
+        assert_eq!(path, real);
+        let _ = fs::remove_file(&real);
     }
 }

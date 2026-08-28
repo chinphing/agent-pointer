@@ -8,7 +8,7 @@ Two DashScope paths depending on caller:
 
 | Caller | API | Default model | Default strategy |
 |--------|-----|---------------|------------------|
-| **Generic tool** (coder, default, …) | Generation `POST …/text-generation/generation` with `enable_search` + SSE | `qwen3-max` | `pro_max` |
+| **Generic tool** (coder, default, …) | Native generation + `enable_search` + SSE. Text models use `text-generation`; Qwen 3.5/3.6 multimodal ids use `multimodal-generation` | First DashScope catalog model (often `qwen3.5-plus`) | Tool default `pro_max` maps to `max` on text models; multimodal ids force `agent` |
 | **Research sub-agent** | Responses `POST …/compatible-mode/v1/responses` with agent tools | `qwen3-max-2026-01-23` | `max` + thinking |
 
 The model searches the public web and returns:
@@ -30,7 +30,7 @@ History still receives the final **`WebSearchResult` JSON** on the tool message 
 ## Architecture
 
 - **`agent_tool_pass`** delegates to **`web_search::dispatch`** (single entry).
-- **Tool mode** (coder, default, research as lead): Generation API SSE (`X-DashScope-SSE: enable`, `incremental_output`, `prepend_search_result`); `input.messages` = `[{ role: user, content: query }]`.
+- **Tool mode** (coder, default, research as lead): native generation SSE (`X-DashScope-SSE: enable`, `incremental_output`). Text models send string `content` and `prepend_search_result`. Multimodal models (`qwen3.5-plus`, `qwen3.6-plus`, …) send `content: [{ "text": query }]` and `search_strategy: agent` (Aliyun MultiModalConversation web search).
 - **ResearchSubAgent mode** (`run_subagent` + `agentId=research`): Responses API with agent tools; SearchAgent system = `research/AGENT.md` **SearchAgent** section + sub-agent **local history** + `query`.
 - Implementation lives under `tools/web_search/*` and `agents/research/web_search/*` (does not modify `provider.rs` / `agent_stream_round.rs`).
 
@@ -38,7 +38,7 @@ History still receives the final **`WebSearchResult` JSON** on the tool message 
 
 1. Configure the **Qwen** provider in settings (default base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`).
 2. Set the **Qwen provider API key** — web search reuses this key directly (no separate search key or env var).
-3. Optional: **`webSearchModel`** in settings. When empty, use the first model on a DashScope-compatible provider; compile-time `WEB_SEARCH_MODEL` / `DEFAULT_WEB_SEARCH_MODEL` is last resort. Any configured model id is passed through (with Generation API fallback routing when needed).
+3. Optional: **`webSearchModel`** in settings. When empty, use the first model on a DashScope-compatible provider; compile-time `WEB_SEARCH_MODEL` / `DEFAULT_WEB_SEARCH_MODEL` is last resort. Multimodal catalog ids (e.g. `qwen3.5-plus`) stay on that id and call `multimodal-generation`.
 4. Optional env: **`POINTER_WEB_SEARCH_MODEL`** overrides the search model.
 
 International accounts: use a provider base URL on `dashscope-intl.aliyuncs.com`; the client derives the matching native API host.

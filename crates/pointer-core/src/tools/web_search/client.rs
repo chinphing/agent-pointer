@@ -76,6 +76,7 @@ pub struct DashScopeSearchConfig {
 }
 
 /// Whether the model must use DashScope `multimodal-generation` (not `text-generation`).
+/// Calling these on `text-generation` returns `InvalidParameter: url error`.
 pub fn dashscope_model_uses_multimodal_endpoint(model: &str) -> bool {
     let m = model.trim().to_ascii_lowercase();
     if m.contains("-vl-") || m.contains("omni") {
@@ -86,7 +87,9 @@ pub fn dashscope_model_uses_multimodal_endpoint(model: &str) -> bool {
         "qwen3.5-flash",
         "qwen3.6-plus",
         "qwen3.6-flash",
-        "qwen3.7-max",
+        "qwen3.7-plus",
+        "qwen3.7-flash",
+        "qwen3.8-",
     ] {
         if m.starts_with(stem) {
             return true;
@@ -95,25 +98,53 @@ pub fn dashscope_model_uses_multimodal_endpoint(model: &str) -> bool {
     false
 }
 
-/// Models whose web search is Responses-API-only on DashScope (not `Generation.enable_search`).
+/// Models that cannot use DashScope `text-generation` + `enable_search`.
 pub fn web_search_unsupported_on_generation_api(model: &str) -> bool {
-    let m = model.trim().to_ascii_lowercase();
-    m.starts_with("qwen3.6-") || m.starts_with("qwen3.7-max")
+    dashscope_model_uses_multimodal_endpoint(model)
 }
 
-/// Pick a model that works with our Generation + `enable_search` client.
+/// Pick a model id for the search HTTP call. Empty falls back to `qwen3-max`.
+/// Multimodal ids are kept and routed to `multimodal-generation`.
 pub fn resolve_web_search_api_model(configured: &str) -> String {
     let m = configured.trim();
-    if m.is_empty() || web_search_unsupported_on_generation_api(m) {
-        if !m.is_empty() {
-            warn!(
-                "web_search: model {m} is not supported on Generation API search; using {}",
-                super::generation::DEFAULT_TOOL_WEB_SEARCH_MODEL
-            );
-        }
+    if m.is_empty() {
         return super::generation::DEFAULT_TOOL_WEB_SEARCH_MODEL.to_string();
     }
     m.to_string()
+}
+
+fn search_strategy_for_dashscope_model(model: &str, requested: &str) -> String {
+    let req = requested.trim().to_ascii_lowercase();
+    if dashscope_model_uses_multimodal_endpoint(model) {
+        return "agent".to_string();
+    }
+    match req.as_str() {
+        "" | "pro_max" => "max".to_string(),
+        "max" | "turbo" | "agent" | "agent_max" => req,
+        _ => "max".to_string(),
+    }
+}
+
+fn dashscope_user_content(model: &str, text: &str) -> Value {
+    if dashscope_model_uses_multimodal_endpoint(model) {
+        json!([{ "text": text }])
+    } else {
+        json!(text)
+    }
+}
+
+fn dashscope_message_text(content: &Value) -> String {
+    if let Some(s) = content.as_str() {
+        return s.to_string();
+    }
+    if let Some(arr) = content.as_array() {
+        return arr
+            .iter()
+            .filter_map(|part| part.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("");
+    }
+    String::new()
 }
 
 fn dashscope_api_service_path(model: &str) -> &'static str {
@@ -157,32 +188,46 @@ pub fn resolve_dashscope_search_config(
 
 /// Generation API body for generic tool calls (matches DashScope `enable_search` curl).
 pub fn build_tool_generation_request_body(model: &str, req: &WebSearchRequest) -> Value {
+    let multimodal = dashscope_model_uses_multimodal_endpoint(model);
+    let strategy = search_strategy_for_dashscope_model(model, &req.search_strategy);
     let mut search_options = json!({
-        "search_strategy": req.search_strategy,
+        "search_strategy": strategy,
         "enable_source": true,
-        "enable_citation": true,
     });
-    if req.forced_search {
-        search_options["forced_search"] = json!(true);
-    }
-    if req.enable_vertical_search {
-        search_options["enable_search_extension"] = json!(true);
+    if !multimodal {
+        search_options["enable_citation"] = json!(true);
+        if req.forced_search {
+            search_options["forced_search"] = json!(true);
+        }
+        if req.enable_vertical_search {
+            search_options["enable_search_extension"] = json!(true);
+        }
     }
 
     let api_messages: Vec<Value> = if req.messages.is_empty() {
-        vec![json!({ "role": "user", "content": req.query })]
+        vec![json!({
+            "role": "user",
+            "content": dashscope_user_content(model, &req.query),
+        })]
     } else {
         req.messages
             .iter()
-            .map(|m| json!({ "role": m.role, "content": m.content }))
+            .map(|m| {
+                json!({
+                    "role": m.role,
+                    "content": dashscope_user_content(model, &m.content),
+                })
+            })
             .collect()
     };
 
     let mut parameters = json!({
         "enable_search": true,
         "search_options": search_options,
-        "result_format": "message",
     });
+    if !multimodal {
+        parameters["result_format"] = json!("message");
+    }
     if req.enable_thinking {
         parameters["enable_thinking"] = json!(true);
     }
@@ -198,14 +243,17 @@ pub fn build_tool_generation_request_body(model: &str, req: &WebSearchRequest) -
 
 /// Tool streaming body: `incremental_output` + early `prepend_search_result` for sources.
 pub fn build_tool_generation_stream_request_body(model: &str, req: &WebSearchRequest) -> Value {
+    let multimodal = dashscope_model_uses_multimodal_endpoint(model);
     let mut body = build_tool_generation_request_body(model, req);
     if let Some(params) = body.get_mut("parameters").and_then(|p| p.as_object_mut()) {
         params.insert("incremental_output".into(), json!(true));
-        if let Some(opts) = params
-            .get_mut("search_options")
-            .and_then(|o| o.as_object_mut())
-        {
-            opts.insert("prepend_search_result".into(), json!(true));
+        if !multimodal {
+            if let Some(opts) = params
+                .get_mut("search_options")
+                .and_then(|o| o.as_object_mut())
+            {
+                opts.insert("prepend_search_result".into(), json!(true));
+            }
         }
     }
     body
@@ -585,54 +633,12 @@ pub fn normalize_search_strategy(raw: &str) -> Result<&'static str> {
 }
 
 pub fn build_search_request_body(model: &str, req: &WebSearchRequest) -> Value {
-    let mut search_options = json!({
-        "enable_source": true,
-        "enable_citation": true,
-        "search_strategy": req.search_strategy,
-    });
-    if req.forced_search {
-        search_options["forced_search"] = json!(true);
-    }
-    if req.enable_vertical_search {
-        search_options["enable_search_extension"] = json!(true);
-    }
-
-    let api_messages: Vec<Value> = if req.messages.is_empty() {
-        vec![json!({ "role": "user", "content": req.query })]
-    } else {
-        req.messages
-            .iter()
-            .map(|m| json!({ "role": m.role, "content": m.content }))
-            .collect()
-    };
-
-    json!({
-        "model": model,
-        "input": {
-            "messages": api_messages,
-        },
-        "parameters": {
-            "enable_search": true,
-            "enable_thinking": req.enable_thinking,
-            "search_options": search_options,
-            "result_format": "message"
-        }
-    })
+    build_tool_generation_request_body(model, req)
 }
 
-/// Streaming request body: adds `incremental_output` and `prepend_search_result`.
+/// Streaming request body: `incremental_output`; text models also prepend sources.
 pub fn build_search_stream_request_body(model: &str, req: &WebSearchRequest) -> Value {
-    let mut body = build_search_request_body(model, req);
-    if let Some(params) = body.get_mut("parameters").and_then(|p| p.as_object_mut()) {
-        params.insert("incremental_output".into(), json!(true));
-        if let Some(opts) = params
-            .get_mut("search_options")
-            .and_then(|o| o.as_object_mut())
-        {
-            opts.insert("prepend_search_result".into(), json!(true));
-        }
-    }
-    body
+    build_tool_generation_stream_request_body(model, req)
 }
 
 pub(crate) fn log_web_search_http_request(url: &str, body: &Value, streaming: bool) {
@@ -673,9 +679,8 @@ pub fn parse_search_sse_chunk(body: &Value) -> SearchSseChunk {
         .and_then(|a| a.first())
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .map(dashscope_message_text)
+        .unwrap_or_default();
     let finish_reason = output
         .and_then(|o| o.get("choices"))
         .and_then(|c| c.as_array())
@@ -785,9 +790,8 @@ pub fn parse_search_response(
         .and_then(|a| a.first())
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .map(dashscope_message_text)
+        .unwrap_or_default();
 
     let sources = output
         .get("search_info")
@@ -969,9 +973,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_api_model_falls_back_from_qwen36_plus() {
-        assert_eq!(resolve_web_search_api_model("qwen3.6-plus"), "qwen3-max");
+    fn resolve_api_model_keeps_qwen36_plus() {
+        assert_eq!(resolve_web_search_api_model("qwen3.6-plus"), "qwen3.6-plus");
         assert_eq!(resolve_web_search_api_model("qwen-plus"), "qwen-plus");
+        assert_eq!(resolve_web_search_api_model(""), "qwen3-max");
     }
 
     #[test]
@@ -1005,6 +1010,57 @@ mod tests {
         assert_eq!(r.sources.len(), 1);
         assert_eq!(r.search_count, 1);
         assert_eq!(r.request_id.as_deref(), Some("req-1"));
+    }
+
+    #[test]
+    fn parse_multimodal_content_array() {
+        let body = json!({
+            "output": {
+                "choices": [{
+                    "message": { "content": [{ "text": "Hangzhou weather" }] }
+                }]
+            }
+        });
+        let r = parse_search_response("q", "qwen3.5-plus", "agent", &body).unwrap();
+        assert_eq!(r.answer, "Hangzhou weather");
+    }
+
+    #[test]
+    fn build_qwen35_plus_matches_official_multimodal_search() {
+        let req = WebSearchRequest {
+            query: "杭州今天天气如何".into(),
+            search_strategy: DEFAULT_TOOL_WEB_SEARCH_STRATEGY.into(),
+            forced_search: false,
+            enable_vertical_search: false,
+            enable_thinking: false,
+            messages: vec![],
+        };
+        let body = build_tool_generation_stream_request_body("qwen3.5-plus", &req);
+        assert_eq!(
+            body["input"]["messages"][0]["content"],
+            json!([{ "text": "杭州今天天气如何" }])
+        );
+        assert_eq!(
+            body["parameters"]["search_options"]["search_strategy"],
+            json!("agent")
+        );
+        assert_eq!(
+            body["parameters"]["search_options"]["enable_source"],
+            json!(true)
+        );
+        assert_eq!(body["parameters"]["incremental_output"], json!(true));
+        assert!(!body["parameters"]
+            .as_object()
+            .unwrap()
+            .contains_key("result_format"));
+        assert!(!body["parameters"]["search_options"]
+            .as_object()
+            .unwrap()
+            .contains_key("enable_citation"));
+        assert!(!body["parameters"]["search_options"]
+            .as_object()
+            .unwrap()
+            .contains_key("prepend_search_result"));
     }
 
     #[test]
@@ -1066,7 +1122,38 @@ mod tests {
     }
 
     #[test]
-    fn resolve_config_falls_back_unsupported_web_search_model() {
+    fn resolve_config_uses_qwen35_plus_on_multimodal_endpoint() {
+        let settings = ModelSettings {
+            providers: vec![ProviderConfig {
+                id: "qwen".into(),
+                name: "Qwen".into(),
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                api_key: "sk-qwen".into(),
+                models: vec!["qwen3.5-plus".into(), "qwen3.5-flash".into()],
+                reasoning_in_messages: None,
+                temperature: None,
+                top_p: None,
+                max_tokens: None,
+                context_budget_tokens: None,
+                model_configs: Default::default(),
+                enable_thinking: None,
+                thinking_budget: None,
+                reasoning_effort: None,
+                thinking_protocol: None,
+                thinking_intensity: None,
+                extra_body: None,
+                source: None,
+            }],
+            web_search_model: String::new(),
+            ..Default::default()
+        };
+        let cfg = resolve_dashscope_search_config(&settings, None).unwrap();
+        assert_eq!(cfg.model, "qwen3.5-plus");
+        assert!(cfg.generation_url.contains("multimodal-generation"));
+    }
+
+    #[test]
+    fn resolve_config_keeps_explicit_qwen36_plus_on_multimodal() {
         use crate::models::AgentModelRef;
         let settings = ModelSettings {
             providers: vec![ProviderConfig {
@@ -1102,8 +1189,8 @@ mod tests {
             ..Default::default()
         };
         let cfg = resolve_dashscope_search_config(&settings, Some("explore")).unwrap();
-        assert_eq!(cfg.model, "qwen3-max");
-        assert!(cfg.generation_url.contains("text-generation"));
+        assert_eq!(cfg.model, "qwen3.6-plus");
+        assert!(cfg.generation_url.contains("multimodal-generation"));
     }
 
     #[test]
@@ -1205,7 +1292,7 @@ mod tests {
         assert_eq!(body["parameters"]["enable_search"], json!(true));
         assert_eq!(
             body["parameters"]["search_options"]["search_strategy"],
-            json!("pro_max")
+            json!("max")
         );
         assert_eq!(
             body["parameters"]["search_options"]["enable_source"],
@@ -1484,7 +1571,10 @@ mod tests {
             body["parameters"]["search_options"]["search_strategy"],
             json!("max")
         );
-        assert_eq!(body["parameters"]["enable_thinking"], json!(false));
+        assert!(!body["parameters"]
+            .as_object()
+            .unwrap()
+            .contains_key("enable_thinking"));
     }
 
     #[test]
@@ -1508,7 +1598,7 @@ mod tests {
         );
         assert_eq!(
             body["parameters"]["search_options"]["search_strategy"],
-            json!("pro_max")
+            json!("max")
         );
     }
 

@@ -206,4 +206,38 @@ mod tests {
         assert_eq!(cfg.model, "qwen3-max");
         assert!(cfg.generation_url.contains("text-generation"));
     }
+
+    #[test]
+    fn empty_web_search_model_uses_first_catalog_id_on_matching_endpoint() {
+        let cfg = resolve_dashscope_generation_config(
+            &ModelSettings {
+                providers: vec![crate::models::ProviderConfig {
+                    id: "qwen".into(),
+                    name: "Qwen".into(),
+                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                    api_key: "sk".into(),
+                    models: vec!["qwen3.5-plus".into(), "qwen3-max".into()],
+                    reasoning_in_messages: None,
+                    temperature: None,
+                    top_p: None,
+                    max_tokens: None,
+                    context_budget_tokens: None,
+                    model_configs: Default::default(),
+                    enable_thinking: None,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_protocol: None,
+                    thinking_intensity: None,
+                    extra_body: None,
+                    source: None,
+                }],
+                web_search_model: String::new(),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(cfg.model, "qwen3.5-plus");
+        assert!(cfg.generation_url.contains("multimodal-generation"));
+    }
 }

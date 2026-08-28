@@ -995,7 +995,7 @@ pub struct ModelSettings {
     /// Per-agent UI overrides keyed by agent id.
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
-    /// Model id for DashScope web search tool calls (defaults to `qwen3-max` when empty).
+    /// Model id for DashScope web search. Empty uses the first DashScope catalog model.
     #[serde(
         default = "default_web_search_model_setting",
         rename = "webSearchModel"
@@ -1666,11 +1666,12 @@ impl Default for ModelSettings {
 
 pub const DEFAULT_WEB_SEARCH_MODEL: &str = "qwen3-max-2026-01-23";
 
-/// Effective model id for DashScope `web_search` tool (`Generation` API + `enable_search`).
+/// Effective model id for DashScope `web_search`.
 ///
-/// Independent from per-agent chat defaults (e.g. `research` may orchestrate on `qwen3.6-plus`
-/// while search calls use `qwen3-max`). Env `POINTER_WEB_SEARCH_MODEL` and `webSearchModel`
-/// override the default.
+/// When `webSearchModel` and `POINTER_WEB_SEARCH_MODEL` are empty, use the
+/// first model on the DashScope-compatible provider (production catalog first
+/// item is typically `qwen3.5-plus`). That model **does** support search; it
+/// must be called on `multimodal-generation` with `search_strategy=agent`.
 pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&str>) -> String {
     if let Ok(m) = std::env::var("POINTER_WEB_SEARCH_MODEL") {
         let m = m.trim();

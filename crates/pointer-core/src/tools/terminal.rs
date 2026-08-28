@@ -1234,8 +1234,10 @@ mod cwd_tests {
     #[test]
     fn resolve_max_wall_ms_tool_arg_cannot_exceed_ceiling() {
         let ceiling = resolve_max_wall_ms(&serde_json::json!({}));
-        let floor = crate::models::terminal_max_wall_ms(crate::models::FLOOR_TERMINAL_MAX_WALL_HOURS);
-        let cap = crate::models::terminal_max_wall_ms(crate::models::CEILING_TERMINAL_MAX_WALL_HOURS);
+        let floor =
+            crate::models::terminal_max_wall_ms(crate::models::FLOOR_TERMINAL_MAX_WALL_HOURS);
+        let cap =
+            crate::models::terminal_max_wall_ms(crate::models::CEILING_TERMINAL_MAX_WALL_HOURS);
         assert!(ceiling >= floor);
         assert!(ceiling <= cap);
         let lowered = resolve_max_wall_ms(&serde_json::json!({ "maxWallMs": 3_600_000 }));
@@ -1247,8 +1249,10 @@ mod cwd_tests {
     #[test]
     fn resolve_timeout_ms_uses_settings_as_default_not_ceiling() {
         let default_ms = resolve_timeout_ms(&serde_json::json!({}));
-        let floor = crate::models::terminal_timeout_ms(crate::models::FLOOR_TERMINAL_TIMEOUT_SECONDS);
-        let cap = crate::models::terminal_timeout_ms(crate::models::CEILING_TERMINAL_TIMEOUT_SECONDS);
+        let floor =
+            crate::models::terminal_timeout_ms(crate::models::FLOOR_TERMINAL_TIMEOUT_SECONDS);
+        let cap =
+            crate::models::terminal_timeout_ms(crate::models::CEILING_TERMINAL_TIMEOUT_SECONDS);
         assert!(default_ms >= floor);
         assert!(default_ms <= cap);
         let lowered = resolve_timeout_ms(&serde_json::json!({ "timeoutMs": 5_000 }));

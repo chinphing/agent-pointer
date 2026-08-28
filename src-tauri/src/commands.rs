@@ -172,11 +172,13 @@ pub async fn send_chat(
 }
 
 #[tauri::command]
-pub fn cancel_chat(
+pub async fn cancel_chat(
     dispatcher: State<'_, Arc<RunDispatcher>>,
     conversation_id: String,
 ) -> Result<(), String> {
-    dispatcher.cancel_conversation(&conversation_id);
+    dispatcher
+        .cancel_conversation_and_wait(&conversation_id)
+        .await;
     Ok(())
 }
 

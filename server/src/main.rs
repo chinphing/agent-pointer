@@ -3289,7 +3289,10 @@ async fn cancel_chat(
     Path(conversation_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
-    state.dispatcher.cancel_conversation(&conversation_id);
+    state
+        .dispatcher
+        .cancel_conversation_and_wait(&conversation_id)
+        .await;
     Ok(StatusCode::NO_CONTENT)
 }
 

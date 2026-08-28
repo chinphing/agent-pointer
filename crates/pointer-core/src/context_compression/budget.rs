@@ -205,11 +205,7 @@ fn parse_leading_usize(s: &str) -> Option<usize> {
 /// Prompt-side compress budget: `min(configured, window - max_tokens - margin)`.
 /// Unknown window is treated as the configured budget so a 160k setting on a
 /// ~164k model with 32k completion still compresses before the vLLM 400.
-pub fn apply_completion_reserve(
-    configured: usize,
-    window: Option<usize>,
-    max_out: usize,
-) -> usize {
+pub fn apply_completion_reserve(configured: usize, window: Option<usize>, max_out: usize) -> usize {
     let window = window.unwrap_or(configured);
     let usable = window
         .saturating_sub(max_out)

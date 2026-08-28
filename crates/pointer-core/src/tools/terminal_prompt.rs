@@ -164,7 +164,10 @@ fn looks_like_colon_prompt(last_line: &str) -> bool {
     if body.is_empty() {
         return false;
     }
-    if body.starts_with('=') || body.starts_with('-') || body.starts_with('#') || body.starts_with('*')
+    if body.starts_with('=')
+        || body.starts_with('-')
+        || body.starts_with('#')
+        || body.starts_with('*')
     {
         return false;
     }

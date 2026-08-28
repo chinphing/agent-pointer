@@ -3712,9 +3712,18 @@ mod effective_generation_tests {
         let t = serde_json::to_string(&json_number_max_2dp(0.7)).unwrap();
         assert_eq!(t, "0.7");
         assert!(!t.contains("999"));
-        assert_eq!(serde_json::to_string(&json_number_max_2dp(0.95)).unwrap(), "0.95");
-        assert_eq!(serde_json::to_string(&json_number_max_2dp(1.234)).unwrap(), "1.23");
-        assert_eq!(serde_json::to_string(&json_number_max_2dp(1.0)).unwrap(), "1");
+        assert_eq!(
+            serde_json::to_string(&json_number_max_2dp(0.95)).unwrap(),
+            "0.95"
+        );
+        assert_eq!(
+            serde_json::to_string(&json_number_max_2dp(1.234)).unwrap(),
+            "1.23"
+        );
+        assert_eq!(
+            serde_json::to_string(&json_number_max_2dp(1.0)).unwrap(),
+            "1"
+        );
     }
 
     #[test]
@@ -3725,8 +3734,14 @@ mod effective_generation_tests {
             "model": "qwen-plus"
         });
         round_chat_sampling_numbers_on_wire(&mut body);
-        assert_eq!(serde_json::to_string(body.get("temperature").unwrap()).unwrap(), "0.7");
-        assert_eq!(serde_json::to_string(body.get("top_p").unwrap()).unwrap(), "0.95");
+        assert_eq!(
+            serde_json::to_string(body.get("temperature").unwrap()).unwrap(),
+            "0.7"
+        );
+        assert_eq!(
+            serde_json::to_string(body.get("top_p").unwrap()).unwrap(),
+            "0.95"
+        );
     }
 
     #[test]

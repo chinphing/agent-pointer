@@ -637,11 +637,7 @@ pub(crate) async fn run_sub_agent(
         match Box::pin(run_agent_tool_pass(pass)).await? {
             ToolPassResult::SubFinished(result) => return Ok(result),
             ToolPassResult::FinalReplyComplete(output) => {
-                return Ok(sub_agent_run_result(
-                    &task.id,
-                    &def,
-                    output,
-                ));
+                return Ok(sub_agent_run_result(&task.id, &def, output));
             }
             ToolPassResult::NoopExit => {
                 return Ok(sub_agent_run_result(

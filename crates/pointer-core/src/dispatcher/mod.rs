@@ -44,9 +44,11 @@ pub use trigger::{
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::future::FutureExt;
 use parking_lot::Mutex;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_events::{stream_event_to_agent_event, AgentEvent, AgentEventBus};
@@ -56,6 +58,13 @@ use crate::models::ChatMessage;
 
 /// Default global concurrency cap when settings omit an explicit value.
 pub const DEFAULT_MAX_CONCURRENT: usize = 4;
+
+/// After `cancel`, wait this long for `run_chat` to unwind (sub-agent / tools)
+/// before aborting the runner so the session lane is not held forever.
+const CANCEL_UNWIND_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// After abort, wait this long for the runner task to drop its lane permit.
+const CANCEL_ABORT_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Resolve dispatcher global cap from merged user settings (1..=64).
 pub fn resolve_max_concurrent_runs(settings: &crate::models::ModelSettings) -> usize {
@@ -75,6 +84,20 @@ struct Inner {
     events: AgentEventBus,
     hooks: Arc<HookRegistry>,
     cancels: Mutex<HashMap<String, CancellationToken>>,
+    /// Live runner tasks; abort after cancel timeout so a stuck sub-agent cannot
+    /// pin `session:*` forever (next send would sit in 待执行 with no reply).
+    tasks: Mutex<HashMap<String, JoinHandle<()>>>,
+}
+
+struct TaskMapCleanup {
+    inner: Arc<Inner>,
+    run_id: String,
+}
+
+impl Drop for TaskMapCleanup {
+    fn drop(&mut self) {
+        self.inner.tasks.lock().remove(&self.run_id);
+    }
 }
 
 impl RunDispatcher {
@@ -95,6 +118,7 @@ impl RunDispatcher {
                 events: AgentEventBus::new(),
                 hooks: Arc::new(HookRegistry::new()),
                 cancels: Mutex::new(HashMap::new()),
+                tasks: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -126,6 +150,7 @@ impl RunDispatcher {
                 events: AgentEventBus::new(),
                 hooks,
                 cancels: Mutex::new(HashMap::new()),
+                tasks: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -318,7 +343,7 @@ impl RunDispatcher {
         let run_id_task = run_id.clone();
         let conv_id_task = conversation_id.clone();
         let web_session_auth = req.web_session_auth.clone();
-        tokio::spawn(async move {
+        let join = tokio::spawn(async move {
             crate::web_request_auth::run_with_optional_web_session(
                 web_session_auth,
                 || async move {
@@ -328,6 +353,7 @@ impl RunDispatcher {
             )
             .await;
         });
+        self.inner.tasks.lock().insert(run_id.clone(), join);
 
         log::info!(
             "dispatch: accepted run_id={} conversation_id={} source={} lane={}",
@@ -353,6 +379,10 @@ impl RunDispatcher {
         conversation_id: String,
         cancel: CancellationToken,
     ) {
+        let _task_cleanup = TaskMapCleanup {
+            inner: self.inner.clone(),
+            run_id: run_id.clone(),
+        };
         // Acquire lane + global permit (cancellable while queued).
         let permit = match self.inner.queue.acquire(req.clone(), cancel.clone()).await {
             Ok(p) => p,
@@ -495,7 +525,7 @@ impl RunDispatcher {
         };
 
         // Tear down: remove legacy cancel registration, drop permit, await
-        // forwarder.
+        // forwarder. Task map entry is removed by `TaskMapCleanup`.
         self.inner.state.cancels.lock().remove(&conversation_id);
         drop(permit);
         let _ = fwd_handle.await;
@@ -547,6 +577,17 @@ impl RunDispatcher {
         error: Option<&str>,
         terminal_event: AgentEvent,
     ) {
+        if let Ok(Some(rec)) = self.inner.state.session_index.runs_get(run_id) {
+            if crate::conversation_store::runs::is_terminal_status_str(&rec.status) {
+                log::info!(
+                    "dispatch: skip finalize already terminal run_id={run_id} status={}",
+                    rec.status
+                );
+                self.inner.cancels.lock().remove(run_id);
+                self.inner.events.finalize_run(run_id);
+                return;
+            }
+        }
         if let Err(e) = self
             .inner
             .state
@@ -643,6 +684,99 @@ impl RunDispatcher {
         log::info!(
             "dispatch: cancel_conversation conversation_id={conversation_id} runs={run_count}"
         );
+    }
+
+    /// Signal cancel, then wait for those runs to leave `running`/`queued`.
+    /// If a sub-agent (or other await) ignores the token, abort the runner so
+    /// `session:{conversation}` is released and the next send can start.
+    pub async fn cancel_conversation_and_wait(&self, conversation_id: &str) {
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            return;
+        }
+        let runs = self
+            .inner
+            .state
+            .session_index
+            .runs_list_non_terminal_for_conversation(conversation_id, 32)
+            .unwrap_or_else(|e| {
+                log::warn!(
+                    "dispatch: cancel_conversation_and_wait list runs failed conversation_id={conversation_id}: {e:#}"
+                );
+                Vec::new()
+            });
+        self.cancel_conversation(conversation_id);
+        if runs.is_empty() {
+            return;
+        }
+        let waits = runs.iter().map(|run| {
+            let dispatcher = self.clone();
+            let run_id = run.run_id.clone();
+            async move { dispatcher.wait(&run_id).await }
+        });
+        match tokio::time::timeout(CANCEL_UNWIND_TIMEOUT, futures_util::future::join_all(waits))
+            .await
+        {
+            Ok(_) => {
+                log::info!(
+                    "dispatch: cancel_conversation_and_wait settled conversation_id={conversation_id} runs={}",
+                    runs.len()
+                );
+            }
+            Err(_) => {
+                log::error!(
+                    "dispatch: cancel unwind timed out conversation_id={conversation_id} runs={}; aborting stuck runners",
+                    runs.len()
+                );
+                for run in &runs {
+                    self.abort_stuck_run(&run.run_id, conversation_id).await;
+                }
+            }
+        }
+    }
+
+    async fn abort_stuck_run(&self, run_id: &str, conversation_id: &str) {
+        if let Ok(Some(rec)) = self.inner.state.session_index.runs_get(run_id) {
+            if crate::conversation_store::runs::is_terminal_status_str(&rec.status) {
+                return;
+            }
+        }
+        let handle = self.inner.tasks.lock().remove(run_id);
+        if let Some(handle) = handle {
+            log::error!(
+                "dispatch: aborting stuck run_id={run_id} conversation_id={conversation_id}"
+            );
+            handle.abort();
+            match tokio::time::timeout(CANCEL_ABORT_JOIN_TIMEOUT, handle).await {
+                Ok(Ok(())) => log::info!(
+                    "dispatch: stuck runner exited after abort run_id={run_id} conversation_id={conversation_id}"
+                ),
+                Ok(Err(e)) => log::info!(
+                    "dispatch: stuck runner aborted run_id={run_id} conversation_id={conversation_id}: {e}"
+                ),
+                Err(_) => log::error!(
+                    "dispatch: runner still blocked after abort run_id={run_id} conversation_id={conversation_id}; session lane may stay occupied"
+                ),
+            }
+        } else {
+            log::warn!(
+                "dispatch: stuck run has no abort handle run_id={run_id} conversation_id={conversation_id}"
+            );
+        }
+        self.inner.state.cancels.lock().remove(conversation_id);
+        self.finalize_terminal(
+            run_id,
+            conversation_id,
+            RunStatus::Cancelled,
+            Some("stopped: runner did not unwind after cancel"),
+            AgentEvent::RunCancelled {
+                run_id: run_id.to_string(),
+                conversation_id: conversation_id.to_string(),
+                seq: 0,
+                ts: 0,
+            },
+        )
+        .await;
     }
 
     /// Block until the run reaches a terminal state, returning the outcome.

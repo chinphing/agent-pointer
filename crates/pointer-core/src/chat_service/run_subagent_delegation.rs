@@ -146,6 +146,45 @@ pub(super) fn failed_owned_subagent_outcome(
     }
 }
 
+pub(super) fn cancelled_owned_subagent_outcome(
+    run_id: &str,
+    conversation_id: &str,
+    tool_call_id: &str,
+    task: AgentTask,
+    source: &OwnedSubagentSource,
+    child_spawn_depth: u32,
+) -> PreparedSubagentOutcome {
+    let def = match source {
+        OwnedSubagentSource::SelfFork(snapshot) => &snapshot.def,
+        OwnedSubagentSource::Registered(def) => def,
+    };
+    let instance_scope = AgentInstanceScope::new(run_id, conversation_id, def.id.as_str());
+    log::info!(
+        "run_subagent owned-wave skipped conversation_id={} task_id={} tool_call_id={} agent_id={} (cancelled)",
+        conversation_id,
+        task.id,
+        tool_call_id,
+        def.id
+    );
+    PreparedSubagentOutcome {
+        tool_call_id: tool_call_id.to_string(),
+        task_id: task.id.clone(),
+        trace: build_subagent_trace(
+            &task,
+            def,
+            &instance_scope,
+            child_spawn_depth,
+            None,
+            Some(tool_call_id),
+            None,
+            "cancelled",
+            Some("cancelled".into()),
+        ),
+        usage: ConversationLlmStats::default(),
+        exec: Ok(("ERROR: cancelled".into(), false, Some("cancelled".into()))),
+    }
+}
+
 impl PendingSubagentOutcome {
     pub(super) async fn record_tool_result<F, Fut>(self, recorder: F) -> RecordedSubagentOutcome
     where
@@ -266,6 +305,16 @@ fn abandon_child_board(
 pub(super) async fn execute_owned_subagent(
     input: OwnedSubagentExecutionInput<'_>,
 ) -> PreparedSubagentOutcome {
+    if input.cancel.is_cancelled() {
+        return cancelled_owned_subagent_outcome(
+            &input.run_id,
+            input.conversation_id,
+            &input.tool_call_id,
+            input.task,
+            &input.source,
+            input.child_spawn_depth,
+        );
+    }
     let OwnedSubagentExecutionInput {
         stream,
         state,
@@ -326,9 +375,8 @@ pub(super) async fn execute_owned_subagent(
         ),
     );
 
-    let sub_cap = crate::models::clamp_max_sub_agent_tool_rounds(
-        provider.settings.max_sub_agent_tool_rounds,
-    );
+    let sub_cap =
+        crate::models::clamp_max_sub_agent_tool_rounds(provider.settings.max_sub_agent_tool_rounds);
     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
     let mut child_trace = Vec::new();
     let mut child_usage = ConversationLlmStats::default();
@@ -599,6 +647,9 @@ pub(super) async fn run_subagent_delegation(
                             log::warn!(
                                 "run_subagent computer monitor pick failed conversation_id={conversation_id}: {msg}"
                             );
+                            if cancel.is_cancelled() {
+                                return Err(anyhow::anyhow!("已停止生成"));
+                            }
                             return Ok((format!("ERROR: {msg}"), false, Some(msg)));
                         }
                     }
@@ -751,6 +802,7 @@ pub(super) async fn run_subagent_delegation(
                             Ok((json, true, None))
                         }
                         Err(e) => {
+                            let cancelled = cancel.is_cancelled();
                             log::warn!(
                                 "run_subagent failed conversation_id={}: {e:#}",
                                 conversation_id
@@ -765,8 +817,17 @@ pub(super) async fn run_subagent_delegation(
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,
-                                make_trace("failed", Some(e.to_string())),
+                                make_trace(
+                                    if cancelled { "cancelled" } else { "failed" },
+                                    Some(e.to_string()),
+                                ),
                             );
+                            // Cancel must fail the parent tool pass so the lead loop
+                            // stops; otherwise the session lane stays occupied and the
+                            // next user message queues with no reply.
+                            if cancelled {
+                                return Err(anyhow::anyhow!("已停止生成"));
+                            }
                             Ok((format!("ERROR: {e}"), false, None))
                         }
                     }
@@ -1207,21 +1268,10 @@ mod trace_tests {
         assert_eq!(error.as_deref(), Some("cancelled"));
         let streamed: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
         assert!(
-            streamed.iter().any(|event| matches!(
-                event,
-                crate::models::StreamEvent::AgentStep { agent, .. }
-                    if agent.status == "running"
-                        && agent.parent_tool_call_id.as_deref() == Some("call-cancel")
-            )),
-            "owned-wave must emit running AgentStep with parentToolCallId before work starts"
-        );
-        assert!(
-            streamed.iter().all(|event| !matches!(
-                event,
-                crate::models::StreamEvent::AgentStep { agent, .. }
-                    if agent.status != "running"
-            )),
-            "terminal parent AgentStep must wait for ordered commit"
+            streamed
+                .iter()
+                .all(|event| !matches!(event, crate::models::StreamEvent::AgentStep { .. })),
+            "cancelled-before-start must not emit running; commit owns the terminal step"
         );
     }
 
@@ -1306,29 +1356,13 @@ mod trace_tests {
         assert!(traces.is_empty());
         assert_eq!(stats.llm_rounds, 0);
         let streamed: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).collect();
-        let running_parents: Vec<_> = streamed
-            .iter()
-            .filter_map(|event| match event {
-                crate::models::StreamEvent::AgentStep { agent, .. }
-                    if agent.status == "running" =>
-                {
-                    Some(agent.parent_tool_call_id.as_deref())
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(
-            running_parents,
-            vec![Some("call-1"), Some("call-2")],
-            "each owned fork emits a running AgentStep nested under its tool call"
-        );
         assert!(
-            streamed.iter().all(|event| !matches!(
-                event,
-                crate::models::StreamEvent::AgentStep { agent, .. }
-                    if agent.status != "running"
-            )),
-            "terminal parent AgentStep must wait for ordered commit"
+            streamed.is_empty(),
+            "cancelled-before-start must not stream steps; isolation is in prepared traces until commit"
         );
+        assert_eq!(first.trace.status, "cancelled");
+        assert_eq!(second.trace.status, "cancelled");
+        assert_eq!(first.trace.parent_tool_call_id.as_deref(), Some("call-1"));
+        assert_eq!(second.trace.parent_tool_call_id.as_deref(), Some("call-2"));
     }
 }

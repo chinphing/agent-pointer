@@ -27,6 +27,7 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 
 use super::context::TranscriptPersist;
 use super::emit::{emit, emit_task_board_updated, trace_id_opt};
@@ -90,6 +91,7 @@ async fn collect_self_fork_wave<T, F, Fut>(
     items: Vec<SelfForkWaveItem<T>>,
     semaphore: Arc<Semaphore>,
     limit: usize,
+    cancel: CancellationToken,
     execute: F,
 ) -> Vec<(usize, Fut::Output)>
 where
@@ -100,26 +102,45 @@ where
     for item in items {
         let semaphore = semaphore.clone();
         let execute = execute.clone();
+        let cancel = cancel.clone();
         futures.push(async move {
             let wait_started = Instant::now();
-            let permit = semaphore
-                .acquire_owned()
-                .await
-                .expect("self-fork semaphore must remain open");
-            log::info!(
-                "run_subagent self-fork permit acquired task_id={} fork_id={} index={} limit={} wait_ms={}",
-                item.task_id,
-                item.tool_call_id,
-                item.index,
-                limit,
-                wait_started.elapsed().as_millis()
-            );
-            if let Some((stream, event)) = item.running_event {
-                emit(&stream, event);
+            let permit = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {
+                    log::info!(
+                        "run_subagent self-fork skipped wait task_id={} fork_id={} index={} (cancelled before permit)",
+                        item.task_id,
+                        item.tool_call_id,
+                        item.index
+                    );
+                    None
+                }
+                acquired = semaphore.acquire_owned() => {
+                    Some(acquired.expect("self-fork semaphore must remain open"))
+                }
+            };
+            if let Some(permit) = permit {
+                log::info!(
+                    "run_subagent self-fork permit acquired task_id={} fork_id={} index={} limit={} wait_ms={}",
+                    item.task_id,
+                    item.tool_call_id,
+                    item.index,
+                    limit,
+                    wait_started.elapsed().as_millis()
+                );
+                if !cancel.is_cancelled() {
+                    if let Some((stream, event)) = item.running_event {
+                        emit(&stream, event);
+                    }
+                }
+                let outcome = execute(item.input).await;
+                drop(permit);
+                (item.index, outcome)
+            } else {
+                let outcome = execute(item.input).await;
+                (item.index, outcome)
             }
-            let outcome = execute(item.input).await;
-            drop(permit);
-            (item.index, outcome)
         });
     }
 
@@ -810,6 +831,18 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
         }
     }
 
+    if pass.cancel.is_cancelled() {
+        if let Some(consumed) = pass.ctx.consumed_single.as_mut() {
+            pass.ctx.tool_budget.sync_out(consumed);
+        }
+        pass.ctx
+            .session
+            .state
+            .computer_state
+            .mark_cancelled(pass.ctx.session.conversation_id);
+        return Err(anyhow!("已停止生成"));
+    }
+
     if let Some(hook) = pass.trim_hook.as_ref() {
         maybe_trim_after_tool_pass(pass.ctx.transcript.history, hook, task_board_succeeded);
     }
@@ -1083,14 +1116,20 @@ async fn run_self_fork_wave(
         items.len(),
         limit.max(1)
     );
-    let outcomes = collect_self_fork_wave(items, semaphore, limit.max(1), |work| async move {
-        let started = Instant::now();
-        let outcome = match work {
-            SelfForkWaveWork::Execute(input) => execute_owned_subagent(input).await,
-            SelfForkWaveWork::Prepared(outcome) => outcome,
-        };
-        (outcome, started.elapsed().as_millis() as u64)
-    })
+    let outcomes = collect_self_fork_wave(
+        items,
+        semaphore,
+        limit.max(1),
+        pass.cancel.clone(),
+        |work| async move {
+            let started = Instant::now();
+            let outcome = match work {
+                SelfForkWaveWork::Execute(input) => execute_owned_subagent(input).await,
+                SelfForkWaveWork::Prepared(outcome) => outcome,
+            };
+            (outcome, started.elapsed().as_millis() as u64)
+        },
+    )
     .await;
 
     for (idx, (outcome, duration_ms)) in outcomes {
@@ -1569,6 +1608,7 @@ mod self_fork_wave_tests {
             items,
             semaphore,
             limits.max_parallel_sub_agents,
+            tokio_util::sync::CancellationToken::new(),
             move |index| {
                 let active = active_for_run.clone();
                 let peak = peak_for_run.clone();
@@ -1608,19 +1648,25 @@ mod self_fork_wave_tests {
                 running_event: None,
             })
             .collect();
-        let outcomes = collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, {
-            let completion_order = completion_order.clone();
-            move |index| {
+        let outcomes = collect_self_fork_wave(
+            items,
+            Arc::new(Semaphore::new(2)),
+            2,
+            tokio_util::sync::CancellationToken::new(),
+            {
                 let completion_order = completion_order.clone();
-                async move {
-                    if index == 0 {
-                        tokio::time::sleep(Duration::from_millis(30)).await;
+                move |index| {
+                    let completion_order = completion_order.clone();
+                    async move {
+                        if index == 0 {
+                            tokio::time::sleep(Duration::from_millis(30)).await;
+                        }
+                        completion_order.lock().unwrap().push(index);
+                        format!("outcome-{index}")
                     }
-                    completion_order.lock().unwrap().push(index);
-                    format!("outcome-{index}")
                 }
-            }
-        })
+            },
+        )
         .await;
 
         assert_eq!(*completion_order.lock().unwrap(), vec![1, 0]);
@@ -1644,22 +1690,28 @@ mod self_fork_wave_tests {
                 running_event: None,
             })
             .collect();
-        collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, {
-            let events = events.clone();
-            move |index| {
+        collect_self_fork_wave(
+            items,
+            Arc::new(Semaphore::new(2)),
+            2,
+            tokio_util::sync::CancellationToken::new(),
+            {
                 let events = events.clone();
-                async move {
-                    events.lock().unwrap().push(format!("start-{index}"));
-                    let delay = match index {
-                        0 => 10,
-                        1 => 80,
-                        _ => 0,
-                    };
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
-                    events.lock().unwrap().push(format!("finish-{index}"));
+                move |index| {
+                    let events = events.clone();
+                    async move {
+                        events.lock().unwrap().push(format!("start-{index}"));
+                        let delay = match index {
+                            0 => 10,
+                            1 => 80,
+                            _ => 0,
+                        };
+                        tokio::time::sleep(Duration::from_millis(delay)).await;
+                        events.lock().unwrap().push(format!("finish-{index}"));
+                    }
                 }
-            }
-        })
+            },
+        )
         .await;
 
         let events = events.lock().unwrap();
@@ -1681,15 +1733,20 @@ mod self_fork_wave_tests {
                 running_event: None,
             })
             .collect();
-        let outcomes =
-            collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, |index| async move {
+        let outcomes = collect_self_fork_wave(
+            items,
+            Arc::new(Semaphore::new(2)),
+            2,
+            tokio_util::sync::CancellationToken::new(),
+            |index| async move {
                 if index == 1 {
                     Err("failed")
                 } else {
                     Ok(index)
                 }
-            })
-            .await;
+            },
+        )
+        .await;
 
         assert_eq!(outcomes.len(), 3);
         assert!(outcomes[0].1.is_ok());
@@ -1718,23 +1775,72 @@ mod self_fork_wave_tests {
             }
             cancel_when_running.cancel();
         });
-        let outcomes = collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, {
-            let cancel = cancel.clone();
-            let started = started.clone();
-            move |_| {
+        let outcomes =
+            collect_self_fork_wave(items, Arc::new(Semaphore::new(2)), 2, cancel.clone(), {
                 let cancel = cancel.clone();
                 let started = started.clone();
-                async move {
-                    started.fetch_add(1, Ordering::SeqCst);
-                    cancel.cancelled().await;
-                    "cancelled"
+                move |_| {
+                    let cancel = cancel.clone();
+                    let started = started.clone();
+                    async move {
+                        started.fetch_add(1, Ordering::SeqCst);
+                        cancel.cancelled().await;
+                        "cancelled"
+                    }
                 }
-            }
-        })
-        .await;
+            })
+            .await;
         cancel_task.await.unwrap();
 
         assert_eq!(outcomes.len(), 3);
         assert!(outcomes.iter().all(|(_, status)| *status == "cancelled"));
+    }
+
+    #[tokio::test]
+    async fn cancellation_does_not_block_queued_self_fork_on_semaphore() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let started = Arc::new(AtomicUsize::new(0));
+        let items = (0..2)
+            .map(|index| SelfForkWaveItem {
+                index,
+                task_id: format!("task-{index}"),
+                tool_call_id: format!("call-{index}"),
+                input: index,
+                running_event: None,
+            })
+            .collect();
+        let cancel_when_running = cancel.clone();
+        let started_for_cancel = started.clone();
+        let cancel_task = tokio::spawn(async move {
+            while started_for_cancel.load(Ordering::SeqCst) < 1 {
+                tokio::task::yield_now().await;
+            }
+            cancel_when_running.cancel();
+        });
+        let started_at = std::time::Instant::now();
+        let outcomes =
+            collect_self_fork_wave(items, Arc::new(Semaphore::new(1)), 1, cancel.clone(), {
+                let cancel = cancel.clone();
+                let started = started.clone();
+                move |index| {
+                    let cancel = cancel.clone();
+                    let started = started.clone();
+                    async move {
+                        started.fetch_add(1, Ordering::SeqCst);
+                        if index == 0 {
+                            cancel.cancelled().await;
+                        }
+                        index
+                    }
+                }
+            })
+            .await;
+        cancel_task.await.unwrap();
+
+        assert!(
+            started_at.elapsed() < Duration::from_millis(500),
+            "queued fork must not wait on the semaphore after cancel"
+        );
+        assert_eq!(outcomes.len(), 2);
     }
 }

@@ -190,10 +190,7 @@ pub fn typed_array_from_keys(args: &Value, keys: &[&str]) -> Result<Vec<Value>> 
 /// Init / replace rows. Canonical key is `global_milestones` (JSON array).
 /// `milestones` / `items` / `board` are same-type aliases (array, not string).
 pub fn global_rows_from_args_typed(args: &Value) -> Result<Vec<Value>> {
-    typed_array_from_keys(
-        args,
-        &["global_milestones", "milestones", "items", "board"],
-    )
+    typed_array_from_keys(args, &["global_milestones", "milestones", "items", "board"])
 }
 
 /// Init / replace global milestone rows (legacy silent path; prefers native arrays).

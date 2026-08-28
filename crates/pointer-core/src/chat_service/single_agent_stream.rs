@@ -176,7 +176,12 @@ pub(super) async fn run_provider_stream_round(
                         crate::context_compression::MAX_OVERFLOW_RECOVERIES,
                         assistant_id
                     );
-                    super::emit::emit_empty_assistant_end(&stream, assistant_id.clone(), None, None);
+                    super::emit::emit_empty_assistant_end(
+                        &stream,
+                        assistant_id.clone(),
+                        None,
+                        None,
+                    );
                     return Ok(ProviderRoundOutcome::RetryAfterOverflowCompress);
                 }
                 log::warn!(

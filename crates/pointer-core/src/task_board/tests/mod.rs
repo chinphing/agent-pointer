@@ -161,11 +161,7 @@ mod apply_tests {
         let err = store
             .apply("conv-empty-init", "init", &json!({ "goal": "P7" }))
             .expect_err("goal-only init must fail");
-        assert!(
-            err.to_string().contains("global_milestones"),
-            "{}",
-            err
-        );
+        assert!(err.to_string().contains("global_milestones"), "{}", err);
     }
 
     #[test]
@@ -178,11 +174,7 @@ mod apply_tests {
                 &json!({ "goal": "P7", "global_milestones": [] }),
             )
             .expect_err("empty array must fail");
-        assert!(
-            err.to_string().contains("global_milestones"),
-            "{}",
-            err
-        );
+        assert!(err.to_string().contains("global_milestones"), "{}", err);
     }
 
     #[test]

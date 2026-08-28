@@ -367,10 +367,14 @@ mod eviction_tests {
         let (_dir, store) = persist_store();
         let key = "idle-board";
         store
-            .apply(key, "init", &json!({
-                "goal": "g",
-                "items": [{"id": "m1", "title": "t", "status": "pending"}]
-            }))
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [{"id": "m1", "title": "t", "status": "pending"}]
+                }),
+            )
             .expect("init");
         assert!(store.is_cached(key));
         backdate(&store, key, Duration::from_secs(IDLE_EVICT_SECS + 5));

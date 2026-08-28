@@ -54,6 +54,20 @@
 - 运行时可通过 `RunDispatcher::set_max_concurrent` 热更新 main/cron 上限并唤醒等待者。
 - 可观测：`GET /api/dispatcher/queue`（web）/ Tauri `get_dispatcher_queue_snapshot` 返回各 lane 的 active/waiting 与排队 run 列表；设置 → 系统设置 → 执行（任务并行）每 2.5s 轮询展示。
 
+### 取消与会话 lane 释放
+
+`session:{conversation_id}` 并发上限为 1。用户点停止 / 强制发送时，前端会 `await cancelChat`，再 dispatch 下一条。若只发取消信号、不等 `run_chat` 退出，上一轮（尤其卡在子智能体）仍占着 lane，新消息会进「待执行」且界面无回复。
+
+因此 **聊天取消**（Web `POST /api/chat/:id/cancel`、Tauri `cancel_chat`）走 `cancel_conversation_and_wait`：
+
+1. 对会话内所有非终态 run 发取消 token（与原先 `cancel_conversation` 相同）。
+2. 最多等 **8s** 等 runner 自行落到终态。
+3. 超时则 **abort** runner 任务并再等最多 **2s** 让 lane permit drop，然后把仍非终态的行标为 `cancelled`。已终态的行不会被覆盖。
+
+`POST /api/runs/:id/cancel` 仍只发信号、不等待（外部 Runs API 自己 `wait` / SSE）。
+
+子智能体：用户取消时 `run_subagent` 必须让父 tool pass `Err("已停止生成")`，不能把取消收成 `ERROR` 文本再开下一轮 LLM。并行 self-fork 在取消后不再阻塞在子智能体并发信号量上。
+
 ### 聊天会话出站队列（对齐 Hermes `busy_input_mode: queue`）
 
 Hermes 在 gateway 层对**已活跃会话**的新入站消息：FIFO 入队、可选 interrupt、任务结束后按序处理（见 hermes `gateway/run.py` + `base.py` 的 `_pending_messages`）。

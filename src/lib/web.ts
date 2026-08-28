@@ -160,7 +160,11 @@ export async function sendChat(payload: SendChatPayload): Promise<void> {
 }
 
 export async function cancelChat(conversationId: string): Promise<void> {
-  await request(`/api/chat/${encodeURIComponent(conversationId)}/cancel`, { method: 'POST' })
+  await request(`/api/chat/${encodeURIComponent(conversationId)}/cancel`, {
+    method: 'POST',
+    timeoutMs: 20_000,
+    timeoutMessage: '停止超时。请稍后重试。',
+  })
 }
 
 function workspaceQuery(

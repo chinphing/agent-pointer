@@ -33,8 +33,10 @@ explicitly asked for a downloadable file ("下载", "发我", "给我", "插入�
   use `MEDIA:` or `pointer-media://` so the host attaches the file.
 - The UI renders previews **below** the caption: images/video/audio inline; other files as a **named attachment** the user can open with the default app.
 - Use real paths from tool output, terminal stdout, or context **Local path** — do not invent paths.
-- After delivery, later turns may include `<!-- pointer-delivered-attachments -->` with the same
-  **ref** / **localPath** fields — reuse those for follow-up; they are not a new user upload.
+- After delivery, later turns may include a delivered-file inventory
+  with **ref** / **localPath** — reuse those for follow-up; they are not a new user upload.
+  Do not paste that inventory, its instruction sentence, or `attachmentId` /
+  `localPath` lists into user-facing text. Re-deliver with `MEDIA:<path>` only.
 
 ### App chat
 

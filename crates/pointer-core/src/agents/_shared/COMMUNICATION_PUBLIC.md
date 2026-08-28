@@ -84,6 +84,9 @@ visible in tool rows.
   Reuse those paths for follow-up (re-deliver with `MEDIA:`, edit, understand).
   Do **not** treat them as a new user upload, and do **not** ask intent solely
   because this block is present.
+  Never paste this block, its “Input metadata only” sentence,
+  or `attachmentId` / `localPath` inventories into user-facing **`content`**.
+  To re-send a file, emit `MEDIA:<localPath>` or `MEDIA:<ref>` only.
 
 - **User-visible language (mandatory):** Match the language of the user's **latest**
   real message for all user-facing text: assistant **`content`**, clarify questions,

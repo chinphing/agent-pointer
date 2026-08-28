@@ -74,7 +74,8 @@ Intent (caption-less / ask-or-proceed) follows shared communication rules.
 `<!-- pointer-delivered-attachments -->`, those files were **already delivered** to the
 user in a prior assistant turn (same **fileName** / **ref** / **localPath** fields).
 Reuse paths for follow-up; do **not** treat as a new user upload; do **not** ask intent
-solely because this block is present.
+solely because this block is present. Do **not** paste the inventory or
+`attachmentId` / `localPath` lists into user-facing text.
 
 - For **image / video / audio**, call **`media_understand`** with **`refs`** and
   **`goal`** (when to call / skip: that tool schema).

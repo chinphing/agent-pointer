@@ -1177,7 +1177,7 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
     user.attachment_upload_max_bytes =
         clamp_attachment_upload_max_bytes(user.attachment_upload_max_bytes);
     user.max_sub_agent_tool_rounds =
-        clamp_max_sub_agent_tool_rounds(user.max_sub_agent_tool_rounds);
+        normalize_max_sub_agent_tool_rounds(user.max_sub_agent_tool_rounds);
 }
 
 /// User-layer provider rows are tagged `source=user` or omitted; `source=platform`
@@ -1282,14 +1282,25 @@ fn default_max_tool_rounds() -> u32 {
 }
 
 /// Sub-agents are small-scope; keep this far below the lead `maxToolRounds`.
-pub const CEILING_MAX_SUB_AGENT_TOOL_ROUNDS: u32 = 200;
+pub const CEILING_MAX_SUB_AGENT_TOOL_ROUNDS: u32 = 500;
+/// Previous product default (was also the ceiling). Load bumps this to 500.
+const LEGACY_MAX_SUB_AGENT_TOOL_ROUNDS: u32 = 200;
 
 fn default_max_sub_agent_tool_rounds() -> u32 {
-    build_cfg_u32!("MAX_SUB_AGENT_TOOL_ROUNDS", 200).clamp(1, CEILING_MAX_SUB_AGENT_TOOL_ROUNDS)
+    build_cfg_u32!("MAX_SUB_AGENT_TOOL_ROUNDS", 500).clamp(1, CEILING_MAX_SUB_AGENT_TOOL_ROUNDS)
 }
 
 pub fn clamp_max_sub_agent_tool_rounds(n: u32) -> u32 {
     n.clamp(1, CEILING_MAX_SUB_AGENT_TOOL_ROUNDS)
+}
+
+pub fn normalize_max_sub_agent_tool_rounds(n: u32) -> u32 {
+    let n = if n == LEGACY_MAX_SUB_AGENT_TOOL_ROUNDS {
+        default_max_sub_agent_tool_rounds()
+    } else {
+        n
+    };
+    clamp_max_sub_agent_tool_rounds(n)
 }
 
 pub const DEFAULT_FILE_READ_MAX_BYTES: u32 = 64 * 1024;
@@ -1490,7 +1501,15 @@ mod sub_agent_tool_round_limit_tests {
     fn clamps_sub_agent_tool_rounds_to_small_scope_ceiling() {
         assert_eq!(clamp_max_sub_agent_tool_rounds(0), 1);
         assert_eq!(clamp_max_sub_agent_tool_rounds(200), 200);
-        assert_eq!(clamp_max_sub_agent_tool_rounds(5000), 200);
+        assert_eq!(clamp_max_sub_agent_tool_rounds(500), 500);
+        assert_eq!(clamp_max_sub_agent_tool_rounds(5000), 500);
+    }
+
+    #[test]
+    fn bumps_legacy_sub_agent_default_two_hundred_to_five_hundred() {
+        assert_eq!(normalize_max_sub_agent_tool_rounds(200), 500);
+        assert_eq!(normalize_max_sub_agent_tool_rounds(50), 50);
+        assert_eq!(normalize_max_sub_agent_tool_rounds(5000), 500);
     }
 }
 
@@ -2438,7 +2457,7 @@ fn platform_default_max_tool_rounds() -> u32 {
 }
 
 fn platform_default_max_sub_agent_tool_rounds() -> u32 {
-    200
+    500
 }
 
 fn platform_default_max_sub_agent_spawn_depth() -> u32 {
@@ -2749,7 +2768,9 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         attachment_upload_max_bytes: clamp_attachment_upload_max_bytes(
             user.attachment_upload_max_bytes,
         ),
-        max_sub_agent_tool_rounds: clamp_max_sub_agent_tool_rounds(user.max_sub_agent_tool_rounds),
+        max_sub_agent_tool_rounds: normalize_max_sub_agent_tool_rounds(
+            user.max_sub_agent_tool_rounds,
+        ),
         max_sub_agent_spawn_depth: user.max_sub_agent_spawn_depth,
         raw_content_view_enabled: user.raw_content_view_enabled,
         debug_dump_llm_prompts: user.debug_dump_llm_prompts,

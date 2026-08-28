@@ -639,7 +639,7 @@ export interface UserSettings {
   terminalMaxWallHours?: number
   /** Max bytes for a non-video chat attachment upload (default 100 MiB). */
   attachmentUploadMaxBytes?: number
-  /** Max tool rounds inside each sub-agent loop (default 200, max 200). */
+  /** Max tool rounds inside each sub-agent loop (default 500, max 500). */
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number
   rawContentViewEnabled?: boolean
@@ -825,7 +825,7 @@ export interface ModelSettings {
   terminalMaxWallHours?: number
   /** Max bytes for a non-video chat attachment upload (default 100 MiB) */
   attachmentUploadMaxBytes?: number
-  /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop (default 200, max 200) */
+  /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop (default 500, max 500) */
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number
   /** 助手消息上「原始输出」调试入口（代码图标）；含正文通道原始字串与 API reasoning，不在主气泡展示 reasoning */

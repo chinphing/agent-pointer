@@ -37,7 +37,7 @@ allowAgents:
 
 | 键 | 类型 | 说明 |
 |----|------|------|
-| `maxSubAgentToolRounds` | `number` | **每一次** `run_sub_agent` 内部工具循环的轮次上限，与主会话的 `maxToolRounds` 独立（默认 **200**，最高 200）。 |
+| `maxSubAgentToolRounds` | `number` | **每一次** `run_sub_agent` 内部工具循环的轮次上限，与主会话的 `maxToolRounds` 独立（默认 **500**，最高 500）。 |
 | `maxSubAgentSpawnDepth` | `number` | 嵌套 `run_subagent` 最大深度（默认 **2**：主 agent + 一层子委派）。 |
 
 ## `run_subagent` 参数

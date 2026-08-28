@@ -34,7 +34,7 @@ context_keep_recent_user_turns = 3
 # Used by background memory review (not context-compression summary budget)
 context_summary_max_tokens = 2048
 max_tool_rounds = 5000
-max_sub_agent_tool_rounds = 200
+max_sub_agent_tool_rounds = 500
 
 # debug
 raw_content_view_enabled = false

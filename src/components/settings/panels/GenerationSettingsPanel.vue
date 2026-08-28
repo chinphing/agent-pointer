@@ -651,7 +651,7 @@ async function onPlaySoundToggle(checked: boolean) {
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="每个子任务内部最多连续调用多少次工具。子任务面向小范围工作，上限 200。"
+                    title="每个子任务内部最多连续调用多少次工具。子任务面向小范围工作，上限 500。"
                     aria-label="子任务轮次说明"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -661,7 +661,7 @@ async function onPlaySoundToggle(checked: boolean) {
                   v-model.number="maxSubAgentToolRounds"
                   type="number"
                   min="1"
-                  max="200"
+                  max="500"
                   step="1"
                   class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
                 />

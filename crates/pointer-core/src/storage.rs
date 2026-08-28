@@ -487,7 +487,7 @@ fn default_max_tool_rounds() -> u32 {
 }
 
 fn default_max_sub_agent_tool_rounds() -> u32 {
-    200
+    500
 }
 
 fn default_max_sub_agent_spawn_depth() -> u32 {

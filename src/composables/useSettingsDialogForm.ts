@@ -256,8 +256,9 @@ function createSettingsDialogForm(deps: {
   const leadAgentId = ref('')
   const contextKeepRecentUserTurns = ref(6)
   const DEFAULT_TOOL_ROUNDS = 5000
-  const DEFAULT_SUB_AGENT_TOOL_ROUNDS = 200
-  const CEILING_SUB_AGENT_TOOL_ROUNDS = 200
+  const DEFAULT_SUB_AGENT_TOOL_ROUNDS = 500
+  const CEILING_SUB_AGENT_TOOL_ROUNDS = 500
+  const LEGACY_SUB_AGENT_TOOL_ROUNDS = new Set([200])
   const LEGACY_TOOL_ROUNDS = new Set([100, 200])
   function migrateToolRounds(raw?: number): number {
     const n = Number(raw)
@@ -269,7 +270,9 @@ function createSettingsDialogForm(deps: {
   function migrateSubAgentToolRounds(raw?: number): number {
     const n = Number(raw)
     if (!Number.isFinite(n) || n < 1) return DEFAULT_SUB_AGENT_TOOL_ROUNDS
-    return Math.min(Math.floor(n), CEILING_SUB_AGENT_TOOL_ROUNDS)
+    const rounds = Math.floor(n)
+    if (LEGACY_SUB_AGENT_TOOL_ROUNDS.has(rounds)) return DEFAULT_SUB_AGENT_TOOL_ROUNDS
+    return Math.min(rounds, CEILING_SUB_AGENT_TOOL_ROUNDS)
   }
   const maxToolRounds = ref(DEFAULT_TOOL_ROUNDS)
   const fileReadMaxKb = ref(64)

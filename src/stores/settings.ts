@@ -79,8 +79,9 @@ function migratePlannerSettingsFields(
 }
 
 const DEFAULT_TOOL_ROUNDS = 5000
-const DEFAULT_SUB_AGENT_TOOL_ROUNDS = 200
-const CEILING_SUB_AGENT_TOOL_ROUNDS = 200
+const DEFAULT_SUB_AGENT_TOOL_ROUNDS = 500
+const CEILING_SUB_AGENT_TOOL_ROUNDS = 500
+const LEGACY_SUB_AGENT_TOOL_ROUNDS = new Set([200])
 const LEGACY_TOOL_ROUNDS = new Set([100, 200])
 
 function normalizeToolRounds(raw?: number): number {
@@ -92,7 +93,9 @@ function normalizeToolRounds(raw?: number): number {
 
 function normalizeSubAgentToolRounds(raw?: number): number {
   if (!Number.isFinite(Number(raw)) || Number(raw) < 1) return DEFAULT_SUB_AGENT_TOOL_ROUNDS
-  return Math.min(Math.floor(Number(raw)), CEILING_SUB_AGENT_TOOL_ROUNDS)
+  const rounds = Math.floor(Number(raw))
+  if (LEGACY_SUB_AGENT_TOOL_ROUNDS.has(rounds)) return DEFAULT_SUB_AGENT_TOOL_ROUNDS
+  return Math.min(rounds, CEILING_SUB_AGENT_TOOL_ROUNDS)
 }
 
 function normalizeContextBudgetTokens(raw?: number): number {

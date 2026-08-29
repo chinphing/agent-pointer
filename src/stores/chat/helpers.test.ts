@@ -5,6 +5,8 @@ import {
   assistantTurnActivelyRunning,
   closeAbandonedEmptyAssistantShells,
   computeHistoryTrimCutByViewedAt,
+  conversationNeedsTailReload,
+  hasDisconnectedLiveTail,
   insertMessageBeforeAnchor,
   mergeHydratedMessages,
   mergeMessagePage,
@@ -452,6 +454,90 @@ describe('chat helpers', () => {
     expect(merged[3]?.status).toBe('streaming')
   })
 
+  it('mergeHydratedMessages in-flight-tail drops around-window rows on a force tail', () => {
+    const mid: ChatMessage = {
+      id: 'mid-u',
+      role: 'user',
+      content: '中间',
+      status: 'done',
+      createdAt: 10,
+      position: 19
+    }
+    const midReply: ChatMessage = {
+      id: 'mid-a',
+      role: 'assistant',
+      content: 'ok',
+      status: 'done',
+      createdAt: 11,
+      position: 20
+    }
+    const work: ChatMessage = {
+      id: 'work',
+      role: 'user',
+      content: '报销',
+      status: 'done',
+      createdAt: 100,
+      position: 40
+    }
+    const workStream: ChatMessage = {
+      id: 'work-a',
+      role: 'assistant',
+      content: '处理中',
+      status: 'streaming',
+      createdAt: 101,
+      position: 41
+    }
+    const merged = mergeHydratedMessages(
+      [mid, midReply, work, workStream],
+      [work, { ...workStream, status: 'done' }],
+      'in-flight-tail'
+    )
+    expect(merged.map(m => m.id)).toEqual(['work', 'work-a'])
+    expect(merged[1]?.status).toBe('streaming')
+  })
+
+  it('mergeHydratedMessages in-flight-tail keeps the generating turn on an around page', () => {
+    const mid: ChatMessage = {
+      id: 'mid-u',
+      role: 'user',
+      content: '中间',
+      status: 'done',
+      createdAt: 10,
+      position: 19
+    }
+    const midReply: ChatMessage = {
+      id: 'mid-a',
+      role: 'assistant',
+      content: 'ok',
+      status: 'done',
+      createdAt: 11,
+      position: 20
+    }
+    const work: ChatMessage = {
+      id: 'work',
+      role: 'user',
+      content: '报销',
+      status: 'done',
+      createdAt: 100,
+      position: 40
+    }
+    const workStream: ChatMessage = {
+      id: 'work-a',
+      role: 'assistant',
+      content: '处理中',
+      status: 'streaming',
+      createdAt: 101,
+      position: 41
+    }
+    const merged = mergeHydratedMessages(
+      [mid, midReply, work, workStream],
+      [mid, midReply],
+      'in-flight-tail'
+    )
+    expect(merged.map(m => m.id)).toEqual(['mid-u', 'mid-a', 'work', 'work-a'])
+    expect(merged[3]?.status).toBe('streaming')
+  })
+
   it('mergeMessagePage does not append an older page below newer turns', () => {
     const work: ChatMessage = {
       id: 'work',
@@ -471,6 +557,36 @@ describe('chat helpers', () => {
     }
     const merged = mergeMessagePage([work], [hello], 'newer')
     expect(merged.map(m => m.id)).toEqual(['work'])
+  })
+
+  it('mergeMessagePage newer keeps mid-window rows when given the page cursor', () => {
+    const mid: ChatMessage = {
+      id: 'mid',
+      role: 'user',
+      content: '中间',
+      status: 'done',
+      createdAt: 10,
+      position: 20
+    }
+    const live: ChatMessage = {
+      id: 'live',
+      role: 'assistant',
+      content: '…',
+      status: 'streaming',
+      createdAt: 200,
+      position: 90
+    }
+    const next: ChatMessage = {
+      id: 'next',
+      role: 'user',
+      content: '下一页',
+      status: 'done',
+      createdAt: 30,
+      position: 21
+    }
+    expect(
+      mergeMessagePage([mid, live], [next], 'newer', { afterPosition: 20 }).map(m => m.id)
+    ).toEqual(['mid', 'next', 'live'])
   })
 
   it('retainIncomingNewerMessages drops earlier turns even when position is higher', () => {
@@ -499,5 +615,59 @@ describe('chat helpers', () => {
       position: 41
     }
     expect(retainIncomingNewerMessages([work], [hello, later]).map(m => m.id)).toEqual(['later'])
+  })
+
+  it('retainIncomingNewerMessages uses the page cursor, not a disconnected live tail', () => {
+    const mid: ChatMessage = {
+      id: 'mid',
+      role: 'user',
+      content: '中间',
+      status: 'done',
+      createdAt: 10,
+      position: 20
+    }
+    const live: ChatMessage = {
+      id: 'live',
+      role: 'assistant',
+      content: '…',
+      status: 'streaming',
+      createdAt: 200,
+      position: 90
+    }
+    const next: ChatMessage = {
+      id: 'next',
+      role: 'user',
+      content: '下一页',
+      status: 'done',
+      createdAt: 30,
+      position: 21
+    }
+    expect(
+      retainIncomingNewerMessages([mid, live], [next], { afterPosition: 20 }).map(m => m.id)
+    ).toEqual(['next'])
+  })
+
+  it('hasDisconnectedLiveTail is true when generating sits past the page cursor', () => {
+    const mid: ChatMessage = {
+      id: 'mid',
+      role: 'user',
+      content: '中间',
+      status: 'done',
+      createdAt: 10,
+      position: 20
+    }
+    const live: ChatMessage = {
+      id: 'live',
+      role: 'assistant',
+      content: '…',
+      status: 'streaming',
+      createdAt: 200,
+      position: 90
+    }
+    expect(hasDisconnectedLiveTail([mid, live], 20)).toBe(true)
+    expect(hasDisconnectedLiveTail([mid], 20)).toBe(false)
+    expect(conversationNeedsTailReload(false, [mid, live], 20)).toBe(true)
+    expect(conversationNeedsTailReload(false, [mid], 20)).toBe(false)
+    expect(conversationNeedsTailReload(true, [mid], 20)).toBe(true)
   })
 })

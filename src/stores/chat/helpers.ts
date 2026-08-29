@@ -110,19 +110,37 @@ function finitePositions(messages: readonly ChatMessage[]): number[] {
     .filter((p): p is number => typeof p === 'number' && Number.isFinite(p))
 }
 
+/** Still receiving stream tokens, waiting to start, or running tools. */
+export function messageIsLiveGenerating(msg: ChatMessage | null | undefined): boolean {
+  if (!msg) return false
+  if (msg.status === 'streaming' || msg.status === 'pending' || msg.contentStreaming) return true
+  return assistantTurnActivelyRunning(msg)
+}
+
 /**
- * Keep only rows that belong after the current window.
+ * Keep only rows that belong after the current *page window*.
  * Bottom prefetch must never pull earlier turns (low createdAt / low position).
+ *
+ * `afterPosition` is the paging cursor (`newestPosition`). Do not use max(in-memory
+ * positions): a live generating turn spliced onto an around window sits at the
+ * real tail and would make every mid-page look "older".
  */
 export function retainIncomingNewerMessages(
   existing: readonly ChatMessage[],
-  incoming: ChatMessage[]
+  incoming: ChatMessage[],
+  options?: { afterPosition?: number | null }
 ): ChatMessage[] {
   if (incoming.length === 0) return incoming
-  const existingPos = finitePositions(existing)
   const existingTimes = finiteCreatedAt(existing)
-  const maxPos = existingPos.length ? Math.max(...existingPos) : null
   const minTime = existingTimes.length ? Math.min(...existingTimes) : null
+  const cursor = options?.afterPosition
+  const maxPos =
+    cursor != null && Number.isFinite(cursor)
+      ? cursor
+      : (() => {
+          const existingPos = finitePositions(existing)
+          return existingPos.length ? Math.max(...existingPos) : null
+        })()
   return incoming.filter(m => {
     if (minTime != null && m.createdAt != null && m.createdAt > 0 && m.createdAt < minTime) {
       return false
@@ -134,15 +152,104 @@ export function retainIncomingNewerMessages(
   })
 }
 
-/**
- * Overlay live streaming rows onto a DB page. Rows only in memory (typically
- * older turns already loaded) must not be appended after the tail window.
- */
-export function mergeHydratedMessages(inMemory: ChatMessage[], fromDb: ChatMessage[]): ChatMessage[] {
-  if (inMemory.length === 0) return fromDb
-  const dbById = new Map(fromDb.map(m => [m.id, m]))
+export type HydrateMergeMode = 'keep-older' | 'in-flight-tail'
+
+function overlayLiveStreamingRow(dbMsg: ChatMessage, live: ChatMessage): ChatMessage {
   const longer = (a?: string, b?: string) =>
     (a?.length ?? 0) >= (b?.length ?? 0) ? a : b
+  return {
+    ...dbMsg,
+    ...live,
+    content: longer(live.content, dbMsg.content) ?? '',
+    reasoning: longer(live.reasoning, dbMsg.reasoning),
+    rawContent: longer(live.rawContent, dbMsg.rawContent),
+    thoughts: longer(live.thoughts, dbMsg.thoughts),
+    toolCalls:
+      (live.toolCalls?.length ?? 0) >= (dbMsg.toolCalls?.length ?? 0)
+        ? live.toolCalls
+        : dbMsg.toolCalls,
+    attachments:
+      (live.attachments?.length ?? 0) >= (dbMsg.attachments?.length ?? 0)
+        ? live.attachments
+        : dbMsg.attachments,
+    agentTrace:
+      (live.agentTrace?.length ?? 0) >= (dbMsg.agentTrace?.length ?? 0)
+        ? live.agentTrace
+        : dbMsg.agentTrace
+  }
+}
+
+/**
+ * Live extras that belong to the in-flight generating turn (user + streaming
+ * assistants after the last live row), not the rest of an around / old-tail window.
+ */
+export function liveGeneratingTurnExtras(
+  inMemory: readonly ChatMessage[],
+  dbIds: ReadonlySet<string>
+): ChatMessage[] {
+  const ordered = sortMessagesInTranscriptOrder(inMemory.slice())
+  let lastInFlightIdx = -1
+  for (let i = ordered.length - 1; i >= 0; i -= 1) {
+    if (messageIsLiveGenerating(ordered[i])) {
+      lastInFlightIdx = i
+      break
+    }
+  }
+  if (lastInFlightIdx < 0) {
+    return ordered.filter(m => !dbIds.has(m.id) && m.position == null)
+  }
+  let start = lastInFlightIdx
+  for (let i = lastInFlightIdx; i >= 0; i -= 1) {
+    if (ordered[i]?.role === 'user') {
+      start = i
+      break
+    }
+  }
+  return ordered.slice(start).filter(m => !dbIds.has(m.id))
+}
+
+/**
+ * Around-window + live tail: page cursor still in the hole, but memory already
+ * holds a generating row (or a position) past that cursor.
+ */
+export function hasDisconnectedLiveTail(
+  messages: readonly ChatMessage[],
+  newestPosition: number | null | undefined
+): boolean {
+  if (newestPosition == null || !Number.isFinite(newestPosition)) return false
+  return messages.some(m => {
+    if (m.position != null && Number.isFinite(m.position) && m.position > newestPosition) {
+      return true
+    }
+    return messageIsLiveGenerating(m) && (m.position == null || m.position > newestPosition)
+  })
+}
+
+/** Re-open / jump must load the real tail, not pin a hole or a poisoned cursor. */
+export function conversationNeedsTailReload(
+  hasMoreNewer: boolean,
+  messages: readonly ChatMessage[],
+  newestPosition: number | null | undefined
+): boolean {
+  if (hasMoreNewer) return true
+  return hasDisconnectedLiveTail(messages, newestPosition)
+}
+
+/**
+ * Overlay live streaming rows onto a DB page.
+ *
+ * `keep-older`: SSE catch-up / tail hydrate after the user loaded earlier
+ * turns — keep those extra in-memory rows.
+ * `in-flight-tail`: around hole or force-tail during a run — keep only the
+ * generating turn, not the middle window that would sit before the tail.
+ */
+export function mergeHydratedMessages(
+  inMemory: ChatMessage[],
+  fromDb: ChatMessage[],
+  mode: HydrateMergeMode = 'keep-older'
+): ChatMessage[] {
+  if (inMemory.length === 0) return fromDb
+  const dbById = new Map(fromDb.map(m => [m.id, m]))
   const merged: ChatMessage[] = []
   for (const dbMsg of fromDb) {
     const live = inMemory.find(m => m.id === dbMsg.id)
@@ -152,32 +259,17 @@ export function mergeHydratedMessages(inMemory: ChatMessage[], fromDb: ChatMessa
         || live.status === 'pending'
         || live.contentStreaming)
     ) {
-      merged.push({
-        ...dbMsg,
-        ...live,
-        content: longer(live.content, dbMsg.content) ?? '',
-        reasoning: longer(live.reasoning, dbMsg.reasoning),
-        rawContent: longer(live.rawContent, dbMsg.rawContent),
-        thoughts: longer(live.thoughts, dbMsg.thoughts),
-        toolCalls:
-          (live.toolCalls?.length ?? 0) >= (dbMsg.toolCalls?.length ?? 0)
-            ? live.toolCalls
-            : dbMsg.toolCalls,
-        attachments:
-          (live.attachments?.length ?? 0) >= (dbMsg.attachments?.length ?? 0)
-            ? live.attachments
-            : dbMsg.attachments,
-        agentTrace:
-          (live.agentTrace?.length ?? 0) >= (dbMsg.agentTrace?.length ?? 0)
-            ? live.agentTrace
-            : dbMsg.agentTrace
-      })
+      merged.push(overlayLiveStreamingRow(dbMsg, live))
     } else {
       merged.push(dbMsg)
     }
   }
-  for (const live of inMemory) {
-    if (!dbById.has(live.id)) merged.push(live)
+  const extras =
+    mode === 'in-flight-tail'
+      ? liveGeneratingTurnExtras(inMemory, new Set(dbById.keys()))
+      : inMemory.filter(live => !dbById.has(live.id))
+  for (const live of extras) {
+    if (!dbById.has(live.id) && !merged.some(m => m.id === live.id)) merged.push(live)
   }
   return sortMessagesInTranscriptOrder(merged)
 }
@@ -185,7 +277,8 @@ export function mergeHydratedMessages(inMemory: ChatMessage[], fromDb: ChatMessa
 export function mergeMessagePage(
   existing: ChatMessage[],
   incoming: ChatMessage[],
-  direction: 'older' | 'newer'
+  direction: 'older' | 'newer',
+  options?: { afterPosition?: number | null }
 ): ChatMessage[] {
   if (incoming.length === 0) return existing
   const seen = new Set(existing.map(m => m.id))
@@ -196,7 +289,7 @@ export function mergeMessagePage(
   })
   if (unique.length === 0) return existing
   if (direction === 'newer') {
-    const retained = retainIncomingNewerMessages(existing, unique)
+    const retained = retainIncomingNewerMessages(existing, unique, options)
     if (retained.length === 0) {
       console.info(
         '[chat] mergeMessagePage: dropped older page requested as newer; bottom prefetch must not pull earlier turns'

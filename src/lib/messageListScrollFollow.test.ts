@@ -159,11 +159,24 @@ describe('switchConversationScrollPlan', () => {
       switchConversationScrollPlan({ hasPendingFocus: false, hasMoreNewer: false })
     ).toBe('toBottom')
   })
+  it('jumps to the real tail when a disconnected live turn sits past the cursor', () => {
+    expect(
+      switchConversationScrollPlan({
+        hasPendingFocus: false,
+        hasMoreNewer: false,
+        hasDisconnectedLiveTail: true
+      })
+    ).toBe('jumpToLatest')
+  })
 })
 
 describe('toBottomFollowsOutput', () => {
   it('does not claim live follow on an around-window bottom', () => {
     expect(toBottomFollowsOutput(true)).toBe(false)
     expect(toBottomFollowsOutput(false)).toBe(true)
+  })
+
+  it('follows when the loaded list already ends on the generating turn', () => {
+    expect(toBottomFollowsOutput(true, true)).toBe(true)
   })
 })

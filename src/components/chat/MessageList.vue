@@ -64,6 +64,11 @@ import {
   type MessageListScrollAnchor
 } from '../../lib/messageListScrollAnchor'
 import {
+  conversationNeedsTailReload,
+  hasDisconnectedLiveTail,
+  messageIsLiveGenerating
+} from '../../stores/chat/helpers'
+import {
   isComposerDraftingTarget,
   nextFollowOutputAfterScroll,
   scrollerViewportShrinkDelta,
@@ -203,6 +208,24 @@ function hasMoreNewerFlag(): boolean {
   return currentMessagePage.value?.hasMoreNewer === true
 }
 
+function lastMessageIsLiveTail(): boolean {
+  const msgs = chat.current?.messages
+  if (!msgs?.length) return false
+  return messageIsLiveGenerating(msgs[msgs.length - 1])
+}
+
+function disconnectedLiveTailFlag(): boolean {
+  return hasDisconnectedLiveTail(
+    chat.current?.messages ?? [],
+    currentMessagePage.value?.newestPosition
+  )
+}
+
+/** Around hole whose loaded bottom is not the in-flight generating turn. */
+function holeWindowBlocksFollow(): boolean {
+  return hasMoreNewerFlag() && !lastMessageIsLiveTail()
+}
+
 function canPullNoOlderHint(el: HTMLElement): boolean {
   return canShowNoOlderPullHint({
     hasMoreOlder: hasMoreOlderFlag(),
@@ -282,11 +305,11 @@ function scheduleToBottom() {
 
 function toBottom(options?: { settle?: boolean }) {
   if (locatingFocus.value || conversationTurns.value.length === 0) return
-  // Around-window bottom is not the transcript tail. Keep the jump button and
-  // do not claim live follow, or later turns stay unreachable after a fake pin.
-  const follow = toBottomFollowsOutput(hasMoreNewerFlag())
+  // Around-window bottom is not the transcript tail unless the list already
+  // ends on the in-flight generating turn (task running in a hole window).
+  const follow = toBottomFollowsOutput(hasMoreNewerFlag(), lastMessageIsLiveTail())
   followOutput = follow
-  showScrollButton.value = !follow
+  showScrollButton.value = !follow || holeWindowBlocksFollow()
   const settle = options?.settle === true
   beginProgrammaticScroll()
   void (async () => {
@@ -336,7 +359,8 @@ function onWheel(event: WheelEvent) {
     shouldRequestNewerFromWheel({
       deltaY: event.deltaY,
       distanceFromBottom: distanceFromBottom(),
-      hasMoreNewer: hasMoreNewerFlag()
+      hasMoreNewer: hasMoreNewerFlag(),
+      lastMessageIsLiveTail: lastMessageIsLiveTail()
     })
   ) {
     if (noOlderPullPx.value > 0) releaseNoOlderPull()
@@ -387,7 +411,8 @@ function onTouchMove(event: TouchEvent) {
     shouldRequestNewerFromTouchPull({
       pullPx: touchStartY - y,
       distanceFromBottom: distanceFromBottom(),
-      hasMoreNewer: hasMoreNewerFlag()
+      hasMoreNewer: hasMoreNewerFlag(),
+      lastMessageIsLiveTail: lastMessageIsLiveTail()
     })
   ) {
     if (noOlderPullPx.value > 0) releaseNoOlderPull()
@@ -487,7 +512,8 @@ onMounted(() => {
     const pending = chat.pendingFocusMessage
     const plan = switchConversationScrollPlan({
       hasPendingFocus: Boolean(convId && pending?.conversationId === convId && pending.messageId),
-      hasMoreNewer: Boolean(convId && chat.messagePageState(convId)?.hasMoreNewer)
+      hasMoreNewer: Boolean(convId && chat.messagePageState(convId)?.hasMoreNewer),
+      hasDisconnectedLiveTail: disconnectedLiveTailFlag()
     })
     if (plan === 'locate') {
       void tryLocatePendingFocus()
@@ -543,7 +569,8 @@ watch(() => chat.currentId, async () => {
   const pending = chat.pendingFocusMessage
   const plan = switchConversationScrollPlan({
     hasPendingFocus: Boolean(convId && pending?.conversationId === convId && pending.messageId),
-    hasMoreNewer: Boolean(convId && chat.messagePageState(convId)?.hasMoreNewer)
+    hasMoreNewer: Boolean(convId && chat.messagePageState(convId)?.hasMoreNewer),
+    hasDisconnectedLiveTail: disconnectedLiveTailFlag()
   })
   if (plan === 'locate') {
     followOutput = false
@@ -981,6 +1008,9 @@ async function loadNewerWithoutFollow() {
     return
   }
   if (locatingFocus.value) return
+  // Already sitting on the live generating turn — paging would insert the
+  // hole *above* it and unpin follow.
+  if (lastMessageIsLiveTail()) return
   chat.clearStuckNewerLoading()
   newerLoadInFlight = true
   newerPrefetchArmed = false
@@ -1006,6 +1036,7 @@ function maybePrefetchNewer(scrollingDown: boolean) {
     newerPrefetchArmed = true
   }
   if (!atBottomBand || !scrollingDown || !newerPrefetchArmed) return
+  if (lastMessageIsLiveTail()) return
   void loadNewerWithoutFollow()
 }
 
@@ -1017,7 +1048,14 @@ function maybePrefetchNewer(scrollingDown: boolean) {
 async function jumpToLatest() {
   const convId = chat.currentId?.trim()
   const page = currentMessagePage.value
-  if (convId && page?.hasMoreNewer) {
+  const needsTail =
+    Boolean(convId)
+    && conversationNeedsTailReload(
+      Boolean(page?.hasMoreNewer),
+      chat.current?.messages ?? [],
+      page?.newestPosition
+    )
+  if (needsTail && convId) {
     beginProgrammaticScroll()
     try {
       await chat.ensureMessagesLoaded(convId, { force: true })
@@ -1118,10 +1156,11 @@ function onScroll(_event: Event) {
       attachPx: ATTACH_BOTTOM_PX,
       detachPx: DETACH_BOTTOM_PX
     })
-    // Loaded bottom of an around window is not the transcript tail.
-    if (currentMessagePage.value?.hasMoreNewer) followOutput = false
+    // Loaded bottom of an around window is not the transcript tail — unless
+    // the list already ends on the in-flight generating turn.
+    if (holeWindowBlocksFollow()) followOutput = false
   }
-  showScrollButton.value = !followOutput || Boolean(currentMessagePage.value?.hasMoreNewer)
+  showScrollButton.value = !followOutput || holeWindowBlocksFollow()
   updateActiveBoardStickyState()
   maybePrefetchOlder(scrollingUp)
   maybePrefetchNewer(scrollingDown)

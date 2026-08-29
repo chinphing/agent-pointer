@@ -159,7 +159,9 @@ export function conversationNavJumpLoadsTail(input: {
   messageId: string
   lastItemMessageId: string | undefined
   hasMoreNewer: boolean
+  hasDisconnectedLiveTail?: boolean
 }): boolean {
-  if (!input.hasMoreNewer || !input.lastItemMessageId) return false
+  if (!input.lastItemMessageId) return false
+  if (!input.hasMoreNewer && !input.hasDisconnectedLiveTail) return false
   return input.messageId === input.lastItemMessageId
 }

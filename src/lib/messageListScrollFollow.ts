@@ -106,13 +106,23 @@ export type SwitchConversationScrollPlan = 'locate' | 'jumpToLatest' | 'toBottom
 export function switchConversationScrollPlan(input: {
   hasPendingFocus: boolean
   hasMoreNewer: boolean
+  /** Live generating turn already in memory past the page cursor. */
+  hasDisconnectedLiveTail?: boolean
 }): SwitchConversationScrollPlan {
   if (input.hasPendingFocus) return 'locate'
-  if (input.hasMoreNewer) return 'jumpToLatest'
+  if (input.hasMoreNewer || input.hasDisconnectedLiveTail) return 'jumpToLatest'
   return 'toBottom'
 }
 
-/** Around-window bottom is not the transcript tail; do not hide jump-to-latest. */
-export function toBottomFollowsOutput(hasMoreNewer: boolean): boolean {
+/**
+ * Around-window bottom is not the transcript tail — unless the loaded list
+ * already ends on the in-flight generating turn, in which case that bottom
+ * *is* the latest content and streaming must keep following.
+ */
+export function toBottomFollowsOutput(
+  hasMoreNewer: boolean,
+  lastMessageIsLiveTail = false
+): boolean {
+  if (lastMessageIsLiveTail) return true
   return !hasMoreNewer
 }

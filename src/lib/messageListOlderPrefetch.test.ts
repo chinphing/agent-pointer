@@ -193,6 +193,17 @@ describe('shouldRequestNewerFromWheel', () => {
       })
     ).toBe(false)
   })
+
+  it('does not load newer when the list already ends on the generating turn', () => {
+    expect(
+      shouldRequestNewerFromWheel({
+        deltaY: 40,
+        distanceFromBottom: 0,
+        hasMoreNewer: true,
+        lastMessageIsLiveTail: true
+      })
+    ).toBe(false)
+  })
 })
 
 describe('shouldRequestNewerFromTouchPull', () => {

@@ -353,4 +353,39 @@ describe('chat around-window newer paging', () => {
     expect(conv.messages.map(m => m.id)).toEqual(['tail-u', 'tail-a'])
     expect(store.messagePageState(conv.id)?.hasMoreNewer).toBe(false)
   })
+
+  it('appends a newer page even when a live generating turn sits at a high position', async () => {
+    const store = useChatStore()
+    const conv = store.newConversation()
+    conv.messages = [
+      msg('u2', 2, 19),
+      asst('a2', 3, 20),
+      asst('live', 90, 90)
+    ]
+    conv.messages[2]!.status = 'streaming'
+    conv.messageCount = 40
+    store.messagePageByConv = {
+      ...store.messagePageByConv,
+      [conv.id]: aroundWindowState()
+    }
+
+    loadConversationMessagesPage.mockResolvedValueOnce({
+      messages: [msg('u3', 4), asst('a3', 5)],
+      positions: [21, 22],
+      hasMoreOlder: true,
+      hasMoreNewer: true,
+      oldestPosition: 21,
+      newestPosition: 22,
+      messageCount: 40
+    })
+
+    const added = await store.loadNewerMessages(conv.id)
+
+    expect(added).toBe(true)
+    expect(conv.messages.map(m => m.id)).toEqual(['u2', 'a2', 'u3', 'a3', 'live'])
+    expect(store.messagePageState(conv.id)).toMatchObject({
+      hasMoreNewer: true,
+      newestPosition: 22
+    })
+  })
 })

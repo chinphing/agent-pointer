@@ -251,4 +251,15 @@ describe('conversationNavJumpLoadsTail', () => {
       })
     ).toBe(false)
   })
+
+  it('loads the real tail when a disconnected live turn sits past the cursor', () => {
+    expect(
+      conversationNavJumpLoadsTail({
+        messageId: 'last',
+        lastItemMessageId: 'last',
+        hasMoreNewer: false,
+        hasDisconnectedLiveTail: true
+      })
+    ).toBe(true)
+  })
 })

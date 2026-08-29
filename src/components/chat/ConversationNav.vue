@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
+import { hasDisconnectedLiveTail } from '../../stores/chat/helpers'
 import { listConversationOutline } from '../../lib/api'
 import {
   CONVERSATION_NAV_TICK_GAP_PX,
@@ -221,7 +222,11 @@ function onJump(messageId: string) {
     conversationNavJumpLoadsTail({
       messageId,
       lastItemMessageId: last?.messageId,
-      hasMoreNewer: chat.messagePageState(convId)?.hasMoreNewer === true
+      hasMoreNewer: chat.messagePageState(convId)?.hasMoreNewer === true,
+      hasDisconnectedLiveTail: hasDisconnectedLiveTail(
+        chat.current?.messages ?? [],
+        chat.messagePageState(convId)?.newestPosition
+      )
     })
   ) {
     chat.selectConversation(convId)

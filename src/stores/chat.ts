@@ -104,6 +104,8 @@ import {
   assistantTurnActivelyRunning,
   computeHistoryTrimCutByViewedAt,
   hasInFlightToolCalls,
+  conversationNeedsTailReload,
+  hasDisconnectedLiveTail,
   mergeHydratedMessages,
   mergeMessagePage,
   normalizeInterruptedAssistantStatuses,
@@ -1340,8 +1342,12 @@ export const useChatStore = defineStore('chat', () => {
     return mergeMessagePage(existing, older, 'older')
   }
 
-  function appendMessagesById(existing: ChatMessage[], newer: ChatMessage[]): ChatMessage[] {
-    return mergeMessagePage(existing, newer, 'newer')
+  function appendMessagesById(
+    existing: ChatMessage[],
+    newer: ChatMessage[],
+    afterPosition?: number | null
+  ): ChatMessage[] {
+    return mergeMessagePage(existing, newer, 'newer', { afterPosition })
   }
 
   /** Copy wire-only `positions` (parallel to `page.messages`) onto the message objects. */
@@ -1413,11 +1419,14 @@ export const useChatStore = defineStore('chat', () => {
           next = dedupeImInboundUserMessages(convId, stripped)
         }
         if (isConversationGenerating(convId) && conv.messages.length > 0) {
-          next = mergeHydratedMessages(conv.messages, next)
+          const holeWindow = messagePageState(convId)?.hasMoreNewer === true
+          const mode = holeWindow ? 'in-flight-tail' : 'keep-older'
+          next = mergeHydratedMessages(conv.messages, next, mode)
           addPersistedMessageIds(convId, dbPersistedIds)
           console.info(
             '[chat] ensureMessagesLoaded: merged DB rows with in-memory stream',
             convId,
+            mode,
             next.length
           )
         } else {
@@ -1648,11 +1657,14 @@ export const useChatStore = defineStore('chat', () => {
           })
           return false
         }
-        const retained = retainIncomingNewerMessages(conv.messages, stripped)
+        const retained = retainIncomingNewerMessages(conv.messages, stripped, {
+          afterPosition: newestAtStart
+        })
         if (retained.length === 0) {
+          const stillHole = hasDisconnectedLiveTail(conv.messages, newestAtStart)
           applyMessagePageState(convId, {
             hasMoreOlder: state.hasMoreOlder,
-            hasMoreNewer: false,
+            hasMoreNewer: stillHole,
             oldestPosition: state.oldestPosition,
             newestPosition: newestAtStart
           })
@@ -1662,12 +1674,14 @@ export const useChatStore = defineStore('chat', () => {
             'afterPosition',
             newestAtStart,
             'dropped',
-            stripped.length
+            stripped.length,
+            'stillHole',
+            stillHole
           )
           return false
         }
         const beforeLen = conv.messages.length
-        conv.messages = appendMessagesById(conv.messages, retained)
+        conv.messages = appendMessagesById(conv.messages, retained, newestAtStart)
         addPersistedMessageIds(convId, persistedCandidateMessageIds(retained))
         normalizeSubAgentTraces([conv])
         normalizeInterruptedAssistantStatuses([conv])
@@ -1872,7 +1886,7 @@ export const useChatStore = defineStore('chat', () => {
           next = dedupeImInboundUserMessages(convId, stripped)
         }
         if (isConversationGenerating(convId) && conv.messages.length > 0) {
-          next = mergeHydratedMessages(conv.messages, next)
+          next = mergeHydratedMessages(conv.messages, next, 'in-flight-tail')
           addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
         } else {
           replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
@@ -2410,7 +2424,16 @@ export const useChatStore = defineStore('chat', () => {
     const needsHydration = conversationNeedsMessageHydration(conv)
     // Around-window hydrate leaves hasMoreNewer. Opening without a hit must
     // replace that window with the real tail (scroll-down paging stays on the hit).
-    const needsTailReload = !focusMessageId && Boolean(messagePageState(id)?.hasMoreNewer)
+    // A live generating turn spliced onto the hole can poison hasMoreNewer; still
+    // reload the tail so the user can reach the running turn.
+    const pageState = messagePageState(id)
+    const needsTailReload =
+      !focusMessageId
+      && conversationNeedsTailReload(
+        Boolean(pageState?.hasMoreNewer),
+        conv?.messages ?? [],
+        pageState?.newestPosition
+      )
     if (currentId.value === id && !needsHydration) {
       touchConversation(id)
       clearConversationAwaitingView(id)

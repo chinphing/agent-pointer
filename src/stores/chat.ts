@@ -460,6 +460,21 @@ export const useChatStore = defineStore('chat', () => {
   const messagePageByConv = ref<Record<string, MessagePageState>>({})
   const olderLoadPromises = new Map<string, Promise<boolean>>()
   const newerLoadPromises = new Map<string, Promise<boolean>>()
+  /**
+   * Bumped whenever the in-memory turn window is replaced (around / tail).
+   * In-flight older/newer pages must not append onto the new window.
+   */
+  const pageWindowEpoch = new Map<string, number>()
+
+  function currentPageWindowEpoch(convId: string): number {
+    return pageWindowEpoch.get(convId) ?? 0
+  }
+
+  function bumpPageWindowEpoch(convId: string): number {
+    const next = currentPageWindowEpoch(convId) + 1
+    pageWindowEpoch.set(convId, next)
+    return next
+  }
   /** Last-viewed timestamp per user message (current-conversation history trim). */
   const EMPTY_VIEWED_MAP: ReadonlyMap<string, number> = new Map()
   /** How long a user message can go unviewed before it becomes trim candidate. */
@@ -545,6 +560,9 @@ export const useChatStore = defineStore('chat', () => {
     conv.messages = []
     hydratedIds.value.delete(id)
     clearPersistedMessageIds(id)
+    pageWindowEpoch.delete(id)
+    olderLoadPromises.delete(id)
+    newerLoadPromises.delete(id)
     const nextPages = { ...messagePageByConv.value }
     delete nextPages[id]
     messagePageByConv.value = nextPages
@@ -1364,7 +1382,14 @@ export const useChatStore = defineStore('chat', () => {
       return true
     }
     const existing = messageHydrationPromises.get(convId)
-    if (existing) return existing
+    if (existing) {
+      if (!options?.force) return existing
+      const aroundOk = await existing
+      // Around hydrate shares this map; after it lands we may still be in a
+      // hole window and must continue to the real tail.
+      if (!messagePageState(convId)?.hasMoreNewer) return aroundOk
+      console.info('[chat] ensureMessagesLoaded: force tail after around hydrate', convId)
+    }
 
     const hydration = (async (): Promise<boolean> => {
       // silent: background SSE catch-up — avoid toggling hydrating UI (page flash).
@@ -1398,6 +1423,7 @@ export const useChatStore = defineStore('chat', () => {
         } else {
           replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
         }
+        bumpPageWindowEpoch(convId)
         conv.messages = next
         if (typeof page.messageCount === 'number') {
           conv.messageCount = page.messageCount
@@ -1493,12 +1519,17 @@ export const useChatStore = defineStore('chat', () => {
 
     applyMessagePageState(convId, state, { loadingOlder: true })
     const oldestAtStart = state.oldestPosition
+    const epochAtStart = currentPageWindowEpoch(convId)
     const load = (async (): Promise<boolean> => {
       try {
         const page = await loadConversationMessagesPage(convId, {
           limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
           beforePosition: oldestAtStart
         })
+        if (currentPageWindowEpoch(convId) !== epochAtStart) {
+          console.warn('[chat] loadOlderMessages: discarded stale page after window replace', convId)
+          return false
+        }
         attachPagePositions(page)
         const stripped = stripWireAttachmentFields(
           page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
@@ -1593,12 +1624,17 @@ export const useChatStore = defineStore('chat', () => {
 
     applyMessagePageState(convId, state, { loadingNewer: true })
     const newestAtStart = state.newestPosition
+    const epochAtStart = currentPageWindowEpoch(convId)
     const load = (async (): Promise<boolean> => {
       try {
         const page = await loadConversationMessagesPage(convId, {
           limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
           afterPosition: newestAtStart
         })
+        if (currentPageWindowEpoch(convId) !== epochAtStart) {
+          console.warn('[chat] loadNewerMessages: discarded stale page after window replace', convId)
+          return false
+        }
         attachPagePositions(page)
         const stripped = stripWireAttachmentFields(
           page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
@@ -1841,6 +1877,7 @@ export const useChatStore = defineStore('chat', () => {
         } else {
           replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
         }
+        bumpPageWindowEpoch(convId)
         conv.messages = next
         if (typeof page.messageCount === 'number') {
           conv.messageCount = page.messageCount
@@ -2457,6 +2494,9 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value.delete(id)
     clearConversationAwaitingView(id)
     clearPersistedMessageIds(id)
+    pageWindowEpoch.delete(id)
+    olderLoadPromises.delete(id)
+    newerLoadPromises.delete(id)
     const nextPages = { ...messagePageByConv.value }
     delete nextPages[id]
     messagePageByConv.value = nextPages
@@ -3167,6 +3207,7 @@ export const useChatStore = defineStore('chat', () => {
     messagePageByConv.value = {}
     olderLoadPromises.clear()
     newerLoadPromises.clear()
+    pageWindowEpoch.clear()
     persistedMessageIdsByConv.clear()
     messagesLoadingIds.value = new Set()
     messageHydrationPromises.clear()

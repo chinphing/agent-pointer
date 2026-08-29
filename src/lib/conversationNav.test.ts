@@ -8,6 +8,7 @@ import {
   CONVERSATION_NAV_TICK_SLOT_PX,
   conversationNavFisheye,
   conversationNavFocusFromPointer,
+  conversationNavJumpLoadsTail,
   conversationNavPageDelta,
   conversationNavPreview,
   conversationNavRestTick,
@@ -217,5 +218,37 @@ describe('conversationNavVisibleMessageId', () => {
         markerTurnId: 'turn-2'
       })
     ).toBe('turn-2')
+  })
+})
+
+describe('conversationNavJumpLoadsTail', () => {
+  it('loads the real tail when the last tick is clicked in a hole window', () => {
+    expect(
+      conversationNavJumpLoadsTail({
+        messageId: 'last-in-window',
+        lastItemMessageId: 'last-in-window',
+        hasMoreNewer: true
+      })
+    ).toBe(true)
+  })
+
+  it('keeps around-jump for a middle tick', () => {
+    expect(
+      conversationNavJumpLoadsTail({
+        messageId: 'mid',
+        lastItemMessageId: 'last',
+        hasMoreNewer: true
+      })
+    ).toBe(false)
+  })
+
+  it('keeps around-jump when the loaded window is already the tail', () => {
+    expect(
+      conversationNavJumpLoadsTail({
+        messageId: 'last',
+        lastItemMessageId: 'last',
+        hasMoreNewer: false
+      })
+    ).toBe(false)
   })
 })

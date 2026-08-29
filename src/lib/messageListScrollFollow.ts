@@ -96,3 +96,23 @@ export function shouldSkipTotalSizeStick(opts: {
     opts.windowMs
   )
 }
+
+export type SwitchConversationScrollPlan = 'locate' | 'jumpToLatest' | 'toBottom'
+
+/**
+ * Re-opening a conversation without a search hit must land on the real tail.
+ * Pending focus keeps the around window; `toBottom` alone would pin a hole.
+ */
+export function switchConversationScrollPlan(input: {
+  hasPendingFocus: boolean
+  hasMoreNewer: boolean
+}): SwitchConversationScrollPlan {
+  if (input.hasPendingFocus) return 'locate'
+  if (input.hasMoreNewer) return 'jumpToLatest'
+  return 'toBottom'
+}
+
+/** Around-window bottom is not the transcript tail; do not hide jump-to-latest. */
+export function toBottomFollowsOutput(hasMoreNewer: boolean): boolean {
+  return !hasMoreNewer
+}

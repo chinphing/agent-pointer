@@ -149,3 +149,17 @@ export function conversationNavVisibleMessageId(input: {
   if (input.atBottom && input.lastLoadedTurnId) return input.lastLoadedTurnId
   return input.markerTurnId
 }
+
+/**
+ * Last tick while the loaded window still has newer turns must load the real
+ * tail. Around-merge would treat the around-window's last user as already
+ * loaded and never reveal later conversation content.
+ */
+export function conversationNavJumpLoadsTail(input: {
+  messageId: string
+  lastItemMessageId: string | undefined
+  hasMoreNewer: boolean
+}): boolean {
+  if (!input.hasMoreNewer || !input.lastItemMessageId) return false
+  return input.messageId === input.lastItemMessageId
+}

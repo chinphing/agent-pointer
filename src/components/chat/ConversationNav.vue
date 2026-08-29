@@ -8,6 +8,7 @@ import {
   CONVERSATION_NAV_TICK_SLOT_PX,
   conversationNavFisheye,
   conversationNavFocusFromPointer,
+  conversationNavJumpLoadsTail,
   conversationNavMaxHeightPx,
   conversationNavPageDelta,
   conversationNavRestTick,
@@ -213,6 +214,19 @@ function onJump(messageId: string) {
   const convId = chat.currentId?.trim()
   if (!convId || !messageId) return
   chat.setVisibleNavMessageId(messageId)
+  const last = items.value[items.value.length - 1]
+  // Outline may still be empty, so the bottom tick is only the last user in
+  // the around window. Around-merge would early-return and leave the hole.
+  if (
+    conversationNavJumpLoadsTail({
+      messageId,
+      lastItemMessageId: last?.messageId,
+      hasMoreNewer: chat.messagePageState(convId)?.hasMoreNewer === true
+    })
+  ) {
+    chat.selectConversation(convId)
+    return
+  }
   chat.selectConversation(convId, { focusMessageId: messageId })
 }
 

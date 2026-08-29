@@ -1122,7 +1122,7 @@ watch(searchQuery, q => {
                       @keydown.space.prevent="onRowClick(conversation)"
                     >
                       <Loader2
-                        v-if="chat.isConversationGenerating(conversation.id)"
+                        v-if="chat.isConversationBusy(conversation.id)"
                         class="w-3.5 h-3.5 shrink-0 animate-spin"
                       />
                       <span
@@ -1229,7 +1229,7 @@ watch(searchQuery, q => {
                   @contextmenu="openConversationMenu($event, c)"
                 >
                   <Loader2
-                    v-if="chat.isConversationGenerating(c.id)"
+                    v-if="chat.isConversationBusy(c.id)"
                     class="w-3.5 h-3.5 shrink-0 animate-spin"
                     :class="chat.currentId === c.id ? 'text-foreground' : 'text-muted'"
                   />
@@ -1381,7 +1381,7 @@ watch(searchQuery, q => {
               @contextmenu="openConversationMenu($event, c)"
             >
               <Loader2
-                v-if="chat.isConversationGenerating(c.id)"
+                v-if="chat.isConversationBusy(c.id)"
                 class="w-3.5 h-3.5 shrink-0 animate-spin"
                 :class="chat.currentId === c.id ? 'text-foreground' : 'text-muted'"
               />

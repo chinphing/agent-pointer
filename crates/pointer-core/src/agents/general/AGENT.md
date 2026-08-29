@@ -35,6 +35,7 @@ accessPolicy:
     - web_search
     - web_fetch
     - run_subagent
+    - job
     - image_generate
     - video_generate
     - media_understand

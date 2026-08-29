@@ -52,7 +52,7 @@ execute eligible tools concurrently subject to conflict detection and platform l
 
 - All Computer desktop tools
 - Sidecar tools (`task_board_*`, `action_verify`, …)
-- `read_lints`, `cron_job`, `skill_import` (P1 serial; intra-tool parallelism optional)
+- `read_lints`, `cron_job`, `job`, `skill_import` (P1 serial; intra-tool parallelism optional)
 
 ### Conflict rules
 

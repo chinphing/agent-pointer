@@ -37,6 +37,8 @@ pub struct RunSubagentArgs {
     pub task_id: String,
     pub workspace_root: Option<String>,
     pub computer_target: Option<ComputerOperationTarget>,
+    /// When true, return `jobId` immediately and run in JobSupervisor (self/explore only).
+    pub background: bool,
 }
 
 impl RunSubagentArgs {
@@ -77,6 +79,20 @@ pub fn validate_spawn_depth(parent_spawn_depth: u32, max_spawn_depth: u32) -> Re
         ));
     }
     Ok(child)
+}
+
+/// Background spawn is only for `self` / `explore`. Writers must join in the foreground.
+pub fn validate_background_target(parsed: &RunSubagentArgs) -> Result<(), String> {
+    if !parsed.background {
+        return Ok(());
+    }
+    if parsed.is_parallel_wave_target() {
+        return Ok(());
+    }
+    Err(
+        "background is only supported for agentId self or explore; coder and computer must join in the foreground"
+            .into(),
+    )
 }
 
 /// Whether an agent at `spawn_depth` may call `run_subagent` again.
@@ -170,6 +186,10 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let computer_target = parse_computer_target(args);
+    let background = args
+        .get("background")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     Ok(RunSubagentArgs {
         agent_id: agent_id.to_string(),
         goal: goal.to_string(),
@@ -178,6 +198,7 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         task_id,
         workspace_root,
         computer_target,
+        background,
     })
 }
 
@@ -335,6 +356,26 @@ mod tests {
         assert!(parsed.title.is_empty());
         assert!(parsed.task_id.is_empty());
         assert!(parsed.workspace_root.is_none());
+        assert!(!parsed.background);
+    }
+
+    #[test]
+    fn parse_background_self_ok_coder_rejected() {
+        let self_bg = parse_run_subagent_args(&json!({
+            "agentId": "self",
+            "goal": "What: inspect\nDone when: report",
+            "background": true
+        }))
+        .unwrap();
+        assert!(self_bg.background);
+        assert!(validate_background_target(&self_bg).is_ok());
+        let coder_bg = parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "goal": "What: implement\nDone when: tests pass",
+            "background": true
+        }))
+        .unwrap();
+        assert!(validate_background_target(&coder_bg).is_err());
     }
 
     #[test]

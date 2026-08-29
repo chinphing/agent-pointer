@@ -1,6 +1,7 @@
 //! Route tool invocations to specialized handlers or the default registry.
 
 mod ask_user;
+mod job;
 mod media;
 pub(super) mod registry;
 mod skill_import;
@@ -40,6 +41,7 @@ pub(super) async fn execute_tool_invocation(
     ask_user_deferred: &AtomicBool,
     run_id: Option<&str>,
     tool_span_id: Option<&str>,
+    state_arc: std::sync::Arc<AppState>,
 ) -> ToolExecResult {
     let _ = ask_user_deferred;
     let execution_scope = ToolExecutionScope::from_agent_contexts(
@@ -139,6 +141,7 @@ pub(super) async fn execute_tool_invocation(
                 history,
                 lead,
                 sub,
+                state_arc,
             )
             .await
         }
@@ -150,6 +153,7 @@ pub(super) async fn execute_tool_invocation(
             args_value,
             lead,
         ),
+        "job" => job::dispatch_job(state, conversation_id, args_value, cancel).await,
         _ => {
             registry::dispatch_registry_invoke(
                 state,

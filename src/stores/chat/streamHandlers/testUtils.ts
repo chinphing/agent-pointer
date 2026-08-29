@@ -66,6 +66,8 @@ export function createMockStreamHandlerContext(
     clearRunState: noop,
     clearAllRunStates: noop,
     isConversationGenerating: () => false,
+    setBackgroundJobCount: noop,
+    hasBackgroundJobs: () => false,
     hasInFlightToolCalls: () => false,
     applyTaskBoardDocument: noop,
     applyTaskBoardDocumentDebounced: noop,

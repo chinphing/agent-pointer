@@ -219,6 +219,49 @@ describe('chat helpers', () => {
     expect(c.messages[0].agentTrace![0].session!.toolCalls![0].status).toBe('failed')
   })
 
+  it('normalizeInterruptedAssistantStatuses keeps background subagent rows running', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'parent done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"running"}'
+          }
+        ],
+        agentTrace: [
+          {
+            id: 'sub-bg',
+            name: 'explore',
+            role: 'sub',
+            status: 'running',
+            depth: 1,
+            parentToolCallId: 'bg1',
+            session: {
+              contentStreaming: true,
+              collapsed: true,
+              userExpanded: false,
+              stats: { searchCount: 0, readCount: 0 },
+              toolCalls: [{ id: 't1', name: 'file_read', arguments: '{}', status: 'running' }]
+            }
+          }
+        ]
+      }
+    ])
+    normalizeInterruptedAssistantStatuses([c])
+    expect(c.messages[0].toolCalls![0].status).toBe('running')
+    expect(c.messages[0].agentTrace![0].status).toBe('running')
+    expect(c.messages[0].agentTrace![0].session!.contentStreaming).toBe(true)
+    expect(c.messages[0].agentTrace![0].session!.toolCalls![0].status).toBe('running')
+  })
+
   it('normalizeStaleEndedAssistantTurn clears stale streaming without active stream', () => {
     const msg: ChatMessage = {
       id: 'a1',

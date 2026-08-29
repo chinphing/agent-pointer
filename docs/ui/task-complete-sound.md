@@ -17,9 +17,9 @@
 | **桌面（Tauri）** | 原生播音：`play_task_complete_chime` 按**原 Web Audio 四层音色**离线合成 WAV（G3/G4 + D4/D5、1400Hz 低通、master 1.45），经 OS 播放（macOS `afplay` / Windows WinMM `PlaySoundW` 进程内播放 / Linux `paplay\|aplay\|ffplay`）。不走 WebView，避免无声 |
 | **网页** | 同款合成 WAV + `HTMLAudioElement`；发送时 `primeTaskCompleteAudio` 静音解锁 |
 | 触发 | **仅** `handleDone`（`StreamEvent::Done`）；在 `finally` 中播放 |
-| 条件 | Done 前仍为 `generating`，**或**仍有未关闭的 turn timing（`hasActiveTurn`） |
+| 条件 | Done 前仍为 `generating`，**或**仍有未关闭的 turn timing（`hasActiveTurn`）；该会话没有仍在跑的后台子任务 |
 | 去重 | **同一 user turn 只响一次**（`conversationId` + `turnId`）；前端与原生层各有约 **1.5s** debounce，防止重复 Done / 双 listener |
-| 不触发 | 用户停止生成、流错误（`handleStreamError` 会先 `recordTurnDone`）；重复 Done |
+| 不触发 | 用户停止生成、流错误（`handleStreamError` 会先 `recordTurnDone`）；重复 Done；主轮结束但后台子任务仍在跑 |
 
 取消 / 报错结束不会播放提示音。
 

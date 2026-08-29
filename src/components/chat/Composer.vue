@@ -1702,7 +1702,7 @@ onUnmounted(() => {
             </div>
 
             <button
-              v-if="generating"
+              v-if="generating || chat.hasBackgroundJobs(chat.current?.id ?? '')"
               class="h-9 w-9 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition md:h-10 md:w-10"
               @click="chat.stop()"
               title="停止当前任务"

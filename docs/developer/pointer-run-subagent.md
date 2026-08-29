@@ -47,6 +47,7 @@ allowAgents:
 | `agentId` | ✓ | worker id（须在 lead 的 `allowAgents` 中），或保留值 **`self`**（fork 当前 agent；不需 `allowAgents`） |
 | `goal` | ✓ | 子任务目标 + 完成标准 |
 | `context` | ✗ | 已验证事实、路径、依赖摘要等（含列表文件的 `localPath` / media ref） |
+| `background` | ✗ | 仅 **`self`** / **`explore`**。默认省略 = 前台 join。`true` = 立刻返回 `jobId`，用 **`job.await`** 取结果 |
 
 任务由宿主写入子 agent **system**（**Assigned task**）；首条 user 为短 stub，不重复 goal。列表文件路径写在 **`context`**，由 worker planner 在 **`task_board_init`** 时填入 **`work_items_source`**。
 
@@ -79,6 +80,7 @@ general 无 Composer 工作区选择器。委派 **coder** 前应在对话中询
 - **`run_subagent` 返回值**：父模型只看到工具结果里的 **`content`**（最后一条 assistant 的 Markdown handoff）。`agentId` / `agentName` 为元数据。**不要**把子循环的 `reasoning` 写进这份 JSON：思考只挂在子 Agent 当轮 assistant 上，供下一轮 API 原样带回。历史会话里若已写入 `reasoning` 字段，那是旧行为。
 - **`self` fork**：fork 当前 agent 的执行快照（profile、工具、skills、workspace）；独立 `local_history` 与 trace；**leaf**（无 `run_subagent`）；不消耗跨角色 spawn depth。
 - **并行 wave**：同一 assistant turn 内多个独立 **`self`** 和/或 **`explore`** 可共用 owned-outcome 并行 wave（受 `maxParallelSubAgents` 限制）；**`coder`** / **`computer`** 仍串行。依赖任务、重叠写、需用户交互或桌面控制的任务不得并行。
+- **后台（初版）**：`run_subagent` 传 **`background: true`**（仅 **`self`** / **`explore`**）立刻返回 **`jobId`**，子任务在 JobSupervisor 里跑，不占 `session:{conversation}`。父模型用 **`job`**（`list` / `status` / `await` / `cancel`）取结果；父 `done` 不杀 job，用户停止会取消该会话全部后台 job。省略 `background` 仍与现网相同（join）。终端 `blockUntilMs` 尚未落地。
 - **委派 `computer`**：与 Computer lead 发送前相同，阻塞等待 macOS 权限向导（桌面端）与屏幕选择（`computer_monitor_pick_required` → `Composer.beginSubagentMonitorPickFlow`）；单屏自动选定、多屏弹窗、已选屏幕复用。
 - 嵌套委派：深度由 **`maxSubAgentSpawnDepth`** 控制（默认 2）。达最大深度的子 agent 为 leaf，无 `run_subagent` 工具。
 - Supervisor 模式下，每执行一个子任务消耗外层一轮子任务预算，且该子任务自带内层 `SessionToolBudget`。

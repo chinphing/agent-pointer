@@ -3,6 +3,7 @@ pub mod builtin;
 pub mod cron_job;
 pub mod display;
 pub mod file;
+pub mod job;
 pub mod media_generate;
 pub mod media_understand;
 pub mod parallel;

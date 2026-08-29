@@ -34,7 +34,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [pointer-run-subagent.md](pointer-run-subagent.md) | `run_subagent`、`allowAgents`、内置 explore |
+| [pointer-run-subagent.md](pointer-run-subagent.md) | `run_subagent`、`allowAgents`、内置 explore、后台 `background` / `job` |
 | [agent-extension-hooks.md](agent-extension-hooks.md) | 扩展注册表与钩子触发点 |
 
 用户设置项见 [`../user/subagents.md`](../user/subagents.md)。

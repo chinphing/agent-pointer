@@ -532,6 +532,13 @@ pub enum StreamEvent {
         #[serde(rename = "monitorId")]
         monitor_id: Option<String>,
     },
+    /// Background job occupancy for this conversation (sidebar spinner; not the lead turn).
+    BackgroundJobs {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "runningCount")]
+        running_count: u32,
+    },
 }
 
 fn nonempty_id(id: &str) -> Option<&str> {
@@ -612,6 +619,9 @@ impl StreamEvent {
                 conversation_id, ..
             }
             | Self::ComputerMonitorUpdated {
+                conversation_id, ..
+            }
+            | Self::BackgroundJobs {
                 conversation_id, ..
             } => nonempty_id(conversation_id),
             Self::Delta { .. }
@@ -713,5 +723,17 @@ mod tests {
         assert_eq!(v["conversationId"], "conv-a");
         assert_eq!(v["message"], "boom");
         assert!(v.get("messageId").is_none());
+    }
+
+    #[test]
+    fn background_jobs_serializes_camel_case() {
+        let ev = StreamEvent::BackgroundJobs {
+            conversation_id: "conv-a".into(),
+            running_count: 3,
+        };
+        let v = serde_json::to_value(&ev).expect("serialize");
+        assert_eq!(v["kind"], "background_jobs");
+        assert_eq!(v["conversationId"], "conv-a");
+        assert_eq!(v["runningCount"], 3);
     }
 }

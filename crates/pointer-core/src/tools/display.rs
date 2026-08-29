@@ -491,6 +491,21 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 cron_job_summary(&action, args),
             )
         }
+        "job" => {
+            let action = args
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("list")
+                .trim();
+            let label = match action {
+                "list" => "查看后台任务",
+                "status" => "后台任务状态",
+                "await" => "等待后台任务",
+                "cancel" => "取消后台任务",
+                _ => "后台任务",
+            };
+            (label.to_string(), String::new())
+        }
         "ask_user" => ("询问用户".to_string(), format_ask_user_summary(args)),
         "response" => ("回复用户".to_string(), String::new()),
         _ => {
@@ -717,5 +732,12 @@ mod tests {
         );
         assert_eq!(d.label, "询问用户");
         assert_eq!(d.summary, "是否允许桌面控制？\n1. 允许\n2. 仅步骤");
+    }
+
+    #[test]
+    fn job_await_uses_wait_label() {
+        let d = default_display("job", &json!({"action": "await", "mode": "any"}));
+        assert_eq!(d.label, "等待后台任务");
+        assert!(d.summary.is_empty());
     }
 }

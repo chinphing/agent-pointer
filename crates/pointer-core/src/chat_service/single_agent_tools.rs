@@ -76,6 +76,7 @@ pub(super) async fn run_single_agent_tool_pass(
             workspace_root: &req.settings.workspace_root,
             trigger_source: req.trigger_source,
             ask_user_deferred: std::sync::atomic::AtomicBool::new(false),
+            state_arc: req.state_arc.clone(),
         },
         final_tool_calls: req.final_tool_calls,
         trim_hook: Some(trim_hook),

@@ -45,6 +45,7 @@ type InjectedAssistantMessageUpdate = Extract<StreamEvent, { kind: 'injected_ass
 type AssistantRoundScreen = Extract<StreamEvent, { kind: 'assistant_round_screen' }>
 type StreamError = Extract<StreamEvent, { kind: 'error' }>
 type Done = Extract<StreamEvent, { kind: 'done' }>
+type BackgroundJobs = Extract<StreamEvent, { kind: 'background_jobs' }>
 
 export function handleUiToast(ctx: StreamHandlerContext, e: UiToast) {
   if (e.conversationId && e.conversationId !== ctx.currentId.value) return
@@ -349,7 +350,14 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
   } finally {
     // Chime must not depend on persist/normalize succeeding.
     if (wasGenerating || hadActiveTurn) {
-      playTaskCompleteSoundIfEnabled(convId, turnId)
+      const jobsStillRunning = !!convId && ctx.hasBackgroundJobs(convId)
+      if (!jobsStillRunning) {
+        playTaskCompleteSoundIfEnabled(convId, turnId)
+      } else {
+        console.info('[sound] skip task-complete chime (background jobs still running)', {
+          conversationId: convId || null
+        })
+      }
       // Background finish: solid-dot on sidebar until the user opens this conversation.
       if (convId && convId !== (ctx.currentId.value?.trim() || '')) {
         ctx.markConversationAwaitingView(convId)
@@ -360,4 +368,10 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
       })
     }
   }
+}
+
+export function handleBackgroundJobs(ctx: StreamHandlerContext, e: BackgroundJobs) {
+  const convId = e.conversationId?.trim()
+  if (!convId) return
+  ctx.setBackgroundJobCount(convId, e.runningCount)
 }

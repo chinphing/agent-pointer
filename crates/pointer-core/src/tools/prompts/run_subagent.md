@@ -19,6 +19,8 @@ schema:
       enum:
         - self
         - external
+    background:
+      type: boolean
   required:
     - agentId
     - goal
@@ -31,9 +33,12 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 
 **What the parent receives**
 
-- **`content`** — Markdown: the worker’s final assistant message.
+- Default (foreground): **`content`** — Markdown: the worker’s final assistant message.
   Merge into your plan; do not paste the full handoff to the user.
-- Only **`content`**. Worker thinking is not included.
+- **`background: true`**: `{ jobId, status: "running" }` immediately.
+  Use **`job.await`** when this turn needs results.
+  If this turn can end, do not tell the user everything is finished.
+- Only **`content`** (or the job handle). Worker thinking is not included.
 
 **Rules**
 
@@ -56,6 +61,17 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
   - no shared mutable state / overlapping writes
   - no user-interactive or desktop-control work
 - Otherwise: one call, or sequential turns.
+
+**Background (`self` and `explore` only)**
+
+- Omit / `false` = wait until the worker finishes (default).
+- `true` = return `jobId` now; the worker keeps running.
+- `coder` / `computer` must stay foreground.
+- Need a result this turn → `job.await`.
+- Task list is already complete → spawn them all (`background: true`),
+  then `job.await` `mode=all`. Host queues to the concurrency cap.
+- Next task depends on a finished result → `job.await` `mode=any`,
+  then spawn the next one.
 
 **Goal vs context (all workers)**
 
@@ -233,6 +249,8 @@ User required a specific path — put it in **`context`**, not **`goal`**:
   Absolute directory for the coder worker.
   Optional for a self fork; when present, it overrides the current workspace.
 - **`computerTarget`** (optional, **general → `computer`**) — `self` | `external`.
+- **`background`** (optional) — `self` / `explore` only. Default false (join).
+  `true` returns `jobId` immediately.
 
 **Handoff flow**
 

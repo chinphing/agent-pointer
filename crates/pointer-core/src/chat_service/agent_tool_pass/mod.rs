@@ -986,7 +986,7 @@ async fn run_self_fork_wave(
                     "parallel subagent wave requires an active parent agent"
                 ));
             };
-        let running_event = build_self_fork_running_event(
+        let mut running_event = build_self_fork_running_event(
             pass.ctx.session.stream,
             pass.ctx.session.state,
             pass.ctx.transcript.history,
@@ -1040,7 +1040,63 @@ async fn run_self_fork_wave(
                         .sub
                         .as_ref()
                         .map(|s| s.scoped_message_id.clone()),
+                    state_arc: pass.ctx.state_arc.clone(),
                 };
+                let parsed_bg = crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
+                let background = parsed_bg.as_ref().is_ok_and(|a| a.background);
+                if background {
+                    if let Ok(parsed) = parsed_bg.as_ref() {
+                        if let Err(msg) =
+                            crate::tools::run_subagent::validate_background_target(parsed)
+                        {
+                            let outcome = failed_owned_subagent_outcome(
+                                &run_id,
+                                pass.ctx.session.conversation_id,
+                                &prep.tc.id,
+                                input.task.clone(),
+                                &input.source,
+                                input.child_spawn_depth,
+                                msg,
+                            );
+                            items.push(SelfForkWaveItem {
+                                index: idx,
+                                task_id: input.task.id.clone(),
+                                tool_call_id: prep.tc.id.clone(),
+                                input: SelfForkWaveWork::Prepared(outcome),
+                                running_event,
+                            });
+                            continue;
+                        }
+                    }
+                    if let Some((stream, event)) = running_event.take() {
+                        emit(&stream, event);
+                    }
+                    let job_id = super::run_subagent_delegation::spawn_background_owned_subagent(
+                        super::run_subagent_delegation::BackgroundOwnedSpawn {
+                            stream: pass.ctx.session.stream.clone(),
+                            state: pass.ctx.state_arc.clone(),
+                            conversation_id: pass.ctx.session.conversation_id.to_string(),
+                            cancel: CancellationToken::new(),
+                            settings: pass.ctx.provider.settings.clone(),
+                            api_key: pass.ctx.provider.api_key.clone(),
+                            parent_task_board_store_key: input.parent_task_board_store_key.clone(),
+                            message_id: input.message_id.clone(),
+                            tool_call_id: input.tool_call_id.clone(),
+                            run_id: input.run_id.clone(),
+                            task: input.task.clone(),
+                            source: input.source.clone(),
+                            enabled_skill_ids: input.enabled_skill_ids.clone(),
+                            agent_skill_overrides: input.agent_skill_overrides.clone(),
+                            child_spawn_depth: input.child_spawn_depth,
+                            max_spawn_depth: input.max_spawn_depth,
+                            host_trace_id: input.host_trace_id.clone(),
+                            host_scoped_message_id: input.host_scoped_message_id.clone(),
+                        },
+                    );
+                    record_background_spawn_result(pass, prep, &job_id);
+                    *any_executed = true;
+                    continue;
+                }
                 (task_id, SelfForkWaveWork::Execute(input))
             }
             Err(error) => {
@@ -1143,6 +1199,54 @@ async fn run_self_fork_wave(
         *any_executed = true;
     }
     Ok(())
+}
+
+fn record_background_spawn_result(
+    pass: &mut ToolPassRequest<'_>,
+    prep: &PreparedTool,
+    job_id: &str,
+) {
+    let body = serde_json::json!({
+        "jobId": job_id,
+        "status": "running",
+    })
+    .to_string();
+    log::info!(
+        "run_subagent background tool result conversation_id={} tool_call_id={} job_id={job_id}",
+        pass.ctx.session.conversation_id,
+        prep.tc.id
+    );
+    let persist = pass.ctx.persist.clone();
+    super::util::push_tool_result(
+        pass.ctx.transcript.history,
+        pass.ctx.session.conversation_id,
+        &pass.ctx.message_id,
+        &prep.tc.id,
+        &body,
+        &persist,
+    );
+    let display = pass.ctx.session.state.tools.format_display(&prep.tc.name, &prep.args_value);
+    patch_assistant_tool_call_display(
+        pass.ctx.transcript.history,
+        &pass.ctx.message_id,
+        &prep.tc.id,
+        &display,
+    );
+    patch_assistant_tool_call_outcome(
+        pass.ctx.transcript.history,
+        &pass.ctx.message_id,
+        &prep.tc.id,
+        "running",
+        Some(&body),
+        None,
+        None,
+        Some(display.label.as_str()),
+        if display.summary.is_empty() {
+            None
+        } else {
+            Some(display.summary.as_str())
+        },
+    );
 }
 
 async fn apply_self_fork_outcome(
@@ -1324,6 +1428,7 @@ async fn run_one_prepared(
         &pass.ctx.ask_user_deferred,
         Some(run_id.as_str()),
         Some(span_id.as_str()),
+        pass.ctx.state_arc.clone(),
     )
     .await;
 

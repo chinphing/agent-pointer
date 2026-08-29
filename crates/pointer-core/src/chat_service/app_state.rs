@@ -580,6 +580,8 @@ pub struct AppState {
     pub mcp_sessions: Arc<crate::plugins::mcp::McpSessionManager>,
     /// P2b 全局（非插件）MCP 配置（来自 pointer-server.toml；热重载由管理 API 驱动）。
     pub global_mcp: Arc<RwLock<GlobalMcpConfig>>,
+    /// Background `run_subagent` / (later) terminal jobs. Does not hold the session lane.
+    pub jobs: super::job_supervisor::JobSupervisor,
 }
 
 impl AppState {
@@ -718,6 +720,7 @@ impl AppState {
             plugins,
             mcp_sessions,
             global_mcp,
+            jobs: super::job_supervisor::JobSupervisor::new(),
         };
         state.spawn_mcp_watchdog();
         state
@@ -1457,6 +1460,13 @@ impl AppState {
         };
         for tx in pending_inputs {
             let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Cancelled);
+        }
+
+        let cancelled_jobs = self.jobs.cancel_conversation(conversation_id);
+        if cancelled_jobs > 0 {
+            log::info!(
+                "app_state: cancel fan-out background jobs conversation_id={conversation_id} count={cancelled_jobs}"
+            );
         }
     }
 

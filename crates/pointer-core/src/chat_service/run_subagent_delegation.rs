@@ -1,6 +1,8 @@
 //! Lead-agent `run_subagent` tool: validate target, spawn sub loop, emit trace steps.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::agent_instance_scope::AgentInstanceScope;
@@ -13,7 +15,8 @@ use crate::models::{AgentTrace, ComputerOperationTarget, StreamEvent};
 use crate::provider::OpenAIProvider;
 use crate::session_sandbox::SessionSandbox;
 use crate::tools::run_subagent::{
-    resolve_computer_operation_target, validate_run_subagent_workspace, validate_spawn_depth,
+    resolve_computer_operation_target, validate_background_target, validate_run_subagent_workspace,
+    validate_spawn_depth,
 };
 use anyhow::Result;
 
@@ -60,6 +63,7 @@ pub(super) struct PreparedSubagentOutcome {
 }
 
 /// Owned-outcome child definition for the parallel subagent wave (`self` or `explore`).
+#[derive(Clone)]
 pub(crate) enum OwnedSubagentSource {
     SelfFork(SelfForkSnapshot),
     Registered(AgentDef),
@@ -85,6 +89,7 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     /// Host tool-pass trace (nested spawn); lead-owned forks leave this empty.
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
+    pub state_arc: std::sync::Arc<AppState>,
 }
 
 pub(super) struct SubagentCommitContext<'a> {
@@ -374,6 +379,7 @@ pub(super) async fn execute_owned_subagent(
         max_spawn_depth,
         host_trace_id,
         host_scoped_message_id,
+        state_arc,
     } = input;
     let empty_overrides = std::collections::HashMap::new();
     let (definition_source, skill_ids, overrides, def_for_trace) = match &source {
@@ -444,6 +450,7 @@ pub(super) async fn execute_owned_subagent(
         llm_stats: &mut child_usage,
         spawn_depth: child_spawn_depth,
         max_spawn_depth,
+        state_arc,
     };
     let run_result = Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await;
     let (trace, exec) = match run_result {
@@ -561,6 +568,263 @@ pub(super) async fn execute_owned_subagent(
     }
 }
 
+pub(crate) struct BackgroundOwnedSpawn {
+    pub stream: super::StreamTx,
+    pub state: Arc<AppState>,
+    pub conversation_id: String,
+    pub cancel: CancellationToken,
+    pub settings: crate::models::ModelSettings,
+    pub api_key: String,
+    pub parent_task_board_store_key: String,
+    pub message_id: String,
+    pub tool_call_id: String,
+    pub run_id: String,
+    pub task: AgentTask,
+    pub source: OwnedSubagentSource,
+    pub enabled_skill_ids: Vec<String>,
+    pub agent_skill_overrides: HashMap<String, Vec<String>>,
+    pub child_spawn_depth: u32,
+    pub max_spawn_depth: u32,
+    pub host_trace_id: Option<String>,
+    pub host_scoped_message_id: Option<String>,
+}
+
+pub(crate) fn emit_background_jobs(stream: &super::StreamTx, conversation_id: &str, running_count: usize) {
+    emit(
+        stream,
+        StreamEvent::BackgroundJobs {
+            conversation_id: conversation_id.to_string(),
+            running_count: running_count as u32,
+        },
+    );
+}
+
+/// Register a background job and return `jobId` without joining the child.
+pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> String {
+    let agent_id = match &spawn.source {
+        OwnedSubagentSource::SelfFork(snapshot) => snapshot.def.id.clone(),
+        OwnedSubagentSource::Registered(def) => def.id.clone(),
+    };
+    let kind = super::job_supervisor::JobKind::Subagent(super::job_supervisor::JobKindSubagent {
+        tool_call_id: spawn.tool_call_id.clone(),
+        message_id: spawn.message_id.clone(),
+        agent_id,
+        title: spawn.task.title.clone(),
+    });
+    let job_id = spawn
+        .state
+        .jobs
+        .register(&spawn.conversation_id, kind, spawn.cancel.clone());
+    emit_background_jobs(
+        &spawn.stream,
+        &spawn.conversation_id,
+        spawn
+            .state
+            .jobs
+            .running_count_for_conversation(&spawn.conversation_id),
+    );
+    log::info!(
+        "run_subagent background spawn job_id={job_id} conversation_id={} tool_call_id={} task_id={}",
+        spawn.conversation_id,
+        spawn.tool_call_id,
+        spawn.task.id
+    );
+    tokio::spawn(run_background_owned_subagent(job_id.clone(), spawn));
+    job_id
+}
+
+async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpawn) {
+    let cap = crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
+        .max_parallel_sub_agents;
+    let cap = super::job_supervisor::JobSupervisor::slot_cap_from(cap);
+    if !spawn.state.jobs.acquire_slot(cap, &spawn.cancel).await {
+        log::info!(
+            "run_subagent background cancelled before slot job_id={job_id} conversation_id={}",
+            spawn.conversation_id
+        );
+        let outcome = cancelled_owned_subagent_outcome(
+            &spawn.run_id,
+            &spawn.conversation_id,
+            &spawn.tool_call_id,
+            spawn.task.clone(),
+            &spawn.source,
+            spawn.child_spawn_depth,
+        );
+        spawn.state.jobs.finish(
+            &job_id,
+            super::job_supervisor::JobStatus::Cancelled,
+            None,
+            Some("cancelled".into()),
+        );
+        publish_owned_subagent_ui_finished(
+            &spawn.stream,
+            &spawn.message_id,
+            &spawn.tool_call_id,
+            &outcome.trace,
+            &outcome.exec,
+            0,
+            spawn.host_trace_id.as_deref(),
+            spawn.host_scoped_message_id.as_deref(),
+        );
+        persist_background_host_tool_finish(
+            &spawn.conversation_id,
+            &spawn.message_id,
+            &spawn.tool_call_id,
+            "failed",
+            None,
+            Some("cancelled"),
+            Some(0),
+        );
+        emit_background_jobs(
+            &spawn.stream,
+            &spawn.conversation_id,
+            spawn
+                .state
+                .jobs
+                .running_count_for_conversation(&spawn.conversation_id),
+        );
+        return;
+    }
+    spawn.state.jobs.mark_running(&job_id);
+    let provider = OpenAIProvider::new(spawn.settings.clone(), spawn.api_key.clone());
+    let input = OwnedSubagentExecutionInput {
+        stream: &spawn.stream,
+        state: spawn.state.as_ref(),
+        conversation_id: &spawn.conversation_id,
+        cancel: spawn.cancel.clone(),
+        provider,
+        parent_task_board_store_key: spawn.parent_task_board_store_key.clone(),
+        message_id: spawn.message_id.clone(),
+        tool_call_id: spawn.tool_call_id.clone(),
+        run_id: spawn.run_id.clone(),
+        task: spawn.task.clone(),
+        source: spawn.source.clone(),
+        enabled_skill_ids: spawn.enabled_skill_ids.clone(),
+        agent_skill_overrides: spawn.agent_skill_overrides.clone(),
+        child_spawn_depth: spawn.child_spawn_depth,
+        max_spawn_depth: spawn.max_spawn_depth,
+        host_trace_id: spawn.host_trace_id.clone(),
+        host_scoped_message_id: spawn.host_scoped_message_id.clone(),
+        state_arc: spawn.state.clone(),
+    };
+    let outcome = execute_owned_subagent(input).await;
+    spawn.state.jobs.release_slot();
+    let cancelled = spawn.cancel.is_cancelled();
+    let (status, content, error) = match &outcome.exec {
+        Ok((body, true, _)) => (
+            super::job_supervisor::JobStatus::Completed,
+            Some(body.clone()),
+            None,
+        ),
+        Ok((body, false, note)) => {
+            let st = if cancelled {
+                super::job_supervisor::JobStatus::Cancelled
+            } else {
+                super::job_supervisor::JobStatus::Failed
+            };
+            (st, Some(body.clone()), note.clone())
+        }
+        Err(err) => {
+            let st = if cancelled {
+                super::job_supervisor::JobStatus::Cancelled
+            } else {
+                super::job_supervisor::JobStatus::Failed
+            };
+            (st, None, Some(err.to_string()))
+        }
+    };
+    spawn.state.jobs.finish(&job_id, status, content, error);
+    let ui_status = match status {
+        super::job_supervisor::JobStatus::Completed => "success",
+        super::job_supervisor::JobStatus::Cancelled => "failed",
+        _ => "failed",
+    };
+    persist_background_host_tool_finish(
+        &spawn.conversation_id,
+        &spawn.message_id,
+        &spawn.tool_call_id,
+        ui_status,
+        outcome
+            .exec
+            .as_ref()
+            .ok()
+            .map(|(body, _, _)| truncate_str(body, 800)),
+        outcome
+            .exec
+            .as_ref()
+            .ok()
+            .and_then(|(_, _, note)| note.clone())
+            .or_else(|| outcome.exec.as_ref().err().map(|e| e.to_string()))
+            .as_deref(),
+        None,
+    );
+    emit_background_jobs(
+        &spawn.stream,
+        &spawn.conversation_id,
+        spawn
+            .state
+            .jobs
+            .running_count_for_conversation(&spawn.conversation_id),
+    );
+}
+
+fn persist_background_host_tool_finish(
+    conversation_id: &str,
+    message_id: &str,
+    tool_call_id: &str,
+    status: &str,
+    result: Option<String>,
+    error: Option<&str>,
+    duration_ms: Option<u64>,
+) {
+    let store = match crate::conversation_store::global_store() {
+        Ok(store) => store,
+        Err(err) => {
+            log::warn!(
+                "run_subagent background persist skipped conversation_id={conversation_id}: {err:#}"
+            );
+            return;
+        }
+    };
+    let mut messages = match store.load_messages(conversation_id) {
+        Ok(messages) => messages,
+        Err(err) => {
+            log::warn!(
+                "run_subagent background load_messages failed conversation_id={conversation_id}: {err:#}"
+            );
+            return;
+        }
+    };
+    let Some(msg) = messages.iter_mut().find(|m| m.id == message_id) else {
+        log::warn!(
+            "run_subagent background persist missed message conversation_id={conversation_id} message_id={message_id}"
+        );
+        return;
+    };
+    let Some(tc) = msg
+        .tool_calls
+        .as_mut()
+        .and_then(|calls| calls.iter_mut().find(|c| c.id == tool_call_id))
+    else {
+        log::warn!(
+            "run_subagent background persist missed tool_call conversation_id={conversation_id} tool_call_id={tool_call_id}"
+        );
+        return;
+    };
+    tc.status = status.to_string();
+    if let Some(result) = result {
+        tc.result = Some(result);
+    }
+    tc.error = error.map(str::to_string);
+    if let Some(duration_ms) = duration_ms {
+        tc.duration_ms = Some(duration_ms);
+    }
+    super::conversation_persist::upsert_message(conversation_id, msg);
+    log::info!(
+        "run_subagent background persisted host tool conversation_id={conversation_id} tool_call_id={tool_call_id} status={status}"
+    );
+}
+
 /// Emits `WorkspaceUpdated` on drop so the parent workspace is restored in the UI
 /// after sub-agent delegation (thread-local is already restored by `AgentWorkspaceGuard`).
 struct SubagentWorkspaceRestore {
@@ -667,6 +931,9 @@ pub(super) async fn run_subagent_delegation(
             if let Err(msg) = validate_run_subagent_workspace(&parsed) {
                 return Ok((format!("ERROR: {msg}"), false, Some(msg)));
             }
+            if let Err(msg) = validate_background_target(&parsed) {
+                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+            }
             let agent_id = parsed.agent_id;
             match crate::tools::run_subagent::validate_run_subagent_target(
                 &state.agents,
@@ -693,6 +960,49 @@ pub(super) async fn run_subagent_delegation(
                     } else {
                         parsed.task_id.trim().to_string()
                     };
+                    if parsed.background {
+                        let task = AgentTask {
+                            id: tid,
+                            agent_id: agent_id.clone(),
+                            title: if parsed.title.trim().is_empty() {
+                                format!("Delegated: {agent_id}")
+                            } else {
+                                parsed.title.clone()
+                            },
+                            goal: parsed.goal.clone(),
+                            context: parsed.context.trim().to_string(),
+                            depends_on: vec![],
+                        };
+                        let job_id = spawn_background_owned_subagent(BackgroundOwnedSpawn {
+                            stream: stream.clone(),
+                            state: ctx.state_arc.clone(),
+                            conversation_id: conversation_id.to_string(),
+                            cancel: CancellationToken::new(),
+                            settings: provider.settings.clone(),
+                            api_key: provider.api_key.clone(),
+                            parent_task_board_store_key: parent_task_board_store_key.to_string(),
+                            message_id: message_id.to_string(),
+                            tool_call_id: tool_call_id.to_string(),
+                            run_id: run_id.to_string(),
+                            task,
+                            source: OwnedSubagentSource::Registered(def),
+                            enabled_skill_ids: enabled_skill_ids.to_vec(),
+                            agent_skill_overrides: ctx.agent_skill_overrides.clone(),
+                            child_spawn_depth,
+                            max_spawn_depth,
+                            host_trace_id: None,
+                            host_scoped_message_id: None,
+                        });
+                        let body = serde_json::json!({
+                            "jobId": job_id,
+                            "status": "running",
+                        })
+                        .to_string();
+                        log::info!(
+                            "run_subagent serial background spawn conversation_id={conversation_id} tool_call_id={tool_call_id} job_id={job_id}"
+                        );
+                        return Ok((body, true, None));
+                    }
                     if def.id == "computer" {
                         if let Err(e) =
                             super::computer_monitor_pick::ensure_computer_monitor_for_subagent(
@@ -842,6 +1152,7 @@ pub(super) async fn run_subagent_delegation(
                         llm_stats: ctx.llm_stats,
                         spawn_depth: child_spawn_depth,
                         max_spawn_depth,
+                        state_arc: ctx.state_arc.clone(),
                     };
                     match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await {
                         Ok(result) => {
@@ -1296,7 +1607,7 @@ mod trace_tests {
     #[tokio::test]
     async fn cancelled_self_fork_returns_owned_cancelled_outcome() {
         let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
-        let state = crate::chat_service::AppState::new();
+        let state = std::sync::Arc::new(crate::chat_service::AppState::new());
         let cancel = tokio_util::sync::CancellationToken::new();
         cancel.cancel();
         let snapshot = crate::chat_service::self_fork::SelfForkSnapshot {
@@ -1332,7 +1643,7 @@ mod trace_tests {
 
         let outcome = execute_owned_subagent(OwnedSubagentExecutionInput {
             stream: &stream,
-            state: &state,
+            state: state.as_ref(),
             conversation_id: "conversation",
             cancel,
             provider,
@@ -1355,6 +1666,7 @@ mod trace_tests {
             max_spawn_depth: 2,
             host_trace_id: None,
             host_scoped_message_id: None,
+            state_arc: state.clone(),
         })
         .await;
 
@@ -1377,7 +1689,7 @@ mod trace_tests {
     #[tokio::test]
     async fn same_task_self_forks_are_isolated_until_owned_commit() {
         let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
-        let state = crate::chat_service::AppState::new();
+        let state = std::sync::Arc::new(crate::chat_service::AppState::new());
         let history = vec![anchor_message()];
         let traces: Vec<crate::models::AgentTrace> = Vec::new();
         let stats = ConversationLlmStats::default();
@@ -1387,7 +1699,7 @@ mod trace_tests {
             cancel.cancel();
             execute_owned_subagent(OwnedSubagentExecutionInput {
                 stream: &stream,
-                state: &state,
+                state: state.as_ref(),
                 conversation_id: "same-task-isolation",
                 cancel,
                 provider: crate::provider::OpenAIProvider::new(
@@ -1440,6 +1752,7 @@ mod trace_tests {
                 max_spawn_depth: 2,
                 host_trace_id: None,
                 host_scoped_message_id: None,
+                state_arc: state.clone(),
             })
         };
 

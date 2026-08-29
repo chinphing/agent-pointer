@@ -13,7 +13,7 @@ import {
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs, toolCallBaseName } from '../../lib/messageTooling'
-import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel } from '../../lib/toolCallDisplay'
+import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel, isBackgroundSubagentCall } from '../../lib/toolCallDisplay'
 import { toolCallShowsKindLabel } from '../../lib/toolCallKindIcon'
 import ToolKindIcon from './ToolKindIcon.vue'
 import { openExternalUrl } from '../../lib/openExternalUrl'
@@ -315,9 +315,15 @@ const statusInfo = computed(() => {
   }
   switch (effectiveStatus.value) {
     case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
-    case 'running': return { label: '执行中', color: 'text-accent' }
-    case 'success': return { label: '成功', color: 'text-success' }
-    case 'failed': return { label: '失败', color: 'text-muted/45' }
+    case 'running': return { label: isBackgroundSubagentCall(props.toolCall) ? '后台运行' : '执行中', color: 'text-accent' }
+    case 'success': return { label: isBackgroundSubagentCall(props.toolCall) ? '已完成' : '成功', color: 'text-success' }
+    case 'failed': {
+      const cancelled = /cancel|interrupted|已停止/i.test(props.toolCall.error || '')
+      if (isBackgroundSubagentCall(props.toolCall) && cancelled) {
+        return { label: '已取消', color: 'text-muted/45' }
+      }
+      return { label: '失败', color: 'text-muted/45' }
+    }
     case 'rejected': return { label: '已拒绝', color: 'text-muted' }
   }
   return { label: '', color: '' }

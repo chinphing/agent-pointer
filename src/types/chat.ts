@@ -1134,6 +1134,7 @@ export type StreamEvent =
   | { kind: 'workspace_updated'; conversationId: string; workspaceRoot: string; isEphemeralSandbox: boolean }
   | { kind: 'computer_monitor_pick_required'; conversationId: string; messageId: string; toolCallId: string; monitors: ComputerMonitor[] }
   | { kind: 'computer_monitor_updated'; conversationId: string; monitorId?: string | null }
+  | { kind: 'background_jobs'; conversationId: string; runningCount: number }
 
 export type TaskBoardItemStatus =
   | 'pending'

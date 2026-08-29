@@ -96,6 +96,20 @@ describe('compactToolCallStatusLine', () => {
     )).toBe('mystery_plugin')
   })
 
+  it('shows 后台运行 for background run_subagent', () => {
+    const line = compactToolCallStatusLine(
+      tc({
+        id: '1',
+        name: 'run_subagent',
+        status: 'running',
+        displayLabel: '委派子任务',
+        displaySummary: '探索代码库',
+        arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true })
+      })
+    )
+    expect(line).toBe('委派子任务 · 探索代码库 · 后台运行')
+  })
+
   it('formats success tool without duration suffix', () => {
     const line = compactToolCallStatusLine(
       tc({

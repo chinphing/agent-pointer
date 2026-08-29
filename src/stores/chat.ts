@@ -95,6 +95,7 @@ import {
   ensureSubTrace,
   migrateLegacyTraceUiState
 } from '../lib/subAgentSession'
+import { isBackgroundSubagentCall } from '../lib/toolCallDisplay'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
@@ -106,6 +107,7 @@ import {
   hasInFlightToolCalls,
   mergeHydratedMessages,
   mergeMessagePage,
+  countRunningBackgroundSubagents,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeAssistantMessage,
@@ -212,6 +214,7 @@ export const useChatStore = defineStore('chat', () => {
   const projectLoads = new Map<string, Promise<Project | null>>()
   const currentId = ref<string | null>(null)
   const runByConversation = ref<Record<string, ConversationRunState>>({})
+  const backgroundRunningByConv = ref<Record<string, number>>({})
 
   /** FIFO outbound sends waiting while the session turn is still running (Hermes-style). */
   const outboundQueues = ref<Record<string, OutboundQueueItem[]>>({})
@@ -375,6 +378,11 @@ export const useChatStore = defineStore('chat', () => {
           if (tc.status === 'pending_approval') {
             tc.status = 'rejected'
           } else if (tc.status === 'running' || tc.status === 'pending') {
+            const keepRunning = isBackgroundSubagentCall(tc) && (tc.result?.trim() ?? '')
+            if (keepRunning) {
+              // Host row already has a jobId result; wait for cancel events.
+              continue
+            }
             tc.status = tc.result?.trim() ? 'success' : 'failed'
             if (tc.status === 'failed' && !tc.error) tc.error = 'interrupted'
           }
@@ -538,7 +546,7 @@ export const useChatStore = defineStore('chat', () => {
   function evictConversation(id: string) {
     const conv = conversations.value.find(c => c.id === id)
     if (!conv) return
-    if (isConversationGenerating(id)) return
+    if (isConversationBusy(id)) return
     if (currentId.value === id) return
     if (conv.messages.length === 0) return
     console.info('[chat] evicting idle conversation', id, conv.title, 'messages', conv.messages.length)
@@ -767,6 +775,33 @@ export const useChatStore = defineStore('chat', () => {
     return runStateFor(id).generating
   }
 
+  function setBackgroundJobCount(id: string, count: number) {
+    const key = id.trim()
+    if (!key) return
+    const next = Math.max(0, Math.floor(count))
+    if (next <= 0) {
+      if (!(key in backgroundRunningByConv.value)) return
+      const { [key]: _, ...rest } = backgroundRunningByConv.value
+      backgroundRunningByConv.value = rest
+      return
+    }
+    backgroundRunningByConv.value = { ...backgroundRunningByConv.value, [key]: next }
+  }
+
+  function hasBackgroundJobs(id: string): boolean {
+    return (backgroundRunningByConv.value[id.trim()] ?? 0) > 0
+  }
+
+  function seedBackgroundJobCountFromMessages(conv: Conversation) {
+    if (hasBackgroundJobs(conv.id)) return
+    const n = countRunningBackgroundSubagents(conv)
+    if (n > 0) setBackgroundJobCount(conv.id, n)
+  }
+
+  function isConversationBusy(id: string): boolean {
+    return isConversationGenerating(id) || hasBackgroundJobs(id)
+  }
+
   /** Restore generating UI from server dispatcher queue after page refresh / SSE gap. */
   async function syncRunStateFromDispatcherQueue(mode: 'flags' | 'catch_up' = 'flags') {
     try {
@@ -780,7 +815,10 @@ export const useChatStore = defineStore('chat', () => {
         if (activeIds.has(convId)) continue
         clearRunState(convId)
         const conv = conversations.value.find(c => c.id === convId)
-        if (conv) normalizeInterruptedAssistantStatuses([conv])
+        if (conv) {
+          normalizeInterruptedAssistantStatuses([conv])
+          seedBackgroundJobCountFromMessages(conv)
+        }
         clearedStaleIds.push(convId)
         console.info('[chat] syncRunStateFromDispatcherQueue: clear stale', convId)
       }
@@ -1406,6 +1444,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!isConversationGenerating(convId)) {
           normalizeInterruptedAssistantStatuses([conv])
         }
+        seedBackgroundJobCountFromMessages(conv)
         normalizeSubAgentTraces([conv])
         // Load-time stamp so trim does not treat missing viewedAt as forever-keep.
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
@@ -1849,6 +1888,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!isConversationGenerating(convId)) {
           normalizeInterruptedAssistantStatuses([conv])
         }
+        seedBackgroundJobCountFromMessages(conv)
         normalizeSubAgentTraces([conv])
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
@@ -2872,6 +2912,8 @@ export const useChatStore = defineStore('chat', () => {
       clearRunState,
       clearAllRunStates,
       isConversationGenerating,
+      setBackgroundJobCount,
+      hasBackgroundJobs,
       hasInFlightToolCalls,
       applyTaskBoardDocument,
       applyTaskBoardDocumentDebounced,
@@ -3186,7 +3228,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
+    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationBusy, hasBackgroundJobs, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
     init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, toggleConversationPin, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

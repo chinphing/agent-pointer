@@ -25,6 +25,10 @@ transition** is clearer as a diagram than prose, emit a fenced Mermaid block:
 - Quote labels that contain `/`, `()`, `*`, or HTML:
   `A["draft.json (v2)"]`.
   Unquoted `(` inside `[]` is parsed as a stadium node and fails.
+- Quote subgraph titles that contain punctuation
+  (including fullwidth `（，）`):
+  `subgraph "明细路径（入账，正确）"`.
+  Unquoted `（` / `，` / `()` in a subgraph title fails to parse.
 - Use **`svg`** (never Mermaid) for: timeline / journey / mindmap / sankey /
   quadrant / xychart / pie / radar / gitGraph / C4 / block / treeView / venn /
   treemap / requirement / kanban / ishikawa / railroad / packet / architecture

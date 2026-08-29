@@ -64,6 +64,16 @@ export function flowchartLabelNeedsQuotes(inner: string): boolean {
 }
 
 /**
+ * Unquoted subgraph titles may only be letters, numbers, spaces, `_`, `-`.
+ * Fullwidth punctuation (`（，）`) is a lexical error; ASCII `(` starts a stadium.
+ */
+export function subgraphTitleNeedsQuotes(title: string): boolean {
+  const t = title.trim()
+  if (!t) return false
+  return /[^\p{L}\p{N}\s_-]/u.test(t)
+}
+
+/**
  * Models often put `/`, `()`, `*`, or `<br/>` in `A[label]` without quotes.
  * Unquoted `(` is parsed as a stadium node and the whole diagram fails.
  */
@@ -79,12 +89,42 @@ export function quoteFlowchartNodeLabels(source: string): string {
   )
 }
 
+/**
+ * Models write `subgraph 明细路径（入账，正确）` without quotes.
+ * Mermaid's lexer rejects fullwidth `（，）` and treats ASCII `(` as a stadium.
+ */
+export function quoteFlowchartSubgraphTitles(source: string): string {
+  if (!/^\s*(?:flowchart|graph)\b/im.test(source)) return source
+  return source.replace(
+    /^([ \t]*)subgraph[ \t]+(.+?)[ \t]*$/gm,
+    (full, indent: string, rest: string) => {
+      const trimmed = rest.trim()
+      if (trimmed.startsWith('"')) return full
+
+      const withId = /^([A-Za-z][\w-]*)\s*\[([\s\S]*)\]$/.exec(trimmed)
+      if (withId) {
+        const id = withId[1]!
+        const inner = withId[2]!
+        if (/^\s*"/.test(inner)) return full
+        if (!flowchartLabelNeedsQuotes(inner) && !subgraphTitleNeedsQuotes(inner)) {
+          return full
+        }
+        return `${indent}subgraph ${id}["${inner.replace(/"/g, '#quot;')}"]`
+      }
+
+      if (!subgraphTitleNeedsQuotes(trimmed)) return full
+      return `${indent}subgraph "${trimmed.replace(/"/g, '#quot;')}"`
+    }
+  )
+}
+
 /** Strip host-theme init and quote fragile flowchart labels (model output). */
 export function prepareMermaidSource(raw: string): string {
   const stripped = stripMermaidHostThemeOverrides(raw)
-  const quoted = quoteFlowchartNodeLabels(stripped)
+  const quotedNodes = quoteFlowchartNodeLabels(stripped)
+  const quoted = quoteFlowchartSubgraphTitles(quotedNodes)
   if (quoted !== stripped) {
-    console.info('[markdownMermaid] quoted flowchart node labels for parse')
+    console.info('[markdownMermaid] quoted flowchart labels for parse')
   }
   return quoted
 }

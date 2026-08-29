@@ -27,7 +27,7 @@ flowchart TD
 - Some Mermaid 11 labels still land in `<foreignObject>`. The mermaid sanitizer keeps those tags (scripts/handlers stripped). User `svg` fences still drop `foreignObject`.
 - Switching `html.light` / `html.dark` remounts diagrams (same as xterm following the html class).
 - Diagram-level `%%{init}%%` / `initialize` theme directives are stripped so they cannot fight the host palette.
-- Model `[]` labels with `/`, `()`, `*`, or `<br/>` are quoted before parse (`A["draft.json (v2)"]`). Copy source stays the original fence.
+- Model `[]` labels with `/`, `()`, `*`, or `<br/>` are quoted before parse (`A["draft.json (v2)"]`). Unquoted subgraph titles with `（，）` / `()` are quoted the same way (`subgraph "明细路径（入账，正确）"`). Copy source stays the original fence.
 - Do not tell the model to emit `classDef` / `style` colors.
 
 ## UI

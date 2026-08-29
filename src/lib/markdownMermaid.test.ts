@@ -16,6 +16,7 @@ import {
   STREAMING_MERMAID_STUB,
   stripMermaidHostThemeOverrides,
   quoteFlowchartNodeLabels,
+  quoteFlowchartSubgraphTitles,
   prepareMermaidSource,
   roundMermaidSvgRects,
   MERMAID_NODE_RX,
@@ -183,6 +184,24 @@ describe('mermaid host theme', () => {
     expect(prepareMermaidSource(src)).toBe(quoted)
   })
 
+  it('quotes subgraph titles with fullwidth punctuation or ASCII parens', () => {
+    expect(quoteFlowchartSubgraphTitles('flowchart LR\n  subgraph 明细路径\n    A[x]\n  end')).toContain(
+      'subgraph 明细路径'
+    )
+    expect(
+      quoteFlowchartSubgraphTitles('flowchart LR\n  subgraph 明细路径（入账，正确）\n    A[x]\n  end')
+    ).toContain('subgraph "明细路径（入账，正确）"')
+    expect(
+      quoteFlowchartSubgraphTitles('flowchart LR\n  subgraph 表一路径(展示)\n    A[x]\n  end')
+    ).toContain('subgraph "表一路径(展示)"')
+    expect(
+      quoteFlowchartSubgraphTitles('flowchart LR\n  subgraph "已加引号（入账）"\n    A[x]\n  end')
+    ).toContain('subgraph "已加引号（入账）"')
+    expect(
+      quoteFlowchartSubgraphTitles('flowchart LR\n  subgraph s1[foo(bar)]\n    A[x]\n  end')
+    ).toContain('subgraph s1["foo(bar)"]')
+  })
+
   it('leaves non-flowchart diagrams unchanged', () => {
     const seq = 'sequenceDiagram\n  A[not a node]->>B: hi'
     expect(quoteFlowchartNodeLabels(seq)).toBe(seq)
@@ -200,6 +219,26 @@ describe('mermaid host theme', () => {
     H --> I[后处理+sanitize<br/>_apply_flat_postprocess + detail_integrity]
     I --> J[requestOperation save<br/>workflow.save]
     J --> K[送审<br/>workflow.submit_form / _submit_opinion]`
+    const mermaid = (await import('mermaid')).default
+    mermaid.initialize(mermaidInitializeConfig())
+    await mermaid.parse(prepareMermaidSource(raw))
+  })
+
+  it('parses a flowchart whose unquoted subgraph titles use fullwidth punctuation', async () => {
+    const raw = `flowchart LR
+  subgraph 明细路径（入账，正确）
+    MF[会议费发票] --> A1[按参会人/均摊解析] --> D1[detail_1 其他金额 每人1200 ✅]
+    HI[无入住人住宿发票] --> A2[账单匹配归属] --> D2[detail_1 住宿费 每人664 ✅]
+  end
+  subgraph 表一路径（展示，掉队）
+    TT[traveler_tickets<br>只装交通+有入住人住宿] --> T1[表一 显示归属人 ✅]
+    MF2[会议费发票] --> FB[兜底补行<br>硬编码 未归属 ⚠️]
+    HI2[无入住人住宿发票] --> FB
+  end
+  D1 -. 没被表一读取 .-> X[❌ 不一致]
+  D2 -. 没被表一读取 .-> X`
+    expect(prepareMermaidSource(raw)).toContain('subgraph "明细路径（入账，正确）"')
+    expect(prepareMermaidSource(raw)).toContain('subgraph "表一路径（展示，掉队）"')
     const mermaid = (await import('mermaid')).default
     mermaid.initialize(mermaidInitializeConfig())
     await mermaid.parse(prepareMermaidSource(raw))

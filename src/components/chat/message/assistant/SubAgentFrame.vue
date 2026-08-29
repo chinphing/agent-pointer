@@ -343,10 +343,7 @@ watch(
       marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`
     }"
   >
-    <div
-      class="sub-agent-nested min-w-0 w-full"
-      :class="taskBoard || !collapsed ? 'space-y-2' : ''"
-    >
+    <div class="sub-agent-nested min-w-0 w-full space-y-0.5">
     <!-- Always above process UI (collapsed summary or expanded tool cards). -->
     <div
       v-if="taskBoard"

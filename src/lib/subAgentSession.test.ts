@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentTrace, ChatMessage } from '../types/chat'
 import {
   ensureSubTrace,
+  isSubAgentTraceTerminal,
   isSubTraceUiCollapsed,
   orphanSubTraces,
   subTracesForParentToolCall,
@@ -181,5 +182,15 @@ describe('ensureSubTrace', () => {
       'reused-task:instance-one:current-agent',
       'reused-task:instance-two:current-agent'
     ])
+  })
+})
+
+describe('isSubAgentTraceTerminal', () => {
+  it('treats completed, failed, and cancelled as terminal', () => {
+    expect(isSubAgentTraceTerminal('completed')).toBe(true)
+    expect(isSubAgentTraceTerminal('failed')).toBe(true)
+    expect(isSubAgentTraceTerminal('cancelled')).toBe(true)
+    expect(isSubAgentTraceTerminal('canceled')).toBe(true)
+    expect(isSubAgentTraceTerminal('running')).toBe(false)
   })
 })

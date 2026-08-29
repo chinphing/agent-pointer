@@ -12,6 +12,12 @@ export function createEmptySubSession(): SubAgentSessionUi {
   }
 }
 
+/** True when the sub-agent worker has finished (success, failure, or cancel). */
+export function isSubAgentTraceTerminal(status: string | undefined): boolean {
+  const s = (status ?? '').trim().toLowerCase()
+  return s === 'completed' || s === 'failed' || s === 'cancelled' || s === 'canceled'
+}
+
 /** Whether the sub-agent frame should render collapsed (summary line only). */
 export function isSubTraceUiCollapsed(trace: AgentTrace): boolean {
   // Default collapsed for running and terminal states; only user expand opens the frame.
@@ -69,7 +75,7 @@ export function ensureSubTrace(
 }
 
 export function finalizeSubSession(trace: AgentTrace): void {
-  if (trace.status === 'completed' || trace.status === 'failed') {
+  if (isSubAgentTraceTerminal(trace.status)) {
     if (!trace.userExpanded) trace.collapsed = true
   }
 }

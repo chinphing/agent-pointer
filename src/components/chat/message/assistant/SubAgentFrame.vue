@@ -354,6 +354,7 @@ watch(
         :is-active="taskBoard.isActive"
         :conversation-id="taskBoard.conversationId"
         :task-id="taskBoard.taskId"
+        :agent-status="trace.status"
       />
     </div>
 

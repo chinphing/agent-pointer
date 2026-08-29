@@ -5,6 +5,7 @@ import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
 import {
   hasTaskBoardContent,
   milestoneShowsRunning,
+  nestedBoardMetaStatus,
   taskBoardCurrentMilestone,
   taskBoardExecutionLabel,
   taskBoardVisibleMilestones,
@@ -18,14 +19,29 @@ const props = defineProps<{
   childBoards?: Record<string, TaskBoardDocument>
   conversationId?: string | null
   taskId?: string
+  /** Nested board: follow the sub-agent trace so leftover meta.running is not painted. */
+  agentStatus?: string
 }>()
 
 const expanded = ref(false)
 
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
-const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
+const metaStatus = computed(() =>
+  nestedBoardMetaStatus(props.document?.meta?.status, props.agentStatus)
+)
 const visibleMilestones = computed(() => taskBoardVisibleMilestones(props.document))
-const currentMilestone = computed(() => taskBoardCurrentMilestone(props.document))
+const currentMilestone = computed(() => {
+  const meta = metaStatus.value.trim().toLowerCase()
+  if (
+    meta === 'completed'
+    || meta === 'failed'
+    || meta === 'cancelled'
+    || meta === 'canceled'
+  ) {
+    return null
+  }
+  return taskBoardCurrentMilestone(props.document)
+})
 const milestoneProgress = computed(() => taskBoardVisibleMilestoneProgress(props.document))
 const executionLabel = computed(() => taskBoardExecutionLabel(metaStatus.value))
 const boardFailed = computed(() => executionLabel.value === '失败')

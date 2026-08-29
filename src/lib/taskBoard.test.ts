@@ -3,6 +3,7 @@ import type { TaskBoardDocument } from '../types/chat'
 import {
   hasTaskBoardContent,
   milestoneShowsRunning,
+  nestedBoardMetaStatus,
   taskBoardCurrentMilestone,
   taskBoardExecutionLabel,
   taskBoardGlobalMilestones,
@@ -113,5 +114,13 @@ describe('taskBoard helpers', () => {
     expect(taskBoardExecutionLabel('paused')).toBe('已暂停')
     expect(taskBoardExecutionLabel('completed')).toBeNull()
     expect(taskBoardExecutionLabel('cancelled')).toBe('已取消')
+  })
+
+  it('nested board follows the sub-agent trace over leftover meta.running', () => {
+    expect(nestedBoardMetaStatus('running', 'completed')).toBe('completed')
+    expect(nestedBoardMetaStatus('running', 'failed')).toBe('failed')
+    expect(nestedBoardMetaStatus('running', 'cancelled')).toBe('cancelled')
+    expect(nestedBoardMetaStatus('running', 'running')).toBe('running')
+    expect(nestedBoardMetaStatus('completed', undefined)).toBe('completed')
   })
 })

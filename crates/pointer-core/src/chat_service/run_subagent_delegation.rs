@@ -1,6 +1,7 @@
 //! Lead-agent `run_subagent` tool: validate target, spawn sub loop, emit trace steps.
 
 use std::path::Path;
+use std::time::Instant;
 
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::agent_ui::agent_display_label;
@@ -17,7 +18,7 @@ use crate::tools::run_subagent::{
 use anyhow::Result;
 
 use super::app_state::AppState;
-use super::emit::{emit, emit_agent_step, merge_agent_trace, publish_agent_step};
+use super::emit::{emit, emit_agent_step, merge_agent_trace, publish_agent_step, trace_id_opt};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
 use tokio_util::sync::CancellationToken;
@@ -81,6 +82,9 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub agent_skill_overrides: std::collections::HashMap<String, Vec<String>>,
     pub child_spawn_depth: u32,
     pub max_spawn_depth: u32,
+    /// Host tool-pass trace (nested spawn); lead-owned forks leave this empty.
+    pub host_trace_id: Option<String>,
+    pub host_scoped_message_id: Option<String>,
 }
 
 pub(super) struct SubagentCommitContext<'a> {
@@ -267,6 +271,43 @@ pub(super) fn finalize_subagent_outcome(
     );
 }
 
+/// Push terminal UI as soon as this child finishes so parallel siblings do not
+/// keep the host row and nested frame on「执行中」until the whole wave joins.
+/// `finalize_subagent_outcome` / `record_tool_exec_outcome` emit again later
+/// (idempotent). Cancelled-before-start skips this — those never showed running.
+fn publish_owned_subagent_ui_finished(
+    stream: &super::StreamTx,
+    message_id: &str,
+    tool_call_id: &str,
+    trace: &AgentTrace,
+    exec: &ToolExecResult,
+    duration_ms: u64,
+    host_trace_id: Option<&str>,
+    host_scoped_message_id: Option<&str>,
+) {
+    publish_agent_step(stream, message_id, trace.clone());
+    let (status, result, error) = match exec {
+        Ok((body, true, _)) => ("success", Some(truncate_str(body, 800)), None),
+        Ok((body, false, note)) => ("failed", Some(truncate_str(body, 800)), note.clone()),
+        Err(err) => ("failed", None, Some(err.to_string())),
+    };
+    emit(
+        stream,
+        StreamEvent::ToolCallStatus {
+            message_id: message_id.to_string(),
+            tool_call_id: tool_call_id.to_string(),
+            status: status.into(),
+            result,
+            error,
+            duration_ms: Some(duration_ms),
+            display_label: None,
+            display_summary: None,
+            trace_id: trace_id_opt(host_trace_id),
+            scoped_message_id: trace_id_opt(host_scoped_message_id),
+        },
+    );
+}
+
 fn abandon_child_board(
     state: &AppState,
     conversation_id: &str,
@@ -331,6 +372,8 @@ pub(super) async fn execute_owned_subagent(
         agent_skill_overrides,
         child_spawn_depth,
         max_spawn_depth,
+        host_trace_id,
+        host_scoped_message_id,
     } = input;
     let empty_overrides = std::collections::HashMap::new();
     let (definition_source, skill_ids, overrides, def_for_trace) = match &source {
@@ -359,6 +402,7 @@ pub(super) async fn execute_owned_subagent(
 
     // Emit running before sub_message_start / tool events so the UI can nest the
     // frame under this run_subagent row for the whole lifetime (not only at commit).
+    let started = Instant::now();
     publish_agent_step(
         stream,
         &message_id,
@@ -488,6 +532,25 @@ pub(super) async fn execute_owned_subagent(
         trace.status,
         child_usage.llm_rounds,
         child_usage.sum_total
+    );
+    let duration_ms = started.elapsed().as_millis() as u64;
+    publish_owned_subagent_ui_finished(
+        stream,
+        &message_id,
+        &tool_call_id,
+        &trace,
+        &exec,
+        duration_ms,
+        host_trace_id.as_deref(),
+        host_scoped_message_id.as_deref(),
+    );
+    log::info!(
+        "run_subagent owned-wave ui finished conversation_id={} task_id={} tool_call_id={} status={} duration_ms={}",
+        conversation_id,
+        task.id,
+        tool_call_id,
+        trace.status,
+        duration_ms
     );
     PreparedSubagentOutcome {
         tool_call_id,
@@ -842,8 +905,9 @@ mod trace_tests {
     use super::{
         build_subagent_trace, commit_subagent_outcome, execute_owned_subagent,
         failed_owned_subagent_outcome, finalize_subagent_outcome,
-        serialize_subagent_result_without_task_id, OwnedSubagentExecutionInput,
-        OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
+        publish_owned_subagent_ui_finished, serialize_subagent_result_without_task_id,
+        OwnedSubagentExecutionInput, OwnedSubagentSource, PreparedSubagentOutcome,
+        SubagentCommitContext,
     };
     use crate::agent_instance_scope::AgentInstanceScope;
     use crate::agents::{
@@ -1006,6 +1070,39 @@ mod trace_tests {
             "completed",
             Some("done".into()),
         )
+    }
+
+    #[test]
+    fn owned_wave_publishes_terminal_ui_when_child_finishes() {
+        let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
+        let exec = Ok((r#"{"content":"done"}"#.into(), true, None));
+        publish_owned_subagent_ui_finished(
+            &stream,
+            "anchor",
+            "call-1",
+            &completed_trace(),
+            &exec,
+            42,
+            None,
+            None,
+        );
+        assert!(matches!(
+            events.try_recv(),
+            Ok(crate::models::StreamEvent::AgentStep { agent, .. })
+                if agent.status == "completed"
+        ));
+        assert!(matches!(
+            events.try_recv(),
+            Ok(crate::models::StreamEvent::ToolCallStatus {
+                tool_call_id,
+                status,
+                duration_ms,
+                ..
+            }) if tool_call_id == "call-1"
+                && status == "success"
+                && duration_ms == Some(42)
+        ));
+        assert!(events.try_recv().is_err());
     }
 
     #[test]
@@ -1256,6 +1353,8 @@ mod trace_tests {
             agent_skill_overrides: HashMap::new(),
             child_spawn_depth: 1,
             max_spawn_depth: 2,
+            host_trace_id: None,
+            host_scoped_message_id: None,
         })
         .await;
 
@@ -1339,6 +1438,8 @@ mod trace_tests {
                 agent_skill_overrides: HashMap::new(),
                 child_spawn_depth: 1,
                 max_spawn_depth: 2,
+                host_trace_id: None,
+                host_scoped_message_id: None,
             })
         };
 

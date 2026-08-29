@@ -1,4 +1,4 @@
-import { ensureSubTrace, finalizeSubSession } from '../../../lib/subAgentSession'
+import { ensureSubTrace, finalizeSubSession, isSubAgentTraceTerminal } from '../../../lib/subAgentSession'
 import type { StreamEvent } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
@@ -8,7 +8,7 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
   const depth = e.agent.depth ?? 0
-  const terminal = e.agent.status === 'completed' || e.agent.status === 'failed'
+  const terminal = isSubAgentTraceTerminal(e.agent.status)
   // Never revive a finished / cancelled lead row when a late or terminal agent_step arrives.
   const canMarkStreaming =
     !terminal &&

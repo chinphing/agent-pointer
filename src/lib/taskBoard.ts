@@ -82,3 +82,18 @@ export function taskBoardExecutionLabel(status: string | undefined): string | nu
   if (s === 'running' || s === 'active' || s === '') return '执行中'
   return null
 }
+
+/**
+ * Nested board badge follows the sub-agent trace, not leftover `meta.running`
+ * after the worker already finished (and before auto-finalize).
+ */
+export function nestedBoardMetaStatus(
+  boardStatus: string | undefined,
+  agentStatus: string | undefined
+): string {
+  const agent = (agentStatus ?? '').trim().toLowerCase()
+  if (agent === 'completed' || agent === 'done') return 'completed'
+  if (agent === 'failed') return 'failed'
+  if (agent === 'cancelled' || agent === 'canceled') return 'cancelled'
+  return (boardStatus ?? 'running').trim() || 'running'
+}

@@ -1034,6 +1034,12 @@ async fn run_self_fork_wave(
                     agent_skill_overrides: skill_overrides.clone(),
                     child_spawn_depth: invocation.child_spawn_depth,
                     max_spawn_depth: invocation.max_spawn_depth,
+                    host_trace_id: pass.ctx.sub.as_ref().map(|s| s.trace_id.clone()),
+                    host_scoped_message_id: pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.scoped_message_id.clone()),
                 };
                 (task_id, SelfForkWaveWork::Execute(input))
             }

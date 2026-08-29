@@ -4,7 +4,9 @@ import {
   scrollerViewportShrinkDelta,
   shouldSkipTotalSizeStickAfterViewportShrink,
   shouldSkipTotalSizeStick,
-  isComposerDraftingTarget
+  isComposerDraftingTarget,
+  switchConversationScrollPlan,
+  toBottomFollowsOutput
 } from './messageListScrollFollow'
 
 describe('nextFollowOutputAfterScroll', () => {
@@ -136,5 +138,32 @@ describe('isComposerDraftingTarget', () => {
     expect(isComposerDraftingTarget(inside as unknown as EventTarget)).toBe(true)
     expect(isComposerDraftingTarget(outside as unknown as EventTarget)).toBe(false)
     expect(isComposerDraftingTarget(null)).toBe(false)
+  })
+})
+
+describe('switchConversationScrollPlan', () => {
+  it('lets search locate keep the around window', () => {
+    expect(
+      switchConversationScrollPlan({ hasPendingFocus: true, hasMoreNewer: true })
+    ).toBe('locate')
+  })
+
+  it('jumps to the real tail when re-opening a hole window', () => {
+    expect(
+      switchConversationScrollPlan({ hasPendingFocus: false, hasMoreNewer: true })
+    ).toBe('jumpToLatest')
+  })
+
+  it('sticks to bottom when the loaded window is already the tail', () => {
+    expect(
+      switchConversationScrollPlan({ hasPendingFocus: false, hasMoreNewer: false })
+    ).toBe('toBottom')
+  })
+})
+
+describe('toBottomFollowsOutput', () => {
+  it('does not claim live follow on an around-window bottom', () => {
+    expect(toBottomFollowsOutput(true)).toBe(false)
+    expect(toBottomFollowsOutput(false)).toBe(true)
   })
 })

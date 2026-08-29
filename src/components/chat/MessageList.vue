@@ -67,7 +67,9 @@ import {
   isComposerDraftingTarget,
   nextFollowOutputAfterScroll,
   scrollerViewportShrinkDelta,
-  shouldSkipTotalSizeStick
+  shouldSkipTotalSizeStick,
+  switchConversationScrollPlan,
+  toBottomFollowsOutput
 } from '../../lib/messageListScrollFollow'
 import {
   canShowNoOlderPullHint,
@@ -280,8 +282,11 @@ function scheduleToBottom() {
 
 function toBottom(options?: { settle?: boolean }) {
   if (locatingFocus.value || conversationTurns.value.length === 0) return
-  followOutput = true
-  showScrollButton.value = false
+  // Around-window bottom is not the transcript tail. Keep the jump button and
+  // do not claim live follow, or later turns stay unreachable after a fake pin.
+  const follow = toBottomFollowsOutput(hasMoreNewerFlag())
+  followOutput = follow
+  showScrollButton.value = !follow
   const settle = options?.settle === true
   beginProgrammaticScroll()
   void (async () => {
@@ -478,11 +483,21 @@ onMounted(() => {
     if (root && root !== el) scrollerResizeObserver.observe(root)
   }
   void nextTick(() => {
+    const convId = chat.currentId?.trim() ?? ''
+    const pending = chat.pendingFocusMessage
+    const plan = switchConversationScrollPlan({
+      hasPendingFocus: Boolean(convId && pending?.conversationId === convId && pending.messageId),
+      hasMoreNewer: Boolean(convId && chat.messagePageState(convId)?.hasMoreNewer)
+    })
+    if (plan === 'locate') {
+      void tryLocatePendingFocus()
+      return
+    }
+    if (plan === 'jumpToLatest') {
+      void jumpToLatest()
+      return
+    }
     toBottom({ settle: true })
-    // Sidebar search focus can already be pending when this component is mounted
-    // after the hydration skeleton was replaced. In that case the watcher below
-    // registered too late to observe the state change, so retry from mounted.
-    void tryLocatePendingFocus()
   })
   historyTrimTimer = setInterval(() => {
     stampVisibleUserMessagesViewed()
@@ -518,24 +533,59 @@ onBeforeUnmount(() => {
 })
 
 watch(() => chat.currentId, async () => {
-  followOutput = true
   viewportShrinkAtMs = 0
   olderPrefetchArmed = true
   newerPrefetchArmed = true
   releaseNoOlderPull()
   await nextTick()
   rowVirtualizer.value.measure()
+  const convId = chat.currentId?.trim() ?? ''
+  const pending = chat.pendingFocusMessage
+  const plan = switchConversationScrollPlan({
+    hasPendingFocus: Boolean(convId && pending?.conversationId === convId && pending.messageId),
+    hasMoreNewer: Boolean(convId && chat.messagePageState(convId)?.hasMoreNewer)
+  })
+  if (plan === 'locate') {
+    followOutput = false
+    showScrollButton.value = true
+    stampVisibleUserMessagesViewed()
+    return
+  }
+  if (plan === 'jumpToLatest') {
+    await jumpToLatest()
+    stampVisibleUserMessagesViewed()
+    return
+  }
   toBottom({ settle: true })
   stampVisibleUserMessagesViewed()
 })
 
-watch(() => chat.current?.messages.length, () => {
-  if (!shouldFollowOutput()) return
+watch(
+  () => {
+    const msgs = chat.current?.messages
+    if (!msgs?.length) return ''
+    return `${chat.currentId}:${msgs.length}:${msgs[msgs.length - 1]?.id}`
+  },
+  () => {
+    if (!shouldFollowOutput()) return
 
-  // Keep prior row measurements when appending. Clearing the whole cache makes
-  // older variable-height turns briefly fall back to estimates and shifts the viewport.
-  void nextTick(() => scheduleToBottom())
-})
+    // Keep prior row measurements when appending. Clearing the whole cache makes
+    // older variable-height turns briefly fall back to estimates and shifts the viewport.
+    void nextTick(() => scheduleToBottom())
+  }
+)
+
+watch(
+  () =>
+    Boolean(chat.currentId && chat.messagePageState(chat.currentId)?.hasMoreNewer),
+  (hasMoreNewer, wasMoreNewer) => {
+    if (chat.pendingFocusMessage?.conversationId === chat.currentId) return
+    // Same-conversation tail replace (last nav tick) does not change currentId.
+    if (wasMoreNewer === true && hasMoreNewer === false) {
+      toBottom({ settle: true })
+    }
+  }
+)
 const activeRenderSignal = computed(() => {
   const messages = chat.current?.messages ?? []
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -960,9 +1010,9 @@ function maybePrefetchNewer(scrollingDown: boolean) {
 }
 
 /**
- * Jump button: if the loaded window is not the real tail, replace it with the
- * latest turns, then stick to bottom. Do not do this from the currentId watcher
- * — that would wipe a search around-window on the same frame as locate.
+ * Jump button / re-open without focus: if the loaded window is not the real
+ * tail, replace it with the latest turns, then stick to bottom.
+ * Search locate owns scroll on the same frame — skip this when pending focus.
  */
 async function jumpToLatest() {
   const convId = chat.currentId?.trim()

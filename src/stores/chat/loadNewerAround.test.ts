@@ -260,4 +260,97 @@ describe('chat around-window newer paging', () => {
     })
     expect(around.messages.map(m => m.id)).toEqual(['tail-u', 'tail-a'])
   })
+
+  it('discards a newer page after the window is replaced with the tail', async () => {
+    const store = useChatStore()
+    const conv = store.newConversation()
+    conv.messages = [msg('mid-u', 1, 19), asst('mid-a', 2, 20)]
+    conv.messageCount = 40
+    store.messagePageByConv = {
+      ...store.messagePageByConv,
+      [conv.id]: aroundWindowState()
+    }
+
+    let resolveNewer!: (value: unknown) => void
+    loadConversationMessagesPage.mockImplementationOnce(
+      () => new Promise(resolve => {
+        resolveNewer = resolve
+      })
+    )
+
+    const newerP = store.loadNewerMessages(conv.id)
+    loadConversationMessagesPage.mockResolvedValueOnce({
+      messages: [msg('tail-u', 90), asst('tail-a', 91)],
+      positions: [90, 91],
+      hasMoreOlder: true,
+      hasMoreNewer: false,
+      oldestPosition: 90,
+      newestPosition: 91,
+      messageCount: 40
+    })
+
+    expect(await store.ensureMessagesLoaded(conv.id, { force: true })).toBe(true)
+    expect(conv.messages.map(m => m.id)).toEqual(['tail-u', 'tail-a'])
+
+    resolveNewer({
+      messages: [msg('u3', 4), asst('a3', 5)],
+      positions: [21, 22],
+      hasMoreOlder: true,
+      hasMoreNewer: true,
+      oldestPosition: 21,
+      newestPosition: 22,
+      messageCount: 40
+    })
+    expect(await newerP).toBe(false)
+    expect(conv.messages.map(m => m.id)).toEqual(['tail-u', 'tail-a'])
+    expect(store.messagePageState(conv.id)).toMatchObject({
+      hasMoreNewer: false,
+      newestPosition: 91
+    })
+  })
+
+  it('does not treat an in-flight around hydrate as the tail', async () => {
+    const store = useChatStore()
+    const conv = store.newConversation()
+    conv.messages = [msg('other', 1, 1)]
+    conv.messageCount = 40
+    store.messagePageByConv = {
+      ...store.messagePageByConv,
+      [conv.id]: aroundWindowState()
+    }
+
+    let resolveAround!: (value: unknown) => void
+    loadConversationMessagesPage
+      .mockImplementationOnce(
+        () => new Promise(resolve => {
+          resolveAround = resolve
+        })
+      )
+      .mockResolvedValueOnce({
+        messages: [msg('tail-u', 90), asst('tail-a', 91)],
+        positions: [90, 91],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        oldestPosition: 90,
+        newestPosition: 91,
+        messageCount: 40
+      })
+
+    const aroundP = store.ensureMessagesAround(conv.id, 'mid-u')
+    const forceP = store.ensureMessagesLoaded(conv.id, { force: true })
+
+    resolveAround({
+      messages: [msg('mid-u', 10), asst('mid-a', 11)],
+      positions: [19, 20],
+      hasMoreOlder: true,
+      hasMoreNewer: true,
+      oldestPosition: 10,
+      newestPosition: 20,
+      messageCount: 40
+    })
+    expect(await aroundP).toBe(true)
+    expect(await forceP).toBe(true)
+    expect(conv.messages.map(m => m.id)).toEqual(['tail-u', 'tail-a'])
+    expect(store.messagePageState(conv.id)?.hasMoreNewer).toBe(false)
+  })
 })

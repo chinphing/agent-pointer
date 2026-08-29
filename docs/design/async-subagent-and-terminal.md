@@ -82,7 +82,7 @@
 | 值 | 行为 | 对齐 |
 |----|------|------|
 | 省略 / `false` | 与现网相同：阻塞到结束，tool result 带 `content` | Cursor Foreground |
-| `true` | 立刻 `{ jobId, status: "running" }`；child 在 JobSupervisor 里跑 | Cursor Background + Codex `spawn_agent` |
+| `true` | 立刻 `{ jobId, status: "running" }`；child 在 JobSupervisor 里跑。这次调用的 tool result **保持句柄**，结束后只把 handle 的 status 改成 completed/failed/cancelled，不把工人 Markdown 写回 `run_subagent`。终稿走 `job.await` / 以后的空闲 push | Cursor：后台不 splice 进原 Task；Codex：`spawn_agent` 只回 id，完成走 wait / notification |
 
 P0 仅 `self` / `explore`。其它 agentId 传 `background: true` 时工具失败并说明须前台 join。
 
@@ -204,7 +204,7 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 ## UI / 文案
 
 - 后台子任务仍挂在宿主 `run_subagent` 行下，统计行 +「思考中」规则与前台相同。
-- 界面只说「后台运行 / 已完成 / 已取消」，不要写 jobId、lane、supervisor。
+- 界面只说「后台运行 / 已完成 / 已取消」，不要写 jobId、lane、supervisor；不要把句柄 JSON 当「结果」展开给用户。
 - 侧栏会话在有后台 job 时保持转圈，直到该会话 **没有** running job（用户应能边聊边看）。
 
 ## 提示词（落地时）

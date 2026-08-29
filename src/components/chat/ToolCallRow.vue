@@ -553,7 +553,7 @@ function openSourceUrl(url: string) {
           <div v-if="argsParseError" class="text-[11px] text-danger mb-1 break-words">{{ argsParseError }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ prettyArgs || '—' }}</pre>
         </div>
-        <div v-if="showResults && toolCall.result">
+        <div v-if="showResults && toolCall.result && !isBackgroundSubagentCall(toolCall)">
           <div class="text-[10px] uppercase tracking-wider text-muted mb-1">结果</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-48">{{ toolCall.result }}</pre>
         </div>

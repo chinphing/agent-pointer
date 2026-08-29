@@ -36,6 +36,7 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 - Default (foreground): **`content`** — Markdown: the worker’s final assistant message.
   Merge into your plan; do not paste the full handoff to the user.
 - **`background: true`**: `{ jobId, status: "running" }` immediately.
+  That handle stays this call's result; the worker body is **not** written back here.
   Use **`job.await`** when this turn needs results.
   If this turn can end, do not tell the user everything is finished.
 - Only **`content`** (or the job handle). Worker thinking is not included.
@@ -66,6 +67,7 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 
 - Omit / `false` = wait until the worker finishes (default).
 - `true` = return `jobId` now; the worker keeps running.
+- This call's stored result stays that handle after the worker finishes.
 - `coder` / `computer` must stay foreground.
 - Need a result this turn → `job.await`.
 - Task list is already complete → spawn them all (`background: true`),

@@ -1041,6 +1041,7 @@ async fn run_self_fork_wave(
                         .as_ref()
                         .map(|s| s.scoped_message_id.clone()),
                     state_arc: pass.ctx.state_arc.clone(),
+                    emit_host_tool_status: true,
                 };
                 let parsed_bg = crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
                 let background = parsed_bg.as_ref().is_ok_and(|a| a.background);

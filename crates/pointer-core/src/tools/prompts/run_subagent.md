@@ -68,6 +68,9 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 
 - Omit / `false` = wait until the worker finishes (default).
 - `true` = return `jobId` now; the worker keeps running.
+- Prefer **`background: true`** when this turn does **not** need the
+  result immediately and you still have planning or other work to do.
+- Prefer foreground when the next step is blocked on that result.
 - This call's stored result stays that handle after the worker finishes.
 - `coder` / `computer` must stay foreground.
 - Need a result this turn → `job.await`.

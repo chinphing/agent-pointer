@@ -44,8 +44,15 @@ Do not tell the user everything is finished while jobs are still running.
 **`list`**
 
 - This conversation's background jobs.
-- Includes `runningCount`, `slotCap`, and `idleSlots`
-  (`slotCap - runningCount`) so you can refill free slots.
+- Includes `runningCount`, `slotCap`, `idleSlots`, and `poolRunning`.
+- `runningCount` = background jobs still queued or running
+  (sidebar occupancy).
+- `poolRunning` = root worker slots held now
+  (foreground join + background share this pool).
+- `idleSlots` = `slotCap - poolRunning - waiters`
+  (how many more workers can start immediately).
+  Foreground join also consumes pool slots — do not treat
+  `idleSlots` as background-only capacity.
 - Each job has **`claimed`**.
   `true` = **`await` already delivered** that body to you.
   A later `await` will not put it in `jobs` again.
@@ -80,8 +87,10 @@ Do not tell the user everything is finished while jobs are still running.
 - Use `any` when the next task depends on a finished result.
 - Use `all` when the full set is already spawned and you only need the summary.
 - `jobs[]` is the bodies. `running[]` is ids still running.
-  `runningCount` / `idleSlots` are this conversation
-  (queued + running). Spawn `idleSlots` more if work remains.
+  `runningCount` is background occupancy.
+  `idleSlots` / `poolRunning` are the shared worker pool
+  (foreground join counts against the same cap).
+  Spawn at most `idleSlots` more if work remains.
   Do not `status` a finished job for the body after `await`.
 
 **`cancel`**

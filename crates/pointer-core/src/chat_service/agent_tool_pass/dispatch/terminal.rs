@@ -490,7 +490,12 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
     let cap = JobSupervisor::slot_cap_from(
         ParallelLimits::from_settings(&spawn.state.effective_settings()).max_parallel_sub_agents,
     );
-    if !spawn.state.jobs.acquire_slot(cap, &spawn.cancel).await {
+    let Some(_lease) = spawn
+        .state
+        .jobs
+        .acquire_root(&spawn.conversation_id, cap, &spawn.cancel)
+        .await
+    else {
         log::info!(
             "terminal background cancelled before slot job_id={job_id} conversation_id={}",
             spawn.conversation_id
@@ -526,7 +531,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
                 .running_count_for_conversation(&spawn.conversation_id),
         );
         return;
-    }
+    };
     spawn.state.jobs.mark_running(&job_id);
     log::info!(
         "terminal background running job_id={job_id} conversation_id={}",
@@ -576,7 +581,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
     spawn
         .state
         .clear_terminal_abort_flag(&spawn.execution_scope);
-    spawn.state.jobs.release_slot();
+    drop(_lease);
 
     let (status, body, err_note, duration_ms, ui_status) = match join {
         Ok(Ok(r)) => {

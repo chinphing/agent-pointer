@@ -1,6 +1,6 @@
 # 异步子 Agent 与后台终端
 
-> 实现进度：已落地 JobSupervisor、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` list/status/await/cancel。空闲 push 尚未做。
+> 实现进度：已落地 JobSupervisor（job 表 + **按会话 FIFO 工人池**）、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` list/status/await/cancel。前台 wave / 串行 coder·computer 与后台共用 `acquire_root`（嵌套 `acquire_nested`）。空闲 push 尚未做。
 >
 > **默认必须与现网一致：不传后台参数 = 仍 join 到结束。**
 >
@@ -117,35 +117,76 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 - 父要补位，必须自己已经不在「等整波 join」里：即 `background: true`，且 `session:{conversation}` 已释放（P1 起后台 job 不占这条车道）。
 - 前台 wave **不改**默认：不传 `background` 仍 join 全波，行为与现网一致。
 
-### 前台 wave 槽 vs JobSupervisor 槽（不要合成一张表）
+### 一张工人队列（前台 join + 后台 job）
 
-两套都在限 child 并发，**数字上限是同一个** `maxParallelSubAgents`，但不是同一张队列：
+拆开的是 **等不等**（join vs `jobId`），不是两套并发闸。合并前：同一则消息里 4 条前台 explore + 4 条后台 explore、上限 3，会跑到 **6**（`subagent_sem` 3 + 全局 `running_slots` 3）。A 会话的后台还会用进程全局槽堵住 B 的前台。**现已合成一张按会话 FIFO 工人队列。**
 
-| | 前台 owned-wave | JobSupervisor |
-|--|-----------------|---------------|
-| 是什么 | 本轮 tool pass 里的 join 闸门 | 跨回合 job 表 + 槽 |
-| 作用域 | **这一轮**（session 串行，等于本会话这一 turn） | 槽目前是 **进程全局** |
-| 父 | 等这一波 join | 立刻拿 `jobId`，`done` 不杀 |
-| 登记 | 无 jobId | list / await / claimed；含 terminal |
+**job 表不跟队列合成。** 前台 join 不发 `jobId`、不进 `job.list` / `await` / 占用 UI。`generating` 已经覆盖本轮 join。合成的只有 **槽 + 等待队列**。
 
-**能合并的只有槽位池，不能把 wave 收成 job 表。** 前台 join 的 explore 不应出现在 `job.list`（否则当前回合还没返回的工人会被 await/占用逻辑当成后台）。
+#### 不要并进去的：lead 车道
 
-建议（未做）：删掉 per-pass `subagent_sem`，前台 join 只向 JobSupervisor **借槽、不登记 job**。
+`RunQueue` 的 `session:{conversation}`（max=1）和 `global:main` / `global:cron` 管的是 **lead 回合**。后台 job **禁止**占这两条。不要把工人队列接进 `acquire()` 那套双闸，避免一不小心把 child 排进 session 车道。
 
-对照（公开文档 + Codex 源码 / issue，不是猜测内部实现）：
+#### 目标结构
 
-- **Cursor**：一个 `Task` 工具、两档等待。前台 = 工具卡住到结束（社区观察到多 Task 是 **整波 join**，多出来的要等最慢的那条；滑动窗口必须 `run_in_background`）。公开文档**没有**「前台一把锁、后台另一张表」。嵌套靠 **深度封顶**（主 + 直属可 spawn，孙代不能），不是「嵌套不计槽」。并行 Composer **会话**另有上限（大仓约 3–4 个窗口），那是 lead 级，不是 child 槽。
-- **Codex**：已经是 **一张** `AgentRegistry`。凡 `spawn_agent` 都 `reserve_spawn_slot`；没有「join 但不占 registry」的第二条池。上限 **`max_concurrent_threads_per_session`（按会话）**，V1 不含 primary，V2 配置可含 primary（#40211）。满了 **直接 `AgentLimitReached`**，不排队。嵌套默认 **`max_depth = 1`（扁的）**。放槽要 `close_agent`（完成不自动放）——这是已知坑（#18335 / #19197），Pointer **不抄**。
+| 层 | 职责 | 谁用 |
+|----|------|------|
+| `RunQueue` | lead 串行 + 全局限流 | 用户回合 / cron |
+| **工人队列**（JobSupervisor 内，按会话一把 FIFO） | child 并发上限 | 前台 join、后台 subagent、后台 terminal |
+| job 表 | id / 终态 / `claimed` / `content` | 仅 `background: true` 与 `blockUntilMs` 转后台 |
 
-所以：Cursor 用「等不等」拆前台/后台，槽文档不透明；Codex 用「一张按会话登记表」拆，但每个 child 都有 id，满了失败而不是等。Pointer 若去前台 Semaphore：对齐 Codex 的 **按会话一把槽**，对齐 Cursor 的 **前台仍 join、不发 jobId**；满员排队（现网 wave 行为）比 Codex 的 fail-fast 更接近现网。嵌套用已有 spawn depth，不要抄 `close_agent`。
+上限仍是 **`maxParallelSubAgents`**，按 **会话** 计，不是进程全局。会话 A 的 3 格与 B 的 3 格互不占用。暂不加工人全局顶（lead 已有 `maxConcurrentRuns`）。满员 **排队**（现网 wave），不抄 Codex 满了就 `AgentLimitReached`。
 
-约束：
+`acquire_root` 用 `VecDeque` 叫醒（对齐 `RunQueue` 车道），同一会话里前台 waiter 和后台 waiter 排一队，顺序 = 工具调用顺序。放槽时把根槽**转让**给队头，避免被插队抢走。
 
-- **按会话**计槽，不要继续用现在的进程全局 `running_slots`（否则 A 的后台堵住 B 的前台）。
-- 前台不发 `jobId`，不进 `job.list`，占用 UI 仍只数后台 job。`generating` 已经覆盖本轮 join。
-- **嵌套不再抢同一把槽。** 祖先已占 1 格时，子里再 `run_subagent` 计在这格上。否则外层占满 N、内层还要槽、外层又在 join → 死锁（`N=1` 必现）。
-- 串行 `coder` / `computer`（非 wave）若也算「工人」，应从 lead 同样借 1 格，否则后台仍能和前台 coder 叠加上限。
-- 前台 `terminal`（没 `blockUntilMs`）今天不走子 Agent 槽；不要顺手并进去，除非单独定终端并发。
+#### 借槽规则
+
+| 工人 | 登记 job 表 | 占根槽 | 父行为 |
+|------|-------------|--------|--------|
+| 前台 `self` / `explore` wave | 否 | 是 | join 到结束，tool result 带 `content` |
+| 前台串行 `coder` / `computer` | 否 | 是（1 格） | 同左；不占则后台能和前台 coder 叠加上限 |
+| 后台 `run_subagent` | 是 | 是 | 立刻 `jobId`；`done` 不杀 |
+| 后台 `terminal.blockUntilMs` | 是 | 是（已在同一张 job 表） | 同左 |
+| 前台 `terminal`（无 `blockUntilMs`） | 否 | **否** | 现网；不要顺手并进工人槽 |
+| 嵌套 `run_subagent`（`spawn_depth > 0`） | 仅当 `background` | **否**（挂在祖先那 1 格上） | 否则外层占满 N、内层再要槽、外层还在 join → `N=1` 死锁 |
+
+嵌套不计新槽。深度仍用现有 `maxSubAgentSpawnDepth`，不抄 Codex `close_agent`。没有祖先根槽还走嵌套路径 → error 日志并拒绝（不要静默再占一格，也不要空转）。
+
+#### API（落在 JobSupervisor，删掉 per-pass `subagent_sem`）
+
+```text
+acquire_root(conversation_id, cap, cancel) -> Option<WorkerLease>
+  本会话 running_roots < cap → 立刻 +1
+  否则入 FIFO，cancel 则出队返回 None（不占槽）
+
+acquire_nested(conversation_id) -> Result<NestedLease>
+  要求该会话已有 ≥1 根槽；不改 running_roots
+
+WorkerLease Drop → running_roots -1，叫醒队头
+```
+
+- 前台 wave：`collect_self_fork_wave` 的 `semaphore.acquire_owned` 换成 `acquire_root`。拿到 lease 再发「执行中」，与现在「queued 不显示 running」一致。
+- 后台 spawn：先 `register`（list 能看到 queued），再在 `tokio::spawn` 里 `acquire_root`；取消则 `Cancelled`、不占槽。
+- 串行 coder/computer：`execute_owned_subagent` 入口 `acquire_root`（lead 路径）；子里再委派走 `acquire_nested`。
+- `idleSlots` = `cap - running_roots - waiter_len`（立刻能开跑的空位）。`job.list` 的 `runningCount` 仍只数 **后台** queued+running（占用 UI / 侧栏转圈）。前台根槽只进 `idleSlots` / `poolRunning`，避免模型把 join 中的 explore 当成可 `await` 的 job。
+
+同一则消息里交错前台 + 后台：按工具列表顺序入队，共用 cap。父只 join 前台那几条；没轮到槽的后台继续排，父 `done` 也不杀。
+
+#### 对照
+
+- **Cursor**：一个 `Task`、两档等待。前台整波 join；滑动窗口必须后台。没有「前台一把锁、后台另一张槽表」。
+- **Codex**：一张 `AgentRegistry`，每个 spawn 都占槽；满了失败。Pointer 对齐它的 **按会话一把槽**，对齐 Cursor 的 **前台仍 join、不发 id**；排队对齐现网 wave。
+
+#### 落地步骤
+
+1. JobSupervisor：按会话 `{ running_roots, waiters: VecDeque }` 替换全局 `running_slots`；lease RAII；FIFO 单测（取消出队、A 不堵 B、嵌套不占槽、underflow 警告）。
+2. 后台 subagent / 后台 terminal 改 `acquire_root`；`idleSlots` 改用共享池。
+3. 删 `subagent_sem`；wave 与串行 coder/computer 走同一 `acquire_root`。
+4. 嵌套：`OwnedSubagentExecutionInput` 带「已持根槽」；子 `run_subagent` 走 `acquire_nested`。死锁单测：`cap=1` 前台 join + 子再 spawn。
+5. 混排单测：同波 2 前台 + 2 后台、`cap=2` → 同时 running 的根槽 ≤ 2；前台 join 返回时后台可仍 queued。
+6. 提示词：`idleSlots` 是共享池空位，不是「后台专用」；前台 join 占着时不要按旧数字再补后台。
+
+不改 `job` 的 list/await/claim 契约。不改 session 车道。P2 空闲 push 仍只看 **未认领后台终态**。
 
 ### `job` 工具
 
@@ -231,6 +272,7 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 |------|------|
 | **P0** | JobSupervisor；`terminal.blockUntilMs`；`job` list/status/await/cancel；Unix `killpg` / Windows `taskkill /T` |
 | **P1** | `run_subagent.background` 仅 `self`/`explore`；`job.await` 支持 `any`/`all`；终态立刻放槽；UI 沿用 `SubAgentFrame` |
+| **P1.5** | **一张工人队列**（已落地）：删 `subagent_sem` + 全局 `running_slots`；按会话 FIFO；前台借槽不登记；嵌套不计新槽；串行 coder/computer 也借 1 格 |
 | **P2** | 空闲合并 push；`resume` / `taskId` 续跑；自定义 agent `is_background` |
 | **P3** | 重叠写入的 worktree 隔离；`coder` 后台（须隔离）；不做云 VM |
 

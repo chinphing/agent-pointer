@@ -386,9 +386,10 @@ export const useChatStore = defineStore('chat', () => {
           if (tc.status === 'pending_approval') {
             tc.status = 'rejected'
           } else if (tc.status === 'running' || tc.status === 'pending') {
-            const keepRunning = isBackgroundJobHost(tc) && (tc.result?.trim() ?? '')
+            const keepRunning = isBackgroundJobHost(tc)
             if (keepRunning) {
-              // Host row already has a jobId result; wait for cancel events.
+              // Background host: keep running until job cancel/finish events arrive
+              // (handle may arrive slightly after spawn on the wave path).
               continue
             }
             tc.status = tc.result?.trim() ? 'success' : 'failed'

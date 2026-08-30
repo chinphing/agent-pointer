@@ -646,58 +646,123 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
     let cap = crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
         .max_parallel_sub_agents;
     let cap = super::job_supervisor::JobSupervisor::slot_cap_from(cap);
-    if !spawn.state.jobs.acquire_slot(cap, &spawn.cancel).await {
-        log::info!(
-            "run_subagent background cancelled before slot job_id={job_id} conversation_id={}",
-            spawn.conversation_id
-        );
-        let outcome = cancelled_owned_subagent_outcome(
-            &spawn.run_id,
-            &spawn.conversation_id,
-            &spawn.tool_call_id,
-            spawn.task.clone(),
-            &spawn.source,
-            spawn.child_spawn_depth,
-        );
-        spawn.state.jobs.finish(
-            &job_id,
-            super::job_supervisor::JobStatus::Cancelled,
-            None,
-            Some("cancelled".into()),
-        );
-        publish_owned_subagent_ui_finished(
-            &spawn.stream,
-            &spawn.message_id,
-            &spawn.tool_call_id,
-            &outcome.trace,
-            &outcome.exec,
-            0,
-            spawn.host_trace_id.as_deref(),
-            spawn.host_scoped_message_id.as_deref(),
-            false,
-        );
-        complete_background_host_tool(
-            &spawn.stream,
-            &spawn.conversation_id,
-            &spawn.message_id,
-            &spawn.tool_call_id,
-            &job_id,
-            super::job_supervisor::JobStatus::Cancelled,
-            Some("cancelled"),
-            Some(0),
-            spawn.host_trace_id.as_deref(),
-            spawn.host_scoped_message_id.as_deref(),
-        );
-        emit_background_jobs(
-            &spawn.stream,
-            &spawn.conversation_id,
-            spawn
-                .state
-                .jobs
-                .running_count_for_conversation(&spawn.conversation_id),
-        );
-        return;
-    }
+    let _lease = if super::job_supervisor::worker_needs_root_slot(spawn.child_spawn_depth) {
+        match spawn
+            .state
+            .jobs
+            .acquire_root(&spawn.conversation_id, cap, &spawn.cancel)
+            .await
+        {
+            Some(lease) => Some(lease),
+            None => {
+                log::info!(
+                    "run_subagent background cancelled before slot job_id={job_id} conversation_id={}",
+                    spawn.conversation_id
+                );
+                let outcome = cancelled_owned_subagent_outcome(
+                    &spawn.run_id,
+                    &spawn.conversation_id,
+                    &spawn.tool_call_id,
+                    spawn.task.clone(),
+                    &spawn.source,
+                    spawn.child_spawn_depth,
+                );
+                spawn.state.jobs.finish(
+                    &job_id,
+                    super::job_supervisor::JobStatus::Cancelled,
+                    None,
+                    Some("cancelled".into()),
+                );
+                publish_owned_subagent_ui_finished(
+                    &spawn.stream,
+                    &spawn.message_id,
+                    &spawn.tool_call_id,
+                    &outcome.trace,
+                    &outcome.exec,
+                    0,
+                    spawn.host_trace_id.as_deref(),
+                    spawn.host_scoped_message_id.as_deref(),
+                    false,
+                );
+                complete_background_host_tool(
+                    &spawn.stream,
+                    &spawn.conversation_id,
+                    &spawn.message_id,
+                    &spawn.tool_call_id,
+                    &job_id,
+                    super::job_supervisor::JobStatus::Cancelled,
+                    Some("cancelled"),
+                    Some(0),
+                    spawn.host_trace_id.as_deref(),
+                    spawn.host_scoped_message_id.as_deref(),
+                );
+                emit_background_jobs(
+                    &spawn.stream,
+                    &spawn.conversation_id,
+                    spawn
+                        .state
+                        .jobs
+                        .running_count_for_conversation(&spawn.conversation_id),
+                );
+                return;
+            }
+        }
+    } else {
+        if let Err(msg) = spawn.state.jobs.acquire_nested(&spawn.conversation_id) {
+            log::error!(
+                "run_subagent background nested refused job_id={job_id} conversation_id={}: {msg}",
+                spawn.conversation_id
+            );
+            spawn.state.jobs.finish(
+                &job_id,
+                super::job_supervisor::JobStatus::Failed,
+                None,
+                Some(msg.clone()),
+            );
+            let outcome = failed_owned_subagent_outcome(
+                &spawn.run_id,
+                &spawn.conversation_id,
+                &spawn.tool_call_id,
+                spawn.task.clone(),
+                &spawn.source,
+                spawn.child_spawn_depth,
+                msg.clone(),
+            );
+            publish_owned_subagent_ui_finished(
+                &spawn.stream,
+                &spawn.message_id,
+                &spawn.tool_call_id,
+                &outcome.trace,
+                &outcome.exec,
+                0,
+                spawn.host_trace_id.as_deref(),
+                spawn.host_scoped_message_id.as_deref(),
+                false,
+            );
+            complete_background_host_tool(
+                &spawn.stream,
+                &spawn.conversation_id,
+                &spawn.message_id,
+                &spawn.tool_call_id,
+                &job_id,
+                super::job_supervisor::JobStatus::Failed,
+                Some(msg.as_str()),
+                Some(0),
+                spawn.host_trace_id.as_deref(),
+                spawn.host_scoped_message_id.as_deref(),
+            );
+            emit_background_jobs(
+                &spawn.stream,
+                &spawn.conversation_id,
+                spawn
+                    .state
+                    .jobs
+                    .running_count_for_conversation(&spawn.conversation_id),
+            );
+            return;
+        }
+        None
+    };
     spawn.state.jobs.mark_running(&job_id);
     let provider = OpenAIProvider::new(spawn.settings.clone(), spawn.api_key.clone());
     let input = OwnedSubagentExecutionInput {
@@ -722,7 +787,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
         emit_host_tool_status: false,
     };
     let outcome = execute_owned_subagent(input).await;
-    spawn.state.jobs.release_slot();
+    drop(_lease);
     let cancelled = spawn.cancel.is_cancelled();
     let (status, content, error) = match &outcome.exec {
         Ok((body, true, _)) => (
@@ -1101,6 +1166,33 @@ pub(super) async fn run_subagent_delegation(
                         );
                         return Ok((body, true, None));
                     }
+                    let slot_cap = super::job_supervisor::JobSupervisor::slot_cap_from(
+                        crate::tools::parallel::ParallelLimits::from_settings(&provider.settings)
+                            .max_parallel_sub_agents,
+                    );
+                    let _worker_slot = if super::job_supervisor::worker_needs_root_slot(
+                        child_spawn_depth,
+                    ) {
+                        match state
+                            .jobs
+                            .acquire_root(conversation_id, slot_cap, cancel)
+                            .await
+                        {
+                            Some(lease) => Some(lease),
+                            None => {
+                                let msg = "cancelled".to_string();
+                                log::info!(
+                                    "run_subagent serial cancelled before root slot conversation_id={conversation_id} tool_call_id={tool_call_id}"
+                                );
+                                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                            }
+                        }
+                    } else {
+                        if let Err(msg) = state.jobs.acquire_nested(conversation_id) {
+                            return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                        }
+                        None
+                    };
                     if def.id == "computer" {
                         if let Err(e) =
                             super::computer_monitor_pick::ensure_computer_monitor_for_subagent(

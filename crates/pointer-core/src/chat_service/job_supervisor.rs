@@ -1,10 +1,12 @@
-//! Background job table for `run_subagent.background` and `terminal.blockUntilMs`.
+//! Background job table + **per-conversation worker pool**.
 //!
-//! Host-owned: concurrency cap, slot release on terminal, cancel fan-out.
-//! Does not hold `session:{conversation}`. Parent `done` does not cancel jobs.
+//! Foreground join and background jobs share one FIFO root-slot queue
+//! (`maxParallelSubAgents` per conversation). The job table is only for
+//! background handles (`job.list` / `await`). Does not hold
+//! `session:{conversation}`. Parent `done` does not cancel jobs.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
@@ -139,11 +141,14 @@ pub struct JobAwaitResult {
     /// Successful `any` / `all` drain ready bodies into `jobs` instead.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unclaimed: Vec<String>,
-    /// Queued + running jobs in **this conversation** (not the global slot counter).
+    /// Queued + running **background** jobs in this conversation (occupancy UI).
     pub running_count: usize,
     pub slot_cap: usize,
-    /// `slotCap - runningCount`. Spawn this many to refill the window.
+    /// Shared pool free capacity: `slotCap - poolRunning - waiters`.
+    /// Includes foreground root leases; not `slotCap - runningCount`.
     pub idle_slots: usize,
+    /// Root slots currently held (foreground join + background).
+    pub pool_running: usize,
 }
 
 #[derive(Default)]
@@ -152,10 +157,165 @@ struct Inner {
     by_conversation: HashMap<String, Vec<String>>,
 }
 
+struct WorkerWaiter {
+    cancel: CancellationToken,
+    waker: tokio::sync::oneshot::Sender<()>,
+}
+
+#[derive(Default)]
+struct ConversationWorkerPool {
+    running_roots: usize,
+    waiters: VecDeque<WorkerWaiter>,
+}
+
+struct WorkerPoolState {
+    by_conv: Mutex<HashMap<String, ConversationWorkerPool>>,
+}
+
+impl WorkerPoolState {
+    fn stats(&self, conversation_id: &str) -> (usize, usize) {
+        let g = self.by_conv.lock();
+        g.get(conversation_id)
+            .map(|p| (p.running_roots, p.waiters.len()))
+            .unwrap_or((0, 0))
+    }
+
+    fn try_acquire_immediate(&self, conversation_id: &str, cap: usize) -> bool {
+        let cap = cap.max(1);
+        let mut g = self.by_conv.lock();
+        let pool = g.entry(conversation_id.to_string()).or_default();
+        if pool.running_roots < cap {
+            pool.running_roots += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn enqueue_waiter(
+        &self,
+        conversation_id: &str,
+        cancel: CancellationToken,
+        waker: tokio::sync::oneshot::Sender<()>,
+    ) {
+        let mut g = self.by_conv.lock();
+        let pool = g.entry(conversation_id.to_string()).or_default();
+        pool.waiters.push_back(WorkerWaiter { cancel, waker });
+    }
+
+    fn purge_cancelled(&self, conversation_id: &str) {
+        let mut g = self.by_conv.lock();
+        let Some(pool) = g.get_mut(conversation_id) else {
+            return;
+        };
+        pool.waiters.retain(|w| !w.cancel.is_cancelled());
+    }
+
+    fn has_root(&self, conversation_id: &str) -> bool {
+        self.by_conv
+            .lock()
+            .get(conversation_id)
+            .is_some_and(|p| p.running_roots > 0)
+    }
+
+    fn release_and_pump(&self, conversation_id: &str) {
+        let waker = {
+            let mut g = self.by_conv.lock();
+            let Some(pool) = g.get_mut(conversation_id) else {
+                log::warn!(
+                    "job_supervisor: release_root missing pool conversation_id={conversation_id}"
+                );
+                return;
+            };
+            let mut next = None;
+            while let Some(entry) = pool.waiters.pop_front() {
+                if entry.cancel.is_cancelled() {
+                    continue;
+                }
+                next = Some(entry.waker);
+                break;
+            }
+            if next.is_some() {
+                // Transfer the root to the waiter — leave running_roots unchanged.
+                log::info!(
+                    "job_supervisor: root transferred conversation_id={conversation_id} running_roots={} waiters={}",
+                    pool.running_roots,
+                    pool.waiters.len()
+                );
+            } else if pool.running_roots == 0 {
+                log::warn!(
+                    "job_supervisor: release_root underflow conversation_id={conversation_id}"
+                );
+            } else {
+                pool.running_roots -= 1;
+                log::info!(
+                    "job_supervisor: root released conversation_id={conversation_id} running_roots={} waiters={}",
+                    pool.running_roots,
+                    pool.waiters.len()
+                );
+            }
+            next
+        };
+        if let Some(waker) = waker {
+            let _ = waker.send(());
+        }
+    }
+}
+
+/// RAII root slot in the per-conversation worker pool.
+pub struct WorkerLease {
+    conversation_id: String,
+    pool: Arc<WorkerPoolState>,
+    released: bool,
+}
+
+impl WorkerLease {
+    pub fn conversation_id(&self) -> &str {
+        &self.conversation_id
+    }
+
+    /// Release early (same as drop). Idempotent.
+    pub fn release(mut self) {
+        self.release_inner();
+    }
+
+    fn release_inner(&mut self) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        self.pool.release_and_pump(&self.conversation_id);
+    }
+}
+
+impl Drop for WorkerLease {
+    fn drop(&mut self) {
+        self.release_inner();
+    }
+}
+
+/// Nested spawn under an ancestor that already holds a root slot.
+/// Does not change `running_roots`.
+pub struct NestedLease {
+    conversation_id: String,
+}
+
+impl NestedLease {
+    pub fn conversation_id(&self) -> &str {
+        &self.conversation_id
+    }
+}
+
+/// First-level workers under the lead (`child_spawn_depth == 1`) take a root slot.
+/// Deeper nested workers share the ancestor's root (no new slot — avoids N=1 deadlock).
+pub fn worker_needs_root_slot(child_spawn_depth: u32) -> bool {
+    child_spawn_depth <= 1
+}
+
 pub struct JobSupervisor {
     inner: Mutex<Inner>,
     bump: watch::Sender<u64>,
-    running_slots: AtomicUsize,
+    pool: Arc<WorkerPoolState>,
 }
 
 impl Default for JobSupervisor {
@@ -170,7 +330,9 @@ impl JobSupervisor {
         Self {
             inner: Mutex::new(Inner::default()),
             bump,
-            running_slots: AtomicUsize::new(0),
+            pool: Arc::new(WorkerPoolState {
+                by_conv: Mutex::new(HashMap::new()),
+            }),
         }
     }
 
@@ -186,26 +348,25 @@ impl JobSupervisor {
         max_parallel_sub_agents.max(1)
     }
 
-    pub fn running_slot_count(&self) -> usize {
-        self.running_slots.load(Ordering::SeqCst)
+    pub fn pool_running_roots(&self, conversation_id: &str) -> usize {
+        self.pool.stats(conversation_id).0
     }
 
+    pub fn pool_waiter_len(&self, conversation_id: &str) -> usize {
+        self.pool.stats(conversation_id).1
+    }
+
+    /// Free capacity in the shared worker pool (foreground + background).
+    pub fn idle_slots(&self, conversation_id: &str, cap: usize) -> usize {
+        let cap = Self::slot_cap_from(cap);
+        let (running, waiting) = self.pool.stats(conversation_id);
+        cap.saturating_sub(running.saturating_add(waiting))
+    }
+
+    /// Background jobs still queued/running (sidebar occupancy — not pool roots).
     pub fn running_count_for_conversation(&self, conversation_id: &str) -> usize {
         let inner = self.inner.lock();
-        inner
-            .by_conversation
-            .get(conversation_id)
-            .map(|ids| {
-                ids.iter()
-                    .filter(|id| {
-                        inner
-                            .jobs
-                            .get(*id)
-                            .is_some_and(|j| !j.status.is_terminal())
-                    })
-                    .count()
-            })
-            .unwrap_or(0)
+        running_count_in(&inner, conversation_id)
     }
 
     /// Conversations that still have queued or running jobs (occupancy UI).
@@ -233,6 +394,103 @@ impl JobSupervisor {
             .collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0));
         rows
+    }
+
+    /// Acquire a root worker slot for this conversation (FIFO when full).
+    /// Returns `None` if cancelled before acquiring.
+    pub async fn acquire_root(
+        &self,
+        conversation_id: &str,
+        cap: usize,
+        cancel: &CancellationToken,
+    ) -> Option<WorkerLease> {
+        let cap = Self::slot_cap_from(cap);
+        let conversation_id = conversation_id.to_string();
+        if cancel.is_cancelled() {
+            log::info!(
+                "job_supervisor: acquire_root cancelled before wait conversation_id={conversation_id} cap={cap}"
+            );
+            return None;
+        }
+        if self.pool.try_acquire_immediate(&conversation_id, cap) {
+            log::info!(
+                "job_supervisor: root acquired conversation_id={conversation_id} running_roots={} cap={cap}",
+                self.pool.stats(&conversation_id).0
+            );
+            self.notify();
+            return Some(WorkerLease {
+                conversation_id,
+                pool: Arc::clone(&self.pool),
+                released: false,
+            });
+        }
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pool
+            .enqueue_waiter(&conversation_id, cancel.clone(), tx);
+        log::info!(
+            "job_supervisor: root wait conversation_id={conversation_id} cap={cap} waiters={}",
+            self.pool.stats(&conversation_id).1
+        );
+        self.notify();
+
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => {
+                self.pool.purge_cancelled(&conversation_id);
+                log::info!(
+                    "job_supervisor: acquire_root cancelled while waiting conversation_id={conversation_id} cap={cap}"
+                );
+                self.notify();
+                None
+            }
+            res = rx => {
+                match res {
+                    Ok(()) => {
+                        // Slot transferred to us by release_and_pump.
+                        if cancel.is_cancelled() {
+                            self.pool.release_and_pump(&conversation_id);
+                            self.notify();
+                            return None;
+                        }
+                        log::info!(
+                            "job_supervisor: root acquired after wait conversation_id={conversation_id} running_roots={} cap={cap}",
+                            self.pool.stats(&conversation_id).0
+                        );
+                        self.notify();
+                        Some(WorkerLease {
+                            conversation_id,
+                            pool: Arc::clone(&self.pool),
+                            released: false,
+                        })
+                    }
+                    Err(_) => {
+                        log::warn!(
+                            "job_supervisor: acquire_root wait closed conversation_id={conversation_id}"
+                        );
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    /// Nested worker: require an ancestor root; do not take a new slot.
+    pub fn acquire_nested(&self, conversation_id: &str) -> Result<NestedLease, String> {
+        if self.pool.has_root(conversation_id) {
+            log::info!(
+                "job_supervisor: nested lease conversation_id={conversation_id} running_roots={}",
+                self.pool.stats(conversation_id).0
+            );
+            return Ok(NestedLease {
+                conversation_id: conversation_id.to_string(),
+            });
+        }
+        let msg = format!(
+            "nested worker requires an ancestor root slot (conversation_id={conversation_id})"
+        );
+        log::error!("job_supervisor: {msg}");
+        Err(msg)
     }
 
     /// Register a job in `queued`. Caller must spawn work that acquires a slot.
@@ -292,64 +550,6 @@ impl JobSupervisor {
             job.conversation_id
         );
         drop(inner);
-        self.notify();
-    }
-
-    /// Wait for a running slot. Returns false if cancelled before acquiring.
-    pub async fn acquire_slot(&self, cap: usize, cancel: &CancellationToken) -> bool {
-        let cap = cap.max(1);
-        let mut rx = self.subscribe();
-        loop {
-            if cancel.is_cancelled() {
-                log::info!("job_supervisor: acquire_slot cancelled before permit cap={cap}");
-                return false;
-            }
-            let current = self.running_slots.load(Ordering::SeqCst);
-            if current < cap {
-                match self.running_slots.compare_exchange(
-                    current,
-                    current + 1,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ) {
-                    Ok(_) => {
-                        log::info!(
-                            "job_supervisor: slot acquired running={} cap={}",
-                            current + 1,
-                            cap
-                        );
-                        return true;
-                    }
-                    Err(_) => continue,
-                }
-            }
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => {
-                    log::info!("job_supervisor: acquire_slot cancelled while waiting cap={cap}");
-                    return false;
-                }
-                changed = rx.changed() => {
-                    if changed.is_err() {
-                        log::warn!("job_supervisor: acquire_slot watch closed cap={cap}");
-                        return false;
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn release_slot(&self) {
-        let prev = self.running_slots.fetch_sub(1, Ordering::SeqCst);
-        if prev == 0 {
-            self.running_slots.store(0, Ordering::SeqCst);
-            log::warn!("job_supervisor: release_slot underflow, clamped to 0");
-        } else {
-            log::info!(
-                "job_supervisor: slot released running={}",
-                prev.saturating_sub(1)
-            );
-        }
         self.notify();
     }
 
@@ -499,7 +699,7 @@ impl JobSupervisor {
                     "job_supervisor: await cancelled conversation_id={conversation_id} mode={:?}",
                     mode
                 );
-                return self.snapshot_await(conversation_id, job_ids.as_deref(), mode, false, slot_cap, false);
+                return self.snapshot_await(conversation_id, job_ids.as_deref(), mode, false, slot_cap);
             }
             if let Some(ready) =
                 self.try_claim_await(conversation_id, job_ids.as_deref(), mode, slot_cap)
@@ -512,7 +712,7 @@ impl JobSupervisor {
                     "job_supervisor: await timed out conversation_id={conversation_id} mode={:?} (jobs keep running)",
                     mode
                 );
-                return self.snapshot_await(conversation_id, job_ids.as_deref(), mode, true, slot_cap, false);
+                return self.snapshot_await(conversation_id, job_ids.as_deref(), mode, true, slot_cap);
             }
             tokio::select! {
                 biased;
@@ -523,7 +723,6 @@ impl JobSupervisor {
                         mode,
                         false,
                         slot_cap,
-                        false,
                     );
                 }
                 _ = tokio::time::sleep(remaining) => {
@@ -537,7 +736,6 @@ impl JobSupervisor {
                         mode,
                         true,
                         slot_cap,
-                        false,
                     );
                 }
                 changed = rx.changed() => {
@@ -548,7 +746,6 @@ impl JobSupervisor {
                             mode,
                             false,
                             slot_cap,
-                            false,
                         );
                     }
                 }
@@ -563,6 +760,8 @@ impl JobSupervisor {
         mode: AwaitMode,
         slot_cap: usize,
     ) -> Option<JobAwaitResult> {
+        let idle = self.idle_slots(conversation_id, slot_cap);
+        let pool_running = self.pool_running_roots(conversation_id);
         let mut inner = self.inner.lock();
         let ids = resolve_job_ids(&inner, conversation_id, job_ids);
         if ids.is_empty() {
@@ -570,6 +769,8 @@ impl JobSupervisor {
                 mode,
                 slot_cap,
                 running_count_in(&inner, conversation_id),
+                idle,
+                pool_running,
             ));
         }
         let mut terminal: Vec<String> = Vec::new();
@@ -595,6 +796,8 @@ impl JobSupervisor {
                             mode,
                             slot_cap,
                             running_count_in(&inner, conversation_id),
+                            idle,
+                            pool_running,
                         ));
                     }
                     return None;
@@ -613,6 +816,8 @@ impl JobSupervisor {
                     Vec::new(),
                     running_count,
                     slot_cap,
+                    idle,
+                    pool_running,
                 ))
             }
             AwaitMode::All => {
@@ -645,11 +850,16 @@ impl JobSupervisor {
                     Vec::new(),
                     running_count,
                     slot_cap,
+                    idle,
+                    pool_running,
                 ))
             }
         }
     }
 
+    /// Timeout / cancel / watch-closed path: **never** deliver `content` and **never** claim.
+    /// Finished-but-unclaimed ids go in `unclaimed`; still-running ids go in `running`.
+    /// Only [`Self::try_claim_await`] may put bodies into `jobs`.
     fn snapshot_await(
         &self,
         conversation_id: &str,
@@ -657,45 +867,38 @@ impl JobSupervisor {
         mode: AwaitMode,
         timed_out: bool,
         slot_cap: usize,
-        claim: bool,
     ) -> JobAwaitResult {
-        let mut inner = self.inner.lock();
+        let idle = self.idle_slots(conversation_id, slot_cap);
+        let pool_running = self.pool_running_roots(conversation_id);
+        let inner = self.inner.lock();
         let ids = resolve_job_ids(&inner, conversation_id, job_ids);
-        let mut jobs = Vec::new();
         let mut running = Vec::new();
         for id in &ids {
-            let Some(job) = inner.jobs.get_mut(id) else {
+            let Some(job) = inner.jobs.get(id) else {
                 continue;
             };
             if job.conversation_id != conversation_id {
                 continue;
             }
-            if job.status.is_terminal() {
-                if job.claimed {
-                    continue;
-                }
-                if claim {
-                    job.claimed = true;
-                }
-                jobs.push(job_await_item(job));
-            } else {
+            if !job.status.is_terminal() {
                 running.push(id.clone());
             }
         }
         let running_count = running_count_in(&inner, conversation_id);
-        let delivered: Vec<String> = jobs.iter().map(|j| j.job_id.clone()).collect();
-        let unclaimed = unclaimed_excluding(&inner, conversation_id, &delivered);
+        let unclaimed = unclaimed_finished_conversation(&inner, conversation_id);
         pack_await(
             match mode {
                 AwaitMode::Any => "any",
                 AwaitMode::All => "all",
             },
             timed_out,
-            jobs,
+            Vec::new(),
             running,
             unclaimed,
             running_count,
             slot_cap,
+            idle,
+            pool_running,
         )
     }
 }
@@ -735,13 +938,6 @@ fn unclaimed_finished_conversation(inner: &Inner, conversation_id: &str) -> Vec<
     unclaimed_finished_in(inner, conversation_id, ids)
 }
 
-fn unclaimed_excluding(inner: &Inner, conversation_id: &str, except: &[String]) -> Vec<String> {
-    unclaimed_finished_conversation(inner, conversation_id)
-        .into_iter()
-        .filter(|id| !except.iter().any(|e| e == id))
-        .collect()
-}
-
 fn claim_ready_jobs(inner: &mut Inner, ids: &[String]) -> Vec<JobAwaitItem> {
     let mut jobs = Vec::new();
     for id in ids {
@@ -775,6 +971,8 @@ fn pack_await(
     unclaimed: Vec<String>,
     running_count: usize,
     slot_cap: usize,
+    idle_slots: usize,
+    pool_running: usize,
 ) -> JobAwaitResult {
     JobAwaitResult {
         mode,
@@ -784,11 +982,18 @@ fn pack_await(
         unclaimed,
         running_count,
         slot_cap,
-        idle_slots: slot_cap.saturating_sub(running_count),
+        idle_slots,
+        pool_running,
     }
 }
 
-fn empty_await(mode: AwaitMode, slot_cap: usize, running_count: usize) -> JobAwaitResult {
+fn empty_await(
+    mode: AwaitMode,
+    slot_cap: usize,
+    running_count: usize,
+    idle_slots: usize,
+    pool_running: usize,
+) -> JobAwaitResult {
     pack_await(
         match mode {
             AwaitMode::Any => "any",
@@ -800,6 +1005,8 @@ fn empty_await(mode: AwaitMode, slot_cap: usize, running_count: usize) -> JobAwa
         Vec::new(),
         running_count,
         slot_cap,
+        idle_slots,
+        pool_running,
     )
 }
 
@@ -854,6 +1061,7 @@ fn job_await_item(job: &JobRecord) -> JobAwaitItem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn kind() -> JobKind {
         JobKind::Subagent(JobKindSubagent {
@@ -937,7 +1145,8 @@ mod tests {
         assert!(result.unclaimed.is_empty());
         assert_eq!(result.running_count, 1);
         assert_eq!(result.slot_cap, 3);
-        assert_eq!(result.idle_slots, 2);
+        assert_eq!(result.idle_slots, 3);
+        assert_eq!(result.pool_running, 0);
         let listed = sup.list(conv, false);
         assert!(listed.iter().find(|j| j.job_id == a).unwrap().claimed);
         assert!(listed.iter().find(|j| j.job_id == c).unwrap().claimed);
@@ -973,7 +1182,8 @@ mod tests {
         assert_eq!(result.running, vec![b.clone()]);
         assert!(result.unclaimed.is_empty());
         assert_eq!(result.running_count, 1);
-        assert_eq!(result.idle_slots, 2);
+        assert_eq!(result.idle_slots, 3);
+        assert_eq!(result.pool_running, 0);
         assert!(!result.timed_out);
         let a_row = sup
             .list(conv, false)
@@ -1103,30 +1313,137 @@ mod tests {
             )
             .await;
         assert!(result.timed_out);
+        assert!(result.jobs.is_empty());
         assert_eq!(result.running, vec![a.clone()]);
         assert!(!sup.list(conv, false)[0].claimed);
         assert_eq!(sup.status(conv, &a).unwrap().status, "running");
     }
 
     #[tokio::test]
-    async fn slot_acquire_respects_cap_and_cancel() {
+    async fn timeout_with_finished_sibling_does_not_deliver_unclaimed_content() {
         let sup = JobSupervisor::new();
-        assert!(sup.acquire_slot(1, &CancellationToken::new()).await);
-        assert_eq!(sup.running_slot_count(), 1);
+        let conv = "c1";
+        let done = sup.register(conv, kind(), CancellationToken::new());
+        let running = sup.register(conv, kind(), CancellationToken::new());
+        sup.mark_running(&done);
+        sup.mark_running(&running);
+        sup.finish(&done, JobStatus::Completed, Some("secret body".into()), None);
+        let parent = CancellationToken::new();
+        let result = sup
+            .await_jobs(
+                conv,
+                Some(vec![done.clone(), running.clone()]),
+                AwaitMode::All,
+                Some(Duration::from_millis(20)),
+                &parent,
+                4,
+            )
+            .await;
+        assert!(result.timed_out);
+        assert!(
+            result.jobs.is_empty(),
+            "timeout must not put content into jobs without claiming"
+        );
+        assert_eq!(result.running, vec![running.clone()]);
+        assert_eq!(result.unclaimed, vec![done.clone()]);
+        assert!(!sup.is_claimed(&done));
+
+        let claimed = sup
+            .await_jobs(
+                conv,
+                Some(vec![done.clone()]),
+                AwaitMode::All,
+                Some(Duration::from_secs(1)),
+                &parent,
+                4,
+            )
+            .await;
+        assert_eq!(claimed.jobs.len(), 1);
+        assert_eq!(claimed.jobs[0].content.as_deref(), Some("secret body"));
+        assert!(sup.is_claimed(&done));
+    }
+
+    #[tokio::test]
+    async fn root_acquire_fifo_respects_cap_cancel_and_isolation() {
+        let sup = Arc::new(JobSupervisor::new());
+        let a = "conv-a";
+        let b = "conv-b";
+        let lease_a = sup
+            .acquire_root(a, 1, &CancellationToken::new())
+            .await
+            .expect("a root");
+        assert_eq!(sup.pool_running_roots(a), 1);
+        assert_eq!(sup.idle_slots(a, 1), 0);
+
+        // B is independent — not blocked by A's root.
+        let lease_b = sup
+            .acquire_root(b, 1, &CancellationToken::new())
+            .await
+            .expect("b root");
+        assert_eq!(sup.pool_running_roots(b), 1);
+
         let cancel = CancellationToken::new();
-        let sup = std::sync::Arc::new(sup);
         let wait = {
-            let sup = sup.clone();
+            let sup = Arc::clone(&sup);
             let cancel = cancel.clone();
-            tokio::spawn(async move { sup.acquire_slot(1, &cancel).await })
+            tokio::spawn(async move { sup.acquire_root(a, 1, &cancel).await })
         };
         tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(sup.pool_waiter_len(a), 1);
         cancel.cancel();
-        assert!(!wait.await.unwrap());
-        sup.release_slot();
-        assert_eq!(sup.running_slot_count(), 0);
-        assert!(sup.acquire_slot(1, &CancellationToken::new()).await);
-        sup.release_slot();
+        assert!(wait.await.unwrap().is_none());
+        assert_eq!(sup.pool_waiter_len(a), 0);
+
+        drop(lease_a);
+        assert_eq!(sup.pool_running_roots(a), 0);
+        let again = sup
+            .acquire_root(a, 1, &CancellationToken::new())
+            .await
+            .expect("a again");
+        drop(again);
+        drop(lease_b);
+    }
+
+    #[tokio::test]
+    async fn root_fifo_transfers_slot_to_next_waiter() {
+        let sup = Arc::new(JobSupervisor::new());
+        let conv = "c1";
+        let first = sup
+            .acquire_root(conv, 1, &CancellationToken::new())
+            .await
+            .unwrap();
+        let wait = {
+            let sup = Arc::clone(&sup);
+            tokio::spawn(async move {
+                sup.acquire_root(conv, 1, &CancellationToken::new()).await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(sup.pool_waiter_len(conv), 1);
+        drop(first);
+        let second = wait.await.unwrap().expect("transferred");
+        assert_eq!(sup.pool_running_roots(conv), 1);
+        assert_eq!(sup.pool_waiter_len(conv), 0);
+        drop(second);
+    }
+
+    #[tokio::test]
+    async fn nested_requires_ancestor_root() {
+        let sup = JobSupervisor::new();
+        assert!(sup.acquire_nested("c1").is_err());
+        let _lease = sup
+            .acquire_root("c1", 1, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(sup.acquire_nested("c1").is_ok());
+        assert_eq!(sup.pool_running_roots("c1"), 1);
+    }
+
+    #[test]
+    fn worker_needs_root_slot_only_for_first_level() {
+        assert!(worker_needs_root_slot(0));
+        assert!(worker_needs_root_slot(1));
+        assert!(!worker_needs_root_slot(2));
     }
 
     #[test]

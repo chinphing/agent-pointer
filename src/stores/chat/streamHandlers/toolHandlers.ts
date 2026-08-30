@@ -7,6 +7,7 @@ import {
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace, ensureSubTraceSession, recordSubToolSuccess } from '../../../lib/subAgentSession'
 import { formatTerminalOutputContext } from '../../../lib/terminalOutputContext'
+import { isBackgroundJobHost, isToolCallInProgress } from '../../../lib/toolCallDisplay'
 import type { StreamEvent, TaskBoardDocument, ToolCall } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
@@ -163,6 +164,16 @@ function markToolCallWaitingForInput(
   if (tc) tc.waitingForInput = waiting
 }
 
+function maybeClearBackgroundOccupancy(
+  ctx: StreamHandlerContext,
+  conversationId: string,
+  tc: ToolCall
+) {
+  if (!isBackgroundJobHost(tc)) return
+  if (isToolCallInProgress(tc.status)) return
+  ctx.clearBackgroundJobsIfNoneLive(conversationId)
+}
+
 export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatus) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
@@ -176,6 +187,7 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
       if (e.durationMs !== undefined) tc.durationMs = e.durationMs
       if (e.displayLabel !== undefined) tc.displayLabel = e.displayLabel
       if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
+      maybeClearBackgroundOccupancy(ctx, r.conv.id, tc)
     }
   } else if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
@@ -199,6 +211,7 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
       if (e.durationMs !== undefined) tc.durationMs = e.durationMs
       if (e.displayLabel !== undefined) tc.displayLabel = e.displayLabel
       if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
+      maybeClearBackgroundOccupancy(ctx, r.conv.id, tc)
     }
   }
   ctx.handleTerminalToolCallStatus(

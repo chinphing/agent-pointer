@@ -393,6 +393,13 @@ pub enum StreamEvent {
         /// 本轮 run_chat 发出 Done 的时间（epoch ms）。
         #[serde(skip_serializing_if = "Option::is_none", rename = "finishedAtMs")]
         finished_at_ms: Option<i64>,
+        /// Queued + running jobs for this conversation. Composer stop / sidebar
+        /// spinner follow this, not the dispatcher queue.
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "backgroundRunningCount"
+        )]
+        background_running_count: Option<u32>,
     },
     /// Task-board trim marked earlier messages excluded from LLM context (UI patch only).
     ContextTrimApplied {
@@ -532,6 +539,13 @@ pub enum StreamEvent {
         #[serde(rename = "monitorId")]
         monitor_id: Option<String>,
     },
+    /// Background job occupancy for this conversation (sidebar spinner; not the lead turn).
+    BackgroundJobs {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "runningCount")]
+        running_count: u32,
+    },
 }
 
 fn nonempty_id(id: &str) -> Option<&str> {
@@ -612,6 +626,9 @@ impl StreamEvent {
                 conversation_id, ..
             }
             | Self::ComputerMonitorUpdated {
+                conversation_id, ..
+            }
+            | Self::BackgroundJobs {
                 conversation_id, ..
             } => nonempty_id(conversation_id),
             Self::Delta { .. }
@@ -713,5 +730,34 @@ mod tests {
         assert_eq!(v["conversationId"], "conv-a");
         assert_eq!(v["message"], "boom");
         assert!(v.get("messageId").is_none());
+    }
+
+    #[test]
+    fn background_jobs_serializes_camel_case() {
+        let ev = StreamEvent::BackgroundJobs {
+            conversation_id: "conv-a".into(),
+            running_count: 3,
+        };
+        let v = serde_json::to_value(&ev).expect("serialize");
+        assert_eq!(v["kind"], "background_jobs");
+        assert_eq!(v["conversationId"], "conv-a");
+        assert_eq!(v["runningCount"], 3);
+    }
+
+    #[test]
+    fn done_serializes_background_running_count() {
+        let ev = StreamEvent::Done {
+            conversation_id: "conv-a".into(),
+            tool_rounds_used_total: None,
+            tool_rounds_used_supervisor_total: None,
+            max_tool_rounds: None,
+            started_at_ms: None,
+            finished_at_ms: None,
+            background_running_count: Some(0),
+        };
+        let v = serde_json::to_value(&ev).expect("serialize");
+        assert_eq!(v["kind"], "done");
+        assert_eq!(v["conversationId"], "conv-a");
+        assert_eq!(v["backgroundRunningCount"], 0);
     }
 }

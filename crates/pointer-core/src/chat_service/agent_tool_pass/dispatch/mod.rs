@@ -1,6 +1,7 @@
 //! Route tool invocations to specialized handlers or the default registry.
 
 mod ask_user;
+mod job;
 mod media;
 pub(super) mod registry;
 mod skill_import;
@@ -40,6 +41,7 @@ pub(super) async fn execute_tool_invocation(
     ask_user_deferred: &AtomicBool,
     run_id: Option<&str>,
     tool_span_id: Option<&str>,
+    state_arc: std::sync::Arc<AppState>,
 ) -> ToolExecResult {
     let _ = ask_user_deferred;
     let execution_scope = ToolExecutionScope::from_agent_contexts(
@@ -68,6 +70,7 @@ pub(super) async fn execute_tool_invocation(
             terminal::run_terminal_tool(
                 stream,
                 state,
+                state_arc,
                 conversation_id,
                 message_id,
                 tc,
@@ -139,6 +142,7 @@ pub(super) async fn execute_tool_invocation(
                 history,
                 lead,
                 sub,
+                state_arc,
             )
             .await
         }
@@ -150,6 +154,7 @@ pub(super) async fn execute_tool_invocation(
             args_value,
             lead,
         ),
+        "job" => job::dispatch_job(state, conversation_id, args_value, cancel).await,
         _ => {
             registry::dispatch_registry_invoke(
                 state,
@@ -189,6 +194,7 @@ pub(super) async fn invoke_prepared_parallel(
     web_search_history: Option<&[crate::models::ChatMessage]>,
     cancel: &CancellationToken,
     tool_span_id: Option<String>,
+    state_arc: std::sync::Arc<AppState>,
 ) -> ToolExecResult {
     let execution_scope =
         ToolExecutionScope::new(conversation_id, agent_instance_id, tc.id.as_str());
@@ -198,6 +204,7 @@ pub(super) async fn invoke_prepared_parallel(
             terminal::run_terminal_tool(
                 stream,
                 state,
+                state_arc,
                 conversation_id,
                 message_id,
                 tc,

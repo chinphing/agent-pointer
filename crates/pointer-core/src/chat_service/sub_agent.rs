@@ -629,6 +629,7 @@ pub(crate) async fn run_sub_agent(
                 workspace_root: &sub_provider.settings.workspace_root,
                 trigger_source: None,
                 ask_user_deferred: std::sync::atomic::AtomicBool::new(false),
+                state_arc: ctx.state_arc.clone(),
             },
             final_tool_calls: &buf.final_tool_calls,
             trim_hook: Some(trim_hook),

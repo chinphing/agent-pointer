@@ -34,6 +34,7 @@ accessPolicy:
     - task_board_finalize
     - task_board_check_deps
     - run_subagent
+    - job
     - web_search
     - web_fetch
     - skill_read

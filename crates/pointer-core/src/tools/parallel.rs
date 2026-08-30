@@ -64,7 +64,7 @@ pub fn infer_parallel_metadata(name: &str, is_sidecar: bool) -> (bool, ToolConfl
         "web_search" | "web_fetch" | "skill_read" | "session_search" | "memory" => {
             (true, ToolConflictClass::None)
         }
-        "read_lints" | "cron_job" | "skill_import" => (false, ToolConflictClass::SerialOnly),
+        "read_lints" | "cron_job" | "skill_import" | "job" => (false, ToolConflictClass::SerialOnly),
         n if n.starts_with("task_board_") => (false, ToolConflictClass::Sidecar),
         n if n.starts_with("skill_") && n != "skill_read" => (false, ToolConflictClass::SerialOnly),
         _ => (false, ToolConflictClass::SerialOnly),

@@ -1093,7 +1093,7 @@ export type StreamEvent =
   /** Same `messageId` as a prior `injected_assistant_message`; updates its `content` only. */
   | { kind: 'injected_assistant_message_update'; conversationId: string; messageId: string; content: string }
   | { kind: 'error'; conversationId?: string; messageId?: string; message: string }
-  | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number; startedAtMs?: number; finishedAtMs?: number }
+  | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number; startedAtMs?: number; finishedAtMs?: number; backgroundRunningCount?: number }
   | { kind: 'context_trim_applied'; conversationId: string; excludedMessageIds: string[] }
   /** Ephemeral: compression in progress (tool-row marker); not persisted. */
   | {
@@ -1134,6 +1134,7 @@ export type StreamEvent =
   | { kind: 'workspace_updated'; conversationId: string; workspaceRoot: string; isEphemeralSandbox: boolean }
   | { kind: 'computer_monitor_pick_required'; conversationId: string; messageId: string; toolCallId: string; monitors: ComputerMonitor[] }
   | { kind: 'computer_monitor_updated'; conversationId: string; monitorId?: string | null }
+  | { kind: 'background_jobs'; conversationId: string; runningCount: number }
 
 export type TaskBoardItemStatus =
   | 'pending'

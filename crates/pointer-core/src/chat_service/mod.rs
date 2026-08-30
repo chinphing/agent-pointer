@@ -18,6 +18,7 @@ mod content_extract;
 mod context;
 mod conversation_persist;
 mod emit;
+pub(crate) mod job_supervisor;
 mod json_tool_retries;
 mod prompts;
 mod provider_stream;

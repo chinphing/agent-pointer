@@ -8,8 +8,10 @@ use crate::models::{AgentTrace, ChatMessage, ModelSettings, ToolCall};
 use crate::provider::OpenAIProvider;
 use crate::task_board::TaskBoardTrimHook;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use super::super::app_state::AppState;
 use super::super::context::{SessionRefs, TranscriptPersist, TranscriptRefs};
 use super::super::session_budget::SessionToolBudget;
 
@@ -105,6 +107,8 @@ pub struct ToolPassContext<'a> {
     pub trigger_source: Option<TriggerSource>,
     /// Legacy flag; IM `ask_user` now blocks same-turn (unused).
     pub ask_user_deferred: AtomicBool,
+    /// Process-lifetime `AppState` for background jobs that outlive this pass.
+    pub state_arc: Arc<AppState>,
 }
 
 impl<'a> ToolPassContext<'a> {
@@ -146,6 +150,7 @@ pub struct LeadSingleToolPassRequest<'a> {
     pub final_tool_calls: &'a [ToolCall],
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub cancel: CancellationToken,
+    pub state_arc: Arc<AppState>,
     /// Origin of the parent run; used to branch tool behavior per source
     /// (e.g. non-blocking `ask_user` for IM channels).
     pub trigger_source: Option<TriggerSource>,

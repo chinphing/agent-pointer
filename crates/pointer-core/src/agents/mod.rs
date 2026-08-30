@@ -1714,6 +1714,14 @@ mod builtin_agent_tests {
                 "general allowTools should keep {tool} (load skill stays local)"
             );
         }
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"job".to_string()),
+            "general allowTools should include job"
+        );
         for skill in [
             "find-skills",
             "dev-env-setup",
@@ -1817,6 +1825,14 @@ mod builtin_agent_tests {
                 "coder allowTools should include {tool}"
             );
         }
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"job".to_string()),
+            "coder allowTools should include job"
+        );
         assert!(
             !agent
                 .def

@@ -20,6 +20,7 @@ import {
   handleComputerMonitorPickRequired,
   handleComputerMonitorUpdated,
   handleDone,
+  handleBackgroundJobs,
   handleChannelPairingPending,
   handleImSessionAgentChanged,
   handleImSessionForked,
@@ -159,6 +160,9 @@ export function dispatchStreamEvent(ctx: StreamHandlerContext, e: StreamEvent): 
       break
     case 'done':
       handleDone(ctx, e)
+      break
+    case 'background_jobs':
+      handleBackgroundJobs(ctx, e)
       break
     default: {
       const _exhaustive: never = e

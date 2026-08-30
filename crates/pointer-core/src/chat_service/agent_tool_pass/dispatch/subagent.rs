@@ -137,6 +137,7 @@ pub(super) async fn dispatch_run_subagent(
     anchor_history: &mut Vec<crate::models::ChatMessage>,
     lead: Option<&mut LeadToolPassConfig<'_>>,
     sub: Option<&mut SubToolPassConfig<'_>>,
+    state_arc: std::sync::Arc<super::super::super::app_state::AppState>,
 ) -> ToolExecResult {
     let llm_stats = match stats {
         ToolInvocationStats::TokenSession(s) => &mut s.stats,
@@ -164,6 +165,7 @@ pub(super) async fn dispatch_run_subagent(
             args_value,
             parent_spawn_depth: 0,
             history: Some(anchor_history),
+            state_arc,
         };
         return super::super::super::run_subagent_delegation::run_subagent_delegation(&mut deleg)
             .await;
@@ -191,6 +193,7 @@ pub(super) async fn dispatch_run_subagent(
             args_value,
             parent_spawn_depth: sub_cfg.spawn_depth,
             history: None,
+            state_arc,
         };
         return super::super::super::run_subagent_delegation::run_subagent_delegation(&mut deleg)
             .await;

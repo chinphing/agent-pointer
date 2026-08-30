@@ -553,7 +553,7 @@ async function onPlaySoundToggle(checked: boolean) {
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="同一轮里读文件、终端、搜索等可同时执行的数量。"
+                      title="同一轮里读文件、前台终端、搜索等可同时执行的数量。后台终端不走这里。"
                       aria-label="通用工具说明"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -575,7 +575,7 @@ async function onPlaySoundToggle(checked: boolean) {
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="同一轮里同时派出的子 Agent 数量。"
+                      title="本会话同时运行的子 Agent 上限，前台与后台共用；后台终端也占此额度。"
                       aria-label="子 Agent 说明"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />

@@ -20,3 +20,17 @@ export function activeConversationIdsFromQueueSnapshot(
   }
   return ids
 }
+
+/** Server job occupancy. Missing `backgroundJobs` means an older snapshot — skip. */
+export function backgroundJobOccupancyFromQueueSnapshot(
+  snapshot: RunQueueSnapshot
+): Map<string, number> | null {
+  if (!snapshot.backgroundJobs) return null
+  const map = new Map<string, number>()
+  for (const row of snapshot.backgroundJobs) {
+    const id = row.conversationId?.trim()
+    if (!id) continue
+    map.set(id, Math.max(0, Math.floor(Number(row.runningCount) || 0)))
+  }
+  return map
+}

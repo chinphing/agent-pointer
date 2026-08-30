@@ -13,7 +13,7 @@ import {
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs, toolCallBaseName } from '../../lib/messageTooling'
-import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel } from '../../lib/toolCallDisplay'
+import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundJobHost, isBackgroundSubagentCall } from '../../lib/toolCallDisplay'
 import { toolCallShowsKindLabel } from '../../lib/toolCallKindIcon'
 import ToolKindIcon from './ToolKindIcon.vue'
 import { openExternalUrl } from '../../lib/openExternalUrl'
@@ -172,6 +172,7 @@ type TerminalResult = {
 
 const terminalResult = computed<TerminalResult | null>(() => {
   if (!isTerminal.value || !props.toolCall.result) return null
+  if (isBackgroundJobHandleResult(props.toolCall.result)) return null
   try {
     return JSON.parse(props.toolCall.result) as TerminalResult
   } catch {
@@ -315,9 +316,15 @@ const statusInfo = computed(() => {
   }
   switch (effectiveStatus.value) {
     case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
-    case 'running': return { label: '执行中', color: 'text-accent' }
-    case 'success': return { label: '成功', color: 'text-success' }
-    case 'failed': return { label: '失败', color: 'text-muted/45' }
+    case 'running': return { label: isBackgroundJobHost(props.toolCall) ? '后台运行' : '执行中', color: 'text-accent' }
+    case 'success': return { label: isBackgroundSubagentCall(props.toolCall) ? '已完成' : '成功', color: 'text-success' }
+    case 'failed': {
+      const cancelled = /cancel|interrupted|已停止/i.test(props.toolCall.error || '')
+      if (isBackgroundSubagentCall(props.toolCall) && cancelled) {
+        return { label: '已取消', color: 'text-muted/45' }
+      }
+      return { label: '失败', color: 'text-muted/45' }
+    }
     case 'rejected': return { label: '已拒绝', color: 'text-muted' }
   }
   return { label: '', color: '' }
@@ -480,7 +487,7 @@ function openSourceUrl(url: string) {
           </div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground font-mono max-h-64">{{ terminalCommand || '—' }}</pre>
         </div>
-        <div v-if="showResults && (toolCall.result || toolCall.terminalOutput)">
+        <div v-if="showResults && (toolCall.terminalOutput || (toolCall.result && !isBackgroundJobHandleResult(toolCall.result)))">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
             <span>控制台输出</span>
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
@@ -547,7 +554,7 @@ function openSourceUrl(url: string) {
           <div v-if="argsParseError" class="text-[11px] text-danger mb-1 break-words">{{ argsParseError }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ prettyArgs || '—' }}</pre>
         </div>
-        <div v-if="showResults && toolCall.result">
+        <div v-if="showResults && toolCall.result && !isBackgroundSubagentCall(toolCall) && !isBackgroundJobHandleResult(toolCall.result)">
           <div class="text-[10px] uppercase tracking-wider text-muted mb-1">结果</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-48">{{ toolCall.result }}</pre>
         </div>

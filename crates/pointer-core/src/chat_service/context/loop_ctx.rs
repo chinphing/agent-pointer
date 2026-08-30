@@ -48,6 +48,7 @@ pub struct SubAgentLoopContext<'a> {
     /// Depth of this sub-agent run (lead's first child = 1).
     pub spawn_depth: u32,
     pub max_spawn_depth: u32,
+    pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,
 }
 
 /// Nested `run_subagent` delegation from a tool pass.
@@ -69,4 +70,5 @@ pub struct SubagentDelegationContext<'a> {
     pub parent_spawn_depth: u32,
     /// Lead transcript buffer; used to persist `agent_trace` on the anchor assistant row.
     pub history: Option<&'a mut Vec<ChatMessage>>,
+    pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,
 }

@@ -97,6 +97,13 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
       summary: truncateToolSummary(cronJobSummary(action, args))
     }
   }
+  if (base === 'job') {
+    const action = strField(args, ['action']) || 'list'
+    return {
+      label: jobActionLabel(action),
+      summary: ''
+    }
+  }
 
   return { label: tc.displayLabel?.trim() || tc.name, summary: tc.displaySummary?.trim() || '' }
 }
@@ -149,6 +156,21 @@ function cronJobActionLabel(action: string): string {
       return '删除定时任务'
     default:
       return '定时任务'
+  }
+}
+
+function jobActionLabel(action: string): string {
+  switch (action) {
+    case 'list':
+      return '查看后台任务'
+    case 'status':
+      return '后台任务状态'
+    case 'await':
+      return '等待后台任务'
+    case 'cancel':
+      return '取消后台任务'
+    default:
+      return '后台任务'
   }
 }
 
@@ -205,6 +227,47 @@ function isFileTool(base: string): boolean {
 
 export function isToolCallInProgress(status: ToolCall['status']): boolean {
   return status === 'running' || status === 'pending' || status === 'pending_approval'
+}
+
+export function isBackgroundSubagentCall(tc: ToolCall): boolean {
+  if (toolCallBaseName(tc.name) !== 'run_subagent') return false
+  const args = parseToolArgs(tc.arguments)
+  return args.background === true
+}
+
+export function isBackgroundTerminalCall(tc: ToolCall): boolean {
+  if (toolCallBaseName(tc.name) !== 'terminal') return false
+  const args = parseToolArgs(tc.arguments)
+  const n = args.blockUntilMs
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0
+}
+
+export function isBackgroundJobHost(tc: ToolCall): boolean {
+  return isBackgroundSubagentCall(tc) || isBackgroundTerminalCall(tc)
+}
+
+/** Job handle JSON — not worker Markdown and not terminal stdout. */
+export function isBackgroundJobHandleResult(result?: string | null): boolean {
+  if (!result?.trim()) return false
+  try {
+    const v = JSON.parse(result) as Record<string, unknown>
+    const jobId = typeof v.jobId === 'string' ? v.jobId.trim() : ''
+    const kind = typeof v.kind === 'string' ? v.kind.trim() : ''
+    return (
+      jobId.length > 0
+      && (kind === 'subagent' || kind === 'terminal')
+      && v.stdout === undefined
+      && v.exitCode === undefined
+      && v.content === undefined
+    )
+  } catch {
+    return false
+  }
+}
+
+export function toolCallProgressLabel(tc: ToolCall): string {
+  if (isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)) return '后台运行'
+  return '执行中'
 }
 
 function isInProgress(status: ToolCall['status']): boolean {
@@ -771,7 +834,7 @@ export function compactToolCallStatusLine(
   parts.push(summary ? `${label} · ${summary}` : label)
 
   if (opts?.includeStatus !== false && toolInProgress(tc.status)) {
-    parts.push('执行中')
+    parts.push(toolCallProgressLabel(tc))
   }
 
   return parts.join(' · ')

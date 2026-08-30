@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { handleDone, handleStreamError } from './sessionHandlers'
+import { handleBackgroundJobs, handleDone, handleStreamError } from './sessionHandlers'
 import { recordTurnStart, turnElapsedMs, hasActiveTurn } from '../../../lib/turnElapsed'
 import { createMockStreamHandlerContext, sampleConversation } from './testUtils'
 
@@ -397,5 +397,51 @@ describe('sessionHandlers', () => {
 
     // Second Done has no generating / active turn → handler skips before play.
     expect(playTaskCompleteSoundIfEnabled).toHaveBeenCalledTimes(1)
+  })
+
+  it('handleDone skips chime while background jobs are still running', () => {
+    const conv = sampleConversation()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn(),
+      isConversationGenerating: () => true,
+      hasBackgroundJobs: (id: string) => id === 'conv1'
+    })
+    recordTurnStart('conv1', 'user-bg', 10_000)
+
+    handleDone(ctx, { kind: 'done', conversationId: 'conv1' })
+    expect(playTaskCompleteSoundIfEnabled).not.toHaveBeenCalled()
+  })
+
+  it('handleDone applies occupancy from Done so the stop button can clear', () => {
+    const conv = sampleConversation()
+    const setBackgroundJobCount = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn(),
+      isConversationGenerating: () => true,
+      hasBackgroundJobs: () => false,
+      setBackgroundJobCount
+    })
+    handleDone(ctx, {
+      kind: 'done',
+      conversationId: 'conv1',
+      backgroundRunningCount: 0
+    })
+    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 0)
+  })
+
+  it('handleBackgroundJobs updates occupancy', () => {
+    const conv = sampleConversation()
+    const setBackgroundJobCount = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], { setBackgroundJobCount })
+    handleBackgroundJobs(ctx, {
+      kind: 'background_jobs',
+      conversationId: 'conv1',
+      runningCount: 2
+    })
+    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 2)
   })
 })

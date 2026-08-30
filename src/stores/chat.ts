@@ -34,6 +34,7 @@ import type {
   TaskBoardDocument
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import type { RunQueueSnapshot } from '../types/automation'
 import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
 import { promoteOutboundQueueItem } from '../lib/outboundQueue'
 import { getTaskBoardSnapshot } from '../lib/api'
@@ -95,6 +96,7 @@ import {
   ensureSubTrace,
   migrateLegacyTraceUiState
 } from '../lib/subAgentSession'
+import { isBackgroundJobHost } from '../lib/toolCallDisplay'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
@@ -108,13 +110,15 @@ import {
   hasDisconnectedLiveTail,
   mergeHydratedMessages,
   mergeMessagePage,
+  countRunningBackgroundSubagents,
+  finalizeOrphanBackgroundHosts,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeAssistantMessage,
   retainIncomingNewerMessages,
   uid
 } from './chat/helpers'
-import { activeConversationIdsFromQueueSnapshot } from './chat/dispatcherRunSync'
+import { activeConversationIdsFromQueueSnapshot, backgroundJobOccupancyFromQueueSnapshot } from './chat/dispatcherRunSync'
 
 function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
   return conversations.map(c => ({
@@ -214,6 +218,11 @@ export const useChatStore = defineStore('chat', () => {
   const projectLoads = new Map<string, Promise<Project | null>>()
   const currentId = ref<string | null>(null)
   const runByConversation = ref<Record<string, ConversationRunState>>({})
+  const backgroundRunningByConv = ref<Record<string, number>>({})
+  /** Occupancy received from the host (`background_jobs` / Done / queue snapshot). */
+  const occupancyAuthoritative = new Set<string>()
+  /** Full `backgroundJobs` snapshot applied; missing ids are 0. Do not seed from rows. */
+  let occupancySnapshotApplied = false
 
   /** FIFO outbound sends waiting while the session turn is still running (Hermes-style). */
   const outboundQueues = ref<Record<string, OutboundQueueItem[]>>({})
@@ -377,6 +386,12 @@ export const useChatStore = defineStore('chat', () => {
           if (tc.status === 'pending_approval') {
             tc.status = 'rejected'
           } else if (tc.status === 'running' || tc.status === 'pending') {
+            const keepRunning = isBackgroundJobHost(tc)
+            if (keepRunning) {
+              // Background host: keep running until job cancel/finish events arrive
+              // (handle may arrive slightly after spawn on the wave path).
+              continue
+            }
             tc.status = tc.result?.trim() ? 'success' : 'failed'
             if (tc.status === 'failed' && !tc.error) tc.error = 'interrupted'
           }
@@ -555,7 +570,7 @@ export const useChatStore = defineStore('chat', () => {
   function evictConversation(id: string) {
     const conv = conversations.value.find(c => c.id === id)
     if (!conv) return
-    if (isConversationGenerating(id)) return
+    if (isConversationBusy(id)) return
     if (currentId.value === id) return
     if (conv.messages.length === 0) return
     console.info('[chat] evicting idle conversation', id, conv.title, 'messages', conv.messages.length)
@@ -796,11 +811,88 @@ export const useChatStore = defineStore('chat', () => {
     return runStateFor(id).generating
   }
 
+  function setBackgroundJobCount(id: string, count: number) {
+    const key = id.trim()
+    if (!key) return
+    occupancyAuthoritative.add(key)
+    const next = Math.max(0, Math.floor(count))
+    if (next <= 0) {
+      if (!(key in backgroundRunningByConv.value)) return
+      const { [key]: _, ...rest } = backgroundRunningByConv.value
+      backgroundRunningByConv.value = rest
+      return
+    }
+    backgroundRunningByConv.value = { ...backgroundRunningByConv.value, [key]: next }
+  }
+
+  function hasBackgroundJobs(id: string): boolean {
+    return (backgroundRunningByConv.value[id.trim()] ?? 0) > 0
+  }
+
+  function clearBackgroundJobsIfNoneLive(id: string) {
+    const key = id.trim()
+    if (!key) return
+    const conv = conversations.value.find(c => c.id === key)
+    if (!conv) return
+    if (countRunningBackgroundSubagents(conv) === 0) {
+      setBackgroundJobCount(key, 0)
+    }
+  }
+
+  function seedBackgroundJobCountFromMessages(conv: Conversation) {
+    if (occupancySnapshotApplied) return
+    if (occupancyAuthoritative.has(conv.id)) return
+    if (hasBackgroundJobs(conv.id)) return
+    const n = countRunningBackgroundSubagents(conv)
+    if (n > 0) setBackgroundJobCount(conv.id, n)
+  }
+
+  function finalizeOrphansIfOccupancyEmpty(conv: Conversation) {
+    if (!occupancySnapshotApplied) return
+    if (hasBackgroundJobs(conv.id)) return
+    const n = finalizeOrphanBackgroundHosts(conv)
+    if (n > 0) {
+      console.info('[chat] occupancy: finalize orphan background hosts', conv.id, n)
+    }
+  }
+
+  function applyBackgroundJobOccupancyFromSnapshot(snapshot: RunQueueSnapshot) {
+    const occupancy = backgroundJobOccupancyFromQueueSnapshot(snapshot)
+    if (!occupancy) return
+    occupancySnapshotApplied = true
+    for (const [id, count] of occupancy) {
+      setBackgroundJobCount(id, count)
+    }
+    const known = new Set<string>()
+    for (const id of Object.keys(backgroundRunningByConv.value)) known.add(id)
+    for (const conv of conversations.value) {
+      const id = conv.id.trim()
+      if (id) known.add(id)
+    }
+    const current = currentId.value?.trim()
+    if (current) known.add(current)
+    for (const id of known) {
+      if (occupancy.has(id)) continue
+      setBackgroundJobCount(id, 0)
+      const conv = conversations.value.find(c => c.id === id)
+      if (conv && conv.messages.length > 0) finalizeOrphansIfOccupancyEmpty(conv)
+    }
+    console.info('[chat] occupancy snapshot', {
+      runningConversations: occupancy.size,
+      known: known.size
+    })
+  }
+
+  function isConversationBusy(id: string): boolean {
+    return isConversationGenerating(id) || hasBackgroundJobs(id)
+  }
+
   /** Restore generating UI from server dispatcher queue after page refresh / SSE gap. */
   async function syncRunStateFromDispatcherQueue(mode: 'flags' | 'catch_up' = 'flags') {
     try {
       const snapshot = await getDispatcherQueueSnapshot()
       const activeIds = activeConversationIdsFromQueueSnapshot(snapshot)
+      applyBackgroundJobOccupancyFromSnapshot(snapshot)
       const clearedStaleIds: string[] = []
 
       // Clear UI that still shows "running" after Done was dropped on a weak link.
@@ -809,7 +901,12 @@ export const useChatStore = defineStore('chat', () => {
         if (activeIds.has(convId)) continue
         clearRunState(convId)
         const conv = conversations.value.find(c => c.id === convId)
-        if (conv) normalizeInterruptedAssistantStatuses([conv])
+        if (conv) {
+          normalizeInterruptedAssistantStatuses([conv])
+          clearBackgroundJobsIfNoneLive(convId)
+          finalizeOrphansIfOccupancyEmpty(conv)
+          seedBackgroundJobCountFromMessages(conv)
+        }
         clearedStaleIds.push(convId)
         console.info('[chat] syncRunStateFromDispatcherQueue: clear stale', convId)
       }
@@ -1450,6 +1547,8 @@ export const useChatStore = defineStore('chat', () => {
         if (!isConversationGenerating(convId)) {
           normalizeInterruptedAssistantStatuses([conv])
         }
+        finalizeOrphansIfOccupancyEmpty(conv)
+        seedBackgroundJobCountFromMessages(conv)
         normalizeSubAgentTraces([conv])
         // Load-time stamp so trim does not treat missing viewedAt as forever-keep.
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
@@ -1909,6 +2008,8 @@ export const useChatStore = defineStore('chat', () => {
         if (!isConversationGenerating(convId)) {
           normalizeInterruptedAssistantStatuses([conv])
         }
+        finalizeOrphansIfOccupancyEmpty(conv)
+        seedBackgroundJobCountFromMessages(conv)
         normalizeSubAgentTraces([conv])
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
@@ -2944,6 +3045,9 @@ export const useChatStore = defineStore('chat', () => {
       clearRunState,
       clearAllRunStates,
       isConversationGenerating,
+      setBackgroundJobCount,
+      hasBackgroundJobs,
+      clearBackgroundJobsIfNoneLive,
       hasInFlightToolCalls,
       applyTaskBoardDocument,
       applyTaskBoardDocumentDebounced,
@@ -3269,7 +3373,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
+    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationBusy, hasBackgroundJobs, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
     init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, toggleConversationPin, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

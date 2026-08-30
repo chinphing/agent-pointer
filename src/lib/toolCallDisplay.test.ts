@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
+import { buildFileChangeSummaries, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -94,6 +94,41 @@ describe('compactToolCallStatusLine', () => {
         displayLabel: 'mystery_plugin'
       })
     )).toBe('mystery_plugin')
+  })
+
+  it('shows 后台运行 for background run_subagent', () => {
+    const line = compactToolCallStatusLine(
+      tc({
+        id: '1',
+        name: 'run_subagent',
+        status: 'running',
+        displayLabel: '委派子任务',
+        displaySummary: '探索代码库',
+        arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true })
+      })
+    )
+    expect(line).toBe('委派子任务 · 探索代码库 · 后台运行')
+  })
+
+  it('shows 后台运行 for background terminal', () => {
+    const line = compactToolCallStatusLine(
+      tc({
+        id: '1',
+        name: 'terminal',
+        status: 'running',
+        displayLabel: '终端命令',
+        displaySummary: '跑测试',
+        arguments: JSON.stringify({ command: 'cargo test', label: '跑测试', blockUntilMs: 0 })
+      })
+    )
+    expect(line).toBe('终端命令 · 跑测试 · 后台运行')
+  })
+
+  it('does not treat job handles as terminal stdout', () => {
+    expect(isBackgroundJobHandleResult('{"jobId":"job_1","status":"running","kind":"terminal"}')).toBe(true)
+    expect(isBackgroundJobHandleResult('{"jobId":"job_1","status":"running","kind":"subagent"}')).toBe(true)
+    expect(isBackgroundJobHandleResult('{"exitCode":0,"success":true,"stdout":"ok"}')).toBe(false)
+    expect(isBackgroundJobHandleResult('{"content":"worker markdown"}')).toBe(false)
   })
 
   it('formats success tool without duration suffix', () => {

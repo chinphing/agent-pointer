@@ -47,6 +47,10 @@ export interface StreamHandlerContext {
   clearRunState(id: string): void
   clearAllRunStates(): void
   isConversationGenerating(id: string): boolean
+  setBackgroundJobCount(id: string, count: number): void
+  hasBackgroundJobs(id: string): boolean
+  /** Clear occupancy when no in-memory background host row is still running. */
+  clearBackgroundJobsIfNoneLive(id: string): void
   hasInFlightToolCalls(msg: ChatMessage): boolean
 
   applyTaskBoardDocument(

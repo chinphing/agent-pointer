@@ -82,6 +82,27 @@ pub(crate) fn resolve_max_wall_ms(args: &serde_json::Value) -> u64 {
         .unwrap_or(ceiling)
 }
 
+/// `None` = wait until the command ends (default).
+/// `Some(0)` = return a job handle immediately.
+/// `Some(n)` = wait up to n ms, then detach if still running.
+pub fn parse_block_until_ms(args: &serde_json::Value) -> Result<Option<u64>, String> {
+    match args.get("blockUntilMs") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(v) => {
+            let n = v.as_u64().or_else(|| {
+                v.as_i64()
+                    .and_then(|n| if n >= 0 { Some(n as u64) } else { None })
+            });
+            match n {
+                Some(ms) => Ok(Some(ms)),
+                None => Err(
+                    "blockUntilMs must be a non-negative integer (milliseconds)".into(),
+                ),
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalNeedsInputPrompt {
@@ -1118,6 +1139,31 @@ pub fn terminal_stream_tool_status(r: &TerminalStreamingResult) -> (bool, Option
     (false, Some(msg))
 }
 
+/// JSON body returned to the model and stored on the host `terminal` row.
+pub fn terminal_streaming_result_json(r: &TerminalStreamingResult) -> String {
+    serde_json::json!({
+        "exitCode": r.exit_code,
+        "success": r.success,
+        "timedOut": r.timed_out,
+        "cancelled": r.cancelled,
+        "runAborted": r.run_aborted,
+        "elevationDenied": r.elevation_denied,
+        "needsInputLikely": r.needs_input_likely,
+        "inputHint": r.input_hint,
+        "inputClass": r.input_class,
+        "agentRetryForbidden": r.agent_retry_forbidden,
+        "userInputProvided": r.user_input_provided,
+        "inputDismissed": r.input_dismissed,
+        "waitedForInputMs": r.waited_for_input_ms,
+        "durationMs": r.duration_ms,
+        "stdout": r.stdout,
+        "stderr": r.stderr,
+        "stdoutTruncated": r.stdout_truncated,
+        "stderrTruncated": r.stderr_truncated,
+    })
+    .to_string()
+}
+
 /// Keep the **tail** of a stream when it exceeds `max_bytes` (test summaries, panic
 /// locations, and exit lines sit at the end). Prefix a marker; skip UTF-8
 /// continuation bytes so the slice does not split a codepoint.
@@ -1216,6 +1262,33 @@ mod cwd_tests {
             out.chars().all(|c| c != '\u{FFFD}'),
             "must not emit replacement char: {out:?}"
         );
+    }
+
+    #[test]
+    fn parse_block_until_ms_omit_zero_and_n() {
+        assert_eq!(parse_block_until_ms(&serde_json::json!({})).unwrap(), None);
+        assert_eq!(
+            parse_block_until_ms(&serde_json::json!({ "blockUntilMs": serde_json::Value::Null }))
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            parse_block_until_ms(&serde_json::json!({ "blockUntilMs": 0 })).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            parse_block_until_ms(&serde_json::json!({ "blockUntilMs": 5_000 })).unwrap(),
+            Some(5_000)
+        );
+        assert!(parse_block_until_ms(&serde_json::json!({ "blockUntilMs": -1 })).is_err());
+        assert!(parse_block_until_ms(&serde_json::json!({ "blockUntilMs": "soon" })).is_err());
+    }
+
+    #[test]
+    fn parse_block_until_ms_rejects_elevated_combo_at_call_site() {
+        let args = serde_json::json!({ "command": "id", "blockUntilMs": 0, "elevated": true });
+        assert_eq!(parse_block_until_ms(&args).unwrap(), Some(0));
+        assert!(terminal_requests_elevation(&args));
     }
 
     #[test]

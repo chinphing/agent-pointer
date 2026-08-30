@@ -1,4 +1,5 @@
 import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
+import { isBackgroundJobHost, isToolCallInProgress } from '../../lib/toolCallDisplay'
 import { randomUuid } from '../../lib/randomUuid'
 import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
@@ -384,6 +385,18 @@ export function hasInFlightToolCalls(msg: ChatMessage): boolean {
   )
 }
 
+function isLiveBackgroundHost(tc: ToolCall): boolean {
+  return isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)
+}
+
+function liveBackgroundHostIds(toolCalls: ToolCall[] | undefined): Set<string> {
+  const ids = new Set<string>()
+  for (const tc of toolCalls ?? []) {
+    if (isLiveBackgroundHost(tc)) ids.add(tc.id)
+  }
+  return ids
+}
+
 function finalizeStuckToolCallsList(toolCalls: ToolCall[] | undefined): void {
   for (const tc of toolCalls ?? []) {
     if (
@@ -393,6 +406,7 @@ function finalizeStuckToolCallsList(toolCalls: ToolCall[] | undefined): void {
     ) {
       continue
     }
+    if (isLiveBackgroundHost(tc)) continue
     if (tc.status === 'pending_approval') {
       tc.status = 'rejected'
       continue
@@ -495,7 +509,10 @@ export function normalizeStaleEndedAssistantTurn(msg: ChatMessage): void {
 }
 
 function finalizeStuckAgentTraces(msg: ChatMessage): void {
+  const liveHosts = liveBackgroundHostIds(msg.toolCalls)
   for (const trace of msg.agentTrace ?? []) {
+    const parent = (trace.parentToolCallId || '').trim()
+    if (parent && liveHosts.has(parent)) continue
     const st = (trace.status || '').trim()
     if (st === 'running' || st === 'streaming' || st === 'pending') {
       trace.status = 'completed'
@@ -505,6 +522,40 @@ function finalizeStuckAgentTraces(msg: ChatMessage): void {
       finalizeStuckToolCallsList(trace.session.toolCalls)
     }
   }
+}
+
+/** Host rows still in progress after `run_subagent` `background: true`. */
+export function countRunningBackgroundSubagents(conv: Conversation): number {
+  let n = 0
+  for (const msg of conv.messages) {
+    for (const tc of msg.toolCalls ?? []) {
+      if (isLiveBackgroundHost(tc)) n += 1
+    }
+  }
+  return n
+}
+
+/**
+ * JobSupervisor is in-memory: process restart drops jobs, but SQLite may still
+ * have host rows at `running`. Occupancy snapshot 0 means those rows are dead.
+ */
+export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
+  let n = 0
+  for (const msg of conv.messages) {
+    if (msg.role !== 'assistant') continue
+    let changed = 0
+    for (const tc of msg.toolCalls ?? []) {
+      if (!isLiveBackgroundHost(tc)) continue
+      tc.status = 'failed'
+      if (!tc.error) tc.error = 'interrupted'
+      changed += 1
+    }
+    if (changed > 0) {
+      finalizeStuckAgentTraces(msg)
+      n += changed
+    }
+  }
+  return n
 }
 
 /** After reload or stop, assistant rows must not stay `streaming`/`pending`. */

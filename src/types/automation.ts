@@ -154,9 +154,16 @@ export interface PendingRunView {
 }
 
 /** Combined dispatcher queue snapshot for settings / observability. */
+export interface BackgroundJobOccupancyView {
+  conversationId: string
+  runningCount: number
+}
+
 export interface RunQueueSnapshot {
   maxConcurrentMain: number
   maxConcurrentCron: number
   lanes: LaneQueueView[]
   pendingRuns: PendingRunView[]
+  /** Jobs still queued/running. Independent of dispatcher lanes. */
+  backgroundJobs?: BackgroundJobOccupancyView[]
 }

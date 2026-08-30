@@ -637,6 +637,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     let span_run_id = prep_run_id.clone();
                     let trace_bus = hook_state.trace_bus.clone();
                     let cancel = pass.cancel.clone();
+                    let state_arc = pass.ctx.state_arc.clone();
                     let workspace = pass.ctx.workspace_root.to_string();
                     let prep_index = prep.index;
                     let lead_profile = pass
@@ -723,6 +724,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 .map(|history| history.as_slice()),
                             &cancel,
                             Some(tool_span.span_id.clone()),
+                            state_arc,
                         )
                         .await;
                         let tool_failed =
@@ -1210,6 +1212,7 @@ fn record_background_spawn_result(
     let body = serde_json::json!({
         "jobId": job_id,
         "status": "running",
+        "kind": "subagent",
     })
     .to_string();
     log::info!(

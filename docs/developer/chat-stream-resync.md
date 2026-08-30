@@ -22,6 +22,7 @@
 2. UI 一直停在「执行中」（`generating` 未清，或工具 / agentTrace 仍 `running`）
 3. 弱网丢 `done` 后当前会话仍显示执行中
 4. **新会话首条**：`onStream` 未等 SSE 挂上就 `POST /api/chat`，广播零订阅丢帧，刷新后才看到回复
+5. **后台 job 占用**：停止按钮 / 侧栏转圈跟占用计数，不跟运行队列。触发源：`background_jobs` 流事件、`Done.backgroundRunningCount`、队列快照 `backgroundJobs`。**不是**只靠 `Done`。进程重启后 JobSupervisor 为空，落盘宿主行仍可能是 `running`——对账快照是全量（未列出 = 0），禁止再用宿主行把占用灌回去。
 
 桌面端走 Tauri 事件通道，无此 SSE 环；本对账逻辑对桌面无害（`onGap` 为空操作，`waitForChatStreamReady` 立即返回）。
 
@@ -32,7 +33,7 @@
 | Server `chat_stream` | 广播缓冲 4096；按会话信封投递（见上文）；`Lagged` 时打 warn，并向该 SSE 连接发 `event: resync` |
 | Web `onStream` | **`chat.init` 一开始就发起**（与拉项目/会话列表并行），首次成功打开后才 resolve；断线期间 `waitForChatStreamReady` 为 false。收到 `resync`、流 body 结束、502/504/错误重连时调用 `onGap(reason)` |
 | 发送闸门 | `dispatchChatTurn` 在 `POST /api/chat` 前 `await waitForChatStreamReady()`，避免新会话首条在零订阅时把帧丢掉 |
-| 执行态对账 | `flags`：只对照 dispatcher 清/置 `generating`（online、visibility、boot） |
+| 执行态对账 | `flags`：对照 dispatcher 清/置 `generating`，并用快照 `backgroundJobs` 重置后台占用（online、visibility、boot） |
 | **消息拉取** | **仅** SSE 断开类 reason 走全量 `catch_up`：`server_lagged` / `stream_ended*` / `stream_error` / `stream_gateway_error`（含兼容 `sse_gap`）。另外：`flags` 模式下若清掉「服务端已结束、UI 仍 generating」的会话，也会对该会话 `force` 水合（覆盖首条未挂上 SSE 的情况） |
 | catch_up 水合 | `ensureMessagesLoaded({ force, silent })`，重新拉取最近回合窗口（非全量），不拨 hydrating UI |
 | 合并 | 强制水合时保留 live streaming 标志，正文/工具取与 DB 更完整的一侧 |

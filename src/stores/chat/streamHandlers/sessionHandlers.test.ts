@@ -414,6 +414,25 @@ describe('sessionHandlers', () => {
     expect(playTaskCompleteSoundIfEnabled).not.toHaveBeenCalled()
   })
 
+  it('handleDone applies occupancy from Done so the stop button can clear', () => {
+    const conv = sampleConversation()
+    const setBackgroundJobCount = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      currentId: ref('conv1'),
+      clearRunState: vi.fn(),
+      persistAppend: vi.fn(),
+      isConversationGenerating: () => true,
+      hasBackgroundJobs: () => false,
+      setBackgroundJobCount
+    })
+    handleDone(ctx, {
+      kind: 'done',
+      conversationId: 'conv1',
+      backgroundRunningCount: 0
+    })
+    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 0)
+  })
+
   it('handleBackgroundJobs updates occupancy', () => {
     const conv = sampleConversation()
     const setBackgroundJobCount = vi.fn()

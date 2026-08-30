@@ -235,8 +235,38 @@ export function isBackgroundSubagentCall(tc: ToolCall): boolean {
   return args.background === true
 }
 
+export function isBackgroundTerminalCall(tc: ToolCall): boolean {
+  if (toolCallBaseName(tc.name) !== 'terminal') return false
+  const args = parseToolArgs(tc.arguments)
+  const n = args.blockUntilMs
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0
+}
+
+export function isBackgroundJobHost(tc: ToolCall): boolean {
+  return isBackgroundSubagentCall(tc) || isBackgroundTerminalCall(tc)
+}
+
+/** Job handle JSON — not worker Markdown and not terminal stdout. */
+export function isBackgroundJobHandleResult(result?: string | null): boolean {
+  if (!result?.trim()) return false
+  try {
+    const v = JSON.parse(result) as Record<string, unknown>
+    const jobId = typeof v.jobId === 'string' ? v.jobId.trim() : ''
+    const kind = typeof v.kind === 'string' ? v.kind.trim() : ''
+    return (
+      jobId.length > 0
+      && (kind === 'subagent' || kind === 'terminal')
+      && v.stdout === undefined
+      && v.exitCode === undefined
+      && v.content === undefined
+    )
+  } catch {
+    return false
+  }
+}
+
 export function toolCallProgressLabel(tc: ToolCall): string {
-  if (isBackgroundSubagentCall(tc) && isToolCallInProgress(tc.status)) return '后台运行'
+  if (isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)) return '后台运行'
   return '执行中'
 }
 

@@ -319,6 +319,10 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
     return
   }
 
+  if (convId && e.backgroundRunningCount != null) {
+    ctx.setBackgroundJobCount(convId, e.backgroundRunningCount)
+  }
+
   try {
     if (convId) {
       // Backend run_chat timestamps are the authoritative work span (excludes

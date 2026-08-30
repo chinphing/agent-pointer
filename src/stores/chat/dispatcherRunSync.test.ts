@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeConversationIdsFromQueueSnapshot } from './dispatcherRunSync'
+import { activeConversationIdsFromQueueSnapshot, backgroundJobOccupancyFromQueueSnapshot } from './dispatcherRunSync'
 import type { RunQueueSnapshot } from '../../types/automation'
 
 describe('activeConversationIdsFromQueueSnapshot', () => {
@@ -43,5 +43,28 @@ describe('activeConversationIdsFromQueueSnapshot', () => {
     expect(ids.has('conv-active')).toBe(true)
     expect(ids.has('conv-queued')).toBe(true)
     expect(ids.has('conv-pending')).toBe(true)
+  })
+
+  it('backgroundJobOccupancyFromQueueSnapshot treats missing field as unknown', () => {
+    const snapshot: RunQueueSnapshot = {
+      maxConcurrentMain: 4,
+      maxConcurrentCron: 4,
+      lanes: [],
+      pendingRuns: []
+    }
+    expect(backgroundJobOccupancyFromQueueSnapshot(snapshot)).toBeNull()
+  })
+
+  it('backgroundJobOccupancyFromQueueSnapshot maps empty list to no occupancy', () => {
+    const snapshot: RunQueueSnapshot = {
+      maxConcurrentMain: 4,
+      maxConcurrentCron: 4,
+      lanes: [],
+      pendingRuns: [],
+      backgroundJobs: []
+    }
+    const occupancy = backgroundJobOccupancyFromQueueSnapshot(snapshot)
+    expect(occupancy).not.toBeNull()
+    expect(occupancy?.size).toBe(0)
   })
 })

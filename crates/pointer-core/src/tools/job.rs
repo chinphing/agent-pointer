@@ -109,6 +109,23 @@ pub fn parse_job_args(args: &Value) -> Result<JobToolArgs, String> {
     })
 }
 
+/// True when a tool result is a still-running job handle (`kind` + `jobId`).
+/// Terminal stdout JSON and subagent worker bodies must not match.
+pub fn is_running_job_handle(result: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(result) else {
+        return false;
+    };
+    let job_id = v.get("jobId").and_then(|x| x.as_str()).unwrap_or("").trim();
+    let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
+    let kind = v.get("kind").and_then(|x| x.as_str()).unwrap_or("").trim();
+    !job_id.is_empty()
+        && status == "running"
+        && (kind == "subagent" || kind == "terminal")
+        && v.get("stdout").is_none()
+        && v.get("exitCode").is_none()
+        && v.get("content").is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +144,22 @@ mod tests {
         assert!(parse_job_args(&json!({ "action": "status" })).is_err());
         let parsed = parse_job_args(&json!({ "action": "status", "jobId": "job_1" })).unwrap();
         assert_eq!(parsed.job_ids, vec!["job_1".to_string()]);
+    }
+
+    #[test]
+    fn running_handle_is_not_terminal_stdout() {
+        assert!(is_running_job_handle(
+            r#"{"jobId":"job_1","status":"running","kind":"terminal"}"#
+        ));
+        assert!(is_running_job_handle(
+            r#"{"jobId":"job_1","status":"running","kind":"subagent"}"#
+        ));
+        assert!(!is_running_job_handle(
+            r#"{"jobId":"job_1","status":"completed","kind":"terminal"}"#
+        ));
+        assert!(!is_running_job_handle(
+            r#"{"exitCode":0,"success":true,"stdout":"hi"}"#
+        ));
+        assert!(!is_running_job_handle(r#"{"content":"worker markdown"}"#));
     }
 }

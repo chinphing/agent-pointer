@@ -18,9 +18,9 @@ pub(super) async fn dispatch_job(
     let slot_cap = ParallelLimits::from_settings(&state.effective_settings()).max_parallel_sub_agents;
     let slot_cap = crate::chat_service::job_supervisor::JobSupervisor::slot_cap_from(slot_cap);
     let running_count = state.jobs.running_count_for_conversation(conversation_id);
-    match parsed.action {
+    let exec = match parsed.action {
         JobAction::List => {
-            let jobs = state.jobs.list(conversation_id, true);
+            let jobs = state.jobs.list(conversation_id, false);
             log::info!(
                 "job tool: list conversation_id={conversation_id} count={} running_count={running_count} slot_cap={slot_cap}",
                 jobs.len()
@@ -30,6 +30,7 @@ pub(super) async fn dispatch_job(
                     "jobs": jobs,
                     "runningCount": running_count,
                     "slotCap": slot_cap,
+                    "idleSlots": slot_cap.saturating_sub(running_count),
                 }))?,
                 true,
                 None,
@@ -81,10 +82,13 @@ pub(super) async fn dispatch_job(
                 )
                 .await;
             log::info!(
-                "job tool: await done conversation_id={conversation_id} timed_out={} returned={} still_running={}",
+                "job tool: await done conversation_id={conversation_id} timed_out={} returned={} still_running={} unclaimed={} running_count={} idle_slots={}",
                 result.timed_out,
                 result.jobs.len(),
-                result.running.len()
+                result.running.len(),
+                result.unclaimed.len(),
+                result.running_count,
+                result.idle_slots
             );
             Ok((serde_json::to_string(&result)?, true, None))
         }
@@ -95,19 +99,36 @@ pub(super) async fn dispatch_job(
                 Some(parsed.job_ids.as_slice())
             };
             let cancelled = state.jobs.cancel_ids(conversation_id, ids);
+            let running_after = state.jobs.running_count_for_conversation(conversation_id);
             log::info!(
-                "job tool: cancel conversation_id={conversation_id} count={}",
+                "job tool: cancel conversation_id={conversation_id} count={} running_count={running_after}",
                 cancelled.len()
             );
             Ok((
                 serde_json::to_string(&json!({
                     "cancelled": cancelled,
-                    "runningCount": state.jobs.running_count_for_conversation(conversation_id),
+                    "runningCount": running_after,
                     "slotCap": slot_cap,
+                    "idleSlots": slot_cap.saturating_sub(running_after),
                 }))?,
                 true,
                 None,
             ))
         }
-    }
+    };
+    publish_job_occupancy(
+        conversation_id,
+        state.jobs.running_count_for_conversation(conversation_id),
+    );
+    exec
+}
+
+fn publish_job_occupancy(conversation_id: &str, running_count: usize) {
+    log::info!(
+        "job tool: occupancy conversation_id={conversation_id} running_count={running_count}"
+    );
+    crate::stream_broadcast::publish_global_stream(crate::models::StreamEvent::BackgroundJobs {
+        conversation_id: conversation_id.to_string(),
+        running_count: running_count as u32,
+    });
 }

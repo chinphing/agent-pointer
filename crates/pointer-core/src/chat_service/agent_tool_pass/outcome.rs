@@ -60,7 +60,13 @@ pub(super) async fn record_tool_exec_outcome(
             let display = state.tools.format_display(&tc.name, args_for_desktop_log);
             let (display_label, display_summary) =
                 super::super::util::tool_display_stream_fields(&display);
-            let status = if ok { "success" } else { "failed" };
+            let status = if ok && crate::tools::job::is_running_job_handle(&out) {
+                "running"
+            } else if ok {
+                "success"
+            } else {
+                "failed"
+            };
             state
                 .hooks
                 .run_post_tool_call(&crate::dispatcher::PostToolCallContext {

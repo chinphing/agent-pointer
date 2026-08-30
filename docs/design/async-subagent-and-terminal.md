@@ -1,6 +1,6 @@
 # 异步子 Agent 与后台终端
 
-> 实现进度：初版已落地 JobSupervisor、`run_subagent.background`（self/explore）、`job` list/status/await/cancel。终端 `blockUntilMs` 与空闲 push 尚未做。
+> 实现进度：已落地 JobSupervisor、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` list/status/await/cancel。空闲 push 尚未做。
 >
 > **默认必须与现网一致：不传后台参数 = 仍 join 到结束。**
 >
@@ -51,7 +51,7 @@
 ### Codex 值得学
 
 1. **后台启动后必须有显式 wait / list / cancel。** 只告诉模型「结束本轮等通知」在非交互或「必须跑完再答」时会丢结果。Codex 用 `wait_agent` + `list_agents`；Pointer 收成一个 `job` 工具。
-2. **wait 要写清契约。** Codex `wait_agent` 等的是**调用者邮箱里任意一条更新**（适合滑动窗口），不是 wait-all；嵌套完成只投递直接父级（#32203 / #41142）。Pointer 拆成显式 `mode`：`any` = 先完成先返回（补位）；`all` = 这组齐了再返回。按 `jobIds` 过滤，超时后 job **继续跑**。
+2. **wait 要写清契约。** Codex `wait_agent` 等的是**调用者邮箱里任意一条更新**（适合滑动窗口），不是 wait-all；V1 醒了之后会把**已经终态的兄弟连同 `last_agent_message` 一并返回**。Pointer：`any` = 至少一条终态就醒，并 drain 本会话所有已完成未认领的正文；`all` = 这组齐了再返回。按 `jobIds` 过滤，超时后 job **继续跑**。
 3. **空闲唤醒要 opt-in，且合并。** Codex 默认不续轮，社区普遍要 `on_exit: wake`。Pointer P2：会话空闲时 **一轮**内部 trigger，多条完成合并进同一条 user/tool 消息；取消 / 停会话 / shutdown **不**唤醒。
 4. **完成投递要有认领。** 同一条完成不能既被 `await` 消费、又再 push 一轮（Codex `write_stdin` 与 watcher 双通道问题）。
 5. **终端后台与子 Agent 同一套 job 表。** Codex unified exec 的 yield / 后台 session / `ExecCommandEnd` 与子 Agent 完成是同一类「父已闲、child 还在」。Pointer 用 `terminal.blockUntilMs` 对齐 yield，结果进同一个 `job`。
@@ -82,7 +82,7 @@
 | 值 | 行为 | 对齐 |
 |----|------|------|
 | 省略 / `false` | 与现网相同：阻塞到结束，tool result 带 `content` | Cursor Foreground |
-| `true` | 立刻 `{ jobId, status: "running" }`；child 在 JobSupervisor 里跑。这次调用的 tool result **保持句柄**，结束后只把 handle 的 status 改成 completed/failed/cancelled，不把工人 Markdown 写回 `run_subagent`。终稿走 `job.await` / 以后的空闲 push | Cursor：后台不 splice 进原 Task；Codex：`spawn_agent` 只回 id，完成走 wait / notification |
+| `true` | 立刻 `{ jobId, status: "running", kind: "subagent" }`；child 在 JobSupervisor 里跑。这次调用的 tool result **保持句柄**，结束后只把 handle 的 status 改成 completed/failed/cancelled，不把工人 Markdown 写回 `run_subagent`。终稿走 `job.await` / 以后的空闲 push | Cursor：后台不 splice 进原 Task；Codex：`spawn_agent` 只回 id，完成走 wait / notification |
 
 P0 仅 `self` / `explore`。其它 agentId 传 `background: true` 时工具失败并说明须前台 join。
 
@@ -91,10 +91,12 @@ P0 仅 `self` / `explore`。其它 agentId 传 `background: true` 时工具失�
 | 值 | 行为 | 对齐 |
 |----|------|------|
 | 省略 | 等到命令结束（现网） | Codex 前台 exec |
-| `0` | 立刻返回 `jobId` | Codex 后台 session |
-| `N>0` | 最多等 N ms，未结束则 detach 成 job | Codex yield / 超时后转后台 |
+| `0` | 立刻返回 `{ jobId, status: "running", kind: "terminal" }` | Codex 后台 session |
+| `N>0` | 最多等 N ms，未结束则 detach 成 job；结束则本轮返回完整 stdout JSON | Codex yield / 超时后转后台 |
 
 P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立。
+
+句柄与 `job` 回包必须带 **`kind`**：`subagent` 是工人，`terminal` 是 shell。不要把终端 job 当成子 Agent。`job.await` 里 subagent 的 `content` 是 Markdown，terminal 的 `content` 是命令 JSON。UI 上终端行仍是终端行（实时输出、「结束命令」）；detach 期间显示「后台运行」，不要把句柄 JSON 当控制台输出。命令真正结束后，把完整终端 JSON 写回原来的 `terminal` 行（与子 Agent 不同：工人终稿永不写回 `run_subagent`）。
 
 ### 滑动窗口：谁完成谁让槽
 
@@ -107,11 +109,43 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 
 这就是 Cursor 后台 `Task` 和 Codex「邮箱有更新就醒」（不要 wait-all）真正省掉的浪费：慢任务不必拖住快任务腾出来的槽。
 
+`mode=any` 等到至少一条未认领终态，然后把**此刻所有已完成未认领的**都放进 `jobs[]`（带完整 `content`）并认领——对齐 Codex V1 `wait_agent` 的 drain-ready（先醒，再 `now_or_never` 收齐已终态的兄弟）。`running[]` 仍是 id。`any` 与 `all` 的差别只是要不要等最慢的，不是「正文给几个」。LLM 往返期间新完成的无法打断生成（P2 空闲 push）。
+
 约束：
 
 - **放槽时机** = child 进程终态（completed / failed / cancelled），不另等父模型读完。不要做成 Codex `close_agent`。
 - 父要补位，必须自己已经不在「等整波 join」里：即 `background: true`，且 `session:{conversation}` 已释放（P1 起后台 job 不占这条车道）。
 - 前台 wave **不改**默认：不传 `background` 仍 join 全波，行为与现网一致。
+
+### 前台 wave 槽 vs JobSupervisor 槽（不要合成一张表）
+
+两套都在限 child 并发，**数字上限是同一个** `maxParallelSubAgents`，但不是同一张队列：
+
+| | 前台 owned-wave | JobSupervisor |
+|--|-----------------|---------------|
+| 是什么 | 本轮 tool pass 里的 join 闸门 | 跨回合 job 表 + 槽 |
+| 作用域 | **这一轮**（session 串行，等于本会话这一 turn） | 槽目前是 **进程全局** |
+| 父 | 等这一波 join | 立刻拿 `jobId`，`done` 不杀 |
+| 登记 | 无 jobId | list / await / claimed；含 terminal |
+
+**能合并的只有槽位池，不能把 wave 收成 job 表。** 前台 join 的 explore 不应出现在 `job.list`（否则当前回合还没返回的工人会被 await/占用逻辑当成后台）。
+
+建议（未做）：删掉 per-pass `subagent_sem`，前台 join 只向 JobSupervisor **借槽、不登记 job**。
+
+对照（公开文档 + Codex 源码 / issue，不是猜测内部实现）：
+
+- **Cursor**：一个 `Task` 工具、两档等待。前台 = 工具卡住到结束（社区观察到多 Task 是 **整波 join**，多出来的要等最慢的那条；滑动窗口必须 `run_in_background`）。公开文档**没有**「前台一把锁、后台另一张表」。嵌套靠 **深度封顶**（主 + 直属可 spawn，孙代不能），不是「嵌套不计槽」。并行 Composer **会话**另有上限（大仓约 3–4 个窗口），那是 lead 级，不是 child 槽。
+- **Codex**：已经是 **一张** `AgentRegistry`。凡 `spawn_agent` 都 `reserve_spawn_slot`；没有「join 但不占 registry」的第二条池。上限 **`max_concurrent_threads_per_session`（按会话）**，V1 不含 primary，V2 配置可含 primary（#40211）。满了 **直接 `AgentLimitReached`**，不排队。嵌套默认 **`max_depth = 1`（扁的）**。放槽要 `close_agent`（完成不自动放）——这是已知坑（#18335 / #19197），Pointer **不抄**。
+
+所以：Cursor 用「等不等」拆前台/后台，槽文档不透明；Codex 用「一张按会话登记表」拆，但每个 child 都有 id，满了失败而不是等。Pointer 若去前台 Semaphore：对齐 Codex 的 **按会话一把槽**，对齐 Cursor 的 **前台仍 join、不发 jobId**；满员排队（现网 wave 行为）比 Codex 的 fail-fast 更接近现网。嵌套用已有 spawn depth，不要抄 `close_agent`。
+
+约束：
+
+- **按会话**计槽，不要继续用现在的进程全局 `running_slots`（否则 A 的后台堵住 B 的前台）。
+- 前台不发 `jobId`，不进 `job.list`，占用 UI 仍只数后台 job。`generating` 已经覆盖本轮 join。
+- **嵌套不再抢同一把槽。** 祖先已占 1 格时，子里再 `run_subagent` 计在这格上。否则外层占满 N、内层还要槽、外层又在 join → 死锁（`N=1` 必现）。
+- 串行 `coder` / `computer`（非 wave）若也算「工人」，应从 lead 同样借 1 格，否则后台仍能和前台 coder 叠加上限。
+- 前台 `terminal`（没 `blockUntilMs`）今天不走子 Agent 槽；不要顺手并进去，除非单独定终端并发。
 
 ### `job` 工具
 
@@ -119,22 +153,23 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 
 | action | 含义 |
 |--------|------|
-| `list` | 本会话后台 job（含子 Agent 与终端） |
-| `status` | 单个 job；终态带截断后的 `content` / exit |
-| `await` | 见下表 |
+| `list` | 本会话后台 job（含子 Agent 与终端）。每条带 **`claimed`**。**不带 `content`** |
+| `status` | 单个 job 元数据。**不带 `content`**，**不**认领 |
+| `await` | 见下表。**唯一**把 `content` 写进本轮上下文的路径，并置 **`claimed: true`** |
 | `cancel` | 按 id 杀；缺省杀本会话全部后台 |
 
 `await`：
 
 | 字段 | 含义 |
 |------|------|
-| `jobIds` | 省略 = 本父挂起的 running。指定则只等这一组 |
-| `mode` | `any`（默认）：**任意一条**终态就返回该条 `content`，其余继续跑。`all`：这组全部终态才返回 |
+| `jobIds` | 省略 = 本会话全部后台 job（含已完成未认领）。指定则这一组是等待集 |
+| `mode` | `any`（默认）：等到至少一条未认领终态，然后把本会话**此刻所有已完成未认领的**放进 `jobs[]`（完整 `content`）并认领；还在跑的只在 `running[]`。不要卡在最慢的那条上。`all`：这组全部终态才返回，只认领**尚未 claimed** 的（含会话里其它已完成未认领的）。已认领的不再进 `jobs`。未认领的终态从存储原样返回、不重跑 |
 | `timeoutMs` | 默认 30min；超时不杀，返回仍 running 的 id |
+| 回包 | `jobs`（本拍认领的正文）、`running`（仍在跑的 id）、本会话 `runningCount` / `slotCap` / `idleSlots`。超时未认领的 id 才出现在 `unclaimed` |
 
-滑动窗口循环：`await(any)` → 读结果 → 若还有工作则再 `run_subagent(background)` → 再 await。不要默认 `all`，否则又回到「等最慢的」。
+滑动窗口循环：`await(any)` → 读 `jobs[]` 全部正文 → 按 `idleSlots` 再 `run_subagent(background)` → 再 await。不要默认 `all`，否则又回到「等最慢的」。
 
-`await` 与空闲 push **互斥认领**：谁先把终态交给父模型，谁负责；另一条路径看到已投递则跳过。
+`await` 与空闲 push **互斥认领**（字段 **`claimed`**）：谁先把终态交给父模型，谁负责；另一条路径看到已投递则跳过。**第二次 `await` 不得再把同一份 `content` 放进 `jobs`。** `list` / `status` 只给元数据，不带正文、不置 `claimed`。
 
 ### JobSupervisor
 
@@ -199,13 +234,17 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 | **P2** | 空闲合并 push；`resume` / `taskId` 续跑；自定义 agent `is_background` |
 | **P3** | 重叠写入的 worktree 隔离；`coder` 后台（须隔离）；不做云 VM |
 
-**初版已落地**：JobSupervisor、`run_subagent.background`（self/explore）、`job` 工具、侧栏转圈 / 「后台运行」。不含终端 `blockUntilMs`、空闲 push。
+**初版已落地**：JobSupervisor、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` 工具、侧栏转圈 / 「后台运行」。不含空闲 push。
 
 ## UI / 文案
 
 - 后台子任务仍挂在宿主 `run_subagent` 行下，统计行 +「思考中」规则与前台相同。
 - 界面只说「后台运行 / 已完成 / 已取消」，不要写 jobId、lane、supervisor；不要把句柄 JSON 当「结果」展开给用户。
 - 侧栏会话在有后台 job 时保持转圈，直到该会话 **没有** running job（用户应能边聊边看）。
+- 停止按钮 = 本会话 `generating` **或** 后台占用 > 0。不是只靠 `Done`。
+  - `generating`：发出本轮时点亮，`Done` / 停止 / 报错 / 队列对账清掉。
+  - 占用：`background_jobs` 事件、`job` 工具后、`Done.backgroundRunningCount`、启动/切前台时的队列快照 `backgroundJobs`。
+  - 不要用落盘里仍 `running` 的宿主行点亮按钮。JobSupervisor 不落盘，进程一关 job 就没了；快照里没有的会话占用必须是 0，宿主行收成中断。
 
 ## 提示词（落地时）
 
@@ -214,7 +253,7 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 - 默认前台。只要结果才能往下规划时不要 `background`。
 - `background: true` 后用 `job.await`，不要结束本轮干等。
 - 若本轮先结束：后台继续；不要对用户说已经全部完成。结果走之后的 `await` 或完成后的那一轮汇总。
-- 要打满并发、下一任务又依赖已完成结果：用 `await` `mode=any`，拿到一条就再 spawn，不要 `all`。
+- 要打满并发、下一任务又依赖已完成结果：用 `await` `mode=any`，本拍已就绪的全部正文都在 `jobs[]`，再 spawn，不要 `all`。
 - 任务清单已齐、只要全部摘要：同一则消息里一次列出（可超过并发上限，宿主排队补位），再 `await` `mode=all`。
 - 并行探索：同一则消息里多个 `run_subagent`；要立刻再说话才后台。
 

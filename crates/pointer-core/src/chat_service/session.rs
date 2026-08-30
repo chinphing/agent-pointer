@@ -406,6 +406,16 @@ pub async fn run_chat(
         run_finished_at_ms,
         run_finished_at_ms.saturating_sub(run_started_at_ms),
     );
+    let background_running = state.jobs.running_count_for_conversation(&conversation_id);
+    log::info!(
+        "run_chat conversation end: background job occupancy conversation_id={} running_count={background_running}",
+        conversation_id
+    );
+    super::run_subagent_delegation::emit_background_jobs(
+        &stream,
+        &conversation_id,
+        background_running,
+    );
     emit(
         &stream,
         StreamEvent::Done {
@@ -415,6 +425,7 @@ pub async fn run_chat(
             max_tool_rounds: Some(max_tr),
             started_at_ms: Some(run_started_at_ms),
             finished_at_ms: Some(run_finished_at_ms),
+            background_running_count: Some(background_running as u32),
         },
     );
     log::info!(

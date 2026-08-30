@@ -32,6 +32,9 @@ schema:
       type: boolean
     label:
       type: string
+    blockUntilMs:
+      type: integer
+      minimum: 0
   required:
     - command
   additionalProperties: true
@@ -130,6 +133,19 @@ Passwords and yes/no prompts use an **in-app modal** — never put secrets in
 - **`cancelled`** — the turn was stopped; subprocess force-terminated.
 - **`runAborted`** — only this command was stopped; the turn continues.
 
+#### Background (`blockUntilMs`)
+
+A shell command, not a subagent. Same `job` table, different `kind`.
+
+- Omit: wait until the command ends (default).
+- **`0`**: return `{ jobId, status: "running", kind: "terminal" }` now.
+  The command keeps running. Use **`job.await`** for stdout/stderr/exit.
+- **`N>0`**: wait up to N ms. If it finishes, this call returns the usual
+  command JSON. If still running, return the same handle as **`0`**.
+- Do not set **`elevated: true`** with **`blockUntilMs`**.
+  Background commands have no password/stdin modal.
+- Do not tell the user the command finished while it is still running.
+
 #### Parameters
 
 | Parameter | Required | Notes |
@@ -146,3 +162,4 @@ Passwords and yes/no prompts use an **in-app modal** — never put secrets in
 | **`envFiles`** | no | `.env` path or array |
 | **`elevated`** | no | Admin/root; see **Elevation** |
 | **`label`** | no | Human-readable short name shown in UI (e.g. "运行单元测试"); defaults to first line of `command` |
+| **`blockUntilMs`** | no | See **Background**. Omit = wait. `0` = job handle now. `N` = wait up to N ms then detach |

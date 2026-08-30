@@ -10,6 +10,8 @@ import {
   insertMessageBeforeAnchor,
   mergeHydratedMessages,
   mergeMessagePage,
+  countRunningBackgroundSubagents,
+  finalizeOrphanBackgroundHosts,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeTrailingDiscardableEmptyAssistant,
@@ -235,7 +237,7 @@ describe('chat helpers', () => {
             name: 'run_subagent',
             arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
             status: 'running',
-            result: '{"jobId":"job_1","status":"running"}'
+            result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
           }
         ],
         agentTrace: [
@@ -262,6 +264,101 @@ describe('chat helpers', () => {
     expect(c.messages[0].agentTrace![0].status).toBe('running')
     expect(c.messages[0].agentTrace![0].session!.contentStreaming).toBe(true)
     expect(c.messages[0].agentTrace![0].session!.toolCalls![0].status).toBe('running')
+  })
+
+  it('countRunningBackgroundSubagents only counts in-progress host rows', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'success',
+            result: '{"jobId":"job_1","status":"completed","kind":"subagent"}'
+          },
+          {
+            id: 'bg2',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_2","status":"running","kind":"subagent"}'
+          }
+        ]
+      }
+    ])
+    expect(countRunningBackgroundSubagents(c)).toBe(1)
+  })
+
+  it('finalizeOrphanBackgroundHosts marks leftover background hosts interrupted', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+          }
+        ],
+        agentTrace: [
+          {
+            id: 'sub-bg',
+            name: 'explore',
+            role: 'sub',
+            status: 'running',
+            depth: 1,
+            parentToolCallId: 'bg1',
+            session: {
+              contentStreaming: true,
+              collapsed: true,
+              userExpanded: false,
+              stats: { searchCount: 0, readCount: 0 },
+              toolCalls: []
+            }
+          }
+        ]
+      }
+    ])
+    expect(finalizeOrphanBackgroundHosts(c)).toBe(1)
+    expect(c.messages[0].toolCalls![0].status).toBe('failed')
+    expect(c.messages[0].toolCalls![0].error).toBe('interrupted')
+    expect(c.messages[0].agentTrace![0].status).toBe('completed')
+    expect(countRunningBackgroundSubagents(c)).toBe(0)
+  })
+
+  it('normalizeInterruptedAssistantStatuses keeps background terminal rows running', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'parent done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg-term',
+            name: 'terminal',
+            arguments: JSON.stringify({ command: 'cargo test', blockUntilMs: 0 }),
+            status: 'running',
+            result: '{"jobId":"job_2","status":"running","kind":"terminal"}'
+          }
+        ]
+      }
+    ])
+    normalizeInterruptedAssistantStatuses([c])
+    expect(c.messages[0].toolCalls![0].status).toBe('running')
   })
 
   it('normalizeStaleEndedAssistantTurn clears stale streaming without active stream', () => {

@@ -1,5 +1,5 @@
 import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
-import { isBackgroundSubagentCall, isToolCallInProgress } from '../../lib/toolCallDisplay'
+import { isBackgroundJobHost, isToolCallInProgress } from '../../lib/toolCallDisplay'
 import { randomUuid } from '../../lib/randomUuid'
 import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
@@ -358,7 +358,7 @@ export function hasInFlightToolCalls(msg: ChatMessage): boolean {
 }
 
 function isLiveBackgroundHost(tc: ToolCall): boolean {
-  return isBackgroundSubagentCall(tc) && isToolCallInProgress(tc.status)
+  return isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)
 }
 
 function liveBackgroundHostIds(toolCalls: ToolCall[] | undefined): Set<string> {
@@ -502,6 +502,29 @@ export function countRunningBackgroundSubagents(conv: Conversation): number {
   for (const msg of conv.messages) {
     for (const tc of msg.toolCalls ?? []) {
       if (isLiveBackgroundHost(tc)) n += 1
+    }
+  }
+  return n
+}
+
+/**
+ * JobSupervisor is in-memory: process restart drops jobs, but SQLite may still
+ * have host rows at `running`. Occupancy snapshot 0 means those rows are dead.
+ */
+export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
+  let n = 0
+  for (const msg of conv.messages) {
+    if (msg.role !== 'assistant') continue
+    let changed = 0
+    for (const tc of msg.toolCalls ?? []) {
+      if (!isLiveBackgroundHost(tc)) continue
+      tc.status = 'failed'
+      if (!tc.error) tc.error = 'interrupted'
+      changed += 1
+    }
+    if (changed > 0) {
+      finalizeStuckAgentTraces(msg)
+      n += changed
     }
   }
   return n

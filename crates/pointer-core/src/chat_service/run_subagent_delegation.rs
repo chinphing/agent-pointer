@@ -779,13 +779,16 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
 /// Host `run_subagent` result for a background spawn: a handle, never the worker body.
 /// Aligns with Cursor (do not splice background answers into the original Task) and
 /// Codex (`spawn_agent` stays an id; content comes from wait/notification).
+/// `kind` is `subagent` or `terminal` so the parent can tell them apart.
 pub(crate) fn background_job_handle_json(
     job_id: &str,
     status: super::job_supervisor::JobStatus,
+    kind: &'static str,
 ) -> String {
     serde_json::json!({
         "jobId": job_id,
         "status": status.as_str(),
+        "kind": kind,
     })
     .to_string()
 }
@@ -795,6 +798,44 @@ fn host_ui_status_for_job(status: super::job_supervisor::JobStatus) -> &'static 
         super::job_supervisor::JobStatus::Completed => "success",
         _ => "failed",
     }
+}
+
+pub(crate) fn emit_and_persist_host_tool_finish(
+    stream: &super::StreamTx,
+    conversation_id: &str,
+    message_id: &str,
+    tool_call_id: &str,
+    ui_status: &str,
+    result: String,
+    error: Option<&str>,
+    duration_ms: Option<u64>,
+    host_trace_id: Option<&str>,
+    host_scoped_message_id: Option<&str>,
+) {
+    emit(
+        stream,
+        StreamEvent::ToolCallStatus {
+            message_id: message_id.to_string(),
+            tool_call_id: tool_call_id.to_string(),
+            status: ui_status.into(),
+            result: Some(result.clone()),
+            error: error.map(str::to_string),
+            duration_ms,
+            display_label: None,
+            display_summary: None,
+            trace_id: trace_id_opt(host_trace_id),
+            scoped_message_id: trace_id_opt(host_scoped_message_id),
+        },
+    );
+    persist_background_host_tool_finish(
+        conversation_id,
+        message_id,
+        tool_call_id,
+        ui_status,
+        Some(result),
+        error,
+        duration_ms,
+    );
 }
 
 fn complete_background_host_tool(
@@ -809,31 +850,19 @@ fn complete_background_host_tool(
     host_trace_id: Option<&str>,
     host_scoped_message_id: Option<&str>,
 ) {
-    let handle = background_job_handle_json(job_id, job_status);
+    let handle = background_job_handle_json(job_id, job_status, "subagent");
     let ui_status = host_ui_status_for_job(job_status);
-    emit(
+    emit_and_persist_host_tool_finish(
         stream,
-        StreamEvent::ToolCallStatus {
-            message_id: message_id.to_string(),
-            tool_call_id: tool_call_id.to_string(),
-            status: ui_status.into(),
-            result: Some(handle.clone()),
-            error: error.map(str::to_string),
-            duration_ms,
-            display_label: None,
-            display_summary: None,
-            trace_id: trace_id_opt(host_trace_id),
-            scoped_message_id: trace_id_opt(host_scoped_message_id),
-        },
-    );
-    persist_background_host_tool_finish(
         conversation_id,
         message_id,
         tool_call_id,
         ui_status,
-        Some(handle),
+        handle,
         error,
         duration_ms,
+        host_trace_id,
+        host_scoped_message_id,
     );
 }
 
@@ -890,7 +919,7 @@ fn persist_background_host_tool_finish(
     }
     super::conversation_persist::upsert_message(conversation_id, msg);
     log::info!(
-        "run_subagent background persisted host tool conversation_id={conversation_id} tool_call_id={tool_call_id} status={status}"
+        "background host persisted tool conversation_id={conversation_id} tool_call_id={tool_call_id} status={status}"
     );
 }
 
@@ -1062,11 +1091,11 @@ pub(super) async fn run_subagent_delegation(
                             host_trace_id: None,
                             host_scoped_message_id: None,
                         });
-                        let body = serde_json::json!({
-                            "jobId": job_id,
-                            "status": "running",
-                        })
-                        .to_string();
+                        let body = background_job_handle_json(
+                            &job_id,
+                            super::job_supervisor::JobStatus::Running,
+                            "subagent",
+                        );
                         log::info!(
                             "run_subagent serial background spawn conversation_id={conversation_id} tool_call_id={tool_call_id} job_id={job_id}"
                         );
@@ -1492,10 +1521,12 @@ mod trace_tests {
         let json = background_job_handle_json(
             "job_1",
             crate::chat_service::job_supervisor::JobStatus::Completed,
+            "subagent",
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["jobId"], "job_1");
         assert_eq!(v["status"], "completed");
+        assert_eq!(v["kind"], "subagent");
         assert!(v.get("content").is_none());
     }
 
@@ -1544,6 +1575,7 @@ mod trace_tests {
                 let body = result.expect("handle");
                 assert!(body.contains("job_1"));
                 assert!(body.contains("completed"));
+                assert!(body.contains("subagent"));
                 assert!(!body.contains("worker handoff"));
             }
             other => panic!("expected host handle status, got {other:?}"),

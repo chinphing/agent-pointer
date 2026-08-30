@@ -57,6 +57,14 @@ pub struct PendingRunView {
     pub created_at_ms: i64,
 }
 
+/// Background job occupancy for one conversation (not a dispatcher lane).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundJobOccupancyView {
+    pub conversation_id: String,
+    pub running_count: u32,
+}
+
 /// Combined dispatcher queue view for settings / ops UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +73,10 @@ pub struct RunQueueSnapshot {
     pub max_concurrent_cron: usize,
     pub lanes: Vec<LaneQueueView>,
     pub pending_runs: Vec<PendingRunView>,
+    /// Jobs still queued/running. Empty means occupancy should be 0.
+    /// Independent of `lanes` / `pendingRuns` (parent turn vs background jobs).
+    #[serde(default)]
+    pub background_jobs: Vec<BackgroundJobOccupancyView>,
 }
 
 impl From<&QueueWaitMeta> for QueueWaiterView {

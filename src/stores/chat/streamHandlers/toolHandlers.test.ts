@@ -95,4 +95,29 @@ describe('toolHandlers', () => {
     expect(conv.messages[0].toolCalls?.[0].status).toBe('success')
     expect(handleTerminalToolCallStatus).toHaveBeenCalledWith('a1', 'tc1', 'success', undefined, undefined)
   })
+
+  it('clears background occupancy when the last background host finishes', () => {
+    const conv = sampleConversation()
+    const msg = sampleAssistantMessage('a1')
+    msg.toolCalls = [
+      {
+        id: 'bg1',
+        name: 'run_subagent',
+        arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+        status: 'running',
+        result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+      }
+    ]
+    conv.messages.push(msg)
+    const clearBackgroundJobsIfNoneLive = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], { clearBackgroundJobsIfNoneLive })
+    handleToolCallStatus(ctx, {
+      kind: 'tool_call_status',
+      messageId: 'a1',
+      toolCallId: 'bg1',
+      status: 'success',
+      result: '{"jobId":"job_1","status":"completed","kind":"subagent"}'
+    })
+    expect(clearBackgroundJobsIfNoneLive).toHaveBeenCalledWith('conv1')
+  })
 })

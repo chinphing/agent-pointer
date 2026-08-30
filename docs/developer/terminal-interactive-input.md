@@ -13,6 +13,10 @@ interactive prompts instead of requiring a host TTY.
 Password / elevation stdin prompts always take priority: the live output modal is
 dismissed and hidden while an input request is active.
 
+Background `terminal` (`blockUntilMs` set) does **not** open the input modal.
+Those commands run without interactive stdin; use foreground (omit `blockUntilMs`)
+for SSH / sudo prompts. Elevated + `blockUntilMs` is rejected.
+
 ## Paths
 
 | Scenario | How input is collected |

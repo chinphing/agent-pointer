@@ -34,8 +34,9 @@ pub use hooks::{
     TriggerReceivedContext,
 };
 pub use queue::{
-    resolve_global_lane, resolve_session_lane, LaneQueueView, PendingRunView, Permit, QueueError,
-    QueueLanesSnapshot, QueueWaiterView, RunQueue, RunQueueSnapshot, LANE_CRON, LANE_MAIN,
+    resolve_global_lane, resolve_session_lane, BackgroundJobOccupancyView, LaneQueueView,
+    PendingRunView, Permit, QueueError, QueueLanesSnapshot, QueueWaiterView, RunQueue,
+    RunQueueSnapshot, LANE_CRON, LANE_MAIN,
 };
 pub use trigger::{
     apply_deliver_string, normalize_deliver_spec, resolve_deliver_marker, DeliverTarget,
@@ -186,11 +187,23 @@ impl RunDispatcher {
                 created_at_ms: r.created_at_ms,
             })
             .collect();
+        let background_jobs = self
+            .inner
+            .state
+            .jobs
+            .occupancy_by_conversation()
+            .into_iter()
+            .map(|(conversation_id, running_count)| BackgroundJobOccupancyView {
+                conversation_id,
+                running_count,
+            })
+            .collect();
         RunQueueSnapshot {
             max_concurrent_main: lanes.max_concurrent_main,
             max_concurrent_cron: lanes.max_concurrent_cron,
             lanes: lanes.lanes,
             pending_runs,
+            background_jobs,
         }
     }
 

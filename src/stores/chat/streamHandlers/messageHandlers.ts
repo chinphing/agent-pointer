@@ -1,7 +1,9 @@
 import {
+  enqueueAssistantJsonPartial,
   enqueueContentDelta,
   enqueueReasoningDelta,
-  flushStreamDeltaBuffers
+  flushStreamDeltaBuffers,
+  type AssistantJsonPartialPatch
 } from '../../../lib/reasoningDeltaBatch'
 import { isPlannerPhaseThoughts } from '../../../lib/plannerPhase'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
@@ -27,8 +29,16 @@ type TraceScopedEvent = {
 
 function markAssistantStreaming(msg: { status: ChatMessage['status']; contentStreaming?: boolean }) {
   if (msg.status === 'cancelled' || msg.status === 'error') return
+  if (msg.status === 'streaming' && msg.contentStreaming === true) return
   msg.status = 'streaming'
   msg.contentStreaming = true
+}
+
+function alreadyAssistantStreaming(msg: {
+  status: ChatMessage['status']
+  contentStreaming?: boolean
+}): boolean {
+  return msg.status === 'streaming' && msg.contentStreaming === true
 }
 
 function applyAssistantJsonPartialToMessage(msg: ChatMessage, e: AssistantJsonPartial) {
@@ -117,39 +127,73 @@ export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDe
   const capture = ctx.rawContentCaptureEnabled()
   const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
   if (target) {
-    if (capture) target.rawContent = (target.rawContent || '') + e.text
-    markAssistantStreaming(target)
+    if (capture) {
+      target.rawContent = (target.rawContent || '') + e.text
+      markAssistantStreaming(target)
+    } else if (!alreadyAssistantStreaming(target)) {
+      // Fan-out sub-agents emit raw deltas every token; avoid dirtying Vue when
+      // already streaming and the debug panel is off.
+      markAssistantStreaming(target)
+    }
     return
   }
   if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
     const session = ensureSubTraceSession(trace)
     if (capture) session.rawContent = (session.rawContent || '') + e.text
-    session.contentStreaming = true
+    if (capture || session.contentStreaming !== true) session.contentStreaming = true
     return
   }
-  if (capture) r.msg.rawContent = (r.msg.rawContent || '') + e.text
-  markAssistantStreaming(r.msg)
+  if (capture) {
+    r.msg.rawContent = (r.msg.rawContent || '') + e.text
+    markAssistantStreaming(r.msg)
+  } else if (!alreadyAssistantStreaming(r.msg)) {
+    markAssistantStreaming(r.msg)
+  }
 }
 
 export function handleReasoningDelta(_ctx: StreamHandlerContext, e: ReasoningDelta) {
   enqueueReasoningDelta(e.messageId, e.text, e.traceId, e.scopedMessageId)
 }
 
-export function handleAssistantJsonPartial(ctx: StreamHandlerContext, e: AssistantJsonPartial) {
-  const r = ctx.findMessage(e.messageId)
+export function handleAssistantJsonPartial(_ctx: StreamHandlerContext, e: AssistantJsonPartial) {
+  const patch: AssistantJsonPartialPatch = {}
+  if (e.thoughts !== undefined) patch.thoughts = e.thoughts
+  if (e.toolName !== undefined) patch.toolName = e.toolName
+  if (e.responseText !== undefined) patch.responseText = e.responseText
+  enqueueAssistantJsonPartial(e.messageId, patch, e.traceId, e.scopedMessageId)
+}
+
+/** Applied from the batched flush (also used by tests that call apply paths directly). */
+export function applyAssistantJsonPartialEvent(
+  ctx: StreamHandlerContext,
+  messageId: string,
+  traceId: string | undefined,
+  scopedMessageId: string | undefined,
+  patch: AssistantJsonPartialPatch
+) {
+  const r = ctx.findMessage(messageId)
   if (!r) return
-  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
+  const synthetic: AssistantJsonPartial = {
+    kind: 'assistant_json_partial',
+    messageId,
+    thoughts: patch.thoughts ?? undefined,
+    toolName: patch.toolName ?? undefined,
+    responseText: patch.responseText ?? undefined,
+    traceId,
+    scopedMessageId
+  }
+  const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
   if (target) {
-    applyAssistantJsonPartialToMessage(target, e)
+    applyAssistantJsonPartialToMessage(target, synthetic)
     return
   }
-  if (e.traceId?.trim()) {
-    const trace = ensureSubTrace(r.msg, e.traceId.trim())
-    applyAssistantJsonPartialLegacySession(ensureSubTraceSession(trace), e)
+  if (traceId?.trim()) {
+    const trace = ensureSubTrace(r.msg, traceId.trim())
+    applyAssistantJsonPartialLegacySession(ensureSubTraceSession(trace), synthetic)
     return
   }
-  applyAssistantJsonPartialToMessage(r.msg, e)
+  applyAssistantJsonPartialToMessage(r.msg, synthetic)
 }
 
 export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {

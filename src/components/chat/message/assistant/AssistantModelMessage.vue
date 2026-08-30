@@ -8,11 +8,13 @@ import { shouldShowSubAgentTrace, uiForSubAgentFrame } from '../../../../lib/age
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import {
+  isSubAgentTraceTerminal,
   orphanSubTraces,
   subTracesForMessage,
   subTracesForParentToolCall
 } from '../../../../lib/subAgentSession'
 import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
+import { scopedMessagesForTrace } from '../../../../lib/subAgentMessages'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
@@ -107,6 +109,59 @@ const childBoardByTraceId = computed(() => {
   return out
 })
 
+/**
+ * Cheap fingerprint for running traces only — idle/terminal frames use status +
+ * board version so sibling stream updates skip their Vue subtrees via v-memo.
+ */
+const runningTraceLiveSignal = computed(() => {
+  const messages = conversationMessages.value
+  const anchor = props.message.id
+  const out = new Map<string, string>()
+  for (const trace of subTraces.value) {
+    if (trace.status !== 'running') continue
+    const scoped = scopedMessagesForTrace(
+      messages,
+      trace.anchorMessageId?.trim() || anchor,
+      trace.id,
+      trace.agentInstanceId
+    )
+    let toolSig = ''
+    let textLen = 0
+    for (const msg of scoped) {
+      textLen += (msg.content?.length ?? 0)
+        + (msg.thoughts?.length ?? 0)
+        + (msg.responseTextDraft?.length ?? 0)
+        + (msg.reasoning?.length ?? 0)
+      for (const tc of msg.toolCalls ?? []) {
+        toolSig += `${tc.id}:${tc.status}:${tc.result?.length ?? 0};`
+      }
+    }
+    const legacy = trace.session
+    if (legacy) {
+      textLen += (legacy.thoughts?.length ?? 0)
+        + (legacy.responseTextDraft?.length ?? 0)
+        + (legacy.reasoning?.length ?? 0)
+      for (const tc of legacy.toolCalls ?? []) {
+        toolSig += `${tc.id}:${tc.status}:${tc.result?.length ?? 0};`
+      }
+    }
+    out.set(trace.id, `${textLen}|${toolSig}`)
+  }
+  return out
+})
+
+function subAgentMemoDeps(trace: AgentTrace): unknown[] {
+  const board = childBoardByTraceId.value.get(trace.id)
+  const boardKey = board
+    ? `${board.taskId}:${board.document.version}:${board.isActive ? 1 : 0}`
+    : ''
+  const expanded = trace.userExpanded === true
+  if (trace.status === 'running') {
+    return [trace.status, expanded, boardKey, runningTraceLiveSignal.value.get(trace.id) ?? '']
+  }
+  return [trace.status, expanded, boardKey, isSubAgentTraceTerminal(trace.status) ? 1 : 0]
+}
+
 const isActiveGenerationMessage = computed(
   () => props.message.id === activeGeneratingMessageId.value
 )
@@ -157,6 +212,7 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
           v-for="trace in tracesUnderTool(toolCall)"
           v-show="showSubAgentTrace"
           :key="trace.id"
+          v-memo="subAgentMemoDeps(trace)"
           :trace="trace"
           :anchor-message-id="message.id"
           :messages="conversationMessages"
@@ -177,6 +233,7 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
       v-for="trace in orphanTraces"
       v-show="showSubAgentFrames"
       :key="trace.id"
+      v-memo="subAgentMemoDeps(trace)"
       class="px-3"
       :trace="trace"
       :anchor-message-id="message.id"

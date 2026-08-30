@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   clearContentDeltaBuffer,
+  clearStreamDeltaBuffers,
   setContentDeltaApplyHandler
 } from '../../../lib/reasoningDeltaBatch'
 import {
+  applyAssistantJsonPartialEvent,
   handleAssistantJsonPartial,
   handleDelta,
   handleRawContentDelta,
@@ -14,7 +16,7 @@ import { createMockStreamHandlerContext, sampleAssistantMessage, sampleConversat
 import { PLANNER_PHASE_THOUGHTS } from '../../../lib/plannerPhase'
 
 afterEach(() => {
-  clearContentDeltaBuffer()
+  clearStreamDeltaBuffers()
   setContentDeltaApplyHandler(null)
 })
 
@@ -123,12 +125,23 @@ describe('messageHandlers', () => {
       thoughts: PLANNER_PHASE_THOUGHTS
     })
     const ctx = createMockStreamHandlerContext([conv])
+    applyAssistantJsonPartialEvent(ctx, 'a1', undefined, undefined, { thoughts: '' })
+    expect(conv.messages[0].thoughts).toBeUndefined()
+  })
+
+  it('handleAssistantJsonPartial enqueues without immediate mutate', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a1'),
+      thoughts: PLANNER_PHASE_THOUGHTS
+    })
+    const ctx = createMockStreamHandlerContext([conv])
     handleAssistantJsonPartial(ctx, {
       kind: 'assistant_json_partial',
       messageId: 'a1',
       thoughts: ''
     })
-    expect(conv.messages[0].thoughts).toBeUndefined()
+    expect(conv.messages[0].thoughts).toBe(PLANNER_PHASE_THOUGHTS)
   })
 
   it('handleMessageEnd applies reply attachments on lead assistant message', () => {

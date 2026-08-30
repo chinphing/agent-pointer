@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   clearStreamDeltaBuffers,
   clearToolArgsDeltaBufferForTool,
+  CONTENT_DELTA_BATCH_MS,
+  enqueueAssistantJsonPartial,
   enqueueContentDelta,
   enqueueToolArgsDelta,
+  flushAssistantJsonPartialBuffer,
   flushContentDeltaBuffer,
+  setAssistantJsonPartialApplyHandler,
   setContentDeltaApplyHandler,
   setToolArgsDeltaApplyHandler
 } from './reasoningDeltaBatch'
@@ -13,6 +17,7 @@ afterEach(() => {
   clearStreamDeltaBuffers()
   setContentDeltaApplyHandler(null)
   setToolArgsDeltaApplyHandler(null)
+  setAssistantJsonPartialApplyHandler(null)
   vi.useRealTimers()
 })
 
@@ -44,8 +49,42 @@ describe('content delta batching', () => {
 
     expect(apply).toHaveBeenCalledWith('m1', undefined, undefined, 'one')
     expect(apply).not.toHaveBeenCalledWith('m2', undefined, undefined, 'two')
-    vi.advanceTimersByTime(50)
+    vi.advanceTimersByTime(CONTENT_DELTA_BATCH_MS)
     expect(apply).toHaveBeenCalledWith('m2', undefined, undefined, 'two')
+  })
+
+  it('flushes all pending keys in one shared timer tick', () => {
+    vi.useFakeTimers()
+    const apply = vi.fn()
+    setContentDeltaApplyHandler(apply)
+
+    enqueueContentDelta('m1', 'a')
+    enqueueContentDelta('m2', 'b')
+    enqueueContentDelta('m3', 'c')
+    expect(apply).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(CONTENT_DELTA_BATCH_MS)
+    expect(apply).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('assistant json partial batching', () => {
+  it('merges latest-wins fields and flushes once', () => {
+    vi.useFakeTimers()
+    const apply = vi.fn()
+    setAssistantJsonPartialApplyHandler(apply)
+
+    enqueueAssistantJsonPartial('m1', { thoughts: 'a', toolName: 'search' })
+    enqueueAssistantJsonPartial('m1', { thoughts: 'ab', responseText: 'hi' })
+    expect(apply).not.toHaveBeenCalled()
+
+    flushAssistantJsonPartialBuffer('m1')
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply).toHaveBeenCalledWith('m1', undefined, undefined, {
+      thoughts: 'ab',
+      toolName: 'search',
+      responseText: 'hi'
+    })
   })
 })
 

@@ -779,6 +779,46 @@ function createSettingsDialogForm(deps: {
     return limit
   }
 
+  function clampParallelLimit(raw: unknown): number {
+    const n = Number(raw)
+    if (!Number.isFinite(n) || n < 1) return autoParallelLimit
+    return Math.min(64, Math.max(1, Math.floor(n)))
+  }
+
+  /**
+   * Number steppers commit here (not via the deep watch) so intermediate empty/NaN
+   * values never hit Pinia, and we soft-patch only the one field before debounced IPC.
+   */
+  function commitMaxParallelToolCalls(raw: unknown) {
+    const next = clampParallelLimit(raw)
+    if (next === maxParallelToolCalls.value) return
+    maxParallelToolCalls.value = next
+    const stored = optionalParallelLimit(next)
+    s.settings.maxParallelToolCalls = stored
+    s.userSettings.maxParallelToolCalls = stored
+    scheduleAssistantSave()
+  }
+
+  function commitMaxParallelSubAgents(raw: unknown) {
+    const next = clampParallelLimit(raw)
+    if (next === maxParallelSubAgents.value) return
+    maxParallelSubAgents.value = next
+    const stored = optionalParallelLimit(next)
+    s.settings.maxParallelSubAgents = stored
+    s.userSettings.maxParallelSubAgents = stored
+    scheduleAssistantSave()
+  }
+
+  function commitMaxParallelMediaJobs(raw: unknown) {
+    const next = clampParallelLimit(raw)
+    if (next === maxParallelMediaJobs.value) return
+    maxParallelMediaJobs.value = next
+    const stored = optionalParallelLimit(next)
+    s.settings.maxParallelMediaJobs = stored
+    s.userSettings.maxParallelMediaJobs = stored
+    scheduleAssistantSave()
+  }
+
   function assistantPreferencesPayload() {
   return {
     computerAutoCompact: computerAutoCompact.value,
@@ -979,9 +1019,6 @@ function createSettingsDialogForm(deps: {
       terminalMaxWallHours,
       attachmentUploadMaxMb,
       parallelToolExecutionEnabled,
-      maxParallelToolCalls,
-      maxParallelSubAgents,
-      maxParallelMediaJobs,
       maxConcurrentRuns,
       computerHumanLike,
       computerAutoSwitchMonitor,
@@ -1046,6 +1083,9 @@ function createSettingsDialogForm(deps: {
     maxParallelToolCalls,
     maxParallelSubAgents,
     maxParallelMediaJobs,
+    commitMaxParallelToolCalls,
+    commitMaxParallelSubAgents,
+    commitMaxParallelMediaJobs,
     maxConcurrentRuns,
     maxSubAgentToolRounds,
     maxSubAgentSpawnDepth,

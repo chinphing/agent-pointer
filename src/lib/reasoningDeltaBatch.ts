@@ -5,6 +5,15 @@ export const CONTENT_DELTA_BATCH_MS = 50
 export const TOOL_ARGS_DELTA_BATCH_MS = 80
 export const TOOL_OUTPUT_DELTA_BATCH_MS = 80
 export const WEB_SEARCH_OUTPUT_DELTA_BATCH_MS = 80
+/** Latest-wins merge for `assistant_json_partial` (thoughts / toolName / responseText). */
+export const ASSISTANT_JSON_PARTIAL_BATCH_MS = 200
+/**
+ * When many stream keys are pending (fan-out sub-agents), stretch the shared flush
+ * so concurrent workers do not each force a separate Vue tick. Collapsed sub-agent
+ * live lines are not visually latency-sensitive — prefer fewer ticks under load.
+ */
+export const HIGH_PRESSURE_STREAM_KEYS = 6
+export const HIGH_PRESSURE_BATCH_MS = 500
 
 export type StreamDeltaApply = (
   messageId: string,
@@ -29,36 +38,56 @@ export type ToolArgsDeltaApply = ToolDeltaApply
 export type ToolOutputDeltaApply = ToolDeltaApply
 export type WebSearchOutputDeltaApply = ToolDeltaApply
 
+export type AssistantJsonPartialPatch = {
+  thoughts?: string | null
+  toolName?: string | null
+  responseText?: string | null
+}
+
+export type AssistantJsonPartialApply = (
+  messageId: string,
+  traceId: string | undefined,
+  scopedMessageId: string | undefined,
+  patch: AssistantJsonPartialPatch
+) => void
+
 type DeltaBuffer = {
   pending: Map<string, string>
-  timers: Map<string, ReturnType<typeof setTimeout>>
+  flushTimer: ReturnType<typeof setTimeout> | undefined
   getApplyHandler: () => StreamDeltaApply | null
   label: string
+  defaultBatchMs: number
 }
 
 type ToolDeltaBuffer = {
   pending: Map<string, string>
-  timers: Map<string, ReturnType<typeof setTimeout>>
+  flushTimer: ReturnType<typeof setTimeout> | undefined
   getApplyHandler: () => ToolDeltaApply | null
   label: string
+  defaultBatchMs: number
+}
+
+type JsonPartialBuffer = {
+  pending: Map<string, AssistantJsonPartialPatch>
+  flushTimer: ReturnType<typeof setTimeout> | undefined
+  getApplyHandler: () => AssistantJsonPartialApply | null
+  label: string
+  defaultBatchMs: number
 }
 
 const reasoningPending = new Map<string, string>()
-const reasoningTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const contentPending = new Map<string, string>()
-const contentTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const toolArgsPending = new Map<string, string>()
-const toolArgsTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const toolOutputPending = new Map<string, string>()
-const toolOutputTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const webSearchOutputPending = new Map<string, string>()
-const webSearchOutputTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const jsonPartialPending = new Map<string, AssistantJsonPartialPatch>()
 
 let reasoningApplyHandler: ReasoningDeltaApply | null = null
 let contentApplyHandler: ContentDeltaApply | null = null
 let toolArgsApplyHandler: ToolArgsDeltaApply | null = null
 let toolOutputApplyHandler: ToolOutputDeltaApply | null = null
 let webSearchOutputApplyHandler: WebSearchOutputDeltaApply | null = null
+let jsonPartialApplyHandler: AssistantJsonPartialApply | null = null
 
 function bufferKey(messageId: string, traceId?: string, scopedMessageId?: string): string {
   const tid = traceId?.trim()
@@ -81,6 +110,24 @@ function toolBufferKey(
   return `${messageId}\0${toolCallId}`
 }
 
+function pendingStreamKeyCount(): number {
+  return (
+    reasoningPending.size
+    + contentPending.size
+    + toolArgsPending.size
+    + toolOutputPending.size
+    + webSearchOutputPending.size
+    + jsonPartialPending.size
+  )
+}
+
+function effectiveBatchMs(requested: number): number {
+  if (pendingStreamKeyCount() >= HIGH_PRESSURE_STREAM_KEYS) {
+    return Math.max(requested, HIGH_PRESSURE_BATCH_MS)
+  }
+  return requested
+}
+
 export function setReasoningDeltaApplyHandler(handler: ReasoningDeltaApply | null): void {
   reasoningApplyHandler = handler
 }
@@ -101,6 +148,128 @@ export function setWebSearchOutputDeltaApplyHandler(handler: WebSearchOutputDelt
   webSearchOutputApplyHandler = handler
 }
 
+export function setAssistantJsonPartialApplyHandler(handler: AssistantJsonPartialApply | null): void {
+  jsonPartialApplyHandler = handler
+}
+
+function scheduleSharedFlush(
+  getTimer: () => ReturnType<typeof setTimeout> | undefined,
+  setTimer: (t: ReturnType<typeof setTimeout> | undefined) => void,
+  flushAll: () => void,
+  batchMs: number
+): void {
+  if (getTimer() != null) return
+  setTimer(setTimeout(() => {
+    setTimer(undefined)
+    flushAll()
+  }, effectiveBatchMs(batchMs)))
+}
+
+function applyStreamKey(
+  key: string,
+  text: string,
+  applyHandler: StreamDeltaApply,
+  label: string
+): void {
+  const parts = key.split('\0')
+  try {
+    applyHandler(parts[0], parts[1] || undefined, parts[2] || undefined, text)
+  } catch (error) {
+    console.warn(`[${label}] apply failed`, error)
+  }
+}
+
+function applyToolKey(
+  key: string,
+  text: string,
+  applyHandler: ToolDeltaApply,
+  label: string
+): void {
+  const parts = key.split('\0')
+  try {
+    applyHandler(parts[0], parts[1], parts[2] || undefined, parts[3] || undefined, text)
+  } catch (error) {
+    console.warn(`[${label}] apply failed`, error)
+  }
+}
+
+function flushAllDeltaKeys(buffer: DeltaBuffer, messageId?: string): void {
+  if (buffer.flushTimer != null) {
+    clearTimeout(buffer.flushTimer)
+    buffer.flushTimer = undefined
+  }
+  const applyHandler = buffer.getApplyHandler()
+  if (!applyHandler) {
+    if (buffer.pending.size > 0) {
+      console.warn(`[${buffer.label}] flush skipped: no apply handler registered`)
+    }
+    if (messageId == null) buffer.pending.clear()
+    else {
+      for (const key of [...buffer.pending.keys()]) {
+        if (key.split('\0')[0] === messageId) buffer.pending.delete(key)
+      }
+    }
+    return
+  }
+  const keys = [...buffer.pending.keys()]
+  for (const key of keys) {
+    if (messageId != null && key.split('\0')[0] !== messageId) continue
+    const batch = buffer.pending.get(key)
+    buffer.pending.delete(key)
+    if (!batch) continue
+    applyStreamKey(key, batch, applyHandler, buffer.label)
+  }
+  // Partial flush (one messageId) may leave siblings pending — reschedule.
+  if (buffer.pending.size > 0) {
+    scheduleSharedFlush(
+      () => buffer.flushTimer,
+      t => {
+        buffer.flushTimer = t
+      },
+      () => flushAllDeltaKeys(buffer),
+      buffer.defaultBatchMs
+    )
+  }
+}
+
+function flushAllToolKeys(buffer: ToolDeltaBuffer, messageId?: string): void {
+  if (buffer.flushTimer != null) {
+    clearTimeout(buffer.flushTimer)
+    buffer.flushTimer = undefined
+  }
+  const applyHandler = buffer.getApplyHandler()
+  if (!applyHandler) {
+    if (buffer.pending.size > 0) {
+      console.warn(`[${buffer.label}] flush skipped: no apply handler registered`)
+    }
+    if (messageId == null) buffer.pending.clear()
+    else {
+      for (const key of [...buffer.pending.keys()]) {
+        if (key.split('\0')[0] === messageId) buffer.pending.delete(key)
+      }
+    }
+    return
+  }
+  const keys = [...buffer.pending.keys()]
+  for (const key of keys) {
+    if (messageId != null && key.split('\0')[0] !== messageId) continue
+    const batch = buffer.pending.get(key)
+    buffer.pending.delete(key)
+    if (!batch) continue
+    applyToolKey(key, batch, applyHandler, buffer.label)
+  }
+  if (buffer.pending.size > 0) {
+    scheduleSharedFlush(
+      () => buffer.flushTimer,
+      t => {
+        buffer.flushTimer = t
+      },
+      () => flushAllToolKeys(buffer),
+      buffer.defaultBatchMs
+    )
+  }
+}
+
 function enqueueDelta(
   buffer: DeltaBuffer,
   messageId: string,
@@ -112,26 +281,14 @@ function enqueueDelta(
   if (!text) return
   const key = bufferKey(messageId, traceId, scopedMessageId)
   buffer.pending.set(key, (buffer.pending.get(key) ?? '') + text)
-  if (buffer.timers.has(key)) return
-  buffer.timers.set(key, setTimeout(() => flushDeltaKey(buffer, key), batchMs))
-}
-
-function flushDeltaKey(buffer: DeltaBuffer, key: string): void {
-  const timer = buffer.timers.get(key)
-  if (timer != null) {
-    clearTimeout(timer)
-    buffer.timers.delete(key)
-  }
-  const batch = buffer.pending.get(key)
-  if (!batch) return
-  buffer.pending.delete(key)
-  const applyHandler = buffer.getApplyHandler()
-  if (!applyHandler) {
-    console.warn(`[${buffer.label}] flush skipped: no apply handler registered`)
-    return
-  }
-  const parts = key.split('\0')
-  applyHandler(parts[0], parts[1] || undefined, parts[2] || undefined, batch)
+  scheduleSharedFlush(
+    () => buffer.flushTimer,
+    t => {
+      buffer.flushTimer = t
+    },
+    () => flushAllDeltaKeys(buffer),
+    batchMs
+  )
 }
 
 function enqueueToolDelta(
@@ -146,85 +303,123 @@ function enqueueToolDelta(
   if (!text) return
   const key = toolBufferKey(messageId, toolCallId, traceId, scopedMessageId)
   buffer.pending.set(key, (buffer.pending.get(key) ?? '') + text)
-  if (buffer.timers.has(key)) return
-  buffer.timers.set(key, setTimeout(() => flushToolDeltaKey(buffer, key), batchMs))
+  scheduleSharedFlush(
+    () => buffer.flushTimer,
+    t => {
+      buffer.flushTimer = t
+    },
+    () => flushAllToolKeys(buffer),
+    batchMs
+  )
 }
 
-function flushToolDeltaKey(buffer: ToolDeltaBuffer, key: string): void {
-  const timer = buffer.timers.get(key)
-  if (timer != null) {
-    clearTimeout(timer)
-    buffer.timers.delete(key)
-  }
-  const batch = buffer.pending.get(key)
-  if (!batch) return
-  buffer.pending.delete(key)
-  const applyHandler = buffer.getApplyHandler()
-  if (!applyHandler) {
-    console.warn(`[${buffer.label}] flush skipped: no apply handler registered`)
-    return
-  }
-  const parts = key.split('\0')
-  applyHandler(parts[0], parts[1], parts[2] || undefined, parts[3] || undefined, batch)
-}
-
-function flushDeltaBuffer(buffer: DeltaBuffer, messageId?: string): void {
-  const keys = new Set([...buffer.pending.keys(), ...buffer.timers.keys()])
-  for (const key of keys) {
-    if (messageId != null && key.split('\0')[0] !== messageId) continue
-    flushDeltaKey(buffer, key)
-  }
-}
-
-function flushToolDeltaBuffer(buffer: ToolDeltaBuffer, messageId?: string): void {
-  const keys = new Set([...buffer.pending.keys(), ...buffer.timers.keys()])
-  for (const key of keys) {
-    if (messageId != null && key.split('\0')[0] !== messageId) continue
-    flushToolDeltaKey(buffer, key)
+function mergeJsonPartial(
+  prev: AssistantJsonPartialPatch | undefined,
+  next: AssistantJsonPartialPatch
+): AssistantJsonPartialPatch {
+  return {
+    thoughts: next.thoughts !== undefined ? next.thoughts : prev?.thoughts,
+    toolName: next.toolName !== undefined ? next.toolName : prev?.toolName,
+    responseText: next.responseText !== undefined ? next.responseText : prev?.responseText
   }
 }
 
 function clearDeltaBuffer(buffer: DeltaBuffer): void {
-  for (const timer of buffer.timers.values()) clearTimeout(timer)
-  buffer.timers.clear()
+  if (buffer.flushTimer != null) clearTimeout(buffer.flushTimer)
+  buffer.flushTimer = undefined
   buffer.pending.clear()
 }
 
 function clearToolDeltaBuffer(buffer: ToolDeltaBuffer): void {
-  for (const timer of buffer.timers.values()) clearTimeout(timer)
-  buffer.timers.clear()
+  if (buffer.flushTimer != null) clearTimeout(buffer.flushTimer)
+  buffer.flushTimer = undefined
   buffer.pending.clear()
 }
 
 const reasoningBuffer: DeltaBuffer = {
   pending: reasoningPending,
-  timers: reasoningTimers,
+  flushTimer: undefined,
   getApplyHandler: () => reasoningApplyHandler,
-  label: 'reasoningDeltaBatch'
+  label: 'reasoningDeltaBatch',
+  defaultBatchMs: REASONING_DELTA_BATCH_MS
 }
 const contentBuffer: DeltaBuffer = {
   pending: contentPending,
-  timers: contentTimers,
+  flushTimer: undefined,
   getApplyHandler: () => contentApplyHandler,
-  label: 'contentDeltaBatch'
+  label: 'contentDeltaBatch',
+  defaultBatchMs: CONTENT_DELTA_BATCH_MS
 }
 const toolArgsBuffer: ToolDeltaBuffer = {
   pending: toolArgsPending,
-  timers: toolArgsTimers,
+  flushTimer: undefined,
   getApplyHandler: () => toolArgsApplyHandler,
-  label: 'toolArgsDeltaBatch'
+  label: 'toolArgsDeltaBatch',
+  defaultBatchMs: TOOL_ARGS_DELTA_BATCH_MS
 }
 const toolOutputBuffer: ToolDeltaBuffer = {
   pending: toolOutputPending,
-  timers: toolOutputTimers,
+  flushTimer: undefined,
   getApplyHandler: () => toolOutputApplyHandler,
-  label: 'toolOutputDeltaBatch'
+  label: 'toolOutputDeltaBatch',
+  defaultBatchMs: TOOL_OUTPUT_DELTA_BATCH_MS
 }
 const webSearchOutputBuffer: ToolDeltaBuffer = {
   pending: webSearchOutputPending,
-  timers: webSearchOutputTimers,
+  flushTimer: undefined,
   getApplyHandler: () => webSearchOutputApplyHandler,
-  label: 'webSearchOutputDeltaBatch'
+  label: 'webSearchOutputDeltaBatch',
+  defaultBatchMs: WEB_SEARCH_OUTPUT_DELTA_BATCH_MS
+}
+const jsonPartialBuffer: JsonPartialBuffer = {
+  pending: jsonPartialPending,
+  flushTimer: undefined,
+  getApplyHandler: () => jsonPartialApplyHandler,
+  label: 'assistantJsonPartialBatch',
+  defaultBatchMs: ASSISTANT_JSON_PARTIAL_BATCH_MS
+}
+
+function flushAllJsonPartialKeys(messageId?: string): void {
+  if (jsonPartialBuffer.flushTimer != null) {
+    clearTimeout(jsonPartialBuffer.flushTimer)
+    jsonPartialBuffer.flushTimer = undefined
+  }
+  const applyHandler = jsonPartialBuffer.getApplyHandler()
+  if (!applyHandler) {
+    if (jsonPartialBuffer.pending.size > 0) {
+      console.warn(`[${jsonPartialBuffer.label}] flush skipped: no apply handler registered`)
+    }
+    if (messageId == null) jsonPartialBuffer.pending.clear()
+    else {
+      for (const key of [...jsonPartialBuffer.pending.keys()]) {
+        if (key.split('\0')[0] === messageId) jsonPartialBuffer.pending.delete(key)
+      }
+    }
+    return
+  }
+  const keys = [...jsonPartialBuffer.pending.keys()]
+  for (const key of keys) {
+    if (messageId != null && key.split('\0')[0] !== messageId) continue
+    const patch = jsonPartialBuffer.pending.get(key)
+    jsonPartialBuffer.pending.delete(key)
+    if (!patch) continue
+    const parts = key.split('\0')
+    try {
+      applyHandler(parts[0], parts[1] || undefined, parts[2] || undefined, patch)
+    } catch (error) {
+      console.warn(`[${jsonPartialBuffer.label}] apply failed`, error)
+    }
+  }
+  if (jsonPartialBuffer.pending.size > 0) {
+    scheduleSharedFlush(
+      () => jsonPartialBuffer.flushTimer,
+      t => {
+        jsonPartialBuffer.flushTimer = t
+      },
+      () => flushAllJsonPartialKeys(),
+      jsonPartialBuffer.defaultBatchMs
+    )
+  }
 }
 
 export function enqueueReasoningDelta(
@@ -275,32 +470,71 @@ export function enqueueWebSearchOutputDelta(
   scopedMessageId?: string,
   batchMs: number = WEB_SEARCH_OUTPUT_DELTA_BATCH_MS
 ): void {
-  enqueueToolDelta(webSearchOutputBuffer, messageId, toolCallId, text, traceId, scopedMessageId, batchMs)
+  enqueueToolDelta(
+    webSearchOutputBuffer,
+    messageId,
+    toolCallId,
+    text,
+    traceId,
+    scopedMessageId,
+    batchMs
+  )
+}
+
+export function enqueueAssistantJsonPartial(
+  messageId: string,
+  patch: AssistantJsonPartialPatch,
+  traceId?: string,
+  scopedMessageId?: string,
+  batchMs: number = ASSISTANT_JSON_PARTIAL_BATCH_MS
+): void {
+  if (
+    patch.thoughts === undefined
+    && patch.toolName === undefined
+    && patch.responseText === undefined
+  ) {
+    return
+  }
+  const key = bufferKey(messageId, traceId, scopedMessageId)
+  jsonPartialBuffer.pending.set(key, mergeJsonPartial(jsonPartialBuffer.pending.get(key), patch))
+  scheduleSharedFlush(
+    () => jsonPartialBuffer.flushTimer,
+    t => {
+      jsonPartialBuffer.flushTimer = t
+    },
+    () => flushAllJsonPartialKeys(),
+    batchMs
+  )
 }
 
 /** Flush pending reasoning for one message (all traces) or the entire buffer. */
 export function flushReasoningDeltaBuffer(messageId?: string): void {
-  flushDeltaBuffer(reasoningBuffer, messageId)
+  flushAllDeltaKeys(reasoningBuffer, messageId)
 }
 
 /** Flush pending assistant body text for one message or the entire buffer. */
 export function flushContentDeltaBuffer(messageId?: string): void {
-  flushDeltaBuffer(contentBuffer, messageId)
+  flushAllDeltaKeys(contentBuffer, messageId)
 }
 
 /** Flush pending tool call args for one message or the entire buffer. */
 export function flushToolArgsDeltaBuffer(messageId?: string): void {
-  flushToolDeltaBuffer(toolArgsBuffer, messageId)
+  flushAllToolKeys(toolArgsBuffer, messageId)
 }
 
 /** Flush pending terminal output for one message or the entire buffer. */
 export function flushToolOutputDeltaBuffer(messageId?: string): void {
-  flushToolDeltaBuffer(toolOutputBuffer, messageId)
+  flushAllToolKeys(toolOutputBuffer, messageId)
 }
 
 /** Flush pending web search output for one message or the entire buffer. */
 export function flushWebSearchOutputDeltaBuffer(messageId?: string): void {
-  flushToolDeltaBuffer(webSearchOutputBuffer, messageId)
+  flushAllToolKeys(webSearchOutputBuffer, messageId)
+}
+
+/** Flush pending assistant JSON partials for one message or the entire buffer. */
+export function flushAssistantJsonPartialBuffer(messageId?: string): void {
+  flushAllJsonPartialKeys(messageId)
 }
 
 export function flushStreamDeltaBuffers(messageId?: string): void {
@@ -309,6 +543,7 @@ export function flushStreamDeltaBuffers(messageId?: string): void {
   flushToolArgsDeltaBuffer(messageId)
   flushToolOutputDeltaBuffer(messageId)
   flushWebSearchOutputDeltaBuffer(messageId)
+  flushAssistantJsonPartialBuffer(messageId)
 }
 
 export function clearReasoningDeltaBuffer(): void {
@@ -336,11 +571,6 @@ export function clearToolArgsDeltaBufferForTool(
   scopedMessageId?: string
 ): void {
   const key = toolBufferKey(messageId, toolCallId, traceId, scopedMessageId)
-  const timer = toolArgsTimers.get(key)
-  if (timer) {
-    clearTimeout(timer)
-    toolArgsTimers.delete(key)
-  }
   toolArgsPending.delete(key)
 }
 
@@ -352,10 +582,17 @@ export function clearWebSearchOutputDeltaBuffer(): void {
   clearToolDeltaBuffer(webSearchOutputBuffer)
 }
 
+export function clearAssistantJsonPartialBuffer(): void {
+  if (jsonPartialBuffer.flushTimer != null) clearTimeout(jsonPartialBuffer.flushTimer)
+  jsonPartialBuffer.flushTimer = undefined
+  jsonPartialBuffer.pending.clear()
+}
+
 export function clearStreamDeltaBuffers(): void {
   clearReasoningDeltaBuffer()
   clearContentDeltaBuffer()
   clearToolArgsDeltaBuffer()
   clearToolOutputDeltaBuffer()
   clearWebSearchOutputDeltaBuffer()
+  clearAssistantJsonPartialBuffer()
 }

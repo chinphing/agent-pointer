@@ -18,11 +18,11 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
   if (depth > 0) {
     const trace = ensureSubTrace(r.msg, e.agent.id, e.agent)
     trace.content = undefined
-    if (canMarkStreaming) r.msg.status = 'streaming'
+    if (canMarkStreaming && r.msg.status !== 'streaming') r.msg.status = 'streaming'
     if (terminal) {
       finalizeSubSession(trace)
+      r.conv.updatedAt = Date.now()
     }
-    r.conv.updatedAt = Date.now()
   } else {
     if (canMarkStreaming) r.msg.status = 'streaming'
     r.msg.agentId = e.agent.id

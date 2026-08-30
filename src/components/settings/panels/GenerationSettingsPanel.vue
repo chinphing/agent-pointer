@@ -56,10 +56,12 @@ const {
   terminalMaxWallHours,
   attachmentUploadMaxMb,
   parallelToolExecutionEnabled,
-  autoParallelLimit,
   maxParallelToolCalls,
   maxParallelSubAgents,
   maxParallelMediaJobs,
+  commitMaxParallelToolCalls,
+  commitMaxParallelSubAgents,
+  commitMaxParallelMediaJobs,
   mediaDeps,
   ffmpegStatusLabel,
   ffmpegStatusDetail,
@@ -73,12 +75,6 @@ const {
   activeSection,
   toolApprovalMode
 } = props.form
-
-function restoreAutoParallel(value: unknown): number {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n < 1) return autoParallelLimit
-  return Math.floor(n)
-}
 
 function restoreTimeoutSeconds(value: unknown): number {
   const n = Number(value)
@@ -560,13 +556,14 @@ async function onPlaySoundToggle(checked: boolean) {
                     </button>
                   </div>
                   <input
-                    v-model.number="maxParallelToolCalls"
+                    :value="maxParallelToolCalls"
                     type="number"
                     min="1"
                     max="64"
                     step="1"
                     class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-                    @blur="maxParallelToolCalls = restoreAutoParallel(maxParallelToolCalls)"
+                    @change="commitMaxParallelToolCalls(($event.target as HTMLInputElement).value)"
+                    @blur="commitMaxParallelToolCalls(($event.target as HTMLInputElement).value)"
                   />
                 </div>
                 <div>
@@ -582,13 +579,14 @@ async function onPlaySoundToggle(checked: boolean) {
                     </button>
                   </div>
                   <input
-                    v-model.number="maxParallelSubAgents"
+                    :value="maxParallelSubAgents"
                     type="number"
                     min="1"
                     max="64"
                     step="1"
                     class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-                    @blur="maxParallelSubAgents = restoreAutoParallel(maxParallelSubAgents)"
+                    @change="commitMaxParallelSubAgents(($event.target as HTMLInputElement).value)"
+                    @blur="commitMaxParallelSubAgents(($event.target as HTMLInputElement).value)"
                   />
                 </div>
                 <div>
@@ -604,13 +602,14 @@ async function onPlaySoundToggle(checked: boolean) {
                     </button>
                   </div>
                   <input
-                    v-model.number="maxParallelMediaJobs"
+                    :value="maxParallelMediaJobs"
                     type="number"
                     min="1"
                     max="64"
                     step="1"
                     class="w-20 h-9 px-2 rounded-lg bg-card border border-border text-sm tabular-nums text-foreground outline-none focus:border-accent/50 transition-colors"
-                    @blur="maxParallelMediaJobs = restoreAutoParallel(maxParallelMediaJobs)"
+                    @change="commitMaxParallelMediaJobs(($event.target as HTMLInputElement).value)"
+                    @blur="commitMaxParallelMediaJobs(($event.target as HTMLInputElement).value)"
                   />
                 </div>
               </div>

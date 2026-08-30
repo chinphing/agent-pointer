@@ -58,11 +58,13 @@ import { hasActiveTurn, peekActiveTurn, recordTurnDone, recordTurnStart } from '
 import {
   clearStreamDeltaBuffers,
   flushStreamDeltaBuffers,
+  setAssistantJsonPartialApplyHandler,
   setContentDeltaApplyHandler,
   setReasoningDeltaApplyHandler,
   setToolArgsDeltaApplyHandler,
   setToolOutputDeltaApplyHandler,
-  setWebSearchOutputDeltaApplyHandler
+  setWebSearchOutputDeltaApplyHandler,
+  type AssistantJsonPartialPatch
 } from '../lib/reasoningDeltaBatch'
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
 import {
@@ -102,6 +104,7 @@ import { usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
 import { disarmTaskCompleteAudio, primeTaskCompleteAudio } from '../lib/taskCompleteSound'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
+import { applyAssistantJsonPartialEvent } from './chat/streamHandlers/messageHandlers'
 import {
   assistantTurnActivelyRunning,
   computeHistoryTrimCutByViewedAt,
@@ -2769,13 +2772,31 @@ export const useChatStore = defineStore('chat', () => {
     r.msg.content += text
     // Keep text if a buffered delta lands after Done; do not flip back to streaming.
     if (r.msg.status !== 'cancelled' && r.msg.status !== 'error' && r.msg.status !== 'done') {
-      r.msg.status = 'streaming'
-      r.msg.contentStreaming = true
+      if (r.msg.status !== 'streaming' || r.msg.contentStreaming !== true) {
+        r.msg.status = 'streaming'
+        r.msg.contentStreaming = true
+      }
     }
+  }
+
+  function applyAssistantJsonPartialBatch(
+    messageId: string,
+    traceId: string | undefined,
+    scopedMessageId: string | undefined,
+    patch: AssistantJsonPartialPatch
+  ) {
+    applyAssistantJsonPartialEvent(
+      streamHandlerContext(),
+      messageId,
+      traceId,
+      scopedMessageId,
+      patch
+    )
   }
 
   setContentDeltaApplyHandler(applyContentDeltaBatch)
   setReasoningDeltaApplyHandler(applyReasoningDeltaBatch)
+  setAssistantJsonPartialApplyHandler(applyAssistantJsonPartialBatch)
 
   function applyToolArgsDeltaBatch(
     messageId: string,

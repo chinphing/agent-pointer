@@ -21,6 +21,7 @@
 | [message-turn-pagination.md](message-turn-pagination.md) | 消息按用户回合分页：滚顶更早、around 后滚底更新、跳转最新 |
 | [conversation-nav.md](conversation-nav.md) | 主区右缘短横条导航：全量用户消息，点击 around 定位 |
 | [streaming-markdown-throttle.md](streaming-markdown-throttle.md) | 流式 Markdown 渲染节流：默认 100ms，长文 250ms |
+| [subagent-stream-ui-perf.md](subagent-stream-ui-perf.md) | 多子 Agent 并发时流式 UI 批处理与 SubAgentFrame 减负 |
 | [workspace-file-preview-mode.md](workspace-file-preview-mode.md) | 右侧工作区原文 / 预览共用模式（按扩展名注册） |
 | [workspace-file-preview-find.md](workspace-file-preview-find.md) | 右侧工作区文本预览查找（⌘/Ctrl+F、上下匹配） |
 | [workspace-file-preview-json.md](workspace-file-preview-json.md) | 右侧工作区 JSON 可折叠预览（挂在共用原文 / 预览上） |

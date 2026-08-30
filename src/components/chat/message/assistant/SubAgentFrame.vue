@@ -19,6 +19,7 @@ import {
 } from '../../../../lib/subAgentMessages'
 import { useChatStore } from '../../../../stores/chat'
 import {
+  isSubAgentTraceTerminal,
   isSubResponseToolName,
   isSubTraceUiCollapsed,
   toggleSubTraceExpanded
@@ -81,36 +82,46 @@ const effectiveAnchorId = computed(
   () => props.trace.anchorMessageId?.trim() || props.anchorMessageId
 )
 
-const scopedMessages = computed(() =>
-  scopedAssistantMessagesForTrace(
-    props.messages,
-    effectiveAnchorId.value,
-    props.trace.id,
-    props.trace.agentInstanceId
-  )
-)
-
-const scopedTraceMessages = computed(() =>
-  scopedMessagesForTrace(
-    props.messages,
-    effectiveAnchorId.value,
-    props.trace.id,
-    props.trace.agentInstanceId
-  )
-)
-
 const legacySession = computed(() => props.trace.session)
 
 const isRunning = computed(() => props.trace.status === 'running')
 
-const ownsCompression = computed(() =>
-  subAgentFrameOwnsCompression(chatStore.contextCompressing, {
+const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
+
+const scopedMessages = computed(() => {
+  // Queued / not-yet-running collapsed frames have no scoped rows yet — skip O(n) scans.
+  if (collapsed.value && !isRunning.value && !legacySession.value) {
+    if (!isSubAgentTraceTerminal(props.trace.status)) return []
+  }
+  return scopedAssistantMessagesForTrace(
+    props.messages,
+    effectiveAnchorId.value,
+    props.trace.id,
+    props.trace.agentInstanceId
+  )
+})
+
+const scopedTraceMessages = computed(() => {
+  if (collapsed.value && !isRunning.value && !legacySession.value) {
+    if (!isSubAgentTraceTerminal(props.trace.status)) return []
+  }
+  return scopedMessagesForTrace(
+    props.messages,
+    effectiveAnchorId.value,
+    props.trace.id,
+    props.trace.agentInstanceId
+  )
+})
+
+const ownsCompression = computed(() => {
+  if (!isRunning.value) return false
+  return subAgentFrameOwnsCompression(chatStore.contextCompressing, {
     messages: props.messages,
     anchorMessageId: effectiveAnchorId.value,
     traceId: props.trace.id,
     agentInstanceId: props.trace.agentInstanceId
   })
-)
+})
 
 const compressionProgressLabel = computed(() => {
   if (!ownsCompression.value) return ''
@@ -120,9 +131,10 @@ const compressionProgressLabel = computed(() => {
   })
 })
 
-const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
-
 const latestStreamBody = computed((): AgentMessageBodyModel | null => {
+  if (collapsed.value && !isRunning.value && scopedMessages.value.length === 0 && !legacySession.value) {
+    return null
+  }
   const scoped = latestSubAgentBodyModelFromScoped(
     props.messages,
     effectiveAnchorId.value,

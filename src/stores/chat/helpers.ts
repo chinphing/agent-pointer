@@ -234,6 +234,34 @@ export function conversationNeedsTailReload(
   return hasDisconnectedLiveTail(messages, newestPosition)
 }
 
+export type PageWindowCursor = {
+  hasMoreNewer: boolean
+  newestPosition: number | null | undefined
+}
+
+/**
+ * Messages the list may paint for the current page window.
+ * An around / hole window is a contiguous SQLite range. Live generating
+ * rows (or positions) past `newestPosition` stay in memory for force-tail
+ * overlay but must not render in the hole — that mix is what made the
+ * transcript look shuffled.
+ */
+export function messagesInCurrentPageWindow(
+  messages: readonly ChatMessage[],
+  page: PageWindowCursor | null | undefined
+): ChatMessage[] {
+  if (!messages.length) return []
+  if (!page?.hasMoreNewer) return messages as ChatMessage[]
+  const newest = page.newestPosition
+  if (newest == null || !Number.isFinite(newest)) return messages as ChatMessage[]
+  return messages.filter(m => {
+    if (m.position != null && Number.isFinite(m.position)) {
+      return m.position <= newest
+    }
+    return !messageIsLiveGenerating(m)
+  })
+}
+
 /**
  * Overlay live streaming rows onto a DB page.
  *

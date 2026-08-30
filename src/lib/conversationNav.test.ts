@@ -83,6 +83,11 @@ describe('conversationNavFisheye', () => {
     expect(conversationNavRestTick(true).widthPx).toBe(6)
     expect(conversationNavRestTick(false).widthPx).toBe(5)
     expect(conversationNavRestTick(false).heightPx).toBe(1.5)
+    expect(conversationNavRestTick(false).opacity).toBe(0.22)
+    expect(conversationNavRestTick(false, true).opacity).toBe(0.55)
+    expect(conversationNavRestTick(false, true).opacity).toBeGreaterThan(
+      conversationNavRestTick(false).opacity
+    )
   })
 })
 

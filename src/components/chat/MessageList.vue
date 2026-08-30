@@ -66,7 +66,7 @@ import {
 import {
   conversationNeedsTailReload,
   hasDisconnectedLiveTail,
-  messageIsLiveGenerating
+  messagesInCurrentPageWindow
 } from '../../stores/chat/helpers'
 import {
   isComposerDraftingTarget,
@@ -208,11 +208,10 @@ function hasMoreNewerFlag(): boolean {
   return currentMessagePage.value?.hasMoreNewer === true
 }
 
-function lastMessageIsLiveTail(): boolean {
-  const msgs = chat.current?.messages
-  if (!msgs?.length) return false
-  return messageIsLiveGenerating(msgs[msgs.length - 1])
-}
+/** Contiguous page window only — never the disconnected live tail. */
+const pageWindowMessages = computed(() =>
+  messagesInCurrentPageWindow(chat.current?.messages ?? [], currentMessagePage.value)
+)
 
 function disconnectedLiveTailFlag(): boolean {
   return hasDisconnectedLiveTail(
@@ -221,9 +220,9 @@ function disconnectedLiveTailFlag(): boolean {
   )
 }
 
-/** Around hole whose loaded bottom is not the in-flight generating turn. */
+/** Around / hole window: loaded bottom is not the transcript tail. */
 function holeWindowBlocksFollow(): boolean {
-  return hasMoreNewerFlag() && !lastMessageIsLiveTail()
+  return hasMoreNewerFlag()
 }
 
 function canPullNoOlderHint(el: HTMLElement): boolean {
@@ -305,9 +304,8 @@ function scheduleToBottom() {
 
 function toBottom(options?: { settle?: boolean }) {
   if (locatingFocus.value || conversationTurns.value.length === 0) return
-  // Around-window bottom is not the transcript tail unless the list already
-  // ends on the in-flight generating turn (task running in a hole window).
-  const follow = toBottomFollowsOutput(hasMoreNewerFlag(), lastMessageIsLiveTail())
+  // Around-window bottom is never the transcript tail.
+  const follow = toBottomFollowsOutput(hasMoreNewerFlag())
   followOutput = follow
   showScrollButton.value = !follow || holeWindowBlocksFollow()
   const settle = options?.settle === true
@@ -359,8 +357,7 @@ function onWheel(event: WheelEvent) {
     shouldRequestNewerFromWheel({
       deltaY: event.deltaY,
       distanceFromBottom: distanceFromBottom(),
-      hasMoreNewer: hasMoreNewerFlag(),
-      lastMessageIsLiveTail: lastMessageIsLiveTail()
+      hasMoreNewer: hasMoreNewerFlag()
     })
   ) {
     if (noOlderPullPx.value > 0) releaseNoOlderPull()
@@ -411,8 +408,7 @@ function onTouchMove(event: TouchEvent) {
     shouldRequestNewerFromTouchPull({
       pullPx: touchStartY - y,
       distanceFromBottom: distanceFromBottom(),
-      hasMoreNewer: hasMoreNewerFlag(),
-      lastMessageIsLiveTail: lastMessageIsLiveTail()
+      hasMoreNewer: hasMoreNewerFlag()
     })
   ) {
     if (noOlderPullPx.value > 0) releaseNoOlderPull()
@@ -589,8 +585,8 @@ watch(() => chat.currentId, async () => {
 
 watch(
   () => {
-    const msgs = chat.current?.messages
-    if (!msgs?.length) return ''
+    const msgs = pageWindowMessages.value
+    if (!msgs.length) return ''
     return `${chat.currentId}:${msgs.length}:${msgs[msgs.length - 1]?.id}`
   },
   () => {
@@ -1008,9 +1004,6 @@ async function loadNewerWithoutFollow() {
     return
   }
   if (locatingFocus.value) return
-  // Already sitting on the live generating turn — paging would insert the
-  // hole *above* it and unpin follow.
-  if (lastMessageIsLiveTail()) return
   chat.clearStuckNewerLoading()
   newerLoadInFlight = true
   newerPrefetchArmed = false
@@ -1036,7 +1029,6 @@ function maybePrefetchNewer(scrollingDown: boolean) {
     newerPrefetchArmed = true
   }
   if (!atBottomBand || !scrollingDown || !newerPrefetchArmed) return
-  if (lastMessageIsLiveTail()) return
   void loadNewerWithoutFollow()
 }
 
@@ -1156,8 +1148,7 @@ function onScroll(_event: Event) {
       attachPx: ATTACH_BOTTOM_PX,
       detachPx: DETACH_BOTTOM_PX
     })
-    // Loaded bottom of an around window is not the transcript tail — unless
-    // the list already ends on the in-flight generating turn.
+    // Loaded bottom of an around window is not the transcript tail.
     if (holeWindowBlocksFollow()) followOutput = false
   }
   showScrollButton.value = !followOutput || holeWindowBlocksFollow()
@@ -1224,7 +1215,7 @@ const messageListLayout = computed(() => {
   void agentsCatalog.value
   const result = buildMessageListLayout({
     conversationId: chat.currentId,
-    messages: chat.current?.messages ?? [],
+    messages: pageWindowMessages.value,
     deps: {
       boardsForMessage: messageId => chat.parentBoardsBoundToMessage(chat.currentId, messageId),
       visibleToolCallsFor: message => visibleToolsForMessage(message, message.toolCalls ?? []),
@@ -1260,9 +1251,8 @@ const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
 const expandedChangeTurnIds = ref<Set<string>>(new Set())
 const collapsedChangeTurnIds = ref<Set<string>>(new Set())
 const leadTurnStarts = computed(() => {
-  const list = chat.current?.messages
-  if (!list) return []
-  void list.length
+  const list = pageWindowMessages.value
+  if (!list.length) return []
   return collectLeadTurnStarts(list)
 })
 
@@ -1273,7 +1263,7 @@ const frozenTurnFileChanges = computed(() => {
   const starts = leadTurnStarts.value
   const prev = frozenFileChangesCache
   if (prev && prev.key === closedLeadTurnsKey(starts)) return prev.map
-  const list = chat.current?.messages ?? []
+  const list = pageWindowMessages.value
   frozenFileChangesCache = frozenFileChangesFromStarts(list, starts, prev)
   return frozenFileChangesCache.map
 })
@@ -1288,7 +1278,7 @@ let activeFileChangesCache: {
 /** Latest turn: add a file as soon as its edit/write succeeds. */
 const activeTurnFileChanges = computed(() => {
   void messageListLayout.value
-  const list = chat.current?.messages ?? []
+  const list = pageWindowMessages.value
   const last = leadTurnStarts.value[leadTurnStarts.value.length - 1]
   if (!last) {
     return {
@@ -1435,7 +1425,7 @@ function turnElapsedLabel(turnId: string): string {
     return formatTurnElapsed(Math.max(0, nowTick.value - startedAt))
   }
   const { userCreatedAt, lastMessageCreatedAt } = turnMessageCreatedAtSpan(
-    chat.current?.messages ?? [],
+    pageWindowMessages.value,
     turnId
   )
   return formatTurnElapsed(

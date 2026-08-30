@@ -175,8 +175,4 @@ describe('toBottomFollowsOutput', () => {
     expect(toBottomFollowsOutput(true)).toBe(false)
     expect(toBottomFollowsOutput(false)).toBe(true)
   })
-
-  it('follows when the loaded list already ends on the generating turn', () => {
-    expect(toBottomFollowsOutput(true, true)).toBe(true)
-  })
 })

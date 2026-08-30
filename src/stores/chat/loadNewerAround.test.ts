@@ -29,6 +29,7 @@ vi.mock('../../lib/api', async importOriginal => {
 })
 
 import { useChatStore } from '../chat'
+import { messagesInCurrentPageWindow } from './helpers'
 
 const msg = (id: string, createdAt: number, position?: number): ChatMessage => ({
   id,
@@ -387,5 +388,8 @@ describe('chat around-window newer paging', () => {
       hasMoreNewer: true,
       newestPosition: 22
     })
+    expect(
+      messagesInCurrentPageWindow(conv.messages, store.messagePageState(conv.id)).map(m => m.id)
+    ).toEqual(['u2', 'a2', 'u3', 'a3'])
   })
 })

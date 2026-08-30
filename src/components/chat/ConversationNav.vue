@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
-import { hasDisconnectedLiveTail } from '../../stores/chat/helpers'
+import { hasDisconnectedLiveTail, messagesInCurrentPageWindow } from '../../stores/chat/helpers'
 import { listConversationOutline } from '../../lib/api'
 import {
   CONVERSATION_NAV_TICK_GAP_PX,
@@ -30,6 +30,19 @@ let fetchSeq = 0
 const items = computed(() =>
   mergeConversationNavItems(fromApi.value, chat.current?.messages ?? [])
 )
+/** User turns currently in the painted page window (rest ticks slightly stronger). */
+const loadedWindowUserIds = computed(() => {
+  const convId = chat.currentId?.trim()
+  if (!convId) return new Set<string>()
+  const ids = new Set<string>()
+  for (const message of messagesInCurrentPageWindow(
+    chat.current?.messages ?? [],
+    chat.messagePageState(convId)
+  )) {
+    if (message.role === 'user' && message.id) ids.add(message.id)
+  }
+  return ids
+})
 const hasItems = computed(() => items.value.length > 0)
 const activeId = computed(() => chat.visibleNavMessageId)
 const navMaxHeightPx = conversationNavMaxHeightPx()
@@ -39,9 +52,11 @@ let navOverflowEl: HTMLElement | null = null
 let navOverflowObserver: ResizeObserver | null = null
 
 function tickVisual(index: number) {
+  const item = items.value[index]
+  const inLoadedWindow = Boolean(item && loadedWindowUserIds.value.has(item.messageId))
   const focus = hoverFocus.value
   if (focus == null) {
-    return conversationNavRestTick(items.value[index]?.messageId === activeId.value)
+    return conversationNavRestTick(item?.messageId === activeId.value, inLoadedWindow)
   }
   return conversationNavFisheye(Math.abs(index - focus))
 }

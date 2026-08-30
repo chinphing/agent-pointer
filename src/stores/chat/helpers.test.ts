@@ -10,6 +10,7 @@ import {
   insertMessageBeforeAnchor,
   mergeHydratedMessages,
   mergeMessagePage,
+  messagesInCurrentPageWindow,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeTrailingDiscardableEmptyAssistant,
@@ -626,5 +627,39 @@ describe('chat helpers', () => {
     expect(conversationNeedsTailReload(false, [mid, live], 20)).toBe(true)
     expect(conversationNeedsTailReload(false, [mid], 20)).toBe(false)
     expect(conversationNeedsTailReload(true, [mid], 20)).toBe(true)
+  })
+
+  it('messagesInCurrentPageWindow drops disconnected live rows from a hole', () => {
+    const mid: ChatMessage = {
+      id: 'mid',
+      role: 'user',
+      content: '中间',
+      status: 'done',
+      createdAt: 10,
+      position: 20
+    }
+    const live: ChatMessage = {
+      id: 'live',
+      role: 'assistant',
+      content: '…',
+      status: 'streaming',
+      createdAt: 200,
+      position: 90
+    }
+    const liveNoPos: ChatMessage = {
+      id: 'live-np',
+      role: 'assistant',
+      content: '…',
+      status: 'streaming',
+      createdAt: 201
+    }
+    const page = { hasMoreNewer: true, newestPosition: 20 }
+    expect(messagesInCurrentPageWindow([mid, live, liveNoPos], page).map(m => m.id)).toEqual(['mid'])
+    expect(
+      messagesInCurrentPageWindow([mid, live], { hasMoreNewer: false, newestPosition: 20 }).map(m => m.id)
+    ).toEqual(['mid', 'live'])
+    expect(
+      messagesInCurrentPageWindow([mid, live], { hasMoreNewer: true, newestPosition: null }).map(m => m.id)
+    ).toEqual(['mid', 'live'])
   })
 })

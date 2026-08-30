@@ -662,6 +662,15 @@ export const useChatStore = defineStore('chat', () => {
         return
       }
     }
+    if (messagePageState(convId)?.hasMoreNewer === true) {
+      console.info('[chat] outbound drain: force tail before append', convId)
+      const tailed = await ensureMessagesLoaded(convId, { force: true })
+      if (!tailed) {
+        console.error('[chat] outbound drain paused: force tail failed', convId)
+        showUiToast('历史消息加载失败，待发送消息已保留', 'error')
+        return
+      }
+    }
 
     const item = dequeueOutbound(convId)
     if (!item) {
@@ -3114,6 +3123,16 @@ export const useChatStore = defineStore('chat', () => {
       }
       showUiToast(`已加入队列（${outboundQueueCount(conv.id)} 条待发送）`, 'success')
       return
+    }
+
+    if (messagePageState(conv.id)?.hasMoreNewer === true) {
+      console.info('[chat] send: force tail before append', conv.id)
+      const tailed = await ensureMessagesLoaded(conv.id, { force: true })
+      if (!tailed) {
+        console.error('[chat] send blocked because force tail failed', conv.id)
+        showUiToast('历史消息加载失败，请重试', 'error')
+        return
+      }
     }
 
     conv.messages.push(userMsg)

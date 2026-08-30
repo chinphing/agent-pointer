@@ -75,10 +75,7 @@ export function shouldRequestNewerFromWheel(input: {
   deltaY: number
   distanceFromBottom: number
   hasMoreNewer: boolean
-  /** List already ends on the in-flight generating turn — nothing newer below. */
-  lastMessageIsLiveTail?: boolean
 }): boolean {
-  if (input.lastMessageIsLiveTail) return false
   if (input.deltaY <= 0) return false
   if (!input.hasMoreNewer) return false
   return input.distanceFromBottom <= LOAD_NEWER_BOTTOM_PX
@@ -89,9 +86,7 @@ export function shouldRequestNewerFromTouchPull(input: {
   pullPx: number
   distanceFromBottom: number
   hasMoreNewer: boolean
-  lastMessageIsLiveTail?: boolean
 }): boolean {
-  if (input.lastMessageIsLiveTail) return false
   if (input.pullPx < OLDER_TOUCH_PULL_PX) return false
   if (!input.hasMoreNewer) return false
   return input.distanceFromBottom <= 1

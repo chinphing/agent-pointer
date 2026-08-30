@@ -103,11 +103,17 @@ export function conversationNavFisheye(distance: number): ConversationNavTickVis
   }
 }
 
-export function conversationNavRestTick(isActive: boolean): ConversationNavTickVisual {
+export function conversationNavRestTick(
+  isActive: boolean,
+  inLoadedWindow = false
+): ConversationNavTickVisual {
   if (isActive) {
     return { widthPx: 6, heightPx: 2, opacity: 0.92 }
   }
-  return { widthPx: 5, heightPx: 1.5, opacity: 0.28 }
+  if (inLoadedWindow) {
+    return { widthPx: 5, heightPx: 1.75, opacity: 0.55 }
+  }
+  return { widthPx: 5, heightPx: 1.5, opacity: 0.22 }
 }
 
 function isOptimisticNavUserMessage(message: ChatMessage): boolean {

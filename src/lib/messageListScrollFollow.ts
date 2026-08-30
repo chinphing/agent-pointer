@@ -115,14 +115,9 @@ export function switchConversationScrollPlan(input: {
 }
 
 /**
- * Around-window bottom is not the transcript tail — unless the loaded list
- * already ends on the in-flight generating turn, in which case that bottom
- * *is* the latest content and streaming must keep following.
+ * Follow only on the real tail window. A hole's loaded bottom is never the
+ * transcript end, even if a generating row was spliced into memory.
  */
-export function toBottomFollowsOutput(
-  hasMoreNewer: boolean,
-  lastMessageIsLiveTail = false
-): boolean {
-  if (lastMessageIsLiveTail) return true
+export function toBottomFollowsOutput(hasMoreNewer: boolean): boolean {
   return !hasMoreNewer
 }

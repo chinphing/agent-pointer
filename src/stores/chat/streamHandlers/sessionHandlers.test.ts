@@ -417,13 +417,15 @@ describe('sessionHandlers', () => {
   it('handleDone applies occupancy from Done so the stop button can clear', () => {
     const conv = sampleConversation()
     const setBackgroundJobCount = vi.fn()
+    const reconcileBackgroundHostsWhenOccupancyEmpty = vi.fn()
     const ctx = createMockStreamHandlerContext([conv], {
       currentId: ref('conv1'),
       clearRunState: vi.fn(),
       persistAppend: vi.fn(),
       isConversationGenerating: () => true,
       hasBackgroundJobs: () => false,
-      setBackgroundJobCount
+      setBackgroundJobCount,
+      reconcileBackgroundHostsWhenOccupancyEmpty
     })
     handleDone(ctx, {
       kind: 'done',
@@ -431,17 +433,40 @@ describe('sessionHandlers', () => {
       backgroundRunningCount: 0
     })
     expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 0)
+    expect(reconcileBackgroundHostsWhenOccupancyEmpty).toHaveBeenCalledWith('conv1')
   })
 
   it('handleBackgroundJobs updates occupancy', () => {
     const conv = sampleConversation()
     const setBackgroundJobCount = vi.fn()
-    const ctx = createMockStreamHandlerContext([conv], { setBackgroundJobCount })
+    const reconcileBackgroundHostsWhenOccupancyEmpty = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      setBackgroundJobCount,
+      reconcileBackgroundHostsWhenOccupancyEmpty
+    })
     handleBackgroundJobs(ctx, {
       kind: 'background_jobs',
       conversationId: 'conv1',
       runningCount: 2
     })
     expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 2)
+    expect(reconcileBackgroundHostsWhenOccupancyEmpty).not.toHaveBeenCalled()
+  })
+
+  it('handleBackgroundJobs hydrates leftover hosts when occupancy hits 0', () => {
+    const conv = sampleConversation()
+    const setBackgroundJobCount = vi.fn()
+    const reconcileBackgroundHostsWhenOccupancyEmpty = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], {
+      setBackgroundJobCount,
+      reconcileBackgroundHostsWhenOccupancyEmpty
+    })
+    handleBackgroundJobs(ctx, {
+      kind: 'background_jobs',
+      conversationId: 'conv1',
+      runningCount: 0
+    })
+    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 0)
+    expect(reconcileBackgroundHostsWhenOccupancyEmpty).toHaveBeenCalledWith('conv1')
   })
 })

@@ -113,8 +113,11 @@ import {
   hasDisconnectedLiveTail,
   mergeHydratedMessages,
   mergeMessagePage,
+  applyPersistedBackgroundHostOutcomes,
   countRunningBackgroundSubagents,
   finalizeOrphanBackgroundHosts,
+  repairBackgroundHostsFromChildOutcomes,
+  liveBackgroundHostMessageIds,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeAssistantMessage,
@@ -162,6 +165,10 @@ function pruneDuplicateBlankConversations(list: Conversation[]): {
 function normalizeSubAgentTraces(conversations: Conversation[]) {
   for (const conv of conversations) {
     rehydrateAgentTracesFromScopedMessages(conv)
+    const repaired = repairBackgroundHostsFromChildOutcomes(conv)
+    if (repaired > 0) {
+      console.info('[chat] repaired background hosts from child traces', conv.id, repaired)
+    }
     for (const msg of conv.messages) {
       for (const trace of msg.agentTrace ?? []) {
         if ((trace.depth ?? 0) === 0) continue
@@ -852,11 +859,83 @@ export const useChatStore = defineStore('chat', () => {
 
   function finalizeOrphansIfOccupancyEmpty(conv: Conversation) {
     if (!occupancySnapshotApplied) return
+    finalizeOrphansAfterEmptyOccupancy(conv)
+  }
+
+  /** Occupancy already known 0 (stream `background_jobs` or snapshot). */
+  function finalizeOrphansAfterEmptyOccupancy(conv: Conversation) {
     if (hasBackgroundJobs(conv.id)) return
     const n = finalizeOrphanBackgroundHosts(conv)
     if (n > 0) {
       console.info('[chat] occupancy: finalize orphan background hosts', conv.id, n)
     }
+  }
+
+  const occupancyHostReconcileInFlight = new Set<string>()
+
+  async function loadPersistedMessagesForBackgroundHostReconcile(
+    conv: Conversation
+  ): Promise<ChatMessage[]> {
+    const convId = conv.id
+    const page = await loadConversationMessagesPage(convId, {
+      limitTurns: DEFAULT_MESSAGE_PAGE_TURNS
+    })
+    attachPagePositions(page)
+    const byId = new Map<string, ChatMessage>()
+    const take = (rows: ChatMessage[]) => {
+      for (const row of stripWireAttachmentFields(
+        rows.filter(m => !isEphemeralDesktopNoticeMessage(m))
+      )) {
+        byId.set(row.id, row)
+      }
+    }
+    take(page.messages)
+    const missing = liveBackgroundHostMessageIds(conv).filter(id => !byId.has(id))
+    for (const messageId of missing) {
+      try {
+        const around = await loadConversationMessagesPage(convId, {
+          limitTurns: DEFAULT_MESSAGE_PAGE_TURNS,
+          aroundMessageId: messageId
+        })
+        attachPagePositions(around)
+        take(around.messages)
+      } catch (error) {
+        console.warn(
+          '[chat] occupancy: around-hydrate for background host failed',
+          convId,
+          messageId,
+          error
+        )
+      }
+    }
+    return [...byId.values()]
+  }
+
+  function reconcileBackgroundHostsWhenOccupancyEmpty(id: string) {
+    const convId = id.trim()
+    if (!convId) return
+    void (async () => {
+      if (hasBackgroundJobs(convId)) return
+      const conv = conversations.value.find(c => c.id === convId)
+      if (!conv || conv.messages.length === 0) return
+      if (countRunningBackgroundSubagents(conv) === 0) return
+      if (occupancyHostReconcileInFlight.has(convId)) return
+      occupancyHostReconcileInFlight.add(convId)
+      try {
+        const persisted = await loadPersistedMessagesForBackgroundHostReconcile(conv)
+        normalizeSubAgentTraces([conv])
+        const n = applyPersistedBackgroundHostOutcomes(conv, persisted)
+        if (n > 0) {
+          console.info('[chat] occupancy: hydrated background hosts from disk', convId, n)
+        }
+        finalizeOrphansAfterEmptyOccupancy(conv)
+      } catch (error) {
+        console.warn('[chat] occupancy: hydrate background hosts failed', convId, error)
+        finalizeOrphansAfterEmptyOccupancy(conv)
+      } finally {
+        occupancyHostReconcileInFlight.delete(convId)
+      }
+    })()
   }
 
   function applyBackgroundJobOccupancyFromSnapshot(snapshot: RunQueueSnapshot) {
@@ -878,7 +957,9 @@ export const useChatStore = defineStore('chat', () => {
       if (occupancy.has(id)) continue
       setBackgroundJobCount(id, 0)
       const conv = conversations.value.find(c => c.id === id)
-      if (conv && conv.messages.length > 0) finalizeOrphansIfOccupancyEmpty(conv)
+      if (conv && conv.messages.length > 0) {
+        reconcileBackgroundHostsWhenOccupancyEmpty(conv.id)
+      }
     }
     console.info('[chat] occupancy snapshot', {
       runningConversations: occupancy.size,
@@ -1550,9 +1631,12 @@ export const useChatStore = defineStore('chat', () => {
         if (!isConversationGenerating(convId)) {
           normalizeInterruptedAssistantStatuses([conv])
         }
+        normalizeSubAgentTraces([conv])
+        if (!hasBackgroundJobs(convId)) {
+          applyPersistedBackgroundHostOutcomes(conv, stripped)
+        }
         finalizeOrphansIfOccupancyEmpty(conv)
         seedBackgroundJobCountFromMessages(conv)
-        normalizeSubAgentTraces([conv])
         // Load-time stamp so trim does not treat missing viewedAt as forever-keep.
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
@@ -2011,9 +2095,12 @@ export const useChatStore = defineStore('chat', () => {
         if (!isConversationGenerating(convId)) {
           normalizeInterruptedAssistantStatuses([conv])
         }
+        normalizeSubAgentTraces([conv])
+        if (!hasBackgroundJobs(convId)) {
+          applyPersistedBackgroundHostOutcomes(conv, stripped)
+        }
         finalizeOrphansIfOccupancyEmpty(conv)
         seedBackgroundJobCountFromMessages(conv)
-        normalizeSubAgentTraces([conv])
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
         console.info(
@@ -3069,6 +3156,7 @@ export const useChatStore = defineStore('chat', () => {
       setBackgroundJobCount,
       hasBackgroundJobs,
       clearBackgroundJobsIfNoneLive,
+      reconcileBackgroundHostsWhenOccupancyEmpty,
       hasInFlightToolCalls,
       applyTaskBoardDocument,
       applyTaskBoardDocumentDebounced,

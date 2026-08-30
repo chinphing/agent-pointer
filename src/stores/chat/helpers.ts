@@ -1,7 +1,9 @@
 import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
-import { isBackgroundJobHost, isToolCallInProgress } from '../../lib/toolCallDisplay'
+import { isBackgroundJobHost, isBackgroundJobHandleResult, isToolCallInProgress } from '../../lib/toolCallDisplay'
+import { bindUnboundTracesToHosts } from '../../lib/subAgentMessages'
+import { isSubAgentTraceTerminal } from '../../lib/subAgentSession'
 import { randomUuid } from '../../lib/randomUuid'
-import type { ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
+import type { AgentTrace, ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
 
 /** Conversation / message client ids — UUID v4 (stable opaque segment for media paths). */
 export function uid() {
@@ -389,6 +391,103 @@ function isLiveBackgroundHost(tc: ToolCall): boolean {
   return isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)
 }
 
+function isTerminalToolStatus(status: ToolCall['status']): boolean {
+  return status === 'success' || status === 'failed' || status === 'rejected'
+}
+
+/** Message ids that still show a live background host in memory. */
+export function liveBackgroundHostMessageIds(conv: Conversation): string[] {
+  const ids: string[] = []
+  for (const msg of conv.messages) {
+    if ((msg.toolCalls ?? []).some(isLiveBackgroundHost)) ids.push(msg.id)
+  }
+  return ids
+}
+
+/**
+ * Occupancy is already 0, but UI hosts may still be `running` because the
+ * finish `ToolCallStatus` never reached memory. Copy terminal status/handle
+ * from persisted rows (same message + toolCall id). Does not invent cancel.
+ */
+function rewriteHandleStatus(result: string | undefined, status: string): string | undefined {
+  if (!isBackgroundJobHandleResult(result)) return result
+  try {
+    const v = JSON.parse(result!) as Record<string, unknown>
+    v.status = status
+    return JSON.stringify(v)
+  } catch {
+    return result
+  }
+}
+
+function tracesForHost(msg: ChatMessage, hostId: string): AgentTrace[] {
+  const id = hostId.trim()
+  return (msg.agentTrace ?? []).filter(t => (t.parentToolCallId ?? '').trim() === id)
+}
+
+/**
+ * Disk may still say `running` after a stale short-list sync. If every bound
+ * child trace is already terminal, promote the host so reload does not show
+ * 「后台运行」 or later 「已取消」.
+ */
+export function repairBackgroundHostsFromChildOutcomes(conv: Conversation): number {
+  let n = 0
+  for (const msg of conv.messages) {
+    if (msg.role !== 'assistant') continue
+    bindUnboundTracesToHosts(msg)
+    for (const tc of msg.toolCalls ?? []) {
+      if (!isLiveBackgroundHost(tc)) continue
+      const kids = tracesForHost(msg, tc.id)
+      if (kids.length === 0) continue
+      if (!kids.every(t => isSubAgentTraceTerminal(t.status))) continue
+      const failed = kids.some(t => {
+        const s = (t.status || '').trim().toLowerCase()
+        return s === 'failed' || s === 'cancelled' || s === 'canceled'
+      })
+      tc.status = failed ? 'failed' : 'success'
+      if (failed) {
+        if (!tc.error) tc.error = 'failed'
+        tc.result = rewriteHandleStatus(tc.result, 'failed')
+      } else {
+        delete tc.error
+        tc.result = rewriteHandleStatus(tc.result, 'completed')
+      }
+      n += 1
+    }
+    if (!hasInFlightToolCalls(msg) && (msg.status === 'streaming' || msg.status === 'pending')) {
+      msg.status = 'done'
+      msg.contentStreaming = false
+    }
+  }
+  return n
+}
+
+export function applyPersistedBackgroundHostOutcomes(
+  conv: Conversation,
+  persisted: readonly ChatMessage[]
+): number {
+  if (persisted.length === 0) return 0
+  const byId = new Map(persisted.map(m => [m.id, m]))
+  let n = 0
+  for (const msg of conv.messages) {
+    if (msg.role !== 'assistant') continue
+    const dbMsg = byId.get(msg.id)
+    if (!dbMsg) continue
+    for (const tc of msg.toolCalls ?? []) {
+      if (!isLiveBackgroundHost(tc)) continue
+      const dbTc = dbMsg.toolCalls?.find(t => t.id === tc.id)
+      if (!dbTc || !isTerminalToolStatus(dbTc.status)) continue
+      tc.status = dbTc.status
+      if (dbTc.result !== undefined) tc.result = dbTc.result
+      if (dbTc.error !== undefined) tc.error = dbTc.error
+      else delete tc.error
+      if (dbTc.durationMs !== undefined) tc.durationMs = dbTc.durationMs
+      n += 1
+    }
+  }
+  return n
+}
+
 function liveBackgroundHostIds(toolCalls: ToolCall[] | undefined): Set<string> {
   const ids = new Set<string>()
   for (const tc of toolCalls ?? []) {
@@ -537,7 +636,10 @@ export function countRunningBackgroundSubagents(conv: Conversation): number {
 
 /**
  * JobSupervisor is in-memory: process restart drops jobs, but SQLite may still
- * have host rows at `running`. Occupancy snapshot 0 means those rows are dead.
+ * have host rows at `running`. Occupancy snapshot 0 means the supervisor is
+ * empty — reconcile each live host from its handle JSON first. Only treat as
+ * interrupted when the handle still claims `running` (true zombie after restart).
+ * Never map completed jobs to「已取消」.
  */
 export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
   let n = 0
@@ -546,6 +648,41 @@ export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
     let changed = 0
     for (const tc of msg.toolCalls ?? []) {
       if (!isLiveBackgroundHost(tc)) continue
+      const handleStatus = backgroundHandleStatus(tc.result)
+      if (handleStatus === 'completed') {
+        tc.status = 'success'
+        tc.error = undefined
+        changed += 1
+        continue
+      }
+      if (handleStatus === 'failed') {
+        tc.status = 'failed'
+        if (!tc.error) tc.error = 'failed'
+        changed += 1
+        continue
+      }
+      if (handleStatus === 'cancelled' || handleStatus === 'canceled') {
+        tc.status = 'failed'
+        if (!tc.error) tc.error = 'cancelled'
+        changed += 1
+        continue
+      }
+      const kids = tracesForHost(msg, tc.id)
+      if (kids.length > 0 && kids.every(t => isSubAgentTraceTerminal(t.status))) {
+        const failed = kids.some(t => {
+          const s = (t.status || '').trim().toLowerCase()
+          return s === 'failed' || s === 'cancelled' || s === 'canceled'
+        })
+        tc.status = failed ? 'failed' : 'success'
+        if (failed) {
+          if (!tc.error) tc.error = 'failed'
+        } else {
+          tc.error = undefined
+        }
+        changed += 1
+        continue
+      }
+      // Handle missing or still "running" while supervisor occupancy is 0.
       tc.status = 'failed'
       if (!tc.error) tc.error = 'interrupted'
       changed += 1
@@ -556,6 +693,17 @@ export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
     }
   }
   return n
+}
+
+function backgroundHandleStatus(result?: string | null): string | null {
+  if (!isBackgroundJobHandleResult(result)) return null
+  try {
+    const v = JSON.parse(result!) as Record<string, unknown>
+    const status = typeof v.status === 'string' ? v.status.trim().toLowerCase() : ''
+    return status || null
+  } catch {
+    return null
+  }
 }
 
 /** After reload or stop, assistant rows must not stay `streaming`/`pending`. */

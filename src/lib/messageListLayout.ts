@@ -214,6 +214,10 @@ export function messageStructureFingerprint(
   const tools = kind === 'tool_only' || kind === 'message'
     ? deps.visibleToolCallsFor(message).map(tc => `${tc.id}:${tc.status}`).join(',')
     : ''
+  const traces = (message.agentTrace ?? [])
+    .filter(t => (t.depth ?? 0) > 0)
+    .map(t => `${t.id}:${t.status}:${(t.parentToolCallId ?? '').trim()}`)
+    .join(',')
   const glue = kind === 'glue' ? (deps.shouldShowGlue(message) ? '1' : '0') : '0'
   const boards = deps
     .boardsForMessage(message.id)
@@ -233,6 +237,7 @@ export function messageStructureFingerprint(
     message.status,
     kind,
     `tools:${tools}`,
+    `traces:${traces}`,
     `glue:${glue}`,
     `boards:${boards}`,
     `summary:${summary}`,

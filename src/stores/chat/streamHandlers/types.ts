@@ -51,6 +51,11 @@ export interface StreamHandlerContext {
   hasBackgroundJobs(id: string): boolean
   /** Clear occupancy when no in-memory background host row is still running. */
   clearBackgroundJobsIfNoneLive(id: string): void
+  /**
+   * Occupancy is 0: pull persisted host rows if memory still shows「后台运行」,
+   * then only mark true zombies interrupted.
+   */
+  reconcileBackgroundHostsWhenOccupancyEmpty(id: string): void
   hasInFlightToolCalls(msg: ChatMessage): boolean
 
   applyTaskBoardDocument(

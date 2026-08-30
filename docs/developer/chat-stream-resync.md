@@ -33,7 +33,7 @@
 | Server `chat_stream` | 广播缓冲 4096；按会话信封投递（见上文）；`Lagged` 时打 warn，并向该 SSE 连接发 `event: resync` |
 | Web `onStream` | **`chat.init` 一开始就发起**（与拉项目/会话列表并行），首次成功打开后才 resolve；断线期间 `waitForChatStreamReady` 为 false。收到 `resync`、流 body 结束、502/504/错误重连时调用 `onGap(reason)` |
 | 发送闸门 | `dispatchChatTurn` 在 `POST /api/chat` 前 `await waitForChatStreamReady()`，避免新会话首条在零订阅时把帧丢掉 |
-| 执行态对账 | `flags`：对照 dispatcher 清/置 `generating`，并用快照 `backgroundJobs` 重置后台占用（online、visibility、boot） |
+| 执行态对账 | `flags`：对照 dispatcher 清/置 `generating`，并用快照 `backgroundJobs` 重置后台占用（online、visibility、boot）。占用归零且宿主仍 `running` 时先按落盘句柄对齐，再处理僵尸行（见 `docs/ui/background-job-ui-consistency.md`） |
 | **消息拉取** | **仅** SSE 断开类 reason 走全量 `catch_up`：`server_lagged` / `stream_ended*` / `stream_error` / `stream_gateway_error`（含兼容 `sse_gap`）。另外：`flags` 模式下若清掉「服务端已结束、UI 仍 generating」的会话，也会对该会话 `force` 水合（覆盖首条未挂上 SSE 的情况） |
 | catch_up 水合 | `ensureMessagesLoaded({ force, silent })`，重新拉取最近回合窗口（非全量），不拨 hydrating UI |
 | 合并 | 强制水合时保留 live streaming 标志，正文/工具取与 DB 更完整的一侧 |

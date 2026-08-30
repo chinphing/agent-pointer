@@ -1,6 +1,7 @@
 //! Canonical SQLite conversation store (Hermes-style) with embedded FTS search.
 
 pub mod app_secrets;
+mod background_host_merge;
 mod cjk_fts;
 pub mod cron_jobs;
 mod db;

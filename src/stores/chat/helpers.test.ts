@@ -12,7 +12,9 @@ import {
   mergeMessagePage,
   messagesInCurrentPageWindow,
   countRunningBackgroundSubagents,
+  applyPersistedBackgroundHostOutcomes,
   finalizeOrphanBackgroundHosts,
+  repairBackgroundHostsFromChildOutcomes,
   normalizeInterruptedAssistantStatuses,
   normalizeStaleEndedAssistantTurn,
   removeTrailingDiscardableEmptyAssistant,
@@ -337,6 +339,161 @@ describe('chat helpers', () => {
     expect(c.messages[0].toolCalls![0].error).toBe('interrupted')
     expect(c.messages[0].agentTrace![0].status).toBe('completed')
     expect(countRunningBackgroundSubagents(c)).toBe(0)
+  })
+
+  it('finalizeOrphanBackgroundHosts promotes completed handles to success', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"completed","kind":"subagent"}'
+          }
+        ]
+      }
+    ])
+    expect(finalizeOrphanBackgroundHosts(c)).toBe(1)
+    expect(c.messages[0].toolCalls![0].status).toBe('success')
+    expect(c.messages[0].toolCalls![0].error).toBeUndefined()
+    expect(countRunningBackgroundSubagents(c)).toBe(0)
+  })
+
+  it('applyPersistedBackgroundHostOutcomes copies terminal hosts from disk', () => {
+    const live = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+          }
+        ]
+      }
+    ])
+    const persisted: typeof live.messages = [
+      {
+        ...live.messages[0]!,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'success',
+            result: '{"jobId":"job_1","status":"completed","kind":"subagent"}'
+          }
+        ]
+      }
+    ]
+    expect(applyPersistedBackgroundHostOutcomes(live, persisted)).toBe(1)
+    expect(live.messages[0]!.toolCalls![0]!.status).toBe('success')
+    expect(live.messages[0]!.toolCalls![0]!.result).toContain('"completed"')
+  })
+
+  it('repairBackgroundHostsFromChildOutcomes promotes hosts when traces finished', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '清单已备',
+        status: 'streaming',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'call_00_host',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+          }
+        ],
+        agentTrace: [
+          {
+            id: 'call_00_host:explore',
+            name: 'explore',
+            role: '',
+            status: 'completed',
+            depth: 1
+          }
+        ]
+      }
+    ])
+    expect(repairBackgroundHostsFromChildOutcomes(c)).toBe(1)
+    expect(c.messages[0]!.toolCalls![0]!.status).toBe('success')
+    expect(c.messages[0]!.toolCalls![0]!.result).toContain('"completed"')
+    expect(c.messages[0]!.agentTrace![0]!.parentToolCallId).toBe('call_00_host')
+    expect(c.messages[0]!.status).toBe('done')
+  })
+
+  it('finalizeOrphanBackgroundHosts does not cancel hosts with completed children', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+          }
+        ],
+        agentTrace: [
+          {
+            id: 'bg1:explore',
+            name: 'explore',
+            role: '',
+            status: 'completed',
+            depth: 1,
+            parentToolCallId: 'bg1'
+          }
+        ]
+      }
+    ])
+    expect(finalizeOrphanBackgroundHosts(c)).toBe(1)
+    expect(c.messages[0]!.toolCalls![0]!.status).toBe('success')
+    expect(c.messages[0]!.toolCalls![0]!.error).toBeUndefined()
+  })
+
+  it('applyPersistedBackgroundHostOutcomes leaves disk-running hosts alone', () => {
+    const live = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+          }
+        ]
+      }
+    ])
+    expect(applyPersistedBackgroundHostOutcomes(live, live.messages)).toBe(0)
+    expect(live.messages[0]!.toolCalls![0]!.status).toBe('running')
   })
 
   it('normalizeInterruptedAssistantStatuses keeps background terminal rows running', () => {

@@ -6,6 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::{ChatMessage, ConversationMeta};
 use serde::Serialize;
 
+use super::background_host_merge::merge_incoming_over_stored;
 use super::persist::{conversation_preview, message_index_content, role_str};
 
 pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> Result<()> {
@@ -201,12 +202,45 @@ fn max_message_position(conn: &Connection, conversation_id: &str) -> Result<i64>
     Ok(pos.unwrap_or(-1))
 }
 
+fn load_stored_message(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<Option<ChatMessage>> {
+    let payload: Option<String> = conn
+        .query_row(
+            "SELECT payload FROM messages WHERE conversation_id = ?1 AND message_id = ?2",
+            params![conversation_id, message_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(payload) = payload else {
+        return Ok(None);
+    };
+    match serde_json::from_str::<ChatMessage>(&payload) {
+        Ok(msg) => Ok(Some(msg)),
+        Err(err) => {
+            log::warn!(
+                "conversation_store: skip merge corrupt payload conversation_id={conversation_id} message_id={message_id}: {err}"
+            );
+            Ok(None)
+        }
+    }
+}
+
 fn insert_message_at(
     conn: &Connection,
     conversation_id: &str,
     msg: &ChatMessage,
     position: i64,
 ) -> Result<()> {
+    let merged;
+    let msg = if let Some(stored) = load_stored_message(conn, conversation_id, &msg.id)? {
+        merged = merge_incoming_over_stored(msg, &stored);
+        &merged
+    } else {
+        msg
+    };
     let content = message_index_content(msg);
     let payload = msg.to_store_payload_json()?;
     conn.execute(
@@ -607,7 +641,7 @@ mod tests {
     use super::*;
     use crate::conversation_store::persist::sample_conv;
     use crate::conversation_store::ConversationStore;
-    use crate::models::{ExcludedReason, MessageContextState, Role};
+    use crate::models::{ExcludedReason, MessageContextState, Role, ToolCall};
     use tempfile::TempDir;
 
     #[test]
@@ -942,5 +976,56 @@ mod tests {
             first_position + 2,
             "position continues after last row"
         );
+    }
+
+    #[test]
+    fn short_list_sync_does_not_clobber_background_host_success() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "T", "hello");
+        let mut host = super::super::persist::msg(
+            "msg_host",
+            Role::Assistant,
+            "spawn",
+            1_700_000_002_000,
+        );
+        host.status = "done".into();
+        host.tool_calls = Some(vec![ToolCall {
+            id: "call_bg".into(),
+            name: "run_subagent".into(),
+            arguments: r#"{"agentId":"explore","background":true}"#.into(),
+            status: "success".into(),
+            result: Some(r#"{"jobId":"job_1","status":"completed","kind":"subagent"}"#.into()),
+            error: None,
+            duration_ms: Some(10),
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }]);
+        conv.messages.push(host.clone());
+        store.save_all(&[conv.clone()]).unwrap();
+
+        let mut stale = host.clone();
+        stale.status = "streaming".into();
+        stale.tool_calls.as_mut().unwrap()[0].status = "running".into();
+        stale.tool_calls.as_mut().unwrap()[0].result =
+            Some(r#"{"jobId":"job_1","status":"running","kind":"subagent"}"#.into());
+        let short = vec![conv.messages[0].clone(), stale];
+        store
+            .sync_messages_ordered_with_meta("c1", &short, short.len() as u32, "p")
+            .unwrap();
+
+        let loaded = store.load_messages("c1").unwrap();
+        let got = loaded.iter().find(|m| m.id == "msg_host").unwrap();
+        assert_eq!(got.tool_calls.as_ref().unwrap()[0].status, "success");
+        assert!(got
+            .tool_calls
+            .as_ref()
+            .unwrap()[0]
+            .result
+            .as_deref()
+            .unwrap()
+            .contains("completed"));
+        assert_eq!(got.status, "done");
     }
 }

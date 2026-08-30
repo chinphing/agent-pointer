@@ -11,7 +11,7 @@ use crate::agents::{AgentDef, AgentRunResult, AgentTask};
 use crate::chat_service::self_fork::SelfForkSnapshot;
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::ChatMessage;
-use crate::models::{AgentTrace, ComputerOperationTarget, StreamEvent};
+use crate::models::{AgentTrace, ComputerOperationTarget, Role, StreamEvent};
 use crate::provider::OpenAIProvider;
 use crate::session_sandbox::SessionSandbox;
 use crate::tools::run_subagent::{
@@ -975,14 +975,39 @@ fn persist_background_host_tool_finish(
         return;
     };
     tc.status = status.to_string();
-    if let Some(result) = result {
+    if let Some(result) = result.clone() {
         tc.result = Some(result);
     }
     tc.error = error.map(str::to_string);
     if let Some(duration_ms) = duration_ms {
         tc.duration_ms = Some(duration_ms);
     }
+    let host_still_open = msg
+        .tool_calls
+        .as_ref()
+        .is_some_and(|calls| {
+            calls.iter().any(|c| {
+                matches!(
+                    c.status.as_str(),
+                    "running" | "pending" | "pending_approval"
+                )
+            })
+        });
+    if !host_still_open && matches!(msg.status.as_str(), "streaming" | "pending") {
+        msg.status = "done".into();
+    }
     super::conversation_persist::upsert_message(conversation_id, msg);
+    if let Some(handle) = result {
+        if let Some(tool_msg) = messages.iter_mut().find(|m| {
+            matches!(m.role, Role::Tool) && m.tool_call_id.as_deref() == Some(tool_call_id)
+        }) {
+            tool_msg.content = handle;
+            if tool_msg.status == "streaming" || tool_msg.status.is_empty() {
+                tool_msg.status = "completed".into();
+            }
+            super::conversation_persist::upsert_message(conversation_id, tool_msg);
+        }
+    }
     log::info!(
         "background host persisted tool conversation_id={conversation_id} tool_call_id={tool_call_id} status={status}"
     );

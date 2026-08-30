@@ -201,6 +201,75 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
     expect(conv.messages[0].agentTrace).toHaveLength(1)
   })
 
+  it('binds traces to background hosts and uses the latest child status', () => {
+    const conv: Conversation = {
+      id: 'c1',
+      title: 't',
+      createdAt: 1,
+      updatedAt: 1,
+      messages: [
+        {
+          id: 'lead',
+          role: 'assistant',
+          content: '开 4 个后台',
+          status: 'streaming',
+          createdAt: 1,
+          toolCalls: [
+            {
+              id: 'call_00',
+              name: 'run_subagent',
+              arguments: JSON.stringify({ agentId: 'explore', background: true }),
+              status: 'running'
+            },
+            {
+              id: 'call_01',
+              name: 'run_subagent',
+              arguments: JSON.stringify({ agentId: 'explore', background: true }),
+              status: 'running'
+            }
+          ]
+        },
+        {
+          id: 'mid',
+          role: 'assistant',
+          content: '',
+          status: 'streaming',
+          createdAt: 2,
+          anchorMessageId: 'lead',
+          traceId: 'call_00:explore',
+          taskId: 'call_00'
+        },
+        {
+          id: 'last',
+          role: 'assistant',
+          content: '交接完成',
+          status: 'done',
+          createdAt: 3,
+          anchorMessageId: 'lead',
+          traceId: 'call_00:explore',
+          taskId: 'call_00'
+        },
+        {
+          id: 'b2',
+          role: 'assistant',
+          content: '第二路完成',
+          status: 'done',
+          createdAt: 4,
+          anchorMessageId: 'lead',
+          traceId: 'call_01:explore',
+          taskId: 'call_01'
+        }
+      ],
+      skillIds: []
+    }
+    rehydrateAgentTracesFromScopedMessages(conv)
+    const traces = conv.messages[0]!.agentTrace ?? []
+    expect(traces).toHaveLength(2)
+    expect(traces.find(t => t.id === 'call_00:explore')?.status).toBe('completed')
+    expect(traces.find(t => t.id === 'call_00:explore')?.parentToolCallId).toBe('call_00')
+    expect(traces.find(t => t.id === 'call_01:explore')?.parentToolCallId).toBe('call_01')
+  })
+
   it('filters host stub and tool rows from sub-agent display', () => {
     const messages = [
       {

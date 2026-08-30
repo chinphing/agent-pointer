@@ -4,7 +4,7 @@ import type { ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { ArrowDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
-import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
+import AssistantModelMessage from './message/assistant/AssistantModelMessage.vue'
 import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
 import ContextCompressingMarker from './message/ContextCompressingMarker.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
@@ -1181,6 +1181,27 @@ function visibleToolsForGroups(groups: ToolRunGroup[]): ToolCall[] {
   return groups.flatMap(group => visibleToolsForMessage(group.message, group.toolCalls))
 }
 
+/** Merge tools + agentTrace onto the tool-run host so SubAgentFrame nests under hosts. */
+function toolRunAssistantMessage(groups: ToolRunGroup[]): ChatMessage | null {
+  const host = toolRunHostMessage(groups)
+  if (!host) return null
+  const tools = visibleToolsForGroups(groups)
+  const tracesById = new Map<string, NonNullable<ChatMessage['agentTrace']>[number]>()
+  for (const group of groups) {
+    for (const trace of group.message.agentTrace ?? []) {
+      if ((trace.depth ?? 0) <= 0) continue
+      tracesById.set(trace.id, trace)
+    }
+  }
+  const agentTrace = tracesById.size > 0 ? [...tracesById.values()] : host.agentTrace
+  if (tools === host.toolCalls && agentTrace === host.agentTrace) return host
+  return {
+    ...host,
+    toolCalls: tools,
+    ...(agentTrace ? { agentTrace } : {})
+  }
+}
+
 function toolRunBlockKey(block: ReturnType<typeof coalesceToolRunItems>[number]): string {
   if (block.kind === 'glue') return `glue-${block.message.id}`
   return `tools-${block.groups.map(group => group.id).join('|')}`
@@ -1779,15 +1800,13 @@ function entrySpacing(
                     :data-message-id="group.message.id"
                   />
                   <template
-                    v-for="host in [toolRunHostMessage(block.groups)]"
-                    :key="host?.id ?? 'tools'"
+                    v-for="display in [toolRunAssistantMessage(block.groups)]"
+                    :key="display?.id ?? 'tools'"
                   >
-                    <ToolMessageSegment
-                      v-if="host"
-                      :message="host"
-                      :tool-calls="visibleToolsForGroups(block.groups)"
-                      :message-ui="uiForMessageAgent(host.agentId, host.agentName, settings.settings, agentsCatalog)"
-                      compact-top
+                    <AssistantModelMessage
+                      v-if="display"
+                      :message="display"
+                      tool-only
                     />
                   </template>
                 </div>

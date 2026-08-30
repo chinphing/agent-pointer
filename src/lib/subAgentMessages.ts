@@ -1,6 +1,7 @@
 import type { AgentMessageBodyModel } from '../components/chat/message/assistant/AgentMessageBody.vue'
-import type { AgentTrace, ChatMessage, Conversation, SubAgentToolStats } from '../types/chat'
+import type { AgentTrace, ChatMessage, Conversation, SubAgentToolStats, ToolCall } from '../types/chat'
 import { toolCallBaseName } from './messageTooling'
+import { isBackgroundSubagentCall } from './toolCallDisplay'
 import {
   emptySubAgentToolStats,
   incrementSubAgentToolStats,
@@ -334,10 +335,11 @@ export function buildToolRawArgsFromMessages(messages: ChatMessage[]): string {
 }
 
 function inferTraceStatus(messages: ChatMessage[]): string {
-  if (messages.some(m => m.status === 'streaming' || m.status === 'pending')) {
-    return 'running'
-  }
-  if (messages.some(m => m.status === 'error')) return 'failed'
+  const assistants = messages.filter(m => m.role === 'assistant')
+  if (assistants.length === 0) return 'completed'
+  const latest = [...assistants].sort((a, b) => b.createdAt - a.createdAt)[0]!
+  if (latest.status === 'error') return 'failed'
+  if (latest.status === 'streaming' || latest.status === 'pending') return 'running'
   return 'completed'
 }
 
@@ -372,7 +374,6 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
       children.map(c => c.traceId?.trim()).filter((t): t is string => !!t)
     )
     for (const traceId of traceIds) {
-      if (lead.agentTrace.some(t => t.id === traceId)) continue
       const allForTrace = children.filter(
         c => c.role === 'assistant' && c.traceId?.trim() === traceId
       )
@@ -387,23 +388,74 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
         : allForTrace
       const first = forTrace[0]
       const status = inferTraceStatus(forTrace)
+      const parentToolCallId = inferParentToolCallId(lead, forTrace, traceId, first)
+      const existing = lead.agentTrace.find(t => t.id === traceId)
+      if (existing) {
+        existing.status = status
+        if (!(existing.parentToolCallId ?? '').trim() && parentToolCallId) {
+          existing.parentToolCallId = parentToolCallId
+        }
+        if (agentInstanceId && !existing.agentInstanceId) {
+          existing.agentInstanceId = agentInstanceId
+        }
+        continue
+      }
       const agentId = traceAgentId(traceId)
       const detail = forTrace
         .map(m => m.content?.trim())
         .filter(c => c && !isSubAgentHostStubContent(c))
         .pop()
-      const trace: AgentTrace = {
+      lead.agentTrace.push({
         id: traceId,
         name: first?.agentName?.trim() || agentId || '子任务',
         role: '',
         status,
         depth: first?.spawnDepth ?? 1,
         agentInstanceId,
+        parentToolCallId,
         detail: detail ? detail.slice(0, 160) : undefined,
         collapsed: true,
         userExpanded: false
-      }
-      lead.agentTrace.push(trace)
+      })
     }
+    bindUnboundTracesToHosts(lead)
+  }
+}
+
+function backgroundHostCalls(lead: ChatMessage): ToolCall[] {
+  return (lead.toolCalls ?? []).filter(isBackgroundSubagentCall)
+}
+
+function inferParentToolCallId(
+  lead: ChatMessage,
+  children: ChatMessage[],
+  traceId: string,
+  first: ChatMessage | undefined
+): string | undefined {
+  const hosts = backgroundHostCalls(lead)
+  const taskId = (first?.taskId || children.find(c => c.taskId?.trim())?.taskId || '').trim()
+  if (taskId && hosts.some(h => h.id === taskId)) return taskId
+  const host = hosts.find(h => traceId === h.id || traceId.startsWith(`${h.id}:`))
+  return host?.id
+}
+
+/** Legacy rows omit parentToolCallId; pair leftover traces to leftover hosts in order. */
+export function bindUnboundTracesToHosts(lead: ChatMessage): void {
+  const hosts = backgroundHostCalls(lead)
+  if (hosts.length === 0) return
+  const traces = lead.agentTrace ?? []
+  for (const trace of traces) {
+    if ((trace.parentToolCallId ?? '').trim()) continue
+    const inferred = inferParentToolCallId(lead, [], trace.id, undefined)
+    if (inferred) trace.parentToolCallId = inferred
+  }
+  const used = new Set(
+    traces.map(t => (t.parentToolCallId ?? '').trim()).filter(Boolean)
+  )
+  const unboundTraces = traces.filter(t => !(t.parentToolCallId ?? '').trim())
+  const unboundHosts = hosts.filter(h => !used.has(h.id))
+  const n = Math.min(unboundTraces.length, unboundHosts.length)
+  for (let i = 0; i < n; i += 1) {
+    unboundTraces[i]!.parentToolCallId = unboundHosts[i]!.id
   }
 }

@@ -97,9 +97,16 @@ fn parse_unquoted_media_path(rest: &str, leading_skip: usize) -> Option<ParsedMe
     }
 
     // Mid-sentence form: `Hello MEDIA:/tmp/a.png world` — try the first token.
+    // Do not treat a prefix file as the path when the rest still looks like
+    // path segments (macOS `…/Application Support/…`). A stray 0-byte file at
+    // `…/Library/Application` would otherwise steal the MEDIA: line.
     if let Some(token_raw) = body.split_whitespace().next() {
         let token = trim_trailing_path_punct(token_raw);
-        if !token.is_empty() && token != full && reply_media_path_resolves(token) {
+        if !token.is_empty()
+            && token != full
+            && !remainder_looks_like_path_continuation(body, token_raw)
+            && reply_media_path_resolves(token)
+        {
             return Some(ParsedMediaPath {
                 path: token,
                 // Consume through the raw whitespace token (incl. trailing punct on it).
@@ -113,6 +120,20 @@ fn parse_unquoted_media_path(rest: &str, leading_skip: usize) -> Option<ParsedMe
         path: full,
         consumed: leading_skip + full_end_in_rest,
     })
+}
+
+/// After the first whitespace token, remaining text still looks like more path
+/// (e.g. ` Support/PointerApp/…csv`), not prose (` world`).
+fn remainder_looks_like_path_continuation(body: &str, token_raw: &str) -> bool {
+    if token_raw.len() > body.len() || !body.starts_with(token_raw) {
+        return false;
+    }
+    let rest = body[token_raw.len()..].trim_start();
+    if rest.is_empty() {
+        return false;
+    }
+    let next = rest.split_whitespace().next().unwrap_or("");
+    next.contains('/') || next.contains('\\')
 }
 
 /// True when a reply media path / URI resolves to an existing file on disk.
@@ -313,6 +334,62 @@ mod tests {
         assert!(text.contains("MEDIA:"));
         assert!(text.contains(&path));
         assert!(media.is_empty());
+    }
+
+    #[test]
+    fn spaced_application_support_path_attaches_csv_not_prefix_file() {
+        let root = std::env::temp_dir().join(format!(
+            "pointer-app-support-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let library = root.join("Library");
+        let prefix_file = library.join("Application");
+        let csv = library
+            .join("Application Support")
+            .join("PointerApp")
+            .join("session-sandboxes")
+            .join("1530c681-176d-40ca-84b4-a90a34312628")
+            .join("subsidy_1055.csv");
+        fs::create_dir_all(csv.parent().unwrap()).unwrap();
+        fs::write(&prefix_file, b"").unwrap();
+        fs::write(&csv, b"a,b\n1,2\n").unwrap();
+        assert!(prefix_file.is_file());
+
+        let path = csv.display().to_string();
+        let (text, media) = split_reply_media(&format!(
+            "CSV 全量明细：\nMEDIA:{path}"
+        ));
+        assert_eq!(media, vec![path.clone()], "text was:\n{text}");
+        assert!(!text.contains("MEDIA:"));
+        assert!(!media.iter().any(|p| p.ends_with("/Application")));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn spaced_application_support_missing_csv_does_not_attach_prefix_file() {
+        let root = std::env::temp_dir().join(format!(
+            "pointer-app-support-missing-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let library = root.join("Library");
+        let prefix_file = library.join("Application");
+        fs::create_dir_all(&library).unwrap();
+        fs::write(&prefix_file, b"").unwrap();
+        let missing = library
+            .join("Application Support")
+            .join("PointerApp")
+            .join("subsidy_1055.csv");
+        let path = missing.display().to_string();
+        let (text, media) = split_reply_media(&format!("CSV 全量明细：\nMEDIA:{path}"));
+        assert!(
+            media.is_empty(),
+            "prefix file must not steal a spaced path; media={media:?}"
+        );
+        assert!(text.contains("MEDIA:"));
+        assert!(text.contains(&path));
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

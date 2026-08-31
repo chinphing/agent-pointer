@@ -751,6 +751,78 @@ describe('chat helpers', () => {
     expect(merged[1]?.status).toBe('streaming')
   })
 
+  it('mergeHydratedMessages in-flight-tail keeps the lead when only a scoped child is live', () => {
+    const mid: ChatMessage = {
+      id: 'mid-u',
+      role: 'user',
+      content: '中间',
+      status: 'done',
+      createdAt: 10,
+      position: 19
+    }
+    const midReply: ChatMessage = {
+      id: 'mid-a',
+      role: 'assistant',
+      content: 'ok',
+      status: 'done',
+      createdAt: 11,
+      position: 20
+    }
+    const work: ChatMessage = {
+      id: 'work',
+      role: 'user',
+      content: '报销',
+      status: 'done',
+      createdAt: 100,
+      position: 40
+    }
+    const lead: ChatMessage = {
+      id: 'lead',
+      role: 'assistant',
+      content: '开子任务',
+      status: 'streaming',
+      createdAt: 101,
+      position: 41,
+      agentTrace: [
+        { id: 'call_1:coder', name: 'coder', role: '', status: 'running', depth: 1 }
+      ]
+    }
+    const stub: ChatMessage = {
+      id: 'sub_task_1',
+      role: 'user',
+      content:
+        'Begin. Your assigned task is in the system prompt under **Assigned task**. Execute to completion; hand off in final assistant Markdown.',
+      status: 'done',
+      createdAt: 102,
+      anchorMessageId: 'lead',
+      traceId: 'call_1:coder'
+    }
+    const child: ChatMessage = {
+      id: 'agent_msg_live',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 103,
+      contentStreaming: true,
+      anchorMessageId: 'lead',
+      traceId: 'call_1:coder'
+    }
+    const merged = mergeHydratedMessages(
+      [mid, midReply, work, lead, stub, child],
+      [mid, midReply],
+      'in-flight-tail'
+    )
+    expect(merged.map(m => m.id)).toEqual([
+      'mid-u',
+      'mid-a',
+      'work',
+      'lead',
+      'sub_task_1',
+      'agent_msg_live'
+    ])
+    expect(merged.find(m => m.id === 'lead')?.agentTrace?.[0]?.status).toBe('running')
+  })
+
   it('mergeHydratedMessages in-flight-tail keeps the generating turn on an around page', () => {
     const mid: ChatMessage = {
       id: 'mid-u',

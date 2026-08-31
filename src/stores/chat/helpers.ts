@@ -1,6 +1,10 @@
 import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
 import { isBackgroundJobHost, isBackgroundJobHandleResult, isToolCallInProgress } from '../../lib/toolCallDisplay'
-import { bindUnboundTracesToHosts } from '../../lib/subAgentMessages'
+import {
+  bindUnboundTracesToHosts,
+  isScopedSubMessage,
+  isSubAgentHostStubContent
+} from '../../lib/subAgentMessages'
 import { isSubAgentTraceTerminal } from '../../lib/subAgentSession'
 import { randomUuid } from '../../lib/randomUuid'
 import type { AgentTrace, ChatMessage, Conversation, ExcludedReason, ToolCall } from '../../types/chat'
@@ -185,6 +189,13 @@ function overlayLiveStreamingRow(dbMsg: ChatMessage, live: ChatMessage): ChatMes
  * Live extras that belong to the in-flight generating turn (user + streaming
  * assistants after the last live row), not the rest of an around / old-tail window.
  */
+function isLeadTurnUser(msg: ChatMessage): boolean {
+  if (msg.role !== 'user') return false
+  if (isScopedSubMessage(msg)) return false
+  if (isSubAgentHostStubContent(msg.content)) return false
+  return true
+}
+
 export function liveGeneratingTurnExtras(
   inMemory: readonly ChatMessage[],
   dbIds: ReadonlySet<string>
@@ -202,12 +213,20 @@ export function liveGeneratingTurnExtras(
   }
   let start = lastInFlightIdx
   for (let i = lastInFlightIdx; i >= 0; i -= 1) {
-    if (ordered[i]?.role === 'user') {
+    if (isLeadTurnUser(ordered[i]!)) {
       start = i
       break
     }
   }
-  return ordered.slice(start).filter(m => !dbIds.has(m.id))
+  const slice = ordered.slice(start)
+  const anchors = new Set(
+    slice.map(m => m.anchorMessageId?.trim()).filter((id): id is string => !!id)
+  )
+  return ordered.filter((m, idx) => {
+    if (dbIds.has(m.id)) return false
+    if (idx >= start) return true
+    return anchors.has(m.id)
+  })
 }
 
 /**

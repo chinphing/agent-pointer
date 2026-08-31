@@ -270,6 +270,46 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
     expect(traces.find(t => t.id === 'call_01:explore')?.parentToolCallId).toBe('call_01')
   })
 
+  it('does not stamp a live running trace failed from persisted children', () => {
+    const conv: Conversation = {
+      id: 'c1',
+      title: 't',
+      createdAt: 1,
+      updatedAt: 1,
+      messages: [
+        {
+          id: 'lead',
+          role: 'assistant',
+          content: '开子任务',
+          status: 'streaming',
+          createdAt: 1,
+          agentTrace: [
+            {
+              id: 'call_1:coder',
+              name: 'coder',
+              role: '',
+              status: 'running',
+              depth: 1,
+              parentToolCallId: 'call_1'
+            }
+          ]
+        },
+        {
+          id: 'old-error',
+          role: 'assistant',
+          content: 'x',
+          status: 'error',
+          createdAt: 2,
+          anchorMessageId: 'lead',
+          traceId: 'call_1:coder'
+        }
+      ],
+      skillIds: []
+    }
+    rehydrateAgentTracesFromScopedMessages(conv)
+    expect(conv.messages[0]!.agentTrace![0]!.status).toBe('running')
+  })
+
   it('filters host stub and tool rows from sub-agent display', () => {
     const messages = [
       {

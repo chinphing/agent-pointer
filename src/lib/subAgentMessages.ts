@@ -339,8 +339,28 @@ function inferTraceStatus(messages: ChatMessage[]): string {
   if (assistants.length === 0) return 'completed'
   const latest = [...assistants].sort((a, b) => b.createdAt - a.createdAt)[0]!
   if (latest.status === 'error') return 'failed'
-  if (latest.status === 'streaming' || latest.status === 'pending') return 'running'
+  if (latest.status === 'streaming' || latest.status === 'pending' || latest.contentStreaming) {
+    return 'running'
+  }
   return 'completed'
+}
+
+/** agent_step is the authority for a live running frame; hydrate must not stamp 失败. */
+function resolveRehydratedTraceStatus(
+  existing: AgentTrace | undefined,
+  inferred: string,
+  forTrace: ChatMessage[]
+): string {
+  const live = (existing?.status || '').trim()
+  if (live === 'running' || live === 'streaming' || live === 'pending') {
+    if (inferred === 'failed' || inferred === 'completed' || inferred === 'cancelled') {
+      if (forTrace.some(m => m.status === 'streaming' || m.status === 'pending' || m.contentStreaming)) {
+        return 'running'
+      }
+      if (inferred === 'failed') return live
+    }
+  }
+  return inferred
 }
 
 function traceAgentId(traceId: string): string {
@@ -387,9 +407,10 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
           )
         : allForTrace
       const first = forTrace[0]
-      const status = inferTraceStatus(forTrace)
+      const inferred = inferTraceStatus(forTrace)
       const parentToolCallId = inferParentToolCallId(lead, forTrace, traceId, first)
       const existing = lead.agentTrace.find(t => t.id === traceId)
+      const status = resolveRehydratedTraceStatus(existing, inferred, forTrace)
       if (existing) {
         existing.status = status
         if (!(existing.parentToolCallId ?? '').trim() && parentToolCallId) {

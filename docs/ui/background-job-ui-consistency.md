@@ -58,7 +58,7 @@ job 终态（任意：正常结束 / 失败 / 取消）
 
 `background_jobs(0)` / 占用快照该会话为 0 时：若内存仍有 live 宿主，`reconcileBackgroundHostsWhenOccupancyEmpty` 只补宿主 `status`/`result`（不整表替换会话），再跑 `finalizeOrphanBackgroundHosts`。强制水合若走 `mergeHydratedMessages`，必须用 **DB 页** 再 apply 一遍（live overlay 会保住旧的 `running` 工具行）。
 
-`finalizeOrphanBackgroundHosts` 只处理「监督器已空且句柄仍声称 running」的僵尸行，并打 info 日志。打开会话时先 `rehydrate` + `repairBackgroundHostsFromChildOutcomes`（子 trace 已终态则提升宿主），再 apply 落盘、再 orphan，避免脏库被标成「已取消」。
+`finalizeOrphanBackgroundHosts` 只处理「监督器已空且句柄仍声称 running」的僵尸行，并打 info 日志。打开会话时先 `rehydrate` + `repairBackgroundHostsFromChildOutcomes`（子 trace 已终态则提升宿主），再 apply 落盘、再 orphan，避免脏库被标成「已取消」。`rehydrate` **不得**把仍是 `running` 的 live trace 改成「失败」；终态只认 `agent_step`。对话导航跳到中间再滚回底部时，force-tail 必须带上宿主，不能只留下 scoped 子行。
 
 父会话短列表 `sync_messages_ordered` **不得**用内存里仍是 `running` 的后台宿主盖掉库里已终态的同一 `toolCall`（`conversation_store/background_host_merge.rs`）。`complete_background_host_tool` 同时改宿主 `toolCalls` 和对应 `role:tool` 句柄行。
 

@@ -121,6 +121,17 @@ Body.
     }
 
     #[test]
+    fn terminal_schema_cwd_defaults_to_workspace() {
+        let md = include_str!("prompts/terminal.md");
+        let v = json_schema_from_markdown(md).unwrap();
+        let cwd = v["properties"]["cwd"]["description"].as_str().unwrap();
+        assert!(cwd.contains("$WORKING_DIR"));
+        let command = v["properties"]["command"]["description"].as_str().unwrap();
+        assert!(command.contains("$WORKING_DIR"));
+        assert!(command.contains("All reads, writes"));
+    }
+
+    #[test]
     fn rejects_json_fence_schema_legacy_format() {
         let md = r#"# T
 

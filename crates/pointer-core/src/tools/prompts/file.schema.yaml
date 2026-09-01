@@ -7,6 +7,8 @@ file_read:
   properties:
     path:
       type: string
+      description: >
+        File path. Relative paths resolve under the session workspace root.
     file:
       type: string
     offset:
@@ -30,6 +32,8 @@ file_write:
   properties:
     path:
       type: string
+      description: >
+        File path. Relative paths resolve under the session workspace root.
     content: {}
   required: [path, content]
   additionalProperties: true
@@ -39,6 +43,8 @@ file_edit:
   properties:
     path:
       type: string
+      description: >
+        File path. Relative paths resolve under the session workspace root.
     file:
       type: string
     oldString:

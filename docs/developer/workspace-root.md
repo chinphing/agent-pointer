@@ -18,6 +18,13 @@ When a chat run starts, the backend resolves the effective workspace in this ord
 
 Implementation: `chat_service/session_inner.rs` (`resolve_run_workspace`, `ensure_workspace_at_run_start`).
 
+## Agent `terminal` cwd
+
+Host default: omit **`cwd`** → session workspace (same as `$WORKING_DIR`).
+All CLI reads/writes/mkdir/clone/install/git use that root via relative paths.
+
+The OpenAI **function description** for `terminal` is compacted (`full usage in system Tools appendix`), so **`command` / `cwd` schema descriptions** are what the model sees on every call.
+
 ## Desktop conversation ids
 
 Frontend `newConversation` / message client ids use **UUID v4** via `randomUuid()` in

@@ -4,8 +4,13 @@ schema:
   properties:
     command:
       type: string
+      description: >
+        Shell command. All reads, writes, mkdir, clones, installs, and
+        other CLI work use the session workspace by default. Omit cwd;
+        relative paths resolve in `$WORKING_DIR` (workspace root).
     cwd:
       type: string
+      description: Omit for session workspace (`$WORKING_DIR`).
     timeoutMs:
       type: integer
       minimum: 1000
@@ -53,9 +58,7 @@ Set **`label`** to a short Chinese description of what the command does (e.g. `�
 
 #### Working directory and paths
 
-- Default **cwd** is the workspace root. Set **`cwd`** only when needed.
-- Do not **`cd`** to paths you invented — only workspace root, paths from
-  **`file`** / prior **`terminal`** output, or user-pasted paths.
+- Default **cwd** is the session workspace root (`$WORKING_DIR`); omit **`cwd`**.
 - Git in this project: omit **`cd`**, or **`git -C "<workspace_root>" …`**
   from session context.
 

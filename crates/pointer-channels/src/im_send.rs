@@ -1,8 +1,10 @@
-//! `im_send` tool — lets an agent proactively push a message to an IM channel
-//! during a run. Registered by [`crate::bridge::install_channel_outbound_bridge`].
+//! `im_send` tool — push to an IM channel **only when the user named that IM**.
+//! Registered by [`crate::bridge::install_channel_outbound_bridge`].
 //!
-//! This is the **dynamic** delivery path: the agent decides at runtime where to
-//! send. The **static** path (cron job's `deliver` field → `ImDeliverHook`) is
+//! App/Web file delivery is `MEDIA:` in assistant content, not this tool.
+//! Nested subagents do not inherit it (lead agent only).
+//!
+//! The **static** path (cron job's `deliver` field → `ImDeliverHook`) is
 //! handled separately in [`crate::im_deliver_hook`].
 //!
 //! Args:
@@ -46,7 +48,7 @@ pub fn register(reg: &ToolRegistry, gateway: Arc<ChannelGateway>) {
                 "properties": {
                     "to": {
                         "type": "string",
-                        "description": "Delivery target. Formats: \"feishu\" (home channel), \"feishu:ou_xxx\" (DM by open_id), \"feishu:group:chat_id\", \"dingtalk:userId\", \"wecom:userid\", \"weixin:wxid\", comma-separated for multiple, \"all\" for every configured home channel."
+                        "description": "IM target the user named this turn. Formats: \"feishu\" (home, they asked for Feishu), \"feishu:ou_xxx\" (DM), \"feishu:group:chat_id\", \"dingtalk:userId\", \"wecom:userid\", \"weixin:wxid\", comma-separated, \"all\" when they asked for every home channel."
                     },
                     "text": {
                         "type": "string",
@@ -55,7 +57,7 @@ pub fn register(reg: &ToolRegistry, gateway: Arc<ChannelGateway>) {
                 },
                 "required": ["to", "text"]
             }))
-            .with_subagent_inheritance(true),
+            .with_subagent_inheritance(false),
     );
 }
 

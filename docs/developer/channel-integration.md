@@ -333,7 +333,8 @@ App / Web 交互卡在给定选项外提供「其他」自由输入；后端与 
 
 - 已加入 `general` / `coder` / `computer` / `research` agent 的 `allowTools`。
 - 由 `install_channel_outbound_bridge` 注册到 `ToolRegistry`。
-- cron job 已配 `deliver` 时，平台会自动推送最终回复，agent 不应再调 `im_send` 重复推送（cron 用户消息前缀已说明）。
+- 仅主会话可见（子 Agent 不继承）；调用条件是用户点名飞书/钉钉/企微/微信或具体会话。
+- cron job 已配 `deliver` 时，平台自动推送最终回复（cron 用户消息前缀已说明）。
 
 ### HTTP / Webhook 注入（Phase 2）
 

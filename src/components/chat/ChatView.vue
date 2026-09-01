@@ -73,7 +73,8 @@ const showMessageListPlaceholder = computed(() =>
   shouldShowMessageListPlaceholder(
     chat.current !== null,
     isHydratingMessages.value,
-    deferMainPane.value
+    deferMainPane.value,
+    chat.current?.messages.length ?? 0
   )
 )
 const showWelcomeHome = computed(() =>
@@ -90,7 +91,7 @@ const showFooterComposer = computed(() =>
   shouldShowFooterComposer(
     showWelcomeHome.value,
     isMobileViewport.value,
-    isHydratingMessages.value
+    isHydratingMessages.value && (chat.current?.messages.length ?? 0) === 0
   )
 )
 const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)

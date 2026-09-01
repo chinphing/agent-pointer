@@ -17,4 +17,10 @@ describe('chat main pane state', () => {
     expect(shouldShowWelcomeHome(true, 0, placeholder)).toBe(true)
     expect(shouldShowWelcomeHome(true, 1, placeholder)).toBe(false)
   })
+
+  it('keeps MessageList mounted during force reload when rows are already loaded', () => {
+    expect(shouldShowMessageListPlaceholder(true, true, false, 4)).toBe(false)
+    expect(shouldShowMessageListPlaceholder(true, true, true, 4)).toBe(false)
+    expect(shouldShowMessageListPlaceholder(true, true, false, 0)).toBe(true)
+  })
 })

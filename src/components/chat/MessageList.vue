@@ -174,6 +174,7 @@ let scrollerResizeObserver: ResizeObserver | null = null
 let mobileMediaQuery: MediaQueryList | null = null
 let lastScrollTop = 0
 let olderLoadInFlight = false
+let tailJumpInFlight = false
 /** Auto-prefetch is one-shot per visit to the top; re-arm after leaving it. */
 let olderPrefetchArmed = true
 let newerLoadInFlight = false
@@ -1048,11 +1049,17 @@ async function jumpToLatest() {
       page?.newestPosition
     )
   if (needsTail && convId) {
+    if (tailJumpInFlight) {
+      toBottom({ settle: true })
+      return
+    }
+    tailJumpInFlight = true
     beginProgrammaticScroll()
     try {
       await chat.ensureMessagesLoaded(convId, { force: true })
       await nextTick()
     } finally {
+      tailJumpInFlight = false
       endProgrammaticScroll()
     }
   }

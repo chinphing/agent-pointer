@@ -256,6 +256,8 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
   思考模式线路仍发 `role: assistant`，并带合成 `reasoning_content`（`[context compression]`）；
   已落盘、reasoning 为空的摘要也在组请求时补上，避免 DeepSeek 400。
 
+父线程插入只认 lead 消息 id：不要把切点对上 scoped 子消息，也不要把摘要 append 到子消息后面（界面会看起来像跟在当前子 Agent 下面）。
+
 找不到切点 id 时：摘要插在第一条未被排除的消息之前；
 进行中标记插在该回合最后一条可见回复之前；落库插在最后一条 excluded 行之后。
 

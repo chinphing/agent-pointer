@@ -104,6 +104,28 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
       summary: ''
     }
   }
+  if (base === 'session_search') {
+    return {
+      label: '搜索会话',
+      summary: truncateToolSummary(strField(args, ['query']))
+    }
+  }
+  if (base === 'session_read') {
+    const around = strField(args, ['around_message_id'])
+    const offset = args.offset
+    const offsetLabel =
+      typeof offset === 'number' && Number.isFinite(offset)
+        ? `第 ${offset} 条`
+        : typeof offset === 'string' && offset.trim()
+          ? `第 ${offset.trim()} 条`
+          : ''
+    return {
+      label: '读取会话',
+      summary: truncateToolSummary(
+        around || offsetLabel || strField(args, ['conversation_id', 'session_id'])
+      )
+    }
+  }
 
   return { label: tc.displayLabel?.trim() || tc.name, summary: tc.displaySummary?.trim() || '' }
 }
@@ -549,7 +571,7 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
       stats.mediaUnderstand += 1
       continue
     }
-    if (base === 'session_search' || base === 'memory' || base === 'read_lints') {
+    if (base === 'session_search' || base === 'session_read' || base === 'memory' || base === 'read_lints') {
       stats.fileSearch += 1
       continue
     }

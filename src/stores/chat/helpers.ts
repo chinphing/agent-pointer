@@ -1,4 +1,5 @@
 import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
+import { leadThreadCompressionInsertIndex } from '../../lib/compressionLayout'
 import { isBackgroundJobHost, isBackgroundJobHandleResult, isToolCallInProgress } from '../../lib/toolCallDisplay'
 import {
   bindUnboundTracesToHosts,
@@ -32,34 +33,31 @@ export function applyExcludedMessageIds(
 
 /**
  * Index to splice a compression summary. Use the recorded keep-window id as-is
- * (including tool / glue rows). Walking to the next visible bubble would park
- * the chip on the final reply. Missing id → first non-excluded row, else append.
+ * on the lead thread (tool / glue rows included). Do not match scoped
+ * sub-agent rows or append after them — that parks the chip under the child.
+ * Missing id → first non-excluded lead row, else after the last lead row.
  */
 export function resolveCompressionInsertAt(
   messages: readonly ChatMessage[],
   insertBeforeMessageId: string,
   excludedMessageIds: readonly string[] = []
 ): number {
-  const anchor = insertBeforeMessageId.trim()
-  if (anchor) {
-    const idx = messages.findIndex(m => m.id === anchor)
-    if (idx >= 0) return idx
-  }
-
-  const excluded = new Set(
-    excludedMessageIds.map(id => id.trim()).filter(id => id.length > 0)
+  const insertAt = leadThreadCompressionInsertIndex(
+    messages,
+    insertBeforeMessageId,
+    excludedMessageIds
   )
-  if (excluded.size > 0) {
-    const firstKept = messages.findIndex(m => !excluded.has(m.id))
-    if (firstKept >= 0) return firstKept
+  if (insertAt === messages.length) {
+    const anchor = insertBeforeMessageId.trim()
+    if (!anchor) {
+      console.warn('[chat] compression summary insert: no keep anchor in thread', {
+        insertBeforeMessageId: null,
+        excluded: excludedMessageIds.length,
+        messages: messages.length
+      })
+    }
   }
-
-  console.warn('[chat] compression summary insert: no keep anchor in thread', {
-    insertBeforeMessageId: anchor || null,
-    excluded: excluded.size,
-    messages: messages.length
-  })
-  return messages.length
+  return insertAt
 }
 
 export function insertMessageBeforeAnchor(

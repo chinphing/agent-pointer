@@ -96,6 +96,33 @@ describe('chat helpers', () => {
     expect(c.messages.map(m => m.id)).toEqual(['u1', 'sum', 't1', 'a1'])
   })
 
+  it('insertMessageBeforeAnchor keeps a lead cut even when scoped children follow the host', () => {
+    const c = conv([
+      { id: 'u1', role: 'user', content: 'old', status: 'done', createdAt: 0 },
+      { id: 'a1', role: 'assistant', content: 'done', status: 'done', createdAt: 0, toolCalls: [] },
+      { id: 'u2', role: 'user', content: 'keep', status: 'done', createdAt: 1 },
+      { id: 'host', role: 'assistant', content: '', status: 'streaming', createdAt: 2, toolCalls: [] },
+      {
+        id: 'child',
+        role: 'assistant',
+        content: 'inner',
+        status: 'done',
+        createdAt: 3,
+        toolCalls: [],
+        anchorMessageId: 'host',
+        traceId: 't1'
+      }
+    ])
+    insertMessageBeforeAnchor(c, 'u2', {
+      id: 'sum',
+      role: 'user',
+      content: '[Conversation summary (auto-compression)]\nbody',
+      status: 'done',
+      createdAt: 0
+    })
+    expect(c.messages.map(m => m.id)).toEqual(['u1', 'a1', 'sum', 'u2', 'host', 'child'])
+  })
+
   it('insertMessageBeforeAnchor uses first kept visible row when keep id is missing', () => {
     const c = conv([
       { id: 'u1', role: 'user', content: 'old', status: 'done', createdAt: 0 },

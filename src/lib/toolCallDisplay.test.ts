@@ -154,6 +154,40 @@ describe('compactToolCallStatusLine', () => {
     expect(latestToolCallForCompactStatus([calls[0]])?.displayLabel).toBe('鼠标')
   })
 
+  it('falls back display for session_search and session_read', () => {
+    expect(
+      resolveToolDisplayForCall(
+        tc({
+          id: 'ss',
+          name: 'session_search',
+          status: 'success',
+          arguments: JSON.stringify({ query: '上次改过登录' })
+        })
+      )
+    ).toEqual({ label: '搜索会话', summary: '上次改过登录' })
+    expect(
+      resolveToolDisplayForCall(
+        tc({
+          id: 'sr',
+          name: 'session_read',
+          status: 'success',
+          arguments: JSON.stringify({ offset: 12 })
+        })
+      )
+    ).toEqual({ label: '读取会话', summary: '第 12 条' })
+    expect(
+      effectiveToolDisplayLabel(
+        tc({
+          id: 'ss-slug',
+          name: 'session_search',
+          status: 'success',
+          displayLabel: 'session_search',
+          arguments: JSON.stringify({ query: 'foo' })
+        })
+      )
+    ).toBe('搜索会话')
+  })
+
   it('falls back display for launch_app without backend labels', () => {
     const d = resolveToolDisplayForCall(
       tc({

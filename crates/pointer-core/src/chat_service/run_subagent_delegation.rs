@@ -675,6 +675,7 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
 }
 
 async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpawn) {
+    let started = Instant::now();
     let cap = crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
         .max_parallel_sub_agents;
     let cap = super::job_supervisor::JobSupervisor::slot_cap_from(cap);
@@ -706,13 +707,14 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                     None,
                     Some("cancelled".into()),
                 );
+                let duration_ms = started.elapsed().as_millis() as u64;
                 publish_owned_subagent_ui_finished(
                     &spawn.stream,
                     &spawn.message_id,
                     &spawn.tool_call_id,
                     &outcome.trace,
                     &outcome.exec,
-                    0,
+                    duration_ms,
                     spawn.host_trace_id.as_deref(),
                     spawn.host_scoped_message_id.as_deref(),
                     false,
@@ -725,7 +727,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                     &job_id,
                     super::job_supervisor::JobStatus::Cancelled,
                     Some("cancelled"),
-                    Some(0),
+                    Some(duration_ms),
                     spawn.host_trace_id.as_deref(),
                     spawn.host_scoped_message_id.as_deref(),
                     Some(spawn.instance_scope.agent_instance_id.as_str()),
@@ -763,13 +765,14 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                 Some(spawn.instance_scope.clone()),
                 msg.clone(),
             );
+            let duration_ms = started.elapsed().as_millis() as u64;
             publish_owned_subagent_ui_finished(
                 &spawn.stream,
                 &spawn.message_id,
                 &spawn.tool_call_id,
                 &outcome.trace,
                 &outcome.exec,
-                0,
+                duration_ms,
                 spawn.host_trace_id.as_deref(),
                 spawn.host_scoped_message_id.as_deref(),
                 false,
@@ -782,7 +785,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                 &job_id,
                 super::job_supervisor::JobStatus::Failed,
                 Some(msg.as_str()),
-                Some(0),
+                Some(duration_ms),
                 spawn.host_trace_id.as_deref(),
                 spawn.host_scoped_message_id.as_deref(),
                 Some(spawn.instance_scope.agent_instance_id.as_str()),
@@ -850,6 +853,14 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
         }
     };
     spawn.state.jobs.finish(&job_id, status, content, error);
+    let duration_ms = started.elapsed().as_millis() as u64;
+    log::info!(
+        "run_subagent background finished job_id={job_id} conversation_id={} tool_call_id={} status={} duration_ms={}",
+        spawn.conversation_id,
+        spawn.tool_call_id,
+        status.as_str(),
+        duration_ms
+    );
     complete_background_host_tool(
         &spawn.stream,
         &spawn.conversation_id,
@@ -864,7 +875,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
             .and_then(|(_, _, note)| note.clone())
             .or_else(|| outcome.exec.as_ref().err().map(|e| e.to_string()))
             .as_deref(),
-        None,
+        Some(duration_ms),
         spawn.host_trace_id.as_deref(),
         spawn.host_scoped_message_id.as_deref(),
         Some(spawn.instance_scope.agent_instance_id.as_str()),

@@ -423,6 +423,27 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     .unwrap_or_default(),
             )
         }
+        "session_search" => {
+            let q = str_field(args, &["query"]).unwrap_or_default();
+            ("搜索会话".to_string(), truncate(&q, SUMMARY_MAX))
+        }
+        "session_read" => {
+            let summary = str_field(args, &["around_message_id"])
+                .or_else(|| {
+                    args.get("offset").and_then(|v| {
+                        if let Some(n) = v.as_i64() {
+                            Some(format!("第 {n} 条"))
+                        } else if let Some(s) = v.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                            Some(format!("第 {s} 条"))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .or_else(|| str_field(args, &["conversation_id", "session_id"]))
+                .unwrap_or_default();
+            ("读取会话".to_string(), truncate(&summary, SUMMARY_MAX))
+        }
         "web_search" => {
             let q = str_field(args, &["query"]).unwrap_or_default();
             ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX))
@@ -626,6 +647,20 @@ mod tests {
         );
         assert_eq!(d.label, "媒体理解");
         assert_eq!(d.summary, "总结合同中的违约责任条款");
+    }
+
+    #[test]
+    fn session_search_label_uses_query() {
+        let d = default_display("session_search", &json!({"query": "上次改过登录"}));
+        assert_eq!(d.label, "搜索会话");
+        assert_eq!(d.summary, "上次改过登录");
+    }
+
+    #[test]
+    fn session_read_label_uses_offset() {
+        let d = default_display("session_read", &json!({"offset": 12, "limit": 40}));
+        assert_eq!(d.label, "读取会话");
+        assert_eq!(d.summary, "第 12 条");
     }
 
     #[test]

@@ -9,12 +9,15 @@ import {
   FolderOpen,
   GitMerge,
   Globe,
+  History,
+  Hourglass,
   Image as ImageIcon,
   Keyboard,
   LayoutGrid,
   Link,
   ListTodo,
   MessageCircleQuestion,
+  MessageSquareText,
   MousePointer2,
   ScanEye,
   Search,
@@ -38,14 +41,11 @@ export function toolCallKindIcon(name: string): LucideIcon {
   if (base === 'file_read') return FileText
   if (base === 'file_write') return FilePlus
   if (base === 'file_edit') return FilePen
-  if (
-    base === 'file_grep'
-    || base === 'file_glob'
-    || base === 'session_search'
-    || base === 'memory'
-  ) {
+  if (base === 'file_grep' || base === 'file_glob' || base === 'memory') {
     return Search
   }
+  if (base === 'session_search') return History
+  if (base === 'session_read') return MessageSquareText
   if (base === 'file_list') return FolderOpen
   if (base === 'web_search') return Globe
   if (base === 'web_fetch') return Link
@@ -53,6 +53,7 @@ export function toolCallKindIcon(name: string): LucideIcon {
   if (base === 'run_subagent') return GitMerge
   if (base === 'ask_user') return MessageCircleQuestion
   if (base === 'cron_job') return Clock
+  if (base === 'job') return Hourglass
   if (base === 'mouse' || base.startsWith('mouse_') || base.startsWith('modified_click_')) {
     return MousePointer2
   }
@@ -77,11 +78,11 @@ export function isKnownToolKind(name: string): boolean {
 }
 
 /**
- * Keep the kind name for 询问用户 (no summary) and unknown tools.
+ * Keep the kind name for 询问用户 / 后台任务 (no summary) and unknown tools.
  * Other kinds, including 委派, replace the name with the icon.
  */
 export function toolCallShowsKindLabel(name: string): boolean {
   const base = toolCallBaseName(name.trim())
-  if (base === 'ask_user') return true
+  if (base === 'ask_user' || base === 'job') return true
   return !isKnownToolKind(name)
 }

@@ -95,7 +95,7 @@ export function incrementSubAgentToolStats(
     stats.mediaCount = (stats.mediaCount ?? 0) + 1
     return
   }
-  if (base === 'session_search' || base === 'memory') {
+  if (base === 'session_search' || base === 'session_read' || base === 'memory') {
     stats.searchCount += 1
     return
   }

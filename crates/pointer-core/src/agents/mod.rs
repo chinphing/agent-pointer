@@ -397,6 +397,12 @@ pub struct AgentRunResult {
     /// Unused for the parent `run_subagent` tool result (handoff is `content` only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
+    #[serde(
+        default,
+        rename = "agentInstanceId",
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub agent_instance_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1704,7 +1710,7 @@ mod builtin_agent_tests {
                 "general allowTools should include {tool}"
             );
         }
-        for tool in ["skill_read", "skill_import"] {
+        for tool in ["skill_read", "skill_import", "session_search", "session_read"] {
             assert!(
                 agent
                     .def
@@ -1815,7 +1821,7 @@ mod builtin_agent_tests {
                 .any(|id| id == "agent-browser"),
             "coder defaultSkillIds should include agent-browser"
         );
-        for tool in ["skill_read", "session_search"] {
+        for tool in ["skill_read", "session_search", "session_read"] {
             assert!(
                 agent
                     .def

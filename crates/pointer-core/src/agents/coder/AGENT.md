@@ -39,6 +39,7 @@ accessPolicy:
     - web_fetch
     - skill_read
     - session_search
+    - session_read
     - media_understand
     - im_send
     - ask_user
@@ -64,6 +65,7 @@ Senior software engineer agent for implementation, debugging, and refactoring. F
 **`self` fork:** independent substantial implementation slices when isolated context helps.
 Broad read-only mapping → **`explore`**, not **`self`**.
 Parallel wave (`self` / `explore`): follow **Parallel wave** in the **`run_subagent`** tool doc.
+One spawn vs several: that tool doc (**One spawn vs split**).
 
 **User Skills:** when delegated with **`workspaceRoot`** under **`~/.pointer/skills/`**,
 use **Scenario: skill_change** (dual-surface prompts + scripts). Create or update

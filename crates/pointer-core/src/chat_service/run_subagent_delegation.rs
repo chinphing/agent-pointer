@@ -49,6 +49,12 @@ fn serialize_subagent_result_without_task_id(
         "content".to_string(),
         serde_json::Value::String(result.content.clone()),
     );
+    if !result.agent_instance_id.trim().is_empty() {
+        obj.insert(
+            "agentInstanceId".to_string(),
+            serde_json::Value::String(result.agent_instance_id.clone()),
+        );
+    }
     // Parent context is the handoff body only. Sub-agent thinking stays on
     // scoped assistant rows and must not round-trip into this tool result.
     serde_json::to_string(&serde_json::Value::Object(obj))
@@ -93,6 +99,8 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     /// Foreground join writes a worker preview onto the host `run_subagent` row.
     /// Background spawn keeps that row as a job handle; skip the preview status event.
     pub emit_host_tool_status: bool,
+    /// Pre-minted child thread id (background register). Foreground mints in execute.
+    pub instance_scope: Option<AgentInstanceScope>,
 }
 
 pub(super) struct SubagentCommitContext<'a> {
@@ -124,13 +132,16 @@ pub(super) fn failed_owned_subagent_outcome(
     task: AgentTask,
     source: &OwnedSubagentSource,
     child_spawn_depth: u32,
+    preset_instance: Option<AgentInstanceScope>,
     error: String,
 ) -> PreparedSubagentOutcome {
     let def = match source {
         OwnedSubagentSource::SelfFork(snapshot) => &snapshot.def,
         OwnedSubagentSource::Registered(def) => def,
     };
-    let instance_scope = AgentInstanceScope::new(run_id, conversation_id, def.id.as_str());
+    let instance_scope = preset_instance.unwrap_or_else(|| {
+        AgentInstanceScope::new(run_id, conversation_id, def.id.as_str())
+    });
     log::warn!(
         "run_subagent owned-wave preparation failed conversation_id={} task_id={} tool_call_id={} agent_id={}: {}",
         conversation_id,
@@ -165,12 +176,15 @@ pub(super) fn cancelled_owned_subagent_outcome(
     task: AgentTask,
     source: &OwnedSubagentSource,
     child_spawn_depth: u32,
+    preset_instance: Option<AgentInstanceScope>,
 ) -> PreparedSubagentOutcome {
     let def = match source {
         OwnedSubagentSource::SelfFork(snapshot) => &snapshot.def,
         OwnedSubagentSource::Registered(def) => def,
     };
-    let instance_scope = AgentInstanceScope::new(run_id, conversation_id, def.id.as_str());
+    let instance_scope = preset_instance.unwrap_or_else(|| {
+        AgentInstanceScope::new(run_id, conversation_id, def.id.as_str())
+    });
     log::info!(
         "run_subagent owned-wave skipped conversation_id={} task_id={} tool_call_id={} agent_id={} (cancelled)",
         conversation_id,
@@ -366,6 +380,7 @@ pub(super) async fn execute_owned_subagent(
             input.task,
             &input.source,
             input.child_spawn_depth,
+            input.instance_scope.clone(),
         );
     }
     let OwnedSubagentExecutionInput {
@@ -388,6 +403,7 @@ pub(super) async fn execute_owned_subagent(
         host_scoped_message_id,
         state_arc,
         emit_host_tool_status,
+        instance_scope: preset_instance,
     } = input;
     let empty_overrides = std::collections::HashMap::new();
     let (definition_source, skill_ids, overrides, def_for_trace) = match &source {
@@ -404,7 +420,9 @@ pub(super) async fn execute_owned_subagent(
             def,
         ),
     };
-    let instance_scope = definition_source.new_instance_scope(&run_id, conversation_id);
+    let instance_scope = preset_instance.unwrap_or_else(|| {
+        definition_source.new_instance_scope(&run_id, conversation_id)
+    });
     log::info!(
         "run_subagent owned-wave start conversation_id={} task_id={} tool_call_id={} agent_id={} agent_instance_id={}",
         conversation_id,
@@ -596,6 +614,7 @@ pub(crate) struct BackgroundOwnedSpawn {
     pub max_spawn_depth: u32,
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
+    pub instance_scope: AgentInstanceScope,
 }
 
 pub(crate) fn emit_background_jobs(stream: &super::StreamTx, conversation_id: &str, running_count: usize) {
@@ -609,6 +628,18 @@ pub(crate) fn emit_background_jobs(stream: &super::StreamTx, conversation_id: &s
 }
 
 /// Register a background job and return `jobId` without joining the child.
+pub(crate) fn mint_owned_child_instance_scope(
+    source: &OwnedSubagentSource,
+    run_id: &str,
+    conversation_id: &str,
+) -> AgentInstanceScope {
+    let role = match source {
+        OwnedSubagentSource::SelfFork(snapshot) => snapshot.def.id.as_str(),
+        OwnedSubagentSource::Registered(def) => def.id.as_str(),
+    };
+    AgentInstanceScope::new(run_id, conversation_id, role)
+}
+
 pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> String {
     let agent_id = match &spawn.source {
         OwnedSubagentSource::SelfFork(snapshot) => snapshot.def.id.clone(),
@@ -619,6 +650,7 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
         message_id: spawn.message_id.clone(),
         agent_id,
         title: spawn.task.title.clone(),
+        agent_instance_id: spawn.instance_scope.agent_instance_id.clone(),
     });
     let job_id = spawn
         .state
@@ -666,6 +698,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                     spawn.task.clone(),
                     &spawn.source,
                     spawn.child_spawn_depth,
+                    Some(spawn.instance_scope.clone()),
                 );
                 spawn.state.jobs.finish(
                     &job_id,
@@ -695,6 +728,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                     Some(0),
                     spawn.host_trace_id.as_deref(),
                     spawn.host_scoped_message_id.as_deref(),
+                    Some(spawn.instance_scope.agent_instance_id.as_str()),
                 );
                 emit_background_jobs(
                     &spawn.stream,
@@ -726,6 +760,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                 spawn.task.clone(),
                 &spawn.source,
                 spawn.child_spawn_depth,
+                Some(spawn.instance_scope.clone()),
                 msg.clone(),
             );
             publish_owned_subagent_ui_finished(
@@ -750,6 +785,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                 Some(0),
                 spawn.host_trace_id.as_deref(),
                 spawn.host_scoped_message_id.as_deref(),
+                Some(spawn.instance_scope.agent_instance_id.as_str()),
             );
             emit_background_jobs(
                 &spawn.stream,
@@ -785,6 +821,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
         host_scoped_message_id: spawn.host_scoped_message_id.clone(),
         state_arc: spawn.state.clone(),
         emit_host_tool_status: false,
+        instance_scope: Some(spawn.instance_scope.clone()),
     };
     let outcome = execute_owned_subagent(input).await;
     drop(_lease);
@@ -830,6 +867,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
         None,
         spawn.host_trace_id.as_deref(),
         spawn.host_scoped_message_id.as_deref(),
+        Some(spawn.instance_scope.agent_instance_id.as_str()),
     );
     emit_background_jobs(
         &spawn.stream,
@@ -849,13 +887,17 @@ pub(crate) fn background_job_handle_json(
     job_id: &str,
     status: super::job_supervisor::JobStatus,
     kind: &'static str,
+    agent_instance_id: Option<&str>,
 ) -> String {
-    serde_json::json!({
+    let mut obj = serde_json::json!({
         "jobId": job_id,
         "status": status.as_str(),
         "kind": kind,
-    })
-    .to_string()
+    });
+    if let Some(id) = agent_instance_id.filter(|s| !s.trim().is_empty()) {
+        obj["agentInstanceId"] = serde_json::Value::String(id.to_string());
+    }
+    obj.to_string()
 }
 
 fn host_ui_status_for_job(status: super::job_supervisor::JobStatus) -> &'static str {
@@ -914,8 +956,9 @@ fn complete_background_host_tool(
     duration_ms: Option<u64>,
     host_trace_id: Option<&str>,
     host_scoped_message_id: Option<&str>,
+    agent_instance_id: Option<&str>,
 ) {
-    let handle = background_job_handle_json(job_id, job_status, "subagent");
+    let handle = background_job_handle_json(job_id, job_status, "subagent", agent_instance_id);
     let ui_status = host_ui_status_for_job(job_status);
     emit_and_persist_host_tool_finish(
         stream,
@@ -1161,6 +1204,11 @@ pub(super) async fn run_subagent_delegation(
                             context: parsed.context.trim().to_string(),
                             depends_on: vec![],
                         };
+                        let child_scope = mint_owned_child_instance_scope(
+                            &OwnedSubagentSource::Registered(def.clone()),
+                            run_id,
+                            conversation_id,
+                        );
                         let job_id = spawn_background_owned_subagent(BackgroundOwnedSpawn {
                             stream: stream.clone(),
                             state: ctx.state_arc.clone(),
@@ -1180,11 +1228,13 @@ pub(super) async fn run_subagent_delegation(
                             max_spawn_depth,
                             host_trace_id: None,
                             host_scoped_message_id: None,
+                            instance_scope: child_scope.clone(),
                         });
                         let body = background_job_handle_json(
                             &job_id,
                             super::job_supervisor::JobStatus::Running,
                             "subagent",
+                            Some(child_scope.agent_instance_id.as_str()),
                         );
                         log::info!(
                             "run_subagent serial background spawn conversation_id={conversation_id} tool_call_id={tool_call_id} job_id={job_id}"
@@ -1453,6 +1503,7 @@ mod trace_tests {
             agent_name: "氛围编程".into(),
             content: "handoff body".into(),
             reasoning: Some("thinking".into()),
+            agent_instance_id: "inst-fg".into(),
         };
         let json = serialize_subagent_result_without_task_id(&result).unwrap();
         assert!(!json.contains("sub_task_should_not_leak"));
@@ -1460,6 +1511,7 @@ mod trace_tests {
         assert!(json.contains("\"agentId\":\"coder\""));
         assert!(json.contains("\"agentName\":\"氛围编程\""));
         assert!(json.contains("\"content\":\"handoff body\""));
+        assert!(json.contains("\"agentInstanceId\":\"inst-fg\""));
         assert!(!json.contains("reasoning"));
     }
 
@@ -1639,6 +1691,7 @@ mod trace_tests {
             "job_1",
             crate::chat_service::job_supervisor::JobStatus::Completed,
             "subagent",
+            None,
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["jobId"], "job_1");
@@ -1677,6 +1730,7 @@ mod trace_tests {
             crate::chat_service::job_supervisor::JobStatus::Completed,
             None,
             Some(42),
+            None,
             None,
             None,
         );
@@ -1747,6 +1801,12 @@ mod trace_tests {
             depends_on: vec![],
         };
 
+        let preset = AgentInstanceScope::with_instance_id(
+            "run",
+            "conversation",
+            "self",
+            "preset-instance-id",
+        );
         let outcome = failed_owned_subagent_outcome(
             "run",
             "conversation",
@@ -1754,11 +1814,16 @@ mod trace_tests {
             task,
             &OwnedSubagentSource::SelfFork(snapshot),
             2,
+            Some(preset),
             "spawn depth limit".into(),
         );
 
         assert_eq!(outcome.tool_call_id, "call-failed");
         assert_eq!(outcome.trace.status, "failed");
+        assert_eq!(
+            outcome.trace.agent_instance_id.as_deref(),
+            Some("preset-instance-id")
+        );
         let (result, ok, error) = outcome.exec.unwrap();
         assert!(!ok);
         assert!(result.contains("spawn depth limit"));
@@ -1951,6 +2016,7 @@ mod trace_tests {
             host_scoped_message_id: None,
             state_arc: state.clone(),
             emit_host_tool_status: true,
+            instance_scope: None,
         })
         .await;
 
@@ -2038,6 +2104,7 @@ mod trace_tests {
                 host_scoped_message_id: None,
                 state_arc: state.clone(),
                 emit_host_tool_status: true,
+                instance_scope: None,
             })
         };
 

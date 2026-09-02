@@ -14,17 +14,13 @@ Each conversation row stores `session_user_id` (API field `sessionUserId`).
 
 IM values are written on each inbound message before `run_chat`. Desktop values use `ensure` and do not overwrite an existing id.
 
-## `session_search` isolation
+## `session_search` / `session_read` isolation
 
 The host injects `_session_user_id` (from the active conversation row) into every
-`session_search` call. Browse, discovery, scroll, and read only return conversations
+`session_search` and `session_read` call. Discovery and read only return conversations
 whose stored `session_user_id` matches (trimmed equality). Empty matches empty
 (anonymous / legacy rows). Cross-user targets return the same `conversation_id not found`
 error as a missing id.
-
-Browse uses index `idx_conversations_user_updated (session_user_id, updated_at_ms DESC)`.
-Values are normalized on write (`trim`); discovery joins `conversations` on `id` with
-`session_user_id = ?` (no `trim()` on columns).
 
 ## Subprocess env
 

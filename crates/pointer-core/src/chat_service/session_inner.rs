@@ -426,11 +426,32 @@ pub(super) async fn run_chat_inner(
     let lead_role = lead_worker_id
         .clone()
         .unwrap_or_else(|| effective_agent_mode.clone());
+    let lead_instance_id = match crate::conversation_store::global_store() {
+        Ok(store) => match store.ensure_lead_agent_instance(conversation_id) {
+            Ok(id) => id,
+            Err(err) => {
+                log::error!(
+                    "session: ensure_lead_agent_instance failed conversation_id={conversation_id}: {err:#}"
+                );
+                uuid::Uuid::new_v4().to_string()
+            }
+        },
+        Err(err) => {
+            log::error!(
+                "session: conversation store unavailable for lead instance conversation_id={conversation_id}: {err:#}"
+            );
+            uuid::Uuid::new_v4().to_string()
+        }
+    };
+    agent_plan.system_prompts.push(
+        crate::agent_instance_scope::agent_instance_id_system_line(&lead_instance_id),
+    );
     let mut llm_token_session = ChatLlmTokenSession::new(
         run_id.to_string(),
         conversation_id.to_string(),
         lead_role,
         model_name,
+        lead_instance_id,
     );
     crate::context_compression::remember_session_llm(
         conversation_id,

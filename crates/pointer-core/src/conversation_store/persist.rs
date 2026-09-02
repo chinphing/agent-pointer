@@ -36,9 +36,11 @@ fn content_marks_system_generated_user(content: &str) -> bool {
 
 const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled_v2";
 const CONTEXT_INCLUDED_BACKFILL_META: &str = "context_included_backfilled";
+const AGENT_INSTANCE_ID_COL_BACKFILL_META: &str = "agent_instance_id_col_v25";
 /// Indexed `messages.content` for a prior `session_search` tool row.
 /// Full JSON stays in `payload` for the UI; FTS and recall skip this stub.
 pub const SESSION_SEARCH_INDEX_STUB: &str = "[session_search]";
+pub const SESSION_READ_INDEX_STUB: &str = "[session_read]";
 
 const SESSION_SEARCH_MODES: &[&str] = &["discovery", "scroll", "read", "browse"];
 
@@ -52,9 +54,16 @@ pub fn tool_name_base(name: &str) -> &str {
 }
 
 pub fn is_session_search_tool_name(name: Option<&str>) -> bool {
+    is_session_recall_tool_name(name)
+}
+
+pub fn is_session_recall_tool_name(name: Option<&str>) -> bool {
     name.map(str::trim)
         .filter(|s| !s.is_empty())
-        .is_some_and(|raw| tool_name_base(raw) == "session_search")
+        .is_some_and(|raw| {
+            let base = tool_name_base(raw);
+            base == "session_search" || base == "session_read"
+        })
 }
 
 /// `messages.tool_name` column: short name so SQL can use `!= 'session_search'`.
@@ -65,6 +74,15 @@ pub fn persist_tool_name(msg: &ChatMessage) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(tool_name_base)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// `messages.agent_instance_id` column; empty omitted as NULL.
+pub fn persist_agent_instance_id(msg: &ChatMessage) -> Option<String> {
+    msg.agent_instance_id
+        .as_deref()
+        .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
 }
@@ -98,6 +116,106 @@ pub fn is_session_search_tool_body(content: &str) -> bool {
 /// Column value mirroring [`crate::message_context::is_context_included`].
 pub fn context_included_column_value(msg: &ChatMessage) -> i64 {
     i64::from(crate::message_context::is_context_included(msg))
+}
+
+/// Mint a lead thread id if the conversation row exists and the column is empty.
+pub fn mint_lead_agent_instance_if_empty(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<String> {
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT lead_agent_instance_id FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    if let Some(id) = stored.filter(|s| !s.trim().is_empty()) {
+        return Ok(id);
+    }
+    let minted = uuid::Uuid::new_v4().to_string();
+    let updated = conn.execute(
+        "UPDATE conversations SET lead_agent_instance_id = ?2
+         WHERE id = ?1 AND (lead_agent_instance_id IS NULL OR trim(lead_agent_instance_id) = '')",
+        params![conversation_id, minted],
+    )?;
+    if updated == 0 {
+        anyhow::bail!("conversation not found: {conversation_id}");
+    }
+    let id: Option<String> = conn.query_row(
+        "SELECT lead_agent_instance_id FROM conversations WHERE id = ?1",
+        params![conversation_id],
+        |row| row.get(0),
+    )?;
+    let id = id.filter(|s| !s.trim().is_empty()).unwrap_or(minted);
+    log::info!(
+        "conversation_store: minted lead_agent_instance_id conversation_id={conversation_id} agent_instance_id={id}"
+    );
+    Ok(id)
+}
+
+pub fn stored_lead_agent_id(conn: &Connection, conversation_id: &str) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT lead_agent_id FROM conversations WHERE id = ?1",
+        params![conversation_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// New mint when `lead_agent_id` actually changes. New conversation rows stay empty
+/// until the first `run_chat` (`mint_lead_agent_instance_if_empty`).
+pub fn rotate_lead_instance_if_agent_changed(
+    conn: &Connection,
+    conversation_id: &str,
+    previous_lead_agent_id: Option<&str>,
+    new_lead_agent_id: &str,
+) -> Result<()> {
+    let Some(old) = previous_lead_agent_id else {
+        return Ok(());
+    };
+    if old.trim() == new_lead_agent_id.trim() {
+        return Ok(());
+    }
+    let minted = uuid::Uuid::new_v4().to_string();
+    let updated = conn.execute(
+        "UPDATE conversations SET lead_agent_instance_id = ?2 WHERE id = ?1",
+        params![conversation_id, minted],
+    )?;
+    if updated == 0 {
+        log::warn!(
+            "conversation_store: rotate lead instance skipped, conversation missing conversation_id={conversation_id}"
+        );
+        return Ok(());
+    }
+    log::info!(
+        "conversation_store: rotated lead_agent_instance_id conversation_id={conversation_id} lead_agent_id={new_lead_agent_id}"
+    );
+    Ok(())
+}
+
+pub fn stamp_new_lead_message(
+    conn: &Connection,
+    conversation_id: &str,
+    msg: &ChatMessage,
+) -> Result<Option<ChatMessage>> {
+    if msg
+        .agent_instance_id
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+    {
+        return Ok(None);
+    }
+    if crate::models::is_scoped_sub_message(msg) {
+        return Ok(None);
+    }
+    let instance_id = mint_lead_agent_instance_if_empty(conn, conversation_id)?;
+    let mut owned = msg.clone();
+    owned.agent_instance_id = Some(instance_id);
+    Ok(Some(owned))
 }
 
 /// One-time migration: materialize `context_included` for existing rows.
@@ -154,6 +272,55 @@ pub(crate) fn backfill_context_included(conn: &Connection) -> Result<()> {
 
     log::info!(
         "conversation_store: context_included backfill done updated={updated} elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    Ok(())
+}
+
+/// Copy already-stamped `payload.agentInstanceId` onto `messages.agent_instance_id`.
+/// Does not invent ids for unstamped historical rows.
+pub(crate) fn backfill_agent_instance_id_column(conn: &Connection) -> Result<()> {
+    let done: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![AGENT_INSTANCE_ID_COL_BACKFILL_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if done.as_deref() == Some("1") {
+        return Ok(());
+    }
+
+    log::info!("conversation_store: backfilling messages.agent_instance_id from payload");
+    let started = std::time::Instant::now();
+    let apply = || -> Result<u64> {
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let updated = conn.execute(
+            "UPDATE messages SET agent_instance_id = trim(json_extract(payload, '$.agentInstanceId'))
+             WHERE agent_instance_id IS NULL
+               AND json_valid(payload) = 1
+               AND json_extract(payload, '$.agentInstanceId') IS NOT NULL
+               AND trim(json_extract(payload, '$.agentInstanceId')) != ''",
+            [],
+        )? as u64;
+        conn.execute(
+            "INSERT INTO store_meta(key, value) VALUES (?1, '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![AGENT_INSTANCE_ID_COL_BACKFILL_META],
+        )?;
+        conn.execute_batch("COMMIT")?;
+        Ok(updated)
+    };
+    let updated = match apply() {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+    };
+
+    log::info!(
+        "conversation_store: agent_instance_id column backfill done updated={updated} elapsed_ms={}",
         started.elapsed().as_millis()
     );
     Ok(())
@@ -1147,7 +1314,14 @@ pub fn upsert_conversation(
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
+    let previous_lead = stored_lead_agent_id(conn, &conv.id)?;
     if unchanged == Some((conv.updated_at, conv.messages.len() as i64)) {
+        rotate_lead_instance_if_agent_changed(
+            conn,
+            &conv.id,
+            previous_lead.as_deref(),
+            &conv.lead_agent_id,
+        )?;
         return Ok(false);
     }
 
@@ -1204,6 +1378,12 @@ pub fn upsert_conversation(
             i64::from(conv.is_pinned),
         ],
     )?;
+    rotate_lead_instance_if_agent_changed(
+        conn,
+        &conv.id,
+        previous_lead.as_deref(),
+        &conv.lead_agent_id,
+    )?;
 
     if replace_messages {
         conn.execute(
@@ -1211,13 +1391,20 @@ pub fn upsert_conversation(
             params![conv.id],
         )?;
         for (pos, msg) in conv.messages.iter().enumerate() {
+            let stamped;
+            let msg = if let Some(owned) = stamp_new_lead_message(conn, &conv.id, msg)? {
+                stamped = owned;
+                &stamped
+            } else {
+                msg
+            };
             let content = message_index_content(msg);
             let payload = msg.to_store_payload_json()?;
             conn.execute(
                 "INSERT INTO messages (
                    conversation_id, message_id, role, content, payload, created_at_ms, position,
-                   is_system_generated, context_included, tool_name
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                   is_system_generated, context_included, tool_name, agent_instance_id
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
                 params![
                     conv.id,
                     msg.id,
@@ -1229,6 +1416,7 @@ pub fn upsert_conversation(
                     i64::from(is_system_generated_user_message(msg)),
                     context_included_column_value(msg),
                     persist_tool_name(msg),
+                    persist_agent_instance_id(msg),
                 ],
             )?;
         }
@@ -1244,8 +1432,17 @@ pub fn message_index_content(msg: &ChatMessage) -> String {
             let c = msg.content.trim();
             if c.is_empty() {
                 String::new()
-            } else if is_session_search_tool_name(msg.tool_name.as_deref()) {
-                SESSION_SEARCH_INDEX_STUB.to_string()
+            } else if is_session_recall_tool_name(msg.tool_name.as_deref()) {
+                let base = msg
+                    .tool_name
+                    .as_deref()
+                    .map(tool_name_base)
+                    .unwrap_or("session_search");
+                if base == "session_read" {
+                    SESSION_READ_INDEX_STUB.to_string()
+                } else {
+                    SESSION_SEARCH_INDEX_STUB.to_string()
+                }
             } else {
                 format!("[tool] {c}")
             }
@@ -1389,6 +1586,8 @@ mod message_index_tests {
         assert!(message_index_content(&other).starts_with("[tool] "));
         assert!(is_session_search_tool_name(Some("session_search")));
         assert!(is_session_search_tool_name(Some("mcp.session_search")));
+        assert!(is_session_search_tool_name(Some("session_read")));
+        assert!(is_session_search_tool_name(Some("mcp.session_read")));
         assert!(!is_session_search_tool_name(Some("file_read")));
         assert!(!is_session_search_tool_name(None));
         let mut named = msg("t3", Role::Tool, r#"{"exitCode":0}"#, 0);

@@ -270,16 +270,16 @@ mod tests {
         assert_eq!(parsed["results"].as_array().unwrap().len(), 1);
 
         let scroll = store
-            .dispatch_tool_for_test(&json!({
+            .dispatch_read_tool_for_test(&json!({
                 "conversation_id": "c1",
                 "around_message_id": "msg_u1",
-                "window": 2,
+                "limit": 5,
                 "_conversation_id": "c2"
             }))
             .unwrap();
         let scroll_p: Value = serde_json::from_str(&scroll).unwrap();
         assert_eq!(scroll_p["success"], true);
-        assert_eq!(scroll_p["mode"], "scroll");
+        assert_eq!(scroll_p["mode"], "read");
     }
 
     #[test]
@@ -568,13 +568,227 @@ mod tests {
         assert_eq!(ids_a, vec!["c_a"]);
 
         let cross_read = store
-            .dispatch_tool_for_test(&json!({
+            .dispatch_read_tool_for_test(&json!({
                 "conversation_id": "c_b",
                 "_session_user_id": "user-a"
             }))
             .unwrap();
         let cross_p: Value = serde_json::from_str(&cross_read).unwrap();
         assert_eq!(cross_p["success"], false);
+    }
+
+    #[test]
+    fn session_search_requires_query() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let out = store.dispatch_tool_for_test(&json!({})).unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["success"], false);
+        assert!(parsed["error"].as_str().unwrap().contains("query"));
+    }
+
+    #[test]
+    fn session_read_rejects_current_conversation_without_instance() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .sync_conversations(&[sample_conv("c1", "T", "hello world")])
+            .unwrap();
+        let out = store
+            .dispatch_read_tool_for_test(&json!({
+                "conversation_id": "c1",
+                "_conversation_id": "c1"
+            }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["success"], false);
+        assert!(parsed["error"]
+            .as_str()
+            .unwrap()
+            .contains("agentInstanceId"));
+    }
+
+    #[test]
+    fn lead_instance_reused_and_stamped_on_new_messages() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let first = store.ensure_lead_agent_instance("c_lead").unwrap();
+        let second = store.ensure_lead_agent_instance("c_lead").unwrap();
+        assert_eq!(first, second);
+        store
+            .sync_conversations(&[sample_conv("c_lead", "Lead", "hello stamped")])
+            .unwrap();
+        let loaded = store.load_messages("c_lead").unwrap();
+        let stamped = loaded
+            .iter()
+            .filter_map(|m| m.agent_instance_id.as_deref())
+            .collect::<Vec<_>>();
+        assert!(!stamped.is_empty());
+        assert!(stamped.iter().all(|id| *id == first.as_str()));
+        let col = store
+            .message_agent_instance_id_col("c_lead", "msg_u1")
+            .unwrap();
+        assert_eq!(col.as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn session_search_can_scope_current_conversation_by_instance() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c_cur", "Current", "unique_scope_token auth");
+        store.sync_conversations(&[conv]).unwrap();
+        let instance = store
+            .load_messages("c_cur")
+            .unwrap()
+            .into_iter()
+            .find_map(|m| m.agent_instance_id)
+            .expect("stamped instance");
+        let skipped = store
+            .dispatch_tool_for_test(&json!({
+                "query": "unique_scope_token",
+                "_conversation_id": "c_cur"
+            }))
+            .unwrap();
+        let skipped_p: Value = serde_json::from_str(&skipped).unwrap();
+        assert_eq!(skipped_p["count"], 0);
+        let scoped = store
+            .dispatch_tool_for_test(&json!({
+                "query": "unique_scope_token",
+                "agentInstanceId": instance,
+                "_conversation_id": "c_cur"
+            }))
+            .unwrap();
+        let scoped_p: Value = serde_json::from_str(&scoped).unwrap();
+        assert_eq!(scoped_p["count"], 1);
+    }
+
+    #[test]
+    fn save_meta_rotates_lead_instance_when_lead_agent_changes() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .sync_conversations(&[sample_conv("c_meta", "T", "hello")])
+            .unwrap();
+        let before = store.ensure_lead_agent_instance("c_meta").unwrap();
+        let mut metas = store.load_metas(&ListScope::All, None, 10).unwrap();
+        assert_eq!(metas.len(), 1);
+        store.save_meta_all(&metas).unwrap();
+        assert_eq!(store.ensure_lead_agent_instance("c_meta").unwrap(), before);
+        metas[0].lead_agent_id = "coder".into();
+        metas[0].updated_at += 1;
+        store.save_meta_all(&metas).unwrap();
+        let after = store.ensure_lead_agent_instance("c_meta").unwrap();
+        assert_ne!(after, before);
+        metas[0].agent_mode = "supervisor".into();
+        metas[0].updated_at += 1;
+        store.save_meta_all(&metas).unwrap();
+        assert_eq!(store.ensure_lead_agent_instance("c_meta").unwrap(), after);
+    }
+
+    #[test]
+    fn opens_backfills_agent_instance_id_column_from_payload() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c_bf", "BF", "payload stamp token");
+        conv.messages[0].agent_instance_id = Some("inst-from-payload".into());
+        conv.messages[1].agent_instance_id = Some("inst-from-payload".into());
+        store.sync_conversations(&[conv]).unwrap();
+        drop(store);
+
+        let db_path = dir.path().join("conversations.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute("UPDATE messages SET agent_instance_id = NULL", [])
+                .unwrap();
+            conn.execute(
+                "DELETE FROM store_meta WHERE key = 'agent_instance_id_col_v25'",
+                [],
+            )
+            .unwrap();
+        }
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        assert_eq!(
+            store
+                .message_agent_instance_id_col("c_bf", "msg_u1")
+                .unwrap()
+                .as_deref(),
+            Some("inst-from-payload")
+        );
+    }
+
+    #[test]
+    fn session_search_instance_window_excludes_other_threads() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let lead = "lead-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        let child = "child-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        let mut conv = sample_conv("c_win", "Mixed", "placeholder");
+        let mut lead_before = msg("m_lead_before", Role::User, "lead_noise_aaa", 1);
+        lead_before.agent_instance_id = Some(lead.into());
+        let mut child_hit = msg(
+            "m_child_hit",
+            Role::Assistant,
+            "child_hit_unique_bbb",
+            2,
+        );
+        child_hit.agent_instance_id = Some(child.into());
+        let mut lead_after = msg("m_lead_after", Role::User, "lead_noise_ccc", 3);
+        lead_after.agent_instance_id = Some(lead.into());
+        conv.messages = vec![lead_before, child_hit, lead_after];
+        store.sync_conversations(&[conv]).unwrap();
+        let out = store
+            .dispatch_tool_for_test(&json!({
+                "query": "child_hit_unique_bbb",
+                "agentInstanceId": child,
+                "window": 20
+            }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["count"], 1);
+        let window = parsed["results"][0]["messages"].as_array().unwrap();
+        let texts: Vec<&str> = window
+            .iter()
+            .filter_map(|m| m["content"].as_str())
+            .collect();
+        assert!(texts.iter().any(|t| t.contains("child_hit_unique_bbb")));
+        assert!(texts.iter().all(|t| !t.contains("lead_noise")));
+    }
+
+    #[test]
+    fn session_search_primary_instance_follows_assistant_promote() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let lead = "lead-cccccccc-cccc-cccc-cccc-cccccccccccc";
+        let child = "child-dddddddd-dddd-dddd-dddd-dddddddddddd";
+        let mut conv = sample_conv("c_prom", "Promote", "placeholder");
+        let mut tool_hit = msg(
+            "m_tool",
+            Role::Tool,
+            "shared_promote_zzz child tool",
+            1,
+        );
+        tool_hit.agent_instance_id = Some(child.into());
+        tool_hit.tool_name = Some("terminal".into());
+        let mut assistant_hit = msg(
+            "m_asst",
+            Role::Assistant,
+            "shared_promote_zzz assistant",
+            2,
+        );
+        assistant_hit.agent_instance_id = Some(lead.into());
+        conv.messages = vec![tool_hit, assistant_hit];
+        store.sync_conversations(&[conv]).unwrap();
+        let out = store
+            .dispatch_tool_for_test(&json!({
+                "query": "shared_promote_zzz",
+                "conversation_id": "c_prom",
+                "limit": 3
+            }))
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["count"], 1);
+        assert_eq!(parsed["results"][0]["match_message_id"], "m_asst");
+        assert_eq!(parsed["results"][0]["agentInstanceId"], lead);
     }
 
     #[test]
@@ -1129,7 +1343,7 @@ mod tests {
         store.sync_conversations(&[conv]).unwrap();
 
         let read = store
-            .dispatch_tool_for_test(&json!({ "conversation_id": "c_img" }))
+            .dispatch_read_tool_for_test(&json!({ "conversation_id": "c_img" }))
             .unwrap();
         let parsed: Value = serde_json::from_str(&read).unwrap();
         assert_eq!(parsed["mode"], "read");
@@ -1470,7 +1684,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 23);
+        assert_eq!(version, 25);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -1566,7 +1780,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 23);
+        assert_eq!(version, 25);
         let has_kind: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",

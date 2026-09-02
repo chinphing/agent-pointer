@@ -204,9 +204,14 @@ impl ChatLlmTokenSession {
         conversation_id: String,
         agent_role_id: String,
         model_name: Option<String>,
+        agent_instance_id: String,
     ) -> Self {
-        let lead_scope =
-            AgentInstanceScope::new(run_id.clone(), conversation_id.clone(), agent_role_id);
+        let lead_scope = AgentInstanceScope::with_instance_id(
+            run_id.clone(),
+            conversation_id.clone(),
+            agent_role_id,
+            agent_instance_id,
+        );
         let _model = model_name;
         Self {
             run_id,

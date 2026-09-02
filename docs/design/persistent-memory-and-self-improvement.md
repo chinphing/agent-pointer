@@ -155,7 +155,7 @@ Hermes 用 SQLite FTS5 索引全部会话消息；Pointer 已对齐为 `**conver
 
 - `{data_dir}/PointerApp/conversations.db` — **canonical** SQLite store（WAL + FTS5 `cjk_bigram`）；`session_search` 直接查同一库
 - 首次启动自动从 `conversations.json` 导入并归档为 `conversations.json.migrated`
-- `session_search` 工具：discovery（query）/ scroll（session_id + message_id）/ browse（最近列表）
+- `session_search` / `session_read`：FTS5 检索与窗口阅读（子线程用 `agentInstanceId`）
 - 与 memory 分工：memory = 常驻关键事实；session_search = 「上周讨论过 X 吗」
 
 ---

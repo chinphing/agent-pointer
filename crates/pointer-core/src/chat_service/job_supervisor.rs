@@ -64,6 +64,7 @@ pub struct JobKindSubagent {
     pub message_id: String,
     pub agent_id: String,
     pub title: String,
+    pub agent_instance_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +115,8 @@ pub struct JobListItem {
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,6 +131,8 @@ pub struct JobAwaitItem {
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_instance_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1040,6 +1045,10 @@ fn job_list_item(job: &JobRecord, include_content: bool) -> JobListItem {
         claimed: job.claimed,
         content,
         error: job.error.clone(),
+        agent_instance_id: match &job.kind {
+            JobKind::Subagent(k) => Some(k.agent_instance_id.clone()).filter(|s| !s.is_empty()),
+            JobKind::Terminal(_) => None,
+        },
     }
 }
 
@@ -1055,6 +1064,10 @@ fn job_await_item(job: &JobRecord) -> JobAwaitItem {
         agent_id,
         content: job.content.clone(),
         error: job.error.clone(),
+        agent_instance_id: match &job.kind {
+            JobKind::Subagent(k) => Some(k.agent_instance_id.clone()).filter(|s| !s.is_empty()),
+            JobKind::Terminal(_) => None,
+        },
     }
 }
 
@@ -1069,6 +1082,7 @@ mod tests {
             message_id: "m1".into(),
             agent_id: "explore".into(),
             title: "map auth".into(),
+            agent_instance_id: "inst-job".into(),
         })
     }
 

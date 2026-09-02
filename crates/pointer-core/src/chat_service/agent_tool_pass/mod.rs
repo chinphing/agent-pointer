@@ -909,6 +909,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     &sub_cfg.task.id,
                     sub_cfg.active.def,
                     sub_cfg.accumulated_content,
+                    &sub_cfg.instance_scope.agent_instance_id,
                 ),
             ));
         }
@@ -1085,6 +1086,7 @@ async fn run_self_fork_wave(
                         .map(|s| s.scoped_message_id.clone()),
                     state_arc: pass.ctx.state_arc.clone(),
                     emit_host_tool_status: true,
+                    instance_scope: None,
                 };
                 let parsed_bg = crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
                 let background = parsed_bg.as_ref().is_ok_and(|a| a.background);
@@ -1100,6 +1102,7 @@ async fn run_self_fork_wave(
                                 input.task.clone(),
                                 &input.source,
                                 input.child_spawn_depth,
+                                None,
                                 msg,
                             );
                             items.push(SelfForkWaveItem {
@@ -1115,6 +1118,12 @@ async fn run_self_fork_wave(
                     if let Some((stream, event)) = running_event.take() {
                         emit(&stream, event);
                     }
+                    let child_scope =
+                        super::run_subagent_delegation::mint_owned_child_instance_scope(
+                            &input.source,
+                            &input.run_id,
+                            pass.ctx.session.conversation_id,
+                        );
                     let job_id = super::run_subagent_delegation::spawn_background_owned_subagent(
                         super::run_subagent_delegation::BackgroundOwnedSpawn {
                             stream: pass.ctx.session.stream.clone(),
@@ -1135,9 +1144,15 @@ async fn run_self_fork_wave(
                             max_spawn_depth: input.max_spawn_depth,
                             host_trace_id: input.host_trace_id.clone(),
                             host_scoped_message_id: input.host_scoped_message_id.clone(),
+                            instance_scope: child_scope.clone(),
                         },
                     );
-                    record_background_spawn_result(pass, prep, &job_id);
+                    record_background_spawn_result(
+                        pass,
+                        prep,
+                        &job_id,
+                        Some(child_scope.agent_instance_id.as_str()),
+                    );
                     *any_executed = true;
                     continue;
                 }
@@ -1202,6 +1217,7 @@ async fn run_self_fork_wave(
                     task,
                     &source,
                     parent_spawn_depth.saturating_add(1),
+                    None,
                     error,
                 );
                 (task_id, SelfForkWaveWork::Prepared(outcome))
@@ -1251,6 +1267,7 @@ async fn run_self_fork_wave(
                         input.task,
                         &input.source,
                         input.child_spawn_depth,
+                        input.instance_scope,
                     ),
                     WaveSlotSkip::NestedRefused(msg) => failed_owned_subagent_outcome(
                         &input.run_id,
@@ -1259,6 +1276,7 @@ async fn run_self_fork_wave(
                         input.task,
                         &input.source,
                         input.child_spawn_depth,
+                        input.instance_scope,
                         msg,
                     ),
                 },
@@ -1279,13 +1297,14 @@ fn record_background_spawn_result(
     pass: &mut ToolPassRequest<'_>,
     prep: &PreparedTool,
     job_id: &str,
+    agent_instance_id: Option<&str>,
 ) {
-    let body = serde_json::json!({
-        "jobId": job_id,
-        "status": "running",
-        "kind": "subagent",
-    })
-    .to_string();
+    let body = super::run_subagent_delegation::background_job_handle_json(
+        job_id,
+        super::job_supervisor::JobStatus::Running,
+        "subagent",
+        agent_instance_id,
+    );
     log::info!(
         "run_subagent background tool result conversation_id={} tool_call_id={} job_id={job_id}",
         pass.ctx.session.conversation_id,

@@ -276,6 +276,9 @@ pub(super) fn init_sub_agent_session(
         )
     };
     let mut session_extras = vec![sub_agent_header];
+    session_extras.push(crate::agent_instance_scope::agent_instance_id_system_line(
+        &instance_scope.agent_instance_id,
+    ));
     if spawn_capability == SubAgentSpawnCapability::Registered {
         if let Some(block) = delegatable_sub_agents_system_block(&state.agents, &allow_agents) {
             session_extras.push(block);

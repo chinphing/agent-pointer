@@ -8,6 +8,7 @@
 | [persistent-memory-and-self-improvement.md](persistent-memory-and-self-improvement.md) | 跨会话 **MEMORY/USER** 记忆与 **Self-improvement review**（后台自省）设计稿；参考 Hermes，**暂未实现** |
 | [explore-subagent-for-coder.md](explore-subagent-for-coder.md) | 内置 **explore** worker、`run_subagent` 与 Cursor Explore 对齐、Lead→explore 约定 |
 | [async-subagent-and-terminal.md](async-subagent-and-terminal.md) | 后台 `run_subagent` / `terminal`：Foreground/Background 两档等待；**一张按会话工人队列**（前台借槽不进 job 表）；不占 session lane |
+| [session-search-scope-extension.md](session-search-scope-extension.md) | 会话检索 **`session_search` + `session_read`**（P0–P1 已落地：instance 列） |
 | [execution-sandbox-candidates.md](execution-sandbox-candidates.md) | 执行沙盒候选（**待决策**）：本机轻量隔离 vs Linux server 上 CubeSandbox / E2B 强隔离 |
 | [execution-sandbox-discussion.md](execution-sandbox-discussion.md) | 执行沙盒讨论纪要：结论、本机候选、landstrip 深读、命令边界与工作量口径 |
 | [agent-scope-rules-roadmap.md](agent-scope-rules-roadmap.md) | 分层 scope 规则（P0–P1 已实现：Instruction priority、User Coding Rules；P2–P5 路线图） |

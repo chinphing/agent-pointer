@@ -394,6 +394,7 @@ pub(super) fn sub_agent_run_result(
     task_id: &str,
     def: &AgentDef,
     content: String,
+    agent_instance_id: &str,
 ) -> AgentRunResult {
     AgentRunResult {
         task_id: task_id.to_string(),
@@ -401,6 +402,7 @@ pub(super) fn sub_agent_run_result(
         agent_name: agent_display_label(def),
         content,
         reasoning: None,
+        agent_instance_id: agent_instance_id.to_string(),
     }
 }
 

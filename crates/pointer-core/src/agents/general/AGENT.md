@@ -23,6 +23,7 @@ accessPolicy:
   allowTools:
     - memory
     - session_search
+    - session_read
     - skill_import
     - skill_read
     - file_read
@@ -124,6 +125,7 @@ Afterward the user can say "retry the last attachment" (**no need to resend the 
 **`file_*` and when to call `coder` / `self` / `computer`:**
 follow the **`run_subagent`** tool doc (**`coder`**, **`self` fork**,
 **`computer`**).
+One spawn vs several: that tool doc (**One spawn vs split**).
 
 **Load skills locally** — **`skill_read`** / **`skill_import`** stay here
 (install/load is not a coder task; see **`run_subagent`** **`coder`** section).

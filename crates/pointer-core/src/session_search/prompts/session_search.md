@@ -1,73 +1,19 @@
 ### `session_search`
 
-Search **past conversations** locally (FTS5 / SQLite; no LLM calls).
+Find text in stored transcripts (like file_grep). `query` is required.
 
-**Most turns should not call this tool.** Use the **current thread**, **memory**, and **task board** first.
+Optional:
+- `conversation_id` — one past chat
+- `agentInstanceId` — one lead or child thread (defaults to this chat)
+- `role_filter` — e.g. `user,assistant,tool`
+- `tool_name` — e.g. `terminal` (comma-separated)
+- `limit` — conversation groups (default 3, max 10)
+- `window` — ± messages around the primary hit
+  in the same locator slice (default 5, max 20).
+  With `agentInstanceId`, the window stays in that thread.
 
-Call **only** when the user **explicitly** wants historical chats — find/recall another session, search past messages, or scroll/read after a discovery hit. **Do not** browse or search proactively; if unsure, **ask first**.
+No `offset` or `around_message_id` — use session_read.
 
-#### FOUR CALLING SHAPES
-
-  1) DISCOVERY — pass `query`:
-     session_search(query="auth refactor", limit=3)
-     Runs FTS5, groups hits by conversation, returns the top N conversations.
-     Each result carries:
-       - conversation_id, title, when
-       - snippet: FTS5-highlighted excerpt of the primary match
-       - match_message_id: primary hit (best rank)
-       - matches: other hits in that conversation
-         (id, role, snippet only; at most 5)
-       - match_count: unique hits in the scanned window
-         (may be larger than matches.length)
-       - bookend_start: first 3 user+assistant messages (the goal / kickoff)
-       - messages: ±5 around the primary match only, anchor flagged
-       - bookend_end: last 3 user+assistant messages (resolution / decisions)
-       - messages_before, messages_after
-     Scroll a match id to read around a non-primary hit.
-     Prior session_search tool dumps are omitted by tool name
-     (not used as hits, not included in windows)
-     so old search JSON cannot stack.
-     Message content is a hit-centered excerpt with a per-role cap
-     (user 4000, assistant 2500, tool 1500 characters). Over-limit
-     rows set truncated, contentChars, contentLimit. Scroll the
-     message id to read more of that turn.
-
-  2) SCROLL — pass `conversation_id` + `around_message_id`:
-     session_search(conversation_id="...", around_message_id="msg_abc", window=10)
-     Returns ±`window` messages centered on the anchor. No FTS5, no bookends.
-     To scroll forward: pass messages[-1].id as around_message_id.
-     To scroll backward: pass messages[0].id as around_message_id.
-     Rejected when the target is the **current** conversation (already in context).
-
-  3) READ — pass `conversation_id` only (no around_message_id):
-     session_search(conversation_id="...")
-     Dumps the conversation (first 20 + last 10 when large).
-
-  4) BROWSE — no args:
-     session_search()
-     Returns recent conversations: titles, previews, timestamps.
-     Use **only** when the user explicitly asked for a history overview
-     without naming a search topic.
-
-#### FTS5 SYNTAX
-
-  Plain words are ANDed. Prefix: `auth*`. Phrase: `"exact phrase"`.
-  OR: `term1 OR term2`. NOT: `-exclude`.
-  CJK text uses the `cjk_bigram` tokenizer (overlapping 2-character tokens).
-  Short Chinese queries like `认证` or `天氣` work directly without quotes.
-
-Also accepts `session_id` as an alias for `conversation_id`.
-
-#### MESSAGE FIELDS
-
-  Each message in discovery / scroll / read results includes:
-  - id, role, content, timestamp
-  - content is clipped around the query hit when over the role cap
-  - truncated / contentChars / contentLimit when clipped
-  - matches[] on a discovery result is id / role / snippet only
-  - prior session_search tool results are omitted
-  - attachments (optional): summary list when the stored message had files
-    (id, kind, fileName, mimeType, sizeBytes, ref, localPath, storageRelPath,
-    remoteUrl for video, derivedText when cached). Wire payloads like
-    contentBase64 are never returned.
-  Use attachments[].ref with media_understand when revisiting old media.
+Results group by conversation.
+Hits include `match_message_id` and `agentInstanceId`.
+Filter by tool type here, then session_read around the hit id.

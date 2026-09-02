@@ -53,6 +53,14 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
 - Optional **`taskId`** is for **explicitly continuing the same logical task**: reuse it only when a later handoff genuinely continues the same task (e.g. retry or follow-up on the same goal). For a **new** logical task, omit `taskId` so the host assigns a fresh id — do **not** copy a `taskId` seen in a previous completed result.
 
+**One spawn vs split**
+
+One outcome → one call.
+Split only if it will hit the sub-agent round cap (or already did),
+or each slice has its own **Done when**.
+Then A → verify → B; do not retry the same giant goal.
+Do not pack unrelated work; do not split a tight one-file edit.
+
 **Parallel wave (`self` and `explore`)**
 
 - Same turn, multiple **`agentId: "self"`** and/or **`agentId: "explore"`**

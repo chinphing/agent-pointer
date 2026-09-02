@@ -11,6 +11,7 @@ mod migrate;
 mod persist;
 pub mod runs;
 mod search;
+mod agent_recall;
 mod session_user;
 #[cfg(test)]
 mod tests;
@@ -36,7 +37,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 23;
+const SCHEMA_VERSION: i32 = 25;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -823,7 +824,17 @@ impl ConversationStore {
     }
 
     pub fn dispatch_search_tool(&self, args: &serde_json::Value) -> Result<String> {
-        search::dispatch_tool(&self.db, args)
+        agent_recall::dispatch_tool(&self.db, args)
+    }
+
+    pub fn dispatch_read_tool(&self, args: &serde_json::Value) -> Result<String> {
+        agent_recall::dispatch_read_tool(&self.db, args)
+    }
+
+    pub fn ensure_lead_agent_instance(&self, conversation_id: &str) -> Result<String> {
+        self.db.execute_write(|conn| {
+            write::ensure_lead_agent_instance_in_conn(conn, conversation_id)
+        })
     }
 
     /// Sidebar search: FTS over full message bodies (+ title/preview supplement).
@@ -1024,6 +1035,29 @@ impl ConversationStore {
     pub fn dispatch_tool_for_test(&self, args: &serde_json::Value) -> Result<String> {
         self.dispatch_search_tool(args)
     }
+
+    #[cfg(test)]
+    pub fn dispatch_read_tool_for_test(&self, args: &serde_json::Value) -> Result<String> {
+        self.dispatch_read_tool(args)
+    }
+
+    #[cfg(test)]
+    pub fn message_agent_instance_id_col(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.db.conn.lock();
+        conn.query_row(
+            "SELECT agent_instance_id FROM messages
+             WHERE conversation_id = ?1 AND message_id = ?2",
+            rusqlite::params![conversation_id, message_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(Into::into)
+        .map(|v: Option<Option<String>>| v.flatten())
+    }
     #[cfg(test)]
     pub fn open_in_dir(dir: &std::path::Path) -> Result<Self> {
         Self::open(dir.join(DB_FILE))
@@ -1069,7 +1103,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
            im_active_conversation_id TEXT,
            im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,
            session_user_id TEXT NOT NULL DEFAULT '',
-           is_pinned INTEGER NOT NULL DEFAULT 0
+           is_pinned INTEGER NOT NULL DEFAULT 0,
+           lead_agent_instance_id TEXT
          );
          CREATE TABLE IF NOT EXISTS messages (
            id INTEGER PRIMARY KEY,
@@ -1083,6 +1118,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            is_system_generated INTEGER NOT NULL DEFAULT 0,
            context_included INTEGER NOT NULL DEFAULT 1,
            tool_name TEXT,
+           agent_instance_id TEXT,
            UNIQUE(conversation_id, message_id)
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -1114,6 +1150,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
         "is_pinned",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    add_column_if_missing(conn, "conversations", "lead_agent_instance_id", "TEXT")?;
     // v21 messages anchor flag — same always-run guard for DBs that somehow
     // reached the version without the column (schema_version was pre-written).
     add_column_if_missing(
@@ -1139,6 +1176,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
            ON messages(conversation_id, position) WHERE context_included = 1;",
     )?;
+    ensure_messages_agent_instance_id(conn)?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
     ensure_projects_schema(conn)?;
@@ -1547,6 +1585,8 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     // v23: per-conversation performance tier override (Composer picker).
     // NULL = no override → global agentPerformanceModes default applies.
     add_column_if_missing(conn, "conversations", "performance_mode", "TEXT")?;
+    // v24: lead agent thread id (reused across run_chat; rotated on lead_agent_id change).
+    add_column_if_missing(conn, "conversations", "lead_agent_instance_id", "TEXT")?;
     // v21: materialized turn-anchor flag on messages. Backfill only touches
     // user rows that should be flagged (idempotent + store_meta gated);
     // afterwards writes compute it at insert time.
@@ -1575,6 +1615,8 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_included_pos
            ON messages(conversation_id, position) WHERE context_included = 1;",
     )?;
+    // v25: materialize payload.agentInstanceId for instance-scoped recall.
+    ensure_messages_agent_instance_id(conn)?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)
          WHERE session_user_id != trim(session_user_id)",
@@ -1608,6 +1650,20 @@ fn ensure_conversations_pinned_updated_index(conn: &Connection) -> Result<()> {
            ON conversations(is_pinned DESC, updated_at_ms DESC, id DESC);
          CREATE INDEX IF NOT EXISTS idx_conversations_project_pinned_updated
            ON conversations(project_id, is_pinned DESC, updated_at_ms DESC, id DESC);",
+    )?;
+    Ok(())
+}
+
+fn ensure_messages_agent_instance_id(conn: &Connection) -> Result<()> {
+    add_column_if_missing(conn, "messages", "agent_instance_id", "TEXT")?;
+    crate::conversation_store::persist::backfill_agent_instance_id_column(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_instance_pos
+           ON messages(conversation_id, agent_instance_id, position)
+           WHERE agent_instance_id IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS idx_messages_agent_instance_id
+           ON messages(agent_instance_id)
+           WHERE agent_instance_id IS NOT NULL;",
     )?;
     Ok(())
 }

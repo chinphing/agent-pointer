@@ -1,7 +1,11 @@
-# `session_search` 出站上限
+# `session_search` / `session_read` 出站上限
+
+拆成两个工具的方案见 [`../design/session-search-scope-extension.md`](../design/session-search-scope-extension.md)（P0 已落地）。
 
 工具回给模型的 JSON **不是**库里的原文。SQLite 仍保存完整消息。
 桌面与 Web 共用 `pointer-core` 同一条路径。
+
+侧栏会话搜索（UI）不走这两个工具，行为不变。
 
 ## 命中附近截断（按角色）
 
@@ -17,7 +21,7 @@
 | 其他 | 1500 |
 
 超限时该消息带 `truncated`、`contentChars`（原文长度）、`contentLimit`。
-`id` 仍在，可用 scroll 看同一条的更多上下文（仍受同一上限约束）。
+`id` 仍在，可用 `session_read`（`around_message_id`）看同一条的更多上下文（仍受同一上限约束）。
 
 侧栏会话搜索的 snippet 半径不变，与此工具出站上限不是同一套数字。
 
@@ -28,16 +32,16 @@
 
 侧栏会话搜索不走这 5 条上限：点「N 处」列出该会话用户/助手正文命中（不含 tool）。
 
-## 剔除旧 `session_search` 回包
+## 剔除旧 `session_search` / `session_read` 回包
 
 按**工具名**识别，不在启动时全表扫 `content`。
 
 写入 `role: tool` 时从对应 assistant `tool_calls[].name` 带上名字。
 payload `toolName` 保留原串；`messages.tool_name` 列只存短名
-（`mcp.session_search` → `session_search`），和 SQL `!= 'session_search'` 一致。
-`session_search` 的索引列写成桩 `[session_search]`，完整回包仍在 `payload`。
+（`mcp.session_search` → `session_search`），和 SQL `NOT IN ('session_search','session_read')` 一致。
+索引列写成桩 `[session_search]` / `[session_read]`，完整回包仍在 `payload`。
 
-Discovery / 窗口 / read：`tool_name != 'session_search'`，并排除已打桩的
+Discovery / 窗口 / read：跳过这两类工具名，并排除已打桩的
 `content`。没有工具名的旧行只对**已经取出来的那几条**看信封头，不扫全库。
 旧库里未打名的巨型 FTS 行会等到该会话再次写入时才改成桩，启动时不回填。
 
@@ -51,9 +55,10 @@ Discovery / 窗口 / read：`tool_name != 'session_search'`，并排除已打桩
 - 侧栏首次搜索每个会话只取 **一条** 主命中 snippet（助手优先）；`match_count` 是该会话非 tool 的 FTS 条数。点「N 处」再拉完整列表。
 - 升级后 `store_meta.fts_schema=role_indexed` 会重建 FTS（大库首次打开可能较久）。若重建失败或索引为空，下次打开会重试，**不要**在重建成功前写入 schema 标记。新消息仍进同一张 `messages_fts`（含 tool）。`session_search` 回包索引列为桩 `[session_search]`。
 - 完整列表用 **一次 FTS MATCH**，只把正文**前缀**读进内存做 snippet，不用 LIKE 全表扫描，也不按会话循环拉整段 blob。
-- `session_search` discovery 先分组出会话，再按命中 id 回表取正文做 snippet / ±5 窗口。
+- `session_search` discovery 先分组出会话，再按命中 id 回表取正文做 snippet / ±`window` 窗口。带 `agentInstanceId` 时窗口与 `session_read` 一样只含该线程（`messages.agent_instance_id` 列）。无 bookend。
+- `session_read` 按 `offset` 或 `around_message_id` 取消息窗口（默认 40、顶 80）。
 
-观测：`ui search: … rank_ms= matches_ms= elapsed_ms=`、`session_search: discover … elapsed_ms=`。
+观测：`ui search: … rank_ms= matches_ms= elapsed_ms=`、`session_search: discover … elapsed_ms=`、`session_read: …`。
 
 对本机库计时（只读，不改 schema）：
 

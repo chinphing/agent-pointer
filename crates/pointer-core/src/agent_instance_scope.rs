@@ -46,3 +46,7 @@ impl AgentInstanceScope {
         )
     }
 }
+
+pub fn agent_instance_id_system_line(agent_instance_id: &str) -> String {
+    format!("Your agentInstanceId is {agent_instance_id}.")
+}

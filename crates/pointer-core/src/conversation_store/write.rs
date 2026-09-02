@@ -10,6 +10,7 @@ use super::background_host_merge::merge_incoming_over_stored;
 use super::persist::{conversation_preview, message_index_content, role_str};
 
 pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> Result<()> {
+    let previous_lead = super::persist::stored_lead_agent_id(conn, &meta.id)?;
     let skill_ids_json = serde_json::to_string(&meta.skill_ids)?;
     let preview: Option<String> = conn
         .query_row(
@@ -67,6 +68,12 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
             meta.session_user_id,
             i64::from(meta.is_pinned),
         ],
+    )?;
+    super::persist::rotate_lead_instance_if_agent_changed(
+        conn,
+        &meta.id,
+        previous_lead.as_deref(),
+        &meta.lead_agent_id,
     )?;
     Ok(())
 }
@@ -157,11 +164,28 @@ pub fn patch_session_agent_in_conn(
     agent_mode: &str,
 ) -> Result<()> {
     ensure_conversation_row(conn, conversation_id)?;
+    let old_lead = super::persist::stored_lead_agent_id(conn, conversation_id)?
+        .unwrap_or_default();
     conn.execute(
         "UPDATE conversations SET lead_agent_id = ?2, agent_mode = ?3, updated_at_ms = ?4 WHERE id = ?1",
         params![conversation_id, lead_agent_id, agent_mode, now_ms()],
     )?;
+    super::persist::rotate_lead_instance_if_agent_changed(
+        conn,
+        conversation_id,
+        Some(old_lead.as_str()),
+        lead_agent_id,
+    )?;
     Ok(())
+}
+
+/// Mint a lead thread id if missing; reuse across every `run_chat` until lead agent switches.
+pub fn ensure_lead_agent_instance_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<String> {
+    ensure_conversation_row(conn, conversation_id)?;
+    super::persist::mint_lead_agent_instance_if_empty(conn, conversation_id)
 }
 
 pub fn patch_title_if_default_in_conn(
@@ -235,9 +259,22 @@ fn insert_message_at(
     position: i64,
 ) -> Result<()> {
     let merged;
-    let msg = if let Some(stored) = load_stored_message(conn, conversation_id, &msg.id)? {
+    let stamped;
+    let stored = load_stored_message(conn, conversation_id, &msg.id)?;
+    let is_new = stored.is_none();
+    let msg = if let Some(stored) = stored {
         merged = merge_incoming_over_stored(msg, &stored);
         &merged
+    } else {
+        msg
+    };
+    let msg = if is_new {
+        if let Some(owned) = super::persist::stamp_new_lead_message(conn, conversation_id, msg)? {
+            stamped = owned;
+            &stamped
+        } else {
+            msg
+        }
     } else {
         msg
     };
@@ -246,8 +283,8 @@ fn insert_message_at(
     conn.execute(
         "INSERT INTO messages (
            conversation_id, message_id, role, content, payload, created_at_ms, position,
-           is_system_generated, context_included, tool_name
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+           is_system_generated, context_included, tool_name, agent_instance_id
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
          ON CONFLICT(conversation_id, message_id) DO UPDATE SET
            role = excluded.role,
            content = excluded.content,
@@ -256,7 +293,8 @@ fn insert_message_at(
            position = excluded.position,
            is_system_generated = excluded.is_system_generated,
            context_included = excluded.context_included,
-           tool_name = excluded.tool_name",
+           tool_name = excluded.tool_name,
+           agent_instance_id = excluded.agent_instance_id",
         params![
             conversation_id,
             msg.id,
@@ -268,6 +306,7 @@ fn insert_message_at(
             i64::from(super::persist::is_system_generated_user_message(msg)),
             super::persist::context_included_column_value(msg),
             super::persist::persist_tool_name(msg),
+            super::persist::persist_agent_instance_id(msg),
         ],
     )?;
     Ok(())

@@ -46,7 +46,7 @@ execute eligible tools concurrently subject to conflict detection and platform l
 | Terminal | `terminal` |
 | Sub-agent | `run_subagent` — **`self`** and **`explore`** may share one owned-outcome parallel wave in the same turn (subject to `maxParallelSubAgents`); **`coder`** / **`computer`** stay serial |
 | Media | `image_generate`, `video_generate`, `media_understand` |
-| Other | `web_search`, `skill_read`, `session_search`, `memory` |
+| Other | `web_search`, `skill_read`, `session_search`, `session_read`, `memory` |
 
 ### Not parallel (serial)
 

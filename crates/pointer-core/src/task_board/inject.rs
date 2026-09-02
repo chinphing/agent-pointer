@@ -28,6 +28,7 @@ pub fn inject_host_task_board_conversation_id(
     let is_task_board = is_task_board_tool_name(tool_id);
     let requires_injection = is_task_board
         || tool_id == "session_search"
+        || tool_id == "session_read"
         || crate::agents::computer::is_desktop_vision_log_tool(tool_id)
         || crate::agents::computer::is_desktop_post_delay_tool(tool_id);
     if !requires_injection {
@@ -47,7 +48,7 @@ pub fn inject_host_task_board_conversation_id(
         "_conversation_id".to_string(),
         Value::String(host_binding.to_string()),
     );
-    if tool_id == "session_search" {
+    if tool_id == "session_search" || tool_id == "session_read" {
         map.insert(
             "_session_user_id".to_string(),
             Value::String(session_user_id.trim().to_string()),
@@ -129,6 +130,29 @@ mod tests {
         let out = inject_host_task_board_conversation_id(
             "session_search",
             serde_json::json!({"query": "auth"}),
+            "conv-abc",
+            "conv-abc::tb",
+            "im-user-a",
+            &[],
+            None,
+            false,
+            false,
+        );
+        assert_eq!(
+            out.get("_conversation_id").and_then(|v| v.as_str()),
+            Some("conv-abc")
+        );
+        assert_eq!(
+            out.get("_session_user_id").and_then(|v| v.as_str()),
+            Some("im-user-a")
+        );
+    }
+
+    #[test]
+    fn session_read_gets_conversation_binding() {
+        let out = inject_host_task_board_conversation_id(
+            "session_read",
+            serde_json::json!({"agentInstanceId": "inst-1"}),
             "conv-abc",
             "conv-abc::tb",
             "im-user-a",

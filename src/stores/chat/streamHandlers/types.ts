@@ -114,4 +114,13 @@ export interface StreamHandlerContext {
   markConversationAwaitingView(conversationId: string): void
   /** Stamp a user message for in-memory history trim (load / send / viewport). */
   markUserMessageViewed(conversationId: string, messageId: string, at?: number): void
+
+  /** Bump incremental live fingerprint for one sub-agent trace (P0 perf). */
+  notifyScopedStreamWrite(
+    conv: Conversation,
+    anchorMsg: ChatMessage,
+    target: ChatMessage | null,
+    traceId?: string
+  ): void
+  rebuildScopedTraceCache(convId: string, messages: readonly ChatMessage[]): void
 }

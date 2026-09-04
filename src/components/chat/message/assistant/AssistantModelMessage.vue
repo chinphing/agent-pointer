@@ -14,7 +14,6 @@ import {
   subTracesForParentToolCall
 } from '../../../../lib/subAgentSession'
 import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
-import { scopedMessagesForTrace } from '../../../../lib/subAgentMessages'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
@@ -83,7 +82,7 @@ const thoughtsDebugEnabled = computed(
 )
 
 const chatStore = useChatStore()
-const { generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatStore)
+const { subAgentLiveSignals, generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatStore)
 
 const conversationMessages = computed(() => chatStore.current?.messages ?? [])
 
@@ -110,46 +109,8 @@ const childBoardByTraceId = computed(() => {
 })
 
 /**
- * Cheap fingerprint for running traces only — idle/terminal frames use status +
- * board version so sibling stream updates skip their Vue subtrees via v-memo.
+ * Per-trace live fingerprint from store (incremental; avoids O(running × messages) rescans).
  */
-const runningTraceLiveSignal = computed(() => {
-  const messages = conversationMessages.value
-  const anchor = props.message.id
-  const out = new Map<string, string>()
-  for (const trace of subTraces.value) {
-    if (trace.status !== 'running') continue
-    const scoped = scopedMessagesForTrace(
-      messages,
-      trace.anchorMessageId?.trim() || anchor,
-      trace.id,
-      trace.agentInstanceId
-    )
-    let toolSig = ''
-    let textLen = 0
-    for (const msg of scoped) {
-      textLen += (msg.content?.length ?? 0)
-        + (msg.thoughts?.length ?? 0)
-        + (msg.responseTextDraft?.length ?? 0)
-        + (msg.reasoning?.length ?? 0)
-      for (const tc of msg.toolCalls ?? []) {
-        toolSig += `${tc.id}:${tc.status}:${tc.result?.length ?? 0};`
-      }
-    }
-    const legacy = trace.session
-    if (legacy) {
-      textLen += (legacy.thoughts?.length ?? 0)
-        + (legacy.responseTextDraft?.length ?? 0)
-        + (legacy.reasoning?.length ?? 0)
-      for (const tc of legacy.toolCalls ?? []) {
-        toolSig += `${tc.id}:${tc.status}:${tc.result?.length ?? 0};`
-      }
-    }
-    out.set(trace.id, `${textLen}|${toolSig}`)
-  }
-  return out
-})
-
 function subAgentMemoDeps(trace: AgentTrace): unknown[] {
   const board = childBoardByTraceId.value.get(trace.id)
   const boardKey = board
@@ -157,7 +118,9 @@ function subAgentMemoDeps(trace: AgentTrace): unknown[] {
     : ''
   const expanded = trace.userExpanded === true
   if (trace.status === 'running') {
-    return [trace.status, expanded, boardKey, runningTraceLiveSignal.value.get(trace.id) ?? '']
+    const convId = chatStore.currentId?.trim() ?? ''
+    const live = convId ? (subAgentLiveSignals.value[convId]?.[trace.id] ?? '') : ''
+    return [trace.status, expanded, boardKey, live]
   }
   return [trace.status, expanded, boardKey, isSubAgentTraceTerminal(trace.status) ? 1 : 0]
 }

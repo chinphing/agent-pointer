@@ -86,6 +86,8 @@ export function createMockStreamHandlerContext(
     consumeStaleDoneAfterInterrupt: () => false,
     markConversationAwaitingView: noop,
     markUserMessageViewed: noop,
+    notifyScopedStreamWrite: noop,
+    rebuildScopedTraceCache: noop,
     ...overrides
   }
 }

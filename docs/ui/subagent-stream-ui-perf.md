@@ -12,8 +12,13 @@
 5. **`SubAgentFrame`**：
    - 父级用 `v-memo`：非 running 只跟 status / 展开 / 看板版本；running 才带 live fingerprint。
    - 排队且收缩的帧跳过全量 `messages` 扫描。
-6. **虚拟列表空白**：子帧高度在流式中频繁变高时，TanStack 会反复 measure；减少无效重渲染即可明显缓解。进一步可对单条消息内上百个子帧做虚拟化（尚未做）。
+6. **P0 — trace 索引 + 增量 live fingerprint**（已实现）：
+   - `scopedTraceIndex.ts`：按 `anchorMessageId + traceId` 分桶，scoped 行注册一次；内容/工具 in-place 变更无需重扫全量 `messages`。
+   - `scopedTraceCache.ts`：Pinia 侧 `liveSignals`；流式写入经 `notifyScopedStreamWrite` 只 touch 对应 trace。
+   - `AssistantModelMessage`：`v-memo` 读 `subAgentLiveSignals[convId][traceId]`，不再 O(running × messages) 全表 filter。
+   - `SubAgentFrame`：`scopedMessagesForTraceCached` 走索引 bucket，不再每帧多次 `messages.filter`。
+7. **虚拟列表空白**：子帧高度在流式中频繁变高时，TanStack 会反复 measure；减少无效重渲染即可明显缓解。进一步可对单条消息内上百个子帧做虚拟化（尚未做）。
 
-实现：`src/lib/reasoningDeltaBatch.ts`、`messageHandlers.ts`、`AssistantModelMessage.vue`、`SubAgentFrame.vue`。
+实现：`src/lib/reasoningDeltaBatch.ts`、`src/lib/scopedTraceIndex.ts`、`src/stores/chat/scopedTraceCache.ts`、`messageHandlers.ts`、`AssistantModelMessage.vue`、`SubAgentFrame.vue`。
 
 **与既有流式优化的边界**：`useThrottledMarkdown`（100ms / 长文 250ms）与 content delta 默认 50ms **不改**；本页只约束 fan-out / json_partial 路径。

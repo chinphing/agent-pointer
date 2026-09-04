@@ -186,11 +186,13 @@ export function applyAssistantJsonPartialEvent(
   const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
   if (target) {
     applyAssistantJsonPartialToMessage(target, synthetic)
+    ctx.notifyScopedStreamWrite(r.conv, r.msg, target, traceId)
     return
   }
   if (traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, traceId.trim())
     applyAssistantJsonPartialLegacySession(ensureSubTraceSession(trace), synthetic)
+    ctx.notifyScopedStreamWrite(r.conv, r.msg, null, traceId)
     return
   }
   applyAssistantJsonPartialToMessage(r.msg, synthetic)
@@ -224,6 +226,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
       ) {
         scopedTarget.status = 'done'
       }
+      ctx.notifyScopedStreamWrite(r.conv, r.msg, scopedTarget, e.traceId)
       r.conv.updatedAt = Date.now()
       return
     }

@@ -25,6 +25,10 @@ export function handleSubMessageStart(ctx: StreamHandlerContext, e: SubMessageSt
     spawnDepth: e.spawnDepth,
     agentInstanceId: e.agentInstanceId
   })
+  const child = conv.messages.find(m => m.id === e.scopedMessageId)
+  if (child) {
+    ctx.notifyScopedStreamWrite(conv, anchor, child, e.traceId)
+  }
   closeAbandonedEmptyAssistantShells(conv, e.scopedMessageId)
   anchor.status = 'streaming'
   conv.updatedAt = Date.now()

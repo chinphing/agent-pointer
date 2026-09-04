@@ -13,8 +13,6 @@ import {
   buildToolRawArgsFromMessages,
   computeSubAgentStatsFromMessages,
   latestSubAgentBodyModelFromScoped,
-  scopedAssistantMessagesForTrace,
-  scopedMessagesForTrace,
   subAgentFrameOwnsCompression
 } from '../../../../lib/subAgentMessages'
 import { useChatStore } from '../../../../stores/chat'
@@ -94,20 +92,21 @@ const scopedMessages = computed(() => {
   if (collapsed.value && !isRunning.value && !legacySession.value) {
     if (!isSubAgentTraceTerminal(props.trace.status)) return []
   }
-  return scopedAssistantMessagesForTrace(
-    props.messages,
-    effectiveAnchorId.value,
-    props.trace.id,
-    props.trace.agentInstanceId
-  )
+  return chatStore
+    .scopedMessagesForTraceCached(
+      effectiveAnchorId.value,
+      props.trace.id,
+      props.trace.agentInstanceId
+    )
+    .filter(m => m.role === 'assistant')
+    .sort((a, b) => a.createdAt - b.createdAt)
 })
 
 const scopedTraceMessages = computed(() => {
   if (collapsed.value && !isRunning.value && !legacySession.value) {
     if (!isSubAgentTraceTerminal(props.trace.status)) return []
   }
-  return scopedMessagesForTrace(
-    props.messages,
+  return chatStore.scopedMessagesForTraceCached(
     effectiveAnchorId.value,
     props.trace.id,
     props.trace.agentInstanceId

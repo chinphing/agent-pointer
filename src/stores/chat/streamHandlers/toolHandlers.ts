@@ -115,6 +115,7 @@ export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart)
       target.contentStreaming = true
       target.status = 'streaming'
     }
+    ctx.notifyScopedStreamWrite(r.conv, r.msg, target, e.traceId)
     return
   }
   if (e.traceId?.trim()) {
@@ -122,6 +123,7 @@ export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart)
     const session = ensureSubTraceSession(trace)
     session.toolCalls = upsertToolCall(session.toolCalls, e.toolCall)
     session.contentStreaming = true
+    ctx.notifyScopedStreamWrite(r.conv, r.msg, null, e.traceId)
     return
   }
   if (r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
@@ -221,6 +223,7 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
     e.traceId,
     e.scopedMessageId
   )
+  ctx.notifyScopedStreamWrite(r.conv, r.msg, target, e.traceId)
   if (e.status !== 'running') {
     markToolCallWaitingForInput(
       ctx,

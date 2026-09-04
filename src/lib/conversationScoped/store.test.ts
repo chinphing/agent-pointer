@@ -199,4 +199,24 @@ describe('computeSubAgentLiveFingerprint', () => {
     const fp3 = computeSubAgentLiveFingerprint(scoped)
     expect(fp2).not.toBe(fp3)
   })
+
+  it('tracks tool label/summary and argument length so live text can refresh', () => {
+    const scoped = [
+      scopedMsg({
+        id: 'm1',
+        toolCalls: [{
+          id: 'tc1',
+          name: 'media_understand',
+          arguments: '{}',
+          status: 'running',
+          displayLabel: '媒体理解'
+        }]
+      })
+    ]
+    const fp1 = computeSubAgentLiveFingerprint(scoped)
+    scoped[0].toolCalls![0].arguments = JSON.stringify({ goal: '识别发票' })
+    expect(computeSubAgentLiveFingerprint(scoped)).not.toBe(fp1)
+    scoped[0].toolCalls![0].displaySummary = '识别发票'
+    expect(computeSubAgentLiveFingerprint(scoped)).not.toBe(fp1)
+  })
 })

@@ -63,6 +63,30 @@ describe('compactToolCallStatusLine', () => {
     expect(compactToolCallLiveText(terminal)).toBe('计算 2 的 0 到 15 次方')
     expect(compactToolCallLiveText(
       tc({
+        id: 'mu',
+        name: 'media_understand',
+        status: 'running',
+        displayLabel: '媒体理解',
+        arguments: JSON.stringify({
+          refs: ['pointer-media://c/a.pdf'],
+          goal: '识别发票金额'
+        })
+      })
+    )).toBe('识别发票金额')
+    expect(compactToolCallLiveText(
+      tc({
+        id: 'term-label',
+        name: 'terminal',
+        status: 'running',
+        displayLabel: '终端命令',
+        arguments: JSON.stringify({
+          command: 'ls -la',
+          label: '列出当前目录'
+        })
+      })
+    )).toBe('列出当前目录')
+    expect(compactToolCallLiveText(
+      tc({
         id: '2',
         name: 'wait',
         status: 'running',

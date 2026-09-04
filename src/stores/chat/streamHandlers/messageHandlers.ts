@@ -8,7 +8,7 @@ import {
 import { isPlannerPhaseThoughts } from '../../../lib/plannerPhase'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { toolCallBaseName } from '../../../lib/messageTooling'
-import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
+import { findLiveScopedAssistant, resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace, ensureSubTraceSession } from '../../../lib/subAgentSession'
 import { assistantHasVisibleProgress } from '../../../lib/assistantMessageKind'
 import { closeAbandonedEmptyAssistantShells } from '../helpers'
@@ -130,6 +130,7 @@ export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDe
     if (capture) {
       target.rawContent = (target.rawContent || '') + e.text
       markAssistantStreaming(target)
+      ctx.notifyScopedStreamWrite(r.conv, r.msg, target, e.traceId)
     } else if (!alreadyAssistantStreaming(target)) {
       // Fan-out sub-agents emit raw deltas every token; avoid dirtying Vue when
       // already streaming and the debug panel is off.
@@ -140,7 +141,10 @@ export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDe
   if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
     const session = ensureSubTraceSession(trace)
-    if (capture) session.rawContent = (session.rawContent || '') + e.text
+    if (capture) {
+      session.rawContent = (session.rawContent || '') + e.text
+      ctx.notifyScopedStreamWrite(r.conv, r.msg, null, e.traceId)
+    }
     if (capture || session.contentStreaming !== true) session.contentStreaming = true
     return
   }
@@ -192,7 +196,13 @@ export function applyAssistantJsonPartialEvent(
   if (traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, traceId.trim())
     applyAssistantJsonPartialLegacySession(ensureSubTraceSession(trace), synthetic)
-    ctx.notifyScopedStreamWrite(r.conv, r.msg, null, traceId)
+    const live = findLiveScopedAssistant(r.conv, {
+      agentInstanceId: trace.agentInstanceId,
+      anchorMessageId: r.msg.id,
+      traceId: traceId.trim()
+    })
+    if (live) applyAssistantJsonPartialToMessage(live, synthetic)
+    ctx.notifyScopedStreamWrite(r.conv, r.msg, live ?? null, traceId)
     return
   }
   applyAssistantJsonPartialToMessage(r.msg, synthetic)
@@ -234,6 +244,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
       const trace = ensureSubTrace(r.msg, e.traceId.trim())
       const session = trace.session
       if (session) session.contentStreaming = false
+      ctx.notifyScopedStreamWrite(r.conv, r.msg, null, e.traceId)
       return
     }
     const terminalMediaDelivery =

@@ -34,7 +34,7 @@ import {
 } from '../../../../lib/toolCallDisplay'
 import {
   thinkingLabel,
-  streamedCharCountFromBody,
+  thinkingCharCountForCollapsedSubAgent,
   subAgentThinkingActive
 } from '../../../../lib/thinkingIndicator'
 import { visibleToolCalls } from '../../../../lib/messageTooling'
@@ -223,13 +223,18 @@ const liveInnerTool = computed(() => {
   return latest
 })
 
-const showThinkingInSummary = computed(() =>
-  subAgentThinkingActive({
+const showThinkingInSummary = computed(() => {
+  // Live-signal edge: hidden sidecar tool transitions don't change
+  // liveInnerTool identity, so without this the dots stall.
+  void chatStore.getSubAgentLiveSignal(
+    props.trace.agentInstanceId?.trim() || props.trace.id
+  )
+  return subAgentThinkingActive({
     running: isRunning.value,
     hasInProgressTool:
       !!liveInnerTool.value || scopedHasInProgressTools(scopedTraceMessages.value)
   })
-)
+})
 
 const visibleInnerTools = computed((): ToolCall[] => {
   const tools = processInnerTools.value
@@ -240,13 +245,25 @@ const visibleInnerTools = computed((): ToolCall[] => {
 })
 
 const collapsedView = computed(() => {
+  // Read the live signal directly so this computed re-evaluates when the
+  // fingerprint changes — getRows() returns the same array reference, so
+  // scopedTraceMessages alone won't trigger a recompute.
+  const _live = chatStore.getSubAgentLiveSignal(
+    props.trace.agentInstanceId?.trim() || props.trace.id
+  )
+  void _live
   const persisted = props.trace.summaryLine?.trim() || ''
   const stats =
     scopedTraceMessages.value.length > 0
       ? computeSubAgentStatsFromMessages(scopedTraceMessages.value)
       : (legacySession.value?.stats ?? emptySubAgentToolStats())
   const thinking = showThinkingInSummary.value
-    ? thinkingLabel(latestStreamBody.value ? streamedCharCountFromBody(latestStreamBody.value) : 0)
+    ? thinkingLabel(
+        thinkingCharCountForCollapsedSubAgent(
+          scopedTraceMessages.value,
+          legacySession.value ?? null
+        )
+      )
     : null
   const live = liveInnerTool.value
     ? compactToolCallLiveText(liveInnerTool.value, chatStore.current?.workspaceRoot)

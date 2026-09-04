@@ -333,6 +333,17 @@ export function findScopedMessage(
     ?? conv.messages.find(m => m.id === id)
 }
 
+/** Current streaming scoped assistant for this spawn, if any. */
+export function findLiveScopedAssistant(
+  conv: Conversation,
+  lookup: { agentInstanceId?: string; anchorMessageId: string; traceId: string }
+): ChatMessage | undefined {
+  const rows = useConversationScopedStore().getRows(conv.id, lookup)
+  return [...rows].reverse().find(
+    m => m.role === 'assistant' && (m.status === 'streaming' || m.contentStreaming === true)
+  )
+}
+
 /** Resolve the chat row stream handlers should mutate (lead or scoped child). */
 export function resolveStreamWriteMessage(
   conv: Conversation,

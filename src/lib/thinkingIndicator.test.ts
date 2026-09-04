@@ -11,6 +11,7 @@ import {
   thinkingDotCount,
   thinkingDotsAtCap,
   thinkingLabel,
+  thinkingCharCountForCollapsedSubAgent,
   thinkingSteadyDotCount,
   collapsedProcessRunActive,
   subAgentThinkingActive
@@ -48,6 +49,42 @@ describe('thinking dots (tiered)', () => {
   it('thinkingLabel repeats the computed dots', () => {
     expect(thinkingLabel(0)).toBe('思考中.')
     expect(thinkingLabel(1001)).toBe(`思考中${'.'.repeat(11)}`)
+  })
+
+  it('collapsed sub-agent thinking ignores previous reply content and leftover session', () => {
+    const prev = {
+      id: 'a1',
+      role: 'assistant' as const,
+      content: '上一轮回复'.repeat(20),
+      status: 'done' as const,
+      createdAt: 1
+    }
+    const emptyShell = {
+      id: 'a2',
+      role: 'assistant' as const,
+      content: '',
+      status: 'streaming' as const,
+      contentStreaming: true,
+      createdAt: 2
+    }
+    expect(thinkingCharCountForCollapsedSubAgent([prev, emptyShell])).toBe(0)
+    expect(
+      thinkingCharCountForCollapsedSubAgent(
+        [prev, { ...emptyShell, thoughts: 'y'.repeat(101) }]
+      )
+    ).toBe(101)
+    expect(
+      thinkingCharCountForCollapsedSubAgent([prev, emptyShell], {
+        contentStreaming: true,
+        thoughts: 'z'.repeat(80)
+      })
+    ).toBe(80)
+    expect(
+      thinkingCharCountForCollapsedSubAgent([prev, emptyShell], {
+        contentStreaming: false,
+        thoughts: 'z'.repeat(80)
+      })
+    ).toBe(0)
   })
 
   it('keeps 45 steady dots at the cap so 3 can stay live', () => {

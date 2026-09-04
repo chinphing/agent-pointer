@@ -15,11 +15,18 @@ export function handleSubMessageStart(ctx: StreamHandlerContext, e: SubMessageSt
     console.warn('[stream] sub_message_start: anchor message missing', e.anchorMessageId)
     return
   }
-  ensureSubTrace(anchor, e.agentInstanceId.trim() || e.traceId, {
+  const trace = ensureSubTrace(anchor, e.agentInstanceId.trim() || e.traceId, {
     depth: e.spawnDepth,
     agentInstanceId: e.agentInstanceId,
     taskId: e.taskId
   })
+  if (trace.session) {
+    delete trace.session.thoughts
+    delete trace.session.reasoning
+    delete trace.session.toolNamePreview
+    delete trace.session.responseTextDraft
+    trace.session.contentStreaming = true
+  }
   const child = ensureScopedChildMessage(conv, e.anchorMessageId, e.scopedMessageId, {
     traceId: e.traceId,
     taskId: e.taskId,

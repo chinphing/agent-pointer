@@ -41,7 +41,7 @@ import { promoteOutboundQueueItem } from '../lib/outboundQueue'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { withRetries } from '../lib/retry'
 import { resolveTraceTaskId, traceLookupId } from '../lib/subAgentStats'
-import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, ensureHostLinkedSubTraces, isScopedSubMessage } from '../lib/subAgentMessages'
+import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, ensureHostLinkedSubTraces, isScopedSubMessage, findLiveScopedAssistant } from '../lib/subAgentMessages'
 import { useConversationScopedStore } from '../lib/conversationScoped'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import { isPersistableAttachmentPreviewUrl } from '../lib/attachmentSupport'
@@ -2890,7 +2890,10 @@ export const useChatStore = defineStore('chat', () => {
     const instance = agentInstanceId?.trim()
     if (instance) void scopedStore.getLiveSignal(conv.id, instance)
     void scopedStore.getLiveSignal(conv.id, traceId)
-    return scopedStore.getRows(conv.id, { anchorMessageId, traceId, agentInstanceId })
+    // Return a copy: getRows() returns the same array reference, and Vue 3.4+
+    // computed stability (Object.is) would skip downstream re-evaluation even
+    // when the live signal bumped.
+    return scopedStore.getRows(conv.id, { anchorMessageId, traceId, agentInstanceId }).slice()
   }
 
   function getSubAgentLiveSignal(traceId: string): string {
@@ -2992,6 +2995,22 @@ export const useChatStore = defineStore('chat', () => {
         if (r.msg.status !== 'done' && r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
           session.contentStreaming = true
         }
+      }
+      const live = findLiveScopedAssistant(r.conv, {
+        agentInstanceId: trace.agentInstanceId,
+        anchorMessageId: r.msg.id,
+        traceId: traceId.trim()
+      })
+      if (live) {
+        live.reasoning = (live.reasoning || '') + text
+        if (live.status !== 'cancelled' && live.status !== 'error' && live.status !== 'done') {
+          live.contentStreaming = true
+          live.status = 'streaming'
+        }
+        scopedStore.touchRow(r.conv.id, live.id, session)
+        return
+      }
+      if (session) {
         scopedStore.touchLookup(
           r.conv.id,
           {
@@ -3070,6 +3089,15 @@ export const useChatStore = defineStore('chat', () => {
       const trace = ensureSubTrace(r.msg, traceId.trim())
       const tc = trace.session?.toolCalls?.find(t => t.id === toolCallId)
       if (tc) tc.arguments += text
+      scopedStore.touchLookup(
+        r.conv.id,
+        {
+          agentInstanceId: trace.agentInstanceId,
+          anchorMessageId: r.msg.id,
+          traceId: traceId.trim()
+        },
+        trace.session
+      )
       return
     }
     const tc = r.msg.toolCalls?.find(t => t.id === toolCallId)
@@ -3098,6 +3126,15 @@ export const useChatStore = defineStore('chat', () => {
       const trace = ensureSubTrace(r.msg, traceId.trim())
       const tc = trace.session?.toolCalls?.find(t => t.id === toolCallId)
       if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
+      scopedStore.touchLookup(
+        r.conv.id,
+        {
+          agentInstanceId: trace.agentInstanceId,
+          anchorMessageId: r.msg.id,
+          traceId: traceId.trim()
+        },
+        trace.session
+      )
       return
     }
     const tc = r.msg.toolCalls?.find(t => t.id === toolCallId)

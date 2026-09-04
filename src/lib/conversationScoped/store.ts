@@ -112,8 +112,9 @@ export function createConversationScopedStore() {
     ) {
       return
     }
-    convMap[instanceId] = fp
-    if (legacy && legacy !== instanceId) convMap[legacy] = fp
+    const next = { ...convMap, [instanceId]: fp }
+    if (legacy && legacy !== instanceId) next[legacy] = fp
+    liveSignals.value[id] = next
   }
 
   function refreshFingerprint(

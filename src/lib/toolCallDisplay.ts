@@ -127,7 +127,16 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     }
   }
 
-  return { label: tc.displayLabel?.trim() || tc.name, summary: tc.displaySummary?.trim() || '' }
+  const fromArgs =
+    strField(args, ['label'])
+    || (base === 'media_understand' ? strField(args, ['goal', 'question']) : '')
+    || (base === 'terminal'
+      ? (strField(args, ['command']).split('\n')[0]?.trim() || '')
+      : '')
+  return {
+    label: tc.displayLabel?.trim() || tc.name,
+    summary: tc.displaySummary?.trim() || truncateToolSummary(fromArgs)
+  }
 }
 
 /** Prefer localized label; ignore stale slug labels like `cron_job` from older backend rows. */

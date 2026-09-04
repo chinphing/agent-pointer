@@ -394,7 +394,7 @@ function openSourceUrl(url: string) {
 
 <template>
   <div
-    class="tool-call-row min-w-0 w-full max-w-full transition-colors"
+    class="tool-call-row group min-w-0 w-full max-w-full transition-colors"
     :data-tool-call-id="toolCall.id"
     :class="isActiveSearchMatch
       ? 'rounded-lg ring-2 ring-accent/60 bg-accent/10'
@@ -471,7 +471,7 @@ function openSourceUrl(url: string) {
       <button
         v-if="showEndBackgroundJob"
         type="button"
-        class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
+        class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-all opacity-0 group-hover:opacity-100"
         title="只结束这一条后台任务"
         @click.stop="cancelThisBackgroundJob"
       >结束任务</button>

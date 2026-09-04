@@ -460,7 +460,7 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             ("抓取网页".to_string(), truncate(&u, SUMMARY_MAX))
         }
         "media_understand" => {
-            let goal = str_field(args, &["goal", "question"]).unwrap_or_default();
+            let goal = str_field(args, &["label", "goal", "question"]).unwrap_or_default();
             ("媒体理解".to_string(), truncate(&goal, SUMMARY_MAX))
         }
         "run_subagent" => (
@@ -647,6 +647,19 @@ mod tests {
         );
         assert_eq!(d.label, "媒体理解");
         assert_eq!(d.summary, "总结合同中的违约责任条款");
+    }
+
+    #[test]
+    fn media_understand_summary_prefers_label() {
+        let d = default_display(
+            "media_understand",
+            &json!({
+                "refs": ["pointer-media://c/a.pdf"],
+                "label": "识别发票",
+                "goal": "总结合同中的违约责任条款"
+            }),
+        );
+        assert_eq!(d.summary, "识别发票");
     }
 
     #[test]

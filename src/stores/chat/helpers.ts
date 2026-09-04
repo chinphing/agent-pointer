@@ -377,7 +377,11 @@ export function closeAbandonedEmptyAssistantShells(
   for (const m of conv.messages) visit(m)
   // Scoped overflow only looks at this spawn — never listRows of every agent.
   if (scopedLookup) {
-    for (const m of useConversationScopedStore().getRows(conv.id, scopedLookup)) visit(m)
+    const scopedStore = useConversationScopedStore()
+    for (const m of scopedStore.getRows(conv.id, scopedLookup)) {
+      visit(m)
+      scopedStore.touchRow(conv.id, m.id)
+    }
   }
   if (closed > 0) {
     console.info('[chat] closed abandoned empty assistant shells', {

@@ -233,7 +233,7 @@ pub(super) async fn drain_provider_events(
                     &mut streamed_tool_call_ids,
                     sub_trace_id,
                     sub_scoped_message_id,
-                    false,
+                    true,
                 );
             }
             ProviderEvent::AssistantJsonPartial {

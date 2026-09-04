@@ -8,10 +8,11 @@
 1. **共享 flush**：`reasoningDeltaBatch` 对同一类 delta 使用 **一个** 定时器，到期后一次性写出所有 pending key，避免 10 路流各自触发多次 Vue tick。
 2. **高压拉长间隔**：pending key ≥ `HIGH_PRESSURE_STREAM_KEYS`（6）时，batch 至少 `HIGH_PRESSURE_BATCH_MS`（**500ms**）。单路时仍用各类原间隔（content 50ms 等，与既有主气泡优化一致）。
 3. **`assistant_json_partial` 必须批处理**：子 Agent 正文走 JSON 局部字段（thoughts / toolName / responseText），不得逐 token 写 store；latest-wins 合并；默认 **`ASSISTANT_JSON_PARTIAL_BATCH_MS` = 200ms**（收缩态 live 行对延迟不敏感）。
-4. **`raw_content_delta`**：关闭「原始内容」时，若目标已是 streaming，不要再 dirty 状态字段。
+4. **`raw_content_delta`**：关闭「原始内容」时，若目标已是 streaming，不要再 dirty 状态字段。点数跟 `thoughts` / `reasoning`，不跟 raw。
 5. **`SubAgentFrame`**：
    - 父级用 `v-memo`：非 running 只跟 status / 展开 / 看板版本；running 才带 live fingerprint。
    - 排队且收缩的帧跳过全量 `messages` 扫描。
+   - live fingerprint 必须带上当前工具的 `displaySummary` / `arguments` 长度。只跟 status 时，start 种类名画上之后，后面到的 `label`/`goal` 不会重画。
 6. **P0 — trace 索引 + 增量 live fingerprint**（已实现，**v1**）：
    - `scopedTraceIndex.ts`：按 `anchorMessageId + traceId` 分桶，scoped 行注册一次；内容/工具 in-place 变更无需重扫全量 `messages`。
    - `scopedTraceCache.ts`：Pinia 侧 `liveSignals`；流式写入经 `notifyScopedStreamWrite` 只 touch 对应 trace。

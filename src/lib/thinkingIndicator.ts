@@ -90,6 +90,34 @@ export function thinkingLabel(streamedCharCount: number): string {
   return `思考中${'.'.repeat(thinkingDotCount(streamedCharCount))}`
 }
 
+function isStreamingAssistant(msg: ChatMessage): boolean {
+  return msg.status === 'streaming' || msg.contentStreaming === true
+}
+
+/**
+ * Collapsed sub-agent「思考中」count.
+ * Do not use `latestStreamBody`: that merge copies the previous reply into
+ * `content`, so max() freezes the dots until thoughts exceed the old reply.
+ * Only this streaming row (and the live session if writes landed there).
+ */
+export function thinkingCharCountForCollapsedSubAgent(
+  spawnRows: readonly ChatMessage[],
+  liveSession?: Pick<ThinkingStreamBody, 'thoughts' | 'reasoning' | 'contentStreaming'> | null
+): number {
+  const assistants = spawnRows.filter(m => m.role === 'assistant')
+  const streaming = [...assistants].reverse().find(isStreamingAssistant)
+  const row = streaming ?? assistants[assistants.length - 1]
+  let n = row ? streamedCharCountFromMessage(row) : 0
+  if (liveSession?.contentStreaming === true) {
+    n = Math.max(
+      n,
+      liveSession.thoughts?.length ?? 0,
+      liveSession.reasoning?.length ?? 0
+    )
+  }
+  return n
+}
+
 /** True when the row already shows text, tools, or other visible streaming output. */
 export function messageHasVisibleStreamingActivity(message: ChatMessage): boolean {
   if (message.content?.trim()) return true

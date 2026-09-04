@@ -1,4 +1,4 @@
-import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
+import { isDiscardableEmptyAssistant, assistantHasUserFacingProgress } from '../../lib/assistantMessageKind'
 import { leadThreadCompressionInsertIndex } from '../../lib/compressionLayout'
 import { isBackgroundJobHost, isBackgroundJobHandleResult, isToolCallInProgress, isLiveBackgroundHostTool, backgroundHandleStatus, isBackgroundHandleInProgress } from '../../lib/toolCallDisplay'
 import {
@@ -368,7 +368,7 @@ export function closeAbandonedEmptyAssistantShells(
     if (m.id === keepId) return
     if (m.role !== 'assistant') return
     if (m.status !== 'streaming' && m.status !== 'pending') return
-    if (assistantHasVisibleProgress(m)) return
+    if (assistantHasUserFacingProgress(m)) return
     m.status = 'done'
     m.contentStreaming = false
     closed += 1

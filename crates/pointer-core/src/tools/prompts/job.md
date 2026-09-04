@@ -69,40 +69,32 @@ Do not tell the user everything is finished while jobs are still running.
 **`await`**
 
 - The **only** way a job body enters this turn.
-- Also drains mid-flight **`updates[]`** (progress / status mail).
-- Wait for jobs to finish **or** for progress mail. Does **not**
-  kill them on timeout.
+- Wait until a **whole job** finishes. Inner tool calls
+  on a still-running worker do **not** complete this await.
+- Does **not** kill jobs on timeout.
 - **`jobIds`**: omit = every background job in this conversation.
   Finished unclaimed jobs are eligible immediately.
-- **`mode`**: `any` (default) = wake when **either**
-  (1) at least one job is finished and unclaimed, **or**
-  (2) a watched job posts progress mail (tool running mid-flight).
-  On wake: return every currently finished unclaimed body in this
-  conversation in `jobs[]` (claimed), **and** drain mailbox into
-  `updates[]`. Progress-only wake leaves `jobs` empty and does
-  **not** claim bodies — call `await` again for the handoff.
-  Jobs still running stay in `running`.
+- **`mode`**: `any` (default) = wake when at least one job
+  in this conversation is finished and unclaimed.
+  On wake: return every currently finished unclaimed body
+  in `jobs[]` (claimed). Jobs still running stay in `running`.
   Already-claimed jobs are omitted from `jobs`.
   `all` = wait until this set is finished, then return and claim
   every still-unclaimed finished job in this conversation
-  (including ones outside this set). Also drains `updates[]`.
+  (including ones outside this set).
   Already-claimed jobs are omitted. Finished unclaimed jobs do
   not rerun.
 - **`timeoutMs`**: default 30 minutes.
-  On timeout: no body claim; any pending mail still drains into
-  `updates[]`.
-- Use `any` when the next task depends on a finished result,
-  or when you want mid-flight progress before the handoff.
+  On timeout: no body claim.
+- Use `any` when the next task depends on a finished result.
 - Use `all` when the full set is already spawned and you only
   need the summary.
-- `jobs[]` is the bodies. `updates[]` is mid-flight mail
-  (`kind`: `progress` / `status`). `running[]` is ids still running.
+- `jobs[]` is the bodies. `running[]` is ids still running.
   `runningCount` is background occupancy.
   `idleSlots` / `poolRunning` are the shared worker pool
   (foreground join counts against the same cap).
   Spawn at most `idleSlots` more if work remains.
   Do not `status` a finished job for the body after `await`.
-  Do not treat progress `updates` as a finished handoff.
 
 **`cancel`**
 

@@ -49,7 +49,7 @@ pub struct SubAgentLoopContext<'a> {
     pub spawn_depth: u32,
     pub max_spawn_depth: u32,
     pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,
-    /// Background worker job id; tool progress posts to this mailbox.
+    /// Background worker job id for this nested loop.
     pub background_job_id: Option<String>,
 }
 

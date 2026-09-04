@@ -3,6 +3,7 @@ import {
   assistantDisplayKind,
   assistantHasDeliverableContent,
   isEphemeralDesktopNoticeMessage,
+  isIdleThoughtOnlyAssistant,
   isProcessThinkingShell,
   isToolOnlyAssistantMessage
 } from './assistantMessageKind'
@@ -138,6 +139,7 @@ type LayoutKind = 'skip' | 'notice' | 'tool_only' | 'glue' | 'message'
 
 function layoutKind(message: ChatMessage): LayoutKind {
   if (isScopedSubMessage(message)) return 'skip'
+  if (isIdleThoughtOnlyAssistant(message)) return 'skip'
   if (isEphemeralDesktopNoticeMessage(message)) return 'notice'
   if (isToolOnlyAssistantMessage(message)) return 'tool_only'
   if (isToolRunContinuityGlue(message)) return 'glue'
@@ -353,9 +355,13 @@ export function flattenConversationMessages(
       last.items.push({ kind: 'tools', group })
       return true
     }
-    if (last?.type === 'message' && (last.trailingToolGroups?.length ?? 0) > 0) {
-      last.trailingToolGroups = [...(last.trailingToolGroups ?? []), group]
-      return true
+    if (last?.type === 'message' && last.message.role === 'assistant') {
+      const hasOwnTools = (last.message.toolCalls?.length ?? 0) > 0
+      const hasTrailing = (last.trailingToolGroups?.length ?? 0) > 0
+      if (hasOwnTools || hasTrailing) {
+        last.trailingToolGroups = [...(last.trailingToolGroups ?? []), group]
+        return true
+      }
     }
     return false
   }

@@ -1,6 +1,6 @@
 # 异步子 Agent 与后台终端
 
-> 实现进度：已落地 JobSupervisor（job 表 + **按会话 FIFO 工人池**）、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` list/status/await/cancel。前台 wave / 串行 coder·computer 与后台共用 `acquire_root`（嵌套 `acquire_nested`）。**空闲合并 push 已落地**。**`self` / `explore` 省略 `background` 默认后台**；`terminal` 与 `coder` / `computer` 默认仍为前台 join。**`job.await` 支持 progress mailbox（中途醒父）**。
+> 实现进度：已落地 JobSupervisor（job 表 + **按会话 FIFO 工人池**）、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` list/status/await/cancel。前台 wave / 串行 coder·computer 与后台共用 `acquire_root`（嵌套 `acquire_nested`）。**空闲合并 push 已落地**。**`self` / `explore` 省略 `background` 默认后台**；`terminal` 与 `coder` / `computer` 默认仍为前台 join。**`job.await` 只在单个 job 终态时叫醒父模型**（内部工具过程不醒）。
 >
 > **终端：不传 `blockUntilMs` = 仍 join。`self` / `explore`：不传 `background` = 后台（空闲 push 已落地后）。`coder` / `computer` 始终前台。**
 >
@@ -108,7 +108,7 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 | 同一则消息里已列出 10 个任务、上限 4 | 信号量会补位（4 跑完再接下一个），但父 LLM 仍卡到 10 个全 join | JobSupervisor 同样补位；父已拿到 10 个 `jobId`，可去干别的 |
 | 下一任务要看**已完成者的结果**才知道 | 做不到：父被整波 join 堵住，空槽闲着 | `job.await(any)` 先完成的先把 `content` 交回；父立刻 `run_subagent` 补一个。其它仍在跑的继续占槽 |
 
-这就是 Cursor 后台 `Task` 和 Codex「邮箱有更新就醒」（不要 wait-all）真正省掉的浪费：慢任务不必拖住快任务腾出来的槽。
+这就是 Cursor 后台 `Task` 和 Codex `wait` 不要 wait-all 真正省掉的浪费：慢任务不必拖住快任务腾出来的槽。
 
 `mode=any` 等到至少一条未认领终态，然后把**此刻所有已完成未认领的**都放进 `jobs[]`（带完整 `content`）并认领——对齐 Codex V1 `wait_agent` 的 drain-ready（先醒，再 `now_or_never` 收齐已终态的兄弟）。`running[]` 仍是 id。`any` 与 `all` 的差别只是要不要等最慢的，不是「正文给几个」。LLM 往返期间新完成的无法打断生成（P2 空闲 push）。
 
@@ -197,7 +197,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 |--------|------|
 | `list` | 本会话后台 job（含子 Agent 与终端）。每条带 **`claimed`**。**不带 `content`** |
 | `status` | 单个 job 元数据。**不带 `content`**，**不**认领 |
-| `await` | 见下表。**唯一**把终态 `content` 写进本轮并置 **`claimed: true`**；同时可 drain 中途 **`updates[]`**（不认领正文） |
+| `await` | 见下表。**唯一**把终态 `content` 写进本轮并置 **`claimed: true`** |
 | `cancel` | 按 id 杀；缺省杀本会话全部后台 |
 
 `await`：
@@ -205,13 +205,13 @@ WorkerLease Drop → running_roots -1，叫醒队头
 | 字段 | 含义 |
 |------|------|
 | `jobIds` | 省略 = 本会话全部后台 job（含已完成未认领）。指定则这一组是等待集 |
-| `mode` | `any`（默认）：等到 **未认领终态** 或等待集上出现 **progress 邮件**（子工具 running 写入 mailbox，对齐 Codex「任意更新可醒」的进度通道；`queued→running` 的 status 邮件 alone 不醒，避免 spawn 后立刻空醒）。醒后：本会话**此刻所有已完成未认领的**进 `jobs[]` 并认领；mailbox 进 `updates[]`（progress-only 时 `jobs` 为空、**不**认领正文，需再 `await`）。还在跑的只在 `running[]`。`all`：这组全部终态才返回，只认领**尚未 claimed** 的（含会话里其它已完成未认领的），并 drain `updates[]`。已认领的不再进 `jobs` |
-| `timeoutMs` | 默认 30min；超时不杀、不认领正文；未投递邮件仍可进 `updates[]` |
-| 回包 | `jobs`（本拍认领的正文）、`updates`（中途 progress/status）、`running`、`runningCount` / `slotCap` / `idleSlots` / `poolRunning`。超时未认领终态 id 才出现在 `unclaimed` |
+| `mode` | `any`（默认）：等到本会话至少一条 **未认领终态**。醒后：此刻所有已完成未认领的进 `jobs[]` 并认领。内部工具 running/结果 **不**叫醒父模型。还在跑的只在 `running[]`。`all`：这组全部终态才返回，只认领**尚未 claimed** 的（含会话里其它已完成未认领的）。已认领的不再进 `jobs` |
+| `timeoutMs` | 默认 30min；超时不杀、不认领正文 |
+| 回包 | `jobs`（本拍认领的正文）、`running`、`runningCount` / `slotCap` / `idleSlots` / `poolRunning`。超时未认领终态 id 才出现在 `unclaimed` |
 
-滑动窗口循环：`await(any)` → 若有 `jobs[]` 读正文并按 `idleSlots` 再 spawn；若只有 `updates[]` 可据此调整下一步或再 await → 不要默认 `all`。
+滑动窗口循环：`await(any)` → 读 `jobs[]` 正文并按 `idleSlots` 再 spawn → 不要默认 `all`。
 
-`await` 与空闲 push **互斥认领**（字段 **`claimed`**，仅终态正文）：谁先把终态交给父模型，谁负责；另一条路径看到已投递则跳过。**进度邮件不置 `claimed`。** **第二次 `await` 不得再把同一份 `content` 放进 `jobs`。** `list` / `status` 只给元数据，不带正文、不置 `claimed`。
+`await` 与空闲 push **互斥认领**（字段 **`claimed`**，仅终态正文）：谁先把终态交给父模型，谁负责；另一条路径看到已投递则跳过。**第二次 `await` 不得再把同一份 `content` 放进 `jobs`。** `list` / `status` 只给元数据，不带正文、不置 `claimed`。
 
 ### JobSupervisor
 

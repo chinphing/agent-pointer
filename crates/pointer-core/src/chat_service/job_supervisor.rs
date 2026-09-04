@@ -625,7 +625,8 @@ impl JobSupervisor {
         self.notify();
     }
 
-    /// Mid-flight progress for Codex-style `await` any-update wake.
+    /// Record mid-flight progress mail. Does **not** wake `await`
+    /// (`mode=any` waits for an unclaimed terminal job only).
     /// Does **not** set job-level `claimed` (terminal bodies stay for later `await` / idle push).
     pub fn post_progress(&self, job_id: &str, text: &str) {
         let trimmed = text.trim();
@@ -659,7 +660,7 @@ impl JobSupervisor {
             job.mail_seq
         );
         drop(inner);
-        self.notify();
+        // Do not notify: inner-tool progress must not complete `job.await`.
     }
 
     pub fn is_claimed(&self, job_id: &str) -> bool {
@@ -839,8 +840,8 @@ impl JobSupervisor {
         n
     }
 
-    /// Claim terminal results and/or drain mailbox for `await`.
-    /// `mode=any` also wakes on unclaimed mid-flight mail (does not claim bodies).
+    /// Claim terminal results and drain leftover mailbox for `await`.
+    /// `mode=any` wakes only on an unclaimed terminal job (not inner-tool progress).
     /// Already-claimed jobs are skipped (mutex with idle push).
     pub async fn await_jobs(
         &self,
@@ -951,8 +952,7 @@ impl JobSupervisor {
         match mode {
             AwaitMode::Any => {
                 let ready = unclaimed_finished_conversation(&inner, conversation_id);
-                let has_mail = targets_have_progress_mail(&inner, conversation_id, &ids);
-                if ready.is_empty() && !has_mail {
+                if ready.is_empty() {
                     if running.is_empty() {
                         return Some(empty_await(
                             mode,
@@ -1027,7 +1027,7 @@ impl JobSupervisor {
 
     /// Timeout / cancel / watch-closed path: **never** deliver `content` and **never** claim.
     /// Finished-but-unclaimed ids go in `unclaimed`; still-running ids go in `running`.
-    /// Mid-flight mail is drained into `updates` (progress-only, no body claim).
+    /// Leftover mail is drained into `updates` (no body claim).
     /// Only [`Self::try_claim_await`] may put bodies into `jobs`.
     fn snapshot_await(
         &self,
@@ -1138,17 +1138,6 @@ fn push_mail(job: &mut JobRecord, kind: JobMailKind, text: String) {
             job.mailbox.remove(0);
         }
     }
-}
-
-fn targets_have_progress_mail(inner: &Inner, conversation_id: &str, ids: &[String]) -> bool {
-    ids.iter().any(|id| {
-        inner.jobs.get(id).is_some_and(|j| {
-            j.conversation_id == conversation_id
-                && j.mailbox
-                    .iter()
-                    .any(|m| !m.claimed && m.kind == JobMailKind::Progress)
-        })
-    })
 }
 
 fn drain_mail_for_ids(
@@ -1383,7 +1372,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn await_any_wakes_on_progress_without_claiming_body() {
+    async fn await_any_does_not_wake_on_inner_tool_progress() {
         let sup = Arc::new(JobSupervisor::new());
         let conv = "c-progress";
         let a = sup.register(conv, kind(), CancellationToken::new());
@@ -1393,7 +1382,23 @@ mod tests {
         sup.post_progress(&a, "read · src/auth.rs");
 
         let parent = CancellationToken::new();
-        let result = Arc::clone(&sup)
+        let timed = Arc::clone(&sup)
+            .await_jobs(
+                conv,
+                Some(vec![a.clone(), b.clone()]),
+                AwaitMode::Any,
+                Some(Duration::from_millis(80)),
+                &parent,
+                4,
+            )
+            .await;
+        assert!(timed.timed_out, "inner-tool progress must not complete await");
+        assert!(timed.jobs.is_empty());
+        assert_eq!(timed.running, vec![a.clone(), b.clone()]);
+        assert!(!sup.list(conv, false).iter().find(|j| j.job_id == a).unwrap().claimed);
+
+        sup.finish(&a, JobStatus::Completed, Some("handoff".into()), None);
+        let done = Arc::clone(&sup)
             .await_jobs(
                 conv,
                 Some(vec![a.clone(), b.clone()]),
@@ -1403,35 +1408,12 @@ mod tests {
                 4,
             )
             .await;
-        assert!(result.jobs.is_empty(), "progress must not claim bodies");
-        assert!(!result.timed_out);
-        assert_eq!(result.running, vec![a.clone(), b.clone()]);
-        assert!(
-            result
-                .updates
-                .iter()
-                .any(|u| u.job_id == a && u.kind == "progress" && u.text.contains("auth")),
-            "expected progress update, got {:?}",
-            result.updates
-        );
-        let listed = sup.list(conv, false);
-        assert!(!listed.iter().find(|j| j.job_id == a).unwrap().claimed);
-
-        // Mail already drained — next await waits for terminal (or times out).
-        let parent2 = CancellationToken::new();
-        let timed = Arc::clone(&sup)
-            .await_jobs(
-                conv,
-                Some(vec![a.clone(), b.clone()]),
-                AwaitMode::Any,
-                Some(Duration::from_millis(50)),
-                &parent2,
-                4,
-            )
-            .await;
-        assert!(timed.timed_out);
-        assert!(timed.jobs.is_empty());
-        assert!(timed.updates.is_empty());
+        assert!(!done.timed_out);
+        assert_eq!(done.jobs.len(), 1);
+        assert_eq!(done.jobs[0].job_id, a);
+        assert_eq!(done.jobs[0].content.as_deref(), Some("handoff"));
+        assert_eq!(done.running, vec![b.clone()]);
+        assert!(sup.is_claimed(&a));
     }
 
     #[tokio::test]

@@ -83,7 +83,7 @@ pub struct SubToolPassConfig<'a> {
     pub spawn_depth: u32,
     pub scoped_message_id: String,
     pub active: ActiveAgentExecutionState<'a>,
-    /// Background worker job id for mid-flight `job.await` progress mail.
+    /// Background worker job id (legacy; inner tools do not wake `job.await`).
     pub background_job_id: Option<&'a str>,
 }
 

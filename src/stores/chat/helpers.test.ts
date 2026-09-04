@@ -189,6 +189,33 @@ describe('chat helpers', () => {
     expect(c.messages[1].status).toBe('streaming')
   })
 
+  it('closeAbandonedEmptyAssistantShells finishes thought-only shells replaced by a new message', () => {
+    const c = conv([
+      {
+        id: 'old-thoughts',
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        contentStreaming: true,
+        thoughts: 'x'.repeat(2000),
+        createdAt: 0,
+        toolCalls: []
+      },
+      {
+        id: 'keep',
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        contentStreaming: true,
+        createdAt: 1,
+        toolCalls: []
+      }
+    ])
+    closeAbandonedEmptyAssistantShells(c, 'keep')
+    expect(c.messages[0].status).toBe('done')
+    expect(c.messages[1].status).toBe('streaming')
+  })
+
   it('closeAbandonedEmptyAssistantShells only visits the named spawn', () => {
     resetConversationScopedStoreForTests()
     const store = useConversationScopedStore()

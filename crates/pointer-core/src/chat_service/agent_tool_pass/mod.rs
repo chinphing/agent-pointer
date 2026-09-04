@@ -1730,21 +1730,11 @@ fn emit_tool_running(
     args_value: &serde_json::Value,
     trace_id: Option<&str>,
     scoped_message_id: Option<&str>,
-    background_job_id: Option<&str>,
+    _background_job_id: Option<&str>,
 ) {
     let display = state.tools.format_display(&tc.name, args_value);
     patch_assistant_tool_call_display(history, message_id, &tc.id, &display);
     let (display_label, display_summary) = tool_display_stream_fields(&display);
-    if let Some(job_id) = background_job_id.filter(|s| !s.is_empty()) {
-        let label = display_label.as_deref().unwrap_or(tool_id);
-        let summary = display_summary.as_deref().unwrap_or("").trim();
-        let text = if summary.is_empty() {
-            label.to_string()
-        } else {
-            format!("{label} · {summary}")
-        };
-        state.jobs.post_progress(job_id, &text);
-    }
     emit(
         stream,
         StreamEvent::ToolCallStatus {

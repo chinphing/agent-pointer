@@ -537,6 +537,33 @@ describe('thinking shell in process-tool runs', () => {
     expect(entries[1]?.type === 'message' && entries[1].message.id).toBe('th')
   })
 
+  it('folds a thinking shell under a host that already has its own tools', () => {
+    const host: ChatMessage = {
+      id: 'host',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      toolCalls: [{ id: 'tc1', name: 'run_subagent', status: 'success', arguments: '{}' }],
+      agentTrace: [{ id: 'tr1', name: 'coder', role: 'coder', status: 'running', depth: 1 }]
+    }
+    const thinking: ChatMessage = {
+      id: 'th',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 3,
+      toolCalls: []
+    }
+    const entries = flattenConversationMessages([user('u1'), host, thinking], emptyDeps)
+    expect(entries.map(e => e.type)).toEqual(['message', 'message'])
+    const row = entries[1]
+    expect(row?.type).toBe('message')
+    if (row?.type !== 'message') return
+    expect(row.message.id).toBe('host')
+    expect(row.trailingToolGroups?.some(g => g.id === 'th')).toBe(true)
+  })
+
   it('drops the thinking shell from the tool run once reply content arrives', () => {
     const toolOnly: ChatMessage = {
       id: 't1',

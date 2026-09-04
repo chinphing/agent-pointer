@@ -53,6 +53,16 @@ export function assistantHasVisibleProgress(message: ChatMessage): boolean {
   return false
 }
 
+/** Tools / reply the user already saw — hidden thoughts do not count. */
+export function assistantHasUserFacingProgress(message: ChatMessage): boolean {
+  if (assistantHasDeliverableContent(message)) return true
+  if (message.responseTextDraft?.trim()) return true
+  if ((message.toolCalls?.length ?? 0) > 0) return true
+  if ((message.agentTrace?.length ?? 0) > 0) return true
+  if (message.computerRoundScreenRelPath) return true
+  return false
+}
+
 /** Sub-styles for injected lines (copy/tones only; layout stays `injected_notice`). */
 export function injectedNoticeFlavor(content: string): 'desktop' | 'hint' | 'compression' | 'generic' {
   const t = content.trim()
@@ -139,5 +149,15 @@ export function isProcessThinkingShell(message: ChatMessage): boolean {
   if (message.responseTextDraft?.trim()) return false
   if ((message.toolCalls?.length ?? 0) > 0) return false
   if ((message.agentTrace?.length ?? 0) > 0) return false
+  return true
+}
+
+/** Closed overflow/retry shell that only kept hidden thoughts — do not leave a thread row. */
+export function isIdleThoughtOnlyAssistant(message: ChatMessage): boolean {
+  if (message.role !== 'assistant') return false
+  if (isMessageStreaming(message.status)) return false
+  if (message.status === 'cancelled' || message.status === 'error') return false
+  if (assistantHasUserFacingProgress(message)) return false
+  if (isEphemeralDesktopNoticeMessage(message)) return false
   return true
 }

@@ -101,7 +101,7 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub emit_host_tool_status: bool,
     /// Pre-minted child thread id (background register). Foreground mints in execute.
     pub instance_scope: Option<AgentInstanceScope>,
-    /// When set, child tool `running` posts mid-flight mail on this job (wake `job.await`).
+    /// When set, this nested loop is a background worker job.
     pub background_job_id: Option<String>,
 }
 

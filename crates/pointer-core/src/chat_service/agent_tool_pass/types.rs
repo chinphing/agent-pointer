@@ -83,6 +83,8 @@ pub struct SubToolPassConfig<'a> {
     pub spawn_depth: u32,
     pub scoped_message_id: String,
     pub active: ActiveAgentExecutionState<'a>,
+    /// Background worker job id for mid-flight `job.await` progress mail.
+    pub background_job_id: Option<&'a str>,
 }
 
 pub(super) type ToolExecResult = Result<(String, bool, Option<String>), anyhow::Error>;

@@ -40,7 +40,7 @@
 - 队列项入队时的 `createdAt` 只表示**入队时刻**（队列面板用）。
 - **真正写入会话**时必须用**派发时刻** `Date.now()`，不得沿用入队时间。
   否则回退口径会把排队等待算进「工作耗时」。
-- 「立即发送」会 `interruptActiveTurn`：先 `recordTurnDone` 结算被打断的回合，再 drain 下一轮；
+- 「立即发送」会 `interruptActiveTurn({ cancelBackgroundJobs: false })`：先 `recordTurnDone` 结算被打断的回合，再 drain 下一轮；后台 job 不杀。
   `recordTurnStart` 在 turnId 变化时也会结算上一轮（双保险）。
 - 被取消 run 的迟到 `Error` / `Done` 都不得关掉新回合的计时 / `generating`（`isStaleStreamAfterInterrupt` 先识别，`consumeStaleDoneAfterInterrupt` 只在 Done 上消费）。迟到 `Error` 若先结算，会把下一轮写成 **工作 0 m 00 s**。
 - 已写入的不足 1 秒记录，若同轮消息 `createdAt` 跨度更长，展示回退到消息时间戳（修复历史 0s）。
@@ -51,9 +51,9 @@
 | 按键 | 行为 |
 |------|------|
 | **Enter**（有草稿） | 空闲则发送；生成中则入队 |
-| **Enter**（空草稿 + 队列非空） | 立即发送队首（打断当前回合） |
-| **⌘/Ctrl+Enter** | 停止当前回合并立即发送：有草稿则先入队再 force-send；无草稿则 force-send 队首 |
-| **Shift+Enter** | 换行 |
+| **Enter**（空草稿 + 队列非空） | 立即发送队首（软取消：只停同步，后台继续） |
+| **⌘/Ctrl+Enter** | 软取消当前回合并立即发送：有草稿则先入队再 force-send；无草稿则 force-send 队首 |
+| **停止按钮** | 硬取消：lead + 本会话全部后台 |
 
 实现：`Composer.vue`（`onKeydown` / `stopAndSendNow`）→ `forceSendOutbound`。
 

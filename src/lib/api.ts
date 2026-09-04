@@ -179,7 +179,12 @@ export interface ConsoleSessionCreateInput {
 
 export interface RuntimeApi {
   sendChat(payload: SendChatPayload): Promise<string | void>
-  cancelChat(conversationId: string): Promise<void>
+  cancelChat(
+    conversationId: string,
+    options?: { cancelBackgroundJobs?: boolean }
+  ): Promise<void>
+  /** Cancel background jobs by id; omit jobIds = all in conversation. Does not stop the lead turn. */
+  cancelBackgroundJobs(conversationId: string, jobIds?: string[]): Promise<string[]>
   listWorkspaceDirectory(workspaceRoot: string, relativePath?: string): Promise<WorkspaceEntry[]>
   searchWorkspaceEntries(
     workspaceRoot: string,
@@ -333,6 +338,7 @@ export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
 
 export const sendChat = api.sendChat
 export const cancelChat = api.cancelChat
+export const cancelBackgroundJobs = api.cancelBackgroundJobs
 export const listWorkspaceDirectory = api.listWorkspaceDirectory
 export const searchWorkspaceEntries = api.searchWorkspaceEntries
 export const readWorkspaceFile = api.readWorkspaceFile

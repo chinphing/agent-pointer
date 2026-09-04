@@ -13,7 +13,7 @@ import {
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs, toolCallBaseName } from '../../lib/messageTooling'
-import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundJobHost, isBackgroundSubagentCall } from '../../lib/toolCallDisplay'
+import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundJobHost, isBackgroundSubagentCall, backgroundJobIdFromToolCall, isJobAwaitCall, resolveBackgroundHostDisplayStatus } from '../../lib/toolCallDisplay'
 import { toolCallShowsKindLabel } from '../../lib/toolCallKindIcon'
 import ToolKindIcon from './ToolKindIcon.vue'
 import { openExternalUrl } from '../../lib/openExternalUrl'
@@ -192,14 +192,15 @@ const terminalOutput = computed(() => {
 
 /** Must be declared before any computed/watch that reads it during setup (e.g. useMarkdownExternalLinks). */
 const effectiveStatus = computed(() => {
-  if (!isTerminal.value || props.toolCall.status !== 'success') return props.toolCall.status
+  const hostStatus = resolveBackgroundHostDisplayStatus(props.toolCall)
+  if (!isTerminal.value || hostStatus !== 'success') return hostStatus
   const r = terminalResult.value
   if (r?.timedOut === true) return 'failed' as ToolCall['status']
   if (r?.elevationDenied === true) return 'failed' as ToolCall['status']
   if (r?.runAborted === true || r?.cancelled === true) return 'failed' as ToolCall['status']
   const code = r?.exitCode
   if (typeof code === 'number' && code !== 0) return 'failed' as ToolCall['status']
-  return props.toolCall.status
+  return hostStatus
 })
 
 const webSearchQuery = computed(() => {
@@ -316,8 +317,20 @@ const statusInfo = computed(() => {
   }
   switch (effectiveStatus.value) {
     case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
-    case 'running': return { label: isBackgroundJobHost(props.toolCall) ? '后台运行' : '执行中', color: 'text-accent' }
-    case 'success': return { label: isBackgroundSubagentCall(props.toolCall) ? '已完成' : '成功', color: 'text-success' }
+    case 'running': return { label: isBackgroundJobHost(props.toolCall) ? '后台执行中' : '执行中', color: 'text-accent' }
+    case 'success': {
+      if (isJobAwaitCall(props.toolCall)) {
+        try {
+          const parsed = JSON.parse(props.toolCall.result || '') as { reason?: string }
+          if (parsed.reason === 'wait_ended') {
+            return { label: '已结束等待', color: 'text-muted' }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      return { label: isBackgroundSubagentCall(props.toolCall) ? '已完成' : '成功', color: 'text-success' }
+    }
     case 'failed': {
       const cancelled = /cancel|interrupted|已停止/i.test(props.toolCall.error || '')
       if (isBackgroundSubagentCall(props.toolCall) && cancelled) {
@@ -337,6 +350,27 @@ function approve(ok: boolean) {
 function abortTerminalOnly() {
   chat.abortTerminalOnly(props.toolCall.id)
 }
+
+function cancelThisBackgroundJob() {
+  const jobId = backgroundJobIdFromToolCall(props.toolCall)
+  if (jobId) void chat.cancelBackgroundJob(jobId)
+}
+
+function endWaitOnly() {
+  void chat.endWaitKeepBackground()
+}
+
+const showEndBackgroundJob = computed(() => {
+  if (effectiveStatus.value !== 'running') return false
+  if (!isBackgroundJobHost(props.toolCall)) return false
+  return !!backgroundJobIdFromToolCall(props.toolCall)
+})
+
+const showEndWait = computed(
+  () =>
+    effectiveStatus.value === 'running'
+    && isJobAwaitCall(props.toolCall)
+)
 
 const canViewTerminalLive = computed(
   () =>
@@ -430,6 +464,20 @@ function openSourceUrl(url: string) {
         title="查看终端输出"
         @click="viewTerminalLive"
       >查看</button>
+      <button
+        v-if="showEndBackgroundJob"
+        type="button"
+        class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
+        title="只结束这一条后台任务"
+        @click.stop="cancelThisBackgroundJob"
+      >结束任务</button>
+      <button
+        v-if="showEndWait"
+        type="button"
+        class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
+        title="结束等待，后台任务继续跑"
+        @click.stop="endWaitOnly"
+      >结束等待</button>
     </div>
 
     <AskUserOptions

@@ -164,6 +164,10 @@ impl RunDispatcher {
         &self.inner.queue
     }
 
+    pub(crate) fn app_state(&self) -> &Arc<AppState> {
+        &self.inner.state
+    }
+
     /// Lane queue + persisted `queued` runs for settings / observability UI.
     pub fn queue_snapshot(&self) -> RunQueueSnapshot {
         let lanes = self.inner.queue.snapshot();
@@ -673,12 +677,16 @@ impl RunDispatcher {
 
     /// Cancel all queued/running dispatcher runs for a conversation, plus the
     /// legacy in-flight `run_chat` token registered on `AppState`.
-    pub fn cancel_conversation(&self, conversation_id: &str) {
+    /// `cancel_background_jobs`: hard stop cancels JobSupervisor jobs; soft
+    /// interrupt (new message / end wait) leaves them running.
+    pub fn cancel_conversation(&self, conversation_id: &str, cancel_background_jobs: bool) {
         let conversation_id = conversation_id.trim();
         if conversation_id.is_empty() {
             return;
         }
-        self.inner.state.cancel(conversation_id);
+        self.inner
+            .state
+            .cancel_with_options(conversation_id, cancel_background_jobs);
         let runs = self
             .inner
             .state
@@ -695,14 +703,18 @@ impl RunDispatcher {
             self.cancel(&run.run_id);
         }
         log::info!(
-            "dispatch: cancel_conversation conversation_id={conversation_id} runs={run_count}"
+            "dispatch: cancel_conversation conversation_id={conversation_id} runs={run_count} cancel_background_jobs={cancel_background_jobs}"
         );
     }
 
     /// Signal cancel, then wait for those runs to leave `running`/`queued`.
     /// If a sub-agent (or other await) ignores the token, abort the runner so
     /// `session:{conversation}` is released and the next send can start.
-    pub async fn cancel_conversation_and_wait(&self, conversation_id: &str) {
+    pub async fn cancel_conversation_and_wait(
+        &self,
+        conversation_id: &str,
+        cancel_background_jobs: bool,
+    ) {
         let conversation_id = conversation_id.trim();
         if conversation_id.is_empty() {
             return;
@@ -718,7 +730,7 @@ impl RunDispatcher {
                 );
                 Vec::new()
             });
-        self.cancel_conversation(conversation_id);
+        self.cancel_conversation(conversation_id, cancel_background_jobs);
         if runs.is_empty() {
             return;
         }
@@ -732,7 +744,7 @@ impl RunDispatcher {
         {
             Ok(_) => {
                 log::info!(
-                    "dispatch: cancel_conversation_and_wait settled conversation_id={conversation_id} runs={}",
+                    "dispatch: cancel_conversation_and_wait settled conversation_id={conversation_id} runs={} cancel_background_jobs={cancel_background_jobs}",
                     runs.len()
                 );
             }

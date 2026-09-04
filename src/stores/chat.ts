@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch, nextTick } from 'vue'
 import {
-  sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
+  sendChat, cancelChat, cancelBackgroundJobs, abortTerminalCommand, approveToolCall, onStream,
   waitForChatStreamReady,
   loadConversationMetas,
   loadConversationMeta,
@@ -98,7 +98,7 @@ import {
   ensureSubTrace,
   migrateLegacyTraceUiState
 } from '../lib/subAgentSession'
-import { isBackgroundJobHost } from '../lib/toolCallDisplay'
+import { isBackgroundJobHost, isJobAwaitCall, isToolCallInProgress } from '../lib/toolCallDisplay'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
@@ -349,7 +349,7 @@ export const useChatStore = defineStore('chat', () => {
 
     if (hasActiveTurn) {
       showUiToast('已暂停当前任务，正在立即发送…', 'warning')
-      await interruptActiveTurn(key)
+      await interruptActiveTurn(key, { cancelBackgroundJobs: false, drainQueue: true })
       return
     }
 
@@ -357,13 +357,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * End the active turn — same host cancel as the composer Stop button.
-   * Awaits `cancelChat` before draining so a force-send cannot start a new turn
-   * while the previous run is still alive.
+   * End the active turn.
+   * - Stop button: `cancelBackgroundJobs: true` (default) — kill lead + all background jobs.
+   * - Enter force-send / end-wait: `cancelBackgroundJobs: false` — end sync (incl. job.await), keep background.
    */
-  async function interruptActiveTurn(conversationId: string) {
+  async function interruptActiveTurn(
+    conversationId: string,
+    options?: { cancelBackgroundJobs?: boolean; drainQueue?: boolean }
+  ) {
     const key = conversationId.trim()
     if (!key) return
+    const cancelBackgroundJobs = options?.cancelBackgroundJobs !== false
+    const drainQueue = options?.drainQueue !== false
     const conv = conversations.value.find(c => c.id === key)
     const msgId = runStateFor(key).activeMessageId
     flushStreamDeltaBuffers(msgId ?? undefined)
@@ -388,10 +393,21 @@ export const useChatStore = defineStore('chat', () => {
     if (conv && msgId) {
       const row = conv.messages.find(m => m.id === msgId)
       if (row?.role === 'assistant') {
-        // Always keep a cancelled row so「已停止生成」stays visible (compact inline).
-        row.status = 'cancelled'
-        row.errorMessage = '已停止生成'
+        const hasLiveBackgroundHosts = (row.toolCalls ?? []).some(
+          tc => isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)
+        )
+        const softKeepBackground =
+          !cancelBackgroundJobs && (hasLiveBackgroundHosts || hasBackgroundJobs(key))
+
         row.contentStreaming = false
+        if (softKeepBackground) {
+          // Soft cancel (结束等待 / 立即发送): sync turn ends; background keeps running.
+          row.status = 'done'
+          row.errorMessage = undefined
+        } else {
+          row.status = 'cancelled'
+          row.errorMessage = '已停止生成'
+        }
         for (const tc of row.toolCalls ?? []) {
           if (tc.status === 'pending_approval') {
             tc.status = 'rejected'
@@ -400,6 +416,14 @@ export const useChatStore = defineStore('chat', () => {
             if (keepRunning) {
               // Background host: keep running until job cancel/finish events arrive
               // (handle may arrive slightly after spawn on the wave path).
+              continue
+            }
+            if (!cancelBackgroundJobs && isJobAwaitCall(tc)) {
+              tc.status = 'success'
+              tc.error = undefined
+              if (!tc.result?.trim()) {
+                tc.result = JSON.stringify({ ok: false, reason: 'wait_ended' })
+              }
               continue
             }
             tc.status = tc.result?.trim() ? 'success' : 'failed'
@@ -411,7 +435,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     try {
-      await cancelChat(key)
+      await cancelChat(key, { cancelBackgroundJobs })
     } catch (e) {
       console.error('[chat] cancelChat failed', e)
     }
@@ -423,7 +447,9 @@ export const useChatStore = defineStore('chat', () => {
       contextCompressing: null
     })
     disarmTaskCompleteAudio()
-    await drainOutboundQueue(key)
+    if (drainQueue) {
+      await drainOutboundQueue(key)
+    }
 
     // If the cancelled run never emitted Done, drop the watch so the next turn's Done is kept.
     window.setTimeout(() => {
@@ -837,6 +863,10 @@ export const useChatStore = defineStore('chat', () => {
 
   function hasBackgroundJobs(id: string): boolean {
     return (backgroundRunningByConv.value[id.trim()] ?? 0) > 0
+  }
+
+  function backgroundJobCount(id: string): number {
+    return backgroundRunningByConv.value[id.trim()] ?? 0
   }
 
   function clearBackgroundJobsIfNoneLive(id: string) {
@@ -3361,12 +3391,36 @@ export const useChatStore = defineStore('chat', () => {
 
   async function stop() {
     if (!current.value) return
-    await interruptActiveTurn(current.value.id)
+    await interruptActiveTurn(current.value.id, {
+      cancelBackgroundJobs: true,
+      drainQueue: true,
+    })
+  }
+
+  /** End wait / sync turn only; background jobs keep running. */
+  async function endWaitKeepBackground() {
+    if (!current.value) return
+    await interruptActiveTurn(current.value.id, {
+      cancelBackgroundJobs: false,
+      drainQueue: false,
+    })
   }
 
   async function abortTerminalOnly(toolCallId?: string) {
     if (!current.value) return
     await abortTerminalCommand(current.value.id, toolCallId).catch(e => console.error(e))
+  }
+
+  async function cancelBackgroundJob(jobId: string) {
+    if (!current.value) return
+    const id = jobId.trim()
+    if (!id) return
+    try {
+      await cancelBackgroundJobs(current.value.id, [id])
+    } catch (e) {
+      console.error('[chat] cancelBackgroundJobs failed', e)
+      showUiToast('结束任务失败', 'error')
+    }
   }
 
   async function approve(toolCall: ToolCall, approved: boolean) {
@@ -3482,7 +3536,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationBusy, hasBackgroundJobs, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
+    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationBusy, hasBackgroundJobs, backgroundJobCount, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
     init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, toggleConversationPin, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
@@ -3497,7 +3551,7 @@ export const useChatStore = defineStore('chat', () => {
     messagePageByConv,
     pendingFocusMessage, clearPendingFocusMessage,
     visibleNavMessageId, setVisibleNavMessageId,
-    sendUserMessage, stop, abortTerminalOnly, approve,
+    sendUserMessage, stop, endWaitKeepBackground, abortTerminalOnly, cancelBackgroundJob, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, setConversationProject, setConversationAgent,

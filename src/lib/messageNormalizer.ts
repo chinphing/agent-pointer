@@ -127,8 +127,16 @@ export function stripSavedAttachmentHints(content: string): string {
     .trim()
 }
 
+const IDLE_JOB_PUSH_USER_LINE = '后台任务已完成。'
+const IDLE_JOB_PUSH_HOST_KIND = 'idle_job_push'
+
 /** Hide model injection blocks from the user bubble (ASR under player, path hints, etc.). */
 export function userMessageDisplayContent(message: ChatMessage): string {
+  const bubble = message.uiBindings?.bubbleText?.trim()
+  if (bubble) return bubble
+  if (message.uiBindings?.hostKind === IDLE_JOB_PUSH_HOST_KIND) {
+    return IDLE_JOB_PUSH_USER_LINE
+  }
   let content = stripSavedAttachmentHints(message.content?.trim() ?? '')
   if (!content) return ''
   const attachments = message.attachments ?? []

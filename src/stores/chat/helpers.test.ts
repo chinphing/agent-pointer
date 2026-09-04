@@ -296,6 +296,29 @@ describe('chat helpers', () => {
     expect(c.messages[0].agentTrace![0].session!.toolCalls![0].status).toBe('running')
   })
 
+  it('normalizeInterruptedAssistantStatuses keeps explore default-background hosts running', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'parent done',
+        status: 'done',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'bg1',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', goal: 'map', title: '任务A' }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+          }
+        ]
+      }
+    ])
+    normalizeInterruptedAssistantStatuses([c])
+    expect(c.messages[0].toolCalls![0].status).toBe('running')
+  })
+
   it('countRunningBackgroundSubagents only counts in-progress host rows', () => {
     const c = conv([
       {
@@ -431,7 +454,42 @@ describe('chat helpers', () => {
     expect(live.messages[0]!.toolCalls![0]!.result).toContain('"completed"')
   })
 
-  it('repairBackgroundHostsFromChildOutcomes promotes hosts when traces finished', () => {
+  it('repairBackgroundHostsFromChildOutcomes promotes hosts when traces finished and handle completed', () => {
+    const c = conv([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '清单已备',
+        status: 'streaming',
+        createdAt: 0,
+        toolCalls: [
+          {
+            id: 'call_00_host',
+            name: 'run_subagent',
+            arguments: JSON.stringify({ agentId: 'explore', background: true }),
+            status: 'running',
+            result: '{"jobId":"job_1","status":"completed","kind":"subagent"}'
+          }
+        ],
+        agentTrace: [
+          {
+            id: 'call_00_host:explore',
+            name: 'explore',
+            role: '',
+            status: 'completed',
+            depth: 1
+          }
+        ]
+      }
+    ])
+    expect(repairBackgroundHostsFromChildOutcomes(c)).toBe(1)
+    expect(c.messages[0]!.toolCalls![0]!.status).toBe('success')
+    expect(c.messages[0]!.toolCalls![0]!.result).toContain('"completed"')
+    expect(c.messages[0]!.agentTrace![0]!.parentToolCallId).toBe('call_00_host')
+    expect(c.messages[0]!.status).toBe('done')
+  })
+
+  it('repairBackgroundHostsFromChildOutcomes skips hosts while handle still running', () => {
     const c = conv([
       {
         id: 'a1',
@@ -454,16 +512,14 @@ describe('chat helpers', () => {
             name: 'explore',
             role: '',
             status: 'completed',
-            depth: 1
+            depth: 1,
+            parentToolCallId: 'call_00_host'
           }
         ]
       }
     ])
-    expect(repairBackgroundHostsFromChildOutcomes(c)).toBe(1)
-    expect(c.messages[0]!.toolCalls![0]!.status).toBe('success')
-    expect(c.messages[0]!.toolCalls![0]!.result).toContain('"completed"')
-    expect(c.messages[0]!.agentTrace![0]!.parentToolCallId).toBe('call_00_host')
-    expect(c.messages[0]!.status).toBe('done')
+    expect(repairBackgroundHostsFromChildOutcomes(c)).toBe(0)
+    expect(c.messages[0]!.toolCalls![0]!.status).toBe('running')
   })
 
   it('finalizeOrphanBackgroundHosts does not cancel hosts with completed children', () => {

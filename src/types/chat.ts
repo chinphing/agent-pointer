@@ -192,6 +192,13 @@ export interface AgentDef {
 
 export interface MessageUiBindings {
   taskBoardAnchor?: boolean
+  /**
+   * When set, the user bubble shows this instead of full `content`.
+   * Full `content` still goes to the LLM.
+   */
+  bubbleText?: string
+  /** Host-generated row kind (e.g. `idle_job_push`). */
+  hostKind?: string
 }
 
 export type ExcludedReason =
@@ -1064,6 +1071,7 @@ export type StreamEvent =
       messageId: string
       content: string
       attachments?: MediaAttachment[]
+      uiBindings?: MessageUiBindings
     }
   | {
       kind: 'im_session_forked'

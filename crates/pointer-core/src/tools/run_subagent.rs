@@ -38,6 +38,7 @@ pub struct RunSubagentArgs {
     pub workspace_root: Option<String>,
     pub computer_target: Option<ComputerOperationTarget>,
     /// When true, return `jobId` immediately and run in JobSupervisor (self/explore only).
+    /// Omit defaults to true for `self` / `explore`; `coder` / `computer` stay false.
     pub background: bool,
 }
 
@@ -186,12 +187,14 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let computer_target = parse_computer_target(args);
-    let background = args
-        .get("background")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let agent_id = agent_id.to_string();
+    // self / explore: omit = background (idle push closes the loop).
+    // Writers stay foreground unless the model somehow sets true (then validate fails).
+    let background = args.get("background").and_then(|v| v.as_bool()).unwrap_or(
+        agent_id == "self" || agent_id == "explore",
+    );
     Ok(RunSubagentArgs {
-        agent_id: agent_id.to_string(),
+        agent_id,
         goal: goal.to_string(),
         context,
         title,
@@ -357,6 +360,29 @@ mod tests {
         assert!(parsed.task_id.is_empty());
         assert!(parsed.workspace_root.is_none());
         assert!(!parsed.background);
+    }
+
+    #[test]
+    fn parse_background_defaults_true_for_self_and_explore() {
+        let self_omit = parse_run_subagent_args(&json!({
+            "agentId": "self",
+            "goal": "What: inspect\nDone when: report"
+        }))
+        .unwrap();
+        assert!(self_omit.background);
+        let explore_omit = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "Scenario: map\nWhat: scan\nDone when: summary"
+        }))
+        .unwrap();
+        assert!(explore_omit.background);
+        let self_fg = parse_run_subagent_args(&json!({
+            "agentId": "self",
+            "goal": "What: inspect\nDone when: report",
+            "background": false
+        }))
+        .unwrap();
+        assert!(!self_fg.background);
     }
 
     #[test]

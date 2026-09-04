@@ -470,6 +470,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::send_chat,
             commands::cancel_chat,
+            commands::cancel_background_jobs,
             task_complete_sound::play_task_complete_chime,
             commands::list_workspace_directory,
             commands::search_workspace_entries,

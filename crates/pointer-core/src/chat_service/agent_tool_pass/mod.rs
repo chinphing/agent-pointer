@@ -657,6 +657,10 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         &prep.args_value,
                         sub_trace_id.as_deref(),
                         sub_scoped_id.as_deref(),
+                        pass.ctx
+                            .sub
+                            .as_ref()
+                            .and_then(|s| s.background_job_id),
                     );
                     pass.ctx.stats.record_tool_invocation();
 
@@ -1087,6 +1091,12 @@ async fn run_self_fork_wave(
                     state_arc: pass.ctx.state_arc.clone(),
                     emit_host_tool_status: true,
                     instance_scope: None,
+                    // Foreground join under a background worker: keep posting to the outer job.
+                    background_job_id: pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .and_then(|s| s.background_job_id.map(str::to_string)),
                 };
                 let parsed_bg = crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
                 let background = parsed_bg.as_ref().is_ok_and(|a| a.background);
@@ -1340,7 +1350,7 @@ fn record_background_spawn_result(
     );
     let trace_id = pass.ctx.sub.as_ref().map(|s| s.trace_id.as_str());
     let scoped_message_id = pass.ctx.sub.as_ref().map(|s| s.scoped_message_id.as_str());
-    // Live UI must see the job handle immediately (stop / 「后台运行」 rely on result).
+    // Live UI must see the job handle immediately (stop / 「后台执行中」 rely on result).
     emit(
         pass.ctx.session.stream,
         StreamEvent::ToolCallStatus {
@@ -1514,6 +1524,7 @@ async fn run_one_prepared(
         &prep.args_value,
         sub_trace_id.as_deref(),
         sub_scoped_id,
+        pass.ctx.sub.as_ref().and_then(|s| s.background_job_id),
     );
     pass.ctx.stats.record_tool_invocation();
     let started = Instant::now();
@@ -1719,10 +1730,21 @@ fn emit_tool_running(
     args_value: &serde_json::Value,
     trace_id: Option<&str>,
     scoped_message_id: Option<&str>,
+    background_job_id: Option<&str>,
 ) {
     let display = state.tools.format_display(&tc.name, args_value);
     patch_assistant_tool_call_display(history, message_id, &tc.id, &display);
     let (display_label, display_summary) = tool_display_stream_fields(&display);
+    if let Some(job_id) = background_job_id.filter(|s| !s.is_empty()) {
+        let label = display_label.as_deref().unwrap_or(tool_id);
+        let summary = display_summary.as_deref().unwrap_or("").trim();
+        let text = if summary.is_empty() {
+            label.to_string()
+        } else {
+            format!("{label} · {summary}")
+        };
+        state.jobs.post_progress(job_id, &text);
+    }
     emit(
         stream,
         StreamEvent::ToolCallStatus {

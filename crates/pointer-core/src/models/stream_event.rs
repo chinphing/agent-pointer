@@ -312,6 +312,13 @@ pub enum StreamEvent {
         content: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         attachments: Option<Vec<MediaAttachment>>,
+        /// UI mount / bubble summary; full `content` is for the model.
+        #[serde(
+            default,
+            rename = "uiBindings",
+            skip_serializing_if = "Option::is_none"
+        )]
+        ui_bindings: Option<super::message::MessageUiBindings>,
     },
     /// User message attachments processed (ASR, storage path, etc.).
     UserMessageAttachmentsUpdated {

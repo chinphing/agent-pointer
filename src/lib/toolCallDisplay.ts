@@ -253,8 +253,12 @@ export function isToolCallInProgress(status: ToolCall['status']): boolean {
 
 export function isBackgroundSubagentCall(tc: ToolCall): boolean {
   if (toolCallBaseName(tc.name) !== 'run_subagent') return false
+  if (isBackgroundJobHandleResult(tc.result)) return true
   const args = parseToolArgs(tc.arguments)
-  return args.background === true
+  if (args.background === true) return true
+  if (args.background === false) return false
+  const agentId = typeof args.agentId === 'string' ? args.agentId.trim().toLowerCase() : ''
+  return agentId === 'self' || agentId === 'explore'
 }
 
 export function isBackgroundTerminalCall(tc: ToolCall): boolean {
@@ -287,8 +291,70 @@ export function isBackgroundJobHandleResult(result?: string | null): boolean {
   }
 }
 
+/** Job id from a background host handle result, if present. */
+export function backgroundJobIdFromToolCall(tc: ToolCall): string | null {
+  if (!tc.result?.trim()) return null
+  try {
+    const v = JSON.parse(tc.result) as Record<string, unknown>
+    const jobId = typeof v.jobId === 'string' ? v.jobId.trim() : ''
+    return jobId.length > 0 ? jobId : null
+  } catch {
+    return null
+  }
+}
+
+/** Handle JSON `status` field (`running` / `completed` / …), if present. */
+export function backgroundHandleStatus(result?: string | null): string | null {
+  if (!isBackgroundJobHandleResult(result)) return null
+  try {
+    const v = JSON.parse(result!) as Record<string, unknown>
+    const status = typeof v.status === 'string' ? v.status.trim().toLowerCase() : ''
+    return status || null
+  } catch {
+    return null
+  }
+}
+
+/** True while the handle still claims the job is active (not terminal). */
+export function isBackgroundHandleInProgress(result?: string | null): boolean {
+  const status = backgroundHandleStatus(result)
+  return status === 'running' || status === 'queued'
+}
+
+/** Background host row still live by tool status and/or handle JSON. */
+export function isLiveBackgroundHostTool(tc: ToolCall): boolean {
+  if (!isBackgroundJobHost(tc)) return false
+  if (tc.status === 'failed' || tc.status === 'rejected') return false
+  if (isToolCallInProgress(tc.status)) return true
+  if (tc.status === 'success' && isBackgroundHandleInProgress(tc.result)) return true
+  return false
+}
+
+/**
+ * UI status for background hosts: trust the handle when memory `status`
+ * was wrongly finalized (e.g. turn Done + handle JSON present).
+ */
+export function resolveBackgroundHostDisplayStatus(tc: ToolCall): ToolCall['status'] {
+  if (!isBackgroundJobHost(tc)) return tc.status
+  if (isLiveBackgroundHostTool(tc)) return 'running'
+  const handleStatus = backgroundHandleStatus(tc.result)
+  if (handleStatus === 'completed') return 'success'
+  if (handleStatus === 'failed' || handleStatus === 'cancelled' || handleStatus === 'canceled') {
+    return 'failed'
+  }
+  return tc.status
+}
+
+/** Running `job` tool with action await (parent blocked on wait). */
+export function isJobAwaitCall(tc: ToolCall): boolean {
+  if (toolCallBaseName(tc.name) !== 'job') return false
+  const args = parseToolArgs(tc.arguments)
+  const action = typeof args.action === 'string' ? args.action.trim() : ''
+  return action === 'await'
+}
+
 export function toolCallProgressLabel(tc: ToolCall): string {
-  if (isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)) return '后台运行'
+  if (isBackgroundJobHost(tc) && isLiveBackgroundHostTool(tc)) return '后台执行中'
   return '执行中'
 }
 
@@ -734,7 +800,20 @@ export function partitionCollapsedToolCalls(
     }
   }
   flush()
-  return items
+  const pinned: ToolCallListItem[] = []
+  const rest: ToolCallListItem[] = []
+  for (const item of items) {
+    if (
+      item.kind === 'single'
+      && isBackgroundJobHost(item.tool)
+      && isInProgress(item.tool.status)
+    ) {
+      pinned.push(item)
+    } else {
+      rest.push(item)
+    }
+  }
+  return [...pinned, ...rest]
 }
 
 /**
@@ -855,7 +934,8 @@ export function compactToolCallStatusLine(
   const parts: string[] = []
   parts.push(summary ? `${label} · ${summary}` : label)
 
-  if (opts?.includeStatus !== false && toolInProgress(tc.status)) {
+  const displayStatus = resolveBackgroundHostDisplayStatus(tc)
+  if (opts?.includeStatus !== false && toolInProgress(displayStatus)) {
     parts.push(toolCallProgressLabel(tc))
   }
 
@@ -866,7 +946,7 @@ export function compactToolCallStatusLine(
 export function latestToolCallForCompactStatus(calls: ToolCall[]): ToolCall | undefined {
   if (!calls.length) return undefined
   for (let i = calls.length - 1; i >= 0; i -= 1) {
-    if (toolInProgress(calls[i].status)) return calls[i]
+    if (toolInProgress(resolveBackgroundHostDisplayStatus(calls[i]!))) return calls[i]
   }
   return calls[calls.length - 1]
 }

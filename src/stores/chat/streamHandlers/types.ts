@@ -52,7 +52,7 @@ export interface StreamHandlerContext {
   /** Clear occupancy when no in-memory background host row is still running. */
   clearBackgroundJobsIfNoneLive(id: string): void
   /**
-   * Occupancy is 0: pull persisted host rows if memory still shows「后台运行」,
+   * Occupancy is 0: pull persisted host rows if memory still shows「后台执行中」,
    * then only mark true zombies interrupted.
    */
   reconcileBackgroundHostsWhenOccupancyEmpty(id: string): void

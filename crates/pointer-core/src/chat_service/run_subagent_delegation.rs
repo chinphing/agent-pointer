@@ -101,6 +101,8 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub emit_host_tool_status: bool,
     /// Pre-minted child thread id (background register). Foreground mints in execute.
     pub instance_scope: Option<AgentInstanceScope>,
+    /// When set, child tool `running` posts mid-flight mail on this job (wake `job.await`).
+    pub background_job_id: Option<String>,
 }
 
 pub(super) struct SubagentCommitContext<'a> {
@@ -404,6 +406,7 @@ pub(super) async fn execute_owned_subagent(
         state_arc,
         emit_host_tool_status,
         instance_scope: preset_instance,
+        background_job_id,
     } = input;
     let empty_overrides = std::collections::HashMap::new();
     let (definition_source, skill_ids, overrides, def_for_trace) = match &source {
@@ -477,6 +480,7 @@ pub(super) async fn execute_owned_subagent(
         spawn_depth: child_spawn_depth,
         max_spawn_depth,
         state_arc,
+        background_job_id,
     };
     let run_result = Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await;
     let (trace, exec) = match run_result {
@@ -825,6 +829,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
         state_arc: spawn.state.clone(),
         emit_host_tool_status: false,
         instance_scope: Some(spawn.instance_scope.clone()),
+        background_job_id: Some(job_id.clone()),
     };
     let outcome = execute_owned_subagent(input).await;
     drop(_lease);
@@ -1429,6 +1434,7 @@ pub(super) async fn run_subagent_delegation(
                         spawn_depth: child_spawn_depth,
                         max_spawn_depth,
                         state_arc: ctx.state_arc.clone(),
+                        background_job_id: None,
                     };
                     match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await {
                         Ok(result) => {
@@ -2028,6 +2034,7 @@ mod trace_tests {
             state_arc: state.clone(),
             emit_host_tool_status: true,
             instance_scope: None,
+            background_job_id: None,
         })
         .await;
 
@@ -2116,6 +2123,7 @@ mod trace_tests {
                 state_arc: state.clone(),
                 emit_host_tool_status: true,
                 instance_scope: None,
+                background_job_id: None,
             })
         };
 

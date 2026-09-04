@@ -177,6 +177,23 @@ pub struct AgentTrace {
 pub struct MessageUiBindings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_board_anchor: Option<bool>,
+    /// When set, the chat bubble shows this string instead of full `content`.
+    /// Full `content` still goes to the LLM (context in, summary out for UI).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bubble_text: Option<String>,
+    /// Host-generated row kind (e.g. `idle_job_push`). Not model-facing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_kind: Option<String>,
+}
+
+impl MessageUiBindings {
+    pub fn idle_job_push_bubble(bubble_text: impl Into<String>) -> Self {
+        Self {
+            task_board_anchor: None,
+            bubble_text: Some(bubble_text.into()),
+            host_kind: Some("idle_job_push".into()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

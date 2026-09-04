@@ -199,6 +199,7 @@ impl Scheduler {
             message_id: user_msg_id,
             content: user_msg_content,
             attachments: None,
+            ui_bindings: None,
         });
         log::info!(
             "scheduler: dispatching job id={} session={} history_len={} prompt_len={} deliver={:?}",

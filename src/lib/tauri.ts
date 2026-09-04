@@ -60,8 +60,24 @@ export async function sendChat(payload: SendChatPayload): Promise<string> {
   return await invoke<string>('send_chat', { payload })
 }
 
-export async function cancelChat(conversationId: string): Promise<void> {
-  await invoke('cancel_chat', { conversationId })
+export async function cancelChat(
+  conversationId: string,
+  options?: { cancelBackgroundJobs?: boolean }
+): Promise<void> {
+  await invoke('cancel_chat', {
+    conversationId,
+    cancelBackgroundJobs: options?.cancelBackgroundJobs ?? true,
+  })
+}
+
+export async function cancelBackgroundJobs(
+  conversationId: string,
+  jobIds?: string[]
+): Promise<string[]> {
+  return await invoke<string[]>('cancel_background_jobs', {
+    conversationId,
+    jobIds: jobIds?.length ? jobIds : null,
+  })
 }
 
 export async function listWorkspaceDirectory(

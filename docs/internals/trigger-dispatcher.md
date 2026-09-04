@@ -58,6 +58,10 @@
 
 `session:{conversation_id}` 并发上限为 1。用户点停止 / 强制发送时，前端会 `await cancelChat`，再 dispatch 下一条。若只发取消信号、不等 `run_chat` 退出，上一轮（尤其卡在子智能体）仍占着 lane，新消息会进「待执行」且界面无回复。
 
+- **停止**：`cancelBackgroundJobs=true`（默认）— 结束 lead 并取消本会话全部后台 job。
+- **立即发送 / 结束等待**：`cancelBackgroundJobs=false` — 只结束同步回合（含 `job.await`），后台 job 继续跑。
+- **结束任务**：`POST .../cancel-jobs` / Tauri `cancel_background_jobs` — 按 `jobId` 杀单条，不中断 lead（除非该 job 本身就是当前阻塞点）。
+
 因此 **聊天取消**（Web `POST /api/chat/:id/cancel`、Tauri `cancel_chat`）走 `cancel_conversation_and_wait`：
 
 1. 对会话内所有非终态 run 发取消 token（与原先 `cancel_conversation` 相同）。
@@ -77,7 +81,7 @@ Pointer 聊天 UI 对齐该语义（前端 FIFO，后端 `session:*` lane 仍串
 - 当前会话 **generating** 时，用户仍可点 **发送**；消息进入输入框上方的 **可折叠待发送列表**（per-conversation FIFO），**不**插入对话 transcript。
 - 当前 turn 结束（`done` / `error` / `stop`）后自动写入用户消息并 `dispatch` 下一条。
 - **停止**仅中断当前 run，队列中待发送消息保留；可从列表移出单条。
-- **强制发送**（列表项上的向上箭头，或 Composer 快捷键）：将该条置顶，先走与 Composer **停止**相同的 `cancelChat`（等宿主取消完成），再立即 `dispatch` 该条（其余队列项仍按序跟在后面）。
+- **强制发送**（列表项上的向上箭头，或 Composer 快捷键）：将该条置顶，先走 **软取消**（`cancelChat` + `cancelBackgroundJobs=false`，等宿主取消完成），再立即 `dispatch` 该条（其余队列项仍按序跟在后面）。后台 job 不杀。
   - **Enter**（空草稿 + 队列非空）：立即发送队首（对齐 Cursor）。
   - **⌘/Ctrl+Enter**：停止当前回合；有草稿则先入队再 force-send，无草稿则 force-send 队首。
 - Composer 同时显示 **停止** + **发送**；输入框上方 **待发送** 面板可展开/收起。
@@ -140,7 +144,7 @@ openclaw 的 cron 会话用 `daily` 重置模式、`atHour = 4`（本地凌晨 4
 ## 已知范围与后续
 
 - **IM 入站**仍直连 `run_chat`（`pointer-channels/src/dispatch.rs`），未走 dispatcher。IM 已是事件驱动路径，且其 reply 收集依赖直接消费 `StreamEvent` 流；改走 dispatcher 需重写为消费 `AgentEvent`，收益低、回归风险高，暂缓。`enabledSkillIds` 取 `user_settings.json` 全局启用列表。
-- **内部后台任务**（curator LLM pass、memory review）是定制 LLM 调用，不走 `run_chat`，与 dispatcher 的会话回合契约不匹配，故未迁移；`dispatch_internal` 供未来「会话回合型」内部触发使用。
+- **内部后台任务**（curator LLM pass、memory review）是定制 LLM 调用，不走 `run_chat`，与 dispatcher 的会话回合契约不匹配，故未迁移。**会话回合型**内部触发已用于空闲 job push：`TriggerSource::Internal`、`internal_label=idle_job_push`，同一 `conversation_id` 再开一轮 lead（见 [`../design/async-subagent-and-terminal.md`](../design/async-subagent-and-terminal.md)）。
 - `pre/post_tool_call` 发射点未接入。
 
 ## Run → IM 出站总线（Phase 1–2 已实现）

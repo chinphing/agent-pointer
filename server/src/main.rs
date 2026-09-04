@@ -735,6 +735,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
         .route(
+            "/api/chat/:conversation_id/cancel-jobs",
+            post(cancel_background_jobs),
+        )
+        .route(
             "/api/chat/:conversation_id/abort-terminal",
             post(abort_terminal_command),
         )
@@ -2747,6 +2751,7 @@ async fn webhook_ingress(
             message_id: user_msg.id.clone(),
             content: user_msg.content.clone(),
             attachments: user_msg.attachments.clone(),
+            ui_bindings: user_msg.ui_bindings.clone(),
         });
     }
 
@@ -3284,16 +3289,64 @@ async fn clear_webhook_legacy_token(
     }
 }
 
+#[derive(Deserialize, Default)]
+struct CancelChatPayload {
+    /// Default true (Stop). Force-send / end-wait pass false to keep background jobs.
+    #[serde(default = "default_true", rename = "cancelBackgroundJobs")]
+    cancel_background_jobs: bool,
+}
+
 async fn cancel_chat(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
+    body: Result<Json<CancelChatPayload>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
+    let cancel_bg = match body {
+        Ok(Json(p)) => p.cancel_background_jobs,
+        Err(err) => {
+            // Empty / missing body → hard stop (legacy clients).
+            log::info!(
+                "cancel_chat: body parse fallback conversation_id={conversation_id}: {err}"
+            );
+            true
+        }
+    };
     state
         .dispatcher
-        .cancel_conversation_and_wait(&conversation_id)
+        .cancel_conversation_and_wait(&conversation_id, cancel_bg)
         .await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize, Default)]
+struct CancelJobsPayload {
+    #[serde(default, rename = "jobIds")]
+    job_ids: Vec<String>,
+}
+
+async fn cancel_background_jobs(
+    State(state): State<ServerState>,
+    Path(conversation_id): Path<String>,
+    body: Result<Json<CancelJobsPayload>, axum::extract::rejection::JsonRejection>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_platform_access(&state)?;
+    let job_ids = match body {
+        Ok(Json(p)) => p.job_ids,
+        Err(err) => {
+            log::warn!(
+                "cancel_background_jobs: body parse failed conversation_id={conversation_id}: {err}"
+            );
+            Vec::new()
+        }
+    };
+    let ids = if job_ids.is_empty() {
+        None
+    } else {
+        Some(job_ids.as_slice())
+    };
+    let cancelled = state.core.cancel_background_jobs(&conversation_id, ids);
+    Ok(Json(serde_json::json!({ "cancelled": cancelled })))
 }
 
 #[derive(Deserialize)]

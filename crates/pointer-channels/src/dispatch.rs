@@ -345,6 +345,7 @@ impl DispatchService {
             message_id: user_msg.id.clone(),
             content: user_content.clone(),
             attachments: attachments_opt,
+            ui_bindings: None,
         });
 
         sync_im_desktop_session_agent(&*store, &desktop_conv_id, &im_session);

@@ -1147,11 +1147,13 @@ impl AppState {
             hooks.register_on_run_finished(hook);
         }
         let max = self.resolve_max_concurrent_runs();
-        crate::dispatcher::RunDispatcher::with_hooks_and_max_concurrent(
+        let dispatcher = crate::dispatcher::RunDispatcher::with_hooks_and_max_concurrent(
             self.clone(),
             Arc::new(hooks),
             max,
-        )
+        );
+        crate::chat_service::idle_job_push::install(&dispatcher);
+        dispatcher
     }
 
     /// Global dispatcher concurrency cap from merged user settings.
@@ -1392,6 +1394,13 @@ impl AppState {
     }
 
     pub fn cancel(&self, conversation_id: &str) {
+        self.cancel_with_options(conversation_id, true);
+    }
+
+    /// Cancel the active lead turn (and related waits).
+    /// When `cancel_background_jobs` is false, JobSupervisor jobs keep running
+    /// (Codex-style: new message / end-wait ends sync only). Hard stop uses true.
+    pub fn cancel_with_options(&self, conversation_id: &str, cancel_background_jobs: bool) {
         let base = crate::channel_outbound::im_base_conversation_id(conversation_id);
         let cancel_keys: Vec<String> = {
             let guard = self.cancels.lock();
@@ -1408,13 +1417,17 @@ impl AppState {
             if let Some(token) = self.cancels.lock().get(key) {
                 token.cancel();
             }
-            let _ = self.abort_terminal_command(key, None);
+            if cancel_background_jobs {
+                let _ = self.abort_terminal_command(key, None);
+            }
         }
         if cancel_keys.is_empty() {
             if let Some(token) = self.cancels.lock().get(conversation_id) {
                 token.cancel();
             }
-            let _ = self.abort_terminal_command(conversation_id, None);
+            if cancel_background_jobs {
+                let _ = self.abort_terminal_command(conversation_id, None);
+            }
         }
 
         let approvals: Vec<_> = self.approvals.lock().drain().collect();
@@ -1462,12 +1475,39 @@ impl AppState {
             let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Cancelled);
         }
 
-        let cancelled_jobs = self.jobs.cancel_conversation(conversation_id);
-        if cancelled_jobs > 0 {
+        if cancel_background_jobs {
+            let cancelled_jobs = self.jobs.cancel_conversation(conversation_id);
+            if cancelled_jobs > 0 {
+                log::info!(
+                    "app_state: cancel fan-out background jobs conversation_id={conversation_id} count={cancelled_jobs}"
+                );
+            }
+        } else {
             log::info!(
-                "app_state: cancel fan-out background jobs conversation_id={conversation_id} count={cancelled_jobs}"
+                "app_state: soft cancel conversation_id={conversation_id} (background jobs kept)"
             );
         }
+    }
+
+    /// Cancel one or more background jobs without stopping the lead turn.
+    /// `job_ids` omit/empty = every background job in this conversation.
+    pub fn cancel_background_jobs(
+        &self,
+        conversation_id: &str,
+        job_ids: Option<&[String]>,
+    ) -> Vec<String> {
+        let cancelled = self.jobs.cancel_ids(conversation_id, job_ids);
+        if !cancelled.is_empty() {
+            log::info!(
+                "app_state: cancel_background_jobs conversation_id={conversation_id} count={} ids={cancelled:?}",
+                cancelled.len()
+            );
+            crate::stream_broadcast::publish_global_stream(crate::models::StreamEvent::BackgroundJobs {
+                conversation_id: conversation_id.to_string(),
+                running_count: self.jobs.running_count_for_conversation(conversation_id) as u32,
+            });
+        }
+        cancelled
     }
 
     /// Resolve a pending IM `ask_user` from free-text. Returns:
@@ -2391,6 +2431,46 @@ mod active_main_task_board_tests {
         assert!(first_flag.load(Ordering::SeqCst));
         assert!(second_flag.load(Ordering::SeqCst));
         assert!(!unrelated_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn soft_cancel_keeps_background_jobs_and_skips_terminal_abort() {
+        use crate::chat_service::job_supervisor::{JobKind, JobKindSubagent, JobStatus};
+        use tokio_util::sync::CancellationToken;
+
+        let state = AppState::new();
+        let conv = "conv-soft";
+        let job_token = CancellationToken::new();
+        let job_id = state.jobs.register(
+            conv,
+            JobKind::Subagent(JobKindSubagent {
+                tool_call_id: "tc".into(),
+                message_id: "m".into(),
+                agent_id: "explore".into(),
+                title: "t".into(),
+                agent_instance_id: "inst".into(),
+            }),
+            job_token.clone(),
+        );
+        state.jobs.mark_running(&job_id);
+
+        let scope = ToolExecutionScope::new(conv, None, "tc-term");
+        let abort_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        state.register_terminal_abort_flag(scope, abort_flag.clone());
+
+        state.cancel_with_options(conv, false);
+
+        assert!(!job_token.is_cancelled());
+        assert!(!abort_flag.load(Ordering::SeqCst));
+        assert_eq!(state.jobs.running_count_for_conversation(conv), 1);
+        assert_eq!(
+            state.jobs.list(conv, false)[0].status,
+            JobStatus::Running.as_str()
+        );
+
+        state.cancel_with_options(conv, true);
+        assert!(job_token.is_cancelled());
+        assert!(abort_flag.load(Ordering::SeqCst));
     }
 
     #[tokio::test]

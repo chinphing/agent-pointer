@@ -85,9 +85,10 @@ pub(super) async fn dispatch_job(
                 )
                 .await;
             log::info!(
-                "job tool: await done conversation_id={conversation_id} timed_out={} returned={} still_running={} unclaimed={} running_count={} idle_slots={}",
+                "job tool: await done conversation_id={conversation_id} timed_out={} returned={} updates={} still_running={} unclaimed={} running_count={} idle_slots={}",
                 result.timed_out,
                 result.jobs.len(),
+                result.updates.len(),
                 result.running.len(),
                 result.unclaimed.len(),
                 result.running_count,

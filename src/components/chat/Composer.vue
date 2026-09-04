@@ -100,6 +100,14 @@ const composerPlaceholder = computed(() => {
   return settings.settings.hasKey ? resolveComposerPlaceholder() : '请先在设置中配置 API Key'
 })
 
+const backgroundJobsBanner = computed(() => {
+  const convId = chat.current?.id?.trim() ?? ''
+  if (!convId || generating.value) return null
+  const count = chat.backgroundJobCount(convId)
+  if (count <= 0) return null
+  return count === 1 ? '1 个后台任务执行中' : `${count} 个后台任务执行中`
+})
+
 const composing = ref(false)
 const showAgentPicker = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -1581,6 +1589,14 @@ onUnmounted(() => {
         >
           {{ attachmentHint }}
         </p>
+        <div
+          v-if="backgroundJobsBanner"
+          class="mx-2 mb-1 flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/5 px-3 py-1.5 text-[11px] text-accent"
+          role="status"
+        >
+          <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse" />
+          <span>{{ backgroundJobsBanner }}</span>
+        </div>
         <div class="composer-body flex items-end gap-1 md:flex-col md:items-stretch md:gap-0">
           <button
             type="button"
@@ -1705,7 +1721,7 @@ onUnmounted(() => {
               v-if="generating || chat.hasBackgroundJobs(chat.current?.id ?? '')"
               class="h-9 w-9 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition md:h-10 md:w-10"
               @click="chat.stop()"
-              title="停止当前任务"
+              title="停止当前回合并取消全部后台任务"
             ><Square class="w-4 h-4" /></button>
             <button
               class="h-9 w-9 shrink-0 rounded-xl flex items-center justify-center transition md:h-10 md:w-10"
@@ -1715,8 +1731,8 @@ onUnmounted(() => {
               :disabled="!canSend"
               :title="generating
                 ? (isMacOs
-                  ? '加入发送队列 (↩)。空输入再 ↩ 立即发送队首。⌘↩ 停止并立即发送'
-                  : '加入发送队列 (Enter)。空输入再 Enter 立即发送队首。Ctrl+Enter 停止并立即发送')
+                  ? '加入发送队列 (↩)。空输入再 ↩ 立即发送（只停同步，后台继续）。⌘↩ 同立即发送'
+                  : '加入发送队列 (Enter)。空输入再 Enter 立即发送（只停同步，后台继续）。Ctrl+Enter 同立即发送')
                 : (isMacOs ? '发送 (↩)' : '发送 (Enter)')"
               @click="send"
             ><Send class="w-4 h-4" /></button>

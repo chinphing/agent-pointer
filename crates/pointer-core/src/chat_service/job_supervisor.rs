@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -16,6 +16,9 @@ use tokio_util::sync::CancellationToken;
 
 const DEFAULT_AWAIT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const CONTENT_PREVIEW_CHARS: usize = 800;
+const MAX_MAILBOX: usize = 48;
+const PROGRESS_THROTTLE: Duration = Duration::from_secs(2);
+const PROGRESS_TEXT_CHARS: usize = 160;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +103,43 @@ struct JobRecord {
     error: Option<String>,
     claimed: bool,
     cancel: CancellationToken,
+    /// Codex-style mailbox: mid-flight progress + status; drained by `await`.
+    mailbox: Vec<JobMail>,
+    mail_seq: u64,
+    last_progress_text: Option<String>,
+    last_progress_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone)]
+struct JobMail {
+    seq: u64,
+    kind: JobMailKind,
+    text: String,
+    claimed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JobMailKind {
+    Status,
+    Progress,
+}
+
+impl JobMailKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Status => "status",
+            Self::Progress => "progress",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobUpdateItem {
+    pub job_id: String,
+    pub kind: &'static str,
+    pub text: String,
+    pub seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -141,6 +181,10 @@ pub struct JobAwaitResult {
     pub mode: &'static str,
     pub timed_out: bool,
     pub jobs: Vec<JobAwaitItem>,
+    /// Mid-flight mailbox drain (Codex-style any-update wake). Does not claim
+    /// terminal `content`; call `await` again for finished bodies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub updates: Vec<JobUpdateItem>,
     pub running: Vec<String>,
     /// Timeout / cancel only: finished ids not in `jobs`.
     /// Successful `any` / `all` drain ready bodies into `jobs` instead.
@@ -154,6 +198,17 @@ pub struct JobAwaitResult {
     pub idle_slots: usize,
     /// Root slots currently held (foreground join + background).
     pub pool_running: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdlePushItem {
+    pub job_id: String,
+    pub status: &'static str,
+    pub kind: &'static str,
+    pub title: Option<String>,
+    pub agent_id: Option<String>,
+    pub content: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Default)]
@@ -321,6 +376,8 @@ pub struct JobSupervisor {
     inner: Mutex<Inner>,
     bump: watch::Sender<u64>,
     pool: Arc<WorkerPoolState>,
+    /// Same-conversation idle push: conversation id after Completed/Failed.
+    on_pushable: Mutex<Option<Arc<dyn Fn(String) + Send + Sync>>>,
 }
 
 impl Default for JobSupervisor {
@@ -338,7 +395,12 @@ impl JobSupervisor {
             pool: Arc::new(WorkerPoolState {
                 by_conv: Mutex::new(HashMap::new()),
             }),
+            on_pushable: Mutex::new(None),
         }
+    }
+
+    pub fn set_on_pushable(&self, cb: Arc<dyn Fn(String) + Send + Sync>) {
+        *self.on_pushable.lock() = Some(cb);
     }
 
     fn notify(&self) {
@@ -515,6 +577,10 @@ impl JobSupervisor {
             error: None,
             claimed: false,
             cancel,
+            mailbox: Vec::new(),
+            mail_seq: 0,
+            last_progress_text: None,
+            last_progress_at: None,
         };
         {
             let mut inner = self.inner.lock();
@@ -550,9 +616,47 @@ impl JobSupervisor {
             return;
         }
         job.status = JobStatus::Running;
+        push_mail(job, JobMailKind::Status, "running".into());
         log::info!(
             "job_supervisor: job_id={job_id} conversation_id={} status=running",
             job.conversation_id
+        );
+        drop(inner);
+        self.notify();
+    }
+
+    /// Mid-flight progress for Codex-style `await` any-update wake.
+    /// Does **not** set job-level `claimed` (terminal bodies stay for later `await` / idle push).
+    pub fn post_progress(&self, job_id: &str, text: &str) {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let text = crate::text_util::truncate_chars(trimmed, PROGRESS_TEXT_CHARS);
+        let mut inner = self.inner.lock();
+        let Some(job) = inner.jobs.get_mut(job_id) else {
+            log::warn!("job_supervisor: post_progress unknown job_id={job_id}");
+            return;
+        };
+        if job.status.is_terminal() {
+            return;
+        }
+        let now = Instant::now();
+        if job.last_progress_text.as_deref() == Some(text.as_str()) {
+            if job
+                .last_progress_at
+                .is_some_and(|t| now.duration_since(t) < PROGRESS_THROTTLE)
+            {
+                return;
+            }
+        }
+        job.last_progress_text = Some(text.clone());
+        job.last_progress_at = Some(now);
+        push_mail(job, JobMailKind::Progress, text);
+        let conversation_id = job.conversation_id.clone();
+        log::info!(
+            "job_supervisor: progress job_id={job_id} conversation_id={conversation_id} mail_seq={}",
+            job.mail_seq
         );
         drop(inner);
         self.notify();
@@ -610,13 +714,63 @@ impl JobSupervisor {
         job.status = status;
         job.content = content;
         job.error = error;
+        let conversation_id = job.conversation_id.clone();
+        let pushable = matches!(status, JobStatus::Completed | JobStatus::Failed);
         log::info!(
             "job_supervisor: job_id={job_id} conversation_id={} status={}",
-            job.conversation_id,
+            conversation_id,
             status.as_str()
         );
         drop(inner);
         self.notify();
+        if pushable {
+            if let Some(cb) = self.on_pushable.lock().clone() {
+                cb(conversation_id);
+            }
+        }
+    }
+
+    /// Claim Completed/Failed unclaimed jobs for idle push. Skips Cancelled.
+    pub fn claim_pushable(&self, conversation_id: &str) -> Vec<IdlePushItem> {
+        let mut inner = self.inner.lock();
+        let ids = inner
+            .by_conversation
+            .get(conversation_id)
+            .cloned()
+            .unwrap_or_default();
+        let ready: Vec<String> = ids
+            .into_iter()
+            .filter(|id| inner.jobs.get(id).is_some_and(job_is_idle_pushable))
+            .collect();
+        if ready.is_empty() {
+            return Vec::new();
+        }
+        let items: Vec<IdlePushItem> = ready
+            .iter()
+            .filter_map(|id| inner.jobs.get(id).map(idle_push_item))
+            .collect();
+        for id in &ready {
+            if let Some(job) = inner.jobs.get_mut(id) {
+                job.claimed = true;
+            }
+        }
+        log::info!(
+            "job_supervisor: idle push claimed count={} conversation_id={conversation_id}",
+            items.len()
+        );
+        items
+    }
+
+    pub fn unclaim(&self, job_ids: &[String]) {
+        let mut inner = self.inner.lock();
+        for id in job_ids {
+            if let Some(job) = inner.jobs.get_mut(id) {
+                if job.status.is_terminal() && job.claimed {
+                    job.claimed = false;
+                    log::warn!("job_supervisor: unclaimed after failed idle push job_id={id}");
+                }
+            }
+        }
     }
 
     pub fn list(&self, conversation_id: &str, include_content: bool) -> Vec<JobListItem> {
@@ -685,7 +839,9 @@ impl JobSupervisor {
         n
     }
 
-    /// Claim terminal results for `await`. Already-claimed jobs are skipped (mutex with idle push).
+    /// Claim terminal results and/or drain mailbox for `await`.
+    /// `mode=any` also wakes on unclaimed mid-flight mail (does not claim bodies).
+    /// Already-claimed jobs are skipped (mutex with idle push).
     pub async fn await_jobs(
         &self,
         conversation_id: &str,
@@ -795,7 +951,8 @@ impl JobSupervisor {
         match mode {
             AwaitMode::Any => {
                 let ready = unclaimed_finished_conversation(&inner, conversation_id);
-                if ready.is_empty() {
+                let has_mail = targets_have_progress_mail(&inner, conversation_id, &ids);
+                if ready.is_empty() && !has_mail {
                     if running.is_empty() {
                         return Some(empty_await(
                             mode,
@@ -808,15 +965,18 @@ impl JobSupervisor {
                     return None;
                 }
                 let jobs = claim_ready_jobs(&mut inner, &ready);
+                let updates = drain_mail_for_ids(&mut inner, conversation_id, &ids);
                 let running_count = running_count_in(&inner, conversation_id);
                 log::info!(
-                    "job_supervisor: await claimed count={} conversation_id={conversation_id} mode=any running_count={running_count}",
-                    jobs.len()
+                    "job_supervisor: await claimed count={} updates={} conversation_id={conversation_id} mode=any running_count={running_count}",
+                    jobs.len(),
+                    updates.len()
                 );
                 Some(pack_await(
                     "any",
                     false,
                     jobs,
+                    updates,
                     running,
                     Vec::new(),
                     running_count,
@@ -842,15 +1002,18 @@ impl JobSupervisor {
                     }
                 }
                 let jobs = claim_ready_jobs(&mut inner, &ready);
+                let updates = drain_mail_for_ids(&mut inner, conversation_id, &ids);
                 let running_count = running_count_in(&inner, conversation_id);
                 log::info!(
-                    "job_supervisor: await claimed count={} conversation_id={conversation_id} mode=all running_count={running_count}",
-                    jobs.len()
+                    "job_supervisor: await claimed count={} updates={} conversation_id={conversation_id} mode=all running_count={running_count}",
+                    jobs.len(),
+                    updates.len()
                 );
                 Some(pack_await(
                     "all",
                     false,
                     jobs,
+                    updates,
                     Vec::new(),
                     Vec::new(),
                     running_count,
@@ -864,6 +1027,7 @@ impl JobSupervisor {
 
     /// Timeout / cancel / watch-closed path: **never** deliver `content` and **never** claim.
     /// Finished-but-unclaimed ids go in `unclaimed`; still-running ids go in `running`.
+    /// Mid-flight mail is drained into `updates` (progress-only, no body claim).
     /// Only [`Self::try_claim_await`] may put bodies into `jobs`.
     fn snapshot_await(
         &self,
@@ -875,7 +1039,7 @@ impl JobSupervisor {
     ) -> JobAwaitResult {
         let idle = self.idle_slots(conversation_id, slot_cap);
         let pool_running = self.pool_running_roots(conversation_id);
-        let inner = self.inner.lock();
+        let mut inner = self.inner.lock();
         let ids = resolve_job_ids(&inner, conversation_id, job_ids);
         let mut running = Vec::new();
         for id in &ids {
@@ -891,6 +1055,7 @@ impl JobSupervisor {
         }
         let running_count = running_count_in(&inner, conversation_id);
         let unclaimed = unclaimed_finished_conversation(&inner, conversation_id);
+        let updates = drain_mail_for_ids(&mut inner, conversation_id, &ids);
         pack_await(
             match mode {
                 AwaitMode::Any => "any",
@@ -898,6 +1063,7 @@ impl JobSupervisor {
             },
             timed_out,
             Vec::new(),
+            updates,
             running,
             unclaimed,
             running_count,
@@ -957,6 +1123,64 @@ fn claim_ready_jobs(inner: &mut Inner, ids: &[String]) -> Vec<JobAwaitItem> {
     jobs
 }
 
+fn push_mail(job: &mut JobRecord, kind: JobMailKind, text: String) {
+    job.mail_seq = job.mail_seq.saturating_add(1);
+    job.mailbox.push(JobMail {
+        seq: job.mail_seq,
+        kind,
+        text,
+        claimed: false,
+    });
+    while job.mailbox.len() > MAX_MAILBOX {
+        if let Some(idx) = job.mailbox.iter().position(|m| m.claimed) {
+            job.mailbox.remove(idx);
+        } else {
+            job.mailbox.remove(0);
+        }
+    }
+}
+
+fn targets_have_progress_mail(inner: &Inner, conversation_id: &str, ids: &[String]) -> bool {
+    ids.iter().any(|id| {
+        inner.jobs.get(id).is_some_and(|j| {
+            j.conversation_id == conversation_id
+                && j.mailbox
+                    .iter()
+                    .any(|m| !m.claimed && m.kind == JobMailKind::Progress)
+        })
+    })
+}
+
+fn drain_mail_for_ids(
+    inner: &mut Inner,
+    conversation_id: &str,
+    ids: &[String],
+) -> Vec<JobUpdateItem> {
+    let mut updates = Vec::new();
+    for id in ids {
+        let Some(job) = inner.jobs.get_mut(id) else {
+            continue;
+        };
+        if job.conversation_id != conversation_id {
+            continue;
+        }
+        for mail in job.mailbox.iter_mut() {
+            if mail.claimed {
+                continue;
+            }
+            mail.claimed = true;
+            updates.push(JobUpdateItem {
+                job_id: job.id.clone(),
+                kind: mail.kind.as_str(),
+                text: mail.text.clone(),
+                seq: mail.seq,
+            });
+        }
+    }
+    updates.sort_by(|a, b| a.seq.cmp(&b.seq).then_with(|| a.job_id.cmp(&b.job_id)));
+    updates
+}
+
 fn resolve_job_ids(inner: &Inner, conversation_id: &str, job_ids: Option<&[String]>) -> Vec<String> {
     match job_ids {
         Some(ids) if !ids.is_empty() => ids.to_vec(),
@@ -972,6 +1196,7 @@ fn pack_await(
     mode: &'static str,
     timed_out: bool,
     jobs: Vec<JobAwaitItem>,
+    updates: Vec<JobUpdateItem>,
     running: Vec<String>,
     unclaimed: Vec<String>,
     running_count: usize,
@@ -983,6 +1208,7 @@ fn pack_await(
         mode,
         timed_out,
         jobs,
+        updates,
         running,
         unclaimed,
         running_count,
@@ -1005,6 +1231,7 @@ fn empty_await(
             AwaitMode::All => "all",
         },
         false,
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -1049,6 +1276,35 @@ fn job_list_item(job: &JobRecord, include_content: bool) -> JobListItem {
             JobKind::Subagent(k) => Some(k.agent_instance_id.clone()).filter(|s| !s.is_empty()),
             JobKind::Terminal(_) => None,
         },
+    }
+}
+
+fn job_is_idle_pushable(job: &JobRecord) -> bool {
+    !job.claimed && matches!(job.status, JobStatus::Completed | JobStatus::Failed)
+}
+
+fn idle_push_item(job: &JobRecord) -> IdlePushItem {
+    let (kind, agent_id, title) = match &job.kind {
+        JobKind::Subagent(k) => ("subagent", Some(k.agent_id.clone()), Some(k.title.clone())),
+        JobKind::Terminal(k) => (
+            "terminal",
+            None,
+            Some(
+                k.label
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| crate::text_util::truncate_chars(&k.command, 80)),
+            ),
+        ),
+    };
+    IdlePushItem {
+        job_id: job.id.clone(),
+        status: job.status.as_str(),
+        kind,
+        title,
+        agent_id,
+        content: job.content.clone(),
+        error: job.error.clone(),
     }
 }
 
@@ -1124,6 +1380,58 @@ mod tests {
         let b_row = listed.iter().find(|j| j.job_id == b).unwrap();
         assert!(!b_row.claimed);
         assert_eq!(b_row.status, "running");
+    }
+
+    #[tokio::test]
+    async fn await_any_wakes_on_progress_without_claiming_body() {
+        let sup = Arc::new(JobSupervisor::new());
+        let conv = "c-progress";
+        let a = sup.register(conv, kind(), CancellationToken::new());
+        let b = sup.register(conv, kind(), CancellationToken::new());
+        sup.mark_running(&a);
+        sup.mark_running(&b);
+        sup.post_progress(&a, "read · src/auth.rs");
+
+        let parent = CancellationToken::new();
+        let result = Arc::clone(&sup)
+            .await_jobs(
+                conv,
+                Some(vec![a.clone(), b.clone()]),
+                AwaitMode::Any,
+                Some(Duration::from_secs(1)),
+                &parent,
+                4,
+            )
+            .await;
+        assert!(result.jobs.is_empty(), "progress must not claim bodies");
+        assert!(!result.timed_out);
+        assert_eq!(result.running, vec![a.clone(), b.clone()]);
+        assert!(
+            result
+                .updates
+                .iter()
+                .any(|u| u.job_id == a && u.kind == "progress" && u.text.contains("auth")),
+            "expected progress update, got {:?}",
+            result.updates
+        );
+        let listed = sup.list(conv, false);
+        assert!(!listed.iter().find(|j| j.job_id == a).unwrap().claimed);
+
+        // Mail already drained — next await waits for terminal (or times out).
+        let parent2 = CancellationToken::new();
+        let timed = Arc::clone(&sup)
+            .await_jobs(
+                conv,
+                Some(vec![a.clone(), b.clone()]),
+                AwaitMode::Any,
+                Some(Duration::from_millis(50)),
+                &parent2,
+                4,
+            )
+            .await;
+        assert!(timed.timed_out);
+        assert!(timed.jobs.is_empty());
+        assert!(timed.updates.is_empty());
     }
 
     #[tokio::test]
@@ -1558,5 +1866,34 @@ mod tests {
         let second = sup.claim_if_unclaimed(&id).unwrap();
         assert_eq!(second.status, "completed");
         assert!(sup.is_claimed(&id));
+    }
+
+    #[test]
+    fn claim_pushable_skips_cancelled_and_already_claimed() {
+        let sup = JobSupervisor::new();
+        let done = sup.register("c1", kind(), CancellationToken::new());
+        let failed = sup.register("c1", kind(), CancellationToken::new());
+        let cancelled = sup.register("c1", kind(), CancellationToken::new());
+        let awaited = sup.register("c1", kind(), CancellationToken::new());
+        sup.finish(&done, JobStatus::Completed, Some("ok".into()), None);
+        sup.finish(&failed, JobStatus::Failed, None, Some("boom".into()));
+        sup.finish(&cancelled, JobStatus::Cancelled, None, Some("cancelled".into()));
+        sup.finish(&awaited, JobStatus::Completed, Some("secret".into()), None);
+        assert!(sup.claim_if_unclaimed(&awaited).is_some());
+
+        let items = sup.claim_pushable("c1");
+        let ids: Vec<_> = items.iter().map(|i| i.job_id.as_str()).collect();
+        assert!(ids.contains(&done.as_str()));
+        assert!(ids.contains(&failed.as_str()));
+        assert!(!ids.contains(&cancelled.as_str()));
+        assert!(!ids.contains(&awaited.as_str()));
+        assert!(sup.is_claimed(&done));
+        assert!(sup.claim_pushable("c1").is_empty());
+
+        sup.unclaim(&[done.clone()]);
+        assert!(!sup.is_claimed(&done));
+        let again = sup.claim_pushable("c1");
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].job_id, done);
     }
 }

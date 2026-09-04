@@ -276,6 +276,15 @@ impl RunQueue {
         self.inner.lane_waiting(LANE_MAIN)
     }
 
+    /// True when this conversation's session lane has an active run or waiter.
+    pub fn session_has_activity(&self, conversation_id: &str) -> bool {
+        let lane = resolve_session_lane(conversation_id);
+        let lanes = self.inner.lanes.lock();
+        lanes.get(&lane).is_some_and(|s| {
+            s.active > 0 || s.queue.iter().any(|e| !e.cancel.is_cancelled())
+        })
+    }
+
     /// Active runs in `global:cron`.
     pub fn cron_active_count(&self) -> usize {
         self.inner.lane_active(LANE_CRON)
@@ -570,6 +579,20 @@ mod tests {
         drop(p1);
         let p2 = h.await.unwrap().unwrap();
         drop(p2);
+    }
+
+    #[tokio::test]
+    async fn session_has_activity_tracks_active_and_waiters() {
+        let q = RunQueue::new(4);
+        assert!(!q.session_has_activity("L"));
+        let p1 = q
+            .acquire(req("L", TriggerSource::Ipc), CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(q.session_has_activity("L"));
+        assert!(!q.session_has_activity("other"));
+        drop(p1);
+        assert!(!q.session_has_activity("L"));
     }
 
     #[tokio::test]

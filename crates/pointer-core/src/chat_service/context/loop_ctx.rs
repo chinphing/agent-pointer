@@ -49,6 +49,8 @@ pub struct SubAgentLoopContext<'a> {
     pub spawn_depth: u32,
     pub max_spawn_depth: u32,
     pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,
+    /// Background worker job id; tool progress posts to this mailbox.
+    pub background_job_id: Option<String>,
 }
 
 /// Nested `run_subagent` delegation from a tool pass.

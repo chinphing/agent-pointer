@@ -593,6 +593,7 @@ pub(crate) async fn run_sub_agent(
                 skill_prompts: &skill_prompts,
                 allowed_tools: &allowed_tools,
             },
+            background_job_id: ctx.background_job_id.as_deref(),
         };
         let mut stats = ToolInvocationStats::Conversation(ctx.llm_stats);
         let anchor_message_id =

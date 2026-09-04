@@ -157,6 +157,7 @@ export function handleInjectedUserMessage(ctx: StreamHandlerContext, e: Injected
   if (existing) {
     existing.content = e.content
     if (e.attachments?.length) existing.attachments = e.attachments
+    if (e.uiBindings) existing.uiBindings = e.uiBindings
   } else {
     conv.messages.push({
       id: e.messageId,
@@ -164,7 +165,8 @@ export function handleInjectedUserMessage(ctx: StreamHandlerContext, e: Injected
       content: e.content,
       status: 'done',
       createdAt: Date.now(),
-      ...(e.attachments?.length ? { attachments: e.attachments } : {})
+      ...(e.attachments?.length ? { attachments: e.attachments } : {}),
+      ...(e.uiBindings ? { uiBindings: e.uiBindings } : {})
     })
   }
   conv.messages = dedupeImInboundUserMessages(e.conversationId, conv.messages)

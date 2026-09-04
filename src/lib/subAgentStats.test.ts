@@ -162,4 +162,24 @@ describe('resolveCollapsedSubAgentView', () => {
     })
     expect(view.summaryLine).toBe('系统信息探测 · 终端 1 次')
   })
+
+  it('marks background sub-agents in collapsed summary while running', () => {
+    const view = resolveCollapsedSubAgentView({
+      status: 'running',
+      stats: emptySubAgentToolStats(),
+      agentId: 'explore',
+      backgroundRunning: true
+    })
+    expect(view.summaryLine).toBe('后台执行中')
+  })
+
+  it('appends 后台执行中 to stats when background host is still running', () => {
+    const view = resolveCollapsedSubAgentView({
+      status: 'running',
+      stats,
+      agentId: 'explore',
+      backgroundRunning: true
+    })
+    expect(view.summaryLine).toBe('终端 1 次 · 后台执行中')
+  })
 })

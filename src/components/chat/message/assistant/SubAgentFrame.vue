@@ -28,6 +28,7 @@ import {
   compactToolCallLiveText,
   compactToolCallStatusLine,
   effectiveToolDisplaySummary,
+  isBackgroundSubagentCall,
   isToolCallInProgress,
   latestToolCallForCompactStatus
 } from '../../../../lib/toolCallDisplay'
@@ -251,7 +252,8 @@ const collapsedView = computed(() => {
     stats,
     agentId: subAgentIdFromTraceId(props.trace.id),
     liveToolLine: live,
-    thinkingLine: thinking
+    thinkingLine: thinking,
+    backgroundRunning: props.hostTool ? isBackgroundSubagentCall(props.hostTool) : false
   })
 })
 

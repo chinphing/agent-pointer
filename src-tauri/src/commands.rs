@@ -175,11 +175,24 @@ pub async fn send_chat(
 pub async fn cancel_chat(
     dispatcher: State<'_, Arc<RunDispatcher>>,
     conversation_id: String,
+    cancel_background_jobs: Option<bool>,
 ) -> Result<(), String> {
+    let cancel_bg = cancel_background_jobs.unwrap_or(true);
     dispatcher
-        .cancel_conversation_and_wait(&conversation_id)
+        .cancel_conversation_and_wait(&conversation_id, cancel_bg)
         .await;
     Ok(())
+}
+
+/// Cancel background jobs by id (omit / empty = all in conversation). Does not stop the lead turn.
+#[tauri::command]
+pub fn cancel_background_jobs(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    job_ids: Option<Vec<String>>,
+) -> Result<Vec<String>, String> {
+    let ids = job_ids.as_deref().filter(|v| !v.is_empty());
+    Ok(state.cancel_background_jobs(&conversation_id, ids))
 }
 
 #[tauri::command]

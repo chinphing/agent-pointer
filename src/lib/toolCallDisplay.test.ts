@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
+import { buildFileChangeSummaries, backgroundJobIdFromToolCall, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundSubagentCall, isJobAwaitCall, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveBackgroundHostDisplayStatus, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -96,7 +96,7 @@ describe('compactToolCallStatusLine', () => {
     )).toBe('mystery_plugin')
   })
 
-  it('shows 后台运行 for background run_subagent', () => {
+  it('shows 后台执行中 for background run_subagent', () => {
     const line = compactToolCallStatusLine(
       tc({
         id: '1',
@@ -107,10 +107,25 @@ describe('compactToolCallStatusLine', () => {
         arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true })
       })
     )
-    expect(line).toBe('委派子任务 · 探索代码库 · 后台运行')
+    expect(line).toBe('委派子任务 · 探索代码库 · 后台执行中')
   })
 
-  it('shows 后台运行 for background terminal', () => {
+  it('treats self/explore omit background as background host', () => {
+    const call = tc({
+      id: '1',
+      name: 'run_subagent',
+      status: 'success',
+      displayLabel: '委派子任务',
+      displaySummary: '任务A',
+      arguments: JSON.stringify({ agentId: 'explore', goal: 'map', title: '任务A' }),
+      result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
+    })
+    expect(isBackgroundSubagentCall(call)).toBe(true)
+    expect(resolveBackgroundHostDisplayStatus(call)).toBe('running')
+    expect(compactToolCallStatusLine(call)).toBe('委派子任务 · 任务A · 后台执行中')
+  })
+
+  it('shows 后台执行中 for background terminal', () => {
     const line = compactToolCallStatusLine(
       tc({
         id: '1',
@@ -121,7 +136,7 @@ describe('compactToolCallStatusLine', () => {
         arguments: JSON.stringify({ command: 'cargo test', label: '跑测试', blockUntilMs: 0 })
       })
     )
-    expect(line).toBe('终端命令 · 跑测试 · 后台运行')
+    expect(line).toBe('终端命令 · 跑测试 · 后台执行中')
   })
 
   it('does not treat job handles as terminal stdout', () => {
@@ -129,6 +144,39 @@ describe('compactToolCallStatusLine', () => {
     expect(isBackgroundJobHandleResult('{"jobId":"job_1","status":"running","kind":"subagent"}')).toBe(true)
     expect(isBackgroundJobHandleResult('{"exitCode":0,"success":true,"stdout":"ok"}')).toBe(false)
     expect(isBackgroundJobHandleResult('{"content":"worker markdown"}')).toBe(false)
+  })
+
+  it('parses background job id and job.await', () => {
+    expect(
+      backgroundJobIdFromToolCall(
+        tc({
+          id: '1',
+          name: 'run_subagent',
+          status: 'running',
+          result: '{"jobId":"job_abc","status":"running","kind":"subagent"}',
+        })
+      )
+    ).toBe('job_abc')
+    expect(
+      isJobAwaitCall(
+        tc({
+          id: '2',
+          name: 'job',
+          status: 'running',
+          arguments: JSON.stringify({ action: 'await', mode: 'any' }),
+        })
+      )
+    ).toBe(true)
+    expect(
+      isJobAwaitCall(
+        tc({
+          id: '3',
+          name: 'job',
+          status: 'running',
+          arguments: JSON.stringify({ action: 'list' }),
+        })
+      )
+    ).toBe(false)
   })
 
   it('formats success tool without duration suffix', () => {
@@ -578,6 +626,24 @@ describe('partitionCollapsedToolCalls', () => {
       tc({ id: '6', name: 'file_grep', status: 'success' })
     ])
     expect(items.map(i => i.kind)).toEqual(['group', 'single', 'single', 'group'])
+  })
+
+  it('pins running background hosts above collapsed groups', () => {
+    const items = partitionCollapsedToolCalls([
+      tc({ id: '1', name: 'file_read', status: 'success' }),
+      tc({ id: '2', name: 'file_read', status: 'success' }),
+      tc({
+        id: '3',
+        name: 'run_subagent',
+        status: 'running',
+        arguments: JSON.stringify({ background: true, prompt: 'scan repo' })
+      }),
+      tc({ id: '4', name: 'file_grep', status: 'success' })
+    ])
+    expect(items.map(i => i.kind)).toEqual(['single', 'group', 'single'])
+    if (items[0]?.kind === 'single') {
+      expect(items[0].tool.id).toBe('3')
+    }
   })
 
   it('pins the host run_subagent row only while the user must act', () => {

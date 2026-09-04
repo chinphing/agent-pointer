@@ -200,16 +200,26 @@ export function resolveCollapsedSubAgentView(input: {
   agentId?: string
   liveToolLine?: string | null
   thinkingLine?: string | null
+  /** Host `run_subagent` with `background: true` — surface in collapsed summary. */
+  backgroundRunning?: boolean
 }): CollapsedSubAgentView {
   const metrics = formatStatsForAgent(input.agentId ?? 'explore', input.stats)
   const hasStats = input.status === 'failed' || metrics !== '工具 0 次'
-  const statsLine = hasStats
+  let statsLine = hasStats
     ? formatSubAgentStatsLine(input.status, input.stats, input.agentId)
     : ''
   const orphan = input.orphanTitle?.trim() || ''
-  const summaryLine = orphan
+  let summaryLine = orphan
     ? (statsLine ? `${orphan} · ${statsLine}` : orphan)
     : statsLine
+
+  if (input.backgroundRunning === true && input.status === 'running') {
+    if (summaryLine.trim()) {
+      summaryLine = `${summaryLine} · 后台执行中`
+    } else {
+      summaryLine = '后台执行中'
+    }
+  }
 
   const live = input.liveToolLine?.trim() || ''
   const thinking = input.thinkingLine?.trim() || ''

@@ -1,6 +1,6 @@
 import { isDiscardableEmptyAssistant, assistantHasVisibleProgress } from '../../lib/assistantMessageKind'
 import { leadThreadCompressionInsertIndex } from '../../lib/compressionLayout'
-import { isBackgroundJobHost, isBackgroundJobHandleResult, isToolCallInProgress } from '../../lib/toolCallDisplay'
+import { isBackgroundJobHost, isBackgroundJobHandleResult, isToolCallInProgress, isLiveBackgroundHostTool, backgroundHandleStatus, isBackgroundHandleInProgress } from '../../lib/toolCallDisplay'
 import {
   bindUnboundTracesToHosts,
   isScopedSubMessage,
@@ -405,7 +405,7 @@ export function hasInFlightToolCalls(msg: ChatMessage): boolean {
 }
 
 function isLiveBackgroundHost(tc: ToolCall): boolean {
-  return isBackgroundJobHost(tc) && isToolCallInProgress(tc.status)
+  return isLiveBackgroundHostTool(tc)
 }
 
 function isTerminalToolStatus(status: ToolCall['status']): boolean {
@@ -445,7 +445,7 @@ function tracesForHost(msg: ChatMessage, hostId: string): AgentTrace[] {
 /**
  * Disk may still say `running` after a stale short-list sync. If every bound
  * child trace is already terminal, promote the host so reload does not show
- * 「后台运行」 or later 「已取消」.
+ * 「后台执行中」 or later 「已取消」.
  */
 export function repairBackgroundHostsFromChildOutcomes(conv: Conversation): number {
   let n = 0
@@ -454,6 +454,7 @@ export function repairBackgroundHostsFromChildOutcomes(conv: Conversation): numb
     bindUnboundTracesToHosts(msg)
     for (const tc of msg.toolCalls ?? []) {
       if (!isLiveBackgroundHost(tc)) continue
+      if (isBackgroundHandleInProgress(tc.result)) continue
       const kids = tracesForHost(msg, tc.id)
       if (kids.length === 0) continue
       if (!kids.every(t => isSubAgentTraceTerminal(t.status))) continue
@@ -523,6 +524,7 @@ function finalizeStuckToolCallsList(toolCalls: ToolCall[] | undefined): void {
       continue
     }
     if (isLiveBackgroundHost(tc)) continue
+    if (isBackgroundJobHost(tc) && isBackgroundHandleInProgress(tc.result)) continue
     if (tc.status === 'pending_approval') {
       tc.status = 'rejected'
       continue
@@ -710,17 +712,6 @@ export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
     }
   }
   return n
-}
-
-function backgroundHandleStatus(result?: string | null): string | null {
-  if (!isBackgroundJobHandleResult(result)) return null
-  try {
-    const v = JSON.parse(result!) as Record<string, unknown>
-    const status = typeof v.status === 'string' ? v.status.trim().toLowerCase() : ''
-    return status || null
-  } catch {
-    return null
-  }
 }
 
 /** After reload or stop, assistant rows must not stay `streaming`/`pending`. */

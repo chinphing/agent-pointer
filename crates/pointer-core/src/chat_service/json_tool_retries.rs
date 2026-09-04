@@ -25,6 +25,7 @@ pub(crate) fn push_injected_format_retry_turn(
             message_id: retry_id.clone(),
             content: hint.clone(),
             attachments: None,
+            ui_bindings: None,
         },
     );
     history.push(ChatMessage {

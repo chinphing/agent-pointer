@@ -159,12 +159,32 @@ export async function sendChat(payload: SendChatPayload): Promise<void> {
   })
 }
 
-export async function cancelChat(conversationId: string): Promise<void> {
+export async function cancelChat(
+  conversationId: string,
+  options?: { cancelBackgroundJobs?: boolean }
+): Promise<void> {
   await request(`/api/chat/${encodeURIComponent(conversationId)}/cancel`, {
     method: 'POST',
+    body: JSON.stringify({
+      cancelBackgroundJobs: options?.cancelBackgroundJobs ?? true,
+    }),
     timeoutMs: 20_000,
     timeoutMessage: '停止超时。请稍后重试。',
   })
+}
+
+export async function cancelBackgroundJobs(
+  conversationId: string,
+  jobIds?: string[]
+): Promise<string[]> {
+  const res = await request<{ cancelled: string[] }>(
+    `/api/chat/${encodeURIComponent(conversationId)}/cancel-jobs`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ jobIds: jobIds ?? [] }),
+    }
+  )
+  return res.cancelled ?? []
 }
 
 function workspaceQuery(

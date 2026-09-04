@@ -20,13 +20,15 @@ const emit = defineEmits<{
       marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`
     }"
   >
-    <CollapsedRunHeader
-      :summary-line="summaryLine"
-      :expanded="false"
-      :failed="trace.status === 'failed'"
-      :show-chevron="showChevron"
-      :aria-label="summaryLine.trim() || '子任务过程'"
-      @toggle="emit('toggle')"
-    />
+    <div class="sub-agent-nested min-w-0 w-full">
+      <CollapsedRunHeader
+        :summary-line="summaryLine"
+        :expanded="false"
+        :failed="trace.status === 'failed'"
+        :show-chevron="showChevron"
+        :aria-label="summaryLine.trim() || '子任务过程'"
+        @toggle="emit('toggle')"
+      />
+    </div>
   </div>
 </template>

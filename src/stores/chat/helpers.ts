@@ -36,7 +36,8 @@ export function applyExcludedMessageIds(
  * Index to splice a compression summary. Use the recorded keep-window id as-is
  * on the lead thread (tool / glue rows included). Do not match scoped
  * sub-agent rows or append after them — that parks the chip under the child.
- * Missing id → first non-excluded lead row, else after the last lead row.
+ * Missing id → first non-excluded lead row, else the first lead row
+ * in the loaded window (not after the last lead / live turn).
  */
 export function resolveCompressionInsertAt(
   messages: readonly ChatMessage[],

@@ -105,7 +105,7 @@ describe('splitMessageTurnSegments', () => {
     )).toEqual(['u1', 'a2'])
   })
 
-  it('treats prefix user summaries mid-turn like in-run chips', () => {
+  it('keeps a mid-turn prefix summary visible when the turn is collapsed', () => {
     const summary: ChatMessage = {
       id: 'sum',
       role: 'user',
@@ -134,7 +134,7 @@ describe('splitMessageTurnSegments', () => {
     ])
     expect(layout.turns[0]!.collapsedEntries.map(e =>
       e.type === 'message' ? e.message.id : e.type
-    )).toEqual(['u1', 'a2'])
+    )).toEqual(['u1', 'sum', 'a2'])
   })
 
   it('does not anchor empty-response retry injects as a new turn', () => {
@@ -410,7 +410,7 @@ describe('insertContextCompressingMarker', () => {
     expect(keys[split + 1]).toBe('message-a1')
   })
 
-  it('does not park the compressing marker on the final reply when the cut is a tool', () => {
+  it('keeps the compressing marker before the delivery when the cut is a tool', () => {
     const toolOnly: ChatMessage = {
       id: 't1',
       role: 'assistant',
@@ -437,11 +437,39 @@ describe('insertContextCompressingMarker', () => {
       '正在压缩较早记录'
     )
     const collapsedKeys = turns[0]!.collapsedEntries.map(entry => entryKey(entry))
-    expect(collapsedKeys).not.toContain('context-compressing')
+    const collapsedSplit = collapsedKeys.indexOf('context-compressing')
+    expect(collapsedSplit).toBeGreaterThanOrEqual(0)
+    expect(collapsedKeys[collapsedSplit + 1]).toBe('message-a2')
     const expandedKeys = turns[0]!.entries.map(entry => entryKey(entry))
     const split = expandedKeys.indexOf('context-compressing')
     expect(split).toBeGreaterThanOrEqual(0)
     expect(expandedKeys.indexOf('message-a2')).toBeGreaterThan(split)
+  })
+
+  it('falls back to the first visible turn when the keep id is off this page', () => {
+    const layout = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [
+        user('u1', 'older'),
+        assistant('a1', 'done'),
+        user('u2', 'live'),
+        assistant('a2', 'running', 'streaming')
+      ],
+      deps: emptyDeps,
+      cache: null
+    })
+    const turns = insertContextCompressingMarker(
+      layout.turns,
+      'keep-not-on-page',
+      undefined,
+      '正在压缩较早记录'
+    )
+    expect(turns).toHaveLength(2)
+    const firstKeys = turns[0]!.collapsedEntries.map(entry => entryKey(entry))
+    const lastKeys = turns[1]!.collapsedEntries.map(entry => entryKey(entry))
+    expect(firstKeys).toContain('context-compressing')
+    expect(lastKeys).not.toContain('context-compressing')
+    expect(firstKeys[firstKeys.indexOf('context-compressing') + 1]).toBe('message-a1')
   })
 })
 

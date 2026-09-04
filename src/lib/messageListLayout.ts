@@ -712,7 +712,10 @@ function buildTurnsForEntries(
       || (entry.type === 'task_board' && entry.document.meta?.status === 'failed'),
     isCancelled: entry => entryHasStatus(entry, ['cancelled'])
       || (entry.type === 'task_board' && entry.document.meta?.status === 'cancelled'),
-    isSummary: entry => entryIsStickyChrome(entry) || prefixChipIsTurnHeader(entry, entries),
+    isSummary: entry =>
+      entryIsStickyChrome(entry)
+      || prefixChipIsTurnHeader(entry, entries)
+      || (entry.type === 'message' && isPrefixCompressionSummaryMessage(entry.message)),
     isDelivery: entryIsDelivery,
     isInteractive: entryIsInteractive
   }, {
@@ -828,6 +831,11 @@ function spliceMarkerBeforeDeliveryOrStart(list: FlatEntry[], marker: FlatEntry)
  * Place the in-progress compression marker immediately before the keep-window
  * message (the same insert-before id used when the summary lands). Does not
  * mutate the layout cache.
+ *
+ * A process-row cut is missing from the collapsed projection: still pin the
+ * marker before that turn's delivery (question + chip + reply), not omit and
+ * not move to the live last turn. If the keep id is not in this page, use the
+ * first visible turn the same way.
  */
 export function insertContextCompressingMarker(
   turns: readonly ConversationTurn<FlatEntry>[],
@@ -850,9 +858,9 @@ export function insertContextCompressingMarker(
 
   const placeInTurn = (turn: ConversationTurn<FlatEntry>, id: string): boolean => {
     if (!spliceMarkerBefore(turn.entries, id, marker)) return false
-    // Cut on a process row is absent from the collapsed projection — omit
-    // rather than parking the marker on the final reply (same as in-run).
-    spliceMarkerBefore(turn.collapsedEntries, id, marker)
+    if (!spliceMarkerBefore(turn.collapsedEntries, id, marker)) {
+      spliceMarkerBeforeDeliveryOrStart(turn.collapsedEntries, marker)
+    }
     return true
   }
 
@@ -862,8 +870,8 @@ export function insertContextCompressingMarker(
     }
   }
 
-  const last = next[next.length - 1]!
-  spliceMarkerBeforeDeliveryOrStart(last.entries, marker)
-  spliceMarkerBeforeDeliveryOrStart(last.collapsedEntries, marker)
+  const first = next[0]!
+  spliceMarkerBeforeDeliveryOrStart(first.entries, marker)
+  spliceMarkerBeforeDeliveryOrStart(first.collapsedEntries, marker)
   return next
 }

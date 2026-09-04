@@ -5,7 +5,9 @@ import { isScopedSubMessage } from './subAgentMessages'
  * Insert index for a parent-thread compression chip.
  * Honor `insertBeforeMessageId` on the lead thread only — scoped sub-agent
  * rows are skipped so a child id (or appending after children) cannot park
- * the chip under the current sub-agent.
+ * the chip under the current sub-agent. Missing id → first non-excluded
+ * lead row, else the first lead row in this list (loaded window start).
+ * Never append after the last lead — that parks the chip on the live turn.
  */
 export function leadThreadCompressionInsertIndex(
   messages: readonly ChatMessage[],
@@ -28,10 +30,7 @@ export function leadThreadCompressionInsertIndex(
     if (firstKeptLead >= 0) return firstKeptLead
   }
 
-  let lastLead = -1
-  for (let i = 0; i < messages.length; i++) {
-    if (!isScopedSubMessage(messages[i]!)) lastLead = i
-  }
-  if (lastLead >= 0) return lastLead + 1
+  const firstLead = messages.findIndex(m => !isScopedSubMessage(m))
+  if (firstLead >= 0) return firstLead
   return messages.length
 }

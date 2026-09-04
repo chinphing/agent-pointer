@@ -627,7 +627,6 @@ struct WindowView {
 
 struct MetaRow {
     title: String,
-    created_at_ms: i64,
     updated_at_ms: i64,
 }
 
@@ -710,14 +709,13 @@ fn load_meta_for_session_user(
     match session_user_filter {
         Some(uid) => conn
             .query_row(
-                "SELECT title, created_at_ms, updated_at_ms FROM conversations
+                "SELECT title, updated_at_ms FROM conversations
                  WHERE id = ?1 AND session_user_id = ?2",
                 params![conversation_id, uid],
                 |row| {
                     Ok(MetaRow {
                         title: row.get(0)?,
-                        created_at_ms: row.get(1)?,
-                        updated_at_ms: row.get(2)?,
+                        updated_at_ms: row.get(1)?,
                     })
                 },
             )
@@ -725,13 +723,12 @@ fn load_meta_for_session_user(
             .map_err(Into::into),
         None => conn
             .query_row(
-                "SELECT title, created_at_ms, updated_at_ms FROM conversations WHERE id = ?1",
+                "SELECT title, updated_at_ms FROM conversations WHERE id = ?1",
                 params![conversation_id],
                 |row| {
                     Ok(MetaRow {
                         title: row.get(0)?,
-                        created_at_ms: row.get(1)?,
-                        updated_at_ms: row.get(2)?,
+                        updated_at_ms: row.get(1)?,
                     })
                 },
             )

@@ -8,7 +8,6 @@ import {
   Trash2,
   Check,
   X,
-  Bot,
   PanelLeftClose,
   PanelRightOpen,
   FolderGit2,
@@ -864,19 +863,23 @@ watch(searchQuery, q => {
           class="sidebar-chrome shrink-0 flex items-center gap-1 pr-2 select-none bg-transparent whitespace-nowrap"
           :class="chromeEnabled && macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
         >
+          <!-- macOS 红绿灯覆盖时先留出系统按钮空间，再放品牌 -->
           <div
-            v-if="chromeEnabled"
-            class="sidebar-chrome-drag flex-1 min-w-0 h-full"
-            :class="macTrafficLightPadding ? 'traffic-light-inset' : 'pl-2'"
+            v-if="chromeEnabled && macTrafficLightPadding"
+            class="sidebar-chrome-drag h-full shrink-0 traffic-light-inset"
+            aria-hidden="true"
           />
+          <!-- 品牌：展开状态固定在侧栏左上角（非交互元素，鼠标按下仍可拖动窗口） -->
           <div
-            v-else
-            class="flex items-center gap-2 min-w-0 flex-1 pl-2"
+            class="sidebar-brand flex items-center gap-2 min-w-0 flex-1 pl-2"
           >
-            <div class="w-7 h-7 rounded-lg bg-hover border border-border flex items-center justify-center shrink-0">
-              <Bot class="w-3.5 h-3.5 text-muted" />
-            </div>
-            <div class="text-[13px] font-semibold tracking-wide brand-text truncate">Pointer</div>
+            <img
+              src="/app-icon.png"
+              alt="Pointer"
+              draggable="false"
+              class="h-3.5 w-3.5 shrink-0 select-none rounded-[3px] object-cover grayscale"
+            />
+            <div class="text-[13px] leading-none font-semibold tracking-wide brand-text truncate">Pointer</div>
           </div>
 
           <button
@@ -1516,11 +1519,12 @@ watch(searchQuery, q => {
       </aside>
 
       <div class="chat-main shell-chat flex-1 min-w-0 flex flex-col">
-        <!-- D0: 对话区顶栏：品牌 + 项目框（应用左上角）；侧栏收缩时并入展开/新建按钮保持单行 -->
+        <!-- D0: 对话区顶栏：侧栏展开时品牌在侧栏左上角，顶栏仅保留项目框；侧栏收缩时顶栏补位显示品牌并并入展开/新建按钮保持单行 -->
         <ChatTopBar
           :collapsed="sidebarCollapsed"
           :traffic-light-padding="chromeEnabled && macTrafficLightPadding"
-          :show-brand="chromeEnabled"
+          :show-brand="chromeEnabled && sidebarCollapsed"
+          :show-project-picker="chromeEnabled"
           @expand-sidebar="toggleSidebar"
           @new-task="newTask"
         >

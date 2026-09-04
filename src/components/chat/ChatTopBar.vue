@@ -14,10 +14,12 @@ const props = withDefaults(
     collapsed?: boolean
     /** macOS 红绿灯覆盖时是否需要为左上角留出系统按钮空间（收缩状态侧栏消失后适用）。 */
     trafficLightPadding?: boolean
-    /** 是否显示品牌段（Pointer · 项目名）：客户端（Tauri）显示；web 端品牌在侧栏顶栏，此处隐藏。 */
+    /** 是否显示品牌字样（Pointer ·）：客户端（Tauri）侧栏收缩时由顶栏补位显示；侧栏展开时品牌在侧栏左上角，此处隐藏。 */
     showBrand?: boolean
+    /** 是否显示项目选择按钮：客户端（Tauri）常驻顶栏左侧；web 端项目切换在侧栏，此处不显示。 */
+    showProjectPicker?: boolean
   }>(),
-  { collapsed: false, trafficLightPadding: false, showBrand: true }
+  { collapsed: false, trafficLightPadding: false, showBrand: true, showProjectPicker: true }
 )
 
 const emit = defineEmits<{
@@ -226,10 +228,19 @@ onUnmounted(() => {
         <Plus class="w-4 h-4" />
       </button>
     </div>
-    <template v-if="showBrand">
-      <span class="brand-text text-[13px] leading-none whitespace-nowrap shrink-0">Pointer</span>
-      <span class="text-[11px] leading-none text-muted shrink-0">·</span>
-      <div class="relative flex min-w-0 items-center">
+    <template v-if="showBrand || showProjectPicker">
+      <span
+        v-if="showBrand"
+        class="brand-text text-[13px] leading-none whitespace-nowrap shrink-0"
+      >Pointer</span>
+      <span
+        v-if="showBrand"
+        class="text-[11px] leading-none text-muted shrink-0"
+      >·</span>
+      <div
+        v-if="showProjectPicker"
+        class="relative flex min-w-0 items-center"
+      >
         <button
           ref="projectPickerButtonRef"
           type="button"

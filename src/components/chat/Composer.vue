@@ -58,6 +58,7 @@ import { isUploadAbortedError, UPLOAD_ABORTED_MESSAGE } from '../../lib/multipar
 import { withRetries } from '../../lib/retry'
 import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
 import OutboundQueuePanel from './OutboundQueuePanel.vue'
+import BackgroundJobsPanel from './BackgroundJobsPanel.vue'
 import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
@@ -98,14 +99,6 @@ const composerPlaceholder = computed(() => {
     return '账户余额已用尽'
   }
   return settings.settings.hasKey ? resolveComposerPlaceholder() : '请先在设置中配置 API Key'
-})
-
-const backgroundJobsBanner = computed(() => {
-  const convId = chat.current?.id?.trim() ?? ''
-  if (!convId || generating.value) return null
-  const count = chat.backgroundJobCount(convId)
-  if (count <= 0) return null
-  return count === 1 ? '1 个后台任务执行中' : `${count} 个后台任务执行中`
 })
 
 const composing = ref(false)
@@ -1546,6 +1539,11 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <BackgroundJobsPanel
+        v-if="chat.current?.id"
+        :conversation-id="chat.current.id"
+      />
+
       <OutboundQueuePanel
         v-if="chat.current?.id"
         :conversation-id="chat.current.id"
@@ -1589,14 +1587,6 @@ onUnmounted(() => {
         >
           {{ attachmentHint }}
         </p>
-        <div
-          v-if="backgroundJobsBanner"
-          class="mx-2 mb-1 flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/5 px-3 py-1.5 text-[11px] text-accent"
-          role="status"
-        >
-          <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse" />
-          <span>{{ backgroundJobsBanner }}</span>
-        </div>
         <div class="composer-body flex items-end gap-1 md:flex-col md:items-stretch md:gap-0">
           <button
             type="button"

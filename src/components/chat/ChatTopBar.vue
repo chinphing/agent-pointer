@@ -229,6 +229,13 @@ onUnmounted(() => {
       </button>
     </div>
     <template v-if="showBrand || showProjectPicker">
+      <img
+        v-if="showBrand"
+        src="/app-icon.png"
+        alt="Pointer"
+        draggable="false"
+        class="h-3.5 w-3.5 shrink-0 select-none rounded-[3px] object-cover grayscale"
+      />
       <span
         v-if="showBrand"
         class="brand-text text-[13px] leading-none whitespace-nowrap shrink-0"

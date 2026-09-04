@@ -81,6 +81,7 @@ from available width while the workspace panel is open.
 - `.panel` — flat card (`bg-card` + `border-border`)
 - `.panel-elevated` — slightly raised surface
 - `.brand-text` — title text (`text-foreground`)
+- Markdown prose (`.md-body`): 15px / 1.75 line-height; `h1`–`h6` scale in `em`; lone `**title**` paragraphs read as section heads; see [markdown-typography.md](markdown-typography.md)
 - Markdown GFM / HTML tables (`.md-body .table-wrapper`): rounded outer border; `td` `--fence-bg` (same as chat canvas); `th` stays `--hover`; honor GFM align + HTML column `width` / status colors; see [markdown-media-boundaries.md](markdown-media-boundaries.md), `markdownConfig.ts` / `globals.css`
 - Markdown fenced code (`.md-body .code-block`): body `--fence-bg` (same as `--shell-chat`; outline only). Language row `.fence-block-lang` uses `--hover` like `th`. Copy sits in that header (flex `items-center`), not `absolute` on the whole block; see `markdownConfig.ts` / `useMarkdownCodeCopy`
 - Markdown inline code (`.md-body code`): accent text only, **no** `--code-bg` chip / padding

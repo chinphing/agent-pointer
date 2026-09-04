@@ -3,6 +3,7 @@
 | 文档 | 说明 |
 |------|------|
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换；对话列宽跟中间栏（含 Workspace 拖拽）自适应 |
+| [markdown-typography.md](markdown-typography.md) | 聊天 / 工作区 Markdown 正文字号、标题层级、加粗当标题 |
 | [external-links.md](external-links.md) | 应用内 http(s) 链接用系统默认浏览器打开（桌面）/ 新标签（Web） |
 | [markdown-charts.md](markdown-charts.md) | Markdown `chartjs` fence → 本地 Chart.js 交互图表 |
 | [markdown-mermaid.md](markdown-mermaid.md) | Markdown `mermaid` fence → 本地 Mermaid，配色跟深浅色 token |

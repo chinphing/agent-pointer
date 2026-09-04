@@ -1,4 +1,4 @@
-import { marked } from 'marked'
+import { marked, type Token } from 'marked'
 import {
   encodeChartConfigAttr,
   isChartFenceLang,
@@ -288,8 +288,53 @@ export function stabilizeStreamingMermaidFences(src: string): string {
   return replaced ? out.join('\n') : src
 }
 
+/** After a leading `**…**`, these openers mean “title then body”. */
+const PARAGRAPH_LEAD_SEP_RE = /^\s*(?:[—–―−]|-{1,2}\s|：|:)/
+
+function significantParagraphTokens(tokens: Token[]): Token[] {
+  return tokens.filter(t => {
+    if (t.type === 'space') return false
+    if (t.type === 'text' && !t.text.trim()) return false
+    return true
+  })
+}
+
+/**
+ * LLM markdown often uses a lone `**Section**` or `**Item** — body`
+ * instead of ATX headings. Classify so CSS can open the hierarchy.
+ */
+export function classifyMarkdownParagraph(
+  tokens: Token[]
+): 'title' | 'lead' | null {
+  const sig = significantParagraphTokens(tokens)
+  if (sig.length === 0) return null
+  if (sig[0]!.type !== 'strong') return null
+  if (sig.length === 1) return 'title'
+  const first = sig[0]!
+  const rest = tokens
+    .slice(tokens.indexOf(first) + 1)
+    .map(t => t.raw ?? '')
+    .join('')
+  return PARAGRAPH_LEAD_SEP_RE.test(rest) ? 'lead' : null
+}
+
 marked.use({
   renderer: {
+    paragraph({ tokens }) {
+      const html = this.parser.parseInline(tokens)
+      const kind = classifyMarkdownParagraph(tokens)
+      if (kind === 'title') {
+        return `<p class="md-section-title">${html}</p>\n`
+      }
+      if (kind === 'lead') {
+        const wrapped = html.replace(
+          /^(<strong>[\s\S]*?<\/strong>)/,
+          '<span class="md-lead">$1</span>'
+        )
+        return `<p>${wrapped}</p>\n`
+      }
+      return `<p>${html}</p>\n`
+    },
     table({ header, rows, align }) {
       const h = header
         .map((c, i) => tableCellHtml('th', c.text ?? '', c.align ?? align?.[i]))

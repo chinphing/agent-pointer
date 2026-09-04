@@ -869,8 +869,9 @@ watch(searchQuery, q => {
             class="sidebar-chrome-drag h-full shrink-0 traffic-light-inset"
             aria-hidden="true"
           />
-          <!-- 品牌：展开状态固定在侧栏左上角，pl-3.5 与底栏账户头像左缘对齐（p-2 + px-1.5） -->
+          <!-- 品牌：Windows/Linux 展开状态固定在侧栏左上角；macOS 品牌在顶栏 -->
           <div
+            v-if="os !== 'macos'"
             class="sidebar-brand flex items-center gap-2 min-w-0 flex-1 pl-3.5"
           >
             <img
@@ -881,6 +882,8 @@ watch(searchQuery, q => {
             />
             <div class="text-[13px] leading-none font-semibold tracking-wide brand-text truncate">Pointer</div>
           </div>
+          <!-- macOS: spacer to push the collapse button right -->
+          <div v-else class="flex-1" />
 
           <button
             type="button"
@@ -1519,11 +1522,11 @@ watch(searchQuery, q => {
       </aside>
 
       <div class="chat-main shell-chat flex-1 min-w-0 flex flex-col">
-        <!-- D0: 对话区顶栏：侧栏展开时品牌在侧栏左上角，顶栏仅保留项目框；侧栏收缩时顶栏补位显示品牌并并入展开/新建按钮保持单行 -->
+        <!-- D0: 对话区顶栏：macOS 品牌常驻顶栏；Windows/Linux 品牌在侧栏，收缩时顶栏补位 -->
         <ChatTopBar
           :collapsed="sidebarCollapsed"
           :traffic-light-padding="chromeEnabled && macTrafficLightPadding"
-          :show-brand="chromeEnabled && sidebarCollapsed"
+          :show-brand="chromeEnabled && (os === 'macos' || sidebarCollapsed)"
           :show-project-picker="chromeEnabled"
           @expand-sidebar="toggleSidebar"
           @new-task="newTask"

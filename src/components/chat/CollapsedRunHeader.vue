@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import ToolKindIcon from './ToolKindIcon.vue'
+import ToolLiveSweepText from './ToolLiveSweepText.vue'
 
 const SLIDE_MS = 500
 
@@ -198,10 +199,11 @@ const summaryToneClass = computed(() =>
         >
           <span class="collapsed-run-hover-pill">
             <ToolKindIcon v-if="resting.toolName" :name="resting.toolName" />
-            <span
+            <ToolLiveSweepText
               class="collapsed-run-live-text"
-              :class="{ 'tool-live-pulse': liveBusy }"
-            >{{ resting.text }}</span>
+              :text="resting.text"
+              :active="liveBusy"
+            />
           </span>
         </span>
       </span>

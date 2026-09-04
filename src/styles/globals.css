@@ -31,7 +31,7 @@
     --mermaid-node: 0 0% 100%;
     --mermaid-node-border: 240 8% 82%;
     --mermaid-edge: 240 6% 68%;
-    /* Glyph shimmer peak: brighter than --muted so the sweep reads on gray type. */
+    /* Live-tool sweep highlight (overlay, not background-clip:text). */
     --tool-live-shimmer: 240 5% 88%;
   }
 
@@ -487,32 +487,49 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Text-only shimmer: clip the highlight to glyphs, never a row overlay.
-     Peak is --tool-live-shimmer (light: lift toward paper; dark: near-white). */
+  /* Moving window over a brighter glyph copy (same look as clip-to-text,
+     but only transform — no background-clip animation). */
   .tool-live-pulse {
-    background-image: linear-gradient(
-      90deg,
-      hsl(var(--muted)) 0%,
-      hsl(var(--muted)) 32%,
-      hsl(var(--tool-live-shimmer)) 50%,
-      hsl(var(--muted)) 68%,
-      hsl(var(--muted)) 100%
-    );
-    background-size: 220% 100%;
-    background-position: 100% center;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    animation: tool-live-shimmer 1.6s linear infinite;
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    vertical-align: bottom;
   }
-  .tool-call-trigger:hover .tool-live-pulse {
-    -webkit-text-fill-color: transparent;
-    color: transparent;
+  .tool-live-pulse-clip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2.6em;
+    overflow: hidden;
+    pointer-events: none;
+    mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+    transform: translate3d(-3em, 0, 0) skewX(-22deg);
+    animation: tool-live-shimmer-clip var(--tool-live-sweep, 6s) linear infinite;
   }
-  @keyframes tool-live-shimmer {
-    0% { background-position: 100% center; }
-    100% { background-position: -100% center; }
+  .tool-live-pulse-sheen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: var(--tool-live-box, 100%);
+    color: hsl(var(--tool-live-shimmer));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: inherit;
+    transform: skewX(22deg) translate3d(3em, 0, 0);
+    animation: tool-live-shimmer-sheen var(--tool-live-sweep, 6s) linear infinite;
+  }
+  @keyframes tool-live-shimmer-clip {
+    from { transform: translate3d(-3em, 0, 0) skewX(-22deg); }
+    to { transform: translate3d(48em, 0, 0) skewX(-22deg); }
+  }
+  @keyframes tool-live-shimmer-sheen {
+    from { transform: skewX(22deg) translate3d(3em, 0, 0); }
+    to { transform: skewX(22deg) translate3d(-48em, 0, 0); }
   }
   .collapsed-run-live-departing {
     animation: collapsed-run-push-out 500ms ease forwards;
@@ -534,13 +551,9 @@
     .collapsed-run-live-incoming {
       animation: none;
     }
-    .tool-live-pulse {
+    .tool-live-pulse-clip {
+      display: none;
       animation: none;
-      color: hsl(var(--muted));
-      -webkit-text-fill-color: unset;
-      background-image: none;
-      -webkit-background-clip: unset;
-      background-clip: unset;
     }
   }
   /* Prefer the tail (filename) when a path is wider than the row. */

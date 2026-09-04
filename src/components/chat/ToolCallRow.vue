@@ -16,6 +16,7 @@ import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs, toolCallBaseName }
 import { fileToolDisplayPath, truncateToolSummary, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundJobHost, isBackgroundSubagentCall, backgroundJobIdFromToolCall, isJobAwaitCall, resolveBackgroundHostDisplayStatus } from '../../lib/toolCallDisplay'
 import { toolCallShowsKindLabel } from '../../lib/toolCallKindIcon'
 import ToolKindIcon from './ToolKindIcon.vue'
+import ToolLiveSweepText from './ToolLiveSweepText.vue'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 import DiffView from './DiffView.vue'
@@ -414,26 +415,29 @@ function openSourceUrl(url: string) {
         <span
           v-if="showKindLabel"
           class="shrink-0"
-          :class="{ 'tool-live-pulse': isLivePulse }"
         >{{ displayLabel }}</span>
         <template v-if="filePathSummary">
           <span v-if="showKindLabel" class="shrink-0">·</span>
-          <span
+          <ToolLiveSweepText
             class="ellipsis-start min-w-0"
-            :class="{ 'tool-live-pulse': isLivePulse }"
+            :text="`${filePathSummary}\u200e`"
+            :active="isLivePulse"
             :title="filePathSummary"
-          >{{ filePathSummary }}&lrm;</span>
+          />
         </template>
-        <span
+        <ToolLiveSweepText
           v-else-if="displaySummary"
           class="min-w-0"
-          :class="[dense ? 'truncate' : 'break-words', isLivePulse ? 'tool-live-pulse' : '']"
-        >{{ showKindLabel ? `· ${displaySummary}` : displaySummary }}</span>
-        <span
+          :class="dense ? 'truncate' : 'break-words'"
+          :text="showKindLabel ? `· ${displaySummary}` : displaySummary"
+          :active="isLivePulse"
+        />
+        <ToolLiveSweepText
           v-else-if="!showKindLabel"
           class="shrink-0"
-          :class="{ 'tool-live-pulse': isLivePulse }"
-        >{{ displayLabel }}</span>
+          :text="displayLabel"
+          :active="isLivePulse"
+        />
         <span
           v-if="terminalElevated"
           class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"

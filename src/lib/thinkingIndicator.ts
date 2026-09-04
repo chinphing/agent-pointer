@@ -102,7 +102,7 @@ function isStreamingAssistant(msg: ChatMessage): boolean {
  */
 export function thinkingCharCountForCollapsedSubAgent(
   spawnRows: readonly ChatMessage[],
-  liveSession?: Pick<ThinkingStreamBody, 'thoughts' | 'reasoning' | 'contentStreaming'> | null
+  liveSession?: { thoughts?: string; reasoning?: string; contentStreaming?: boolean } | null
 ): number {
   const assistants = spawnRows.filter(m => m.role === 'assistant')
   const streaming = [...assistants].reverse().find(isStreamingAssistant)

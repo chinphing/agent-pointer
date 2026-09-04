@@ -154,12 +154,13 @@ export function composerAgentLabelById(
 
 /** Resolve user-visible label for a sub-agent trace row (handles legacy English slug in `trace.name`). */
 export function traceAgentLabel(
-  trace: { id: string; name: string },
+  trace: { id: string; name: string; agentId?: string },
   agents: AgentDef[],
   settings?: Pick<ModelSettings, 'agentUiOverrides'>
 ): string {
-  const sep = trace.id.lastIndexOf(':')
-  const agentId = (sep >= 0 ? trace.id.slice(sep + 1) : trace.id).trim()
+  const agentId = (trace.agentId?.trim() || (trace.id.includes(':')
+    ? trace.id.slice(trace.id.lastIndexOf(':') + 1)
+    : '')).trim()
   const agent = agentId ? agents.find(a => a.id === agentId) : undefined
   if (agent) return composerAgentLabel(agent, settings)
   const stored = trace.name.trim()
@@ -218,13 +219,14 @@ export function shouldShowSubAgentTrace(
 
 /** UI flags for content inside a sub-agent frame (always show tools/reasoning). */
 export function uiForSubAgentFrame(
-  trace: { id: string; name: string; role?: string },
+  trace: { id: string; name: string; role?: string; agentId?: string },
   settings: Pick<ModelSettings, 'agentUiOverrides' | 'agentMode' | 'leadAgentId'>,
   agents: import('../types/chat').AgentDef[],
   fallbackUi: ResolvedAgentUi
 ): ResolvedAgentUi {
-  const sep = trace.id.lastIndexOf(':')
-  const agentId = sep >= 0 ? trace.id.slice(sep + 1).trim() : ''
+  const agentId = (trace.agentId?.trim() || (trace.id.includes(':')
+    ? trace.id.slice(trace.id.lastIndexOf(':') + 1)
+    : '')).trim()
   const agent = agentId ? agents.find(a => a.id === agentId) : undefined
   const base = agent ? resolveAgentUi(agent, settings) : fallbackUi
   return {

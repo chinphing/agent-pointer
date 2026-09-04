@@ -1,5 +1,10 @@
 import type { AgentTrace, ChatMessage, SubAgentSessionUi, ToolCall } from '../types/chat'
-import { incrementSubAgentToolStats } from './subAgentStats'
+import {
+  agentInstanceIdFromTraceId,
+  incrementSubAgentToolStats,
+  resolveTraceAgentId,
+  resolveTraceTaskId
+} from './subAgentStats'
 import { toolCallBaseName } from './messageTooling'
 
 export function createEmptySubSession(): SubAgentSessionUi {
@@ -31,22 +36,73 @@ export function ensureSubTraceSession(trace: AgentTrace): SubAgentSessionUi {
   return trace.session
 }
 
+export function findSubTrace(
+  traces: AgentTrace[] | undefined,
+  hint: string,
+  instance?: string | null
+): AgentTrace | undefined {
+  if (!traces?.length) return undefined
+  const spawn = instance?.trim() || ''
+  const id = hint.trim()
+  if (spawn) {
+    const bySpawn = traces.find(a => a.agentInstanceId === spawn || a.id === spawn)
+    if (bySpawn) return bySpawn
+  }
+  if (!id) return undefined
+  const exact = traces.find(a => a.id === id || a.agentInstanceId === id)
+  if (exact) return exact
+  const embedded = agentInstanceIdFromTraceId(id)
+  if (embedded) {
+    const byMid = traces.find(a => a.agentInstanceId === embedded || a.id === embedded)
+    if (byMid) return byMid
+  }
+  if (!id.includes(':')) return undefined
+  const task = subTaskIdFromHint(id)
+  const agent = subAgentIdFromHint(id)
+  if (!task || !agent) return undefined
+  const matches = traces.filter(
+    t => resolveTraceTaskId(t) === task && resolveTraceAgentId(t) === agent
+  )
+  if (matches.length === 0) return undefined
+  if (matches.length === 1) return matches[0]
+  const running = [...matches].reverse().find(t => !isSubAgentTraceTerminal(t.status))
+  return running ?? matches[matches.length - 1]
+}
+
+function subTaskIdFromHint(traceId: string): string {
+  const i = traceId.indexOf(':')
+  return i > 0 ? traceId.slice(0, i).trim() : ''
+}
+
+function subAgentIdFromHint(traceId: string): string {
+  const i = traceId.lastIndexOf(':')
+  return i > 0 ? traceId.slice(i + 1).trim() : ''
+}
+
 export function ensureSubTrace(
   msg: ChatMessage,
   traceId: string,
   patch?: Partial<AgentTrace>
 ): AgentTrace {
-  msg.agentTrace = msg.agentTrace ?? []
-  let trace = msg.agentTrace.find(a => a.id === traceId)
+  if (!msg.agentTrace) msg.agentTrace = []
+  const spawn =
+    patch?.agentInstanceId?.trim()
+    || patch?.id?.trim()
+    || agentInstanceIdFromTraceId(traceId)
+    || ''
+  let trace = findSubTrace(msg.agentTrace, traceId, spawn || undefined)
   if (!trace) {
+    const newId = spawn || traceId.trim()
     trace = {
-      id: traceId,
+      id: newId,
       name: patch?.name ?? '',
       role: patch?.role ?? '',
       status: patch?.status ?? 'running',
       depth: patch?.depth ?? 1,
       detail: patch?.detail,
-      agentInstanceId: patch?.agentInstanceId,
+      agentInstanceId: spawn || patch?.agentInstanceId,
+      taskId: patch?.taskId,
+      agentId: patch?.agentId,
       computerTarget: patch?.computerTarget,
       parentToolCallId: patch?.parentToolCallId,
       collapsed: patch?.collapsed ?? true,
@@ -57,7 +113,16 @@ export function ensureSubTrace(
     const prevSession = trace.session
     const keepExpanded = trace.userExpanded === true
     const keepParentToolCallId = (trace.parentToolCallId ?? '').trim()
+    const keepId = trace.id
     Object.assign(trace, patch)
+    if (spawn && (!trace.agentInstanceId?.trim() || trace.agentInstanceId === spawn)) {
+      trace.agentInstanceId = spawn
+      if (!trace.id.trim() || (trace.id.includes(':') && trace.id !== spawn)) {
+        trace.id = spawn
+      }
+    } else if (!trace.id.trim()) {
+      trace.id = keepId
+    }
     if (prevSession && (patch.session === null || patch.session === undefined)) {
       trace.session = prevSession
     }

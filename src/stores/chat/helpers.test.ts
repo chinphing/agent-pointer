@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, Conversation } from '../../types/chat'
 import {
+  resetConversationScopedStoreForTests,
+  useConversationScopedStore
+} from '../../lib/conversationScoped'
+import {
   applyExcludedMessageIds,
   assistantTurnActivelyRunning,
   closeAbandonedEmptyAssistantShells,
@@ -183,6 +187,73 @@ describe('chat helpers', () => {
     expect(c.messages[0].status).toBe('done')
     expect(c.messages[0].contentStreaming).toBe(false)
     expect(c.messages[1].status).toBe('streaming')
+  })
+
+  it('closeAbandonedEmptyAssistantShells only visits the named spawn', () => {
+    resetConversationScopedStoreForTests()
+    const store = useConversationScopedStore()
+    const other = {
+      id: 'other-empty',
+      role: 'assistant' as const,
+      content: '',
+      status: 'streaming' as const,
+      contentStreaming: true,
+      createdAt: 0,
+      toolCalls: [],
+      anchorMessageId: 'lead',
+      agentInstanceId: 'inst-other',
+      traceId: 't:other'
+    }
+    const stale = {
+      id: 'stale-keep',
+      role: 'assistant' as const,
+      content: '',
+      status: 'streaming' as const,
+      contentStreaming: true,
+      createdAt: 0,
+      toolCalls: [],
+      anchorMessageId: 'lead',
+      agentInstanceId: 'inst-keep',
+      traceId: 't:keep'
+    }
+    const keep = {
+      id: 'keep-scoped',
+      role: 'assistant' as const,
+      content: '',
+      status: 'streaming' as const,
+      contentStreaming: true,
+      createdAt: 1,
+      toolCalls: [],
+      anchorMessageId: 'lead',
+      agentInstanceId: 'inst-keep',
+      traceId: 't:keep'
+    }
+    store.ensureInstance('c-shell', {
+      agentInstanceId: 'inst-other',
+      anchorMessageId: 'lead',
+      traceId: 't:other'
+    }, other)
+    store.ensureInstance('c-shell', {
+      agentInstanceId: 'inst-keep',
+      anchorMessageId: 'lead',
+      traceId: 't:keep'
+    }, stale)
+    store.ensureInstance('c-shell', {
+      agentInstanceId: 'inst-keep',
+      anchorMessageId: 'lead',
+      traceId: 't:keep'
+    }, keep)
+    const c = conv([])
+    c.id = 'c-shell'
+    closeAbandonedEmptyAssistantShells(c, 'keep-scoped', {
+      agentInstanceId: 'inst-keep',
+      anchorMessageId: 'lead',
+      traceId: 't:keep'
+    })
+    expect(store.findRow('c-shell', 'other-empty')?.status).toBe('streaming')
+    expect(store.findRow('c-shell', 'stale-keep')?.status).toBe('done')
+    expect(store.findRow('c-shell', 'keep-scoped')?.status).toBe('streaming')
+    resetConversationScopedStoreForTests()
   })
 
   it('normalizeInterruptedAssistantStatuses clears streaming flags', () => {

@@ -179,9 +179,35 @@ describe('ensureSubTrace', () => {
 
     expect(first).not.toBe(second)
     expect(message.agentTrace?.map(trace => trace.id)).toEqual([
-      'reused-task:instance-one:current-agent',
-      'reused-task:instance-two:current-agent'
+      'instance-one',
+      'instance-two'
     ])
+  })
+
+  it('does not merge two coder spawns that share a legacy task:agent id', () => {
+    const message: ChatMessage = {
+      id: 'lead',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 1
+    }
+    const first = ensureSubTrace(message, 'inst-a', {
+      agentInstanceId: 'inst-a',
+      taskId: 'task-1',
+      agentId: 'coder',
+      status: 'completed'
+    })
+    const second = ensureSubTrace(message, 'inst-b', {
+      agentInstanceId: 'inst-b',
+      taskId: 'task-1',
+      agentId: 'coder',
+      status: 'running'
+    })
+    expect(first).not.toBe(second)
+    expect(message.agentTrace).toHaveLength(2)
+    const viaLegacy = ensureSubTrace(message, 'task-1:coder')
+    expect(viaLegacy).toBe(second)
   })
 })
 

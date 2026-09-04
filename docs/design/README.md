@@ -7,6 +7,7 @@
 | [conversation-store-append-migration.md](conversation-store-append-migration.md) | SQLite 对话存储 + **ConversationTranscript**：P0–P2a、append-only、tool 行 canonical |
 | [persistent-memory-and-self-improvement.md](persistent-memory-and-self-improvement.md) | 跨会话 **MEMORY/USER** 记忆与 **Self-improvement review**（后台自省）设计稿；参考 Hermes，**暂未实现** |
 | [explore-subagent-for-coder.md](explore-subagent-for-coder.md) | 内置 **explore** worker、`run_subagent` 与 Cursor Explore 对齐、Lead→explore 约定 |
+| [conversation-scoped-messages-v2.md](conversation-scoped-messages-v2.md) | 前端会话 **anchor / scoped 双容器**、`SpawnId` 取代 traceId 主键、**ConversationScopedStore** 替代 ScopedTraceIndex；含分 Phase 实现计划 |
 | [async-subagent-and-terminal.md](async-subagent-and-terminal.md) | 后台 `run_subagent` / `terminal`：Foreground/Background 两档等待；**一张按会话工人队列**（前台借槽不进 job 表）；不占 session lane |
 | [session-search-scope-extension.md](session-search-scope-extension.md) | 会话检索 **`session_search` + `session_read`**（P0–P1 已落地：instance 列） |
 | [execution-sandbox-candidates.md](execution-sandbox-candidates.md) | 执行沙盒候选（**待决策**）：本机轻量隔离 vs Linux server 上 CubeSandbox / E2B 强隔离 |

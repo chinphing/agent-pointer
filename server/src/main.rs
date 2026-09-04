@@ -695,6 +695,10 @@ async fn main() -> anyhow::Result<()> {
             get(load_conversation_messages_handler),
         )
         .route(
+            "/api/conversations/:conversation_id/scoped-messages",
+            get(load_scoped_sub_messages_handler),
+        )
+        .route(
             "/api/conversations/:conversation_id/messages/append",
             post(append_conversation_messages),
         )
@@ -2067,6 +2071,8 @@ struct ConversationMessagesQuery {
     after_position: Option<i64>,
     #[serde(default, rename = "aroundMessageId")]
     around_message_id: Option<String>,
+    #[serde(default, rename = "includeScopedSubMessages")]
+    include_scoped_sub_messages: Option<bool>,
 }
 
 fn conversation_messages_wants_page(q: &ConversationMessagesQuery) -> bool {
@@ -2090,6 +2096,7 @@ async fn load_conversation_messages_handler(
             before_position: q.before_position,
             after_position: q.after_position,
             around_message_id: q.around_message_id,
+            include_scoped_sub_messages: q.include_scoped_sub_messages.unwrap_or(false),
         };
         let page = storage::load_conversation_messages_page(&conversation_id, &opts)?;
         log::info!(
@@ -2106,6 +2113,36 @@ async fn load_conversation_messages_handler(
         conversation_id,
         messages.len()
     );
+    Ok(Json(messages).into_response())
+}
+
+#[derive(Deserialize)]
+struct ScopedSubMessagesQuery {
+    #[serde(default, rename = "anchorMessageId")]
+    anchor_message_id: String,
+    #[serde(default, rename = "traceId")]
+    trace_id: String,
+    #[serde(default, rename = "agentInstanceId")]
+    agent_instance_id: Option<String>,
+}
+
+async fn load_scoped_sub_messages_handler(
+    State(state): State<ServerState>,
+    Path(conversation_id): Path<String>,
+    Query(q): Query<ScopedSubMessagesQuery>,
+) -> Result<Response, ApiError> {
+    require_platform_access(&state)?;
+    let instance = q
+        .agent_instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let messages = storage::load_scoped_sub_messages_for_trace(
+        &conversation_id,
+        q.anchor_message_id.trim(),
+        q.trace_id.trim(),
+        instance,
+    )?;
     Ok(Json(messages).into_response())
 }
 

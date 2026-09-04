@@ -8,28 +8,30 @@ type SubMessageStart = Extract<StreamEvent, { kind: 'sub_message_start' }>
 
 export function handleSubMessageStart(ctx: StreamHandlerContext, e: SubMessageStart) {
   ctx.ensureImConversation(e.conversationId)
-  const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
-  if (!conv) return
-  const anchor = conv.messages.find(m => m.id === e.anchorMessageId)
-  if (!anchor) {
+  const found = ctx.findMessage(e.anchorMessageId, e.conversationId)
+  const conv = found?.conv ?? ctx.conversations.value.find(c => c.id === e.conversationId)
+  const anchor = found?.msg
+  if (!conv || !anchor) {
     console.warn('[stream] sub_message_start: anchor message missing', e.anchorMessageId)
     return
   }
-  ensureSubTrace(anchor, e.traceId, {
+  ensureSubTrace(anchor, e.agentInstanceId.trim() || e.traceId, {
     depth: e.spawnDepth,
-    agentInstanceId: e.agentInstanceId
+    agentInstanceId: e.agentInstanceId,
+    taskId: e.taskId
   })
-  ensureScopedChildMessage(conv, e.anchorMessageId, e.scopedMessageId, {
+  const child = ensureScopedChildMessage(conv, e.anchorMessageId, e.scopedMessageId, {
     traceId: e.traceId,
     taskId: e.taskId,
     spawnDepth: e.spawnDepth,
     agentInstanceId: e.agentInstanceId
   })
-  const child = conv.messages.find(m => m.id === e.scopedMessageId)
-  if (child) {
-    ctx.notifyScopedStreamWrite(conv, anchor, child, e.traceId)
-  }
-  closeAbandonedEmptyAssistantShells(conv, e.scopedMessageId)
+  ctx.notifyScopedStreamWrite(conv, anchor, child, e.traceId)
+  closeAbandonedEmptyAssistantShells(conv, e.scopedMessageId, {
+    agentInstanceId: e.agentInstanceId,
+    anchorMessageId: e.anchorMessageId,
+    traceId: e.traceId
+  })
   anchor.status = 'streaming'
   conv.updatedAt = Date.now()
 }

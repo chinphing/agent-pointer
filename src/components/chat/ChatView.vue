@@ -81,7 +81,8 @@ const showWelcomeHome = computed(() =>
   shouldShowWelcomeHome(
     chat.current !== null,
     chat.current?.messages.length ?? 0,
-    showMessageListPlaceholder.value
+    showMessageListPlaceholder.value,
+    chat.current?.messageCount ?? 0
   )
 )
 const isMobileViewport = ref(

@@ -35,15 +35,19 @@ export function isComputerToolName(name: string): boolean {
 }
 
 /** Lead trace id is `computer`; delegated traces use `{taskId}:computer`. */
-export function isComputerAgentTrace(trace: Pick<AgentTrace, 'id'>): boolean {
-  const agentId = subAgentIdFromTraceId(trace.id)
+export function isComputerAgentTrace(
+  trace: Pick<AgentTrace, 'id' | 'agentId'>
+): boolean {
+  const agentId = (trace.agentId?.trim() || subAgentIdFromTraceId(trace.id)).trim()
   return (agentId || trace.id.trim()) === 'computer'
 }
 
 /** Sub-task id for delegated computer only; lead trace `computer` returns null. */
 export function delegatedComputerSubTaskId(
-  trace: Pick<AgentTrace, 'id'> | undefined
+  trace: Pick<AgentTrace, 'id' | 'taskId'> | undefined
 ): string | null {
+  const explicit = trace?.taskId?.trim()
+  if (explicit) return explicit
   const id = trace?.id.trim()
   if (!id || !id.includes(':')) return null
   const taskId = id.slice(0, id.indexOf(':')).trim()

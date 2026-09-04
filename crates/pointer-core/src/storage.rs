@@ -1171,6 +1171,20 @@ pub fn load_conversation_messages_page(
     crate::conversation_store::global_store()?.load_messages_page(conversation_id, opts)
 }
 
+pub fn load_scoped_sub_messages_for_trace(
+    conversation_id: &str,
+    anchor_message_id: &str,
+    trace_id: &str,
+    agent_instance_id: Option<&str>,
+) -> Result<Vec<ChatMessage>> {
+    crate::conversation_store::global_store()?.load_scoped_sub_messages_for_trace(
+        conversation_id,
+        anchor_message_id,
+        trace_id,
+        agent_instance_id,
+    )
+}
+
 pub fn save_conversation_meta(metas: &[ConversationMeta]) -> Result<()> {
     save_conversation_meta_with_platform_user(metas, None)
 }

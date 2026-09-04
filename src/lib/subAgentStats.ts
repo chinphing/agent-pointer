@@ -1,5 +1,5 @@
 import { toolCallBaseName } from './messageTooling'
-import type { SubAgentToolStats } from '../types/chat'
+import type { AgentTrace, SubAgentToolStats } from '../types/chat'
 
 export function emptySubAgentToolStats(): SubAgentToolStats {
   return {
@@ -39,6 +39,37 @@ export function agentInstanceIdFromTraceId(traceId: string): string | null {
     .filter(Boolean)
   if (parts.length < 3) return null
   return parts[1] ?? null
+}
+
+export function resolveTraceAgentId(
+  trace: Pick<AgentTrace, 'id' | 'agentId'>
+): string {
+  return trace.agentId?.trim() || subAgentIdFromTraceId(trace.id)
+}
+
+export function resolveTraceTaskId(
+  trace: Pick<AgentTrace, 'id' | 'taskId'>
+): string {
+  const explicit = trace.taskId?.trim()
+  if (explicit) return explicit
+  if (!trace.id.includes(':')) return ''
+  return subTaskIdFromTraceId(trace.id)
+}
+
+/**
+ * Lookup key for task-board / parsers that still expect `task:agent` or
+ * `task:instance:agent`. New traces use SpawnId as `id`.
+ */
+export function traceLookupId(
+  trace: Pick<AgentTrace, 'id' | 'taskId' | 'agentId' | 'agentInstanceId'>
+): string {
+  if (trace.id.includes(':')) return trace.id
+  const task = resolveTraceTaskId(trace)
+  const agent = resolveTraceAgentId(trace)
+  const inst = trace.agentInstanceId?.trim() || trace.id
+  if (task && agent && inst) return `${task}:${inst}:${agent}`
+  if (task && agent) return `${task}:${agent}`
+  return trace.id
 }
 
 function desktopToolFamily(base: string): 'mouse' | 'input' | 'other' | null {
@@ -160,6 +191,9 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
     statSeg('编辑', stats.writeCount)
   ])
 }
+
+/** Collapsed process row when scoped stats are not hydrated yet. */
+export const SUB_AGENT_PROCESS_PLACEHOLDER = '过程'
 
 /** Counts only — host「委派子任务」row already shows the goal. */
 export function formatSubAgentStatsLine(

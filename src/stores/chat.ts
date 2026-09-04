@@ -6,6 +6,7 @@ import {
   loadConversationMetas,
   loadConversationMeta,
   loadConversationMessagesPage,
+  loadScopedSubMessagesForTrace,
   DEFAULT_MESSAGE_PAGE_TURNS,
   saveConversationMeta,
   deleteConversation as deleteConversationApi,
@@ -39,9 +40,9 @@ import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
 import { promoteOutboundQueueItem } from '../lib/outboundQueue'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { withRetries } from '../lib/retry'
-import { subTaskIdFromTraceId } from '../lib/subAgentStats'
-import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, isScopedSubMessage } from '../lib/subAgentMessages'
-import { useScopedTraceCache } from './chat/scopedTraceCache'
+import { resolveTraceTaskId, traceLookupId } from '../lib/subAgentStats'
+import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, ensureHostLinkedSubTraces, isScopedSubMessage } from '../lib/subAgentMessages'
+import { useConversationScopedStore } from '../lib/conversationScoped'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import { isPersistableAttachmentPreviewUrl } from '../lib/attachmentSupport'
 import {
@@ -164,10 +165,13 @@ function pruneDuplicateBlankConversations(list: Conversation[]): {
 }
 
 function normalizeSubAgentTraces(conversations: Conversation[]) {
-  const cache = useScopedTraceCache()
+  const scopedStore = useConversationScopedStore()
   for (const conv of conversations) {
-    rehydrateAgentTracesFromScopedMessages(conv)
-    cache.rebuild(conv.id, conv.messages)
+    conv.messages = scopedStore.takeScopedFromMessages(conv.id, conv.messages)
+    rehydrateAgentTracesFromScopedMessages(conv, scopedStore.listRows(conv.id))
+    for (const msg of conv.messages) {
+      ensureHostLinkedSubTraces(msg)
+    }
     const repaired = repairBackgroundHostsFromChildOutcomes(conv)
     if (repaired > 0) {
       console.info('[chat] repaired background hosts from child traces', conv.id, repaired)
@@ -219,7 +223,7 @@ interface ConversationRunState {
 }
 
 export const useChatStore = defineStore('chat', () => {
-  const scopedTraceCache = useScopedTraceCache()
+  const scopedStore = useConversationScopedStore()
   const conversations = ref<Conversation[]>([])
   /** Persisted project sidebar, independent of the loaded recent-conversation page. */
   const projects = ref<Project[]>([])
@@ -573,11 +577,6 @@ export const useChatStore = defineStore('chat', () => {
     persistedMessageIdsByConv.delete(convId)
   }
 
-  function markConversationMessagesPersisted(convId: string) {
-    const conv = conversations.value.find(c => c.id === convId)
-    if (!conv) return
-    replacePersistedMessageIds(convId, persistedCandidateMessageIds(conv.messages))
-  }
   /** Sidebar search (or similar) asks MessageList to scroll to this message after open/hydrate. */
   const pendingFocusMessage = ref<{
     conversationId: string
@@ -615,7 +614,7 @@ export const useChatStore = defineStore('chat', () => {
     if (conv.messages.length === 0) return
     console.info('[chat] evicting idle conversation', id, conv.title, 'messages', conv.messages.length)
     conv.messages = []
-    scopedTraceCache.clearConv(id)
+    scopedStore.clearConversation(id)
     hydratedIds.value.delete(id)
     clearPersistedMessageIds(id)
     pageWindowEpoch.delete(id)
@@ -771,21 +770,15 @@ export const useChatStore = defineStore('chat', () => {
 
     const hydrated = hydratedIds.value.has(conv.id)
     const persistedIds = hydrated ? persistedIdsFor(conv.id) : undefined
-    let history = messagesForChatDispatch(
+    // Scoped rows are already upserted via persist_sub_message. Do not flatten
+    // N×M store rows into the sendChat IPC payload.
+    const history = messagesForChatDispatch(
       conv.messages,
       persistedIds ? { persistedIds } : undefined
     )
-    if (hydrated && history.length === 0) {
-      console.warn(
-        '[chat] incremental dispatch empty; falling back to full history',
-        conv.id,
-        'messages',
-        conv.messages.length
-      )
-      history = messagesForChatDispatch(conv.messages)
-    } else if (hydrated) {
+    if (hydrated) {
       console.info(
-        '[chat] dispatch incremental history',
+        '[chat] dispatch incremental lead history',
         conv.id,
         history.length,
         'of',
@@ -1182,9 +1175,9 @@ export const useChatStore = defineStore('chat', () => {
     for (const msg of conv.messages) {
       for (const trace of msg.agentTrace ?? []) {
         if ((trace.depth ?? 0) === 0) continue
-        const taskId = subTaskIdFromTraceId(trace.id)
+        const taskId = resolveTraceTaskId(trace)
         if (!taskId) continue
-        jobs.push(refreshTaskBoard(conversationId, taskId, trace.id))
+        jobs.push(refreshTaskBoard(conversationId, taskId, traceLookupId(trace)))
       }
     }
     await Promise.all(jobs)
@@ -1658,7 +1651,7 @@ export const useChatStore = defineStore('chat', () => {
           replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
         }
         bumpPageWindowEpoch(convId)
-        conv.messages = next
+        conv.messages = scopedStore.takeScopedFromMessages(convId, next)
         if (typeof page.messageCount === 'number') {
           conv.messageCount = page.messageCount
         }
@@ -1774,16 +1767,31 @@ export const useChatStore = defineStore('chat', () => {
           page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
         )
         if (stripped.length === 0) {
+          const moreOlder = page.hasMoreOlder === true
+          const nextOldest = page.oldestPosition ?? oldestAtStart
           applyMessagePageState(convId, {
-            hasMoreOlder: false,
+            hasMoreOlder: moreOlder,
             hasMoreNewer: state.hasMoreNewer,
-            oldestPosition: oldestAtStart,
+            oldestPosition: moreOlder ? nextOldest : oldestAtStart,
             newestPosition: state.newestPosition
           })
+          if (!moreOlder) {
+            console.info('[chat] loadOlderMessages: empty older page, at start', convId)
+          } else {
+            console.warn(
+              '[chat] loadOlderMessages: empty older page but backend has more',
+              convId,
+              'oldest',
+              nextOldest
+            )
+          }
           return false
         }
         const beforeLen = conv.messages.length
-        conv.messages = prependMessagesById(conv.messages, stripped)
+        conv.messages = scopedStore.takeScopedFromMessages(
+          convId,
+          prependMessagesById(conv.messages, stripped)
+        )
         addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
         normalizeSubAgentTraces([conv])
         // Older pages are historical. Stuck streaming/pending rows would be
@@ -1911,7 +1919,10 @@ export const useChatStore = defineStore('chat', () => {
           return false
         }
         const beforeLen = conv.messages.length
-        conv.messages = appendMessagesById(conv.messages, retained, newestAtStart)
+        conv.messages = scopedStore.takeScopedFromMessages(
+          convId,
+          appendMessagesById(conv.messages, retained, newestAtStart)
+        )
         addPersistedMessageIds(convId, persistedCandidateMessageIds(retained))
         normalizeSubAgentTraces([conv])
         normalizeInterruptedAssistantStatuses([conv])
@@ -1986,6 +1997,7 @@ export const useChatStore = defineStore('chat', () => {
     )
     if (cut <= 0) return 0
 
+    scopedStore.evictForRemovedMessages(convId, messages.slice(0, cut))
     conv.messages = messages.slice(cut)
     // Drop viewedAt records for removed rows so the map does not grow unbounded.
     const viewed = messageViewedAtByConv.get(convId)
@@ -2115,6 +2127,14 @@ export const useChatStore = defineStore('chat', () => {
         if (isImConversation(convId)) {
           next = dedupeImInboundUserMessages(convId, stripped)
         }
+        if (!next.some(m => !m.anchorMessageId?.trim())) {
+          console.warn(
+            '[chat] ensureMessagesAround: empty lead page, keep current window',
+            convId,
+            targetId
+          )
+          return false
+        }
         if (isConversationGenerating(convId) && conv.messages.length > 0) {
           next = mergeHydratedMessages(conv.messages, next, 'in-flight-tail')
           addPersistedMessageIds(convId, persistedCandidateMessageIds(stripped))
@@ -2122,7 +2142,7 @@ export const useChatStore = defineStore('chat', () => {
           replacePersistedMessageIds(convId, persistedCandidateMessageIds(next))
         }
         bumpPageWindowEpoch(convId)
-        conv.messages = next
+        conv.messages = scopedStore.takeScopedFromMessages(convId, next)
         if (typeof page.messageCount === 'number') {
           conv.messageCount = page.messageCount
         }
@@ -2302,12 +2322,14 @@ export const useChatStore = defineStore('chat', () => {
     const [stripped] = stripEphemeralDesktopNoticesForDisk([conv])
     const hydrated = hydratedIds.value.has(conversationId)
     const persistedIds = hydrated ? persistedIdsFor(conversationId) : undefined
+    const leadAndScoped = [
+      ...stripped.messages,
+      ...scopedStore.listUnpersistedRows(conversationId, persistedIds)
+    ]
     const messages = messagesForPersistAppend(
-      stripped.messages,
+      leadAndScoped,
       persistedIds ? { persistedIds } : undefined
     )
-    // Align the send watermark with what we treat as on-disk after a turn / trim.
-    markConversationMessagesPersisted(conversationId)
     if (messages.length === 0) {
       if (hydrated) {
         console.info(
@@ -2319,6 +2341,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       return
     }
+    addPersistedMessageIds(conversationId, messages.map(m => m.id))
     if (hydrated) {
       console.info(
         '[chat] persistAppend incremental',
@@ -2333,12 +2356,18 @@ export const useChatStore = defineStore('chat', () => {
         // 方案B：落库返回写入行的 SQLite position，写回内存消息对象，
         // 让 trimConversationHistory 的分页游标维护对新建会话生效。
         if (!rows?.length) return
-        const byId = new Map(rows.map(r => [r.messageId, r.position]))
         const conv = conversations.value.find(c => c.id === conversationId)
         if (!conv) return
-        for (const m of conv.messages) {
-          const pos = byId.get(m.id)
-          if (pos != null) m.position = pos
+        for (const row of rows) {
+          const pos = row.position
+          if (pos == null) continue
+          const lead = conv.messages.find(m => m.id === row.messageId)
+          if (lead) {
+            lead.position = pos
+            continue
+          }
+          const scoped = scopedStore.findRow(conversationId, row.messageId)
+          if (scoped) scoped.position = pos
         }
       })
       .catch(e => console.error('append messages error', e))
@@ -2765,6 +2794,7 @@ export const useChatStore = defineStore('chat', () => {
     clearOutboundQueue(id)
     clearRunState(id)
     messageViewedAtByConv.delete(id)
+    scopedStore.clearConversation(id)
     taskBoardMgr.clearConversation(id)
     // Explicitly delete the row + its messages + sandbox. persistMeta() is a
     // pure upsert now (paginated subset), so it can no longer delete for us.
@@ -2788,8 +2818,42 @@ export const useChatStore = defineStore('chat', () => {
     void flushPersistMeta()
   }
 
+  function mergeScopedMessagesIntoConv(
+    conv: Conversation,
+    scoped: ChatMessage[],
+    lookup: { anchorMessageId: string; traceId: string; agentInstanceId?: string }
+  ) {
+    if (!scoped.length) return
+    scopedStore.assignLoaded(conv.id, lookup, scoped)
+  }
+
+  async function ensureScopedMessagesForTrace(
+    anchorMessageId: string,
+    traceId: string,
+    agentInstanceId?: string
+  ): Promise<void> {
+    const conv = current.value
+    const convId = currentId.value?.trim()
+    if (!conv || !convId) return
+    const lookup = { anchorMessageId, traceId, agentInstanceId }
+    const existing = scopedStore.getTranscript(convId, lookup)
+    if (existing?.loadState === 'streaming') return
+    if (scopedStore.hasLoadedRows(convId, lookup)) return
+    try {
+      const rows = await loadScopedSubMessagesForTrace(convId, {
+        anchorMessageId: lookup.anchorMessageId.trim(),
+        traceId: lookup.traceId.trim(),
+        agentInstanceId
+      })
+      mergeScopedMessagesIntoConv(conv, stripWireAttachmentFields(rows), lookup)
+      addPersistedMessageIds(convId, persistedCandidateMessageIds(rows))
+    } catch (err) {
+      console.warn('[chat] ensureScopedMessagesForTrace failed', convId, traceId, err)
+    }
+  }
+
   function rebuildScopedTraceCache(convId: string, messages: readonly ChatMessage[]) {
-    scopedTraceCache.rebuild(convId.trim(), messages)
+    scopedStore.ingestRows(convId.trim(), messages)
   }
 
   function notifyScopedStreamWrite(
@@ -2799,18 +2863,19 @@ export const useChatStore = defineStore('chat', () => {
     traceId?: string
   ) {
     if (target && isScopedSubMessage(target)) {
-      scopedTraceCache.touchScopedMessage(conv.id, target)
+      scopedStore.touchRow(conv.id, target.id)
       return
     }
     const tid = traceId?.trim()
     if (!tid) return
-    const trace = anchorMsg.agentTrace?.find(t => t.id === tid)
-    scopedTraceCache.touchLegacySession(
+    const trace = anchorMsg.agentTrace?.find(t => t.id === tid || t.agentInstanceId === tid)
+    scopedStore.touchLookup(
       conv.id,
-      anchorMsg.id,
-      tid,
-      trace?.agentInstanceId,
-      conv.messages,
+      {
+        agentInstanceId: trace?.agentInstanceId,
+        anchorMessageId: anchorMsg.id,
+        traceId: tid
+      },
       trace?.session
     )
   }
@@ -2822,17 +2887,14 @@ export const useChatStore = defineStore('chat', () => {
   ): ChatMessage[] {
     const conv = current.value
     if (!conv) return []
-    return scopedTraceCache.getMessages(
-      conv.id,
-      conv.messages,
-      anchorMessageId,
-      traceId,
-      agentInstanceId
-    )
+    const instance = agentInstanceId?.trim()
+    if (instance) void scopedStore.getLiveSignal(conv.id, instance)
+    void scopedStore.getLiveSignal(conv.id, traceId)
+    return scopedStore.getRows(conv.id, { anchorMessageId, traceId, agentInstanceId })
   }
 
   function getSubAgentLiveSignal(traceId: string): string {
-    return scopedTraceCache.getLiveSignal(currentId.value, traceId)
+    return scopedStore.getLiveSignal(currentId.value, traceId)
   }
 
   function findMessage(
@@ -2844,17 +2906,25 @@ export const useChatStore = defineStore('chat', () => {
       const conv = conversations.value.find(c => c.id === prefer)
       if (conv) {
         const msg = conv.messages.find(m => m.id === messageId)
+          ?? scopedStore.findRow(conv.id, messageId)
         if (msg) return { conv, msg }
       }
     }
     for (const conv of conversations.value) {
       if (!isConversationGenerating(conv.id)) continue
       const msg = conv.messages.find(m => m.id === messageId)
+        ?? scopedStore.findRow(conv.id, messageId)
       if (msg) return { conv, msg }
     }
     for (const conv of conversations.value) {
       const msg = conv.messages.find(m => m.id === messageId)
+        ?? scopedStore.findRow(conv.id, messageId)
       if (msg) return { conv, msg }
+    }
+    const anywhere = scopedStore.findRowInAny(messageId)
+    if (anywhere) {
+      const conv = conversations.value.find(c => c.id === anywhere.convId)
+      if (conv) return { conv, msg: anywhere.row }
     }
     return null
   }
@@ -2873,13 +2943,11 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (traceId?.trim()) {
       const trace = ensureSubTrace(r.msg, traceId.trim())
-      const scoped = scopedTraceCache.getMessages(
-        r.conv.id,
-        r.conv.messages,
-        r.msg.id,
-        traceId.trim(),
-        trace.agentInstanceId
-      )
+      const scoped = scopedStore.getRows(r.conv.id, {
+        anchorMessageId: r.msg.id,
+        traceId: traceId.trim(),
+        agentInstanceId: trace.agentInstanceId
+      })
       for (let i = scoped.length - 1; i >= 0; i--) {
         const tc = scoped[i].toolCalls?.find(t => t.id === toolCallId)
         if (tc) return tc
@@ -2912,7 +2980,7 @@ export const useChatStore = defineStore('chat', () => {
         target.status = 'streaming'
       }
       if (isScopedSubMessage(target)) {
-        scopedTraceCache.touchScopedMessage(r.conv.id, target)
+        scopedStore.touchRow(r.conv.id, target.id)
       }
       return
     }
@@ -2924,12 +2992,13 @@ export const useChatStore = defineStore('chat', () => {
         if (r.msg.status !== 'done' && r.msg.status !== 'cancelled' && r.msg.status !== 'error') {
           session.contentStreaming = true
         }
-        scopedTraceCache.touchLegacySession(
+        scopedStore.touchLookup(
           r.conv.id,
-          r.msg.id,
-          traceId.trim(),
-          trace.agentInstanceId,
-          r.conv.messages,
+          {
+            agentInstanceId: trace.agentInstanceId,
+            anchorMessageId: r.msg.id,
+            traceId: traceId.trim()
+          },
           session
         )
       }
@@ -2993,7 +3062,7 @@ export const useChatStore = defineStore('chat', () => {
       const tc = target.toolCalls?.find(t => t.id === toolCallId)
       if (tc) tc.arguments += text
       if (isScopedSubMessage(target)) {
-        scopedTraceCache.touchScopedMessage(r.conv.id, target)
+        scopedStore.touchRow(r.conv.id, target.id)
       }
       return
     }
@@ -3021,7 +3090,7 @@ export const useChatStore = defineStore('chat', () => {
       const tc = target.toolCalls?.find(t => t.id === toolCallId)
       if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
       if (isScopedSubMessage(target)) {
-        scopedTraceCache.touchScopedMessage(r.conv.id, target)
+        scopedStore.touchRow(r.conv.id, target.id)
       }
       return
     }
@@ -3606,7 +3675,7 @@ export const useChatStore = defineStore('chat', () => {
     awaitingViewIds.value = new Set()
     outboundQueues.value = {}
     taskBoards.value = {}
-    scopedTraceCache.clearAll()
+    scopedStore.clearAll()
     newConversation()
   }
 
@@ -3640,6 +3709,10 @@ export const useChatStore = defineStore('chat', () => {
     computerMonitorPickRequest, clearComputerMonitorPickRequest,
     terminalInputRequest, dismissTerminalInputModal,
     terminalLivePopup, terminalLiveViewReadyToolCallId, dismissTerminalLivePopup, openTerminalLivePopup,
-    scopedMessagesForTraceCached, getSubAgentLiveSignal, subAgentLiveSignals: scopedTraceCache.liveSignals
+    scopedMessagesForTraceCached, getSubAgentLiveSignal, subAgentLiveSignals: scopedStore.liveSignals,
+    getScopedMembershipSignal: scopedStore.getMembershipSignal,
+    ensureScopedMessagesForTrace, evictScopedInstance: scopedStore.evictInstance,
+    scopedRowsForAnchors: scopedStore.collectRowsForAnchors,
+    scopedSpawnIdsForAnchors: scopedStore.listSpawnIdsForAnchors
   }
 })

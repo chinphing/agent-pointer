@@ -1313,6 +1313,37 @@ pub struct LoadConversationMessagesPageArgs {
     pub before_position: Option<i64>,
     pub after_position: Option<i64>,
     pub around_message_id: Option<String>,
+    #[serde(default, rename = "includeScopedSubMessages")]
+    pub include_scoped_sub_messages: Option<bool>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadScopedSubMessagesArgs {
+    #[serde(default)]
+    pub anchor_message_id: String,
+    #[serde(default)]
+    pub trace_id: String,
+    pub agent_instance_id: Option<String>,
+}
+
+#[tauri::command]
+pub fn load_scoped_sub_messages_for_trace(
+    conversation_id: String,
+    args: LoadScopedSubMessagesArgs,
+) -> Result<Vec<pointer_core::models::ChatMessage>, String> {
+    let instance = args
+        .agent_instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    storage::load_scoped_sub_messages_for_trace(
+        &conversation_id,
+        args.anchor_message_id.trim(),
+        args.trace_id.trim(),
+        instance,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1326,6 +1357,7 @@ pub fn load_conversation_messages_page(
         before_position: opts.before_position,
         after_position: opts.after_position,
         around_message_id: opts.around_message_id,
+        include_scoped_sub_messages: opts.include_scoped_sub_messages.unwrap_or(false),
     };
     let page = storage::load_conversation_messages_page(&conversation_id, &page_opts)
         .map_err(|e| e.to_string())?;

@@ -4,6 +4,7 @@ import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { activeComputerTrace, delegatedComputerSubTaskId, isComputerToolName } from '../lib/computerExecuting'
 import { latestSubAgentBodyModelFromScoped } from '../lib/subAgentMessages'
+import { useConversationScopedStore } from '../lib/conversationScoped'
 import { taskBoardCompactSummary } from '../lib/taskBoardCollapsedLine'
 import { visibleToolCalls } from '../lib/messageTooling'
 import {
@@ -41,7 +42,11 @@ function visibleComputerToolCalls(
   if (trace && conv) {
     const anchor = trace.anchorMessageId?.trim() || message.id
     const scoped = latestSubAgentBodyModelFromScoped(
-      conv.messages,
+      useConversationScopedStore().getRows(conv.id, {
+        anchorMessageId: anchor,
+        traceId: trace.id,
+        agentInstanceId: trace.agentInstanceId
+      }),
       anchor,
       trace.id,
       trace.status,
@@ -68,7 +73,11 @@ function streamBodyFromMessage(
   if (trace && conv) {
     const anchor = trace.anchorMessageId?.trim() || message.id
     const scoped = latestSubAgentBodyModelFromScoped(
-      conv.messages,
+      useConversationScopedStore().getRows(conv.id, {
+        anchorMessageId: anchor,
+        traceId: trace.id,
+        agentInstanceId: trace.agentInstanceId
+      }),
       anchor,
       trace.id,
       trace.status,

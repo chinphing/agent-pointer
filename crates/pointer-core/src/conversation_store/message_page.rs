@@ -4,11 +4,13 @@
 //! next such user message. Pagination returns complete turns so tool chains and
 //! sub-agent rows stay intact.
 
+use std::collections::HashMap;
+
 use anyhow::{anyhow, Result};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use crate::models::ChatMessage;
+use crate::models::{is_scoped_sub_message, ChatMessage};
 
 use super::persist::{self, AnchorProbeRow};
 
@@ -29,9 +31,13 @@ pub struct MessagePage {
     pub oldest_position: Option<i64>,
     pub newest_position: Option<i64>,
     pub message_count: u32,
+    /// Scoped rows keyed by SpawnId (`agentInstanceId`, else `trace:{traceId}`).
+    /// Only filled when `include_scoped_sub_messages` is true; default hydrate is empty.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub scoped: HashMap<String, Vec<ChatMessage>>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct LoadMessagesPageOpts {
     /// When set (and no around/before-only edge cases), limit to this many user turns.
     /// `None` or `0` means return the full transcript (legacy full hydrate).
@@ -43,6 +49,61 @@ pub struct LoadMessagesPageOpts {
     pub after_position: Option<i64>,
     /// Center the window on the turn that contains this message id.
     pub around_message_id: Option<String>,
+    /// When `false` (UI default), omit scoped sub-agent rows (`context_included = 0`).
+    pub include_scoped_sub_messages: bool,
+}
+
+impl Default for LoadMessagesPageOpts {
+    fn default() -> Self {
+        Self {
+            limit_turns: None,
+            before_position: None,
+            after_position: None,
+            around_message_id: None,
+            include_scoped_sub_messages: false,
+        }
+    }
+}
+
+fn scoped_page_bucket_key(msg: &ChatMessage) -> String {
+    if let Some(instance) = msg
+        .agent_instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return instance.to_string();
+    }
+    if let Some(trace) = msg
+        .trace_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return format!("trace:{trace}");
+    }
+    format!(
+        "anchor:{}",
+        msg.anchor_message_id.as_deref().unwrap_or_default()
+    )
+}
+
+fn split_page_scoped(
+    messages: Vec<ChatMessage>,
+    positions: Vec<i64>,
+) -> (Vec<ChatMessage>, Vec<i64>, HashMap<String, Vec<ChatMessage>>) {
+    let mut lead = Vec::new();
+    let mut lead_pos = Vec::new();
+    let mut scoped: HashMap<String, Vec<ChatMessage>> = HashMap::new();
+    for (msg, pos) in messages.into_iter().zip(positions) {
+        if is_scoped_sub_message(&msg) {
+            scoped.entry(scoped_page_bucket_key(&msg)).or_default().push(msg);
+        } else {
+            lead.push(msg);
+            lead_pos.push(pos);
+        }
+    }
+    (lead, lead_pos, scoped)
 }
 
 /// Window boundaries over an anchor probe (exclusive position range to load).
@@ -313,29 +374,33 @@ pub fn load_messages_page(
         around_target_position,
     )?;
 
-    let (messages, positions, loaded_first, loaded_last) =
+    let (messages, positions, loaded_first, loaded_last, scoped) =
         if window.start_position >= window.end_position {
-            (Vec::new(), Vec::new(), None, None)
+            (Vec::new(), Vec::new(), None, None, HashMap::new())
         } else {
             let rows = persist::load_messages_in_position_range(
                 conn,
                 conversation_id,
                 window.start_position,
                 window.end_position,
+                opts.include_scoped_sub_messages,
             )?;
             let mut msgs = Vec::with_capacity(rows.len());
             let mut poss = Vec::with_capacity(rows.len());
-            let mut first = None;
-            let mut last = None;
-            for (i, (pos, msg)) in rows.into_iter().enumerate() {
-                if i == 0 {
-                    first = Some(pos);
-                }
-                last = Some(pos);
+            for (pos, msg) in rows {
                 msgs.push(msg);
                 poss.push(pos);
             }
-            (msgs, poss, first, last)
+            if opts.include_scoped_sub_messages {
+                let (lead, lead_pos, scoped) = split_page_scoped(msgs, poss);
+                let first = lead_pos.first().copied();
+                let last = lead_pos.last().copied();
+                (lead, lead_pos, first, last, scoped)
+            } else {
+                let first = poss.first().copied();
+                let last = poss.last().copied();
+                (msgs, poss, first, last, HashMap::new())
+            }
         };
 
     // Total transcript size is a separate scalar (anchors alone don't count
@@ -354,6 +419,7 @@ pub fn load_messages_page(
         oldest_position: loaded_first,
         newest_position: loaded_last,
         message_count,
+        scoped,
     };
     log::info!(
         "conversation_store: message page conversation_id={conversation_id} returned={} total={} has_more_older={} has_more_newer={} limit_turns={:?} before={:?} after={:?} around={:?}",
@@ -411,6 +477,7 @@ mod tests {
             oldest_position: window.first().map(|(p, _)| *p),
             newest_position: window.last().map(|(p, _)| *p),
             message_count: rows.len() as u32,
+            scoped: HashMap::new(),
         }
     }
 
@@ -542,6 +609,7 @@ mod tests {
                 oldest_position: None,
                 newest_position: None,
                 message_count: 0,
+                scoped: HashMap::new(),
             });
         }
 

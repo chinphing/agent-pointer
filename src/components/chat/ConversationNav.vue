@@ -24,7 +24,7 @@ const listEl = ref<HTMLElement | null>(null)
 const asideEl = ref<HTMLElement | null>(null)
 /** Float index of the pointer along the tick column; null when not hovering. */
 const hoverFocus = ref<number | null>(null)
-const hoverPreview = ref<{ text: string; top: number } | null>(null)
+const hoverPreview = ref<{ text: string; top: number; messageId: string } | null>(null)
 let fetchSeq = 0
 
 const items = computed(() =>
@@ -92,7 +92,8 @@ function setHoverFromEvent(event: MouseEvent | FocusEvent) {
   }
   hoverPreview.value = {
     text: nearest.preview,
-    top: clientY - aside.getBoundingClientRect().top
+    top: clientY - aside.getBoundingClientRect().top,
+    messageId: nearest.messageId
   }
 }
 
@@ -180,7 +181,8 @@ function onTickFocus(item: ConversationOutlineItem, event: FocusEvent) {
   if (!aside || !(target instanceof HTMLElement)) return
   hoverPreview.value = {
     text: item.preview,
-    top: target.getBoundingClientRect().top - aside.getBoundingClientRect().top + target.offsetHeight / 2
+    top: target.getBoundingClientRect().top - aside.getBoundingClientRect().top + target.offsetHeight / 2,
+    messageId: item.messageId
   }
 }
 
@@ -265,9 +267,10 @@ onBeforeUnmount(() => {
   >
     <p
       v-if="hoverPreview"
-      class="pointer-events-none absolute right-7 max-w-[14rem] -translate-y-1/2 truncate rounded-md border border-border px-2 py-1 text-[11px] leading-none text-foreground shadow-sm shell-chat"
+      class="pointer-events-auto absolute right-7 max-w-[14rem] -translate-y-1/2 cursor-pointer truncate rounded-md border border-border px-2 py-1 text-[11px] leading-none text-foreground shadow-sm shell-chat"
       :style="{ top: `${hoverPreview.top}px` }"
       role="tooltip"
+      @click.stop="onJump(hoverPreview.messageId)"
     >{{ hoverPreview.text }}</p>
     <div
       class="pointer-events-auto flex h-max w-6 flex-none flex-col items-center"

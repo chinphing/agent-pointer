@@ -60,6 +60,15 @@ export type LoadConversationMessagesPageOpts = {
   beforePosition?: number
   afterPosition?: number
   aroundMessageId?: string
+  /** Default false: UI hydrate omits scoped sub-agent rows (stub + expand-on-demand). */
+  includeScopedSubMessages?: boolean
+}
+
+export type LoadScopedSubMessagesOpts = {
+  anchorMessageId: string
+  /** Legacy; optional when `agentInstanceId` is set. */
+  traceId?: string
+  agentInstanceId?: string
 }
 
 /** Turn-windowed message page from SQLite (UI hydrate only). */
@@ -72,6 +81,8 @@ export type ConversationMessagePage = {
   oldestPosition: number | null
   newestPosition: number | null
   messageCount: number
+  /** Scoped rows by SpawnId; only when `includeScopedSubMessages` is true. */
+  scoped?: Record<string, ChatMessage[]>
 }
 
 /** One row actually written by `append_conversation_messages` (wire-only). */
@@ -295,6 +306,10 @@ export interface RuntimeApi {
     conversationId: string,
     opts?: LoadConversationMessagesPageOpts
   ): Promise<ConversationMessagePage>
+  loadScopedSubMessagesForTrace(
+    conversationId: string,
+    opts: LoadScopedSubMessagesOpts
+  ): Promise<ChatMessage[]>
   revealInFinder(path: string): Promise<void>
   openPathWithDefaultApp(path: string): Promise<void>
   openChatMedia(storageRelPath: string): Promise<void>
@@ -471,6 +486,7 @@ export const listConversationSearchMatches = api.listConversationSearchMatches
 export const listConversationOutline = api.listConversationOutline
 export const loadConversationMessages = api.loadConversationMessages
 export const loadConversationMessagesPage = api.loadConversationMessagesPage
+export const loadScopedSubMessagesForTrace = api.loadScopedSubMessagesForTrace
 export const saveConversationMeta = api.saveConversationMeta
 export const deleteConversation = api.deleteConversation
 export const appendConversationMessages = api.appendConversationMessages

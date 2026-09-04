@@ -1,4 +1,6 @@
 import { ensureSubTrace, finalizeSubSession, isSubAgentTraceTerminal } from '../../../lib/subAgentSession'
+import { persistTerminalTraceSummaryLine } from '../../../lib/subAgentFrameMount'
+import { useConversationScopedStore } from '../../../lib/conversationScoped'
 import type { StreamEvent } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
@@ -21,6 +23,14 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
     if (canMarkStreaming && r.msg.status !== 'streaming') r.msg.status = 'streaming'
     if (terminal) {
       finalizeSubSession(trace)
+      persistTerminalTraceSummaryLine(trace, {
+        scopedTraceMessages: useConversationScopedStore().getRows(r.conv.id, {
+          anchorMessageId: r.msg.id,
+          traceId: trace.id,
+          agentInstanceId: trace.agentInstanceId
+        }),
+        orphanTitle: (trace.parentToolCallId ?? '').trim() ? '' : trace.name
+      })
       r.conv.updatedAt = Date.now()
     }
   } else {

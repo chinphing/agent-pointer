@@ -122,6 +122,7 @@ pub enum ComputerOperationTarget {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentTrace {
+    /// SpawnId (`agent_instance_id`). Legacy rows may still use `task:agent`.
     pub id: String,
     pub name: String,
     pub role: String,
@@ -170,6 +171,34 @@ pub struct AgentTrace {
         rename = "anchorMessageId"
     )]
     pub anchor_message_id: Option<String>,
+    /// Persisted collapsed summary for stub UI when scoped rows are not hydrated.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "summaryLine"
+    )]
+    pub summary_line: Option<String>,
+    /// Logical task id (explicit; do not parse from `id`).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "taskId"
+    )]
+    pub task_id: Option<String>,
+    /// Worker agent id (explore / coder / self / …).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "agentId"
+    )]
+    pub agent_id: Option<String>,
+    /// Tool-call ids in this spawn (stub search pin after scoped rows are evicted).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "searchToolCallIds"
+    )]
+    pub search_tool_call_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

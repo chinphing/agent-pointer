@@ -1286,13 +1286,28 @@ const leadTurnStarts = computed(() => {
 
 let frozenFileChangesCache: FrozenFileChangesCache | null = null
 
-/** Closed turns: reuse prior file arrays; only snapshot the turn that just ended. */
+const extraScopedForWindow = computed(() => {
+  const convId = chat.currentId
+  if (!convId) return [] as ChatMessage[]
+  const anchorIds = pageWindowMessages.value.map(m => m.id)
+  void chat.getScopedMembershipSignal(convId)
+  for (const spawnId of chat.scopedSpawnIdsForAnchors(convId, anchorIds)) {
+    void chat.getSubAgentLiveSignal(spawnId)
+  }
+  return chat.scopedRowsForAnchors(convId, anchorIds)
+})
+
 const frozenTurnFileChanges = computed(() => {
   const starts = leadTurnStarts.value
   const prev = frozenFileChangesCache
   if (prev && prev.key === closedLeadTurnsKey(starts)) return prev.map
   const list = pageWindowMessages.value
-  frozenFileChangesCache = frozenFileChangesFromStarts(list, starts, prev)
+  frozenFileChangesCache = frozenFileChangesFromStarts(
+    list,
+    starts,
+    prev,
+    extraScopedForWindow.value
+  )
   return frozenFileChangesCache.map
 })
 
@@ -1320,7 +1335,8 @@ const activeTurnFileChanges = computed(() => {
     list,
     last.turnId,
     last.start,
-    activeFileChangesCache.turnId ? activeFileChangesCache : null
+    activeFileChangesCache.turnId ? activeFileChangesCache : null,
+    extraScopedForWindow.value
   )
   return activeFileChangesCache
 })

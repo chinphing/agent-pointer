@@ -2,7 +2,8 @@
 mod tests {
     use crate::conversation_store::persist::{msg, sample_conv};
     use crate::conversation_store::{ConversationStore, ListScope, LoadMessagesPageOpts};
-    use crate::models::Role;
+    use crate::message_context::mark_excluded;
+    use crate::models::{ExcludedReason, Role};
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use tempfile::TempDir;
@@ -1684,7 +1685,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 25);
+        assert_eq!(version, 26);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -1780,7 +1781,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 25);
+        assert_eq!(version, 26);
         let has_kind: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",
@@ -1832,15 +1833,39 @@ mod tests {
         let ids: Vec<&str> = page.messages.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(
             ids,
-            vec!["u2", "a2", "u-scoped"],
-            "tail window must be the last real turn"
+            vec!["u2", "a2"],
+            "tail window omits scoped rows unless include_scoped_sub_messages"
         );
         assert_eq!(page.oldest_position, Some(3), "oldest = u2 position");
-        assert_eq!(page.newest_position, Some(5), "newest = last row position");
+        assert_eq!(page.newest_position, Some(4), "newest = last lead row position");
         assert!(page.has_more_older);
         assert!(!page.has_more_newer);
         // message_count counts ALL rows (frontend hydration uses it), not just anchors.
         assert_eq!(page.message_count, 6);
+
+        let with_scoped = store
+            .load_messages_page(
+                "page-anchor",
+                &LoadMessagesPageOpts {
+                    limit_turns: Some(1),
+                    include_scoped_sub_messages: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let with_ids: Vec<&str> = with_scoped.messages.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(
+            with_ids,
+            vec!["u2", "a2"],
+            "include_scoped splits scoped rows out of messages"
+        );
+        let scoped_flat: Vec<&str> = with_scoped
+            .scoped
+            .values()
+            .flatten()
+            .map(|m| m.id.as_str())
+            .collect();
+        assert_eq!(scoped_flat, vec!["u-scoped"]);
 
         // Before u2: end bound = first row at/after u2's position, window = [0, 3).
         let before = store
@@ -1864,6 +1889,124 @@ mod tests {
         assert!(!before.has_more_older);
         assert!(before.has_more_newer);
         assert_eq!(before.message_count, 6);
+    }
+
+    #[test]
+    fn default_page_keeps_soft_excluded_lead_rows() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("page-excluded", "Excluded", "before compression");
+        mark_excluded(
+            &mut conv.messages[0],
+            ExcludedReason::ContextCompression,
+        );
+        let u2 = msg("u2", Role::User, "after summary", 3);
+        let a2 = msg("a2", Role::Assistant, "ok", 4);
+        let mut scoped = msg("u-scoped", Role::User, "sub", 5);
+        scoped.anchor_message_id = Some("u2".into());
+        conv.messages.push(u2);
+        conv.messages.push(a2);
+        conv.messages.push(scoped);
+        store.sync_conversations(&[conv]).unwrap();
+
+        let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
+        let scoped_flag: i64 = conn
+            .query_row(
+                "SELECT is_scoped FROM messages WHERE conversation_id = ?1 AND message_id = ?2",
+                params!["page-excluded", "u-scoped"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let lead_flag: i64 = conn
+            .query_row(
+                "SELECT is_scoped FROM messages WHERE conversation_id = ?1 AND message_id = ?2",
+                params!["page-excluded", "msg_u1"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(scoped_flag, 1);
+        assert_eq!(lead_flag, 0);
+
+        let page = store
+            .load_messages_page(
+                "page-excluded",
+                &LoadMessagesPageOpts {
+                    limit_turns: Some(8),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let ids: Vec<&str> = page.messages.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["msg_u1", "msg_a1", "u2", "a2"],
+            "compressed lead rows stay on the UI page; scoped rows stay out"
+        );
+
+        let around = store
+            .load_messages_page(
+                "page-excluded",
+                &LoadMessagesPageOpts {
+                    limit_turns: Some(8),
+                    around_message_id: Some("msg_u1".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            around.messages.iter().any(|m| m.id == "msg_u1"),
+            "nav jump to a compressed user turn must still hydrate it"
+        );
+    }
+
+    #[test]
+    fn load_scoped_prefers_agent_instance_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("scoped-inst", "Scoped", "hi");
+        let mut a = msg("sc-a", Role::Assistant, "one", 2);
+        a.anchor_message_id = Some("msg_a1".into());
+        a.trace_id = Some("task:coder".into());
+        a.agent_instance_id = Some("inst-a".into());
+        let mut b = msg("sc-b", Role::Assistant, "two", 3);
+        b.anchor_message_id = Some("msg_a1".into());
+        b.trace_id = Some("task:coder".into());
+        b.agent_instance_id = Some("inst-b".into());
+        conv.messages.push(a);
+        conv.messages.push(b);
+        store.sync_conversations(&[conv]).unwrap();
+
+        let by_instance = store
+            .load_scoped_sub_messages_for_trace("scoped-inst", "", "", Some("inst-b"))
+            .unwrap();
+        assert_eq!(
+            by_instance.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["sc-b"]
+        );
+
+        let by_instance_and_anchor = store
+            .load_scoped_sub_messages_for_trace("scoped-inst", "msg_a1", "", Some("inst-a"))
+            .unwrap();
+        assert_eq!(
+            by_instance_and_anchor
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["sc-a"]
+        );
+
+        let by_legacy = store
+            .load_scoped_sub_messages_for_trace("scoped-inst", "msg_a1", "task:coder", None)
+            .unwrap();
+        assert_eq!(
+            by_legacy.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["sc-a", "sc-b"]
+        );
+
+        let empty = store
+            .load_scoped_sub_messages_for_trace("scoped-inst", "", "", None)
+            .unwrap();
+        assert!(empty.is_empty());
     }
 
     /// Ops helper: `POINTER_MIGRATE_OPEN=1 POINTER_APP_DATA_DIR=… cargo test -p pointer-core open_app_data_dir_once -- --ignored --nocapture`

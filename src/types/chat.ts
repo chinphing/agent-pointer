@@ -127,6 +127,7 @@ export interface SubAgentSessionUi {
 export type ComputerOperationTarget = 'self' | 'external'
 
 export interface AgentTrace {
+  /** SpawnId (`agentInstanceId`) for new traces. Legacy rows may still use `task:agent`. */
   id: string
   name: string
   role: string
@@ -140,14 +141,22 @@ export interface AgentTrace {
   /** Collapsed summary header (persisted index UI). */
   collapsed?: boolean
   userExpanded?: boolean
-  /** Runtime child invocation UUID used to isolate reused task traces. */
+  /** Runtime child invocation UUID; v2 SpawnId (same as `id` for new traces). */
   agentInstanceId?: string
+  /** Logical task id (v2 explicit; previously parsed from trace id). */
+  taskId?: string
+  /** Worker agent id (v2 explicit). */
+  agentId?: string
   /** `run_subagent` → computer: task goal targets Pointer itself (`self`) or other apps (`external`). */
   computerTarget?: ComputerOperationTarget
   /** Parent assistant `run_subagent` tool-call id; nest the frame under that tool row. */
   parentToolCallId?: string
   /** The `ChatMessage.id` that owns this trace's scoped child messages (for nested sub-agents this differs from the lead anchor). */
   anchorMessageId?: string
+  /** Persisted collapsed summary for stub UI when scoped rows are not loaded. */
+  summaryLine?: string
+  /** Tool-call ids in this spawn; stub search pin after scoped rows are evicted. */
+  searchToolCallIds?: string[]
 }
 
 export type AgentProfile =

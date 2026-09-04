@@ -90,7 +90,19 @@ pub fn persist_scoped_assistant_snapshot(
     persist_sub_message(conversation_id, linkage, msg);
 }
 
-/// Write the in-memory `agent_trace` index onto the lead anchor row (UI reload after restart).
+/// Persist the lead `agent_trace` index only for terminal UI states.
+/// Running detail stays in SSE / in-memory `ctx.agent_trace` — writing the
+/// whole lead row on every spawn step serializes 100 workers onto one SQLite row.
+pub fn should_persist_anchor_agent_trace(status: &str) -> bool {
+    matches!(
+        status.trim(),
+        "completed" | "failed" | "cancelled" | "error"
+    )
+}
+
+/// Write `agent_trace` onto the in-memory lead row and coalesce SQLite patches.
+/// Many parallel terminals share one lead message: debounce ~400ms, then
+/// `json_set` only `payload.agentTrace` (no full ChatMessage clone).
 pub fn sync_anchor_agent_trace_index(
     conversation_id: &str,
     history: &mut Vec<ChatMessage>,
@@ -100,24 +112,133 @@ pub fn sync_anchor_agent_trace_index(
     if agent_trace.is_empty() {
         return;
     }
-    let snapshot = history
-        .iter_mut()
-        .find(|m| m.id == anchor_message_id)
-        .map(|msg| {
-            msg.agent_trace = Some(agent_trace.to_vec());
-            msg.clone()
-        });
-    let Some(msg) = snapshot else {
+    let Some(msg) = history.iter_mut().find(|m| m.id == anchor_message_id) else {
         log::warn!(
             "sub_message: sync agent_trace anchor missing conversation_id={conversation_id} anchor={anchor_message_id}"
         );
         return;
     };
-    conversation_persist::upsert_message(conversation_id, &msg);
-    log::debug!(
-        "sub_message: synced agent_trace index conversation_id={conversation_id} anchor={anchor_message_id} traces={}",
-        agent_trace.len()
-    );
+    msg.agent_trace = Some(agent_trace.to_vec());
+    let json = match serde_json::to_string(agent_trace) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!(
+                "sub_message: serialize agent_trace failed conversation_id={conversation_id}: {e}"
+            );
+            return;
+        }
+    };
+    schedule_anchor_agent_trace_persist(conversation_id, anchor_message_id, json);
+}
+
+const ANCHOR_TRACE_PERSIST_COALESCE_MS: u64 = 400;
+
+fn pending_anchor_traces() -> &'static std::sync::Mutex<
+    std::collections::HashMap<String, (String, String, String)>,
+> {
+    static MAP: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (String, String, String)>>,
+    > = std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn persist_worker_scheduled() -> &'static std::sync::Mutex<bool> {
+    static FLAG: std::sync::OnceLock<std::sync::Mutex<bool>> = std::sync::OnceLock::new();
+    FLAG.get_or_init(|| std::sync::Mutex::new(false))
+}
+
+fn schedule_anchor_agent_trace_persist(
+    conversation_id: &str,
+    anchor_message_id: &str,
+    traces_json: String,
+) {
+    let key = format!("{conversation_id}\0{anchor_message_id}");
+    match pending_anchor_traces().lock() {
+        Ok(mut map) => {
+            map.insert(
+                key,
+                (
+                    conversation_id.to_string(),
+                    anchor_message_id.to_string(),
+                    traces_json,
+                ),
+            );
+        }
+        Err(e) => {
+            log::warn!("sub_message: pending agent_trace map poisoned: {e}");
+            return;
+        }
+    }
+    let mut scheduled = match persist_worker_scheduled().lock() {
+        Ok(g) => g,
+        Err(e) => {
+            log::warn!("sub_message: persist worker flag poisoned: {e}");
+            return;
+        }
+    };
+    if *scheduled {
+        return;
+    }
+    *scheduled = true;
+    drop(scheduled);
+    let spawn = std::thread::Builder::new()
+        .name("pointer-agent-trace-persist".into())
+        .spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(
+                ANCHOR_TRACE_PERSIST_COALESCE_MS,
+            ));
+            flush_pending_anchor_agent_traces();
+        });
+    if let Err(e) = spawn {
+        log::warn!("sub_message: failed to spawn agent_trace persist worker: {e}");
+        if let Ok(mut flag) = persist_worker_scheduled().lock() {
+            *flag = false;
+        }
+        flush_pending_anchor_agent_traces();
+    }
+}
+
+fn flush_pending_anchor_agent_traces() {
+    if let Ok(mut flag) = persist_worker_scheduled().lock() {
+        *flag = false;
+    }
+    let batch = match pending_anchor_traces().lock() {
+        Ok(mut map) => std::mem::take(&mut *map),
+        Err(e) => {
+            log::warn!("sub_message: pending agent_trace map poisoned on flush: {e}");
+            return;
+        }
+    };
+    for (conversation_id, anchor_message_id, traces_json) in batch.into_values() {
+        conversation_persist::patch_anchor_agent_trace(
+            &conversation_id,
+            &anchor_message_id,
+            &traces_json,
+        );
+        log::debug!(
+            "sub_message: patched agent_trace index conversation_id={conversation_id} anchor={anchor_message_id}"
+        );
+    }
+    let again = pending_anchor_traces()
+        .lock()
+        .ok()
+        .is_some_and(|m| !m.is_empty());
+    if again {
+        if let Ok(mut flag) = persist_worker_scheduled().lock() {
+            if !*flag {
+                *flag = true;
+                drop(flag);
+                let _ = std::thread::Builder::new()
+                    .name("pointer-agent-trace-persist".into())
+                    .spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            ANCHOR_TRACE_PERSIST_COALESCE_MS,
+                        ));
+                        flush_pending_anchor_agent_traces();
+                    });
+            }
+        }
+    }
 }
 
 pub fn push_sub_tool_result(
@@ -158,6 +279,15 @@ pub fn strip_scoped_from_lead_history(history: &mut Vec<ChatMessage>) {
 mod tests {
     use super::*;
     use crate::models::Role;
+
+    #[test]
+    fn persist_anchor_agent_trace_only_for_terminal_status() {
+        assert!(!should_persist_anchor_agent_trace("running"));
+        assert!(!should_persist_anchor_agent_trace("queued"));
+        assert!(should_persist_anchor_agent_trace("completed"));
+        assert!(should_persist_anchor_agent_trace("failed"));
+        assert!(should_persist_anchor_agent_trace("cancelled"));
+    }
 
     fn sample_msg(id: &str, anchor: Option<&str>, trace: Option<&str>) -> ChatMessage {
         ChatMessage {
@@ -335,6 +465,10 @@ mod tests {
             computer_target: None,
             parent_tool_call_id: None,
             anchor_message_id: None,
+            summary_line: None,
+            task_id: Some("task".into()),
+            agent_id: Some("explore".into()),
+            search_tool_call_ids: None,
         }];
         // DB may be unavailable in unit tests; history mutation is still required.
         sync_anchor_agent_trace_index("conv", &mut history, "lead", &traces);

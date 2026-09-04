@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Conversation } from '../types/chat'
 import {
+  bindUnboundTracesToHosts,
   buildSubAgentBodyModelsFromScoped,
   buildSubAgentBodyModelsSplitAtCut,
   computeSubAgentStatsFromMessages,
+  ensureHostLinkedSubTraces,
   ensureScopedChildMessage,
   isSubAgentHostStubContent,
   rehydrateAgentTracesFromScopedMessages,
@@ -71,6 +73,28 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
       ).map(message => message.id)
     ).toEqual(['current'])
     expect(scopedMessagesForTrace(messages, 'lead', 'task:explore')).toHaveLength(2)
+  })
+
+  it('matches process rows by spawn id when AgentTrace.id is the instance', () => {
+    const instance = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const messages = [
+      {
+        id: 'row',
+        role: 'assistant' as const,
+        content: 'working',
+        status: 'streaming' as const,
+        createdAt: 1,
+        anchorMessageId: 'lead',
+        traceId: 'task:coder',
+        agentInstanceId: instance
+      }
+    ]
+    expect(
+      scopedMessagesForTrace(messages, 'lead', instance, instance).map(m => m.id)
+    ).toEqual(['row'])
+    expect(
+      scopedMessagesForTrace(messages, 'lead', instance).map(m => m.id)
+    ).toEqual(['row'])
   })
 
   it('rebuilds agentTrace index from scoped child rows', () => {
@@ -465,6 +489,35 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
         agentInstanceId: 'inst-b'
       })
     ).toBe(false)
+    expect(
+      subAgentFrameOwnsCompression(state, {
+        messages,
+        anchorMessageId: 'lead',
+        traceId: 'inst-a',
+        agentInstanceId: 'inst-a'
+      })
+    ).toBe(true)
+
+    const ownOnly = messages.filter(m => m.agentInstanceId === 'inst-b')
+    const keep = messages.find(m => m.id === 'keep')
+    expect(
+      subAgentFrameOwnsCompression(state, {
+        messages: ownOnly,
+        cutScopedRow: keep,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        agentInstanceId: 'inst-b'
+      })
+    ).toBe(false)
+    expect(
+      subAgentFrameOwnsCompression(state, {
+        messages: [],
+        cutScopedRow: keep,
+        anchorMessageId: 'lead',
+        traceId: 'task:explore',
+        agentInstanceId: 'inst-a'
+      })
+    ).toBe(true)
   })
 
   it('counts tool stats from persisted pending status when tool result row exists', () => {
@@ -494,5 +547,61 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
     const line = formatSubAgentSummaryLine('电脑操控', 'completed', stats, 'computer')
     expect(line).toContain('其他 1 次')
     expect(line).not.toContain('工具 0 次')
+  })
+})
+
+describe('ensureHostLinkedSubTraces', () => {
+  it('pairs unbound traces to foreground run_subagent hosts', () => {
+    const lead = {
+      id: 'lead',
+      role: 'assistant' as const,
+      content: '',
+      status: 'done' as const,
+      createdAt: 1,
+      toolCalls: [
+        {
+          id: 'call-fg',
+          name: 'run_subagent',
+          arguments: '{"agentId":"coder","goal":"补跑"}',
+          status: 'success' as const
+        }
+      ],
+      agentTrace: [
+        {
+          id: 'inst-1',
+          name: '',
+          role: '',
+          status: 'completed',
+          depth: 1,
+          agentInstanceId: 'inst-1'
+        }
+      ]
+    }
+    bindUnboundTracesToHosts(lead)
+    expect(lead.agentTrace![0]!.parentToolCallId).toBe('call-fg')
+  })
+
+  it('synthesizes a nestable trace from host result when agentTrace is missing', () => {
+    const lead = {
+      id: 'lead',
+      role: 'assistant' as const,
+      content: '',
+      status: 'done' as const,
+      createdAt: 1,
+      toolCalls: [
+        {
+          id: 'call-fg',
+          name: 'run_subagent',
+          arguments: '{"agentId":"coder","goal":"补跑835113"}',
+          status: 'success' as const,
+          result: JSON.stringify({ agentInstanceId: 'inst-hydrated', content: 'ok' })
+        }
+      ]
+    }
+    ensureHostLinkedSubTraces(lead)
+    expect(lead.agentTrace).toHaveLength(1)
+    expect(lead.agentTrace![0]!.id).toBe('inst-hydrated')
+    expect(lead.agentTrace![0]!.parentToolCallId).toBe('call-fg')
+    expect(lead.agentTrace![0]!.agentInstanceId).toBe('inst-hydrated')
   })
 })

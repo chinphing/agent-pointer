@@ -710,6 +710,7 @@ export async function loadConversationMessagesPage(
   if (opts?.beforePosition != null) params.set('beforePosition', String(opts.beforePosition))
   if (opts?.afterPosition != null) params.set('afterPosition', String(opts.afterPosition))
   if (opts?.aroundMessageId?.trim()) params.set('aroundMessageId', opts.aroundMessageId.trim())
+  if (opts?.includeScopedSubMessages === true) params.set('includeScopedSubMessages', 'true')
   // Always send at least limitTurns so the server returns MessagePage (not legacy Vec).
   if (
     !params.has('limitTurns')
@@ -722,6 +723,19 @@ export async function loadConversationMessagesPage(
   const q = params.toString()
   return await request(
     `/api/conversations/${encodeURIComponent(conversationId)}/messages?${q}`
+  )
+}
+
+export async function loadScopedSubMessagesForTrace(
+  conversationId: string,
+  opts: import('./api').LoadScopedSubMessagesOpts
+): Promise<import('../types/chat').ChatMessage[]> {
+  const params = new URLSearchParams()
+  params.set('anchorMessageId', opts.anchorMessageId.trim())
+  if (opts.traceId?.trim()) params.set('traceId', opts.traceId.trim())
+  if (opts.agentInstanceId?.trim()) params.set('agentInstanceId', opts.agentInstanceId.trim())
+  return await request(
+    `/api/conversations/${encodeURIComponent(conversationId)}/scoped-messages?${params}`
   )
 }
 

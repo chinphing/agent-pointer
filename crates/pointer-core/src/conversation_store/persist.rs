@@ -36,6 +36,7 @@ fn content_marks_system_generated_user(content: &str) -> bool {
 
 const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled_v2";
 const CONTEXT_INCLUDED_BACKFILL_META: &str = "context_included_backfilled";
+const IS_SCOPED_BACKFILL_META: &str = "is_scoped_backfilled_v26";
 const AGENT_INSTANCE_ID_COL_BACKFILL_META: &str = "agent_instance_id_col_v25";
 /// Indexed `messages.content` for a prior `session_search` tool row.
 /// Full JSON stays in `payload` for the UI; FTS and recall skip this stub.
@@ -111,6 +112,11 @@ pub fn is_session_search_tool_body(content: &str) -> bool {
         || head.contains("\"query\"")
         || head.contains("\"conversation_id\"")
         || head.contains("\"messages\"")
+}
+
+/// Column value: scoped sub-agent process rows (has `anchorMessageId`).
+pub fn is_scoped_column_value(msg: &ChatMessage) -> i64 {
+    i64::from(crate::models::is_scoped_sub_message(msg))
 }
 
 /// Column value mirroring [`crate::message_context::is_context_included`].
@@ -272,6 +278,53 @@ pub(crate) fn backfill_context_included(conn: &Connection) -> Result<()> {
 
     log::info!(
         "conversation_store: context_included backfill done updated={updated} elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    Ok(())
+}
+
+/// One-time migration: materialize `is_scoped` for existing rows (UI paging).
+pub(crate) fn backfill_is_scoped(conn: &Connection) -> Result<()> {
+    let done: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![IS_SCOPED_BACKFILL_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if done.as_deref() == Some("1") {
+        return Ok(());
+    }
+
+    log::info!("conversation_store: backfilling is_scoped from payload.anchorMessageId");
+    let started = std::time::Instant::now();
+    let apply = || -> Result<u64> {
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let updated = conn.execute(
+            "UPDATE messages SET is_scoped = 1
+             WHERE is_scoped = 0
+               AND json_valid(payload) = 1
+               AND json_extract(payload, '$.anchorMessageId') IS NOT NULL
+               AND length(trim(json_extract(payload, '$.anchorMessageId'))) > 0",
+            [],
+        )? as u64;
+        conn.execute(
+            "INSERT INTO store_meta(key, value) VALUES (?1, '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![IS_SCOPED_BACKFILL_META],
+        )?;
+        conn.execute_batch("COMMIT")?;
+        Ok(updated)
+    };
+    let updated = match apply() {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+    };
+    log::info!(
+        "conversation_store: is_scoped backfill done updated={updated} elapsed_ms={}",
         started.elapsed().as_millis()
     );
     Ok(())
@@ -661,12 +714,13 @@ pub(crate) fn load_conversation_outline(
     conn: &Connection,
     conversation_id: &str,
 ) -> Result<Vec<ConversationOutlineItem>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT message_id, substr(content, 1, ?2)
          FROM messages
          WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
-         ORDER BY position ASC",
-    )?;
+         {SQL_LEAD_ROW_NOT_SCOPED}
+         ORDER BY position ASC"
+    ))?;
     let rows = stmt.query_map(
         params![conversation_id, OUTLINE_CONTENT_PREFIX_CHARS],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
@@ -680,6 +734,27 @@ pub(crate) fn load_conversation_outline(
         });
     }
     Ok(out)
+}
+
+pub(crate) fn patch_agent_trace_json(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+    agent_trace_json: &str,
+) -> Result<usize> {
+    let n = conn.execute(
+        "UPDATE messages
+         SET payload = json_set(payload, '$.agentTrace', json(?1))
+         WHERE conversation_id = ?2 AND message_id = ?3
+           AND json_valid(payload) = 1",
+        params![agent_trace_json, conversation_id, message_id],
+    )?;
+    if n == 0 {
+        log::warn!(
+            "conversation_store: agent_trace json_set matched 0 rows conversation_id={conversation_id} message_id={message_id}"
+        );
+    }
+    Ok(n)
 }
 
 /// Position of the first message row at or after `position` (any role). Used as
@@ -732,6 +807,11 @@ pub(crate) fn message_position(
         .optional()?)
 }
 
+/// Lead UI rows: `is_scoped = 0`. Soft-excluded (compressed) lead rows stay.
+/// Do **not** use `context_included = 1` here — that column also drops compressed
+/// history, which must remain visible and pageable in the transcript.
+const SQL_LEAD_ROW_NOT_SCOPED: &str = "AND is_scoped = 0";
+
 /// Load only the message rows inside `[start_position, end_position)` (ascending).
 /// Still runs the legacy toolRawOutput scrub on the returned window.
 pub(crate) fn load_messages_in_position_range(
@@ -739,12 +819,22 @@ pub(crate) fn load_messages_in_position_range(
     conversation_id: &str,
     start_position: i64,
     end_position: i64,
+    include_scoped_sub_messages: bool,
 ) -> Result<Vec<(i64, ChatMessage)>> {
-    let mut stmt = conn.prepare(
+    let sql = if include_scoped_sub_messages {
         "SELECT message_id, position, payload FROM messages
          WHERE conversation_id = ?1 AND position >= ?2 AND position < ?3
-         ORDER BY position ASC",
-    )?;
+         ORDER BY position ASC"
+            .to_string()
+    } else {
+        format!(
+            "SELECT message_id, position, payload FROM messages
+         WHERE conversation_id = ?1 AND position >= ?2 AND position < ?3
+         {SQL_LEAD_ROW_NOT_SCOPED}
+         ORDER BY position ASC"
+        )
+    };
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
         params![conversation_id, start_position, end_position],
         |row| {
@@ -772,6 +862,60 @@ pub(crate) fn load_messages_in_position_range(
         }
     }
     scrub_tool_raw_output(conn, conversation_id, scrub);
+    Ok(out)
+}
+
+/// Load scoped sub-agent rows for one spawn (UI expand after stub-only hydrate).
+/// Prefer `agent_instance_id` (SpawnId). Legacy: `anchor + trace_id` when instance is absent.
+pub fn load_scoped_sub_messages_for_trace(
+    conn: &Connection,
+    conversation_id: &str,
+    anchor_message_id: &str,
+    trace_id: &str,
+    agent_instance_id: Option<&str>,
+) -> Result<Vec<ChatMessage>> {
+    let anchor = anchor_message_id.trim();
+    let trace = trace_id.trim();
+    let instance = agent_instance_id.map(str::trim).filter(|s| !s.is_empty());
+    let payloads = if let Some(instance) = instance {
+        // SpawnId is unique; skip json_extract. is_scoped excludes lead rows
+        // that share agent_instance_id with the conversation lead thread.
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM messages
+             WHERE conversation_id = ?1 AND is_scoped = 1
+               AND agent_instance_id = ?2
+             ORDER BY position ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![conversation_id, instance], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        rows
+    } else if !anchor.is_empty() && !trace.is_empty() {
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM messages
+             WHERE conversation_id = ?1 AND is_scoped = 1
+               AND trim(json_extract(payload, '$.anchorMessageId')) = ?2
+               AND trim(json_extract(payload, '$.traceId')) = ?3
+             ORDER BY position ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![conversation_id, anchor, trace], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        rows
+    } else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::with_capacity(payloads.len());
+    for payload in payloads {
+        match serde_json::from_str::<ChatMessage>(&payload) {
+            Ok(msg) => out.push(msg),
+            Err(e) => {
+                log::warn!(
+                    "conversation_store: skip corrupt scoped message in {conversation_id}: {e}"
+                );
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -1403,8 +1547,8 @@ pub fn upsert_conversation(
             conn.execute(
                 "INSERT INTO messages (
                    conversation_id, message_id, role, content, payload, created_at_ms, position,
-                   is_system_generated, context_included, tool_name, agent_instance_id
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                   is_system_generated, context_included, tool_name, agent_instance_id, is_scoped
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
                 params![
                     conv.id,
                     msg.id,
@@ -1417,6 +1561,7 @@ pub fn upsert_conversation(
                     context_included_column_value(msg),
                     persist_tool_name(msg),
                     persist_agent_instance_id(msg),
+                    is_scoped_column_value(msg),
                 ],
             )?;
         }

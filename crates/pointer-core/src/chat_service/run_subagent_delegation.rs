@@ -1104,7 +1104,11 @@ fn emit_subagent_trace_step(
     ctx: &mut super::context::SubagentDelegationContext<'_>,
     agent: AgentTrace,
 ) {
+    let persist = super::sub_message::should_persist_anchor_agent_trace(&agent.status);
     emit_agent_step(stream, ctx.message_id, ctx.agent_trace, agent);
+    if !persist {
+        return;
+    }
     if let Some(history) = ctx.history.as_deref_mut() {
         super::sub_message::sync_anchor_agent_trace_index(
             ctx.session.conversation_id,
@@ -1127,7 +1131,9 @@ fn build_subagent_trace(
     detail: Option<String>,
 ) -> AgentTrace {
     AgentTrace {
-        id: super::sub_agent_prompt::sub_agent_trace_id(task, def, instance_scope),
+        // Phase G: UI / store primary key is SpawnId (= agent_instance_id).
+        // ChatMessage.trace_id still uses sub_agent_trace_id for SQLite / SSE compat.
+        id: instance_scope.agent_instance_id.clone(),
         name: agent_display_label(def),
         role: def.role.clone(),
         status: status.into(),
@@ -1147,6 +1153,10 @@ fn build_subagent_trace(
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .map(str::to_string),
+        summary_line: None,
+        task_id: Some(task.id.clone()),
+        agent_id: Some(def.id.clone()),
+        search_tool_call_ids: None,
     }
 }
 
@@ -1580,8 +1590,11 @@ mod trace_tests {
             None,
         );
 
+        assert_eq!(trace.id, "instance-1");
         assert_eq!(trace.agent_instance_id.as_deref(), Some("instance-1"));
         assert_eq!(trace.parent_tool_call_id.as_deref(), Some("call-1"));
+        assert_eq!(trace.task_id.as_deref(), Some("task-1"));
+        assert_eq!(trace.agent_id.as_deref(), Some("current-agent"));
     }
 
     fn anchor_message() -> ChatMessage {

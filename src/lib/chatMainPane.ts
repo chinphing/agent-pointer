@@ -16,7 +16,10 @@ export function shouldShowMessageListPlaceholder(
 export function shouldShowWelcomeHome(
   hasCurrentConversation: boolean,
   messageCount: number,
-  showPlaceholder: boolean
+  showPlaceholder: boolean,
+  persistedMessageCount = 0
 ): boolean {
+  // A failed around-window must not look like a brand-new empty chat.
+  if (persistedMessageCount > 0 && messageCount === 0) return false
   return !showPlaceholder && hasCurrentConversation && messageCount === 0
 }

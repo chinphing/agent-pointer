@@ -171,9 +171,10 @@ export function resolveActiveTurnFileChanges(
   list: ChatMessage[],
   turnId: string,
   start: number,
-  previous: ActiveTurnFileCache | null
+  previous: ActiveTurnFileCache | null,
+  extra: readonly ChatMessage[] = []
 ): ActiveTurnFileCache {
-  const mutating = collectSuccessfulFileMutations(list, start, list.length)
+  const mutating = collectSuccessfulFileMutations(list, start, list.length, extra)
   const settleKey = mutatingToolsKey(mutating)
   if (previous && previous.turnId === turnId && previous.settleKey === settleKey) {
     return previous
@@ -226,12 +227,16 @@ function pushSuccessfulFileMutationsFromMessage(into: ToolCall[], seen: Set<stri
 function collectSuccessfulFileMutations(
   list: ChatMessage[],
   start: number,
-  end: number
+  end: number,
+  extra: readonly ChatMessage[] = []
 ): ToolCall[] {
   const mutating: ToolCall[] = []
   const seen = new Set<string>()
   for (let i = start; i < end; i++) {
     pushSuccessfulFileMutationsFromMessage(mutating, seen, list[i])
+  }
+  for (const message of extra) {
+    pushSuccessfulFileMutationsFromMessage(mutating, seen, message)
   }
   return mutating
 }
@@ -239,9 +244,10 @@ function collectSuccessfulFileMutations(
 export function fileChangesInRange(
   list: ChatMessage[],
   start: number,
-  end: number
+  end: number,
+  extra: readonly ChatMessage[] = []
 ): FileChangeSummary[] {
-  return filesFromToolCalls(collectSuccessfulFileMutations(list, start, end))
+  return filesFromToolCalls(collectSuccessfulFileMutations(list, start, end, extra))
 }
 
 function filesFromToolCalls(toolCalls: ToolCall[]): FileChangeSummary[] {
@@ -307,7 +313,8 @@ export function closedLeadTurnsKey(
 export function frozenFileChangesFromStarts(
   list: ChatMessage[],
   starts: Array<{ turnId: string; start: number }>,
-  previous: FrozenFileChangesCache | null
+  previous: FrozenFileChangesCache | null,
+  extra: readonly ChatMessage[] = []
 ): FrozenFileChangesCache {
   const key = closedLeadTurnsKey(starts)
   if (previous && previous.key === key) return previous
@@ -323,7 +330,7 @@ export function frozenFileChangesFromStarts(
   if (canAppend && previous) {
     const newlyClosed = starts[starts.length - 2]!
     const end = starts[starts.length - 1]!.start
-    const files = fileChangesInRange(list, newlyClosed.start, end)
+    const files = fileChangesInRange(list, newlyClosed.start, end, extra)
     const map = new Map(previous.map)
     if (files.length) map.set(newlyClosed.turnId, files)
     else map.delete(newlyClosed.turnId)
@@ -333,7 +340,7 @@ export function frozenFileChangesFromStarts(
   const map = new Map<string, FileChangeSummary[]>()
   for (let i = 0; i < starts.length - 1; i++) {
     const range = starts[i]!
-    const files = fileChangesInRange(list, range.start, starts[i + 1]!.start)
+    const files = fileChangesInRange(list, range.start, starts[i + 1]!.start, extra)
     if (files.length) map.set(range.turnId, files)
   }
   return { key, map }

@@ -556,7 +556,22 @@ export async function loadConversationMessagesPage(
       limitTurns: opts?.limitTurns ?? 8,
       beforePosition: opts?.beforePosition,
       afterPosition: opts?.afterPosition,
-      aroundMessageId: opts?.aroundMessageId
+      aroundMessageId: opts?.aroundMessageId,
+      includeScopedSubMessages: opts?.includeScopedSubMessages ?? false
+    }
+  })
+}
+
+export async function loadScopedSubMessagesForTrace(
+  conversationId: string,
+  opts: import('./api').LoadScopedSubMessagesOpts
+): Promise<import('../types/chat').ChatMessage[]> {
+  return await invoke('load_scoped_sub_messages_for_trace', {
+    conversationId,
+    args: {
+      anchorMessageId: opts.anchorMessageId,
+      traceId: opts.traceId ?? '',
+      agentInstanceId: opts.agentInstanceId
     }
   })
 }

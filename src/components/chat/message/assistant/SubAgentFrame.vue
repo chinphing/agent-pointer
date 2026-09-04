@@ -7,12 +7,14 @@ import { buildCompressionProgressLabel } from '../../../../lib/compressionMessag
 import {
   emptySubAgentToolStats,
   resolveCollapsedSubAgentView,
-  subAgentIdFromTraceId
+  resolveTraceAgentId,
+  SUB_AGENT_PROCESS_PLACEHOLDER
 } from '../../../../lib/subAgentStats'
+import { useConversationScopedStore } from '../../../../lib/conversationScoped'
 import {
   buildToolRawArgsFromMessages,
   computeSubAgentStatsFromMessages,
-  latestSubAgentBodyModelFromScoped,
+  latestSubAgentBodyModelFromSpawnRows,
   subAgentFrameOwnsCompression
 } from '../../../../lib/subAgentMessages'
 import { useChatStore } from '../../../../stores/chat'
@@ -115,8 +117,14 @@ const scopedTraceMessages = computed(() => {
 
 const ownsCompression = computed(() => {
   if (!isRunning.value) return false
-  return subAgentFrameOwnsCompression(chatStore.contextCompressing, {
-    messages: props.messages,
+  const compressing = chatStore.contextCompressing
+  const cut = compressing?.insertBeforeMessageId?.trim() ?? ''
+  const convId = chatStore.currentId
+  const cutScopedRow =
+    cut && convId ? useConversationScopedStore().findRow(convId, cut) : undefined
+  return subAgentFrameOwnsCompression(compressing, {
+    messages: scopedTraceMessages.value,
+    cutScopedRow,
     anchorMessageId: effectiveAnchorId.value,
     traceId: props.trace.id,
     agentInstanceId: props.trace.agentInstanceId
@@ -135,12 +143,9 @@ const latestStreamBody = computed((): AgentMessageBodyModel | null => {
   if (collapsed.value && !isRunning.value && scopedMessages.value.length === 0 && !legacySession.value) {
     return null
   }
-  const scoped = latestSubAgentBodyModelFromScoped(
-    props.messages,
-    effectiveAnchorId.value,
-    props.trace.id,
-    props.trace.status,
-    props.trace.agentInstanceId
+  const scoped = latestSubAgentBodyModelFromSpawnRows(
+    scopedTraceMessages.value,
+    props.trace.status
   )
   if (scoped) return scoped
   const s = legacySession.value
@@ -235,6 +240,7 @@ const visibleInnerTools = computed((): ToolCall[] => {
 })
 
 const collapsedView = computed(() => {
+  const persisted = props.trace.summaryLine?.trim() || ''
   const stats =
     scopedTraceMessages.value.length > 0
       ? computeSubAgentStatsFromMessages(scopedTraceMessages.value)
@@ -245,18 +251,24 @@ const collapsedView = computed(() => {
   const live = liveInnerTool.value
     ? compactToolCallLiveText(liveInnerTool.value, chatStore.current?.workspaceRoot)
     : null
-  return resolveCollapsedSubAgentView({
+  const view = resolveCollapsedSubAgentView({
     orphanTitle: props.hostTool ? '' : (goalLabel.value || traceLabel.value),
     status: props.trace.status,
     stats,
-    agentId: subAgentIdFromTraceId(props.trace.id),
+    agentId: resolveTraceAgentId(props.trace),
     liveToolLine: live,
     thinkingLine: thinking,
     backgroundRunning: props.hostTool ? isBackgroundSubagentCall(props.hostTool) : false
   })
+  if (!view.summaryLine.trim() && persisted && scopedTraceMessages.value.length === 0) {
+    return { summaryLine: persisted, liveLine: view.liveLine }
+  }
+  return view
 })
 
-const summaryLine = computed(() => collapsedView.value.summaryLine)
+const summaryLine = computed(
+  () => collapsedView.value.summaryLine.trim() || SUB_AGENT_PROCESS_PLACEHOLDER
+)
 const liveLine = computed(() => (collapsed.value ? collapsedView.value.liveLine : null))
 const liveToolName = computed(() => {
   if (!collapsed.value) return null
@@ -278,12 +290,6 @@ const liveKey = computed(() => {
   if (liveLine.value?.trim()) return 'thinking'
   return null
 })
-
-const showProcessHeader = computed(() =>
-  !!summaryLine.value.trim()
-  || !!(collapsed.value && (liveLine.value?.trim() || isRunning.value))
-  || (!collapsed.value && visibleInnerTools.value.length > 0)
-)
 
 const showCompressionMarker = computed(
   () => ownsCompression.value && !!compressionProgressLabel.value
@@ -328,9 +334,20 @@ watch(rawContentViewEnabled, on => {
 })
 
 function toggleExpanded() {
-  if (visibleInnerTools.value.length === 0) return
   toggleSubTraceExpanded(props.trace)
 }
+
+watch(
+  () => !collapsed.value,
+  open => {
+    if (!open) return
+    void chatStore.ensureScopedMessagesForTrace(
+      effectiveAnchorId.value,
+      props.trace.id,
+      props.trace.agentInstanceId
+    )
+  }
+)
 
 const isSearchHit = computed(() => {
   const ids = searchToolCallIds.value
@@ -371,10 +388,7 @@ watch(
       />
     </div>
 
-    <div
-      v-if="showProcessHeader"
-      class="flex items-start gap-2 min-w-0"
-    >
+    <div class="flex items-start gap-2 min-w-0">
       <CollapsedRunHeader
         :summary-line="summaryLine"
         :live-line="liveLine"
@@ -383,7 +397,7 @@ watch(
         :expanded="!collapsed"
         :failed="trace.status === 'failed'"
         :force-live-slot="collapsed && isRunning"
-        :show-chevron="visibleInnerTools.length > 0"
+        :show-chevron="true"
         :live-busy="collapsed && !!liveInnerTool"
         :aria-label="liveAriaLabel"
         @toggle="toggleExpanded"

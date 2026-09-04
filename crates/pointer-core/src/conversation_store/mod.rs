@@ -37,7 +37,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 25;
+const SCHEMA_VERSION: i32 = 26;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -101,6 +101,35 @@ impl ConversationStore {
     ) -> Result<MessagePage> {
         let conn = self.db.conn.lock();
         load_messages_page(&conn, conversation_id, opts)
+    }
+
+    /// Scoped sub-agent transcript rows for one trace (on-demand UI expand).
+    pub fn load_scoped_sub_messages_for_trace(
+        &self,
+        conversation_id: &str,
+        anchor_message_id: &str,
+        trace_id: &str,
+        agent_instance_id: Option<&str>,
+    ) -> Result<Vec<ChatMessage>> {
+        let conn = self.db.conn.lock();
+        persist::load_scoped_sub_messages_for_trace(
+            &conn,
+            conversation_id,
+            anchor_message_id,
+            trace_id,
+            agent_instance_id,
+        )
+    }
+
+    /// Replace `payload.agentTrace` on one message without rewriting the rest of the row.
+    pub fn patch_message_agent_trace(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        agent_trace_json: &str,
+    ) -> Result<usize> {
+        let conn = self.db.conn.lock();
+        persist::patch_agent_trace_json(&conn, conversation_id, message_id, agent_trace_json)
     }
 
     /// Cursor-paginated meta-only list (no messages). Sort order is
@@ -1119,6 +1148,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            context_included INTEGER NOT NULL DEFAULT 1,
            tool_name TEXT,
            agent_instance_id TEXT,
+           is_scoped INTEGER NOT NULL DEFAULT 0,
            UNIQUE(conversation_id, message_id)
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -1177,6 +1207,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            ON messages(conversation_id, position) WHERE context_included = 1;",
     )?;
     ensure_messages_agent_instance_id(conn)?;
+    ensure_messages_is_scoped(conn)?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
     ensure_projects_schema(conn)?;
@@ -1617,6 +1648,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     )?;
     // v25: materialize payload.agentInstanceId for instance-scoped recall.
     ensure_messages_agent_instance_id(conn)?;
+    ensure_messages_is_scoped(conn)?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)
          WHERE session_user_id != trim(session_user_id)",
@@ -1664,6 +1696,21 @@ fn ensure_messages_agent_instance_id(conn: &Connection) -> Result<()> {
          CREATE INDEX IF NOT EXISTS idx_messages_agent_instance_id
            ON messages(agent_instance_id)
            WHERE agent_instance_id IS NOT NULL;",
+    )?;
+    Ok(())
+}
+
+fn ensure_messages_is_scoped(conn: &Connection) -> Result<()> {
+    add_column_if_missing(
+        conn,
+        "messages",
+        "is_scoped",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    crate::conversation_store::persist::backfill_is_scoped(conn)?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_lead_pos
+           ON messages(conversation_id, position) WHERE is_scoped = 0;",
     )?;
     Ok(())
 }

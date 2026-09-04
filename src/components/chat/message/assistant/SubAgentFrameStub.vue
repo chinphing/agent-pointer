@@ -1,0 +1,32 @@
+<script setup lang="ts">
+import type { AgentTrace } from '../../../../types/chat'
+import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
+
+defineProps<{
+  trace: AgentTrace
+  summaryLine: string
+  showChevron: boolean
+}>()
+
+const emit = defineEmits<{
+  toggle: []
+}>()
+</script>
+
+<template>
+  <div
+    class="sub-agent-frame-stub min-w-0 w-full overflow-hidden"
+    :style="{
+      marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px`
+    }"
+  >
+    <CollapsedRunHeader
+      :summary-line="summaryLine"
+      :expanded="false"
+      :failed="trace.status === 'failed'"
+      :show-chevron="showChevron"
+      :aria-label="summaryLine.trim() || '子任务过程'"
+      @toggle="emit('toggle')"
+    />
+  </div>
+</template>

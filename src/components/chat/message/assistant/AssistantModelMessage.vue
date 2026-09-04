@@ -8,14 +8,13 @@ import { shouldShowSubAgentTrace, uiForSubAgentFrame } from '../../../../lib/age
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import {
-  isSubAgentTraceTerminal,
   orphanSubTraces,
   subTracesForMessage,
   subTracesForParentToolCall
 } from '../../../../lib/subAgentSession'
-import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
+import { resolveTraceTaskId, traceLookupId } from '../../../../lib/subAgentStats'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
-import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
+import SubAgentFrameHost, { type SubAgentTaskBoardBinding } from './SubAgentFrameHost.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 
 const props = defineProps<{
@@ -82,7 +81,7 @@ const thoughtsDebugEnabled = computed(
 )
 
 const chatStore = useChatStore()
-const { subAgentLiveSignals, generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatStore)
+const { generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatStore)
 
 const conversationMessages = computed(() => chatStore.current?.messages ?? [])
 
@@ -92,11 +91,11 @@ const childBoardByTraceId = computed(() => {
   for (const trace of subTraces.value) {
     const binding = chatStore.childBoardBindingForTrace(
       chatStore.currentId,
-      trace.id,
+      traceLookupId(trace),
       props.message.id
     )
     if (!binding) continue
-    const taskId = subTaskIdFromTraceId(trace.id)
+    const taskId = resolveTraceTaskId(trace)
     if (!taskId) continue
     out.set(trace.id, {
       document: binding.document,
@@ -107,23 +106,6 @@ const childBoardByTraceId = computed(() => {
   }
   return out
 })
-
-/**
- * Per-trace live fingerprint from store (incremental; avoids O(running × messages) rescans).
- */
-function subAgentMemoDeps(trace: AgentTrace): unknown[] {
-  const board = childBoardByTraceId.value.get(trace.id)
-  const boardKey = board
-    ? `${board.taskId}:${board.document.version}:${board.isActive ? 1 : 0}`
-    : ''
-  const expanded = trace.userExpanded === true
-  if (trace.status === 'running') {
-    const convId = chatStore.currentId?.trim() ?? ''
-    const live = convId ? (subAgentLiveSignals.value[convId]?.[trace.id] ?? '') : ''
-    return [trace.status, expanded, boardKey, live]
-  }
-  return [trace.status, expanded, boardKey, isSubAgentTraceTerminal(trace.status) ? 1 : 0]
-}
 
 const isActiveGenerationMessage = computed(
   () => props.message.id === activeGeneratingMessageId.value
@@ -171,11 +153,10 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
       :content-only="contentOnly"
     >
       <template v-if="showSubAgentFrames" #after-tool="{ toolCall }">
-        <SubAgentFrame
+        <SubAgentFrameHost
           v-for="trace in tracesUnderTool(toolCall)"
           v-show="showSubAgentTrace"
           :key="trace.id"
-          v-memo="subAgentMemoDeps(trace)"
           :trace="trace"
           :anchor-message-id="message.id"
           :messages="conversationMessages"
@@ -192,11 +173,10 @@ const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrac
     </AgentMessageBody>
 
     <!-- Legacy / unmatched traces (no parentToolCallId or tool row missing). -->
-    <SubAgentFrame
+    <SubAgentFrameHost
       v-for="trace in orphanTraces"
       v-show="showSubAgentFrames"
       :key="trace.id"
-      v-memo="subAgentMemoDeps(trace)"
       class="px-3"
       :trace="trace"
       :anchor-message-id="message.id"

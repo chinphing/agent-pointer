@@ -402,6 +402,10 @@ mod agent_trace_persistence_tests {
             computer_target: Some(ComputerOperationTarget::External),
             parent_tool_call_id: Some("call-run-subagent".into()),
             anchor_message_id: None,
+            summary_line: None,
+            task_id: Some("task-1".into()),
+            agent_id: Some("computer".into()),
+            search_tool_call_ids: None,
             session: Some(SubAgentSessionUi {
                 thoughts: Some("done".into()),
                 stats: SubAgentToolStats {

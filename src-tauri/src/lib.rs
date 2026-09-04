@@ -552,6 +552,7 @@ pub fn run() {
             commands::list_conversation_outline,
             commands::load_conversation_messages,
             commands::load_conversation_messages_page,
+            commands::load_scoped_sub_messages_for_trace,
             commands::load_conversation_meta,
             commands::delete_conversation,
             commands::save_conversation_meta,

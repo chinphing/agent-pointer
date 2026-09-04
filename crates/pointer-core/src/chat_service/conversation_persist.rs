@@ -25,6 +25,22 @@ pub fn upsert_message(conversation_id: &str, msg: &ChatMessage) {
     crate::conversation_transcript::upsert_message(conversation_id, msg);
 }
 
+/// Patch only `payload.agentTrace` on the lead row (no full ChatMessage clone).
+pub fn patch_anchor_agent_trace(
+    conversation_id: &str,
+    message_id: &str,
+    agent_trace_json: &str,
+) {
+    let Some(store) = store() else {
+        return;
+    };
+    if let Err(e) = store.patch_message_agent_trace(conversation_id, message_id, agent_trace_json) {
+        log::warn!(
+            "conversation_persist: patch agent_trace failed conversation_id={conversation_id} message_id={message_id}: {e:#}"
+        );
+    }
+}
+
 pub fn upsert_meta(meta: &ConversationMeta) {
     let Some(store) = store() else {
         return;

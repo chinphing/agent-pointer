@@ -21,9 +21,10 @@ How Pointer reduces **peak RSS during a chat turn** without changing the persist
 ## Phase 2.1 (implemented)
 
 - Frontend `persistAppend` uses the same `persistedMessageIdsByConv` watermark as
-  hydrated `sendChat`: only non-persisted rows are deep-cloned for
-  `append_conversation_messages` (`messagesForPersistAppend`). Empty incremental
-  skips the IPC/HTTP append but still refreshes the watermark.
+  hydrated `sendChat`: only non-persisted **lead** rows plus
+  `listUnpersistedRows` (not a full store flatten) are deep-cloned.
+  Hydrated `sendChat` never includes scoped rows (backend `persist_sub_message`
+  already wrote them). Empty incremental does **not** fall back to a full clone.
 
 ## Phase 2.2 (implemented) — `run_chat` working-set history
 

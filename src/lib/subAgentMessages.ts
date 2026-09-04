@@ -1,15 +1,22 @@
 import type { AgentMessageBodyModel } from '../components/chat/message/assistant/AgentMessageBody.vue'
 import type { AgentTrace, ChatMessage, Conversation, SubAgentToolStats, ToolCall } from '../types/chat'
 import { toolCallBaseName } from './messageTooling'
-import { isBackgroundSubagentCall } from './toolCallDisplay'
 import {
   emptySubAgentToolStats,
   incrementSubAgentToolStats,
   subAgentIdFromTraceId
 } from './subAgentStats'
 
+import { useConversationScopedStore } from './conversationScoped'
+
 export function isScopedSubMessage(msg: ChatMessage): boolean {
   return !!msg.anchorMessageId?.trim()
+}
+
+function rowMatchesTraceOrSpawn(row: ChatMessage, trace: string): boolean {
+  const rowTrace = row.traceId?.trim() ?? ''
+  const rowInstance = row.agentInstanceId?.trim() ?? ''
+  return (!!rowTrace && rowTrace === trace) || (!!rowInstance && rowInstance === trace)
 }
 
 export function scopedMessagesForTrace(
@@ -21,14 +28,12 @@ export function scopedMessagesForTrace(
   const anchor = anchorMessageId.trim()
   const trace = traceId.trim()
   const instance = agentInstanceId?.trim()
-  if (!anchor || !trace) return []
-  return messages.filter(
-    m =>
-      isScopedSubMessage(m)
-      && m.anchorMessageId?.trim() === anchor
-      && m.traceId?.trim() === trace
-      && (!instance || m.agentInstanceId?.trim() === instance)
-  )
+  if (!anchor || (!trace && !instance)) return []
+  return messages.filter((m) => {
+    if (!isScopedSubMessage(m) || m.anchorMessageId?.trim() !== anchor) return false
+    if (instance) return (m.agentInstanceId?.trim() ?? '') === instance
+    return rowMatchesTraceOrSpawn(m, trace)
+  })
 }
 
 /** Assistant-only scoped rows for SubAgentFrame (excludes host stub user + tool result rows). */
@@ -80,7 +85,7 @@ function mergeScopedAssistantMessagesForDisplay(
   return body
 }
 
-export function computeSubAgentStatsFromMessages(messages: ChatMessage[]): SubAgentToolStats {
+export function computeSubAgentStatsFromMessages(messages: readonly ChatMessage[]): SubAgentToolStats {
   const stats = emptySubAgentToolStats()
   const completedToolIds = new Set(
     messages
@@ -211,6 +216,8 @@ export function subAgentFrameOwnsCompression(
   } | null | undefined,
   args: {
     messages: ChatMessage[]
+    allScopedMessages?: ChatMessage[]
+    cutScopedRow?: ChatMessage | null
     anchorMessageId: string
     traceId: string
     agentInstanceId?: string
@@ -226,7 +233,18 @@ export function subAgentFrameOwnsCompression(
   )
   if (cut) {
     if (scoped.some(m => m.id === cut)) return true
-    const cutInOtherScoped = args.messages.some(
+    if (args.cutScopedRow && isScopedSubMessage(args.cutScopedRow)) {
+      const cutInThisSpawn = scopedMessagesForTrace(
+        [args.cutScopedRow],
+        args.anchorMessageId,
+        args.traceId,
+        args.agentInstanceId
+      ).length > 0
+      if (cutInThisSpawn) return true
+      return false
+    }
+    const pool = args.allScopedMessages ?? args.messages
+    const cutInOtherScoped = pool.some(
       m => isScopedSubMessage(m) && m.id === cut
     )
     if (cutInOtherScoped) return false
@@ -234,8 +252,22 @@ export function subAgentFrameOwnsCompression(
   const anchor = state.messageId?.trim() ?? ''
   if (anchor && anchor !== args.anchorMessageId.trim()) return false
   const agent = state.subAgentId?.trim() ?? ''
-  if (agent && agent !== subAgentIdFromTraceId(args.traceId)) return false
+  if (agent) {
+    const fromTrace = subAgentIdFromTraceId(args.traceId)
+    // After Phase G, AgentTrace.id is a SpawnId (no `:agent` suffix).
+    if (fromTrace && agent !== fromTrace) return false
+  }
   return true
+}
+
+export function latestSubAgentBodyModelFromSpawnRows(
+  spawnRows: ChatMessage[],
+  traceStatus?: string
+): AgentMessageBodyModel | null {
+  const assistants = spawnRows
+    .filter(m => m.role === 'assistant')
+    .sort((a, b) => a.createdAt - b.createdAt)
+  return mergeScopedAssistantMessagesForDisplay(assistants, traceStatus)
 }
 
 export function latestSubAgentBodyModelFromScoped(
@@ -266,7 +298,8 @@ export function ensureScopedChildMessage(
     agentInstanceId?: string
   }
 ): ChatMessage {
-  const existing = conv.messages.find(m => m.id === scopedMessageId)
+  const store = useConversationScopedStore()
+  const existing = store.findRow(conv.id, scopedMessageId)
   if (existing) return existing
   const child: ChatMessage = {
     id: scopedMessageId,
@@ -282,7 +315,12 @@ export function ensureScopedChildMessage(
     spawnDepth: linkage.spawnDepth,
     agentInstanceId: linkage.agentInstanceId?.trim() || undefined
   }
-  conv.messages.push(child)
+  store.ensureInstance(conv.id, {
+    agentInstanceId: child.agentInstanceId,
+    anchorMessageId: child.anchorMessageId,
+    traceId: child.traceId,
+    taskId: child.taskId
+  }, child)
   return child
 }
 
@@ -290,7 +328,9 @@ export function findScopedMessage(
   conv: Conversation,
   scopedMessageId: string
 ): ChatMessage | undefined {
-  return conv.messages.find(m => m.id === scopedMessageId.trim())
+  const id = scopedMessageId.trim()
+  return useConversationScopedStore().findRow(conv.id, id)
+    ?? conv.messages.find(m => m.id === id)
 }
 
 /** Resolve the chat row stream handlers should mutate (lead or scoped child). */
@@ -372,8 +412,11 @@ function traceAgentId(traceId: string): string {
  * Rebuild degraded `agentTrace` index rows from persisted scoped child messages
  * (covers conversations saved before anchor `agent_trace` sync landed).
  */
-export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void {
-  const scoped = conv.messages.filter(isScopedSubMessage)
+export function rehydrateAgentTracesFromScopedMessages(
+  conv: Conversation,
+  scopedRows?: ChatMessage[]
+): void {
+  const scoped = scopedRows ?? conv.messages.filter(isScopedSubMessage)
   if (scoped.length === 0) return
 
   const byAnchor = new Map<string, ChatMessage[]>()
@@ -409,7 +452,11 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
       const first = forTrace[0]
       const inferred = inferTraceStatus(forTrace)
       const parentToolCallId = inferParentToolCallId(lead, forTrace, traceId, first)
-      const existing = lead.agentTrace.find(t => t.id === traceId)
+      const existing = lead.agentTrace.find(
+        t => t.id === traceId
+          || t.id === agentInstanceId
+          || (!!agentInstanceId && t.agentInstanceId === agentInstanceId)
+      )
       const status = resolveRehydratedTraceStatus(existing, inferred, forTrace)
       if (existing) {
         existing.status = status
@@ -427,12 +474,14 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
         .filter(c => c && !isSubAgentHostStubContent(c))
         .pop()
       lead.agentTrace.push({
-        id: traceId,
+        id: agentInstanceId || traceId,
         name: first?.agentName?.trim() || agentId || '子任务',
         role: '',
         status,
         depth: first?.spawnDepth ?? 1,
         agentInstanceId,
+        taskId: first?.taskId,
+        agentId: agentId || undefined,
         parentToolCallId,
         detail: detail ? detail.slice(0, 160) : undefined,
         collapsed: true,
@@ -443,8 +492,8 @@ export function rehydrateAgentTracesFromScopedMessages(conv: Conversation): void
   }
 }
 
-function backgroundHostCalls(lead: ChatMessage): ToolCall[] {
-  return (lead.toolCalls ?? []).filter(isBackgroundSubagentCall)
+function runSubagentHostCalls(lead: ChatMessage): ToolCall[] {
+  return (lead.toolCalls ?? []).filter(tc => toolCallBaseName(tc.name) === 'run_subagent')
 }
 
 function inferParentToolCallId(
@@ -453,16 +502,39 @@ function inferParentToolCallId(
   traceId: string,
   first: ChatMessage | undefined
 ): string | undefined {
-  const hosts = backgroundHostCalls(lead)
+  const hosts = runSubagentHostCalls(lead)
   const taskId = (first?.taskId || children.find(c => c.taskId?.trim())?.taskId || '').trim()
   if (taskId && hosts.some(h => h.id === taskId)) return taskId
   const host = hosts.find(h => traceId === h.id || traceId.startsWith(`${h.id}:`))
   return host?.id
 }
 
+function agentInstanceIdFromHostTool(tc: ToolCall): string {
+  const raw = tc.result?.trim()
+  if (!raw) return ''
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return ''
+    const id = parsed.agentInstanceId
+    return typeof id === 'string' ? id.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+function hostTraceStatus(tc: ToolCall): string {
+  if (tc.status === 'failed' || tc.status === 'rejected') return 'failed'
+  if (tc.status === 'cancelled') return 'cancelled'
+  if (tc.status === 'success') return 'completed'
+  if (tc.status === 'running' || tc.status === 'pending' || tc.status === 'pending_approval') {
+    return 'running'
+  }
+  return 'completed'
+}
+
 /** Legacy rows omit parentToolCallId; pair leftover traces to leftover hosts in order. */
 export function bindUnboundTracesToHosts(lead: ChatMessage): void {
-  const hosts = backgroundHostCalls(lead)
+  const hosts = runSubagentHostCalls(lead)
   if (hosts.length === 0) return
   const traces = lead.agentTrace ?? []
   for (const trace of traces) {
@@ -478,5 +550,45 @@ export function bindUnboundTracesToHosts(lead: ChatMessage): void {
   const n = Math.min(unboundTraces.length, unboundHosts.length)
   for (let i = 0; i < n; i += 1) {
     unboundTraces[i]!.parentToolCallId = unboundHosts[i]!.id
+  }
+}
+
+/**
+ * Hydrate without scoped rows still needs a nestable trace under each host
+ * so the process line can expand and lazy-load.
+ */
+export function ensureHostLinkedSubTraces(lead: ChatMessage): void {
+  if (lead.role !== 'assistant') return
+  bindUnboundTracesToHosts(lead)
+  const hosts = runSubagentHostCalls(lead)
+  if (hosts.length === 0) return
+  lead.agentTrace = lead.agentTrace ?? []
+  for (const host of hosts) {
+    const hostId = host.id.trim()
+    if (!hostId) continue
+    const linked = lead.agentTrace.find(t => (t.parentToolCallId ?? '').trim() === hostId)
+    if (linked) continue
+    const instance = agentInstanceIdFromHostTool(host)
+    if (!instance) continue
+    const existing = lead.agentTrace.find(
+      t => t.id === instance || (t.agentInstanceId ?? '').trim() === instance
+    )
+    if (existing) {
+      if (!(existing.parentToolCallId ?? '').trim()) {
+        existing.parentToolCallId = hostId
+      }
+      continue
+    }
+    lead.agentTrace.push({
+      id: instance,
+      name: '',
+      role: '',
+      status: hostTraceStatus(host),
+      depth: 1,
+      agentInstanceId: instance,
+      parentToolCallId: hostId,
+      collapsed: true,
+      userExpanded: false
+    })
   }
 }

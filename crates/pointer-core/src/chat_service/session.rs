@@ -106,8 +106,8 @@ pub async fn run_chat(
         im_auto_deliver,
     );
 
-    super::sub_message::strip_scoped_from_lead_history(&mut history);
-
+    // Keep scoped rows on the incoming buffer so `prepare_lead_history` can
+    // `append_missing` them. Working-set reload drops scoped for the LLM.
     state.touch_activity();
 
     let cancel = CancellationToken::new();

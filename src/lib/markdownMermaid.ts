@@ -73,20 +73,50 @@ export function subgraphTitleNeedsQuotes(title: string): boolean {
   return /[^\p{L}\p{N}\s_-]/u.test(t)
 }
 
+/** Close `]` for `id[…]`, counting nested `vouchers[]` / `matches[]`. */
+function findFlowchartLabelClose(source: string, contentStart: number): number {
+  let depth = 1
+  for (let i = contentStart; i < source.length; i++) {
+    const c = source[i]
+    if (c === '\n') return -1
+    if (c === '[') depth += 1
+    else if (c === ']') {
+      depth -= 1
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
 /**
- * Models often put `/`, `()`, `*`, or `<br/>` in `A[label]` without quotes.
+ * Models often put `/`, `()`, `*`, `[]`, or `<br/>` in `A[label]` without quotes.
  * Unquoted `(` is parsed as a stadium node and the whole diagram fails.
+ * A naive `[^\]]*` cut at the first `]` turns `vouchers[]` into a parse error.
  */
 export function quoteFlowchartNodeLabels(source: string): string {
   if (!/^\s*(?:flowchart|graph)\b/im.test(source)) return source
-  return source.replace(
-    /(^|[\s;])([A-Za-z][\w-]*)\[(?!\s*")([^\]]*)\]/gm,
-    (full, prefix: string, id: string, inner: string) => {
-      const normalized = inner.replace(/<br\s*\/?>/gi, '<br>')
-      if (!flowchartLabelNeedsQuotes(normalized)) return full
-      return `${prefix}${id}["${normalized.replace(/"/g, '#quot;')}"]`
+  const open = /(^|[\s;])([A-Za-z][\w-]*)\[(?!\s*")/gm
+  let out = ''
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = open.exec(source))) {
+    const contentStart = m.index + m[0].length
+    const close = findFlowchartLabelClose(source, contentStart)
+    if (close < 0) continue
+    const inner = source.slice(contentStart, close)
+    const prefix = m[1]!
+    const id = m[2]!
+    const normalized = inner.replace(/<br\s*\/?>/gi, '<br>')
+    out += source.slice(last, m.index)
+    if (!flowchartLabelNeedsQuotes(normalized)) {
+      out += source.slice(m.index, close + 1)
+    } else {
+      out += `${prefix}${id}["${normalized.replace(/"/g, '#quot;')}"]`
     }
-  )
+    last = close + 1
+    open.lastIndex = last
+  }
+  return out + source.slice(last)
 }
 
 /**
@@ -318,7 +348,7 @@ export function mermaidInitializeConfig() {
     // Pure SVG labels when possible. Also pin flowchart.htmlLabels: some
     // Mermaid 11 paths still read that flag and default it to true.
     htmlLabels: false,
-    flowchart: { htmlLabels: false },
+    flowchart: { htmlLabels: false, useMaxWidth: true, padding: 12 },
     theme: 'base' as const,
     darkMode: mermaidThemeScheme() === 'dark',
     look: 'classic' as const,

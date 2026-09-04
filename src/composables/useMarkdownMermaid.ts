@@ -396,7 +396,8 @@ export function useMarkdownMermaid(
         imported.setAttribute('aria-label', 'diagram')
       }
       frame.appendChild(imported)
-      applySvgMountLayout(imported)
+      applySvgMountLayout(imported, { cropToContent: true })
+      cacheCleanedSvg(cacheKey, imported.outerHTML)
       imported.addEventListener('click', e => {
         e.preventDefault()
         e.stopPropagation()

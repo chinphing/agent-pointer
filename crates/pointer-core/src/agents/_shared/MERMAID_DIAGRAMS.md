@@ -22,9 +22,11 @@ transition** is clearer as a diagram than prose, emit a fenced Mermaid block:
   The host paints the diagram from the app light/dark theme.
 - Keep diagrams readable: **≤ ~50 nodes** (split larger ones), short labels.
 - Line breaks: `<br>` (not `<br/>`).
-- Quote labels that contain `/`, `()`, `*`, or HTML:
-  `A["draft.json (v2)"]`.
+- Quote labels that contain `/`, `()`, `*`, `[]`, or HTML:
+  `A["draft.json (v2)"]`,
+  `MJ["match.json<br>vouchers[]"]`.
   Unquoted `(` inside `[]` is parsed as a stadium node and fails.
+  Unquoted `vouchers[]` is cut at the first `]` and fails.
 - Quote subgraph titles that contain punctuation
   (including fullwidth `（，）`):
   `subgraph "明细路径（入账，正确）"`.

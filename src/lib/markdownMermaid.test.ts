@@ -159,6 +159,7 @@ describe('mermaid host theme', () => {
     expect(mermaidInitializeConfig().theme).toBe('base')
     expect(mermaidInitializeConfig().htmlLabels).toBe(false)
     expect(mermaidInitializeConfig().flowchart.htmlLabels).toBe(false)
+    expect(mermaidInitializeConfig().flowchart.padding).toBe(12)
   })
 
   it('strips init directives and keeps the diagram body', () => {
@@ -182,6 +183,16 @@ describe('mermaid host theme', () => {
     expect(quoted).toContain('A["材料文件<br>PDF/JPG/DOCX/zip"]')
     expect(quoted).toContain('E["v2 语义草稿<br>draft.json (draft_version 2)"]')
     expect(prepareMermaidSource(src)).toBe(quoted)
+  })
+
+  it('quotes [] labels that contain nested empty brackets', () => {
+    const src = `flowchart TD
+  MJ[match.json<br/>vouchers[]/matches[]]
+  AJ[assignment.json<br/>assignments[].vouchers[]]`
+    const quoted = quoteFlowchartNodeLabels(src)
+    expect(quoted).toContain('MJ["match.json<br>vouchers[]/matches[]"]')
+    expect(quoted).toContain('AJ["assignment.json<br>assignments[].vouchers[]"]')
+    expect(quoted).not.toContain('vouchers["]')
   })
 
   it('quotes subgraph titles with fullwidth punctuation or ASCII parens', () => {
@@ -242,6 +253,27 @@ describe('mermaid host theme', () => {
     const mermaid = (await import('mermaid')).default
     mermaid.initialize(mermaidInitializeConfig())
     await mermaid.parse(prepareMermaidSource(raw))
+  })
+
+  it('parses a flowchart whose node labels include vouchers[]', async () => {
+    const raw = `flowchart TD
+  V[支付凭证] --> R1{卡号匹配}
+  R1 -- 全等/尾4 命中 --> M[matched_traveler 硬归属]
+  R1 -- 未命中 --> R2{说明链软确认}
+  R2 -- 声明人+关联发票唯一 --> P[PROPOSED_FROM_EXPLANATION<br/>软确认, 不硬落]
+  R2 -- 未决 --> U[待确认 matched_traveler=null]
+  M --> MJ[match.json<br/>vouchers[]/matches[]]
+  P --> MJ
+  U --> MJ
+  M -. 写回同步 _persist_assigned_travelers_to_match .-> AJ[assignment.json<br/>assignments[].vouchers[]]
+  MJ --> C1[verify R2 / 面板 C5 / 未归属判定]
+  AJ --> C2[detail_4 付款行]`
+    const prepared = prepareMermaidSource(raw)
+    expect(prepared).toContain('MJ["match.json<br>vouchers[]/matches[]"]')
+    expect(prepared).toContain('AJ["assignment.json<br>assignments[].vouchers[]"]')
+    const mermaid = (await import('mermaid')).default
+    mermaid.initialize(mermaidInitializeConfig())
+    await mermaid.parse(prepared)
   })
 
   it('rounds flowchart node and cluster rects', () => {

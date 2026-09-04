@@ -27,12 +27,15 @@ flowchart TD
 - Some Mermaid 11 labels still land in `<foreignObject>`. The mermaid sanitizer keeps those tags (scripts/handlers stripped). User `svg` fences still drop `foreignObject`.
 - Switching `html.light` / `html.dark` remounts diagrams (same as xterm following the html class).
 - Diagram-level `%%{init}%%` / `initialize` theme directives are stripped so they cannot fight the host palette.
-- Model `[]` labels with `/`, `()`, `*`, or `<br/>` are quoted before parse (`A["draft.json (v2)"]`). Unquoted subgraph titles with `（，）` / `()` are quoted the same way (`subgraph "明细路径（入账，正确）"`). Copy source stays the original fence.
+- Model `[]` labels with `/`, `()`, `*`, nested `[]` (`vouchers[]`), or `<br/>` are quoted before parse (`A["draft.json (v2)"]`). The quoter matches brackets so `vouchers[]` is not cut at the first `]`. Unquoted subgraph titles with `（，）` / `()` are quoted the same way (`subgraph "明细路径（入账，正确）"`). Copy source stays the original fence.
 - Do not tell the model to emit `classDef` / `style` colors.
 
 ## UI
 
 - Fence chrome matches code / charts / SVG (`--fence-bg` = `--shell-chat`, rounded border).
+- After render, crop the SVG `viewBox` to the graph plus padding so Mermaid’s
+  unused canvas (often empty space above/beside a TD flowchart) does not stay
+  in the frame. The diagram stays horizontally centered (`margin: 0 auto`).
 - Toolbar: zoom, copy source, export SVG, toggle source. Export uses the themed SVG currently on screen. Zoom overlay clones the SVG outside `.md-body`; host paint rules also target `.diagram-zoom-overlay` so fills match the inline diagram.
 - **Streaming:** do not layout Mermaid until the fence (and usually the turn) is complete; show “图示生成中…”.
 - **Switch / scroll:** same in-view gate as Chart.js / SVG. Hidden workspace tabs wait until shown.

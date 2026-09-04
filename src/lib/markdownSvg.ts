@@ -618,9 +618,17 @@ function roundVb(n: number): string {
  * - Size from viewBox when present (ignore percentage width that collapses labels)
  * - Keep vector overflow visible so markers / edge labels are not clipped
  * - If still painted outside the box, expand viewBox via getBBox
+ * - `cropToContent`: also shrink empty viewBox padding (Mermaid flowcharts)
  */
-export function applySvgMountLayout(root: SVGElement): void {
-  expandSvgViewBoxFromDomBBox(root)
+export function applySvgMountLayout(
+  root: SVGElement,
+  opts?: { cropToContent?: boolean }
+): void {
+  if (opts?.cropToContent) {
+    cropSvgViewBoxToContentBBox(root)
+  } else {
+    expandSvgViewBoxFromDomBBox(root)
+  }
   const size = intrinsicSvgSizeFromViewBox(root.getAttribute('viewBox'))
   // Authors may ship responsive sizing (e.g. Mermaid emits width="100%" plus
   // `style="max-width: Npx"`). Forcing the raw viewBox pixel width then
@@ -636,6 +644,9 @@ export function applySvgMountLayout(root: SVGElement): void {
     root.style.width = '100%'
     root.style.height = 'auto'
     // keep the author's max-width cap so wide diagrams scale down, not up
+    if (opts?.cropToContent && size) {
+      root.style.maxWidth = `${size.width}px`
+    }
   } else if (size) {
     root.setAttribute('width', String(size.width))
     root.setAttribute('height', String(size.height))
@@ -699,5 +710,94 @@ export function expandSvgViewBoxFromDomBBox(root: SVGElement): void {
   root.setAttribute(
     'viewBox',
     `${roundVb(nextX)} ${roundVb(nextY)} ${roundVb(nextW)} ${roundVb(nextH)}`
+  )
+}
+
+function coversViewBox(
+  b: DOMRect,
+  vb: { x: number; y: number; width: number; height: number }
+): boolean {
+  const pad = 4
+  return (
+    b.x <= vb.x + pad &&
+    b.y <= vb.y + pad &&
+    b.x + b.width >= vb.x + vb.width - pad &&
+    b.y + b.height >= vb.y + vb.height - pad
+  )
+}
+
+function graphicsBBox(node: Element): DOMRect | null {
+  if (!(node instanceof SVGGraphicsElement)) return null
+  if (typeof node.getBBox !== 'function') return null
+  try {
+    const b = node.getBBox()
+    if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) return null
+    if (b.width <= 0 && b.height <= 0) return null
+    return b
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Shrink (or expand) viewBox to the rendered graph plus padding.
+ * Mermaid often emits a tall/wide canvas with the flowchart sitting off-center.
+ */
+export function cropSvgViewBoxToContentBBox(root: SVGElement): void {
+  const current = intrinsicSvgSizeFromViewBox(root.getAttribute('viewBox'))
+  if (!current) return
+
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+
+  const take = (b: DOMRect | null) => {
+    if (!b) return
+    minX = Math.min(minX, b.x)
+    minY = Math.min(minY, b.y)
+    maxX = Math.max(maxX, b.x + b.width)
+    maxY = Math.max(maxY, b.y + b.height)
+  }
+
+  try {
+    for (const node of Array.from(root.querySelectorAll('*'))) {
+      if (!(node instanceof Element)) continue
+      if (node.closest('defs')) continue
+      const b = graphicsBBox(node)
+      if (!b) continue
+      // Mermaid often paints a canvas-sized plate; including it keeps the empty margin.
+      if (coversViewBox(b, current)) continue
+      take(b)
+    }
+  } catch (err) {
+    console.warn('[markdownSvg] getBBox viewBox crop skipped', err)
+    expandSvgViewBoxFromDomBBox(root)
+    return
+  }
+
+  if (!Number.isFinite(minX) || maxX - minX < 8 || maxY - minY < 8) {
+    expandSvgViewBoxFromDomBBox(root)
+    return
+  }
+
+  const nextX = minX - VIEWBOX_FIT_PAD
+  const nextY = minY - VIEWBOX_FIT_PAD
+  const nextW = maxX - minX + VIEWBOX_FIT_PAD * 2
+  const nextH = maxY - minY + VIEWBOX_FIT_PAD * 2
+  const unchanged =
+    Math.abs(nextX - current.x) <= 0.5
+    && Math.abs(nextY - current.y) <= 0.5
+    && Math.abs(nextW - current.width) <= 0.5
+    && Math.abs(nextH - current.height) <= 0.5
+  if (unchanged) return
+
+  root.setAttribute(
+    'viewBox',
+    `${roundVb(nextX)} ${roundVb(nextY)} ${roundVb(nextW)} ${roundVb(nextH)}`
+  )
+  console.info(
+    '[markdownSvg] cropped viewBox to content',
+    `${roundVb(current.width)}x${roundVb(current.height)} → ${roundVb(nextW)}x${roundVb(nextH)}`
   )
 }

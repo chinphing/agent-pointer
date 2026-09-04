@@ -524,7 +524,6 @@ function agentInstanceIdFromHostTool(tc: ToolCall): string {
 
 function hostTraceStatus(tc: ToolCall): string {
   if (tc.status === 'failed' || tc.status === 'rejected') return 'failed'
-  if (tc.status === 'cancelled') return 'cancelled'
   if (tc.status === 'success') return 'completed'
   if (tc.status === 'running' || tc.status === 'pending' || tc.status === 'pending_approval') {
     return 'running'

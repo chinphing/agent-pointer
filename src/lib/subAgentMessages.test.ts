@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Conversation } from '../types/chat'
+import type { ChatMessage, Conversation } from '../types/chat'
 import {
   bindUnboundTracesToHosts,
   buildSubAgentBodyModelsFromScoped,
@@ -552,18 +552,18 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
 
 describe('ensureHostLinkedSubTraces', () => {
   it('pairs unbound traces to foreground run_subagent hosts', () => {
-    const lead = {
+    const lead: ChatMessage = {
       id: 'lead',
-      role: 'assistant' as const,
+      role: 'assistant',
       content: '',
-      status: 'done' as const,
+      status: 'done',
       createdAt: 1,
       toolCalls: [
         {
           id: 'call-fg',
           name: 'run_subagent',
           arguments: '{"agentId":"coder","goal":"补跑"}',
-          status: 'success' as const
+          status: 'success'
         }
       ],
       agentTrace: [
@@ -582,18 +582,18 @@ describe('ensureHostLinkedSubTraces', () => {
   })
 
   it('synthesizes a nestable trace from host result when agentTrace is missing', () => {
-    const lead = {
+    const lead: ChatMessage = {
       id: 'lead',
-      role: 'assistant' as const,
+      role: 'assistant',
       content: '',
-      status: 'done' as const,
+      status: 'done',
       createdAt: 1,
       toolCalls: [
         {
           id: 'call-fg',
           name: 'run_subagent',
           arguments: '{"agentId":"coder","goal":"补跑835113"}',
-          status: 'success' as const,
+          status: 'success',
           result: JSON.stringify({ agentInstanceId: 'inst-hydrated', content: 'ok' })
         }
       ]

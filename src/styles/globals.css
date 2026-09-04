@@ -31,8 +31,8 @@
     --mermaid-node: 0 0% 100%;
     --mermaid-node-border: 240 8% 82%;
     --mermaid-edge: 240 6% 68%;
-    /* Live-tool sweep highlight (overlay, not background-clip:text). */
-    --tool-live-shimmer: 240 5% 88%;
+    /* Light: stronger lift above --muted; keep a bit of ink so it does not vanish. */
+    --tool-live-shimmer: 240 5% 80%;
   }
 
   html.dark {

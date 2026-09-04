@@ -10,7 +10,7 @@ CSS variables in `src/styles/globals.css`:
   `--fence-bg` matches `--shell-chat` in light and dark. Markdown table `td` uses it too; `th` stays `--hover`.)
 - Semantic: `--success`, `--danger`, `--warning`, `--info`
 - `--search-mark`
-- `--tool-live-shimmer` — live tool sweep peak (`tool-live-pulse::after`). Brighter than `--muted` in both themes (light: silver on gray type; dark: near `--foreground`).
+- `--tool-live-shimmer` — live tool sweep peak (brighter than `--muted` in both themes). Light: silver-gray lift (`80%`) so the flash pops on gray type without washing to paper. Dark: near `--foreground`.
 - Mermaid diagram surfaces: `--mermaid-cluster`, `--mermaid-node`, `--mermaid-node-border`, `--mermaid-edge`
   (nodes must read against `--fence-bg` / the chat canvas; do not use `--accent-muted` as a node fill).
   Light is outlined white cards; dark is charcoal plates. See [markdown-mermaid.md](markdown-mermaid.md)

@@ -619,6 +619,54 @@ describe('lastTurnFileChanges', () => {
     expect(collectLeadTurnStarts(list).map(item => item.turnId)).toEqual(['u1', 'u2'])
   })
 
+  it('does not attach previous-turn scoped writes to the next active turn', () => {
+    const previousWrite = tc({
+      id: 'e1',
+      name: 'file_edit',
+      result: JSON.stringify({
+        path: '/ws/from-sub.ts',
+        success: true,
+        replaced: 1,
+        stats: { adds: 770, dels: 18 }
+      })
+    })
+    const list = [
+      msg({ id: 'u1', role: 'user', content: 'first' }),
+      msg({ id: 'a1', role: 'assistant', content: 'done' }),
+      msg({ id: 'u2', role: 'user', content: 'deepen' }),
+      msg({ id: 'a2', role: 'assistant', content: '', status: 'streaming' })
+    ]
+    const extra = [
+      msg({
+        id: 'sub_asst',
+        role: 'assistant',
+        content: '',
+        anchorMessageId: 'a1',
+        toolCalls: [previousWrite]
+      }),
+      msg({
+        id: 'nested_asst',
+        role: 'assistant',
+        content: '',
+        anchorMessageId: 'sub_asst',
+        toolCalls: [
+          tc({
+            id: 'e2',
+            name: 'file_write',
+            result: JSON.stringify({ path: '/ws/nested.ts', success: true, bytesWritten: 4 })
+          })
+        ]
+      })
+    ]
+    const starts = collectLeadTurnStarts(list)
+    const frozen = frozenFileChangesFromStarts(list, starts, null, extra)
+    expect(frozen.map.get('u1')?.map(f => f.path)).toEqual(['/ws/from-sub.ts', '/ws/nested.ts'])
+    expect(frozen.map.has('u2')).toBe(false)
+
+    const active = resolveActiveTurnFileChanges(list, 'u2', starts[1]!.start, null, extra)
+    expect(active.files).toEqual([])
+  })
+
   it('frozenFileChangesFromStarts keeps older file arrays when a new lead turn starts', () => {
     const list = [
       msg({

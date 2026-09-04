@@ -224,6 +224,44 @@ function pushSuccessfulFileMutationsFromMessage(into: ToolCall[], seen: Set<stri
   }
 }
 
+/**
+ * Scoped extras are stored off the lead list. Keep only rows whose
+ * `anchorMessageId` chain lands on a message in `[start, end)`.
+ * Otherwise every visible spawn's writes would appear on the latest turn.
+ */
+function extrasOwnedByRange(
+  list: ChatMessage[],
+  start: number,
+  end: number,
+  extra: readonly ChatMessage[]
+): ChatMessage[] {
+  if (!extra.length) return []
+  const owned = new Set<string>()
+  for (let i = start; i < end; i++) {
+    const id = list[i]?.id?.trim()
+    if (id) owned.add(id)
+  }
+  if (owned.size === 0) return []
+
+  const remaining = extra.slice()
+  const matched: ChatMessage[] = []
+  let grew = true
+  while (grew && remaining.length) {
+    grew = false
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      const message = remaining[i]!
+      const anchor = message.anchorMessageId?.trim() ?? ''
+      if (!anchor || !owned.has(anchor)) continue
+      remaining.splice(i, 1)
+      matched.push(message)
+      const id = message.id?.trim()
+      if (id) owned.add(id)
+      grew = true
+    }
+  }
+  return matched
+}
+
 function collectSuccessfulFileMutations(
   list: ChatMessage[],
   start: number,
@@ -235,7 +273,7 @@ function collectSuccessfulFileMutations(
   for (let i = start; i < end; i++) {
     pushSuccessfulFileMutationsFromMessage(mutating, seen, list[i])
   }
-  for (const message of extra) {
+  for (const message of extrasOwnedByRange(list, start, end, extra)) {
     pushSuccessfulFileMutationsFromMessage(mutating, seen, message)
   }
   return mutating

@@ -869,9 +869,9 @@ watch(searchQuery, q => {
             class="sidebar-chrome-drag h-full shrink-0 traffic-light-inset"
             aria-hidden="true"
           />
-          <!-- 品牌：展开状态固定在侧栏左上角（非交互元素，鼠标按下仍可拖动窗口） -->
+          <!-- 品牌：展开状态固定在侧栏左上角，pl-3.5 与底栏账户头像左缘对齐（p-2 + px-1.5） -->
           <div
-            class="sidebar-brand flex items-center gap-2 min-w-0 flex-1 pl-2"
+            class="sidebar-brand flex items-center gap-2 min-w-0 flex-1 pl-3.5"
           >
             <img
               src="/app-icon.png"

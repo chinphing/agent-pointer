@@ -44,6 +44,19 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
   Merge into your plan; do not paste the full handoff to the user.
 - Only **`content`** (or the job handle). Worker thinking is not included.
 
+**End turn vs await**
+
+Default: **end your turn** after spawning background workers.
+Await only when the user's question cannot be answered without the result.
+
+- User asked a question and you already have the answer → end turn.
+- Spawned workers for parallel subtasks and the user needs the merged
+  result now → `job.await`.
+- Spawned workers but the user can see progress / partial results →
+  end turn; the host delivers finished results later.
+- **Do not** spawn-then-await in the same turn unless the next tool
+  call or your reply depends on that specific result.
+
 **Rules**
 
 - **`goal`** must stand alone — the worker does **not** see the main chat.

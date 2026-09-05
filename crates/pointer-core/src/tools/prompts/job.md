@@ -66,6 +66,12 @@ Do not tell the user everything is finished while jobs are still running.
 - Same metadata as list. **No `content`.** Does **not** claim.
 - If this turn needs the body, **`await`** the id.
 
+**Await vs end turn (read first)**
+
+Default: **end your turn** — do not await. The host delivers finished
+results as a new user message. Await only when your reply or the next
+tool call is blocked on a specific result.
+
 **`await`**
 
 - The **only** way a job body enters this turn.

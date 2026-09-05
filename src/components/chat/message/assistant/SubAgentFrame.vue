@@ -229,6 +229,17 @@ const showThinkingInSummary = computed(() => {
   void chatStore.getSubAgentLiveSignal(
     props.trace.agentInstanceId?.trim() || props.trace.id
   )
+  // Guard 1: conversation no longer generating — run ended or was cancelled.
+  const convId = chatStore.currentId
+  if (convId && !chatStore.isConversationGenerating(convId)) return false
+  // Guard 2: newer messages exist after this frame's anchor — thinking is stale.
+  const anchorIdx = props.messages.findIndex(m => m.id === props.anchorMessageId)
+  if (anchorIdx >= 0 && props.messages.length > anchorIdx + 1) {
+    const hasNewerUserMessage = props.messages.slice(anchorIdx + 1).some(
+      m => m.role === 'user' && !m.anchorMessageId
+    )
+    if (hasNewerUserMessage) return false
+  }
   return subAgentThinkingActive({
     running: isRunning.value,
     hasInProgressTool:

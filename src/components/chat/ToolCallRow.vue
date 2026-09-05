@@ -456,10 +456,6 @@ function openSourceUrl(url: string) {
         <span v-else-if="showFailedQuiet" class="shrink-0 text-[10px] text-muted/45">{{ statusInfo.label }}</span>
         <span v-else-if="showSuccessQuiet" class="shrink-0 text-muted/45">{{ statusInfo.label }}</span>
         <span v-if="durationLabel" class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ durationLabel }}</span>
-        <component
-          :is="open ? ChevronDown : ChevronRight"
-          class="tool-call-chevron w-3 h-3 shrink-0 ml-[2ch] text-muted hidden"
-        />
       </button>
       <button
         v-if="canViewTerminalLive"
@@ -478,10 +474,16 @@ function openSourceUrl(url: string) {
       <button
         v-if="showEndWait"
         type="button"
-        class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
+        class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-all opacity-0 group-hover:opacity-100"
         title="结束等待，后台任务继续跑"
         @click.stop="endWaitOnly"
       >结束等待</button>
+      <component
+        :is="open ? ChevronDown : ChevronRight"
+        class="tool-call-chevron w-3 h-3 shrink-0 ml-auto text-muted"
+        :class="open ? 'inline-flex' : 'hidden group-hover:inline-flex'"
+        aria-hidden="true"
+      />
     </div>
 
     <AskUserOptions

@@ -150,10 +150,10 @@ fn collect_fts_hits(
     fts_query: &str,
     filter_uid: Option<&str>,
 ) -> Result<Vec<ConversationSearchHit>> {
-    // Full FTS recall for non-tool rows. Do not `ORDER BY bm25` (scores the
-    // whole posting list) and do not JOIN `messages.content`. GROUP BY keeps
-    // one row per conversation; primary `message_id` is filled after the UI
-    // truncates to `limit`.
+    // Cap FTS recall: a common CJK term can match thousands of rows across
+    // hundreds of conversations. GROUP BY still scans the full posting list,
+    // but LIMIT prevents unbounded memory use and keeps the result set small.
+    // The UI only shows up to `UI_SEARCH_MAX_LIMIT` conversations anyway.
     let sql = format!(
         "SELECT m.conversation_id,
                 COUNT(*) AS match_count,
@@ -166,8 +166,11 @@ fn collect_fts_hits(
            AND c.id NOT LIKE 'webhook:%'
            AND (?2 IS NULL OR c.session_user_id = ?2)
            {skip}
-         GROUP BY m.conversation_id",
-        skip = sql_and_skip_ui_tool_rows()
+         GROUP BY m.conversation_id
+         ORDER BY c.updated_at_ms DESC
+         LIMIT {cap}",
+        skip = sql_and_skip_ui_tool_rows(),
+        cap = UI_SEARCH_MAX_LIMIT * 2
     );
     let mut stmt = conn.prepare(&sql)?;
     let mapped = stmt.query_map(params![fts_query, filter_uid], |row| {
@@ -256,10 +259,15 @@ fn fill_ui_primary_message_ids(
 
 /// Align sidebar `match_count` with expand: same FTS rows, prefix, and
 /// `text_contains_query` filters — raw `COUNT(*)` alone can over-count.
+///
+/// Uses a cheap SQL COUNT instead of loading 16KB content prefixes per
+/// message. The count may slightly over-count when FTS tokenization matches
+/// rows that `text_contains_query` would reject, but this is acceptable for
+/// the sidebar badge (the expand path re-counts accurately).
 fn reconcile_ui_match_counts(
     conn: &Connection,
     hits: &mut [ConversationSearchHit],
-    raw_query: &str,
+    _raw_query: &str,
     fts_query: &str,
 ) -> Result<()> {
     let ids: Vec<String> = hits
@@ -270,10 +278,29 @@ fn reconcile_ui_match_counts(
     if ids.is_empty() {
         return Ok(());
     }
-    let by_conv = collect_ui_matches_via_fts(conn, &ids, raw_query, fts_query)?;
+    let in_list = sql_quoted_id_list(&ids);
+    let sql = format!(
+        "SELECT m.conversation_id, COUNT(*) AS cnt
+         FROM messages_fts AS mf
+         INNER JOIN messages AS m ON m.id = mf.rowid
+         WHERE messages_fts MATCH ?1
+           AND m.conversation_id IN ({in_list})
+           {skip}
+         GROUP BY m.conversation_id",
+        skip = sql_and_skip_ui_tool_rows()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mapped = stmt.query_map(params![fts_query], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    let mut by_id = std::collections::HashMap::new();
+    for row in mapped {
+        let (id, cnt) = row?;
+        by_id.insert(id, cnt.max(0) as u32);
+    }
     for hit in hits.iter_mut() {
-        if let Some((_matches, count)) = by_conv.get(&hit.id) {
-            hit.match_count = *count;
+        if let Some(cnt) = by_id.get(&hit.id) {
+            hit.match_count = *cnt;
         }
     }
     Ok(())

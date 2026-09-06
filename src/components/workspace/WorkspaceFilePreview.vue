@@ -113,6 +113,18 @@ const textSurface = computed(() =>
 )
 const showModeSwitch = computed(() => Boolean(richKind.value) && richContentReady.value)
 const showingMarkdownPreview = computed(() => textSurface.value === 'markdown')
+
+/** Strip YAML frontmatter (--- ... ---) so it doesn't render as raw text. */
+function stripYamlFrontmatter(src: string): string {
+  if (!src.startsWith('---')) return src
+  const end = src.indexOf('\n---', 3)
+  if (end < 0) return src
+  return src.slice(end + 4).replace(/^\n+/, '')
+}
+
+const markdownPreviewContent = computed(() =>
+  stripYamlFrontmatter(props.preview.content ?? '')
+)
 const showingJsonPreview = computed(() => textSurface.value === 'json')
 const showingHtmlPreview = computed(() => textSurface.value === 'html')
 const showingSource = computed(() => textSurface.value === 'source')
@@ -662,7 +674,7 @@ onBeforeUnmount(() => {
       <div
         ref="markdownRoot"
         class="file-preview-markdown md-body px-3 py-2"
-        v-html="parseMarkdown(preview.content ?? '')"
+        v-html="parseMarkdown(markdownPreviewContent)"
       />
     </div>
     <div v-else-if="showingJsonPreview && jsonPreview" class="file-preview-scroll">

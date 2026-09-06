@@ -15,7 +15,7 @@ import {
 import { convertFileSrc } from '@tauri-apps/api/core'
 import type { WorkspaceFilePreview } from '../../lib/api'
 import { parseMarkdown } from '../../lib/markdownConfig'
-import yaml from 'js-yaml'
+import { load as parseYaml } from 'js-yaml'
 import { useMarkdownCharts } from '../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../composables/useMarkdownSvgs'
 import { useMarkdownMermaid } from '../../composables/useMarkdownMermaid'
@@ -128,7 +128,7 @@ function splitYamlFrontmatter(src: string): {
   const yamlStr = src.slice(3, end).trim()
   const body = src.slice(end + 4).replace(/^\n+/, '')
   try {
-    const data = yaml.load(yamlStr)
+    const data = parseYaml(yamlStr)
     if (data && typeof data === 'object' && !Array.isArray(data)) {
       return { frontmatter: data as Record<string, unknown>, body }
     }

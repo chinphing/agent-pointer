@@ -4,6 +4,8 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronDown,
+  ChevronRight,
   Copy,
   FileWarning,
   Search,
@@ -136,6 +138,7 @@ function splitYamlFrontmatter(src: string): {
   return { frontmatter: null, body: src }
 }
 
+const frontmatterCollapsed = ref(false)
 const markdownParts = computed(() =>
   splitYamlFrontmatter(props.preview.content ?? '')
 )
@@ -706,13 +709,23 @@ onBeforeUnmount(() => {
       @click.capture="openMarkdownReference"
     >
       <div v-if="frontmatterRows.length" class="frontmatter-card">
-        <div
-          v-for="row in frontmatterRows"
-          :key="row.key"
-          class="frontmatter-row"
+        <button
+          type="button"
+          class="frontmatter-toggle"
+          @click="frontmatterCollapsed = !frontmatterCollapsed"
         >
-          <span class="frontmatter-key">{{ row.key }}</span>
-          <span class="frontmatter-value">{{ row.value }}</span>
+          <ChevronRight v-if="frontmatterCollapsed" />
+          <ChevronDown v-else />
+        </button>
+        <div v-show="!frontmatterCollapsed" class="frontmatter-body">
+          <div
+            v-for="row in frontmatterRows"
+            :key="row.key"
+            class="frontmatter-row"
+          >
+            <span class="frontmatter-key">{{ row.key }}</span>
+            <span class="frontmatter-value">{{ row.value }}</span>
+          </div>
         </div>
       </div>
       <div
@@ -833,7 +846,14 @@ html.light .token-string { color: #a31515; }
 html.light .token-number { color: #098658; }
 html.light .token-keyword { color: #0000ff; }
 .frontmatter-card {
-  @apply mx-3 mt-3 mb-1 rounded-lg border border-border bg-hover/40 px-3 py-2 text-xs;
+  @apply mx-3 mt-3 mb-1 rounded-lg border border-border bg-hover/40 text-xs;
+}
+.frontmatter-toggle {
+  @apply flex w-full items-center gap-1 px-3 py-1.5 text-muted hover:text-foreground;
+}
+.frontmatter-toggle :deep(svg) { @apply w-3.5 h-3.5 shrink-0; }
+.frontmatter-body {
+  @apply border-t border-border px-3 py-2;
 }
 .frontmatter-row {
   @apply flex items-baseline gap-2 py-0.5;

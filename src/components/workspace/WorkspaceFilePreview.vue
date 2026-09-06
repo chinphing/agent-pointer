@@ -13,6 +13,7 @@ import {
 import { convertFileSrc } from '@tauri-apps/api/core'
 import type { WorkspaceFilePreview } from '../../lib/api'
 import { parseMarkdown } from '../../lib/markdownConfig'
+import yaml from 'js-yaml'
 import { useMarkdownCharts } from '../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../composables/useMarkdownSvgs'
 import { useMarkdownMermaid } from '../../composables/useMarkdownMermaid'
@@ -114,17 +115,50 @@ const textSurface = computed(() =>
 const showModeSwitch = computed(() => Boolean(richKind.value) && richContentReady.value)
 const showingMarkdownPreview = computed(() => textSurface.value === 'markdown')
 
-/** Strip YAML frontmatter (--- ... ---) so it doesn't render as raw text. */
-function stripYamlFrontmatter(src: string): string {
-  if (!src.startsWith('---')) return src
+/** Parse YAML frontmatter (--- ... ---); return data + body separately. */
+function splitYamlFrontmatter(src: string): {
+  frontmatter: Record<string, unknown> | null
+  body: string
+} {
+  if (!src.startsWith('---')) return { frontmatter: null, body: src }
   const end = src.indexOf('\n---', 3)
-  if (end < 0) return src
-  return src.slice(end + 4).replace(/^\n+/, '')
+  if (end < 0) return { frontmatter: null, body: src }
+  const yamlStr = src.slice(3, end).trim()
+  const body = src.slice(end + 4).replace(/^\n+/, '')
+  try {
+    const data = yaml.load(yamlStr)
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      return { frontmatter: data as Record<string, unknown>, body }
+    }
+  } catch {
+    // Invalid YAML — treat as no frontmatter.
+  }
+  return { frontmatter: null, body: src }
 }
 
-const markdownPreviewContent = computed(() =>
-  stripYamlFrontmatter(props.preview.content ?? '')
+const markdownParts = computed(() =>
+  splitYamlFrontmatter(props.preview.content ?? '')
 )
+const frontmatterData = computed(() => markdownParts.value.frontmatter)
+const markdownPreviewContent = computed(() => markdownParts.value.body)
+
+/** Flatten frontmatter into display rows (key → value). */
+const frontmatterRows = computed(() => {
+  const fm = frontmatterData.value
+  if (!fm) return []
+  const rows: Array<{ key: string; value: string }> = []
+  for (const [k, v] of Object.entries(fm)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      // Nested object (e.g. metadata:) — flatten one level.
+      for (const [sk, sv] of Object.entries(v as Record<string, unknown>)) {
+        rows.push({ key: `${k}.${sk}`, value: String(sv ?? '') })
+      }
+    } else {
+      rows.push({ key: k, value: String(v ?? '') })
+    }
+  }
+  return rows
+})
 const showingJsonPreview = computed(() => textSurface.value === 'json')
 const showingHtmlPreview = computed(() => textSurface.value === 'html')
 const showingSource = computed(() => textSurface.value === 'source')
@@ -671,6 +705,16 @@ onBeforeUnmount(() => {
       class="file-preview-scroll"
       @click.capture="openMarkdownReference"
     >
+      <div v-if="frontmatterRows.length" class="frontmatter-card">
+        <div
+          v-for="row in frontmatterRows"
+          :key="row.key"
+          class="frontmatter-row"
+        >
+          <span class="frontmatter-key">{{ row.key }}</span>
+          <span class="frontmatter-value">{{ row.value }}</span>
+        </div>
+      </div>
       <div
         ref="markdownRoot"
         class="file-preview-markdown md-body px-3 py-2"
@@ -788,6 +832,19 @@ onBeforeUnmount(() => {
 html.light .token-string { color: #a31515; }
 html.light .token-number { color: #098658; }
 html.light .token-keyword { color: #0000ff; }
+.frontmatter-card {
+  @apply mx-3 mt-3 mb-1 rounded-lg border border-border bg-hover/40 px-3 py-2 text-xs;
+}
+.frontmatter-row {
+  @apply flex items-baseline gap-2 py-0.5;
+}
+.frontmatter-key {
+  @apply shrink-0 font-medium text-muted;
+  min-width: 5rem;
+}
+.frontmatter-value {
+  @apply text-foreground break-words;
+}
 .file-preview-empty { @apply flex-1 flex flex-col items-center justify-center gap-2 p-5 text-center text-xs text-muted; }
 .file-preview-empty strong { @apply text-foreground; }
 .file-preview-media { @apply flex-1 min-h-0 flex items-center justify-center overflow-auto; }

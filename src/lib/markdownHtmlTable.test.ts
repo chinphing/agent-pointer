@@ -53,6 +53,27 @@ describe('wrapBareHtmlTables', () => {
       '<tbody><tr><td>1</td></tr></tbody></table></div>'
     expect(wrapBareHtmlTables(gfm)).toBe(gfm)
   })
+
+  it('wraps nested tables as a single unit', () => {
+    const raw =
+      '<table border="1"><tr><td>outer</td><td>' +
+      '<table border="1"><tr><td>inner</td></tr></table>' +
+      '</td></tr></table>'
+    const out = wrapBareHtmlTables(raw)
+    // The wrapper must enclose the ENTIRE outer table, not stop at the inner </table>.
+    expect(out).toBe(`<div class="table-wrapper">${raw}</div>`)
+    expect(out.match(/table-wrapper/g)?.length).toBe(1)
+  })
+
+  it('handles multiple sibling tables with nesting', () => {
+    const raw =
+      '<table><tr><td><table><tr><td>a</td></tr></table></td></tr></table>' +
+      '<p>between</p>' +
+      '<table><tr><td>b</td></tr></table>'
+    const out = wrapBareHtmlTables(raw)
+    expect(out.match(/table-wrapper/g)?.length).toBe(2)
+    expect(out).toContain('<p>between</p>')
+  })
 })
 
 describe('html fence', () => {

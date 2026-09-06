@@ -70,13 +70,62 @@ function escapeHtml(value: string): string {
 /**
  * GFM tables already emit `<div class="table-wrapper"><table>…`.
  * Raw HTML `<table>` from the model does not — wrap those so theme chrome applies.
+ *
+ * Uses a stack to match nested tables: a non-greedy regex would stop at the
+ * first inner `</table>`, leaving the outer table's closing tags orphaned.
  */
 export function wrapBareHtmlTables(html: string): string {
   if (!html.includes('<table')) return html
-  return html.replace(
-    /(?<!<div class="table-wrapper">)<table\b[\s\S]*?<\/table>/gi,
-    table => `<div class="table-wrapper">${table}</div>`
-  )
+
+  // Collect all table open/close tags in document order.
+  const TABLE_TAG_RE = /<(table\b[^>]*|\/table\s*)>/gi
+  const tags: Array<{ index: number; isOpen: boolean; length: number }> = []
+  for (const m of html.matchAll(TABLE_TAG_RE)) {
+    const isOpen = !m[1]!.startsWith('/')
+    tags.push({ index: m.index, isOpen, length: m[0].length })
+  }
+
+  let out = ''
+  let lastIndex = 0
+  let depth = 0
+  let wrapStart = -1
+
+  for (const tag of tags) {
+    if (tag.isOpen) {
+      if (depth === 0) {
+        // Check if already wrapped (preceded by `<div class="table-wrapper">`).
+        const before = html.slice(Math.max(0, tag.index - 30), tag.index)
+        if (before.endsWith('<div class="table-wrapper">')) {
+          // Already wrapped — track depth to skip past its close.
+          depth = 1
+          wrapStart = -2 // sentinel: already wrapped, don't re-wrap
+          continue
+        }
+        wrapStart = tag.index
+        out += html.slice(lastIndex, tag.index)
+        depth = 1
+      } else {
+        depth++
+      }
+    } else {
+      if (depth > 0) {
+        depth--
+        if (depth === 0) {
+          if (wrapStart === -2) {
+            // Already-wrapped table ended — just copy it through.
+            wrapStart = -1
+          } else if (wrapStart >= 0) {
+            const tableEnd = tag.index + tag.length
+            out += `<div class="table-wrapper">${html.slice(wrapStart, tableEnd)}</div>`
+            lastIndex = tableEnd
+            wrapStart = -1
+          }
+        }
+      }
+    }
+  }
+  out += html.slice(lastIndex)
+  return out
 }
 
 const LIST_ITEM_RE = /^ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)/

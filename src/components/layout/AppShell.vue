@@ -9,7 +9,6 @@ import {
   Check,
   X,
   PanelLeftClose,
-  PanelRightClose,
   PanelRightOpen,
   FolderGit2,
   FolderOpen,
@@ -1534,14 +1533,14 @@ watch(searchQuery, q => {
         >
           <template #actions>
             <button
+              v-if="!workspacePanelOpen"
               type="button"
               class="chrome-icon-btn"
-              :title="workspacePanelOpen ? '关闭工作区' : '打开工作区'"
-              :aria-label="workspacePanelOpen ? '关闭工作区' : '打开工作区'"
-              @click="setWorkspacePanelOpen(!workspacePanelOpen)"
+              title="打开工作区"
+              aria-label="打开工作区"
+              @click="setWorkspacePanelOpen(true)"
             >
-              <PanelRightClose v-if="workspacePanelOpen" class="w-4 h-4" />
-              <PanelRightOpen v-else class="w-4 h-4" />
+              <PanelRightOpen class="w-4 h-4" />
             </button>
             <WindowControls
               v-if="useMainAreaWindowControls"

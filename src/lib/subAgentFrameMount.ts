@@ -7,7 +7,6 @@ import {
   resolveTraceAgentId,
   type CollapsedSubAgentView
 } from './subAgentStats'
-import { isBackgroundSubagentCall } from './toolCallDisplay'
 import { visibleToolCalls } from './messageTooling'
 
 /** Idle delay before a terminal collapsed frame downgrades to a lightweight stub. */
@@ -74,8 +73,7 @@ export function buildTerminalSubAgentStubView(input: {
     orphanTitle: orphan,
     status: input.trace.status,
     stats,
-    agentId: resolveTraceAgentId(input.trace),
-    backgroundRunning: input.hostTool ? isBackgroundSubagentCall(input.hostTool) : false
+    agentId: resolveTraceAgentId(input.trace)
   })
 }
 
@@ -131,8 +129,7 @@ function computeTraceSummaryLine(
     orphanTitle: orphan,
     status: trace.status,
     stats,
-    agentId: resolveTraceAgentId(trace),
-    backgroundRunning: input.hostTool ? isBackgroundSubagentCall(input.hostTool) : false
+    agentId: resolveTraceAgentId(trace)
   }).summaryLine.trim()
 }
 

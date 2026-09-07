@@ -226,6 +226,7 @@ export type CollapsedSubAgentView = {
 /**
  * Stats + live lines under the host「委派子任务」row.
  * Orphan frames (no host row) still prefix the goal on the stats line.
+ * Background status stays on the host tool row only — do not repeat「后台执行中」here.
  */
 export function resolveCollapsedSubAgentView(input: {
   orphanTitle?: string
@@ -234,8 +235,6 @@ export function resolveCollapsedSubAgentView(input: {
   agentId?: string
   liveToolLine?: string | null
   thinkingLine?: string | null
-  /** Host `run_subagent` with `background: true` — surface in collapsed summary. */
-  backgroundRunning?: boolean
 }): CollapsedSubAgentView {
   const metrics = formatStatsForAgent(input.agentId ?? 'explore', input.stats)
   const hasStats = input.status === 'failed' || metrics !== '工具 0 次'
@@ -243,17 +242,9 @@ export function resolveCollapsedSubAgentView(input: {
     ? formatSubAgentStatsLine(input.status, input.stats, input.agentId)
     : ''
   const orphan = input.orphanTitle?.trim() || ''
-  let summaryLine = orphan
+  const summaryLine = orphan
     ? (statsLine ? `${orphan} · ${statsLine}` : orphan)
     : statsLine
-
-  if (input.backgroundRunning === true && input.status === 'running') {
-    if (summaryLine.trim()) {
-      summaryLine = `${summaryLine} · 后台执行中`
-    } else {
-      summaryLine = '后台执行中'
-    }
-  }
 
   const live = input.liveToolLine?.trim() || ''
   const thinking = input.thinkingLine?.trim() || ''

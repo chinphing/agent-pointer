@@ -54,6 +54,12 @@ Composer toolbar icons (clip, agent, mode), the chat top-bar project
 folder, and the workspace panel header folder use `text-muted`, not
 accent or `--warning`. Send / stop stay semantic (`bg-accent` / `text-danger`).
 
+**Composer companions** (input 上方的「待发送」/「后台任务」)：与 `.composer-shell`
+同一表面——`bg-[hsl(var(--composer-bg))]` + `border-border` + `rounded-2xl`，
+不要用 `panel-elevated` / `shadow-sm` / `bg-accent-muted`。浅色下聊天列与输入框
+都是白底，elevated 灰块会像另贴一张卡。标题与折叠箭头用 `text-muted`，与工具栏
+同级；列表区只需顶部分隔线，不要再铺一层 tint。
+
 ## Chat column width
 
 Conversation content (messages, composer, change summary) uses a centered

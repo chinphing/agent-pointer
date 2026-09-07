@@ -74,7 +74,7 @@ onBeforeUnmount(disarmCancel)
 <template>
   <div
     v-if="visible"
-    class="mb-2 rounded-xl border border-border panel-elevated overflow-hidden shadow-sm"
+    class="composer-companion mb-2 overflow-hidden rounded-2xl border border-border bg-[hsl(var(--composer-bg))]"
     role="status"
   >
     <div class="flex items-center gap-1 pl-3 pr-2 py-1">
@@ -85,13 +85,13 @@ onBeforeUnmount(disarmCancel)
         @click="expanded = !expanded"
       >
         <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse" aria-hidden="true" />
-        <span class="text-[12px] font-medium text-foreground flex-1 min-w-0 truncate">后台任务</span>
+        <span class="text-[12px] font-medium text-muted flex-1 min-w-0 truncate">后台任务</span>
         <span class="text-[10px] px-1.5 py-0.5 rounded bg-hover text-muted shrink-0 tabular-nums">
           {{ count }}
         </span>
-        <span class="hidden sm:inline text-[10px] text-muted shrink-0">执行中，不影响继续对话</span>
+        <span class="hidden sm:inline text-[10px] text-muted/80 shrink-0">执行中，不影响继续对话</span>
         <ChevronDown
-          class="h-3.5 w-3.5 text-accent shrink-0 transition-transform duration-200"
+          class="h-3.5 w-3.5 text-muted shrink-0 transition-transform duration-200"
           :class="expanded ? 'rotate-180' : ''"
           aria-hidden="true"
         />
@@ -111,7 +111,7 @@ onBeforeUnmount(disarmCancel)
 
     <ul
       v-show="expanded"
-      class="border-t border-border divide-y divide-border bg-accent-muted/10 max-h-40 overflow-y-auto"
+      class="border-t border-border divide-y divide-border max-h-40 overflow-y-auto"
     >
       <li
         v-for="item in rows"

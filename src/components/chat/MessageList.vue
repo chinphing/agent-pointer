@@ -71,6 +71,8 @@ import {
 import {
   isComposerDraftingTarget,
   nextFollowOutputAfterScroll,
+  nextProgrammaticScrollUntil,
+  isProgrammaticScrollActive,
   scrollerViewportShrinkDelta,
   shouldSkipTotalSizeStick,
   switchConversationScrollPlan,
@@ -146,10 +148,13 @@ const contextCompressingLabel = computed(() => {
 // scrolling down. Any intentional scroll-up pins them away until they return
 // essentially to the bottom (hysteresis) or click the jump button.
 let followOutput = true
-let programmaticScrollDepth = 0
+/** Wall-clock suppress for programmatic sticks (not a depth counter — stream sticks coalesce). */
+let programmaticScrollUntilMs = 0
 let scrollFrame: number | null = null
 /** Minimum wall-clock gap between two programmatic scroll-to-bottom calls. */
 const SCROLL_MIN_INTERVAL_MS = 80
+/** How long `onScroll` ignores follow updates after a programmatic stick. */
+const PROGRAMMATIC_SCROLL_HOLD_MS = 48
 /** Fallback if the grow-latch is not set yet; WebKit remasure is often later. */
 const VIEWPORT_SHRINK_SKIP_STICK_MS = 400
 /** Must be this close to resume auto-follow after the user scrolled away. */
@@ -226,11 +231,15 @@ function holeWindowBlocksFollow(): boolean {
   return hasMoreNewerFlag()
 }
 
+function isProgrammaticScroll(): boolean {
+  return isProgrammaticScrollActive(performance.now(), programmaticScrollUntilMs)
+}
+
 function canPullNoOlderHint(el: HTMLElement): boolean {
   return canShowNoOlderPullHint({
     hasMoreOlder: hasMoreOlderFlag(),
     scrollTop: el.scrollTop,
-    programmatic: programmaticScrollDepth > 0
+    programmatic: isProgrammaticScroll()
   })
 }
 
@@ -253,18 +262,13 @@ function distanceFromBottom(): number {
   return el.scrollHeight - el.scrollTop - el.clientHeight
 }
 
-function beginProgrammaticScroll() {
-  programmaticScrollDepth += 1
-}
-
-function endProgrammaticScroll() {
-  // Double rAF so scroll events from scrollToIndex settle before we re-enable
-  // user-driven follow updates.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      programmaticScrollDepth = Math.max(0, programmaticScrollDepth - 1)
-    })
-  })
+/** Refresh the suppress window; overlapping stream sticks extend it, they do not stack. */
+function markProgrammaticScroll() {
+  programmaticScrollUntilMs = nextProgrammaticScrollUntil(
+    performance.now(),
+    programmaticScrollUntilMs,
+    PROGRAMMATIC_SCROLL_HOLD_MS
+  )
 }
 
 function shouldFollowOutput(): boolean {
@@ -310,22 +314,25 @@ function toBottom(options?: { settle?: boolean }) {
   followOutput = follow
   showScrollButton.value = !follow || holeWindowBlocksFollow()
   const settle = options?.settle === true
-  beginProgrammaticScroll()
+  markProgrammaticScroll()
   void (async () => {
     try {
       await nextTick()
+      markProgrammaticScroll()
       stickScrollerToBottom()
       // Switch/mount: row heights start as estimates; measureElement then
       // corrects totalSize and would otherwise leave a visible jump or clip
       // the last bubble against the composer edge.
       if (settle) {
         await nextAnimationFrame()
+        markProgrammaticScroll()
         stickScrollerToBottom()
         await nextAnimationFrame()
+        markProgrammaticScroll()
         stickScrollerToBottom()
       }
     } finally {
-      endProgrammaticScroll()
+      markProgrammaticScroll()
     }
   })()
 }
@@ -481,10 +488,9 @@ function applyScrollerViewportResize() {
   // Keep the same visual messages in place while the composer grows, even
   // when follow is off (reading the last lines, or older history). Unlike
   // scrollToIndex(), this only applies the viewport-height delta.
-  beginProgrammaticScroll()
+  markProgrammaticScroll()
   scrollerEl.scrollTop += delta
   lastScrollTop = scrollerEl.scrollTop
-  endProgrammaticScroll()
 }
 
 onMounted(() => {
@@ -624,7 +630,13 @@ const activeRenderSignal = computed(() => {
 })
 
 watch(activeRenderSignal, () => {
-  if (shouldFollowOutput()) scheduleToBottom()
+  // Streaming grows the last turn faster than estimate→RO sometimes applies.
+  // Remeasure so scrollHeight can reach the live bottom even when follow is off.
+  void nextTick(() => {
+    const last = conversationTurns.value[conversationTurns.value.length - 1]
+    if (last) resizeTurnRow(last.id)
+    if (shouldFollowOutput()) scheduleToBottom()
+  })
 })
 
 function entryPrimaryMessageId(entry: FlatEntry): string | undefined {
@@ -918,7 +930,7 @@ async function loadOlderWithScrollAnchor() {
   olderPrefetchArmed = false
   followOutput = false
   const anchor = captureVisibleTurnAnchor()
-  beginProgrammaticScroll()
+  markProgrammaticScroll()
   try {
     const added = await chat.loadOlderMessages()
     if (!added) return
@@ -927,6 +939,7 @@ async function loadOlderWithScrollAnchor() {
     for (let i = 0; i < LOAD_OLDER_SETTLE_FRAMES; i += 1) {
       await nextTick()
       await nextAnimationFrame()
+      markProgrammaticScroll()
       if (!restoreVisibleTurnAnchor(anchor)) break
     }
     console.info('[MessageList] restored scroll after older page', {
@@ -938,7 +951,7 @@ async function loadOlderWithScrollAnchor() {
     // Only release the lock after settle — prevents cascading loads while
     // height/scroll are still catching up.
     olderLoadInFlight = false
-    endProgrammaticScroll()
+    markProgrammaticScroll()
   }
 }
 
@@ -988,7 +1001,7 @@ function restoreVisibleTurnAnchor(anchor: MessageListScrollAnchor | null): boole
 
 function maybePrefetchOlder(scrollingUp: boolean) {
   const el = scroller.value
-  if (!el || programmaticScrollDepth > 0 || locatingFocus.value) return
+  if (!el || isProgrammaticScroll() || locatingFocus.value) return
   if (olderLoadInFlight || newerLoadInFlight || currentMessagePage.value?.loadingOlder) return
   const atTop = el.scrollTop <= LOAD_OLDER_TOP_PX
   if (shouldRearmOlderPrefetch(el.scrollTop)) {
@@ -1021,7 +1034,7 @@ async function loadNewerWithoutFollow() {
 
 function maybePrefetchNewer(scrollingDown: boolean) {
   const el = scroller.value
-  if (!el || programmaticScrollDepth > 0 || locatingFocus.value) return
+  if (!el || isProgrammaticScroll() || locatingFocus.value) return
   if (newerLoadInFlight || olderLoadInFlight || currentMessagePage.value?.loadingNewer) return
   if (chat.isCurrentConversationHydrating) return
   const distance = distanceFromBottom()
@@ -1054,13 +1067,13 @@ async function jumpToLatest() {
       return
     }
     tailJumpInFlight = true
-    beginProgrammaticScroll()
+    markProgrammaticScroll()
     try {
       await chat.ensureMessagesLoaded(convId, { force: true })
       await nextTick()
     } finally {
       tailJumpInFlight = false
-      endProgrammaticScroll()
+      markProgrammaticScroll()
     }
   }
   toBottom({ settle: true })
@@ -1123,7 +1136,7 @@ function updateVisibleNavMessage() {
  */
 function maybeTrimConversationHistory() {
   const convId = chat.currentId?.trim()
-  if (!convId || locatingFocus.value || programmaticScrollDepth > 0) return
+  if (!convId || locatingFocus.value || isProgrammaticScroll()) return
   if (olderLoadInFlight || newerLoadInFlight) return
   if (Date.now() - lastHistoryTrimAt < TRIM_HISTORY_COOLDOWN_MS) return
   const anchor = captureVisibleTurnAnchor()
@@ -1147,7 +1160,7 @@ function onScroll(_event: Event) {
   const distance = distanceFromBottom()
   const scrollingUp = el != null && el.scrollTop < lastScrollTop - 1
   const scrollingDown = el != null && el.scrollTop > lastScrollTop + 1
-  if (programmaticScrollDepth === 0) {
+  if (!isProgrammaticScroll()) {
     followOutput = nextFollowOutputAfterScroll({
       followOutput,
       distanceFromBottom: distance,
@@ -1533,25 +1546,22 @@ watch(
   () => rowVirtualizer.value.getTotalSize(),
   () => {
     if (!shouldFollowOutput()) return
-    beginProgrammaticScroll()
+    markProgrammaticScroll()
     void nextTick(() => {
-      try {
-        if (
-          !shouldFollowOutput() ||
-          shouldSkipTotalSizeStick({
-            nowMs: performance.now(),
-            viewportShrinkAtMs,
-            windowMs: VIEWPORT_SHRINK_SKIP_STICK_MS,
-            skipUntilViewportGrows: skipTotalSizeStickUntilViewportGrows,
-            composerDrafting: isComposerDraftingTarget(document.activeElement)
-          })
-        ) {
-          return
-        }
-        stickScrollerToBottom()
-      } finally {
-        endProgrammaticScroll()
+      if (
+        !shouldFollowOutput() ||
+        shouldSkipTotalSizeStick({
+          nowMs: performance.now(),
+          viewportShrinkAtMs,
+          windowMs: VIEWPORT_SHRINK_SKIP_STICK_MS,
+          skipUntilViewportGrows: skipTotalSizeStickUntilViewportGrows,
+          composerDrafting: isComposerDraftingTarget(document.activeElement)
+        })
+      ) {
+        return
       }
+      markProgrammaticScroll()
+      stickScrollerToBottom()
     })
   }
 )

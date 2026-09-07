@@ -121,3 +121,27 @@ export function switchConversationScrollPlan(input: {
 export function toBottomFollowsOutput(hasMoreNewer: boolean): boolean {
   return !hasMoreNewer
 }
+
+/**
+ * Overlapping stream sticks must not stack a depth counter that stays > 0 for
+ * the whole generation — that blocks `onScroll` from detaching follow / updating
+ * the jump button, so the list feels stuck while running.
+ *
+ * Coalesce into a short wall-clock suppress window instead.
+ */
+export function nextProgrammaticScrollUntil(
+  nowMs: number,
+  currentUntilMs: number,
+  holdMs: number
+): number {
+  if (!Number.isFinite(nowMs) || !Number.isFinite(holdMs) || holdMs <= 0) {
+    return currentUntilMs
+  }
+  const next = nowMs + holdMs
+  if (!Number.isFinite(currentUntilMs) || currentUntilMs < next) return next
+  return currentUntilMs
+}
+
+export function isProgrammaticScrollActive(nowMs: number, untilMs: number): boolean {
+  return Number.isFinite(untilMs) && untilMs > 0 && nowMs < untilMs
+}

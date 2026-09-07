@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   nextFollowOutputAfterScroll,
+  nextProgrammaticScrollUntil,
+  isProgrammaticScrollActive,
   scrollerViewportShrinkDelta,
   shouldSkipTotalSizeStickAfterViewportShrink,
   shouldSkipTotalSizeStick,
@@ -174,5 +176,19 @@ describe('toBottomFollowsOutput', () => {
   it('does not claim live follow on an around-window bottom', () => {
     expect(toBottomFollowsOutput(true)).toBe(false)
     expect(toBottomFollowsOutput(false)).toBe(true)
+  })
+})
+
+describe('programmatic scroll suppress window', () => {
+  it('extends the suppress deadline instead of stacking forever', () => {
+    expect(nextProgrammaticScrollUntil(1_000, 0, 48)).toBe(1_048)
+    expect(nextProgrammaticScrollUntil(1_010, 1_048, 48)).toBe(1_058)
+    expect(nextProgrammaticScrollUntil(1_020, 1_200, 48)).toBe(1_200)
+  })
+
+  it('is active only before the deadline', () => {
+    expect(isProgrammaticScrollActive(1_000, 1_048)).toBe(true)
+    expect(isProgrammaticScrollActive(1_048, 1_048)).toBe(false)
+    expect(isProgrammaticScrollActive(1_000, 0)).toBe(false)
   })
 })

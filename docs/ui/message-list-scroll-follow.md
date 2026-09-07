@@ -18,7 +18,13 @@
 - **脱离** `DETACH_BOTTOM_PX = 48`：仅靠滚动**位置**脱离时的距离。
 - **上滑即时脱离**：`scrollTop` 减小（滚轮 / 触控）时立刻 `followOutput = false`。对话列表无可见滚动条，避免与右缘导航叠在一起。
 
-程序化 `toBottom` 期间用 `programmaticScrollDepth` 忽略滚动事件，避免把跟随状态写乱。贴底后同步 `lastScrollTop`，否则首次拖动无法识别为上滑。
+程序化 `toBottom` 期间用短时 suppress 窗口忽略滚动事件，避免把跟随状态写乱。
+流式高频贴底会**延长**同一窗口，而不是叠 depth 计数——否则整段生成期间 `onScroll`
+都进不了脱离逻辑，看起来像「运行中无法往下滚」。贴底后同步 `lastScrollTop`，
+否则首次拖动无法识别为上滑。
+
+流式时末轮高度常比估算值长：每次 live 渲染信号要 `resizeItem` 末轮，
+否则 `getTotalSize` 偏短，内容被 scroller 裁切，滚轮到头也看不到底部。
 
 贴底实现要点：
 
@@ -44,4 +50,4 @@
 ## 实现
 
 - `src/components/chat/MessageList.vue`
-- `src/lib/messageListScrollFollow.ts` — `nextFollowOutputAfterScroll`、视口变矮补偿与 totalSize 贴底抑制
+- `src/lib/messageListScrollFollow.ts` — `nextFollowOutputAfterScroll`、视口变矮补偿与 totalSize 贴底抑制、程序化滚动 suppress 窗口

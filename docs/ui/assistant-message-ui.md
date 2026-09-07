@@ -121,6 +121,7 @@
 - 选中态只用主题语义色：`foreground` / `background` / `border` / `hover` / `muted`（随浅色/深色翻转）。
   勾选填充为 `bg-foreground/55 text-background`，不要写死灰阶、紫色或未定义的 `muted-foreground`。
 - **子 Agent**：框默认收缩时，pending / running 的询问卡片仍画在统计行下方（与主会话收缩回合保留交互工具相同）；不要要求用户先点开过程才能作答。
+- **参数**：schema 里 `options` 已是 `type: array`；运行时仍兼容模型把数组二次字符串化的写法（解析 JSON 数组；容忍尾部多余 `]`）。工具文档明确要求传原生数组，不要传字符串。
 
 ## 上下文压缩进行中标记
 

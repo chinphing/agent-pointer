@@ -7,6 +7,9 @@ submits a choice.
 
 - Keep questions concise and decision-oriented.
 - Provide 2–6 mutually clear options.
+- `options` must be a **JSON array of objects**
+  (`[{ "label": "…" }, …]`), never a string that
+  contains JSON text.
 - The host always offers a free-text path
   beyond those options; you do not need to
   add an "Other" option yourself.

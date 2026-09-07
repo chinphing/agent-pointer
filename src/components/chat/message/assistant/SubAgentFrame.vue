@@ -37,7 +37,7 @@ import {
   thinkingCharCountForCollapsedSubAgent,
   subAgentThinkingActive
 } from '../../../../lib/thinkingIndicator'
-import { visibleToolCalls } from '../../../../lib/messageTooling'
+import { isInteractiveToolCall, visibleToolCalls } from '../../../../lib/messageTooling'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import type { AgentMessageBodyModel } from './AgentMessageBody.vue'
@@ -216,9 +216,18 @@ const processInnerTools = computed((): ToolCall[] => {
   )
 })
 
+const interactiveInnerTools = computed((): ToolCall[] =>
+  processInnerTools.value.filter(isInteractiveToolCall)
+)
+
 const liveInnerTool = computed(() => {
   if (!isRunning.value) return null
-  const latest = latestToolCallForCompactStatus(processInnerTools.value)
+  // Collapsed frames surface ask_user / approval cards below the summary —
+  // keep the live line for non-interactive process tools only.
+  const candidates = collapsed.value
+    ? processInnerTools.value.filter(tc => !isInteractiveToolCall(tc))
+    : processInnerTools.value
+  const latest = latestToolCallForCompactStatus(candidates)
   if (!latest || !isToolCallInProgress(latest.status)) return null
   return latest
 })
@@ -464,6 +473,20 @@ watch(
         :raw-content="rawWireContent"
         :tool-raw-args="toolRawArgs"
         @close="showRawWire = false"
+      />
+    </div>
+    <!-- Collapsed: keep pending ask_user / approval cards actionable (main-turn parity). -->
+    <div
+      v-else-if="interactiveInnerTools.length > 0"
+      class="space-y-0.5"
+    >
+      <ToolCallRow
+        v-for="tc in interactiveInnerTools"
+        :key="tc.id"
+        :tool-call="tc"
+        :show-tool-call-results="messageUi.showToolCallResults"
+        :is-search-match="searchToolCallIds.includes(tc.id)"
+        :is-active-search-match="activeSearchToolCallId === tc.id"
       />
     </div>
     </div>

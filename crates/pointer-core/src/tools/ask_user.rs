@@ -80,7 +80,6 @@ pub fn register_all(reg: &ToolRegistry) {
     reg.register(
         ToolEntry::new("ask_user", DOC_SOURCE, "low", false, DOC, handler)
             .with_schema(schema)
-            .with_subagent_inheritance(false)
             .with_parallel_metadata(false, ToolConflictClass::SerialOnly),
     );
 }
@@ -108,5 +107,15 @@ mod tests {
         }))
         .unwrap_err();
         assert!(err.to_string().contains("2 到 6"));
+    }
+
+    #[test]
+    fn ask_user_is_inheritable_to_subagent() {
+        let reg = ToolRegistry::new();
+        register_all(&reg);
+        assert!(
+            reg.is_inheritable_to_subagent("ask_user"),
+            "ask_user must survive retain_inheritable_subagent_tools for self forks"
+        );
     }
 }

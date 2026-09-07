@@ -123,6 +123,7 @@ self fork 的有效工具集合：
 - `web_search`
 - `media_understand`
 - `session_search`
+- `ask_user`
 - `skill_read`
 - 除 `task_board_abandon` 外的 task-board 工具
 

@@ -854,16 +854,13 @@
 .md-body tr:last-child > td {
   border-bottom-width: 0;
 }
-/* Nested tables inside cells: don't inherit outer fixed layout or cell chrome. */
+/* Nested tables inside cells: keep auto layout (outer may be fixed).
+ * Models nest real data tables (报销明细等); do not strip cell borders —
+ * only avoid inheriting the outer table's fixed layout. */
 .md-body .table-wrapper table table {
   table-layout: auto;
-}
-.md-body .table-wrapper table table th,
-.md-body .table-wrapper table table td {
-  border: none;
-  padding: 0;
-  background: transparent;
-  font-weight: inherit;
+  width: 100%;
+  border: 1px solid hsl(var(--border));
 }
 /* Chart.js hosts from ```chartjs / ```chart fences */
 .md-body .md-chart {

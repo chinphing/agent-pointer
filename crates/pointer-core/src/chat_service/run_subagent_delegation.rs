@@ -656,10 +656,12 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
         title: spawn.task.title.clone(),
         agent_instance_id: spawn.instance_scope.agent_instance_id.clone(),
     });
-    let job_id = spawn
-        .state
-        .jobs
-        .register(&spawn.conversation_id, kind, spawn.cancel.clone());
+    let job_id = spawn.state.jobs.register(
+        &spawn.conversation_id,
+        kind,
+        spawn.cancel.clone(),
+        &spawn.run_id,
+    );
     emit_background_jobs(
         &spawn.stream,
         &spawn.conversation_id,
@@ -705,12 +707,14 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                     spawn.child_spawn_depth,
                     Some(spawn.instance_scope.clone()),
                 );
-                spawn.state.jobs.finish(
+                super::deferred_token_finalize::finish_job_and_maybe_finalize_arc(
+                    &spawn.state,
                     &job_id,
                     super::job_supervisor::JobStatus::Cancelled,
                     None,
                     Some("cancelled".into()),
-                );
+                )
+                .await;
                 let duration_ms = started.elapsed().as_millis() as u64;
                 publish_owned_subagent_ui_finished(
                     &spawn.stream,
@@ -753,12 +757,14 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                 "run_subagent background nested refused job_id={job_id} conversation_id={}: {msg}",
                 spawn.conversation_id
             );
-            spawn.state.jobs.finish(
+            super::deferred_token_finalize::finish_job_and_maybe_finalize_arc(
+                &spawn.state,
                 &job_id,
                 super::job_supervisor::JobStatus::Failed,
                 None,
                 Some(msg.clone()),
-            );
+            )
+            .await;
             let outcome = failed_owned_subagent_outcome(
                 &spawn.run_id,
                 &spawn.conversation_id,
@@ -857,7 +863,14 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
             (st, None, Some(err.to_string()))
         }
     };
-    spawn.state.jobs.finish(&job_id, status, content, error);
+    super::deferred_token_finalize::finish_job_and_maybe_finalize_arc(
+        &spawn.state,
+        &job_id,
+        status,
+        content,
+        error,
+    )
+    .await;
     let duration_ms = started.elapsed().as_millis() as u64;
     log::info!(
         "run_subagent background finished job_id={job_id} conversation_id={} tool_call_id={} status={} duration_ms={}",

@@ -19,6 +19,7 @@ mod context;
 mod conversation_persist;
 mod emit;
 pub(crate) mod idle_job_push;
+pub(crate) mod deferred_token_finalize;
 pub(crate) mod job_supervisor;
 mod json_tool_retries;
 mod prompts;

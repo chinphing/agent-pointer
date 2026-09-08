@@ -317,16 +317,13 @@ pub async fn run_chat(
     // causes unbounded memory growth in long-running sessions.
     crate::chat_service::util::strip_images_from_history(&mut history);
 
-    if let Err(e) = crate::token_usage_store::finalize_run(&run_id, &conversation_id, &history) {
-        log::warn!(
-            "token_usage_store: finalize_run failed run_id={run_id} conversation_id={conversation_id}: {e}"
-        );
-    }
-    if let Err(e) =
-        crate::token_usage_store::flush_unsent_reports(&state.active_platform_auth()).await
-    {
-        log::warn!("token_usage_store: flush after chat failed: {e}");
-    }
+    super::deferred_token_finalize::on_parent_run_finished(
+        &state,
+        &run_id,
+        &conversation_id,
+        &history,
+    )
+    .await;
 
     if let Some(session) = transcript_session.as_ref() {
         crate::conversation_transcript::ConversationTranscriptSession::end(&history, session);

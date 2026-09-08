@@ -97,6 +97,8 @@ impl JobKind {
 struct JobRecord {
     id: String,
     conversation_id: String,
+    /// Parent `run_chat` id; used to defer token `finalize_run` until idle.
+    run_id: String,
     kind: JobKind,
     status: JobStatus,
     content: Option<String>,
@@ -436,6 +438,15 @@ impl JobSupervisor {
         running_count_in(&inner, conversation_id)
     }
 
+    /// Non-terminal background jobs that share this parent `run_id` (token finalize gate).
+    pub fn running_count_for_run(&self, run_id: &str) -> usize {
+        if run_id.trim().is_empty() {
+            return 0;
+        }
+        let inner = self.inner.lock();
+        running_count_for_run_in(&inner, run_id)
+    }
+
     /// Conversations that still have queued or running jobs (occupancy UI).
     pub fn occupancy_by_conversation(&self) -> Vec<(String, u32)> {
         let inner = self.inner.lock();
@@ -561,16 +572,19 @@ impl JobSupervisor {
     }
 
     /// Register a job in `queued`. Caller must spawn work that acquires a slot.
+    /// `run_id` ties the job to the parent `run_chat` for deferred token finalize.
     pub fn register(
         &self,
         conversation_id: &str,
         kind: JobKind,
         cancel: CancellationToken,
+        run_id: &str,
     ) -> String {
         let id = format!("job_{}", uuid::Uuid::new_v4().simple());
         let record = JobRecord {
             id: id.clone(),
             conversation_id: conversation_id.to_string(),
+            run_id: run_id.to_string(),
             kind,
             status: JobStatus::Queued,
             content: None,
@@ -592,7 +606,7 @@ impl JobSupervisor {
             inner.jobs.insert(id.clone(), record);
         }
         log::info!(
-            "job_supervisor: registered job_id={id} conversation_id={conversation_id} status=queued"
+            "job_supervisor: registered job_id={id} conversation_id={conversation_id} run_id={run_id} status=queued"
         );
         self.notify();
         id
@@ -689,37 +703,41 @@ impl JobSupervisor {
         Some(job_await_item(job))
     }
 
+    /// Mark terminal. Returns `Some(run_id)` when this call newly transitions the job
+    /// (callers use it to try deferred token finalize).
     pub fn finish(
         &self,
         job_id: &str,
         status: JobStatus,
         content: Option<String>,
         error: Option<String>,
-    ) {
+    ) -> Option<String> {
         if !status.is_terminal() {
             log::warn!(
                 "job_supervisor: finish ignored non-terminal status={:?} job_id={job_id}",
                 status
             );
-            return;
+            return None;
         }
         let mut inner = self.inner.lock();
         let Some(job) = inner.jobs.get_mut(job_id) else {
             log::warn!("job_supervisor: finish unknown job_id={job_id}");
-            return;
+            return None;
         };
         if job.status.is_terminal() {
             log::info!("job_supervisor: finish idempotent job_id={job_id} status={:?}", job.status);
-            return;
+            return None;
         }
         job.status = status;
         job.content = content;
         job.error = error;
         let conversation_id = job.conversation_id.clone();
+        let run_id = job.run_id.clone();
         let pushable = matches!(status, JobStatus::Completed | JobStatus::Failed);
         log::info!(
-            "job_supervisor: job_id={job_id} conversation_id={} status={}",
+            "job_supervisor: job_id={job_id} conversation_id={} run_id={} status={}",
             conversation_id,
+            run_id,
             status.as_str()
         );
         drop(inner);
@@ -729,6 +747,7 @@ impl JobSupervisor {
                 cb(conversation_id);
             }
         }
+        Some(run_id)
     }
 
     /// Claim Completed/Failed unclaimed jobs for idle push. Skips Cancelled.
@@ -1091,6 +1110,14 @@ fn running_count_in(inner: &Inner, conversation_id: &str) -> usize {
         .unwrap_or(0)
 }
 
+fn running_count_for_run_in(inner: &Inner, run_id: &str) -> usize {
+    inner
+        .jobs
+        .values()
+        .filter(|j| j.run_id == run_id && !j.status.is_terminal())
+        .count()
+}
+
 fn unclaimed_finished_in(inner: &Inner, conversation_id: &str, ids: &[String]) -> Vec<String> {
     ids.iter()
         .filter(|id| {
@@ -1335,8 +1362,8 @@ mod tests {
     async fn await_any_claims_first_terminal_and_leaves_running() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new());
-        let b = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.finish(&a, JobStatus::Completed, Some("{\"content\":\"one\"}".into()), None);
@@ -1375,8 +1402,8 @@ mod tests {
     async fn await_any_does_not_wake_on_inner_tool_progress() {
         let sup = Arc::new(JobSupervisor::new());
         let conv = "c-progress";
-        let a = sup.register(conv, kind(), CancellationToken::new());
-        let b = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.post_progress(&a, "read · src/auth.rs");
@@ -1420,9 +1447,9 @@ mod tests {
     async fn await_any_drains_all_ready_siblings_with_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new());
-        let b = sup.register(conv, kind(), CancellationToken::new());
-        let c = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let c = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.mark_running(&c);
@@ -1461,8 +1488,8 @@ mod tests {
     async fn await_any_drains_ready_outside_wait_set_with_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new());
-        let b = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.finish(&a, JobStatus::Completed, Some("done-a".into()), None);
@@ -1501,8 +1528,8 @@ mod tests {
     async fn await_all_waits_until_every_id_is_terminal() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new());
-        let b = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.finish(&a, JobStatus::Completed, Some("a".into()), None);
 
         let parent = CancellationToken::new();
@@ -1532,8 +1559,8 @@ mod tests {
     async fn await_all_drains_finished_outside_wait_set() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new());
-        let b = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.finish(&a, JobStatus::Completed, Some("done-a".into()), None);
         sup.finish(&b, JobStatus::Completed, Some("done-b".into()), None);
         let parent = CancellationToken::new();
@@ -1560,8 +1587,8 @@ mod tests {
     async fn await_all_omits_already_claimed_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new());
-        let b = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.finish(&a, JobStatus::Completed, Some("first".into()), None);
@@ -1603,7 +1630,7 @@ mod tests {
     async fn timeout_does_not_kill_or_claim() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new());
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&a);
         let parent = CancellationToken::new();
         let result = sup
@@ -1627,8 +1654,8 @@ mod tests {
     async fn timeout_with_finished_sibling_does_not_deliver_unclaimed_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let done = sup.register(conv, kind(), CancellationToken::new());
-        let running = sup.register(conv, kind(), CancellationToken::new());
+        let done = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let running = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&done);
         sup.mark_running(&running);
         sup.finish(&done, JobStatus::Completed, Some("secret body".into()), None);
@@ -1754,7 +1781,7 @@ mod tests {
     fn cancel_conversation_signals_tokens() {
         let sup = JobSupervisor::new();
         let token = CancellationToken::new();
-        let id = sup.register("c1", kind(), token.clone());
+        let id = sup.register("c1", kind(), token.clone(), "test-run");
         assert_eq!(sup.cancel_conversation("c1"), 1);
         assert!(token.is_cancelled());
         assert_eq!(sup.cancel_token(&id).unwrap().is_cancelled(), true);
@@ -1763,7 +1790,7 @@ mod tests {
     #[test]
     fn list_distinguishes_terminal_from_subagent() {
         let sup = JobSupervisor::new();
-        let sub = sup.register("c1", kind(), CancellationToken::new());
+        let sub = sup.register("c1", kind(), CancellationToken::new(), "test-run");
         let term = sup.register(
             "c1",
             JobKind::Terminal(JobKindTerminal {
@@ -1773,6 +1800,7 @@ mod tests {
                 label: Some("跑测试".into()),
             }),
             CancellationToken::new(),
+            "test-run",
         );
         let listed = sup.list("c1", false);
         let sub_row = listed.iter().find(|j| j.job_id == sub).unwrap();
@@ -1787,7 +1815,7 @@ mod tests {
     #[test]
     fn list_and_status_omit_job_body() {
         let sup = JobSupervisor::new();
-        let id = sup.register("c1", kind(), CancellationToken::new());
+        let id = sup.register("c1", kind(), CancellationToken::new(), "test-run");
         sup.finish(
             &id,
             JobStatus::Completed,
@@ -1810,9 +1838,9 @@ mod tests {
     #[test]
     fn occupancy_by_conversation_skips_terminal_jobs() {
         let sup = JobSupervisor::new();
-        let live = sup.register("c1", kind(), CancellationToken::new());
-        let done = sup.register("c1", kind(), CancellationToken::new());
-        let other = sup.register("c2", kind(), CancellationToken::new());
+        let live = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let other = sup.register("c2", kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&live);
         sup.finish(&done, JobStatus::Completed, Some("ok".into()), None);
         let rows = sup.occupancy_by_conversation();
@@ -1833,6 +1861,7 @@ mod tests {
                 label: None,
             }),
             CancellationToken::new(),
+            "test-run",
         );
         assert!(sup.claim_if_unclaimed(&id).is_none());
         sup.finish(
@@ -1853,10 +1882,10 @@ mod tests {
     #[test]
     fn claim_pushable_skips_cancelled_and_already_claimed() {
         let sup = JobSupervisor::new();
-        let done = sup.register("c1", kind(), CancellationToken::new());
-        let failed = sup.register("c1", kind(), CancellationToken::new());
-        let cancelled = sup.register("c1", kind(), CancellationToken::new());
-        let awaited = sup.register("c1", kind(), CancellationToken::new());
+        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let failed = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let cancelled = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let awaited = sup.register("c1", kind(), CancellationToken::new(), "test-run");
         sup.finish(&done, JobStatus::Completed, Some("ok".into()), None);
         sup.finish(&failed, JobStatus::Failed, None, Some("boom".into()));
         sup.finish(&cancelled, JobStatus::Cancelled, None, Some("cancelled".into()));

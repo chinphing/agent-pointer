@@ -203,6 +203,7 @@ pub(super) async fn run_terminal_tool(
     scoped_message_id: Option<String>,
     session_workspace: String,
     execution_scope: ToolExecutionScope,
+    run_id: &str,
 ) -> ToolExecResult {
     let session_workspace = resolve_terminal_session_workspace(conversation_id, session_workspace);
     if session_workspace.trim().is_empty() {
@@ -237,6 +238,7 @@ pub(super) async fn run_terminal_tool(
             session_workspace,
             execution_scope,
             block_until_ms,
+            run_id,
         )
         .await;
     }
@@ -372,6 +374,7 @@ async fn run_terminal_background(
     session_workspace: String,
     execution_scope: ToolExecutionScope,
     block_until_ms: u64,
+    run_id: &str,
 ) -> ToolExecResult {
     let job_cancel = CancellationToken::new();
     let (command, label) = terminal_job_title(&args_value);
@@ -383,7 +386,7 @@ async fn run_terminal_background(
     });
     let job_id = state
         .jobs
-        .register(conversation_id, kind, job_cancel.clone());
+        .register(conversation_id, kind, job_cancel.clone(), run_id);
     emit_background_jobs(
         stream,
         conversation_id,
@@ -501,12 +504,14 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
             spawn.conversation_id
         );
         let body = cancelled_terminal_json();
-        spawn.state.jobs.finish(
+        crate::chat_service::deferred_token_finalize::finish_job_and_maybe_finalize_arc(
+            &spawn.state,
             &job_id,
             JobStatus::Cancelled,
             Some(body.clone()),
             Some("cancelled".into()),
-        );
+        )
+        .await;
         spawn
             .state
             .clear_terminal_abort_flag(&spawn.execution_scope);
@@ -633,10 +638,14 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
         }
     };
 
-    spawn
-        .state
-        .jobs
-        .finish(&job_id, status, Some(body.clone()), err_note.clone());
+    crate::chat_service::deferred_token_finalize::finish_job_and_maybe_finalize_arc(
+        &spawn.state,
+        &job_id,
+        status,
+        Some(body.clone()),
+        err_note.clone(),
+    )
+    .await;
     emit_and_persist_host_tool_finish(
         &spawn.stream,
         &spawn.conversation_id,

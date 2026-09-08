@@ -582,6 +582,8 @@ pub struct AppState {
     pub global_mcp: Arc<RwLock<GlobalMcpConfig>>,
     /// Background `run_subagent` / (later) terminal jobs. Does not hold the session lane.
     pub jobs: super::job_supervisor::JobSupervisor,
+    /// Parks token `finalize_run` until background jobs for that `run_id` finish.
+    pub deferred_token_finalize: super::deferred_token_finalize::DeferredTokenFinalizeStore,
 }
 
 impl AppState {
@@ -721,6 +723,7 @@ impl AppState {
             mcp_sessions,
             global_mcp,
             jobs: super::job_supervisor::JobSupervisor::new(),
+            deferred_token_finalize: super::deferred_token_finalize::DeferredTokenFinalizeStore::new(),
         };
         state.spawn_mcp_watchdog();
         state
@@ -2451,6 +2454,7 @@ mod active_main_task_board_tests {
                 agent_instance_id: "inst".into(),
             }),
             job_token.clone(),
+            "run-soft",
         );
         state.jobs.mark_running(&job_id);
 

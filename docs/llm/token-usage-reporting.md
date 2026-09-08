@@ -29,7 +29,9 @@ All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, ag
 During the run, `record_round` inserts or updates rows with `report_status = accumulating`.
 Context-compression summary calls use the **same** `run_id` / `agent_instance_id` as the lead or sub-agent that triggered them (including background precompress). They do **not** mint a separate `precompress-*` run.
 
-After each `run_chat`, `finalize_run(run_id, …)` sets `report_status = pending` for that run's rows with usage (optional conversation archive zip). Token counts are **not** cleared. Then `flush_unsent_reports` uploads immediately.
+Background jobs (sub-agent / terminal) are tagged with the parent `run_id`. After each `run_chat`, if any non-terminal job still shares that `run_id`, `finalize_run` is **deferred** until the last such job finishes (cancelled / failed / completed all count). Immediate finalize still attaches optional conversation archive zip from the lead history; deferred finalize promotes rows without a history archive (billing does not require it). Then `flush_unsent_reports` uploads.
+
+If there are no background jobs for the run, behavior is unchanged: `finalize_run(run_id, …)` then flush at lead end.
 
 Access token is ~60 minutes (client treats it expired 5 minutes early). A long turn can outlive that window. Flush therefore calls `refresh_if_needed` **only when there is pending work and the session is not logged in** — short turns do not hit the token API. If refresh fails or there is no session, pending stays for retry.
 

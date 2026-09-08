@@ -26,6 +26,8 @@
 
 加载更早（`loadOlderMessages`）写入内存后必须跑 `normalizeInterruptedAssistantStatuses`：历史里若仍带 `streaming`/`pending`，在「默认收缩」关闭时会被当成 active 而不折叠。
 
+切回仍在生成的会话时：先 `reconcileRunStateForConversation`（从 in-flight 工具 / streaming 行恢复 `generating`），再决定是否 `normalizeInterrupted`。顺序反了会把进行中工具打成终态，首屏出现「工作」耗时条且缺少当前工具行，直到下一次 tool_call 才刷新。
+
 ## 计时口径
 
 | 来源 | 含义 |

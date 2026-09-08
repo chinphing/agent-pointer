@@ -120,7 +120,10 @@ function finitePositions(messages: readonly ChatMessage[]): number[] {
 export function messageIsLiveGenerating(msg: ChatMessage | null | undefined): boolean {
   if (!msg) return false
   if (msg.status === 'streaming' || msg.status === 'pending' || msg.contentStreaming) return true
-  return assistantTurnActivelyRunning(msg)
+  // Status may briefly read `done` after a lost generating flag / soft-cancel edge,
+  // while tools are still in flight — treat as live so hydrate does not clobber them.
+  if (msg.role === 'assistant' && hasInFlightToolCalls(msg)) return true
+  return false
 }
 
 /**
@@ -302,12 +305,7 @@ export function mergeHydratedMessages(
   const merged: ChatMessage[] = []
   for (const dbMsg of fromDb) {
     const live = inMemory.find(m => m.id === dbMsg.id)
-    if (
-      live
-      && (live.status === 'streaming'
-        || live.status === 'pending'
-        || live.contentStreaming)
-    ) {
+    if (live && messageIsLiveGenerating(live)) {
       merged.push(overlayLiveStreamingRow(dbMsg, live))
     } else {
       merged.push(dbMsg)
@@ -624,15 +622,16 @@ export function computeHistoryTrimCutByViewedAt(
 /**
  * Clear stale `streaming`/`pending` flags and stuck tool rows on turns that
  * already finished (e.g. after reload or when revisiting an ended session).
+ * Never finalize while tools are still in flight — a lost `generating` flag
+ * must not wipe the live tool line on conversation switch.
  */
 export function normalizeStaleEndedAssistantTurn(msg: ChatMessage): void {
   if (msg.role !== 'assistant') return
   const inFlight = hasInFlightToolCalls(msg)
+  if (inFlight) return
   const looksEnded =
     msg.status === 'done' ||
-    ((msg.status === 'streaming' || msg.status === 'pending') &&
-      !msg.contentStreaming &&
-      !inFlight)
+    ((msg.status === 'streaming' || msg.status === 'pending') && !msg.contentStreaming)
   if (!looksEnded) return
   if (msg.status === 'streaming' || msg.status === 'pending') {
     msg.status = 'done'

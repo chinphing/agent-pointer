@@ -115,6 +115,7 @@ import {
   hasDisconnectedLiveTail,
   mergeHydratedMessages,
   mergeMessagePage,
+  messageIsLiveGenerating,
   applyPersistedBackgroundHostOutcomes,
   countRunningBackgroundSubagents,
   finalizeOrphanBackgroundHosts,
@@ -1112,12 +1113,32 @@ export const useChatStore = defineStore('chat', () => {
       const msg = conv.messages[i]
       if (msg.role !== 'assistant') continue
       normalizeStaleEndedAssistantTurn(msg)
-      if (assistantTurnActivelyRunning(msg)) {
+      if (assistantTurnActivelyRunning(msg) || messageIsLiveGenerating(msg)) {
+        // Prefer streaming status when tools are still live but the flag was lost.
+        if (msg.status !== 'streaming' && msg.status !== 'pending') {
+          msg.status = 'streaming'
+        }
         patchRunState(convId, { generating: true, activeMessageId: msg.id })
+        console.info('[chat] reconcileRunState: restored generating', convId, msg.id)
         return
       }
       break
     }
+  }
+
+  /**
+   * Finalize stuck streaming rows only when this conversation is truly idle.
+   * Must run *after* reconcile — otherwise a lost `generating` flag lets
+   * normalize wipe in-flight tools, and the next paint looks like a finished turn
+   * (「工作」chip + no live tool line) until the next stream event.
+   */
+  function normalizeInterruptedIfIdle(conv: Conversation) {
+    if (isConversationGenerating(conv.id)) return
+    if (conv.messages.some(m => messageIsLiveGenerating(m))) {
+      reconcileRunStateForConversation(conv.id)
+      if (isConversationGenerating(conv.id)) return
+    }
+    normalizeInterruptedAssistantStatuses([conv])
   }
 
   const generating = computed(() => {
@@ -1656,9 +1677,8 @@ export const useChatStore = defineStore('chat', () => {
           conv.messageCount = page.messageCount
         }
         applyMessagePageState(convId, page)
-        if (!isConversationGenerating(convId)) {
-          normalizeInterruptedAssistantStatuses([conv])
-        }
+        reconcileRunStateForConversation(convId)
+        normalizeInterruptedIfIdle(conv)
         normalizeSubAgentTraces([conv])
         if (!hasBackgroundJobs(convId)) {
           applyPersistedBackgroundHostOutcomes(conv, stripped)
@@ -1677,7 +1697,6 @@ export const useChatStore = defineStore('chat', () => {
           'hasMoreOlder',
           page.hasMoreOlder
         )
-        reconcileRunStateForConversation(convId)
         return true
       } catch (err) {
         console.error('[chat] ensureMessagesLoaded: load messages failed', convId, err)
@@ -1925,7 +1944,7 @@ export const useChatStore = defineStore('chat', () => {
         )
         addPersistedMessageIds(convId, persistedCandidateMessageIds(retained))
         normalizeSubAgentTraces([conv])
-        normalizeInterruptedAssistantStatuses([conv])
+        normalizeInterruptedIfIdle(conv)
         stampLoadedUserMessages(convId, retained)
         applyMessagePageState(convId, {
           hasMoreOlder: state.hasMoreOlder,
@@ -2147,9 +2166,8 @@ export const useChatStore = defineStore('chat', () => {
           conv.messageCount = page.messageCount
         }
         applyMessagePageState(convId, page)
-        if (!isConversationGenerating(convId)) {
-          normalizeInterruptedAssistantStatuses([conv])
-        }
+        reconcileRunStateForConversation(convId)
+        normalizeInterruptedIfIdle(conv)
         normalizeSubAgentTraces([conv])
         if (!hasBackgroundJobs(convId)) {
           applyPersistedBackgroundHostOutcomes(conv, stripped)
@@ -2168,7 +2186,6 @@ export const useChatStore = defineStore('chat', () => {
           'hasMoreNewer',
           page.hasMoreNewer
         )
-        reconcileRunStateForConversation(convId)
         return next.some(m => m.id === targetId)
       } catch (err) {
         console.error('[chat] ensureMessagesAround failed', convId, targetId, err)

@@ -14,6 +14,7 @@ import {
   insertMessageBeforeAnchor,
   mergeHydratedMessages,
   mergeMessagePage,
+  messageIsLiveGenerating,
   messagesInCurrentPageWindow,
   countRunningBackgroundSubagents,
   applyPersistedBackgroundHostOutcomes,
@@ -730,7 +731,7 @@ describe('chat helpers', () => {
     expect(assistantTurnActivelyRunning(msg)).toBe(true)
   })
 
-  it('normalizeStaleEndedAssistantTurn clears stuck tools on done assistant', () => {
+  it('normalizeStaleEndedAssistantTurn leaves in-flight tools on done assistant', () => {
     const msg: ChatMessage = {
       id: 'a1',
       role: 'assistant',
@@ -742,8 +743,8 @@ describe('chat helpers', () => {
       ]
     }
     normalizeStaleEndedAssistantTurn(msg)
-    expect(msg.toolCalls![0].status).toBe('failed')
-    expect(assistantTurnActivelyRunning(msg)).toBe(false)
+    expect(msg.toolCalls![0].status).toBe('pending')
+    expect(messageIsLiveGenerating(msg)).toBe(true)
   })
 
   it('removeTrailingDiscardableEmptyAssistant removes empty tail', () => {
@@ -888,6 +889,42 @@ describe('chat helpers', () => {
     )
     expect(merged.map(m => m.id)).toEqual(['hello', 'hello-a', 'work', 'work-a'])
     expect(merged[3]?.status).toBe('streaming')
+  })
+
+  it('mergeHydratedMessages overlays done+running-tools over stale DB row', () => {
+    const live: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      position: 1,
+      toolCalls: [{ id: 't1', name: 'terminal', arguments: '{}', status: 'running' }]
+    }
+    const fromDb: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      position: 1,
+      toolCalls: [{ id: 't1', name: 'terminal', arguments: '{}', status: 'success', result: 'ok' }]
+    }
+    const merged = mergeHydratedMessages([live], [fromDb])
+    expect(merged[0]?.toolCalls?.[0]?.status).toBe('running')
+  })
+
+  it('normalizeStaleEndedAssistantTurn keeps in-flight tools', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 0,
+      toolCalls: [{ id: 't1', name: 'terminal', arguments: '{}', status: 'running' }]
+    }
+    normalizeStaleEndedAssistantTurn(msg)
+    expect(msg.toolCalls![0].status).toBe('running')
   })
 
   it('mergeHydratedMessages in-flight-tail drops around-window rows on a force tail', () => {

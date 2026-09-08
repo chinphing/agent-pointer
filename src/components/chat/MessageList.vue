@@ -1495,6 +1495,29 @@ function turnElapsedLabel(turnId: string): string {
   )
 }
 
+/**
+ * 「工作」chip: finished turns only, unless「默认收缩执行过程」shows live elapsed
+ * on an *active* turn. Hide the finished-style chip when hydrate briefly mis-labels
+ * a still-running turn as completed (sidebar switch).
+ */
+function shouldShowTurnElapsedChip(turn: (typeof conversationTurns.value)[number]): boolean {
+  if (turn.hiddenCount <= 0) return false
+  const collapseActive = settings.userSettings.collapseProcessByDefault === true
+  if (turn.state === 'active') return collapseActive
+  const conversationId = chat.currentId?.trim()
+  if (conversationId && activeTurnStartedAt(conversationId, turn.id) != null) {
+    return false
+  }
+  if (
+    chat.generating
+    && chat.activeGeneratingMessageId
+    && turnContains(turn, entry => entryContainsMessageId(entry, chat.activeGeneratingMessageId!))
+  ) {
+    return false
+  }
+  return true
+}
+
 function expandTurnContainingMessage(messageId: string): number {
   const idx = conversationTurns.value.findIndex(turn =>
     turnContains(turn, entry => entryContainsMessageId(entry, messageId))
@@ -1771,7 +1794,7 @@ function entrySpacing(
                 turnElapsedHostIndex(
                   displayedTurnEntries(row.turn),
                   row.turn.id,
-                  row.turn.hiddenCount,
+                  shouldShowTurnElapsedChip(row.turn) ? row.turn.hiddenCount : 0,
                   turnHasTaskBoard(row.turn)
                 )
               )}px`
@@ -1869,7 +1892,7 @@ function entrySpacing(
             </div>
 
             <div
-              v-if="row.turn.hiddenCount > 0 && (
+              v-if="shouldShowTurnElapsedChip(row.turn) && (
                 (entry.type === 'message' && entry.message.id === row.turn.id && !turnHasTaskBoard(row.turn))
                 || (entry.type === 'task_board' && entry.anchorMessageId === row.turn.id)
               )"

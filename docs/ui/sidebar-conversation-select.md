@@ -12,6 +12,9 @@
    避免同帧布局挡住侧栏绘制。
 4. **hydrate 与 focus**：未 hydrate 且 `messageCount > 0` 时
    `isCurrentConversationHydrating` 为 true，pending focus 仍会等加载完成。
+5. **切回进行中会话**：hydrate 先 reconcile 恢复 `generating`，再 normalize
+   interrupted；合并 DB 页时保留 in-flight 工具行。否则首屏会误显示「工作」耗时、
+   缺少当前工具行（见 [turn-elapsed.md](turn-elapsed.md)）。
 
 ## 行尾操作（置顶 / 删除）
 

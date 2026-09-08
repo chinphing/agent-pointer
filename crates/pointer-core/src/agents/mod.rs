@@ -1474,6 +1474,14 @@ mod builtin_agent_tests {
             "COMMUNICATION_PUBLIC should send process progress to tools and the board"
         );
         assert!(
+            s.contains("User-visible delivery"),
+            "COMMUNICATION_PUBLIC should state that only content is user-visible delivery"
+        );
+        assert!(
+            s.contains("not a substitute for the reply"),
+            "COMMUNICATION_PUBLIC should warn tool results are not the reply surface"
+        );
+        assert!(
             !s.contains("macro milestone"),
             "COMMUNICATION_PUBLIC should not treat phase chatter as user-visible content"
         );

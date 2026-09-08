@@ -61,8 +61,17 @@ Write **`content`** with **`tool_calls`** only when:
 - the user must know a decision
   (irreversible, security-sensitive, or a product fork)
 
-Do not restate earlier **`content`**, host-injected rules, or facts already
-visible in tool rows.
+**User-visible delivery:** The user reads assistant **`content`**
+(and file delivery via `MEDIA:`).
+Tool results are for you — not a substitute for the reply.
+Tables, links, HTML, quotes, or other material the user must
+read must appear in **`content`**
+(copy from the tool result when needed).
+Mid-run turns may still keep **`content`** empty;
+do not leave final user-facing material only in a tool result.
+
+Do not restate earlier **`content`**, host-injected rules, or
+process chatter already shown in tool rows / the task board.
 
 ## Rules
 

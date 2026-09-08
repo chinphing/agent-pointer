@@ -267,7 +267,7 @@ export function isBackgroundSubagentCall(tc: ToolCall): boolean {
   if (args.background === true) return true
   if (args.background === false) return false
   const agentId = typeof args.agentId === 'string' ? args.agentId.trim().toLowerCase() : ''
-  return agentId === 'self' || agentId === 'explore'
+  return agentId === 'self' || agentId === 'explore' || agentId === 'coder'
 }
 
 export function isBackgroundTerminalCall(tc: ToolCall): boolean {

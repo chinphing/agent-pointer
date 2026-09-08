@@ -134,8 +134,8 @@ describe('compactToolCallStatusLine', () => {
     expect(line).toBe('委派子任务 · 探索代码库 · 后台执行中')
   })
 
-  it('treats self/explore omit background as background host', () => {
-    const call = tc({
+  it('treats self/explore/coder omit background as background host', () => {
+    const explore = tc({
       id: '1',
       name: 'run_subagent',
       status: 'success',
@@ -144,9 +144,19 @@ describe('compactToolCallStatusLine', () => {
       arguments: JSON.stringify({ agentId: 'explore', goal: 'map', title: '任务A' }),
       result: '{"jobId":"job_1","status":"running","kind":"subagent"}'
     })
-    expect(isBackgroundSubagentCall(call)).toBe(true)
-    expect(resolveBackgroundHostDisplayStatus(call)).toBe('running')
-    expect(compactToolCallStatusLine(call)).toBe('委派子任务 · 任务A · 后台执行中')
+    expect(isBackgroundSubagentCall(explore)).toBe(true)
+    expect(resolveBackgroundHostDisplayStatus(explore)).toBe('running')
+    expect(compactToolCallStatusLine(explore)).toBe('委派子任务 · 任务A · 后台执行中')
+
+    const coder = tc({
+      id: '2',
+      name: 'run_subagent',
+      status: 'running',
+      displayLabel: '委派子任务',
+      displaySummary: '实现',
+      arguments: JSON.stringify({ agentId: 'coder', goal: 'What: patch\nDone when: green' })
+    })
+    expect(isBackgroundSubagentCall(coder)).toBe(true)
   })
 
   it('shows 后台执行中 for background terminal', () => {

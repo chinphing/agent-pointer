@@ -18,7 +18,7 @@
 2. 句柄 JSON：`{ jobId, status, kind }` 中的 `status`（`running` / `completed` / `failed` / `cancelled`）
 3. **禁止**用「占用计数 = 0」单独推断「用户取消」；占用为 0 只表示 JobSupervisor 里没有 running，**不能**默认写成 interrupted
 
-前端识别 `run_subagent` 后台宿主时须与后端一致：`self` / `explore` **省略** `background` 也视为后台；句柄 JSON（`kind=subagent`）亦视为后台。回合 `Done` 后 `finalizeStuckToolCalls` **不得**因句柄 JSON 已写入而把仍 `running` 的宿主标成 `success`。
+前端识别 `run_subagent` 后台宿主时须与后端一致：`self` / `explore` / `coder` **省略** `background` 也视为后台；句柄 JSON（`kind=subagent`）亦视为后台。回合 `Done` 后 `finalizeStuckToolCalls` **不得**因句柄 JSON 已写入而把仍 `running` 的宿主标成 `success`。
 
 对应文案：
 

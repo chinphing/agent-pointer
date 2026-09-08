@@ -37,8 +37,8 @@ pub struct RunSubagentArgs {
     pub task_id: String,
     pub workspace_root: Option<String>,
     pub computer_target: Option<ComputerOperationTarget>,
-    /// When true, return `jobId` immediately and run in JobSupervisor (self/explore only).
-    /// Omit defaults to true for `self` / `explore`; `coder` / `computer` stay false.
+    /// When true, return `jobId` immediately and run in JobSupervisor.
+    /// Omit defaults to true for `self` / `explore` / `coder`; `computer` stays false.
     pub background: bool,
 }
 
@@ -48,10 +48,20 @@ impl RunSubagentArgs {
     }
 
     /// Targets that may share the owned-outcome parallel subagent wave.
-    /// Registered writers / desktop agents stay serial.
+    /// Registered writers / desktop agents stay serial (coder may still go background).
     pub fn is_parallel_wave_target(&self) -> bool {
         self.is_self_fork() || self.agent_id == "explore"
     }
+
+    /// Targets that may detach into JobSupervisor (`background` omit/true).
+    pub fn allows_background(&self) -> bool {
+        agent_id_allows_background(&self.agent_id)
+    }
+}
+
+/// `self` / `explore` / `coder` may background; `computer` (and others) must join.
+pub fn agent_id_allows_background(agent_id: &str) -> bool {
+    matches!(agent_id.trim(), "self" | "explore" | "coder")
 }
 
 #[derive(Debug, Clone)]
@@ -82,16 +92,16 @@ pub fn validate_spawn_depth(parent_spawn_depth: u32, max_spawn_depth: u32) -> Re
     Ok(child)
 }
 
-/// Background spawn is only for `self` / `explore`. Writers must join in the foreground.
+/// Background spawn for `self` / `explore` / `coder`. Desktop (`computer`) must join.
 pub fn validate_background_target(parsed: &RunSubagentArgs) -> Result<(), String> {
     if !parsed.background {
         return Ok(());
     }
-    if parsed.is_parallel_wave_target() {
+    if parsed.allows_background() {
         return Ok(());
     }
     Err(
-        "background is only supported for agentId self or explore; coder and computer must join in the foreground"
+        "background is only supported for agentId self, explore, or coder; computer must join in the foreground"
             .into(),
     )
 }
@@ -188,11 +198,12 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         .map(str::to_string);
     let computer_target = parse_computer_target(args);
     let agent_id = agent_id.to_string();
-    // self / explore: omit = background (idle push closes the loop).
-    // Writers stay foreground unless the model somehow sets true (then validate fails).
-    let background = args.get("background").and_then(|v| v.as_bool()).unwrap_or(
-        agent_id == "self" || agent_id == "explore",
-    );
+    // self / explore / coder: omit = background (idle push closes the loop).
+    // computer stays foreground unless the model sets true (then validate fails).
+    let background = args
+        .get("background")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| agent_id_allows_background(&agent_id));
     Ok(RunSubagentArgs {
         agent_id,
         goal: goal.to_string(),
@@ -359,11 +370,11 @@ mod tests {
         assert!(parsed.title.is_empty());
         assert!(parsed.task_id.is_empty());
         assert!(parsed.workspace_root.is_none());
-        assert!(!parsed.background);
+        assert!(parsed.background);
     }
 
     #[test]
-    fn parse_background_defaults_true_for_self_and_explore() {
+    fn parse_background_defaults_true_for_self_explore_and_coder() {
         let self_omit = parse_run_subagent_args(&json!({
             "agentId": "self",
             "goal": "What: inspect\nDone when: report"
@@ -376,6 +387,12 @@ mod tests {
         }))
         .unwrap();
         assert!(explore_omit.background);
+        let coder_omit = parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "goal": "What: implement\nDone when: tests pass"
+        }))
+        .unwrap();
+        assert!(coder_omit.background);
         let self_fg = parse_run_subagent_args(&json!({
             "agentId": "self",
             "goal": "What: inspect\nDone when: report",
@@ -383,10 +400,16 @@ mod tests {
         }))
         .unwrap();
         assert!(!self_fg.background);
+        let computer_omit = parse_run_subagent_args(&json!({
+            "agentId": "computer",
+            "goal": "What: click\nDone when: done"
+        }))
+        .unwrap();
+        assert!(!computer_omit.background);
     }
 
     #[test]
-    fn parse_background_self_ok_coder_rejected() {
+    fn parse_background_coder_ok_computer_rejected() {
         let self_bg = parse_run_subagent_args(&json!({
             "agentId": "self",
             "goal": "What: inspect\nDone when: report",
@@ -401,7 +424,15 @@ mod tests {
             "background": true
         }))
         .unwrap();
-        assert!(validate_background_target(&coder_bg).is_err());
+        assert!(coder_bg.background);
+        assert!(validate_background_target(&coder_bg).is_ok());
+        let computer_bg = parse_run_subagent_args(&json!({
+            "agentId": "computer",
+            "goal": "What: click\nDone when: done",
+            "background": true
+        }))
+        .unwrap();
+        assert!(validate_background_target(&computer_bg).is_err());
     }
 
     #[test]

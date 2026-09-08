@@ -33,13 +33,13 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 
 **What the parent receives**
 
-- Default for **`self`** / **`explore`**: **`{ jobId, status: "running", kind: "subagent" }`**
+- Default for **`self`** / **`explore`** / **`coder`**: **`{ jobId, status: "running", kind: "subagent" }`**
   immediately (omit `background` or set `true`).
   That handle stays this call's result; the worker body is **not** written back here.
   Use **`job.await`** when this turn needs results.
   If this turn can end, do not tell the user everything is finished.
   This is a worker, not a shell command (`kind: "terminal"`).
-- **`background: false`** (or **`coder`** / **`computer`**): **`content`** —
+- **`background: false`** (or **`computer`**): **`content`** —
   Markdown: the worker’s final assistant message.
   Merge into your plan; do not paste the full handoff to the user.
 - Only **`content`** (or the job handle). Worker thinking is not included.
@@ -81,23 +81,27 @@ Do not pack unrelated work; do not split a tight one-file edit.
 - Same turn, multiple **`agentId: "self"`** and/or **`agentId: "explore"`**
   → may run concurrently (default background; or foreground when
   every call sets **`background: false`**).
-- **`coder`** / **`computer`** stay serial (writers / desktop).
+- **`coder`** may background but stays **serial** (one spawn at a time in the
+  tool pass — no owned-wave with self/explore).
+- **`computer`** stays serial foreground join.
 - Concurrent only when **all** are true:
   - independent (no wait-on result)
   - no shared mutable state / overlapping writes
   - no user-interactive or desktop-control work
 - Otherwise: one call, or sequential turns.
 
-**Background (`self` and `explore` only)**
+**Background (`self`, `explore`, and `coder`)**
 
 - Omit / `true` = return `jobId` now; the worker keeps running
-  (**default** for `self` / `explore`).
+  (**default** for `self` / `explore` / `coder`).
 - `false` = wait until the worker finishes (foreground join).
 - Use **`background: false`** when the **next step in this turn**
   is blocked on that result and you will not call `job.await`.
 - Need a result this turn after a background spawn → `job.await`.
 - This call's stored result stays that handle after the worker finishes.
-- `coder` / `computer` must stay foreground (omit stays join).
+- **`computer`** must stay foreground (omit stays join).
+- Prefer **`background: false`** for **`coder`** when two writers would
+  touch the same files in the same turn without sequencing.
 - If this turn ends first, keep jobs running.
   The host later starts one more turn in this conversation
   with finished unclaimed results. Do not say everything is done
@@ -284,9 +288,9 @@ User required a specific path — put it in **`context`**, not **`goal`**:
   Absolute directory for the coder worker.
   Optional for a self fork; when present, it overrides the current workspace.
 - **`computerTarget`** (optional, **general → `computer`**) — `self` | `external`.
-- **`background`** (optional) — `self` / `explore` only.
+- **`background`** (optional) — `self` / `explore` / `coder`.
   Omit / `true` = job handle now (default).
-  `false` = foreground join. `coder` / `computer` ignore and always join.
+  `false` = foreground join. **`computer`** ignores and always joins.
 
 **Handoff flow**
 

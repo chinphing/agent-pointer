@@ -189,20 +189,21 @@ onMounted(() => {
               <span class="truncate text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回对话</span>
             </button>
           </WindowDragRegion>
-          <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-3 pb-3">
+          <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto pl-3 pr-2 pt-3 pb-3">
             <template v-for="(group, groupIndex) in sections" :key="groupIndex">
               <div v-if="groupIndex > 0" class="my-2 h-px bg-border/60" />
               <button
                 v-for="item in group.items"
                 :key="item.id"
-                class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer group"
+                class="w-full flex items-center gap-2 rounded-xl py-2.5 text-left transition-all cursor-pointer group"
                 :class="activeSection === item.id ? 'bg-hover border border-transparent' : 'border border-transparent hover:bg-hover'"
                 @click="activeSection = item.id"
               >
-                <div class="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
-                     :class="activeSection === item.id ? 'bg-hover' : 'bg-hover group-hover:bg-hover'">
-                  <component :is="item.icon" class="w-3.5 h-3.5" :class="activeSection === item.id ? 'text-foreground' : 'text-muted'" />
-                </div>
+                <component
+                  :is="item.icon"
+                  class="w-3.5 h-3.5 shrink-0"
+                  :class="activeSection === item.id ? 'text-foreground' : 'text-muted'"
+                />
                 <span class="min-w-0">
                   <span class="block text-[13px] font-medium" :class="activeSection === item.id ? 'text-foreground' : 'text-foreground/80'">{{ item.label }}</span>
                   <span class="block text-[11px] text-muted truncate">{{ item.desc }}</span>

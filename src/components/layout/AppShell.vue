@@ -872,15 +872,17 @@ watch(searchQuery, q => {
           <!-- 品牌：Windows/Linux 展开状态固定在侧栏左上角；macOS 品牌在顶栏 -->
           <div
             v-if="os !== 'macos'"
-            class="sidebar-brand flex items-center gap-2 min-w-0 flex-1 pl-3.5"
+            class="sidebar-brand flex h-full min-w-0 flex-1 items-center pl-3.5"
           >
-            <img
-              src="/app-icon.png"
-              alt="Pointer"
-              draggable="false"
-              class="h-3.5 w-3.5 shrink-0 select-none rounded-[3px] object-cover grayscale"
-            />
-            <div class="text-[13px] leading-none font-semibold tracking-wide brand-text truncate">Pointer</div>
+            <div class="inline-flex h-3.5 min-w-0 items-center gap-2">
+              <img
+                src="/app-icon.png"
+                alt="Pointer"
+                draggable="false"
+                class="block h-3.5 w-3.5 shrink-0 select-none rounded-[3px] object-cover grayscale"
+              />
+              <span class="brand-text flex h-3.5 min-w-0 items-center truncate text-[13px] font-semibold leading-none tracking-wide">Pointer</span>
+            </div>
           </div>
           <!-- macOS: spacer to push the collapse button right -->
           <div v-else class="flex-1" />

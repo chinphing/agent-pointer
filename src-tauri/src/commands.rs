@@ -115,19 +115,24 @@ pub async fn get_workspace_git_diff(
 }
 
 #[tauri::command]
-pub fn get_turn_file_diff(
+pub async fn get_turn_file_diff(
     conversation_id: String,
     turn_id: String,
     workspace_root: String,
     path: String,
 ) -> Result<pointer_core::turn_file_baseline::TurnFileDiff, String> {
-    pointer_core::turn_file_baseline::turn_file_diff(
-        &conversation_id,
-        &turn_id,
-        Path::new(&workspace_root),
-        &path,
-    )
-    .map_err(|e| e.to_string())
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::turn_file_baseline::turn_file_diff(
+            &conversation_id,
+            &turn_id,
+            Path::new(&workspace_root),
+            &path,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    result
 }
 
 /// Build a [`TriggerRequest`] from the IPC payload. Centralized so the IPC

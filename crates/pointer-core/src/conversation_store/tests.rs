@@ -2300,6 +2300,44 @@ mod tests {
     }
 
     #[test]
+    fn subsequent_lead_turn_ids_skip_scoped_and_synthetic() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("sub-lead", "Sub lead", "first");
+        // sample_conv already has msg_u1 / msg_a1; append more turns.
+        let u2 = msg("u2", Role::User, "second", 2);
+        let a2 = msg("a2", Role::Assistant, "ok", 3);
+        let mut scoped = msg("u-scoped", Role::User, "sub task", 4);
+        scoped.anchor_message_id = Some("u2".into());
+        let synthetic = msg(
+            "u-syn",
+            Role::User,
+            "[Conversation summary (auto-compression)]\nkeep going",
+            5,
+        );
+        let u3 = msg("u3", Role::User, "third", 6);
+        conv.messages.push(u2);
+        conv.messages.push(a2);
+        conv.messages.push(scoped);
+        conv.messages.push(synthetic);
+        conv.messages.push(u3);
+        store.sync_conversations(&[conv]).unwrap();
+
+        let after_u1 = store
+            .load_subsequent_lead_turn_ids("sub-lead", "msg_u1")
+            .unwrap();
+        assert_eq!(after_u1, vec!["u2".to_string(), "u3".to_string()]);
+        let after_u2 = store.load_subsequent_lead_turn_ids("sub-lead", "u2").unwrap();
+        assert_eq!(after_u2, vec!["u3".to_string()]);
+        let after_u3 = store.load_subsequent_lead_turn_ids("sub-lead", "u3").unwrap();
+        assert!(after_u3.is_empty());
+        let missing = store
+            .load_subsequent_lead_turn_ids("sub-lead", "missing")
+            .unwrap();
+        assert!(missing.is_empty());
+    }
+
+    #[test]
     #[ignore]
     fn profile_ui_search_real_db() {
         let _ = env_logger::builder()

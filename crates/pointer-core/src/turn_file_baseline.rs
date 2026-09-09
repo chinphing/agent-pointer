@@ -7,8 +7,6 @@
 //! the pre-write content. Review diffs that snapshot against the next later
 //! baseline for the same path, or the on-disk file when none exists.
 
-use crate::message_context::is_synthetic_user_content;
-use crate::models::{is_scoped_sub_message, ChatMessage, Role};
 use crate::storage;
 use crate::text_diff::compute_diff_lines;
 use anyhow::{anyhow, Context, Result};
@@ -165,32 +163,13 @@ fn read_baseline_either(
     }
 }
 
-fn is_lead_user_message(message: &ChatMessage) -> bool {
-    matches!(message.role, Role::User)
-        && !is_synthetic_user_content(&message.content)
-        && !is_scoped_sub_message(message)
-        && !message.id.trim().is_empty()
-}
-
-fn subsequent_lead_turn_ids(history: &[ChatMessage], current_turn_id: &str) -> Vec<String> {
-    let ids: Vec<String> = history
-        .iter()
-        .filter(|message| is_lead_user_message(message))
-        .map(|message| message.id.trim().to_string())
-        .collect();
-    let Some(index) = ids.iter().position(|id| id == current_turn_id) else {
-        return Vec::new();
-    };
-    ids.into_iter().skip(index + 1).collect()
-}
-
 fn load_subsequent_lead_turn_ids(conversation_id: &str, turn_id: &str) -> Vec<String> {
     match crate::conversation_store::global_store() {
-        Ok(store) => match store.load_messages(conversation_id) {
-            Ok(messages) => subsequent_lead_turn_ids(&messages, turn_id),
+        Ok(store) => match store.load_subsequent_lead_turn_ids(conversation_id, turn_id) {
+            Ok(ids) => ids,
             Err(error) => {
                 warn!(
-                    "turn_file_baseline: load_messages failed for next baseline conversation_id={conversation_id}: {error:#}"
+                    "turn_file_baseline: load_subsequent_lead_turn_ids failed conversation_id={conversation_id} turn_id={turn_id}: {error:#}"
                 );
                 Vec::new()
             }
@@ -343,39 +322,6 @@ mod tests {
         let a = path_key(Path::new("/tmp/Foo/bar.ts"));
         let b = path_key(Path::new("/tmp/Foo\\bar.ts"));
         assert_eq!(a, b);
-    }
-
-    fn user_msg(id: &str, content: &str) -> ChatMessage {
-        let mut message = ChatMessage::user_text(content);
-        message.id = id.to_string();
-        message
-    }
-
-    #[test]
-    fn subsequent_lead_turns_skip_scoped_and_current() {
-        let mut scoped = user_msg(
-            "scoped",
-            "Begin. Your assigned task is in the system prompt under **Assigned task**.",
-        );
-        scoped.anchor_message_id = Some("a1".into());
-        let history = vec![
-            user_msg("u1", "first"),
-            scoped,
-            user_msg("u2", "second"),
-            user_msg("u3", "third"),
-        ];
-        assert_eq!(
-            subsequent_lead_turn_ids(&history, "u1"),
-            vec!["u2".to_string(), "u3".to_string()]
-        );
-        assert_eq!(
-            subsequent_lead_turn_ids(&history, "u3"),
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            subsequent_lead_turn_ids(&history, "missing"),
-            Vec::<String>::new()
-        );
     }
 
     #[test]

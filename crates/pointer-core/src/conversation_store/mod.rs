@@ -84,6 +84,16 @@ impl ConversationStore {
         persist::load_messages(&conn, conversation_id)
     }
 
+    /// Lead user turn ids after `turn_id` (no full payload deserialize).
+    pub fn load_subsequent_lead_turn_ids(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+    ) -> Result<Vec<String>> {
+        let conn = self.db.conn.lock();
+        persist::load_subsequent_lead_turn_ids(&conn, conversation_id, turn_id)
+    }
+
     /// Full DB row count plus lead LLM working-set messages (`included`, non-scoped).
     pub fn load_lead_working_messages(
         &self,

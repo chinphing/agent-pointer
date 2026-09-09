@@ -27,10 +27,19 @@
 
 ## API
 
-- Tauri：`get_turn_file_diff`
+- Tauri：`get_turn_file_diff`（`spawn_blocking`，避免阻塞 UI 异步运行时）
 - HTTP：`GET /api/workspace/turn-file-diff?conversationId=&turnId=&workspaceRoot=&path=`
 
 返回 `diffLines` / `diffStats` / `baselineMissing` / `created`（camelCase）。
+
+### 找「下一轮基线」时不要全量读消息
+
+对比「本轮基线 ↔ 其后同路径下一份基线」需要后续 **lead 用户 turn id** 列表。
+实现必须用轻量查询（`message_id` + `content` + `is_scoped` / `position`），
+**禁止**对整段会话 `load_messages` 再反序列化全部 `payload`。
+
+长会话里 `conversations.db` 单会话可达数万行、百 MB 级 payload；
+全量加载会让点击「变更文件」打开右侧 diff 明显变慢（短会话不易察觉）。
 
 ## 跨端
 

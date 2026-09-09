@@ -560,6 +560,62 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
         .collect())
 }
 
+/// Lead user turn ids after `turn_id`, ordered by position.
+///
+/// Used by turn-file review to find the next baseline without deserializing the
+/// full transcript payload (critical for multi-10k-message conversations).
+pub(crate) fn load_subsequent_lead_turn_ids(
+    conn: &Connection,
+    conversation_id: &str,
+    turn_id: &str,
+) -> Result<Vec<String>> {
+    let current_position: Option<i64> = conn
+        .query_row(
+            "SELECT position FROM messages
+             WHERE conversation_id = ?1 AND message_id = ?2",
+            params![conversation_id, turn_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(current_position) = current_position else {
+        log::info!(
+            "conversation_store: subsequent lead turns skipped; turn not found conversation_id={conversation_id} turn_id={turn_id}"
+        );
+        return Ok(Vec::new());
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT message_id, content FROM messages
+         WHERE conversation_id = ?1
+           AND role = 'user'
+           AND is_scoped = 0
+           AND position > ?2
+         ORDER BY position ASC",
+    )?;
+    let rows = stmt.query_map(params![conversation_id, current_position], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (message_id, content) = row?;
+        let id = message_id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        // Match lead-user filter used for turn baselines (content + is_scoped).
+        if crate::message_context::is_synthetic_user_content(&content) {
+            continue;
+        }
+        out.push(id.to_string());
+    }
+    log::info!(
+        "conversation_store: subsequent lead turns conversation_id={conversation_id} turn_id={turn_id} count={}",
+        out.len()
+    );
+    Ok(out)
+}
+
 /// Lead `run_chat` working set via materialized `context_included` (schema v22).
 /// Soft-excluded / scoped payloads are not selected, so they are never deserialized
 /// into the returned Vec. `db_count` is still the full transcript row count.

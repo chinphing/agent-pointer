@@ -158,7 +158,9 @@ impl IdleJobPush {
                 .unwrap_or_default(),
             workspace_inherit_disabled: meta.as_ref().map(|m| m.workspace_inherit_disabled),
             deliver: DeliverTarget::None,
-            web_session_auth: None,
+            // Same as cron/webhook: reuse browser/local session (or cached LLM keys)
+            // so standalone server idle push is not gated as "请先登录".
+            web_session_auth: state.automation_execution_auth(),
         };
         if let Err(err) = self.dispatcher.dispatch(req).await {
             log::error!(

@@ -266,7 +266,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 仅当：job 为 **Completed / Failed** **且** 该会话没有进行中的 lead 轮 **且** 这条完成尚未被 `await` 认领。
 
-实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话全部未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` =「后台任务已完成。」（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 失败会 `unclaim` 以便重试。
+实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话全部未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` =「后台任务已完成。」（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
 
 取消、停会话（job → Cancelled）、进程退出：**不** push。终端默认仍是前台；只有显式 `blockUntilMs` 的终端 job 才会进这张表。
 

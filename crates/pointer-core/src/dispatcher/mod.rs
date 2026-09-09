@@ -921,7 +921,7 @@ impl RunDispatcher {
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,
-            web_session_auth: None,
+            web_session_auth: self.app_state().automation_execution_auth(),
         };
         self.dispatch(req).await
     }

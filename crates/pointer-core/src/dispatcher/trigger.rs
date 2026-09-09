@@ -33,9 +33,13 @@ pub enum TriggerSource {
 }
 
 impl TriggerSource {
-    /// Runs that execute without an interactive browser session (webhook, cron, IM).
+    /// Runs that execute without an interactive browser request
+    /// (webhook, cron, IM, internal idle push / dispatch_internal).
     pub fn is_headless_automation(self) -> bool {
-        matches!(self, Self::Webhook | Self::Cron | Self::Im)
+        matches!(
+            self,
+            Self::Webhook | Self::Cron | Self::Im | Self::Internal
+        )
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -259,4 +263,19 @@ pub enum RunOutcome {
         run_id: String,
         conversation_id: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TriggerSource;
+
+    #[test]
+    fn headless_automation_includes_internal_like_cron() {
+        assert!(TriggerSource::Cron.is_headless_automation());
+        assert!(TriggerSource::Webhook.is_headless_automation());
+        assert!(TriggerSource::Im.is_headless_automation());
+        assert!(TriggerSource::Internal.is_headless_automation());
+        assert!(!TriggerSource::Ipc.is_headless_automation());
+        assert!(!TriggerSource::HttpRuns.is_headless_automation());
+    }
 }

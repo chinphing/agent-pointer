@@ -144,7 +144,7 @@ openclaw 的 cron 会话用 `daily` 重置模式、`atHour = 4`（本地凌晨 4
 ## 已知范围与后续
 
 - **IM 入站**仍直连 `run_chat`（`pointer-channels/src/dispatch.rs`），未走 dispatcher。IM 已是事件驱动路径，且其 reply 收集依赖直接消费 `StreamEvent` 流；改走 dispatcher 需重写为消费 `AgentEvent`，收益低、回归风险高，暂缓。`enabledSkillIds` 取 `user_settings.json` 全局启用列表。
-- **内部后台任务**（curator LLM pass、memory review）是定制 LLM 调用，不走 `run_chat`，与 dispatcher 的会话回合契约不匹配，故未迁移。**会话回合型**内部触发已用于空闲 job push：`TriggerSource::Internal`、`internal_label=idle_job_push`，同一 `conversation_id` 再开一轮 lead（见 [`../design/async-subagent-and-terminal.md`](../design/async-subagent-and-terminal.md)）。
+- **内部后台任务**（curator LLM pass、memory review）是定制 LLM 调用，不走 `run_chat`，与 dispatcher 的会话回合契约不匹配，故未迁移。**会话回合型**内部触发已用于空闲 job push：`TriggerSource::Internal`、`internal_label=idle_job_push`，同一 `conversation_id` 再开一轮 lead；鉴权与 cron 对齐（`automation_execution_auth` + headless 本地 LLM 放行）。见 [`../design/async-subagent-and-terminal.md`](../design/async-subagent-and-terminal.md)。
 - `pre/post_tool_call` 发射点未接入。
 
 ## Run → IM 出站总线（Phase 1–2 已实现）

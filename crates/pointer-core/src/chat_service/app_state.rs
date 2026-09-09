@@ -1092,9 +1092,15 @@ impl AppState {
     }
 
     /// Auth + creds for headless runs: live browser session, else cached LLM keys.
+    ///
+    /// Standalone local login stores empty platform creds (LLM keys live in
+    /// settings); still return that session so cron / idle push get `web_session`.
     pub fn automation_execution_auth(&self) -> Option<WebSessionAuth> {
         if let Some(live) = self.automation_web_session.read().clone() {
             if crate::platform_auth::credentials_have_llm_keys(&live.creds) {
+                return Some(live);
+            }
+            if live.kind == crate::web_request_auth::WebSessionAuthKind::Local {
                 return Some(live);
             }
         }
@@ -2570,6 +2576,61 @@ mod active_main_task_board_tests {
         }
 
         assert_eq!(peak.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[cfg(test)]
+mod automation_execution_auth_tests {
+    use super::AppState;
+    use crate::local_auth::{create_local_auth_manager, empty_local_credentials};
+    use crate::platform_auth::PlatformLoginCredentials;
+    use crate::web_request_auth::{WebSessionAuth, WebSessionAuthKind};
+
+    /// Point `storage::data_dir()` at a fresh temp dir so AppState tests never
+    /// read/write the developer's real user_settings.json / provider_keys.enc.
+    struct TestDataDirGuard {
+        _dir: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    fn isolate_app_data_dir() -> TestDataDirGuard {
+        let lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        TestDataDirGuard {
+            _dir: dir,
+            _lock: lock,
+        }
+    }
+
+    #[test]
+    fn automation_execution_auth_returns_local_session_without_platform_llm_keys() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        let auth = create_local_auth_manager();
+        let creds = empty_local_credentials();
+        assert!(!crate::platform_auth::credentials_have_llm_keys(&creds));
+        state.set_automation_web_session(Some(WebSessionAuth {
+            kind: WebSessionAuthKind::Local,
+            auth,
+            creds,
+        }));
+        let got = state
+            .automation_execution_auth()
+            .expect("local session should be usable for headless runs");
+        assert_eq!(got.kind, WebSessionAuthKind::Local);
+    }
+
+    #[test]
+    fn automation_execution_auth_skips_platform_session_without_llm_keys() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+        state.set_automation_web_session(Some(WebSessionAuth {
+            kind: WebSessionAuthKind::Platform,
+            auth: state.platform_auth.clone(),
+            creds: PlatformLoginCredentials::default(),
+        }));
+        assert!(state.automation_execution_auth().is_none());
     }
 }
 

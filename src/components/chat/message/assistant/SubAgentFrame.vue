@@ -192,17 +192,20 @@ const goalLabel = computed(() => {
 const innerToolCalls = computed((): ToolCall[] => {
   const seen = new Set<string>()
   const out: ToolCall[] = []
-  for (const msg of scopedMessages.value) {
-    for (const tc of msg.toolCalls ?? []) {
+  const pushAll = (list: ToolCall[] | undefined) => {
+    for (const tc of list ?? []) {
       if (seen.has(tc.id)) continue
       seen.add(tc.id)
       out.push(tc)
     }
   }
-  if (out.length > 0) return out
-  return latestStreamBody.value?.toolCalls
-    ?? legacySession.value?.toolCalls
-    ?? []
+  for (const msg of scopedMessages.value) {
+    pushAll(msg.toolCalls)
+  }
+  // Merge legacy/session tools too — scoped rows alone can miss an in-flight
+  // ask_user that only landed on trace.session (or the reverse).
+  pushAll(latestStreamBody.value?.toolCalls ?? legacySession.value?.toolCalls)
+  return out
 })
 
 const processInnerTools = computed((): ToolCall[] => {

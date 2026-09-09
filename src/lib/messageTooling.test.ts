@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentTraceNeedsCollapsedSurface,
+  isCollapsedSurfaceToolCall,
+  isInFlightSubagentHostToolCall,
+  isInteractiveToolCall,
   isSidecarToolCall,
   taskBoardPatchSummaryFromArgs,
   taskBoardToolSummary,
@@ -11,8 +15,38 @@ import type { ToolCall } from '../types/chat'
 describe('messageTooling', () => {
   it('derives base name before a colon', () => {
     expect(toolCallBaseName('file_read')).toBe('file_read')
+    expect(toolCallBaseName('file_read:x')).toBe('file_read')
     expect(toolCallBaseName('verify:step-1')).toBe('verify')
     expect(toolCallBaseName('task_board_patch')).toBe('task_board_patch')
+  })
+
+  it('keeps running run_subagent on the collapsed surface for nested ask_user', () => {
+    const host: ToolCall = {
+      id: '1',
+      name: 'run_subagent',
+      status: 'running',
+      arguments: '{}'
+    }
+    expect(isInFlightSubagentHostToolCall(host)).toBe(true)
+    expect(isCollapsedSurfaceToolCall(host)).toBe(true)
+    expect(isInteractiveToolCall(host)).toBe(false)
+    expect(isCollapsedSurfaceToolCall({
+      id: '2',
+      name: 'run_subagent',
+      status: 'success',
+      arguments: '{}'
+    })).toBe(false)
+    expect(agentTraceNeedsCollapsedSurface([{
+      status: 'running',
+      session: {
+        toolCalls: [{
+          id: 'ask',
+          name: 'ask_user',
+          status: 'pending',
+          arguments: '{}'
+        }]
+      }
+    }])).toBe(true)
   })
 
   it('classifies task_board and verify tools as sidecar', () => {

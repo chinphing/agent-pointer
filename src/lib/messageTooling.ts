@@ -13,6 +13,31 @@ export function isInteractiveToolCall(tc: ToolCall): boolean {
     && (tc.status === 'pending' || tc.status === 'running')
 }
 
+/** In-flight `run_subagent` host — keep while collapsed so nested ask_user can surface. */
+export function isInFlightSubagentHostToolCall(tc: ToolCall): boolean {
+  if (toolCallBaseName(tc.name) !== 'run_subagent') return false
+  return tc.status === 'pending' || tc.status === 'running'
+}
+
+/**
+ * Collapsed-turn surface: direct interactive tools, plus running subagent hosts
+ * (general→coder ask_user lives inside SubAgentFrame, not on the parent row).
+ */
+export function isCollapsedSurfaceToolCall(tc: ToolCall): boolean {
+  return isInteractiveToolCall(tc) || isInFlightSubagentHostToolCall(tc)
+}
+
+/** True when a lead message's agentTrace still needs a collapsed-frame surface. */
+export function agentTraceNeedsCollapsedSurface(
+  traces: readonly { status?: string; session?: { toolCalls?: ToolCall[] } }[] | undefined
+): boolean {
+  for (const trace of traces ?? []) {
+    if (trace.status === 'running') return true
+    if ((trace.session?.toolCalls ?? []).some(isInteractiveToolCall)) return true
+  }
+  return false
+}
+
 /** Assistant row used the `response` tool (final user-visible reply), not an intermediate tool round. */
 export function isResponseAssistantMessage(
   message: Pick<ChatMessage, 'toolCalls' | 'toolNamePreview' | 'responseTextDraft' | 'content'>

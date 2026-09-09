@@ -8,7 +8,7 @@ import { useMarkdownCharts } from '../../../../composables/useMarkdownCharts'
 import { useMarkdownSvgs } from '../../../../composables/useMarkdownSvgs'
 import { useMarkdownMermaid } from '../../../../composables/useMarkdownMermaid'
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
-import { isInteractiveToolCall, visibleToolCalls, toolCallBaseName } from '../../../../lib/messageTooling'
+import { isCollapsedSurfaceToolCall, visibleToolCalls, toolCallBaseName } from '../../../../lib/messageTooling'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { isGenerationCancelledMessage, isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
@@ -193,7 +193,7 @@ const tools = computed(() => {
     props.messageUi.showSidecarToolCalls === true,
     props.messageUi.showNonSidecarToolCalls !== false
   )
-  return props.contentOnly ? visible.filter(isInteractiveToolCall) : visible
+  return props.contentOnly ? visible.filter(isCollapsedSurfaceToolCall) : visible
 })
 
 const footerMessage = computed((): ChatMessage | undefined => {
@@ -280,7 +280,7 @@ function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMess
     props.messageUi.showSidecarToolCalls === true,
     props.messageUi.showNonSidecarToolCalls !== false
   )
-  return props.contentOnly ? visible.filter(isInteractiveToolCall) : visible
+  return props.contentOnly ? visible.filter(isCollapsedSurfaceToolCall) : visible
 }
 
 const showThoughtPanels = computed(() => !props.contentOnly && showThoughtsPanel.value)

@@ -12,7 +12,11 @@ import {
   buildConversationTurns,
   type ConversationTurn
 } from './conversationTurns'
-import { isInteractiveToolCall } from './messageTooling'
+import {
+  agentTraceNeedsCollapsedSurface,
+  isCollapsedSurfaceToolCall,
+  isInteractiveToolCall
+} from './messageTooling'
 import { isScopedSubMessage } from './subAgentMessages'
 import { isRealUserTaskMessage, isToolRunContinuityGlue } from './threadLayoutGlue'
 
@@ -580,31 +584,38 @@ function entryIsDelivery(entry: FlatEntry): boolean {
     && !isToolRunContinuityGlue(entry.message)
 }
 
-function toolCallsAreInteractive(toolCalls: readonly ToolCall[] | undefined): boolean {
-  return (toolCalls ?? []).some(isInteractiveToolCall)
+function toolCallsNeedCollapsedSurface(toolCalls: readonly ToolCall[] | undefined): boolean {
+  return (toolCalls ?? []).some(isCollapsedSurfaceToolCall)
 }
 
 function entryIsInteractive(entry: FlatEntry): boolean {
   if (entry.type === 'tool_run') {
     return entry.items.some(
-      item => item.kind === 'tools' && toolCallsAreInteractive(item.group.toolCalls)
+      item => item.kind === 'tools' && toolCallsNeedCollapsedSurface(item.group.toolCalls)
     )
   }
   if (entry.type === 'message') {
-    if (toolCallsAreInteractive(entry.message.toolCalls)) return true
-    return (entry.trailingToolGroups ?? []).some(group => toolCallsAreInteractive(group.toolCalls))
+    if (toolCallsNeedCollapsedSurface(entry.message.toolCalls)) return true
+    if ((entry.trailingToolGroups ?? []).some(group =>
+      toolCallsNeedCollapsedSurface(group.toolCalls)
+    )) {
+      return true
+    }
+    // Host tools may already be success while the child frame is still running
+    // (or only has ask_user on session / scoped rows).
+    return agentTraceNeedsCollapsedSurface(entry.message.agentTrace)
   }
   return false
 }
 
-function filterInteractiveToolGroups(
+function filterCollapsedSurfaceToolGroups(
   groups: ToolRunGroup[] | undefined
 ): ToolRunGroup[] | undefined {
   if (!groups?.length) return undefined
   const next = groups
     .map(group => ({
       ...group,
-      toolCalls: group.toolCalls.filter(isInteractiveToolCall)
+      toolCalls: group.toolCalls.filter(isCollapsedSurfaceToolCall)
     }))
     .filter(group => group.toolCalls.length > 0)
   return next.length > 0 ? next : undefined
@@ -633,7 +644,8 @@ function entryContributesHiddenProcess(entry: FlatEntry): boolean {
 /**
  * Collapsed projection: keep reply body only. Strip process tools attached to
  * the delivery entry (trailingToolGroups / non-interactive toolCalls) so they
- * do not leak under the final content. Interactive tools stay.
+ * do not leak under the final content. Interactive tools and in-flight
+ * `run_subagent` hosts stay (nested ask_user mounts under the host frame).
  */
 function projectCollapsedEntry(entry: FlatEntry): FlatEntry {
   if (entry.type === 'tool_run') {
@@ -642,7 +654,7 @@ function projectCollapsedEntry(entry: FlatEntry): FlatEntry {
       items: entry.items
         .map(item => {
           if (item.kind !== 'tools') return item
-          const toolCalls = item.group.toolCalls.filter(isInteractiveToolCall)
+          const toolCalls = item.group.toolCalls.filter(isCollapsedSurfaceToolCall)
           if (toolCalls.length === 0) return null
           return {
             kind: 'tools' as const,
@@ -657,7 +669,7 @@ function projectCollapsedEntry(entry: FlatEntry): FlatEntry {
   if (entry.compact || isPrefixCompressionSummaryMessage(entry.message)) return entry
   if (isEphemeralDesktopNoticeMessage(entry.message)) return entry
 
-  const trailingToolGroups = filterInteractiveToolGroups(entry.trailingToolGroups)
+  const trailingToolGroups = filterCollapsedSurfaceToolGroups(entry.trailingToolGroups)
   return {
     type: 'message',
     message: entry.message,

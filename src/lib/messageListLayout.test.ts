@@ -264,6 +264,64 @@ describe('collapsed turn projection', () => {
     expect(host?.trailingToolGroups?.[0]?.toolCalls.map(tc => tc.name)).toEqual(['ask_user'])
   })
 
+  it('keeps in-flight run_subagent so nested coder ask_user can surface when collapsed', () => {
+    const host: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 2,
+      toolCalls: [{
+        id: 'tc-sub',
+        name: 'run_subagent',
+        status: 'running',
+        arguments: '{"agent":"coder","goal":"改代码"}'
+      }],
+      agentTrace: [{
+        id: 'task:coder',
+        name: 'coder',
+        agentId: 'coder',
+        depth: 1,
+        status: 'running',
+        parentToolCallId: 'tc-sub',
+        session: {
+          toolCalls: [{
+            id: 'tc-ask',
+            name: 'ask_user',
+            status: 'pending',
+            arguments: '{"question":"选哪个？","options":[{"label":"A"},{"label":"B"}]}'
+          }]
+        }
+      }]
+    }
+    const result = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [
+        user('u1', '帮我改'),
+        host
+      ],
+      deps: emptyDeps,
+      cache: null,
+      collapseActiveTurns: true
+    })
+    const turn = result.turns[0]!
+    expect(turn.state).toBe('active')
+    const kept = turn.collapsedEntries.find(
+      (e): e is Extract<typeof e, { type: 'message' }> =>
+        e.type === 'message' && e.message.id === 'a1'
+    )
+    expect(kept).toBeTruthy()
+    expect(kept?.contentOnly).toBe(true)
+    // Host row must remain so SubAgentFrame can mount under after-tool.
+    const tools =
+      kept?.message.toolCalls
+      ?? []
+    // contentOnly filtering of body tools happens in AgentMessageBody;
+    // projection must still keep the message (and not strip run_subagent from data).
+    expect(tools.some(tc => tc.name === 'run_subagent' && tc.status === 'running')).toBe(true)
+    expect(kept?.message.agentTrace?.[0]?.status).toBe('running')
+  })
+
   it('keeps a running task board in the collapsed active projection', () => {
     const boardDoc = {
       version: 4,

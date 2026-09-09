@@ -5,6 +5,10 @@ import type { AgentTrace, ChatMessage, ToolCall } from '../../../../types/chat'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useChatStore } from '../../../../stores/chat'
 import { shouldShowSubAgentTrace, uiForSubAgentFrame } from '../../../../lib/agentUi'
+import {
+  agentTraceNeedsCollapsedSurface,
+  isCollapsedSurfaceToolCall
+} from '../../../../lib/messageTooling'
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import {
@@ -133,7 +137,17 @@ const leadBody = computed((): AgentMessageBodyModel => ({
   errorMessage: props.message.errorMessage
 }))
 
-const showSubAgentFrames = computed(() => !props.contentOnly && showSubAgentTrace.value)
+const showSubAgentFrames = computed(() => {
+  if (!showSubAgentTrace.value) return false
+  if (!props.contentOnly) return true
+  // Collapsed turns used to hide the whole SubAgentFrame (contentOnly), which
+  // buried nested ask_user from coder/self. Keep frames that still need a surface.
+  if (agentTraceNeedsCollapsedSurface(props.message.agentTrace)) return true
+  if ((props.message.toolCalls ?? []).some(isCollapsedSurfaceToolCall)) return true
+  return (props.trailingToolGroups ?? []).some(group =>
+    group.toolCalls.some(isCollapsedSurfaceToolCall)
+  )
+})
 </script>
 
 <template>

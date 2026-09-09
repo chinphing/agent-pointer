@@ -18,11 +18,11 @@
 实现要点：
 
 - `buildConversationTurns(..., { collapseActiveTurns, omitDeliveryWhileActive })`：仅开启时对 `active` 回合计算 `hiddenCount`；进行中不挂最终 delivery，避免中间叙述当「最终输出」
-- 收缩投影（`messageListLayout.projectCollapsedTurn`）：保留的 delivery 标 `contentOnly`，去掉 `trailingToolGroups` 与非交互工具行；`ask_user` / `pending_approval` 仍可见；**任务板（含进行中）始终保留**（进度 chrome，不是可隐藏过程）
+- 收缩投影（`messageListLayout.projectCollapsedTurn`）：保留的 delivery 标 `contentOnly`，去掉 `trailingToolGroups` 与非交互工具行；`ask_user` / `pending_approval` **以及进行中的 `run_subagent` 宿主行**仍可见（子 Agent 内的询问挂在宿主下方，不能把整段 SubAgentFrame 藏掉）；**任务板（含进行中）始终保留**（进度 chrome，不是可隐藏过程）
 - `MessageList` 传入 `collapseActiveTurns: collapseProcessByDefault`
 - 未开启时 `shouldAutoExpandTurn` 仍要求 `state !== 'active'`
 
-收缩态可见内容：**用户问题 + 任务板 + 回合结束后的最后一次 assistant content**，以及贴在下一条真实用户问题前的前缀压缩芯片。切在 tool/assistant 上的前缀芯片与 in-run 摘要一样，随工具过程藏进「工作」。thoughts / 子 Agent 仅在展开后显示。
+收缩态可见内容：**用户问题 + 任务板 + 回合结束后的最后一次 assistant content**，以及贴在下一条真实用户问题前的前缀压缩芯片。切在 tool/assistant 上的前缀芯片与 in-run 摘要一样，随工具过程藏进「工作」。thoughts / **已结束的**子 Agent 过程仅在展开后显示；**进行中的子 Agent**（含其收缩态露出的 `ask_user`）仍显示。
 
 加载更早（`loadOlderMessages`）写入内存后必须跑 `normalizeInterruptedAssistantStatuses`：历史里若仍带 `streaming`/`pending`，在「默认收缩」关闭时会被当成 active 而不折叠。
 

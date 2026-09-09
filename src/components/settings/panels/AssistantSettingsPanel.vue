@@ -17,6 +17,9 @@ const s = useSettingsStore()
 const sceneModal = ref<string | null>(null)
 // 「更多」弹窗：其他执行智能体（explorer 等）的档位与模型设置
 const moreModal = ref(false)
+// 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
+const moreMediaModal = ref(false)
+const WEB_SEARCH_SCENE_ID = 'web_search'
 const RETIRED_MORE_AGENT_IDS = new Set(['research', 'supervisor'])
 const moreWorkers = computed(() =>
   enabledWorkers.value.filter(
@@ -207,8 +210,17 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
           </div>
 
           <div class="rounded-lg border border-border bg-card/50 overflow-hidden">
-            <div class="px-3.5 pt-3 pb-2 border-b border-border flex items-center">
+            <div class="px-3.5 pt-3 pb-2 border-b border-border flex items-center justify-between gap-2">
               <h5 class="h-6 flex items-center text-[11px] font-semibold uppercase tracking-wider text-muted/80">媒体理解</h5>
+              <button
+                type="button"
+                class="inline-flex items-center h-6 px-1.5 rounded-md text-[11px] text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors shrink-0"
+                title="调整联网搜索等工具的档位与模型"
+                aria-label="更多媒体与工具设置"
+                @click="moreMediaModal = true"
+              >
+                更多
+              </button>
             </div>
             <div class="divide-y divide-border">
           <div
@@ -350,6 +362,73 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
               </div>
             </div>
             <p v-if="moreWorkers.length === 0" class="text-xs text-muted text-center py-6">暂无其他执行智能体</p>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 媒体列「更多」：联网搜索工具档位（对称左侧 explore） -->
+    <Teleport to="body">
+      <div
+        v-if="moreMediaModal"
+        class="pointer-events-auto fixed inset-0 z-[10002] flex items-center justify-center bg-foreground/32 p-4"
+        role="presentation"
+        @click.self="moreMediaModal = false"
+      >
+        <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
+          <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
+            <div class="min-w-0">
+              <h4 class="text-sm font-semibold text-foreground">更多工具</h4>
+              <p class="mt-0.5 text-[11px] text-muted">调整联网搜索等工具的档位与模型</p>
+            </div>
+            <button
+              type="button"
+              class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
+              aria-label="关闭"
+              @click="moreMediaModal = false"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="divide-y divide-border overflow-y-auto">
+            <div class="px-3.5 py-3 space-y-2">
+              <div class="flex items-center gap-x-2 min-w-0">
+                <Bot class="w-4 h-4 text-accent shrink-0" />
+                <span class="text-[12px] font-medium text-foreground shrink-0">联网搜索</span>
+                <span class="text-[10px] text-muted truncate min-w-0">外部事实检索与来源汇总</span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
+                  <label
+                    v-for="opt in PERFORMANCE_MODE_UI"
+                    :key="'more-web-search-' + opt.value"
+                    class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
+                    :class="(agentPerformanceModesLocal[WEB_SEARCH_SCENE_ID] ?? 'fast') === opt.value
+                      ? 'bg-hover text-foreground'
+                      : 'text-muted hover:text-foreground'"
+                  >
+                    <input
+                      type="radio"
+                      class="sr-only"
+                      name="more-mode-web-search"
+                      :checked="(agentPerformanceModesLocal[WEB_SEARCH_SCENE_ID] ?? 'fast') === opt.value"
+                      @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [WEB_SEARCH_SCENE_ID]: opt.value }"
+                    />
+                    {{ opt.label }}
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
+                  title="配置联网搜索各档位模型"
+                  aria-label="配置联网搜索档位模型"
+                  @click="sceneModal = WEB_SEARCH_SCENE_ID"
+                >
+                  <SlidersHorizontal class="w-3 h-3" />
+                  模型
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

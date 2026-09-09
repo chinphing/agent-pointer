@@ -1,15 +1,12 @@
 # Web search tool (`web_search`)
 
-DashScope hosted web search for **external** facts. Implemented in `pointer-core` as a first-class tool plus an optional **`research`** sub-agent.
+DashScope hosted web search for **external** facts. Implemented in `pointer-core` as a first-class tool.
 
 ## What it is
 
-Two DashScope paths depending on caller:
-
 | Caller | API | Default model | Default strategy |
 |--------|-----|---------------|------------------|
-| **Generic tool** (coder, default, …) | Native generation + `enable_search` + SSE. Text models use `text-generation`; Qwen 3.5/3.6 multimodal ids use `multimodal-generation` | First DashScope catalog model (often `qwen3.5-plus`) | Tool default `pro_max` maps to `max` on text models; multimodal ids force `agent` |
-| **Research sub-agent** | Responses `POST …/compatible-mode/v1/responses` with agent tools | `qwen3-max-2026-01-23` | `max` + thinking |
+| **`web_search` tool** (coder / general, …) | Native generation + `enable_search` + SSE. Text models use `text-generation`; Qwen 3.5/3.6 multimodal ids use `multimodal-generation` | Tier map → legacy `webSearchModel` → first DashScope catalog model | Tool default `pro_max` maps to `max` on text models; multimodal ids force `agent` |
 
 The model searches the public web and returns:
 
@@ -30,18 +27,35 @@ History still receives the final **`WebSearchResult` JSON** on the tool message 
 ## Architecture
 
 - **`agent_tool_pass`** delegates to **`web_search::dispatch`** (single entry).
-- **Tool mode** (coder, default, research as lead): native generation SSE (`X-DashScope-SSE: enable`, `incremental_output`). Text models send string `content` and `prepend_search_result`. Multimodal models (`qwen3.5-plus`, `qwen3.6-plus`, …) send `content: [{ "text": query }]` and `search_strategy: agent` (Aliyun MultiModalConversation web search).
-- **ResearchSubAgent mode** (`run_subagent` + `agentId=research`): Responses API with agent tools; SearchAgent system = `research/AGENT.md` **SearchAgent** section + sub-agent **local history** + `query`.
-- Implementation lives under `tools/web_search/*` and `agents/research/web_search/*` (does not modify `provider.rs` / `agent_stream_round.rs`).
+- Native generation SSE (`X-DashScope-SSE: enable`, `incremental_output`). Text models send string `content` and `prepend_search_result`. Multimodal models (`qwen3.5-plus`, `qwen3.6-plus`, …) send `content: [{ "text": query }]` and `search_strategy: agent` (Aliyun MultiModalConversation web search).
+- Implementation lives under `tools/web_search/*` (does not modify `provider.rs` / `agent_stream_round.rs`).
 
 ## Configuration
 
 1. Configure the **Qwen** provider in settings (default base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`).
 2. Set the **Qwen provider API key** — web search reuses this key directly (no separate search key or env var).
-3. Optional: **`webSearchModel`** in settings. When empty, use the first model on a DashScope-compatible provider; compile-time `WEB_SEARCH_MODEL` / `DEFAULT_WEB_SEARCH_MODEL` is last resort. Multimodal catalog ids (e.g. `qwen3.5-plus`) stay on that id and call `multimodal-generation`.
-4. Optional env: **`POINTER_WEB_SEARCH_MODEL`** overrides the search model.
+3. **Settings UI**：智能体 → 场景档位 → 媒体理解 → **更多** → 联网搜索。
+   - 选快速 / 标准 / 高级（写入 `agentPerformanceModes.web_search`）
+   - 点「模型」配置三档 DashScope 模型（写入 `agentModeLlm.web_search`）
+4. Fallback when tiers are empty: legacy **`webSearchModel`** string, then first DashScope catalog model, then compile-time `WEB_SEARCH_MODEL` / `DEFAULT_WEB_SEARCH_MODEL`.
+5. Optional env: **`POINTER_WEB_SEARCH_MODEL`** overrides everything (including UI tiers).
 
 International accounts: use a provider base URL on `dashscope-intl.aliyuncs.com`; the client derives the matching native API host.
+
+## Agents
+
+| Agent / tool | Role |
+|--------------|------|
+| **coder** / **general** | May call **`web_search`** directly (Tool mode) |
+| **`explore`** worker | Codebase only — **no** web search |
+
+`research` 深度研究子智能体已下线；联网搜索档位在媒体列「更多」配置，不再走独立 agent。
+
+**When to use what**
+
+- Repo symbols / call chains → **`explore`**
+- External facts / news / docs → **`web_search`**
+- Fetch a specific URL body → **`web_fetch`** (separate tool)
 
 ## Token usage reporting
 
@@ -51,8 +65,6 @@ Token accounting follows the same path as normal chat LLM rounds:
 |------|-----------------|-------------------|
 | **Main agent** LLM turns | Chat/completions `usage` on each stream round | `record_llm_round` → SQLite `usage_accum` → `finalize_run` → platform `token-usage` upload |
 | **`web_search` tool** | DashScope native response `usage` (`input_tokens` / `output_tokens` / `total_tokens`) | Direct `token_usage_store::record_round` on the **lead** `agent_instance_id` |
-| **`research` sub-agent** orchestration | Sub-agent chat rounds | `record_llm_round` on the **sub-agent** `agent_instance_id` |
-| **`research` → `web_search` calls** | Each tool’s DashScope `usage` | Direct `token_usage_store::record_round` on the **same sub-agent** `agent_instance_id` |
 
 At end of `run_chat`, `token_usage_store::finalize_run` enqueues one platform report per agent instance (with optional conversation archive zip). Tool results still include **`usage`** / **`searchCount`** in JSON for the model; platform reporting uses the accum path above.
 
@@ -66,38 +78,21 @@ Serial and parallel searches use the same owned `AgentInstanceScope` accounting 
 |-------|-------------|
 | `query` | Required search brief — self-contained goal, scope, format, and citation rules |
 | `searchStrategy` | Tool default `pro_max`; also `max`, `turbo`, `agent`, `agent_max` |
-| `enableThinking` | Tool default `false`; research sub-agent default `true` |
+| `enableThinking` | Tool default `false` |
 | `forcedSearch` | Force web search instead of model skip |
 | `enableVerticalSearch` | Weather, stocks, etc. |
 
-**Context:** only the **research sub-agent** path injects SearchAgent system rules and conversation history. All other callers send **`query` only**.
-
-Tool risk: **medium**, **requires approval** (external API cost).
-
-## Agents
-
-| Agent | Role |
-|-------|------|
-| **coder** / **default** | May call **`web_search`** directly (Tool mode) |
-| **`research`** worker | Web-only deep research via **`run_subagent`**; multiple **`web_search`** rounds (ResearchSubAgent mode); Markdown digest with **`## Sources`** |
-| **`explore`** worker | Codebase only — **no** web search |
-
-**When to use what**
-
-- Repo symbols / call chains → **`explore`**
-- Quick external fact → **`web_search`**
-- Multi-query doc/version/news research → **`research`**
-- Fetch a specific URL body → not in scope (future roadmap: HTTP/MCP)
+Callers send **`query` only** (no SearchAgent system injection). Tool risk: **medium**, **requires approval** (external API cost).
 
 ## Manual smoke test
 
-1. Set Qwen API key in settings.
+1. Set Qwen API key in settings; optionally set 联网搜索档位 under 媒体理解 → 更多.
 2. As **coder**, ask: “What is the latest stable Rust edition?” and approve **`web_search`**.
 3. While running, confirm the tool card shows streaming **answer** text (and **sources** when available).
 4. Confirm tool result JSON has **`sources`** with URLs and **`sourcesForReply`** (single linked Sources block for the agent to paste).
-5. Delegate: **`run_subagent`** `agentId=research` with a multi-part doc question; confirm parent receives Markdown with **`## Sources`** (linked titles, no duplicate plain-title + numbered list).
 
 ## Tests
 
 - Unit: `parse_search_sse_chunk`, `SearchSseAccumulator`, stream request body — `cargo test -p pointer-core web_search`
 - Integration: wiremock SSE fixture — `crates/pointer-core/tests/web_search_integration.rs`
+- Tier resolve: `cargo test -p pointer-core effective_web_search_model_tests`

@@ -1666,17 +1666,31 @@ impl Default for ModelSettings {
 
 pub const DEFAULT_WEB_SEARCH_MODEL: &str = "qwen3-max-2026-01-23";
 
+/// Scene id for DashScope `web_search` tool tiers (settings UI + agentModeLlm map).
+pub const WEB_SEARCH_SCENE_ID: &str = "web_search";
+
 /// Effective model id for DashScope `web_search`.
 ///
-/// When `webSearchModel` and `POINTER_WEB_SEARCH_MODEL` are empty, use the
-/// first model on the DashScope-compatible provider (production catalog first
-/// item is typically `qwen3.5-plus`). That model **does** support search; it
-/// must be called on `multimodal-generation` with `search_strategy=agent`.
+/// Resolution order:
+/// 1. `POINTER_WEB_SEARCH_MODEL` env
+/// 2. `agentModeLlm.web_search[agentPerformanceModes.web_search]` (settings UI tiers)
+/// 3. legacy `webSearchModel` string
+/// 4. first model on a DashScope-compatible provider
+/// 5. compile-time / `DEFAULT_WEB_SEARCH_MODEL`
+///
+/// Catalog fallbacks typically land on `qwen3.5-plus`, which **does** support
+/// search via `multimodal-generation` with `search_strategy=agent`.
 pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&str>) -> String {
     if let Ok(m) = std::env::var("POINTER_WEB_SEARCH_MODEL") {
         let m = m.trim();
         if !m.is_empty() {
             return m.to_string();
+        }
+    }
+    if let Some(cfg) = resolve_web_search_mode_llm_config(settings) {
+        let model = cfg.model.trim();
+        if !model.is_empty() {
+            return model.to_string();
         }
     }
     let configured = settings.web_search_model.trim();
@@ -1689,6 +1703,19 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
         return model.clone();
     }
     DEFAULT_WEB_SEARCH_MODEL.to_string()
+}
+
+/// Tier map entry for `web_search` (same shape as general/coder `agentModeLlm`).
+fn resolve_web_search_mode_llm_config(
+    settings: &ModelSettings,
+) -> Option<&ComputerTierLlmConfig> {
+    let mode = crate::mode_llm::agent_performance_mode(settings, WEB_SEARCH_SCENE_ID);
+    let inner = settings.agent_mode_llm.get(WEB_SEARCH_SCENE_ID)?;
+    let cfg = inner.get(mode)?;
+    if cfg.model.trim().is_empty() {
+        return None;
+    }
+    Some(cfg)
 }
 
 /// First provider whose base URL is DashScope compatible.
@@ -3655,6 +3682,47 @@ mod user_settings_defaults_tests {
             merged.providers[0].api_key, "platform-qwen-key",
             "platform key overlaid onto user-owned provider"
         );
+    }
+}
+
+#[cfg(test)]
+mod effective_web_search_model_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn tier_map_beats_legacy_web_search_model_string() {
+        let mut settings = ModelSettings::default();
+        settings.web_search_model = "legacy-model".into();
+        settings
+            .agent_performance_modes
+            .insert(WEB_SEARCH_SCENE_ID.into(), "expert".into());
+        let mut expert = HashMap::new();
+        expert.insert(
+            "expert".into(),
+            ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "qwen3-max-2026-01-23".into(),
+                enable_thinking: true,
+                thinking_budget: None,
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
+        );
+        settings
+            .agent_mode_llm
+            .insert(WEB_SEARCH_SCENE_ID.into(), expert);
+        assert_eq!(
+            effective_web_search_model(&settings, None),
+            "qwen3-max-2026-01-23"
+        );
+    }
+
+    #[test]
+    fn empty_tier_falls_back_to_legacy_string() {
+        let mut settings = ModelSettings::default();
+        settings.web_search_model = "from-legacy".into();
+        assert_eq!(effective_web_search_model(&settings, None), "from-legacy");
     }
 }
 

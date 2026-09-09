@@ -130,6 +130,8 @@ export function wrapBareHtmlTables(html: string): string {
 
 const LIST_ITEM_RE = /^ {0,3}(?:[*+-]|\d{1,9}[.)])(?:[ \t]|$)/
 const FENCE_MARKER_RE = /^ {0,3}(`{3,}|~{3,})/
+/** Blockquote marker; allow list-item indent before `>`. */
+const BLOCKQUOTE_LINE_RE = /^[ \t]{0,8}>/
 
 /**
  * CommonMark lazy-continues an unindented line into the last list item.
@@ -174,6 +176,62 @@ export function ensureBlankLineAfterListBeforeSection(src: string): string {
       out.push('')
       changed = true
       inList = false
+    }
+
+    if (fenceOpen) fence = fenceOpen[1]!
+    out.push(line)
+  }
+
+  return changed ? out.join('\n') : src
+}
+
+/**
+ * CommonMark lazy-continues a line without `>` into the open blockquote.
+ * Chat / model output almost always puts `>` on every quote line; a following
+ * plain line is meant to leave the quote (e.g. “按这个改吗？” after an example).
+ * Insert one blank line before such a line so authors need not add it. Soft
+ * wraps that omit `>` become a new paragraph — acceptable for this product.
+ * Skip fenced code.
+ */
+export function ensureBlankLineAfterBlockquote(src: string): string {
+  if (!src.includes('\n') || !src.includes('>')) return src
+  const lines = src.split('\n')
+  const out: string[] = []
+  let inBlockquote = false
+  let fence: string | null = null
+  let changed = false
+
+  for (const line of lines) {
+    const fenceOpen = line.match(FENCE_MARKER_RE)
+    if (fence) {
+      out.push(line)
+      inBlockquote = false
+      if (
+        fenceOpen &&
+        fenceOpen[1]![0] === fence[0] &&
+        fenceOpen[1]!.length >= fence.length
+      ) {
+        fence = null
+      }
+      continue
+    }
+
+    if (/^\s*$/.test(line)) {
+      inBlockquote = false
+      out.push(line)
+      continue
+    }
+
+    if (BLOCKQUOTE_LINE_RE.test(line)) {
+      inBlockquote = true
+      out.push(line)
+      continue
+    }
+
+    if (inBlockquote) {
+      out.push('')
+      changed = true
+      inBlockquote = false
     }
 
     if (fenceOpen) fence = fenceOpen[1]!
@@ -466,9 +524,10 @@ export type ParseMarkdownOptions = {
 /**
  * Parse Markdown to HTML with shared configuration.
  *
- * Includes pre-processing that inserts blank lines after GFM / HTML tables, and
- * one blank line after a list when the next line starts with `**`, so CommonMark
- * does not swallow a bold section title into the last item.
+ * Includes pre-processing that inserts blank lines after GFM / HTML tables,
+ * after a list when the next line starts with `**`, and after a blockquote when
+ * the next line omits `>` (CommonMark lazy continuation), so chat prose does not
+ * swallow the following paragraph into the quote.
  */
 export function parseMarkdown(src: string, options?: ParseMarkdownOptions): string {
   if (!src.trim()) return ''
@@ -480,6 +539,7 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
   if (streamingSvgs) prepared = stabilizeStreamingSvgFences(prepared)
   if (streamingMermaid) prepared = stabilizeStreamingMermaidFences(prepared)
   prepared = ensureBlankLineAfterListBeforeSection(prepared)
+  prepared = ensureBlankLineAfterBlockquote(prepared)
   prepared = ensureBlankLinesAroundHtmlTables(prepared)
   const fixed = prepared.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
   parseStreamingCharts = streamingCharts

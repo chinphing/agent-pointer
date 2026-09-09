@@ -15,7 +15,7 @@
 | `**条目** — 说明` | 解析成 `.md-lead`，加粗段单独成行（`：` / `:` / 破折号同理） |
 
 分类在 `classifyMarkdownParagraph`（`markdownConfig.ts`）。`**口径提醒：**后文` 这种冒号写在加粗里的，保持一行，不当标题。
-| 引用 | 左 2px `border`，正文用 `--muted` |
+| 引用 | 左 2px `border`，正文用 `--muted`；引用后无空行的普通行由 `ensureBlankLineAfterBlockquote` 拆出引用，不必作者手补空行 |
 | 分隔线 | 1px `--border`，上下留白 |
 
 字号不要写死 `px`，也不要给标题上强调色。

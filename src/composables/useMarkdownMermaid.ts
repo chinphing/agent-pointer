@@ -398,6 +398,13 @@ export function useMarkdownMermaid(
       frame.appendChild(imported)
       applySvgMountLayout(imported, { cropToContent: true })
       cacheCleanedSvg(cacheKey, imported.outerHTML)
+      // Mermaid foreignObject labels / fonts can settle after first paint; CTM-aware
+      // crop needs a laid-out SVG. Re-crop once layout is ready.
+      requestAnimationFrame(() => {
+        if (!imported.isConnected) return
+        applySvgMountLayout(imported, { cropToContent: true })
+        cacheCleanedSvg(cacheKey, imported.outerHTML)
+      })
       imported.addEventListener('click', e => {
         e.preventDefault()
         e.stopPropagation()

@@ -35,7 +35,11 @@ flowchart TD
 - Fence chrome matches code / charts / SVG (`--fence-bg` = `--shell-chat`, rounded border).
 - After render, crop the SVG `viewBox` to the graph plus padding so Mermaid’s
   unused canvas (often empty space above/beside a TD flowchart) does not stay
-  in the frame. The diagram stays horizontally centered (`margin: 0 auto`).
+  in the frame. Crop maps each node’s `getBBox` through its CTM into SVG user
+  space — Mermaid wraps the graph in translated `<g>`s, and local boxes alone
+  leave a blank band at the top. A second crop runs on the next animation frame
+  after fonts / `foreignObject` labels settle. The diagram stays horizontally
+  centered (`margin: 0 auto`).
 - Toolbar: zoom, copy source, export SVG, toggle source. Export uses the themed SVG currently on screen. Zoom overlay clones the SVG outside `.md-body`; host paint rules also target `.diagram-zoom-overlay` so fills match the inline diagram.
 - **Streaming:** do not layout Mermaid until the fence (and usually the turn) is complete; show “图示生成中…”.
 - **Switch / scroll:** same in-view gate as Chart.js / SVG. Hidden workspace tabs wait until shown.

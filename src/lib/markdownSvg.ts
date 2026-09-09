@@ -714,7 +714,7 @@ export function expandSvgViewBoxFromDomBBox(root: SVGElement): void {
 }
 
 function coversViewBox(
-  b: DOMRect,
+  b: { x: number; y: number; width: number; height: number },
   vb: { x: number; y: number; width: number; height: number }
 ): boolean {
   const pad = 4
@@ -724,6 +724,28 @@ function coversViewBox(
     b.x + b.width >= vb.x + vb.width - pad &&
     b.y + b.height >= vb.y + vb.height - pad
   )
+}
+
+/** Near-full canvas plates (Mermaid hit targets) that keep empty margins if included. */
+function coversMostOfViewBox(
+  b: { x: number; y: number; width: number; height: number },
+  vb: { x: number; y: number; width: number; height: number },
+  areaRatio = 0.82
+): boolean {
+  if (coversViewBox(b, vb)) return true
+  const vbArea = vb.width * vb.height
+  if (vbArea <= 0) return false
+  const area = Math.max(0, b.width) * Math.max(0, b.height)
+  if (area / vbArea < areaRatio) return false
+  const overlapX = Math.max(
+    0,
+    Math.min(b.x + b.width, vb.x + vb.width) - Math.max(b.x, vb.x)
+  )
+  const overlapY = Math.max(
+    0,
+    Math.min(b.y + b.height, vb.y + vb.height) - Math.max(b.y, vb.y)
+  )
+  return (overlapX * overlapY) / vbArea >= areaRatio
 }
 
 function graphicsBBox(node: Element): DOMRect | null {
@@ -740,20 +762,69 @@ function graphicsBBox(node: Element): DOMRect | null {
 }
 
 /**
+ * Map an element's local getBBox into the SVG root's user space (viewBox coords).
+ * Mermaid wraps the graph in translated `<g>`s; local boxes alone leave empty
+ * top/side canvas after a naive crop.
+ */
+function bboxInSvgUserSpace(
+  el: SVGGraphicsElement,
+  svg: SVGSVGElement,
+  local: DOMRect
+): { x: number; y: number; width: number; height: number } | null {
+  try {
+    const elCtm = typeof el.getCTM === 'function' ? el.getCTM() : null
+    const rootCtm = typeof svg.getCTM === 'function' ? svg.getCTM() : null
+    if (!elCtm || !rootCtm || typeof svg.createSVGPoint !== 'function') {
+      return { x: local.x, y: local.y, width: local.width, height: local.height }
+    }
+    const toUser = rootCtm.inverse().multiply(elCtm)
+    const corners = [
+      [local.x, local.y],
+      [local.x + local.width, local.y],
+      [local.x, local.y + local.height],
+      [local.x + local.width, local.y + local.height]
+    ]
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    for (const [x, y] of corners) {
+      const pt = svg.createSVGPoint()
+      pt.x = x
+      pt.y = y
+      const mapped = pt.matrixTransform(toUser)
+      minX = Math.min(minX, mapped.x)
+      minY = Math.min(minY, mapped.y)
+      maxX = Math.max(maxX, mapped.x)
+      maxY = Math.max(maxY, mapped.y)
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  } catch {
+    return { x: local.x, y: local.y, width: local.width, height: local.height }
+  }
+}
+
+/**
  * Shrink (or expand) viewBox to the rendered graph plus padding.
  * Mermaid often emits a tall/wide canvas with the flowchart sitting off-center.
  */
 export function cropSvgViewBoxToContentBBox(root: SVGElement): void {
   const current = intrinsicSvgSizeFromViewBox(root.getAttribute('viewBox'))
   if (!current) return
+  if (!(root instanceof SVGSVGElement)) {
+    expandSvgViewBoxFromDomBBox(root)
+    return
+  }
 
   let minX = Number.POSITIVE_INFINITY
   let minY = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY
   let maxY = Number.NEGATIVE_INFINITY
 
-  const take = (b: DOMRect | null) => {
+  const take = (b: { x: number; y: number; width: number; height: number } | null) => {
     if (!b) return
+    if (b.width <= 0 && b.height <= 0) return
     minX = Math.min(minX, b.x)
     minY = Math.min(minY, b.y)
     maxX = Math.max(maxX, b.x + b.width)
@@ -762,12 +833,14 @@ export function cropSvgViewBoxToContentBBox(root: SVGElement): void {
 
   try {
     for (const node of Array.from(root.querySelectorAll('*'))) {
-      if (!(node instanceof Element)) continue
+      if (!(node instanceof SVGGraphicsElement)) continue
       if (node.closest('defs')) continue
-      const b = graphicsBBox(node)
+      const local = graphicsBBox(node)
+      if (!local) continue
+      const b = bboxInSvgUserSpace(node, root, local)
       if (!b) continue
       // Mermaid often paints a canvas-sized plate; including it keeps the empty margin.
-      if (coversViewBox(b, current)) continue
+      if (coversMostOfViewBox(b, current)) continue
       take(b)
     }
   } catch (err) {

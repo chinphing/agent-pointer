@@ -71,4 +71,70 @@ describe('applySvgMountLayout cropToContent', () => {
     expect(vb!.height).toBe(252)
     expect(svg.style.maxWidth).toBe('432px')
   })
+
+  it('maps translated Mermaid groups into root user space before crop', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
+    svg.setAttribute('viewBox', '0 0 400 500')
+    // Identity root CTM; child CTM translates local (0,0) down by 180.
+    const identity = {
+      a: 1, b: 0, c: 0, d: 1, e: 0, f: 0,
+      multiply(other: DOMMatrix) {
+        return {
+          a: other.a, b: other.b, c: other.c, d: other.d, e: other.e, f: other.f,
+          inverse() {
+            return {
+              a: 1, b: 0, c: 0, d: 1, e: -other.e, f: -other.f,
+              multiply(m: DOMMatrix) {
+                return {
+                  a: m.a, b: m.b, c: m.c, d: m.d,
+                  e: m.e + this.e,
+                  f: m.f + this.f
+                } as DOMMatrix
+              }
+            } as DOMMatrix
+          }
+        } as DOMMatrix
+      },
+      inverse() {
+        return this as unknown as DOMMatrix
+      }
+    } as unknown as DOMMatrix
+    svg.getCTM = () => identity
+    svg.createSVGPoint = () =>
+      ({
+        x: 0,
+        y: 0,
+        matrixTransform(m: DOMMatrix) {
+          return { x: this.x + m.e, y: this.y + m.f, matrixTransform() { return this } }
+        }
+      }) as DOMPoint
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g') as SVGGraphicsElement
+    g.getBBox = () =>
+      ({
+        x: 10,
+        y: 0,
+        width: 200,
+        height: 120,
+        top: 0,
+        left: 10,
+        right: 210,
+        bottom: 120,
+        toJSON: () => ({})
+      }) as DOMRect
+    g.getCTM = () =>
+      ({
+        a: 1, b: 0, c: 0, d: 1, e: 40, f: 180
+      }) as DOMMatrix
+    svg.appendChild(g)
+
+    applySvgMountLayout(svg, { cropToContent: true })
+    const vb = intrinsicSvgSizeFromViewBox(svg.getAttribute('viewBox'))
+    expect(vb).not.toBeNull()
+    // Content paints at (50, 180)-(250, 300); pad 16.
+    expect(vb!.x).toBe(34)
+    expect(vb!.y).toBe(164)
+    expect(vb!.width).toBe(232)
+    expect(vb!.height).toBe(152)
+  })
 })

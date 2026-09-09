@@ -92,6 +92,20 @@ export type RequireSessionOptions = {
    * - `allow`: proceed with the prior session (Composer attach)
    */
   onTransient?: 'error' | 'allow'
+  /**
+   * Skip a network refresh when a successful refresh completed within this many
+   * milliseconds and access still has headroom. Composer multi-attach uses this
+   * so each file does not pay a full refresh + settings reload.
+   */
+  maxAgeMs?: number
+}
+
+/** Access token expiry is unix seconds from the host. */
+function accessHasHeadroom(session: PlatformSessionView, minRemainMs = 120_000): boolean {
+  const exp = session.expires_at
+  if (exp == null || !Number.isFinite(exp)) return true
+  const expMs = exp > 1e12 ? exp : exp * 1000
+  return expMs - Date.now() > minRemainMs
 }
 
 export function formatPlatformAuthError(e: unknown): string {
@@ -169,6 +183,10 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const authMode = ref<AuthMode>('platform')
+  /** Wall-clock of last successful ensureFreshSession network round-trip. */
+  let lastFreshAtMs = 0
+  /** Coalesce concurrent refresh calls (multi-file attach). */
+  let freshInflight: Promise<PlatformSessionView> | null = null
 
   const isPlatformAdmin = computed(() => session.value.isPlatformAdmin === true)
   const isStandalone = computed(() => authMode.value === 'standalone')
@@ -202,6 +220,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     try {
       await loadAuthMode()
       session.value = await resolvePlatformSession()
+      lastFreshAtMs = Date.now()
       const settings = useSettingsStore()
       await settings.load()
       const redirectError = consumeOAuthRedirectQuery()
@@ -222,34 +241,55 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     }
   }
 
-  async function ensureFreshSession(): Promise<PlatformSessionView> {
-    try {
-      if (isTauriRuntime()) {
-        session.value = await api.refreshPlatformSession()
-        if (session.value.logged_in) {
-          error.value = null
-          const settings = useSettingsStore()
-          await settings.load()
-        }
-      } else {
-        session.value = await api.getPlatformSession()
-        if (session.value.logged_in) error.value = null
-      }
+  async function ensureFreshSession(options?: {
+    maxAgeMs?: number
+  }): Promise<PlatformSessionView> {
+    const maxAgeMs = options?.maxAgeMs ?? 0
+    if (
+      maxAgeMs > 0 &&
+      session.value.logged_in &&
+      lastFreshAtMs > 0 &&
+      Date.now() - lastFreshAtMs < maxAgeMs &&
+      accessHasHeadroom(session.value)
+    ) {
       return session.value
-    } catch (e) {
-      if (loading.value) throw e
-      const raw = e instanceof Error ? e.message : String(e)
-      error.value = formatPlatformAuthError(e)
-      const status = extractPlatformAuthHttpStatus(raw)
-      if (
-        raw.includes('invalid_refresh_token') ||
-        raw.includes('platform_token_expired') ||
-        (status != null && isAuthFailureHttpStatus(status))
-      ) {
-        session.value = { logged_in: false }
-      }
-      throw new Error(error.value || '平台登录态刷新失败')
     }
+    if (freshInflight) return freshInflight
+
+    freshInflight = (async () => {
+      try {
+        if (isTauriRuntime()) {
+          session.value = await api.refreshPlatformSession()
+          if (session.value.logged_in) {
+            error.value = null
+            const settings = useSettingsStore()
+            await settings.load()
+          }
+        } else {
+          session.value = await api.getPlatformSession()
+          if (session.value.logged_in) error.value = null
+        }
+        lastFreshAtMs = Date.now()
+        return session.value
+      } catch (e) {
+        if (loading.value) throw e
+        const raw = e instanceof Error ? e.message : String(e)
+        error.value = formatPlatformAuthError(e)
+        const status = extractPlatformAuthHttpStatus(raw)
+        if (
+          raw.includes('invalid_refresh_token') ||
+          raw.includes('platform_token_expired') ||
+          (status != null && isAuthFailureHttpStatus(status))
+        ) {
+          session.value = { logged_in: false }
+          lastFreshAtMs = 0
+        }
+        throw new Error(error.value || '平台登录态刷新失败')
+      } finally {
+        freshInflight = null
+      }
+    })()
+    return freshInflight
   }
 
   /**
@@ -263,7 +303,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     const onTransient = options.onTransient ?? 'error'
     const hint = loginRequiredMessage(isStandalone.value, purpose)
     try {
-      await ensureFreshSession()
+      await ensureFreshSession({ maxAgeMs: options.maxAgeMs })
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e)
       if (onTransient === 'allow' && isPlatformAuthTransientError(raw) && session.value.logged_in) {
@@ -358,6 +398,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
   async function logout() {
     await api.logoutPlatform()
     session.value = { logged_in: false }
+    lastFreshAtMs = 0
   }
 
   /** Mark quota exhausted in UI after a live balance gate failure (run_chat). */

@@ -352,12 +352,26 @@ export async function saveChatAttachment(
   onProgress?: (p: import('./api').AttachmentUploadProgress) => void,
   options?: { signal?: AbortSignal }
 ): Promise<string> {
-  const b64 = payload.contentBase64?.trim()
-  if (!b64) {
-    throw new Error('desktop saveChatAttachment requires contentBase64')
-  }
   if (options?.signal?.aborted) {
     throw new Error('上传已取消')
+  }
+  const sourcePath = payload.sourcePath?.trim()
+  if (sourcePath) {
+    onProgress?.({ loaded: 0, total: 1, percent: 0 })
+    const rel = await invoke<string>('save_chat_attachment_from_path', {
+      conversationId: payload.conversationId,
+      path: sourcePath,
+      fileName: payload.fileName?.trim() || null
+    })
+    if (options?.signal?.aborted) {
+      throw new Error('上传已取消')
+    }
+    onProgress?.({ loaded: 1, total: 1, percent: 100 })
+    return rel
+  }
+  const b64 = payload.contentBase64?.trim()
+  if (!b64) {
+    throw new Error('desktop saveChatAttachment requires contentBase64 or sourcePath')
   }
   onProgress?.({ loaded: 0, total: 1, percent: 0 })
   const rel = await invoke<string>('save_chat_attachment', {

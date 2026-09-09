@@ -45,8 +45,14 @@ Flush **只在有 pending 且未登录时** 才 `refresh_if_needed`；短对话�
 
 ## 附件上传与登录态
 
-Composer / 发送前走 `requireSession`；桌面 `save_chat_attachment` 走 `require_platform_user_id`。  
+Composer / 发送前走 `requireSession`；桌面 `save_chat_attachment` /
+`save_chat_attachment_from_path` 走 `require_platform_user_id`。  
 否则 access token 过期时，界面仍可能显示已登录，上传却报 **「请先登录 Pointer 账户」**（UI 快照与 Rust 侧 `expires_at` 不同步）。
+
+Composer 多文件添加时，`requireSession({ purpose: 'attachment', maxAgeMs: 60_000 })`
+会复用约 60 秒内已成功刷新的会话（且 access 仍有余量），避免每个文件都
+`refreshPlatformSession` + `settings.load()`。发送消息仍默认强制刷新
+（不传 `maxAgeMs`）。并发刷新请求会合并为一次 in-flight 调用。
 
 网页端 multipart 401 / `platform_login_required` 经 `formatLoginGateError(..., 'attachment')` 映射为同一登录提示。
 

@@ -1066,6 +1066,44 @@ pub async fn save_chat_attachment(
         .map_err(|e| e.to_string())
 }
 
+/// Desktop Composer: copy a local path into the session sandbox (streamed, no base64 IPC).
+#[tauri::command]
+pub async fn save_chat_attachment_from_path(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    path: String,
+    file_name: Option<String>,
+) -> Result<String, String> {
+    let uid = crate::platform_auth_gate::require_platform_user_id(state.inner()).await?;
+    state
+        .session_index
+        .ensure_session_user_id(&conversation_id, &uid)
+        .map_err(|e| e.to_string())?;
+    let path_buf =
+        pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
+    let name = file_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            path_buf
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("attachment")
+                .to_string()
+        });
+    let conv = conversation_id.clone();
+    let src = path_buf.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::media::save_attachment_from_path(&conv, &src, &name)
+    })
+    .await
+    .map_err(|e| format!("save attachment from path join: {e}"))?
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn check_media_deps() -> pointer_core::media::MediaDepsStatus {
     pointer_core::media::MediaDepsStatus::probe()

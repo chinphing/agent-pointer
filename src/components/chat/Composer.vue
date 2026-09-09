@@ -15,7 +15,6 @@ import { DEFAULT_LEAD_AGENT_ID, PERFORMANCE_MODE_OPTIONS } from '../../types/cha
 import {
   getMacosComputerPermissions,
   listComputerMonitors,
-  readLocalFileForAttachment,
   saveChatAttachment,
   setComputerConversationMonitor,
   confirmComputerMonitorPick,
@@ -43,14 +42,14 @@ import {
   isLargeComposerVideo,
   isSupportedChatAttachmentFile,
   isVideoAttachmentFile,
-  mediaKindFromFile
+  mediaKindFromFile,
+  mimeTypeFromFileName
 } from '../../lib/attachmentSupport'
 import {
   cloneComposerAttachmentsForSend,
   getComposerAttachmentContentBase64,
   getComposerAttachmentFile,
   registerComposerAttachmentFile,
-  registerComposerAttachmentPayload,
   releaseComposerAttachment
 } from '../../lib/attachmentPayloadStore'
 import { maybeCompressImageFile } from '../../lib/imageCompress'
@@ -420,10 +419,10 @@ function formatAttachmentPersistError(err: unknown): string {
   return mapped || '上传失败'
 }
 
-/** Persist non-video attachment (multipart on web; invoke+base64 on desktop). */
+/** Persist non-video attachment (multipart on web; path copy or base64 on desktop). */
 async function persistComposerAttachment(
   attachmentId: string,
-  source: { file?: File; contentBase64?: string }
+  source: { file?: File; contentBase64?: string; sourcePath?: string }
 ) {
   const row = composerAttachments.value.find(a => a.id === attachmentId)
   if (!row || row.kind === 'video') return
@@ -434,11 +433,17 @@ async function persistComposerAttachment(
     uploadError: undefined
   })
   try {
-    await platformAuth.requireSession({ purpose: 'attachment', onTransient: 'allow' })
+    // Multi-file attach: reuse a fresh session for ~60s instead of refresh+settings per file.
+    await platformAuth.requireSession({
+      purpose: 'attachment',
+      onTransient: 'allow',
+      maxAgeMs: 60_000
+    })
     if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
     const conversationId = ensureComposerConversationId()
     let uploadFile = source.file
     let contentBase64 = source.contentBase64
+    const sourcePath = source.sourcePath?.trim() || row.localSourcePath?.trim()
     if (row.kind === 'image' && uploadFile && !isTauriRuntime()) {
       updateComposerAttachment(attachmentId, { uploadState: 'compressing', uploadProgress: 0 })
       uploadFile = await maybeCompressImageFile(uploadFile)
@@ -476,6 +481,48 @@ async function persistComposerAttachment(
           ),
         {
           onRetry: (_err, nextAttempt, _delayMs) => {
+            if (signal.aborted) return
+            updateComposerAttachment(attachmentId, {
+              uploadState: 'uploading',
+              uploadProgress: 0,
+              uploadError: `重试中 ${nextAttempt}/3…`
+            })
+          }
+        }
+      )
+      if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
+      if (!isActiveAttachmentUpload(attachmentId, signal)) return
+      updateComposerAttachment(attachmentId, {
+        storageRelPath,
+        uploadState: 'done',
+        uploadProgress: 100,
+        uploadError: undefined
+      })
+      return
+    }
+    // Desktop path pick/drop: stream copy into sandbox (no base64 round-trip).
+    if (sourcePath) {
+      const storageRelPath = await withRetries(
+        async () =>
+          await saveChatAttachment(
+            {
+              conversationId,
+              attachmentId,
+              fileName: row.fileName,
+              sourcePath
+            },
+            p => {
+              if (signal.aborted) return
+              updateComposerAttachment(attachmentId, {
+                uploadProgress: p.percent,
+                uploadState: 'uploading',
+                uploadError: undefined
+              })
+            },
+            { signal }
+          ),
+        {
+          onRetry: (_err, nextAttempt) => {
             if (signal.aborted) return
             updateComposerAttachment(attachmentId, {
               uploadState: 'uploading',
@@ -604,7 +651,8 @@ async function addAttachmentFromLocalPath(path: string) {
     console.info('[composer] skip duplicate local attachment path', path)
     return
   }
-  const fileLike = { name, type: '', size: 0 }
+  const mime = mimeTypeFromFileName(name)
+  const fileLike = { name, type: mime, size: 0 }
   if (!isSupportedChatAttachmentFile(fileLike)) {
     attachmentHint.value = `无法添加附件：${name}`
     return
@@ -614,53 +662,36 @@ async function addAttachmentFromLocalPath(path: string) {
     await addVideoAttachment(placeholder, path)
     return
   }
+  let sizeBytes = 0
   try {
-    const sizeBytes = await getLocalFileSize(path)
+    sizeBytes = await getLocalFileSize(path)
     if (rejectOversizedNonVideo(name, sizeBytes)) return
   } catch (err) {
     console.warn('[composer] getLocalFileSize failed', path, err)
   }
+  const kind = mediaKindFromFile(fileLike)
   const attachmentId = uid()
   const pending: ComposerAttachment = {
     id: attachmentId,
-    kind: mediaKindFromFile(fileLike),
-    mimeType: 'application/octet-stream',
+    kind,
+    mimeType: mime,
     fileName: name,
-    sizeBytes: 0,
+    sizeBytes,
     uploadState: 'pending',
     uploadProgress: 0,
     localSourcePath: path
   }
-  composerAttachments.value.push(pending)
+  // Raster preview via asset protocol — avoid loading the whole file as base64.
+  let previewUrl: string | undefined
+  if (kind === 'image') {
+    previewUrl = (await videoPreviewUrlFromLocalPath(path)) ?? undefined
+  }
+  composerAttachments.value.push({
+    ...pending,
+    ...(previewUrl ? { previewUrl } : {})
+  })
   try {
-    const payload = await readLocalFileForAttachment(path)
-    const loaded = {
-      name: payload.fileName,
-      type: payload.mimeType,
-      size: payload.sizeBytes
-    }
-    const kind = mediaKindFromFile(loaded)
-    const mime = payload.mimeType || 'application/octet-stream'
-    const dataUrl = `data:${mime};base64,${payload.contentBase64}`
-    registerComposerAttachmentPayload({
-      attachment: {
-        id: attachmentId,
-        kind,
-        mimeType: mime,
-        fileName: payload.fileName || name,
-        sizeBytes: payload.sizeBytes
-      },
-      dataUrl,
-      contentBase64: payload.contentBase64
-    })
-    updateComposerAttachment(attachmentId, {
-      kind,
-      mimeType: mime,
-      fileName: payload.fileName || name,
-      sizeBytes: payload.sizeBytes,
-      previewUrl: dataUrl
-    })
-    await persistComposerAttachment(attachmentId, { contentBase64: payload.contentBase64 })
+    await persistComposerAttachment(attachmentId, { sourcePath: path })
   } catch (err) {
     console.error('attachment from path failed', path, err)
     updateComposerAttachment(attachmentId, {
@@ -871,7 +902,8 @@ async function retryComposerAttachmentUpload(attachmentId: string) {
   }
   const file = getComposerAttachmentFile(row) ?? undefined
   const contentBase64 = getComposerAttachmentContentBase64(row) ?? undefined
-  if (!file && !contentBase64?.trim()) {
+  const sourcePath = row.localSourcePath?.trim() || undefined
+  if (!file && !contentBase64?.trim() && !sourcePath) {
     updateComposerAttachment(attachmentId, {
       uploadState: 'error',
       uploadError: '无法重传：缺少本地文件'
@@ -880,7 +912,7 @@ async function retryComposerAttachmentUpload(attachmentId: string) {
     return
   }
   console.info('[composer] user retry attachment upload', attachmentId)
-  await persistComposerAttachment(attachmentId, { file, contentBase64 })
+  await persistComposerAttachment(attachmentId, { file, contentBase64, sourcePath })
 }
 
 function canAcceptComposerAttachments(): boolean {

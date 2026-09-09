@@ -88,7 +88,7 @@ pub use store::{
     chat_media_file_meta, chat_media_ref_file_meta, composer_attachment_max_bytes,
     ensure_composer_attachment_size, is_app_data_subtree_rel, media_abs_path,
     path_is_under_app_data, read_chat_media_preview, read_media_bytes, read_media_ref_preview,
-    save_attachment_bytes,
+    save_attachment_bytes, save_attachment_from_path,
 };
 pub use understand::{
     describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,

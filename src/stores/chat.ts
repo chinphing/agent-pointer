@@ -3509,7 +3509,17 @@ export const useChatStore = defineStore('chat', () => {
       // Composer should already persist on add; keep a last-chance save for older drafts.
       if (!isOssVideo && !storageRelPath) {
         try {
-          if (contentBase64) {
+          const sourcePath = a.localSourcePath?.trim()
+          if (sourcePath && isTauriRuntime()) {
+            storageRelPath = await withRetries(async () =>
+              await saveChatAttachment({
+                conversationId: conv.id,
+                attachmentId: a.id,
+                fileName: a.fileName,
+                sourcePath
+              })
+            )
+          } else if (contentBase64) {
             storageRelPath = await withRetries(async () =>
               await saveChatAttachment({
                 conversationId: conv.id,

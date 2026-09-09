@@ -34,6 +34,19 @@ ID is a random 48-bit value; a collision advances to the next hexadecimal
 value until an unused filename is reserved. This works across concurrent
 desktop, web, and channel writes sharing the same sandbox filesystem.
 
+## Desktop upload
+
+Desktop Composer prefers **path copy** when the user picks or drops a local file:
+
+1. Chip preview uses `convertFileSrc` for images (no full-file base64).
+2. Host command `save_chat_attachment_from_path` streams the file into the
+   session sandbox (`media::store::save_attachment_from_path`).
+3. Legacy `save_chat_attachment` (base64 IPC) remains for paste/`File` fallbacks
+   and older drafts without a local path.
+
+Do not reintroduce whole-file base64 on the desktop pick/drop path — it doubles
+memory and IPC cost for large attachments.
+
 ## Web upload
 
 `POST /api/chat/save-attachment` accepts **multipart/form-data**:
@@ -59,5 +72,6 @@ up to 3 attempts.
 
 Historical `conversation-media/` and `generated-media/` files remain
 readable. They are not moved automatically. New writes must use the sandbox
-attachment layout through `media::store::save_attachment_bytes`.
+attachment layout through `media::store::save_attachment_bytes` or
+`save_attachment_from_path`.
 

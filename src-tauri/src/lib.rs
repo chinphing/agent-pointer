@@ -523,6 +523,7 @@ pub fn run() {
             commands::get_chat_media_local_path,
             commands::preview_media_ref,
             commands::save_chat_attachment,
+            commands::save_chat_attachment_from_path,
             commands::check_media_deps,
             commands::save_bytes_to_path,
             commands::reveal_in_finder,

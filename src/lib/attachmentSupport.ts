@@ -50,18 +50,62 @@ export function mediaKindFromFile(
   file: Pick<File, 'name' | 'type'>
 ): 'image' | 'document' | 'audio' | 'video' | 'file' {
   const mime = file.type.trim().toLowerCase()
-  if (mime.startsWith('image/')) return 'image'
-  if (mime.startsWith('audio/')) return 'audio'
+  if (
+    (mime.startsWith('image/') && mime !== 'image/svg+xml') ||
+    /\.(?:png|jpe?g|gif|webp|bmp|heic|heif|avif)$/i.test(file.name)
+  ) {
+    // SVG stays document (chat renders it as markup, not a raster chip).
+    return 'image'
+  }
+  if (mime.startsWith('audio/') || /\.(?:mp3|wav|m4a|aac|ogg|flac)$/i.test(file.name)) {
+    return 'audio'
+  }
   if (isVideoAttachmentFile(file)) return 'video'
   if (
     mime.startsWith('text/') ||
     mime === 'application/pdf' ||
     mime === 'application/json' ||
-    /\.(?:txt|md|json|csv|pdf)$/i.test(file.name)
+    /\.(?:txt|md|json|csv|pdf|svg)$/i.test(file.name)
   ) {
     return 'document'
   }
   return 'file'
+}
+
+/** Best-effort MIME from filename when desktop path attach skips full-file read. */
+export function mimeTypeFromFileName(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || ''
+  switch (ext) {
+    case 'png':
+      return 'image/png'
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg'
+    case 'gif':
+      return 'image/gif'
+    case 'webp':
+      return 'image/webp'
+    case 'bmp':
+      return 'image/bmp'
+    case 'pdf':
+      return 'application/pdf'
+    case 'txt':
+      return 'text/plain'
+    case 'md':
+      return 'text/markdown'
+    case 'json':
+      return 'application/json'
+    case 'mp3':
+      return 'audio/mpeg'
+    case 'wav':
+      return 'audio/wav'
+    case 'm4a':
+      return 'audio/mp4'
+    case 'svg':
+      return 'image/svg+xml'
+    default:
+      return 'application/octet-stream'
+  }
 }
 
 export function dataUrlToBase64(dataUrl: string): string {

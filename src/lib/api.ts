@@ -35,10 +35,12 @@ export interface SaveChatAttachmentPayload {
   conversationId: string
   attachmentId: string
   fileName: string
-  /** Desktop invoke / legacy: base64 wire. Prefer `file` on web. */
+  /** Desktop invoke / legacy: base64 wire. Prefer `file` on web or `sourcePath` on desktop. */
   contentBase64?: string
   /** Web: raw file for multipart/form-data upload. */
   file?: File
+  /** Desktop: absolute local path — host copies into sandbox (no base64 IPC). */
+  sourcePath?: string
 }
 
 export type AttachmentUploadProgress = {

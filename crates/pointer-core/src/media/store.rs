@@ -299,6 +299,70 @@ pub fn save_attachment_bytes(
     Ok(rel)
 }
 
+/// Copy a local filesystem file into the conversation sandbox (no base64 / full-buffer IPC).
+///
+/// Used by desktop Composer when the user picks or drops a path. Videos are rejected —
+/// they must go through the OSS upload path.
+pub fn save_attachment_from_path(
+    conversation_id: &str,
+    source_path: &Path,
+    file_name: &str,
+) -> Result<String> {
+    if conversation_id.trim().is_empty() {
+        anyhow::bail!("conversation_id required");
+    }
+    let source = super::access::normalize_user_path(&source_path.to_string_lossy())
+        .with_context(|| format!("normalize attachment source {}", source_path.display()))?;
+    if !source.is_file() {
+        anyhow::bail!("文件不存在: {}", source.display());
+    }
+    let display_name = {
+        let trimmed = file_name.trim();
+        if !trimmed.is_empty() {
+            trimmed.to_string()
+        } else {
+            source
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("attachment")
+                .to_string()
+        }
+    };
+    if super::video::is_video_file_name(&display_name) {
+        anyhow::bail!("视频请通过 OSS 上传，勿直接复制到沙箱");
+    }
+    let meta = fs::metadata(&source)
+        .with_context(|| format!("stat attachment source {}", source.display()))?;
+    ensure_composer_attachment_size(meta.len(), &display_name)?;
+
+    let (dir, rel_base) = sandbox_attachment_rel(conversation_id)?;
+    let (id, dest_path, mut dest) = create_sandbox_attachment_file(&dir, &display_name)?;
+    let copy_result = (|| -> Result<u64> {
+        let mut src = fs::File::open(&source)
+            .with_context(|| format!("open attachment source {}", source.display()))?;
+        std::io::copy(&mut src, &mut dest)
+            .with_context(|| format!("copy attachment to {}", dest_path.display()))
+    })();
+    if let Err(e) = copy_result {
+        let _ = fs::remove_file(&dest_path);
+        return Err(e);
+    }
+    let stored_name = dest_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("sandbox attachment filename is not UTF-8")?;
+    let rel = format!("{rel_base}/{stored_name}");
+    log::info!(
+        "save_attachment_from_path conv={conversation_id} id={id} src={} -> {} rel={} ({} bytes)",
+        source.display(),
+        dest_path.display(),
+        rel,
+        meta.len()
+    );
+    Ok(rel)
+}
+
 pub fn read_media_bytes(storage_rel_path: &str) -> Result<Vec<u8>> {
     let path = match media_abs_path(storage_rel_path) {
         Ok(p) => p,
@@ -567,5 +631,31 @@ mod tests {
             "session-sandboxes/user-1/attachments/abcdef_notes.pdf"
         )
         .is_none());
+    }
+
+    #[test]
+    fn save_attachment_from_path_copies_without_loading_all_bytes_in_caller() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let data = tempfile::tempdir().expect("app data");
+        crate::storage::set_test_app_data_dir(data.path().to_path_buf());
+
+        let src_dir = tempfile::tempdir().expect("src");
+        let src = src_dir.path().join("photo.png");
+        let payload = {
+            let mut bytes = vec![0x89u8, 0x50, 0x4E, 0x47];
+            bytes.extend(vec![7u8; 64_000]);
+            bytes
+        };
+        fs::write(&src, &payload).expect("write src");
+
+        let rel = save_attachment_from_path("conv-path-copy", &src, "photo.png").expect("copy");
+        assert!(rel.contains("session-sandboxes/"));
+        assert!(rel.contains("attachments/"));
+        assert!(rel.ends_with("_photo.png") || rel.contains("_photo.png"));
+
+        let dest = media_abs_path(&rel).expect("resolve");
+        assert_eq!(fs::read(&dest).expect("read dest"), payload);
+
+        let _ = fs::remove_dir_all(data.path());
     }
 }

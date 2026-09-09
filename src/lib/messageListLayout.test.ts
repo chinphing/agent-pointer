@@ -280,6 +280,7 @@ describe('collapsed turn projection', () => {
       agentTrace: [{
         id: 'task:coder',
         name: 'coder',
+        role: 'coder',
         agentId: 'coder',
         depth: 1,
         status: 'running',
@@ -290,7 +291,21 @@ describe('collapsed turn projection', () => {
             name: 'ask_user',
             status: 'pending',
             arguments: '{"question":"选哪个？","options":[{"label":"A"},{"label":"B"}]}'
-          }]
+          }],
+          stats: {
+            searchCount: 0,
+            readCount: 0,
+            writeCount: 0,
+            terminalCount: 0,
+            webSearchCount: 0,
+            skillCount: 0,
+            mediaCount: 0,
+            mouseCount: 0,
+            inputCount: 0,
+            otherCount: 0
+          },
+          collapsed: false,
+          userExpanded: false
         }
       }]
     }

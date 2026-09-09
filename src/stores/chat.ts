@@ -2692,6 +2692,11 @@ export const useChatStore = defineStore('chat', () => {
       pendingFocusMessage.value = null
       console.info('[chat] cleared stale pending focus', id)
     }
+    if (!focusMessageId) {
+      // Drop the previous conversation's rail marker so the fisheye does not
+      // stay parked on a middle tick until the first scroll stamp.
+      setVisibleNavMessageId(null)
+    }
     if (options?.ensureShell || !conversations.value.some(c => c.id === id)) {
       ensureConversationShell({
         id,

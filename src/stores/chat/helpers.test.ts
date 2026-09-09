@@ -1192,7 +1192,7 @@ describe('chat helpers', () => {
     ).toEqual(['next'])
   })
 
-  it('hasDisconnectedLiveTail is true when generating sits past the page cursor', () => {
+  it('hasDisconnectedLiveTail is true when a positioned row sits past the page cursor', () => {
     const mid: ChatMessage = {
       id: 'mid',
       role: 'user',
@@ -1214,6 +1214,27 @@ describe('chat helpers', () => {
     expect(conversationNeedsTailReload(false, [mid, live], 20)).toBe(true)
     expect(conversationNeedsTailReload(false, [mid], 20)).toBe(false)
     expect(conversationNeedsTailReload(true, [mid], 20)).toBe(true)
+  })
+
+  it('hasDisconnectedLiveTail ignores positionless streaming on the real tail', () => {
+    const user: ChatMessage = {
+      id: 'u1',
+      role: 'user',
+      content: '继续',
+      status: 'done',
+      createdAt: 10,
+      position: 40
+    }
+    const live: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: '…',
+      status: 'streaming',
+      createdAt: 11
+      // no position yet — normal while the turn is still open
+    }
+    expect(hasDisconnectedLiveTail([user, live], 40)).toBe(false)
+    expect(conversationNeedsTailReload(false, [user, live], 40)).toBe(false)
   })
 
   it('messagesInCurrentPageWindow drops disconnected live rows from a hole', () => {

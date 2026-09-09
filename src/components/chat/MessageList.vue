@@ -565,6 +565,8 @@ watch(() => chat.currentId, async () => {
   viewportShrinkAtMs = 0
   olderPrefetchArmed = true
   newerPrefetchArmed = true
+  // Fresh conversation: resume stick-to-bottom unless locate / hole says otherwise.
+  followOutput = true
   releaseNoOlderPull()
   await nextTick()
   rowVirtualizer.value.measure()
@@ -584,10 +586,12 @@ watch(() => chat.currentId, async () => {
   if (plan === 'jumpToLatest') {
     await jumpToLatest()
     stampVisibleUserMessagesViewed()
+    updateVisibleNavMessage()
     return
   }
   toBottom({ settle: true })
   stampVisibleUserMessagesViewed()
+  updateVisibleNavMessage()
 })
 
 watch(

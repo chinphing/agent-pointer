@@ -15,6 +15,10 @@
 5. **切回进行中会话**：hydrate 先 reconcile 恢复 `generating`，再 normalize
    interrupted；合并 DB 页时保留 in-flight 工具行。否则首屏会误显示「工作」耗时、
    缺少当前工具行（见 [turn-elapsed.md](turn-elapsed.md)）。
+6. **切回时不要误判「空洞尾」**：流式中的助手行常常还没有 SQLite `position`，
+   这不代表 around 空洞。`hasDisconnectedLiveTail` 只认 **position 越过**
+   `newestPosition` 的行。误判会导致每次切回都 `jumpToLatest` + force 换尾，
+   中间内容被冲掉、右缘鱼眼停在中间刻度。
 
 ## 行尾操作（置顶 / 删除）
 

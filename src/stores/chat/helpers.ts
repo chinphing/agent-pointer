@@ -234,19 +234,21 @@ export function liveGeneratingTurnExtras(
 
 /**
  * Around-window + live tail: page cursor still in the hole, but memory already
- * holds a generating row (or a position) past that cursor.
+ * holds a row with a SQLite position past that cursor.
+ *
+ * Do **not** treat positionless live generating rows as disconnected — that is
+ * normal on the real tail while streaming. Treating them as disconnected made
+ * every switch-back `jumpToLatest` + force-reload, which dropped the middle of
+ * the painted window and left the fisheye stuck mid-rail.
  */
 export function hasDisconnectedLiveTail(
   messages: readonly ChatMessage[],
   newestPosition: number | null | undefined
 ): boolean {
   if (newestPosition == null || !Number.isFinite(newestPosition)) return false
-  return messages.some(m => {
-    if (m.position != null && Number.isFinite(m.position) && m.position > newestPosition) {
-      return true
-    }
-    return messageIsLiveGenerating(m) && (m.position == null || m.position > newestPosition)
-  })
+  return messages.some(
+    m => m.position != null && Number.isFinite(m.position) && m.position > newestPosition
+  )
 }
 
 /** Re-open / jump must load the real tail, not pin a hole or a poisoned cursor. */

@@ -12,6 +12,9 @@
 | 脱离 | 向上滚轮 / 手指下拖 / 距底超过阈值 / 停在 around 空洞窗口（`hasMoreNewer`） | 不再 `scrollToIndex` |
 | 恢复 | 距底 ≤ 附着阈值，或点击跳转按钮 / 切走再回来（around 窗口会先换成尾部再贴底） | 重新跟随 |
 
+切回**已在真实尾部**且仍在流式的会话时：不要因为直播行尚无 `position` 就
+`jumpToLatest` / force 换尾（见 `hasDisconnectedLiveTail`）。只贴底跟随即可。
+
 阈值（`MessageList.vue`）：
 
 - **附着** `ATTACH_BOTTOM_PX = 8`：只有几乎贴底才恢复跟随（滞回，避免轻微上滑立刻被 `onScroll` 重新贴底）。

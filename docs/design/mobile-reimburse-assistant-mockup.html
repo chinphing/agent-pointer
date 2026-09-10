@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pointer · 财务报销助手 · 移动端设计稿</title>
+  <style>
+    :root {
+      --background: 240 5% 96%;
+      --foreground: 240 6% 10%;
+      --muted: 240 4% 42%;
+      --border: 240 6% 90%;
+      --accent: 211 100% 46%;
+      --accent-muted: 211 80% 96%;
+      --accent-foreground: 0 0% 100%;
+      --composer-bg: 0 0% 100%;
+      --hover: 240 5% 93%;
+      --shell-chat: 0 0% 100%;
+      --danger: 4 78% 50%;
+      --success: 142 48% 36%;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(ellipse at 20% 0%, hsl(211 80% 96%) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 100%, hsl(240 5% 92%) 0%, transparent 45%),
+        hsl(var(--background));
+      color: hsl(var(--foreground));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 28px 16px 48px;
+      gap: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: hsl(var(--muted));
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .tab {
+      border: 1px solid hsl(var(--border));
+      background: hsl(var(--shell-chat));
+      color: hsl(var(--muted));
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .tab[aria-selected="true"] {
+      background: hsl(var(--accent));
+      border-color: hsl(var(--accent));
+      color: hsl(var(--accent-foreground));
+    }
+
+    .phone {
+      width: min(390px, 100%);
+      height: 780px;
+      background: hsl(var(--shell-chat));
+      border: 1px solid hsl(var(--border));
+      border-radius: 36px;
+      box-shadow:
+        0 0 0 10px hsl(240 5% 90%),
+        0 24px 60px rgba(15, 15, 20, 0.12);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .status {
+      height: 48px;
+      padding: 14px 28px 0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .topbar {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      border-bottom: 1px solid hsl(var(--border));
+      flex-shrink: 0;
+    }
+    .topbar .title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: hsl(var(--muted));
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      cursor: default;
+    }
+
+    .chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .hint {
+      border: 1px solid hsl(211 60% 88%);
+      background: hsl(var(--accent-muted));
+      border-radius: 16px;
+      padding: 14px 14px 13px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .hint-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: hsl(var(--accent));
+      color: white;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .hint h2 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .hint p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.55;
+      color: hsl(var(--muted));
+    }
+
+    .user-row {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    .bubble {
+      max-width: 82%;
+      background: hsl(var(--hover));
+      border-radius: 18px;
+      padding: 10px 14px;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+    .attach {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 82%;
+      border: 1px solid hsl(var(--border));
+      background: hsl(var(--shell-chat));
+      border-radius: 12px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: hsl(var(--muted));
+    }
+    .attach .file {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: hsl(var(--accent-muted));
+      color: hsl(var(--accent));
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .elapsed {
+      /* Match MessageList turnElapsed chip: shrink-wrap muted text, not a full-width bar */
+      align-self: flex-start;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      width: max-content;
+      max-width: 100%;
+      margin-top: 2px;
+      padding: 4px 6px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: hsl(var(--muted) / 0.72);
+      font-size: 12px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.25;
+      cursor: pointer;
+      text-align: left;
+    }
+    .elapsed:hover,
+    .elapsed:focus-visible {
+      color: hsl(var(--foreground));
+      background: hsl(var(--hover) / 0.5);
+      outline: none;
+    }
+    .elapsed svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+    .elapsed.live::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: hsl(var(--accent));
+      margin-right: 2px;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; }
+      50% { opacity: 1; }
+    }
+
+    /* Delivery: section title + markdown table (matches product `.md-body` table chrome) */
+    .delivery {
+      margin-top: 6px;
+      padding: 0;
+      font-size: 15px;
+      line-height: 1.75;
+      color: hsl(var(--foreground));
+    }
+    .delivery .section-title {
+      margin: 0 0 10px;
+      padding: 0 2px;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    .delivery .table-wrapper {
+      margin: 0;
+      max-width: 100%;
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid hsl(var(--border));
+      background: hsl(var(--shell-chat));
+    }
+    .delivery table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin: 0;
+    }
+    .delivery th,
+    .delivery td {
+      padding: 10px 8px;
+      font-size: 13px;
+      line-height: 1.45;
+      border-bottom: 1px solid hsl(var(--border));
+      border-right: 1px solid hsl(var(--border));
+      vertical-align: middle;
+      word-break: break-word;
+      color: hsl(var(--foreground));
+    }
+    .delivery th:last-child,
+    .delivery td:last-child { border-right: none; }
+    .delivery tr:last-child > th,
+    .delivery tr:last-child > td { border-bottom: none; }
+    .delivery th {
+      font-weight: 600;
+      text-align: center;
+      background: hsl(var(--hover));
+    }
+    .delivery td { background: hsl(var(--shell-chat)); }
+    .delivery .col-stage { width: 36px; }
+    .delivery .col-status { width: 56px; }
+    .delivery td.stage {
+      text-align: center;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      writing-mode: vertical-rl;
+      text-orientation: upright;
+      letter-spacing: 0.2em;
+    }
+    .delivery td.status {
+      text-align: center;
+      vertical-align: middle;
+    }
+    .delivery .status-stack {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: hsl(var(--foreground));
+    }
+    .delivery .status-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .delivery .status-icon.ok { background: #22c55e; }
+    .delivery .status-icon.info { background: #3b82f6; }
+    .delivery td.desc {
+      text-align: left;
+      font-size: 12.5px;
+      line-height: 1.5;
+      font-weight: 400;
+    }
+    .delivery td.desc strong {
+      font-weight: 700;
+    }
+
+    .composer-wrap {
+      padding: 8px 12px 18px;
+      border-top: 1px solid hsl(var(--border));
+      background: hsl(var(--composer-bg));
+      flex-shrink: 0;
+    }
+    .composer {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      border: 1px solid hsl(var(--border));
+      border-radius: 16px;
+      padding: 8px;
+      background: hsl(var(--shell-chat));
+    }
+    .composer input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 15px;
+      padding: 8px 4px;
+      background: transparent;
+      color: hsl(var(--foreground));
+      min-width: 0;
+    }
+    .composer input::placeholder { color: hsl(var(--muted)); }
+    .send, .stop, .clip {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border: none;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+    .clip { background: transparent; color: hsl(var(--muted)); }
+    .send { background: hsl(var(--accent)); color: white; }
+    .stop { background: hsl(var(--hover)); color: hsl(var(--danger)); }
+
+    .empty-note {
+      margin: auto 8px;
+      text-align: center;
+      color: hsl(var(--muted));
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .spec {
+      width: min(640px, 100%);
+      background: hsl(var(--shell-chat));
+      border: 1px solid hsl(var(--border));
+      border-radius: 16px;
+      padding: 16px 18px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: hsl(var(--muted));
+    }
+    .spec strong { color: hsl(var(--foreground)); font-weight: 600; }
+    .spec ol { margin: 8px 0 0; padding-left: 18px; }
+    .spec li { margin: 4px 0; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Pointer · 财务报销助手 · 移动端设计稿</h1>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-state="welcome">1 · 首次进入</button>
+    <button class="tab" role="tab" aria-selected="false" data-state="filling">2 · 填写中</button>
+    <button class="tab" role="tab" aria-selected="false" data-state="done">3 · 已填写</button>
+  </div>
+
+  <div class="phone" aria-label="手机设计稿">
+    <div class="status">
+      <span>9:41</span>
+      <span>▮▮▮ ︎︎︎</span>
+    </div>
+    <div class="topbar">
+      <button class="icon-btn" aria-label="菜单" type="button">☰</button>
+      <div class="title">财务报销助手</div>
+      <button class="icon-btn" aria-label="更多" type="button">⋯</button>
+    </div>
+
+    <div class="chat" id="chat">
+      <!-- welcome -->
+      <div data-panel="welcome">
+        <div class="hint">
+          <div class="hint-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <rect x="3" y="5" width="18" height="14" rx="2"/>
+              <path d="M3 10h18"/>
+            </svg>
+          </div>
+          <div>
+            <h2>我是财务报销助手</h2>
+            <p>您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。</p>
+          </div>
+        </div>
+        <div class="empty-note" style="margin-top: 48px;">上传发票或说明后开始</div>
+      </div>
+
+      <!-- filling -->
+      <div data-panel="filling" class="hidden">
+        <div class="user-row">
+          <div class="bubble">帮我报销这张差旅发票</div>
+          <div class="attach"><span class="file">PDF</span>发票_差旅.pdf</div>
+        </div>
+        <button class="elapsed live" type="button" title="展开过程">
+          <span>报销单填写中&nbsp;&nbsp;12 m 08 s</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <!-- done -->
+      <div data-panel="done" class="hidden">
+        <div class="user-row">
+          <div class="bubble">帮我报销这张差旅发票</div>
+          <div class="attach"><span class="file">PDF</span>发票_差旅.pdf</div>
+        </div>
+        <button class="elapsed" type="button" title="展开过程">
+          <span>报销单已填写&nbsp;&nbsp;18 m 42 s</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <div class="delivery">
+          <div class="section-title">报销进度汇总</div>
+          <div class="table-wrapper">
+            <table>
+              <colgroup>
+                <col class="col-stage" />
+                <col class="col-status" />
+                <col />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>阶段</th>
+                  <th>状态</th>
+                  <th>处理说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="stage" rowspan="5">材料收集</td>
+                  <td class="status">
+                    <div class="status-stack">
+                      <span class="status-icon ok" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg>
+                      </span>
+                      已完成
+                    </div>
+                  </td>
+                  <td class="desc"><strong>差旅审批表：</strong>已登记并完成事实提取、附件上传：差旅费审批表-王国宏-2026-06-02.pdf</td>
+                </tr>
+                <tr>
+                  <td class="status">
+                    <div class="status-stack">
+                      <span class="status-icon ok" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg>
+                      </span>
+                      已完成
+                    </div>
+                  </td>
+                  <td class="desc"><strong>交通票据：</strong>已登记并完成事实提取、附件上传：电子票根-G1830.pdf、电子票根-G1811.pdf</td>
+                </tr>
+                <tr>
+                  <td class="status">
+                    <div class="status-stack">
+                      <span class="status-icon ok" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg>
+                      </span>
+                      已完成
+                    </div>
+                  </td>
+                  <td class="desc"><strong>住宿发票：</strong>已登记并完成事实提取、附件上传：25000616211000022067.pdf</td>
+                </tr>
+                <tr>
+                  <td class="status">
+                    <div class="status-stack">
+                      <span class="status-icon ok" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 13l4 4L19 7"/></svg>
+                      </span>
+                      已完成
+                    </div>
+                  </td>
+                  <td class="desc"><strong>公务卡支付凭证：</strong>已登记并完成事实提取、附件上传：微信图片_2026-06-03_153256_666.jpg、微信图片_2026-06-03_153303_152.jpg</td>
+                </tr>
+                <tr>
+                  <td class="status">
+                    <div class="status-stack">
+                      <span class="status-icon info" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>
+                      </span>
+                      已登记
+                    </div>
+                  </td>
+                  <td class="desc"><strong>会议通知：</strong>已登记并完成事实提取、附件上传：会议通知.pdf</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <button class="clip" type="button" aria-label="附件">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.4 11.6l-8.5 8.5a5 5 0 01-7.1-7.1l9.2-9.2a3.2 3.2 0 014.5 4.5L10 17.3a1.4 1.4 0 01-2-2l8-8"/></svg>
+        </button>
+        <input id="input" placeholder="上传发票或说明…" />
+        <button class="send" id="action" type="button" aria-label="发送">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="spec">
+    <strong>交互约定</strong>
+    <ol>
+      <li><strong>首次进入</strong>：空会话顶部固定提醒条（非对话气泡），说明身份、时长与可离开。</li>
+      <li><strong>进行中</strong>：默认收起执行过程；文案由「工作」改为「报销单填写中」，后接实时计时 <code>N m SS s</code>，箭头在文案后。</li>
+      <li><strong>结束后</strong>：仍默认收起；文案改为「报销单已填写」+ 最终耗时；下方交付为「报销进度汇总」标题 + 圆角表格（阶段 / 状态 / 处理说明，阶段列纵向合并），无额外操作按钮；过程仍可点开查看。</li>
+    </ol>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tab')
+    const panels = document.querySelectorAll('[data-panel]')
+    const input = document.getElementById('input')
+    const action = document.getElementById('action')
+
+    const copy = {
+      welcome: { placeholder: '上传发票或说明…', stop: false },
+      filling: { placeholder: '补充说明…', stop: true },
+      done: { placeholder: '继续说明…', stop: false },
+    }
+
+    function setState(state) {
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.state === state)))
+      panels.forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== state))
+      const cfg = copy[state]
+      input.placeholder = cfg.placeholder
+      action.className = cfg.stop ? 'stop' : 'send'
+      action.innerHTML = cfg.stop
+        ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 5l7 7-7 7"/></svg>'
+      action.setAttribute('aria-label', cfg.stop ? '停止' : '发送')
+    }
+
+    tabs.forEach((tab) => tab.addEventListener('click', () => setState(tab.dataset.state)))
+    setState('welcome')
+  </script>
+</body>
+</html>

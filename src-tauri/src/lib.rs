@@ -479,6 +479,8 @@ pub fn run() {
             commands::get_workspace_git_status,
             commands::get_workspace_git_diff,
             commands::get_turn_file_diff,
+            commands::list_turn_file_changes,
+            commands::save_turn_file_changes,
             commands::create_console_session,
             commands::write_console_session,
             commands::resize_console_session,

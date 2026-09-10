@@ -94,11 +94,13 @@ import { conversationNavVisibleMessageId } from '../../lib/conversationNav'
 import {
   closedLeadTurnsKey,
   collectLeadTurnStarts,
+  fileSummariesFromTurnChangeEntries,
   frozenFileChangesFromStarts,
   resolveActiveTurnFileChanges,
   type FrozenFileChangesCache
 } from '../../lib/lastTurnFileChanges'
 import type { FileChangeSummary } from '../../lib/toolCallDisplay'
+import { listTurnFileChanges, saveTurnFileChanges } from '../../lib/api'
 
 const props = withDefaults(defineProps<{
   searchMatchIds?: string[]
@@ -1314,19 +1316,148 @@ const extraScopedForWindow = computed(() => {
   return chat.scopedRowsForAnchors(convId, anchorIds)
 })
 
+/** Latest lead turn still running → do not freeze it yet. */
+const freezeThroughLastLeadTurn = computed(() => {
+  const starts = leadTurnStarts.value
+  if (!starts.length) return false
+  const lastId = starts[starts.length - 1]!.turnId
+  const turn = messageListLayout.value.turns.find(t => t.id === lastId)
+  return !turn || turn.state !== 'active'
+})
+
 const frozenTurnFileChanges = computed(() => {
   const starts = leadTurnStarts.value
+  const freezeThroughLast = freezeThroughLastLeadTurn.value
   const prev = frozenFileChangesCache
-  if (prev && prev.key === closedLeadTurnsKey(starts)) return prev.map
+  if (prev && prev.key === closedLeadTurnsKey(starts, freezeThroughLast)) return prev.map
   const list = pageWindowMessages.value
+  // Freeze before active cache switches away from a turn that just closed.
   frozenFileChangesCache = frozenFileChangesFromStarts(
     list,
     starts,
     prev,
-    extraScopedForWindow.value
+    extraScopedForWindow.value,
+    activeFileChangesCache.turnId ? activeFileChangesCache : null,
+    freezeThroughLast
   )
   return frozenFileChangesCache.map
 })
+
+/** Persist UI-frozen footer rows once per turn (same list the user sees). */
+const persistedFrozenSummaryKeys = new Set<string>()
+
+watch(
+  () => {
+    const convId = chat.currentId?.trim() ?? ''
+    const frozen = frozenTurnFileChanges.value
+    const parts: string[] = []
+    for (const [turnId, files] of frozen) {
+      if (files.length) parts.push(`${turnId}:${files.length}`)
+    }
+    return `${convId}\0${parts.join('\0')}`
+  },
+  () => {
+    const convId = chat.currentId?.trim()
+    if (!convId) return
+    const frozen = frozenTurnFileChanges.value
+    for (const [turnId, files] of frozen) {
+      if (!files.length) continue
+      const key = `${convId}:${turnId}`
+      if (persistedFrozenSummaryKeys.has(key)) continue
+      persistedFrozenSummaryKeys.add(key)
+      const payload = files.map(file => ({
+        path: file.path,
+        kind: file.kind,
+        adds: file.adds,
+        dels: file.dels
+      }))
+      void saveTurnFileChanges(convId, turnId, payload).then(
+        () => {
+          console.info('[turnFileChanges] saved frozen summary', convId, turnId, payload.length)
+        },
+        error => {
+          persistedFrozenSummaryKeys.delete(key)
+          console.warn('[turnFileChanges] save_turn_file_changes failed', convId, turnId, error)
+        }
+      )
+    }
+  }
+)
+
+/** Disk summary hydrate for closed turns whose message/scoped scan is empty (reload). */
+const hydratedTurnFileChanges = ref(new Map<string, FileChangeSummary[]>())
+const hydrateAttemptedTurnKeys = new Set<string>()
+let hydrateRequestSeq = 0
+
+function clearTurnFileHydrateState() {
+  hydratedTurnFileChanges.value = new Map()
+  hydrateAttemptedTurnKeys.clear()
+  hydrateRequestSeq += 1
+  persistedFrozenSummaryKeys.clear()
+}
+
+function closedTurnIdsNeedingHydrate(): string[] {
+  const starts = leadTurnStarts.value
+  if (!starts.length) return []
+  const freezeThroughLast = freezeThroughLastLeadTurn.value
+  const closedCount = freezeThroughLast ? starts.length : Math.max(0, starts.length - 1)
+  const frozen = frozenTurnFileChanges.value
+  const hydrated = hydratedTurnFileChanges.value
+  const out: string[] = []
+  for (let i = 0; i < closedCount; i++) {
+    const turnId = starts[i]!.turnId
+    if (frozen.get(turnId)?.length) continue
+    if (hydrated.get(turnId)?.length) continue
+    out.push(turnId)
+  }
+  return out
+}
+
+watch(
+  () => {
+    const convId = chat.currentId?.trim() ?? ''
+    const missing = closedTurnIdsNeedingHydrate()
+    return `${convId}\0${missing.join('\0')}`
+  },
+  async () => {
+    const convId = chat.currentId?.trim()
+    if (!convId) return
+    const missing = closedTurnIdsNeedingHydrate().filter(turnId => {
+      const key = `${convId}:${turnId}`
+      if (hydrateAttemptedTurnKeys.has(key)) return false
+      hydrateAttemptedTurnKeys.add(key)
+      return true
+    })
+    if (!missing.length) return
+    const seq = ++hydrateRequestSeq
+    try {
+      const rows = await listTurnFileChanges(convId, missing)
+      if (seq !== hydrateRequestSeq || chat.currentId?.trim() !== convId) return
+      if (!rows.length) return
+      const next = new Map(hydratedTurnFileChanges.value)
+      let changed = false
+      for (const row of rows) {
+        const turnId = row.turnId?.trim()
+        if (!turnId) continue
+        if (frozenTurnFileChanges.value.get(turnId)?.length) continue
+        const files = fileSummariesFromTurnChangeEntries(row.files ?? [])
+        if (!files.length) continue
+        next.set(turnId, files)
+        changed = true
+      }
+      if (changed) {
+        console.info(
+          '[turnFileChanges] hydrated from baseline index',
+          convId,
+          [...next.keys()].filter(id => missing.includes(id))
+        )
+        hydratedTurnFileChanges.value = next
+      }
+    } catch (error) {
+      console.warn('[turnFileChanges] list_turn_file_changes failed', convId, missing, error)
+    }
+  }
+)
 
 let activeFileChangesCache: {
   turnId: string
@@ -1338,6 +1469,8 @@ let activeFileChangesCache: {
 /** Latest turn: add a file as soon as its edit/write succeeds. */
 const activeTurnFileChanges = computed(() => {
   void messageListLayout.value
+  // Ensure closed turns freeze against the previous active cache first.
+  void frozenTurnFileChanges.value
   const list = pageWindowMessages.value
   const last = leadTurnStarts.value[leadTurnStarts.value.length - 1]
   if (!last) {
@@ -1347,6 +1480,17 @@ const activeTurnFileChanges = computed(() => {
       files: [] as FileChangeSummary[],
       mergedToolIds: new Set<string>()
     }
+  }
+  // Finished last turn is already in frozen (freezeThroughLast); do not keep a
+  // parallel active cache that would fight hydrate / eviction emptiness.
+  if (freezeThroughLastLeadTurn.value) {
+    activeFileChangesCache = {
+      turnId: '',
+      settleKey: '',
+      files: [],
+      mergedToolIds: new Set()
+    }
+    return activeFileChangesCache
   }
   activeFileChangesCache = resolveActiveTurnFileChanges(
     list,
@@ -1366,22 +1510,28 @@ let mergedTurnFileChangesCache: {
     files: FileChangeSummary[]
     mergedToolIds: Set<string>
   }
+  hydrated: Map<string, FileChangeSummary[]>
   map: Map<string, FileChangeSummary[]>
 } | null = null
 
 const turnFileChanges = computed(() => {
   const frozen = frozenTurnFileChanges.value
   const active = activeTurnFileChanges.value
+  const hydrated = hydratedTurnFileChanges.value
   if (
     mergedTurnFileChangesCache
     && mergedTurnFileChangesCache.frozen === frozen
     && mergedTurnFileChangesCache.active === active
+    && mergedTurnFileChangesCache.hydrated === hydrated
   ) {
     return mergedTurnFileChangesCache.map
   }
-  const out = new Map(frozen)
+  const out = new Map(hydrated)
+  for (const [turnId, files] of frozen) {
+    if (files.length) out.set(turnId, files)
+  }
   if (active.files.length) out.set(active.turnId, active.files)
-  mergedTurnFileChangesCache = { frozen, active, map: out }
+  mergedTurnFileChangesCache = { frozen, active, hydrated, map: out }
   return out
 })
 
@@ -1546,6 +1696,7 @@ watch(() => chat.currentId, () => {
   frozenFileChangesCache = null
   activeFileChangesCache = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
   mergedTurnFileChangesCache = null
+  clearTurnFileHydrateState()
   activeBoardInlineScrollTop.value = null
   activeBoardIsSticky.value = false
 })

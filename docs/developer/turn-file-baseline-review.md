@@ -24,6 +24,9 @@
 - `turn_id` = 该轮 lead 用户消息 id（与 task board main-turn 锚点一致；`latest_real_user_message_id` 会跳过 scoped / 合成用户行）
 - 单文件上限 5MB；超限跳过并打 warn
 - 捕获依赖 registry 在 `file_edit` / `file_write` 调用时设置的 `TurnBaselineGuard`
+- 旁路：
+  - `.path`：绝对路径（调试 / 无 `summary.json` 时页脚回退，无 +/-）
+  - `summary.json`：页脚摘要（UI 冻结该轮时写入一次，内容与界面列表相同）
 
 ## API
 
@@ -31,6 +34,14 @@
 - HTTP：`GET /api/workspace/turn-file-diff?conversationId=&turnId=&workspaceRoot=&path=`
 
 返回 `diffLines` / `diffStats` / `baselineMissing` / `created`（camelCase）。
+
+- Tauri：`save_turn_file_changes` / `list_turn_file_changes`
+- HTTP：
+  - `POST /api/workspace/turn-file-changes` body `{ conversationId, turnId, files }`
+  - `GET /api/workspace/turn-file-changes?conversationId=&turnIds=id1,id2`
+
+`files` 为 `[{ path, kind, adds, dels }]`（camelCase）。
+只读写 baseline 目录，**不** `load_messages`、**不** hydrate scoped。
 
 ### 找「下一轮基线」时不要全量读消息
 
@@ -40,6 +51,17 @@
 
 长会话里 `conversations.db` 单会话可达数万行、百 MB 级 payload；
 全量加载会让点击「变更文件」打开右侧 diff 明显变慢（短会话不易察觉）。
+
+## 性能
+
+| 路径 | 预期成本 | 禁止 |
+|------|----------|------|
+| `ensure_baseline` | 每路径每轮一次全文写盘（已有） | — |
+| `save_turn_file_changes` | 每轮冻结成功写一次 `summary.json` | 在每次 file_edit 写摘要；失败不得挡 UI |
+| `list_turn_file_changes` | 读 `summary.json`（或 `.path` 回退）；按 turnIds 批量 | 为页脚拉消息 / scoped |
+| `turn_file_diff` | 读两份全文 + diff；点击 Review 才触发 | 页脚列表里批量算整文件 diff |
+
+页脚展示策略见 [`../ui/turn-change-summary.md`](../ui/turn-change-summary.md)「性能」。
 
 ## 跨端
 

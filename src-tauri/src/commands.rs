@@ -135,6 +135,39 @@ pub async fn get_turn_file_diff(
     result
 }
 
+#[tauri::command]
+pub async fn list_turn_file_changes(
+    conversation_id: String,
+    turn_ids: Vec<String>,
+) -> Result<Vec<pointer_core::turn_file_baseline::TurnFileChangesForTurn>, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::turn_file_baseline::list_turn_file_changes(&conversation_id, &turn_ids)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    result
+}
+
+#[tauri::command]
+pub async fn save_turn_file_changes(
+    conversation_id: String,
+    turn_id: String,
+    files: Vec<pointer_core::turn_file_baseline::TurnFileChangeEntry>,
+) -> Result<(), String> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::turn_file_baseline::save_turn_file_changes(
+            &conversation_id,
+            &turn_id,
+            &files,
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    result
+}
+
 /// Build a [`TriggerRequest`] from the IPC payload. Centralized so the IPC
 /// trigger source stays consistent with HTTP / webhook / cron paths.
 pub(crate) fn trigger_request_from_payload(payload: SendChatPayload) -> TriggerRequest {

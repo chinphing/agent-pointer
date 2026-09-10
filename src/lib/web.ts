@@ -284,6 +284,28 @@ export async function getTurnFileDiff(
   return await request(`/api/workspace/turn-file-diff?${params}`)
 }
 
+export async function listTurnFileChanges(
+  conversationId: string,
+  turnIds: string[]
+): Promise<import('./api').TurnFileChangesForTurn[]> {
+  const params = new URLSearchParams({
+    conversationId,
+    turnIds: turnIds.join(',')
+  })
+  return await request(`/api/workspace/turn-file-changes?${params}`)
+}
+
+export async function saveTurnFileChanges(
+  conversationId: string,
+  turnId: string,
+  files: import('./api').TurnFileChangeEntry[]
+): Promise<void> {
+  await request('/api/workspace/turn-file-changes', {
+    method: 'POST',
+    body: JSON.stringify({ conversationId, turnId, files })
+  })
+}
+
 export async function createConsoleSession(
   input: import('./api').ConsoleSessionCreateInput
 ): Promise<import('./api').ConsoleSessionInfo> {

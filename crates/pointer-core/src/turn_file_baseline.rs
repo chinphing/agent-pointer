@@ -1,7 +1,9 @@
 //! Per-turn file content baselines for review (first read before edit/write).
 //!
 //! Storage: `{app_data}/turn-baselines/{conversation_id}/{turn_id}/{sha256(path)}.txt`
-//! plus a sibling `.path` file recording the absolute path for debugging.
+//! plus a sibling `.path` file recording the absolute path for debugging,
+//! and `summary.json` for the page-footer file list (written once when the UI
+//! freezes the turn — same rows the user already sees).
 //!
 //! On the first successful mutating file tool in a turn for a path, callers persist
 //! the pre-write content. Review diffs that snapshot against the next later
@@ -14,6 +16,7 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -93,6 +96,207 @@ fn content_path(root: &Path, abs_path: &Path) -> PathBuf {
 
 fn meta_path(root: &Path, abs_path: &Path) -> PathBuf {
     root.join(format!("{}.path", path_key(abs_path)))
+}
+
+fn summary_json_path(root: &Path) -> PathBuf {
+    root.join("summary.json")
+}
+
+/// One path changed in a lead turn (page-footer summary / reload hydrate).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnFileChangeEntry {
+    pub path: String,
+    /// `edit` or `write`.
+    pub kind: String,
+    pub adds: u64,
+    pub dels: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct TurnFileChangeSummaryFile {
+    files: Vec<TurnFileChangeEntry>,
+}
+
+/// Batch list result: one row per requested turn id (missing turns → empty files).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnFileChangesForTurn {
+    pub turn_id: String,
+    pub files: Vec<TurnFileChangeEntry>,
+}
+
+fn normalize_kind(kind: &str) -> String {
+    if kind.trim().eq_ignore_ascii_case("write") {
+        "write".into()
+    } else {
+        "edit".into()
+    }
+}
+
+fn normalize_entries(files: &[TurnFileChangeEntry]) -> Vec<TurnFileChangeEntry> {
+    let mut by_path: BTreeMap<String, TurnFileChangeEntry> = BTreeMap::new();
+    for file in files {
+        let path = file.path.trim().replace('\\', "/");
+        if path.is_empty() {
+            continue;
+        }
+        let key = path.to_lowercase();
+        let incoming = TurnFileChangeEntry {
+            path,
+            kind: normalize_kind(&file.kind),
+            adds: file.adds,
+            dels: file.dels,
+        };
+        if let Some(prev) = by_path.remove(&key) {
+            let kind = if prev.kind == "write" || incoming.kind == "write" {
+                "write".into()
+            } else {
+                "edit".into()
+            };
+            by_path.insert(
+                key,
+                TurnFileChangeEntry {
+                    path: incoming.path,
+                    kind,
+                    adds: prev.adds.saturating_add(incoming.adds),
+                    dels: prev.dels.saturating_add(incoming.dels),
+                },
+            );
+        } else {
+            by_path.insert(key, incoming);
+        }
+    }
+    let mut out: Vec<_> = by_path.into_values().collect();
+    out.sort_by(|a, b| {
+        a.path
+            .to_lowercase()
+            .cmp(&b.path.to_lowercase())
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    out
+}
+
+/// Persist the UI-frozen footer list for one lead turn (one `summary.json`).
+/// Call when the turn freezes — same rows already shown in the page footer.
+pub fn save_turn_file_changes(
+    conversation_id: &str,
+    turn_id: &str,
+    files: &[TurnFileChangeEntry],
+) -> Result<()> {
+    let conv = conversation_id.trim();
+    let turn = turn_id.trim();
+    if conv.is_empty() || turn.is_empty() {
+        return Err(anyhow!("conversation_id and turn_id are required"));
+    }
+    let normalized = normalize_entries(files);
+    if normalized.is_empty() {
+        info!(
+            "turn_file_baseline: skip empty summary conversation_id={conv} turn_id={turn}"
+        );
+        return Ok(());
+    }
+    let root = baseline_root(conv, turn)?;
+    fs::create_dir_all(&root)
+        .with_context(|| format!("create turn baseline dir {}", root.display()))?;
+    let file = summary_json_path(&root);
+    let payload = TurnFileChangeSummaryFile {
+        files: normalized.clone(),
+    };
+    let json = serde_json::to_string_pretty(&payload)
+        .with_context(|| format!("serialize turn summary {}", file.display()))?;
+    fs::write(&file, json.as_bytes())
+        .with_context(|| format!("write turn summary {}", file.display()))?;
+    info!(
+        "turn_file_baseline: saved summary conversation_id={conv} turn_id={turn} files={}",
+        normalized.len()
+    );
+    Ok(())
+}
+
+fn list_one_turn_file_changes(conversation_id: &str, turn_id: &str) -> Result<Vec<TurnFileChangeEntry>> {
+    let root = baseline_root(conversation_id, turn_id)?;
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let summary = summary_json_path(&root);
+    if summary.exists() {
+        let text = fs::read_to_string(&summary)
+            .with_context(|| format!("read turn summary {}", summary.display()))?;
+        match serde_json::from_str::<TurnFileChangeSummaryFile>(&text) {
+            Ok(parsed) => return Ok(normalize_entries(&parsed.files)),
+            Err(error) => {
+                warn!(
+                    "turn_file_baseline: invalid summary conversation_id={conversation_id} turn_id={turn_id}: {error}"
+                );
+            }
+        }
+    }
+    // Legacy / no UI freeze yet: paths from baseline sidecars (no +/-).
+    let mut by_key: BTreeMap<String, TurnFileChangeEntry> = BTreeMap::new();
+    let entries = fs::read_dir(&root)
+        .with_context(|| format!("read turn baseline dir {}", root.display()))?;
+    for entry in entries {
+        let entry = entry.with_context(|| format!("read dir entry under {}", root.display()))?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if let Some(key) = name.strip_suffix(".path") {
+            let path_text = fs::read_to_string(entry.path()).unwrap_or_default();
+            let path = path_text.trim().replace('\\', "/");
+            if path.is_empty() {
+                continue;
+            }
+            by_key.insert(
+                key.to_string(),
+                TurnFileChangeEntry {
+                    path,
+                    kind: "edit".into(),
+                    adds: 0,
+                    dels: 0,
+                },
+            );
+        }
+    }
+    let mut files: Vec<_> = by_key.into_values().collect();
+    files.sort_by(|a, b| {
+        a.path
+            .to_lowercase()
+            .cmp(&b.path.to_lowercase())
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    Ok(files)
+}
+
+/// List changed files for one or more lead turns (reload hydrate / empty message scan).
+/// Prefers UI-frozen `summary.json`; otherwise falls back to `.path` sidecars.
+/// Does not load conversation messages.
+pub fn list_turn_file_changes(
+    conversation_id: &str,
+    turn_ids: &[String],
+) -> Result<Vec<TurnFileChangesForTurn>> {
+    let conv = conversation_id.trim();
+    if conv.is_empty() {
+        return Err(anyhow!("conversation_id is required"));
+    }
+    let mut out = Vec::with_capacity(turn_ids.len());
+    for turn_id in turn_ids {
+        let turn = turn_id.trim();
+        if turn.is_empty() {
+            warn!("turn_file_baseline: skip empty turn_id in list_turn_file_changes");
+            continue;
+        }
+        let files = list_one_turn_file_changes(conv, turn)?;
+        info!(
+            "turn_file_baseline: list changes conversation_id={conv} turn_id={turn} files={}",
+            files.len()
+        );
+        out.push(TurnFileChangesForTurn {
+            turn_id: turn.to_string(),
+            files,
+        });
+    }
+    Ok(out)
 }
 
 /// Persist pre-write content once per (conversation, turn, path). No-op if ctx unset or already stored.
@@ -341,5 +545,57 @@ mod tests {
         let found =
             read_next_path_baseline("conv", &["u2".into(), "u3".into()], path, path).unwrap();
         assert_eq!(found, Some(("u2".into(), "after-u1".into())));
+    }
+
+    #[test]
+    fn change_summary_save_and_list() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        save_turn_file_changes(
+            "conv",
+            "u1",
+            &[
+                TurnFileChangeEntry {
+                    path: "/ws/b.ts".into(),
+                    kind: "edit".into(),
+                    adds: 2,
+                    dels: 1,
+                },
+                TurnFileChangeEntry {
+                    path: "/ws/a.ts".into(),
+                    kind: "write".into(),
+                    adds: 4,
+                    dels: 0,
+                },
+            ],
+        )
+        .unwrap();
+        let listed = list_turn_file_changes("conv", &["u1".into(), "missing".into()]).unwrap();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].turn_id, "u1");
+        assert_eq!(listed[0].files.len(), 2);
+        assert_eq!(listed[0].files[0].path, "/ws/a.ts");
+        assert_eq!(listed[0].files[0].kind, "write");
+        assert_eq!(listed[0].files[0].adds, 4);
+        assert_eq!(listed[0].files[1].path, "/ws/b.ts");
+        assert_eq!(listed[0].files[1].adds, 2);
+        assert!(listed[1].files.is_empty());
+    }
+
+    #[test]
+    fn change_list_falls_back_to_path_sidecar() {
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().unwrap();
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        let path = Path::new("/ws/legacy.ts");
+        {
+            let _guard = TurnBaselineGuard::enter("conv", "u1");
+            ensure_baseline(path, "x").unwrap();
+        }
+        let listed = list_turn_file_changes("conv", &["u1".into()]).unwrap();
+        assert_eq!(listed[0].files.len(), 1);
+        assert_eq!(listed[0].files[0].path, "/ws/legacy.ts");
+        assert_eq!(listed[0].files[0].adds, 0);
     }
 }

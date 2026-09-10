@@ -196,6 +196,54 @@ async fn get_turn_file_diff(
         &q.path,
     )?))
 }
+
+#[derive(Debug, Deserialize)]
+struct TurnFileChangesQuery {
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
+    /// Comma-separated lead turn ids (page window; typically ≤8).
+    #[serde(rename = "turnIds")]
+    turn_ids: String,
+}
+
+async fn list_turn_file_changes(
+    State(state): State<ServerState>,
+    Query(q): Query<TurnFileChangesQuery>,
+) -> Result<Json<Vec<pointer_core::turn_file_baseline::TurnFileChangesForTurn>>, ApiError> {
+    require_platform_access(&state)?;
+    let turn_ids: Vec<String> = q
+        .turn_ids
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect();
+    Ok(Json(pointer_core::turn_file_baseline::list_turn_file_changes(
+        &q.conversation_id,
+        &turn_ids,
+    )?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveTurnFileChangesBody {
+    conversation_id: String,
+    turn_id: String,
+    files: Vec<pointer_core::turn_file_baseline::TurnFileChangeEntry>,
+}
+
+async fn save_turn_file_changes(
+    State(state): State<ServerState>,
+    Json(body): Json<SaveTurnFileChangesBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_platform_access(&state)?;
+    pointer_core::turn_file_baseline::save_turn_file_changes(
+        &body.conversation_id,
+        &body.turn_id,
+        &body.files,
+    )?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
 use parking_lot::RwLock;
 use rand::RngCore;
 use std::{
@@ -578,6 +626,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/workspace/git/status", get(get_workspace_git_status))
         .route("/api/workspace/git/diff", get(get_workspace_git_diff))
         .route("/api/workspace/turn-file-diff", get(get_turn_file_diff))
+        .route(
+            "/api/workspace/turn-file-changes",
+            get(list_turn_file_changes).post(save_turn_file_changes),
+        )
         .route("/api/version", get(api_version))
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))

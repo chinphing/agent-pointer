@@ -335,28 +335,39 @@ export type FrozenFileChangesCache = {
 }
 
 export function closedLeadTurnsKey(
-  starts: Array<{ turnId: string; start: number }>
+  starts: Array<{ turnId: string; start: number }>,
+  freezeThroughLast = false
 ): string {
-  if (starts.length < 2) return ''
-  return starts
-    .slice(0, -1)
-    .map(item => `${item.turnId}@${item.start}`)
-    .join('\0')
+  if (starts.length === 0) return ''
+  if (!freezeThroughLast && starts.length < 2) return ''
+  const closed = freezeThroughLast ? starts : starts.slice(0, -1)
+  return closed.map(item => `${item.turnId}@${item.start}`).join('\0')
 }
 
 /**
  * Closed-turn file lists. Reuses previous arrays when only a new lead turn appears;
  * rebuilds when history is prepended or the window is replaced.
+ *
+ * `freezeThroughLast`: when the latest lead turn has finished (no next user
+ * message yet), include it in the frozen set so stub eviction cannot wipe the
+ * summary before the next send.
+ *
+ * `activeSnapshot`: still-open turn cache. When a turn just closed, pass the
+ * cache from that turn so we do not drop files if the message scan misses
+ * scoped / trace writes that were already shown live.
  */
 export function frozenFileChangesFromStarts(
   list: ChatMessage[],
   starts: Array<{ turnId: string; start: number }>,
   previous: FrozenFileChangesCache | null,
-  extra: readonly ChatMessage[] = []
+  extra: readonly ChatMessage[] = [],
+  activeSnapshot: ActiveTurnFileCache | null = null,
+  freezeThroughLast = false
 ): FrozenFileChangesCache {
-  const key = closedLeadTurnsKey(starts)
+  const key = closedLeadTurnsKey(starts, freezeThroughLast)
   if (previous && previous.key === key) return previous
-  if (starts.length < 2) return { key: '', map: new Map() }
+  const closedCount = freezeThroughLast ? starts.length : Math.max(0, starts.length - 1)
+  if (closedCount === 0) return { key: '', map: new Map() }
 
   const previousIds = previous?.key ? previous.key.split('\0') : []
   const nextIds = key.split('\0')
@@ -365,10 +376,43 @@ export function frozenFileChangesFromStarts(
     && nextIds.length === previousIds.length + 1
     && previousIds.every((id, index) => id === nextIds[index])
   )
+
+  const resolveClosedFiles = (turnId: string, start: number, end: number): FileChangeSummary[] => {
+    const scanned = fileChangesInRange(list, start, end, extra)
+    if (scanned.length) return scanned
+    if (
+      activeSnapshot
+      && activeSnapshot.turnId === turnId
+      && activeSnapshot.files.length
+    ) {
+      console.info(
+        '[turnFileChanges] freeze from active cache; range scan empty',
+        turnId,
+        activeSnapshot.files.length
+      )
+      return activeSnapshot.files
+    }
+    const kept = previous?.map.get(turnId)
+    if (kept?.length) {
+      console.info(
+        '[turnFileChanges] freeze keep previous; range scan empty',
+        turnId,
+        kept.length
+      )
+      return kept
+    }
+    return []
+  }
+
+  const endForClosedIndex = (index: number): number => {
+    if (index + 1 < starts.length) return starts[index + 1]!.start
+    return list.length
+  }
+
   if (canAppend && previous) {
-    const newlyClosed = starts[starts.length - 2]!
-    const end = starts[starts.length - 1]!.start
-    const files = fileChangesInRange(list, newlyClosed.start, end, extra)
+    const newlyClosed = starts[closedCount - 1]!
+    const end = endForClosedIndex(closedCount - 1)
+    const files = resolveClosedFiles(newlyClosed.turnId, newlyClosed.start, end)
     const map = new Map(previous.map)
     if (files.length) map.set(newlyClosed.turnId, files)
     else map.delete(newlyClosed.turnId)
@@ -376,12 +420,32 @@ export function frozenFileChangesFromStarts(
   }
 
   const map = new Map<string, FileChangeSummary[]>()
-  for (let i = 0; i < starts.length - 1; i++) {
+  for (let i = 0; i < closedCount; i++) {
     const range = starts[i]!
-    const files = fileChangesInRange(list, range.start, starts[i + 1]!.start, extra)
+    const files = resolveClosedFiles(range.turnId, range.start, endForClosedIndex(i))
     if (files.length) map.set(range.turnId, files)
   }
   return { key, map }
+}
+
+/** Map persisted turn-baseline change index rows into footer summary rows. */
+export function fileSummariesFromTurnChangeEntries(
+  entries: ReadonlyArray<{ path: string; kind: string; adds: number; dels: number }>
+): FileChangeSummary[] {
+  const files: FileChangeSummary[] = []
+  for (const entry of entries) {
+    const path = entry.path?.trim()
+    if (!path) continue
+    files.push({
+      path,
+      fileName: pathBasename(path),
+      kind: entry.kind === 'write' ? 'write' : 'edit',
+      adds: Number.isFinite(entry.adds) ? Math.max(0, entry.adds) : 0,
+      dels: Number.isFinite(entry.dels) ? Math.max(0, entry.dels) : 0,
+      diffs: []
+    })
+  }
+  return sortFileChangeSummaries(files)
 }
 
 export function fileChangesByTurn(

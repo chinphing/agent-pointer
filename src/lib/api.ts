@@ -142,6 +142,18 @@ export interface TurnFileDiff {
   diffStats: { adds?: number; dels?: number }
 }
 
+export interface TurnFileChangeEntry {
+  path: string
+  kind: string
+  adds: number
+  dels: number
+}
+
+export interface TurnFileChangesForTurn {
+  turnId: string
+  files: TurnFileChangeEntry[]
+}
+
 export type GitErrorCode = 'not_repository' | 'git_not_installed' | 'command_failed'
 
 export interface GitErrorInfo {
@@ -218,6 +230,15 @@ export interface RuntimeApi {
     workspaceRoot: string,
     path: string
   ): Promise<TurnFileDiff>
+  listTurnFileChanges(
+    conversationId: string,
+    turnIds: string[]
+  ): Promise<TurnFileChangesForTurn[]>
+  saveTurnFileChanges(
+    conversationId: string,
+    turnId: string,
+    files: TurnFileChangeEntry[]
+  ): Promise<void>
   /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
   abortTerminalCommand(conversationId: string, toolCallId?: string): Promise<boolean>
   createConsoleSession(input: ConsoleSessionCreateInput): Promise<ConsoleSessionInfo>
@@ -363,6 +384,8 @@ export const deleteWorkspacePath = api.deleteWorkspacePath
 export const getWorkspaceGitStatus = api.getWorkspaceGitStatus
 export const getWorkspaceGitDiff = api.getWorkspaceGitDiff
 export const getTurnFileDiff = api.getTurnFileDiff
+export const listTurnFileChanges = api.listTurnFileChanges
+export const saveTurnFileChanges = api.saveTurnFileChanges
 export const abortTerminalCommand = api.abortTerminalCommand
 export const createConsoleSession = api.createConsoleSession
 export const writeConsoleSession = api.writeConsoleSession

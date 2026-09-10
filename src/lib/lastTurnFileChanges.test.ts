@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, ToolCall } from '../types/chat'
 import {
+  closedLeadTurnsKey,
   collectLeadTurnStarts,
   fileChangesByTurn,
+  fileSummariesFromTurnChangeEntries,
   frozenFileChangesFromStarts,
   lastTurnFileChanges,
-  resolveActiveTurnFileChanges
+  resolveActiveTurnFileChanges,
+  type FrozenFileChangesCache
 } from './lastTurnFileChanges'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name'>): ToolCall {
@@ -712,5 +715,93 @@ describe('lastTurnFileChanges', () => {
     expect(second).not.toBe(first)
     expect(second.map.get('u1')).toBe(first.map.get('u1'))
     expect(second.map.get('u2')?.map(f => f.path)).toEqual(['/ws/new.ts'])
+  })
+
+  it('frozenFileChangesFromStarts keeps active cache when range scan misses writes', () => {
+    const list = [
+      msg({ id: 'u1', role: 'user', content: 'first' }),
+      msg({ id: 'a1', role: 'assistant', content: 'done' }),
+      msg({ id: 'u2', role: 'user', content: 'second' })
+    ]
+    const starts = collectLeadTurnStarts(list)
+    const activeSnapshot = {
+      turnId: 'u1',
+      settleKey: 'live',
+      files: [
+        {
+          path: '/ws/from-live.ts',
+          fileName: 'from-live.ts',
+          kind: 'edit' as const,
+          adds: 2,
+          dels: 0,
+          diffs: []
+        }
+      ],
+      mergedToolIds: new Set(['t1'])
+    }
+    const frozen = frozenFileChangesFromStarts(list, starts, null, [], activeSnapshot)
+    expect(frozen.map.get('u1')?.map(f => f.path)).toEqual(['/ws/from-live.ts'])
+  })
+
+  it('frozenFileChangesFromStarts keeps previous map entry across window rebuild', () => {
+    const list = [
+      msg({ id: 'u1', role: 'user', content: 'first' }),
+      msg({ id: 'a1', role: 'assistant', content: 'done' }),
+      msg({ id: 'u2', role: 'user', content: 'second' })
+    ]
+    const starts = collectLeadTurnStarts(list)
+    const previous: FrozenFileChangesCache = {
+      key: 'u1@99',
+      map: new Map([
+        [
+          'u1',
+          [
+            {
+              path: '/ws/kept.ts',
+              fileName: 'kept.ts',
+              kind: 'write',
+              adds: 1,
+              dels: 0,
+              diffs: []
+            }
+          ]
+        ]
+      ])
+    }
+    const frozen = frozenFileChangesFromStarts(list, starts, previous)
+    expect(frozen.key).toBe(closedLeadTurnsKey(starts))
+    expect(frozen.map.get('u1')?.map(f => f.path)).toEqual(['/ws/kept.ts'])
+  })
+
+  it('frozenFileChangesFromStarts freezes the last turn when freezeThroughLast', () => {
+    const list = [
+      msg({ id: 'u1', role: 'user', content: 'first' }),
+      msg({
+        id: 'a1',
+        role: 'assistant',
+        content: 'done',
+        toolCalls: [
+          tc({
+            id: 'w1',
+            name: 'file_write',
+            result: JSON.stringify({ path: '/ws/done.ts', success: true, bytesWritten: 2 })
+          })
+        ]
+      })
+    ]
+    const starts = collectLeadTurnStarts(list)
+    expect(frozenFileChangesFromStarts(list, starts, null).map.has('u1')).toBe(false)
+    const frozen = frozenFileChangesFromStarts(list, starts, null, [], null, true)
+    expect(frozen.key).toBe(closedLeadTurnsKey(starts, true))
+    expect(frozen.map.get('u1')?.map(f => f.path)).toEqual(['/ws/done.ts'])
+  })
+
+  it('fileSummariesFromTurnChangeEntries maps baseline index rows', () => {
+    const files = fileSummariesFromTurnChangeEntries([
+      { path: '/ws/b.ts', kind: 'edit', adds: 2, dels: 1 },
+      { path: '/ws/a.ts', kind: 'write', adds: 4, dels: 0 }
+    ])
+    expect(files.map(f => f.path)).toEqual(['/ws/a.ts', '/ws/b.ts'])
+    expect(files[0]).toMatchObject({ fileName: 'a.ts', kind: 'write', adds: 4, dels: 0 })
   })
 })

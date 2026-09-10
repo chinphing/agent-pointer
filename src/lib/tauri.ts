@@ -143,6 +143,28 @@ export async function getTurnFileDiff(
   })
 }
 
+export async function listTurnFileChanges(
+  conversationId: string,
+  turnIds: string[]
+): Promise<import('./api').TurnFileChangesForTurn[]> {
+  return await invoke('list_turn_file_changes', {
+    conversationId,
+    turnIds
+  })
+}
+
+export async function saveTurnFileChanges(
+  conversationId: string,
+  turnId: string,
+  files: import('./api').TurnFileChangeEntry[]
+): Promise<void> {
+  await invoke('save_turn_file_changes', {
+    conversationId,
+    turnId,
+    files
+  })
+}
+
 export async function createConsoleSession(
   input: import('./api').ConsoleSessionCreateInput
 ): Promise<import('./api').ConsoleSessionInfo> {

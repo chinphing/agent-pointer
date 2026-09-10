@@ -50,17 +50,19 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
     }
     fs::write(&full, content.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
     let (_diff_lines, stats) = compute_diff_lines(&old_content, &content);
+    let display = path_display_abs(&full);
+    let created = old_content.is_empty();
     info!(
         "file_write: path={}, bytes={}, created={}",
-        path_display_abs(&full),
+        display,
         content.len(),
-        old_content.is_empty()
+        created
     );
     Ok(serde_json::json!({
-        "path": path_display_abs(&full),
+        "path": display,
         "bytesWritten": content.as_bytes().len(),
         "success": true,
-        "created": old_content.is_empty(),
+        "created": created,
         "stats": stats,
     })
     .to_string())

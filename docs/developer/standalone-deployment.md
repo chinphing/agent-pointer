@@ -319,6 +319,9 @@ addr = "0.0.0.0:8787"
 public_url = "https://pointer.example.com"
 # page_title = "Acme · AI 助手"   # browser tab; env POINTER_SERVER_PAGE_TITLE
 # composer_placeholder = "有什么可以帮你？"  # composer hint; env POINTER_SERVER_COMPOSER_PLACEHOLDER
+# welcome_tip_title / welcome_tip_body  # brand-new empty chat tip; env POINTER_SERVER_WELCOME_TIP_*
+# turn_elapsed_active / turn_elapsed_done  # elapsed chip prefixes; env POINTER_SERVER_TURN_ELAPSED_*
+# （进行中收起条需在助手设置打开「默认收缩执行过程」，server 不强制）
 # SSE 首帧 padding 注释帧（穿透缓冲型防火墙；默认关闭，需要时显式开启 sse_padding_enabled = true）
 # sse_padding_enabled = false   # env POINTER_SERVER_SSE_PADDING_ENABLED
 # sse_padding_bytes = 10240    # env POINTER_SERVER_SSE_PADDING_BYTES

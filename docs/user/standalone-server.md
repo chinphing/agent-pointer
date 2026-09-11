@@ -66,6 +66,12 @@ public_url = "https://pointer.example.com"
 # page_title = "Acme · AI 助手"
 # Composer placeholder (optional; default 告诉我你想做什么)
 # composer_placeholder = "有什么可以帮你？"
+# Empty-conversation tip (optional; only on brand-new empty chats)
+# welcome_tip_title = "我是财务报销助手"
+# welcome_tip_body = "您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。"
+# Turn elapsed chip prefixes (optional; default 工作 →「工作 N m SS s」)
+# turn_elapsed_active = "报销单填写中"
+# turn_elapsed_done = "报销单已填写"
 # SSE 首帧 padding 注释帧（穿透缓冲型防火墙/反向代理；默认关闭，需要时显式开启 sse_padding_enabled = true）
 # sse_padding_enabled = false
 # sse_padding_bytes = 10240
@@ -243,6 +249,10 @@ curl -X POST http://localhost:8787/api/auth/local/login \
 | `POINTER_SERVER_PUBLIC_URL` | 服务公网地址 | 自动推断 |
 | `POINTER_SERVER_PAGE_TITLE` | 浏览器标签页标题（`index.html` `<title>`） | `Pointer · AI 工作台` |
 | `POINTER_SERVER_COMPOSER_PLACEHOLDER` | 输入框默认提示文案（写入 `pointer-composer-placeholder` meta） | `告诉我你想做什么` |
+| `POINTER_SERVER_WELCOME_TIP_TITLE` | 全新空会话欢迎 tip 标题（可选） | （不展示 tip） |
+| `POINTER_SERVER_WELCOME_TIP_BODY` | 全新空会话欢迎 tip 正文（可选） | （不展示 tip） |
+| `POINTER_SERVER_TURN_ELAPSED_ACTIVE` | 进行中回合耗时前缀（可选） | `工作` |
+| `POINTER_SERVER_TURN_ELAPSED_DONE` | 已结束回合耗时前缀（可选） | `工作` |
 | `POINTER_APP_DATA_DIR` | 数据目录 | OS 默认 |
 | `POINTER_SERVER_STATIC_DIR` | Web UI `dist/` 目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/dist`） |
 | `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/skills`） |

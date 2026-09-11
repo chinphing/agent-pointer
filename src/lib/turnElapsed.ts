@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../types/chat'
 import { isScopedSubMessage } from './subAgentMessages'
 import { isRealUserTaskMessage } from './threadLayoutGlue'
+import { resolveTurnElapsedPrefix, type TurnElapsedPhase } from './webBranding'
 
 const STORAGE_KEY = 'pointer.chat.turn-elapsed.v1'
 
@@ -203,10 +204,14 @@ export function resolveTurnElapsedMs(options: {
   return fallback
 }
 
-export function formatTurnElapsed(elapsedMs: number | null): string {
-  if (elapsedMs == null) return '工作耗时未知'
+export function formatTurnElapsed(
+  elapsedMs: number | null,
+  phase: TurnElapsedPhase = 'done'
+): string {
+  const prefix = resolveTurnElapsedPrefix(phase)
+  if (elapsedMs == null) return `${prefix}耗时未知`
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = String(totalSeconds % 60).padStart(2, '0')
-  return `工作 ${minutes} m ${seconds} s`
+  return `${prefix} ${minutes} m ${seconds} s`
 }

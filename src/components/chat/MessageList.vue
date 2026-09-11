@@ -1633,8 +1633,10 @@ function turnElapsedLabel(turnId: string): string {
   // nowTick keeps the label reactive even when nothing else changes).
   const startedAt = conversationId ? activeTurnStartedAt(conversationId, turnId) : null
   if (startedAt != null) {
-    return formatTurnElapsed(Math.max(0, nowTick.value - startedAt))
+    return formatTurnElapsed(Math.max(0, nowTick.value - startedAt), 'active')
   }
+  const turn = conversationTurns.value.find(item => item.id === turnId)
+  const phase = turn?.state === 'active' ? 'active' : 'done'
   const { userCreatedAt, lastMessageCreatedAt } = turnMessageCreatedAtSpan(
     pageWindowMessages.value,
     turnId
@@ -1645,7 +1647,8 @@ function turnElapsedLabel(turnId: string): string {
       turnId,
       userCreatedAt,
       lastMessageCreatedAt
-    })
+    }),
+    phase
   )
 }
 

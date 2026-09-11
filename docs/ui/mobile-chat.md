@@ -21,6 +21,7 @@
 - **欢迎页（空会话）**：桌面仍为居中 hero（slogan + `placement="inline"` + 经验区）。窄屏**不显示 slogan 与经验区**，输入框与有消息会话相同，使用底部 footer Composer（`shouldShowFooterComposer`）；未登录时仍可显示登录入口。
 - **智能体选择**与**项目选择**仅在 `md+` 工具栏显示；窄屏隐藏，沿用当前会话已选智能体 / 项目（或默认）。
 - 默认提示文案可由服务端配置（`[server].composer_placeholder` / `POINTER_SERVER_COMPOSER_PLACEHOLDER`），写入 `index.html` meta `pointer-composer-placeholder`；前端 `resolveComposerPlaceholder()` 读取。登录态 / 余额 / Key 缺失时仍用固定提示覆盖。
+- 欢迎 tip / 耗时前缀等 Web branding 见 [web-branding-welcome-elapsed.md](web-branding-welcome-elapsed.md)。
 
 ## 实现位置
 

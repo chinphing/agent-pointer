@@ -98,6 +98,22 @@ struct ServerSection {
     /// Maps to `POINTER_SERVER_COMPOSER_PLACEHOLDER`. Empty → `告诉我你想做什么`.
     #[serde(default)]
     composer_placeholder: String,
+    /// Empty-conversation welcome tip title (Web UI). Maps to
+    /// `POINTER_SERVER_WELCOME_TIP_TITLE`. Empty → no tip banner.
+    #[serde(default)]
+    welcome_tip_title: String,
+    /// Empty-conversation welcome tip body. Maps to
+    /// `POINTER_SERVER_WELCOME_TIP_BODY`. Shown only when title and/or body set.
+    #[serde(default)]
+    welcome_tip_body: String,
+    /// Turn elapsed chip prefix while the turn is active (Web UI).
+    /// Maps to `POINTER_SERVER_TURN_ELAPSED_ACTIVE`. Empty → product default `工作`.
+    #[serde(default)]
+    turn_elapsed_active: String,
+    /// Turn elapsed chip prefix after the turn finishes.
+    /// Maps to `POINTER_SERVER_TURN_ELAPSED_DONE`. Empty → product default `工作`.
+    #[serde(default)]
+    turn_elapsed_done: String,
     /// Platform user ids allowed to log in (maps to `POINTER_SERVER_ALLOWED_USER_IDS`).
     #[serde(default)]
     allowed_user_ids: Vec<String>,
@@ -433,6 +449,34 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         &mut pairs,
         "POINTER_SERVER_COMPOSER_PLACEHOLDER",
         &parsed.server.composer_placeholder,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_WELCOME_TIP_TITLE",
+        &parsed.server.welcome_tip_title,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_WELCOME_TIP_BODY",
+        &parsed.server.welcome_tip_body,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_TURN_ELAPSED_ACTIVE",
+        &parsed.server.turn_elapsed_active,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_TURN_ELAPSED_DONE",
+        &parsed.server.turn_elapsed_done,
         base_dir,
         false,
     );
@@ -785,6 +829,10 @@ command = "bin/min"
 [server]
 page_title = "Acme · AI 助手"
 composer_placeholder = "有什么可以帮你？"
+welcome_tip_title = "我是财务报销助手"
+welcome_tip_body = "提交附件后自动填单"
+turn_elapsed_active = "报销单填写中"
+turn_elapsed_done = "报销单已填写"
 "#,
         )
         .unwrap();
@@ -798,6 +846,23 @@ composer_placeholder = "有什么可以帮你？"
             map.get("POINTER_SERVER_COMPOSER_PLACEHOLDER")
                 .map(String::as_str),
             Some("有什么可以帮你？")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_WELCOME_TIP_TITLE").map(String::as_str),
+            Some("我是财务报销助手")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_WELCOME_TIP_BODY").map(String::as_str),
+            Some("提交附件后自动填单")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_TURN_ELAPSED_ACTIVE")
+                .map(String::as_str),
+            Some("报销单填写中")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_TURN_ELAPSED_DONE").map(String::as_str),
+            Some("报销单已填写")
         );
     }
 

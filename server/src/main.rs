@@ -52,7 +52,7 @@ use tower_http::{
         predicate::{NotForContentType, Predicate, SizeAbove},
         CompressionLayer,
     },
-    cors::CorsLayer,
+    cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer},
 };
 
 #[derive(Deserialize)]
@@ -910,7 +910,16 @@ async fn main() -> anyhow::Result<()> {
         // compressed media are explicitly excluded above.
         .layer(compression)
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
-        .layer(CorsLayer::permissive())
+        // `permissive()` uses `Access-Control-Allow-Origin: *`, which browsers reject when
+        // the SPA calls with `credentials: 'include'` (cookie session). Mirror the request
+        // Origin so local `web:dev` (localhost:1420 → :8787) can load auth mode / login.
+        .layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::mirror_request())
+                .allow_methods(AllowMethods::mirror_request())
+                .allow_headers(AllowHeaders::mirror_request())
+                .allow_credentials(true),
+        )
         .layer(middleware::from_fn_with_state(
             web_sessions.clone(),
             web_session::web_session_middleware,
@@ -923,9 +932,12 @@ async fn main() -> anyhow::Result<()> {
     log::info!("pointer-server: bind address {addr} (POINTER_SERVER_ADDR)");
     if static_dir.is_some() {
         log::info!(
-            "pointer-server: web branding title={:?} composer_placeholder={:?}",
+            "pointer-server: web branding title={:?} composer_placeholder={:?} welcome_tip_title={:?} turn_elapsed_active={:?} turn_elapsed_done={:?}",
             resolve_web_page_title(),
-            resolve_composer_placeholder()
+            resolve_composer_placeholder(),
+            resolve_optional_branding_env("POINTER_SERVER_WELCOME_TIP_TITLE"),
+            resolve_optional_branding_env("POINTER_SERVER_TURN_ELAPSED_ACTIVE"),
+            resolve_optional_branding_env("POINTER_SERVER_TURN_ELAPSED_DONE"),
         );
         println!("Pointer web server listening on http://{addr} (API + static UI)");
     } else {
@@ -4198,6 +4210,10 @@ async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCod
 const DEFAULT_WEB_PAGE_TITLE: &str = "Pointer · AI 工作台";
 const DEFAULT_COMPOSER_PLACEHOLDER: &str = "告诉我你想做什么";
 const COMPOSER_PLACEHOLDER_META: &str = "pointer-composer-placeholder";
+const WELCOME_TIP_TITLE_META: &str = "pointer-welcome-tip-title";
+const WELCOME_TIP_BODY_META: &str = "pointer-welcome-tip-body";
+const TURN_ELAPSED_ACTIVE_META: &str = "pointer-turn-elapsed-active";
+const TURN_ELAPSED_DONE_META: &str = "pointer-turn-elapsed-done";
 
 /// Browser tab title from `POINTER_SERVER_PAGE_TITLE` / `[server].page_title`.
 fn resolve_web_page_title() -> String {
@@ -4216,6 +4232,13 @@ fn resolve_composer_placeholder() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_COMPOSER_PLACEHOLDER.to_string())
+}
+
+fn resolve_optional_branding_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn html_escape_text(s: &str) -> String {
@@ -4257,15 +4280,14 @@ fn replace_html_title(html: &str, title: &str) -> String {
     html.to_string()
 }
 
-fn composer_placeholder_meta_tag(placeholder: &str) -> String {
-    format!(r#"<meta name="{COMPOSER_PLACEHOLDER_META}" content="{placeholder}" />"#)
+fn meta_content_tag(name: &str, content: &str) -> String {
+    format!(r#"<meta name="{name}" content="{content}" />"#)
 }
 
-fn replace_or_inject_composer_placeholder_meta(html: &str, placeholder: &str) -> String {
-    let meta = composer_placeholder_meta_tag(placeholder);
-    let needle = format!(r#"name="{COMPOSER_PLACEHOLDER_META}""#);
+fn replace_or_inject_meta(html: &str, name: &str, content: &str) -> String {
+    let meta = meta_content_tag(name, content);
+    let needle = format!(r#"name="{name}""#);
     if let Some(name_idx) = html.find(&needle) {
-        // Rewrite content="…" on the existing meta tag.
         let tag_start = html[..name_idx].rfind('<').unwrap_or(0);
         if let Some(tag_end_rel) = html[name_idx..].find('>') {
             let tag_end = name_idx + tag_end_rel + 1;
@@ -4284,18 +4306,37 @@ fn replace_or_inject_composer_placeholder_meta(html: &str, placeholder: &str) ->
         out.push_str(&html[head_end..]);
         return out;
     }
-    log::warn!("pointer-server: index.html missing </head>; cannot inject composer placeholder meta");
+    log::warn!("pointer-server: index.html missing </head>; cannot inject meta {name}");
     html.to_string()
 }
 
-/// Rewrite SPA shell branding: tab `<title>` and composer placeholder meta.
+/// Inject optional branding meta only when the env override is non-empty.
+fn maybe_inject_optional_meta(html: &str, env_key: &str, meta_name: &str) -> String {
+    match resolve_optional_branding_env(env_key) {
+        Some(value) => replace_or_inject_meta(html, meta_name, &html_escape_text(&value)),
+        None => html.to_string(),
+    }
+}
+
+/// Rewrite SPA shell branding: tab `<title>`, composer placeholder, and optional
+/// welcome tip / turn-elapsed label overrides.
 fn apply_web_branding(html_bytes: &[u8]) -> String {
     let html = String::from_utf8_lossy(html_bytes);
-    let titled = replace_html_title(&html, &html_escape_text(&resolve_web_page_title()));
-    replace_or_inject_composer_placeholder_meta(
-        &titled,
+    let mut out = replace_html_title(&html, &html_escape_text(&resolve_web_page_title()));
+    out = replace_or_inject_meta(
+        &out,
+        COMPOSER_PLACEHOLDER_META,
         &html_escape_text(&resolve_composer_placeholder()),
-    )
+    );
+    out = maybe_inject_optional_meta(&out, "POINTER_SERVER_WELCOME_TIP_TITLE", WELCOME_TIP_TITLE_META);
+    out = maybe_inject_optional_meta(&out, "POINTER_SERVER_WELCOME_TIP_BODY", WELCOME_TIP_BODY_META);
+    out = maybe_inject_optional_meta(
+        &out,
+        "POINTER_SERVER_TURN_ELAPSED_ACTIVE",
+        TURN_ELAPSED_ACTIVE_META,
+    );
+    out = maybe_inject_optional_meta(&out, "POINTER_SERVER_TURN_ELAPSED_DONE", TURN_ELAPSED_DONE_META);
+    out
 }
 
 fn static_content_type(path: &std::path::Path) -> &'static str {
@@ -4372,6 +4413,10 @@ mod page_title_tests {
     fn clear_branding_env() {
         std::env::remove_var("POINTER_SERVER_PAGE_TITLE");
         std::env::remove_var("POINTER_SERVER_COMPOSER_PLACEHOLDER");
+        std::env::remove_var("POINTER_SERVER_WELCOME_TIP_TITLE");
+        std::env::remove_var("POINTER_SERVER_WELCOME_TIP_BODY");
+        std::env::remove_var("POINTER_SERVER_TURN_ELAPSED_ACTIVE");
+        std::env::remove_var("POINTER_SERVER_TURN_ELAPSED_DONE");
     }
 
     #[test]
@@ -4387,6 +4432,8 @@ mod page_title_tests {
             out.contains(r#"name="pointer-composer-placeholder" content="有什么可以帮你？""#),
             "{out}"
         );
+        assert!(!out.contains("pointer-welcome-tip-title"), "{out}");
+        assert!(!out.contains("pointer-turn-elapsed-active"), "{out}");
         clear_branding_env();
     }
 
@@ -4420,6 +4467,35 @@ mod page_title_tests {
             "{out}"
         );
         assert!(!out.contains("告诉我你想做什么"), "{out}");
+        clear_branding_env();
+    }
+
+    #[test]
+    fn injects_optional_welcome_and_elapsed_metas() {
+        let _guard = env_guard();
+        clear_branding_env();
+        std::env::set_var("POINTER_SERVER_WELCOME_TIP_TITLE", "我是财务报销助手");
+        std::env::set_var("POINTER_SERVER_WELCOME_TIP_BODY", "预计 10–30 分钟");
+        std::env::set_var("POINTER_SERVER_TURN_ELAPSED_ACTIVE", "报销单填写中");
+        std::env::set_var("POINTER_SERVER_TURN_ELAPSED_DONE", "报销单已填写");
+        let html = "<head><title>t</title></head>";
+        let out = apply_web_branding(html.as_bytes());
+        assert!(
+            out.contains(r#"name="pointer-welcome-tip-title" content="我是财务报销助手""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"name="pointer-welcome-tip-body" content="预计 10–30 分钟""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"name="pointer-turn-elapsed-active" content="报销单填写中""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"name="pointer-turn-elapsed-done" content="报销单已填写""#),
+            "{out}"
+        );
         clear_branding_env();
     }
 

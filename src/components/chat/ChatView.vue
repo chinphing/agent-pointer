@@ -14,6 +14,8 @@ import {
   MOBILE_VIEWPORT_MEDIA_QUERY,
   shouldShowFooterComposer
 } from '../../lib/mobileChat'
+import { resolveWelcomeTip } from '../../lib/webBranding'
+import WelcomeTipBanner from './WelcomeTipBanner.vue'
 
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
@@ -85,6 +87,8 @@ const showWelcomeHome = computed(() =>
     chat.current?.messageCount ?? 0
   )
 )
+/** Server/Vite branding tip — only on brand-new empty conversations (welcome home). */
+const welcomeTip = computed(() => (showWelcomeHome.value ? resolveWelcomeTip() : null))
 const isMobileViewport = ref(
   typeof window !== 'undefined' && window.matchMedia(MOBILE_VIEWPORT_MEDIA_QUERY).matches
 )
@@ -326,7 +330,15 @@ const toastClass = computed(() => {
           <!-- Desktop hero: slogan + inline composer. Mobile uses the footer composer. -->
           <template v-if="!isMobileViewport">
             <div class="mx-auto flex w-full max-w-[42rem] min-h-[clamp(7rem,calc(50vh-4.5rem),14rem)] flex-col items-center justify-end">
-              <h1 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]">
+              <WelcomeTipBanner
+                v-if="welcomeTip"
+                class="mb-[30px] w-full max-w-[42rem]"
+                :tip="welcomeTip"
+              />
+              <h1
+                v-else
+                class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]"
+              >
                 <span class="brand-text">Pointer</span>：你说，我做，就这么简单！
               </h1>
             </div>
@@ -335,6 +347,12 @@ const toastClass = computed(() => {
               <Composer placement="inline" />
             </div>
           </template>
+
+          <WelcomeTipBanner
+            v-else-if="welcomeTip"
+            class="mb-3 w-full"
+            :tip="welcomeTip"
+          />
 
           <div
             v-if="!isMobileViewport || needsPlatformLogin"

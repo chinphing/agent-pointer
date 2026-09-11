@@ -48,6 +48,10 @@ impl CaptchaStore {
             },
         );
         log::info!("local_auth: issued captcha id={id}");
+        if cfg!(debug_assertions) {
+            // Local smoke tests: answer is only logged in debug builds.
+            log::info!("local_auth: captcha answer (debug only) id={id} answer={answer}");
+        }
         (id, answer)
     }
 

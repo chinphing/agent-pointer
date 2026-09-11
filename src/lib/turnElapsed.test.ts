@@ -178,5 +178,6 @@ describe('turn elapsed', () => {
     expect(formatTurnElapsed(125_999)).toBe('工作 2 m 05 s')
     expect(formatTurnElapsed(900)).toBe('工作 0 m 00 s')
     expect(formatTurnElapsed(null)).toBe('工作耗时未知')
+    expect(formatTurnElapsed(null, 'active')).toBe('工作耗时未知')
   })
 })

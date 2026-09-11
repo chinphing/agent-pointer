@@ -1,0 +1,40 @@
+# Local branding smoke-test for pointer-server.
+# Standalone + local password so you are not forced through cloud OAuth.
+#
+# Start:
+#   POINTER_SERVER_CONFIG="$(pwd)/server/pointer-server.branding-dev.toml" \
+#   POINTER_LICENSE_KEY="$(cat /tmp/pointer-branding-dev/license.txt)" \
+#   POINTER_LICENSE_PUBLIC_KEY="$(cat /tmp/pointer-branding-dev/pub.txt)" \
+#   npm run server:dev
+#
+# Login (Web): admin / admin123 + captcha
+# Tip UI (current Vue code):
+#   VITE_WEB_API_BASE= \
+#   VITE_WELCOME_TIP_TITLE="我是财务报销助手" \
+#   VITE_WELCOME_TIP_BODY="…" \
+#   VITE_TURN_ELAPSED_ACTIVE="报销单填写中" \
+#   VITE_TURN_ELAPSED_DONE="报销单已填写" \
+#   npm run web:dev
+# Open http://localhost:1420 — empty VITE_WEB_API_BASE uses Vite `/api` proxy
+# (see vite.config.ts) so login cookies stick. Do not mix localhost page with
+# VITE_WEB_API_BASE=http://127.0.0.1:8787 (cross-site; session cookie dropped).
+
+[deployment]
+mode = "standalone"
+
+[auth.local]
+username = "admin"
+hmac_secret = "dev-branding-hmac-secret"
+password_hmac = "a409631f3b56ec7e1ad97c8f9f6117f5f4fea00a19551b1cf46cbb91881d00af"
+
+[usage]
+report_enabled = false
+
+[server]
+addr = "127.0.0.1:8787"
+page_title = "财务报销助手"
+composer_placeholder = "上传发票或说明…"
+welcome_tip_title = "我是财务报销助手"
+welcome_tip_body = "您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。"
+turn_elapsed_active = "报销单填写中"
+turn_elapsed_done = "报销单已填写"

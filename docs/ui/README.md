@@ -11,6 +11,7 @@
 | [markdown-media-boundaries.md](markdown-media-boundaries.md) | Markdown / SVG / Chart / HTML 功能边界与 HTML 表约定 |
 | [task-complete-sound.md](task-complete-sound.md) | 任务完成提示音（账户设置 `playSoundOnFinish`） |
 | [turn-elapsed.md](turn-elapsed.md) | 回合「工作耗时」；未开「默认收缩执行过程」时与增设前行为一致 |
+| [web-branding-welcome-elapsed.md](web-branding-welcome-elapsed.md) | Server 可定制欢迎 tip / 耗时前缀（默认文案不动） |
 | [sidebar-conversation-select.md](sidebar-conversation-select.md) | 侧栏点选：先提交 `currentId`，主区异步加载 |
 | [last-conversation-restore.md](last-conversation-restore.md) | 启动恢复上次选中会话（`pointer.chat.lastConversationId`） |
 | [sidebar-awaiting-view.md](sidebar-awaiting-view.md) | 后台完成未查看：侧栏实心圆点 |

@@ -420,7 +420,7 @@ function openSourceUrl(url: string) {
           <span v-if="showKindLabel" class="shrink-0">·</span>
           <ToolLiveSweepText
             class="ellipsis-start min-w-0"
-            :text="`${filePathSummary}\u200e`"
+            :text="filePathSummary"
             :active="isLivePulse"
             :title="filePathSummary"
           />

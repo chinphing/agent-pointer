@@ -136,6 +136,12 @@ http://127.0.0.1:8787
 VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 ```
 
+同域 Cookie（`localhost:1420` 登录不丢 session）时用空 base，Vite 才会把 `/api` 代理到 8787（需先起 `server:dev`）；`tauri:dev` 默认不开该代理：
+
+```bash
+VITE_WEB_API_BASE= npm run web:dev
+```
+
 Windows PowerShell：
 
 ```powershell

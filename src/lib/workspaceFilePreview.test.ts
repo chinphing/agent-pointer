@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   filePreviewSearchParts,
   findFilePreviewMatches,
+  highlightCodeFenceHtml,
   tokenizeCodeLine
 } from './workspaceFilePreview'
 
@@ -18,6 +19,20 @@ describe('workspace file preview tokenizer', () => {
 
   it('keeps empty lines visible', () => {
     expect(tokenizeCodeLine('')).toEqual([{ text: '\u00A0', kind: 'plain' }])
+  })
+
+  it('renders fenced HTML with the same token classes', () => {
+    const html = highlightCodeFenceHtml('if True:  # ok\n')
+    expect(html).toContain('<span class="token-keyword">if</span>')
+    expect(html).toContain('<span class="token-keyword">True</span>')
+    expect(html).toContain('<span class="token-comment"># ok</span>')
+    expect(html.endsWith('\n')).toBe(true)
+  })
+
+  it('escapes raw HTML in highlighted fences', () => {
+    expect(highlightCodeFenceHtml('x < y & "z"\n')).toBe(
+      'x &lt; y &amp; <span class="token-string">&quot;z&quot;</span>\n'
+    )
   })
 })
 

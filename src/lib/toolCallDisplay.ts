@@ -26,22 +26,23 @@ function normalizeDisplayPath(path: string): string {
   return path.trim().replace(/^\\\\\?\\/, '').replace(/\\/g, '/').replace(/\/$/, '')
 }
 
+function stripWorkspacePrefix(normalizedPath: string, workspaceRoot: string): string | null {
+  const workspace = normalizeDisplayPath(workspaceRoot)
+  if (!workspace) return null
+  const pathLower = normalizedPath.toLocaleLowerCase()
+  const workspaceLower = workspace.toLocaleLowerCase()
+  if (!pathLower.startsWith(`${workspaceLower}/`)) return null
+  return normalizedPath.slice(workspace.length + 1)
+}
+
 /**
  * Format a display-only path relative to the active workspace, or to the
  * user-level Pointer skills root when the path is under `~/.pointer/skills`.
  */
 export function workspaceRelativeDisplayPath(path: string, workspaceRoot?: string): string {
   const normalized = normalizeDisplayPath(path)
-  const workspace = normalizeDisplayPath(workspaceRoot ?? '')
-  const normalizedLower = normalized.toLocaleLowerCase()
-
-  // Keep the active workspace as the most specific display root.
-  if (workspace) {
-    const workspaceLower = workspace.toLocaleLowerCase()
-    if (normalizedLower.startsWith(`${workspaceLower}/`)) {
-      return normalized.slice(workspace.length + 1)
-    }
-  }
+  const stripped = stripWorkspacePrefix(normalized, workspaceRoot ?? '')
+  if (stripped != null) return stripped
 
   const pointerSkillsRootMatch = normalized.match(
     /^(?:~|\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\/Users\/[^/]+)\/\.pointer\/skills\//i
@@ -50,6 +51,35 @@ export function workspaceRelativeDisplayPath(path: string, workspaceRoot?: strin
     return normalized.slice(pointerSkillsRootMatch[0].length)
   }
   return normalized
+}
+
+/**
+ * Prefer a workspace-relative path. Try each root (conversation, then project, …)
+ * and keep the most specific match (shortest relative). When the lead workspace
+ * was switched to a skill dir by a coder sub-agent but writes landed in the
+ * session sandbox / project root, a single-root strip would keep the absolute path.
+ */
+export function workspaceRelativeDisplayPathWithFallbacks(
+  path: string,
+  roots: Array<string | null | undefined>
+): string {
+  const normalized = normalizeDisplayPath(path)
+  let best: string | null = null
+  for (const root of roots) {
+    const stripped = stripWorkspacePrefix(normalized, root ?? '')
+    if (stripped == null) continue
+    if (best == null || stripped.length < best.length) best = stripped
+  }
+  if (best != null) return best
+
+  // Last resort: path under a session sandbox but no matching root in `roots`
+  // (e.g. meta still on a skill dir). Show path inside that sandbox only.
+  const sandboxMatch = normalized.match(/\/session-sandboxes\/[^/]+\//i)
+  if (sandboxMatch && sandboxMatch.index != null) {
+    return normalized.slice(sandboxMatch.index + sandboxMatch[0].length)
+  }
+
+  return workspaceRelativeDisplayPath(path)
 }
 
 /** Extract the primary path shown beside a file-family tool call. */

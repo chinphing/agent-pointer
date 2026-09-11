@@ -4,6 +4,11 @@ import path from 'node:path'
 
 const host = process.env.TAURI_DEV_HOST
 
+/** Same-origin `/api` → pointer-server (web:dev with empty VITE_WEB_API_BASE). */
+const webApiProxyTarget =
+  process.env.VITE_DEV_API_PROXY ||
+  (process.env.VITE_WEB_API_BASE === '' ? 'http://127.0.0.1:8787' : undefined)
+
 export default defineConfig({
   plugins: [vue()],
   resolve: {
@@ -54,6 +59,19 @@ export default defineConfig({
       ? { protocol: 'ws', host, port: 1421 }
       : undefined,
     watch: { ignored: ['**/src-tauri/**', '**/target/**'] },
+    // Opt-in only: empty VITE_WEB_API_BASE (same-origin cookies) or VITE_DEV_API_PROXY.
+    // Do not enable during tauri:dev — desktop uses IPC; a leftover browser tab
+    // hitting /api would otherwise spam ECONNREFUSED when pointer-server is down.
+    ...(webApiProxyTarget
+      ? {
+          proxy: {
+            '/api': {
+              target: webApiProxyTarget,
+              changeOrigin: true
+            }
+          }
+        }
+      : {}),
     /** Pre-transform entry + shell so first browser request returns faster in dev. */
     warmup: {
       clientFiles: [

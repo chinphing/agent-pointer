@@ -7,9 +7,10 @@ export interface CodeToken {
 
 const KEYWORDS = new Set([
   'async', 'await', 'break', 'case', 'class', 'const', 'continue', 'def', 'else', 'enum',
-  'export', 'false', 'fn', 'for', 'from', 'function', 'if', 'impl', 'import', 'in', 'interface',
-  'let', 'match', 'mod', 'new', 'null', 'pub', 'return', 'self', 'static', 'struct', 'super',
-  'switch', 'this', 'throw', 'true', 'try', 'type', 'undefined', 'use', 'var', 'while', 'yield'
+  'export', 'false', 'False', 'fn', 'for', 'from', 'function', 'if', 'impl', 'import', 'in',
+  'interface', 'let', 'match', 'mod', 'new', 'None', 'null', 'pub', 'return', 'self', 'static',
+  'struct', 'super', 'switch', 'this', 'throw', 'true', 'True', 'try', 'type', 'undefined',
+  'use', 'var', 'while', 'yield'
 ])
 
 const TOKEN_PATTERN = /(\/\/.*$|#.*$|<!--.*?-->|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*\b)/g
@@ -32,6 +33,38 @@ export function tokenizeCodeLine(line: string): CodeToken[] {
   }
   if (cursor < line.length) tokens.push({ text: line.slice(cursor), kind: 'plain' })
   return tokens.length ? tokens : [{ text: line || '\u00A0', kind: 'plain' }]
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * Highlight a fenced code body for Markdown `v-html` (chat + .md preview).
+ * Same token kinds / colors as workspace source preview — not a full grammar.
+ */
+export function highlightCodeFenceHtml(code: string): string {
+  const endsWithNl = code.endsWith('\n')
+  const body = endsWithNl ? code.slice(0, -1) : code
+  const html = body
+    .split('\n')
+    .map(line => {
+      return tokenizeCodeLine(line)
+        .map(token => {
+          const raw = token.text === '\u00A0' && line === '' ? '' : token.text
+          const escaped = escapeHtml(raw)
+          if (!escaped || token.kind === 'plain') return escaped
+          return `<span class="token-${token.kind}">${escaped}</span>`
+        })
+        .join('')
+    })
+    .join('\n')
+  return endsWithNl ? `${html}\n` : html
 }
 
 export type FilePreviewSearchMatch = {

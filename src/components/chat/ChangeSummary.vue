@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { ChevronDown, FileText } from 'lucide-vue-next'
 import type { FileChangeSummary } from '../../lib/toolCallDisplay'
-import { workspaceRelativeDisplayPath } from '../../lib/toolCallDisplay'
+import { workspaceRelativeDisplayPathWithFallbacks } from '../../lib/toolCallDisplay'
 import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
 
@@ -18,6 +18,12 @@ const emit = defineEmits<{
 
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
+
+const displayRoots = computed(() => {
+  const conv = chat.current
+  const project = chat.projectById(conv?.projectId ?? conv?.pendingProjectId)
+  return [conv?.workspaceRoot, project?.workspaceRoot]
+})
 
 const singleFile = computed(() => (props.files.length === 1 ? props.files[0] : null))
 
@@ -39,7 +45,7 @@ const totals = computed(() => {
 })
 
 function displayPath(path: string): string {
-  return workspaceRelativeDisplayPath(path, chat.current?.workspaceRoot)
+  return workspaceRelativeDisplayPathWithFallbacks(path, displayRoots.value)
 }
 
 function openFile(path: string): void {
@@ -91,7 +97,9 @@ function onHeaderClick(): void {
       @click="onHeaderClick"
     >
       <FileText class="h-3.5 w-3.5 shrink-0 text-muted" />
-      <span class="ellipsis-start min-w-0 text-[13px] text-muted">{{ headerLabel }}&lrm;</span>
+      <span class="ellipsis-start min-w-0 text-[13px] text-muted">
+        <span class="ellipsis-start-content">{{ headerLabel }}</span>
+      </span>
       <span
         v-if="totals.adds > 0"
         class="shrink-0 text-[11px] tabular-nums text-green-500"
@@ -122,7 +130,9 @@ function onHeaderClick(): void {
         :title="displayPath(change.path)"
         @click="openFile(change.path)"
       >
-        <span class="ellipsis-start min-w-0 flex-1 font-mono">{{ displayPath(change.path) }}&lrm;</span>
+        <span class="ellipsis-start min-w-0 flex-1 font-mono">
+          <span class="ellipsis-start-content">{{ displayPath(change.path) }}</span>
+        </span>
         <span
           v-if="change.adds > 0"
           class="shrink-0 text-green-500 tabular-nums"

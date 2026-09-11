@@ -558,13 +558,20 @@
       animation: none;
     }
   }
-  /* Prefer the tail (filename) when a path is wider than the row. */
+  /* Prefer the tail (filename) when a path is wider than the row.
+   * Outer `direction: rtl` puts the ellipsis on the left. Wrap the string in
+   * `.ellipsis-start-content` (LTR isolate) so a leading `/` is not painted as a
+   * trailing slash — bare `&lrm;` after the text is not enough for absolute paths. */
   .ellipsis-start {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     direction: rtl;
     text-align: left;
+  }
+  .ellipsis-start-content {
+    direction: ltr;
+    unicode-bidi: isolate;
   }
   .tool-block-shell {
     @apply pt-1 mt-2 mb-0 pb-0;
@@ -752,6 +759,29 @@
   @apply font-mono text-[13px] leading-6;
   background: transparent;
   color: inherit;
+}
+/* Lightweight syntax tokens — chat fences + workspace source preview share these. */
+.token-comment {
+  @apply text-neutral-500 italic;
+}
+.token-string {
+  color: #ce9178;
+}
+.token-number {
+  color: #b5cea8;
+}
+.token-keyword {
+  color: #569cd6;
+  font-weight: 500;
+}
+html.light .token-string {
+  color: #a31515;
+}
+html.light .token-number {
+  color: #098658;
+}
+html.light .token-keyword {
+  color: #0000ff;
 }
 .md-body .code-block .code-copy-btn,
 .md-body pre:not(.code-block pre) .code-copy-btn {

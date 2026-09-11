@@ -32,6 +32,8 @@
 - 围栏代码 / 表 / Chart / Mermaid / SVG 卡片 chrome
 - 对话列 `max-w` 与 gutter
 
+普通 ` ```lang ` 代码围栏与工作区源码预览共用轻量分词着色（关键字 / 字符串 / 数字 / 注释），不是完整语法高亮。`chartjs` / `mermaid` / `svg` / `html` 仍走各自宿主，不着色成代码卡。
+
 ## 平台
 
 同一套 CSS：桌面（WKWebView / WebView2 / WebKitGTK）与 `web:dev`。`:has()`、`text-wrap: balance` 在当前壳里可用；不要为旧内核再写一套。

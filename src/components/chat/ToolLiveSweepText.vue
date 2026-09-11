@@ -31,7 +31,7 @@ const sweepStyle = computed(() => {
     :style="sweepStyle"
     :title="title"
   >
-    {{ text }}
+    <span class="ellipsis-start-content">{{ text }}</span>
     <span
       v-if="active"
       class="tool-live-pulse-clip"

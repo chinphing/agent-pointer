@@ -19,6 +19,7 @@ import {
   isSvgFenceLang,
   tryParseSvgFence,
 } from './markdownSvg'
+import { highlightCodeFenceHtml } from './workspaceFilePreview'
 
 // Configure marked once at module load — all importers share this instance.
 marked.setOptions({ breaks: true, gfm: true })
@@ -491,7 +492,16 @@ marked.use({
         if (!fragment) return ''
         return `${wrapBareHtmlTables(fragment)}\n`
       }
-      const body = escaped ? code : escapeHtml(code)
+      // When marked already escaped, restore plain text before tokenizing.
+      const rawForHighlight = escaped
+        ? code
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&amp;/g, '&')
+        : code
+      const body = highlightCodeFenceHtml(rawForHighlight)
       const langClass = langString ? ` class="language-${escapeHtml(langString)}"` : ''
       const langLabel = langString
         ? `<div class="fence-block-lang">${escapeHtml(langString)}</div>`

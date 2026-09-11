@@ -86,6 +86,8 @@ describe('parseMarkdown mermaid fences', () => {
     expect(html).toContain('code-block')
     expect(html).toContain('fence-block-lang')
     expect(html).toContain('>js</div>')
+    expect(html).toContain('<span class="token-keyword">const</span>')
+    expect(html).toContain('<span class="token-number">1</span>')
   })
 
   it('stubs only incomplete fences while streaming', () => {

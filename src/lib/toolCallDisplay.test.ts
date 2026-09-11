@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, backgroundJobIdFromToolCall, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundSubagentCall, isJobAwaitCall, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveBackgroundHostDisplayStatus, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath } from './toolCallDisplay'
+import { buildFileChangeSummaries, backgroundJobIdFromToolCall, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundSubagentCall, isJobAwaitCall, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveBackgroundHostDisplayStatus, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath, workspaceRelativeDisplayPathWithFallbacks } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -385,6 +385,20 @@ describe('workspace-relative file tool paths', () => {
     expect(
       workspaceRelativeDisplayPath('/tmp/project/.pointer/skills/local/SKILL.md')
     ).toBe('/tmp/project/.pointer/skills/local/SKILL.md')
+  })
+
+  it('falls back to project / sandbox roots when the lead workspace is a skill dir', () => {
+    const sandbox =
+      '/Users/starliu/Library/Application Support/PointerApp/session-sandboxes/1530c681-176d-40ca-84b4-a90a34312628'
+    const skill = '/Users/starliu/.pointer/skills/cwpt-reimburse-submit'
+    const file = `${sandbox}/_year_repro/repro.py`
+    expect(workspaceRelativeDisplayPath(file, skill)).toBe(file.replace(/\\/g, '/'))
+    expect(
+      workspaceRelativeDisplayPathWithFallbacks(file, [skill, sandbox])
+    ).toBe('_year_repro/repro.py')
+    expect(
+      workspaceRelativeDisplayPathWithFallbacks(file, [skill])
+    ).toBe('_year_repro/repro.py')
   })
 
   it('extracts the path from file tool arguments only', () => {

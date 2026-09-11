@@ -107,7 +107,7 @@
 ## 工具行路径
 
 文件类工具（读/写/编辑等）摘要用工作区相对路径，**不要**从左侧截成「目录…」。
-行宽不够时与轮次修改摘要相同：`.ellipsis-start`（`direction: rtl` + `&lrm;`），省略号在左，文件名在右；`title` 仍是完整相对路径。
+行宽不够时与轮次修改摘要相同：`.ellipsis-start`（外层 `direction: rtl` 省略号在左）+ 内层 `.ellipsis-start-content`（`direction: ltr; unicode-bidi: isolate`）保持路径字形顺序，避免绝对路径开头的 `/` 被画到末尾成「`.py/`」；`title` 仍是完整相对路径。不要只靠文末 `&lrm;`。
 无 CSS 宽度的一行状态（紧凑坞、子任务收缩摘要）用 `truncatePathKeepEnd`，同样保尾。
 
 ## `ask_user` 工具行

@@ -838,13 +838,6 @@ onBeforeUnmount(() => {
   background: hsl(var(--search-mark) / 0.72);
   box-shadow: 0 0 0 1px hsl(var(--warning) / 0.55);
 }
-.token-comment { @apply text-neutral-500 italic; }
-.token-string { color: #ce9178; }
-.token-number { color: #b5cea8; }
-.token-keyword { color: #569cd6; font-weight: 500; }
-html.light .token-string { color: #a31515; }
-html.light .token-number { color: #098658; }
-html.light .token-keyword { color: #0000ff; }
 .frontmatter-card {
   @apply mx-3 mt-3 mb-1 rounded-lg border border-border bg-hover/40 text-xs;
 }

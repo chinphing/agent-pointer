@@ -93,6 +93,10 @@ impl IdleJobPush {
             log::info!(
                 "idle_job_push: defer; lead busy conversation_id={conversation_id}"
             );
+            // Job finish may race lead teardown. Reschedule so a deferred claim
+            // still flushes once the lead is idle (do not rely only on the next
+            // job finish or on_run_finished).
+            self.schedule(conversation_id.to_string());
             return;
         }
         let state = self.dispatcher.app_state();
@@ -176,7 +180,9 @@ pub(crate) fn build_idle_push_user_text(items: &[IdlePushItem]) -> String {
     let mut out = String::from("后台任务已完成。\n\n");
     out.push_str("These finished background results are in this turn.\n");
     out.push_str("They are already claimed — do not job.await these ids again.\n");
-    out.push_str("Do not tell the user work is still running.\n");
+    out.push_str("Other background jobs in this conversation may still be running.\n");
+    out.push_str("Only summarize these finished jobs; do not claim all work is done\n");
+    out.push_str("unless nothing else is still running.\n");
     out.push_str("Summarize for the user. Do not paste worker thoughts.\n");
     if n > 1 {
         out.push_str(&format!("\n{n} jobs:\n"));
@@ -280,6 +286,7 @@ mod tests {
         assert!(text.contains("搜索登录"));
         assert!(text.contains("found login.rs"));
         assert!(text.contains("already claimed"));
+        assert!(text.contains("may still be running"));
         assert!(!text.to_lowercase().contains("thoughts:"));
     }
 

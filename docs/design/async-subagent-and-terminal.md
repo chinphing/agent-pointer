@@ -268,6 +268,8 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话全部未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` =「后台任务已完成。」（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
 
+**并发后台时的部分完成**：不必等全部 job 结束才 push。lead 发出 `Done` 后，`run_runner` 须立刻 `finalize_terminal`（释放 `runs`/`cancels`/session lane），**不要**先 `await` 仍被后台 `StreamTx` clone 占用的 forwarder——否则 `lead_busy` 会一直 defer，直到最后一个 job 结束才合并 flush。若 flush 时 lead 仍 busy，会再 debounce 重试。
+
 取消、停会话（job → Cancelled）、进程退出：**不** push。终端默认仍是前台；只有显式 `blockUntilMs` 的终端 job 才会进这张表。
 
 ## 分期

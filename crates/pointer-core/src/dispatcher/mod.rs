@@ -541,11 +541,13 @@ impl RunDispatcher {
             }
         };
 
-        // Tear down: remove legacy cancel registration, drop permit, await
-        // forwarder. Task map entry is removed by `TaskMapCleanup`.
+        // Tear down: drop cancel + permit, then mark the lead terminal **before**
+        // awaiting the stream forwarder. Background jobs keep `StreamTx` clones and
+        // would otherwise hold `fwd_handle` open until the last job ends — that left
+        // `runs` as `running`, so idle_job_push treated the lead as busy and deferred
+        // every partial completion. Task map entry is removed by `TaskMapCleanup`.
         self.inner.state.cancels.lock().remove(&conversation_id);
         drop(permit);
-        let _ = fwd_handle.await;
 
         match result {
             Ok(()) => {
@@ -581,6 +583,9 @@ impl RunDispatcher {
                 .await;
             }
         }
+
+        // Background may still emit on cloned tx; drain until all clones drop.
+        let _ = fwd_handle.await;
     }
 
     /// Persist terminal status, emit the terminal event, fire the matching

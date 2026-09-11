@@ -37,7 +37,7 @@
 5. `pre_dispatch` 钩子（可 reject）
 6. `runs` 表插入 `queued`，emit `AgentEvent::RunQueued`
 7. 注册 `CancellationToken`，spawn `run_runner`
-8. `run_runner`：acquire `session:*` + `global:main`/`global:cron` 许可 → `running` + emit `RunStarted` + `on_run_started` 钩子 → 桥接 `StreamEvent`→`AgentEvent` → 调 `run_chat` → 终态 `finalize_terminal`（`on_run_finished` / `on_run_failed` / `on_run_cancelled`）
+8. `run_runner`：acquire `session:*` + `global:main`/`global:cron` 许可 → `running` + emit `RunStarted` + `on_run_started` 钩子 → 桥接 `StreamEvent`→`AgentEvent` → 调 `run_chat` → **先** `finalize_terminal`（`on_run_finished` / `on_run_failed` / `on_run_cancelled`）→ **再** await stream forwarder（后台 job 可能仍握着 `StreamTx` clone；终态不得被其拖住，否则 idle job push 会误判 lead busy）
 
 ## Lane 队列（对齐 openclaw）
 

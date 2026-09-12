@@ -1304,9 +1304,9 @@ const leadTurnStarts = computed(() => {
 })
 
 // Must be initialized before `frozenTurnFileChanges`: that computed (and its
- // persist watch) reads this cache on first evaluation. Declaring it later
- // throws TDZ on MessageList mount/remount and leaves an empty comment vnode
- // (blank main pane while store messages are fine).
+// persist watch) reads this cache on first evaluation. Declaring it later
+// throws TDZ on MessageList mount/remount and leaves an empty comment vnode
+// (blank main pane while store messages are fine).
 let activeFileChangesCache: {
   turnId: string
   settleKey: string

@@ -2,6 +2,8 @@
 
 Standalone server 可覆盖空会话欢迎提示与「工作」耗时前缀，路径与 `page_title` / `composer_placeholder` 相同：`[server]` → env → `index.html` meta → 前端 `webBranding.ts`。
 
+独立部署配置总表与 TOML 示例见 [`../developer/standalone-deployment.md`](../developer/standalone-deployment.md)、[`../user/standalone-server.md`](../user/standalone-server.md)、[`../../server/pointer-server.toml.example`](../../server/pointer-server.toml.example)。
+
 **产品默认文案不变**：未配置时仍是 slogan 欢迎页与 `工作 N m SS s` / `工作耗时未知`。
 
 ## 配置

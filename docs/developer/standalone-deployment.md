@@ -317,21 +317,42 @@ report_enabled = false                 # standalone 默认不上报用量
 [server]
 addr = "0.0.0.0:8787"
 public_url = "https://pointer.example.com"
-# page_title = "Acme · AI 助手"   # browser tab; env POINTER_SERVER_PAGE_TITLE
-# composer_placeholder = "有什么可以帮你？"  # composer hint; env POINTER_SERVER_COMPOSER_PLACEHOLDER
-# welcome_tip_title / welcome_tip_body  # brand-new empty chat tip; env POINTER_SERVER_WELCOME_TIP_*
-# turn_elapsed_active / turn_elapsed_done  # elapsed chip prefixes; env POINTER_SERVER_TURN_ELAPSED_*
-# （进行中收起条需在助手设置打开「默认收缩执行过程」，server 不强制）
-# SSE 首帧 padding 注释帧（穿透缓冲型防火墙；默认关闭，需要时显式开启 sse_padding_enabled = true）
-# sse_padding_enabled = false   # env POINTER_SERVER_SSE_PADDING_ENABLED
-# sse_padding_bytes = 10240    # env POINTER_SERVER_SSE_PADDING_BYTES
 app_data_dir = "/var/lib/pointer"
 # zip: skills beside binary; deb:
 # static_dir = "/usr/share/pointer-server/dist"
 # skills_dir = "/usr/share/pointer-server/skills"
 static_dir = "dist"
 skills_dir = "skills"
+
+# --- Web 品牌文案（可选；详见 docs/ui/web-branding-welcome-elapsed.md）---
+# page_title = "Acme · AI 助手"                 # env POINTER_SERVER_PAGE_TITLE
+# composer_placeholder = "有什么可以帮你？"      # env POINTER_SERVER_COMPOSER_PLACEHOLDER
+# welcome_tip_title = "我是财务报销助手"         # env POINTER_SERVER_WELCOME_TIP_TITLE
+# welcome_tip_body = "您提交附件后我会自动帮你填报销单…"  # env POINTER_SERVER_WELCOME_TIP_BODY
+# turn_elapsed_active = "报销单填写中"           # env POINTER_SERVER_TURN_ELAPSED_ACTIVE
+# turn_elapsed_done = "报销单已填写"             # env POINTER_SERVER_TURN_ELAPSED_DONE
+# （进行中收起条需在助手设置打开「默认收缩执行过程」，server 不强制）
+
+# SSE 首帧 padding 注释帧（穿透缓冲型防火墙；默认关闭）
+# sse_padding_enabled = false   # env POINTER_SERVER_SSE_PADDING_ENABLED
+# sse_padding_bytes = 10240    # env POINTER_SERVER_SSE_PADDING_BYTES
 ```
+
+### `[server]` Web 品牌 / 文案参数
+
+| TOML | 环境变量 | 作用 | 未配置时 |
+|------|----------|------|----------|
+| `page_title` | `POINTER_SERVER_PAGE_TITLE` | 浏览器标签页 `<title>` | `Pointer · AI 工作台` |
+| `composer_placeholder` | `POINTER_SERVER_COMPOSER_PLACEHOLDER` | 登录且可用后的输入框占位 | `告诉我你想做什么` |
+| `welcome_tip_title` | `POINTER_SERVER_WELCOME_TIP_TITLE` | 全新空会话欢迎 tip 标题 | 不展示 tip |
+| `welcome_tip_body` | `POINTER_SERVER_WELCOME_TIP_BODY` | 全新空会话欢迎 tip 正文 | 不展示 tip |
+| `turn_elapsed_active` | `POINTER_SERVER_TURN_ELAPSED_ACTIVE` | 进行中回合耗时前缀 | `工作` |
+| `turn_elapsed_done` | `POINTER_SERVER_TURN_ELAPSED_DONE` | 已结束回合耗时前缀 | `工作` |
+| `app_data_dir` | `POINTER_APP_DATA_DIR` | 运行时数据根目录 | OS 默认（与桌面 `PointerApp` 同源规则） |
+| `sse_padding_enabled` | `POINTER_SERVER_SSE_PADDING_ENABLED` | SSE 首帧 padding | `false` |
+| `sse_padding_bytes` | `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |
+
+行为与前端约定见 [`../ui/web-branding-welcome-elapsed.md`](../ui/web-branding-welcome-elapsed.md)。本地 Vite 联调可用同名 `VITE_*` 覆盖 meta（空 `VITE_WEB_API_BASE` 走 `/api` 同源代理，避免跨站丢 cookie）。
 
 ---
 

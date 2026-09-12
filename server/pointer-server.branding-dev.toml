@@ -1,22 +1,27 @@
 # Local branding smoke-test for pointer-server.
 # Standalone + local password so you are not forced through cloud OAuth.
 #
-# Start:
+# Prefer an isolated app_data_dir (copy of PointerApp user_settings / API keys)
+# so desktop PointerApp does not lock conversations.db. Example macOS:
+#   app_data_dir = "/Users/YOU/Library/Application Support/PointerAppBrandingDev"
+# Docs: docs/developer/standalone-deployment.md · docs/ui/web-branding-welcome-elapsed.md
+#
+# Start server:
 #   POINTER_SERVER_CONFIG="$(pwd)/server/pointer-server.branding-dev.toml" \
 #   POINTER_LICENSE_KEY="$(cat /tmp/pointer-branding-dev/license.txt)" \
 #   POINTER_LICENSE_PUBLIC_KEY="$(cat /tmp/pointer-branding-dev/pub.txt)" \
 #   npm run server:dev
 #
 # Login (Web): admin / admin123 + captcha
-# Tip UI (current Vue code):
+#
+# Tip UI — empty VITE_WEB_API_BASE uses Vite /api proxy (same-origin cookies):
 #   VITE_WEB_API_BASE= \
 #   VITE_WELCOME_TIP_TITLE="我是财务报销助手" \
-#   VITE_WELCOME_TIP_BODY="…" \
+#   VITE_WELCOME_TIP_BODY="您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。" \
 #   VITE_TURN_ELAPSED_ACTIVE="报销单填写中" \
 #   VITE_TURN_ELAPSED_DONE="报销单已填写" \
 #   npm run web:dev
-# Open http://localhost:1420 — empty VITE_WEB_API_BASE uses Vite `/api` proxy
-# (see vite.config.ts) so login cookies stick. Do not mix localhost page with
+# Open http://localhost:1420 — do not mix localhost page with
 # VITE_WEB_API_BASE=http://127.0.0.1:8787 (cross-site; session cookie dropped).
 
 [deployment]
@@ -32,6 +37,8 @@ report_enabled = false
 
 [server]
 addr = "127.0.0.1:8787"
+# Uncomment and point at an isolated data dir when desktop PointerApp is also open:
+# app_data_dir = "/Users/YOU/Library/Application Support/PointerAppBrandingDev"
 page_title = "财务报销助手"
 composer_placeholder = "上传发票或说明…"
 welcome_tip_title = "我是财务报销助手"

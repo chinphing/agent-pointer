@@ -98,6 +98,10 @@ sudo systemctl status pointer-server
 
 设置里的模型服务与桌面客户端的自定义服务相同：可改地址、模型名单、密钥、上下文、最大输出、思考强度和视觉等能力。
 
+### Web 品牌文案（可选）
+
+在 `[server]` 中可覆盖标签页标题、输入框占位、全新空会话欢迎 tip、回合耗时前缀（`page_title` / `composer_placeholder` / `welcome_tip_*` / `turn_elapsed_*`）。对应环境变量见下方「环境变量」表。行为说明见开发者文档旁的 [`../ui/web-branding-welcome-elapsed.md`](../ui/web-branding-welcome-elapsed.md)。
+
 ---
 
 ## License 机制
@@ -253,6 +257,8 @@ curl -X POST http://localhost:8787/api/auth/local/login \
 | `POINTER_SERVER_WELCOME_TIP_BODY` | 全新空会话欢迎 tip 正文（可选） | （不展示 tip） |
 | `POINTER_SERVER_TURN_ELAPSED_ACTIVE` | 进行中回合耗时前缀（可选） | `工作` |
 | `POINTER_SERVER_TURN_ELAPSED_DONE` | 已结束回合耗时前缀（可选） | `工作` |
+| `POINTER_SERVER_SSE_PADDING_ENABLED` | SSE 首帧 padding（穿透缓冲型反代） | `false` |
+| `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |
 | `POINTER_APP_DATA_DIR` | 数据目录 | OS 默认 |
 | `POINTER_SERVER_STATIC_DIR` | Web UI `dist/` 目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/dist`） |
 | `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/skills`） |

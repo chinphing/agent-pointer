@@ -63,6 +63,17 @@ skills_dir = "skills"
 # composer_placeholder = "有什么可以帮你？"
 # Env override: POINTER_SERVER_COMPOSER_PLACEHOLDER
 #
+# Brand-new empty chat tip (optional). Both title and body should be set to show
+# the tip; see docs/ui/web-branding-welcome-elapsed.md
+# welcome_tip_title = "我是财务报销助手"
+# welcome_tip_body = "您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。"
+# Env: POINTER_SERVER_WELCOME_TIP_TITLE / POINTER_SERVER_WELCOME_TIP_BODY
+#
+# Turn elapsed chip prefixes (optional). Default both: 工作 →「工作 N m SS s」
+# turn_elapsed_active = "报销单填写中"
+# turn_elapsed_done = "报销单已填写"
+# Env: POINTER_SERVER_TURN_ELAPSED_ACTIVE / POINTER_SERVER_TURN_ELAPSED_DONE
+#
 # Restrict platform OAuth to specific user ids (platform account id).
 # Leave empty to allow any platform user (development / trusted intranet only).
 # allowed_user_ids = ["your-platform-user-id"]

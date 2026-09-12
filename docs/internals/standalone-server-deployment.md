@@ -279,6 +279,16 @@ skills_dir = "/usr/share/pointer-server/skills"
 public_url = "https://pointer.acme-corp.com"
 # 数据持久化根目录（deb 默认 /var/lib/pointer-server）
 app_data_dir = "/var/lib/pointer-server"
+# Web 品牌文案（可选；详见 docs/ui/web-branding-welcome-elapsed.md）
+# page_title = "Acme · AI 助手"
+# composer_placeholder = "有什么可以帮你？"
+# welcome_tip_title = "我是财务报销助手"
+# welcome_tip_body = "您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。"
+# turn_elapsed_active = "报销单填写中"
+# turn_elapsed_done = "报销单已填写"
+# SSE 首帧 padding（穿透缓冲型反代时按需开启）
+# sse_padding_enabled = false
+# sse_padding_bytes = 10240
 
 # standalone 模式下 [pointer] 段不参与 OAuth，可省略。
 # 若保留，不影响 standalone 主流程：
@@ -381,6 +391,14 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | `skills` 或 `/usr/share/pointer-server/skills`（TOML `[server].skills_dir`） |
 | `POINTER_SERVER_PUBLIC_URL` | 浏览器访问根 URL | `https://pointer.acme-corp.com` |
 | `POINTER_APP_DATA_DIR` | 数据目录 | `/var/lib/pointer-server` |
+| `POINTER_SERVER_PAGE_TITLE` | 浏览器标签页标题 | `Pointer · AI 工作台` |
+| `POINTER_SERVER_COMPOSER_PLACEHOLDER` | 输入框占位文案 | `告诉我你想做什么` |
+| `POINTER_SERVER_WELCOME_TIP_TITLE` | 全新空会话欢迎 tip 标题（可选） | （不展示 tip） |
+| `POINTER_SERVER_WELCOME_TIP_BODY` | 全新空会话欢迎 tip 正文（可选） | （不展示 tip） |
+| `POINTER_SERVER_TURN_ELAPSED_ACTIVE` | 进行中回合耗时前缀（可选） | `工作` |
+| `POINTER_SERVER_TURN_ELAPSED_DONE` | 已结束回合耗时前缀（可选） | `工作` |
+| `POINTER_SERVER_SSE_PADDING_ENABLED` | SSE 首帧 padding | `false` |
+| `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |
 | `POINTER_USAGE_REPORT_ENABLED` | 用量上报 | `false` |
 | `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | Agent `terminal` 禁止 command/stdin 含 `SESSION_USER_ID`（TOML `[server].forbid_session_user_id_in_terminal`） | 默认关闭；需要时 `true` |
 

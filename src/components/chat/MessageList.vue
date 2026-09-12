@@ -1303,6 +1303,17 @@ const leadTurnStarts = computed(() => {
   return collectLeadTurnStarts(list)
 })
 
+// Must be initialized before `frozenTurnFileChanges`: that computed (and its
+ // persist watch) reads this cache on first evaluation. Declaring it later
+ // throws TDZ on MessageList mount/remount and leaves an empty comment vnode
+ // (blank main pane while store messages are fine).
+let activeFileChangesCache: {
+  turnId: string
+  settleKey: string
+  files: FileChangeSummary[]
+  mergedToolIds: Set<string>
+} = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
+
 let frozenFileChangesCache: FrozenFileChangesCache | null = null
 
 const extraScopedForWindow = computed(() => {
@@ -1458,13 +1469,6 @@ watch(
     }
   }
 )
-
-let activeFileChangesCache: {
-  turnId: string
-  settleKey: string
-  files: FileChangeSummary[]
-  mergedToolIds: Set<string>
-} = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
 
 /** Latest turn: add a file as soon as its edit/write succeeds. */
 const activeTurnFileChanges = computed(() => {
@@ -2073,12 +2077,12 @@ function entrySpacing(
           </div>
         </template>
         <div
-          v-if="turnFileChanges.get(row.turn.id)?.length"
+          v-if="turnFileChanges?.get(row.turn.id)?.length"
           class="mt-1.5 min-w-0 max-w-full px-3"
         >
           <ChangeSummary
             :turn-id="row.turn.id"
-            :files="turnFileChanges.get(row.turn.id) ?? []"
+            :files="turnFileChanges?.get(row.turn.id) ?? []"
             :expanded="changeSummaryExpanded(row.turn.id)"
             @toggle="toggleChangeSummary(row.turn.id)"
           />

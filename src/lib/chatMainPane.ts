@@ -7,6 +7,9 @@ export function shouldShowMessageListPlaceholder(
   // Force tail reload sets the hydrating flag while messages are already in
   // memory. Unmounting MessageList then remounts it, and onMounted jump-to-latest
   // fires the same messages?limitTurns=8 request in a loop.
+  // Conversation switches remount via `:key="currentId"` instead — do not use
+  // this gate to keep a shared scroller across sessions (inherited scrollTop
+  // blanks the virtualizer).
   if (loadedMessageCount > 0) return false
   // Before chat.init() selects the first persisted conversation, rendering the
   // welcome screen causes a visible refresh flash. Keep the loading surface up.

@@ -9,9 +9,16 @@
 2. **界面加载异步**：hydrate / 草稿 / 任务板放到 `queueMicrotask` /
    `requestAnimationFrame`，不堵高亮。
 3. **主区让一帧**：`ChatView` 在 `currentId` 变化后先骨架一帧再挂 `MessageList`，
-   避免同帧布局挡住侧栏绘制。
+   避免同帧布局挡住侧栏绘制。内存里**已有**可画行时不卸列表（防 force 尾部
+   remount 死循环，见 [message-turn-pagination.md](message-turn-pagination.md)），
+   但 `MessageList` 必须带 **`:key="currentId"`** 在切换会话时重挂，清掉上一会话
+   的 `scrollTop` / 虚拟窗口；否则高概率出现「接口有消息、中间全白」。
+   `MessageList` 内 `activeFileChangesCache` 须声明在 `frozenTurnFileChanges` 及其
+   persist `watch` **之前**——否则首次求值踩 TDZ，渲染抛错，异步组件只剩空注释节点（同样表现为全白）。
 4. **hydrate 与 focus**：未 hydrate 且 `messageCount > 0` 时
    `isCurrentConversationHydrating` 为 true，pending focus 仍会等加载完成。
+   `messageCount > 0` 且内存 `messages` 为空（含误标 hydrated）同样视为需水合，
+   显示骨架并重拉，不要挂空 `MessageList`。
 5. **切回进行中会话**：hydrate 先 reconcile 恢复 `generating`，再 normalize
    interrupted；合并 DB 页时保留 in-flight 工具行。否则首屏会误显示「工作」耗时、
    缺少当前工具行（见 [turn-elapsed.md](turn-elapsed.md)）。

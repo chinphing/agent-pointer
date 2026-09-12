@@ -411,6 +411,7 @@ const toastClass = computed(() => {
         <MessageListSkeleton v-if="showMessageListPlaceholder" />
         <MessageList
           v-else
+          :key="chat.currentId ?? 'none'"
           :search-match-ids="pageSearchMatchMessageIds"
           :search-match-tool-call-ids="pageSearchMatchToolCallIds"
           :active-search-message-id="activePageSearchMessageId"

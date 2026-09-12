@@ -115,6 +115,17 @@ describe('conversationNeedsHydration', () => {
       })
     ).toBe(false)
   })
+
+  it('reloads when meta says rows exist but the in-memory list is empty', () => {
+    expect(
+      conversationNeedsHydration({
+        messageCount: 6,
+        messagesLength: 0,
+        hydrated: true,
+        loading: false
+      })
+    ).toBe(true)
+  })
 })
 
 describe('rawContent wire stripping', () => {

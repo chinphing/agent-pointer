@@ -19,6 +19,9 @@ export interface MessagesForChatDispatchOptions {
 /** Whether sending must wait for the canonical persisted transcript. */
 export function conversationNeedsHydration(state: ConversationHydrationState): boolean {
   if (state.loading) return true
+  // Evicted / failed hydrate can leave hydrated=true with an empty list while
+  // meta still says there are rows — treat as not ready (skeleton + reload).
+  if (state.messageCount > 0 && state.messagesLength === 0) return true
   if (state.messageCount > 0 && !state.hydrated) return true
   return !state.hydrated && state.messagesLength === 0
 }
